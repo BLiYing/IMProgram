@@ -1,0 +1,32 @@
+//  IMProtocol.h
+//  客户端与服务端共用契约的常量与工具，对齐 IMServer/docs/PROTOCOL.md。
+
+#import <Foundation/Foundation.h>
+
+NS_ASSUME_NONNULL_BEGIN
+
+#pragma mark - 信封类型常量
+
+extern NSString * const kIMTypePing;
+extern NSString * const kIMTypePong;
+extern NSString * const kIMTypeAuth;
+extern NSString * const kIMTypeSendMsg;
+extern NSString * const kIMTypeAck;
+extern NSString * const kIMTypeNewMsg;
+extern NSString * const kIMTypeReceipt;
+extern NSString * const kIMTypeSyncReq;
+extern NSString * const kIMTypeSyncResp;
+extern NSString * const kIMTypeError;
+
+#pragma mark - 信封字段 Key
+
+extern NSString * const kIMKeyType;
+extern NSString * const kIMKeySeq;
+extern NSString * const kIMKeyData;
+
+#pragma mark - 工具
+
+/// 计算会话 id：两个 uid 规范排序，保证收发双方一致（对齐协议示例 u_{a}_u_{b}）。
+FOUNDATION_EXPORT NSString *IMConversationID(NSString *uidA, NSString *uidB);
+
+NS_ASSUME_NONNULL_END

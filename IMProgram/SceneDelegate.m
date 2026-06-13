@@ -6,6 +6,7 @@
 //
 
 #import "SceneDelegate.h"
+#import "IMLoginViewController.h"
 
 @interface SceneDelegate ()
 
@@ -15,9 +16,14 @@
 
 
 - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)connectionOptions {
-    // Use this method to optionally configure and attach the UIWindow `window` to the provided UIWindowScene `scene`.
-    // If using a storyboard, the `window` property will automatically be initialized and attached to the scene.
-    // This delegate does not imply the connecting scene or session are new (see `application:configurationForConnectingSceneSession` instead).
+    // 以纯代码设置根控制器（覆盖 Storyboard 默认页），入口为登录页。
+    UIWindowScene *windowScene = (UIWindowScene *)scene;
+    if (![windowScene isKindOfClass:UIWindowScene.class]) { return; }
+
+    self.window = [[UIWindow alloc] initWithWindowScene:windowScene];
+    IMLoginViewController *login = [IMLoginViewController new];
+    self.window.rootViewController = [[UINavigationController alloc] initWithRootViewController:login];
+    [self.window makeKeyAndVisible];
 }
 
 

@@ -1,0 +1,31 @@
+# macOS
+.DS_Store
+
+# Xcode user-specific
+xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+
+# Xcode build
+build/
+DerivedData/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# CocoaPods（如使用）
+Pods/
+# Podfile.lock 是否提交看团队约定，单人开发可忽略
+# Podfile.lock
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Carthage（如使用）
+Carthage/Build/
+
+# 临时验证脚本
+temp_verify.*
