@@ -412,8 +412,13 @@ static NSString * const kIMErrorDomain = @"IMSocketManagerErrorDomain";
 #pragma mark - 增量同步（重连补偿拉取）
 
 - (void)trackConversation:(NSString *)convID {
+    [self trackConversation:convID syncedSeq:0];
+}
+
+- (void)trackConversation:(NSString *)convID syncedSeq:(int64_t)syncedSeq {
     if (convID.length == 0) { return; }
     dispatch_async(_queue, ^{
+        [self updateSyncedSeqForConv:convID seq:syncedSeq]; // 以持久化位点为起点（取较大值）
         [self->_trackedConvs addObject:convID];
         if (self.state == IMSocketStateConnected) {
             [self sendSyncReqForConvs:@[convID]];

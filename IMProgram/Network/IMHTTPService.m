@@ -86,7 +86,12 @@ static NSString * const kIMHTTPErrorDomain = @"IMHTTPService";
         id obj = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : nil;
         NSDictionary *body = [obj isKindOfClass:[NSDictionary class]] ? obj : nil;
         if (!body) {
-            [self callOnMain:^{ completion(nil, [self errorWithMessage:@"响应解析失败"]); }];
+            // 非 JSON 响应（如旧后端 404 纯文本）：带上 HTTP 状态码与正文片段，便于排查。
+            NSInteger status = [response isKindOfClass:[NSHTTPURLResponse class]] ? ((NSHTTPURLResponse *)response).statusCode : 0;
+            NSString *snippet = data.length > 0 ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"";
+            if (snippet.length > 120) { snippet = [snippet substringToIndex:120]; }
+            NSString *msg = [NSString stringWithFormat:@"响应解析失败 (HTTP %ld) %@", (long)status, snippet ?: @""];
+            [self callOnMain:^{ completion(nil, [self errorWithMessage:msg]); }];
             return;
         }
         [self callOnMain:^{ completion(body, nil); }];

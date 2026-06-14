@@ -50,8 +50,12 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
            completion:(nullable IMSendCompletion)completion;
 
 /// 登记一个会话用于增量同步：每次（重）连成功后，自动从该会话已同步位点发 sync_req
-/// 拉取离线/缺失的消息。骨架阶段位点记在内存（重启即从 0 起），后续接 IMDatabase 持久化。
+/// 拉取离线/缺失的消息。
 - (void)trackConversation:(NSString *)convID;
+
+/// 同上，但用调用方提供的位点作为同步起点（取与内存值的较大者）。
+/// 上层从 IMDatabase 取已存最大 conv_seq 传入，实现 App 重启后的断点续传。
+- (void)trackConversation:(NSString *)convID syncedSeq:(int64_t)syncedSeq;
 
 @end
 

@@ -4,6 +4,7 @@
 #import "IMSocketManager.h"
 #import "IMProtocol.h"
 #import "IMMessageModel.h"
+#import "IMDatabase.h"
 #import "IMLog.h"
 
 #pragma mark - 气泡 Cell
@@ -103,8 +104,12 @@
         _userID = [userID copy];
         _peerID = [peerID copy];
         _convID = IMConversationID(userID, peerID);
-        _messages = [NSMutableArray array];
+        // 本地落库：进入即秒显历史。
+        _messages = [[IMDatabase.sharedDatabase messagesForConv:_convID] mutableCopy];
         _seenConvSeqs = [NSMutableSet set];
+        for (IMMessageModel *m in _messages) {
+            if (m.convSeq > 0) { [_seenConvSeqs addObject:@(m.convSeq)]; }
+        }
     }
     return self;
 }
@@ -121,8 +126,9 @@
     [super viewWillAppear:animated];
     IMSocketManager.sharedManager.delegate = self;
     [IMSocketManager.sharedManager connectToHost:self.host userID:self.userID];
-    // 登记本会话：每次（重）连成功后自动增量同步，补回离线/缺失消息。
-    [IMSocketManager.sharedManager trackConversation:self.convID];
+    // 登记本会话：以本地已存最大 conv_seq 为同步起点（断点续传），自动增量拉回缺失消息。
+    int64_t synced = [IMDatabase.sharedDatabase maxConvSeqForConv:self.convID];
+    [IMSocketManager.sharedManager trackConversation:self.convID syncedSeq:synced];
 }
 
 - (void)viewWillDisappear:(BOOL)animated {
@@ -203,10 +209,13 @@
 
     IMMessageModel *m = [IMMessageModel new];
     m.clientMsgID = clientMsgID;
+    m.convID = self.convID;
+    m.to = self.peerID;
     m.content = text;
     m.from = self.userID;
     m.contentType = @"text";
     m.status = IMMessageStatusSending;
+    [IMDatabase.sharedDatabase saveMessage:m]; // 落库（sending）
     [self.messages addObject:m];
     self.inputField.text = @"";
     [self appendReloadAndScroll];
@@ -217,6 +226,8 @@
         if ([m.clientMsgID isEqualToString:clientMsgID]) {
             m.status = success ? IMMessageStatusSent : IMMessageStatusFailed;
             m.convSeq = convSeq;
+            [IMDatabase.sharedDatabase saveMessage:m]; // upsert：更新状态/conv_seq
+            if (convSeq > 0) { [self.seenConvSeqs addObject:@(convSeq)]; } // 防 sync 重复回显自己发的
             break;
         }
     }
@@ -236,6 +247,8 @@
 }
 
 - (void)socketManager:(IMSocketManager *)manager didReceiveMessage:(IMMessageModel *)message {
+    [IMDatabase.sharedDatabase saveMessage:message]; // 任何会话的消息都落库（按 conv_seq 幂等）
+    if (![message.convID isEqualToString:self.convID]) { return; } // 非本会话不在此页显示
     // 同一条消息可能既被 new_msg 推送、又被 sync_resp 拉到，按 conv_seq 去重。
     if (message.convSeq > 0) {
         NSNumber *key = @(message.convSeq);

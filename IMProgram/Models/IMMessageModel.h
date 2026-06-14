@@ -29,6 +29,10 @@ typedef NS_ENUM(NSInteger, IMMessageStatus) {
 /// 由 new_msg 的 data 字典构造一条「收到」的消息。
 + (instancetype)receivedMessageWithNewMsgData:(NSDictionary *)data;
 
+/// 本地落库归档用：模型 ↔ 字典（plist 安全：仅字符串/数字）。
+- (NSDictionary *)dictionaryRepresentation;
++ (instancetype)messageFromDictionary:(NSDictionary *)dict;
+
 @end
 
 NS_ASSUME_NONNULL_END

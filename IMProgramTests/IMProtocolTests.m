@@ -7,6 +7,7 @@
 #import "../IMProgram/Network/IMProtocol.h"
 #import "../IMProgram/Models/IMMessageModel.h"
 #import "../IMProgram/Models/IMConversation.h"
+#import "../IMProgram/Database/IMDatabase.h"
 
 @interface IMProtocolTests : XCTestCase
 @end
@@ -99,6 +100,34 @@
     // 数组里混入非字典项应被跳过。
     NSArray *mixed = @[@"junk", @{ @"conv_id": @"u_1_u_2", @"peer": @"2" }];
     XCTAssertEqual([IMConversation conversationsFromArray:mixed].count, 1);
+}
+
+#pragma mark - 本地落库 IMDatabase
+
+- (void)testDatabasePersistAndReload {
+    NSURL *tmp = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString]];
+    IMDatabase *db = [[IMDatabase alloc] initWithFileURL:tmp];
+
+    IMMessageModel *m = [IMMessageModel new];
+    m.clientMsgID = @"c1"; m.convID = @"u_1_u_2"; m.from = @"1"; m.content = @"hi";
+    m.contentType = @"text"; m.convSeq = 0; m.status = IMMessageStatusSending;
+    [db saveMessage:m];
+    // upsert：同 clientMsgID 再存（模拟 ack 后更新状态/seq），数量不增。
+    m.status = IMMessageStatusSent; m.convSeq = 3;
+    [db saveMessage:m];
+    XCTAssertEqual([db messagesForConv:@"u_1_u_2"].count, 1);
+
+    // 新实例从同一文件加载 → 已持久化。
+    IMDatabase *db2 = [[IMDatabase alloc] initWithFileURL:tmp];
+    NSArray<IMMessageModel *> *loaded = [db2 messagesForConv:@"u_1_u_2"];
+    XCTAssertEqual(loaded.count, 1);
+    XCTAssertEqualObjects(loaded[0].content, @"hi");
+    XCTAssertEqual(loaded[0].convSeq, 3);
+    XCTAssertEqual(loaded[0].status, IMMessageStatusSent);
+    XCTAssertEqual([db2 maxConvSeqForConv:@"u_1_u_2"], 3); // 派生同步位点
+    XCTAssertEqual([db2 maxConvSeqForConv:@"none"], 0);
+
+    [NSFileManager.defaultManager removeItemAtURL:tmp error:NULL];
 }
 
 @end

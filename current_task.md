@@ -1,8 +1,10 @@
 # Current Task
 
 ## Status
-客户端：登录 → **会话列表（TabBar 会话/我）** → 聊天 三段式（M1-5b）。IMSocketManager（重连增量同步 + JWT 登录）+ IMHTTPService（登录/会话列表）+ IMConversation + IMTheme(design tokens)。`build` + `build-for-testing` 均通过、零 error/warning。
-  - iOS 工作流已改：编译 + test-build 验证，**不强制启动模拟器**（环境不稳）；XCTest 由真机/Xcode 手测。
+客户端：登录 → **会话列表（TabBar 会话/我）** → 聊天 三段式（M1-5b）+ **本地落库 IMDatabase（M1-5c：秒显历史 + 断点续传）**。
+栈：IMSocketManager（重连同步 + JWT + trackConversation:syncedSeq:）+ IMHTTPService（登录/会话列表）+ IMConversation + IMTheme(tokens) + IMDatabase（归档实现，免 pod；接口同 FMDB 可后续替换）。
+默认 host 改为 192.168.1.3:8080（真机联调）。`build` + `build-for-testing` 通过、零 error/warning。
+  - iOS 工作流：编译 + test-build 验证，**不强制启动模拟器**；XCTest 由真机/Xcode 手测。
   - ✅ 真机端到端验证通过（host 填 Mac 局域网 IP：登录→token→连接→离线消息 sync 拉回→已读回执）。本地明文联调需临时关 Mac 防火墙/stealth（生产用 wss:// 无此问题）。
   - ✅ 首批 XCTest（IMProtocolTests，6 用例）在 iPhone 16e 模拟器**全绿**（`-only-testing:IMProgramTests` 跳过模板空 UI target）。
   - 坑记录：默认 IMProgramUITests 会因 Accessibility 超时拖垮整体测试，单测须 `-only-testing:IMProgramTests`；前期 Mach -308/启动超时是模拟器未就绪所致，先 simctl bootstatus 等就绪即可。

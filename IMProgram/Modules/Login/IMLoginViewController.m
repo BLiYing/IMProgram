@@ -3,7 +3,7 @@
 #import "IMLoginViewController.h"
 #import "IMMainTabBarController.h"
 
-static NSString * const kIMDefaultHost = @"localhost:8080";
+static NSString * const kIMDefaultHost = @"192.168.1.3:8080"; // 真机联调默认 Mac 局域网 IP（模拟器可改 localhost:8080）
 
 @interface IMLoginViewController ()
 @property (nonatomic, strong) UITextField *hostField;
