@@ -1,7 +1,8 @@
 # Current Task
 
 ## Status
-客户端：登录页 + 聊天页 + IMSocketManager（含**重连增量同步**）已落地，`xcodebuild build` 零 error/warning。
+客户端：登录页 + 聊天页 + IMSocketManager（含**重连增量同步** + **JWT 登录**：连接前先 POST /api/v1/login 换 token，再 ws?token=）已落地，`xcodebuild build` 零 error/warning。
+  - ✅ 真机端到端验证通过（host 填 Mac 局域网 IP：登录→token→连接→离线消息 sync 拉回→已读回执）。本地明文联调需临时关 Mac 防火墙/stealth（生产用 wss:// 无此问题）。
   - ✅ 首批 XCTest（IMProtocolTests，6 用例）在 iPhone 16e 模拟器**全绿**（`-only-testing:IMProgramTests` 跳过模板空 UI target）。
   - 坑记录：默认 IMProgramUITests 会因 Accessibility 超时拖垮整体测试，单测须 `-only-testing:IMProgramTests`；前期 Mach -308/启动超时是模拟器未就绪所致，先 simctl bootstatus 等就绪即可。
 后端：IMServer 用 **Go**，网关 + 持久化 + 幂等 + **离线消息/增量同步** 完成，`./scripts/test.sh` 全量回归绿。

@@ -93,20 +93,39 @@ static NSString * const kIMErrorDomain = @"IMSocketManagerErrorDomain";
     });
 }
 
-/// 建立一条新连接（仅在 _queue 调用）。
+/// 建立一条新连接（仅在 _queue 调用）：先经 HTTP 登录换取 JWT，再用 ?token= 连 ws。
 - (void)openSocket {
     [self teardownSocket];
-    NSString *encoded = [self.userID stringByAddingPercentEncodingWithAllowedCharacters:
-                         NSCharacterSet.URLQueryAllowedCharacterSet] ?: self.userID;
-    NSString *urlStr = [NSString stringWithFormat:@"ws://%@/ws?uid=%@", _host, encoded];
+    [self updateState:IMSocketStateConnecting];
+    NSString *host = _host;
+    NSString *uid = self.userID;
+    __weak typeof(self) weakSelf = self;
+    [self fetchTokenForHost:host userID:uid completion:^(NSString *token, NSError *error) {
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self) { return; }
+        dispatch_async(self->_queue, ^{
+            if (self->_manualClose) { return; }
+            if (token.length == 0) {
+                IMLog(@"登录换取 token 失败，稍后重连: %@", error.localizedDescription);
+                [self scheduleReconnect];
+                return;
+            }
+            [self openSocketWithToken:token host:host];
+        });
+    }];
+}
+
+/// 用换到的 token 打开 WebSocket（仅在 _queue 调用）。
+- (void)openSocketWithToken:(NSString *)token host:(NSString *)host {
+    NSString *encoded = [token stringByAddingPercentEncodingWithAllowedCharacters:
+                         NSCharacterSet.URLQueryAllowedCharacterSet] ?: token;
+    NSString *urlStr = [NSString stringWithFormat:@"ws://%@/ws?token=%@", host, encoded];
     NSURL *url = [NSURL URLWithString:urlStr];
     if (!url) {
-        IMLog(@"非法 URL: %@", urlStr);
+        IMLog(@"非法 ws 地址 host=%@", host);
         [self scheduleReconnect];
         return;
     }
-
-    [self updateState:IMSocketStateConnecting];
     NSOperationQueue *delegateQueue = [NSOperationQueue new];
     delegateQueue.maxConcurrentOperationCount = 1;
     _session = [NSURLSession sessionWithConfiguration:NSURLSessionConfiguration.defaultSessionConfiguration
@@ -115,7 +134,38 @@ static NSString * const kIMErrorDomain = @"IMSocketManagerErrorDomain";
     _task = [_session webSocketTaskWithURL:url];
     [_task resume];
     [self receiveNext];
-    IMLog(@"connecting %@", urlStr);
+    IMLog(@"connecting ws://%@/ws (token)", host);
+}
+
+/// 经 HTTP 登录接口换取 JWT（开发期无密码，仅凭 uid 签发）。completion 可能在任意线程回调。
+- (void)fetchTokenForHost:(NSString *)host userID:(NSString *)uid completion:(void (^)(NSString *token, NSError *error))completion {
+    NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"http://%@/api/v1/login", host]];
+    if (!url) {
+        completion(nil, [self errorWithCode:5003 msg:@"非法登录地址"]);
+        return;
+    }
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
+    req.HTTPMethod = @"POST";
+    [req setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    req.HTTPBody = [NSJSONSerialization dataWithJSONObject:@{ @"uid": uid ?: @"" } options:0 error:NULL];
+    req.timeoutInterval = 10;
+
+    __weak typeof(self) weakSelf = self;
+    NSURLSessionDataTask *task = [NSURLSession.sharedSession dataTaskWithRequest:req
+                                                             completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        __strong typeof(weakSelf) self = weakSelf;
+        if (error) { completion(nil, error); return; }
+        id obj = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : nil;
+        NSDictionary *body = [obj isKindOfClass:[NSDictionary class]] ? obj : nil;
+        NSDictionary *payload = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
+        NSString *token = [payload[@"token"] isKindOfClass:[NSString class]] ? payload[@"token"] : nil;
+        if ([body[@"code"] integerValue] != 0 || token.length == 0) {
+            completion(nil, [self errorWithCode:5004 msg:@"登录失败"]);
+            return;
+        }
+        completion(token, nil);
+    }];
+    [task resume];
 }
 
 /// 关闭并清理当前连接资源（仅在 _queue 调用）。
