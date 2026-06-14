@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Bash(xcodebuild *)",
+      "Bash(xcrun *)",
+      "Bash(pod *)",
+      "Bash(go *)",
+      "Bash(gofmt *)",
+      "Bash(npm *)",
+      "Bash(git *)",
+      "Bash(./scripts/test.sh*)",
+      "Bash(curl *)",
+      "Bash(lsof *)",
+      "Bash(pkill *)",
+      "Bash(open -a Simulator*)"
+    ]
+  }
+}
