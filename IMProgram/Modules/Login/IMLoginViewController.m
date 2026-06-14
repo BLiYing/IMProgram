@@ -1,14 +1,13 @@
 //  IMLoginViewController.m
 
 #import "IMLoginViewController.h"
-#import "IMChatViewController.h"
+#import "IMMainTabBarController.h"
 
 static NSString * const kIMDefaultHost = @"localhost:8080";
 
 @interface IMLoginViewController ()
 @property (nonatomic, strong) UITextField *hostField;
 @property (nonatomic, strong) UITextField *userIDField;
-@property (nonatomic, strong) UITextField *peerIDField;
 @end
 
 @implementation IMLoginViewController
@@ -23,16 +22,15 @@ static NSString * const kIMDefaultHost = @"localhost:8080";
 - (void)setupUI {
     self.hostField   = [self fieldWithPlaceholder:@"服务器地址 host:port" text:kIMDefaultHost keyboard:UIKeyboardTypeURL];
     self.userIDField = [self fieldWithPlaceholder:@"我的 uid" text:@"1001" keyboard:UIKeyboardTypeNumberPad];
-    self.peerIDField = [self fieldWithPlaceholder:@"对方 uid" text:@"1002" keyboard:UIKeyboardTypeNumberPad];
 
     UIButton *enterButton = [UIButton buttonWithType:UIButtonTypeSystem];
     enterButton.translatesAutoresizingMaskIntoConstraints = NO;
     enterButton.configuration = [UIButtonConfiguration filledButtonConfiguration];
-    [enterButton setTitle:@"连接并进入聊天" forState:UIControlStateNormal];
+    [enterButton setTitle:@"登录" forState:UIControlStateNormal];
     [enterButton addTarget:self action:@selector(enterTapped) forControlEvents:UIControlEventTouchUpInside];
 
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
-        self.hostField, self.userIDField, self.peerIDField, enterButton
+        self.hostField, self.userIDField, enterButton
     ]];
     stack.axis = UILayoutConstraintAxisVertical;
     stack.spacing = 16;
@@ -63,17 +61,13 @@ static NSString * const kIMDefaultHost = @"localhost:8080";
 - (void)enterTapped {
     NSString *host = [self trimmed:self.hostField.text];
     NSString *userID = [self trimmed:self.userIDField.text];
-    NSString *peerID = [self trimmed:self.peerIDField.text];
-    if (host.length == 0 || userID.length == 0 || peerID.length == 0) {
-        [self showAlert:@"请填写服务器地址、我的 uid 与对方 uid"];
+    if (host.length == 0 || userID.length == 0) {
+        [self showAlert:@"请填写服务器地址与我的 uid"];
         return;
     }
-    if ([userID isEqualToString:peerID]) {
-        [self showAlert:@"我的 uid 与对方 uid 不能相同"];
-        return;
-    }
-    IMChatViewController *chat = [[IMChatViewController alloc] initWithHost:host userID:userID peerID:peerID];
-    [self.navigationController pushViewController:chat animated:YES];
+    // 进入主界面（会话列表）。会话列表负责登录换 token + 拉会话。
+    IMMainTabBarController *main = [[IMMainTabBarController alloc] initWithHost:host userID:userID];
+    self.view.window.rootViewController = main;
 }
 
 - (NSString *)trimmed:(NSString *)text {

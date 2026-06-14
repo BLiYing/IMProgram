@@ -6,6 +6,7 @@
 
 #import "../IMProgram/Network/IMProtocol.h"
 #import "../IMProgram/Models/IMMessageModel.h"
+#import "../IMProgram/Models/IMConversation.h"
 
 @interface IMProtocolTests : XCTestCase
 @end
@@ -72,6 +73,32 @@
     XCTAssertEqualObjects(m.content, @"");
     XCTAssertEqualObjects(m.contentType, @"text"); // 缺省回退
     XCTAssertEqual(m.status, IMMessageStatusReceived);
+}
+
+#pragma mark - 会话列表模型
+
+- (void)testConversationParsing {
+    NSArray *arr = @[
+        @{ @"conv_id": @"u_1001_u_1002", @"peer": @"1002", @"latest_conv_seq": @5, @"unread": @0,
+           @"last_message": @{ @"content": @"hi", @"from": @"1001", @"timestamp": @1700000000000 } },
+        @{ @"conv_id": @"u_1001_u_1003", @"peer": @"1003" }, // 无 last_message
+    ];
+    NSArray<IMConversation *> *convs = [IMConversation conversationsFromArray:arr];
+    XCTAssertEqual(convs.count, 2);
+    XCTAssertEqualObjects(convs[0].peer, @"1002");
+    XCTAssertEqualObjects(convs[0].lastContent, @"hi");
+    XCTAssertEqualObjects(convs[0].lastFrom, @"1001");
+    XCTAssertEqual(convs[0].latestConvSeq, 5);
+    XCTAssertEqual(convs[0].timestamp, 1700000000000);
+    XCTAssertNil(convs[1].lastContent); // 无 last_message
+}
+
+- (void)testConversationParsingToleratesDirtyData {
+    XCTAssertEqual([IMConversation conversationsFromArray:nil].count, 0);
+    XCTAssertEqual([IMConversation conversationsFromArray:(id)@"not-an-array"].count, 0);
+    // 数组里混入非字典项应被跳过。
+    NSArray *mixed = @[@"junk", @{ @"conv_id": @"u_1_u_2", @"peer": @"2" }];
+    XCTAssertEqual([IMConversation conversationsFromArray:mixed].count, 1);
 }
 
 @end

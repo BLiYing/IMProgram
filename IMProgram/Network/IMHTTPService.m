@@ -1,0 +1,111 @@
+//  IMHTTPService.m
+
+#import "IMHTTPService.h"
+#import "IMConversation.h"
+#import "IMLog.h"
+
+static NSString * const kIMHTTPErrorDomain = @"IMHTTPService";
+
+@implementation IMHTTPService
+
++ (instancetype)sharedService {
+    static IMHTTPService *instance;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{ instance = [IMHTTPService new]; });
+    return instance;
+}
+
+- (void)loginWithUserID:(NSString *)userID
+             completion:(void (^)(NSString *, NSError *))completion {
+    NSURLRequest *req = [self postRequestToPath:@"/api/v1/login" body:@{ @"uid": userID ?: @"" }];
+    if (!req) {
+        [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }];
+        return;
+    }
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
+        NSString *token = [data[@"token"] isKindOfClass:[NSString class]] ? data[@"token"] : nil;
+        if ([body[@"code"] integerValue] != 0 || token.length == 0) {
+            completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"登录失败"]]);
+            return;
+        }
+        completion(token, nil);
+    }];
+}
+
+- (void)conversationsWithToken:(NSString *)token
+                    completion:(void (^)(NSArray<IMConversation *> *, NSError *))completion {
+    NSURL *url = [self urlForPath:@"/api/v1/conversations"];
+    if (!url) {
+        [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }];
+        return;
+    }
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
+    [req setValue:[NSString stringWithFormat:@"Bearer %@", token ?: @""] forHTTPHeaderField:@"Authorization"];
+    req.timeoutInterval = 10;
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        if ([body[@"code"] integerValue] != 0) {
+            completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"拉取会话失败"]]);
+            return;
+        }
+        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
+        completion([IMConversation conversationsFromArray:data[@"conversations"]], nil);
+    }];
+}
+
+#pragma mark - 内部
+
+- (nullable NSURL *)urlForPath:(NSString *)path {
+    if (self.host.length == 0) { return nil; }
+    return [NSURL URLWithString:[NSString stringWithFormat:@"http://%@%@", self.host, path]];
+}
+
+- (nullable NSURLRequest *)postRequestToPath:(NSString *)path body:(NSDictionary *)body {
+    NSURL *url = [self urlForPath:path];
+    if (!url) { return nil; }
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
+    req.HTTPMethod = @"POST";
+    [req setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    req.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:NULL];
+    req.timeoutInterval = 10;
+    return req;
+}
+
+/// 执行请求并把统一响应解析成字典，主线程回调。
+- (void)runRequest:(NSURLRequest *)req completion:(void (^)(NSDictionary *body, NSError *error))completion {
+    __weak typeof(self) weakSelf = self;
+    NSURLSessionDataTask *task = [NSURLSession.sharedSession dataTaskWithRequest:req
+                                                             completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        __strong typeof(weakSelf) self = weakSelf;
+        if (error) {
+            [self callOnMain:^{ completion(nil, error); }];
+            return;
+        }
+        id obj = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : nil;
+        NSDictionary *body = [obj isKindOfClass:[NSDictionary class]] ? obj : nil;
+        if (!body) {
+            [self callOnMain:^{ completion(nil, [self errorWithMessage:@"响应解析失败"]); }];
+            return;
+        }
+        [self callOnMain:^{ completion(body, nil); }];
+    }];
+    [task resume];
+}
+
+- (void)callOnMain:(void (^)(void))block {
+    dispatch_async(dispatch_get_main_queue(), block);
+}
+
+- (NSString *)messageFrom:(NSDictionary *)body fallback:(NSString *)fallback {
+    NSString *msg = [body[@"message"] isKindOfClass:[NSString class]] ? body[@"message"] : nil;
+    return msg.length > 0 ? msg : fallback;
+}
+
+- (NSError *)errorWithMessage:(NSString *)message {
+    return [NSError errorWithDomain:kIMHTTPErrorDomain code:-1
+                           userInfo:@{ NSLocalizedDescriptionKey: message ?: @"unknown" }];
+}
+
+@end
