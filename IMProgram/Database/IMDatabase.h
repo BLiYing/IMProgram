@@ -1,8 +1,6 @@
 //  IMDatabase.h
 //  客户端本地消息落库：App 重启秒显历史、按已存最大 conv_seq 断点续传。
-//
-//  当前用「归档文件」实现（NSKeyedArchiver，零依赖、免 pod/链接配置，契合本工程暂不引入 Pod 的现状）。
-//  接口与 FMDB/SQLite 等价，将来引入 CocoaPods 后可平滑替换实现，不动上层。
+//  实现：FMDB + SQLite（FMDatabaseQueue 线程安全）。需经 CocoaPods 引入 FMDB，用 .xcworkspace 打开。
 
 #import <Foundation/Foundation.h>
 

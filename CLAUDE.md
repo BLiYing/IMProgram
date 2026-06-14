@@ -28,8 +28,8 @@ iOS 即时通讯（IM）聊天 App。标准 Xcode 工程，UIKit + Storyboard。
 
 声明「完成」前必须全部满足，并在回复中**贴出编译输出**：
 1. 新功能配套测试用例（`IMProgramTests/` 的 XCTest），纳入回归。
-2. 真编译：`xcodebuild -project IMProgram.xcodeproj -scheme IMProgram -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' build CODE_SIGNING_ALLOWED=NO` 通过（零 error/warning）。
-3. 测试 bundle 编译：`xcodebuild build-for-testing -project IMProgram.xcodeproj -scheme IMProgram -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO` → `** TEST BUILD SUCCEEDED **`。
+2. 真编译（已引入 CocoaPods，**用 `.xcworkspace`**）：`xcodebuild -workspace IMProgram.xcworkspace -scheme IMProgram -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' build CODE_SIGNING_ALLOWED=NO` 通过（零 error/warning）。
+3. 测试 bundle 编译：`xcodebuild build-for-testing -workspace IMProgram.xcworkspace -scheme IMProgram -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO` → `** TEST BUILD SUCCEEDED **`。
    - **不强制启动模拟器执行**（本机模拟器子系统不稳，常 launchd_sim 卡死）。XCTest 由用户在真机/Xcode 手动跑。
 4. 更新 `current_task.md`。
 5. **给出真机验证清单**：列出本次需在真机上肉眼确认的功能点，交用户手测；明确说清「没做什么 / 已知限制 / TODO」，不假装完成。
@@ -39,5 +39,7 @@ iOS 即时通讯（IM）聊天 App。标准 Xcode 工程，UIKit + Storyboard。
 - 触及鉴权 / 加密 / E2E / 敏感数据时，建议跑 `/security-review`。
 
 ## 构建 / 测试
-- 构建：`xcodebuild -project IMProgram.xcodeproj -scheme IMProgram -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' build CODE_SIGNING_ALLOWED=NO`
-- 测试编译：`xcodebuild build-for-testing ... CODE_SIGNING_ALLOWED=NO`（执行由真机/Xcode 手动跑，见上「完成的定义」）
+- **已用 CocoaPods（FMDB）**：打开/构建一律用 `IMProgram.xcworkspace`，不再用 `.xcodeproj`。新机器先 `cd IMProgram && pod install`。
+- 构建：`xcodebuild -workspace IMProgram.xcworkspace -scheme IMProgram -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' build CODE_SIGNING_ALLOWED=NO`
+- 测试编译：`xcodebuild build-for-testing -workspace IMProgram.xcworkspace -scheme IMProgram ... CODE_SIGNING_ALLOWED=NO`（执行由真机/Xcode 手动跑）
+- Podfile 已关 `ENABLE_USER_SCRIPT_SANDBOXING`（post_install），避免 Pods 资源拷贝被沙盒拒写。
