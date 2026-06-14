@@ -100,6 +100,7 @@
 - (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID peerID:(NSString *)peerID {
     self = [super initWithNibName:nil bundle:nil];
     if (self) {
+        self.hidesBottomBarWhenPushed = YES; // 进聊天页隐藏底部 TabBar（push 时全屏）
         _host = [host copy];
         _userID = [userID copy];
         _peerID = [peerID copy];
