@@ -53,7 +53,8 @@
 
 ## Decisions & Constraints
 - 主语言 Objective-C；未来可混编 Swift，新模块倾向 Swift。
-- 通信：自建 WebSocket。**传输层改用系统原生 NSURLSessionWebSocketTask**（部署目标 iOS 26.2，SocketRocket 是 pre-iOS13 老库，无意义）；传输封装在 IMSocketManager 内部，接口不变，未来可无痛替换。心跳 25s + 指数退避重连 + ACK 超时重发。
+- 通信：自建 WebSocket。**传输层改用系统原生 NSURLSessionWebSocketTask**（iOS 13+ API）；传输封装在 IMSocketManager 内部，接口不变，未来可无痛替换。心跳 25s + 指数退避重连 + ACK 超时重发。
+- **部署目标 iOS 15.0**（2026-06-15 从误设的 26.2 调低）：代码栈未用 iOS 16+ API，15 覆盖设备最广且与 Podfile/Pods（已 15.0）一致；真机（iOS 18.6.2）可正常安装运行。
 - 工程用 Xcode 文件系统同步组（PBXFileSystemSynchronizedRootGroup）：往 IMProgram/ 加文件即自动入编译，无需手改 pbxproj。
 - 依赖：CocoaPods（使用后改用 .xcworkspace 打开）。
 - 类统一前缀 `IM`，ARC，4 空格缩进。
