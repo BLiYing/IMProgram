@@ -5,12 +5,13 @@
 #import "IMProtocol.h"
 #import "IMMessageModel.h"
 #import "IMDatabase.h"
+#import "IMTheme.h"
 #import "IMLog.h"
 
-#pragma mark - 气泡 Cell
+#pragma mark - 气泡 Cell（Telegram 风格：圆角气泡 + 尾巴 + 气泡内时间/双勾）
 
 /// 私有消息气泡 Cell：自己的消息靠右（蓝），对方靠左（灰）。
-/// 顶部可选「未读消息」分割线；自己的消息按对端已读位点显示 已送达/已读。
+/// 顶部可选「未读消息」分割线；气泡内右下角显示时间，自己的消息按对端已读位点显示 ✓/✓✓。
 @interface IMBubbleCell : UITableViewCell
 - (void)configureWithMessage:(IMMessageModel *)message
                         mine:(BOOL)mine
@@ -21,12 +22,11 @@
 @implementation IMBubbleCell {
     UILabel *_divider;
     NSLayoutConstraint *_dividerHeight;
-    UILabel *_bubble;
-    UILabel *_status;
+    UIView *_bubble;
+    UILabel *_text;
+    UILabel *_meta;
     NSLayoutConstraint *_leading;
     NSLayoutConstraint *_trailing;
-    NSLayoutConstraint *_statusLeading;
-    NSLayoutConstraint *_statusTrailing;
 }
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
@@ -37,40 +37,52 @@
 
         _divider = [UILabel new];
         _divider.translatesAutoresizingMaskIntoConstraints = NO;
-        _divider.font = [UIFont systemFontOfSize:12];
-        _divider.textColor = [UIColor colorWithRed:0.898 green:0.224 blue:0.208 alpha:1]; // #e53935
+        _divider.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
+        _divider.textColor = IMTheme.textSecondary;
         _divider.textAlignment = NSTextAlignmentCenter;
-        _divider.text = @"—— 未读消息 ——";
+        _divider.text = @"未读消息";
         _divider.clipsToBounds = YES;
         [self.contentView addSubview:_divider];
 
-        _bubble = [UILabel new];
+        _bubble = [UIView new];
         _bubble.translatesAutoresizingMaskIntoConstraints = NO;
-        _bubble.numberOfLines = 0;
-        _bubble.layer.cornerRadius = 14;
+        _bubble.layer.cornerRadius = 18;
         _bubble.layer.masksToBounds = YES;
         [self.contentView addSubview:_bubble];
 
-        _status = [UILabel new];
-        _status.translatesAutoresizingMaskIntoConstraints = NO;
-        _status.font = [UIFont systemFontOfSize:11];
-        _status.textColor = UIColor.secondaryLabelColor;
-        [self.contentView addSubview:_status];
+        _text = [UILabel new];
+        _text.translatesAutoresizingMaskIntoConstraints = NO;
+        _text.numberOfLines = 0;
+        _text.font = [UIFont systemFontOfSize:17];
+        [_bubble addSubview:_text];
+
+        _meta = [UILabel new];
+        _meta.translatesAutoresizingMaskIntoConstraints = NO;
+        _meta.font = [UIFont systemFontOfSize:11];
+        _meta.textAlignment = NSTextAlignmentRight;
+        [_bubble addSubview:_meta];
 
         _leading = [_bubble.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12];
         _trailing = [_bubble.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-12];
-        _statusLeading = [_status.leadingAnchor constraintEqualToAnchor:_bubble.leadingAnchor];
-        _statusTrailing = [_status.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor];
         _dividerHeight = [_divider.heightAnchor constraintEqualToConstant:0];
         [NSLayoutConstraint activateConstraints:@[
             [_divider.topAnchor constraintEqualToAnchor:self.contentView.topAnchor],
             [_divider.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor],
             [_divider.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor],
             _dividerHeight,
-            [_bubble.topAnchor constraintEqualToAnchor:_divider.bottomAnchor constant:6],
-            [_bubble.widthAnchor constraintLessThanOrEqualToAnchor:self.contentView.widthAnchor multiplier:0.72],
-            [_status.topAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:2],
-            [_status.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-6],
+
+            [_bubble.topAnchor constraintEqualToAnchor:_divider.bottomAnchor constant:2],
+            [_bubble.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3],
+            [_bubble.widthAnchor constraintLessThanOrEqualToAnchor:self.contentView.widthAnchor multiplier:0.75],
+
+            // 气泡内 padding：文本 + 右下角时间/双勾。
+            [_text.topAnchor constraintEqualToAnchor:_bubble.topAnchor constant:7],
+            [_text.leadingAnchor constraintEqualToAnchor:_bubble.leadingAnchor constant:12],
+            [_text.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor constant:-12],
+            [_meta.topAnchor constraintEqualToAnchor:_text.bottomAnchor constant:1],
+            [_meta.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor constant:-10],
+            [_meta.leadingAnchor constraintGreaterThanOrEqualToAnchor:_bubble.leadingAnchor constant:12],
+            [_meta.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:-6],
         ]];
     }
     return self;
@@ -83,29 +95,33 @@
     _divider.hidden = !showsDivider;
     _dividerHeight.constant = showsDivider ? 28 : 0;
 
-    // 气泡内文本两侧留白：用首尾空格近似 padding。
-    _bubble.text = [NSString stringWithFormat:@"  %@  ", message.content];
-    _bubble.backgroundColor = mine ? UIColor.systemBlueColor : UIColor.secondarySystemBackgroundColor;
-    _bubble.textColor = mine ? UIColor.whiteColor : UIColor.labelColor;
+    _text.text = message.content;
+    _bubble.backgroundColor = mine ? IMTheme.bubbleMe : IMTheme.bubbleThem;
+    _text.textColor = mine ? IMTheme.bubbleMeText : IMTheme.textPrimary;
+    _meta.textColor = mine ? [UIColor colorWithWhite:1 alpha:0.75] : IMTheme.textSecondary;
+    _meta.text = mine ? [self metaForMine:message peerReadSeq:peerReadSeq]
+                      : [IMTheme timeStringFromMillis:message.timestamp];
+
+    // 尾巴：自己靠右气泡的右下角不圆（成尾），对方靠左气泡的左下角不圆。
+    _bubble.layer.maskedCorners = mine
+        ? (kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner | kCALayerMinXMaxYCorner)
+        : (kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner | kCALayerMaxXMaxYCorner);
 
     _leading.active = !mine;
     _trailing.active = mine;
-    _status.textAlignment = mine ? NSTextAlignmentRight : NSTextAlignmentLeft;
-    _status.text = mine ? [self statusTextFor:message peerReadSeq:peerReadSeq]
-                        : [NSString stringWithFormat:@"来自 %@", message.from ?: @"?"];
-    _statusLeading.active = !mine;
-    _statusTrailing.active = mine;
 }
 
-- (NSString *)statusTextFor:(IMMessageModel *)message peerReadSeq:(int64_t)peerReadSeq {
+/// 自己消息右下角：时间 + 状态勾（发送中/失败/已送达 ✓/已读 ✓✓）。
+- (NSString *)metaForMine:(IMMessageModel *)message peerReadSeq:(int64_t)peerReadSeq {
+    NSString *time = [IMTheme timeStringFromMillis:message.timestamp];
     switch (message.status) {
         case IMMessageStatusSending: return @"发送中…";
-        case IMMessageStatusFailed:  return @"发送失败 ✗";
-        case IMMessageStatusSent:
-            // 对端已读到本条 → 已读双勾；否则已送达单勾。
-            if (message.convSeq > 0 && message.convSeq <= peerReadSeq) { return @"已读 ✓✓"; }
-            return [NSString stringWithFormat:@"已送达 ✓ · seq#%lld", message.convSeq];
-        default:                     return @"";
+        case IMMessageStatusFailed:  return @"未发送 ✗";
+        case IMMessageStatusSent: {
+            BOOL read = message.convSeq > 0 && message.convSeq <= peerReadSeq;
+            return [NSString stringWithFormat:@"%@ %@", time, read ? @"✓✓" : @"✓"];
+        }
+        default: return time;
     }
 }
 
@@ -217,16 +233,27 @@
 
     self.inputField = [UITextField new];
     self.inputField.translatesAutoresizingMaskIntoConstraints = NO;
-    self.inputField.borderStyle = UITextBorderStyleRoundedRect;
     self.inputField.placeholder = @"输入消息…";
+    self.inputField.font = [UIFont systemFontOfSize:16];
     self.inputField.returnKeyType = UIReturnKeySend;
     self.inputField.delegate = self;
+    // 圆角胶囊输入框（Telegram 风格）。
+    self.inputField.backgroundColor = UIColor.systemBackgroundColor;
+    self.inputField.layer.cornerRadius = 18;
+    self.inputField.layer.borderWidth = 1;
+    self.inputField.layer.borderColor = UIColor.separatorColor.CGColor;
+    UIView *pad = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 12, 0)];
+    self.inputField.leftView = pad;
+    self.inputField.leftViewMode = UITextFieldViewModeAlways;
     [self.inputField addTarget:self action:@selector(inputChanged) forControlEvents:UIControlEventEditingChanged];
     [inputBar addSubview:self.inputField];
 
+    // 圆形发送按钮（蓝底上箭头）。
     UIButton *sendButton = [UIButton buttonWithType:UIButtonTypeSystem];
     sendButton.translatesAutoresizingMaskIntoConstraints = NO;
-    [sendButton setTitle:@"发送" forState:UIControlStateNormal];
+    UIImageConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:28 weight:UIImageSymbolWeightRegular];
+    [sendButton setImage:[UIImage systemImageNamed:@"arrow.up.circle.fill" withConfiguration:cfg] forState:UIControlStateNormal];
+    sendButton.tintColor = IMTheme.accent;
     [sendButton addTarget:self action:@selector(sendTapped) forControlEvents:UIControlEventTouchUpInside];
     [inputBar addSubview:sendButton];
 
@@ -251,9 +278,12 @@
 
         [self.inputField.leadingAnchor constraintEqualToAnchor:inputBar.leadingAnchor constant:12],
         [self.inputField.centerYAnchor constraintEqualToAnchor:inputBar.centerYAnchor],
+        [self.inputField.heightAnchor constraintEqualToConstant:36],
         [self.inputField.trailingAnchor constraintEqualToAnchor:sendButton.leadingAnchor constant:-8],
         [sendButton.trailingAnchor constraintEqualToAnchor:inputBar.trailingAnchor constant:-12],
         [sendButton.centerYAnchor constraintEqualToAnchor:inputBar.centerYAnchor],
+        [sendButton.widthAnchor constraintEqualToConstant:36],
+        [sendButton.heightAnchor constraintEqualToConstant:36],
     ]];
 }
 

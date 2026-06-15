@@ -24,6 +24,12 @@ NS_ASSUME_NONNULL_BEGIN
 @property (class, nonatomic, readonly) CGFloat radiusBubble;  // 14
 @property (class, nonatomic, readonly) CGFloat radiusCard;    // 8
 
+// 工具
+/// 毫秒时间戳 → "HH:mm"（今天）/"MM-dd"（更早）；0 返回空串。
++ (NSString *)timeStringFromMillis:(int64_t)ms;
+/// 由种子（uid）派生稳定的头像底色（一组柔和色循环）。
++ (UIColor *)avatarColorForSeed:(nullable NSString *)seed;
+
 @end
 
 NS_ASSUME_NONNULL_END

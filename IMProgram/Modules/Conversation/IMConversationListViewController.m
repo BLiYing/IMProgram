@@ -7,6 +7,114 @@
 #import "IMTheme.h"
 #import "IMLog.h"
 
+#pragma mark - 会话 Cell（Telegram 风格：圆形头像 + 名称/最后一条 + 时间 + 未读蓝胶囊）
+
+static CGFloat const kIMAvatarSize = 52;
+static CGFloat const kIMRowLeading = 16;
+
+@interface IMConversationCell : UITableViewCell
+- (void)configureWithConversation:(IMConversation *)c;
+@end
+
+@implementation IMConversationCell {
+    UILabel *_avatar;
+    UILabel *_name;
+    UILabel *_last;
+    UILabel *_time;
+    UILabel *_badge;
+    NSLayoutConstraint *_badgeWidth;
+}
+
+- (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
+    self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
+    if (self) {
+        _avatar = [UILabel new];
+        _avatar.translatesAutoresizingMaskIntoConstraints = NO;
+        _avatar.textColor = UIColor.whiteColor;
+        _avatar.textAlignment = NSTextAlignmentCenter;
+        _avatar.font = [UIFont systemFontOfSize:20 weight:UIFontWeightSemibold];
+        _avatar.layer.cornerRadius = kIMAvatarSize / 2;
+        _avatar.layer.masksToBounds = YES;
+        [self.contentView addSubview:_avatar];
+
+        _name = [UILabel new];
+        _name.translatesAutoresizingMaskIntoConstraints = NO;
+        _name.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
+        _name.textColor = IMTheme.textPrimary;
+        [self.contentView addSubview:_name];
+
+        _last = [UILabel new];
+        _last.translatesAutoresizingMaskIntoConstraints = NO;
+        _last.font = [UIFont systemFontOfSize:15];
+        _last.textColor = IMTheme.textSecondary;
+        [self.contentView addSubview:_last];
+
+        _time = [UILabel new];
+        _time.translatesAutoresizingMaskIntoConstraints = NO;
+        _time.font = [UIFont systemFontOfSize:13];
+        _time.textColor = IMTheme.textSecondary;
+        _time.textAlignment = NSTextAlignmentRight;
+        [self.contentView addSubview:_time];
+
+        _badge = [UILabel new];
+        _badge.translatesAutoresizingMaskIntoConstraints = NO;
+        _badge.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+        _badge.textColor = UIColor.whiteColor;
+        _badge.textAlignment = NSTextAlignmentCenter;
+        _badge.backgroundColor = IMTheme.accent; // Telegram 未读用蓝色胶囊
+        _badge.layer.cornerRadius = 10;
+        _badge.layer.masksToBounds = YES;
+        [self.contentView addSubview:_badge];
+
+        [_time setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+        [_time setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+        _badgeWidth = [_badge.widthAnchor constraintEqualToConstant:0];
+
+        UILayoutGuide *g = self.contentView.layoutMarginsGuide;
+        [NSLayoutConstraint activateConstraints:@[
+            [_avatar.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:kIMRowLeading],
+            [_avatar.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
+            [_avatar.widthAnchor constraintEqualToConstant:kIMAvatarSize],
+            [_avatar.heightAnchor constraintEqualToConstant:kIMAvatarSize],
+
+            [_name.leadingAnchor constraintEqualToAnchor:_avatar.trailingAnchor constant:12],
+            [_name.topAnchor constraintEqualToAnchor:_avatar.topAnchor constant:2],
+            [_name.trailingAnchor constraintLessThanOrEqualToAnchor:_time.leadingAnchor constant:-8],
+
+            [_time.trailingAnchor constraintEqualToAnchor:g.trailingAnchor],
+            [_time.centerYAnchor constraintEqualToAnchor:_name.centerYAnchor],
+
+            [_last.leadingAnchor constraintEqualToAnchor:_name.leadingAnchor],
+            [_last.topAnchor constraintEqualToAnchor:_name.bottomAnchor constant:4],
+            [_last.trailingAnchor constraintLessThanOrEqualToAnchor:_badge.leadingAnchor constant:-8],
+
+            [_badge.trailingAnchor constraintEqualToAnchor:g.trailingAnchor],
+            [_badge.centerYAnchor constraintEqualToAnchor:_last.centerYAnchor],
+            [_badge.heightAnchor constraintEqualToConstant:20],
+            _badgeWidth,
+        ]];
+    }
+    return self;
+}
+
+- (void)configureWithConversation:(IMConversation *)c {
+    _avatar.text = c.peer.length >= 2 ? [c.peer substringFromIndex:c.peer.length - 2] : c.peer;
+    _avatar.backgroundColor = [IMTheme avatarColorForSeed:c.peer];
+    _name.text = c.peer;
+    _last.text = c.lastContent.length > 0 ? c.lastContent : @"（无消息）";
+    _time.text = [IMTheme timeStringFromMillis:c.timestamp];
+    if (c.unread > 0) {
+        _badge.hidden = NO;
+        _badge.text = c.unread > 99 ? @"99+" : [NSString stringWithFormat:@"%ld", (long)c.unread];
+        _badgeWidth.constant = MAX(20, [_badge sizeThatFits:CGSizeMake(CGFLOAT_MAX, 20)].width + 12);
+    } else {
+        _badge.hidden = YES;
+        _badgeWidth.constant = 0;
+    }
+}
+
+@end
+
 @interface IMConversationListViewController () <UITableViewDataSource, UITableViewDelegate>
 @property (nonatomic, copy) NSString *host;
 @property (nonatomic, copy) NSString *userID;
@@ -40,7 +148,10 @@
     self.tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     self.tableView.dataSource = self;
     self.tableView.delegate = self;
-    self.tableView.rowHeight = 64;
+    self.tableView.rowHeight = 76;
+    // 分隔线左缩进对齐文字（不压头像下方），Telegram/微信式。
+    self.tableView.separatorInset = UIEdgeInsetsMake(0, kIMRowLeading + kIMAvatarSize + 12, 0, 0);
+    [self.tableView registerClass:IMConversationCell.class forCellReuseIdentifier:@"conv"];
     [self.view addSubview:self.tableView];
 
     self.emptyLabel = [UILabel new];
@@ -144,43 +255,14 @@
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"conv"];
-    if (!cell) {
-        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"conv"];
-    }
-    IMConversation *c = self.conversations[indexPath.row];
-    cell.textLabel.text = c.peer;
-    cell.detailTextLabel.text = c.lastContent.length > 0 ? c.lastContent : @"（无消息）";
-    cell.detailTextLabel.textColor = IMTheme.textSecondary;
-    // 未读红点：unread>0 时用红色圆角徽标替代右侧箭头。
-    if (c.unread > 0) {
-        cell.accessoryType = UITableViewCellAccessoryNone;
-        cell.accessoryView = [self badgeViewForCount:c.unread];
-    } else {
-        cell.accessoryView = nil;
-        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-    }
+    IMConversationCell *cell = [tableView dequeueReusableCellWithIdentifier:@"conv" forIndexPath:indexPath];
+    [cell configureWithConversation:self.conversations[indexPath.row]];
     return cell;
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     [self openChatWithConversation:self.conversations[indexPath.row]];
-}
-
-/// 红色未读徽标（>99 显示 99+）。
-- (UIView *)badgeViewForCount:(NSInteger)count {
-    UILabel *badge = [UILabel new];
-    badge.text = count > 99 ? @"99+" : [NSString stringWithFormat:@"%ld", (long)count];
-    badge.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
-    badge.textColor = UIColor.whiteColor;
-    badge.textAlignment = NSTextAlignmentCenter;
-    badge.backgroundColor = [UIColor colorWithRed:0.898 green:0.224 blue:0.208 alpha:1]; // #e53935
-    CGFloat h = 20, w = MAX(h, [badge sizeThatFits:CGSizeMake(CGFLOAT_MAX, h)].width + 12);
-    badge.frame = CGRectMake(0, 0, w, h);
-    badge.layer.cornerRadius = h / 2;
-    badge.layer.masksToBounds = YES;
-    return badge;
 }
 
 @end
