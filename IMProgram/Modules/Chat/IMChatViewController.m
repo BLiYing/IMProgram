@@ -10,15 +10,23 @@
 #pragma mark - 气泡 Cell
 
 /// 私有消息气泡 Cell：自己的消息靠右（蓝），对方靠左（灰）。
+/// 顶部可选「未读消息」分割线；自己的消息按对端已读位点显示 已送达/已读。
 @interface IMBubbleCell : UITableViewCell
-- (void)configureWithMessage:(IMMessageModel *)message mine:(BOOL)mine;
+- (void)configureWithMessage:(IMMessageModel *)message
+                        mine:(BOOL)mine
+                 peerReadSeq:(int64_t)peerReadSeq
+          showsUnreadDivider:(BOOL)showsDivider;
 @end
 
 @implementation IMBubbleCell {
+    UILabel *_divider;
+    NSLayoutConstraint *_dividerHeight;
     UILabel *_bubble;
     UILabel *_status;
     NSLayoutConstraint *_leading;
     NSLayoutConstraint *_trailing;
+    NSLayoutConstraint *_statusLeading;
+    NSLayoutConstraint *_statusTrailing;
 }
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
@@ -26,6 +34,15 @@
     if (self) {
         self.selectionStyle = UITableViewCellSelectionStyleNone;
         self.backgroundColor = UIColor.clearColor;
+
+        _divider = [UILabel new];
+        _divider.translatesAutoresizingMaskIntoConstraints = NO;
+        _divider.font = [UIFont systemFontOfSize:12];
+        _divider.textColor = [UIColor colorWithRed:0.898 green:0.224 blue:0.208 alpha:1]; // #e53935
+        _divider.textAlignment = NSTextAlignmentCenter;
+        _divider.text = @"—— 未读消息 ——";
+        _divider.clipsToBounds = YES;
+        [self.contentView addSubview:_divider];
 
         _bubble = [UILabel new];
         _bubble.translatesAutoresizingMaskIntoConstraints = NO;
@@ -42,8 +59,15 @@
 
         _leading = [_bubble.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12];
         _trailing = [_bubble.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-12];
+        _statusLeading = [_status.leadingAnchor constraintEqualToAnchor:_bubble.leadingAnchor];
+        _statusTrailing = [_status.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor];
+        _dividerHeight = [_divider.heightAnchor constraintEqualToConstant:0];
         [NSLayoutConstraint activateConstraints:@[
-            [_bubble.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:6],
+            [_divider.topAnchor constraintEqualToAnchor:self.contentView.topAnchor],
+            [_divider.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor],
+            [_divider.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor],
+            _dividerHeight,
+            [_bubble.topAnchor constraintEqualToAnchor:_divider.bottomAnchor constant:6],
             [_bubble.widthAnchor constraintLessThanOrEqualToAnchor:self.contentView.widthAnchor multiplier:0.72],
             [_status.topAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:2],
             [_status.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-6],
@@ -52,8 +76,14 @@
     return self;
 }
 
-- (void)configureWithMessage:(IMMessageModel *)message mine:(BOOL)mine {
-    // 气泡内文本两侧留白：用 padding 属性化字符串近似实现。
+- (void)configureWithMessage:(IMMessageModel *)message
+                        mine:(BOOL)mine
+                 peerReadSeq:(int64_t)peerReadSeq
+          showsUnreadDivider:(BOOL)showsDivider {
+    _divider.hidden = !showsDivider;
+    _dividerHeight.constant = showsDivider ? 28 : 0;
+
+    // 气泡内文本两侧留白：用首尾空格近似 padding。
     _bubble.text = [NSString stringWithFormat:@"  %@  ", message.content];
     _bubble.backgroundColor = mine ? UIColor.systemBlueColor : UIColor.secondarySystemBackgroundColor;
     _bubble.textColor = mine ? UIColor.whiteColor : UIColor.labelColor;
@@ -61,20 +91,20 @@
     _leading.active = !mine;
     _trailing.active = mine;
     _status.textAlignment = mine ? NSTextAlignmentRight : NSTextAlignmentLeft;
-    _status.text = mine ? [self statusTextFor:message] : [NSString stringWithFormat:@"来自 %@", message.from ?: @"?"];
-
-    if (mine) {
-        [_status.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor].active = YES;
-    } else {
-        [_status.leadingAnchor constraintEqualToAnchor:_bubble.leadingAnchor].active = YES;
-    }
+    _status.text = mine ? [self statusTextFor:message peerReadSeq:peerReadSeq]
+                        : [NSString stringWithFormat:@"来自 %@", message.from ?: @"?"];
+    _statusLeading.active = !mine;
+    _statusTrailing.active = mine;
 }
 
-- (NSString *)statusTextFor:(IMMessageModel *)message {
+- (NSString *)statusTextFor:(IMMessageModel *)message peerReadSeq:(int64_t)peerReadSeq {
     switch (message.status) {
         case IMMessageStatusSending: return @"发送中…";
-        case IMMessageStatusSent:    return [NSString stringWithFormat:@"已送达 ✓ · seq#%lld", message.convSeq];
         case IMMessageStatusFailed:  return @"发送失败 ✗";
+        case IMMessageStatusSent:
+            // 对端已读到本条 → 已读双勾；否则已送达单勾。
+            if (message.convSeq > 0 && message.convSeq <= peerReadSeq) { return @"已读 ✓✓"; }
+            return [NSString stringWithFormat:@"已送达 ✓ · seq#%lld", message.convSeq];
         default:                     return @"";
     }
 }
@@ -90,14 +120,24 @@
 @property (nonatomic, strong) NSMutableArray<IMMessageModel *> *messages;
 @property (nonatomic, strong) NSMutableSet<NSNumber *> *seenConvSeqs; // 按 conv_seq 去重，避免推送+同步重复
 @property (nonatomic, copy) NSString *convID;
+@property (nonatomic, assign) int64_t entryReadSeq;   // 进入前已读位点（定位未读分割线，进会话锁定一次）
+@property (nonatomic, assign) NSInteger entryUnread;   // 进入时未读数
+@property (nonatomic, assign) int64_t peerReadSeq;     // 对端已读位点（用于「已读」双勾）
+@property (nonatomic, assign) BOOL peerOnline;         // 对端在线
+@property (nonatomic, assign) IMSocketState connState; // 连接态（与在线点共同决定标题）
+@property (nonatomic, assign) BOOL didInitialPosition; // 已做进会话定位（只定位一次）
+@property (nonatomic, assign) NSTimeInterval lastTypingSent; // typing 节流
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) UITextField *inputField;
 @property (nonatomic, strong) NSLayoutConstraint *inputBottom;
+@property (nonatomic, strong) UILabel *typingLabel;
+@property (nonatomic, strong) NSLayoutConstraint *typingHeight;
 @end
 
 @implementation IMChatViewController
 
-- (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID peerID:(NSString *)peerID {
+- (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID peerID:(NSString *)peerID
+                     readSeq:(int64_t)readSeq unread:(NSInteger)unread {
     self = [super initWithNibName:nil bundle:nil];
     if (self) {
         self.hidesBottomBarWhenPushed = YES; // 进聊天页隐藏底部 TabBar（push 时全屏）
@@ -105,6 +145,8 @@
         _userID = [userID copy];
         _peerID = [peerID copy];
         _convID = IMConversationID(userID, peerID);
+        _entryReadSeq = readSeq;
+        _entryUnread = unread;
         // 本地落库：进入即秒显历史。
         _messages = [[IMDatabase.sharedDatabase messagesForConv:_convID] mutableCopy];
         _seenConvSeqs = [NSMutableSet set];
@@ -132,6 +174,11 @@
     [IMSocketManager.sharedManager trackConversation:self.convID syncedSeq:synced];
 }
 
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    [self positionInitialIfNeeded]; // 进会话定位：有未读停首条未读，否则到底
+}
+
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
     if (self.isMovingFromParentViewController) {
@@ -154,6 +201,15 @@
     [self.tableView registerClass:IMBubbleCell.class forCellReuseIdentifier:@"bubble"];
     [self.view addSubview:self.tableView];
 
+    // 「对方正在输入」提示条（默认高度 0，typing 时展开）。
+    self.typingLabel = [UILabel new];
+    self.typingLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    self.typingLabel.font = [UIFont systemFontOfSize:12];
+    self.typingLabel.textColor = UIColor.secondaryLabelColor;
+    self.typingLabel.text = @"对方正在输入…";
+    self.typingLabel.clipsToBounds = YES;
+    [self.view addSubview:self.typingLabel];
+
     UIView *inputBar = [UIView new];
     inputBar.translatesAutoresizingMaskIntoConstraints = NO;
     inputBar.backgroundColor = UIColor.secondarySystemBackgroundColor;
@@ -165,6 +221,7 @@
     self.inputField.placeholder = @"输入消息…";
     self.inputField.returnKeyType = UIReturnKeySend;
     self.inputField.delegate = self;
+    [self.inputField addTarget:self action:@selector(inputChanged) forControlEvents:UIControlEventEditingChanged];
     [inputBar addSubview:self.inputField];
 
     UIButton *sendButton = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -175,11 +232,17 @@
 
     UILayoutGuide *guide = self.view.safeAreaLayoutGuide;
     self.inputBottom = [inputBar.bottomAnchor constraintEqualToAnchor:guide.bottomAnchor];
+    self.typingHeight = [self.typingLabel.heightAnchor constraintEqualToConstant:0];
     [NSLayoutConstraint activateConstraints:@[
         [self.tableView.topAnchor constraintEqualToAnchor:guide.topAnchor],
         [self.tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [self.tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-        [self.tableView.bottomAnchor constraintEqualToAnchor:inputBar.topAnchor],
+        [self.tableView.bottomAnchor constraintEqualToAnchor:self.typingLabel.topAnchor],
+
+        [self.typingLabel.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:16],
+        [self.typingLabel.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-16],
+        [self.typingLabel.bottomAnchor constraintEqualToAnchor:inputBar.topAnchor],
+        self.typingHeight,
 
         [inputBar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [inputBar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
@@ -195,6 +258,16 @@
 }
 
 #pragma mark - 发送 / 接收
+
+/// 输入变化 → 发「正在输入」（2s 节流，避免每次按键都发）。
+- (void)inputChanged {
+    if (self.inputField.text.length == 0) { return; }
+    NSTimeInterval now = NSDate.date.timeIntervalSince1970;
+    if (now - self.lastTypingSent > 2.0) {
+        self.lastTypingSent = now;
+        [IMSocketManager.sharedManager sendTypingForConv:self.convID];
+    }
+}
 
 - (void)sendTapped {
     NSString *text = [self.inputField.text stringByTrimmingCharactersInSet:
@@ -238,13 +311,23 @@
 #pragma mark - IMSocketManagerDelegate（主线程回调）
 
 - (void)socketManager:(IMSocketManager *)manager didChangeState:(IMSocketState)state {
+    self.connState = state;
+    [self updateTitle];
+    if (state == IMSocketStateConnected) {
+        [self reportReadLatest]; // 连上后上报已读（打开即全部已读 + 对端看到已读双勾）
+    }
+}
+
+/// 标题：在线点 + 对方 uid + 连接态。
+- (void)updateTitle {
+    NSString *dot = self.peerOnline ? @"🟢 " : @"";
     NSString *suffix = @"";
-    switch (state) {
-        case IMSocketStateConnected:    suffix = @"（已连接）"; break;
+    switch (self.connState) {
+        case IMSocketStateConnected:    suffix = self.peerOnline ? @"（在线）" : @""; break;
         case IMSocketStateConnecting:   suffix = @"（连接中…）"; break;
         case IMSocketStateDisconnected: suffix = @"（未连接）"; break;
     }
-    self.title = [NSString stringWithFormat:@"与 %@ 聊天%@", self.peerID, suffix];
+    self.title = [NSString stringWithFormat:@"%@%@%@", dot, self.peerID, suffix];
 }
 
 - (void)socketManager:(IMSocketManager *)manager didReceiveMessage:(IMMessageModel *)message {
@@ -258,6 +341,35 @@
     }
     [self.messages addObject:message];
     [self appendReloadAndScroll];
+    if (![message.from isEqualToString:self.userID]) { [self reportReadLatest]; } // 正在看 → 标记已读
+}
+
+/// 对端已读到 upToConvSeq → 记录并刷新（已送达 → 已读）。
+- (void)socketManager:(IMSocketManager *)manager didReadConv:(NSString *)convID by:(NSString *)from upToConvSeq:(int64_t)convSeq {
+    if (![convID isEqualToString:self.convID] || [from isEqualToString:self.userID]) { return; }
+    if (convSeq > self.peerReadSeq) {
+        self.peerReadSeq = convSeq;
+        [self.tableView reloadData];
+    }
+}
+
+/// 对端正在输入 → 展开提示条，3s 后自动收起。
+- (void)socketManager:(IMSocketManager *)manager didTypingInConv:(NSString *)convID by:(NSString *)from {
+    if (![convID isEqualToString:self.convID] || [from isEqualToString:self.userID]) { return; }
+    self.typingHeight.constant = 20;
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(hideTyping) object:nil];
+    [self performSelector:@selector(hideTyping) withObject:nil afterDelay:3.0];
+}
+
+- (void)hideTyping {
+    self.typingHeight.constant = 0;
+}
+
+/// 对端在线状态变化 → 更新标题在线点。
+- (void)socketManager:(IMSocketManager *)manager didChangePresenceForUser:(NSString *)user online:(BOOL)online {
+    if (![user isEqualToString:self.peerID]) { return; }
+    self.peerOnline = online;
+    [self updateTitle];
 }
 
 #pragma mark - UITextFieldDelegate
@@ -277,8 +389,39 @@
     IMBubbleCell *cell = [tableView dequeueReusableCellWithIdentifier:@"bubble" forIndexPath:indexPath];
     IMMessageModel *m = self.messages[indexPath.row];
     BOOL mine = [m.from isEqualToString:self.userID];
-    [cell configureWithMessage:m mine:mine];
+    BOOL showsDivider = (indexPath.row == [self firstUnreadRow]);
+    [cell configureWithMessage:m mine:mine peerReadSeq:self.peerReadSeq showsUnreadDivider:showsDivider];
     return cell;
+}
+
+/// 首条未读所在行：conv_seq > entryReadSeq 的第一条「对端」消息；无未读返回 -1。
+- (NSInteger)firstUnreadRow {
+    if (self.entryUnread <= 0) { return -1; }
+    for (NSInteger i = 0; i < (NSInteger)self.messages.count; i++) {
+        IMMessageModel *m = self.messages[i];
+        if (m.convSeq > self.entryReadSeq && ![m.from isEqualToString:self.userID]) { return i; }
+    }
+    return -1;
+}
+
+/// 进会话定位（只做一次）：有未读则停在首条未读，否则到底（CHAT_UX §3）。
+- (void)positionInitialIfNeeded {
+    if (self.didInitialPosition || self.messages.count == 0) { return; }
+    self.didInitialPosition = YES;
+    NSInteger unreadRow = [self firstUnreadRow];
+    NSInteger target = unreadRow >= 0 ? unreadRow : (NSInteger)self.messages.count - 1;
+    UITableViewScrollPosition pos = unreadRow >= 0 ? UITableViewScrollPositionTop : UITableViewScrollPositionBottom;
+    [self.tableView scrollToRowAtIndexPath:[NSIndexPath indexPathForRow:target inSection:0]
+                          atScrollPosition:pos animated:NO];
+}
+
+/// 上报已读到本会话最新位点（打开即全部已读：清未读 + 对端看到已读双勾）。
+- (void)reportReadLatest {
+    int64_t maxSeq = 0;
+    for (IMMessageModel *m in self.messages) {
+        if (![m.from isEqualToString:self.userID] && m.convSeq > maxSeq) { maxSeq = m.convSeq; }
+    }
+    if (maxSeq > 0) { [IMSocketManager.sharedManager markReadConv:self.convID upToConvSeq:maxSeq]; }
 }
 
 #pragma mark - 辅助
@@ -304,6 +447,7 @@
 
 - (void)dealloc {
     [NSNotificationCenter.defaultCenter removeObserver:self];
+    [NSObject cancelPreviousPerformRequestsWithTarget:self];
 }
 
 @end

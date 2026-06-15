@@ -19,6 +19,7 @@
     c.convID = [self stringForKey:@"conv_id" in:dict];
     c.peer = [self stringForKey:@"peer" in:dict];
     c.latestConvSeq = [dict[@"latest_conv_seq"] respondsToSelector:@selector(longLongValue)] ? [dict[@"latest_conv_seq"] longLongValue] : 0;
+    c.readSeq = [dict[@"read_seq"] respondsToSelector:@selector(longLongValue)] ? [dict[@"read_seq"] longLongValue] : 0;
     c.unread = [dict[@"unread"] respondsToSelector:@selector(integerValue)] ? [dict[@"unread"] integerValue] : 0;
 
     NSDictionary *last = [dict[@"last_message"] isKindOfClass:[NSDictionary class]] ? dict[@"last_message"] : nil;

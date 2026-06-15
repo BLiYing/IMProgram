@@ -41,6 +41,8 @@
     XCTAssertEqualObjects(kIMTypeAck, @"ack");
     XCTAssertEqualObjects(kIMTypeNewMsg, @"new_msg");
     XCTAssertEqualObjects(kIMTypeReceipt, @"receipt");
+    XCTAssertEqualObjects(kIMTypeTyping, @"typing");     // M2
+    XCTAssertEqualObjects(kIMTypePresence, @"presence"); // M2
     XCTAssertEqualObjects(kIMTypeSyncReq, @"sync_req");
     XCTAssertEqualObjects(kIMTypeSyncResp, @"sync_resp");
     XCTAssertEqualObjects(kIMTypePing, @"ping");
@@ -80,7 +82,7 @@
 
 - (void)testConversationParsing {
     NSArray *arr = @[
-        @{ @"conv_id": @"u_1001_u_1002", @"peer": @"1002", @"latest_conv_seq": @5, @"unread": @0,
+        @{ @"conv_id": @"u_1001_u_1002", @"peer": @"1002", @"latest_conv_seq": @5, @"read_seq": @3, @"unread": @2,
            @"last_message": @{ @"content": @"hi", @"from": @"1001", @"timestamp": @1700000000000 } },
         @{ @"conv_id": @"u_1001_u_1003", @"peer": @"1003" }, // 无 last_message
     ];
@@ -90,8 +92,11 @@
     XCTAssertEqualObjects(convs[0].lastContent, @"hi");
     XCTAssertEqualObjects(convs[0].lastFrom, @"1001");
     XCTAssertEqual(convs[0].latestConvSeq, 5);
+    XCTAssertEqual(convs[0].readSeq, 3);   // M2：已读位点
+    XCTAssertEqual(convs[0].unread, 2);     // M2：未读数
     XCTAssertEqual(convs[0].timestamp, 1700000000000);
     XCTAssertNil(convs[1].lastContent); // 无 last_message
+    XCTAssertEqual(convs[1].readSeq, 0); // 缺省
 }
 
 - (void)testConversationParsingToleratesDirtyData {

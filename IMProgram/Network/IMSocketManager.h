@@ -26,6 +26,12 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
 - (void)socketManager:(IMSocketManager *)manager didChangeState:(IMSocketState)state;
 /// 收到对方的新消息 new_msg（主线程）。
 - (void)socketManager:(IMSocketManager *)manager didReceiveMessage:(IMMessageModel *)message;
+/// 收到对端已读回执：from 已读到 upToConvSeq（用于「已读」双勾）（主线程）。
+- (void)socketManager:(IMSocketManager *)manager didReadConv:(NSString *)convID by:(NSString *)from upToConvSeq:(int64_t)convSeq;
+/// 对端「正在输入」（主线程）。
+- (void)socketManager:(IMSocketManager *)manager didTypingInConv:(NSString *)convID by:(NSString *)from;
+/// 某用户在线状态变化（主线程）。
+- (void)socketManager:(IMSocketManager *)manager didChangePresenceForUser:(NSString *)user online:(BOOL)online;
 @end
 
 @interface IMSocketManager : NSObject
@@ -48,6 +54,12 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
 - (NSString *)sendText:(NSString *)text
                toUser:(NSString *)toUserID
            completion:(nullable IMSendCompletion)completion;
+
+/// 上报「已读到 convSeq」：对端据此显示已读双勾，本人未读随之清零（仅 read 推进已读位点）。
+- (void)markReadConv:(NSString *)convID upToConvSeq:(int64_t)convSeq;
+
+/// 发送「正在输入」给会话对端（临时态，对端短暂显示后自动消失）。
+- (void)sendTypingForConv:(NSString *)convID;
 
 /// 登记一个会话用于增量同步：每次（重）连成功后，自动从该会话已同步位点发 sync_req
 /// 拉取离线/缺失的消息。

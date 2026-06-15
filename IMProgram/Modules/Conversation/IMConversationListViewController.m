@@ -123,7 +123,17 @@
         [self showError:@"请输入有效且不同于自己的对方 uid"];
         return;
     }
-    IMChatViewController *chat = [[IMChatViewController alloc] initWithHost:self.host userID:self.userID peerID:peer];
+    // 从「发起会话」进入：新会话无已读位点/未读。
+    IMChatViewController *chat = [[IMChatViewController alloc] initWithHost:self.host userID:self.userID
+                                                                    peerID:peer readSeq:0 unread:0];
+    [self.navigationController pushViewController:chat animated:YES];
+}
+
+/// 从会话列表进入：带 read_seq + unread，供聊天页定位未读分割线（CHAT_UX §3）。
+- (void)openChatWithConversation:(IMConversation *)c {
+    if (c.peer.length == 0 || [c.peer isEqualToString:self.userID]) { return; }
+    IMChatViewController *chat = [[IMChatViewController alloc] initWithHost:self.host userID:self.userID
+                                                                    peerID:c.peer readSeq:c.readSeq unread:c.unread];
     [self.navigationController pushViewController:chat animated:YES];
 }
 
@@ -142,13 +152,35 @@
     cell.textLabel.text = c.peer;
     cell.detailTextLabel.text = c.lastContent.length > 0 ? c.lastContent : @"（无消息）";
     cell.detailTextLabel.textColor = IMTheme.textSecondary;
-    cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    // 未读红点：unread>0 时用红色圆角徽标替代右侧箭头。
+    if (c.unread > 0) {
+        cell.accessoryType = UITableViewCellAccessoryNone;
+        cell.accessoryView = [self badgeViewForCount:c.unread];
+    } else {
+        cell.accessoryView = nil;
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    }
     return cell;
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    [self openChatWithPeer:self.conversations[indexPath.row].peer];
+    [self openChatWithConversation:self.conversations[indexPath.row]];
+}
+
+/// 红色未读徽标（>99 显示 99+）。
+- (UIView *)badgeViewForCount:(NSInteger)count {
+    UILabel *badge = [UILabel new];
+    badge.text = count > 99 ? @"99+" : [NSString stringWithFormat:@"%ld", (long)count];
+    badge.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
+    badge.textColor = UIColor.whiteColor;
+    badge.textAlignment = NSTextAlignmentCenter;
+    badge.backgroundColor = [UIColor colorWithRed:0.898 green:0.224 blue:0.208 alpha:1]; // #e53935
+    CGFloat h = 20, w = MAX(h, [badge sizeThatFits:CGSizeMake(CGFLOAT_MAX, h)].width + 12);
+    badge.frame = CGRectMake(0, 0, w, h);
+    badge.layer.cornerRadius = h / 2;
+    badge.layer.masksToBounds = YES;
+    return badge;
 }
 
 @end

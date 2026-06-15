@@ -247,6 +247,12 @@ static NSString * const kIMErrorDomain = @"IMSocketManagerErrorDomain";
         [self handleNewMsg:payload];
     } else if ([type isEqualToString:kIMTypeSyncResp]) {
         [self handleSyncResp:payload];
+    } else if ([type isEqualToString:kIMTypeReceipt]) {
+        [self handleReceipt:payload];
+    } else if ([type isEqualToString:kIMTypeTyping]) {
+        [self handleTyping:payload];
+    } else if ([type isEqualToString:kIMTypePresence]) {
+        [self handlePresence:payload];
     } else if ([type isEqualToString:kIMTypePong]) {
         // 心跳回应，无需处理
     } else if ([type isEqualToString:kIMTypeError]) {
@@ -407,6 +413,73 @@ static NSString * const kIMErrorDomain = @"IMSocketManagerErrorDomain";
     [self sendEnvelopeType:kIMTypeReceipt
                       data:@{ @"conv_id": convID, @"status": @"delivered", @"up_to_conv_seq": @(convSeq) }
                 completion:nil];
+}
+
+#pragma mark - M2：已读回执 / 正在输入 / 在线状态
+
+/// 上报已读（status=read 推进已读位点）（异步进 _queue）。
+- (void)markReadConv:(NSString *)convID upToConvSeq:(int64_t)convSeq {
+    if (convID.length == 0 || convSeq <= 0) { return; }
+    dispatch_async(_queue, ^{
+        [self sendEnvelopeType:kIMTypeReceipt
+                          data:@{ @"conv_id": convID, @"status": @"read", @"up_to_conv_seq": @(convSeq) }
+                    completion:nil];
+    });
+}
+
+/// 发送「正在输入」（异步进 _queue）。
+- (void)sendTypingForConv:(NSString *)convID {
+    if (convID.length == 0) { return; }
+    dispatch_async(_queue, ^{
+        [self sendEnvelopeType:kIMTypeTyping data:@{ @"conv_id": convID } completion:nil];
+    });
+}
+
+/// 处理对端已读回执（仅在 _queue 调用）：只关心 read，投递 delegate。
+- (void)handleReceipt:(NSDictionary *)data {
+    if (![data[@"status"] isEqual:@"read"]) { return; } // delivered 单勾本端暂不显示
+    NSString *convID = [data[@"conv_id"] isKindOfClass:[NSString class]] ? data[@"conv_id"] : nil;
+    NSString *from = [data[@"from"] isKindOfClass:[NSString class]] ? data[@"from"] : @"";
+    int64_t upTo = [data[@"up_to_conv_seq"] longLongValue];
+    if (convID.length == 0) { return; }
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        __strong typeof(weakSelf) self = weakSelf;
+        id<IMSocketManagerDelegate> d = self.delegate;
+        if ([d respondsToSelector:@selector(socketManager:didReadConv:by:upToConvSeq:)]) {
+            [d socketManager:self didReadConv:convID by:from upToConvSeq:upTo];
+        }
+    });
+}
+
+/// 处理对端「正在输入」（仅在 _queue 调用）。
+- (void)handleTyping:(NSDictionary *)data {
+    NSString *convID = [data[@"conv_id"] isKindOfClass:[NSString class]] ? data[@"conv_id"] : nil;
+    NSString *from = [data[@"from"] isKindOfClass:[NSString class]] ? data[@"from"] : @"";
+    if (convID.length == 0) { return; }
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        __strong typeof(weakSelf) self = weakSelf;
+        id<IMSocketManagerDelegate> d = self.delegate;
+        if ([d respondsToSelector:@selector(socketManager:didTypingInConv:by:)]) {
+            [d socketManager:self didTypingInConv:convID by:from];
+        }
+    });
+}
+
+/// 处理在线状态广播（仅在 _queue 调用）。
+- (void)handlePresence:(NSDictionary *)data {
+    NSString *user = [data[@"user"] isKindOfClass:[NSString class]] ? data[@"user"] : nil;
+    BOOL online = [data[@"status"] isEqual:@"online"];
+    if (user.length == 0) { return; }
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        __strong typeof(weakSelf) self = weakSelf;
+        id<IMSocketManagerDelegate> d = self.delegate;
+        if ([d respondsToSelector:@selector(socketManager:didChangePresenceForUser:online:)]) {
+            [d socketManager:self didChangePresenceForUser:user online:online];
+        }
+    });
 }
 
 #pragma mark - 增量同步（重连补偿拉取）

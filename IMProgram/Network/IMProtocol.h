@@ -14,6 +14,8 @@ extern NSString * const kIMTypeSendMsg;
 extern NSString * const kIMTypeAck;
 extern NSString * const kIMTypeNewMsg;
 extern NSString * const kIMTypeReceipt;
+extern NSString * const kIMTypeTyping;
+extern NSString * const kIMTypePresence;
 extern NSString * const kIMTypeSyncReq;
 extern NSString * const kIMTypeSyncResp;
 extern NSString * const kIMTypeError;
