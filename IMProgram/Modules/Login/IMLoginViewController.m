@@ -3,7 +3,7 @@
 #import "IMLoginViewController.h"
 #import "IMMainTabBarController.h"
 
-static NSString * const kIMDefaultHost = @"192.168.1.3:8080"; // 真机联调默认 Mac 局域网 IP（模拟器可改 localhost:8080）
+static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过的 host
 
 @interface IMLoginViewController ()
 @property (nonatomic, strong) UITextField *hostField;
@@ -19,8 +19,19 @@ static NSString * const kIMDefaultHost = @"192.168.1.3:8080"; // 真机联调默
     [self setupUI];
 }
 
+/// 默认 host：模拟器恒用 localhost（与 Mac 共享网络，不受 DHCP 变 IP 影响）；
+/// 真机优先用上次成功填过的地址，否则给个占位让用户改成 Mac 当前局域网 IP。
+- (NSString *)defaultHost {
+#if TARGET_OS_SIMULATOR
+    return @"localhost:8080";
+#else
+    NSString *last = [NSUserDefaults.standardUserDefaults stringForKey:kIMLastHostKey];
+    return last.length > 0 ? last : @"192.168.1.x:8080";
+#endif
+}
+
 - (void)setupUI {
-    self.hostField   = [self fieldWithPlaceholder:@"服务器地址 host:port" text:kIMDefaultHost keyboard:UIKeyboardTypeURL];
+    self.hostField   = [self fieldWithPlaceholder:@"服务器地址 host:port" text:[self defaultHost] keyboard:UIKeyboardTypeURL];
     self.userIDField = [self fieldWithPlaceholder:@"我的 uid" text:@"1001" keyboard:UIKeyboardTypeNumberPad];
 
     UIButton *enterButton = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -65,6 +76,7 @@ static NSString * const kIMDefaultHost = @"192.168.1.3:8080"; // 真机联调默
         [self showAlert:@"请填写服务器地址与我的 uid"];
         return;
     }
+    [NSUserDefaults.standardUserDefaults setObject:host forKey:kIMLastHostKey]; // 记住，下次免重填
     // 进入主界面（会话列表）。会话列表负责登录换 token + 拉会话。
     IMMainTabBarController *main = [[IMMainTabBarController alloc] initWithHost:host userID:userID];
     self.view.window.rootViewController = main;
