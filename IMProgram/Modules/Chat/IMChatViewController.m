@@ -215,6 +215,8 @@
 @property (nonatomic, copy) NSString *convID;
 @property (nonatomic, assign) int64_t entryReadSeq;   // 进入前已读位点（定位未读分割线，进会话锁定一次）
 @property (nonatomic, assign) NSInteger entryUnread;   // 进入时未读数
+@property (nonatomic, assign) int64_t maxReadReported; // 已上报的最大已读 conv_seq（可见即读，单调不回退）
+@property (nonatomic, assign) int64_t pendingReadSeq;  // 已滚入视口的最大 conv_seq（节流后上报）
 @property (nonatomic, assign) int64_t peerReadSeq;     // 对端已读位点（用于「已读」双勾）
 @property (nonatomic, assign) BOOL peerOnline;         // 对端在线
 @property (nonatomic, assign) IMSocketState connState; // 连接态（与在线点共同决定标题）
@@ -226,8 +228,7 @@
 @property (nonatomic, strong) UILabel *typingLabel;
 @property (nonatomic, strong) NSLayoutConstraint *typingHeight;
 @property (nonatomic, strong) UIButton *jumpButton;   // 右下角"↓N"回到最新
-@property (nonatomic, strong) UILabel *jumpBadge;     // 按钮上的未读计数
-@property (nonatomic, assign) NSInteger jumpCount;    // ↓N 的 N（下方未读/新消息数）
+@property (nonatomic, strong) UILabel *jumpBadge;     // 按钮上的未读计数（=视口下方未读数）
 @end
 
 @implementation IMChatViewController
@@ -243,6 +244,8 @@
         _convID = IMConversationID(userID, peerID);
         _entryReadSeq = readSeq;
         _entryUnread = unread;
+        _maxReadReported = readSeq;   // 已读起点=进入前位点，仅在可见消息超过它时才上报
+        _pendingReadSeq = readSeq;
         // 本地落库：进入即秒显历史。
         _messages = [[IMDatabase.sharedDatabase messagesForConv:_convID] mutableCopy];
         _seenConvSeqs = [NSMutableSet set];
@@ -273,6 +276,8 @@
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
     [self positionInitialIfNeeded]; // 进会话定位：有未读停首条未读，否则到底
+    // 可见即读：把定位后当前可见的消息标为已读（不滚动也算看到）。等定位/布局落定后扫一遍。
+    dispatch_async(dispatch_get_main_queue(), ^{ [self markVisibleRowsRead]; });
 }
 
 - (void)viewWillDisappear:(BOOL)animated {
@@ -464,7 +469,7 @@
     self.connState = state;
     [self updateTitle];
     if (state == IMSocketStateConnected) {
-        [self reportReadLatest]; // 连上后上报已读（打开即全部已读 + 对端看到已读双勾）
+        [self markVisibleRowsRead]; // 重连后把当前可见的补报一次已读（可见即读）
     }
 }
 
@@ -493,14 +498,9 @@
     BOOL wasNearBottom = [self isNearBottom];
     [self.messages addObject:message];
     [self.tableView reloadData];
-    if (wasNearBottom) {
-        [self scrollToBottomAnimated:YES];
-        self.jumpCount = 0;
-    } else if (![message.from isEqualToString:self.userID]) {
-        self.jumpCount += 1;
-    }
-    [self updateJumpButton];
-    if (![message.from isEqualToString:self.userID]) { [self reportReadLatest]; } // 正在看 → 标记已读
+    if (wasNearBottom) { [self scrollToBottomAnimated:YES]; }
+    // 可见即读 + ↓N 刷新：贴底时新消息进视口即标已读；在上方看历史则不读、↓N 计数 +1（markVisibleRowsRead 内重算）。
+    [self markVisibleRowsRead];
 }
 
 /// 对端已读到 upToConvSeq → 记录并刷新（已送达 → 已读）。
@@ -614,29 +614,44 @@
     UITableViewScrollPosition pos = unreadRow >= 0 ? UITableViewScrollPositionTop : UITableViewScrollPositionBottom;
     [self.tableView scrollToRowAtIndexPath:[NSIndexPath indexPathForRow:target inSection:0]
                           atScrollPosition:pos animated:NO];
-    // 停在首条未读 → 预置 ↓N 计数为未读数；下一轮 runloop 等偏移落定后判定
-    //（未读整屏放得下则不显示，CHAT_UX §7）。
-    if (unreadRow >= 0) { self.jumpCount = self.entryUnread; }
-    dispatch_async(dispatch_get_main_queue(), ^{ [self updateJumpButton]; });
+    // 定位后下一轮 runloop（偏移落定）再扫一遍可见行：推进已读 + 刷新 ↓N（未读整屏放得下则不显示）。
+    dispatch_async(dispatch_get_main_queue(), ^{ [self markVisibleRowsRead]; });
 }
 
-/// 上报已读到本会话最新位点（打开即全部已读：清未读 + 对端看到已读双勾）。
-- (void)reportReadLatest {
+/// 可见即读（CHAT_UX §6 完整语义）：扫描当前在视口内的行，取其最大 conv_seq；
+/// 若超过已滚入位点则记录并节流上报（read_seq 单调推进，对端据此显示已读双勾、列表未读递减）。
+- (void)markVisibleRowsRead {
     int64_t maxSeq = 0;
-    for (IMMessageModel *m in self.messages) {
-        if (![m.from isEqualToString:self.userID] && m.convSeq > maxSeq) { maxSeq = m.convSeq; }
+    for (NSIndexPath *ip in self.tableView.indexPathsForVisibleRows) {
+        if (ip.row < (NSInteger)self.messages.count) {
+            int64_t s = self.messages[ip.row].convSeq;
+            if (s > maxSeq) { maxSeq = s; }
+        }
     }
-    if (maxSeq > 0) { [IMSocketManager.sharedManager markReadConv:self.convID upToConvSeq:maxSeq]; }
+    if (maxSeq > self.pendingReadSeq) {
+        self.pendingReadSeq = maxSeq;
+        // 节流：滚动停 0.3s 后才真正发，避免每像素一条 receipt。
+        [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(flushReadPosition) object:nil];
+        [self performSelector:@selector(flushReadPosition) withObject:nil afterDelay:0.3];
+    }
+    [self updateJumpButton]; // 位点推进/新消息后刷新 ↓N 计数
+}
+
+/// 把节流累积的已读位点上报（仅在超过上次上报值时发）。
+- (void)flushReadPosition {
+    if (self.pendingReadSeq > self.maxReadReported) {
+        self.maxReadReported = self.pendingReadSeq;
+        [IMSocketManager.sharedManager markReadConv:self.convID upToConvSeq:self.maxReadReported];
+    }
 }
 
 #pragma mark - 辅助
 
-/// 自己发送：刷新 + 始终贴底 + 清零跳转计数（CHAT_UX §9）。
+/// 自己发送：刷新 + 始终贴底（贴底后 ↓N 自动隐藏）。
 - (void)appendReloadAndScroll {
     [self.tableView reloadData];
-    self.jumpCount = 0;
     [self scrollToBottomAnimated:YES];
-    [self updateJumpButton];
+    [self markVisibleRowsRead];
 }
 
 #pragma mark - ↓N 跳转按钮 / 自动滚动（CHAT_UX §7、§9）
@@ -656,28 +671,38 @@
 
 - (void)scrollViewDidScroll:(UIScrollView *)scrollView {
     if (self.tableView.contentSize.height <= 0) { return; }
-    [self updateJumpButton];
+    [self markVisibleRowsRead]; // 可见即读：滚到哪、读到哪（先推进 pendingReadSeq）
+    [self updateJumpButton];    // 再据新位点刷新 ↓N 计数
 }
 
-/// 据当前滚动位置显示/隐藏"↓N"：贴底则隐藏并清零；离底则显示，有计数才显徽标。
+/// 据当前滚动位置显示/隐藏"↓N"：贴底则隐藏；离底则显示，徽标=视口下方未读数（随滚动递减）。
 - (void)updateJumpButton {
     if ([self isNearBottom]) {
-        self.jumpCount = 0;
         self.jumpButton.hidden = YES;
         self.jumpBadge.hidden = YES;
         return;
     }
     self.jumpButton.hidden = NO;
-    if (self.jumpCount > 0) {
+    NSInteger below = [self unreadBelowReadFrontier];
+    if (below > 0) {
         self.jumpBadge.hidden = NO;
-        self.jumpBadge.text = self.jumpCount > 99 ? @"99+" : [NSString stringWithFormat:@"%ld", (long)self.jumpCount];
+        self.jumpBadge.text = below > 99 ? @"99+" : [NSString stringWithFormat:@"%ld", (long)below];
     } else {
         self.jumpBadge.hidden = YES;
     }
 }
 
+/// 视口下方仍未读的对端消息数 = conv_seq 超过已滚入位点(pendingReadSeq)的对端消息数。
+/// 随着向下滚动 pendingReadSeq 推进 → 该数递减，滚到底为 0。
+- (NSInteger)unreadBelowReadFrontier {
+    NSInteger n = 0;
+    for (IMMessageModel *m in self.messages) {
+        if (![m.from isEqualToString:self.userID] && m.convSeq > self.pendingReadSeq) { n++; }
+    }
+    return n;
+}
+
 - (void)jumpTapped {
-    self.jumpCount = 0;
     [self scrollToBottomAnimated:YES];
     [self updateJumpButton];
 }

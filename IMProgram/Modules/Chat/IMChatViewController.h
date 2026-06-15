@@ -8,7 +8,7 @@ NS_ASSUME_NONNULL_BEGIN
 @interface IMChatViewController : UIViewController
 
 /// host 形如 "localhost:8080"；userID 我方 uid；peerID 对方 uid。
-/// readSeq：进入前的已读位点（定位未读分割线，首条未读=conv_seq>readSeq）；unread：进入时未读数。
+/// readSeq：进入前的已读位点（定位未读分割线 + 可见即读的起点，首条未读=conv_seq>readSeq）；unread：进入时未读数。
 - (instancetype)initWithHost:(NSString *)host
                       userID:(NSString *)userID
                       peerID:(NSString *)peerID

@@ -301,7 +301,7 @@ static CGFloat const kIMRowLeading = 16;
     [self.navigationController pushViewController:chat animated:YES];
 }
 
-/// 从会话列表进入：带 read_seq + unread，供聊天页定位未读分割线（CHAT_UX §3）。
+/// 从会话列表进入：带 read_seq + unread，供聊天页定位未读分割线 + 可见即读起点（CHAT_UX §3/§6）。
 - (void)openChatWithConversation:(IMConversation *)c {
     if (c.peer.length == 0 || [c.peer isEqualToString:self.userID]) { return; }
     IMChatViewController *chat = [[IMChatViewController alloc] initWithHost:self.host userID:self.userID
