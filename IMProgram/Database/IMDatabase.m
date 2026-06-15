@@ -105,6 +105,16 @@
     return out;
 }
 
+- (void)deleteMessage:(IMMessageModel *)message {
+    if (message.convID.length == 0) { return; }
+    [_queue inDatabase:^(FMDatabase *db) {
+        NSNumber *rowID = [self existingRowIDFor:message in:db];
+        if (rowID) {
+            [db executeUpdate:@"DELETE FROM im_message_local WHERE row_id=?", rowID];
+        }
+    }];
+}
+
 - (int64_t)maxConvSeqForConv:(NSString *)convID {
     __block int64_t maxSeq = 0;
     [_queue inDatabase:^(FMDatabase *db) {

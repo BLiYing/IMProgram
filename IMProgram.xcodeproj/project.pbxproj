@@ -61,15 +61,11 @@
 		};
 		B2853AF42FDD41A800896F20 /* IMProgramTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = IMProgramTests;
 			sourceTree = "<group>";
 		};
 		B2853AFE2FDD41A800896F20 /* IMProgramUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = IMProgramUITests;
 			sourceTree = "<group>";
 		};
@@ -141,7 +137,6 @@
 				D7D612AE64D08FDF5CC26108 /* Pods-IMProgramTests.debug.xcconfig */,
 				EF55B98D4B12A66B57D9765E /* Pods-IMProgramTests.release.xcconfig */,
 			);
-			name = Pods;
 			path = Pods;
 			sourceTree = "<group>";
 		};
@@ -289,9 +284,13 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-IMProgram/Pods-IMProgram-resources-${CONFIGURATION}-input-files.xcfilelist",
 			);
+			inputPaths = (
+			);
 			name = "[CP] Copy Pods Resources";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-IMProgram/Pods-IMProgram-resources-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;

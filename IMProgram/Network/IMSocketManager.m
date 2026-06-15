@@ -3,6 +3,7 @@
 #import "IMSocketManager.h"
 #import "IMProtocol.h"
 #import "IMMessageModel.h"
+#import "IMDatabase.h"
 #import "IMLog.h"
 
 #pragma mark - 调参常量
@@ -14,6 +15,9 @@ static const NSTimeInterval kIMReconnectBase  = 1.0;  ///< 重连退避基数
 static const NSTimeInterval kIMReconnectCap   = 30.0; ///< 重连退避上限
 
 static NSString * const kIMErrorDomain = @"IMSocketManagerErrorDomain";
+
+NSString * const IMSocketDidReceiveMessageNotification = @"IMSocketDidReceiveMessageNotification";
+NSString * const kIMConvIDKey = @"convID";
 
 #pragma mark - 待确认发送项
 
@@ -77,6 +81,11 @@ static NSString * const kIMErrorDomain = @"IMSocketManagerErrorDomain";
         return;
     }
     dispatch_async(_queue, ^{
+        // 幂等：已连到同一 host+uid 且未主动断开 → 复用现连接（避免会话列表/聊天页重复调用造成重连抖动）。
+        if (self.state == IMSocketStateConnected && !self->_manualClose
+            && [self->_host isEqualToString:host] && [self.userID isEqualToString:userID]) {
+            return;
+        }
         self->_host = [host copy];
         self.userID = userID;
         self->_manualClose = NO;
@@ -395,8 +404,17 @@ static NSString * const kIMErrorDomain = @"IMSocketManagerErrorDomain";
 
 /// 统一处理收到的一条消息：推进同步位点、回执、投递 delegate（仅在 _queue 调用）。
 - (void)processIncomingMessage:(IMMessageModel *)msg {
+    // 空洞自愈：conv_seq 由服务端连续分配，若收到的序号跳过了已同步位点之后的中间段，
+    // 说明中间有未拉取（离线）消息 → 先从已同步位点补拉，避免实时消息把 synced 推过空洞造成漏消息。
+    int64_t prevSynced = [self syncedSeqForConv:msg.convID];
+    if (prevSynced > 0 && msg.convSeq > prevSynced + 1 && [_trackedConvs containsObject:msg.convID]) {
+        [self sendSyncReqForConvs:@[msg.convID]]; // 用当前（更低的）位点作 since，把缺口拉回
+    }
     [self updateSyncedSeqForConv:msg.convID seq:msg.convSeq];
     [self sendReceiptForConv:msg.convID upTo:msg.convSeq];
+    // 落库放在网络层：无论当前在会话列表还是聊天页（甚至无页面）收到的消息都持久化，
+    // 避免「在列表收到、未入库、之后开聊天页因 synced 已前进而漏拉」。按 conv_seq 幂等 upsert。
+    [IMDatabase.sharedDatabase saveMessage:msg];
     __weak typeof(self) weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
         __strong typeof(weakSelf) self = weakSelf;
@@ -404,6 +422,10 @@ static NSString * const kIMErrorDomain = @"IMSocketManagerErrorDomain";
         if ([d respondsToSelector:@selector(socketManager:didReceiveMessage:)]) {
             [d socketManager:self didReceiveMessage:msg];
         }
+        // 广播给非当前页（会话列表实时刷新未读/最后一条），不占用单一 delegate。
+        [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidReceiveMessageNotification
+                                                         object:self
+                                                       userInfo:@{ kIMConvIDKey: msg.convID ?: @"" }];
     });
 }
 

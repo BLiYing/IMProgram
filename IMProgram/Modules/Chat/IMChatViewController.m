@@ -1,6 +1,7 @@
 //  IMChatViewController.m
 
 #import "IMChatViewController.h"
+#import "IMChatBackgroundView.h"
 #import "IMSocketManager.h"
 #import "IMProtocol.h"
 #import "IMMessageModel.h"
@@ -10,17 +11,22 @@
 
 #pragma mark - 气泡 Cell（Telegram 风格：圆角气泡 + 尾巴 + 气泡内时间/双勾）
 
-/// 私有消息气泡 Cell：自己的消息靠右（蓝），对方靠左（灰）。
-/// 顶部可选「未读消息」分割线；气泡内右下角显示时间，自己的消息按对端已读位点显示 ✓/✓✓。
+/// 私有消息气泡 Cell：自己的消息靠右（浅绿），对方靠左（白）。
+/// 顶部可选「日期分隔胶囊」+「未读消息」分割线；气泡内右下角时间，自己的消息按对端已读位点显示 ✓/✓✓（已读绿）。
 @interface IMBubbleCell : UITableViewCell
 - (void)configureWithMessage:(IMMessageModel *)message
                         mine:(BOOL)mine
                  peerReadSeq:(int64_t)peerReadSeq
+                   dayHeader:(nullable NSString *)dayHeader
           showsUnreadDivider:(BOOL)showsDivider;
 @end
 
 @implementation IMBubbleCell {
-    UILabel *_divider;
+    UIView  *_datePill;       // 日期分隔胶囊（居中浮于壁纸上）
+    UILabel *_dateLabel;
+    NSLayoutConstraint *_datePillTop;
+    NSLayoutConstraint *_datePillHeight;
+    UILabel *_divider;        // 「未读消息」分割线
     NSLayoutConstraint *_dividerHeight;
     UIView *_bubble;
     UILabel *_text;
@@ -34,6 +40,20 @@
     if (self) {
         self.selectionStyle = UITableViewCellSelectionStyleNone;
         self.backgroundColor = UIColor.clearColor;
+
+        _datePill = [UIView new];
+        _datePill.translatesAutoresizingMaskIntoConstraints = NO;
+        _datePill.backgroundColor = IMTheme.datePillBg;
+        _datePill.layer.cornerRadius = 12;
+        _datePill.layer.masksToBounds = YES;
+        [self.contentView addSubview:_datePill];
+
+        _dateLabel = [UILabel new];
+        _dateLabel.translatesAutoresizingMaskIntoConstraints = NO;
+        _dateLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+        _dateLabel.textColor = IMTheme.datePillText;
+        _dateLabel.textAlignment = NSTextAlignmentCenter;
+        [_datePill addSubview:_dateLabel];
 
         _divider = [UILabel new];
         _divider.translatesAutoresizingMaskIntoConstraints = NO;
@@ -64,9 +84,18 @@
 
         _leading = [_bubble.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12];
         _trailing = [_bubble.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-12];
+        _datePillTop = [_datePill.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:0];
+        _datePillHeight = [_datePill.heightAnchor constraintEqualToConstant:0];
         _dividerHeight = [_divider.heightAnchor constraintEqualToConstant:0];
         [NSLayoutConstraint activateConstraints:@[
-            [_divider.topAnchor constraintEqualToAnchor:self.contentView.topAnchor],
+            _datePillTop,
+            [_datePill.centerXAnchor constraintEqualToAnchor:self.contentView.centerXAnchor],
+            _datePillHeight,
+            [_dateLabel.leadingAnchor constraintEqualToAnchor:_datePill.leadingAnchor constant:12],
+            [_dateLabel.trailingAnchor constraintEqualToAnchor:_datePill.trailingAnchor constant:-12],
+            [_dateLabel.centerYAnchor constraintEqualToAnchor:_datePill.centerYAnchor],
+
+            [_divider.topAnchor constraintEqualToAnchor:_datePill.bottomAnchor],
             [_divider.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor],
             [_divider.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor],
             _dividerHeight,
@@ -91,18 +120,24 @@
 - (void)configureWithMessage:(IMMessageModel *)message
                         mine:(BOOL)mine
                  peerReadSeq:(int64_t)peerReadSeq
+                   dayHeader:(NSString *)dayHeader
           showsUnreadDivider:(BOOL)showsDivider {
+    BOOL showsDate = dayHeader.length > 0;
+    _datePill.hidden = !showsDate;
+    _dateLabel.text = dayHeader;
+    _datePillHeight.constant = showsDate ? 24 : 0;
+    _datePillTop.constant = showsDate ? 8 : 0;
+
     _divider.hidden = !showsDivider;
     _dividerHeight.constant = showsDivider ? 28 : 0;
 
     _bubble.backgroundColor = mine ? IMTheme.bubbleMe : IMTheme.bubbleThem;
-    _text.textColor = mine ? IMTheme.bubbleMeText : IMTheme.textPrimary;
-    _meta.textColor = mine ? [UIColor colorWithWhite:1 alpha:0.75] : IMTheme.textSecondary;
-    NSString *meta = mine ? [self metaForMine:message peerReadSeq:peerReadSeq]
-                          : [IMTheme timeStringFromMillis:message.timestamp];
-    _meta.text = meta;
+    _text.textColor = IMTheme.textPrimary; // 浅色气泡上用主文本色（深色模式自动转白）
+    NSString *plainMeta = nil;
+    _meta.attributedText = [self attributedMetaForMessage:message mine:mine
+                                              peerReadSeq:peerReadSeq plain:&plainMeta];
     // 文本末尾追加占位空格，给右下角 meta 预留位置（不重叠）。
-    _text.text = [message.content stringByAppendingString:[self paddingForMeta:meta]];
+    _text.text = [(message.content ?: @"") stringByAppendingString:[self paddingForMeta:plainMeta]];
 
     // 尾巴：自己靠右气泡的右下角不圆（成尾），对方靠左气泡的左下角不圆。
     _bubble.layer.maskedCorners = mine
@@ -125,17 +160,45 @@
     return pad;
 }
 
-/// 自己消息右下角：时间 + 状态勾（发送中/失败/已送达 ✓/已读 ✓✓）。
-- (NSString *)metaForMine:(IMMessageModel *)message peerReadSeq:(int64_t)peerReadSeq {
+/// 气泡内右下角富文本：时间(灰)；自己消息追加状态勾——已送达 ✓(灰)/已读 ✓✓(绿)/发送中/失败。
+/// outPlain 回填纯文本（供 paddingForMeta 估宽）。
+- (NSAttributedString *)attributedMetaForMessage:(IMMessageModel *)message
+                                            mine:(BOOL)mine
+                                     peerReadSeq:(int64_t)peerReadSeq
+                                           plain:(NSString **)outPlain {
     NSString *time = [IMTheme timeStringFromMillis:message.timestamp];
+    UIColor *timeColor = IMTheme.bubbleMetaTime;
+    NSDictionary *base = @{ NSFontAttributeName: _meta.font, NSForegroundColorAttributeName: timeColor };
+
+    if (!mine) {
+        *outPlain = time;
+        return [[NSAttributedString alloc] initWithString:time attributes:base];
+    }
     switch (message.status) {
-        case IMMessageStatusSending: return @"发送中…";
-        case IMMessageStatusFailed:  return @"未发送 ✗";
+        case IMMessageStatusSending: {
+            *outPlain = @"发送中…";
+            return [[NSAttributedString alloc] initWithString:@"发送中…" attributes:base];
+        }
+        case IMMessageStatusFailed: {
+            *outPlain = @"未发送 ✗";
+            return [[NSAttributedString alloc] initWithString:@"未发送 ✗"
+                attributes:@{ NSFontAttributeName: _meta.font, NSForegroundColorAttributeName: UIColor.systemRedColor }];
+        }
         case IMMessageStatusSent: {
             BOOL read = message.convSeq > 0 && message.convSeq <= peerReadSeq;
-            return [NSString stringWithFormat:@"%@ %@", time, read ? @"✓✓" : @"✓"];
+            NSString *checks = read ? @"✓✓" : @"✓";
+            NSString *plain = [NSString stringWithFormat:@"%@ %@", time, checks];
+            *outPlain = plain;
+            NSMutableAttributedString *s = [[NSMutableAttributedString alloc] initWithString:plain attributes:base];
+            // 已读双勾绿；已送达单勾沿用灰。
+            [s addAttribute:NSForegroundColorAttributeName
+                      value:(read ? IMTheme.checkRead : timeColor)
+                      range:NSMakeRange(time.length + 1, checks.length)];
+            return s;
         }
-        default: return time;
+        default:
+            *outPlain = time;
+            return [[NSAttributedString alloc] initWithString:time attributes:base];
     }
 }
 
@@ -143,7 +206,7 @@
 
 #pragma mark - 聊天页
 
-@interface IMChatViewController () <IMSocketManagerDelegate, UITableViewDataSource, UITextFieldDelegate>
+@interface IMChatViewController () <IMSocketManagerDelegate, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate>
 @property (nonatomic, copy) NSString *host;
 @property (nonatomic, copy) NSString *userID;
 @property (nonatomic, copy) NSString *peerID;
@@ -162,6 +225,9 @@
 @property (nonatomic, strong) NSLayoutConstraint *inputBottom;
 @property (nonatomic, strong) UILabel *typingLabel;
 @property (nonatomic, strong) NSLayoutConstraint *typingHeight;
+@property (nonatomic, strong) UIButton *jumpButton;   // 右下角"↓N"回到最新
+@property (nonatomic, strong) UILabel *jumpBadge;     // 按钮上的未读计数
+@property (nonatomic, assign) NSInteger jumpCount;    // ↓N 的 N（下方未读/新消息数）
 @end
 
 @implementation IMChatViewController
@@ -212,7 +278,8 @@
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
     if (self.isMovingFromParentViewController) {
-        [IMSocketManager.sharedManager disconnect];
+        // 不断开长连接：返回会话列表后仍需常驻接收新消息以实时刷新未读（见 IMConversationListViewController）。
+        // 仅交还 delegate，避免离开后本页继续处理消息。
         if (IMSocketManager.sharedManager.delegate == self) {
             IMSocketManager.sharedManager.delegate = nil;
         }
@@ -225,8 +292,11 @@
     self.tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
     self.tableView.translatesAutoresizingMaskIntoConstraints = NO;
     self.tableView.dataSource = self;
+    self.tableView.delegate = self;
     self.tableView.separatorStyle = UITableViewCellSeparatorStyleNone;
     self.tableView.allowsSelection = NO;
+    self.tableView.backgroundColor = UIColor.clearColor;
+    self.tableView.backgroundView = [IMChatBackgroundView new]; // Telegram 绿主题壁纸
     self.tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
     [self.tableView registerClass:IMBubbleCell.class forCellReuseIdentifier:@"bubble"];
     [self.view addSubview:self.tableView];
@@ -271,6 +341,33 @@
     [sendButton addTarget:self action:@selector(sendTapped) forControlEvents:UIControlEventTouchUpInside];
     [inputBar addSubview:sendButton];
 
+    // 右下角"↓N"悬浮跳转按钮（默认隐藏；滚离底部时出现，点按回到最新；CHAT_UX §7）。
+    self.jumpButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    self.jumpButton.translatesAutoresizingMaskIntoConstraints = NO;
+    UIImageSymbolConfiguration *jcfg = [UIImageSymbolConfiguration configurationWithPointSize:18 weight:UIImageSymbolWeightSemibold];
+    [self.jumpButton setImage:[UIImage systemImageNamed:@"chevron.down" withConfiguration:jcfg] forState:UIControlStateNormal];
+    self.jumpButton.tintColor = IMTheme.textPrimary;
+    self.jumpButton.backgroundColor = UIColor.secondarySystemBackgroundColor;
+    self.jumpButton.layer.cornerRadius = 20;
+    self.jumpButton.layer.shadowColor = UIColor.blackColor.CGColor;
+    self.jumpButton.layer.shadowOpacity = 0.18;
+    self.jumpButton.layer.shadowRadius = 4;
+    self.jumpButton.layer.shadowOffset = CGSizeMake(0, 2);
+    self.jumpButton.hidden = YES;
+    [self.jumpButton addTarget:self action:@selector(jumpTapped) forControlEvents:UIControlEventTouchUpInside];
+    [self.view addSubview:self.jumpButton];
+
+    self.jumpBadge = [UILabel new];
+    self.jumpBadge.translatesAutoresizingMaskIntoConstraints = NO;
+    self.jumpBadge.font = [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
+    self.jumpBadge.textColor = UIColor.whiteColor;
+    self.jumpBadge.backgroundColor = IMTheme.unreadBadge; // 与会话列表未读一致（蓝）
+    self.jumpBadge.textAlignment = NSTextAlignmentCenter;
+    self.jumpBadge.layer.cornerRadius = 9;
+    self.jumpBadge.layer.masksToBounds = YES;
+    self.jumpBadge.hidden = YES;
+    [self.view addSubview:self.jumpBadge];
+
     UILayoutGuide *guide = self.view.safeAreaLayoutGuide;
     self.inputBottom = [inputBar.bottomAnchor constraintEqualToAnchor:guide.bottomAnchor];
     self.typingHeight = [self.typingLabel.heightAnchor constraintEqualToConstant:0];
@@ -298,6 +395,15 @@
         [sendButton.centerYAnchor constraintEqualToAnchor:inputBar.centerYAnchor],
         [sendButton.widthAnchor constraintEqualToConstant:36],
         [sendButton.heightAnchor constraintEqualToConstant:36],
+
+        [self.jumpButton.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-16],
+        [self.jumpButton.bottomAnchor constraintEqualToAnchor:self.typingLabel.topAnchor constant:-12],
+        [self.jumpButton.widthAnchor constraintEqualToConstant:40],
+        [self.jumpButton.heightAnchor constraintEqualToConstant:40],
+        [self.jumpBadge.centerXAnchor constraintEqualToAnchor:self.jumpButton.trailingAnchor constant:-5],
+        [self.jumpBadge.centerYAnchor constraintEqualToAnchor:self.jumpButton.topAnchor constant:5],
+        [self.jumpBadge.heightAnchor constraintEqualToConstant:18],
+        [self.jumpBadge.widthAnchor constraintGreaterThanOrEqualToConstant:18],
     ]];
 }
 
@@ -383,8 +489,17 @@
         if ([self.seenConvSeqs containsObject:key]) { return; }
         [self.seenConvSeqs addObject:key];
     }
+    // 收到新消息：贴底才自动贴底；在上方看历史则不打断，累加到"↓N"（CHAT_UX §9）。
+    BOOL wasNearBottom = [self isNearBottom];
     [self.messages addObject:message];
-    [self appendReloadAndScroll];
+    [self.tableView reloadData];
+    if (wasNearBottom) {
+        [self scrollToBottomAnimated:YES];
+        self.jumpCount = 0;
+    } else if (![message.from isEqualToString:self.userID]) {
+        self.jumpCount += 1;
+    }
+    [self updateJumpButton];
     if (![message.from isEqualToString:self.userID]) { [self reportReadLatest]; } // 正在看 → 标记已读
 }
 
@@ -434,8 +549,50 @@
     IMMessageModel *m = self.messages[indexPath.row];
     BOOL mine = [m.from isEqualToString:self.userID];
     BOOL showsDivider = (indexPath.row == [self firstUnreadRow]);
-    [cell configureWithMessage:m mine:mine peerReadSeq:self.peerReadSeq showsUnreadDivider:showsDivider];
+    [cell configureWithMessage:m mine:mine peerReadSeq:self.peerReadSeq
+                     dayHeader:[self dayHeaderForRow:indexPath.row]
+            showsUnreadDivider:showsDivider];
     return cell;
+}
+
+/// 按时间分组：每自然日首条消息上方显示日期分隔胶囊（今天/昨天/M月d日）。无效时间或同日返回 nil。
+- (NSString *)dayHeaderForRow:(NSInteger)row {
+    IMMessageModel *m = self.messages[row];
+    if (m.timestamp <= 0) { return nil; } // 发送中（未拿到服务端时间）不显示日期
+    if (row == 0) { return [IMTheme dayHeaderStringFromMillis:m.timestamp]; }
+    IMMessageModel *prev = self.messages[row - 1];
+    if ([IMTheme isMillis:m.timestamp sameDayAsMillis:prev.timestamp]) { return nil; }
+    return [IMTheme dayHeaderStringFromMillis:m.timestamp];
+}
+
+#pragma mark - 长按消息菜单（复制 / 删除）
+
+- (UIContextMenuConfiguration *)tableView:(UITableView *)tableView
+    contextMenuConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath point:(CGPoint)point {
+    if (indexPath.row >= (NSInteger)self.messages.count) { return nil; }
+    IMMessageModel *message = self.messages[indexPath.row];
+    __weak typeof(self) weakSelf = self;
+    return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil
+        actionProvider:^UIMenu *(NSArray<UIMenuElement *> *suggested) {
+            UIAction *copy = [UIAction actionWithTitle:@"复制"
+                image:[UIImage systemImageNamed:@"doc.on.doc"] identifier:nil
+                handler:^(__kindof UIAction *a) {
+                    UIPasteboard.generalPasteboard.string = message.content ?: @"";
+                }];
+            UIAction *del = [UIAction actionWithTitle:@"删除"
+                image:[UIImage systemImageNamed:@"trash"] identifier:nil
+                handler:^(__kindof UIAction *a) { [weakSelf deleteMessage:message]; }];
+            del.attributes = UIMenuElementAttributesDestructive;
+            return [UIMenu menuWithTitle:@"" children:@[copy, del]];
+        }];
+}
+
+/// 本地删除一条消息（仅本端：从库 + 内存移除并刷新；不影响对端）。
+- (void)deleteMessage:(IMMessageModel *)message {
+    [IMDatabase.sharedDatabase deleteMessage:message];
+    [self.messages removeObject:message];
+    if (message.convSeq > 0) { [self.seenConvSeqs removeObject:@(message.convSeq)]; }
+    [self.tableView reloadData];
 }
 
 /// 首条未读所在行：conv_seq > entryReadSeq 的第一条「对端」消息；无未读返回 -1。
@@ -457,6 +614,10 @@
     UITableViewScrollPosition pos = unreadRow >= 0 ? UITableViewScrollPositionTop : UITableViewScrollPositionBottom;
     [self.tableView scrollToRowAtIndexPath:[NSIndexPath indexPathForRow:target inSection:0]
                           atScrollPosition:pos animated:NO];
+    // 停在首条未读 → 预置 ↓N 计数为未读数；下一轮 runloop 等偏移落定后判定
+    //（未读整屏放得下则不显示，CHAT_UX §7）。
+    if (unreadRow >= 0) { self.jumpCount = self.entryUnread; }
+    dispatch_async(dispatch_get_main_queue(), ^{ [self updateJumpButton]; });
 }
 
 /// 上报已读到本会话最新位点（打开即全部已读：清未读 + 对端看到已读双勾）。
@@ -470,11 +631,55 @@
 
 #pragma mark - 辅助
 
+/// 自己发送：刷新 + 始终贴底 + 清零跳转计数（CHAT_UX §9）。
 - (void)appendReloadAndScroll {
     [self.tableView reloadData];
+    self.jumpCount = 0;
+    [self scrollToBottomAnimated:YES];
+    [self updateJumpButton];
+}
+
+#pragma mark - ↓N 跳转按钮 / 自动滚动（CHAT_UX §7、§9）
+
+- (void)scrollToBottomAnimated:(BOOL)animated {
     if (self.messages.count == 0) { return; }
     NSIndexPath *last = [NSIndexPath indexPathForRow:self.messages.count - 1 inSection:0];
-    [self.tableView scrollToRowAtIndexPath:last atScrollPosition:UITableViewScrollPositionBottom animated:YES];
+    [self.tableView scrollToRowAtIndexPath:last atScrollPosition:UITableViewScrollPositionBottom animated:animated];
+}
+
+/// 是否贴近底部（距底 < 80pt，计入底部安全区 inset）。
+- (BOOL)isNearBottom {
+    UIScrollView *sv = self.tableView;
+    CGFloat distance = sv.contentSize.height - sv.contentOffset.y - sv.bounds.size.height + sv.adjustedContentInset.bottom;
+    return distance < 80;
+}
+
+- (void)scrollViewDidScroll:(UIScrollView *)scrollView {
+    if (self.tableView.contentSize.height <= 0) { return; }
+    [self updateJumpButton];
+}
+
+/// 据当前滚动位置显示/隐藏"↓N"：贴底则隐藏并清零；离底则显示，有计数才显徽标。
+- (void)updateJumpButton {
+    if ([self isNearBottom]) {
+        self.jumpCount = 0;
+        self.jumpButton.hidden = YES;
+        self.jumpBadge.hidden = YES;
+        return;
+    }
+    self.jumpButton.hidden = NO;
+    if (self.jumpCount > 0) {
+        self.jumpBadge.hidden = NO;
+        self.jumpBadge.text = self.jumpCount > 99 ? @"99+" : [NSString stringWithFormat:@"%ld", (long)self.jumpCount];
+    } else {
+        self.jumpBadge.hidden = YES;
+    }
+}
+
+- (void)jumpTapped {
+    self.jumpCount = 0;
+    [self scrollToBottomAnimated:YES];
+    [self updateJumpButton];
 }
 
 - (void)observeKeyboard {

@@ -10,6 +10,11 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+/// 收到任意会话的新消息时广播（主线程）。会话列表等非当前页可借此实时刷新（未读/最后一条），
+/// 不占用单一 delegate 槽。userInfo[kIMConvIDKey] 为该消息的会话 id。
+extern NSString * const IMSocketDidReceiveMessageNotification;
+extern NSString * const kIMConvIDKey;
+
 /// 连接状态。
 typedef NS_ENUM(NSInteger, IMSocketState) {
     IMSocketStateDisconnected = 0, ///< 未连接 / 已断开

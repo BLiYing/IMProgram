@@ -8,6 +8,7 @@
 #import "../IMProgram/Models/IMMessageModel.h"
 #import "../IMProgram/Models/IMConversation.h"
 #import "../IMProgram/Database/IMDatabase.h"
+#import "../IMProgram/Common/IMTheme.h"
 
 @interface IMProtocolTests : XCTestCase
 @end
@@ -82,7 +83,8 @@
 
 - (void)testConversationParsing {
     NSArray *arr = @[
-        @{ @"conv_id": @"u_1001_u_1002", @"peer": @"1002", @"latest_conv_seq": @5, @"read_seq": @3, @"unread": @2,
+        @{ @"conv_id": @"u_1001_u_1002", @"peer": @"1002", @"latest_conv_seq": @5, @"read_seq": @3,
+           @"peer_read_seq": @4, @"unread": @2,
            @"last_message": @{ @"content": @"hi", @"from": @"1001", @"timestamp": @1700000000000 } },
         @{ @"conv_id": @"u_1001_u_1003", @"peer": @"1003" }, // 无 last_message
     ];
@@ -92,7 +94,8 @@
     XCTAssertEqualObjects(convs[0].lastContent, @"hi");
     XCTAssertEqualObjects(convs[0].lastFrom, @"1001");
     XCTAssertEqual(convs[0].latestConvSeq, 5);
-    XCTAssertEqual(convs[0].readSeq, 3);   // M2：已读位点
+    XCTAssertEqual(convs[0].readSeq, 3);       // M2：本人已读位点
+    XCTAssertEqual(convs[0].peerReadSeq, 4);   // 对端已读位点（列表已读双勾用）
     XCTAssertEqual(convs[0].unread, 2);     // M2：未读数
     XCTAssertEqual(convs[0].timestamp, 1700000000000);
     XCTAssertNil(convs[1].lastContent); // 无 last_message
@@ -105,6 +108,28 @@
     // 数组里混入非字典项应被跳过。
     NSArray *mixed = @[@"junk", @{ @"conv_id": @"u_1_u_2", @"peer": @"2" }];
     XCTAssertEqual([IMConversation conversationsFromArray:mixed].count, 1);
+}
+
+#pragma mark - 聊天日期分组（IMTheme 工具）
+
+- (void)testSameDayGrouping {
+    int64_t now = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
+    XCTAssertTrue([IMTheme isMillis:now sameDayAsMillis:now + 60 * 1000]); // 同日相隔一分钟
+    XCTAssertFalse([IMTheme isMillis:now sameDayAsMillis:now - 2LL * 24 * 3600 * 1000]); // 隔两天
+    // 0/负值视为无效，恒不同日（用于发送中无服务端时间的消息）。
+    XCTAssertFalse([IMTheme isMillis:0 sameDayAsMillis:now]);
+    XCTAssertFalse([IMTheme isMillis:now sameDayAsMillis:0]);
+}
+
+- (void)testDayHeaderString {
+    int64_t now = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
+    XCTAssertEqualObjects([IMTheme dayHeaderStringFromMillis:now], @"今天");
+    XCTAssertEqualObjects([IMTheme dayHeaderStringFromMillis:now - 24LL * 3600 * 1000], @"昨天");
+    XCTAssertEqualObjects([IMTheme dayHeaderStringFromMillis:0], @""); // 无效时间空串
+    // 更早的固定日期 → "M月d日" 或 "yyyy年M月d日"（不空、含「日」）。
+    NSString *old = [IMTheme dayHeaderStringFromMillis:1700000000000]; // 2023-11
+    XCTAssertTrue(old.length > 0);
+    XCTAssertTrue([old hasSuffix:@"日"]);
 }
 
 #pragma mark - 本地落库 IMDatabase
@@ -131,6 +156,31 @@
     XCTAssertEqual(loaded[0].status, IMMessageStatusSent);
     XCTAssertEqual([db2 maxConvSeqForConv:@"u_1_u_2"], 3); // 派生同步位点
     XCTAssertEqual([db2 maxConvSeqForConv:@"none"], 0);
+
+    [NSFileManager.defaultManager removeItemAtURL:tmp error:NULL];
+}
+
+- (void)testDatabaseDeleteMessage {
+    NSURL *tmp = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString]];
+    IMDatabase *db = [[IMDatabase alloc] initWithFileURL:tmp];
+
+    IMMessageModel *out = [IMMessageModel new]; // 出站：按 clientMsgID 删
+    out.clientMsgID = @"c1"; out.convID = @"u_1_u_2"; out.from = @"1"; out.content = @"a";
+    out.contentType = @"text"; out.status = IMMessageStatusSent; out.convSeq = 5;
+    IMMessageModel *in = [IMMessageModel new]; // 入站：无 clientMsgID，按 conv_seq 删
+    in.convID = @"u_1_u_2"; in.from = @"2"; in.content = @"b"; in.contentType = @"text";
+    in.status = IMMessageStatusReceived; in.convSeq = 6;
+    [db saveMessage:out];
+    [db saveMessage:in];
+    XCTAssertEqual([db messagesForConv:@"u_1_u_2"].count, 2);
+
+    [db deleteMessage:out];
+    NSArray<IMMessageModel *> *left = [db messagesForConv:@"u_1_u_2"];
+    XCTAssertEqual(left.count, 1);
+    XCTAssertEqualObjects(left[0].content, @"b"); // 只剩入站那条
+
+    [db deleteMessage:in];
+    XCTAssertEqual([db messagesForConv:@"u_1_u_2"].count, 0);
 
     [NSFileManager.defaultManager removeItemAtURL:tmp error:NULL];
 }

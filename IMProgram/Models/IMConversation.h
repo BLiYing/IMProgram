@@ -13,6 +13,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) NSString *lastFrom;
 @property (nonatomic, assign) int64_t latestConvSeq;
 @property (nonatomic, assign) int64_t readSeq;         // 本人已读位点（首条未读 = conv_seq > readSeq）
+@property (nonatomic, assign) int64_t peerReadSeq;     // 单聊对端已读位点（判断"我发的最后一条"是否已读；群聊 0）
 @property (nonatomic, assign) int64_t timestamp;       // 最后一条时间（毫秒）
 @property (nonatomic, assign) NSInteger unread;        // 未读数（服务端 cap 999）
 

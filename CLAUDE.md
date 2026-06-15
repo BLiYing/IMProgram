@@ -18,6 +18,7 @@ iOS 即时通讯（IM）聊天 App。标准 Xcode 工程，UIKit + Storyboard。
 
 ## 工作约定
 - **每次开始主要回复前，先读 `current_task.md` 恢复上下文**，改动后更新它。
+- **`current_task.md` 是"活快照"，不是流水账**：固定四节（当前焦点 / 下一步 / 已知坑·限制 / 关联工程·常用命令），**就地覆盖，禁止往下追加 `Status ②③④…` 新块**。需要留痕的历史交给 `git log` 与 `current_task.archive.md`（只读归档）。逐功能×端状态一律只写 `../IMServer/docs/CLIENT_PARITY.md`（唯一来源），别处不复述 ✅。
 - 遵循 `CODING_STYLE.md`：类前缀 `IM`、4 空格缩进、网络/IO 必须有错误恢复。
 - 架构设计见 `ARCHITECTURE.md`；通信协议见 `../IMServer/docs/PROTOCOL.md`。
 - 提交信息格式：`类型(模块): 描述`。
@@ -32,7 +33,9 @@ iOS 即时通讯（IM）聊天 App。标准 Xcode 工程，UIKit + Storyboard。
 3. 测试 bundle 编译：`xcodebuild build-for-testing -workspace IMProgram.xcworkspace -scheme IMProgram -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO` → `** TEST BUILD SUCCEEDED **`。
    - **不强制启动模拟器执行**（本机模拟器子系统不稳，常 launchd_sim 卡死）。XCTest 由用户在真机/Xcode 手动跑。
 4. 更新 `current_task.md`。
-5. **给出真机验证清单**：列出本次需在真机上肉眼确认的功能点，交用户手测；明确说清「没做什么 / 已知限制 / TODO」，不假装完成。
+5. **更新 `../IMServer/docs/CLIENT_PARITY.md` 对应单元格**（功能×端状态的唯一来源）。
+6. **端对齐扫一遍**：凡声明"某功能完成/对齐 Web"，先按 CLIENT_PARITY **逐行 diff iOS↔Web**——Web ✅ 而 iOS ⬜ 的就是缺口，要么补上、要么在回复里点名为已知缺口。（"↓N 跳转"曾因没做这步而漏掉。）
+7. **给出真机验证清单**：列出本次需在真机上肉眼确认的功能点，交用户手测；明确说清「没做什么 / 已知限制 / TODO」，不假装完成。
 
 主动建议（不必用户开口）：
 - 完成较大功能后，建议跑 `/code-review` 自审找 bug。

@@ -3,6 +3,8 @@
 #import "IMConversationListViewController.h"
 #import "IMChatViewController.h"
 #import "IMHTTPService.h"
+#import "IMSocketManager.h"
+#import "IMDatabase.h"
 #import "IMConversation.h"
 #import "IMTheme.h"
 #import "IMLog.h"
@@ -13,7 +15,7 @@ static CGFloat const kIMAvatarSize = 52;
 static CGFloat const kIMRowLeading = 16;
 
 @interface IMConversationCell : UITableViewCell
-- (void)configureWithConversation:(IMConversation *)c;
+- (void)configureWithConversation:(IMConversation *)c mine:(BOOL)mine;
 @end
 
 @implementation IMConversationCell {
@@ -21,6 +23,7 @@ static CGFloat const kIMRowLeading = 16;
     UILabel *_name;
     UILabel *_last;
     UILabel *_time;
+    UILabel *_check;   // 最后一条是我发的 → 时间左侧显示 ✓✓（绿）
     UILabel *_badge;
     NSLayoutConstraint *_badgeWidth;
 }
@@ -56,12 +59,19 @@ static CGFloat const kIMRowLeading = 16;
         _time.textAlignment = NSTextAlignmentRight;
         [self.contentView addSubview:_time];
 
+        _check = [UILabel new];
+        _check.translatesAutoresizingMaskIntoConstraints = NO;
+        _check.font = [UIFont systemFontOfSize:13];
+        _check.textColor = IMTheme.checkRead;
+        _check.text = @"✓✓";
+        [self.contentView addSubview:_check];
+
         _badge = [UILabel new];
         _badge.translatesAutoresizingMaskIntoConstraints = NO;
         _badge.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
         _badge.textColor = UIColor.whiteColor;
         _badge.textAlignment = NSTextAlignmentCenter;
-        _badge.backgroundColor = IMTheme.accent; // Telegram 未读用蓝色胶囊
+        _badge.backgroundColor = IMTheme.unreadBadge; // Telegram 未读用蓝色胶囊（区别于绿在线点/绿勾）
         _badge.layer.cornerRadius = 10;
         _badge.layer.masksToBounds = YES;
         [self.contentView addSubview:_badge];
@@ -84,6 +94,9 @@ static CGFloat const kIMRowLeading = 16;
             [_time.trailingAnchor constraintEqualToAnchor:g.trailingAnchor],
             [_time.centerYAnchor constraintEqualToAnchor:_name.centerYAnchor],
 
+            [_check.trailingAnchor constraintEqualToAnchor:_time.leadingAnchor constant:-4],
+            [_check.centerYAnchor constraintEqualToAnchor:_time.centerYAnchor],
+
             [_last.leadingAnchor constraintEqualToAnchor:_name.leadingAnchor],
             [_last.topAnchor constraintEqualToAnchor:_name.bottomAnchor constant:4],
             [_last.trailingAnchor constraintLessThanOrEqualToAnchor:_badge.leadingAnchor constant:-8],
@@ -97,12 +110,21 @@ static CGFloat const kIMRowLeading = 16;
     return self;
 }
 
-- (void)configureWithConversation:(IMConversation *)c {
+- (void)configureWithConversation:(IMConversation *)c mine:(BOOL)mine {
     _avatar.text = c.peer.length >= 2 ? [c.peer substringFromIndex:c.peer.length - 2] : c.peer;
     _avatar.backgroundColor = [IMTheme avatarColorForSeed:c.peer];
     _name.text = c.peer;
     _last.text = c.lastContent.length > 0 ? c.lastContent : @"（无消息）";
     _time.text = [IMTheme timeStringFromMillis:c.timestamp];
+    // 最后一条是我发的才显示勾：对端已读到该条 → 绿 ✓✓；否则 → 灰单勾 ✓（已送达/未读）。
+    // 已读判定用后端返回的对端已读位点 peer_read_seq（CHAT_UX §8）。
+    BOOL showCheck = mine && c.lastContent.length > 0;
+    _check.hidden = !showCheck;
+    if (showCheck) {
+        BOOL read = c.latestConvSeq > 0 && c.latestConvSeq <= c.peerReadSeq;
+        _check.text = read ? @"✓✓" : @"✓";
+        _check.textColor = read ? IMTheme.checkRead : IMTheme.textSecondary;
+    }
     if (c.unread > 0) {
         _badge.hidden = NO;
         _badge.text = c.unread > 99 ? @"99+" : [NSString stringWithFormat:@"%ld", (long)c.unread];
@@ -122,6 +144,8 @@ static CGFloat const kIMRowLeading = 16;
 @property (nonatomic, strong) NSArray<IMConversation *> *conversations;
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) UILabel *emptyLabel;
+@property (nonatomic, assign) BOOL visible; // 在屏时才响应新消息刷新（避免进聊天页时无谓拉取）
+@property (nonatomic, strong) NSMutableSet<NSString *> *trackedConvIDs; // 已登记增量同步的会话（每会话只登记一次）
 @end
 
 @implementation IMConversationListViewController
@@ -132,6 +156,7 @@ static CGFloat const kIMRowLeading = 16;
         _host = [host copy];
         _userID = [userID copy];
         _conversations = @[];
+        _trackedConvIDs = [NSMutableSet set];
     }
     return self;
 }
@@ -172,7 +197,30 @@ static CGFloat const kIMRowLeading = 16;
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
+    self.visible = YES;
+    // 保持长连接在会话列表常驻：收到任意会话新消息即实时刷新未读/最后一条（不必切 Tab）。
+    [IMSocketManager.sharedManager connectToHost:self.host userID:self.userID];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketMessage:)
+                                               name:IMSocketDidReceiveMessageNotification object:nil];
     [self reload];
+}
+
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    self.visible = NO;
+    [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidReceiveMessageNotification object:nil];
+}
+
+/// 收到新消息（任意会话）→ 节流刷新列表（合并连发的多条，避免每条都拉一次）。
+- (void)onSocketMessage:(NSNotification *)note {
+    if (!self.visible) { return; }
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(reload) object:nil];
+    [self performSelector:@selector(reload) withObject:nil afterDelay:0.4];
+}
+
+- (void)dealloc {
+    [NSNotificationCenter.defaultCenter removeObserver:self];
+    [NSObject cancelPreviousPerformRequestsWithTarget:self];
 }
 
 #pragma mark - 数据
@@ -198,8 +246,21 @@ static CGFloat const kIMRowLeading = 16;
             self.conversations = convs ?: @[];
             self.emptyLabel.hidden = self.conversations.count > 0;
             [self.tableView reloadData];
+            [self trackConversationsForSync]; // 登记会话用于（重）连后增量同步，补拉离线消息
         }];
     }];
+}
+
+/// 把会话登记到长连接的增量同步集（每会话仅一次）：以本地已存最大 conv_seq 为起点，
+/// （重）连后自动 sync_req 补拉离线消息。修复"登录后停在会话列表，对端离线期间发的消息不入库，
+/// 之后开聊天页因 synced 已被实时消息推过而漏拉"。
+- (void)trackConversationsForSync {
+    for (IMConversation *c in self.conversations) {
+        if (c.convID.length == 0 || [self.trackedConvIDs containsObject:c.convID]) { continue; }
+        [self.trackedConvIDs addObject:c.convID];
+        int64_t synced = [IMDatabase.sharedDatabase maxConvSeqForConv:c.convID];
+        [IMSocketManager.sharedManager trackConversation:c.convID syncedSeq:synced];
+    }
 }
 
 - (void)showError:(NSString *)message {
@@ -256,7 +317,8 @@ static CGFloat const kIMRowLeading = 16;
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     IMConversationCell *cell = [tableView dequeueReusableCellWithIdentifier:@"conv" forIndexPath:indexPath];
-    [cell configureWithConversation:self.conversations[indexPath.row]];
+    IMConversation *c = self.conversations[indexPath.row];
+    [cell configureWithConversation:c mine:[c.lastFrom isEqualToString:self.userID]];
     return cell;
 }
 
