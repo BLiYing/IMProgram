@@ -30,7 +30,6 @@
     NSLayoutConstraint *_dividerHeight;
     UIView *_bubble;
     UILabel *_text;
-    UILabel *_meta;
     NSLayoutConstraint *_leading;
     NSLayoutConstraint *_trailing;
 }
@@ -76,12 +75,6 @@
         _text.font = [UIFont systemFontOfSize:17];
         [_bubble addSubview:_text];
 
-        _meta = [UILabel new];
-        _meta.translatesAutoresizingMaskIntoConstraints = NO;
-        _meta.font = [UIFont systemFontOfSize:11];
-        _meta.textAlignment = NSTextAlignmentRight;
-        [_bubble addSubview:_meta];
-
         _leading = [_bubble.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12];
         _trailing = [_bubble.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-12];
         _datePillTop = [_datePill.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:0];
@@ -104,14 +97,12 @@
             [_bubble.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3],
             [_bubble.widthAnchor constraintLessThanOrEqualToAnchor:self.contentView.widthAnchor multiplier:0.75],
 
-            // 气泡内 padding：文本占满，时间/双勾叠在右下角（文本末尾用占位空格预留位，
-            // 实现 Telegram 行内右下角效果，短消息也不另起一行、不显散）。
+            // 气泡内文本：时间+✓/✓✓ 作为小字尾巴拼进同一段富文本（不再用独立 label 叠加+空格占位，
+            // 那种做法短消息时气泡不为尾随空格变宽→ meta 溢出圆角裁剪而看不见。现在 meta 一定随文本渲染）。
             [_text.topAnchor constraintEqualToAnchor:_bubble.topAnchor constant:6],
             [_text.leadingAnchor constraintEqualToAnchor:_bubble.leadingAnchor constant:12],
             [_text.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor constant:-12],
             [_text.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:-6],
-            [_meta.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor constant:-10],
-            [_meta.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:-7],
         ]];
     }
     return self;
@@ -132,12 +123,18 @@
     _dividerHeight.constant = showsDivider ? 28 : 0;
 
     _bubble.backgroundColor = mine ? IMTheme.bubbleMe : IMTheme.bubbleThem;
-    _text.textColor = IMTheme.textPrimary; // 浅色气泡上用主文本色（深色模式自动转白）
-    NSString *plainMeta = nil;
-    _meta.attributedText = [self attributedMetaForMessage:message mine:mine
-                                              peerReadSeq:peerReadSeq plain:&plainMeta];
-    // 文本末尾追加占位空格，给右下角 meta 预留位置（不重叠）。
-    _text.text = [(message.content ?: @"") stringByAppendingString:[self paddingForMeta:plainMeta]];
+    // 正文 + 小字尾巴（时间/✓/✓✓）拼成一段富文本，保证状态一定随气泡渲染。
+    NSMutableAttributedString *body = [[NSMutableAttributedString alloc]
+        initWithString:(message.content ?: @"")
+            attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:17],
+                          NSForegroundColorAttributeName: IMTheme.textPrimary }];
+    NSAttributedString *meta = [self attributedMetaForMessage:message mine:mine peerReadSeq:peerReadSeq];
+    if (meta.length > 0) {
+        [body appendAttributedString:[[NSAttributedString alloc] initWithString:@"   "
+            attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:11] }]]; // 与尾巴之间留点空隙
+        [body appendAttributedString:meta];
+    }
+    _text.attributedText = body;
 
     // 尾巴：自己靠右气泡的右下角不圆（成尾），对方靠左气泡的左下角不圆。
     _bubble.layer.maskedCorners = mine
@@ -148,58 +145,37 @@
     _trailing.active = mine;
 }
 
-/// 为右下角 meta 在文本末尾预留的占位空格（不间断空格，按 meta 宽度估算个数）。
-- (NSString *)paddingForMeta:(NSString *)meta {
-    if (meta.length == 0) { return @""; }
-    CGFloat metaW = [meta sizeWithAttributes:@{NSFontAttributeName: _meta.font}].width;
-    CGFloat spaceW = [@" " sizeWithAttributes:@{NSFontAttributeName: _text.font}].width;
-    NSInteger count = spaceW > 0 ? (NSInteger)ceil((metaW + 10) / spaceW) : 0;
-    NSMutableString *pad = [NSMutableString stringWithCapacity:count + 1];
-    [pad appendString:@" "]; // 文本与 meta 之间留一点空隙
-    for (NSInteger i = 0; i < count; i++) { [pad appendString:@" "]; }
-    return pad;
-}
-
 /// 气泡内右下角富文本：时间(灰)；自己消息追加状态勾——已送达 ✓(灰)/已读 ✓✓(绿)/发送中/失败。
-/// outPlain 回填纯文本（供 paddingForMeta 估宽）。
 - (NSAttributedString *)attributedMetaForMessage:(IMMessageModel *)message
                                             mine:(BOOL)mine
-                                     peerReadSeq:(int64_t)peerReadSeq
-                                           plain:(NSString **)outPlain {
+                                     peerReadSeq:(int64_t)peerReadSeq {
+    UIFont *font = [UIFont systemFontOfSize:11];
     NSString *time = [IMTheme timeStringFromMillis:message.timestamp];
     UIColor *timeColor = IMTheme.bubbleMetaTime;
-    NSDictionary *base = @{ NSFontAttributeName: _meta.font, NSForegroundColorAttributeName: timeColor };
+    NSDictionary *base = @{ NSFontAttributeName: font, NSForegroundColorAttributeName: timeColor };
 
     if (!mine) {
-        *outPlain = time;
         return [[NSAttributedString alloc] initWithString:time attributes:base];
     }
-    switch (message.status) {
-        case IMMessageStatusSending: {
-            *outPlain = @"发送中…";
-            return [[NSAttributedString alloc] initWithString:@"发送中…" attributes:base];
-        }
-        case IMMessageStatusFailed: {
-            *outPlain = @"未发送 ✗";
-            return [[NSAttributedString alloc] initWithString:@"未发送 ✗"
-                attributes:@{ NSFontAttributeName: _meta.font, NSForegroundColorAttributeName: UIColor.systemRedColor }];
-        }
-        case IMMessageStatusSent: {
-            BOOL read = message.convSeq > 0 && message.convSeq <= peerReadSeq;
-            NSString *checks = read ? @"✓✓" : @"✓";
-            NSString *plain = [NSString stringWithFormat:@"%@ %@", time, checks];
-            *outPlain = plain;
-            NSMutableAttributedString *s = [[NSMutableAttributedString alloc] initWithString:plain attributes:base];
-            // 已读双勾绿；已送达单勾沿用灰。
-            [s addAttribute:NSForegroundColorAttributeName
-                      value:(read ? IMTheme.checkRead : timeColor)
-                      range:NSMakeRange(time.length + 1, checks.length)];
-            return s;
-        }
-        default:
-            *outPlain = time;
-            return [[NSAttributedString alloc] initWithString:time attributes:base];
+    if (message.status == IMMessageStatusSending) {
+        return [[NSAttributedString alloc] initWithString:@"发送中…" attributes:base];
     }
+    if (message.status == IMMessageStatusFailed) {
+        return [[NSAttributedString alloc] initWithString:@"未发送 ✗"
+            attributes:@{ NSFontAttributeName: font, NSForegroundColorAttributeName: UIColor.systemRedColor }];
+    }
+    // 其余（Sent，或经多端抄送/同步收到的"自己消息"——其 status 为 Received）：
+    // 只要拿到了 conv_seq 即视为已送达，按对端已读位点显示 ✓/✓✓。否则只显时间。
+    if (message.convSeq > 0) {
+        BOOL read = message.convSeq <= peerReadSeq;
+        NSString *checks = read ? @"✓✓" : @"✓";
+        NSString *plain = time.length > 0 ? [NSString stringWithFormat:@"%@ %@", time, checks] : checks;
+        NSMutableAttributedString *s = [[NSMutableAttributedString alloc] initWithString:plain attributes:base];
+        NSRange r = [plain rangeOfString:checks options:NSBackwardsSearch];
+        [s addAttribute:NSForegroundColorAttributeName value:(read ? IMTheme.checkRead : timeColor) range:r];
+        return s;
+    }
+    return [[NSAttributedString alloc] initWithString:time attributes:base];
 }
 
 @end
@@ -444,6 +420,7 @@
     m.from = self.userID;
     m.contentType = @"text";
     m.status = IMMessageStatusSending;
+    m.timestamp = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000); // 本地时间，气泡尾巴即时显示时间（与 Web 一致）
     [IMDatabase.sharedDatabase saveMessage:m]; // 落库（sending）
     [self.messages addObject:m];
     self.inputField.text = @"";
