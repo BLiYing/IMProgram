@@ -249,10 +249,18 @@
     [IMSocketManager.sharedManager trackConversation:self.convID syncedSeq:synced];
 }
 
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    // 在出现动画前、首次布局完成时即定位，避免"先显历史第一条→再滑到最新"的闪动。
+    if (!self.didInitialPosition && self.messages.count > 0 && self.tableView.frame.size.height > 0) {
+        [self positionInitialIfNeeded];
+    }
+}
+
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
-    [self positionInitialIfNeeded]; // 进会话定位：有未读停首条未读，否则到底
-    // 可见即读：把定位后当前可见的消息标为已读（不滚动也算看到）。等定位/布局落定后扫一遍。
+    [self positionInitialIfNeeded]; // 兜底：若 layout 时机未就绪（消息晚到），这里再定位一次
+    // 可见即读：把定位后当前可见的消息标为已读（不滚动也算看到）。
     dispatch_async(dispatch_get_main_queue(), ^{ [self markVisibleRowsRead]; });
 }
 
@@ -276,6 +284,7 @@
     self.tableView.delegate = self;
     self.tableView.separatorStyle = UITableViewCellSeparatorStyleNone;
     self.tableView.allowsSelection = NO;
+    self.tableView.estimatedRowHeight = 56; // 估高更准 → 进会话滚到底更稳，减少自适应高度引起的偏移
     self.tableView.backgroundColor = UIColor.clearColor;
     self.tableView.backgroundView = [IMChatBackgroundView new]; // Telegram 绿主题壁纸
     self.tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
