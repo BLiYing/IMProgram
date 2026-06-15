@@ -75,14 +75,14 @@
             [_bubble.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3],
             [_bubble.widthAnchor constraintLessThanOrEqualToAnchor:self.contentView.widthAnchor multiplier:0.75],
 
-            // 气泡内 padding：文本 + 右下角时间/双勾。
-            [_text.topAnchor constraintEqualToAnchor:_bubble.topAnchor constant:7],
+            // 气泡内 padding：文本占满，时间/双勾叠在右下角（文本末尾用占位空格预留位，
+            // 实现 Telegram 行内右下角效果，短消息也不另起一行、不显散）。
+            [_text.topAnchor constraintEqualToAnchor:_bubble.topAnchor constant:6],
             [_text.leadingAnchor constraintEqualToAnchor:_bubble.leadingAnchor constant:12],
             [_text.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor constant:-12],
-            [_meta.topAnchor constraintEqualToAnchor:_text.bottomAnchor constant:1],
+            [_text.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:-6],
             [_meta.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor constant:-10],
-            [_meta.leadingAnchor constraintGreaterThanOrEqualToAnchor:_bubble.leadingAnchor constant:12],
-            [_meta.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:-6],
+            [_meta.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:-7],
         ]];
     }
     return self;
@@ -95,12 +95,14 @@
     _divider.hidden = !showsDivider;
     _dividerHeight.constant = showsDivider ? 28 : 0;
 
-    _text.text = message.content;
     _bubble.backgroundColor = mine ? IMTheme.bubbleMe : IMTheme.bubbleThem;
     _text.textColor = mine ? IMTheme.bubbleMeText : IMTheme.textPrimary;
     _meta.textColor = mine ? [UIColor colorWithWhite:1 alpha:0.75] : IMTheme.textSecondary;
-    _meta.text = mine ? [self metaForMine:message peerReadSeq:peerReadSeq]
-                      : [IMTheme timeStringFromMillis:message.timestamp];
+    NSString *meta = mine ? [self metaForMine:message peerReadSeq:peerReadSeq]
+                          : [IMTheme timeStringFromMillis:message.timestamp];
+    _meta.text = meta;
+    // 文本末尾追加占位空格，给右下角 meta 预留位置（不重叠）。
+    _text.text = [message.content stringByAppendingString:[self paddingForMeta:meta]];
 
     // 尾巴：自己靠右气泡的右下角不圆（成尾），对方靠左气泡的左下角不圆。
     _bubble.layer.maskedCorners = mine
@@ -109,6 +111,18 @@
 
     _leading.active = !mine;
     _trailing.active = mine;
+}
+
+/// 为右下角 meta 在文本末尾预留的占位空格（不间断空格，按 meta 宽度估算个数）。
+- (NSString *)paddingForMeta:(NSString *)meta {
+    if (meta.length == 0) { return @""; }
+    CGFloat metaW = [meta sizeWithAttributes:@{NSFontAttributeName: _meta.font}].width;
+    CGFloat spaceW = [@" " sizeWithAttributes:@{NSFontAttributeName: _text.font}].width;
+    NSInteger count = spaceW > 0 ? (NSInteger)ceil((metaW + 10) / spaceW) : 0;
+    NSMutableString *pad = [NSMutableString stringWithCapacity:count + 1];
+    [pad appendString:@" "]; // 文本与 meta 之间留一点空隙
+    for (NSInteger i = 0; i < count; i++) { [pad appendString:@" "]; }
+    return pad;
 }
 
 /// 自己消息右下角：时间 + 状态勾（发送中/失败/已送达 ✓/已读 ✓✓）。
