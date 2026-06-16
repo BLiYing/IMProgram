@@ -26,6 +26,23 @@ static NSString *IMFriendlyMessageForCode(NSInteger code) {
     }
 }
 
+/// 传输层错误（连不上 / 超时 / 无网络）→ 友好中文。区别于业务错误码：这类在拿到 JSON 前就失败。
+static NSString *IMFriendlyNetworkError(NSError *error) {
+    if ([error.domain isEqualToString:NSURLErrorDomain]) {
+        switch (error.code) {
+            case NSURLErrorCannotConnectToHost:
+            case NSURLErrorCannotFindHost:
+            case NSURLErrorTimedOut:
+            case NSURLErrorNetworkConnectionLost:
+                return @"无法连接服务器，请确认后端已启动、地址端口正确";
+            case NSURLErrorNotConnectedToInternet:
+                return @"网络未连接，请检查网络";
+            default: break;
+        }
+    }
+    return error.localizedDescription.length > 0 ? error.localizedDescription : @"网络错误";
+}
+
 @implementation IMHTTPService
 
 + (instancetype)sharedService {
@@ -268,17 +285,17 @@ static NSString *IMFriendlyMessageForCode(NSInteger code) {
                                                              completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         __strong typeof(weakSelf) self = weakSelf;
         if (error) {
-            [self callOnMain:^{ completion(nil, error); }];
+            // 传输层失败（连不上/超时）：转友好中文，不把英文 NSError 原文弹给用户。
+            [self callOnMain:^{ completion(nil, [self errorWithMessage:IMFriendlyNetworkError(error)]); }];
             return;
         }
         id obj = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : nil;
         NSDictionary *body = [obj isKindOfClass:[NSDictionary class]] ? obj : nil;
         if (!body) {
-            // 非 JSON 响应（如旧后端 404 纯文本）：带上 HTTP 状态码与正文片段，便于排查。
+            // 非 JSON / 空响应（后端没起或打到错地址）：友好提示 + 附 HTTP 码便于排查。
             NSInteger status = [response isKindOfClass:[NSHTTPURLResponse class]] ? ((NSHTTPURLResponse *)response).statusCode : 0;
-            NSString *snippet = data.length > 0 ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"";
-            if (snippet.length > 120) { snippet = [snippet substringToIndex:120]; }
-            NSString *msg = [NSString stringWithFormat:@"响应解析失败 (HTTP %ld) %@", (long)status, snippet ?: @""];
+            NSString *msg = status == 0 ? @"服务器无响应，请确认后端已启动"
+                : [NSString stringWithFormat:@"服务器响应异常 (HTTP %ld)", (long)status];
             [self callOnMain:^{ completion(nil, [self errorWithMessage:msg]); }];
             return;
         }
