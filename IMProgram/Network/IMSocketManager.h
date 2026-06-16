@@ -15,6 +15,8 @@ NS_ASSUME_NONNULL_BEGIN
 extern NSString * const IMSocketDidReceiveMessageNotification;
 /// 收到好友关系变更帧（friend）时广播（主线程）：通讯录据此实时刷新"新的朋友"/好友列表，无需切页。
 extern NSString * const IMSocketDidReceiveFriendEventNotification;
+/// 收到已读回执（read）时广播（主线程）：会话列表据此刷新——对端已读→我发的变✓✓；本人多端已读→未读清零。
+extern NSString * const IMSocketDidReceiveReadNotification;
 extern NSString * const kIMConvIDKey;
 
 /// 连接状态。

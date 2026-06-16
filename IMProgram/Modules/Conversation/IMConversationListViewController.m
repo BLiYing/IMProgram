@@ -202,6 +202,9 @@ static CGFloat const kIMRowLeading = 16;
     [IMSocketManager.sharedManager connectToHost:self.host userID:self.userID];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketMessage:)
                                                name:IMSocketDidReceiveMessageNotification object:nil];
+    // 已读回执（对端已读→我发的✓✓；本人多端已读→未读清零）也触发列表刷新。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketMessage:)
+                                               name:IMSocketDidReceiveReadNotification object:nil];
     [self reload];
 }
 
@@ -209,6 +212,7 @@ static CGFloat const kIMRowLeading = 16;
     [super viewWillDisappear:animated];
     self.visible = NO;
     [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidReceiveMessageNotification object:nil];
+    [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidReceiveReadNotification object:nil];
 }
 
 /// 收到新消息（任意会话）→ 节流刷新列表（合并连发的多条，避免每条都拉一次）。

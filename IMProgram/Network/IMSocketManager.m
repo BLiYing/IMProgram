@@ -19,6 +19,7 @@ static NSString * const kIMErrorDomain = @"IMSocketManagerErrorDomain";
 
 NSString * const IMSocketDidReceiveMessageNotification = @"IMSocketDidReceiveMessageNotification";
 NSString * const IMSocketDidReceiveFriendEventNotification = @"IMSocketDidReceiveFriendEventNotification";
+NSString * const IMSocketDidReceiveReadNotification = @"IMSocketDidReceiveReadNotification";
 NSString * const kIMConvIDKey = @"convID";
 
 #pragma mark - 待确认发送项
@@ -484,6 +485,10 @@ NSString * const kIMConvIDKey = @"convID";
         if ([d respondsToSelector:@selector(socketManager:didReadConv:by:upToConvSeq:)]) {
             [d socketManager:self didReadConv:convID by:from upToConvSeq:upTo];
         }
+        // 广播给会话列表（非当前页）：对端已读→列表"我发的"变✓✓；本人多端已读→列表未读清零。
+        [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidReceiveReadNotification
+                                                         object:self
+                                                       userInfo:@{ kIMConvIDKey: convID ?: @"" }];
     });
 }
 
