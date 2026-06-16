@@ -18,7 +18,8 @@ static NSString * const kIMHTTPErrorDomain = @"IMHTTPService";
 
 - (void)loginWithUserID:(NSString *)userID
              completion:(void (^)(NSString *, NSError *))completion {
-    NSURLRequest *req = [self postRequestToPath:@"/api/v1/login" body:@{ @"uid": userID ?: @"" }];
+    NSDictionary *reqBody = @{ @"username": userID ?: @"", @"password": self.password ?: @"" };
+    NSURLRequest *req = [self postRequestToPath:@"/api/v1/login" body:reqBody];
     if (!req) {
         [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }];
         return;
@@ -32,6 +33,25 @@ static NSString * const kIMHTTPErrorDomain = @"IMHTTPService";
             return;
         }
         completion(token, nil);
+    }];
+}
+
+- (void)registerWithUsername:(NSString *)username
+                    password:(NSString *)password
+                  completion:(void (^)(NSError *))completion {
+    NSURLRequest *req = [self postRequestToPath:@"/api/v1/register"
+                                           body:@{ @"username": username ?: @"", @"password": password ?: @"" }];
+    if (!req) {
+        [self callOnMain:^{ completion([self errorWithMessage:@"非法服务器地址"]); }];
+        return;
+    }
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(error); return; }
+        if ([body[@"code"] integerValue] != 0) {
+            completion([self errorWithMessage:[self messageFrom:body fallback:@"注册失败"]]);
+            return;
+        }
+        completion(nil);
     }];
 }
 

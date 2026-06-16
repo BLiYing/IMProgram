@@ -12,15 +12,16 @@
   - 新增 `IMUserCard`(含 phone) + `IMHTTPService` 的 search/friends/friendAction/remove/myProfile/updateProfile；复用 `IMTheme` 绿主题、`UIButtonConfiguration`。
   - `IMUserCardTests`（找人/好友/本人资料含 phone/状态映射/脏数据）。`xcodebuild build` + `build-for-testing` 均零 error/warning。
   - **CLIENT_PARITY M2.5 三行 iOS+Web 全 ✅**。
-- **下一步：真账号密码登录**（替换 `-dev-login` 免密直签，后端已具备 register/login+bcrypt）。
+- **真账号密码登录 + 注册 ✅（2026-06-16，iOS+Web）**：`IMHTTPService` 加 `password` 属性（全局共享登录态）+ `registerWithUsername:password:`，`loginWithUserID:` 改发 `{username,password}`；`IMSocketManager` 换 token 也带共享密码。`IMLoginViewController`：用户名+密码 + 登录(真校验，错误密码显服务端文案)/注册并登录/免密登录(开发，凭 uid)。CLIENT_PARITY M1「真账号注册/密码登录」iOS+Web 升 ✅。
+- **里程碑层面 M1+M2+M2.5 客户端基本收口**。下一步可选 M3 群聊。
 
 ## 下一步
-1. 登录改真账号密码：`IMLoginViewController` 加注册/登录表单，调后端 register/login，存 token；替换免密直签。→ CLIENT_PARITY M1「真账号注册/密码登录」iOS 升 ✅。
-2. （性能轨道，按需）iOS 双向分页：DB 分页查询 + 进会话只载最近一页 + 上/下滚翻页保位。
-3. （体验）通讯录头像支持远程图（SDWebImage）；presence 扩到会话列表/通讯录。
+1. （里程碑）M3 群聊 / 群成员管理；或先补「多端同时在线」客户端 UI/位点同步验证（M1 遗留 ⬜）。
+2. （欠账，换真账号后更重要）本地库 `im.sqlite` 按 uid 隔离：不同账号共用一库会串号缓存。
+3. （性能轨道，按需）iOS 双向分页。
 
 ## 已知坑 / 限制
-- **真账号/密码登录未做**：iOS 仍开发期免密直签 uid（后端已具备）。
+- **登录已支持真账号密码**：登录页「免密登录（开发）」仍保留（凭 uid 直签，需后端 `-dev-login`）。注意 dev-login 建的账号（空密码哈希）无法再走密码登录；测密码登录请用「注册并登录」建新号或清 `imserver.db`。
 - **iOS 无双向分页**：进会话一次性全量载入本地 DB；性能轨道、当前不影响使用。
 - **presence/typing 仅聊天页标题**生效；会话列表不显示在线点（后续可同 notification 广播 presence）。
 - 聊天壁纸为 CG 自绘 SF Symbol 近似，非 Telegram 原涂鸦。

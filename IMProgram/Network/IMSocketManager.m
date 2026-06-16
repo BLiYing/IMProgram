@@ -4,6 +4,7 @@
 #import "IMProtocol.h"
 #import "IMMessageModel.h"
 #import "IMDatabase.h"
+#import "IMHTTPService.h"
 #import "IMLog.h"
 
 #pragma mark - 调参常量
@@ -156,7 +157,9 @@ NSString * const kIMConvIDKey = @"convID";
     NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
     req.HTTPMethod = @"POST";
     [req setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-    req.HTTPBody = [NSJSONSerialization dataWithJSONObject:@{ @"uid": uid ?: @"" } options:0 error:NULL];
+    // 与 HTTP 层共用同一登录态：带上全局密码（空=后端开发期免密直签）。
+    NSString *password = IMHTTPService.sharedService.password ?: @"";
+    req.HTTPBody = [NSJSONSerialization dataWithJSONObject:@{ @"username": uid ?: @"", @"password": password } options:0 error:NULL];
     req.timeoutInterval = 10;
 
     __weak typeof(self) weakSelf = self;

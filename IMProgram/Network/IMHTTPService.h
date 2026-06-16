@@ -15,9 +15,18 @@ NS_ASSUME_NONNULL_BEGIN
 /// 服务器地址 host:port（如 192.168.1.3:8080）。
 @property (nonatomic, copy) NSString *host;
 
-/// 开发期免密登录，换取 JWT。completion 在主线程回调。
+/// 当前登录密码（登录成功后由登录页设入；为空=走后端开发期免密直签）。
+/// 全局共享：会话列表/通讯录等内部再登录、以及 IMSocketManager 换 token 都读它，无需逐处透传。
+@property (nonatomic, copy, nullable) NSString *password;
+
+/// 登录换取 JWT：带 password 走真账号校验，password 为空走开发期免密。completion 在主线程回调。
 - (void)loginWithUserID:(NSString *)userID
              completion:(void (^)(NSString *_Nullable token, NSError *_Nullable error))completion;
+
+/// 注册账号：POST /api/v1/register {username, password}（密码 ≥ 6 位由后端校验）。completion 在主线程回调。
+- (void)registerWithUsername:(NSString *)username
+                    password:(NSString *)password
+                  completion:(void (^)(NSError *_Nullable error))completion;
 
 /// 拉取会话列表（Bearer token）。completion 在主线程回调。
 - (void)conversationsWithToken:(NSString *)token
