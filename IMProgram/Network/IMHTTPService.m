@@ -7,6 +7,25 @@
 
 static NSString * const kIMHTTPErrorDomain = @"IMHTTPService";
 
+/// 业务错误码 → 友好中文（对齐 errcode）。未收录返回 nil，回退服务端原文。
+/// 隐私：被拉黑/密码错误等用模糊文案，不暴露"你被对方拉黑了"。
+static NSString *IMFriendlyMessageForCode(NSInteger code) {
+    switch (code) {
+        case 100101: case 100102: return @"登录已失效，请重新登录"; // invalid / expired token
+        case 200001: return @"用户不存在";                          // user not found
+        case 200002: return @"密码错误";                            // wrong password
+        case 200003: return @"账号已被封禁";                        // account banned
+        case 200004: return @"用户名已被注册";                      // user already exists
+        case 200101: return @"你们已经是好友了";                    // already friends
+        case 200102: return @"暂时无法添加对方为好友";              // blocked by peer（不暴露拉黑）
+        case 200103: return @"对方不是你的好友";                    // not friend
+        case 200104: return @"不能添加自己为好友";                  // cannot add yourself
+        case 200105: return @"申请已发出，等待对方同意";            // request pending
+        case 200106: return @"没有待处理的好友申请";                // no pending request
+        default: return nil;
+    }
+}
+
 @implementation IMHTTPService
 
 + (instancetype)sharedService {
@@ -273,6 +292,10 @@ static NSString * const kIMHTTPErrorDomain = @"IMHTTPService";
 }
 
 - (NSString *)messageFrom:(NSDictionary *)body fallback:(NSString *)fallback {
+    // 优先按业务码映射友好中文；未收录再用服务端原文 / fallback。
+    NSInteger code = [body[@"code"] respondsToSelector:@selector(integerValue)] ? [body[@"code"] integerValue] : 0;
+    NSString *friendly = IMFriendlyMessageForCode(code);
+    if (friendly) { return friendly; }
     NSString *msg = [body[@"message"] isKindOfClass:[NSString class]] ? body[@"message"] : nil;
     return msg.length > 0 ? msg : fallback;
 }
