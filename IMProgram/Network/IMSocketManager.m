@@ -18,6 +18,7 @@ static const NSTimeInterval kIMReconnectCap   = 30.0; ///< 重连退避上限
 static NSString * const kIMErrorDomain = @"IMSocketManagerErrorDomain";
 
 NSString * const IMSocketDidReceiveMessageNotification = @"IMSocketDidReceiveMessageNotification";
+NSString * const IMSocketDidReceiveFriendEventNotification = @"IMSocketDidReceiveFriendEventNotification";
 NSString * const kIMConvIDKey = @"convID";
 
 #pragma mark - 待确认发送项
@@ -265,6 +266,8 @@ NSString * const kIMConvIDKey = @"convID";
         [self handleTyping:payload];
     } else if ([type isEqualToString:kIMTypePresence]) {
         [self handlePresence:payload];
+    } else if ([type isEqualToString:kIMTypeFriend]) {
+        [self handleFriendEvent];
     } else if ([type isEqualToString:kIMTypePong]) {
         // 心跳回应，无需处理
     } else if ([type isEqualToString:kIMTypeError]) {
@@ -429,6 +432,13 @@ NSString * const kIMConvIDKey = @"convID";
         [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidReceiveMessageNotification
                                                          object:self
                                                        userInfo:@{ kIMConvIDKey: msg.convID ?: @"" }];
+    });
+}
+
+/// 收到好友关系变更帧：主线程广播，通讯录刷新（无需切页）。负载仅作语义，收到即刷。
+- (void)handleFriendEvent {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidReceiveFriendEventNotification object:self];
     });
 }
 

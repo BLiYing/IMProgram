@@ -14,6 +14,7 @@
   - **CLIENT_PARITY M2.5 三行 iOS+Web 全 ✅**。
 - **真账号密码登录 + 注册 ✅（2026-06-16，iOS+Web）**：`IMHTTPService` 加 `password` 属性（全局共享登录态）+ `registerWithUsername:password:`，`loginWithUserID:` 改发 `{username,password}`；`IMSocketManager` 换 token 也带共享密码。`IMLoginViewController`：用户名+密码 + 登录(真校验，错误密码显服务端文案)/注册并登录/免密登录(开发，凭 uid)。CLIENT_PARITY M1「真账号注册/密码登录」iOS+Web 升 ✅。
 - **里程碑层面 M1+M2+M2.5 客户端基本收口**。下一步可选 M3 群聊。
+- **自测修复（2026-06-16）**：①好友申请/同意实时——socket 收 `friend` 帧 → `IMSocketDidReceiveFriendEventNotification` → 通讯录(init 即订阅,节流)reload,Tab 角标无需切页即亮;②找人改精确匹配(`对方完整 uid 或手机号`占位)。
 
 ## 下一步
 1. （里程碑）M3 群聊 / 群成员管理；或先补「多端同时在线」客户端 UI/位点同步验证（M1 遗留 ⬜）。

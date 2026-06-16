@@ -5,6 +5,7 @@
 #import "IMContactCells.h"
 #import "IMChatViewController.h"
 #import "IMHTTPService.h"
+#import "IMSocketManager.h"
 #import "IMUserCard.h"
 #import "IMTheme.h"
 #import "IMLog.h"
@@ -28,8 +29,22 @@
         _userID = [userID copy];
         _pending = @[];
         _accepted = @[];
+        // 实时好友事件：即使没在通讯录页，也据此刷新（Tab 角标随之亮/灭，无需切页）。
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onFriendEvent)
+                                                   name:IMSocketDidReceiveFriendEventNotification object:nil];
     }
     return self;
+}
+
+- (void)dealloc {
+    [NSNotificationCenter.defaultCenter removeObserver:self];
+    [NSObject cancelPreviousPerformRequestsWithTarget:self];
+}
+
+/// 收到好友事件 → 节流刷新（合并连发，避免每帧一次登录+拉取）。
+- (void)onFriendEvent {
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(reload) object:nil];
+    [self performSelector:@selector(reload) withObject:nil afterDelay:0.3];
 }
 
 - (void)viewDidLoad {

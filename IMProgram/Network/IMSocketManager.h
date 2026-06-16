@@ -13,6 +13,8 @@ NS_ASSUME_NONNULL_BEGIN
 /// 收到任意会话的新消息时广播（主线程）。会话列表等非当前页可借此实时刷新（未读/最后一条），
 /// 不占用单一 delegate 槽。userInfo[kIMConvIDKey] 为该消息的会话 id。
 extern NSString * const IMSocketDidReceiveMessageNotification;
+/// 收到好友关系变更帧（friend）时广播（主线程）：通讯录据此实时刷新"新的朋友"/好友列表，无需切页。
+extern NSString * const IMSocketDidReceiveFriendEventNotification;
 extern NSString * const kIMConvIDKey;
 
 /// 连接状态。

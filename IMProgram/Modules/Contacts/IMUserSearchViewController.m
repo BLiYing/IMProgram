@@ -39,7 +39,7 @@
     self.view.backgroundColor = UIColor.systemBackgroundColor;
 
     self.searchBar = [[UISearchBar alloc] init];
-    self.searchBar.placeholder = @"昵称 / 手机号 / uid / 标签";
+    self.searchBar.placeholder = @"对方完整 uid 或手机号";
     self.searchBar.delegate = self;
     self.searchBar.returnKeyType = UIReturnKeySearch;
     [self.searchBar sizeToFit];
