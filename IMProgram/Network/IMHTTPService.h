@@ -4,6 +4,7 @@
 #import <Foundation/Foundation.h>
 
 @class IMConversation;
+@class IMUserCard;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -21,6 +22,29 @@ NS_ASSUME_NONNULL_BEGIN
 /// 拉取会话列表（Bearer token）。completion 在主线程回调。
 - (void)conversationsWithToken:(NSString *)token
                     completion:(void (^)(NSArray<IMConversation *> *_Nullable conversations, NSError *_Nullable error))completion;
+
+#pragma mark - 通讯录（M2.5 找人 / 好友关系）
+
+/// 找人：按 query 搜索用户（昵称/手机号/uid/标签，后端去 phone、排除自己）。completion 在主线程回调。
+- (void)searchUsersWithToken:(NSString *)token
+                       query:(NSString *)query
+                  completion:(void (^)(NSArray<IMUserCard *> *_Nullable users, NSError *_Nullable error))completion;
+
+/// 好友/申请列表（status 为空=全部：accepted/pending/requested/blocked）。completion 在主线程回调。
+- (void)friendsWithToken:(NSString *)token
+                  status:(nullable NSString *)status
+              completion:(void (^)(NSArray<IMUserCard *> *_Nullable friends, NSError *_Nullable error))completion;
+
+/// 好友动作（action ∈ request/accept/reject/block/unblock），body {user_id:peerID}。completion 在主线程回调。
+- (void)friendActionWithToken:(NSString *)token
+                       action:(NSString *)action
+                       peerID:(NSString *)peerID
+                   completion:(void (^)(NSError *_Nullable error))completion;
+
+/// 删除好友（DELETE /api/v1/friends/{peerID}）。completion 在主线程回调。
+- (void)removeFriendWithToken:(NSString *)token
+                       peerID:(NSString *)peerID
+                   completion:(void (^)(NSError *_Nullable error))completion;
 
 @end
 

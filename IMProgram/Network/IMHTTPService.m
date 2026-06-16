@@ -2,6 +2,7 @@
 
 #import "IMHTTPService.h"
 #import "IMConversation.h"
+#import "IMUserCard.h"
 #import "IMLog.h"
 
 static NSString * const kIMHTTPErrorDomain = @"IMHTTPService";
@@ -55,7 +56,111 @@ static NSString * const kIMHTTPErrorDomain = @"IMHTTPService";
     }];
 }
 
+#pragma mark - 通讯录（找人 / 好友关系）
+
+- (void)searchUsersWithToken:(NSString *)token
+                       query:(NSString *)query
+                  completion:(void (^)(NSArray<IMUserCard *> *, NSError *))completion {
+    NSString *q = [query stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLQueryAllowedCharacterSet] ?: @"";
+    NSString *path = [NSString stringWithFormat:@"/api/v1/users/search?q=%@&limit=20", q];
+    NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
+    if (!req) {
+        [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }];
+        return;
+    }
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        if ([body[@"code"] integerValue] != 0) {
+            completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"搜索失败"]]);
+            return;
+        }
+        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
+        completion([IMUserCard cardsFromArray:data[@"users"]], nil);
+    }];
+}
+
+- (void)friendsWithToken:(NSString *)token
+                  status:(NSString *)status
+              completion:(void (^)(NSArray<IMUserCard *> *, NSError *))completion {
+    NSString *path = @"/api/v1/friends";
+    if (status.length > 0) {
+        path = [path stringByAppendingFormat:@"?status=%@", status];
+    }
+    NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
+    if (!req) {
+        [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }];
+        return;
+    }
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        if ([body[@"code"] integerValue] != 0) {
+            completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"拉取好友失败"]]);
+            return;
+        }
+        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
+        completion([IMUserCard cardsFromArray:data[@"friends"]], nil);
+    }];
+}
+
+- (void)friendActionWithToken:(NSString *)token
+                       action:(NSString *)action
+                       peerID:(NSString *)peerID
+                   completion:(void (^)(NSError *))completion {
+    NSString *path = [NSString stringWithFormat:@"/api/v1/friends/%@", action];
+    NSMutableURLRequest *req = [self authedRequestForPath:path method:@"POST" token:token body:@{ @"user_id": peerID ?: @"" }];
+    if (!req) {
+        [self callOnMain:^{ completion([self errorWithMessage:@"非法服务器地址"]); }];
+        return;
+    }
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(error); return; }
+        if ([body[@"code"] integerValue] != 0) {
+            completion([self errorWithMessage:[self messageFrom:body fallback:@"操作失败"]]);
+            return;
+        }
+        completion(nil);
+    }];
+}
+
+- (void)removeFriendWithToken:(NSString *)token
+                       peerID:(NSString *)peerID
+                   completion:(void (^)(NSError *))completion {
+    NSString *seg = [peerID stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet] ?: @"";
+    NSString *path = [NSString stringWithFormat:@"/api/v1/friends/%@", seg];
+    NSMutableURLRequest *req = [self authedRequestForPath:path method:@"DELETE" token:token body:nil];
+    if (!req) {
+        [self callOnMain:^{ completion([self errorWithMessage:@"非法服务器地址"]); }];
+        return;
+    }
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(error); return; }
+        if ([body[@"code"] integerValue] != 0) {
+            completion([self errorWithMessage:[self messageFrom:body fallback:@"删除失败"]]);
+            return;
+        }
+        completion(nil);
+    }];
+}
+
 #pragma mark - 内部
+
+/// 构造带 Bearer 的请求；body 非空时按 JSON 写入并设 Content-Type。
+- (nullable NSMutableURLRequest *)authedRequestForPath:(NSString *)path
+                                                method:(NSString *)method
+                                                 token:(NSString *)token
+                                                  body:(nullable NSDictionary *)body {
+    NSURL *url = [self urlForPath:path];
+    if (!url) { return nil; }
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
+    req.HTTPMethod = method;
+    [req setValue:[NSString stringWithFormat:@"Bearer %@", token ?: @""] forHTTPHeaderField:@"Authorization"];
+    if (body) {
+        [req setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+        req.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:NULL];
+    }
+    req.timeoutInterval = 10;
+    return req;
+}
 
 - (nullable NSURL *)urlForPath:(NSString *)path {
     if (self.host.length == 0) { return nil; }

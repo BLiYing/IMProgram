@@ -4,14 +4,20 @@
 > 历史流水见 `current_task.archive.md` + `git log`。关键约定见 `CLAUDE.md` / `ARCHITECTURE.md` / `CODING_STYLE.md`。
 
 ## 当前焦点
-- M2「状态与可靠性」iOS 全部达成 + Telegram 绿主题细化全做完（浅绿/白气泡+绿已读双勾、壁纸、日期分组、长按菜单、列表已读双勾 `peer_read_seq`、↓N 跳转、列表常驻实时刷新、离线空洞自愈）。
-- **已读改为"可见即读"(Telegram 语义，iOS+Web 一致)**：废弃"打开即全部已读"。聊天页扫 `indexPathsForVisibleRows` 取视口内最大 conv_seq，超过已上报位点则 0.3s 节流 `markRead`；进会话只读可见的、向下滚逐步推进、在上方看历史不误读下方。触发：`scrollViewDidScroll` / `viewDidAppear`(dispatch 后扫一遍) / 收新消息后。修掉了"进会话不上报已读"的回归(根因:列表常驻连接+预落库后聊天页 didChangeState/didReceiveMessage 都不再触发上报)。build+test-build 零 warning，14 测试绿。
-- **下一步里程碑：M2.5 通讯录 / 加好友 / 找人**（含客户端密码登录改造）。
+- M2「状态与可靠性」iOS 全部达成 + Telegram 绿主题细化全做完 + 可见即读（Telegram 语义，iOS+Web 一致）。
+- **M2.5-5 iOS 通讯录 🚧（2026-06-16）**：底部新增「通讯录」Tab。
+  - `IMContactsViewController`：新的朋友(pending，同意/拒绝) + 好友列表(accepted，点击发起会话)；待处理申请数显示在 Tab 角标。
+  - 右上 + 进 `IMUserSearchViewController`（找人）：搜索框→`GET /users/search`，结果按"我与对端关系"显示 加好友/已申请/同意/发消息。
+  - 新增 `IMUserCard` 模型 + `IMHTTPService` 的 search/friends/friendAction/removeFriend；复用 `IMTheme` 绿主题、`UIButtonConfiguration`（免 contentEdgeInsets 弃用告警）。
+  - `IMUserCardTests` 解析单测（找人/好友/状态映射/脏数据）。`xcodebuild build` + `build-for-testing` 均零 error/warning。
+  - **与 Web 对齐**：找人 ✅、好友关系 🚧（拉黑/删除好友 UI 未做）；两端均无"编辑我的资料"页。
+- **下一步：M2.5-6 收尾**——拉黑/删除好友 UI（两端）+ 编辑我的资料页 + 客户端真账号密码登录（替换免密直签）。
 
 ## 下一步
-1. M2.5：通讯录页、加好友/搜索、从联系人发起会话（替换"输入 uid"占位）；登录改真账号密码（替换免密直签）。
-2. 新增逻辑配套 `IMProgramTests` 用例，按 CLAUDE.md 跑 `-only-testing:IMProgramTests`。
-3. （性能轨道，按需）iOS 双向分页：DB 分页查询 + 进会话只载最近一页 + 上/下滚翻页保位。单会话上万条再做。
+1. 拉黑/删除好友 UI（iOS：好友行左滑删除/长按拉黑；Web：好友行 hover 操作）→ 两端好友关系行升 ✅。
+2. "编辑我的资料"页（昵称/头像/标签 `PUT /users/me`）→ 用户资料行客户端升 ✅。
+3. 登录改真账号密码（替换免密直签）。
+4. （性能轨道，按需）iOS 双向分页。
 
 ## 已知坑 / 限制
 - **真账号/密码登录未做**：iOS 仍开发期免密直签 uid（后端已具备）。

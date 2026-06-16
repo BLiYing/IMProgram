@@ -2,6 +2,7 @@
 
 #import "IMMainTabBarController.h"
 #import "IMConversationListViewController.h"
+#import "IMContactsViewController.h"
 #import "IMSettingsViewController.h"
 
 @implementation IMMainTabBarController
@@ -16,13 +17,20 @@
                                                            image:[UIImage systemImageNamed:@"bubble.left.and.bubble.right"]
                                                              tag:0];
 
+        IMContactsViewController *contacts =
+            [[IMContactsViewController alloc] initWithHost:host userID:userID];
+        UINavigationController *contactsNav = [[UINavigationController alloc] initWithRootViewController:contacts];
+        contactsNav.tabBarItem = [[UITabBarItem alloc] initWithTitle:@"通讯录"
+                                                               image:[UIImage systemImageNamed:@"person.2"]
+                                                                 tag:1];
+
         IMSettingsViewController *settings = [[IMSettingsViewController alloc] initWithUserID:userID];
         UINavigationController *settingsNav = [[UINavigationController alloc] initWithRootViewController:settings];
         settingsNav.tabBarItem = [[UITabBarItem alloc] initWithTitle:@"我"
                                                                image:[UIImage systemImageNamed:@"person.crop.circle"]
-                                                                 tag:1];
+                                                                 tag:2];
 
-        self.viewControllers = @[convNav, settingsNav];
+        self.viewControllers = @[convNav, contactsNav, settingsNav];
     }
     return self;
 }
