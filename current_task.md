@@ -5,19 +5,19 @@
 
 ## 当前焦点
 - M2「状态与可靠性」iOS 全部达成 + Telegram 绿主题细化全做完 + 可见即读（Telegram 语义，iOS+Web 一致）。
-- **M2.5-5 iOS 通讯录 🚧（2026-06-16）**：底部新增「通讯录」Tab。
-  - `IMContactsViewController`：新的朋友(pending，同意/拒绝) + 好友列表(accepted，点击发起会话)；待处理申请数显示在 Tab 角标。
-  - 右上 + 进 `IMUserSearchViewController`（找人）：搜索框→`GET /users/search`，结果按"我与对端关系"显示 加好友/已申请/同意/发消息。
-  - 新增 `IMUserCard` 模型 + `IMHTTPService` 的 search/friends/friendAction/removeFriend；复用 `IMTheme` 绿主题、`UIButtonConfiguration`（免 contentEdgeInsets 弃用告警）。
-  - `IMUserCardTests` 解析单测（找人/好友/状态映射/脏数据）。`xcodebuild build` + `build-for-testing` 均零 error/warning。
-  - **与 Web 对齐**：找人 ✅、好友关系 🚧（拉黑/删除好友 UI 未做）；两端均无"编辑我的资料"页。
-- **下一步：M2.5-6 收尾**——拉黑/删除好友 UI（两端）+ 编辑我的资料页 + 客户端真账号密码登录（替换免密直签）。
+- **M2.5 iOS 通讯录全做完（2026-06-16）**：
+  - 通讯录 Tab `IMContactsViewController`：新的朋友(pending，同意/拒绝) + 好友列表(accepted，点击发起会话)；待处理申请数显示在 Tab 角标；**好友行左滑 = 删除 / 拉黑**。
+  - 找人页 `IMUserSearchViewController`（右上 + 进入）：`GET /users/search`，结果按关系显示 加好友/已申请/同意/发消息。
+  - **编辑我的资料** `IMProfileEditViewController`（「我」页→编辑资料）：`GET/PUT /api/v1/users/me`，昵称/头像/手机号/标签。
+  - 新增 `IMUserCard`(含 phone) + `IMHTTPService` 的 search/friends/friendAction/remove/myProfile/updateProfile；复用 `IMTheme` 绿主题、`UIButtonConfiguration`。
+  - `IMUserCardTests`（找人/好友/本人资料含 phone/状态映射/脏数据）。`xcodebuild build` + `build-for-testing` 均零 error/warning。
+  - **CLIENT_PARITY M2.5 三行 iOS+Web 全 ✅**。
+- **下一步：真账号密码登录**（替换 `-dev-login` 免密直签，后端已具备 register/login+bcrypt）。
 
 ## 下一步
-1. 拉黑/删除好友 UI（iOS：好友行左滑删除/长按拉黑；Web：好友行 hover 操作）→ 两端好友关系行升 ✅。
-2. "编辑我的资料"页（昵称/头像/标签 `PUT /users/me`）→ 用户资料行客户端升 ✅。
-3. 登录改真账号密码（替换免密直签）。
-4. （性能轨道，按需）iOS 双向分页。
+1. 登录改真账号密码：`IMLoginViewController` 加注册/登录表单，调后端 register/login，存 token；替换免密直签。→ CLIENT_PARITY M1「真账号注册/密码登录」iOS 升 ✅。
+2. （性能轨道，按需）iOS 双向分页：DB 分页查询 + 进会话只载最近一页 + 上/下滚翻页保位。
+3. （体验）通讯录头像支持远程图（SDWebImage）；presence 扩到会话列表/通讯录。
 
 ## 已知坑 / 限制
 - **真账号/密码登录未做**：iOS 仍开发期免密直签 uid（后端已具备）。

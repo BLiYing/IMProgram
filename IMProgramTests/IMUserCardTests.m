@@ -55,6 +55,20 @@
     XCTAssertEqual(c.tags.count, 0);
 }
 
+#pragma mark - 本人资料解析（含 phone）
+
+- (void)testParseMyProfileWithPhone {
+    NSArray *arr = @[ @{ @"user_id": @"1001", @"nickname": @"我是1001", @"avatar_url": @"",
+                         @"phone": @"13900000001", @"tags": @[ @"tester", @"web" ], @"status": @"active" } ];
+    IMUserCard *c = [IMUserCard cardsFromArray:arr].firstObject;
+    XCTAssertEqualObjects(c.phone, @"13900000001");
+    XCTAssertEqualObjects(c.nickname, @"我是1001");
+    XCTAssertEqual(c.tags.count, 2);
+    // phone 缺失（如他人名片/搜索结果）→ 空串而非 nil。
+    IMUserCard *noPhone = [IMUserCard cardsFromArray:@[ @{ @"user_id": @"x" } ]].firstObject;
+    XCTAssertEqualObjects(noPhone.phone, @"");
+}
+
 #pragma mark - 脏数据安全
 
 - (void)testDirtyDataSafe {

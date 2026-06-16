@@ -205,4 +205,39 @@
     [self openChatWithPeer:self.accepted[indexPath.row].userID];
 }
 
+/// 好友行左滑：删除好友 / 拉黑（申请行不提供）。
+- (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView
+    trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
+    if ([self isRequestsSection:indexPath.section]) { return nil; }
+    NSString *peer = self.accepted[indexPath.row].userID;
+    __weak typeof(self) weakSelf = self;
+    UIContextualAction *del = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive
+                                                                      title:@"删除"
+                                                                    handler:^(UIContextualAction *a, UIView *v, void (^done)(BOOL)) {
+        [weakSelf removeFriend:peer]; done(YES);
+    }];
+    UIContextualAction *block = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleNormal
+                                                                        title:@"拉黑"
+                                                                      handler:^(UIContextualAction *a, UIView *v, void (^done)(BOOL)) {
+        [weakSelf performAction:@"block" onPeer:peer]; done(YES);
+    }];
+    block.backgroundColor = UIColor.systemGrayColor;
+    return [UISwipeActionsConfiguration configurationWithActions:@[del, block]];
+}
+
+/// 删除好友（DELETE）；完成后刷新列表。
+- (void)removeFriend:(NSString *)peerID {
+    if (self.token.length == 0 || peerID.length == 0) { return; }
+    __weak typeof(self) weakSelf = self;
+    [IMHTTPService.sharedService removeFriendWithToken:self.token peerID:peerID completion:^(NSError *error) {
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self) { return; }
+        if (error) {
+            [self showError:[NSString stringWithFormat:@"删除失败：%@", error.localizedDescription]];
+            return;
+        }
+        [self reload];
+    }];
+}
+
 @end

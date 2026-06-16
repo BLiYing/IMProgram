@@ -142,6 +142,50 @@ static NSString * const kIMHTTPErrorDomain = @"IMHTTPService";
     }];
 }
 
+#pragma mark - 我的资料
+
+- (void)myProfileWithToken:(NSString *)token
+                completion:(void (^)(IMUserCard *, NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/users/me" method:@"GET" token:token body:nil];
+    if (!req) {
+        [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }];
+        return;
+    }
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        if ([body[@"code"] integerValue] != 0) {
+            completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"拉取资料失败"]]);
+            return;
+        }
+        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
+        completion(data ? [IMUserCard cardsFromArray:@[data]].firstObject : nil, nil);
+    }];
+}
+
+- (void)updateProfileWithToken:(NSString *)token
+                      nickname:(NSString *)nickname
+                     avatarURL:(NSString *)avatarURL
+                         phone:(NSString *)phone
+                          tags:(NSArray<NSString *> *)tags
+                    completion:(void (^)(IMUserCard *, NSError *))completion {
+    NSDictionary *bodyDict = @{ @"nickname": nickname ?: @"", @"avatar_url": avatarURL ?: @"",
+                                @"phone": phone ?: @"", @"tags": tags ?: @[] };
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/users/me" method:@"PUT" token:token body:bodyDict];
+    if (!req) {
+        [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }];
+        return;
+    }
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        if ([body[@"code"] integerValue] != 0) {
+            completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"保存资料失败"]]);
+            return;
+        }
+        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
+        completion(data ? [IMUserCard cardsFromArray:@[data]].firstObject : nil, nil);
+    }];
+}
+
 #pragma mark - 内部
 
 /// 构造带 Bearer 的请求；body 非空时按 JSON 写入并设 Content-Type。

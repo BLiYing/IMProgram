@@ -23,7 +23,8 @@ IMFriendStatus IMFriendStatusFromString(NSString *_Nullable s);
 @property (nonatomic, copy) NSString *userID;
 @property (nonatomic, copy) NSString *nickname;
 @property (nonatomic, copy) NSString *avatarURL;
-@property (nonatomic, strong) NSArray<NSString *> *tags;   // 仅找人结果有；好友项为空
+@property (nonatomic, copy) NSString *phone;               // 仅本人资料(GET /users/me)有；他人/搜索结果为空
+@property (nonatomic, strong) NSArray<NSString *> *tags;   // 找人结果/本人资料有；好友项为空
 @property (nonatomic, assign) IMFriendStatus status;       // 仅好友/申请列表有意义；找人结果为 None
 @property (nonatomic, assign) int64_t updatedAt;           // 好友关系更新时间（毫秒）；找人结果 0
 

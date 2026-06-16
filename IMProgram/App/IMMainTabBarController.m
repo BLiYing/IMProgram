@@ -24,7 +24,7 @@
                                                                image:[UIImage systemImageNamed:@"person.2"]
                                                                  tag:1];
 
-        IMSettingsViewController *settings = [[IMSettingsViewController alloc] initWithUserID:userID];
+        IMSettingsViewController *settings = [[IMSettingsViewController alloc] initWithHost:host userID:userID];
         UINavigationController *settingsNav = [[UINavigationController alloc] initWithRootViewController:settings];
         settingsNav.tabBarItem = [[UITabBarItem alloc] initWithTitle:@"我"
                                                                image:[UIImage systemImageNamed:@"person.crop.circle"]

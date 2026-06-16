@@ -46,6 +46,20 @@ NS_ASSUME_NONNULL_BEGIN
                        peerID:(NSString *)peerID
                    completion:(void (^)(NSError *_Nullable error))completion;
 
+#pragma mark - 我的资料（M2.5 编辑资料）
+
+/// 读取本人资料（GET /api/v1/users/me，含 phone）。completion 在主线程回调。
+- (void)myProfileWithToken:(NSString *)token
+                completion:(void (^)(IMUserCard *_Nullable profile, NSError *_Nullable error))completion;
+
+/// 整体更新本人资料（PUT /api/v1/users/me）。tags 传字符串数组。completion 在主线程回调。
+- (void)updateProfileWithToken:(NSString *)token
+                      nickname:(NSString *)nickname
+                     avatarURL:(NSString *)avatarURL
+                         phone:(NSString *)phone
+                          tags:(NSArray<NSString *> *)tags
+                    completion:(void (^)(IMUserCard *_Nullable profile, NSError *_Nullable error))completion;
+
 @end
 
 NS_ASSUME_NONNULL_END

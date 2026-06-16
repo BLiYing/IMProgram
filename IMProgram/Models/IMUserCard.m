@@ -27,6 +27,7 @@ IMFriendStatus IMFriendStatusFromString(NSString *s) {
     c.userID = [self stringForKey:@"user_id" in:dict];
     c.nickname = [self stringForKey:@"nickname" in:dict];
     c.avatarURL = [self stringForKey:@"avatar_url" in:dict];
+    c.phone = [self stringForKey:@"phone" in:dict];
     c.status = IMFriendStatusFromString([self stringForKey:@"status" in:dict]);
     c.updatedAt = [dict[@"updated_at"] respondsToSelector:@selector(longLongValue)] ? [dict[@"updated_at"] longLongValue] : 0;
 

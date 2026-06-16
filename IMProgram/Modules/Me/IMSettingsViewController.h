@@ -1,5 +1,5 @@
 //  IMSettingsViewController.h
-//  "我"页占位：显示当前 uid + 退出登录（M1 骨架，后续补个人资料/设置）。
+//  "我"页：当前 uid + 编辑资料入口 + 退出登录。
 
 #import <UIKit/UIKit.h>
 
@@ -7,7 +7,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface IMSettingsViewController : UIViewController
 
-- (instancetype)initWithUserID:(NSString *)userID;
+- (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID;
 
 @end
 
