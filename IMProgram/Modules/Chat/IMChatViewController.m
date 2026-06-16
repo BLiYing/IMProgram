@@ -210,7 +210,7 @@
 @implementation IMChatViewController
 
 - (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID peerID:(NSString *)peerID
-                     readSeq:(int64_t)readSeq unread:(NSInteger)unread {
+                     readSeq:(int64_t)readSeq unread:(NSInteger)unread peerReadSeq:(int64_t)peerReadSeq {
     self = [super initWithNibName:nil bundle:nil];
     if (self) {
         self.hidesBottomBarWhenPushed = YES; // 进聊天页隐藏底部 TabBar（push 时全屏）
@@ -220,6 +220,7 @@
         _convID = IMConversationID(userID, peerID);
         _entryReadSeq = readSeq;
         _entryUnread = unread;
+        _peerReadSeq = peerReadSeq;   // 进会话即用服务端已知对端已读位点播种（实时回执再往上推进）
         _maxReadReported = readSeq;   // 已读起点=进入前位点，仅在可见消息超过它时才上报
         _pendingReadSeq = readSeq;
         // 本地落库：进入即秒显历史。

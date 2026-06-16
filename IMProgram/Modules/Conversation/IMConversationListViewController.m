@@ -295,17 +295,18 @@ static CGFloat const kIMRowLeading = 16;
         [self showError:@"请输入有效且不同于自己的对方 uid"];
         return;
     }
-    // 从「发起会话」进入：新会话无已读位点/未读。
+    // 从「发起会话」进入：新会话无已读位点/未读/对端已读位点。
     IMChatViewController *chat = [[IMChatViewController alloc] initWithHost:self.host userID:self.userID
-                                                                    peerID:peer readSeq:0 unread:0];
+                                                                    peerID:peer readSeq:0 unread:0 peerReadSeq:0];
     [self.navigationController pushViewController:chat animated:YES];
 }
 
-/// 从会话列表进入：带 read_seq + unread，供聊天页定位未读分割线 + 可见即读起点（CHAT_UX §3/§6）。
+/// 从会话列表进入：带 read_seq + unread + peer_read_seq，供聊天页定位未读分割线 + 可见即读起点 + 进会话即显对端已读（CHAT_UX §3/§6/§8）。
 - (void)openChatWithConversation:(IMConversation *)c {
     if (c.peer.length == 0 || [c.peer isEqualToString:self.userID]) { return; }
     IMChatViewController *chat = [[IMChatViewController alloc] initWithHost:self.host userID:self.userID
-                                                                    peerID:c.peer readSeq:c.readSeq unread:c.unread];
+                                                                    peerID:c.peer readSeq:c.readSeq unread:c.unread
+                                                               peerReadSeq:c.peerReadSeq];
     [self.navigationController pushViewController:chat animated:YES];
 }
 
