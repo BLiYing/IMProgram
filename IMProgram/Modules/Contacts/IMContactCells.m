@@ -31,13 +31,23 @@ static void IMSetMiniTitle(UIButton *b, NSString *title) {
     b.configuration = cfg;
 }
 
-static void IMStyleMiniButton(UIButton *b, BOOL enabled) {
-    b.enabled = enabled;
+// 按钮三态：primary=绿底可点；secondary=灰底描边**可点**（如"拒绝"）；disabled=灰底不可点（如"已申请"）。
+// 注意区分 secondary 与 disabled：之前用一个 BOOL 把"灰色外观"和"不可点"绑死，导致"拒绝"被禁用、点击无反应。
+typedef NS_ENUM(NSInteger, IMMiniStyle) {
+    IMMiniPrimary,
+    IMMiniSecondary,
+    IMMiniDisabled,
+};
+
+static void IMStyleMiniButton(UIButton *b, IMMiniStyle style) {
+    b.enabled = (style != IMMiniDisabled);
+    BOOL ghost = (style != IMMiniPrimary); // secondary / disabled 都是灰底描边
     UIButtonConfiguration *cfg = b.configuration ?: [UIButtonConfiguration plainButtonConfiguration];
-    cfg.baseForegroundColor = enabled ? UIColor.whiteColor : IMTheme.textSecondary;
-    cfg.background.backgroundColor = enabled ? IMTheme.accent : IMTheme.bubbleThem;
-    cfg.background.strokeColor = enabled ? nil : IMTheme.textSecondary;
-    cfg.background.strokeWidth = enabled ? 0 : 1;
+    cfg.baseForegroundColor = style == IMMiniPrimary ? UIColor.whiteColor
+        : (style == IMMiniSecondary ? IMTheme.textPrimary : IMTheme.textSecondary);
+    cfg.background.backgroundColor = ghost ? IMTheme.bubbleThem : IMTheme.accent;
+    cfg.background.strokeColor = ghost ? IMTheme.textSecondary : nil;
+    cfg.background.strokeWidth = ghost ? 1 : 0;
     b.configuration = cfg;
 }
 
@@ -133,7 +143,7 @@ static void IMConfigureBody(UILabel *avatar, UILabel *title, UILabel *subtitle, 
     }
     _action.hidden = NO;
     IMSetMiniTitle(_action, title);
-    IMStyleMiniButton(_action, enabled);
+    IMStyleMiniButton(_action, enabled ? IMMiniPrimary : IMMiniDisabled);
 }
 
 - (void)actionTapped {
@@ -165,13 +175,13 @@ static void IMConfigureBody(UILabel *avatar, UILabel *title, UILabel *subtitle, 
     if (self) {
         _accept = IMMakeMiniButton();
         IMSetMiniTitle(_accept, @"同意");
-        IMStyleMiniButton(_accept, YES);
+        IMStyleMiniButton(_accept, IMMiniPrimary);
         [_accept addTarget:self action:@selector(acceptTapped) forControlEvents:UIControlEventTouchUpInside];
         [self.contentView addSubview:_accept];
 
         _reject = IMMakeMiniButton();
         IMSetMiniTitle(_reject, @"拒绝");
-        IMStyleMiniButton(_reject, NO);
+        IMStyleMiniButton(_reject, IMMiniSecondary); // 灰底但**可点**（修复点击无反应）
         [_reject addTarget:self action:@selector(rejectTapped) forControlEvents:UIControlEventTouchUpInside];
         [self.contentView addSubview:_reject];
 
