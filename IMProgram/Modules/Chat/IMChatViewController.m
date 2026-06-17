@@ -511,9 +511,9 @@
     for (IMMessageModel *m in self.messages) {
         if ([m.clientMsgID isEqualToString:clientMsgID]) {
             m.status = success ? IMMessageStatusSent : IMMessageStatusFailed;
-            // 被拉黑拒收（errcode 200102）→ 把服务端友好文案挂到 note，气泡下方居中显示（微信式）；
+            // 被拒收（被拉黑 200102 / 被禁言 300004）→ 把服务端友好文案挂到 note，气泡下方居中显示（微信式）；
             // 其余失败（如 ack 超时）不挂 note，仍显"未发送 ✗"。
-            m.note = (!success && error.code == 200102) ? error.localizedDescription : nil;
+            m.note = (!success && (error.code == 200102 || error.code == 300004)) ? error.localizedDescription : nil;
             m.convSeq = convSeq;
             [IMDatabase.sharedDatabase saveMessage:m]; // upsert：更新状态/conv_seq/note（含被拒文案，重进会话不丢）
             if (convSeq > 0) { [self.seenConvSeqs addObject:@(convSeq)]; } // 防 sync 重复回显自己发的
@@ -644,7 +644,18 @@
                 image:[UIImage systemImageNamed:@"trash"] identifier:nil
                 handler:^(__kindof UIAction *a) { [weakSelf deleteMessage:message]; }];
             del.attributes = UIMenuElementAttributesDestructive;
-            return [UIMenu menuWithTitle:@"" children:@[copy, del]];
+            // 举报（AG-3）：仅对方消息可举报（举报自己无意义）。
+            BOOL mine = [message.from isEqualToString:self.userID];
+            if (mine) {
+                return [UIMenu menuWithTitle:@"" children:@[copy, del]];
+            }
+            UIAction *reportMsg = [UIAction actionWithTitle:@"举报消息"
+                image:[UIImage systemImageNamed:@"exclamationmark.bubble"] identifier:nil
+                handler:^(__kindof UIAction *a) { [weakSelf reportTargetType:@"message" targetID:(message.serverMsgID ?: @"") title:@"举报这条消息"]; }];
+            UIAction *reportUser = [UIAction actionWithTitle:@"举报发送者"
+                image:[UIImage systemImageNamed:@"person.crop.circle.badge.exclamationmark"] identifier:nil
+                handler:^(__kindof UIAction *a) { [weakSelf reportTargetType:@"user" targetID:(message.from ?: @"") title:[NSString stringWithFormat:@"举报用户 %@", message.from]]; }];
+            return [UIMenu menuWithTitle:@"" children:@[copy, reportMsg, reportUser, del]];
         }];
 }
 
@@ -654,6 +665,35 @@
     [self.messages removeObject:message];
     if (message.convSeq > 0) { [self.seenConvSeqs removeObject:@(message.convSeq)]; }
     [self.tableView reloadData];
+}
+
+/// 举报（AG-3）：弹出输入框填理由 → 调 POST /api/v1/reports。message 举报带会话上下文。
+- (void)reportTargetType:(NSString *)targetType targetID:(NSString *)targetID title:(NSString *)title {
+    if (targetID.length == 0) { return; }
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:title
+        message:@"请填写举报理由（可空）" preferredStyle:UIAlertControllerStyleAlert];
+    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf) { tf.placeholder = @"理由"; }];
+    __weak typeof(self) weakSelf = self;
+    [ac addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"提交举报" style:UIAlertActionStyleDestructive
+        handler:^(UIAlertAction *a) {
+            NSString *reason = ac.textFields.firstObject.text ?: @"";
+            NSString *convID = [targetType isEqualToString:@"message"] ? weakSelf.convID : nil;
+            NSString *token = IMHTTPService.sharedService.currentToken;
+            if (token.length == 0) { [weakSelf showReportResult:@"举报失败：未登录"]; return; }
+            [IMHTTPService.sharedService reportWithToken:token targetType:targetType targetID:targetID
+                convID:convID reason:reason completion:^(NSError *error) {
+                    [weakSelf showReportResult:error ? [NSString stringWithFormat:@"举报失败：%@", error.localizedDescription]
+                                                      : @"举报已提交，感谢反馈。"];
+                }];
+        }]];
+    [self presentViewController:ac animated:YES completion:nil];
+}
+
+- (void)showReportResult:(NSString *)msg {
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:nil message:msg preferredStyle:UIAlertControllerStyleAlert];
+    [ac addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:ac animated:YES completion:nil];
 }
 
 /// 首条未读所在行：conv_seq > entryReadSeq 的第一条「对端」消息；无未读返回 -1。

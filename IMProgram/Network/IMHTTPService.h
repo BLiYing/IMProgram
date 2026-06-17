@@ -23,6 +23,9 @@ BOOL IMIsAuthErrorCode(NSInteger code);
 /// 全局共享：会话列表/通讯录等内部再登录、以及 IMSocketManager 换 token 都读它，无需逐处透传。
 @property (nonatomic, copy, nullable) NSString *password;
 
+/// 最近一次登录成功缓存的 JWT（只读）。供聊天页等无需重新登录即可发起 HTTP（如举报）。
+@property (atomic, copy, readonly, nullable) NSString *currentToken;
+
 /// 登录换取 JWT：带 password 走真账号校验，password 为空走开发期免密。completion 在主线程回调。
 - (void)loginWithUserID:(NSString *)userID
              completion:(void (^)(NSString *_Nullable token, NSError *_Nullable error))completion;
@@ -72,6 +75,16 @@ BOOL IMIsAuthErrorCode(NSInteger code);
                          phone:(NSString *)phone
                           tags:(NSArray<NSString *> *)tags
                     completion:(void (^)(IMUserCard *_Nullable profile, NSError *_Nullable error))completion;
+
+#pragma mark - 举报（AG-3）
+
+/// 举报（POST /api/v1/reports）。targetType=message|user|group；convID 可空。completion 在主线程回调。
+- (void)reportWithToken:(NSString *)token
+             targetType:(NSString *)targetType
+               targetID:(NSString *)targetID
+                 convID:(nullable NSString *)convID
+                 reason:(NSString *)reason
+             completion:(void (^)(NSError *_Nullable error))completion;
 
 @end
 

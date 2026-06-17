@@ -57,6 +57,10 @@ static NSString *IMFriendlyNetworkError(NSError *error) {
     return error.localizedDescription.length > 0 ? error.localizedDescription : @"网络错误";
 }
 
+@interface IMHTTPService ()
+@property (atomic, copy, nullable) NSString *currentToken; // 对外只读，内部可写
+@end
+
 @implementation IMHTTPService
 
 + (instancetype)sharedService {
@@ -84,6 +88,7 @@ static NSString *IMFriendlyNetworkError(NSError *error) {
                                         message:[self messageFrom:body fallback:@"登录失败"]]);
             return;
         }
+        self.currentToken = token; // 缓存：供聊天页等无需重登即可发 HTTP（举报）
         completion(token, nil);
     }];
 }
@@ -171,6 +176,29 @@ static NSString *IMFriendlyNetworkError(NSError *error) {
         }
         NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
         completion([IMUserCard cardsFromArray:data[@"friends"]], nil);
+    }];
+}
+
+- (void)reportWithToken:(NSString *)token
+             targetType:(NSString *)targetType
+               targetID:(NSString *)targetID
+                 convID:(NSString *)convID
+                 reason:(NSString *)reason
+             completion:(void (^)(NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/reports" method:@"POST" token:token
+        body:@{ @"target_type": targetType ?: @"", @"target_id": targetID ?: @"",
+                @"conv_id": convID ?: @"", @"reason": reason ?: @"" }];
+    if (!req) {
+        [self callOnMain:^{ completion([self errorWithMessage:@"非法服务器地址"]); }];
+        return;
+    }
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(error); return; }
+        if ([body[@"code"] integerValue] != 0) {
+            completion([self errorWithMessage:[self messageFrom:body fallback:@"举报失败"]]);
+            return;
+        }
+        completion(nil);
     }];
 }
 

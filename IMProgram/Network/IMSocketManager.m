@@ -276,7 +276,7 @@ NSString * const kIMConvIDKey = @"convID";
         // 带 client_msg_id 的 error = 对某条 send_msg 的拒绝（如被拉黑）→ 立刻判该条发送失败。
         NSString *cmid = [payload[@"client_msg_id"] isKindOfClass:[NSString class]] ? payload[@"client_msg_id"] : nil;
         if (cmid.length > 0) {
-            [self handleSendRejected:cmid message:payload[@"message"]];
+            [self handleSendRejected:cmid code:[payload[@"code"] integerValue] message:payload[@"message"]];
         } else {
             IMLog(@"服务端 error: %@", payload);
         }
@@ -394,14 +394,16 @@ NSString * const kIMConvIDKey = @"convID";
     [self finishSend:p.completion success:YES error:nil convSeq:convSeq];
 }
 
-/// 服务端拒收某条 send_msg（如被拉黑）：取消重发计时、判该条发送失败（不重试）。仅在 _queue 调用。
-- (void)handleSendRejected:(NSString *)clientMsgID message:(NSString *)message {
+/// 服务端拒收某条 send_msg（被拉黑 200102 / 被禁言 300004 等）：取消重发计时、判该条失败（不重试）。
+/// 透传服务端真实 code，供 UI 区分提示（含被拒文案）。仅在 _queue 调用。
+- (void)handleSendRejected:(NSString *)clientMsgID code:(NSInteger)code message:(NSString *)message {
     IMPendingSend *p = _pending[clientMsgID];
     if (!p) { return; }
     [self cancelAckTimer:p];
     [_pending removeObjectForKey:clientMsgID];
     NSString *msg = ([message isKindOfClass:[NSString class]] && message.length > 0) ? message : @"发送失败";
-    [self finishSend:p.completion success:NO error:[self errorWithCode:200102 msg:msg] convSeq:0];
+    if (code == 0) { code = 200102; } // 兜底：缺 code 按拒收处理
+    [self finishSend:p.completion success:NO error:[self errorWithCode:code msg:msg] convSeq:0];
 }
 
 /// 处理 new_msg：走统一的「收到一条消息」流程（仅在 _queue 调用）。
