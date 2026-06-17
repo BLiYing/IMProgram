@@ -17,7 +17,11 @@
 - **自测修复（2026-06-16）**：①好友申请/同意实时——socket 收 `friend` 帧 → `IMSocketDidReceiveFriendEventNotification` → 通讯录(init 即订阅,节流)reload,Tab 角标无需切页即亮;②找人改精确匹配(`对方完整 uid 或手机号`占位)。
 - **自测修复（2026-06-17）**：①「拒绝」按钮曾被禁用点击无反应 → 按钮三态(primary/secondary 可点/disabled)修复;②**黑名单页** `IMBlockedListViewController`（「我」页→黑名单）：`?status=blocked` 列表 + 解除(unblock);③HTTP 错误码 → 友好中文(`IMFriendlyMessageForCode`,被拉黑用模糊文案"暂时无法添加对方为好友"不暴露)。
 - **登录失败 UX 修（2026-06-17，两端）**：会话列表原来"任何登录失败都弹模态框、标题无连接态"。现：NSError 带业务码 + `IMIsAuthErrorCode`;socket 加 `IMSocketDidChangeStateNotification`，会话列表标题显示「会话（连接中…/未连接）」;reload 失败分流——**鉴权失败(账号没了/密码错/token失效)→ 弹框「重新登录/取消」**(取消则留看本地缓存、不强制踢走、只提示一次:authPromptActive/authDismissed)，**网络失败→不弹框**(标题已显未连接、靠自动重连)。Web 同步:`onAuthError`→`window.confirm`(确定登录/取消留看缓存)、网络→保持 header 状态+重连。两端浏览器/编译验证通过。
-- **拉黑/拒收两修（2026-06-17，两端）**：①**拉黑≠解绑好友**(后端 `Block` 不再删对端关系行、`Unblock` 据对端 accepted 恢复双向好友)——修"拉黑解除后好友丢失却仍能发消息"；friend 测试更新 + 新增 `TestBlockNonFriend`。②**被拒收微信式反馈**：被拉黑方发消息 → 气泡左红❗ + 下方居中系统行「消息已发出，但被对方拒收了」，**不弹窗**(iOS `IMBubbleCell` 加 `_failBadge`/`_sysNote` + `IMMessageModel.note` 内存态；Web 加 `ChatMessage.note` + `.fail-badge`/`.sys-note`，去掉 alert)。规则见 `../IMServer/docs/CHAT_UX.md §8`、`PROTOCOL.md §6.5`。iOS 真编译 + test-build 通过；Web build+16 单测通过、浏览器实测红❗+系统行+无弹窗。
+- **拉黑模型重构 + 拒收反馈（2026-06-17，两端）**：
+  - ①**拉黑≠解绑（blocked 标记模型）**：后端 `im_friend` 加与 `status` 正交的 `blocked` 标记（启动自动迁移老 `status='blocked'`→`blocked=1`，非破坏）。`Block` 只置标记、好友关系(双方 accepted)不动 → **双方好友列表始终互见**(拉黑方带标记)；`Unblock` 只清标记。`BlockedBetween`/黑名单查询改用标记。iOS：`IMUserCard.blocked` 解析 + 通讯录被拉黑好友副标题"· 已拉黑" + 左滑"解除拉黑"。Web：`FriendEntry.blocked`、`peerBlocked` 改用标记、好友列表"已拉黑"标签 + 菜单"解除拉黑"。**Web 浏览器实测全过**；iOS 真编译+test-build 过、真机待验。
+  - ②**被拒收微信式反馈**：被拉黑方发消息 → 气泡左红❗ + 下方居中系统行「消息已发出，但被对方拒收了」，**不弹窗**(iOS `IMBubbleCell._failBadge/_sysNote` + `IMMessageModel.note`；Web `ChatMessage.note` + `.fail-badge/.sys-note`)。Web 实测过；**iOS 系统行真机待复验**(代码路径已逐段核对正确，疑用户上次测时走了 10s 超时而非拒收)。
+  - 规则见 `../IMServer/docs/PROTOCOL.md §6.5`、`CHAT_UX.md §8`。**已知**：早期"拉黑删对端行"旧 bug 已破坏的好友对(如 a1003↔a1001)无法自动复原，需重新加好友一次。
+  - ③**待定(用户决策)**：拉黑后是否允许拉黑方→被拉黑方单向发消息(微信式)。当前=双向拦截。
 
 ## 下一步
 1. （里程碑）M3 群聊 / 群成员管理；或先补「多端同时在线」客户端 UI/位点同步验证（M1 遗留 ⬜）。

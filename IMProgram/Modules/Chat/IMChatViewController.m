@@ -264,9 +264,7 @@
 @property (nonatomic, strong) NSLayoutConstraint *typingHeight;
 @property (nonatomic, strong) UIButton *jumpButton;   // 右下角"↓N"回到最新
 @property (nonatomic, strong) UILabel *jumpBadge;     // 按钮上的未读计数（=视口下方未读数）
-@property (nonatomic, strong) UIView *inputBar;       // 输入栏容器（被拉黑横幅盖在其上）
-@property (nonatomic, strong) UIView *blockedBar;     // 拉黑者侧："已拉黑，点此解除"横幅（盖住输入栏）
-@property (nonatomic, copy, nullable) NSString *blockToken; // 查/解拉黑用的 token
+@property (nonatomic, strong) UIView *inputBar;       // 输入栏容器
 @end
 
 @implementation IMChatViewController
@@ -310,45 +308,12 @@
     // 登记本会话：以本地已存最大 conv_seq 为同步起点（断点续传），自动增量拉回缺失消息。
     int64_t synced = [IMDatabase.sharedDatabase maxConvSeqForConv:self.convID];
     [IMSocketManager.sharedManager trackConversation:self.convID syncedSeq:synced];
-    [self refreshBlockState];
 }
 
-#pragma mark - 拉黑（拉黑者侧横幅）
+#pragma mark - 拉黑（微信式单向：拉黑者仍可发，故聊天页不拦输入；黑名单状态在通讯录管理）
 
-/// 查我是否拉黑了对端 → 决定是否显示"已拉黑"横幅、禁用输入。
-- (void)refreshBlockState {
-    IMHTTPService.sharedService.host = self.host;
-    __weak typeof(self) weakSelf = self;
-    [IMHTTPService.sharedService loginWithUserID:self.userID completion:^(NSString *token, NSError *error) {
-        __strong typeof(weakSelf) self = weakSelf;
-        if (!self || token.length == 0) { return; }
-        self.blockToken = token;
-        [IMHTTPService.sharedService friendsWithToken:token status:@"blocked" completion:^(NSArray<IMUserCard *> *list, NSError *err) {
-            __strong typeof(weakSelf) self = weakSelf;
-            if (!self || err) { return; }
-            BOOL blocked = NO;
-            for (IMUserCard *c in list) { if ([c.userID isEqualToString:self.peerID]) { blocked = YES; break; } }
-            [self applyBlocked:blocked];
-        }];
-    }];
-}
-
-- (void)applyBlocked:(BOOL)blocked {
-    self.blockedBar.hidden = !blocked;     // 横幅盖住输入栏
-    self.inputField.enabled = !blocked;
-    if (blocked) { [self.inputField resignFirstResponder]; }
-}
-
-- (void)unblockTapped {
-    if (self.blockToken.length == 0) { return; }
-    __weak typeof(self) weakSelf = self;
-    [IMHTTPService.sharedService friendActionWithToken:self.blockToken action:@"unblock" peerID:self.peerID completion:^(NSError *error) {
-        __strong typeof(weakSelf) self = weakSelf;
-        if (!self) { return; }
-        if (error) { IMLog(@"解除拉黑失败：%@", error.localizedDescription); return; }
-        [self applyBlocked:NO]; // 解除后恢复输入
-    }];
-}
+// 微信式单向：拉黑者仍可给被拉黑者发消息（对方能收到），故聊天页不再拦输入/盖横幅。
+// 是否拉黑、解除拉黑均在通讯录好友行（副标题"已拉黑" + 左滑"解除拉黑"）管理。
 
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
@@ -498,42 +463,6 @@
         [self.jumpBadge.widthAnchor constraintGreaterThanOrEqualToConstant:18],
     ]];
 
-    [self setupBlockedBarOver:inputBar];
-}
-
-/// 拉黑者侧横幅：盖在输入栏上，"已拉黑对方，无法发送" + 「解除」按钮。默认隐藏。
-- (void)setupBlockedBarOver:(UIView *)inputBar {
-    UIView *bar = [UIView new];
-    bar.translatesAutoresizingMaskIntoConstraints = NO;
-    bar.backgroundColor = UIColor.secondarySystemBackgroundColor;
-    bar.hidden = YES;
-    [self.view addSubview:bar];
-    self.blockedBar = bar;
-
-    UILabel *label = [UILabel new];
-    label.translatesAutoresizingMaskIntoConstraints = NO;
-    label.text = @"已拉黑对方，无法发送";
-    label.font = [UIFont systemFontOfSize:15];
-    label.textColor = IMTheme.textSecondary;
-    [bar addSubview:label];
-
-    UIButton *unblockBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    unblockBtn.translatesAutoresizingMaskIntoConstraints = NO;
-    [unblockBtn setTitle:@"解除拉黑" forState:UIControlStateNormal];
-    unblockBtn.tintColor = IMTheme.accent;
-    [unblockBtn addTarget:self action:@selector(unblockTapped) forControlEvents:UIControlEventTouchUpInside];
-    [bar addSubview:unblockBtn];
-
-    [NSLayoutConstraint activateConstraints:@[
-        [bar.leadingAnchor constraintEqualToAnchor:inputBar.leadingAnchor],
-        [bar.trailingAnchor constraintEqualToAnchor:inputBar.trailingAnchor],
-        [bar.topAnchor constraintEqualToAnchor:inputBar.topAnchor],
-        [bar.bottomAnchor constraintEqualToAnchor:inputBar.bottomAnchor],
-        [label.leadingAnchor constraintEqualToAnchor:bar.leadingAnchor constant:16],
-        [label.centerYAnchor constraintEqualToAnchor:bar.centerYAnchor],
-        [unblockBtn.trailingAnchor constraintEqualToAnchor:bar.trailingAnchor constant:-16],
-        [unblockBtn.centerYAnchor constraintEqualToAnchor:bar.centerYAnchor],
-    ]];
 }
 
 #pragma mark - 发送 / 接收
