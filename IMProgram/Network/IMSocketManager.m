@@ -273,7 +273,13 @@ NSString * const kIMConvIDKey = @"convID";
     } else if ([type isEqualToString:kIMTypePong]) {
         // 心跳回应，无需处理
     } else if ([type isEqualToString:kIMTypeError]) {
-        IMLog(@"服务端 error: %@", payload);
+        // 带 client_msg_id 的 error = 对某条 send_msg 的拒绝（如被拉黑）→ 立刻判该条发送失败。
+        NSString *cmid = [payload[@"client_msg_id"] isKindOfClass:[NSString class]] ? payload[@"client_msg_id"] : nil;
+        if (cmid.length > 0) {
+            [self handleSendRejected:cmid message:payload[@"message"]];
+        } else {
+            IMLog(@"服务端 error: %@", payload);
+        }
     } else {
         IMLog(@"未处理类型: %@", type);
     }
@@ -386,6 +392,16 @@ NSString * const kIMConvIDKey = @"convID";
     int64_t convSeq = [data[@"conv_seq"] longLongValue];
     [self updateSyncedSeqForConv:data[@"conv_id"] seq:convSeq]; // 自己发的消息也推进同步位点
     [self finishSend:p.completion success:YES error:nil convSeq:convSeq];
+}
+
+/// 服务端拒收某条 send_msg（如被拉黑）：取消重发计时、判该条发送失败（不重试）。仅在 _queue 调用。
+- (void)handleSendRejected:(NSString *)clientMsgID message:(NSString *)message {
+    IMPendingSend *p = _pending[clientMsgID];
+    if (!p) { return; }
+    [self cancelAckTimer:p];
+    [_pending removeObjectForKey:clientMsgID];
+    NSString *msg = ([message isKindOfClass:[NSString class]] && message.length > 0) ? message : @"发送失败";
+    [self finishSend:p.completion success:NO error:[self errorWithCode:200102 msg:msg] convSeq:0];
 }
 
 /// 处理 new_msg：走统一的「收到一条消息」流程（仅在 _queue 调用）。
