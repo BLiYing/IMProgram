@@ -25,6 +25,9 @@ typedef NS_ENUM(NSInteger, IMMessageStatus) {
 @property (nonatomic, assign) int64_t  convSeq;      ///< 会话内单调序号，ack/new_msg 后填充
 @property (nonatomic, assign) int64_t  timestamp;    ///< 服务端时间（毫秒）
 @property (nonatomic, assign) IMMessageStatus status;
+/// 发送失败时的系统提示（如被拉黑拒收"消息已发出，但被对方拒收了"）。仅当前会话内存态，不落库；
+/// 在该条气泡下方居中显示（微信式），不弹窗。
+@property (nonatomic, copy, nullable) NSString *note;
 
 /// 由 new_msg 的 data 字典构造一条「收到」的消息。
 + (instancetype)receivedMessageWithNewMsgData:(NSDictionary *)data;

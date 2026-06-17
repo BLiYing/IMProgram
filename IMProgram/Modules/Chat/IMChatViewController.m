@@ -34,6 +34,12 @@
     UILabel *_text;
     NSLayoutConstraint *_leading;
     NSLayoutConstraint *_trailing;
+    UILabel *_failBadge;      // 发送失败：气泡左侧红色❗（微信式）
+    UILabel *_sysNote;        // 被拒收等系统提示：气泡下方居中灰字
+    NSLayoutConstraint *_bubbleBottom;   // 无系统行时：气泡贴 cell 底
+    NSLayoutConstraint *_noteTop;        // 有系统行时：系统行接气泡底
+    NSLayoutConstraint *_noteBottom;     // 有系统行时：系统行贴 cell 底
+    NSLayoutConstraint *_failBadgeTrailing;
 }
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
@@ -77,6 +83,27 @@
         _text.font = [UIFont systemFontOfSize:17];
         [_bubble addSubview:_text];
 
+        _failBadge = [UILabel new];
+        _failBadge.translatesAutoresizingMaskIntoConstraints = NO;
+        _failBadge.text = @"!";
+        _failBadge.textAlignment = NSTextAlignmentCenter;
+        _failBadge.font = [UIFont boldSystemFontOfSize:13];
+        _failBadge.textColor = UIColor.whiteColor;
+        _failBadge.backgroundColor = UIColor.systemRedColor;
+        _failBadge.layer.cornerRadius = 9;
+        _failBadge.layer.masksToBounds = YES;
+        _failBadge.hidden = YES;
+        [self.contentView addSubview:_failBadge];
+
+        _sysNote = [UILabel new];
+        _sysNote.translatesAutoresizingMaskIntoConstraints = NO;
+        _sysNote.font = [UIFont systemFontOfSize:12];
+        _sysNote.textColor = IMTheme.textSecondary;
+        _sysNote.textAlignment = NSTextAlignmentCenter;
+        _sysNote.numberOfLines = 0;
+        _sysNote.hidden = YES;
+        [self.contentView addSubview:_sysNote];
+
         _leading = [_bubble.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12];
         _trailing = [_bubble.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-12];
         _datePillTop = [_datePill.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:0];
@@ -96,8 +123,16 @@
             _dividerHeight,
 
             [_bubble.topAnchor constraintEqualToAnchor:_divider.bottomAnchor constant:2],
-            [_bubble.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3],
             [_bubble.widthAnchor constraintLessThanOrEqualToAnchor:self.contentView.widthAnchor multiplier:0.75],
+
+            // 红❗：钉在气泡左侧、垂直居中（仅自己失败时显示）。
+            [_failBadge.widthAnchor constraintEqualToConstant:18],
+            [_failBadge.heightAnchor constraintEqualToConstant:18],
+            [_failBadge.centerYAnchor constraintEqualToAnchor:_bubble.centerYAnchor],
+
+            // 系统行：横跨内容区居中。
+            [_sysNote.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:24],
+            [_sysNote.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-24],
 
             // 气泡内文本：时间+✓/✓✓ 作为小字尾巴拼进同一段富文本（不再用独立 label 叠加+空格占位，
             // 那种做法短消息时气泡不为尾随空格变宽→ meta 溢出圆角裁剪而看不见。现在 meta 一定随文本渲染）。
@@ -106,6 +141,13 @@
             [_text.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor constant:-12],
             [_text.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:-6],
         ]];
+
+        // 可切换约束：无系统行→气泡贴 cell 底；有系统行→气泡接系统行、系统行贴底。
+        _bubbleBottom = [_bubble.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3];
+        _noteTop = [_sysNote.topAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:4];
+        _noteBottom = [_sysNote.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-6];
+        _failBadgeTrailing = [_failBadge.trailingAnchor constraintEqualToAnchor:_bubble.leadingAnchor constant:-6];
+        _bubbleBottom.active = YES;
     }
     return self;
 }
@@ -138,6 +180,17 @@
     }
     _text.attributedText = body;
 
+    // 发送失败：气泡左侧红❗（仅自己）；被拒收等→气泡下方居中系统行（微信式）。
+    BOOL failed = mine && message.status == IMMessageStatusFailed;
+    _failBadge.hidden = !failed;
+    _failBadgeTrailing.active = failed;
+    BOOL hasNote = message.note.length > 0;
+    _sysNote.hidden = !hasNote;
+    _sysNote.text = message.note;
+    _bubbleBottom.active = !hasNote;
+    _noteTop.active = hasNote;
+    _noteBottom.active = hasNote;
+
     // 尾巴：自己靠右气泡的右下角不圆（成尾），对方靠左气泡的左下角不圆。
     _bubble.layer.maskedCorners = mine
         ? (kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner | kCALayerMinXMaxYCorner)
@@ -163,6 +216,10 @@
         return [[NSAttributedString alloc] initWithString:@"发送中…" attributes:base];
     }
     if (message.status == IMMessageStatusFailed) {
+        // 被拒收（有系统行）→ 气泡内只显时间，失败由红❗+下方系统行表达；其余失败仍显"未发送 ✗"。
+        if (message.note.length > 0) {
+            return [[NSAttributedString alloc] initWithString:time attributes:base];
+        }
         return [[NSAttributedString alloc] initWithString:@"未发送 ✗"
             attributes:@{ NSFontAttributeName: font, NSForegroundColorAttributeName: UIColor.systemRedColor }];
     }
@@ -500,7 +557,7 @@
     __weak typeof(self) weakSelf = self;
     clientMsgID = [IMSocketManager.sharedManager sendText:text toUser:self.peerID
                                                completion:^(BOOL success, NSError *error, int64_t convSeq) {
-        [weakSelf handleSendResult:success convSeq:convSeq forClientMsgID:clientMsgID];
+        [weakSelf handleSendResult:success convSeq:convSeq error:error forClientMsgID:clientMsgID];
     }];
 
     IMMessageModel *m = [IMMessageModel new];
@@ -518,10 +575,13 @@
     [self appendReloadAndScroll];
 }
 
-- (void)handleSendResult:(BOOL)success convSeq:(int64_t)convSeq forClientMsgID:(NSString *)clientMsgID {
+- (void)handleSendResult:(BOOL)success convSeq:(int64_t)convSeq error:(NSError *)error forClientMsgID:(NSString *)clientMsgID {
     for (IMMessageModel *m in self.messages) {
         if ([m.clientMsgID isEqualToString:clientMsgID]) {
             m.status = success ? IMMessageStatusSent : IMMessageStatusFailed;
+            // 被拉黑拒收（errcode 200102）→ 把服务端友好文案挂到 note，气泡下方居中显示（微信式）；
+            // 其余失败（如 ack 超时）不挂 note，仍显"未发送 ✗"。
+            m.note = (!success && error.code == 200102) ? error.localizedDescription : nil;
             m.convSeq = convSeq;
             [IMDatabase.sharedDatabase saveMessage:m]; // upsert：更新状态/conv_seq
             if (convSeq > 0) { [self.seenConvSeqs addObject:@(convSeq)]; } // 防 sync 重复回显自己发的
