@@ -649,9 +649,10 @@
             if (mine) {
                 return [UIMenu menuWithTitle:@"" children:@[copy, del]];
             }
+            // 举报消息用 conv_seq 定位（与 Web 一致；客户端无需持有 server_msg_id）。
             UIAction *reportMsg = [UIAction actionWithTitle:@"举报消息"
                 image:[UIImage systemImageNamed:@"exclamationmark.bubble"] identifier:nil
-                handler:^(__kindof UIAction *a) { [weakSelf reportTargetType:@"message" targetID:(message.serverMsgID ?: @"") title:@"举报这条消息"]; }];
+                handler:^(__kindof UIAction *a) { [weakSelf reportTargetType:@"message" targetID:[@(message.convSeq) stringValue] title:@"举报这条消息"]; }];
             UIAction *reportUser = [UIAction actionWithTitle:@"举报发送者"
                 image:[UIImage systemImageNamed:@"person.crop.circle.badge.exclamationmark"] identifier:nil
                 handler:^(__kindof UIAction *a) { [weakSelf reportTargetType:@"user" targetID:(message.from ?: @"") title:[NSString stringWithFormat:@"举报用户 %@", message.from]]; }];
