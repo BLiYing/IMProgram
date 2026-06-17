@@ -17,6 +17,8 @@ extern NSString * const IMSocketDidReceiveMessageNotification;
 extern NSString * const IMSocketDidReceiveFriendEventNotification;
 /// 收到已读回执（read）时广播（主线程）：会话列表据此刷新——对端已读→我发的变✓✓；本人多端已读→未读清零。
 extern NSString * const IMSocketDidReceiveReadNotification;
+/// 连接状态变化时广播（主线程）：非 delegate 页（如会话列表）据此显示 连接中/未连接。userInfo[@"state"]=IMSocketState。
+extern NSString * const IMSocketDidChangeStateNotification;
 extern NSString * const kIMConvIDKey;
 
 /// 连接状态。

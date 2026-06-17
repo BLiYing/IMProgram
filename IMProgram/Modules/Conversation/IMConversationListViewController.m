@@ -2,6 +2,7 @@
 
 #import "IMConversationListViewController.h"
 #import "IMChatViewController.h"
+#import "IMLoginViewController.h"
 #import "IMHTTPService.h"
 #import "IMSocketManager.h"
 #import "IMDatabase.h"
@@ -205,6 +206,10 @@ static CGFloat const kIMRowLeading = 16;
     // 已读回执（对端已读→我发的✓✓；本人多端已读→未读清零）也触发列表刷新。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketMessage:)
                                                name:IMSocketDidReceiveReadNotification object:nil];
+    // 连接状态变化 → 标题显示 连接中/未连接（取代"任何失败都弹框"）。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketState:)
+                                               name:IMSocketDidChangeStateNotification object:nil];
+    [self updateTitleForState:IMSocketManager.sharedManager.state];
     [self reload];
 }
 
@@ -213,6 +218,20 @@ static CGFloat const kIMRowLeading = 16;
     self.visible = NO;
     [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidReceiveMessageNotification object:nil];
     [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidReceiveReadNotification object:nil];
+    [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidChangeStateNotification object:nil];
+}
+
+/// 连接状态 → 标题后缀（连接中/未连接），网络问题不再弹框。
+- (void)onSocketState:(NSNotification *)note {
+    [self updateTitleForState:(IMSocketState)[note.userInfo[@"state"] integerValue]];
+}
+
+- (void)updateTitleForState:(IMSocketState)state {
+    switch (state) {
+        case IMSocketStateConnecting:   self.title = @"会话（连接中…）"; break;
+        case IMSocketStateDisconnected: self.title = @"会话（未连接）"; break;
+        default:                        self.title = @"会话"; break;
+    }
 }
 
 /// 收到新消息（任意会话）→ 节流刷新列表（合并连发的多条，避免每条都拉一次）。
@@ -236,7 +255,11 @@ static CGFloat const kIMRowLeading = 16;
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) { return; }
         if (token.length == 0) {
-            [self showError:[NSString stringWithFormat:@"登录失败：%@", error.localizedDescription]];
+            // 鉴权失败（账号没了/密码错/token 失效）→ 退回登录页重新登录；
+            // 网络失败（连不上）→ 不弹框，标题已显"未连接"，靠 socket 自动重连。
+            if (IMIsAuthErrorCode(error.code)) {
+                [self bounceToLoginWithReason:error.localizedDescription];
+            }
             return;
         }
         self.token = token;
@@ -244,7 +267,8 @@ static CGFloat const kIMRowLeading = 16;
             __strong typeof(weakSelf) self = weakSelf;
             if (!self) { return; }
             if (err) {
-                [self showError:[NSString stringWithFormat:@"拉取会话失败：%@", err.localizedDescription]];
+                // 登录已成功、拉会话失败多为网络抖动 → 不弹框（保留当前列表，靠下次刷新/重连恢复）。
+                IMLog(@"拉取会话失败（忽略，不弹框）：%@", err.localizedDescription);
                 return;
             }
             self.conversations = convs ?: @[];
@@ -273,6 +297,16 @@ static CGFloat const kIMRowLeading = 16;
                                                            preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
+}
+
+/// 鉴权失效（账号不存在/密码错/被封/token 失效）→ 断连并退回登录页（会话已失效，停在缓存上无意义）。
+- (void)bounceToLoginWithReason:(NSString *)reason {
+    IMLog(@"会话失效，退回登录：%@", reason);
+    UIWindow *window = self.view.window;
+    if (!window) { return; }
+    [IMSocketManager.sharedManager disconnect];
+    IMLoginViewController *login = [IMLoginViewController new];
+    window.rootViewController = [[UINavigationController alloc] initWithRootViewController:login];
 }
 
 #pragma mark - 交互

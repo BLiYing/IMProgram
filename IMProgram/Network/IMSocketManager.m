@@ -20,6 +20,7 @@ static NSString * const kIMErrorDomain = @"IMSocketManagerErrorDomain";
 NSString * const IMSocketDidReceiveMessageNotification = @"IMSocketDidReceiveMessageNotification";
 NSString * const IMSocketDidReceiveFriendEventNotification = @"IMSocketDidReceiveFriendEventNotification";
 NSString * const IMSocketDidReceiveReadNotification = @"IMSocketDidReceiveReadNotification";
+NSString * const IMSocketDidChangeStateNotification = @"IMSocketDidChangeStateNotification";
 NSString * const kIMConvIDKey = @"convID";
 
 #pragma mark - 待确认发送项
@@ -613,6 +614,9 @@ NSString * const kIMConvIDKey = @"convID";
         if ([d respondsToSelector:@selector(socketManager:didChangeState:)]) {
             [d socketManager:self didChangeState:state];
         }
+        // 同时广播：会话列表等非 delegate 页据此显示 连接中/未连接（delegate 槽被聊天页占用）。
+        [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidChangeStateNotification
+                                                         object:self userInfo:@{ @"state": @(state) }];
     });
 }
 

@@ -7,6 +7,20 @@
 
 static NSString * const kIMHTTPErrorDomain = @"IMHTTPService";
 
+// 是否"鉴权失败"类错误码（账号/密码/封禁/token）→ 调用方应退回登录页，而非当网络问题重试。
+BOOL IMIsAuthErrorCode(NSInteger code) {
+    switch (code) {
+        case 200001: // 用户不存在
+        case 200002: // 密码错误
+        case 200003: // 账号被封
+        case 100101: // token 无效
+        case 100102: // token 过期
+            return YES;
+        default:
+            return NO;
+    }
+}
+
 /// 业务错误码 → 友好中文（对齐 errcode）。未收录返回 nil，回退服务端原文。
 /// 隐私：被拉黑/密码错误等用模糊文案，不暴露"你被对方拉黑了"。
 static NSString *IMFriendlyMessageForCode(NSInteger code) {
@@ -65,7 +79,9 @@ static NSString *IMFriendlyNetworkError(NSError *error) {
         NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
         NSString *token = [data[@"token"] isKindOfClass:[NSString class]] ? data[@"token"] : nil;
         if ([body[@"code"] integerValue] != 0 || token.length == 0) {
-            completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"登录失败"]]);
+            // 带上业务码，便于调用方区分"鉴权失败(退登录)"与"网络问题(重试)"。
+            completion(nil, [self errorWithCode:[body[@"code"] integerValue]
+                                        message:[self messageFrom:body fallback:@"登录失败"]]);
             return;
         }
         completion(token, nil);
@@ -318,7 +334,11 @@ static NSString *IMFriendlyNetworkError(NSError *error) {
 }
 
 - (NSError *)errorWithMessage:(NSString *)message {
-    return [NSError errorWithDomain:kIMHTTPErrorDomain code:-1
+    return [self errorWithCode:-1 message:message]; // -1 = 网络/未知（非业务码）
+}
+
+- (NSError *)errorWithCode:(NSInteger)code message:(NSString *)message {
+    return [NSError errorWithDomain:kIMHTTPErrorDomain code:code
                            userInfo:@{ NSLocalizedDescriptionKey: message ?: @"unknown" }];
 }
 

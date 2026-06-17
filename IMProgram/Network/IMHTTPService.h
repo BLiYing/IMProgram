@@ -8,6 +8,10 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+/// 该错误码是否"鉴权失败"类（用户不存在/密码错/封禁/token 失效）→ 调用方应退回登录页。
+/// 失败 NSError 的 code 即业务错误码（登录接口已带）；网络/未知为 -1。
+BOOL IMIsAuthErrorCode(NSInteger code);
+
 @interface IMHTTPService : NSObject
 
 + (instancetype)sharedService;

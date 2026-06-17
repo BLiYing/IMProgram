@@ -16,6 +16,7 @@
 - **里程碑层面 M1+M2+M2.5 客户端基本收口**。下一步可选 M3 群聊。
 - **自测修复（2026-06-16）**：①好友申请/同意实时——socket 收 `friend` 帧 → `IMSocketDidReceiveFriendEventNotification` → 通讯录(init 即订阅,节流)reload,Tab 角标无需切页即亮;②找人改精确匹配(`对方完整 uid 或手机号`占位)。
 - **自测修复（2026-06-17）**：①「拒绝」按钮曾被禁用点击无反应 → 按钮三态(primary/secondary 可点/disabled)修复;②**黑名单页** `IMBlockedListViewController`（「我」页→黑名单）：`?status=blocked` 列表 + 解除(unblock);③HTTP 错误码 → 友好中文(`IMFriendlyMessageForCode`,被拉黑用模糊文案"暂时无法添加对方为好友"不暴露)。
+- **登录失败 UX 修（2026-06-17，两端）**：会话列表原来"任何登录失败都弹模态框、标题无连接态"。现：NSError 带业务码 + `IMIsAuthErrorCode`;socket 加 `IMSocketDidChangeStateNotification`，会话列表标题显示「会话（连接中…/未连接）」;reload 失败分流——**鉴权失败(账号没了/密码错/token失效)→ 退回登录页**(`bounceToLoginWithReason:`)，**网络失败→不弹框**(标题已显未连接、靠自动重连)。Web 同步:`onAuthError`→退回登录、网络→保持 header 状态+重连。
 
 ## 下一步
 1. （里程碑）M3 群聊 / 群成员管理；或先补「多端同时在线」客户端 UI/位点同步验证（M1 遗留 ⬜）。
