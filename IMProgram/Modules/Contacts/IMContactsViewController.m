@@ -208,7 +208,9 @@
     }
     IMContactCell *cell = [tableView dequeueReusableCellWithIdentifier:@"friend" forIndexPath:indexPath];
     IMUserCard *c = self.accepted[indexPath.row];
-    [cell configureWithCard:c subtitle:c.userID];
+    // 拉黑≠解绑：被拉黑的好友仍在列表，副标题标注"已拉黑"以区分。
+    NSString *subtitle = c.blocked ? [NSString stringWithFormat:@"%@ · 已拉黑", c.userID] : c.userID;
+    [cell configureWithCard:c subtitle:subtitle];
     [cell setActionTitle:nil enabled:NO action:nil];
     cell.selectionStyle = UITableViewCellSelectionStyleDefault;
     return cell;
@@ -220,23 +222,27 @@
     [self openChatWithPeer:self.accepted[indexPath.row].userID];
 }
 
-/// 好友行左滑：删除好友 / 拉黑（申请行不提供）。
+/// 好友行左滑：删除好友 / 拉黑或解除拉黑（申请行不提供）。
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView
     trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
     if ([self isRequestsSection:indexPath.section]) { return nil; }
-    NSString *peer = self.accepted[indexPath.row].userID;
+    IMUserCard *card = self.accepted[indexPath.row];
+    NSString *peer = card.userID;
     __weak typeof(self) weakSelf = self;
     UIContextualAction *del = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive
                                                                       title:@"删除"
                                                                     handler:^(UIContextualAction *a, UIView *v, void (^done)(BOOL)) {
         [weakSelf removeFriend:peer]; done(YES);
     }];
+    // 拉黑≠解绑：已拉黑的好友这里给"解除拉黑"，否则给"拉黑"。
+    NSString *blockTitle = card.blocked ? @"解除拉黑" : @"拉黑";
+    NSString *blockAction = card.blocked ? @"unblock" : @"block";
     UIContextualAction *block = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleNormal
-                                                                        title:@"拉黑"
+                                                                        title:blockTitle
                                                                       handler:^(UIContextualAction *a, UIView *v, void (^done)(BOOL)) {
-        [weakSelf performAction:@"block" onPeer:peer]; done(YES);
+        [weakSelf performAction:blockAction onPeer:peer]; done(YES);
     }];
-    block.backgroundColor = UIColor.systemGrayColor;
+    block.backgroundColor = card.blocked ? UIColor.systemGreenColor : UIColor.systemGrayColor;
     return [UISwipeActionsConfiguration configurationWithActions:@[del, block]];
 }
 

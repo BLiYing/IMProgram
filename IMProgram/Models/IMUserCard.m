@@ -29,6 +29,7 @@ IMFriendStatus IMFriendStatusFromString(NSString *s) {
     c.avatarURL = [self stringForKey:@"avatar_url" in:dict];
     c.phone = [self stringForKey:@"phone" in:dict];
     c.status = IMFriendStatusFromString([self stringForKey:@"status" in:dict]);
+    c.blocked = [dict[@"blocked"] respondsToSelector:@selector(boolValue)] ? [dict[@"blocked"] boolValue] : NO;
     c.updatedAt = [dict[@"updated_at"] respondsToSelector:@selector(longLongValue)] ? [dict[@"updated_at"] longLongValue] : 0;
 
     NSMutableArray<NSString *> *tags = [NSMutableArray array];
