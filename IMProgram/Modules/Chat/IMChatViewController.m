@@ -505,6 +505,9 @@
 }
 
 - (void)handleSendResult:(BOOL)success convSeq:(int64_t)convSeq error:(NSError *)error forClientMsgID:(NSString *)clientMsgID {
+    // 结果到来前先记录是否贴底：被拒收会给该条挂"系统行"，cell 随之变高，
+    // 不重新贴底则系统行被顶出屏幕（需手动下滚才可见）。自己发的消息贴底（CHAT_UX §9）。
+    BOOL wasNearBottom = [self isNearBottom];
     for (IMMessageModel *m in self.messages) {
         if ([m.clientMsgID isEqualToString:clientMsgID]) {
             m.status = success ? IMMessageStatusSent : IMMessageStatusFailed;
@@ -512,12 +515,13 @@
             // 其余失败（如 ack 超时）不挂 note，仍显"未发送 ✗"。
             m.note = (!success && error.code == 200102) ? error.localizedDescription : nil;
             m.convSeq = convSeq;
-            [IMDatabase.sharedDatabase saveMessage:m]; // upsert：更新状态/conv_seq
+            [IMDatabase.sharedDatabase saveMessage:m]; // upsert：更新状态/conv_seq/note（含被拒文案，重进会话不丢）
             if (convSeq > 0) { [self.seenConvSeqs addObject:@(convSeq)]; } // 防 sync 重复回显自己发的
             break;
         }
     }
     [self.tableView reloadData];
+    if (wasNearBottom) { [self scrollToBottomAnimated:YES]; } // 贴底则把（变高后的）该条+系统行滚入视口
 }
 
 #pragma mark - IMSocketManagerDelegate（主线程回调）

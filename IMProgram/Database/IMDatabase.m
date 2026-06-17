@@ -38,10 +38,25 @@
              "row_id INTEGER PRIMARY KEY AUTOINCREMENT,"
              "client_msg_id TEXT, server_msg_id TEXT, conv_id TEXT NOT NULL,"
              "sender TEXT, recipient TEXT, content_type TEXT, content TEXT,"
-             "conv_seq INTEGER, timestamp INTEGER, status INTEGER)"];
+             "conv_seq INTEGER, timestamp INTEGER, status INTEGER, note TEXT)"];
         if (!ok) { IMLog(@"[db] 建表失败: %@", db.lastErrorMessage); }
         [db executeUpdate:@"CREATE INDEX IF NOT EXISTS idx_local_conv ON im_message_local(conv_id)"];
+        // 老库迁移（非破坏）：补 note 列——失败消息的系统提示（如被拉黑拒收文案）落库，重进会话不丢。
+        if (![self column:@"note" existsInTable:@"im_message_local" db:db]) {
+            [db executeUpdate:@"ALTER TABLE im_message_local ADD COLUMN note TEXT"];
+        }
     }];
+}
+
+/// 列是否存在（PRAGMA table_info），用于幂等的非破坏迁移。
+- (BOOL)column:(NSString *)col existsInTable:(NSString *)table db:(FMDatabase *)db {
+    FMResultSet *rs = [db executeQuery:[NSString stringWithFormat:@"PRAGMA table_info(%@)", table]];
+    BOOL found = NO;
+    while ([rs next]) {
+        if ([[rs stringForColumn:@"name"] isEqualToString:col]) { found = YES; break; }
+    }
+    [rs close];
+    return found;
 }
 
 #pragma mark - 读写（接口语义同归档版：出站按 client_msg_id upsert，入站按 conv_seq 去重；保持插入顺序）
@@ -52,16 +67,16 @@
         NSNumber *rowID = [self existingRowIDFor:message in:db];
         if (rowID) {
             [db executeUpdate:
-                @"UPDATE im_message_local SET server_msg_id=?,sender=?,recipient=?,content_type=?,content=?,conv_seq=?,timestamp=?,status=? WHERE row_id=?",
+                @"UPDATE im_message_local SET server_msg_id=?,sender=?,recipient=?,content_type=?,content=?,conv_seq=?,timestamp=?,status=?,note=? WHERE row_id=?",
                 message.serverMsgID ?: @"", message.from ?: @"", message.to ?: @"",
                 message.contentType ?: @"text", message.content ?: @"",
-                @(message.convSeq), @(message.timestamp), @(message.status), rowID];
+                @(message.convSeq), @(message.timestamp), @(message.status), message.note ?: @"", rowID];
         } else {
             [db executeUpdate:
-                @"INSERT INTO im_message_local (client_msg_id,server_msg_id,conv_id,sender,recipient,content_type,content,conv_seq,timestamp,status) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                @"INSERT INTO im_message_local (client_msg_id,server_msg_id,conv_id,sender,recipient,content_type,content,conv_seq,timestamp,status,note) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 message.clientMsgID ?: @"", message.serverMsgID ?: @"", message.convID,
                 message.from ?: @"", message.to ?: @"", message.contentType ?: @"text",
-                message.content ?: @"", @(message.convSeq), @(message.timestamp), @(message.status)];
+                message.content ?: @"", @(message.convSeq), @(message.timestamp), @(message.status), message.note ?: @""];
         }
     }];
 }
@@ -98,6 +113,8 @@
             m.convSeq     = [rs longLongIntForColumn:@"conv_seq"];
             m.timestamp   = [rs longLongIntForColumn:@"timestamp"];
             m.status      = (IMMessageStatus)[rs longForColumn:@"status"];
+            NSString *note = [rs stringForColumn:@"note"];
+            m.note        = note.length > 0 ? note : nil; // 空串视作无系统提示
             [out addObject:m];
         }
         [rs close];

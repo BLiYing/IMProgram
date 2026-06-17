@@ -160,6 +160,27 @@
     [NSFileManager.defaultManager removeItemAtURL:tmp error:NULL];
 }
 
+// 被拉黑拒收的失败消息：status=Failed + note（系统提示）落库，重开新实例仍可读回（重进会话不丢"被对方拒收"行）。
+- (void)testDatabasePersistsRejectedNote {
+    NSURL *tmp = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString]];
+    IMDatabase *db = [[IMDatabase alloc] initWithFileURL:tmp];
+
+    IMMessageModel *m = [IMMessageModel new];
+    m.clientMsgID = @"c-reject"; m.convID = @"u_1_u_2"; m.from = @"1"; m.content = @"hi";
+    m.contentType = @"text"; m.convSeq = 0; m.status = IMMessageStatusFailed;
+    m.note = @"消息已发出，但被对方拒收了";
+    [db saveMessage:m];
+
+    IMDatabase *db2 = [[IMDatabase alloc] initWithFileURL:tmp];
+    NSArray<IMMessageModel *> *loaded = [db2 messagesForConv:@"u_1_u_2"];
+    XCTAssertEqual(loaded.count, 1);
+    XCTAssertEqual(loaded[0].status, IMMessageStatusFailed);
+    XCTAssertEqual(loaded[0].convSeq, 0);
+    XCTAssertEqualObjects(loaded[0].note, @"消息已发出，但被对方拒收了");
+
+    [NSFileManager.defaultManager removeItemAtURL:tmp error:NULL];
+}
+
 - (void)testDatabaseDeleteMessage {
     NSURL *tmp = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString]];
     IMDatabase *db = [[IMDatabase alloc] initWithFileURL:tmp];
