@@ -147,6 +147,8 @@ static CGFloat const kIMRowLeading = 16;
 @property (nonatomic, strong) UILabel *emptyLabel;
 @property (nonatomic, assign) BOOL visible; // 在屏时才响应新消息刷新（避免进聊天页时无谓拉取）
 @property (nonatomic, strong) NSMutableSet<NSString *> *trackedConvIDs; // 已登记增量同步的会话（每会话只登记一次）
+@property (nonatomic, assign) BOOL authPromptActive;  // 鉴权失效提示框正显示中（防叠框）
+@property (nonatomic, assign) BOOL authDismissed;     // 用户已选"取消"留看缓存 → 本会话不再提示
 @end
 
 @implementation IMConversationListViewController
@@ -258,7 +260,7 @@ static CGFloat const kIMRowLeading = 16;
             // 鉴权失败（账号没了/密码错/token 失效）→ 退回登录页重新登录；
             // 网络失败（连不上）→ 不弹框，标题已显"未连接"，靠 socket 自动重连。
             if (IMIsAuthErrorCode(error.code)) {
-                [self bounceToLoginWithReason:error.localizedDescription];
+                [self promptAuthExpired:error.localizedDescription];
             }
             return;
         }
@@ -299,9 +301,29 @@ static CGFloat const kIMRowLeading = 16;
     [self presentViewController:alert animated:YES completion:nil];
 }
 
-/// 鉴权失效（账号不存在/密码错/被封/token 失效）→ 断连并退回登录页（会话已失效，停在缓存上无意义）。
-- (void)bounceToLoginWithReason:(NSString *)reason {
-    IMLog(@"会话失效，退回登录：%@", reason);
+/// 鉴权失效（账号不存在/密码错/被封/token 失效）→ 弹框让用户选：重新登录 / 取消(留看本地缓存)。
+/// 只提示一次（authPromptActive 防叠框、authDismissed 防刷屏），不强制踢走。
+- (void)promptAuthExpired:(NSString *)reason {
+    if (self.authPromptActive || self.authDismissed) { return; }
+    self.authPromptActive = YES;
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"登录已失效"
+        message:[NSString stringWithFormat:@"%@。可重新登录；或取消，继续查看本地聊天记录。", reason]
+        preferredStyle:UIAlertControllerStyleAlert];
+    __weak typeof(self) weakSelf = self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"重新登录" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        weakSelf.authPromptActive = NO;
+        [weakSelf bounceToLogin];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction *a) {
+        weakSelf.authPromptActive = NO;
+        weakSelf.authDismissed = YES;                 // 本会话不再提示，留看缓存
+        [IMSocketManager.sharedManager disconnect];   // 停止自动重连风暴
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+/// 真正退回登录页（断连 + 替换根控制器）。
+- (void)bounceToLogin {
     UIWindow *window = self.view.window;
     if (!window) { return; }
     [IMSocketManager.sharedManager disconnect];
