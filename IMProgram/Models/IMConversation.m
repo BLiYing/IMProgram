@@ -18,6 +18,8 @@
     IMConversation *c = [IMConversation new];
     c.convID = [self stringForKey:@"conv_id" in:dict];
     c.peer = [self stringForKey:@"peer" in:dict];
+    c.peerNickname = [self stringForKey:@"peer_nickname" in:dict];
+    c.peerAvatarURL = [self stringForKey:@"peer_avatar_url" in:dict];
     c.latestConvSeq = [dict[@"latest_conv_seq"] respondsToSelector:@selector(longLongValue)] ? [dict[@"latest_conv_seq"] longLongValue] : 0;
     c.readSeq = [dict[@"read_seq"] respondsToSelector:@selector(longLongValue)] ? [dict[@"read_seq"] longLongValue] : 0;
     c.peerReadSeq = [dict[@"peer_read_seq"] respondsToSelector:@selector(longLongValue)] ? [dict[@"peer_read_seq"] longLongValue] : 0;

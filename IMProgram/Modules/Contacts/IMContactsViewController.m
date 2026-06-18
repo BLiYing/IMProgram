@@ -7,8 +7,67 @@
 #import "IMHTTPService.h"
 #import "IMSocketManager.h"
 #import "IMUserCard.h"
+#import "IMMenuAction.h"
+#import "IMAnimator.h"
+#import "UIViewController+IMToast.h"
 #import "IMTheme.h"
 #import "IMLog.h"
+
+#pragma mark - 顶部入口 Cell（彩色图标 + 标题 + chevron）
+
+@interface IMContactEntryCell : UITableViewCell
+- (void)configureWithAction:(IMMenuAction *)action iconBg:(UIColor *)iconBg;
+@end
+
+@implementation IMContactEntryCell {
+    UIImageView *_iconView;
+    UIView *_iconBg;
+    UILabel *_title;
+}
+- (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
+    self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
+    if (self) {
+        _iconBg = [UIView new];
+        _iconBg.translatesAutoresizingMaskIntoConstraints = NO;
+        _iconBg.layer.cornerRadius = 7;
+        _iconBg.layer.masksToBounds = YES;
+        [self.contentView addSubview:_iconBg];
+
+        _iconView = [UIImageView new];
+        _iconView.translatesAutoresizingMaskIntoConstraints = NO;
+        _iconView.tintColor = UIColor.whiteColor;
+        _iconView.contentMode = UIViewContentModeScaleAspectFit;
+        [_iconBg addSubview:_iconView];
+
+        _title = [UILabel new];
+        _title.translatesAutoresizingMaskIntoConstraints = NO;
+        _title.font = [UIFont systemFontOfSize:17];
+        _title.textColor = IMTheme.textPrimary;
+        [self.contentView addSubview:_title];
+
+        [NSLayoutConstraint activateConstraints:@[
+            [_iconBg.leadingAnchor constraintEqualToAnchor:self.contentView.layoutMarginsGuide.leadingAnchor],
+            [_iconBg.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
+            [_iconBg.widthAnchor constraintEqualToConstant:30],
+            [_iconBg.heightAnchor constraintEqualToConstant:30],
+            [_iconView.centerXAnchor constraintEqualToAnchor:_iconBg.centerXAnchor],
+            [_iconView.centerYAnchor constraintEqualToAnchor:_iconBg.centerYAnchor],
+            [_iconView.widthAnchor constraintEqualToConstant:18],
+            [_iconView.heightAnchor constraintEqualToConstant:18],
+            [_title.leadingAnchor constraintEqualToAnchor:_iconBg.trailingAnchor constant:IMTheme.space3],
+            [_title.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
+            [_title.trailingAnchor constraintLessThanOrEqualToAnchor:self.contentView.layoutMarginsGuide.trailingAnchor],
+        ]];
+        self.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    }
+    return self;
+}
+- (void)configureWithAction:(IMMenuAction *)action iconBg:(UIColor *)iconBg {
+    _title.text = action.title;
+    _iconView.image = action.systemImageName.length > 0 ? [UIImage systemImageNamed:action.systemImageName] : nil;
+    _iconBg.backgroundColor = iconBg;
+}
+@end
 
 @interface IMContactsViewController () <UITableViewDataSource, UITableViewDelegate>
 @property (nonatomic, copy) NSString *host;
@@ -16,6 +75,8 @@
 @property (nonatomic, copy, nullable) NSString *token;
 @property (nonatomic, strong) NSArray<IMUserCard *> *pending;   // 对方申请我，待我同意/拒绝
 @property (nonatomic, strong) NSArray<IMUserCard *> *accepted;  // 已是好友
+@property (nonatomic, strong) NSArray<IMMenuAction *> *entries; // 顶部入口（群聊/公众号/服务号）
+@property (nonatomic, strong) NSArray<UIColor *> *entryColors;  // 与 entries 同序的图标底色
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) UILabel *emptyLabel;
 @end
@@ -29,6 +90,7 @@
         _userID = [userID copy];
         _pending = @[];
         _accepted = @[];
+        [self buildEntries];
         // 实时好友事件：即使没在通讯录页，也据此刷新（Tab 角标随之亮/灭，无需切页）。
         [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onFriendEvent)
                                                    name:IMSocketDidReceiveFriendEventNotification object:nil];
@@ -39,6 +101,17 @@
 - (void)dealloc {
     [NSNotificationCenter.defaultCenter removeObserver:self];
     [NSObject cancelPreviousPerformRequestsWithTarget:self];
+}
+
+/// 顶部入口（数据驱动）：新增入口 = 往 entries/entryColors 各加一条。全部 → 开发中吐司。
+- (void)buildEntries {
+    __weak typeof(self) ws = self;
+    self.entries = @[
+        [IMMenuAction actionWithId:@"groupChat" title:@"群聊" image:@"person.3.fill" handler:^{ [ws im_showComingSoon:@"群聊"]; }],
+        [IMMenuAction actionWithId:@"officialAccount" title:@"公众号" image:@"megaphone.fill" handler:^{ [ws im_showComingSoon:@"公众号"]; }],
+        [IMMenuAction actionWithId:@"serviceAccount" title:@"服务号" image:@"headphones" handler:^{ [ws im_showComingSoon:@"服务号"]; }],
+    ];
+    self.entryColors = @[UIColor.systemGreenColor, UIColor.systemOrangeColor, UIColor.systemBlueColor];
 }
 
 /// 收到好友事件 → 节流刷新（合并连发，避免每帧一次登录+拉取）。
@@ -62,6 +135,7 @@
     self.tableView.rowHeight = 68;
     [self.tableView registerClass:IMContactCell.class forCellReuseIdentifier:@"friend"];
     [self.tableView registerClass:IMContactRequestCell.class forCellReuseIdentifier:@"request"];
+    [self.tableView registerClass:IMContactEntryCell.class forCellReuseIdentifier:@"entry"];
     [self.view addSubview:self.tableView];
 
     self.emptyLabel = [UILabel new];
@@ -170,25 +244,36 @@
 
 #pragma mark - 分区映射
 
-/// 有待处理申请时：section 0 = 新的朋友，section 1 = 好友；否则只有 好友。
-- (BOOL)hasRequestsSection {
-    return self.pending.count > 0;
-}
+// 分区布局：section 0 = 顶部入口（始终存在）；有待处理申请时 section 1 = 新的朋友、section 2 = 好友；
+// 否则 section 1 = 好友。下面以语义谓词判断，避免散落魔法下标。
+
+/// 顶部入口区永远是 section 0。
+- (BOOL)isEntriesSection:(NSInteger)section { return section == 0; }
+/// 是否有"新的朋友"分区。
+- (BOOL)hasRequestsSection { return self.pending.count > 0; }
+/// "新的朋友"分区（存在时固定为 section 1）。
 - (BOOL)isRequestsSection:(NSInteger)section {
-    return [self hasRequestsSection] && section == 0;
+    return [self hasRequestsSection] && section == 1;
+}
+/// 好友分区：入口之后、（可选）新的朋友之后的最后一个分区。
+- (BOOL)isFriendsSection:(NSInteger)section {
+    return section == ([self hasRequestsSection] ? 2 : 1);
 }
 
 #pragma mark - UITableView
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return [self hasRequestsSection] ? 2 : 1;
+    return 1 /*入口*/ + ([self hasRequestsSection] ? 1 : 0) + 1 /*好友*/;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    return [self isRequestsSection:section] ? self.pending.count : self.accepted.count;
+    if ([self isEntriesSection:section]) { return (NSInteger)self.entries.count; }
+    if ([self isRequestsSection:section]) { return (NSInteger)self.pending.count; }
+    return (NSInteger)self.accepted.count;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
+    if ([self isEntriesSection:section]) { return nil; }
     if ([self isRequestsSection:section]) {
         return [NSString stringWithFormat:@"新的朋友（%lu）", (unsigned long)self.pending.count];
     }
@@ -196,6 +281,11 @@
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    if ([self isEntriesSection:indexPath.section]) {
+        IMContactEntryCell *cell = [tableView dequeueReusableCellWithIdentifier:@"entry" forIndexPath:indexPath];
+        [cell configureWithAction:self.entries[indexPath.row] iconBg:self.entryColors[indexPath.row]];
+        return cell;
+    }
     if ([self isRequestsSection:indexPath.section]) {
         IMContactRequestCell *cell = [tableView dequeueReusableCellWithIdentifier:@"request" forIndexPath:indexPath];
         IMUserCard *c = self.pending[indexPath.row];
@@ -218,14 +308,20 @@
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    if ([self isEntriesSection:indexPath.section]) {
+        [IMAnimator selectionChanged];
+        IMMenuAction *entry = self.entries[indexPath.row];
+        if (entry.handler) { entry.handler(); }
+        return;
+    }
     if ([self isRequestsSection:indexPath.section]) { return; } // 申请行靠按钮操作，不整行点击
     [self openChatWithPeer:self.accepted[indexPath.row].userID];
 }
 
-/// 好友行左滑：删除好友 / 拉黑或解除拉黑（申请行不提供）。
+/// 好友行左滑：删除好友 / 拉黑或解除拉黑（入口行/申请行不提供）。
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView
     trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if ([self isRequestsSection:indexPath.section]) { return nil; }
+    if (![self isFriendsSection:indexPath.section]) { return nil; }
     IMUserCard *card = self.accepted[indexPath.row];
     NSString *peer = card.userID;
     __weak typeof(self) weakSelf = self;

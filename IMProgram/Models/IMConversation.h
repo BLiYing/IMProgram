@@ -9,6 +9,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property (nonatomic, copy) NSString *convID;
 @property (nonatomic, copy) NSString *peer;            // 单聊对端 uid
+@property (nonatomic, copy, nullable) NSString *peerNickname;  // 对端昵称（显示名/首字母，空回退 uid）
+@property (nonatomic, copy, nullable) NSString *peerAvatarURL; // 对端头像（data:/http，空回退首字母圈）
 @property (nonatomic, copy, nullable) NSString *lastContent;
 @property (nonatomic, copy, nullable) NSString *lastFrom;
 @property (nonatomic, assign) int64_t latestConvSeq;

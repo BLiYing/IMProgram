@@ -7,7 +7,11 @@
 #import "IMSocketManager.h"
 #import "IMDatabase.h"
 #import "IMConversation.h"
+#import "IMMenuAction.h"
+#import "IMAnimator.h"
+#import "UIViewController+IMToast.h"
 #import "IMTheme.h"
+#import "UILabel+IMAvatar.h"
 #import "IMLog.h"
 
 #pragma mark - 会话 Cell（Telegram 风格：圆形头像 + 名称/最后一条 + 时间 + 未读蓝胶囊）
@@ -112,9 +116,9 @@ static CGFloat const kIMRowLeading = 16;
 }
 
 - (void)configureWithConversation:(IMConversation *)c mine:(BOOL)mine {
-    _avatar.text = c.peer.length >= 2 ? [c.peer substringFromIndex:c.peer.length - 2] : c.peer;
-    _avatar.backgroundColor = [IMTheme avatarColorForSeed:c.peer];
-    _name.text = c.peer;
+    NSString *display = c.peerNickname.length ? c.peerNickname : c.peer; // 显示名/首字母与通讯录一致
+    [_avatar im_setAvatarURL:c.peerAvatarURL seed:c.peer displayName:display]; // 有头像渲图，否则首字母圈
+    _name.text = display;
     _last.text = c.lastContent.length > 0 ? c.lastContent : @"（无消息）";
     _time.text = [IMTheme timeStringFromMillis:c.timestamp];
     // 最后一条是我发的才显示勾：对端已读到该条 → 绿 ✓✓；否则 → 灰单勾 ✓（已送达/未读）。
@@ -386,6 +390,75 @@ static CGFloat const kIMRowLeading = 16;
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     [self openChatWithConversation:self.conversations[indexPath.row]];
+}
+
+#pragma mark - 行操作（左滑 + 长按菜单，共用同一动作源避免漂移）
+
+/// 单一来源：一条会话的操作集（置顶 / 静音 / 设为已读(仅有未读) / 删除(破坏性)）。
+/// 已接：设为已读；其余（置顶/静音/删除）→ 开发中吐司（后端无对应端点）。
+- (NSArray<IMMenuAction *> *)conversationActionsFor:(IMConversation *)c {
+    __weak typeof(self) ws = self;
+    NSMutableArray<IMMenuAction *> *actions = [NSMutableArray array];
+    [actions addObject:[IMMenuAction actionWithId:@"pin" title:@"置顶" image:@"pin" handler:^{
+        [ws im_showComingSoon:@"置顶"];
+    }]];
+    [actions addObject:[IMMenuAction actionWithId:@"mute" title:@"静音" image:@"bell.slash" handler:^{
+        [ws im_showComingSoon:@"静音"];
+    }]];
+    if (c.unread > 0) {
+        [actions addObject:[IMMenuAction actionWithId:@"markRead" title:@"设为已读" image:@"checkmark.circle" handler:^{
+            [ws markConversationRead:c];
+        }]];
+    }
+    [actions addObject:[IMMenuAction destructiveActionWithId:@"delete" title:@"删除" image:@"trash" handler:^{
+        [ws im_showComingSoon:@"删除"];
+    }]];
+    return actions;
+}
+
+/// 设为已读：上报已读位点 + 本地未读清零并刷新该行。
+- (void)markConversationRead:(IMConversation *)c {
+    if (c.convID.length == 0) { return; }
+    [IMSocketManager.sharedManager markReadConv:c.convID upToConvSeq:c.latestConvSeq];
+    c.unread = 0;
+    NSUInteger idx = [self.conversations indexOfObject:c];
+    if (idx != NSNotFound) {
+        [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:idx inSection:0]]
+                              withRowAnimation:UITableViewRowAnimationAutomatic];
+    }
+}
+
+- (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView
+    trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (indexPath.row >= (NSInteger)self.conversations.count) { return nil; }
+    IMConversation *c = self.conversations[indexPath.row];
+    NSMutableArray<UIContextualAction *> *contextual = [NSMutableArray array];
+    for (IMMenuAction *action in [self conversationActionsFor:c]) {
+        UIContextualActionStyle style = action.destructive ? UIContextualActionStyleDestructive
+                                                           : UIContextualActionStyleNormal;
+        void (^handler)(void) = action.handler;
+        UIContextualAction *ca = [UIContextualAction contextualActionWithStyle:style title:action.title
+            handler:^(UIContextualAction *a, UIView *v, void (^done)(BOOL)) {
+                if (handler) { handler(); }
+                done(YES);
+            }];
+        if (action.systemImageName.length > 0) { ca.image = [UIImage systemImageNamed:action.systemImageName]; }
+        if ([action.actionId isEqualToString:@"markRead"]) { ca.backgroundColor = IMTheme.accent; }
+        else if (!action.destructive) { ca.backgroundColor = UIColor.systemGrayColor; }
+        [contextual addObject:ca];
+    }
+    return [UISwipeActionsConfiguration configurationWithActions:contextual];
+}
+
+- (UIContextMenuConfiguration *)tableView:(UITableView *)tableView
+    contextMenuConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath point:(CGPoint)point {
+    if (indexPath.row >= (NSInteger)self.conversations.count) { return nil; }
+    IMConversation *c = self.conversations[indexPath.row];
+    NSArray<IMMenuAction *> *actions = [self conversationActionsFor:c];
+    return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil
+        actionProvider:^UIMenu *(NSArray<UIMenuElement *> *suggested) {
+            return [IMMenuAction menuWithActions:actions];
+        }];
 }
 
 @end

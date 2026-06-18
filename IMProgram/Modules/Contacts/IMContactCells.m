@@ -3,6 +3,7 @@
 #import "IMContactCells.h"
 #import "IMUserCard.h"
 #import "IMTheme.h"
+#import "UILabel+IMAvatar.h"
 
 static CGFloat const kIMContactAvatarSize = 48;
 static CGFloat const kIMContactLeading = 16;
@@ -98,8 +99,7 @@ static void IMBuildContactBody(UITableViewCell *cell, UILabel *__strong *avatarO
 
 static void IMConfigureBody(UILabel *avatar, UILabel *title, UILabel *subtitle, IMUserCard *card, NSString *sub) {
     NSString *name = card.displayName;
-    avatar.text = name.length >= 2 ? [name substringFromIndex:name.length - 2] : name;
-    avatar.backgroundColor = [IMTheme avatarColorForSeed:card.userID];
+    [avatar im_setAvatarURL:card.avatarURL seed:card.userID displayName:name]; // 有 avatar_url 渲染图，否则首字母圈
     title.text = name;
     subtitle.text = sub ?: @"";
     subtitle.hidden = (sub.length == 0);

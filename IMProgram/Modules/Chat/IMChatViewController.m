@@ -8,6 +8,8 @@
 #import "IMProtocol.h"
 #import "IMMessageModel.h"
 #import "IMDatabase.h"
+#import "IMMenuAction.h"
+#import "UIViewController+IMToast.h"
 #import "IMTheme.h"
 #import "IMLog.h"
 
@@ -626,38 +628,64 @@
     return [IMTheme dayHeaderStringFromMillis:m.timestamp];
 }
 
-#pragma mark - 长按消息菜单（复制 / 删除）
+#pragma mark - 长按消息菜单（数据驱动：IMMenuAction 单一来源）
 
 - (UIContextMenuConfiguration *)tableView:(UITableView *)tableView
     contextMenuConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath point:(CGPoint)point {
     if (indexPath.row >= (NSInteger)self.messages.count) { return nil; }
     IMMessageModel *message = self.messages[indexPath.row];
-    __weak typeof(self) weakSelf = self;
+    BOOL mine = [message.from isEqualToString:self.userID];
+    NSArray<IMMenuAction *> *actions = [self messageActionsForMessage:message mine:mine];
     return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil
         actionProvider:^UIMenu *(NSArray<UIMenuElement *> *suggested) {
-            UIAction *copy = [UIAction actionWithTitle:@"复制"
-                image:[UIImage systemImageNamed:@"doc.on.doc"] identifier:nil
-                handler:^(__kindof UIAction *a) {
-                    UIPasteboard.generalPasteboard.string = message.content ?: @"";
-                }];
-            UIAction *del = [UIAction actionWithTitle:@"删除"
-                image:[UIImage systemImageNamed:@"trash"] identifier:nil
-                handler:^(__kindof UIAction *a) { [weakSelf deleteMessage:message]; }];
-            del.attributes = UIMenuElementAttributesDestructive;
-            // 举报（AG-3）：仅对方消息可举报（举报自己无意义）。
-            BOOL mine = [message.from isEqualToString:self.userID];
-            if (mine) {
-                return [UIMenu menuWithTitle:@"" children:@[copy, del]];
-            }
-            // 举报消息用 conv_seq 定位（与 Web 一致；客户端无需持有 server_msg_id）。
-            UIAction *reportMsg = [UIAction actionWithTitle:@"举报消息"
-                image:[UIImage systemImageNamed:@"exclamationmark.bubble"] identifier:nil
-                handler:^(__kindof UIAction *a) { [weakSelf reportTargetType:@"message" targetID:[@(message.convSeq) stringValue] title:@"举报这条消息"]; }];
-            UIAction *reportUser = [UIAction actionWithTitle:@"举报发送者"
-                image:[UIImage systemImageNamed:@"person.crop.circle.badge.exclamationmark"] identifier:nil
-                handler:^(__kindof UIAction *a) { [weakSelf reportTargetType:@"user" targetID:(message.from ?: @"") title:[NSString stringWithFormat:@"举报用户 %@", message.from]]; }];
-            return [UIMenu menuWithTitle:@"" children:@[copy, reportMsg, reportUser, del]];
+            return [IMMenuAction menuWithActions:actions];
         }];
+}
+
+/// 单条消息的菜单动作（按显示顺序，仅含可见项）：
+/// 复制 / 引用 / 转发 / 收藏 / 撤回(仅自己且有真实 conv_seq) / 多选 / 翻译 / 删除(破坏性)；
+/// 对方消息额外含 举报消息 / 举报发送者。已接：复制、删除、举报*；其余 → 开发中吐司。
+- (NSArray<IMMenuAction *> *)messageActionsForMessage:(IMMessageModel *)message mine:(BOOL)mine {
+    __weak typeof(self) ws = self;
+    NSMutableArray<IMMenuAction *> *actions = [NSMutableArray array];
+
+    [actions addObject:[IMMenuAction actionWithId:@"copy" title:@"复制" image:@"doc.on.doc" handler:^{
+        UIPasteboard.generalPasteboard.string = message.content ?: @"";
+    }]];
+    [actions addObject:[IMMenuAction actionWithId:@"reply" title:@"引用" image:@"arrowshape.turn.up.left" handler:^{
+        [ws im_showComingSoon:@"引用"];
+    }]];
+    [actions addObject:[IMMenuAction actionWithId:@"forward" title:@"转发" image:@"arrowshape.turn.up.right" handler:^{
+        [ws im_showComingSoon:@"转发"];
+    }]];
+    [actions addObject:[IMMenuAction actionWithId:@"favorite" title:@"收藏" image:@"bookmark" handler:^{
+        [ws im_showComingSoon:@"收藏"];
+    }]];
+    // 撤回仅对自己且已拿到服务端 conv_seq 的消息可用（发送中/失败的无法撤回）。
+    if (mine && message.convSeq > 0) {
+        [actions addObject:[IMMenuAction actionWithId:@"recall" title:@"撤回" image:@"arrow.uturn.backward" handler:^{
+            [ws im_showComingSoon:@"撤回"];
+        }]];
+    }
+    [actions addObject:[IMMenuAction actionWithId:@"multiSelect" title:@"多选" image:@"checkmark.circle" handler:^{
+        [ws im_showComingSoon:@"多选"];
+    }]];
+    [actions addObject:[IMMenuAction actionWithId:@"translate" title:@"翻译" image:@"character.bubble" handler:^{
+        [ws im_showComingSoon:@"翻译"];
+    }]];
+    // 举报（AG-3）：仅对方消息可举报。举报消息用 conv_seq 定位（与 Web 一致）。
+    if (!mine) {
+        [actions addObject:[IMMenuAction actionWithId:@"reportMessage" title:@"举报消息" image:@"exclamationmark.bubble" handler:^{
+            [ws reportTargetType:@"message" targetID:[@(message.convSeq) stringValue] title:@"举报这条消息"];
+        }]];
+        [actions addObject:[IMMenuAction actionWithId:@"reportUser" title:@"举报发送者" image:@"person.crop.circle.badge.exclamationmark" handler:^{
+            [ws reportTargetType:@"user" targetID:(message.from ?: @"") title:[NSString stringWithFormat:@"举报用户 %@", message.from]];
+        }]];
+    }
+    [actions addObject:[IMMenuAction destructiveActionWithId:@"delete" title:@"删除" image:@"trash" handler:^{
+        [ws deleteMessage:message];
+    }]];
+    return actions;
 }
 
 /// 本地删除一条消息（仅本端：从库 + 内存移除并刷新；不影响对端）。
