@@ -3,6 +3,7 @@
 #import "IMHTTPService.h"
 #import "IMConversation.h"
 #import "IMUserCard.h"
+#import "IMGroupInfo.h"
 #import "IMLog.h"
 
 static NSString * const kIMHTTPErrorDomain = @"IMHTTPService";
@@ -36,6 +37,11 @@ static NSString *IMFriendlyMessageForCode(NSInteger code) {
         case 200104: return @"不能添加自己为好友";                  // cannot add yourself
         case 200105: return @"申请已发出，等待对方同意";            // request pending
         case 200106: return @"没有待处理的好友申请";                // no pending request
+        case 300201: return @"群不存在";                            // group not found
+        case 300202: return @"群名不能为空且不超过 30 字";          // invalid group name
+        case 300203: return @"你不在该群中";                        // not a group member
+        // 300204 不映射：服务端会带具体原因（如"群主需先转让群主再退群"），透传更有用。
+        case 300205: return @"群成员已达上限";                      // group member limit
         default: return nil;
     }
 }
@@ -236,6 +242,137 @@ static NSString *IMFriendlyNetworkError(NSError *error) {
         if (error) { completion(error); return; }
         if ([body[@"code"] integerValue] != 0) {
             completion([self errorWithMessage:[self messageFrom:body fallback:@"删除失败"]]);
+            return;
+        }
+        completion(nil);
+    }];
+}
+
+#pragma mark - 群聊（M3）
+
+- (void)createGroupWithToken:(NSString *)token
+                        name:(NSString *)name
+                   memberIDs:(NSArray<NSString *> *)memberIDs
+                  completion:(void (^)(IMGroupInfo *, NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/groups" method:@"POST" token:token
+        body:@{ @"name": name ?: @"", @"avatar_url": @"", @"member_ids": memberIDs ?: @[] }];
+    [self runGroupInfoRequest:req fallback:@"建群失败" completion:completion];
+}
+
+- (void)groupsWithToken:(NSString *)token
+             completion:(void (^)(NSArray<IMGroupInfo *> *, NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/groups" method:@"GET" token:token body:nil];
+    if (!req) {
+        [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }];
+        return;
+    }
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        if ([body[@"code"] integerValue] != 0) {
+            completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"拉取群列表失败"]]);
+            return;
+        }
+        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
+        completion([IMGroupInfo groupsFromArray:data[@"groups"]], nil);
+    }];
+}
+
+- (void)groupInfoWithToken:(NSString *)token
+                    convID:(NSString *)convID
+                completion:(void (^)(IMGroupInfo *, NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@""]
+                                                   method:@"GET" token:token body:nil];
+    [self runGroupInfoRequest:req fallback:@"拉取群资料失败" completion:completion];
+}
+
+- (void)updateGroupWithToken:(NSString *)token convID:(NSString *)convID
+                        name:(NSString *)name avatarURL:(NSString *)avatarURL
+                  completion:(void (^)(NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@""]
+                                                   method:@"PUT" token:token
+                                                     body:@{ @"name": name ?: @"", @"avatar_url": avatarURL ?: @"" }];
+    [self runOKRequest:req fallback:@"保存群资料失败" completion:completion];
+}
+
+- (void)inviteToGroupWithToken:(NSString *)token convID:(NSString *)convID
+                     memberIDs:(NSArray<NSString *> *)memberIDs
+                    completion:(void (^)(NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@"/members"]
+                                                   method:@"POST" token:token
+                                                     body:@{ @"member_ids": memberIDs ?: @[] }];
+    [self runOKRequest:req fallback:@"邀请失败" completion:completion];
+}
+
+- (void)leaveGroupWithToken:(NSString *)token convID:(NSString *)convID
+                 completion:(void (^)(NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@"/members/me"]
+                                                   method:@"DELETE" token:token body:nil];
+    [self runOKRequest:req fallback:@"退群失败" completion:completion];
+}
+
+- (void)removeGroupMemberWithToken:(NSString *)token convID:(NSString *)convID userID:(NSString *)userID
+                        completion:(void (^)(NSError *))completion {
+    NSString *suffix = [NSString stringWithFormat:@"/members/%@", [self pathEscape:userID]];
+    NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:suffix]
+                                                   method:@"DELETE" token:token body:nil];
+    [self runOKRequest:req fallback:@"移除失败" completion:completion];
+}
+
+- (void)setGroupRoleWithToken:(NSString *)token convID:(NSString *)convID userID:(NSString *)userID
+                         role:(NSString *)role completion:(void (^)(NSError *))completion {
+    NSString *suffix = [NSString stringWithFormat:@"/members/%@/role", [self pathEscape:userID]];
+    NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:suffix]
+                                                   method:@"PUT" token:token body:@{ @"role": role ?: @"" }];
+    [self runOKRequest:req fallback:@"设置角色失败" completion:completion];
+}
+
+- (void)transferGroupWithToken:(NSString *)token convID:(NSString *)convID userID:(NSString *)userID
+                    completion:(void (^)(NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@"/transfer"]
+                                                   method:@"POST" token:token body:@{ @"user_id": userID ?: @"" }];
+    [self runOKRequest:req fallback:@"转让失败" completion:completion];
+}
+
+/// 群接口路径：/api/v1/groups/{convID}{suffix}（convID 经 path 转义）。
+- (NSString *)groupPathFor:(NSString *)convID suffix:(NSString *)suffix {
+    return [NSString stringWithFormat:@"/api/v1/groups/%@%@", [self pathEscape:convID], suffix];
+}
+
+- (NSString *)pathEscape:(NSString *)seg {
+    return [seg stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet] ?: @"";
+}
+
+/// 执行"返回群资料"的请求（建群/群详情共用）。
+- (void)runGroupInfoRequest:(nullable NSMutableURLRequest *)req
+                   fallback:(NSString *)fallback
+                 completion:(void (^)(IMGroupInfo *, NSError *))completion {
+    if (!req) {
+        [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }];
+        return;
+    }
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        if ([body[@"code"] integerValue] != 0) {
+            completion(nil, [self errorWithMessage:[self messageFrom:body fallback:fallback]]);
+            return;
+        }
+        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
+        completion([IMGroupInfo groupFromDictionary:data], nil);
+    }];
+}
+
+/// 执行"只关心成功/失败"的请求（群成员管理各动作共用）。
+- (void)runOKRequest:(nullable NSMutableURLRequest *)req
+            fallback:(NSString *)fallback
+          completion:(void (^)(NSError *))completion {
+    if (!req) {
+        [self callOnMain:^{ completion([self errorWithMessage:@"非法服务器地址"]); }];
+        return;
+    }
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(error); return; }
+        if ([body[@"code"] integerValue] != 0) {
+            completion([self errorWithMessage:[self messageFrom:body fallback:fallback]]);
             return;
         }
         completion(nil);

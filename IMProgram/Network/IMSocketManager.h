@@ -15,6 +15,12 @@ NS_ASSUME_NONNULL_BEGIN
 extern NSString * const IMSocketDidReceiveMessageNotification;
 /// 收到好友关系变更帧（friend）时广播（主线程）：通讯录据此实时刷新"新的朋友"/好友列表，无需切页。
 extern NSString * const IMSocketDidReceiveFriendEventNotification;
+/// 收到群变更帧（group）时广播（主线程）：会话列表/群资料页据此刷新。
+/// userInfo：kIMConvIDKey=群 conv_id、kIMGroupEventKey=事件、kIMGroupTargetKey=受影响方 uid（可空串）。
+/// 收到 event=remove 且 target=自己 → 该群已把我移出（客户端应移出该会话）。
+extern NSString * const IMSocketDidReceiveGroupEventNotification;
+extern NSString * const kIMGroupEventKey;
+extern NSString * const kIMGroupTargetKey;
 /// 收到已读回执（read）时广播（主线程）：会话列表据此刷新——对端已读→我发的变✓✓；本人多端已读→未读清零。
 extern NSString * const IMSocketDidReceiveReadNotification;
 /// 连接状态变化时广播（主线程）：非 delegate 页（如会话列表）据此显示 连接中/未连接。userInfo[@"state"]=IMSocketState。
@@ -60,11 +66,17 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
 /// 主动断开，停止自动重连。
 - (void)disconnect;
 
-/// 发送一条文本消息。返回本条的 client_msg_id（也用于幂等去重）。
+/// 发送一条文本消息（单聊：conv_id 由双方 uid 规范排序生成）。返回本条的 client_msg_id（也用于幂等去重）。
 /// completion 在收到 ack 或最终失败时于主线程回调。
 - (NSString *)sendText:(NSString *)text
                toUser:(NSString *)toUserID
            completion:(nullable IMSendCompletion)completion;
+
+/// 发送一条文本消息到指定会话（群聊：conv_id=群 topic_id，to 留空，服务端按 conv_id 查成员写扩散）。
+/// 返回本条的 client_msg_id。completion 在收到 ack 或最终失败时于主线程回调。
+- (NSString *)sendText:(NSString *)text
+                toConv:(NSString *)convID
+            completion:(nullable IMSendCompletion)completion;
 
 /// 上报「已读到 convSeq」：对端据此显示已读双勾，本人未读随之清零（仅 read 推进已读位点）。
 - (void)markReadConv:(NSString *)convID upToConvSeq:(int64_t)convSeq;

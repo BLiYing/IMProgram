@@ -19,6 +19,7 @@ extern NSString * const kIMTypePresence;
 extern NSString * const kIMTypeSyncReq;
 extern NSString * const kIMTypeSyncResp;
 extern NSString * const kIMTypeFriend;
+extern NSString * const kIMTypeGroup;
 extern NSString * const kIMTypeError;
 
 #pragma mark - 信封字段 Key

@@ -2,6 +2,7 @@
 
 #import "IMContactsViewController.h"
 #import "IMUserSearchViewController.h"
+#import "IMGroupListViewController.h"
 #import "IMContactCells.h"
 #import "IMChatViewController.h"
 #import "IMHTTPService.h"
@@ -107,7 +108,7 @@
 - (void)buildEntries {
     __weak typeof(self) ws = self;
     self.entries = @[
-        [IMMenuAction actionWithId:@"groupChat" title:@"群聊" image:@"person.3.fill" handler:^{ [ws im_showComingSoon:@"群聊"]; }],
+        [IMMenuAction actionWithId:@"groupChat" title:@"群聊" image:@"person.3.fill" handler:^{ [ws openGroupList]; }],
         [IMMenuAction actionWithId:@"officialAccount" title:@"公众号" image:@"megaphone.fill" handler:^{ [ws im_showComingSoon:@"公众号"]; }],
         [IMMenuAction actionWithId:@"serviceAccount" title:@"服务号" image:@"headphones" handler:^{ [ws im_showComingSoon:@"服务号"]; }],
     ];
@@ -205,6 +206,11 @@
 }
 
 #pragma mark - 交互
+
+- (void)openGroupList {
+    IMGroupListViewController *list = [[IMGroupListViewController alloc] initWithHost:self.host userID:self.userID];
+    [self.navigationController pushViewController:list animated:YES];
+}
 
 - (void)addFriendTapped {
     IMUserSearchViewController *search = [[IMUserSearchViewController alloc] initWithHost:self.host userID:self.userID];

@@ -14,6 +14,7 @@ NSString * const kIMTypePresence = @"presence";
 NSString * const kIMTypeSyncReq  = @"sync_req";
 NSString * const kIMTypeSyncResp = @"sync_resp";
 NSString * const kIMTypeFriend   = @"friend";
+NSString * const kIMTypeGroup    = @"group";
 NSString * const kIMTypeError    = @"error";
 
 NSString * const kIMKeyType = @"type";

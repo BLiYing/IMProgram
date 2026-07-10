@@ -19,6 +19,8 @@ typedef NS_ENUM(NSInteger, IMMessageStatus) {
 @property (nonatomic, copy, nullable) NSString *serverMsgID; ///< 服务端分配，ack 后填充
 @property (nonatomic, copy)   NSString *convID;       ///< 会话 id
 @property (nonatomic, copy, nullable) NSString *from;        ///< 发送方 uid
+/// 发送方昵称（仅群聊消息带，服务端冗余下发；空回退 uid）。随消息落库（IMDatabase from_nickname 列）。
+@property (nonatomic, copy, nullable) NSString *fromNickname;
 @property (nonatomic, copy, nullable) NSString *to;          ///< 接收方 uid
 @property (nonatomic, copy)   NSString *contentType; ///< text|image|audio...
 @property (nonatomic, copy)   NSString *content;     ///< 文本内容

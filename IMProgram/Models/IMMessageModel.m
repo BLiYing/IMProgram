@@ -9,6 +9,7 @@
     m.serverMsgID = [self stringForKey:@"server_msg_id" in:data];
     m.convID      = [self stringForKey:@"conv_id" in:data];
     m.from        = [self stringForKey:@"from" in:data];
+    m.fromNickname = [self stringForKey:@"from_nickname" in:data];
     m.contentType = [self stringForKey:@"content_type" in:data] ?: @"text";
     m.content     = [self stringForKey:@"content" in:data] ?: @"";
     m.convSeq     = [data[@"conv_seq"] longLongValue];
@@ -23,6 +24,7 @@
     if (self.serverMsgID) { d[@"server_msg_id"] = self.serverMsgID; }
     d[@"conv_id"] = self.convID ?: @"";
     if (self.from) { d[@"from"] = self.from; }
+    if (self.fromNickname) { d[@"from_nickname"] = self.fromNickname; }
     if (self.to) { d[@"to"] = self.to; }
     d[@"content_type"] = self.contentType ?: @"text";
     d[@"content"] = self.content ?: @"";
@@ -38,6 +40,7 @@
     m.serverMsgID = [self stringForKey:@"server_msg_id" in:dict];
     m.convID      = [self stringForKey:@"conv_id" in:dict];
     m.from        = [self stringForKey:@"from" in:dict];
+    m.fromNickname = [self stringForKey:@"from_nickname" in:dict];
     m.to          = [self stringForKey:@"to" in:dict];
     m.contentType = [self stringForKey:@"content_type" in:dict] ?: @"text";
     m.content     = [self stringForKey:@"content" in:dict] ?: @"";

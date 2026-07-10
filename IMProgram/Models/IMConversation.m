@@ -17,6 +17,10 @@
 + (instancetype)conversationFromDictionary:(NSDictionary *)dict {
     IMConversation *c = [IMConversation new];
     c.convID = [self stringForKey:@"conv_id" in:dict];
+    c.isGroup = [dict[@"is_group"] respondsToSelector:@selector(boolValue)] && [dict[@"is_group"] boolValue];
+    c.name = [self stringForKey:@"name" in:dict];
+    c.avatarURL = [self stringForKey:@"avatar_url" in:dict];
+    c.memberCount = [dict[@"member_count"] respondsToSelector:@selector(integerValue)] ? [dict[@"member_count"] integerValue] : 0;
     c.peer = [self stringForKey:@"peer" in:dict];
     c.peerNickname = [self stringForKey:@"peer_nickname" in:dict];
     c.peerAvatarURL = [self stringForKey:@"peer_avatar_url" in:dict];
@@ -29,6 +33,7 @@
     if (last) {
         c.lastContent = [self stringForKey:@"content" in:last];
         c.lastFrom = [self stringForKey:@"from" in:last];
+        c.lastFromNickname = [self stringForKey:@"from_nickname" in:last];
         c.timestamp = [last[@"timestamp"] respondsToSelector:@selector(longLongValue)] ? [last[@"timestamp"] longLongValue] : 0;
     }
     return c;

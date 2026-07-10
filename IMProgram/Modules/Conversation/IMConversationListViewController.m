@@ -116,14 +116,27 @@ static CGFloat const kIMRowLeading = 16;
 }
 
 - (void)configureWithConversation:(IMConversation *)c mine:(BOOL)mine {
-    NSString *display = c.peerNickname.length ? c.peerNickname : c.peer; // 显示名/首字母与通讯录一致
-    [_avatar im_setAvatarURL:c.peerAvatarURL seed:c.peer displayName:display]; // 有头像渲图，否则首字母圈
-    _name.text = display;
-    _last.text = c.lastContent.length > 0 ? c.lastContent : @"（无消息）";
+    if (c.isGroup) {
+        // 群项：群名/群头像；预览"昵称: 内容"；不显示 presence/✓✓（群无对端已读位点）。
+        NSString *display = c.name.length > 0 ? c.name : @"群聊";
+        [_avatar im_setAvatarURL:c.avatarURL seed:c.convID displayName:display];
+        _name.text = display;
+        if (c.lastContent.length > 0) {
+            NSString *who = mine ? @"我" : (c.lastFromNickname.length > 0 ? c.lastFromNickname : (c.lastFrom ?: @""));
+            _last.text = who.length > 0 ? [NSString stringWithFormat:@"%@: %@", who, c.lastContent] : c.lastContent;
+        } else {
+            _last.text = @"（无消息）";
+        }
+    } else {
+        NSString *display = c.peerNickname.length ? c.peerNickname : c.peer; // 显示名/首字母与通讯录一致
+        [_avatar im_setAvatarURL:c.peerAvatarURL seed:c.peer displayName:display]; // 有头像渲图，否则首字母圈
+        _name.text = display;
+        _last.text = c.lastContent.length > 0 ? c.lastContent : @"（无消息）";
+    }
     _time.text = [IMTheme timeStringFromMillis:c.timestamp];
     // 最后一条是我发的才显示勾：对端已读到该条 → 绿 ✓✓；否则 → 灰单勾 ✓（已送达/未读）。
-    // 已读判定用后端返回的对端已读位点 peer_read_seq（CHAT_UX §8）。
-    BOOL showCheck = mine && c.lastContent.length > 0;
+    // 已读判定用后端返回的对端已读位点 peer_read_seq（CHAT_UX §8）。群项不显示（无对端位点）。
+    BOOL showCheck = !c.isGroup && mine && c.lastContent.length > 0;
     _check.hidden = !showCheck;
     if (showCheck) {
         BOOL read = c.latestConvSeq > 0 && c.latestConvSeq <= c.peerReadSeq;
@@ -212,6 +225,9 @@ static CGFloat const kIMRowLeading = 16;
     // 已读回执（对端已读→我发的✓✓；本人多端已读→未读清零）也触发列表刷新。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketMessage:)
                                                name:IMSocketDidReceiveReadNotification object:nil];
+    // 群变更（邀请/移除/退群/改名）→ 列表刷新（被移出的群随服务端订阅删除而消失）。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketMessage:)
+                                               name:IMSocketDidReceiveGroupEventNotification object:nil];
     // 连接状态变化 → 标题显示 连接中/未连接（取代"任何失败都弹框"）。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketState:)
                                                name:IMSocketDidChangeStateNotification object:nil];
@@ -224,6 +240,7 @@ static CGFloat const kIMRowLeading = 16;
     self.visible = NO;
     [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidReceiveMessageNotification object:nil];
     [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidReceiveReadNotification object:nil];
+    [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidReceiveGroupEventNotification object:nil];
     [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidChangeStateNotification object:nil];
 }
 
@@ -367,6 +384,13 @@ static CGFloat const kIMRowLeading = 16;
 
 /// 从会话列表进入：带 read_seq + unread + peer_read_seq，供聊天页定位未读分割线 + 可见即读起点 + 进会话即显对端已读（CHAT_UX §3/§6/§8）。
 - (void)openChatWithConversation:(IMConversation *)c {
+    if (c.isGroup) {
+        IMChatViewController *chat = [[IMChatViewController alloc] initWithHost:self.host userID:self.userID
+                                                                    groupConvID:c.convID groupName:c.name
+                                                                        readSeq:c.readSeq unread:c.unread];
+        [self.navigationController pushViewController:chat animated:YES];
+        return;
+    }
     if (c.peer.length == 0 || [c.peer isEqualToString:self.userID]) { return; }
     IMChatViewController *chat = [[IMChatViewController alloc] initWithHost:self.host userID:self.userID
                                                                     peerID:c.peer readSeq:c.readSeq unread:c.unread

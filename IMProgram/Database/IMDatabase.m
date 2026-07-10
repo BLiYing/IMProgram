@@ -45,6 +45,10 @@
         if (![self column:@"note" existsInTable:@"im_message_local" db:db]) {
             [db executeUpdate:@"ALTER TABLE im_message_local ADD COLUMN note TEXT"];
         }
+        // 老库迁移（非破坏）：补 from_nickname 列——群消息发送者昵称落库，重进群聊气泡仍显昵称（M3）。
+        if (![self column:@"from_nickname" existsInTable:@"im_message_local" db:db]) {
+            [db executeUpdate:@"ALTER TABLE im_message_local ADD COLUMN from_nickname TEXT"];
+        }
     }];
 }
 
@@ -67,16 +71,18 @@
         NSNumber *rowID = [self existingRowIDFor:message in:db];
         if (rowID) {
             [db executeUpdate:
-                @"UPDATE im_message_local SET server_msg_id=?,sender=?,recipient=?,content_type=?,content=?,conv_seq=?,timestamp=?,status=?,note=? WHERE row_id=?",
+                @"UPDATE im_message_local SET server_msg_id=?,sender=?,recipient=?,content_type=?,content=?,conv_seq=?,timestamp=?,status=?,note=?,from_nickname=? WHERE row_id=?",
                 message.serverMsgID ?: @"", message.from ?: @"", message.to ?: @"",
                 message.contentType ?: @"text", message.content ?: @"",
-                @(message.convSeq), @(message.timestamp), @(message.status), message.note ?: @"", rowID];
+                @(message.convSeq), @(message.timestamp), @(message.status), message.note ?: @"",
+                message.fromNickname ?: @"", rowID];
         } else {
             [db executeUpdate:
-                @"INSERT INTO im_message_local (client_msg_id,server_msg_id,conv_id,sender,recipient,content_type,content,conv_seq,timestamp,status,note) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                @"INSERT INTO im_message_local (client_msg_id,server_msg_id,conv_id,sender,recipient,content_type,content,conv_seq,timestamp,status,note,from_nickname) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 message.clientMsgID ?: @"", message.serverMsgID ?: @"", message.convID,
                 message.from ?: @"", message.to ?: @"", message.contentType ?: @"text",
-                message.content ?: @"", @(message.convSeq), @(message.timestamp), @(message.status), message.note ?: @""];
+                message.content ?: @"", @(message.convSeq), @(message.timestamp), @(message.status),
+                message.note ?: @"", message.fromNickname ?: @""];
         }
     }];
 }
@@ -115,6 +121,8 @@
             m.status      = (IMMessageStatus)[rs longForColumn:@"status"];
             NSString *note = [rs stringForColumn:@"note"];
             m.note        = note.length > 0 ? note : nil; // 空串视作无系统提示
+            NSString *nick = [rs stringForColumn:@"from_nickname"];
+            m.fromNickname = nick.length > 0 ? nick : nil; // 空串视作无昵称（回退 uid）
             [out addObject:m];
         }
         [rs close];

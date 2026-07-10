@@ -5,6 +5,7 @@
 
 @class IMConversation;
 @class IMUserCard;
+@class IMGroupInfo;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -75,6 +76,60 @@ BOOL IMIsAuthErrorCode(NSInteger code);
                          phone:(NSString *)phone
                           tags:(NSArray<NSString *> *)tags
                     completion:(void (^)(IMUserCard *_Nullable profile, NSError *_Nullable error))completion;
+
+#pragma mark - 群聊（M3）
+
+/// 建群：owner=自己（token 决定），memberIDs=初始成员。completion 回新建群资料（含成员），主线程。
+- (void)createGroupWithToken:(NSString *)token
+                        name:(NSString *)name
+                   memberIDs:(NSArray<NSString *> *)memberIDs
+                  completion:(void (^)(IMGroupInfo *_Nullable group, NSError *_Nullable error))completion;
+
+/// 我的群列表（不含成员明细）。completion 在主线程回调。
+- (void)groupsWithToken:(NSString *)token
+             completion:(void (^)(NSArray<IMGroupInfo *> *_Nullable groups, NSError *_Nullable error))completion;
+
+/// 群资料 + 成员（须为群成员，否则 300203）。completion 在主线程回调。
+- (void)groupInfoWithToken:(NSString *)token
+                    convID:(NSString *)convID
+                completion:(void (^)(IMGroupInfo *_Nullable group, NSError *_Nullable error))completion;
+
+/// 改群资料（群名/头像；群主或管理员）。completion 在主线程回调。
+- (void)updateGroupWithToken:(NSString *)token
+                      convID:(NSString *)convID
+                        name:(NSString *)name
+                   avatarURL:(NSString *)avatarURL
+                  completion:(void (^)(NSError *_Nullable error))completion;
+
+/// 邀请入群（任意成员可邀）。completion 在主线程回调。
+- (void)inviteToGroupWithToken:(NSString *)token
+                        convID:(NSString *)convID
+                     memberIDs:(NSArray<NSString *> *)memberIDs
+                    completion:(void (^)(NSError *_Nullable error))completion;
+
+/// 退群（群主须先转让，否则 300204 带服务端原因）。completion 在主线程回调。
+- (void)leaveGroupWithToken:(NSString *)token
+                     convID:(NSString *)convID
+                 completion:(void (^)(NSError *_Nullable error))completion;
+
+/// 移除成员（须权限严格高于对方）。completion 在主线程回调。
+- (void)removeGroupMemberWithToken:(NSString *)token
+                            convID:(NSString *)convID
+                            userID:(NSString *)userID
+                        completion:(void (^)(NSError *_Nullable error))completion;
+
+/// 设/撤管理员（仅群主）：role ∈ admin|member。completion 在主线程回调。
+- (void)setGroupRoleWithToken:(NSString *)token
+                       convID:(NSString *)convID
+                       userID:(NSString *)userID
+                         role:(NSString *)role
+                   completion:(void (^)(NSError *_Nullable error))completion;
+
+/// 转让群主（仅群主；原群主降为普通成员）。completion 在主线程回调。
+- (void)transferGroupWithToken:(NSString *)token
+                        convID:(NSString *)convID
+                        userID:(NSString *)userID
+                    completion:(void (^)(NSError *_Nullable error))completion;
 
 #pragma mark - 举报（AG-3）
 

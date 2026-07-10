@@ -19,6 +19,9 @@ static NSString * const kIMErrorDomain = @"IMSocketManagerErrorDomain";
 
 NSString * const IMSocketDidReceiveMessageNotification = @"IMSocketDidReceiveMessageNotification";
 NSString * const IMSocketDidReceiveFriendEventNotification = @"IMSocketDidReceiveFriendEventNotification";
+NSString * const IMSocketDidReceiveGroupEventNotification = @"IMSocketDidReceiveGroupEventNotification";
+NSString * const kIMGroupEventKey = @"groupEvent";
+NSString * const kIMGroupTargetKey = @"groupTarget";
 NSString * const IMSocketDidReceiveReadNotification = @"IMSocketDidReceiveReadNotification";
 NSString * const IMSocketDidChangeStateNotification = @"IMSocketDidChangeStateNotification";
 NSString * const kIMConvIDKey = @"convID";
@@ -270,6 +273,8 @@ NSString * const kIMConvIDKey = @"convID";
         [self handlePresence:payload];
     } else if ([type isEqualToString:kIMTypeFriend]) {
         [self handleFriendEvent];
+    } else if ([type isEqualToString:kIMTypeGroup]) {
+        [self handleGroupEvent:payload];
     } else if ([type isEqualToString:kIMTypePong]) {
         // 心跳回应，无需处理
     } else if ([type isEqualToString:kIMTypeError]) {
@@ -311,11 +316,21 @@ NSString * const kIMConvIDKey = @"convID";
 #pragma mark - 发送 + ACK 超时重发
 
 - (NSString *)sendText:(NSString *)text toUser:(NSString *)toUserID completion:(IMSendCompletion)completion {
-    NSString *clientMsgID = [NSUUID UUID].UUIDString;
     NSString *convID = IMConversationID(self.userID ?: @"", toUserID);
+    return [self sendText:text toUser:toUserID convID:convID completion:completion];
+}
+
+- (NSString *)sendText:(NSString *)text toConv:(NSString *)convID completion:(IMSendCompletion)completion {
+    // 群聊：to 留空，服务端按 conv_id 查群成员写扩散（PROTOCOL §6.6）。
+    return [self sendText:text toUser:@"" convID:convID completion:completion];
+}
+
+/// 共用发送路径：构造 send_msg 负载并入队（ack 超时重发等由 enqueue 统一处理）。
+- (NSString *)sendText:(NSString *)text toUser:(NSString *)toUserID convID:(NSString *)convID completion:(IMSendCompletion)completion {
+    NSString *clientMsgID = [NSUUID UUID].UUIDString;
     NSDictionary *payload = @{
         @"client_msg_id": clientMsgID,
-        @"conv_id":       convID,
+        @"conv_id":       convID ?: @"",
         @"to":            toUserID ?: @"",
         @"content_type":  @"text",
         @"content":       text ?: @"",
@@ -459,6 +474,21 @@ NSString * const kIMConvIDKey = @"convID";
 - (void)handleFriendEvent {
     dispatch_async(dispatch_get_main_queue(), ^{
         [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidReceiveFriendEventNotification object:self];
+    });
+}
+
+/// 收到群变更帧（invite/leave/remove/role/transfer/profile）：主线程广播，
+/// 会话列表/群资料页据此刷新；remove 且 target=自己 → 客户端移出该群会话。
+- (void)handleGroupEvent:(NSDictionary *)data {
+    NSString *convID = [data[@"conv_id"] isKindOfClass:[NSString class]] ? data[@"conv_id"] : @"";
+    NSString *event = [data[@"event"] isKindOfClass:[NSString class]] ? data[@"event"] : @"";
+    NSString *target = [data[@"target"] isKindOfClass:[NSString class]] ? data[@"target"] : @"";
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidReceiveGroupEventNotification
+                                                          object:self
+                                                        userInfo:@{ kIMConvIDKey: convID,
+                                                                    kIMGroupEventKey: event,
+                                                                    kIMGroupTargetKey: target }];
     });
 }
 

@@ -5,6 +5,8 @@
 #import "IMSocketManager.h"
 #import "IMHTTPService.h"
 #import "IMUserCard.h"
+#import "IMGroupInfo.h"
+#import "IMGroupInfoViewController.h"
 #import "IMProtocol.h"
 #import "IMMessageModel.h"
 #import "IMDatabase.h"
@@ -22,7 +24,8 @@
                         mine:(BOOL)mine
                  peerReadSeq:(int64_t)peerReadSeq
                    dayHeader:(nullable NSString *)dayHeader
-          showsUnreadDivider:(BOOL)showsDivider;
+          showsUnreadDivider:(BOOL)showsDivider
+                  senderName:(nullable NSString *)senderName;
 @end
 
 @implementation IMBubbleCell {
@@ -158,7 +161,8 @@
                         mine:(BOOL)mine
                  peerReadSeq:(int64_t)peerReadSeq
                    dayHeader:(NSString *)dayHeader
-          showsUnreadDivider:(BOOL)showsDivider {
+          showsUnreadDivider:(BOOL)showsDivider
+                  senderName:(NSString *)senderName {
     BOOL showsDate = dayHeader.length > 0;
     _datePill.hidden = !showsDate;
     _dateLabel.text = dayHeader;
@@ -170,10 +174,18 @@
 
     _bubble.backgroundColor = mine ? IMTheme.bubbleMe : IMTheme.bubbleThem;
     // 正文 + 小字尾巴（时间/✓/✓✓）拼成一段富文本，保证状态一定随气泡渲染。
-    NSMutableAttributedString *body = [[NSMutableAttributedString alloc]
+    NSMutableAttributedString *body = [NSMutableAttributedString new];
+    // 群聊：对方气泡顶部一行发送者昵称（主色小字，Telegram 式）。
+    if (senderName.length > 0) {
+        [body appendAttributedString:[[NSAttributedString alloc]
+            initWithString:[senderName stringByAppendingString:@"\n"]
+                attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold],
+                              NSForegroundColorAttributeName: IMTheme.accent }]];
+    }
+    [body appendAttributedString:[[NSAttributedString alloc]
         initWithString:(message.content ?: @"")
             attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:17],
-                          NSForegroundColorAttributeName: IMTheme.textPrimary }];
+                          NSForegroundColorAttributeName: IMTheme.textPrimary }]];
     NSAttributedString *meta = [self attributedMetaForMessage:message mine:mine peerReadSeq:peerReadSeq];
     if (meta.length > 0) {
         [body appendAttributedString:[[NSAttributedString alloc] initWithString:@"   "
@@ -246,7 +258,10 @@
 @interface IMChatViewController () <IMSocketManagerDelegate, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate>
 @property (nonatomic, copy) NSString *host;
 @property (nonatomic, copy) NSString *userID;
-@property (nonatomic, copy) NSString *peerID;
+@property (nonatomic, copy) NSString *peerID;         // 单聊对端 uid；群聊为空串
+@property (nonatomic, assign) BOOL isGroupChat;        // YES=群聊（convID 为群 topic_id）
+@property (nonatomic, copy, nullable) NSString *groupName;     // 群名（进入时用会话项的，拉到群资料后刷新）
+@property (nonatomic, strong, nullable) IMGroupInfo *groupInfo; // 群资料缓存（标题成员数/气泡昵称回退/typing 昵称）
 @property (nonatomic, strong) NSMutableArray<IMMessageModel *> *messages;
 @property (nonatomic, strong) NSMutableSet<NSNumber *> *seenConvSeqs; // 按 conv_seq 去重，避免推送+同步重复
 @property (nonatomic, copy) NSString *convID;
@@ -295,12 +310,92 @@
     return self;
 }
 
+- (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID
+                 groupConvID:(NSString *)convID groupName:(NSString *)name
+                     readSeq:(int64_t)readSeq unread:(NSInteger)unread {
+    // 复用单聊指定初始化器（peerID 空），再覆写会话标识为群 topic_id。
+    self = [self initWithHost:host userID:userID peerID:@"" readSeq:readSeq unread:unread peerReadSeq:0];
+    if (self) {
+        _isGroupChat = YES;
+        _groupName = [name copy];
+        _convID = [convID copy];
+        // 指定初始化器按 IMConversationID(uid,"") 预载了错误会话，这里按群 convID 重载本地历史。
+        _messages = [[IMDatabase.sharedDatabase messagesForConv:convID] mutableCopy];
+        [_seenConvSeqs removeAllObjects];
+        for (IMMessageModel *m in _messages) {
+            if (m.convSeq > 0) { [_seenConvSeqs addObject:@(m.convSeq)]; }
+        }
+    }
+    return self;
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor = UIColor.systemBackgroundColor;
-    self.title = [NSString stringWithFormat:@"与 %@ 聊天", self.peerID];
+    if (self.isGroupChat) {
+        [self updateTitle];
+        // 右上 ⓘ 进群资料页（成员/邀请/退群/管理）。
+        self.navigationItem.rightBarButtonItem =
+            [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"info.circle"]
+                                             style:UIBarButtonItemStylePlain target:self action:@selector(groupInfoTapped)];
+        [self reloadGroupInfo];
+        // 群变更（邀请/移除/退群/转让/改名）→ 刷新标题/群资料；被移出 → 提示并退出本页。
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onGroupEvent:)
+                                                   name:IMSocketDidReceiveGroupEventNotification object:nil];
+    } else {
+        self.title = [NSString stringWithFormat:@"与 %@ 聊天", self.peerID];
+    }
     [self setupUI];
     [self observeKeyboard];
+}
+
+#pragma mark - 群聊（M3-5）
+
+/// 拉群资料：标题成员数 / 气泡昵称回退 / typing 昵称 / 群资料页数据源。best-effort。
+- (void)reloadGroupInfo {
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0) { return; }
+    __weak typeof(self) weakSelf = self;
+    [IMHTTPService.sharedService groupInfoWithToken:token convID:self.convID completion:^(IMGroupInfo *group, NSError *error) {
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self || !group) { return; }
+        self.groupInfo = group;
+        self.groupName = group.name;
+        [self updateTitle];
+        [self.tableView reloadData]; // 昵称回退可能变化（老消息无 from_nickname 时用成员表）
+    }];
+}
+
+- (void)groupInfoTapped {
+    IMGroupInfoViewController *info = [[IMGroupInfoViewController alloc] initWithHost:self.host
+                                                                               userID:self.userID
+                                                                               convID:self.convID];
+    [self.navigationController pushViewController:info animated:YES];
+}
+
+/// 群变更事件：本群则刷新资料；自己被移出 → 提示并退出本页。
+- (void)onGroupEvent:(NSNotification *)note {
+    NSString *convID = note.userInfo[kIMConvIDKey];
+    if (![convID isEqualToString:self.convID]) { return; }
+    NSString *event = note.userInfo[kIMGroupEventKey];
+    NSString *target = note.userInfo[kIMGroupTargetKey];
+    if ([event isEqualToString:@"remove"] && [target isEqualToString:self.userID]) {
+        [self im_showToast:@"你已被移出群聊"];
+        // 先让吐司可见，再退出本页（随页面销毁，故略作停留）。
+        __weak typeof(self) weakSelf = self;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.9 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [weakSelf.navigationController popViewControllerAnimated:YES];
+        });
+        return;
+    }
+    [self reloadGroupInfo];
+}
+
+/// 群聊气泡发送者昵称：优先消息自带 from_nickname，其次群成员表，最后 uid。
+- (NSString *)senderNameForMessage:(IMMessageModel *)m {
+    if (m.fromNickname.length > 0) { return m.fromNickname; }
+    NSString *nick = [self.groupInfo nicknameOfMember:m.from];
+    return nick.length > 0 ? nick : (m.from ?: @"");
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -486,10 +581,13 @@
 
     __block NSString *clientMsgID = nil;
     __weak typeof(self) weakSelf = self;
-    clientMsgID = [IMSocketManager.sharedManager sendText:text toUser:self.peerID
-                                               completion:^(BOOL success, NSError *error, int64_t convSeq) {
+    IMSendCompletion completion = ^(BOOL success, NSError *error, int64_t convSeq) {
         [weakSelf handleSendResult:success convSeq:convSeq error:error forClientMsgID:clientMsgID];
-    }];
+    };
+    // 群聊按 conv_id 路由（to 留空，服务端查成员写扩散）；单聊按对端 uid。
+    clientMsgID = self.isGroupChat
+        ? [IMSocketManager.sharedManager sendText:text toConv:self.convID completion:completion]
+        : [IMSocketManager.sharedManager sendText:text toUser:self.peerID completion:completion];
 
     IMMessageModel *m = [IMMessageModel new];
     m.clientMsgID = clientMsgID;
@@ -515,7 +613,8 @@
             m.status = success ? IMMessageStatusSent : IMMessageStatusFailed;
             // 被拒收（被拉黑 200102 / 被禁言 300004）→ 把服务端友好文案挂到 note，气泡下方居中显示（微信式）；
             // 其余失败（如 ack 超时）不挂 note，仍显"未发送 ✗"。
-            m.note = (!success && (error.code == 200102 || error.code == 300004)) ? error.localizedDescription : nil;
+            // 被拒收（被拉黑 200102 / 被禁言 300004 / 非群成员 300203）→ 服务端友好文案挂 note（微信式系统行）。
+            m.note = (!success && (error.code == 200102 || error.code == 300004 || error.code == 300203)) ? error.localizedDescription : nil;
             m.convSeq = convSeq;
             [IMDatabase.sharedDatabase saveMessage:m]; // upsert：更新状态/conv_seq/note（含被拒文案，重进会话不丢）
             if (convSeq > 0) { [self.seenConvSeqs addObject:@(convSeq)]; } // 防 sync 重复回显自己发的
@@ -536,15 +635,23 @@
     }
 }
 
-/// 标题：在线点 + 对方 uid + 连接态。
+/// 标题：单聊=在线点 + 对方 uid + 连接态；群聊=群名（N人）+ 连接态。
 - (void)updateTitle {
-    NSString *dot = self.peerOnline ? @"🟢 " : @"";
     NSString *suffix = @"";
     switch (self.connState) {
-        case IMSocketStateConnected:    suffix = self.peerOnline ? @"（在线）" : @""; break;
+        case IMSocketStateConnected:    suffix = @""; break;
         case IMSocketStateConnecting:   suffix = @"（连接中…）"; break;
         case IMSocketStateDisconnected: suffix = @"（未连接）"; break;
     }
+    if (self.isGroupChat) {
+        NSString *name = self.groupName.length > 0 ? self.groupName : @"群聊";
+        NSUInteger count = self.groupInfo.members.count;
+        NSString *countStr = count > 0 ? [NSString stringWithFormat:@"（%lu人）", (unsigned long)count] : @"";
+        self.title = [NSString stringWithFormat:@"%@%@%@", name, countStr, suffix];
+        return;
+    }
+    NSString *dot = self.peerOnline ? @"🟢 " : @"";
+    if (self.connState == IMSocketStateConnected && self.peerOnline) { suffix = @"（在线）"; }
     self.title = [NSString stringWithFormat:@"%@%@%@", dot, self.peerID, suffix];
 }
 
@@ -575,9 +682,13 @@
     }
 }
 
-/// 对端正在输入 → 展开提示条，3s 后自动收起。
+/// 对端正在输入 → 展开提示条，3s 后自动收起（群聊显示"谁"在输入）。
 - (void)socketManager:(IMSocketManager *)manager didTypingInConv:(NSString *)convID by:(NSString *)from {
     if (![convID isEqualToString:self.convID] || [from isEqualToString:self.userID]) { return; }
+    if (self.isGroupChat) {
+        NSString *nick = [self.groupInfo nicknameOfMember:from];
+        self.typingLabel.text = [NSString stringWithFormat:@"%@ 正在输入…", nick.length > 0 ? nick : from];
+    }
     self.typingHeight.constant = 20;
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(hideTyping) object:nil];
     [self performSelector:@selector(hideTyping) withObject:nil afterDelay:3.0];
@@ -612,9 +723,12 @@
     IMMessageModel *m = self.messages[indexPath.row];
     BOOL mine = [m.from isEqualToString:self.userID];
     BOOL showsDivider = (indexPath.row == [self firstUnreadRow]);
+    // 群聊：对方气泡带发送者昵称（自己/单聊不带）。
+    NSString *senderName = (self.isGroupChat && !mine) ? [self senderNameForMessage:m] : nil;
     [cell configureWithMessage:m mine:mine peerReadSeq:self.peerReadSeq
                      dayHeader:[self dayHeaderForRow:indexPath.row]
-            showsUnreadDivider:showsDivider];
+            showsUnreadDivider:showsDivider
+                    senderName:senderName];
     return cell;
 }
 
