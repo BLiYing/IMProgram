@@ -208,6 +208,50 @@ static NSString *IMFriendlyNetworkError(NSError *error) {
     }];
 }
 
+- (void)addFavoriteWithToken:(NSString *)token
+                 contentType:(NSString *)contentType
+                     content:(NSString *)content
+                sourceConvID:(NSString *)sourceConvID
+               sourceConvSeq:(int64_t)sourceConvSeq
+                  sourceFrom:(NSString *)sourceFrom
+                  completion:(void (^)(NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/favorites" method:@"POST" token:token
+        body:@{ @"content_type": contentType ?: @"text", @"content": content ?: @"",
+                @"source_conv_id": sourceConvID ?: @"", @"source_conv_seq": @(sourceConvSeq),
+                @"source_from": sourceFrom ?: @"" }];
+    if (!req) { [self callOnMain:^{ completion([self errorWithMessage:@"非法服务器地址"]); }]; return; }
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(error); return; }
+        if ([body[@"code"] integerValue] != 0) { completion([self errorWithMessage:[self messageFrom:body fallback:@"收藏失败"]]); return; }
+        completion(nil);
+    }];
+}
+
+- (void)favoritesWithToken:(NSString *)token
+                completion:(void (^)(NSArray<NSDictionary *> *, NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/favorites" method:@"GET" token:token body:nil];
+    if (!req) { [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }]; return; }
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        if ([body[@"code"] integerValue] != 0) { completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"加载收藏失败"]]); return; }
+        id list = body[@"data"][@"favorites"];
+        completion([list isKindOfClass:[NSArray class]] ? list : @[], nil);
+    }];
+}
+
+- (void)deleteFavoriteWithToken:(NSString *)token
+                     favoriteID:(int64_t)favoriteID
+                     completion:(void (^)(NSError *))completion {
+    NSString *path = [NSString stringWithFormat:@"/api/v1/favorites/%lld", favoriteID];
+    NSMutableURLRequest *req = [self authedRequestForPath:path method:@"DELETE" token:token body:nil];
+    if (!req) { [self callOnMain:^{ completion([self errorWithMessage:@"非法服务器地址"]); }]; return; }
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(error); return; }
+        if ([body[@"code"] integerValue] != 0) { completion([self errorWithMessage:[self messageFrom:body fallback:@"删除失败"]]); return; }
+        completion(nil);
+    }];
+}
+
 - (void)friendActionWithToken:(NSString *)token
                        action:(NSString *)action
                        peerID:(NSString *)peerID

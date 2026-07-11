@@ -5,6 +5,7 @@
 #import "IMSettingsViewController.h"
 #import "IMProfileEditViewController.h"
 #import "IMBlockedListViewController.h"
+#import "IMFavoritesViewController.h"
 #import "IMLoginViewController.h"
 #import "IMSocketManager.h"
 #import "IMAnimator.h"
@@ -245,7 +246,7 @@
     NSArray<IMSettingsRow *> *groupA = @[
         [IMSettingsRow rowWithId:@"saved" title:@"收藏消息" image:@"bookmark.fill"
                           iconBg:UIColor.systemBlueColor right:nil destructive:NO
-                         handler:^{ [ws comingSoon:@"收藏消息"]; }],
+                         handler:^{ [ws openFavorites]; }],
         [IMSettingsRow rowWithId:@"recentCalls" title:@"最近通话" image:@"phone.fill"
                           iconBg:UIColor.systemGreenColor right:nil destructive:NO
                          handler:^{ [ws comingSoon:@"最近通话"]; }],
@@ -290,6 +291,11 @@
 #pragma mark - 动作
 
 - (void)comingSoon:(NSString *)title { [self im_showComingSoon:title]; }
+
+- (void)openFavorites {
+    IMFavoritesViewController *fav = [IMFavoritesViewController new];
+    [self.navigationController pushViewController:fav animated:YES];
+}
 
 - (void)openProfile {
     IMProfileEditViewController *edit = [[IMProfileEditViewController alloc] initWithHost:self.host userID:self.userID];

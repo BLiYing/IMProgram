@@ -141,6 +141,22 @@ BOOL IMIsAuthErrorCode(NSInteger code);
                  reason:(NSString *)reason
              completion:(void (^)(NSError *_Nullable error))completion;
 
+/// 收藏（M4-4）：POST /api/v1/favorites（内容快照）。completion 主线程回调。
+- (void)addFavoriteWithToken:(NSString *)token
+                 contentType:(NSString *)contentType
+                     content:(NSString *)content
+                sourceConvID:(nullable NSString *)sourceConvID
+               sourceConvSeq:(int64_t)sourceConvSeq
+                  sourceFrom:(nullable NSString *)sourceFrom
+                  completion:(void (^)(NSError *_Nullable error))completion;
+/// 我的收藏列表：GET /api/v1/favorites。返回 favorites 数组（原始字典，含 id/content/content_type/...）。
+- (void)favoritesWithToken:(NSString *)token
+                completion:(void (^)(NSArray<NSDictionary *> *_Nullable favorites, NSError *_Nullable error))completion;
+/// 删收藏：DELETE /api/v1/favorites/{id}。completion 主线程回调。
+- (void)deleteFavoriteWithToken:(NSString *)token
+                     favoriteID:(int64_t)favoriteID
+                     completion:(void (^)(NSError *_Nullable error))completion;
+
 @end
 
 NS_ASSUME_NONNULL_END

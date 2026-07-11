@@ -807,6 +807,22 @@
     self.replyLabel.text = nil;
 }
 
+#pragma mark - 收藏（M4-4）
+
+/// 收藏一条消息（内容快照到服务端，原消息撤回/删除后仍在）。
+- (void)favoriteMessage:(IMMessageModel *)message {
+    if (message.content.length == 0) { return; }
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0) { return; }
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService addFavoriteWithToken:token contentType:(message.contentType ?: @"text")
+                                              content:message.content sourceConvID:message.convID
+                                        sourceConvSeq:message.convSeq sourceFrom:(message.from ?: @"")
+                                           completion:^(NSError *error) {
+        [ws im_showToast:error ? [NSString stringWithFormat:@"收藏失败：%@", error.localizedDescription] : @"已收藏"];
+    }];
+}
+
 #pragma mark - 转发（M4-3）
 
 /// 转发一条消息：拉会话列表 → 选择目标（action sheet）→ 逐条转发（forward_from 溯源）。
@@ -1056,9 +1072,11 @@
             [ws forwardMessage:message];
         }]];
     }
-    [actions addObject:[IMMenuAction actionWithId:@"favorite" title:@"收藏" image:@"bookmark" handler:^{
-        [ws im_showComingSoon:@"收藏"];
-    }]];
+    if ([message.contentType isEqualToString:@"text"] && message.content.length > 0 && message.recalledAt == 0) {
+        [actions addObject:[IMMenuAction actionWithId:@"favorite" title:@"收藏" image:@"bookmark" handler:^{
+            [ws favoriteMessage:message];
+        }]];
+    }
     // 撤回（M4-1）：仅本人、已拿到 conv_seq、未撤回、2min 窗口内（服务端为准，此处仅避免必然失败的入口）。
     int64_t nowMs = (int64_t)([NSDate date].timeIntervalSince1970 * 1000);
     if (mine && message.convSeq > 0 && message.recalledAt == 0 && (nowMs - message.timestamp) <= kIMRecallWindowMs) {
