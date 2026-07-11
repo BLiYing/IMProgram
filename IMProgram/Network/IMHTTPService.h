@@ -157,6 +157,12 @@ BOOL IMIsAuthErrorCode(NSInteger code);
                      favoriteID:(int64_t)favoriteID
                      completion:(void (^)(NSError *_Nullable error))completion;
 
+/// 翻译（M4-5）：POST /api/v1/translate {text, target_lang}。回调返回译文（主线程）。
+- (void)translateWithToken:(NSString *)token
+                      text:(NSString *)text
+                targetLang:(nullable NSString *)targetLang
+                completion:(void (^)(NSString *_Nullable translation, NSError *_Nullable error))completion;
+
 @end
 
 NS_ASSUME_NONNULL_END

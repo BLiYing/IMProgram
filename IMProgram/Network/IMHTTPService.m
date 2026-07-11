@@ -252,6 +252,21 @@ static NSString *IMFriendlyNetworkError(NSError *error) {
     }];
 }
 
+- (void)translateWithToken:(NSString *)token
+                      text:(NSString *)text
+                targetLang:(NSString *)targetLang
+                completion:(void (^)(NSString *, NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/translate" method:@"POST" token:token
+        body:@{ @"text": text ?: @"", @"target_lang": targetLang ?: @"zh" }];
+    if (!req) { [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }]; return; }
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        if ([body[@"code"] integerValue] != 0) { completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"翻译失败"]]); return; }
+        id t = body[@"data"][@"translation"];
+        completion([t isKindOfClass:[NSString class]] ? t : @"", nil);
+    }];
+}
+
 - (void)friendActionWithToken:(NSString *)token
                        action:(NSString *)action
                        peerID:(NSString *)peerID

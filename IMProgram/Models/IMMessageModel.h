@@ -41,6 +41,8 @@ typedef NS_ENUM(NSInteger, IMMessageStatus) {
 @property (nonatomic, copy, nullable) NSString *replySnapshot;
 /// M4-3 转发溯源："转发自 X"显示名（发送时冻结）。
 @property (nonatomic, copy, nullable) NSString *forwardFrom;
+/// M4-5 翻译：译文（**内存临时态，不落库**；翻译后挂气泡下方）。
+@property (nonatomic, copy, nullable) NSString *translation;
 
 /// 由 new_msg 的 data 字典构造一条「收到」的消息。
 + (instancetype)receivedMessageWithNewMsgData:(NSDictionary *)data;

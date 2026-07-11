@@ -113,6 +113,9 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
 /// 成功由服务端广播回 msg_op 帧应用（IMSocketDidApplyMsgOp 通知），失败（超窗等）发 IMSocketDidRejectMsgOp。
 - (void)recallMessageInConv:(NSString *)convID targetConvSeq:(int64_t)targetConvSeq;
 
+/// 编辑自己在 convID 会话里 conv_seq=targetConvSeq 的文本消息（M4-5）。成功由服务端广播回 msg_op 帧应用。
+- (void)editMessageInConv:(NSString *)convID targetConvSeq:(int64_t)targetConvSeq content:(NSString *)content;
+
 /// 登记一个会话用于增量同步：每次（重）连成功后，自动从该会话已同步位点发 sync_req
 /// 拉取离线/缺失的消息。
 - (void)trackConversation:(NSString *)convID;

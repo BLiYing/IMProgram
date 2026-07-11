@@ -202,6 +202,13 @@
         initWithString:(message.content ?: @"")
             attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:17],
                           NSForegroundColorAttributeName: IMTheme.textPrimary }]];
+    // 翻译（M4-5）：译文另起一行挂气泡内（灰字小字）。
+    if (message.translation.length > 0) {
+        [body appendAttributedString:[[NSAttributedString alloc]
+            initWithString:[NSString stringWithFormat:@"\n%@", message.translation]
+                attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:14],
+                              NSForegroundColorAttributeName: IMTheme.textSecondary }]];
+    }
     NSAttributedString *meta = [self attributedMetaForMessage:message mine:mine peerReadSeq:peerReadSeq];
     if (meta.length > 0) {
         [body appendAttributedString:[[NSAttributedString alloc] initWithString:@"   "
@@ -236,6 +243,7 @@
                                      peerReadSeq:(int64_t)peerReadSeq {
     UIFont *font = [UIFont systemFontOfSize:11];
     NSString *time = [IMTheme timeStringFromMillis:message.timestamp];
+    if (message.editedAt > 0) { time = [@"已编辑 " stringByAppendingString:time ?: @""]; } // M4-5
     UIColor *timeColor = IMTheme.bubbleMetaTime;
     NSDictionary *base = @{ NSFontAttributeName: font, NSForegroundColorAttributeName: timeColor };
 
@@ -374,6 +382,7 @@
 @property (nonatomic, strong) UILabel *jumpBadge;     // 按钮上的未读计数（=视口下方未读数）
 @property (nonatomic, strong) UIView *inputBar;       // 输入栏容器
 @property (nonatomic, strong, nullable) IMMessageModel *replyingTo; // 正在引用回复的目标（M4-2）
+@property (nonatomic, strong, nullable) IMMessageModel *editingMessage; // 正在编辑的目标（M4-5）
 @property (nonatomic, strong) UIView *replyBar;       // 引用预览条（输入栏上方）
 @property (nonatomic, strong) UILabel *replyLabel;
 @property (nonatomic, strong) NSLayoutConstraint *replyBarHeight;
@@ -754,6 +763,14 @@
                       NSCharacterSet.whitespaceAndNewlineCharacterSet];
     if (text.length == 0) { return; }
 
+    // 编辑态（M4-5）：发 msg_op edit 而非新消息；内容由服务端广播回 onMsgOpApplied 更新。
+    if (self.editingMessage && self.editingMessage.convSeq > 0) {
+        [IMSocketManager.sharedManager editMessageInConv:(self.editingMessage.convID ?: @"")
+                                           targetConvSeq:self.editingMessage.convSeq content:text];
+        [self cancelEdit];
+        return;
+    }
+
     __block NSString *clientMsgID = nil;
     __weak typeof(self) weakSelf = self;
     IMSendCompletion completion = ^(BOOL success, NSError *error, int64_t convSeq) {
@@ -790,6 +807,7 @@
 
 /// 进入引用态：展开引用条显示预览，聚焦输入框。
 - (void)beginReplyTo:(IMMessageModel *)message {
+    self.editingMessage = nil; // 引用与编辑互斥（共用引用条）
     self.replyingTo = message;
     NSString *who = [message.from isEqualToString:self.userID] ? @"自己"
         : (self.isGroupChat ? [self senderNameForMessage:message] : (self.peerID ?: @""));
@@ -800,8 +818,9 @@
     [self.inputField becomeFirstResponder];
 }
 
-/// 退出引用态：收起引用条。
+/// 退出引用态（或编辑态，引用条为二者共用）：收起条。
 - (void)cancelReply {
+    if (self.editingMessage) { [self cancelEdit]; return; }
     self.replyingTo = nil;
     self.replyBarHeight.constant = 0;
     self.replyLabel.text = nil;
@@ -820,6 +839,43 @@
                                         sourceConvSeq:message.convSeq sourceFrom:(message.from ?: @"")
                                            completion:^(NSError *error) {
         [ws im_showToast:error ? [NSString stringWithFormat:@"收藏失败：%@", error.localizedDescription] : @"已收藏"];
+    }];
+}
+
+#pragma mark - 编辑 / 翻译（M4-5）
+
+/// 进入编辑态：引用条复用为"编辑消息"预览，输入框回填原文。
+- (void)beginEditMessage:(IMMessageModel *)message {
+    self.replyingTo = nil;
+    self.editingMessage = message;
+    self.replyLabel.text = [NSString stringWithFormat:@"编辑消息：%@",
+        message.content.length > 40 ? [[message.content substringToIndex:40] stringByAppendingString:@"…"] : (message.content ?: @"")];
+    self.replyBarHeight.constant = 40;
+    self.inputField.text = message.content;
+    [self.inputField becomeFirstResponder];
+}
+
+/// 退出编辑态。
+- (void)cancelEdit {
+    self.editingMessage = nil;
+    self.replyBarHeight.constant = 0;
+    self.replyLabel.text = nil;
+    self.inputField.text = @"";
+}
+
+/// 翻译一条消息：调服务端翻译，译文挂气泡下方（内存态）。
+- (void)translateMessage:(IMMessageModel *)message {
+    if (message.content.length == 0) { return; }
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0) { return; }
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService translateWithToken:token text:message.content targetLang:@"zh"
+                                         completion:^(NSString *translation, NSError *error) {
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        if (error) { [self im_showToast:[NSString stringWithFormat:@"翻译失败：%@", error.localizedDescription]]; return; }
+        message.translation = translation;
+        [self.tableView reloadData];
     }];
 }
 
@@ -1084,12 +1140,20 @@
             [IMSocketManager.sharedManager recallMessageInConv:(message.convID ?: @"") targetConvSeq:message.convSeq];
         }]];
     }
+    // 编辑（M4-5）：仅本人文本、未撤回。
+    if (mine && [message.contentType isEqualToString:@"text"] && message.content.length > 0 && message.recalledAt == 0) {
+        [actions addObject:[IMMenuAction actionWithId:@"edit" title:@"编辑" image:@"pencil" handler:^{
+            [ws beginEditMessage:message];
+        }]];
+    }
     [actions addObject:[IMMenuAction actionWithId:@"multiSelect" title:@"多选" image:@"checkmark.circle" handler:^{
         [ws im_showComingSoon:@"多选"];
     }]];
-    [actions addObject:[IMMenuAction actionWithId:@"translate" title:@"翻译" image:@"character.bubble" handler:^{
-        [ws im_showComingSoon:@"翻译"];
-    }]];
+    if ([message.contentType isEqualToString:@"text"] && message.content.length > 0 && message.recalledAt == 0) {
+        [actions addObject:[IMMenuAction actionWithId:@"translate" title:@"翻译" image:@"character.bubble" handler:^{
+            [ws translateMessage:message];
+        }]];
+    }
     // 举报（AG-3）：仅对方消息可举报。举报消息用 conv_seq 定位（与 Web 一致）。
     if (!mine) {
         [actions addObject:[IMMenuAction actionWithId:@"reportMessage" title:@"举报消息" image:@"exclamationmark.bubble" handler:^{

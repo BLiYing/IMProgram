@@ -545,6 +545,19 @@ NSString * const IMSocketDidRejectMsgOpNotification = @"IMSocketDidRejectMsgOpNo
     });
 }
 
+- (void)editMessageInConv:(NSString *)convID targetConvSeq:(int64_t)targetConvSeq content:(NSString *)content {
+    if (convID.length == 0 || targetConvSeq <= 0 || content.length == 0) { return; }
+    NSString *clientMsgID = [NSUUID UUID].UUIDString;
+    NSDictionary *payload = @{
+        @"op": kIMMsgOpEdit, @"conv_id": convID,
+        @"target_conv_seq": @(targetConvSeq), @"content": content, @"client_msg_id": clientMsgID,
+    };
+    dispatch_async(_queue, ^{
+        [self->_pendingOps addObject:clientMsgID];
+        [self sendEnvelopeType:kIMTypeMsgOp data:payload completion:nil];
+    });
+}
+
 /// 应用一条消息操作到本地（DB 落库 + 主线程广播）。payload 来自实时 msg_op 帧或 sync 的 msg_op 事件行负载。
 /// 仅在 _queue 调用。
 - (void)applyMsgOpPayload:(NSDictionary *)payload {
