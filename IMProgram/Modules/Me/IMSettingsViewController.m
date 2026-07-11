@@ -8,6 +8,7 @@
 #import "IMFavoritesViewController.h"
 #import "IMLoginViewController.h"
 #import "IMSocketManager.h"
+#import "IMSessionStore.h"
 #import "IMAnimator.h"
 #import "UIViewController+IMToast.h"
 #import "IMTheme.h"
@@ -309,6 +310,7 @@
 
 - (void)logout {
     [IMSocketManager.sharedManager disconnect];
+    [IMSessionStore clear]; // 退出登录：清持久化会话，下次启动回登录页
     UIWindow *window = self.view.window;
     IMLoginViewController *login = [IMLoginViewController new];
     window.rootViewController = [[UINavigationController alloc] initWithRootViewController:login];

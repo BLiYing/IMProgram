@@ -5,6 +5,7 @@
 #import "IMLoginViewController.h"
 #import "IMHTTPService.h"
 #import "IMSocketManager.h"
+#import "IMSessionStore.h"
 #import "IMDatabase.h"
 #import "IMConversation.h"
 #import "IMMenuAction.h"
@@ -127,7 +128,8 @@ static CGFloat const kIMRowLeading = 16;
     }
     // 富媒体预览（M4-6）：图片/视频/文件显示占位标签而非 URL（微信式，不加昵称前缀）。
     if (!recalledPreview) {
-        NSDictionary *mediaNames = @{ @"image": @"[图片]", @"video": @"[视频]", @"file": @"[文件]" };
+        NSDictionary *mediaNames = @{ @"image": @"[图片]", @"video": @"[视频]", @"file": @"[文件]",
+                                      @"audio": @"[语音]", @"location": @"[位置]" }; // 语音/位置等类型落地后自动生效
         recalledPreview = mediaNames[c.lastContentType ?: @""];
     }
     if (c.isGroup) {
@@ -364,6 +366,7 @@ static CGFloat const kIMRowLeading = 16;
     UIWindow *window = self.view.window;
     if (!window) { return; }
     [IMSocketManager.sharedManager disconnect];
+    [IMSessionStore clear]; // 鉴权失效退回登录：清持久化会话，避免下次启动又静默重登失败
     IMLoginViewController *login = [IMLoginViewController new];
     window.rootViewController = [[UINavigationController alloc] initWithRootViewController:login];
 }

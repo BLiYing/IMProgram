@@ -9,6 +9,15 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<!-- 相册/相机/保存权限（M4 富媒体：选图、拍摄、下载媒体到相册）。iOS 要求先声明用途文案再运行时申请。 -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>用于选择照片或视频发送给聊天对象。</string>
+	<key>NSCameraUsageDescription</key>
+	<string>用于拍摄照片或视频发送给聊天对象。</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>用于拍摄视频时录制声音。</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>用于将聊天中的图片或视频保存到你的相册。</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

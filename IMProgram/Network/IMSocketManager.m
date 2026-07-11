@@ -354,6 +354,26 @@ NSString * const IMSocketDidRejectMsgOpNotification = @"IMSocketDidRejectMsgOpNo
     return [self sendText:text toUser:(toUserID ?: @"") convID:convID replyToConvSeq:0 forwardFrom:forwardFrom completion:completion];
 }
 
+- (NSString *)forwardContent:(NSString *)content contentType:(NSString *)contentType toConv:(NSString *)convID toUser:(NSString *)toUserID forwardFrom:(NSString *)forwardFrom completion:(IMSendCompletion)completion {
+    NSString *ct = contentType.length > 0 ? contentType : @"text";
+    if ([ct isEqualToString:@"text"]) { // 文本走既有路径（可带引用等），媒体走带 content_type 的负载
+        return [self forwardText:content toConv:convID toUser:toUserID forwardFrom:forwardFrom completion:completion];
+    }
+    NSString *clientMsgID = [NSUUID UUID].UUIDString;
+    NSMutableDictionary *payload = [@{
+        @"client_msg_id": clientMsgID,
+        @"conv_id":       convID ?: @"",
+        @"to":            toUserID ?: @"",
+        @"content_type":  ct,
+        @"content":       content ?: @"",
+    } mutableCopy];
+    if (forwardFrom.length > 0) { payload[@"forward_from"] = forwardFrom; }
+    dispatch_async(_queue, ^{
+        [self enqueueSendWithClientMsgID:clientMsgID payload:payload completion:completion];
+    });
+    return clientMsgID;
+}
+
 - (NSString *)sendMedia:(NSString *)url contentType:(NSString *)contentType toConv:(NSString *)convID toUser:(NSString *)toUserID completion:(IMSendCompletion)completion {
     NSString *clientMsgID = [NSUUID UUID].UUIDString;
     NSDictionary *payload = @{

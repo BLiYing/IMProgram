@@ -6,6 +6,10 @@
 #import "IMHTTPService.h"
 #import "IMConversation.h"
 #import "IMImageLoader.h"
+#import "IMVideoThumbnailLoader.h"
+#import "IMMediaViewerViewController.h"
+#import "IMConversationMediaViewController.h"
+#import "IMForwardPickerViewController.h"
 #import "IMUserCard.h"
 #import "IMGroupInfo.h"
 #import "IMGroupInfoViewController.h"
@@ -16,6 +20,35 @@
 #import "UIViewController+IMToast.h"
 #import "IMTheme.h"
 #import "IMLog.h"
+#import <Photos/Photos.h>
+#import <AVFoundation/AVFoundation.h>
+
+#pragma mark - 引用/预览媒体占位辅助（M4-2 / #5）
+
+/// 媒体消息在「引用/预览」场景的简短占位（本地生成，用于输入预览条与本端即时快照）。
+static NSString *IMReplySnippet(IMMessageModel *m) {
+    if ([m.contentType isEqualToString:@"image"]) { return @"[图片]"; }
+    if ([m.contentType isEqualToString:@"video"]) { return @"[视频]"; }
+    if ([m.contentType isEqualToString:@"file"])  { return @"[文件]"; }
+    NSString *c = m.content ?: @"";
+    return c.length > 60 ? [[c substringToIndex:60] stringByAppendingString:@"…"] : c;
+}
+
+/// 把服务端冻结的英文媒体快照（[image]/[video]/[file]）本地化为中文；其余原样返回。
+static NSString *IMLocalizeSnippet(NSString *snap) {
+    if ([snap isEqualToString:@"[image]"]) { return @"[图片]"; }
+    if ([snap isEqualToString:@"[video]"]) { return @"[视频]"; }
+    if ([snap isEqualToString:@"[file]"])  { return @"[文件]"; }
+    return snap ?: @"";
+}
+
+/// 若快照是媒体占位（[图片]/[视频]/[文件]），返回对应 SF Symbol 名做内嵌小图标；否则 nil。
+static NSString *IMMediaGlyphForSnippet(NSString *snap) {
+    if ([snap isEqualToString:@"[图片]"]) { return @"photo"; }
+    if ([snap isEqualToString:@"[视频]"]) { return @"video"; }
+    if ([snap isEqualToString:@"[文件]"]) { return @"doc"; }
+    return nil;
+}
 
 #pragma mark - 气泡 Cell（Telegram 风格：圆角气泡 + 尾巴 + 气泡内时间/双勾）
 
@@ -192,12 +225,24 @@
                               NSForegroundColorAttributeName: IMTheme.textSecondary }]];
     }
     // 引用回复（M4-2）：气泡顶部一条引用预览（竖条 + 灰字快照），点击整条气泡跳转原消息。
+    // 引用的是图片/视频/文件时，快照本地化为 [图片]/[视频]/[文件] 并内嵌一枚小图标（#5）。
     if (message.replyToConvSeq > 0) {
-        NSString *snap = message.replySnapshot.length > 0 ? message.replySnapshot : @"原消息";
+        NSString *raw = message.replySnapshot.length > 0 ? message.replySnapshot : @"原消息";
+        NSString *snap = IMLocalizeSnippet(raw);
+        NSDictionary *quoteAttr = @{ NSFontAttributeName: [UIFont systemFontOfSize:13],
+                                     NSForegroundColorAttributeName: IMTheme.textSecondary };
+        [body appendAttributedString:[[NSAttributedString alloc] initWithString:@"▏" attributes:quoteAttr]];
+        NSString *glyph = IMMediaGlyphForSnippet(snap);
+        if (glyph) {
+            NSTextAttachment *att = [NSTextAttachment new];
+            att.image = [[UIImage systemImageNamed:glyph] imageWithTintColor:IMTheme.textSecondary
+                                                              renderingMode:UIImageRenderingModeAlwaysOriginal];
+            att.bounds = CGRectMake(0, -2, 15, 13);
+            [body appendAttributedString:[NSAttributedString attributedStringWithAttachment:att]];
+            [body appendAttributedString:[[NSAttributedString alloc] initWithString:@" " attributes:quoteAttr]];
+        }
         [body appendAttributedString:[[NSAttributedString alloc]
-            initWithString:[NSString stringWithFormat:@"▏%@\n", snap]
-                attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:13],
-                              NSForegroundColorAttributeName: IMTheme.textSecondary }]];
+            initWithString:[NSString stringWithFormat:@"%@\n", snap] attributes:quoteAttr]];
     }
     [body appendAttributedString:[[NSAttributedString alloc]
         initWithString:(message.content ?: @"")
@@ -356,12 +401,15 @@
 #pragma mark - 图片消息 cell（content_type=image/video，M4-6）
 
 @interface IMImageCell : UITableViewCell
-@property (nonatomic, copy, nullable) void (^onTap)(UIImage *image);
-- (void)configureWithURL:(NSString *)fullURL mine:(BOOL)mine;
+/// 点击气泡回调：image 为已加载的缩略图/视频首帧（可能为 nil，查看器会自行按 URL 加载）。
+@property (nonatomic, copy, nullable) void (^onTap)(UIImage *_Nullable image);
+/// isVideo=YES 时显示首帧封面 + 居中播放角标（不自动播放，点击进查看器整页播放）。
+- (void)configureWithURL:(NSString *)fullURL isVideo:(BOOL)isVideo mine:(BOOL)mine;
 @end
 
 @implementation IMImageCell {
     UIImageView *_thumb;
+    UIImageView *_playBadge;   // 视频封面上的播放角标
     NSLayoutConstraint *_leading;
     NSLayoutConstraint *_trailing;
     NSString *_url;
@@ -380,6 +428,15 @@
         _thumb.userInteractionEnabled = YES;
         [_thumb addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tapped)]];
         [self.contentView addSubview:_thumb];
+
+        _playBadge = [[UIImageView alloc] initWithImage:
+            [UIImage systemImageNamed:@"play.circle.fill"
+                    withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:44 weight:UIImageSymbolWeightRegular]]];
+        _playBadge.tintColor = [UIColor colorWithWhite:1 alpha:0.95];
+        _playBadge.translatesAutoresizingMaskIntoConstraints = NO;
+        _playBadge.hidden = YES;
+        [self.contentView addSubview:_playBadge];
+
         _leading = [_thumb.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12];
         _trailing = [_thumb.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-12];
         [NSLayoutConstraint activateConstraints:@[
@@ -387,24 +444,32 @@
             [_thumb.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3],
             [_thumb.widthAnchor constraintEqualToConstant:180],
             [_thumb.heightAnchor constraintEqualToConstant:180],
+            [_playBadge.centerXAnchor constraintEqualToAnchor:_thumb.centerXAnchor],
+            [_playBadge.centerYAnchor constraintEqualToAnchor:_thumb.centerYAnchor],
         ]];
     }
     return self;
 }
-- (void)configureWithURL:(NSString *)fullURL mine:(BOOL)mine {
+- (void)configureWithURL:(NSString *)fullURL isVideo:(BOOL)isVideo mine:(BOOL)mine {
     _url = fullURL;
     _leading.active = !mine;
     _trailing.active = mine;
     _thumb.image = nil;
+    _playBadge.hidden = !isVideo;
     __weak typeof(self) ws = self;
     NSString *want = fullURL;
-    [[IMImageLoader shared] loadImageURL:fullURL completion:^(UIImage *image) {
+    void (^apply)(UIImage *) = ^(UIImage *image) {
         __strong typeof(ws) self = ws;
         if (self && [self->_url isEqualToString:want]) { self->_thumb.image = image; } // 复用安全
-    }];
+    };
+    if (isVideo) {
+        [[IMVideoThumbnailLoader shared] loadPosterForVideoURL:fullURL completion:apply]; // 视频显首帧
+    } else {
+        [[IMImageLoader shared] loadImageURL:fullURL completion:apply];
+    }
 }
-- (void)tapped { if (_onTap && _thumb.image) { _onTap(_thumb.image); } }
-- (void)prepareForReuse { [super prepareForReuse]; _thumb.image = nil; _onTap = nil; }
+- (void)tapped { if (_onTap) { _onTap(_thumb.image); } }
+- (void)prepareForReuse { [super prepareForReuse]; _thumb.image = nil; _playBadge.hidden = YES; _onTap = nil; }
 @end
 
 #pragma mark - 聊天页
@@ -438,9 +503,14 @@
 @property (nonatomic, strong) UIView *inputBar;       // 输入栏容器
 @property (nonatomic, strong, nullable) IMMessageModel *replyingTo; // 正在引用回复的目标（M4-2）
 @property (nonatomic, strong, nullable) IMMessageModel *editingMessage; // 正在编辑的目标（M4-5）
-@property (nonatomic, strong, nullable) UIView *attachPanel; // 附件面板（M4-6，加号弹出）
+@property (nonatomic, strong, nullable) UIView *attachPanel; // 附件面板（M4-6，加号弹出，展开时顶起输入栏、显示在其下方）
+@property (nonatomic, assign) BOOL attachPanelVisible;       // 面板是否展开（与键盘互斥，共同决定 inputBottom）
+@property (nonatomic, assign) CGFloat kbInset;              // 键盘遮挡输入栏的高度（已减 safeArea），随 keyboardWillChange 更新
 @property (nonatomic, strong) UIView *replyBar;       // 引用预览条（输入栏上方）
 @property (nonatomic, strong) UILabel *replyLabel;
+@property (nonatomic, strong) UIImageView *replyThumb; // 引用媒体时的小缩略图（#5，图片/视频）
+@property (nonatomic, strong) NSLayoutConstraint *replyLabelLeadingNoThumb; // 无缩略图时 label 贴竖条
+@property (nonatomic, strong) NSLayoutConstraint *replyLabelLeadingThumb;   // 有缩略图时 label 贴缩略图
 @property (nonatomic, strong) NSLayoutConstraint *replyBarHeight;
 @end
 
@@ -675,6 +745,13 @@
     replyStripe.translatesAutoresizingMaskIntoConstraints = NO;
     replyStripe.backgroundColor = IMTheme.accent;
     [self.replyBar addSubview:replyStripe];
+    self.replyThumb = [UIImageView new];
+    self.replyThumb.translatesAutoresizingMaskIntoConstraints = NO;
+    self.replyThumb.contentMode = UIViewContentModeScaleAspectFill;
+    self.replyThumb.clipsToBounds = YES;
+    self.replyThumb.layer.cornerRadius = 4;
+    self.replyThumb.hidden = YES;
+    [self.replyBar addSubview:self.replyThumb];
     self.replyLabel = [UILabel new];
     self.replyLabel.translatesAutoresizingMaskIntoConstraints = NO;
     self.replyLabel.font = [UIFont systemFontOfSize:13];
@@ -691,12 +768,19 @@
         [replyStripe.widthAnchor constraintEqualToConstant:3],
         [replyStripe.topAnchor constraintEqualToAnchor:self.replyBar.topAnchor constant:6],
         [replyStripe.bottomAnchor constraintEqualToAnchor:self.replyBar.bottomAnchor constant:-6],
-        [self.replyLabel.leadingAnchor constraintEqualToAnchor:replyStripe.trailingAnchor constant:8],
+        [self.replyThumb.leadingAnchor constraintEqualToAnchor:replyStripe.trailingAnchor constant:8],
+        [self.replyThumb.centerYAnchor constraintEqualToAnchor:self.replyBar.centerYAnchor],
+        [self.replyThumb.widthAnchor constraintEqualToConstant:28],
+        [self.replyThumb.heightAnchor constraintEqualToConstant:28],
         [self.replyLabel.centerYAnchor constraintEqualToAnchor:self.replyBar.centerYAnchor],
         [replyCancel.leadingAnchor constraintEqualToAnchor:self.replyLabel.trailingAnchor constant:8],
         [replyCancel.trailingAnchor constraintEqualToAnchor:self.replyBar.trailingAnchor constant:-12],
         [replyCancel.centerYAnchor constraintEqualToAnchor:self.replyBar.centerYAnchor],
     ]];
+    // label 前导：无缩略图时贴竖条、有缩略图时贴缩略图（beginReplyTo/cancel 切换）。
+    self.replyLabelLeadingNoThumb = [self.replyLabel.leadingAnchor constraintEqualToAnchor:replyStripe.trailingAnchor constant:8];
+    self.replyLabelLeadingThumb = [self.replyLabel.leadingAnchor constraintEqualToAnchor:self.replyThumb.trailingAnchor constant:8];
+    self.replyLabelLeadingNoThumb.active = YES;
 
     UIView *inputBar = [UIView new];
     self.inputBar = inputBar;
@@ -884,10 +968,9 @@
     m.contentType = @"text";
     m.status = IMMessageStatusSending;
     m.timestamp = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000); // 本地时间，气泡尾巴即时显示时间（与 Web 一致）
-    if (replySeq > 0) { // 本端即时快照（服务端会给收件方冻结权威快照）
+    if (replySeq > 0) { // 本端即时快照（服务端会给收件方冻结权威快照；媒体用 [图片]/[视频] 占位）
         m.replyToConvSeq = replySeq;
-        NSString *src = self.replyingTo.content ?: @"";
-        m.replySnapshot = src.length > 60 ? [[src substringToIndex:60] stringByAppendingString:@"…"] : src;
+        m.replySnapshot = IMReplySnippet(self.replyingTo);
     }
     [IMDatabase.sharedDatabase saveMessage:m]; // 落库（sending）
     [self.messages addObject:m];
@@ -904,11 +987,33 @@
     self.replyingTo = message;
     NSString *who = [message.from isEqualToString:self.userID] ? @"自己"
         : (self.isGroupChat ? [self senderNameForMessage:message] : (self.peerID ?: @""));
-    NSString *snippet = message.content ?: @"";
-    if (snippet.length > 40) { snippet = [[snippet substringToIndex:40] stringByAppendingString:@"…"]; }
-    self.replyLabel.text = [NSString stringWithFormat:@"回复 %@：%@", who, snippet];
+    self.replyLabel.text = [NSString stringWithFormat:@"回复 %@：%@", who, IMReplySnippet(message)];
+    // 引用图片/视频：预览条显示一枚小缩略图（#5）。
+    BOOL isImage = [message.contentType isEqualToString:@"image"];
+    BOOL isVideo = [message.contentType isEqualToString:@"video"];
+    [self setReplyThumbForMediaMessage:(isImage || isVideo) ? message : nil isVideo:isVideo];
     self.replyBarHeight.constant = 40;
     [self.inputField becomeFirstResponder];
+}
+
+/// 显示/隐藏引用预览条的缩略图并切换 label 前导约束。message=nil → 隐藏（文本引用）。
+- (void)setReplyThumbForMediaMessage:(IMMessageModel *)message isVideo:(BOOL)isVideo {
+    if (!message) {
+        self.replyThumb.hidden = YES;
+        self.replyThumb.image = nil;
+        self.replyLabelLeadingThumb.active = NO;
+        self.replyLabelLeadingNoThumb.active = YES;
+        return;
+    }
+    self.replyThumb.hidden = NO;
+    self.replyThumb.image = nil;
+    self.replyLabelLeadingNoThumb.active = NO;
+    self.replyLabelLeadingThumb.active = YES;
+    NSString *url = [self fullMediaURL:message.content];
+    __weak typeof(self) ws = self;
+    void (^apply)(UIImage *) = ^(UIImage *img) { ws.replyThumb.image = img; };
+    if (isVideo) { [[IMVideoThumbnailLoader shared] loadPosterForVideoURL:url completion:apply]; }
+    else { [[IMImageLoader shared] loadImageURL:url completion:apply]; }
 }
 
 /// 退出引用态（或编辑态，引用条为二者共用）：收起条。
@@ -917,6 +1022,7 @@
     self.replyingTo = nil;
     self.replyBarHeight.constant = 0;
     self.replyLabel.text = nil;
+    [self setReplyThumbForMediaMessage:nil isVideo:NO];
 }
 
 #pragma mark - 收藏（M4-4）
@@ -941,6 +1047,7 @@
 - (void)beginEditMessage:(IMMessageModel *)message {
     self.replyingTo = nil;
     self.editingMessage = message;
+    [self setReplyThumbForMediaMessage:nil isVideo:NO]; // 编辑仅文本，无缩略图
     self.replyLabel.text = [NSString stringWithFormat:@"编辑消息：%@",
         message.content.length > 40 ? [[message.content substringToIndex:40] stringByAppendingString:@"…"] : (message.content ?: @"")];
     self.replyBarHeight.constant = 40;
@@ -989,17 +1096,29 @@
     ];
 }
 
-/// 展开/收起附件面板（首次点击惰性构建 2×3 网格）。
+static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的量）
+
+/// 展开/收起附件面板（首次点击惰性构建 2×3 网格）。面板显示在输入栏「下方」（微信式）：
+/// 展开时收起键盘、把输入栏上顶 kIMAttachPanelHeight，面板填充其下方空间。
 - (void)toggleAttachPanel {
-    [self.inputField resignFirstResponder];
-    if (self.attachPanel) {
-        BOOL show = self.attachPanel.hidden;
-        self.attachPanel.hidden = !show;
-        return;
-    }
+    if (!self.attachPanel) { [self buildAttachPanel]; }
+    [self showAttachPanel:!self.attachPanelVisible];
+}
+
+/// 统一切换面板可见性并驱动布局（与键盘互斥，见 updateInputBottomAnimated:）。
+/// 注意：方法名不能叫 setAttachPanelVisible:（那是属性 attachPanelVisible 的合成 setter，会与内部 self.attachPanelVisible= 赋值自递归）。
+- (void)showAttachPanel:(BOOL)visible {
+    if (visible) { [self.inputField resignFirstResponder]; } // 面板与键盘不同时占位
+    self.attachPanelVisible = visible;
+    self.attachPanel.hidden = !visible;
+    [self updateInputBottomAnimated:YES];
+}
+
+- (void)buildAttachPanel {
     UIView *panel = [UIView new];
     panel.translatesAutoresizingMaskIntoConstraints = NO;
     panel.backgroundColor = UIColor.secondarySystemBackgroundColor;
+    panel.hidden = YES;
     [self.view addSubview:panel];
     self.attachPanel = panel;
 
@@ -1025,12 +1144,12 @@
     [NSLayoutConstraint activateConstraints:@[
         [panel.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [panel.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-        [panel.bottomAnchor constraintEqualToAnchor:self.inputBar.bottomAnchor],
-        [panel.heightAnchor constraintEqualToConstant:200],
+        [panel.topAnchor constraintEqualToAnchor:self.inputBar.bottomAnchor], // 在输入栏「下方」展开
+        [panel.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],   // 铺到屏幕底（覆盖 home 指示条区域）
         [rows.topAnchor constraintEqualToAnchor:panel.topAnchor constant:16],
         [rows.leadingAnchor constraintEqualToAnchor:panel.leadingAnchor constant:24],
         [rows.trailingAnchor constraintEqualToAnchor:panel.trailingAnchor constant:-24],
-        [rows.bottomAnchor constraintLessThanOrEqualToAnchor:panel.safeAreaLayoutGuide.bottomAnchor constant:-8],
+        [rows.heightAnchor constraintEqualToConstant:kIMAttachPanelHeight - 40],
     ]];
 }
 
@@ -1065,12 +1184,16 @@
 }
 
 - (void)attachItemTapped:(NSString *)itemId {
-    self.attachPanel.hidden = YES;
+    [self showAttachPanel:NO];
     if ([itemId isEqualToString:@"photo"]) {
         [self openPhotoPicker];
         return;
     }
-    NSDictionary *names = @{ @"camera": @"拍摄", @"av": @"音视频", @"file": @"文件",
+    if ([itemId isEqualToString:@"camera"]) {
+        [self openCamera];
+        return;
+    }
+    NSDictionary *names = @{ @"av": @"音视频", @"file": @"文件",
                             @"favorite": @"从收藏发送", @"card": @"个人名片" };
     [self im_showComingSoon:names[itemId] ?: @"该功能"]; // 其余占位，后续按需接真实功能
 }
@@ -1082,27 +1205,69 @@
     return [NSString stringWithFormat:@"http://%@%@", self.host ?: @"", content];
 }
 
-/// 全屏看大图（点击图片气泡）：黑底 + 适配缩放 + 点击关闭。
-- (void)presentFullImage:(UIImage *)image {
-    if (!image) { return; }
-    UIViewController *vc = [UIViewController new];
-    vc.view.backgroundColor = UIColor.blackColor;
-    vc.modalPresentationStyle = UIModalPresentationFullScreen;
-    UIImageView *iv = [[UIImageView alloc] initWithImage:image];
-    iv.frame = vc.view.bounds;
-    iv.contentMode = UIViewContentModeScaleAspectFit;
-    iv.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    iv.userInteractionEnabled = YES;
-    [iv addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(dismissFullImage)]];
-    [vc.view addSubview:iv];
-    [self presentViewController:vc animated:YES completion:nil];
+/// 全屏查看图片/视频（点击媒体气泡）：复用 IMMediaViewerViewController，附「媒体库」入口。
+- (void)presentMediaViewerForMessage:(IMMessageModel *)m preloaded:(UIImage *)image {
+    if (m.content.length == 0) { return; }
+    BOOL isVideo = [m.contentType isEqualToString:@"video"];
+    __weak typeof(self) ws = self;
+    IMMediaViewerViewController *viewer =
+        [IMMediaViewerViewController viewerWithURL:[self fullMediaURL:m.content]
+                                           isVideo:isVideo
+                                    preloadedImage:image
+                                     onOpenGallery:^{ [ws openConversationMediaGallery]; }];
+    [self presentViewController:viewer animated:YES completion:nil];
 }
-- (void)dismissFullImage { [self dismissViewControllerAnimated:YES completion:nil]; }
 
-/// 相册选图 → 上传 → 发图片消息。
+/// 会话媒体库：汇总当前会话所有图片/视频消息，按时间序展示，点击复用同一查看器。
+- (void)openConversationMediaGallery {
+    NSMutableArray<IMMediaItem *> *items = [NSMutableArray array];
+    for (IMMessageModel *m in self.messages) {
+        if (m.recalledAt > 0 || m.content.length == 0) { continue; }
+        BOOL isVideo = [m.contentType isEqualToString:@"video"];
+        BOOL isImage = [m.contentType isEqualToString:@"image"];
+        if (!isVideo && !isImage) { continue; }
+        [items addObject:[IMMediaItem itemWithURL:[self fullMediaURL:m.content] isVideo:isVideo timestamp:m.timestamp]];
+    }
+    IMConversationMediaViewController *gallery = [IMConversationMediaViewController galleryWithItems:items];
+    [self.navigationController pushViewController:gallery animated:YES];
+}
+
+/// 相册选图（#4 先申请相册权限）→ 上传 → 发图片消息。
 - (void)openPhotoPicker {
+    __weak typeof(self) ws = self;
+    [PHPhotoLibrary requestAuthorizationForAccessLevel:PHAccessLevelReadWrite handler:^(PHAuthorizationStatus status) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(ws) self = ws;
+            if (!self) { return; }
+            if (status == PHAuthorizationStatusAuthorized || status == PHAuthorizationStatusLimited) {
+                [self presentImagePickerWithSource:UIImagePickerControllerSourceTypePhotoLibrary];
+            } else {
+                [self im_showToast:@"请在设置中允许访问相册"];
+            }
+        });
+    }];
+}
+
+/// 拍摄（#4 先申请相机权限）→ 上传 → 发图片消息。
+- (void)openCamera {
+    if (![UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypeCamera]) {
+        [self im_showToast:@"当前设备不支持拍摄"];
+        return;
+    }
+    __weak typeof(self) ws = self;
+    [AVCaptureDevice requestAccessForMediaType:AVMediaTypeVideo completionHandler:^(BOOL granted) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(ws) self = ws;
+            if (!self) { return; }
+            if (granted) { [self presentImagePickerWithSource:UIImagePickerControllerSourceTypeCamera]; }
+            else { [self im_showToast:@"请在设置中允许使用相机"]; }
+        });
+    }];
+}
+
+- (void)presentImagePickerWithSource:(UIImagePickerControllerSourceType)source {
     UIImagePickerController *picker = [UIImagePickerController new];
-    picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
+    picker.sourceType = source;
     picker.delegate = self;
     [self presentViewController:picker animated:YES completion:nil];
 }
@@ -1149,39 +1314,34 @@
 
 #pragma mark - 转发（M4-3）
 
-/// 转发一条消息：拉会话列表 → 选择目标（action sheet）→ 逐条转发（forward_from 溯源）。
+/// 转发一条消息（#6）：整页会话选择器（单/多选，最多 9）→ 逐条转发，保留 content_type（图片/视频不退化成文本）。
 - (void)forwardMessage:(IMMessageModel *)message {
     if (message.content.length == 0 || message.recalledAt > 0) { return; }
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0) { return; }
+    NSString *origin = message.forwardFrom.length > 0 ? message.forwardFrom
+        : (message.fromNickname.length > 0 ? message.fromNickname : (message.from ?: @"")); // 转发链保留最初作者
+    NSString *content = message.content;
+    NSString *contentType = message.contentType ?: @"text";
     __weak typeof(self) ws = self;
-    [IMHTTPService.sharedService conversationsWithToken:token completion:^(NSArray<IMConversation *> *convs, NSError *error) {
+    IMForwardPickerViewController *picker = [[IMForwardPickerViewController alloc]
+        initWithHost:self.host token:token onDone:^(NSArray<IMConversation *> *selected) {
         __strong typeof(ws) self = ws;
-        if (!self) { return; }
-        if (error || convs.count == 0) { [self im_showToast:@"暂无可转发的会话"]; return; }
-        UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"转发到"
-                                                                      message:nil
-                                                               preferredStyle:UIAlertControllerStyleActionSheet];
-        NSString *origin = message.forwardFrom.length > 0 ? message.forwardFrom
-            : (message.fromNickname.length > 0 ? message.fromNickname : (message.from ?: @"")); // 转发链保留最初作者
-        for (IMConversation *c in convs) {
-            NSString *title = c.isGroup ? (c.name.length > 0 ? c.name : @"群聊")
-                : (c.peerNickname.length > 0 ? c.peerNickname : c.peer);
-            [sheet addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-                NSString *toUser = c.isGroup ? @"" : (c.peer ?: @"");
-                [IMSocketManager.sharedManager forwardText:message.content toConv:c.convID toUser:toUser forwardFrom:origin completion:nil];
-                [self im_showToast:[NSString stringWithFormat:@"已转发到 %@", title]];
-            }]];
+        if (!self || selected.count == 0) { return; }
+        for (IMConversation *c in selected) {
+            NSString *toUser = c.isGroup ? @"" : (c.peer ?: @"");
+            [IMSocketManager.sharedManager forwardContent:content contentType:contentType
+                                                   toConv:c.convID toUser:toUser forwardFrom:origin completion:nil];
         }
-        [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-        sheet.popoverPresentationController.sourceView = self.view; // iPad 兜底锚点
-        sheet.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(self.view.bounds), CGRectGetMidY(self.view.bounds), 1, 1);
-        [self presentViewController:sheet animated:YES completion:nil];
+        [self im_showToast:selected.count == 1 ? @"已转发" : [NSString stringWithFormat:@"已转发到 %lu 个会话", (unsigned long)selected.count]];
     }];
+    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:picker];
+    [self presentViewController:nav animated:YES completion:nil];
 }
 
-/// 点击引用消息（有 replyToConvSeq）→ 跳到原消息；其余点击忽略。
+/// 点击引用消息（有 replyToConvSeq）→ 跳到原消息；其余点击忽略。附件面板展开时点空白先收起面板（#3）。
 - (void)handleReplyJumpTap:(UITapGestureRecognizer *)gr {
+    if (self.attachPanelVisible) { [self showAttachPanel:NO]; return; }
     CGPoint p = [gr locationInView:self.tableView];
     NSIndexPath *ip = [self.tableView indexPathForRowAtPoint:p];
     if (!ip || ip.row >= (NSInteger)self.messages.count) { return; }
@@ -1338,13 +1498,14 @@
         } : nil];
         return sys;
     }
-    // 图片消息（M4-6）：独立图片 cell，点击看大图。视频暂用同 cell 显首帧占位（后续接播放）。
+    // 图片/视频消息（M4-6）：独立媒体 cell。图片显缩略图、视频显首帧+播放角标（不自动播放）；点击进全屏查看器。
     if ([m.contentType isEqualToString:@"image"] || [m.contentType isEqualToString:@"video"]) {
         IMImageCell *img = [tableView dequeueReusableCellWithIdentifier:@"image" forIndexPath:indexPath];
         BOOL mineI = [m.from isEqualToString:self.userID];
-        [img configureWithURL:[self fullMediaURL:m.content] mine:mineI];
+        BOOL isVideo = [m.contentType isEqualToString:@"video"];
+        [img configureWithURL:[self fullMediaURL:m.content] isVideo:isVideo mine:mineI];
         __weak typeof(self) ws = self;
-        img.onTap = ^(UIImage *image) { [ws presentFullImage:image]; };
+        img.onTap = ^(UIImage *image) { [ws presentMediaViewerForMessage:m preloaded:image]; };
         return img;
     }
     IMBubbleCell *cell = [tableView dequeueReusableCellWithIdentifier:@"bubble" forIndexPath:indexPath];
@@ -1603,8 +1764,23 @@
 - (void)keyboardWillChange:(NSNotification *)note {
     CGRect endFrame = [note.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
     CGFloat overlap = CGRectGetHeight(self.view.bounds) - [self.view convertRect:endFrame fromView:nil].origin.y;
-    self.inputBottom.constant = -MAX(0, overlap - self.view.safeAreaInsets.bottom);
-    [self.view layoutIfNeeded];
+    self.kbInset = MAX(0, overlap - self.view.safeAreaInsets.bottom);
+    if (self.kbInset > 0 && self.attachPanelVisible) { // 键盘弹起 → 收起附件面板（二者互斥）
+        self.attachPanelVisible = NO;
+        self.attachPanel.hidden = YES;
+    }
+    [self updateInputBottomAnimated:NO];
+}
+
+/// 输入栏底部偏移 = 键盘遮挡 与 面板高度 取较大者（二者互斥，但统一处理避免竞态）。
+- (void)updateInputBottomAnimated:(BOOL)animated {
+    CGFloat h = MAX(self.kbInset, self.attachPanelVisible ? kIMAttachPanelHeight : 0);
+    self.inputBottom.constant = -h;
+    if (animated) {
+        [UIView animateWithDuration:0.25 animations:^{ [self.view layoutIfNeeded]; }];
+    } else {
+        [self.view layoutIfNeeded];
+    }
 }
 
 - (void)dealloc {

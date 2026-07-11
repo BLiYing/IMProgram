@@ -103,6 +103,15 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
              forwardFrom:(NSString *)forwardFrom
               completion:(nullable IMSendCompletion)completion;
 
+/// 转发任意类型消息（#6）：保留 content_type（text/image/video/file），content 为原文本或已上传 URL，
+/// 带 forward_from 溯源。避免把图片/视频当纯文本转走（否则收方不渲染、会话预览也丢 [图片]）。
+- (NSString *)forwardContent:(NSString *)content
+                contentType:(NSString *)contentType
+                     toConv:(NSString *)convID
+                     toUser:(NSString *)toUserID
+                forwardFrom:(NSString *)forwardFrom
+                 completion:(nullable IMSendCompletion)completion;
+
 /// 上报「已读到 convSeq」：对端据此显示已读双勾，本人未读随之清零（仅 read 推进已读位点）。
 - (void)markReadConv:(NSString *)convID upToConvSeq:(int64_t)convSeq;
 
