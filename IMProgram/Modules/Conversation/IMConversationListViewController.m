@@ -125,6 +125,11 @@ static CGFloat const kIMRowLeading = 16;
         NSString *who = mine ? @"你" : (c.isGroup ? (c.lastFromNickname.length > 0 ? c.lastFromNickname : (c.lastFrom ?: @"")) : @"对方");
         recalledPreview = [NSString stringWithFormat:@"%@撤回了一条消息", who];
     }
+    // 富媒体预览（M4-6）：图片/视频/文件显示占位标签而非 URL（微信式，不加昵称前缀）。
+    if (!recalledPreview) {
+        NSDictionary *mediaNames = @{ @"image": @"[图片]", @"video": @"[视频]", @"file": @"[文件]" };
+        recalledPreview = mediaNames[c.lastContentType ?: @""];
+    }
     if (c.isGroup) {
         // 群项：群名/群头像；预览"昵称: 内容"；不显示 presence/✓✓（群无对端已读位点）。
         NSString *display = c.name.length > 0 ? c.name : @"群聊";

@@ -354,6 +354,21 @@ NSString * const IMSocketDidRejectMsgOpNotification = @"IMSocketDidRejectMsgOpNo
     return [self sendText:text toUser:(toUserID ?: @"") convID:convID replyToConvSeq:0 forwardFrom:forwardFrom completion:completion];
 }
 
+- (NSString *)sendMedia:(NSString *)url contentType:(NSString *)contentType toConv:(NSString *)convID toUser:(NSString *)toUserID completion:(IMSendCompletion)completion {
+    NSString *clientMsgID = [NSUUID UUID].UUIDString;
+    NSDictionary *payload = @{
+        @"client_msg_id": clientMsgID,
+        @"conv_id":       convID ?: @"",
+        @"to":            toUserID ?: @"",
+        @"content_type":  contentType ?: @"image",
+        @"content":       url ?: @"",
+    };
+    dispatch_async(_queue, ^{
+        [self enqueueSendWithClientMsgID:clientMsgID payload:payload completion:completion];
+    });
+    return clientMsgID;
+}
+
 /// 共用发送路径：构造 send_msg 负载并入队（ack 超时重发等由 enqueue 统一处理）。
 - (NSString *)sendText:(NSString *)text toUser:(NSString *)toUserID convID:(NSString *)convID replyToConvSeq:(int64_t)replyToConvSeq forwardFrom:(NSString *)forwardFrom completion:(IMSendCompletion)completion {
     NSString *clientMsgID = [NSUUID UUID].UUIDString;

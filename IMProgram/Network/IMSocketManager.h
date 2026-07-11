@@ -116,6 +116,13 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
 /// 编辑自己在 convID 会话里 conv_seq=targetConvSeq 的文本消息（M4-5）。成功由服务端广播回 msg_op 帧应用。
 - (void)editMessageInConv:(NSString *)convID targetConvSeq:(int64_t)targetConvSeq content:(NSString *)content;
 
+/// 发送富媒体（M4-6）：content=已上传 URL，contentType=image|video|file。群聊 toUser 传空。返回 client_msg_id。
+- (NSString *)sendMedia:(NSString *)url
+           contentType:(NSString *)contentType
+                toConv:(NSString *)convID
+                toUser:(NSString *)toUserID
+            completion:(nullable IMSendCompletion)completion;
+
 /// 登记一个会话用于增量同步：每次（重）连成功后，自动从该会话已同步位点发 sync_req
 /// 拉取离线/缺失的消息。
 - (void)trackConversation:(NSString *)convID;

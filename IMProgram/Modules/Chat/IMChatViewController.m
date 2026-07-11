@@ -5,6 +5,7 @@
 #import "IMSocketManager.h"
 #import "IMHTTPService.h"
 #import "IMConversation.h"
+#import "IMImageLoader.h"
 #import "IMUserCard.h"
 #import "IMGroupInfo.h"
 #import "IMGroupInfoViewController.h"
@@ -352,9 +353,63 @@
 }
 @end
 
+#pragma mark - 图片消息 cell（content_type=image/video，M4-6）
+
+@interface IMImageCell : UITableViewCell
+@property (nonatomic, copy, nullable) void (^onTap)(UIImage *image);
+- (void)configureWithURL:(NSString *)fullURL mine:(BOOL)mine;
+@end
+
+@implementation IMImageCell {
+    UIImageView *_thumb;
+    NSLayoutConstraint *_leading;
+    NSLayoutConstraint *_trailing;
+    NSString *_url;
+}
+- (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
+    self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
+    if (self) {
+        self.backgroundColor = UIColor.clearColor;
+        self.selectionStyle = UITableViewCellSelectionStyleNone;
+        _thumb = [UIImageView new];
+        _thumb.translatesAutoresizingMaskIntoConstraints = NO;
+        _thumb.contentMode = UIViewContentModeScaleAspectFill;
+        _thumb.clipsToBounds = YES;
+        _thumb.layer.cornerRadius = 10;
+        _thumb.backgroundColor = UIColor.tertiarySystemFillColor;
+        _thumb.userInteractionEnabled = YES;
+        [_thumb addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tapped)]];
+        [self.contentView addSubview:_thumb];
+        _leading = [_thumb.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12];
+        _trailing = [_thumb.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-12];
+        [NSLayoutConstraint activateConstraints:@[
+            [_thumb.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:3],
+            [_thumb.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3],
+            [_thumb.widthAnchor constraintEqualToConstant:180],
+            [_thumb.heightAnchor constraintEqualToConstant:180],
+        ]];
+    }
+    return self;
+}
+- (void)configureWithURL:(NSString *)fullURL mine:(BOOL)mine {
+    _url = fullURL;
+    _leading.active = !mine;
+    _trailing.active = mine;
+    _thumb.image = nil;
+    __weak typeof(self) ws = self;
+    NSString *want = fullURL;
+    [[IMImageLoader shared] loadImageURL:fullURL completion:^(UIImage *image) {
+        __strong typeof(ws) self = ws;
+        if (self && [self->_url isEqualToString:want]) { self->_thumb.image = image; } // 复用安全
+    }];
+}
+- (void)tapped { if (_onTap && _thumb.image) { _onTap(_thumb.image); } }
+- (void)prepareForReuse { [super prepareForReuse]; _thumb.image = nil; _onTap = nil; }
+@end
+
 #pragma mark - 聊天页
 
-@interface IMChatViewController () <IMSocketManagerDelegate, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate>
+@interface IMChatViewController () <IMSocketManagerDelegate, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate>
 @property (nonatomic, copy) NSString *host;
 @property (nonatomic, copy) NSString *userID;
 @property (nonatomic, copy) NSString *peerID;         // 单聊对端 uid；群聊为空串
@@ -383,6 +438,7 @@
 @property (nonatomic, strong) UIView *inputBar;       // 输入栏容器
 @property (nonatomic, strong, nullable) IMMessageModel *replyingTo; // 正在引用回复的目标（M4-2）
 @property (nonatomic, strong, nullable) IMMessageModel *editingMessage; // 正在编辑的目标（M4-5）
+@property (nonatomic, strong, nullable) UIView *attachPanel; // 附件面板（M4-6，加号弹出）
 @property (nonatomic, strong) UIView *replyBar;       // 引用预览条（输入栏上方）
 @property (nonatomic, strong) UILabel *replyLabel;
 @property (nonatomic, strong) NSLayoutConstraint *replyBarHeight;
@@ -597,6 +653,7 @@
     self.tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
     [self.tableView registerClass:IMBubbleCell.class forCellReuseIdentifier:@"bubble"];
     [self.tableView registerClass:IMSystemCell.class forCellReuseIdentifier:@"system"];
+    [self.tableView registerClass:IMImageCell.class forCellReuseIdentifier:@"image"];
     [self.view addSubview:self.tableView];
 
     // 「对方正在输入」提示条（默认高度 0，typing 时展开）。
@@ -664,6 +721,29 @@
     [self.inputField addTarget:self action:@selector(inputChanged) forControlEvents:UIControlEventEditingChanged];
     [inputBar addSubview:self.inputField];
 
+    // 微信式输入栏（M4-6）：语音（左）| 输入框 | 表情 | 加号 | 发送。语音/表情当前占位。
+    UIImageSymbolConfiguration *barCfg = [UIImageSymbolConfiguration configurationWithPointSize:24 weight:UIImageSymbolWeightRegular];
+    UIButton *voiceButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    voiceButton.translatesAutoresizingMaskIntoConstraints = NO;
+    [voiceButton setImage:[UIImage systemImageNamed:@"waveform.circle" withConfiguration:barCfg] forState:UIControlStateNormal];
+    voiceButton.tintColor = IMTheme.textSecondary;
+    [voiceButton addTarget:self action:@selector(voiceTapped) forControlEvents:UIControlEventTouchUpInside];
+    [inputBar addSubview:voiceButton];
+
+    UIButton *emojiButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    emojiButton.translatesAutoresizingMaskIntoConstraints = NO;
+    [emojiButton setImage:[UIImage systemImageNamed:@"face.smiling" withConfiguration:barCfg] forState:UIControlStateNormal];
+    emojiButton.tintColor = IMTheme.textSecondary;
+    [emojiButton addTarget:self action:@selector(emojiTapped) forControlEvents:UIControlEventTouchUpInside];
+    [inputBar addSubview:emojiButton];
+
+    UIButton *plusButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    plusButton.translatesAutoresizingMaskIntoConstraints = NO;
+    [plusButton setImage:[UIImage systemImageNamed:@"plus.circle" withConfiguration:barCfg] forState:UIControlStateNormal];
+    plusButton.tintColor = IMTheme.textSecondary;
+    [plusButton addTarget:self action:@selector(toggleAttachPanel) forControlEvents:UIControlEventTouchUpInside];
+    [inputBar addSubview:plusButton];
+
     // 圆形发送按钮（蓝底上箭头）。
     UIButton *sendButton = [UIButton buttonWithType:UIButtonTypeSystem];
     sendButton.translatesAutoresizingMaskIntoConstraints = NO;
@@ -725,11 +805,24 @@
         self.inputBottom,
         [inputBar.heightAnchor constraintEqualToConstant:56],
 
-        [self.inputField.leadingAnchor constraintEqualToAnchor:inputBar.leadingAnchor constant:12],
+        // 语音（左）| 输入框 | 表情 | 加号 | 发送（M4-6 微信式）。
+        [voiceButton.leadingAnchor constraintEqualToAnchor:inputBar.leadingAnchor constant:8],
+        [voiceButton.centerYAnchor constraintEqualToAnchor:inputBar.centerYAnchor],
+        [voiceButton.widthAnchor constraintEqualToConstant:34],
+        [voiceButton.heightAnchor constraintEqualToConstant:36],
+        [self.inputField.leadingAnchor constraintEqualToAnchor:voiceButton.trailingAnchor constant:4],
         [self.inputField.centerYAnchor constraintEqualToAnchor:inputBar.centerYAnchor],
         [self.inputField.heightAnchor constraintEqualToConstant:36],
-        [self.inputField.trailingAnchor constraintEqualToAnchor:sendButton.leadingAnchor constant:-8],
-        [sendButton.trailingAnchor constraintEqualToAnchor:inputBar.trailingAnchor constant:-12],
+        [self.inputField.trailingAnchor constraintEqualToAnchor:emojiButton.leadingAnchor constant:-4],
+        [emojiButton.trailingAnchor constraintEqualToAnchor:plusButton.leadingAnchor constant:-2],
+        [emojiButton.centerYAnchor constraintEqualToAnchor:inputBar.centerYAnchor],
+        [emojiButton.widthAnchor constraintEqualToConstant:34],
+        [emojiButton.heightAnchor constraintEqualToConstant:36],
+        [plusButton.trailingAnchor constraintEqualToAnchor:sendButton.leadingAnchor constant:-2],
+        [plusButton.centerYAnchor constraintEqualToAnchor:inputBar.centerYAnchor],
+        [plusButton.widthAnchor constraintEqualToConstant:34],
+        [plusButton.heightAnchor constraintEqualToConstant:36],
+        [sendButton.trailingAnchor constraintEqualToAnchor:inputBar.trailingAnchor constant:-8],
         [sendButton.centerYAnchor constraintEqualToAnchor:inputBar.centerYAnchor],
         [sendButton.widthAnchor constraintEqualToConstant:36],
         [sendButton.heightAnchor constraintEqualToConstant:36],
@@ -877,6 +970,181 @@
         message.translation = translation;
         [self.tableView reloadData];
     }];
+}
+
+#pragma mark - 附件面板 / 富媒体（M4-6）
+
+- (void)voiceTapped { [self im_showComingSoon:@"语音"]; }
+- (void)emojiTapped { [self im_showComingSoon:@"表情"]; }
+
+/// 面板项（数据驱动，M4-6）：加入口 = 数组加一条。照片接真实上传，其余占位。
+- (NSArray<NSDictionary *> *)attachItems {
+    return @[
+        @{ @"id": @"photo", @"title": @"照片", @"image": @"photo" },
+        @{ @"id": @"camera", @"title": @"拍摄", @"image": @"camera" },
+        @{ @"id": @"av", @"title": @"音视频", @"image": @"video" },
+        @{ @"id": @"favorite", @"title": @"收藏", @"image": @"bookmark" },
+        @{ @"id": @"card", @"title": @"个人名片", @"image": @"person.crop.square" },
+        @{ @"id": @"file", @"title": @"文件", @"image": @"doc" },
+    ];
+}
+
+/// 展开/收起附件面板（首次点击惰性构建 2×3 网格）。
+- (void)toggleAttachPanel {
+    [self.inputField resignFirstResponder];
+    if (self.attachPanel) {
+        BOOL show = self.attachPanel.hidden;
+        self.attachPanel.hidden = !show;
+        return;
+    }
+    UIView *panel = [UIView new];
+    panel.translatesAutoresizingMaskIntoConstraints = NO;
+    panel.backgroundColor = UIColor.secondarySystemBackgroundColor;
+    [self.view addSubview:panel];
+    self.attachPanel = panel;
+
+    UIStackView *rows = [UIStackView new]; // 竖直：两行
+    rows.translatesAutoresizingMaskIntoConstraints = NO;
+    rows.axis = UILayoutConstraintAxisVertical;
+    rows.distribution = UIStackViewDistributionFillEqually;
+    rows.spacing = 16;
+    [panel addSubview:rows];
+
+    NSArray<NSDictionary *> *items = [self attachItems];
+    UIStackView *currentRow = nil;
+    for (NSUInteger i = 0; i < items.count; i++) {
+        if (i % 3 == 0) {
+            currentRow = [UIStackView new];
+            currentRow.axis = UILayoutConstraintAxisHorizontal;
+            currentRow.distribution = UIStackViewDistributionFillEqually;
+            currentRow.spacing = 16;
+            [rows addArrangedSubview:currentRow];
+        }
+        [currentRow addArrangedSubview:[self attachItemViewFor:items[i]]];
+    }
+    [NSLayoutConstraint activateConstraints:@[
+        [panel.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [panel.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [panel.bottomAnchor constraintEqualToAnchor:self.inputBar.bottomAnchor],
+        [panel.heightAnchor constraintEqualToConstant:200],
+        [rows.topAnchor constraintEqualToAnchor:panel.topAnchor constant:16],
+        [rows.leadingAnchor constraintEqualToAnchor:panel.leadingAnchor constant:24],
+        [rows.trailingAnchor constraintEqualToAnchor:panel.trailingAnchor constant:-24],
+        [rows.bottomAnchor constraintLessThanOrEqualToAnchor:panel.safeAreaLayoutGuide.bottomAnchor constant:-8],
+    ]];
+}
+
+/// 单个面板项：图标圆钮 + 标题。
+- (UIView *)attachItemViewFor:(NSDictionary *)item {
+    UIStackView *v = [UIStackView new];
+    v.axis = UILayoutConstraintAxisVertical;
+    v.alignment = UIStackViewAlignmentCenter;
+    v.spacing = 6;
+    UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
+    btn.translatesAutoresizingMaskIntoConstraints = NO;
+    UIImageSymbolConfiguration *c = [UIImageSymbolConfiguration configurationWithPointSize:26 weight:UIImageSymbolWeightRegular];
+    [btn setImage:[UIImage systemImageNamed:item[@"image"] withConfiguration:c] forState:UIControlStateNormal];
+    btn.tintColor = IMTheme.textPrimary;
+    btn.backgroundColor = UIColor.systemBackgroundColor;
+    btn.layer.cornerRadius = 12;
+    NSString *itemId = item[@"id"];
+    __weak typeof(self) ws = self;
+    [btn addAction:[UIAction actionWithHandler:^(UIAction *a) { [ws attachItemTapped:itemId]; }]
+        forControlEvents:UIControlEventTouchUpInside];
+    [NSLayoutConstraint activateConstraints:@[
+        [btn.widthAnchor constraintEqualToConstant:56],
+        [btn.heightAnchor constraintEqualToConstant:56],
+    ]];
+    UILabel *lbl = [UILabel new];
+    lbl.text = item[@"title"];
+    lbl.font = [UIFont systemFontOfSize:12];
+    lbl.textColor = IMTheme.textSecondary;
+    [v addArrangedSubview:btn];
+    [v addArrangedSubview:lbl];
+    return v;
+}
+
+- (void)attachItemTapped:(NSString *)itemId {
+    self.attachPanel.hidden = YES;
+    if ([itemId isEqualToString:@"photo"]) {
+        [self openPhotoPicker];
+        return;
+    }
+    NSDictionary *names = @{ @"camera": @"拍摄", @"av": @"音视频", @"file": @"文件",
+                            @"favorite": @"从收藏发送", @"card": @"个人名片" };
+    [self im_showComingSoon:names[itemId] ?: @"该功能"]; // 其余占位，后续按需接真实功能
+}
+
+/// 把消息里的相对 URL（/uploads/xxx）补成绝对地址（含 host）；已是 http/data 的原样返回。
+- (NSString *)fullMediaURL:(NSString *)content {
+    if (content.length == 0) { return @""; }
+    if ([content hasPrefix:@"http"] || [content hasPrefix:@"data:"]) { return content; }
+    return [NSString stringWithFormat:@"http://%@%@", self.host ?: @"", content];
+}
+
+/// 全屏看大图（点击图片气泡）：黑底 + 适配缩放 + 点击关闭。
+- (void)presentFullImage:(UIImage *)image {
+    if (!image) { return; }
+    UIViewController *vc = [UIViewController new];
+    vc.view.backgroundColor = UIColor.blackColor;
+    vc.modalPresentationStyle = UIModalPresentationFullScreen;
+    UIImageView *iv = [[UIImageView alloc] initWithImage:image];
+    iv.frame = vc.view.bounds;
+    iv.contentMode = UIViewContentModeScaleAspectFit;
+    iv.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    iv.userInteractionEnabled = YES;
+    [iv addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(dismissFullImage)]];
+    [vc.view addSubview:iv];
+    [self presentViewController:vc animated:YES completion:nil];
+}
+- (void)dismissFullImage { [self dismissViewControllerAnimated:YES completion:nil]; }
+
+/// 相册选图 → 上传 → 发图片消息。
+- (void)openPhotoPicker {
+    UIImagePickerController *picker = [UIImagePickerController new];
+    picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
+    picker.delegate = self;
+    [self presentViewController:picker animated:YES completion:nil];
+}
+
+- (void)imagePickerController:(UIImagePickerController *)picker didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *)info {
+    [picker dismissViewControllerAnimated:YES completion:nil];
+    UIImage *image = info[UIImagePickerControllerOriginalImage];
+    if (!image) { return; }
+    NSData *data = UIImageJPEGRepresentation(image, 0.8);
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (data.length == 0 || token.length == 0) { return; }
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService uploadData:data fileName:@"photo.jpg" mimeType:@"image/jpeg" token:token
+                                 completion:^(NSString *url, NSString *contentType, NSError *error) {
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        if (error || url.length == 0) { [self im_showToast:@"图片上传失败"]; return; }
+        [self sendMediaURL:url contentType:(contentType ?: @"image")];
+    }];
+}
+
+- (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker {
+    [picker dismissViewControllerAnimated:YES completion:nil];
+}
+
+/// 发送已上传的媒体：走 socket sendMedia，乐观上屏。
+- (void)sendMediaURL:(NSString *)url contentType:(NSString *)contentType {
+    __block NSString *clientMsgID = nil;
+    __weak typeof(self) ws = self;
+    IMSendCompletion completion = ^(BOOL success, NSError *error, int64_t convSeq) {
+        [ws handleSendResult:success convSeq:convSeq error:error forClientMsgID:clientMsgID];
+    };
+    NSString *toUser = self.isGroupChat ? @"" : self.peerID;
+    clientMsgID = [IMSocketManager.sharedManager sendMedia:url contentType:contentType toConv:self.convID toUser:toUser completion:completion];
+
+    IMMessageModel *m = [IMMessageModel new];
+    m.clientMsgID = clientMsgID; m.convID = self.convID; m.to = self.peerID; m.from = self.userID;
+    m.content = url; m.contentType = contentType; m.status = IMMessageStatusSending;
+    m.timestamp = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
+    [IMDatabase.sharedDatabase saveMessage:m];
+    [self.messages addObject:m];
+    [self appendReloadAndScroll];
 }
 
 #pragma mark - 转发（M4-3）
@@ -1069,6 +1337,15 @@
             [ws.inputField becomeFirstResponder];
         } : nil];
         return sys;
+    }
+    // 图片消息（M4-6）：独立图片 cell，点击看大图。视频暂用同 cell 显首帧占位（后续接播放）。
+    if ([m.contentType isEqualToString:@"image"] || [m.contentType isEqualToString:@"video"]) {
+        IMImageCell *img = [tableView dequeueReusableCellWithIdentifier:@"image" forIndexPath:indexPath];
+        BOOL mineI = [m.from isEqualToString:self.userID];
+        [img configureWithURL:[self fullMediaURL:m.content] mine:mineI];
+        __weak typeof(self) ws = self;
+        img.onTap = ^(UIImage *image) { [ws presentFullImage:image]; };
+        return img;
     }
     IMBubbleCell *cell = [tableView dequeueReusableCellWithIdentifier:@"bubble" forIndexPath:indexPath];
     BOOL mine = [m.from isEqualToString:self.userID];

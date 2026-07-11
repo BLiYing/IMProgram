@@ -19,6 +19,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) NSString *lastFrom;
 @property (nonatomic, copy, nullable) NSString *lastFromNickname; // 最后发送者昵称（仅群聊：列表预览"昵称: 内容"）
 @property (nonatomic, assign) BOOL lastRecalled;      // 最后一条是撤回消息（预览显示"撤回了一条消息"，M4-1）
+@property (nonatomic, copy, nullable) NSString *lastContentType; // 最后一条内容类型（image/video/file → 预览[图片]等，M4-6）
 @property (nonatomic, assign) int64_t latestConvSeq;
 @property (nonatomic, assign) int64_t readSeq;         // 本人已读位点（首条未读 = conv_seq > readSeq）
 @property (nonatomic, assign) int64_t peerReadSeq;     // 单聊对端已读位点（判断"我发的最后一条"是否已读；群聊 0）

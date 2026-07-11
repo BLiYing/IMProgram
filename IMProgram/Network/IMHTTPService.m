@@ -502,6 +502,36 @@ static NSString *IMFriendlyNetworkError(NSError *error) {
     return req;
 }
 
+- (void)uploadData:(NSData *)data
+          fileName:(NSString *)fileName
+          mimeType:(NSString *)mimeType
+             token:(NSString *)token
+        completion:(void (^)(NSString *, NSString *, NSError *))completion {
+    NSURL *url = [self urlForPath:@"/api/v1/upload"];
+    if (!url || data.length == 0) { [self callOnMain:^{ completion(nil, nil, [self errorWithMessage:@"无效的上传"]); }]; return; }
+    NSString *boundary = [@"----IMBoundary" stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
+    req.HTTPMethod = @"POST";
+    req.timeoutInterval = 30;
+    [req setValue:[NSString stringWithFormat:@"Bearer %@", token ?: @""] forHTTPHeaderField:@"Authorization"];
+    [req setValue:[NSString stringWithFormat:@"multipart/form-data; boundary=%@", boundary] forHTTPHeaderField:@"Content-Type"];
+    NSMutableData *body = [NSMutableData data];
+    [body appendData:[[NSString stringWithFormat:@"--%@\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
+    [body appendData:[[NSString stringWithFormat:@"Content-Disposition: form-data; name=\"file\"; filename=\"%@\"\r\n", fileName ?: @"file"] dataUsingEncoding:NSUTF8StringEncoding]];
+    [body appendData:[[NSString stringWithFormat:@"Content-Type: %@\r\n\r\n", mimeType ?: @"application/octet-stream"] dataUsingEncoding:NSUTF8StringEncoding]];
+    [body appendData:data];
+    [body appendData:[[NSString stringWithFormat:@"\r\n--%@--\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
+    req.HTTPBody = body;
+    [self runRequest:req completion:^(NSDictionary *resp, NSError *error) {
+        if (error) { completion(nil, nil, error); return; }
+        if ([resp[@"code"] integerValue] != 0) { completion(nil, nil, [self errorWithMessage:[self messageFrom:resp fallback:@"上传失败"]]); return; }
+        NSDictionary *d = [resp[@"data"] isKindOfClass:[NSDictionary class]] ? resp[@"data"] : @{};
+        NSString *u = [d[@"url"] isKindOfClass:[NSString class]] ? d[@"url"] : nil;
+        NSString *ct = [d[@"content_type"] isKindOfClass:[NSString class]] ? d[@"content_type"] : @"image";
+        completion(u, ct, u ? nil : [self errorWithMessage:@"上传响应异常"]);
+    }];
+}
+
 - (nullable NSURL *)urlForPath:(NSString *)path {
     if (self.host.length == 0) { return nil; }
     return [NSURL URLWithString:[NSString stringWithFormat:@"http://%@%@", self.host, path]];

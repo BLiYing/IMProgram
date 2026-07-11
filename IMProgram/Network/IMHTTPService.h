@@ -163,6 +163,13 @@ BOOL IMIsAuthErrorCode(NSInteger code);
                 targetLang:(nullable NSString *)targetLang
                 completion:(void (^)(NSString *_Nullable translation, NSError *_Nullable error))completion;
 
+/// 上传图片/文件（M4-6）：multipart POST /api/v1/upload。回调返回 url + content_type（主线程）。
+- (void)uploadData:(NSData *)data
+          fileName:(NSString *)fileName
+          mimeType:(NSString *)mimeType
+             token:(NSString *)token
+        completion:(void (^)(NSString *_Nullable url, NSString *_Nullable contentType, NSError *_Nullable error))completion;
+
 @end
 
 NS_ASSUME_NONNULL_END
