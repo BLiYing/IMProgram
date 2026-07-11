@@ -39,6 +39,8 @@ typedef NS_ENUM(NSInteger, IMMessageStatus) {
 /// M4-2 引用回复：目标 conv_seq + 服务端冻结的降级快照（气泡顶部引用条）。
 @property (nonatomic, assign) int64_t replyToConvSeq;
 @property (nonatomic, copy, nullable) NSString *replySnapshot;
+/// M4-3 转发溯源："转发自 X"显示名（发送时冻结）。
+@property (nonatomic, copy, nullable) NSString *forwardFrom;
 
 /// 由 new_msg 的 data 字典构造一条「收到」的消息。
 + (instancetype)receivedMessageWithNewMsgData:(NSDictionary *)data;

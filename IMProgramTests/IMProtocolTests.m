@@ -280,4 +280,20 @@
     [NSFileManager.defaultManager removeItemAtURL:tmp error:NULL];
 }
 
+// M4-3 转发：new_msg 解析 forward_from + 落库读回。
+- (void)testForwardFromParseAndPersist {
+    IMMessageModel *m = [IMMessageModel receivedMessageWithNewMsgData:@{
+        @"conv_id": @"u_1_u_2", @"conv_seq": @9, @"from": @"2", @"content": @"被转发",
+        @"content_type": @"text", @"forward_from": @"小王",
+    }];
+    XCTAssertEqualObjects(m.forwardFrom, @"小王");
+
+    NSURL *tmp = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString]];
+    IMDatabase *db = [[IMDatabase alloc] initWithFileURL:tmp];
+    [db saveMessage:m];
+    IMMessageModel *loaded = [[[IMDatabase alloc] initWithFileURL:tmp] messagesForConv:@"u_1_u_2"].firstObject;
+    XCTAssertEqualObjects(loaded.forwardFrom, @"小王");
+    [NSFileManager.defaultManager removeItemAtURL:tmp error:NULL];
+}
+
 @end

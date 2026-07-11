@@ -21,6 +21,7 @@
     m.pinnedAt    = [data[@"pinned_at"] longLongValue];
     m.replyToConvSeq = [data[@"reply_to_conv_seq"] longLongValue];
     m.replySnapshot  = [self stringForKey:@"reply_snapshot" in:data];
+    m.forwardFrom    = [self stringForKey:@"forward_from" in:data];
     return m;
 }
 
@@ -43,6 +44,7 @@
     if (self.pinnedAt > 0) { d[@"pinned_at"] = @(self.pinnedAt); }
     if (self.replyToConvSeq > 0) { d[@"reply_to_conv_seq"] = @(self.replyToConvSeq); }
     if (self.replySnapshot) { d[@"reply_snapshot"] = self.replySnapshot; }
+    if (self.forwardFrom) { d[@"forward_from"] = self.forwardFrom; }
     return d;
 }
 
@@ -65,6 +67,7 @@
     m.pinnedAt    = [dict[@"pinned_at"] longLongValue];
     m.replyToConvSeq = [dict[@"reply_to_conv_seq"] longLongValue];
     m.replySnapshot  = [self stringForKey:@"reply_snapshot" in:dict];
+    m.forwardFrom    = [self stringForKey:@"forward_from" in:dict];
     return m;
 }
 

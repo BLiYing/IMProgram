@@ -4,6 +4,7 @@
 #import "IMChatBackgroundView.h"
 #import "IMSocketManager.h"
 #import "IMHTTPService.h"
+#import "IMConversation.h"
 #import "IMUserCard.h"
 #import "IMGroupInfo.h"
 #import "IMGroupInfoViewController.h"
@@ -181,6 +182,13 @@
             initWithString:[senderName stringByAppendingString:@"\n"]
                 attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold],
                               NSForegroundColorAttributeName: IMTheme.accent }]];
+    }
+    // 转发溯源（M4-3）：气泡顶部一行"转发自 X"小灰字。
+    if (message.forwardFrom.length > 0) {
+        [body appendAttributedString:[[NSAttributedString alloc]
+            initWithString:[NSString stringWithFormat:@"转发自 %@\n", message.forwardFrom]
+                attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:12],
+                              NSForegroundColorAttributeName: IMTheme.textSecondary }]];
     }
     // 引用回复（M4-2）：气泡顶部一条引用预览（竖条 + 灰字快照），点击整条气泡跳转原消息。
     if (message.replyToConvSeq > 0) {
@@ -799,6 +807,39 @@
     self.replyLabel.text = nil;
 }
 
+#pragma mark - 转发（M4-3）
+
+/// 转发一条消息：拉会话列表 → 选择目标（action sheet）→ 逐条转发（forward_from 溯源）。
+- (void)forwardMessage:(IMMessageModel *)message {
+    if (message.content.length == 0 || message.recalledAt > 0) { return; }
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0) { return; }
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService conversationsWithToken:token completion:^(NSArray<IMConversation *> *convs, NSError *error) {
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        if (error || convs.count == 0) { [self im_showToast:@"暂无可转发的会话"]; return; }
+        UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"转发到"
+                                                                      message:nil
+                                                               preferredStyle:UIAlertControllerStyleActionSheet];
+        NSString *origin = message.forwardFrom.length > 0 ? message.forwardFrom
+            : (message.fromNickname.length > 0 ? message.fromNickname : (message.from ?: @"")); // 转发链保留最初作者
+        for (IMConversation *c in convs) {
+            NSString *title = c.isGroup ? (c.name.length > 0 ? c.name : @"群聊")
+                : (c.peerNickname.length > 0 ? c.peerNickname : c.peer);
+            [sheet addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+                NSString *toUser = c.isGroup ? @"" : (c.peer ?: @"");
+                [IMSocketManager.sharedManager forwardText:message.content toConv:c.convID toUser:toUser forwardFrom:origin completion:nil];
+                [self im_showToast:[NSString stringWithFormat:@"已转发到 %@", title]];
+            }]];
+        }
+        [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+        sheet.popoverPresentationController.sourceView = self.view; // iPad 兜底锚点
+        sheet.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(self.view.bounds), CGRectGetMidY(self.view.bounds), 1, 1);
+        [self presentViewController:sheet animated:YES completion:nil];
+    }];
+}
+
 /// 点击引用消息（有 replyToConvSeq）→ 跳到原消息；其余点击忽略。
 - (void)handleReplyJumpTap:(UITapGestureRecognizer *)gr {
     CGPoint p = [gr locationInView:self.tableView];
@@ -1010,9 +1051,11 @@
             [ws beginReplyTo:message];
         }]];
     }
-    [actions addObject:[IMMenuAction actionWithId:@"forward" title:@"转发" image:@"arrowshape.turn.up.right" handler:^{
-        [ws im_showComingSoon:@"转发"];
-    }]];
+    if (message.recalledAt == 0 && message.convSeq > 0) {
+        [actions addObject:[IMMenuAction actionWithId:@"forward" title:@"转发" image:@"arrowshape.turn.up.right" handler:^{
+            [ws forwardMessage:message];
+        }]];
+    }
     [actions addObject:[IMMenuAction actionWithId:@"favorite" title:@"收藏" image:@"bookmark" handler:^{
         [ws im_showComingSoon:@"收藏"];
     }]];

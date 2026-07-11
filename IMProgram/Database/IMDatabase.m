@@ -54,6 +54,7 @@
             @"recalled_at": @"INTEGER", @"recalled_by": @"TEXT",
             @"edited_at": @"INTEGER", @"pinned_at": @"INTEGER",
             @"reply_to_conv_seq": @"INTEGER", @"reply_snapshot": @"TEXT", // M4-2 引用回复
+            @"forward_from": @"TEXT", // M4-3 转发溯源
         };
         for (NSString *col in opCols) {
             if (![self column:col existsInTable:@"im_message_local" db:db]) {
@@ -82,21 +83,21 @@
         NSNumber *rowID = [self existingRowIDFor:message in:db];
         if (rowID) {
             [db executeUpdate:
-                @"UPDATE im_message_local SET server_msg_id=?,sender=?,recipient=?,content_type=?,content=?,conv_seq=?,timestamp=?,status=?,note=?,from_nickname=?,recalled_at=?,recalled_by=?,edited_at=?,pinned_at=?,reply_to_conv_seq=?,reply_snapshot=? WHERE row_id=?",
+                @"UPDATE im_message_local SET server_msg_id=?,sender=?,recipient=?,content_type=?,content=?,conv_seq=?,timestamp=?,status=?,note=?,from_nickname=?,recalled_at=?,recalled_by=?,edited_at=?,pinned_at=?,reply_to_conv_seq=?,reply_snapshot=?,forward_from=? WHERE row_id=?",
                 message.serverMsgID ?: @"", message.from ?: @"", message.to ?: @"",
                 message.contentType ?: @"text", message.content ?: @"",
                 @(message.convSeq), @(message.timestamp), @(message.status), message.note ?: @"",
                 message.fromNickname ?: @"", @(message.recalledAt), message.recalledBy ?: @"",
-                @(message.editedAt), @(message.pinnedAt), @(message.replyToConvSeq), message.replySnapshot ?: @"", rowID];
+                @(message.editedAt), @(message.pinnedAt), @(message.replyToConvSeq), message.replySnapshot ?: @"", message.forwardFrom ?: @"", rowID];
         } else {
             [db executeUpdate:
-                @"INSERT INTO im_message_local (client_msg_id,server_msg_id,conv_id,sender,recipient,content_type,content,conv_seq,timestamp,status,note,from_nickname,recalled_at,recalled_by,edited_at,pinned_at,reply_to_conv_seq,reply_snapshot) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                @"INSERT INTO im_message_local (client_msg_id,server_msg_id,conv_id,sender,recipient,content_type,content,conv_seq,timestamp,status,note,from_nickname,recalled_at,recalled_by,edited_at,pinned_at,reply_to_conv_seq,reply_snapshot,forward_from) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 message.clientMsgID ?: @"", message.serverMsgID ?: @"", message.convID,
                 message.from ?: @"", message.to ?: @"", message.contentType ?: @"text",
                 message.content ?: @"", @(message.convSeq), @(message.timestamp), @(message.status),
                 message.note ?: @"", message.fromNickname ?: @"", @(message.recalledAt),
                 message.recalledBy ?: @"", @(message.editedAt), @(message.pinnedAt),
-                @(message.replyToConvSeq), message.replySnapshot ?: @""];
+                @(message.replyToConvSeq), message.replySnapshot ?: @"", message.forwardFrom ?: @""];
         }
     }];
 }
@@ -145,6 +146,8 @@
             m.replyToConvSeq = [rs longLongIntForColumn:@"reply_to_conv_seq"];
             NSString *snap = [rs stringForColumn:@"reply_snapshot"];
             m.replySnapshot = snap.length > 0 ? snap : nil;
+            NSString *ff = [rs stringForColumn:@"forward_from"];
+            m.forwardFrom = ff.length > 0 ? ff : nil;
             [out addObject:m];
         }
         [rs close];
