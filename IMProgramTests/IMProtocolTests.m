@@ -262,4 +262,22 @@
     XCTAssertEqual(back.pinnedAt, 789);
 }
 
+// M4-2 引用回复：new_msg 解析 + 落库读回。
+- (void)testReplyFieldsParseAndPersist {
+    IMMessageModel *m = [IMMessageModel receivedMessageWithNewMsgData:@{
+        @"conv_id": @"u_1_u_2", @"conv_seq": @7, @"from": @"2", @"content": @"回复",
+        @"content_type": @"text", @"reply_to_conv_seq": @3, @"reply_snapshot": @"原消息快照",
+    }];
+    XCTAssertEqual(m.replyToConvSeq, 3);
+    XCTAssertEqualObjects(m.replySnapshot, @"原消息快照");
+
+    NSURL *tmp = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString]];
+    IMDatabase *db = [[IMDatabase alloc] initWithFileURL:tmp];
+    [db saveMessage:m];
+    IMMessageModel *loaded = [[[IMDatabase alloc] initWithFileURL:tmp] messagesForConv:@"u_1_u_2"].firstObject;
+    XCTAssertEqual(loaded.replyToConvSeq, 3);
+    XCTAssertEqualObjects(loaded.replySnapshot, @"原消息快照");
+    [NSFileManager.defaultManager removeItemAtURL:tmp error:NULL];
+}
+
 @end

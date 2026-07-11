@@ -19,6 +19,8 @@
     m.recalledBy  = [self stringForKey:@"recalled_by" in:data];
     m.editedAt    = [data[@"edited_at"] longLongValue];
     m.pinnedAt    = [data[@"pinned_at"] longLongValue];
+    m.replyToConvSeq = [data[@"reply_to_conv_seq"] longLongValue];
+    m.replySnapshot  = [self stringForKey:@"reply_snapshot" in:data];
     return m;
 }
 
@@ -39,6 +41,8 @@
     if (self.recalledBy) { d[@"recalled_by"] = self.recalledBy; }
     if (self.editedAt > 0) { d[@"edited_at"] = @(self.editedAt); }
     if (self.pinnedAt > 0) { d[@"pinned_at"] = @(self.pinnedAt); }
+    if (self.replyToConvSeq > 0) { d[@"reply_to_conv_seq"] = @(self.replyToConvSeq); }
+    if (self.replySnapshot) { d[@"reply_snapshot"] = self.replySnapshot; }
     return d;
 }
 
@@ -59,6 +63,8 @@
     m.recalledBy  = [self stringForKey:@"recalled_by" in:dict];
     m.editedAt    = [dict[@"edited_at"] longLongValue];
     m.pinnedAt    = [dict[@"pinned_at"] longLongValue];
+    m.replyToConvSeq = [dict[@"reply_to_conv_seq"] longLongValue];
+    m.replySnapshot  = [self stringForKey:@"reply_snapshot" in:dict];
     return m;
 }
 

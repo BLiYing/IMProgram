@@ -86,6 +86,16 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
                 toConv:(NSString *)convID
             completion:(nullable IMSendCompletion)completion;
 
+/// 引用回复变体（M4-2）：replyToConvSeq>0 时带引用（只发目标 conv_seq，快照由服务端冻结下发）。
+- (NSString *)sendText:(NSString *)text
+                toUser:(NSString *)toUserID
+        replyToConvSeq:(int64_t)replyToConvSeq
+            completion:(nullable IMSendCompletion)completion;
+- (NSString *)sendText:(NSString *)text
+                toConv:(NSString *)convID
+        replyToConvSeq:(int64_t)replyToConvSeq
+            completion:(nullable IMSendCompletion)completion;
+
 /// 上报「已读到 convSeq」：对端据此显示已读双勾，本人未读随之清零（仅 read 推进已读位点）。
 - (void)markReadConv:(NSString *)convID upToConvSeq:(int64_t)convSeq;
 

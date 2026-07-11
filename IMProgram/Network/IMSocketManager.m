@@ -333,25 +333,34 @@ NSString * const IMSocketDidRejectMsgOpNotification = @"IMSocketDidRejectMsgOpNo
 #pragma mark - 发送 + ACK 超时重发
 
 - (NSString *)sendText:(NSString *)text toUser:(NSString *)toUserID completion:(IMSendCompletion)completion {
-    NSString *convID = IMConversationID(self.userID ?: @"", toUserID);
-    return [self sendText:text toUser:toUserID convID:convID completion:completion];
+    return [self sendText:text toUser:toUserID replyToConvSeq:0 completion:completion];
 }
 
 - (NSString *)sendText:(NSString *)text toConv:(NSString *)convID completion:(IMSendCompletion)completion {
+    return [self sendText:text toConv:convID replyToConvSeq:0 completion:completion];
+}
+
+- (NSString *)sendText:(NSString *)text toUser:(NSString *)toUserID replyToConvSeq:(int64_t)replyToConvSeq completion:(IMSendCompletion)completion {
+    NSString *convID = IMConversationID(self.userID ?: @"", toUserID);
+    return [self sendText:text toUser:toUserID convID:convID replyToConvSeq:replyToConvSeq completion:completion];
+}
+
+- (NSString *)sendText:(NSString *)text toConv:(NSString *)convID replyToConvSeq:(int64_t)replyToConvSeq completion:(IMSendCompletion)completion {
     // 群聊：to 留空，服务端按 conv_id 查群成员写扩散（PROTOCOL §6.6）。
-    return [self sendText:text toUser:@"" convID:convID completion:completion];
+    return [self sendText:text toUser:@"" convID:convID replyToConvSeq:replyToConvSeq completion:completion];
 }
 
 /// 共用发送路径：构造 send_msg 负载并入队（ack 超时重发等由 enqueue 统一处理）。
-- (NSString *)sendText:(NSString *)text toUser:(NSString *)toUserID convID:(NSString *)convID completion:(IMSendCompletion)completion {
+- (NSString *)sendText:(NSString *)text toUser:(NSString *)toUserID convID:(NSString *)convID replyToConvSeq:(int64_t)replyToConvSeq completion:(IMSendCompletion)completion {
     NSString *clientMsgID = [NSUUID UUID].UUIDString;
-    NSDictionary *payload = @{
+    NSMutableDictionary *payload = [@{
         @"client_msg_id": clientMsgID,
         @"conv_id":       convID ?: @"",
         @"to":            toUserID ?: @"",
         @"content_type":  @"text",
         @"content":       text ?: @"",
-    };
+    } mutableCopy];
+    if (replyToConvSeq > 0) { payload[@"reply_to"] = @{ @"conv_seq": @(replyToConvSeq) }; } // 引用（M4-2）
     dispatch_async(_queue, ^{
         [self enqueueSendWithClientMsgID:clientMsgID payload:payload completion:completion];
     });

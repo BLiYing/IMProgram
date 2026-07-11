@@ -182,6 +182,14 @@
                 attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold],
                               NSForegroundColorAttributeName: IMTheme.accent }]];
     }
+    // 引用回复（M4-2）：气泡顶部一条引用预览（竖条 + 灰字快照），点击整条气泡跳转原消息。
+    if (message.replyToConvSeq > 0) {
+        NSString *snap = message.replySnapshot.length > 0 ? message.replySnapshot : @"原消息";
+        [body appendAttributedString:[[NSAttributedString alloc]
+            initWithString:[NSString stringWithFormat:@"▏%@\n", snap]
+                attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:13],
+                              NSForegroundColorAttributeName: IMTheme.textSecondary }]];
+    }
     [body appendAttributedString:[[NSAttributedString alloc]
         initWithString:(message.content ?: @"")
             attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:17],
@@ -357,6 +365,10 @@
 @property (nonatomic, strong) UIButton *jumpButton;   // 右下角"↓N"回到最新
 @property (nonatomic, strong) UILabel *jumpBadge;     // 按钮上的未读计数（=视口下方未读数）
 @property (nonatomic, strong) UIView *inputBar;       // 输入栏容器
+@property (nonatomic, strong, nullable) IMMessageModel *replyingTo; // 正在引用回复的目标（M4-2）
+@property (nonatomic, strong) UIView *replyBar;       // 引用预览条（输入栏上方）
+@property (nonatomic, strong) UILabel *replyLabel;
+@property (nonatomic, strong) NSLayoutConstraint *replyBarHeight;
 @end
 
 @implementation IMChatViewController
@@ -558,6 +570,10 @@
     self.tableView.delegate = self;
     self.tableView.separatorStyle = UITableViewCellSeparatorStyleNone;
     self.tableView.allowsSelection = NO;
+    // 点击引用消息 → 跳转原消息（M4-2）。tap 与滚动(pan)/长按共存；非引用消息点击无副作用。
+    UITapGestureRecognizer *jumpTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleReplyJumpTap:)];
+    jumpTap.cancelsTouchesInView = NO;
+    [self.tableView addGestureRecognizer:jumpTap];
     self.tableView.estimatedRowHeight = 56; // 估高更准 → 进会话滚到底更稳，减少自适应高度引起的偏移
     self.tableView.backgroundColor = UIColor.clearColor;
     self.tableView.backgroundView = [IMChatBackgroundView new]; // Telegram 绿主题壁纸
@@ -574,6 +590,39 @@
     self.typingLabel.text = @"对方正在输入…";
     self.typingLabel.clipsToBounds = YES;
     [self.view addSubview:self.typingLabel];
+
+    // 引用预览条（M4-2，默认高度 0；引用时展开：左竖条 + 预览文案 + 取消 ✕）。
+    self.replyBar = [UIView new];
+    self.replyBar.translatesAutoresizingMaskIntoConstraints = NO;
+    self.replyBar.backgroundColor = UIColor.secondarySystemBackgroundColor;
+    self.replyBar.clipsToBounds = YES;
+    [self.view addSubview:self.replyBar];
+    UIView *replyStripe = [UIView new];
+    replyStripe.translatesAutoresizingMaskIntoConstraints = NO;
+    replyStripe.backgroundColor = IMTheme.accent;
+    [self.replyBar addSubview:replyStripe];
+    self.replyLabel = [UILabel new];
+    self.replyLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    self.replyLabel.font = [UIFont systemFontOfSize:13];
+    self.replyLabel.textColor = UIColor.secondaryLabelColor;
+    [self.replyBar addSubview:self.replyLabel];
+    UIButton *replyCancel = [UIButton buttonWithType:UIButtonTypeSystem];
+    replyCancel.translatesAutoresizingMaskIntoConstraints = NO;
+    [replyCancel setImage:[UIImage systemImageNamed:@"xmark.circle.fill"] forState:UIControlStateNormal];
+    replyCancel.tintColor = UIColor.tertiaryLabelColor;
+    [replyCancel addTarget:self action:@selector(cancelReply) forControlEvents:UIControlEventTouchUpInside];
+    [self.replyBar addSubview:replyCancel];
+    [NSLayoutConstraint activateConstraints:@[
+        [replyStripe.leadingAnchor constraintEqualToAnchor:self.replyBar.leadingAnchor constant:12],
+        [replyStripe.widthAnchor constraintEqualToConstant:3],
+        [replyStripe.topAnchor constraintEqualToAnchor:self.replyBar.topAnchor constant:6],
+        [replyStripe.bottomAnchor constraintEqualToAnchor:self.replyBar.bottomAnchor constant:-6],
+        [self.replyLabel.leadingAnchor constraintEqualToAnchor:replyStripe.trailingAnchor constant:8],
+        [self.replyLabel.centerYAnchor constraintEqualToAnchor:self.replyBar.centerYAnchor],
+        [replyCancel.leadingAnchor constraintEqualToAnchor:self.replyLabel.trailingAnchor constant:8],
+        [replyCancel.trailingAnchor constraintEqualToAnchor:self.replyBar.trailingAnchor constant:-12],
+        [replyCancel.centerYAnchor constraintEqualToAnchor:self.replyBar.centerYAnchor],
+    ]];
 
     UIView *inputBar = [UIView new];
     self.inputBar = inputBar;
@@ -645,8 +694,14 @@
 
         [self.typingLabel.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:16],
         [self.typingLabel.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-16],
-        [self.typingLabel.bottomAnchor constraintEqualToAnchor:inputBar.topAnchor],
+        [self.typingLabel.bottomAnchor constraintEqualToAnchor:self.replyBar.topAnchor],
         self.typingHeight,
+
+        // 引用条：夹在 typing 与输入栏之间；默认高度 0（cancelReply/showReply 切换）。
+        [self.replyBar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [self.replyBar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [self.replyBar.bottomAnchor constraintEqualToAnchor:inputBar.topAnchor],
+        (self.replyBarHeight = [self.replyBar.heightAnchor constraintEqualToConstant:0]),
 
         [inputBar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [inputBar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
@@ -696,10 +751,11 @@
     IMSendCompletion completion = ^(BOOL success, NSError *error, int64_t convSeq) {
         [weakSelf handleSendResult:success convSeq:convSeq error:error forClientMsgID:clientMsgID];
     };
+    int64_t replySeq = self.replyingTo.convSeq; // 引用回复（M4-2）：0=普通发送
     // 群聊按 conv_id 路由（to 留空，服务端查成员写扩散）；单聊按对端 uid。
     clientMsgID = self.isGroupChat
-        ? [IMSocketManager.sharedManager sendText:text toConv:self.convID completion:completion]
-        : [IMSocketManager.sharedManager sendText:text toUser:self.peerID completion:completion];
+        ? [IMSocketManager.sharedManager sendText:text toConv:self.convID replyToConvSeq:replySeq completion:completion]
+        : [IMSocketManager.sharedManager sendText:text toUser:self.peerID replyToConvSeq:replySeq completion:completion];
 
     IMMessageModel *m = [IMMessageModel new];
     m.clientMsgID = clientMsgID;
@@ -710,10 +766,58 @@
     m.contentType = @"text";
     m.status = IMMessageStatusSending;
     m.timestamp = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000); // 本地时间，气泡尾巴即时显示时间（与 Web 一致）
+    if (replySeq > 0) { // 本端即时快照（服务端会给收件方冻结权威快照）
+        m.replyToConvSeq = replySeq;
+        NSString *src = self.replyingTo.content ?: @"";
+        m.replySnapshot = src.length > 60 ? [[src substringToIndex:60] stringByAppendingString:@"…"] : src;
+    }
     [IMDatabase.sharedDatabase saveMessage:m]; // 落库（sending）
     [self.messages addObject:m];
     self.inputField.text = @"";
+    [self cancelReply];
     [self appendReloadAndScroll];
+}
+
+#pragma mark - 引用回复（M4-2）
+
+/// 进入引用态：展开引用条显示预览，聚焦输入框。
+- (void)beginReplyTo:(IMMessageModel *)message {
+    self.replyingTo = message;
+    NSString *who = [message.from isEqualToString:self.userID] ? @"自己"
+        : (self.isGroupChat ? [self senderNameForMessage:message] : (self.peerID ?: @""));
+    NSString *snippet = message.content ?: @"";
+    if (snippet.length > 40) { snippet = [[snippet substringToIndex:40] stringByAppendingString:@"…"]; }
+    self.replyLabel.text = [NSString stringWithFormat:@"回复 %@：%@", who, snippet];
+    self.replyBarHeight.constant = 40;
+    [self.inputField becomeFirstResponder];
+}
+
+/// 退出引用态：收起引用条。
+- (void)cancelReply {
+    self.replyingTo = nil;
+    self.replyBarHeight.constant = 0;
+    self.replyLabel.text = nil;
+}
+
+/// 点击引用消息（有 replyToConvSeq）→ 跳到原消息；其余点击忽略。
+- (void)handleReplyJumpTap:(UITapGestureRecognizer *)gr {
+    CGPoint p = [gr locationInView:self.tableView];
+    NSIndexPath *ip = [self.tableView indexPathForRowAtPoint:p];
+    if (!ip || ip.row >= (NSInteger)self.messages.count) { return; }
+    IMMessageModel *m = self.messages[(NSUInteger)ip.row];
+    if (m.replyToConvSeq > 0) { [self jumpToConvSeq:m.replyToConvSeq]; }
+}
+
+/// 跳转到被引用的原消息：滚到该 conv_seq 行（不在已加载窗口则提示）。
+- (void)jumpToConvSeq:(int64_t)targetConvSeq {
+    for (NSUInteger i = 0; i < self.messages.count; i++) {
+        if (self.messages[i].convSeq == targetConvSeq) {
+            [self.tableView scrollToRowAtIndexPath:[NSIndexPath indexPathForRow:(NSInteger)i inSection:0]
+                                  atScrollPosition:UITableViewScrollPositionMiddle animated:YES];
+            return;
+        }
+    }
+    [self im_showToast:@"原消息不在当前视图"];
 }
 
 - (void)handleSendResult:(BOOL)success convSeq:(int64_t)convSeq error:(NSError *)error forClientMsgID:(NSString *)clientMsgID {
@@ -901,9 +1005,11 @@
     [actions addObject:[IMMenuAction actionWithId:@"copy" title:@"复制" image:@"doc.on.doc" handler:^{
         UIPasteboard.generalPasteboard.string = message.content ?: @"";
     }]];
-    [actions addObject:[IMMenuAction actionWithId:@"reply" title:@"引用" image:@"arrowshape.turn.up.left" handler:^{
-        [ws im_showComingSoon:@"引用"];
-    }]];
+    if (message.recalledAt == 0 && message.convSeq > 0) {
+        [actions addObject:[IMMenuAction actionWithId:@"reply" title:@"引用" image:@"arrowshape.turn.up.left" handler:^{
+            [ws beginReplyTo:message];
+        }]];
+    }
     [actions addObject:[IMMenuAction actionWithId:@"forward" title:@"转发" image:@"arrowshape.turn.up.right" handler:^{
         [ws im_showComingSoon:@"转发"];
     }]];
