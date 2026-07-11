@@ -15,7 +15,14 @@ NSString * const kIMTypeSyncReq  = @"sync_req";
 NSString * const kIMTypeSyncResp = @"sync_resp";
 NSString * const kIMTypeFriend   = @"friend";
 NSString * const kIMTypeGroup    = @"group";
+NSString * const kIMTypeMsgOp    = @"msg_op";
 NSString * const kIMTypeError    = @"error";
+
+NSString * const kIMMsgOpRecall  = @"recall";
+NSString * const kIMMsgOpEdit    = @"edit";
+NSString * const kIMMsgOpPin      = @"pin";
+
+const int64_t kIMRecallWindowMs = 2 * 60 * 1000;
 
 NSString * const kIMKeyType = @"type";
 NSString * const kIMKeySeq  = @"seq";

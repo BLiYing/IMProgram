@@ -49,6 +49,16 @@
         if (![self column:@"from_nickname" existsInTable:@"im_message_local" db:db]) {
             [db executeUpdate:@"ALTER TABLE im_message_local ADD COLUMN from_nickname TEXT"];
         }
+        // 老库迁移（非破坏）：补 M4 消息操作派生状态列（撤回/编辑/置顶），重进会话撤回态仍在。
+        NSDictionary<NSString *, NSString *> *opCols = @{
+            @"recalled_at": @"INTEGER", @"recalled_by": @"TEXT",
+            @"edited_at": @"INTEGER", @"pinned_at": @"INTEGER",
+        };
+        for (NSString *col in opCols) {
+            if (![self column:col existsInTable:@"im_message_local" db:db]) {
+                [db executeUpdate:[NSString stringWithFormat:@"ALTER TABLE im_message_local ADD COLUMN %@ %@", col, opCols[col]]];
+            }
+        }
     }];
 }
 
@@ -71,18 +81,20 @@
         NSNumber *rowID = [self existingRowIDFor:message in:db];
         if (rowID) {
             [db executeUpdate:
-                @"UPDATE im_message_local SET server_msg_id=?,sender=?,recipient=?,content_type=?,content=?,conv_seq=?,timestamp=?,status=?,note=?,from_nickname=? WHERE row_id=?",
+                @"UPDATE im_message_local SET server_msg_id=?,sender=?,recipient=?,content_type=?,content=?,conv_seq=?,timestamp=?,status=?,note=?,from_nickname=?,recalled_at=?,recalled_by=?,edited_at=?,pinned_at=? WHERE row_id=?",
                 message.serverMsgID ?: @"", message.from ?: @"", message.to ?: @"",
                 message.contentType ?: @"text", message.content ?: @"",
                 @(message.convSeq), @(message.timestamp), @(message.status), message.note ?: @"",
-                message.fromNickname ?: @"", rowID];
+                message.fromNickname ?: @"", @(message.recalledAt), message.recalledBy ?: @"",
+                @(message.editedAt), @(message.pinnedAt), rowID];
         } else {
             [db executeUpdate:
-                @"INSERT INTO im_message_local (client_msg_id,server_msg_id,conv_id,sender,recipient,content_type,content,conv_seq,timestamp,status,note,from_nickname) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                @"INSERT INTO im_message_local (client_msg_id,server_msg_id,conv_id,sender,recipient,content_type,content,conv_seq,timestamp,status,note,from_nickname,recalled_at,recalled_by,edited_at,pinned_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 message.clientMsgID ?: @"", message.serverMsgID ?: @"", message.convID,
                 message.from ?: @"", message.to ?: @"", message.contentType ?: @"text",
                 message.content ?: @"", @(message.convSeq), @(message.timestamp), @(message.status),
-                message.note ?: @"", message.fromNickname ?: @""];
+                message.note ?: @"", message.fromNickname ?: @"", @(message.recalledAt),
+                message.recalledBy ?: @"", @(message.editedAt), @(message.pinnedAt)];
         }
     }];
 }
@@ -123,6 +135,11 @@
             m.note        = note.length > 0 ? note : nil; // 空串视作无系统提示
             NSString *nick = [rs stringForColumn:@"from_nickname"];
             m.fromNickname = nick.length > 0 ? nick : nil; // 空串视作无昵称（回退 uid）
+            m.recalledAt  = [rs longLongIntForColumn:@"recalled_at"];
+            NSString *rby = [rs stringForColumn:@"recalled_by"];
+            m.recalledBy  = rby.length > 0 ? rby : nil;
+            m.editedAt    = [rs longLongIntForColumn:@"edited_at"];
+            m.pinnedAt    = [rs longLongIntForColumn:@"pinned_at"];
             [out addObject:m];
         }
         [rs close];
@@ -148,6 +165,31 @@
         [rs close];
     }];
     return maxSeq;
+}
+
+- (void)applyMsgOpForConv:(NSString *)convID
+            targetConvSeq:(int64_t)targetConvSeq
+               recalledAt:(int64_t)recalledAt
+               recalledBy:(nullable NSString *)recalledBy
+                 editedAt:(int64_t)editedAt
+                 pinnedAt:(int64_t)pinnedAt
+               newContent:(nullable NSString *)newContent {
+    if (convID.length == 0 || targetConvSeq <= 0) { return; }
+    [_queue inDatabase:^(FMDatabase *db) {
+        NSMutableArray *sets = [NSMutableArray array];
+        NSMutableArray *args = [NSMutableArray array];
+        if (recalledAt > 0) { [sets addObject:@"recalled_at=?"]; [args addObject:@(recalledAt)];
+                              [sets addObject:@"recalled_by=?"]; [args addObject:recalledBy ?: @""]; }
+        if (editedAt > 0)   { [sets addObject:@"edited_at=?"];   [args addObject:@(editedAt)]; }
+        if (pinnedAt > 0)   { [sets addObject:@"pinned_at=?"];   [args addObject:@(pinnedAt)]; }
+        if (newContent != nil) { [sets addObject:@"content=?"]; [args addObject:newContent]; }
+        if (sets.count == 0) { return; }
+        NSString *sql = [NSString stringWithFormat:@"UPDATE im_message_local SET %@ WHERE conv_id=? AND conv_seq=?",
+                         [sets componentsJoinedByString:@","]];
+        [args addObject:convID];
+        [args addObject:@(targetConvSeq)];
+        [db executeUpdate:sql withArgumentsInArray:args];
+    }];
 }
 
 @end

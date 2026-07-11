@@ -20,7 +20,17 @@ extern NSString * const kIMTypeSyncReq;
 extern NSString * const kIMTypeSyncResp;
 extern NSString * const kIMTypeFriend;
 extern NSString * const kIMTypeGroup;
+extern NSString * const kIMTypeMsgOp;
 extern NSString * const kIMTypeError;
+
+#pragma mark - 消息操作 op（msg_op，M4）
+
+extern NSString * const kIMMsgOpRecall; ///< 撤回
+extern NSString * const kIMMsgOpEdit;   ///< 编辑
+extern NSString * const kIMMsgOpPin;    ///< 聊天内置顶
+
+/// 撤回可见时间窗（毫秒，微信式 2min，与后端 Hub.recallWindow 对齐；服务端为准）。
+FOUNDATION_EXPORT const int64_t kIMRecallWindowMs;
 
 #pragma mark - 信封字段 Key
 

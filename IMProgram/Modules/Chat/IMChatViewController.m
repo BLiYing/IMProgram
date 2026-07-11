@@ -257,11 +257,15 @@
 
 @interface IMSystemCell : UITableViewCell
 - (void)configureWithText:(NSString *)text;
+/// 撤回留痕：胶囊文案 + 可选"重新编辑"（reeditHandler 非空时显示，点按回填输入框）。
+- (void)configureWithText:(NSString *)text reeditHandler:(nullable void (^)(void))reeditHandler;
 @end
 
 @implementation IMSystemCell {
     UIView  *_pill;
     UILabel *_label;
+    UIButton *_reeditButton;
+    void (^_reeditHandler)(void);
 }
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
     self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
@@ -292,11 +296,35 @@
             [_label.leadingAnchor constraintEqualToAnchor:_pill.leadingAnchor constant:10],
             [_label.trailingAnchor constraintEqualToAnchor:_pill.trailingAnchor constant:-10],
         ]];
+        _reeditButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        _reeditButton.translatesAutoresizingMaskIntoConstraints = NO;
+        _reeditButton.titleLabel.font = [UIFont systemFontOfSize:12];
+        [_reeditButton setTitle:@"重新编辑" forState:UIControlStateNormal];
+        [_reeditButton addTarget:self action:@selector(onReedit) forControlEvents:UIControlEventTouchUpInside];
+        _reeditButton.hidden = YES;
+        [self.contentView addSubview:_reeditButton];
+        [NSLayoutConstraint activateConstraints:@[
+            [_reeditButton.leadingAnchor constraintEqualToAnchor:_pill.trailingAnchor constant:6],
+            [_reeditButton.centerYAnchor constraintEqualToAnchor:_pill.centerYAnchor],
+        ]];
     }
     return self;
 }
 - (void)configureWithText:(NSString *)text {
+    [self configureWithText:text reeditHandler:nil];
+}
+- (void)configureWithText:(NSString *)text reeditHandler:(void (^)(void))reeditHandler {
     _label.text = text.length > 0 ? text : @"";
+    _reeditHandler = [reeditHandler copy];
+    _reeditButton.hidden = (reeditHandler == nil);
+}
+- (void)onReedit {
+    if (_reeditHandler) { _reeditHandler(); }
+}
+- (void)prepareForReuse {
+    [super prepareForReuse];
+    _reeditHandler = nil;
+    _reeditButton.hidden = YES;
 }
 @end
 
@@ -394,6 +422,35 @@
     }
     [self setupUI];
     [self observeKeyboard];
+    // 消息操作（撤回/编辑/置顶，M4）：应用到本会话某条 → 就地刷新；我方操作被拒（超窗）→ 吐司。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onMsgOpApplied:)
+                                               name:IMSocketDidApplyMsgOpNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onMsgOpRejected:)
+                                               name:IMSocketDidRejectMsgOpNotification object:nil];
+}
+
+/// 消息操作应用到某条消息：本会话则就地更新内存模型 + 刷新（撤回→墓碑，编辑→改文本）。
+- (void)onMsgOpApplied:(NSNotification *)note {
+    NSString *convID = note.userInfo[kIMConvIDKey];
+    if (![convID isEqualToString:self.convID]) { return; }
+    int64_t target = [note.userInfo[kIMMsgOpTargetSeqKey] longLongValue];
+    NSString *op = note.userInfo[kIMMsgOpKey];
+    NSString *newContent = note.userInfo[kIMMsgOpContentKey];
+    int64_t nowMs = (int64_t)([NSDate date].timeIntervalSince1970 * 1000);
+    for (IMMessageModel *m in self.messages) {
+        if (m.convSeq != target) { continue; }
+        if ([op isEqualToString:kIMMsgOpRecall]) { m.recalledAt = nowMs; }
+        else if ([op isEqualToString:kIMMsgOpEdit]) { m.editedAt = nowMs; if (newContent) { m.content = newContent; } }
+        else if ([op isEqualToString:kIMMsgOpPin]) { m.pinnedAt = nowMs; }
+        break;
+    }
+    [self.tableView reloadData];
+}
+
+/// 我方发起的操作被拒（如撤回超时）：吐司提示（不改消息）。
+- (void)onMsgOpRejected:(NSNotification *)note {
+    NSString *msg = note.userInfo[@"message"];
+    [self im_showToast:msg.length > 0 ? msg : @"操作失败"];
 }
 
 #pragma mark - 群聊（M3-5）
@@ -781,6 +838,21 @@
         [sys configureWithText:m.content];
         return sys;
     }
+    // 撤回消息（M4-1）：居中系统行"你/对方撤回了一条消息"，隐藏原气泡；本人文本可"重新编辑"回填输入框。
+    if (m.recalledAt > 0) {
+        BOOL mineR = [m.from isEqualToString:self.userID];
+        IMSystemCell *sys = [tableView dequeueReusableCellWithIdentifier:@"system" forIndexPath:indexPath];
+        NSString *who = mineR ? @"你" : (self.isGroupChat ? [self senderNameForMessage:m] : @"对方");
+        NSString *text = [NSString stringWithFormat:@"%@撤回了一条消息", who];
+        BOOL canReedit = mineR && [m.contentType isEqualToString:@"text"] && m.content.length > 0;
+        __weak typeof(self) ws = self;
+        NSString *original = m.content ?: @"";
+        [sys configureWithText:text reeditHandler:canReedit ? ^{
+            ws.inputField.text = original;
+            [ws.inputField becomeFirstResponder];
+        } : nil];
+        return sys;
+    }
     IMBubbleCell *cell = [tableView dequeueReusableCellWithIdentifier:@"bubble" forIndexPath:indexPath];
     BOOL mine = [m.from isEqualToString:self.userID];
     BOOL showsDivider = (indexPath.row == [self firstUnreadRow]);
@@ -810,6 +882,7 @@
     if (indexPath.row >= (NSInteger)self.messages.count) { return nil; }
     IMMessageModel *message = self.messages[indexPath.row];
     if ([message.contentType isEqualToString:@"system"]) { return nil; } // 系统消息无操作菜单
+    if (message.recalledAt > 0) { return nil; } // 撤回墓碑无操作菜单
     BOOL mine = [message.from isEqualToString:self.userID];
     NSArray<IMMenuAction *> *actions = [self messageActionsForMessage:message mine:mine];
     return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil
@@ -837,10 +910,11 @@
     [actions addObject:[IMMenuAction actionWithId:@"favorite" title:@"收藏" image:@"bookmark" handler:^{
         [ws im_showComingSoon:@"收藏"];
     }]];
-    // 撤回仅对自己且已拿到服务端 conv_seq 的消息可用（发送中/失败的无法撤回）。
-    if (mine && message.convSeq > 0) {
+    // 撤回（M4-1）：仅本人、已拿到 conv_seq、未撤回、2min 窗口内（服务端为准，此处仅避免必然失败的入口）。
+    int64_t nowMs = (int64_t)([NSDate date].timeIntervalSince1970 * 1000);
+    if (mine && message.convSeq > 0 && message.recalledAt == 0 && (nowMs - message.timestamp) <= kIMRecallWindowMs) {
         [actions addObject:[IMMenuAction actionWithId:@"recall" title:@"撤回" image:@"arrow.uturn.backward" handler:^{
-            [ws im_showComingSoon:@"撤回"];
+            [IMSocketManager.sharedManager recallMessageInConv:(message.convID ?: @"") targetConvSeq:message.convSeq];
         }]];
     }
     [actions addObject:[IMMenuAction actionWithId:@"multiSelect" title:@"多选" image:@"checkmark.circle" handler:^{

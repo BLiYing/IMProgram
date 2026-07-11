@@ -206,4 +206,60 @@
     [NSFileManager.defaultManager removeItemAtURL:tmp error:NULL];
 }
 
+#pragma mark - M4-1 消息操作（撤回/编辑）落库
+
+// applyMsgOp 撤回：目标消息置 recalled_at/recalled_by，重开新实例仍在（原文保留）。
+- (void)testDatabaseApplyRecall {
+    NSURL *tmp = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString]];
+    IMDatabase *db = [[IMDatabase alloc] initWithFileURL:tmp];
+
+    IMMessageModel *m = [IMMessageModel new];
+    m.clientMsgID = @"c1"; m.convID = @"u_1_u_2"; m.from = @"1"; m.content = @"secret";
+    m.contentType = @"text"; m.status = IMMessageStatusSent; m.convSeq = 5;
+    [db saveMessage:m];
+
+    [db applyMsgOpForConv:@"u_1_u_2" targetConvSeq:5 recalledAt:9999 recalledBy:@"1"
+                 editedAt:0 pinnedAt:0 newContent:nil];
+
+    IMDatabase *db2 = [[IMDatabase alloc] initWithFileURL:tmp];
+    IMMessageModel *loaded = [db2 messagesForConv:@"u_1_u_2"].firstObject;
+    XCTAssertEqual(loaded.recalledAt, 9999);
+    XCTAssertEqualObjects(loaded.recalledBy, @"1");
+    XCTAssertEqualObjects(loaded.content, @"secret"); // 原文保留（供"重新编辑"）
+
+    [NSFileManager.defaultManager removeItemAtURL:tmp error:NULL];
+}
+
+// applyMsgOp 编辑：改 content + edited_at。
+- (void)testDatabaseApplyEdit {
+    NSURL *tmp = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString]];
+    IMDatabase *db = [[IMDatabase alloc] initWithFileURL:tmp];
+
+    IMMessageModel *m = [IMMessageModel new];
+    m.clientMsgID = @"c1"; m.convID = @"u_1_u_2"; m.from = @"1"; m.content = @"old";
+    m.contentType = @"text"; m.status = IMMessageStatusSent; m.convSeq = 5;
+    [db saveMessage:m];
+
+    [db applyMsgOpForConv:@"u_1_u_2" targetConvSeq:5 recalledAt:0 recalledBy:nil
+                 editedAt:8888 pinnedAt:0 newContent:@"new"];
+
+    IMMessageModel *loaded = [db messagesForConv:@"u_1_u_2"].firstObject;
+    XCTAssertEqualObjects(loaded.content, @"new");
+    XCTAssertEqual(loaded.editedAt, 8888);
+
+    [NSFileManager.defaultManager removeItemAtURL:tmp error:NULL];
+}
+
+// 消息模型 op 状态字典往返（落库归档一致）。
+- (void)testMessageOpStateDictRoundTrip {
+    IMMessageModel *m = [IMMessageModel new];
+    m.convID = @"c"; m.content = @"x"; m.contentType = @"text"; m.convSeq = 1;
+    m.recalledAt = 123; m.recalledBy = @"9"; m.editedAt = 456; m.pinnedAt = 789;
+    IMMessageModel *back = [IMMessageModel messageFromDictionary:[m dictionaryRepresentation]];
+    XCTAssertEqual(back.recalledAt, 123);
+    XCTAssertEqualObjects(back.recalledBy, @"9");
+    XCTAssertEqual(back.editedAt, 456);
+    XCTAssertEqual(back.pinnedAt, 789);
+}
+
 @end

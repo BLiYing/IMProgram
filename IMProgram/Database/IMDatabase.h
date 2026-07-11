@@ -29,6 +29,16 @@ NS_ASSUME_NONNULL_BEGIN
 /// 该会话已存消息的最大 conv_seq（派生的同步位点，0 表示无）。
 - (int64_t)maxConvSeqForConv:(NSString *)convID;
 
+/// 把一次消息操作（撤回/编辑/置顶，M4）就地应用到已落库消息（按 conv_seq 定位）。目标不存在则忽略。
+/// recalledAt/editedAt/pinnedAt 传 0 表示不改该项；newContent 非 nil 时改 content（编辑）。
+- (void)applyMsgOpForConv:(NSString *)convID
+            targetConvSeq:(int64_t)targetConvSeq
+               recalledAt:(int64_t)recalledAt
+               recalledBy:(nullable NSString *)recalledBy
+                 editedAt:(int64_t)editedAt
+                 pinnedAt:(int64_t)pinnedAt
+               newContent:(nullable NSString *)newContent;
+
 @end
 
 NS_ASSUME_NONNULL_END

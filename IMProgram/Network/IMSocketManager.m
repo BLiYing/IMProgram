@@ -25,6 +25,11 @@ NSString * const kIMGroupTargetKey = @"groupTarget";
 NSString * const IMSocketDidReceiveReadNotification = @"IMSocketDidReceiveReadNotification";
 NSString * const IMSocketDidChangeStateNotification = @"IMSocketDidChangeStateNotification";
 NSString * const kIMConvIDKey = @"convID";
+NSString * const IMSocketDidApplyMsgOpNotification = @"IMSocketDidApplyMsgOpNotification";
+NSString * const kIMMsgOpTargetSeqKey = @"msgOpTargetSeq";
+NSString * const kIMMsgOpKey = @"msgOp";
+NSString * const kIMMsgOpContentKey = @"msgOpContent";
+NSString * const IMSocketDidRejectMsgOpNotification = @"IMSocketDidRejectMsgOpNotification";
 
 #pragma mark - 待确认发送项
 
@@ -59,6 +64,7 @@ NSString * const kIMConvIDKey = @"convID";
     NSMutableDictionary<NSString *, IMPendingSend *> *_pending;
     NSMutableDictionary<NSString *, NSNumber *> *_syncedSeq; // conv_id -> 已同步到的最大 conv_seq
     NSMutableSet<NSString *> *_trackedConvs;                 // 需在重连后增量同步的会话
+    NSMutableSet<NSString *> *_pendingOps;                   // 已发出、待确认的消息操作 client_msg_id（撤回/编辑/置顶），供失败回滚
 }
 
 + (instancetype)sharedManager {
@@ -75,6 +81,7 @@ NSString * const kIMConvIDKey = @"convID";
         _pending = [NSMutableDictionary dictionary];
         _syncedSeq = [NSMutableDictionary dictionary];
         _trackedConvs = [NSMutableSet set];
+        _pendingOps = [NSMutableSet set];
         _state = IMSocketStateDisconnected;
     }
     return self;
@@ -275,12 +282,22 @@ NSString * const kIMConvIDKey = @"convID";
         [self handleFriendEvent];
     } else if ([type isEqualToString:kIMTypeGroup]) {
         [self handleGroupEvent:payload];
+    } else if ([type isEqualToString:kIMTypeMsgOp]) {
+        [self applyMsgOpPayload:payload];
     } else if ([type isEqualToString:kIMTypePong]) {
         // 心跳回应，无需处理
     } else if ([type isEqualToString:kIMTypeError]) {
-        // 带 client_msg_id 的 error = 对某条 send_msg 的拒绝（如被拉黑）→ 立刻判该条发送失败。
         NSString *cmid = [payload[@"client_msg_id"] isKindOfClass:[NSString class]] ? payload[@"client_msg_id"] : nil;
-        if (cmid.length > 0) {
+        // 消息操作被拒（如撤回超时 300008）：不动消息，主线程广播回滚提示。
+        if (cmid.length > 0 && [_pendingOps containsObject:cmid]) {
+            [_pendingOps removeObject:cmid];
+            NSString *msg = [payload[@"message"] isKindOfClass:[NSString class]] ? payload[@"message"] : @"操作失败";
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidRejectMsgOpNotification
+                                                                  object:self userInfo:@{ @"message": msg }];
+            });
+        } else if (cmid.length > 0) {
+            // 带 client_msg_id 的 error = 对某条 send_msg 的拒绝（如被拉黑）→ 立刻判该条发送失败。
             [self handleSendRejected:cmid code:[payload[@"code"] integerValue] message:payload[@"message"]];
         } else {
             IMLog(@"服务端 error: %@", payload);
@@ -445,6 +462,13 @@ NSString * const kIMConvIDKey = @"convID";
 
 /// 统一处理收到的一条消息：推进同步位点、回执、投递 delegate（仅在 _queue 调用）。
 - (void)processIncomingMessage:(IMMessageModel *)msg {
+    // msg_op 事件行（撤回/编辑/置顶，来自 sync 补拉）：应用其效果、不作气泡渲染、不入库为消息。
+    if ([msg.contentType isEqualToString:kIMTypeMsgOp]) {
+        [self updateSyncedSeqForConv:msg.convID seq:msg.convSeq];
+        NSDictionary *op = [self jsonObjectFromString:msg.content];
+        if (op) { [self applyMsgOpPayload:op]; }
+        return;
+    }
     // 空洞自愈：conv_seq 由服务端连续分配，若收到的序号跳过了已同步位点之后的中间段，
     // 说明中间有未拉取（离线）消息 → 先从已同步位点补拉，避免实时消息把 synced 推过空洞造成漏消息。
     int64_t prevSynced = [self syncedSeqForConv:msg.convID];
@@ -490,6 +514,63 @@ NSString * const kIMConvIDKey = @"convID";
                                                                     kIMGroupEventKey: event,
                                                                     kIMGroupTargetKey: target }];
     });
+}
+
+#pragma mark - 消息操作（msg_op，M4）
+
+- (void)recallMessageInConv:(NSString *)convID targetConvSeq:(int64_t)targetConvSeq {
+    if (convID.length == 0 || targetConvSeq <= 0) { return; }
+    NSString *clientMsgID = [NSUUID UUID].UUIDString;
+    NSDictionary *payload = @{
+        @"op": kIMMsgOpRecall, @"conv_id": convID,
+        @"target_conv_seq": @(targetConvSeq), @"client_msg_id": clientMsgID,
+    };
+    dispatch_async(_queue, ^{
+        [self->_pendingOps addObject:clientMsgID];
+        [self sendEnvelopeType:kIMTypeMsgOp data:payload completion:nil];
+    });
+}
+
+/// 应用一条消息操作到本地（DB 落库 + 主线程广播）。payload 来自实时 msg_op 帧或 sync 的 msg_op 事件行负载。
+/// 仅在 _queue 调用。
+- (void)applyMsgOpPayload:(NSDictionary *)payload {
+    NSString *op = [payload[@"op"] isKindOfClass:[NSString class]] ? payload[@"op"] : @"";
+    NSString *convID = [payload[@"conv_id"] isKindOfClass:[NSString class]] ? payload[@"conv_id"] : @"";
+    int64_t target = [payload[@"target_conv_seq"] longLongValue];
+    if (convID.length == 0 || target <= 0) { return; }
+
+    NSString *cmid = [payload[@"client_msg_id"] isKindOfClass:[NSString class]] ? payload[@"client_msg_id"] : nil;
+    if (cmid.length > 0) { [_pendingOps removeObject:cmid]; } // 我方操作成功回执
+
+    int64_t now = (int64_t)([NSDate date].timeIntervalSince1970 * 1000);
+    NSString *newContent = nil;
+    int64_t recalledAt = 0, editedAt = 0, pinnedAt = 0;
+    if ([op isEqualToString:kIMMsgOpRecall]) {
+        recalledAt = now;
+    } else if ([op isEqualToString:kIMMsgOpEdit]) {
+        editedAt = now;
+        newContent = [payload[@"content"] isKindOfClass:[NSString class]] ? payload[@"content"] : @"";
+    } else if ([op isEqualToString:kIMMsgOpPin]) {
+        pinnedAt = now;
+    } else {
+        return; // 未知 op：忽略不崩
+    }
+    NSString *by = [payload[@"by"] isKindOfClass:[NSString class]] ? payload[@"by"] : nil;
+    [IMDatabase.sharedDatabase applyMsgOpForConv:convID targetConvSeq:target
+                                      recalledAt:recalledAt recalledBy:by
+                                        editedAt:editedAt pinnedAt:pinnedAt newContent:newContent];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSMutableDictionary *info = [@{ kIMConvIDKey: convID, kIMMsgOpTargetSeqKey: @(target), kIMMsgOpKey: op } mutableCopy];
+        if (newContent) { info[kIMMsgOpContentKey] = newContent; }
+        [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidApplyMsgOpNotification object:self userInfo:info];
+    });
+}
+
+/// 从 JSON 字符串解析字典（op 事件行 content 自描述负载）；非法返回 nil。
+- (nullable NSDictionary *)jsonObjectFromString:(NSString *)s {
+    NSData *d = [s isKindOfClass:[NSString class]] ? [s dataUsingEncoding:NSUTF8StringEncoding] : nil;
+    id obj = d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:NULL] : nil;
+    return [obj isKindOfClass:[NSDictionary class]] ? obj : nil;
 }
 
 /// 回送送达回执（仅在 _queue 调用）。

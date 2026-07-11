@@ -23,6 +23,14 @@ extern NSString * const kIMGroupEventKey;
 extern NSString * const kIMGroupTargetKey;
 /// 收到已读回执（read）时广播（主线程）：会话列表据此刷新——对端已读→我发的变✓✓；本人多端已读→未读清零。
 extern NSString * const IMSocketDidReceiveReadNotification;
+/// 消息操作（撤回/编辑/置顶，M4）应用到某条消息时广播（主线程）：聊天页/会话列表据此就地刷新。
+/// userInfo：kIMConvIDKey=会话、kIMMsgOpTargetSeqKey=目标 conv_seq(NSNumber)、kIMMsgOpKey=op、kIMMsgOpContentKey=编辑新文本(可空)。
+extern NSString * const IMSocketDidApplyMsgOpNotification;
+extern NSString * const kIMMsgOpTargetSeqKey;
+extern NSString * const kIMMsgOpKey;
+extern NSString * const kIMMsgOpContentKey;
+/// 我发起的消息操作被拒（如撤回超时）时广播（主线程）：userInfo[@"message"]=服务端文案。
+extern NSString * const IMSocketDidRejectMsgOpNotification;
 /// 连接状态变化时广播（主线程）：非 delegate 页（如会话列表）据此显示 连接中/未连接。userInfo[@"state"]=IMSocketState。
 extern NSString * const IMSocketDidChangeStateNotification;
 extern NSString * const kIMConvIDKey;
@@ -83,6 +91,10 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
 
 /// 发送「正在输入」给会话对端（临时态，对端短暂显示后自动消失）。
 - (void)sendTypingForConv:(NSString *)convID;
+
+/// 撤回自己在 convID 会话里 conv_seq=targetConvSeq 的消息（M4-1）。发出 msg_op；
+/// 成功由服务端广播回 msg_op 帧应用（IMSocketDidApplyMsgOp 通知），失败（超窗等）发 IMSocketDidRejectMsgOp。
+- (void)recallMessageInConv:(NSString *)convID targetConvSeq:(int64_t)targetConvSeq;
 
 /// 登记一个会话用于增量同步：每次（重）连成功后，自动从该会话已同步位点发 sync_req
 /// 拉取离线/缺失的消息。

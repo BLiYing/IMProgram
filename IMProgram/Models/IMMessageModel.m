@@ -15,6 +15,10 @@
     m.convSeq     = [data[@"conv_seq"] longLongValue];
     m.timestamp   = [data[@"timestamp"] longLongValue];
     m.status      = IMMessageStatusReceived;
+    m.recalledAt  = [data[@"recalled_at"] longLongValue];
+    m.recalledBy  = [self stringForKey:@"recalled_by" in:data];
+    m.editedAt    = [data[@"edited_at"] longLongValue];
+    m.pinnedAt    = [data[@"pinned_at"] longLongValue];
     return m;
 }
 
@@ -31,6 +35,10 @@
     d[@"conv_seq"] = @(self.convSeq);
     d[@"timestamp"] = @(self.timestamp);
     d[@"status"] = @(self.status);
+    if (self.recalledAt > 0) { d[@"recalled_at"] = @(self.recalledAt); }
+    if (self.recalledBy) { d[@"recalled_by"] = self.recalledBy; }
+    if (self.editedAt > 0) { d[@"edited_at"] = @(self.editedAt); }
+    if (self.pinnedAt > 0) { d[@"pinned_at"] = @(self.pinnedAt); }
     return d;
 }
 
@@ -47,6 +55,10 @@
     m.convSeq     = [dict[@"conv_seq"] longLongValue];
     m.timestamp   = [dict[@"timestamp"] longLongValue];
     m.status      = (IMMessageStatus)[dict[@"status"] integerValue];
+    m.recalledAt  = [dict[@"recalled_at"] longLongValue];
+    m.recalledBy  = [self stringForKey:@"recalled_by" in:dict];
+    m.editedAt    = [dict[@"edited_at"] longLongValue];
+    m.pinnedAt    = [dict[@"pinned_at"] longLongValue];
     return m;
 }
 

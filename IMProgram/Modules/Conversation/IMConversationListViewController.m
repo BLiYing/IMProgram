@@ -119,12 +119,20 @@ static CGFloat const kIMRowLeading = 16;
 }
 
 - (void)configureWithConversation:(IMConversation *)c mine:(BOOL)mine {
+    // 撤回预览（M4-1，后端已脱敏 content）：优先显示"撤回了一条消息"，不加"昵称:"前缀（微信式）。
+    NSString *recalledPreview = nil;
+    if (c.lastRecalled) {
+        NSString *who = mine ? @"你" : (c.isGroup ? (c.lastFromNickname.length > 0 ? c.lastFromNickname : (c.lastFrom ?: @"")) : @"对方");
+        recalledPreview = [NSString stringWithFormat:@"%@撤回了一条消息", who];
+    }
     if (c.isGroup) {
         // 群项：群名/群头像；预览"昵称: 内容"；不显示 presence/✓✓（群无对端已读位点）。
         NSString *display = c.name.length > 0 ? c.name : @"群聊";
         [_avatar im_setAvatarURL:c.avatarURL seed:c.convID displayName:display];
         _name.text = display;
-        if (c.lastContent.length > 0) {
+        if (recalledPreview) {
+            _last.text = recalledPreview;
+        } else if (c.lastContent.length > 0) {
             NSString *who = mine ? @"我" : (c.lastFromNickname.length > 0 ? c.lastFromNickname : (c.lastFrom ?: @""));
             _last.text = who.length > 0 ? [NSString stringWithFormat:@"%@: %@", who, c.lastContent] : c.lastContent;
         } else {
@@ -134,7 +142,7 @@ static CGFloat const kIMRowLeading = 16;
         NSString *display = c.peerNickname.length ? c.peerNickname : c.peer; // 显示名/首字母与通讯录一致
         [_avatar im_setAvatarURL:c.peerAvatarURL seed:c.peer displayName:display]; // 有头像渲图，否则首字母圈
         _name.text = display;
-        _last.text = c.lastContent.length > 0 ? c.lastContent : @"（无消息）";
+        _last.text = recalledPreview ?: (c.lastContent.length > 0 ? c.lastContent : @"（无消息）");
     }
     _time.text = [IMTheme timeStringFromMillis:c.timestamp];
     // 最后一条是我发的才显示勾：对端已读到该条 → 绿 ✓✓；否则 → 灰单勾 ✓（已送达/未读）。

@@ -34,6 +34,7 @@
         c.lastContent = [self stringForKey:@"content" in:last];
         c.lastFrom = [self stringForKey:@"from" in:last];
         c.lastFromNickname = [self stringForKey:@"from_nickname" in:last];
+        c.lastRecalled = [last[@"recalled_at"] respondsToSelector:@selector(longLongValue)] && [last[@"recalled_at"] longLongValue] > 0;
         c.timestamp = [last[@"timestamp"] respondsToSelector:@selector(longLongValue)] ? [last[@"timestamp"] longLongValue] : 0;
     }
     return c;

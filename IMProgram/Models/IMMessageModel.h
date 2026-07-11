@@ -31,6 +31,12 @@ typedef NS_ENUM(NSInteger, IMMessageStatus) {
 /// 重进会话仍在；在该条气泡下方居中显示（微信式），不弹窗。
 @property (nonatomic, copy, nullable) NSString *note;
 
+/// M4 消息操作派生状态（撤回/编辑/置顶），随消息落库、随 new_msg/sync 冗余下发。
+@property (nonatomic, assign) int64_t recalledAt;  ///< >0=已撤回（渲染居中系统行，隐藏原气泡）
+@property (nonatomic, copy, nullable) NSString *recalledBy; ///< 撤回操作者 uid
+@property (nonatomic, assign) int64_t editedAt;    ///< >0=已编辑（标"已编辑"，M4-5）
+@property (nonatomic, assign) int64_t pinnedAt;    ///< >0=聊天内置顶（M4）
+
 /// 由 new_msg 的 data 字典构造一条「收到」的消息。
 + (instancetype)receivedMessageWithNewMsgData:(NSDictionary *)data;
 
