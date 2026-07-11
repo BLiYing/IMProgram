@@ -253,6 +253,53 @@
 
 @end
 
+#pragma mark - 系统消息 cell（content_type=system：群邀请/移除/转让/禁言等留痕，居中灰字胶囊）
+
+@interface IMSystemCell : UITableViewCell
+- (void)configureWithText:(NSString *)text;
+@end
+
+@implementation IMSystemCell {
+    UIView  *_pill;
+    UILabel *_label;
+}
+- (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
+    self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
+    if (self) {
+        self.backgroundColor = UIColor.clearColor;
+        self.selectionStyle = UITableViewCellSelectionStyleNone;
+        _pill = [UIView new];
+        _pill.translatesAutoresizingMaskIntoConstraints = NO;
+        _pill.backgroundColor = IMTheme.datePillBg;
+        _pill.layer.cornerRadius = 11;
+        _pill.layer.masksToBounds = YES;
+        [self.contentView addSubview:_pill];
+        _label = [UILabel new];
+        _label.translatesAutoresizingMaskIntoConstraints = NO;
+        _label.font = [UIFont systemFontOfSize:12];
+        _label.textColor = IMTheme.datePillText;
+        _label.textAlignment = NSTextAlignmentCenter;
+        _label.numberOfLines = 0;
+        [_pill addSubview:_label];
+        [NSLayoutConstraint activateConstraints:@[
+            [_pill.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:6],
+            [_pill.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-6],
+            [_pill.centerXAnchor constraintEqualToAnchor:self.contentView.centerXAnchor],
+            [_pill.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.contentView.leadingAnchor constant:40],
+            [_pill.trailingAnchor constraintLessThanOrEqualToAnchor:self.contentView.trailingAnchor constant:-40],
+            [_label.topAnchor constraintEqualToAnchor:_pill.topAnchor constant:4],
+            [_label.bottomAnchor constraintEqualToAnchor:_pill.bottomAnchor constant:-4],
+            [_label.leadingAnchor constraintEqualToAnchor:_pill.leadingAnchor constant:10],
+            [_label.trailingAnchor constraintEqualToAnchor:_pill.trailingAnchor constant:-10],
+        ]];
+    }
+    return self;
+}
+- (void)configureWithText:(NSString *)text {
+    _label.text = text.length > 0 ? text : @"";
+}
+@end
+
 #pragma mark - 聊天页
 
 @interface IMChatViewController () <IMSocketManagerDelegate, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate>
@@ -404,6 +451,10 @@
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     IMSocketManager.sharedManager.delegate = self;
+    // 同步当前真实连接态：socket 通常在会话列表页就已连上，进本页不会再触发 didChangeState，
+    // 若不主动拉一次，connState 会停在默认值 → 标题误显「未连接」。
+    self.connState = IMSocketManager.sharedManager.state;
+    [self updateTitle];
     [IMSocketManager.sharedManager connectToHost:self.host userID:self.userID];
     // 登记本会话：以本地已存最大 conv_seq 为同步起点（断点续传），自动增量拉回缺失消息。
     int64_t synced = [IMDatabase.sharedDatabase maxConvSeqForConv:self.convID];
@@ -455,6 +506,7 @@
     self.tableView.backgroundView = [IMChatBackgroundView new]; // Telegram 绿主题壁纸
     self.tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
     [self.tableView registerClass:IMBubbleCell.class forCellReuseIdentifier:@"bubble"];
+    [self.tableView registerClass:IMSystemCell.class forCellReuseIdentifier:@"system"];
     [self.view addSubview:self.tableView];
 
     // 「对方正在输入」提示条（默认高度 0，typing 时展开）。
@@ -614,10 +666,10 @@
     for (IMMessageModel *m in self.messages) {
         if ([m.clientMsgID isEqualToString:clientMsgID]) {
             m.status = success ? IMMessageStatusSent : IMMessageStatusFailed;
-            // 被拒收（被拉黑 200102 / 被禁言 300004）→ 把服务端友好文案挂到 note，气泡下方居中显示（微信式）；
-            // 其余失败（如 ack 超时）不挂 note，仍显"未发送 ✗"。
-            // 被拒收（被拉黑 200102 / 被禁言 300004 / 非群成员 300203）→ 服务端友好文案挂 note（微信式系统行）。
-            m.note = (!success && (error.code == 200102 || error.code == 300004 || error.code == 300203)) ? error.localizedDescription : nil;
+            // 被拒收 → 把服务端友好文案挂到 note，气泡下方居中显示（微信式系统行）；其余失败（如 ack 超时）不挂 note，仍显"未发送 ✗"。
+            // 覆盖：被拉黑 200102 / 被禁言 300004 / 非群成员 300203 / 群全员禁言 300206（后端回「本群已开启全员禁言」）。
+            m.note = (!success && (error.code == 200102 || error.code == 300004 ||
+                                   error.code == 300203 || error.code == 300206)) ? error.localizedDescription : nil;
             m.convSeq = convSeq;
             [IMDatabase.sharedDatabase saveMessage:m]; // upsert：更新状态/conv_seq/note（含被拒文案，重进会话不丢）
             if (convSeq > 0) { [self.seenConvSeqs addObject:@(convSeq)]; } // 防 sync 重复回显自己发的
@@ -722,8 +774,14 @@
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    IMBubbleCell *cell = [tableView dequeueReusableCellWithIdentifier:@"bubble" forIndexPath:indexPath];
     IMMessageModel *m = self.messages[indexPath.row];
+    // 系统消息（群邀请/移除/转让/禁言等留痕）：独立居中灰字行，无气泡/头像/时间勾。
+    if ([m.contentType isEqualToString:@"system"]) {
+        IMSystemCell *sys = [tableView dequeueReusableCellWithIdentifier:@"system" forIndexPath:indexPath];
+        [sys configureWithText:m.content];
+        return sys;
+    }
+    IMBubbleCell *cell = [tableView dequeueReusableCellWithIdentifier:@"bubble" forIndexPath:indexPath];
     BOOL mine = [m.from isEqualToString:self.userID];
     BOOL showsDivider = (indexPath.row == [self firstUnreadRow]);
     // 群聊：对方气泡带发送者昵称（自己/单聊不带）。
@@ -751,6 +809,7 @@
     contextMenuConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath point:(CGPoint)point {
     if (indexPath.row >= (NSInteger)self.messages.count) { return nil; }
     IMMessageModel *message = self.messages[indexPath.row];
+    if ([message.contentType isEqualToString:@"system"]) { return nil; } // 系统消息无操作菜单
     BOOL mine = [message.from isEqualToString:self.userID];
     NSArray<IMMenuAction *> *actions = [self messageActionsForMessage:message mine:mine];
     return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil

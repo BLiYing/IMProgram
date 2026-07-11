@@ -13,6 +13,9 @@
 #import "IMTheme.h"
 #import "UILabel+IMAvatar.h"
 #import "IMLog.h"
+#import "IMUserSearchViewController.h"
+#import "IMGroupMemberPickerViewController.h"
+#import "IMGroupInfo.h"
 
 #pragma mark - 会话 Cell（Telegram 风格：圆形头像 + 名称/最后一条 + 时间 + 未读蓝胶囊）
 
@@ -185,9 +188,9 @@ static CGFloat const kIMRowLeading = 16;
     [super viewDidLoad];
     self.title = @"会话";
     self.view.backgroundColor = UIColor.systemBackgroundColor;
+    // 右上角 ＋：点击在按钮正下方弹出菜单（UIMenu，系统锚定+箭头），三项——新建群聊 / 添加好友 / 扫一扫。
     self.navigationItem.rightBarButtonItem =
-        [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemCompose
-                                                      target:self action:@selector(newChatTapped)];
+        [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"plus"] menu:[self composeMenu]];
 
     self.tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStylePlain];
     self.tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -201,7 +204,7 @@ static CGFloat const kIMRowLeading = 16;
 
     self.emptyLabel = [UILabel new];
     self.emptyLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.emptyLabel.text = @"还没有会话，点右上角 ✎ 输入对方 uid 发起";
+    self.emptyLabel.text = @"还没有会话，点右上角 ＋ 新建群聊或添加好友";
     self.emptyLabel.textColor = IMTheme.textSecondary;
     self.emptyLabel.textAlignment = NSTextAlignmentCenter;
     self.emptyLabel.numberOfLines = 0;
@@ -354,21 +357,75 @@ static CGFloat const kIMRowLeading = 16;
 
 #pragma mark - 交互
 
-- (void)newChatTapped {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"发起会话" message:@"输入对方 uid"
+/// 右上角 ＋ 的下拉菜单：新建群聊 / 添加好友 / 扫一扫（扫一扫待开发，先占位提示）。
+- (UIMenu *)composeMenu {
+    __weak typeof(self) weakSelf = self;
+    UIAction *newGroup = [UIAction actionWithTitle:@"新建群聊"
+        image:[UIImage systemImageNamed:@"person.3"] identifier:nil
+        handler:^(__kindof UIAction *a) { [weakSelf startNewGroup]; }];
+    UIAction *addFriend = [UIAction actionWithTitle:@"添加好友"
+        image:[UIImage systemImageNamed:@"person.badge.plus"] identifier:nil
+        handler:^(__kindof UIAction *a) { [weakSelf openAddFriend]; }];
+    UIAction *scan = [UIAction actionWithTitle:@"扫一扫"
+        image:[UIImage systemImageNamed:@"qrcode.viewfinder"] identifier:nil
+        handler:^(__kindof UIAction *a) { [weakSelf im_showToast:@"扫一扫功能开发中"]; }];
+    return [UIMenu menuWithTitle:@"" children:@[newGroup, addFriend, scan]];
+}
+
+/// 新建群聊：选好友 → 起群名 → 建群 → 直接进入新群会话（复用通讯录群聊页同一流程）。
+- (void)startNewGroup {
+    __weak typeof(self) weakSelf = self;
+    IMGroupMemberPickerViewController *picker =
+        [[IMGroupMemberPickerViewController alloc] initWithHost:self.host userID:self.userID
+                                                    excludedIDs:nil confirmTitle:@"创建"
+                                                         onDone:^(NSArray<NSString *> *selectedIDs) {
+            [weakSelf promptGroupNameForMembers:selectedIDs];
+        }];
+    [self.navigationController pushViewController:picker animated:YES];
+}
+
+- (void)promptGroupNameForMembers:(NSArray<NSString *> *)memberIDs {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"群名" message:@"1~30 字"
                                                            preferredStyle:UIAlertControllerStyleAlert];
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
-        tf.placeholder = @"对方 uid";
-        tf.keyboardType = UIKeyboardTypeNumberPad;
-    }];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) { tf.placeholder = @"给群起个名字"; }];
     __weak typeof(self) weakSelf = self;
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"发起" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-        NSString *peer = [alert.textFields.firstObject.text
+    [alert addAction:[UIAlertAction actionWithTitle:@"创建" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        NSString *name = [alert.textFields.firstObject.text
                           stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-        [weakSelf openChatWithPeer:peer];
+        [weakSelf createGroupNamed:name members:memberIDs];
     }]];
-    [self presentViewController:alert animated:YES completion:nil];
+    [self.navigationController.topViewController presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)createGroupNamed:(NSString *)name members:(NSArray<NSString *> *)memberIDs {
+    UIViewController *top = self.navigationController.topViewController;
+    if (name.length == 0) { [top im_showToast:@"请输入群名"]; return; }
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0) { [top im_showToast:@"未登录"]; return; }
+    __weak typeof(self) weakSelf = self;
+    [IMHTTPService.sharedService createGroupWithToken:token name:name memberIDs:memberIDs
+                                           completion:^(IMGroupInfo *group, NSError *error) {
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self) { return; }
+        if (error || !group) {
+            [self.navigationController.topViewController im_showToast:
+                [NSString stringWithFormat:@"建群失败：%@", error.localizedDescription ?: @"未知错误"]];
+            return;
+        }
+        // 回到会话列表，再直接进入新群会话。
+        [self.navigationController popToViewController:self animated:NO];
+        IMChatViewController *chat = [[IMChatViewController alloc] initWithHost:self.host userID:self.userID
+                                                                    groupConvID:group.convID groupName:group.name
+                                                                        readSeq:0 unread:0];
+        [self.navigationController pushViewController:chat animated:YES];
+    }];
+}
+
+/// 添加好友：进找人页（搜索 uid/手机号 → 申请）。
+- (void)openAddFriend {
+    IMUserSearchViewController *search = [[IMUserSearchViewController alloc] initWithHost:self.host userID:self.userID];
+    [self.navigationController pushViewController:search animated:YES];
 }
 
 - (void)openChatWithPeer:(NSString *)peer {
