@@ -379,8 +379,11 @@
     if (![convID isEqualToString:self.convID]) { return; }
     NSString *event = note.userInfo[kIMGroupEventKey];
     NSString *target = note.userInfo[kIMGroupTargetKey];
-    if ([event isEqualToString:@"remove"] && [target isEqualToString:self.userID]) {
-        [self im_showToast:@"你已被移出群聊"];
+    // 被移出（remove 且 target=自己）或群被解散（dissolve，管理端处置，对全体生效）→ 提示并退出本页。
+    BOOL removedMe = [event isEqualToString:@"remove"] && [target isEqualToString:self.userID];
+    BOOL dissolved = [event isEqualToString:@"dissolve"];
+    if (removedMe || dissolved) {
+        [self im_showToast:dissolved ? @"该群已被解散" : @"你已被移出群聊"];
         // 先让吐司可见，再退出本页（随页面销毁，故略作停留）。
         __weak typeof(self) weakSelf = self;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.9 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{

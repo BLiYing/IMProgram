@@ -165,7 +165,9 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
     if (![note.userInfo[kIMConvIDKey] isEqualToString:self.convID]) { return; }
     NSString *event = note.userInfo[kIMGroupEventKey];
     NSString *target = note.userInfo[kIMGroupTargetKey];
-    if ([event isEqualToString:@"remove"] && [target isEqualToString:self.userID]) {
+    // 被移出或群被解散（dissolve 对全体生效）→ 群资料页失效，直接退出。
+    if (([event isEqualToString:@"remove"] && [target isEqualToString:self.userID]) ||
+        [event isEqualToString:@"dissolve"]) {
         [self.navigationController popViewControllerAnimated:YES];
         return;
     }
