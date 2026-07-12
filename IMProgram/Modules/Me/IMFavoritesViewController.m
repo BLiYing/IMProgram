@@ -65,7 +65,17 @@
     _playBadge.hidden = !isVideo;
     _thumb.image = nil;
     if ([ct isEqualToString:@"file"]) {
-        _text.text = [NSString stringWithFormat:@"📎 %@", IMMediaFileName(text)];
+        // 文件：SF Symbol 文档图标 + 文件名（emoji 在 label 里可能渲染成 "?" tofu，故用符号内嵌，与聊天气泡一致）。
+        NSString *fname = IMMediaFileName(text);
+        UIImage *icon = [UIImage systemImageNamed:IMFileGlyphForName(fname)] ?: [UIImage systemImageNamed:@"doc.fill"];
+        NSTextAttachment *att = [NSTextAttachment new];
+        att.image = [icon imageWithTintColor:UIColor.systemBlueColor renderingMode:UIImageRenderingModeAlwaysOriginal];
+        att.bounds = CGRectMake(0, -2, 16, 16);
+        NSMutableAttributedString *s = [[NSMutableAttributedString alloc] initWithAttributedString:
+            [NSAttributedString attributedStringWithAttachment:att]];
+        [s appendAttributedString:[[NSAttributedString alloc] initWithString:[@"  " stringByAppendingString:fname]
+            attributes:@{ NSFontAttributeName: _text.font, NSForegroundColorAttributeName: UIColor.systemBlueColor }]];
+        _text.attributedText = s;
     } else {
         _text.text = text;
     }

@@ -14,4 +14,8 @@ FOUNDATION_EXPORT NSString *IMMediaFileName(NSString *_Nullable content);
 /// 整条内容是否就是一个 http(s) 链接（无空白）→ 用于 URL 消息渲染判定。
 FOUNDATION_EXPORT BOOL IMMediaLooksLikeURL(NSString *_Nullable s);
 
+/// 文件消息图标：按扩展名给 SF Symbol 名（emoji 在富文本/标签里可能渲染成 "?" tofu，故统一用符号内嵌）。
+/// 返回的符号名调用方仍应对 systemImageNamed: 回退到 "doc.fill"（iOS 13 起保证可用）。聊天/收藏等共用。
+FOUNDATION_EXPORT NSString *IMFileGlyphForName(NSString *_Nullable name);
+
 NS_ASSUME_NONNULL_END
