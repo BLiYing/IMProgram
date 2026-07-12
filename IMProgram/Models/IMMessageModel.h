@@ -43,6 +43,8 @@ typedef NS_ENUM(NSInteger, IMMessageStatus) {
 @property (nonatomic, copy, nullable) NSString *forwardFrom;
 /// M4+ 相册分组：同批多图/视频共享的客户端生成 ID（空=普通消息）；聊天页据此聚簇渲染宫格。
 @property (nonatomic, copy, nullable) NSString *groupID;
+/// M4+ 视频封面：首帧图 URL（发送时生成上传，随消息回带）；收端直显封面免解码原视频（空=非视频/无封面）。
+@property (nonatomic, copy, nullable) NSString *poster;
 /// M4-5 翻译：译文（**内存临时态，不落库**；翻译后挂气泡下方）。
 @property (nonatomic, copy, nullable) NSString *translation;
 

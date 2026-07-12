@@ -378,10 +378,14 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
 }
 
 - (NSString *)sendMedia:(NSString *)url contentType:(NSString *)contentType toConv:(NSString *)convID toUser:(NSString *)toUserID completion:(IMSendCompletion)completion {
-    return [self sendMedia:url contentType:contentType toConv:convID toUser:toUserID groupID:nil completion:completion];
+    return [self sendMedia:url contentType:contentType toConv:convID toUser:toUserID groupID:nil poster:nil completion:completion];
 }
 
 - (NSString *)sendMedia:(NSString *)url contentType:(NSString *)contentType toConv:(NSString *)convID toUser:(NSString *)toUserID groupID:(NSString *)groupID completion:(IMSendCompletion)completion {
+    return [self sendMedia:url contentType:contentType toConv:convID toUser:toUserID groupID:groupID poster:nil completion:completion];
+}
+
+- (NSString *)sendMedia:(NSString *)url contentType:(NSString *)contentType toConv:(NSString *)convID toUser:(NSString *)toUserID groupID:(NSString *)groupID poster:(NSString *)poster completion:(IMSendCompletion)completion {
     NSString *clientMsgID = [NSUUID UUID].UUIDString;
     NSMutableDictionary *payload = [@{
         @"client_msg_id": clientMsgID,
@@ -391,6 +395,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
         @"content":       url ?: @"",
     } mutableCopy];
     if (groupID.length > 0) { payload[@"group_id"] = groupID; } // 相册分组（M4+），服务端透传
+    if (poster.length > 0) { payload[@"poster"] = poster; }     // 视频封面首帧 URL（M4+），收端直显免解码
     dispatch_async(_queue, ^{
         [self enqueueSendWithClientMsgID:clientMsgID payload:payload completion:completion];
     });

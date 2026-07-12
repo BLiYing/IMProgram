@@ -23,6 +23,7 @@
     m.replySnapshot  = [self stringForKey:@"reply_snapshot" in:data];
     m.forwardFrom    = [self stringForKey:@"forward_from" in:data];
     m.groupID        = [self stringForKey:@"group_id" in:data];
+    m.poster         = [self stringForKey:@"poster" in:data];
     return m;
 }
 
@@ -47,6 +48,7 @@
     if (self.replySnapshot) { d[@"reply_snapshot"] = self.replySnapshot; }
     if (self.forwardFrom) { d[@"forward_from"] = self.forwardFrom; }
     if (self.groupID) { d[@"group_id"] = self.groupID; }
+    if (self.poster) { d[@"poster"] = self.poster; }
     return d;
 }
 
@@ -71,6 +73,7 @@
     m.replySnapshot  = [self stringForKey:@"reply_snapshot" in:dict];
     m.forwardFrom    = [self stringForKey:@"forward_from" in:dict];
     m.groupID        = [self stringForKey:@"group_id" in:dict];
+    m.poster         = [self stringForKey:@"poster" in:dict];
     return m;
 }
 

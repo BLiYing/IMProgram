@@ -143,6 +143,15 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
                 groupID:(nullable NSString *)groupID
             completion:(nullable IMSendCompletion)completion;
 
+/// 发送富媒体（相册+封面变体，M4+）：poster 非空=视频首帧封面 URL，随消息下发，收端（尤其 Web）直显免解码。
+- (NSString *)sendMedia:(NSString *)url
+           contentType:(NSString *)contentType
+                toConv:(NSString *)convID
+                toUser:(NSString *)toUserID
+                groupID:(nullable NSString *)groupID
+                 poster:(nullable NSString *)poster
+            completion:(nullable IMSendCompletion)completion;
+
 /// 登记一个会话用于增量同步：每次（重）连成功后，自动从该会话已同步位点发 sync_req
 /// 拉取离线/缺失的消息。
 - (void)trackConversation:(NSString *)convID;
