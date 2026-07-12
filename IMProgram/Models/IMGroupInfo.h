@@ -46,6 +46,9 @@ IMGroupRole IMGroupRoleFromString(NSString *_Nullable s);
 /// 按 uid 查成员昵称（无该成员/无昵称返回 nil）。群聊气泡/正在输入的昵称回退用。
 - (nullable NSString *)nicknameOfMember:(NSString *)userID;
 
+/// 按 uid 查成员头像 URL（无该成员/无头像返回 nil）。群聊气泡头像列用。
+- (nullable NSString *)avatarURLOfMember:(NSString *)userID;
+
 @end
 
 NS_ASSUME_NONNULL_END

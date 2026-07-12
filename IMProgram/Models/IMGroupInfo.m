@@ -87,4 +87,14 @@ static int64_t IMGroupInt64(NSDictionary *dict, NSString *key) {
     return nil;
 }
 
+- (nullable NSString *)avatarURLOfMember:(NSString *)userID {
+    if (userID.length == 0) { return nil; }
+    for (IMGroupMember *m in self.members) {
+        if ([m.userID isEqualToString:userID]) {
+            return m.avatarURL.length > 0 ? m.avatarURL : nil;
+        }
+    }
+    return nil;
+}
+
 @end

@@ -13,6 +13,7 @@
 #import "IMChatRecordViewController.h"
 #import "IMMediaPicker.h"
 #import "IMMediaUtil.h"
+#import "UILabel+IMAvatar.h"
 #import "IMFilePickerViewController.h"
 #import "IMRecentFiles.h"
 #import "IMUserCard.h"
@@ -91,6 +92,9 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
                   senderName:(nullable NSString *)senderName
                replyThumbURL:(nullable NSString *)replyThumbURL
           replyThumbIsVideo:(BOOL)replyThumbIsVideo;
+/// 群聊 Telegram 式头像列（对方消息）：gutter=YES 时气泡右移留头像位；showAvatar=YES（连续段末条）时显示头像。
+- (void)applyGroupAvatarURL:(nullable NSString *)url seed:(NSString *)seed name:(nullable NSString *)name
+                 showAvatar:(BOOL)showAvatar gutter:(BOOL)gutter;
 @end
 
 @implementation IMBubbleCell {
@@ -113,6 +117,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     NSMutableAttributedString *_bodyText;  // 当前富文本（引用缩略图异步到达后就地更新重渲，#4）
     NSTextAttachment *_quoteThumbAtt;      // 引用媒体缩略图占位 attachment
     NSString *_quoteThumbKey;              // 复用防串图：URL 匹配才应用
+    UILabel *_avatar;                      // 群聊对方头像（连续段末条，贴气泡底左侧）
 }
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
@@ -177,6 +182,17 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         _sysNote.hidden = YES;
         [self.contentView addSubview:_sysNote];
 
+        // 群聊对方头像（Telegram 式）：贴气泡底、位于左侧头像列；仅连续段末条显示。
+        _avatar = [UILabel new];
+        _avatar.translatesAutoresizingMaskIntoConstraints = NO;
+        _avatar.textColor = UIColor.whiteColor;
+        _avatar.textAlignment = NSTextAlignmentCenter;
+        _avatar.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+        _avatar.layer.cornerRadius = 15;
+        _avatar.layer.masksToBounds = YES;
+        _avatar.hidden = YES;
+        [self.contentView addSubview:_avatar];
+
         _leading = [_bubble.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12];
         _trailing = [_bubble.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-12];
         _datePillTop = [_datePill.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:0];
@@ -213,6 +229,12 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
             [_text.leadingAnchor constraintEqualToAnchor:_bubble.leadingAnchor constant:12],
             [_text.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor constant:-12],
             [_text.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:-6],
+
+            // 头像：30×30 贴 cell 左、底对齐气泡底（连续段末条才 show）。
+            [_avatar.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12],
+            [_avatar.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor],
+            [_avatar.widthAnchor constraintEqualToConstant:30],
+            [_avatar.heightAnchor constraintEqualToConstant:30],
         ]];
 
         // 可切换约束：无系统行→气泡贴 cell 底；有系统行→气泡接系统行、系统行贴底。
@@ -361,6 +383,17 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     _trailing.active = mine;
 }
 
+- (void)applyGroupAvatarURL:(NSString *)url seed:(NSString *)seed name:(NSString *)name
+                 showAvatar:(BOOL)showAvatar gutter:(BOOL)gutter {
+    _leading.constant = gutter ? 48 : 12;   // 对方群消息留 30 头像列（12 + 30 + 6）
+    if (gutter && showAvatar) {
+        _avatar.hidden = NO;
+        [_avatar im_setAvatarURL:url seed:seed displayName:name];
+    } else {
+        _avatar.hidden = YES;
+    }
+}
+
 /// 气泡内右下角富文本：时间(灰)；自己消息追加状态勾——已送达 ✓(灰)/已读 ✓✓(绿)/发送中/失败。
 - (NSAttributedString *)attributedMetaForMessage:(IMMessageModel *)message
                                             mine:(BOOL)mine
@@ -487,6 +520,9 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
 - (void)configureWithURL:(NSString *)fullURL isVideo:(BOOL)isVideo mine:(BOOL)mine previewImage:(nullable UIImage *)preview senderName:(nullable NSString *)senderName;
 /// 上传进度（批量发送 UX）：0..1 显示居中百分比（0=等待中）；>=1 或 <0 隐藏；-2 显示"发送失败"。
 - (void)setUploadProgress:(float)p;
+/// 群聊 Telegram 式头像列（对方消息）：gutter=YES 缩略图右移留头像位；showAvatar=YES（连续段末条）显示头像。
+- (void)applyGroupAvatarURL:(nullable NSString *)url seed:(NSString *)seed name:(nullable NSString *)name
+                 showAvatar:(BOOL)showAvatar gutter:(BOOL)gutter;
 @end
 
 @implementation IMImageCell {
@@ -495,6 +531,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     UIView  *_progressWrap;    // 居中进度胶囊（上传中）
     UILabel *_progressLabel;
     UILabel *_senderLabel;     // 群聊对方昵称（缩略图上方）
+    UILabel *_avatar;          // 群聊对方头像（连续段末条，贴缩略图底左侧）
     NSLayoutConstraint *_leading;
     NSLayoutConstraint *_trailing;
     NSLayoutConstraint *_thumbTopPlain;      // 无昵称：thumb 贴 cell 顶
@@ -543,6 +580,16 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         _senderLabel.hidden = YES;
         [self.contentView addSubview:_senderLabel];
 
+        _avatar = [UILabel new];
+        _avatar.translatesAutoresizingMaskIntoConstraints = NO;
+        _avatar.textColor = UIColor.whiteColor;
+        _avatar.textAlignment = NSTextAlignmentCenter;
+        _avatar.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+        _avatar.layer.cornerRadius = 15;
+        _avatar.layer.masksToBounds = YES;
+        _avatar.hidden = YES;
+        [self.contentView addSubview:_avatar];
+
         _leading = [_thumb.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12];
         _trailing = [_thumb.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-12];
         _thumbTopPlain = [_thumb.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:3];
@@ -552,6 +599,10 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
             [_senderLabel.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:4],
             [_senderLabel.leadingAnchor constraintEqualToAnchor:_thumb.leadingAnchor constant:2],
             [_senderLabel.trailingAnchor constraintLessThanOrEqualToAnchor:self.contentView.trailingAnchor constant:-12],
+            [_avatar.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12],
+            [_avatar.bottomAnchor constraintEqualToAnchor:_thumb.bottomAnchor],
+            [_avatar.widthAnchor constraintEqualToConstant:30],
+            [_avatar.heightAnchor constraintEqualToConstant:30],
             [_thumb.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3],
             [_thumb.widthAnchor constraintEqualToConstant:180],
             [_thumb.heightAnchor constraintEqualToConstant:180],
@@ -605,8 +656,19 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     }
 }
 - (void)tapped { if (_onTap) { _onTap(_thumb.image); } }
+- (void)applyGroupAvatarURL:(NSString *)url seed:(NSString *)seed name:(NSString *)name
+                 showAvatar:(BOOL)showAvatar gutter:(BOOL)gutter {
+    _leading.constant = gutter ? 48 : 12;   // 对方群消息留 30 头像列（12 + 30 + 6）
+    if (gutter && showAvatar) {
+        _avatar.hidden = NO;
+        [_avatar im_setAvatarURL:url seed:seed displayName:name];
+    } else {
+        _avatar.hidden = YES;
+    }
+}
 - (void)prepareForReuse { [super prepareForReuse]; _thumb.image = nil; _playBadge.hidden = YES; _progressWrap.hidden = YES;
-    _senderLabel.hidden = YES; _senderLabel.text = nil; _thumbTopUnderName.active = NO; _thumbTopPlain.active = YES; _onTap = nil; }
+    _senderLabel.hidden = YES; _senderLabel.text = nil; _thumbTopUnderName.active = NO; _thumbTopPlain.active = YES;
+    _avatar.hidden = YES; _leading.constant = 12; _onTap = nil; }
 @end
 
 #pragma mark - 相册宫格 Cell（M4+：同 group_id 的多图/视频合并为一个 Telegram 式宫格，消除逐条插行的闪动）
@@ -728,6 +790,9 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
 /// 只刷缩略图/进度/角标（不重建布局、不触发行高变化）——上传进度 tick / ACK 用。
 - (void)refreshWithPreviews:(NSDictionary<NSString *, UIImage *> *)previews
                    progress:(NSDictionary<NSString *, NSNumber *> *)progress;
+/// 群聊 Telegram 式头像列（对方消息）：gutter=YES 宫格右移留头像位；showAvatar=YES（连续段末条）显示头像。
+- (void)applyGroupAvatarURL:(nullable NSString *)url seed:(NSString *)seed name:(nullable NSString *)name
+                 showAvatar:(BOOL)showAvatar gutter:(BOOL)gutter;
 @end
 
 /// 按块数返回行模式（Telegram 近似）：如 3 → [1,2]=首行1大块+次行2块。
@@ -768,6 +833,7 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
     NSMutableArray<IMAlbumTileView *> *_tiles; // 复用池（按需增建）
     UILabel *_metaChip;                        // 右下角 时间+状态 小胶囊
     UILabel *_senderLabel;                     // 群聊对方昵称（宫格上方）
+    UILabel *_avatar;                          // 群聊对方头像（连续段末条，贴宫格底左侧）
     NSLayoutConstraint *_containerHeight;
     NSLayoutConstraint *_leading, *_trailing;
     NSLayoutConstraint *_containerTopPlain;      // 无昵称：宫格贴 cell 顶
@@ -802,6 +868,16 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
         _senderLabel.hidden = YES;
         [self.contentView addSubview:_senderLabel];
 
+        _avatar = [UILabel new];
+        _avatar.translatesAutoresizingMaskIntoConstraints = NO;
+        _avatar.textColor = UIColor.whiteColor;
+        _avatar.textAlignment = NSTextAlignmentCenter;
+        _avatar.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+        _avatar.layer.cornerRadius = 15;
+        _avatar.layer.masksToBounds = YES;
+        _avatar.hidden = YES;
+        [self.contentView addSubview:_avatar];
+
         _leading = [_container.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12];
         _trailing = [_container.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-12];
         _containerHeight = [_container.heightAnchor constraintEqualToConstant:100];
@@ -812,6 +888,10 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
             [_senderLabel.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:4],
             [_senderLabel.leadingAnchor constraintEqualToAnchor:_container.leadingAnchor constant:2],
             [_senderLabel.trailingAnchor constraintLessThanOrEqualToAnchor:self.contentView.trailingAnchor constant:-12],
+            [_avatar.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12],
+            [_avatar.bottomAnchor constraintEqualToAnchor:_container.bottomAnchor],
+            [_avatar.widthAnchor constraintEqualToConstant:30],
+            [_avatar.heightAnchor constraintEqualToConstant:30],
             [_container.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3],
             [_container.widthAnchor constraintEqualToConstant:kIMAlbumWidth],
             _containerHeight,
@@ -945,9 +1025,22 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
         actionProvider:^UIMenu *(NSArray<UIMenuElement *> *suggested) { return provider(m); }];
 }
 
+- (void)applyGroupAvatarURL:(NSString *)url seed:(NSString *)seed name:(NSString *)name
+                 showAvatar:(BOOL)showAvatar gutter:(BOOL)gutter {
+    _leading.constant = gutter ? 48 : 12;   // 对方群消息留 30 头像列（12 + 30 + 6）
+    if (gutter && showAvatar) {
+        _avatar.hidden = NO;
+        [_avatar im_setAvatarURL:url seed:seed displayName:name];
+    } else {
+        _avatar.hidden = YES;
+    }
+}
+
 - (void)prepareForReuse {
     [super prepareForReuse];
     for (IMAlbumTileView *tile in _tiles) { tile.member = nil; tile.loadKey = nil; tile.imageView.image = nil; [tile setProgress:nil]; }
+    _avatar.hidden = YES;
+    _leading.constant = 12;
     _onTapItem = nil;
     _menuForItem = nil;
 }
@@ -1451,6 +1544,55 @@ static void IMParseChatRecord(NSString *content, NSString **outTitle, NSArray<NS
     if (m.fromNickname.length > 0) { return m.fromNickname; }
     NSString *nick = [self.groupInfo nicknameOfMember:m.from];
     return nick.length > 0 ? nick : (m.from ?: @"");
+}
+
+/// 群聊发送者头像绝对 URL（无则空串——头像圈回退首字母）。相对路径补 host。
+- (NSString *)senderAvatarURLForMessage:(IMMessageModel *)m {
+    NSString *url = [self.groupInfo avatarURLOfMember:m.from];
+    return url.length > 0 ? [self fullMediaURL:url] : @"";
+}
+
+#pragma mark - Telegram 式连续消息分组（同发送者连续段：名字只显首条、头像贴末条）
+
+/// 上一「可见行」（跳过相册零高从行）；无则 -1。
+- (NSInteger)prevVisibleRow:(NSInteger)row {
+    for (NSInteger j = row - 1; j >= 0; j--) {
+        if ([self isAlbumFollowerAtRow:j]) { continue; }
+        return j;
+    }
+    return -1;
+}
+
+/// 下一「可见行」（跳过相册零高从行）；无则 messages.count。
+- (NSInteger)nextVisibleRow:(NSInteger)row {
+    for (NSInteger j = row + 1; j < (NSInteger)self.messages.count; j++) {
+        if ([self isAlbumFollowerAtRow:j]) { continue; }
+        return j;
+    }
+    return (NSInteger)self.messages.count;
+}
+
+/// 两条消息是否属于同一「连续段」：同发送者、都是普通气泡（非系统/撤回）、同一天。
+- (BOOL)message:(IMMessageModel *)a sameSenderRunAs:(IMMessageModel *)b {
+    if (![a.from isEqualToString:b.from]) { return NO; }
+    if ([a.contentType isEqualToString:@"system"] || [b.contentType isEqualToString:@"system"]) { return NO; }
+    if (a.recalledAt != 0 || b.recalledAt != 0) { return NO; }
+    if (a.timestamp > 0 && b.timestamp > 0 && ![IMTheme isMillis:a.timestamp sameDayAsMillis:b.timestamp]) { return NO; }
+    return YES;
+}
+
+/// 该行是否为连续段首条（对方群消息用；决定是否显示发送者名）。
+- (BOOL)isFirstInSenderRun:(NSInteger)row {
+    NSInteger p = [self prevVisibleRow:row];
+    if (p < 0) { return YES; }
+    return ![self message:self.messages[(NSUInteger)p] sameSenderRunAs:self.messages[(NSUInteger)row]];
+}
+
+/// 该行是否为连续段末条（对方群消息用；决定是否显示头像）。
+- (BOOL)isLastInSenderRun:(NSInteger)row {
+    NSInteger n = [self nextVisibleRow:row];
+    if (n >= (NSInteger)self.messages.count) { return YES; }
+    return ![self message:self.messages[(NSUInteger)n] sameSenderRunAs:self.messages[(NSUInteger)row]];
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -2671,9 +2813,15 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         IMAlbumCell *alb = [tableView dequeueReusableCellWithIdentifier:@"album" forIndexPath:indexPath];
         NSArray<IMMessageModel *> *members = [self albumMembersForGroupID:m.groupID];
         BOOL mineAlb = [m.from isEqualToString:self.userID];
-        NSString *senderNameAlb = (self.isGroupChat && !mineAlb) ? [self senderNameForMessage:m] : nil;
+        BOOL grpAlb = self.isGroupChat && !mineAlb;                                  // 群聊对方
+        BOOL firstAlb = grpAlb && [self isFirstInSenderRun:indexPath.row];           // 连续段首条→显示名
+        BOOL lastAlb = grpAlb && [self isLastInSenderRun:indexPath.row];             // 连续段末条→显示头像
+        NSString *senderNameAlb = firstAlb ? [self senderNameForMessage:m] : nil;
         [alb configureWithMembers:members mine:mineAlb host:self.host
                          previews:self.outboxPreviews progress:self.outboxProgress senderName:senderNameAlb];
+        [alb applyGroupAvatarURL:(grpAlb ? [self senderAvatarURLForMessage:m] : nil)
+                            seed:(m.from ?: @"") name:(grpAlb ? [self senderNameForMessage:m] : nil)
+                      showAvatar:lastAlb gutter:grpAlb];
         __weak typeof(self) ws = self;
         alb.onTapItem = ^(IMMessageModel *mm) {
             if (mm.content.length > 0) { [ws presentMediaViewerForMessage:mm preloaded:nil]; } // 上传中不可点
@@ -2693,9 +2841,15 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         BOOL mineI = [m.from isEqualToString:self.userID];
         BOOL isVideo = [m.contentType isEqualToString:@"video"];
         NSString *key = m.clientMsgID ?: @"";
-        NSString *senderNameI = (self.isGroupChat && !mineI) ? [self senderNameForMessage:m] : nil;
+        BOOL grpI = self.isGroupChat && !mineI;
+        BOOL firstI = grpI && [self isFirstInSenderRun:indexPath.row];
+        BOOL lastI = grpI && [self isLastInSenderRun:indexPath.row];
+        NSString *senderNameI = firstI ? [self senderNameForMessage:m] : nil;
         [img configureWithURL:(m.content.length > 0 ? [self fullMediaURL:m.content] : @"")
                       isVideo:isVideo mine:mineI previewImage:self.outboxPreviews[key] senderName:senderNameI];
+        [img applyGroupAvatarURL:(grpI ? [self senderAvatarURLForMessage:m] : nil)
+                            seed:(m.from ?: @"") name:(grpI ? [self senderNameForMessage:m] : nil)
+                      showAvatar:lastI gutter:grpI];
         NSNumber *prog = self.outboxProgress[key];
         [img setUploadProgress:(prog ? prog.floatValue : -1)];
         __weak typeof(self) ws = self;
@@ -2705,8 +2859,11 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     IMBubbleCell *cell = [tableView dequeueReusableCellWithIdentifier:@"bubble" forIndexPath:indexPath];
     BOOL mine = [m.from isEqualToString:self.userID];
     BOOL showsDivider = (indexPath.row == [self firstUnreadRow]);
-    // 群聊：对方气泡带发送者昵称（自己/单聊不带）。
-    NSString *senderName = (self.isGroupChat && !mine) ? [self senderNameForMessage:m] : nil;
+    // 群聊：对方气泡带发送者昵称（自己/单聊不带）；连续同发送者只首条显名、末条显头像（Telegram 式）。
+    BOOL grp = self.isGroupChat && !mine;
+    BOOL firstInRun = grp && [self isFirstInSenderRun:indexPath.row];
+    BOOL lastInRun = grp && [self isLastInSenderRun:indexPath.row];
+    NSString *senderName = firstInRun ? [self senderNameForMessage:m] : nil;
     // 引用的是图片/视频：把原消息的媒体 URL 传给 cell，引用条内显示真缩略图（#4）。
     NSString *replyThumbURL = nil;
     BOOL replyThumbIsVideo = NO;
@@ -2724,6 +2881,9 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
                     senderName:senderName
                  replyThumbURL:replyThumbURL
              replyThumbIsVideo:replyThumbIsVideo];
+    [cell applyGroupAvatarURL:(grp ? [self senderAvatarURLForMessage:m] : nil)
+                         seed:(m.from ?: @"") name:(grp ? [self senderNameForMessage:m] : nil)
+                   showAvatar:lastInRun gutter:grp];
     return cell;
 }
 
