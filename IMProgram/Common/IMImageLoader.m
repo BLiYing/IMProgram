@@ -26,6 +26,10 @@
     return self;
 }
 
+- (void)cacheImage:(UIImage *)image forURL:(NSString *)urlString {
+    if (image && urlString.length > 0) { [_cache setObject:image forKey:urlString]; }
+}
+
 - (void)loadImageURL:(NSString *)urlString completion:(void (^)(UIImage *_Nullable))completion {
     NSString *key = urlString.length ? urlString : @"";
     void (^finish)(UIImage *_Nullable) = ^(UIImage *_Nullable img) {

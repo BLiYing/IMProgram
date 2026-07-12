@@ -3,10 +3,16 @@
 //  进度条 + 倍速 + 查看原视频 + 保存到相册）。聊天气泡点击、会话媒体库点击共用本查看器。
 
 #import <UIKit/UIKit.h>
+#import "IMBottomSheet.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
 @interface IMMediaViewerViewController : UIViewController
+
+/// 「更多」面板的外部动作（定位到聊天位置/收藏/复制/转发等，由调用方按消息上下文提供）。
+/// 非空时查看器显示「⋯」按钮 → IMBottomSheet（内置一项「下载」在最前）。
+/// 外部动作触发时查看器**先自行关闭**再执行 handler（定位/转发都发生在聊天页）。
+@property (nonatomic, copy, nullable) NSArray<IMBottomSheetItem *> *moreActions;
 
 /// 展示单个媒体。
 /// @param fullURL        已拼好 host 的完整媒体地址（图片或视频）。

@@ -16,6 +16,7 @@ NSString * const kIMTypeSyncResp = @"sync_resp";
 NSString * const kIMTypeFriend   = @"friend";
 NSString * const kIMTypeGroup    = @"group";
 NSString * const kIMTypeMsgOp    = @"msg_op";
+NSString * const kIMTypeConvUpdate = @"conv_update";
 NSString * const kIMTypeError    = @"error";
 
 NSString * const kIMMsgOpRecall  = @"recall";

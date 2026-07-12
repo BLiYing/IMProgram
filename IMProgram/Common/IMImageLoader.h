@@ -12,6 +12,9 @@ NS_ASSUME_NONNULL_BEGIN
 /// 加载头像图：urlString 可为 data:image base64 或 http(s)。空/失败 → completion(nil)。completion 总在主线程回调。
 - (void)loadImageURL:(nullable NSString *)urlString completion:(void (^)(UIImage *_Nullable image))completion;
 
+/// 预置缓存：上传完成后把本地预览图种到该 URL 名下，气泡切服务器 URL 时无需重新下载（不闪图）。
+- (void)cacheImage:(nullable UIImage *)image forURL:(nullable NSString *)urlString;
+
 @end
 
 NS_ASSUME_NONNULL_END

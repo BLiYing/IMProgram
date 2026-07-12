@@ -34,6 +34,7 @@ static CGFloat const kIMRowLeading = 16;
     UILabel *_time;
     UILabel *_check;   // 最后一条是我发的 → 时间左侧显示 ✓✓（绿）
     UILabel *_badge;
+    UIView *_dot;      // 手动"标未读"小圆点（无未读数时显示，M4.5）
     NSLayoutConstraint *_badgeWidth;
 }
 
@@ -85,6 +86,14 @@ static CGFloat const kIMRowLeading = 16;
         _badge.layer.masksToBounds = YES;
         [self.contentView addSubview:_badge];
 
+        _dot = [UIView new];
+        _dot.translatesAutoresizingMaskIntoConstraints = NO;
+        _dot.backgroundColor = IMTheme.unreadBadge;
+        _dot.layer.cornerRadius = 5;
+        _dot.layer.masksToBounds = YES;
+        _dot.hidden = YES;
+        [self.contentView addSubview:_dot];
+
         [_time setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
         [_time setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
         _badgeWidth = [_badge.widthAnchor constraintEqualToConstant:0];
@@ -114,6 +123,11 @@ static CGFloat const kIMRowLeading = 16;
             [_badge.centerYAnchor constraintEqualToAnchor:_last.centerYAnchor],
             [_badge.heightAnchor constraintEqualToConstant:20],
             _badgeWidth,
+
+            [_dot.trailingAnchor constraintEqualToAnchor:g.trailingAnchor],
+            [_dot.centerYAnchor constraintEqualToAnchor:_last.centerYAnchor],
+            [_dot.widthAnchor constraintEqualToConstant:10],
+            [_dot.heightAnchor constraintEqualToConstant:10],
         ]];
     }
     return self;
@@ -129,6 +143,7 @@ static CGFloat const kIMRowLeading = 16;
     // 富媒体预览（M4-6）：图片/视频/文件显示占位标签而非 URL（微信式，不加昵称前缀）。
     if (!recalledPreview) {
         NSDictionary *mediaNames = @{ @"image": @"[图片]", @"video": @"[视频]", @"file": @"[文件]",
+                                      @"chat_record": @"[聊天记录]",
                                       @"audio": @"[语音]", @"location": @"[位置]" }; // 语音/位置等类型落地后自动生效
         recalledPreview = mediaNames[c.lastContentType ?: @""];
     }
@@ -151,6 +166,10 @@ static CGFloat const kIMRowLeading = 16;
         _name.text = display;
         _last.text = recalledPreview ?: (c.lastContent.length > 0 ? c.lastContent : @"（无消息）");
     }
+    // 会话管理指示（M4.5）：置顶 pin.fill 前缀、免打扰 bell.slash.fill 后缀（SF Symbol，随字号对齐）。
+    [self decorateName:(_name.text ?: @"") pinned:(c.pinnedAt > 0) muted:c.muted];
+    // 置顶行背景轻微区分（微信/Telegram 式，深浅色皆适配）。
+    self.contentView.backgroundColor = c.pinnedAt > 0 ? [IMTheme.accent colorWithAlphaComponent:0.10] : UIColor.clearColor;
     _time.text = [IMTheme timeStringFromMillis:c.timestamp];
     // 最后一条是我发的才显示勾：对端已读到该条 → 绿 ✓✓；否则 → 灰单勾 ✓（已送达/未读）。
     // 已读判定用后端返回的对端已读位点 peer_read_seq（CHAT_UX §8）。群项不显示（无对端位点）。
@@ -161,14 +180,60 @@ static CGFloat const kIMRowLeading = 16;
         _check.text = read ? @"✓✓" : @"✓";
         _check.textColor = read ? IMTheme.checkRead : IMTheme.textSecondary;
     }
+    // 未读计数徽标 + 手动"标未读"圆点：免打扰会话转灰（微信/Telegram 式弱提示），否则蓝色。
+    UIColor *unreadColor = c.muted ? UIColor.systemGrayColor : IMTheme.unreadBadge;
+    _badge.backgroundColor = unreadColor;
+    _dot.backgroundColor = unreadColor;
     if (c.unread > 0) {
+        // 真实未读数：蓝色胶囊带数字。
         _badge.hidden = NO;
+        _dot.hidden = YES;
         _badge.text = c.unread > 99 ? @"99+" : [NSString stringWithFormat:@"%ld", (long)c.unread];
         _badgeWidth.constant = MAX(20, [_badge sizeThatFits:CGSizeMake(CGFLOAT_MAX, 20)].width + 12);
+    } else if (c.markedUnread) {
+        // 手动"标未读"：无未读数（读位点已推进），仅显小圆点提示（微信式，无数字）。
+        _badge.hidden = YES;
+        _badgeWidth.constant = 0;
+        _dot.hidden = NO;
     } else {
         _badge.hidden = YES;
         _badgeWidth.constant = 0;
+        _dot.hidden = YES;
     }
+}
+
+/// 用 SF Symbol 装饰会话名：置顶 pin.fill 前缀、免打扰 bell.slash.fill 后缀（随字号对齐，紧凑间距）。
+- (void)decorateName:(NSString *)display pinned:(BOOL)pinned muted:(BOOL)muted {
+    if (!pinned && !muted) { _name.text = display; return; } // 无装饰：走普通文本，避免多余开销
+    UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:14 weight:UIImageSymbolWeightSemibold];
+    CGFloat cap = _name.font.capHeight; // 图标垂直居中于 cap 高度，与文字基线对齐
+    NSMutableAttributedString *s = [NSMutableAttributedString new];
+    if (pinned) {
+        UIImage *pin = [[UIImage systemImageNamed:@"pin.fill" withConfiguration:cfg]
+                        imageWithTintColor:IMTheme.accent renderingMode:UIImageRenderingModeAlwaysOriginal];
+        if (pin) {
+            NSTextAttachment *a = [NSTextAttachment new];
+            a.image = pin;
+            a.bounds = CGRectMake(0, (cap - pin.size.height) / 2.0, pin.size.width, pin.size.height);
+            [s appendAttributedString:[NSAttributedString attributedStringWithAttachment:a]];
+            [s appendAttributedString:[[NSAttributedString alloc] initWithString:@" "]]; // 窄空格，避免"间隔太远"
+        }
+    }
+    [s appendAttributedString:[[NSAttributedString alloc] initWithString:display]];
+    if (muted) {
+        [s appendAttributedString:[[NSAttributedString alloc] initWithString:@" "]];
+        UIImage *bell = [[UIImage systemImageNamed:@"bell.slash.fill" withConfiguration:cfg]
+                         imageWithTintColor:IMTheme.textSecondary renderingMode:UIImageRenderingModeAlwaysOriginal];
+        if (bell) {
+            NSTextAttachment *a = [NSTextAttachment new];
+            a.image = bell;
+            a.bounds = CGRectMake(0, (cap - bell.size.height) / 2.0, bell.size.width, bell.size.height);
+            [s appendAttributedString:[NSAttributedString attributedStringWithAttachment:a]];
+        }
+    }
+    [s addAttributes:@{ NSFontAttributeName: _name.font, NSForegroundColorAttributeName: IMTheme.textPrimary }
+              range:NSMakeRange(0, s.length)];
+    _name.attributedText = s;
 }
 
 @end
@@ -246,6 +311,9 @@ static CGFloat const kIMRowLeading = 16;
     // 群变更（邀请/移除/退群/改名）→ 列表刷新（被移出的群随服务端订阅删除而消失）。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketMessage:)
                                                name:IMSocketDidReceiveGroupEventNotification object:nil];
+    // 会话级设置变更（置顶/免打扰/标未读/删除会话，M4.5）→ 列表刷新（本人其他端操作的多端同步）。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketMessage:)
+                                               name:IMSocketDidUpdateConversationNotification object:nil];
     // 连接状态变化 → 标题显示 连接中/未连接（取代"任何失败都弹框"）。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketState:)
                                                name:IMSocketDidChangeStateNotification object:nil];
@@ -259,6 +327,7 @@ static CGFloat const kIMRowLeading = 16;
     [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidReceiveMessageNotification object:nil];
     [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidReceiveReadNotification object:nil];
     [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidReceiveGroupEventNotification object:nil];
+    [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidUpdateConversationNotification object:nil];
     [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidChangeStateNotification object:nil];
 }
 
@@ -491,38 +560,96 @@ static CGFloat const kIMRowLeading = 16;
 
 #pragma mark - 行操作（左滑 + 长按菜单，共用同一动作源避免漂移）
 
-/// 单一来源：一条会话的操作集（置顶 / 静音 / 设为已读(仅有未读) / 删除(破坏性)）。
-/// 已接：设为已读；其余（置顶/静音/删除）→ 开发中吐司（后端无对应端点）。
+/// 单一来源：一条会话的操作集（M4.5 全接后端）：置顶↔取消置顶 / 免打扰↔取消 / 设为已读↔标为未读 / 删除。
+/// 置顶/免打扰/已读未读是切换对：按会话当前状态显示对应文案（与 Web menus.ts 对齐）。
 - (NSArray<IMMenuAction *> *)conversationActionsFor:(IMConversation *)c {
     __weak typeof(self) ws = self;
     NSMutableArray<IMMenuAction *> *actions = [NSMutableArray array];
-    [actions addObject:[IMMenuAction actionWithId:@"pin" title:@"置顶" image:@"pin" handler:^{
-        [ws im_showComingSoon:@"置顶"];
+    BOOL pinned = c.pinnedAt > 0;
+    [actions addObject:[IMMenuAction actionWithId:@"pin" title:(pinned ? @"取消置顶" : @"置顶")
+                                            image:(pinned ? @"pin.slash" : @"pin") handler:^{
+        [ws setConversation:c pinned:!pinned];
     }]];
-    [actions addObject:[IMMenuAction actionWithId:@"mute" title:@"静音" image:@"bell.slash" handler:^{
-        [ws im_showComingSoon:@"静音"];
+    [actions addObject:[IMMenuAction actionWithId:@"mute" title:(c.muted ? @"取消免打扰" : @"免打扰")
+                                            image:(c.muted ? @"bell" : @"bell.slash") handler:^{
+        [ws setConversation:c muted:!c.muted];
     }]];
-    if (c.unread > 0) {
+    if (c.unread > 0 || c.markedUnread) {
         [actions addObject:[IMMenuAction actionWithId:@"markRead" title:@"设为已读" image:@"checkmark.circle" handler:^{
             [ws markConversationRead:c];
         }]];
+    } else {
+        [actions addObject:[IMMenuAction actionWithId:@"markUnread" title:@"标为未读" image:@"circle" handler:^{
+            [ws markConversationUnread:c];
+        }]];
     }
     [actions addObject:[IMMenuAction destructiveActionWithId:@"delete" title:@"删除" image:@"trash" handler:^{
-        [ws im_showComingSoon:@"删除"];
+        [ws deleteConversation:c];
     }]];
     return actions;
 }
 
-/// 设为已读：上报已读位点 + 本地未读清零并刷新该行。
+/// 设为已读：推进已读位点（清未读数）+ 清除手动"标未读"标记；成功后刷新列表。
 - (void)markConversationRead:(IMConversation *)c {
     if (c.convID.length == 0) { return; }
-    [IMSocketManager.sharedManager markReadConv:c.convID upToConvSeq:c.latestConvSeq];
+    if (c.unread > 0) {
+        [IMSocketManager.sharedManager markReadConv:c.convID upToConvSeq:c.latestConvSeq];
+    }
+    // 手动"标未读"需经设置接口清除（与已读位点正交）；否则仅本地清未读数刷新该行。
+    if (c.markedUnread && self.token.length > 0) {
+        __weak typeof(self) ws = self;
+        [IMHTTPService.sharedService updateConversationSettingsWithToken:self.token convID:c.convID
+            pinnedAt:c.pinnedAt muted:c.muted markedUnread:NO completion:^(NSError *error) {
+                if (error) { [ws im_showToast:error.localizedDescription]; return; }
+                [ws reload];
+            }];
+        return;
+    }
     c.unread = 0;
     NSUInteger idx = [self.conversations indexOfObject:c];
     if (idx != NSNotFound) {
         [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:idx inSection:0]]
                               withRowAnimation:UITableViewRowAnimationAutomatic];
     }
+}
+
+/// 标为未读：手动置红点（不改已读位点，不计数）；成功后刷新列表。
+- (void)markConversationUnread:(IMConversation *)c {
+    [self updateSettingsForConversation:c pinnedAt:c.pinnedAt muted:c.muted markedUnread:YES fail:@"标记失败"];
+}
+
+/// 置顶/取消置顶：pinned_at=现在ms/0（服务端据此把置顶会话排列表顶）。
+- (void)setConversation:(IMConversation *)c pinned:(BOOL)pinned {
+    int64_t pinnedAt = pinned ? (int64_t)([NSDate date].timeIntervalSince1970 * 1000.0) : 0;
+    [self updateSettingsForConversation:c pinnedAt:pinnedAt muted:c.muted markedUnread:c.markedUnread fail:@"置顶失败"];
+}
+
+/// 免打扰/取消免打扰：muted 切换（弱提示，不改未读）。
+- (void)setConversation:(IMConversation *)c muted:(BOOL)muted {
+    [self updateSettingsForConversation:c pinnedAt:c.pinnedAt muted:muted markedUnread:c.markedUnread fail:@"设置失败"];
+}
+
+/// 会话设置写入的统一入口：PUT 设置 → 成功后重拉列表（服务端已含置顶排序 + 权威状态）。
+- (void)updateSettingsForConversation:(IMConversation *)c
+                             pinnedAt:(int64_t)pinnedAt muted:(BOOL)muted markedUnread:(BOOL)markedUnread
+                                 fail:(NSString *)fail {
+    if (c.convID.length == 0 || self.token.length == 0) { return; }
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService updateConversationSettingsWithToken:self.token convID:c.convID
+        pinnedAt:pinnedAt muted:muted markedUnread:markedUnread completion:^(NSError *error) {
+            if (error) { [ws im_showToast:error.localizedDescription ?: fail]; return; }
+            [ws reload];
+        }];
+}
+
+/// 删除会话（仅本人，服务端记 cleared_at 不删消息）：成功后重拉列表（会话隐藏，对方再发即复现）。
+- (void)deleteConversation:(IMConversation *)c {
+    if (c.convID.length == 0 || self.token.length == 0) { return; }
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService deleteConversationWithToken:self.token convID:c.convID completion:^(NSError *error) {
+        if (error) { [ws im_showToast:error.localizedDescription ?: @"删除失败"]; return; }
+        [ws reload];
+    }];
 }
 
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView

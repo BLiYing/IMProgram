@@ -25,6 +25,10 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) int64_t peerReadSeq;     // 单聊对端已读位点（判断"我发的最后一条"是否已读；群聊 0）
 @property (nonatomic, assign) int64_t timestamp;       // 最后一条时间（毫秒）
 @property (nonatomic, assign) NSInteger unread;        // 未读数（服务端 cap 999）
+// M4.5 会话级设置（每用户私有；服务端 conv_update 帧多端同步）：
+@property (nonatomic, assign) int64_t pinnedAt;        // 置顶时间（0=未置顶；服务端已按置顶优先排序）
+@property (nonatomic, assign) BOOL muted;              // 免打扰（弱提示）
+@property (nonatomic, assign) BOOL markedUnread;       // 手动标为未读（红点，不计数）
 
 /// 从 data.conversations 数组解析（脏数据安全）。
 + (NSArray<IMConversation *> *)conversationsFromArray:(nullable NSArray *)array;

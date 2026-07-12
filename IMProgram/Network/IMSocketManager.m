@@ -30,6 +30,7 @@ NSString * const kIMMsgOpTargetSeqKey = @"msgOpTargetSeq";
 NSString * const kIMMsgOpKey = @"msgOp";
 NSString * const kIMMsgOpContentKey = @"msgOpContent";
 NSString * const IMSocketDidRejectMsgOpNotification = @"IMSocketDidRejectMsgOpNotification";
+NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdateConversationNotification";
 
 #pragma mark - 待确认发送项
 
@@ -284,6 +285,8 @@ NSString * const IMSocketDidRejectMsgOpNotification = @"IMSocketDidRejectMsgOpNo
         [self handleGroupEvent:payload];
     } else if ([type isEqualToString:kIMTypeMsgOp]) {
         [self applyMsgOpPayload:payload];
+    } else if ([type isEqualToString:kIMTypeConvUpdate]) {
+        [self handleConvUpdate:payload];
     } else if ([type isEqualToString:kIMTypePong]) {
         // 心跳回应，无需处理
     } else if ([type isEqualToString:kIMTypeError]) {
@@ -375,14 +378,19 @@ NSString * const IMSocketDidRejectMsgOpNotification = @"IMSocketDidRejectMsgOpNo
 }
 
 - (NSString *)sendMedia:(NSString *)url contentType:(NSString *)contentType toConv:(NSString *)convID toUser:(NSString *)toUserID completion:(IMSendCompletion)completion {
+    return [self sendMedia:url contentType:contentType toConv:convID toUser:toUserID groupID:nil completion:completion];
+}
+
+- (NSString *)sendMedia:(NSString *)url contentType:(NSString *)contentType toConv:(NSString *)convID toUser:(NSString *)toUserID groupID:(NSString *)groupID completion:(IMSendCompletion)completion {
     NSString *clientMsgID = [NSUUID UUID].UUIDString;
-    NSDictionary *payload = @{
+    NSMutableDictionary *payload = [@{
         @"client_msg_id": clientMsgID,
         @"conv_id":       convID ?: @"",
         @"to":            toUserID ?: @"",
         @"content_type":  contentType ?: @"image",
         @"content":       url ?: @"",
-    };
+    } mutableCopy];
+    if (groupID.length > 0) { payload[@"group_id"] = groupID; } // 相册分组（M4+），服务端透传
     dispatch_async(_queue, ^{
         [self enqueueSendWithClientMsgID:clientMsgID payload:payload completion:completion];
     });
@@ -562,6 +570,16 @@ NSString * const IMSocketDidRejectMsgOpNotification = @"IMSocketDidRejectMsgOpNo
                                                         userInfo:@{ kIMConvIDKey: convID,
                                                                     kIMGroupEventKey: event,
                                                                     kIMGroupTargetKey: target }];
+    });
+}
+
+/// 收到会话级设置变更帧（置顶/免打扰/标未读/删除会话，M4.5）：主线程广播，会话列表据此刷新（多端同步）。
+- (void)handleConvUpdate:(NSDictionary *)data {
+    NSString *convID = [data[@"conv_id"] isKindOfClass:[NSString class]] ? data[@"conv_id"] : @"";
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidUpdateConversationNotification
+                                                          object:self
+                                                        userInfo:@{ kIMConvIDKey: convID }];
     });
 }
 

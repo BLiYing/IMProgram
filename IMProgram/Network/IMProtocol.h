@@ -21,6 +21,7 @@ extern NSString * const kIMTypeSyncResp;
 extern NSString * const kIMTypeFriend;
 extern NSString * const kIMTypeGroup;
 extern NSString * const kIMTypeMsgOp;
+extern NSString * const kIMTypeConvUpdate; ///< 会话级设置变更（置顶/免打扰/标未读/删除会话，M4.5）
 extern NSString * const kIMTypeError;
 
 #pragma mark - 消息操作 op（msg_op，M4）

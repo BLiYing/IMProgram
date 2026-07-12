@@ -31,6 +31,9 @@ extern NSString * const kIMMsgOpKey;
 extern NSString * const kIMMsgOpContentKey;
 /// 我发起的消息操作被拒（如撤回超时）时广播（主线程）：userInfo[@"message"]=服务端文案。
 extern NSString * const IMSocketDidRejectMsgOpNotification;
+/// 会话级设置变更（置顶/免打扰/标未读/删除会话，M4.5）时广播（主线程）：会话列表据此刷新（多端同步）。
+/// userInfo[kIMConvIDKey]=会话 id。收端直接重拉会话列表取权威状态即可。
+extern NSString * const IMSocketDidUpdateConversationNotification;
 /// 连接状态变化时广播（主线程）：非 delegate 页（如会话列表）据此显示 连接中/未连接。userInfo[@"state"]=IMSocketState。
 extern NSString * const IMSocketDidChangeStateNotification;
 extern NSString * const kIMConvIDKey;
@@ -130,6 +133,14 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
            contentType:(NSString *)contentType
                 toConv:(NSString *)convID
                 toUser:(NSString *)toUserID
+            completion:(nullable IMSendCompletion)completion;
+
+/// 发送富媒体（相册变体，M4+）：groupID 非空时同批多图/视频共享，收发两端聚簇渲染宫格。
+- (NSString *)sendMedia:(NSString *)url
+           contentType:(NSString *)contentType
+                toConv:(NSString *)convID
+                toUser:(NSString *)toUserID
+                groupID:(nullable NSString *)groupID
             completion:(nullable IMSendCompletion)completion;
 
 /// 登记一个会话用于增量同步：每次（重）连成功后，自动从该会话已同步位点发 sync_req

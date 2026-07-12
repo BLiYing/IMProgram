@@ -22,6 +22,7 @@
     m.replyToConvSeq = [data[@"reply_to_conv_seq"] longLongValue];
     m.replySnapshot  = [self stringForKey:@"reply_snapshot" in:data];
     m.forwardFrom    = [self stringForKey:@"forward_from" in:data];
+    m.groupID        = [self stringForKey:@"group_id" in:data];
     return m;
 }
 
@@ -45,6 +46,7 @@
     if (self.replyToConvSeq > 0) { d[@"reply_to_conv_seq"] = @(self.replyToConvSeq); }
     if (self.replySnapshot) { d[@"reply_snapshot"] = self.replySnapshot; }
     if (self.forwardFrom) { d[@"forward_from"] = self.forwardFrom; }
+    if (self.groupID) { d[@"group_id"] = self.groupID; }
     return d;
 }
 
@@ -68,6 +70,7 @@
     m.replyToConvSeq = [dict[@"reply_to_conv_seq"] longLongValue];
     m.replySnapshot  = [self stringForKey:@"reply_snapshot" in:dict];
     m.forwardFrom    = [self stringForKey:@"forward_from" in:dict];
+    m.groupID        = [self stringForKey:@"group_id" in:dict];
     return m;
 }
 

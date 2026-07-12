@@ -41,6 +41,8 @@ typedef NS_ENUM(NSInteger, IMMessageStatus) {
 @property (nonatomic, copy, nullable) NSString *replySnapshot;
 /// M4-3 转发溯源："转发自 X"显示名（发送时冻结）。
 @property (nonatomic, copy, nullable) NSString *forwardFrom;
+/// M4+ 相册分组：同批多图/视频共享的客户端生成 ID（空=普通消息）；聊天页据此聚簇渲染宫格。
+@property (nonatomic, copy, nullable) NSString *groupID;
 /// M4-5 翻译：译文（**内存临时态，不落库**；翻译后挂气泡下方）。
 @property (nonatomic, copy, nullable) NSString *translation;
 

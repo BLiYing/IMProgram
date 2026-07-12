@@ -8,6 +8,24 @@
 
 static NSString * const kIMHTTPErrorDomain = @"IMHTTPService";
 
+/// 上传进度桥（iOS 15+ per-task delegate）：completionHandler 任务仍会收到 didSendBodyData，
+/// 借此把 multipart 上行字节进度回给调用方（主线程 0..1）。task 强持有本对象，无需外部保活。
+@interface IMUploadProgressBridge : NSObject <NSURLSessionTaskDelegate>
+@property (nonatomic, copy, nullable) void (^onProgress)(double fraction);
+@end
+
+@implementation IMUploadProgressBridge
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task
+   didSendBodyData:(int64_t)bytesSent
+    totalBytesSent:(int64_t)totalBytesSent
+totalBytesExpectedToSend:(int64_t)totalBytesExpectedToSend {
+    if (totalBytesExpectedToSend <= 0 || !self.onProgress) { return; }
+    double f = MIN(1.0, (double)totalBytesSent / (double)totalBytesExpectedToSend);
+    void (^cb)(double) = self.onProgress;
+    dispatch_async(dispatch_get_main_queue(), ^{ cb(f); });
+}
+@end
+
 // 是否"鉴权失败"类错误码（账号/密码/封禁/token）→ 调用方应退回登录页，而非当网络问题重试。
 BOOL IMIsAuthErrorCode(NSInteger code) {
     switch (code) {
@@ -252,6 +270,20 @@ static NSString *IMFriendlyNetworkError(NSError *error) {
     }];
 }
 
+- (void)linkPreviewWithToken:(NSString *)token url:(NSString *)url
+                  completion:(void (^)(NSDictionary *, NSError *))completion {
+    NSString *q = [url stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLQueryAllowedCharacterSet] ?: @"";
+    NSString *path = [@"/api/v1/link-preview?url=" stringByAppendingString:q];
+    NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
+    if (!req) { [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }]; return; }
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        if ([body[@"code"] integerValue] != 0) { completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"预览失败"]]); return; }
+        id data = body[@"data"];
+        completion([data isKindOfClass:[NSDictionary class]] ? data : nil, nil);
+    }];
+}
+
 - (void)translateWithToken:(NSString *)token
                       text:(NSString *)text
                 targetLang:(NSString *)targetLang
@@ -392,6 +424,24 @@ static NSString *IMFriendlyNetworkError(NSError *error) {
     [self runOKRequest:req fallback:@"转让失败" completion:completion];
 }
 
+#pragma mark - 会话管理（M4.5）
+
+- (void)updateConversationSettingsWithToken:(NSString *)token convID:(NSString *)convID
+                                   pinnedAt:(int64_t)pinnedAt muted:(BOOL)muted markedUnread:(BOOL)markedUnread
+                                 completion:(void (^)(NSError *))completion {
+    NSString *path = [NSString stringWithFormat:@"/api/v1/conversations/%@/settings", [self pathEscape:convID]];
+    NSMutableURLRequest *req = [self authedRequestForPath:path method:@"PUT" token:token
+        body:@{ @"pinned_at": @(pinnedAt), @"muted": @(muted), @"marked_unread": @(markedUnread) }];
+    [self runOKRequest:req fallback:@"设置失败" completion:completion];
+}
+
+- (void)deleteConversationWithToken:(NSString *)token convID:(NSString *)convID
+                         completion:(void (^)(NSError *))completion {
+    NSString *path = [NSString stringWithFormat:@"/api/v1/conversations/%@", [self pathEscape:convID]];
+    NSMutableURLRequest *req = [self authedRequestForPath:path method:@"DELETE" token:token body:nil];
+    [self runOKRequest:req fallback:@"删除会话失败" completion:completion];
+}
+
 /// 群接口路径：/api/v1/groups/{convID}{suffix}（convID 经 path 转义）。
 - (NSString *)groupPathFor:(NSString *)convID suffix:(NSString *)suffix {
     return [NSString stringWithFormat:@"/api/v1/groups/%@%@", [self pathEscape:convID], suffix];
@@ -507,6 +557,15 @@ static NSString *IMFriendlyNetworkError(NSError *error) {
           mimeType:(NSString *)mimeType
              token:(NSString *)token
         completion:(void (^)(NSString *, NSString *, NSError *))completion {
+    [self uploadData:data fileName:fileName mimeType:mimeType token:token progress:nil completion:completion];
+}
+
+- (void)uploadData:(NSData *)data
+          fileName:(NSString *)fileName
+          mimeType:(NSString *)mimeType
+             token:(NSString *)token
+          progress:(void (^)(double))progress
+        completion:(void (^)(NSString *, NSString *, NSError *))completion {
     NSURL *url = [self urlForPath:@"/api/v1/upload"];
     if (!url || data.length == 0) { [self callOnMain:^{ completion(nil, nil, [self errorWithMessage:@"无效的上传"]); }]; return; }
     NSString *boundary = [@"----IMBoundary" stringByAppendingString:NSUUID.UUID.UUIDString];
@@ -522,7 +581,7 @@ static NSString *IMFriendlyNetworkError(NSError *error) {
     [body appendData:data];
     [body appendData:[[NSString stringWithFormat:@"\r\n--%@--\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
     req.HTTPBody = body;
-    [self runRequest:req completion:^(NSDictionary *resp, NSError *error) {
+    [self runRequest:req progress:progress completion:^(NSDictionary *resp, NSError *error) {
         if (error) { completion(nil, nil, error); return; }
         if ([resp[@"code"] integerValue] != 0) { completion(nil, nil, [self errorWithMessage:[self messageFrom:resp fallback:@"上传失败"]]); return; }
         NSDictionary *d = [resp[@"data"] isKindOfClass:[NSDictionary class]] ? resp[@"data"] : @{};
@@ -550,6 +609,13 @@ static NSString *IMFriendlyNetworkError(NSError *error) {
 
 /// 执行请求并把统一响应解析成字典，主线程回调。
 - (void)runRequest:(NSURLRequest *)req completion:(void (^)(NSDictionary *body, NSError *error))completion {
+    [self runRequest:req progress:nil completion:completion];
+}
+
+/// runRequest 的带上行进度变体：progress 非空时挂 per-task delegate 取 didSendBodyData（上传专用）。
+- (void)runRequest:(NSURLRequest *)req
+          progress:(void (^)(double fraction))progress
+        completion:(void (^)(NSDictionary *body, NSError *error))completion {
     __weak typeof(self) weakSelf = self;
     NSURLSessionDataTask *task = [NSURLSession.sharedSession dataTaskWithRequest:req
                                                              completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
@@ -571,6 +637,11 @@ static NSString *IMFriendlyNetworkError(NSError *error) {
         }
         [self callOnMain:^{ completion(body, nil); }];
     }];
+    if (progress) {
+        IMUploadProgressBridge *bridge = [IMUploadProgressBridge new];
+        bridge.onProgress = progress;
+        if (@available(iOS 15.0, *)) { task.delegate = bridge; } // task 强持有 delegate，completionHandler 任务仍会收 didSendBodyData
+    }
     [task resume];
 }
 

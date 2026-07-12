@@ -131,6 +131,21 @@ BOOL IMIsAuthErrorCode(NSInteger code);
                         userID:(NSString *)userID
                     completion:(void (^)(NSError *_Nullable error))completion;
 
+#pragma mark - 会话管理（M4.5）
+
+/// 更新会话级设置（置顶/免打扰/标未读，整体替换）：PUT /api/v1/conversations/{id}/settings。completion 主线程回调。
+- (void)updateConversationSettingsWithToken:(NSString *)token
+                                     convID:(NSString *)convID
+                                   pinnedAt:(int64_t)pinnedAt
+                                      muted:(BOOL)muted
+                               markedUnread:(BOOL)markedUnread
+                                 completion:(void (^)(NSError *_Nullable error))completion;
+
+/// 删除会话（仅本人，记 cleared_at 不删消息）：DELETE /api/v1/conversations/{id}。completion 主线程回调。
+- (void)deleteConversationWithToken:(NSString *)token
+                             convID:(NSString *)convID
+                         completion:(void (^)(NSError *_Nullable error))completion;
+
 #pragma mark - 举报（AG-3）
 
 /// 举报（POST /api/v1/reports）。targetType=message|user|group；convID 可空。completion 在主线程回调。
@@ -163,11 +178,24 @@ BOOL IMIsAuthErrorCode(NSInteger code);
                 targetLang:(nullable NSString *)targetLang
                 completion:(void (^)(NSString *_Nullable translation, NSError *_Nullable error))completion;
 
+/// 链接富预览（OG 抓取）：GET /api/v1/link-preview?url=。回调返回 @{title,description,image,site_name}（主线程；失败 error）。
+- (void)linkPreviewWithToken:(NSString *)token
+                          url:(NSString *)url
+                   completion:(void (^)(NSDictionary *_Nullable preview, NSError *_Nullable error))completion;
+
 /// 上传图片/文件（M4-6）：multipart POST /api/v1/upload。回调返回 url + content_type（主线程）。
 - (void)uploadData:(NSData *)data
           fileName:(NSString *)fileName
           mimeType:(NSString *)mimeType
              token:(NSString *)token
+        completion:(void (^)(NSString *_Nullable url, NSString *_Nullable contentType, NSError *_Nullable error))completion;
+
+/// 带真实字节进度的上传（批量发图/视频的居中进度用）：progress 主线程回调 0..1。
+- (void)uploadData:(NSData *)data
+          fileName:(NSString *)fileName
+          mimeType:(NSString *)mimeType
+             token:(NSString *)token
+          progress:(nullable void (^)(double fraction))progress
         completion:(void (^)(NSString *_Nullable url, NSString *_Nullable contentType, NSError *_Nullable error))completion;
 
 @end

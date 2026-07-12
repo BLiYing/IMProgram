@@ -28,6 +28,9 @@
     c.readSeq = [dict[@"read_seq"] respondsToSelector:@selector(longLongValue)] ? [dict[@"read_seq"] longLongValue] : 0;
     c.peerReadSeq = [dict[@"peer_read_seq"] respondsToSelector:@selector(longLongValue)] ? [dict[@"peer_read_seq"] longLongValue] : 0;
     c.unread = [dict[@"unread"] respondsToSelector:@selector(integerValue)] ? [dict[@"unread"] integerValue] : 0;
+    c.pinnedAt = [dict[@"pinned_at"] respondsToSelector:@selector(longLongValue)] ? [dict[@"pinned_at"] longLongValue] : 0;
+    c.muted = [dict[@"muted"] respondsToSelector:@selector(boolValue)] && [dict[@"muted"] boolValue];
+    c.markedUnread = [dict[@"marked_unread"] respondsToSelector:@selector(boolValue)] && [dict[@"marked_unread"] boolValue];
 
     NSDictionary *last = [dict[@"last_message"] isKindOfClass:[NSDictionary class]] ? dict[@"last_message"] : nil;
     if (last) {

@@ -7,7 +7,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import <Photos/Photos.h>
 
-@interface IMMediaViewerViewController () <UIScrollViewDelegate>
+@interface IMMediaViewerViewController () <UIScrollViewDelegate, NSURLSessionDownloadDelegate>
 @end
 
 @implementation IMMediaViewerViewController {
@@ -31,6 +31,8 @@
     UILabel          *_timeLabel;
     UIButton         *_speedButton;
     UIButton         *_originalChip;
+    BOOL              _downloadingOriginal;  // 原视频下载中（chip 显示百分比，#1）
+    NSURLSession     *_originalSession;      // delegate 模式才有进度回调
     id                _timeObserver;
     BOOL              _started;    // 是否已首次播放
     BOOL              _scrubbing;
@@ -235,10 +237,89 @@
     if (_started && _player.rate > 0) { _player.rate = rate; }   // 仅播放中即时生效
 }
 
+/// 「查看原视频」（#1）：点击开始下载原始文件（chip 内显示百分比），完成后切换播放本地文件并隐藏 chip。
+/// 已缓存过 → 直接切本地播放并隐藏。
 - (void)tapOriginal {
-    // 本版本单一原始文件即最高清（无压缩变体），点击等价于开始播放原视频。
-    if (!_started) { [self togglePlayback]; }
-    else if (_player.rate == 0) { [self togglePlayback]; }
+    if (_downloadingOriginal) { return; }
+    NSURL *local = [self originalCacheURL];
+    if ([[NSFileManager defaultManager] fileExistsAtPath:local.path]) {
+        [self switchToLocalOriginal:local];
+        return;
+    }
+    NSURL *u = [NSURL URLWithString:_url];
+    if (!u) { return; }
+    _downloadingOriginal = YES;
+    [_originalChip setTitle:@"下载中 0%" forState:UIControlStateNormal];
+    _originalSession = [NSURLSession sessionWithConfiguration:NSURLSessionConfiguration.defaultSessionConfiguration
+                                                     delegate:self delegateQueue:NSOperationQueue.mainQueue];
+    [[_originalSession downloadTaskWithURL:u] resume];
+}
+
+/// 原视频本地缓存路径（Caches/im_original_videos/<url-hash>.mp4）。
+- (NSURL *)originalCacheURL {
+    NSString *dir = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject
+                     stringByAppendingPathComponent:@"im_original_videos"];
+    [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:NULL];
+    NSString *name = [NSString stringWithFormat:@"%lu.mp4", (unsigned long)_url.hash];
+    return [NSURL fileURLWithPath:[dir stringByAppendingPathComponent:name]];
+}
+
+/// 切到本地原视频继续播放（保持进度），并隐藏「查看原视频」chip。
+- (void)switchToLocalOriginal:(NSURL *)local {
+    CMTime pos = _player.currentTime;
+    BOOL wasPlaying = _player.rate > 0;
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:AVPlayerItemDidPlayToEndTimeNotification object:_player.currentItem];
+    AVPlayerItem *item = [AVPlayerItem playerItemWithURL:local];
+    [_player replaceCurrentItemWithPlayerItem:item];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(videoDidEnd)
+                                                 name:AVPlayerItemDidPlayToEndTimeNotification object:item];
+    if (CMTIME_IS_VALID(pos) && CMTimeGetSeconds(pos) > 0.1) {
+        [_player seekToTime:pos toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
+    }
+    if (wasPlaying || !_started) {
+        _started = YES; _poster.hidden = YES;
+        [_player play];
+        _player.rate = _speeds[_speedIdx].floatValue;
+        [self setPlaying:YES];
+    }
+    _originalChip.hidden = YES;
+    [self im_showToast:@"已切换为原视频"];
+}
+
+#pragma mark - NSURLSessionDownloadDelegate（原视频下载进度，#1）
+
+- (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)downloadTask
+      didWriteData:(int64_t)bytesWritten totalBytesWritten:(int64_t)totalBytesWritten
+totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
+    if (totalBytesExpectedToWrite <= 0) { return; }
+    int pct = (int)(totalBytesWritten * 100 / totalBytesExpectedToWrite);
+    [_originalChip setTitle:[NSString stringWithFormat:@"下载中 %d%%", pct] forState:UIControlStateNormal];
+}
+
+- (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)downloadTask
+didFinishDownloadingToURL:(NSURL *)location {
+    NSURL *dst = [self originalCacheURL];
+    [[NSFileManager defaultManager] removeItemAtURL:dst error:NULL];
+    NSError *mv = nil;
+    [[NSFileManager defaultManager] moveItemAtURL:location toURL:dst error:&mv];
+    _downloadingOriginal = NO;
+    [session finishTasksAndInvalidate];
+    _originalSession = nil;
+    if (mv) {
+        [_originalChip setTitle:@"查看原视频" forState:UIControlStateNormal];
+        [self im_showToast:@"下载失败"];
+        return;
+    }
+    [self switchToLocalOriginal:dst];
+}
+
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
+    if (!error) { return; } // 成功路径已在 didFinishDownloading 处理
+    _downloadingOriginal = NO;
+    [session finishTasksAndInvalidate];
+    _originalSession = nil;
+    [_originalChip setTitle:@"查看原视频" forState:UIControlStateNormal];
+    [self im_showToast:@"下载失败，请重试"];
 }
 
 #pragma mark - 通用控件（关闭 / 下载 / 媒体库 / 视频进度条）
@@ -279,6 +360,18 @@
             [_galleryButton.heightAnchor constraintEqualToConstant:44],
         ]];
         rightAnchorView = _galleryButton;
+    }
+    if (self.moreActions.count > 0) {
+        UIButton *more = [self circleButtonWithSymbol:@"ellipsis" pointSize:16];
+        [more addTarget:self action:@selector(showMoreSheet) forControlEvents:UIControlEventTouchUpInside];
+        [self.view addSubview:more];
+        [NSLayoutConstraint activateConstraints:@[
+            [more.trailingAnchor constraintEqualToAnchor:rightAnchorView.leadingAnchor constant:-14],
+            [more.centerYAnchor constraintEqualToAnchor:_downloadButton.centerYAnchor],
+            [more.widthAnchor constraintEqualToConstant:44],
+            [more.heightAnchor constraintEqualToConstant:44],
+        ]];
+        rightAnchorView = more;
     }
 
     if (!_isVideo) { return; }
@@ -368,6 +461,23 @@
     }] resume];
 }
 
+/// 「更多」底部面板：内置「下载」（不关查看器）+ 外部动作（先关查看器再执行，回到聊天页上下文）。
+- (void)showMoreSheet {
+    __weak typeof(self) ws = self;
+    NSMutableArray<IMBottomSheetItem *> *items = [NSMutableArray array];
+    [items addObject:[IMBottomSheetItem itemWithTitle:@"下载" symbol:@"arrow.down.to.line" handler:^{
+        [ws saveToAlbum];
+    }]];
+    for (IMBottomSheetItem *ext in self.moreActions) {
+        dispatch_block_t inner = ext.handler;
+        [items addObject:[IMBottomSheetItem itemWithTitle:ext.title symbol:ext.symbol handler:^{
+            __strong typeof(ws) self = ws;
+            [self dismissViewControllerAnimated:YES completion:^{ if (inner) { inner(); } }];
+        }]];
+    }
+    [IMBottomSheet showInView:self.view items:items];
+}
+
 - (void)openGallery {
     dispatch_block_t cb = _onOpenGallery;
     [self dismissViewControllerAnimated:YES completion:^{ if (cb) { cb(); } }];
@@ -429,7 +539,7 @@
 
 - (void)finishSave:(BOOL)success {
     dispatch_async(dispatch_get_main_queue(), ^{
-        _saving = NO;
+        self->_saving = NO;
         [self im_showToast:success ? @"已保存到相册" : @"保存失败"];
     });
 }
@@ -441,6 +551,7 @@
 - (void)dealloc {
     if (_timeObserver && _player) { [_player removeTimeObserver:_timeObserver]; }
     [[NSNotificationCenter defaultCenter] removeObserver:self];
+    [_originalSession invalidateAndCancel]; // 查看器关闭即取消进行中的原视频下载
     [_player pause];
 }
 

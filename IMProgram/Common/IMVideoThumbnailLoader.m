@@ -22,6 +22,10 @@
     return self;
 }
 
+- (void)cachePoster:(UIImage *)poster forURL:(NSString *)urlString {
+    if (poster && urlString.length > 0) { [_cache setObject:poster forKey:urlString]; }
+}
+
 - (void)loadPosterForVideoURL:(NSString *)urlString completion:(void (^)(UIImage *_Nullable))completion {
     if (!completion) { return; }
     if (urlString.length == 0) { completion(nil); return; }
