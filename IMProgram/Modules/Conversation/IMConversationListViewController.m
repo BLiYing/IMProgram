@@ -526,6 +526,12 @@ static CGFloat const kIMRowLeading = 16;
 
 /// 从会话列表进入：带 read_seq + unread + peer_read_seq，供聊天页定位未读分割线 + 可见即读起点 + 进会话即显对端已读（CHAT_UX §3/§6/§8）。
 - (void)openChatWithConversation:(IMConversation *)c {
+    // 进会话即清手动"标未读"（IM 通行做法：打开视为已处理）；经 conv_update 多端同步，返回列表 reload 取权威态。
+    if (c.markedUnread && self.token.length > 0) {
+        [IMHTTPService.sharedService updateConversationSettingsWithToken:self.token convID:c.convID
+            pinnedAt:c.pinnedAt muted:c.muted markedUnread:NO completion:^(NSError *error) { /* 忽略：返回时 viewWillAppear 会 reload */ }];
+        c.markedUnread = NO; // 本地即时置位，避免返回瞬间闪一下旧红点
+    }
     if (c.isGroup) {
         IMChatViewController *chat = [[IMChatViewController alloc] initWithHost:self.host userID:self.userID
                                                                     groupConvID:c.convID groupName:c.name
