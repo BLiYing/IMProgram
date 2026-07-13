@@ -33,6 +33,8 @@
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import "IMBottomSheet.h"
 
+NSNotificationName const IMChatConversationClearedNotification = @"IMChatConversationClearedNotification";
+
 #pragma mark - 引用/预览媒体占位辅助（M4-2 / #5）
 
 /// 媒体消息在「引用/预览」场景的简短占位（本地生成，用于输入预览条与本端即时快照）。
@@ -1470,6 +1472,16 @@ static void IMParseChatRecord(NSString *content, NSString **outTitle, NSArray<NS
                                                name:IMSocketDidApplyMsgOpNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onMsgOpRejected:)
                                                name:IMSocketDidRejectMsgOpNotification object:nil];
+    // 资料页清空聊天记录 → 本会话清空内存并刷新（否则返回聊天页仍显旧消息）。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onConversationCleared:)
+                                               name:IMChatConversationClearedNotification object:nil];
+}
+
+/// 会话历史被清空（资料页操作）：本会话则清空内存消息 + 刷新表。
+- (void)onConversationCleared:(NSNotification *)note {
+    if (![note.userInfo[kIMConvIDKey] isEqualToString:self.convID]) { return; }
+    [self.messages removeAllObjects];
+    [self.tableView reloadData];
 }
 
 /// 消息操作应用到某条消息：本会话则就地更新内存模型 + 刷新（撤回→墓碑，编辑→改文本）。
@@ -1650,6 +1662,8 @@ static void IMParseChatRecord(NSString *content, NSString **outTitle, NSArray<NS
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
+    // 聊天页始终显示导航栏——若从隐藏了导航栏的页面（如资料页 IMChatDetailViewController）跳入，这里恢复。
+    [self.navigationController setNavigationBarHidden:NO animated:animated];
     IMSocketManager.sharedManager.delegate = self;
     // 同步当前真实连接态：socket 通常在会话列表页就已连上，进本页不会再触发 didChangeState，
     // 若不主动拉一次，connState 会停在默认值 → 标题误显「未连接」。

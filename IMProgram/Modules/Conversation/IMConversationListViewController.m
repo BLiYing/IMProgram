@@ -278,7 +278,9 @@ static CGFloat const kIMRowLeading = 16;
     [plus setImage:[UIImage systemImageNamed:@"plus"
                           withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:20 weight:UIImageSymbolWeightSemibold]]
           forState:UIControlStateNormal];
-    plus.contentHorizontalAlignment = UIControlContentHorizontalAlignmentRight;
+    // 十字图标居中显示（原右对齐导致视觉偏移）；统一默认白色，与群聊列表右上角加号一致。
+    plus.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
+    plus.tintColor = UIColor.whiteColor;
     [plus addTarget:self action:@selector(plusTapped:) forControlEvents:UIControlEventTouchUpInside];
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithCustomView:plus];
 

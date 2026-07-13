@@ -194,13 +194,12 @@ typedef NS_ENUM(NSInteger, IMManageSection) {
     [self presentViewController:alert animated:YES completion:nil];
 }
 
-/// 设置群头像：相册选 1 张 → 上传 → 拿 URL 更新群资料。
+/// 设置群头像：相册选 1 张图片（仅图片、选完不弹发送表）→ 上传 → 拿 URL 更新群资料。
 - (void)pickAvatar {
     __weak typeof(self) ws = self;
-    [IMMediaPicker presentFromViewController:self limit:1 handlesCompletion:^(NSArray<IMPickedMediaHandle *> *handles) {
+    [IMMediaPicker presentImagePickerFromViewController:self limit:1 handlesCompletion:^(NSArray<IMPickedMediaHandle *> *handles) {
         IMPickedMediaHandle *h = handles.firstObject;
         if (!h) { return; }
-        if (h.isVideo) { [ws im_showToast:@"群头像仅支持图片"]; return; }
         [ws uploadAvatarHandle:h];
     }];
 }

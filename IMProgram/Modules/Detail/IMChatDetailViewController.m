@@ -248,7 +248,7 @@ static CGFloat const kPillsRowH = 78;
 @property (nonatomic, copy, nullable) NSString *peerNickname;
 @property (nonatomic, copy, nullable) NSString *peerAvatarURL;
 @property (nonatomic, assign) BOOL peerBlocked;
-@property (nonatomic, assign) BOOL cameFromGroupMember;   ///< 从群成员头像进入的个人资料页 → 操作排多显「消息」
+// showsMessagePill 已提升为公开属性（见 .h）：单聊从群成员/通讯录等外部进入时显示「消息」入口。
 // 群
 @property (nonatomic, copy, nullable) NSString *groupName;
 @property (nonatomic, strong, nullable) IMGroupInfo *group;
@@ -500,9 +500,10 @@ static CGFloat const kPillsRowH = 78;
     UIImage *chev = [UIImage systemImageNamed:@"chevron.backward"
                              withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:20 weight:UIImageSymbolWeightSemibold]];
     [self.backButton setImage:chev forState:UIControlStateNormal];
-    self.backButton.tintColor = IMTheme.accent;
+    // 全局白色（与首页/群聊列表右上加号一致）；下方 shadow halo 保证压在照片/浅底上也看得清。
+    self.backButton.tintColor = UIColor.whiteColor;
     self.backButton.layer.shadowColor = UIColor.blackColor.CGColor;
-    self.backButton.layer.shadowOpacity = 0.25; self.backButton.layer.shadowRadius = 3;
+    self.backButton.layer.shadowOpacity = 0.4; self.backButton.layer.shadowRadius = 3; // 白键需更强 halo，压浅底也清晰
     self.backButton.layer.shadowOffset = CGSizeMake(0, 1);
     [self.backButton addTarget:self action:@selector(goBack) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:self.backButton];
@@ -604,7 +605,8 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
     // 相机角标（群编辑头像入口；贴头像右下，吸附时淡出）。
     if (self.isGroup && !self.cameraBadge.hidden) {
         CGRect a = self.avatarView.frame;
-        self.cameraBadge.frame = CGRectMake(CGRectGetMaxX(a) - 30, CGRectGetMaxY(a) - 30, 30, 30);
+        CGFloat pad = 16; // 离照片右/下边留白，便于点击也更美观（原先贴边）
+        self.cameraBadge.frame = CGRectMake(CGRectGetMaxX(a) - 30 - pad, CGRectGetMaxY(a) - 30 - pad, 30, 30);
         self.cameraBadge.alpha = IMClamp(1 - q * 4, 0, 1);
     }
 
@@ -944,7 +946,7 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
     if (self.isGroup) {
         [specs addObject:@{@"t": @"搜索", @"s": @"magnifyingglass", @"a": @"search"}];
     } else {
-        if (self.cameFromGroupMember) { // 从群成员进 → 多显「消息」（发起单聊）
+        if (self.showsMessagePill) { // 从群成员/通讯录进 → 多显「消息」（发起单聊）
             [specs addObject:@{@"t": @"消息", @"s": @"bubble.right.fill", @"a": @"message"}];
         }
         [specs addObject:@{@"t": @"呼叫", @"s": @"phone.fill", @"a": @"call"}];       // 语音通话
@@ -1165,7 +1167,7 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
                                                                                     peerID:m.userID
                                                                               peerNickname:m.displayName
                                                                              peerAvatarURL:m.avatarURL];
-    vc.cameFromGroupMember = YES; // 从群成员进 → 操作排显「消息」
+    vc.showsMessagePill = YES; // 从群成员进 → 操作排显「消息」
     [self.navigationController pushViewController:vc animated:YES];
 }
 
@@ -1253,6 +1255,9 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
         [IMDatabase.sharedDatabase clearMessagesForConv:self.convID];
         [self rebuildTabs];
         [self.tableView reloadData];
+        // 通知底层聊天页清空内存并刷新（否则返回聊天页仍显旧消息）。
+        [NSNotificationCenter.defaultCenter postNotificationName:IMChatConversationClearedNotification
+                                                          object:nil userInfo:@{kIMConvIDKey: self.convID}];
         [self im_showToast:@"聊天记录已清空"];
     }];
 }

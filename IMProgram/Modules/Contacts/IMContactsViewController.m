@@ -4,7 +4,7 @@
 #import "IMUserSearchViewController.h"
 #import "IMGroupListViewController.h"
 #import "IMContactCells.h"
-#import "IMChatViewController.h"
+#import "IMChatDetailViewController.h"
 #import "IMHTTPService.h"
 #import "IMSocketManager.h"
 #import "IMUserCard.h"
@@ -232,12 +232,17 @@
     }];
 }
 
-- (void)openChatWithPeer:(NSString *)peerID {
-    if (peerID.length == 0 || [peerID isEqualToString:self.userID]) { return; }
-    // 从通讯录进入等同"发起会话"：无已读位点/未读/对端已读位点，聊天页自行向服务端同步。
-    IMChatViewController *chat = [[IMChatViewController alloc] initWithHost:self.host userID:self.userID
-                                                                    peerID:peerID readSeq:0 unread:0 peerReadSeq:0];
-    [self.navigationController pushViewController:chat animated:YES];
+/// 点好友行 → 进对方资料页（IMChatDetailViewController），再由资料页「消息」发起聊天。
+/// 全端统一：点成员/好友一律先进资料页，不直接进聊天页（微信式）。见 [[improgram-tap-member-opens-detail]]。
+- (void)openPeerDetail:(IMUserCard *)card {
+    if (card.userID.length == 0 || [card.userID isEqualToString:self.userID]) { return; }
+    IMChatDetailViewController *detail =
+        [[IMChatDetailViewController alloc] initSingleWithHost:self.host userID:self.userID
+                                                        peerID:card.userID
+                                                  peerNickname:card.displayName
+                                                 peerAvatarURL:card.avatarURL];
+    detail.showsMessagePill = YES; // 通讯录进资料页：提供「消息」入口发起单聊
+    [self.navigationController pushViewController:detail animated:YES];
 }
 
 - (void)showError:(NSString *)message {
@@ -321,7 +326,7 @@
         return;
     }
     if ([self isRequestsSection:indexPath.section]) { return; } // 申请行靠按钮操作，不整行点击
-    [self openChatWithPeer:self.accepted[indexPath.row].userID];
+    [self openPeerDetail:self.accepted[indexPath.row]];
 }
 
 /// 好友行左滑：删除好友 / 拉黑或解除拉黑（入口行/申请行不提供）。

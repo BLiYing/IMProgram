@@ -6,6 +6,9 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+/// 会话历史被清空（资料页「清空聊天记录」）→ 聊天页据此清空内存并刷新。userInfo[kIMConvIDKey]=会话 id。
+extern NSNotificationName const IMChatConversationClearedNotification;
+
 @interface IMChatViewController : UIViewController
 
 /// host 形如 "localhost:8080"；userID 我方 uid；peerID 对方 uid。

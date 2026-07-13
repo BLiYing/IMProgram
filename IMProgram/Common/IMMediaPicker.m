@@ -220,6 +220,8 @@ static UIImage *IMPickerDownscale(UIImage *src, CGFloat maxSide) {
     __weak UIViewController *_host;
     void (^_completion)(NSArray<IMPickedMediaHandle *> *);
     NSArray<PHPickerResult *> *_results;
+    BOOL _imagesOnly;       // 仅图片（头像场景）
+    BOOL _skipSendPrompt;   // 选完不弹「发送 / 原图」，直接压缩回调
 }
 
 static IMMediaPicker *gActivePicker; // 会话期间自持有（PHPicker delegate 是弱引用）
@@ -227,16 +229,34 @@ static IMMediaPicker *gActivePicker; // 会话期间自持有（PHPicker delegat
 + (void)presentFromViewController:(UIViewController *)host
                             limit:(NSInteger)limit
                 handlesCompletion:(void (^)(NSArray<IMPickedMediaHandle *> *))completion {
+    [self presentFromViewController:host limit:limit imagesOnly:NO skipSendPrompt:NO handlesCompletion:completion];
+}
+
++ (void)presentImagePickerFromViewController:(UIViewController *)host
+                                       limit:(NSInteger)limit
+                           handlesCompletion:(void (^)(NSArray<IMPickedMediaHandle *> *))completion {
+    [self presentFromViewController:host limit:limit imagesOnly:YES skipSendPrompt:YES handlesCompletion:completion];
+}
+
++ (void)presentFromViewController:(UIViewController *)host
+                            limit:(NSInteger)limit
+                       imagesOnly:(BOOL)imagesOnly
+                   skipSendPrompt:(BOOL)skipSendPrompt
+                handlesCompletion:(void (^)(NSArray<IMPickedMediaHandle *> *))completion {
     IMMediaPicker *p = [IMMediaPicker new];
     p->_host = host;
     p->_completion = [completion copy];
+    p->_imagesOnly = imagesOnly;
+    p->_skipSendPrompt = skipSendPrompt;
     gActivePicker = p;
 
     PHPickerConfiguration *cfg = [[PHPickerConfiguration alloc] init]; // 不带 photoLibrary：免相册权限（进程外选择器）
     cfg.selectionLimit = limit;
-    cfg.filter = [PHPickerFilter anyFilterMatchingSubfilters:@[PHPickerFilter.imagesFilter,
-                                                               PHPickerFilter.livePhotosFilter,
-                                                               PHPickerFilter.videosFilter]];
+    cfg.filter = imagesOnly
+        ? PHPickerFilter.imagesFilter // 头像：仅图片，视频不可见
+        : [PHPickerFilter anyFilterMatchingSubfilters:@[PHPickerFilter.imagesFilter,
+                                                        PHPickerFilter.livePhotosFilter,
+                                                        PHPickerFilter.videosFilter]];
     PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:cfg];
     picker.delegate = p;
     [host presentViewController:picker animated:YES completion:nil];
@@ -256,6 +276,9 @@ static IMMediaPicker *gActivePicker; // 会话期间自持有（PHPicker delegat
     [picker dismissViewControllerAnimated:YES completion:nil];
     if (results.count == 0) { [self finishWithHandles:@[]]; return; }
     _results = results;
+
+    // 头像等单图场景：不弹「发送 / 原图」，直接压缩回调（选一张即完成设置）。
+    if (_skipSendPrompt) { [self buildHandlesOriginal:NO]; return; }
 
     // 微信式「原图」选择：PHPicker 无内置勾选，选完后弹一次（对全部所选生效）。
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:nil

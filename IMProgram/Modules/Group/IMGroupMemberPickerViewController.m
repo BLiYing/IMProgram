@@ -7,7 +7,8 @@
 #import "IMTheme.h"
 #import "IMLog.h"
 
-@interface IMGroupMemberPickerViewController () <UITableViewDataSource, UITableViewDelegate>
+@interface IMGroupMemberPickerViewController () <UITableViewDataSource, UITableViewDelegate, UIGestureRecognizerDelegate>
+@property (nonatomic, weak) id<UIGestureRecognizerDelegate> savedPopDelegate; // 边缘滑返回原委托，离开时还原
 @property (nonatomic, copy) NSString *host;
 @property (nonatomic, copy) NSString *userID;
 @property (nonatomic, strong, nullable) NSSet<NSString *> *excludedIDs;
@@ -47,6 +48,10 @@
         [[UIBarButtonItem alloc] initWithTitle:self.confirmTitle style:UIBarButtonItemStyleDone
                                         target:self action:@selector(confirmTapped)];
     self.navigationItem.rightBarButtonItem.enabled = NO; // 至少选 1 个才可确认
+    // 自绘返回键：系统返回键长按会弹「导航历史菜单」，这里改成普通点击直接返回上一页（无菜单）。
+    UIImage *chev = [UIImage systemImageNamed:@"chevron.backward"];
+    self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithImage:chev
+        style:UIBarButtonItemStylePlain target:self action:@selector(backTapped)];
 
     self.tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStylePlain];
     self.tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -69,6 +74,24 @@
     ]];
 
     [self reload];
+}
+
+- (void)backTapped { [self.navigationController popViewControllerAnimated:YES]; }
+
+// 自绘 leftBarButtonItem 会禁用系统边缘滑返回——接管其手势委托恢复滑动，离开本页时还原原委托。
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    UIGestureRecognizer *pop = self.navigationController.interactivePopGestureRecognizer;
+    self.savedPopDelegate = pop.delegate;
+    pop.delegate = self;
+    pop.enabled = YES;
+}
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    self.navigationController.interactivePopGestureRecognizer.delegate = self.savedPopDelegate;
+}
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)g {
+    return self.navigationController.viewControllers.count > 1;
 }
 
 /// 拉好友列表（accepted），排除 excludedIDs。

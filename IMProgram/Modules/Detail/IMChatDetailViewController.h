@@ -28,6 +28,10 @@ NS_ASSUME_NONNULL_BEGIN
                        groupName:(nullable NSString *)groupName
                   groupAvatarURL:(nullable NSString *)groupAvatarURL;
 
+/// 单聊：是否在操作排显示「消息」入口。从聊天页右上头像进入=NO（已在该聊天里，重复）；
+/// 从群成员/通讯录等外部进入=YES（需提供进入单聊的入口）。默认 NO。
+@property (nonatomic, assign) BOOL showsMessagePill;
+
 - (instancetype)init NS_UNAVAILABLE;
 - (instancetype)initWithNibName:(nullable NSString *)n bundle:(nullable NSBundle *)b NS_UNAVAILABLE;
 - (instancetype)initWithCoder:(NSCoder *)c NS_UNAVAILABLE;

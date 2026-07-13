@@ -38,6 +38,12 @@ extern const long long kIMMaxVideoBytes; // 视频体积上限（与服务端 10
                             limit:(NSInteger)limit
                 handlesCompletion:(void (^)(NSArray<IMPickedMediaHandle *> *handles))completion;
 
+/// 头像/单图场景：**仅显示图片**（无视频）、选完**不弹「发送 / 原图」动作表**，直接回调（压缩后句柄）。
+/// limit=1 时选一张即自动关闭选择器并回调 → 调用方直接上传设头像。用户取消 → 空数组。
++ (void)presentImagePickerFromViewController:(UIViewController *)host
+                                       limit:(NSInteger)limit
+                           handlesCompletion:(void (^)(NSArray<IMPickedMediaHandle *> *handles))completion;
+
 @end
 
 NS_ASSUME_NONNULL_END
