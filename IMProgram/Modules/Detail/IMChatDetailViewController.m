@@ -265,8 +265,7 @@ static CGFloat const kPillsRowH = 78;
 @property (nonatomic, strong) UIButton *cameraBadge;  ///< 群主/管理员设群头像入口
 @property (nonatomic, strong) UIVisualEffectView *collapsedBar; ///< 折叠态顶栏（blur）
 @property (nonatomic, strong) UILabel *collapsedTitle;
-@property (nonatomic, strong) UIButton *backButton;
-@property (nonatomic, strong) UIVisualEffectView *backGlass; ///< 返回键圆形玻璃底（匹配系统新版返回键）
+@property (nonatomic, strong) UIButton *backButton; ///< 仿 Telegram：白 chevron + 50% 黑圆底，折叠时圆淡出
 // 页签
 @property (nonatomic, strong) UISegmentedControl *segmented;
 @property (nonatomic, strong) UIView *stickyBar;               ///< 页签滚到顶时的悬浮吸顶条（透明，仅托分段控件）
@@ -366,15 +365,11 @@ static CGFloat const kPillsRowH = 78;
     CGFloat barH = self.topInset + 44;
     self.collapsedBar.frame = CGRectMake(0, 0, W, barH);
     self.collapsedTitle.frame = CGRectMake(60, self.topInset, W - 120, 44);
-    // 圆形返回键：leading ~系统边距、垂直居中于导航区；chevron 居中于 36pt 玻璃圆（匹配系统新版）。
-    // 玻璃与按钮是兄弟视图，两者用同一 rect（不能用 bounds，否则玻璃会跑到左上角）。
+    // 返回键：leading ~系统边距、垂直居中于导航区；chevron 居中于 36pt 圆（仿 Telegram）。
     CGFloat backD = 36;
-    CGRect backRect = CGRectMake(8, self.topInset + (44 - backD) / 2, backD, backD);
-    self.backButton.frame = backRect;
+    self.backButton.frame = CGRectMake(8, self.topInset + (44 - backD) / 2, backD, backD);
     self.backButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
-    self.backGlass.frame = backRect;
-    self.backGlass.layer.cornerRadius = backD / 2;
-    self.backGlass.clipsToBounds = YES;
+    self.backButton.layer.cornerRadius = backD / 2;
     self.stickyBar.frame = CGRectMake(0, barH, W, 44);
     [self layoutSegmented:self.stickySeg inWidth:W];
     [self syncScrollInset];
@@ -502,20 +497,17 @@ static CGFloat const kPillsRowH = 78;
 
     // 返回键（自绘，因导航栏隐藏）——与系统默认返回按钮**同款外观**：裸 chevron.backward、accent 色、无圆底，
     // 加一层淡阴影保证压在照片上也看得清。
-    // 圆形玻璃底：**独立视图垫在按钮之下**（不塞进按钮内部，否则模糊会盖住 chevron）。
-    // 匹配系统新版返回键的"chevron 居中于半透明模糊圆"。
-    self.backGlass = [[UIVisualEffectView alloc] initWithEffect:
-                      [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemThinMaterial]];
-    self.backGlass.userInteractionEnabled = NO;
-    [self.view addSubview:self.backGlass];
-
+    // 仿 Telegram 照片上的返回键：白 chevron + 50% 黑圆底（源码 UIColor(white:0, alpha:0.5)）。
+    // 圆底直接做在按钮上（不再用模糊层，避免盖住 chevron）；折叠时圆底在 applyHeaderMorph 里淡出。
     self.backButton = [UIButton buttonWithType:UIButtonTypeSystem];
     UIImage *chev = [UIImage systemImageNamed:@"chevron.backward"
                              withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:18 weight:UIImageSymbolWeightSemibold]];
     [self.backButton setImage:chev forState:UIControlStateNormal];
-    self.backButton.tintColor = UIColor.whiteColor; // 白 chevron，浮在玻璃圆之上
+    self.backButton.tintColor = UIColor.whiteColor;
+    self.backButton.backgroundColor = [UIColor colorWithWhite:0 alpha:0.5];
+    self.backButton.layer.masksToBounds = YES;
     [self.backButton addTarget:self action:@selector(goBack) forControlEvents:UIControlEventTouchUpInside];
-    [self.view addSubview:self.backButton]; // 加在玻璃之后 → 在其上层
+    [self.view addSubview:self.backButton];
 }
 
 - (UILabel *)makeNameLabel:(CGFloat)size color:(UIColor *)color shadow:(BOOL)shadow {
@@ -619,7 +611,9 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
         self.cameraBadge.alpha = IMClamp(1 - q * 4, 0, 1);
     }
 
-    self.collapsedBar.alpha = IMClamp((q - 0.6) / 0.4, 0, 1); // 折叠顶栏淡入
+    CGFloat collapse = IMClamp((q - 0.6) / 0.4, 0, 1);
+    self.collapsedBar.alpha = collapse; // 折叠顶栏淡入
+    self.backButton.backgroundColor = [UIColor colorWithWhite:0 alpha:0.5 * (1 - collapse)]; // 仿 Telegram：折叠时黑圆淡出（顶栏 blur 已提供对比）
     [self fireHapticsForPhase:q hasPhoto:self.hasPhoto phaseP:p];
 }
 
