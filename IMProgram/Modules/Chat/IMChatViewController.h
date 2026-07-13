@@ -27,6 +27,13 @@ NS_ASSUME_NONNULL_BEGIN
                      readSeq:(int64_t)readSeq
                       unread:(NSInteger)unread;
 
+/// 单聊对端资料（会话列表进入时透传，供右上信息按钮打开的资料页显示昵称/头像；可空回退 uid）。群聊忽略。
+@property (nonatomic, copy, nullable) NSString *peerNickname;
+@property (nonatomic, copy, nullable) NSString *peerAvatarURL;
+
+/// 群头像（会话列表进入时透传，供右上头像按钮**立即显真头像、免闪首字母**；空则回退首字母，进入后 reloadGroupInfo 补正）。
+@property (nonatomic, copy, nullable) NSString *groupAvatarURL;
+
 - (instancetype)init NS_UNAVAILABLE;
 - (instancetype)initWithNibName:(nullable NSString *)nibNameOrNil bundle:(nullable NSBundle *)nibBundleOrNil NS_UNAVAILABLE;
 - (instancetype)initWithCoder:(NSCoder *)coder NS_UNAVAILABLE;

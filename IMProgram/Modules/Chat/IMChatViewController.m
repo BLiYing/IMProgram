@@ -19,6 +19,7 @@
 #import "IMUserCard.h"
 #import "IMGroupInfo.h"
 #import "IMGroupInfoViewController.h"
+#import "IMChatDetailViewController.h"
 #import "IMProtocol.h"
 #import "IMMessageModel.h"
 #import "IMDatabase.h"
@@ -1450,16 +1451,17 @@ static void IMParseChatRecord(NSString *content, NSString **outTitle, NSArray<NS
     self.view.backgroundColor = UIColor.systemBackgroundColor;
     if (self.isGroupChat) {
         [self updateTitle];
-        // 右上 ⓘ 进群资料页（成员/邀请/退群/管理）。
-        self.navigationItem.rightBarButtonItem =
-            [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"info.circle"]
-                                             style:UIBarButtonItemStylePlain target:self action:@selector(groupInfoTapped)];
+        // 右上=群头像圆按钮进群资料页（列表透传的头像立即显真图、免闪首字母；群资料加载后再补正）。
+        [self installInfoAvatarButtonWithURL:self.groupAvatarURL seed:self.convID name:self.groupName action:@selector(groupInfoTapped)];
         [self reloadGroupInfo];
         // 群变更（邀请/移除/退群/转让/改名）→ 刷新标题/群资料；被移出 → 提示并退出本页。
         [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onGroupEvent:)
                                                    name:IMSocketDidReceiveGroupEventNotification object:nil];
     } else {
         self.title = [NSString stringWithFormat:@"与 %@ 聊天", self.peerID];
+        // 右上=对方头像圆按钮进单聊资料页。
+        NSString *name = self.peerNickname.length ? self.peerNickname : self.peerID;
+        [self installInfoAvatarButtonWithURL:self.peerAvatarURL seed:self.peerID name:name action:@selector(singleInfoTapped)];
     }
     [self setupUI];
     [self observeKeyboard];
@@ -1507,15 +1509,66 @@ static void IMParseChatRecord(NSString *content, NSString **outTitle, NSArray<NS
         self.groupInfo = group;
         self.groupName = group.name;
         [self updateTitle];
+        // 群头像加载后刷新右上圆按钮。
+        [self installInfoAvatarButtonWithURL:group.avatarURL seed:self.convID name:group.name action:@selector(groupInfoTapped)];
         [self.tableView reloadData]; // 昵称回退可能变化（老消息无 from_nickname 时用成员表）
     }];
 }
 
+/// 右上圆头像按钮（单聊对方 / 群聊群头像），点击进资料页。**全 frame-based**（32×32 固定圆）：
+/// 首字母底 + 图片都是 frame 定尺子视图，不用约束（导航栏自定义视图 + 约束图易被压成 0/异形）。
+- (void)installInfoAvatarButtonWithURL:(nullable NSString *)url seed:(NSString *)seed
+                                  name:(nullable NSString *)name action:(SEL)action {
+    CGFloat d = 32;
+    UIButton *b = [UIButton buttonWithType:UIButtonTypeCustom];
+    b.frame = CGRectMake(0, 0, d, d);
+    b.layer.cornerRadius = d / 2; b.layer.masksToBounds = YES;
+    b.backgroundColor = [IMTheme avatarColorForSeed:seed];
+    [b addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
+
+    UILabel *letter = [[UILabel alloc] initWithFrame:b.bounds];
+    letter.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    letter.textAlignment = NSTextAlignmentCenter; letter.textColor = UIColor.whiteColor;
+    letter.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+    NSString *dn = name.length ? name : seed;
+    letter.text = dn.length >= 2 ? [dn substringFromIndex:dn.length - 2] : dn;
+    letter.userInteractionEnabled = NO;
+    [b addSubview:letter];
+
+    UIImageView *img = [[UIImageView alloc] initWithFrame:b.bounds];
+    img.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    img.contentMode = UIViewContentModeScaleAspectFill; img.clipsToBounds = YES;
+    img.userInteractionEnabled = NO; img.hidden = YES;
+    [b addSubview:img];
+
+    NSString *full = url.length ? [self fullMediaURL:url] : @"";
+    if (full.length) {
+        [[IMImageLoader shared] loadImageURL:full completion:^(UIImage *i) {
+            if (!i) { return; }
+            img.image = i; img.frame = b.bounds; img.hidden = NO;
+        }];
+    }
+    UIBarButtonItem *item = [[UIBarButtonItem alloc] initWithCustomView:b];
+    self.navigationItem.rightBarButtonItem = item;
+}
+
 - (void)groupInfoTapped {
-    IMGroupInfoViewController *info = [[IMGroupInfoViewController alloc] initWithHost:self.host
-                                                                               userID:self.userID
-                                                                               convID:self.convID];
-    [self.navigationController pushViewController:info animated:YES];
+    IMChatDetailViewController *detail = [[IMChatDetailViewController alloc] initGroupWithHost:self.host
+                                                                                       userID:self.userID
+                                                                                       convID:self.convID
+                                                                                    groupName:self.groupName
+                                                                               groupAvatarURL:self.groupInfo.avatarURL];
+    [self.navigationController pushViewController:detail animated:YES];
+}
+
+/// 单聊右上信息 → 资料页（透传对端昵称/头像；备注名优先本地覆盖，由资料页读取）。
+- (void)singleInfoTapped {
+    IMChatDetailViewController *detail = [[IMChatDetailViewController alloc] initSingleWithHost:self.host
+                                                                                        userID:self.userID
+                                                                                        peerID:self.peerID
+                                                                                  peerNickname:self.peerNickname
+                                                                                 peerAvatarURL:self.peerAvatarURL];
+    [self.navigationController pushViewController:detail animated:YES];
 }
 
 /// 群变更事件：本群则刷新资料；自己被移出 → 提示并退出本页。

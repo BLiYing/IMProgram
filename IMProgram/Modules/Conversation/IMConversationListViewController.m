@@ -13,6 +13,8 @@
 #import "UIViewController+IMToast.h"
 #import "IMTheme.h"
 #import "UILabel+IMAvatar.h"
+#import "IMMediaUtil.h"
+#import "IMPopoverCard.h"
 #import "IMLog.h"
 #import "IMUserSearchViewController.h"
 #import "IMGroupMemberPickerViewController.h"
@@ -24,7 +26,7 @@ static CGFloat const kIMAvatarSize = 52;
 static CGFloat const kIMRowLeading = 16;
 
 @interface IMConversationCell : UITableViewCell
-- (void)configureWithConversation:(IMConversation *)c mine:(BOOL)mine;
+- (void)configureWithConversation:(IMConversation *)c mine:(BOOL)mine host:(NSString *)host;
 @end
 
 @implementation IMConversationCell {
@@ -133,7 +135,7 @@ static CGFloat const kIMRowLeading = 16;
     return self;
 }
 
-- (void)configureWithConversation:(IMConversation *)c mine:(BOOL)mine {
+- (void)configureWithConversation:(IMConversation *)c mine:(BOOL)mine host:(NSString *)host {
     // 撤回预览（M4-1，后端已脱敏 content）：优先显示"撤回了一条消息"，不加"昵称:"前缀（微信式）。
     NSString *recalledPreview = nil;
     if (c.lastRecalled) {
@@ -150,7 +152,8 @@ static CGFloat const kIMRowLeading = 16;
     if (c.isGroup) {
         // 群项：群名/群头像；预览"昵称: 内容"；不显示 presence/✓✓（群无对端已读位点）。
         NSString *display = c.name.length > 0 ? c.name : @"群聊";
-        [_avatar im_setAvatarURL:c.avatarURL seed:c.convID displayName:display];
+        // 群头像可能是 /uploads 相对路径 → 补 host 成绝对 URL，否则 IMImageLoader 加载不了、只显首字母。
+        [_avatar im_setAvatarURL:IMMediaFullURL(c.avatarURL, host) seed:c.convID displayName:display];
         _name.text = display;
         if (recalledPreview) {
             _last.text = recalledPreview;
@@ -162,7 +165,8 @@ static CGFloat const kIMRowLeading = 16;
         }
     } else {
         NSString *display = c.peerNickname.length ? c.peerNickname : c.peer; // 显示名/首字母与通讯录一致
-        [_avatar im_setAvatarURL:c.peerAvatarURL seed:c.peer displayName:display]; // 有头像渲图，否则首字母圈
+        // 对端头像同理补 host（data:/http 原样返回，相对路径补全）。
+        [_avatar im_setAvatarURL:IMMediaFullURL(c.peerAvatarURL, host) seed:c.peer displayName:display]; // 有头像渲图，否则首字母圈
         _name.text = display;
         _last.text = recalledPreview ?: (c.lastContent.length > 0 ? c.lastContent : @"（无消息）");
     }
@@ -268,9 +272,15 @@ static CGFloat const kIMRowLeading = 16;
     [super viewDidLoad];
     self.title = @"会话";
     self.view.backgroundColor = UIColor.systemBackgroundColor;
-    // 右上角 ＋：点击在按钮正下方弹出菜单（UIMenu，系统锚定+箭头），三项——新建群聊 / 添加好友 / 扫一扫。
-    self.navigationItem.rightBarButtonItem =
-        [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"plus"] menu:[self composeMenu]];
+    // 右上角 ＋：自绘卡片（IMPopoverCard）在按钮正下方弹出——新建群聊 / 添加好友 / 扫一扫。
+    UIButton *plus = [UIButton buttonWithType:UIButtonTypeSystem];
+    plus.frame = CGRectMake(0, 0, 40, 40);
+    [plus setImage:[UIImage systemImageNamed:@"plus"
+                          withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:20 weight:UIImageSymbolWeightSemibold]]
+          forState:UIControlStateNormal];
+    plus.contentHorizontalAlignment = UIControlContentHorizontalAlignmentRight;
+    [plus addTarget:self action:@selector(plusTapped:) forControlEvents:UIControlEventTouchUpInside];
+    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithCustomView:plus];
 
     self.tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStylePlain];
     self.tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -442,19 +452,15 @@ static CGFloat const kIMRowLeading = 16;
 
 #pragma mark - 交互
 
-/// 右上角 ＋ 的下拉菜单：新建群聊 / 添加好友 / 扫一扫（扫一扫待开发，先占位提示）。
-- (UIMenu *)composeMenu {
-    __weak typeof(self) weakSelf = self;
-    UIAction *newGroup = [UIAction actionWithTitle:@"新建群聊"
-        image:[UIImage systemImageNamed:@"person.3"] identifier:nil
-        handler:^(__kindof UIAction *a) { [weakSelf startNewGroup]; }];
-    UIAction *addFriend = [UIAction actionWithTitle:@"添加好友"
-        image:[UIImage systemImageNamed:@"person.badge.plus"] identifier:nil
-        handler:^(__kindof UIAction *a) { [weakSelf openAddFriend]; }];
-    UIAction *scan = [UIAction actionWithTitle:@"扫一扫"
-        image:[UIImage systemImageNamed:@"qrcode.viewfinder"] identifier:nil
-        handler:^(__kindof UIAction *a) { [weakSelf im_showToast:@"扫一扫功能开发中"]; }];
-    return [UIMenu menuWithTitle:@"" children:@[newGroup, addFriend, scan]];
+/// 右上角 ＋ 自绘卡片：新建群聊 / 添加好友 / 扫一扫（与详情「更多」同款 IMPopoverCard，锚按钮正下方）。
+- (void)plusTapped:(UIButton *)anchor {
+    __weak typeof(self) ws = self;
+    NSArray<IMPopoverCardItem *> *items = @[
+        [IMPopoverCardItem itemWithTitle:@"新建群聊" symbol:@"person.3" destructive:NO handler:^{ [ws startNewGroup]; }],
+        [IMPopoverCardItem itemWithTitle:@"添加好友" symbol:@"person.badge.plus" destructive:NO handler:^{ [ws openAddFriend]; }],
+        [IMPopoverCardItem itemWithTitle:@"扫一扫" symbol:@"qrcode.viewfinder" destructive:NO handler:^{ [ws im_showToast:@"扫一扫功能开发中"]; }],
+    ];
+    [IMPopoverCard presentFromAnchor:anchor inHostView:self.view items:items];
 }
 
 /// 新建群聊：选好友 → 起群名 → 建群 → 直接进入新群会话（复用通讯录群聊页同一流程）。
@@ -536,6 +542,7 @@ static CGFloat const kIMRowLeading = 16;
         IMChatViewController *chat = [[IMChatViewController alloc] initWithHost:self.host userID:self.userID
                                                                     groupConvID:c.convID groupName:c.name
                                                                         readSeq:c.readSeq unread:c.unread];
+        chat.groupAvatarURL = c.avatarURL; // 透传群头像，右上按钮立即显真图、免闪首字母
         [self.navigationController pushViewController:chat animated:YES];
         return;
     }
@@ -543,6 +550,9 @@ static CGFloat const kIMRowLeading = 16;
     IMChatViewController *chat = [[IMChatViewController alloc] initWithHost:self.host userID:self.userID
                                                                     peerID:c.peer readSeq:c.readSeq unread:c.unread
                                                                peerReadSeq:c.peerReadSeq];
+    // 透传对端昵称/头像，供聊天页右上信息按钮打开的资料页显示。
+    chat.peerNickname = c.peerNickname;
+    chat.peerAvatarURL = c.peerAvatarURL;
     [self.navigationController pushViewController:chat animated:YES];
 }
 
@@ -555,7 +565,7 @@ static CGFloat const kIMRowLeading = 16;
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     IMConversationCell *cell = [tableView dequeueReusableCellWithIdentifier:@"conv" forIndexPath:indexPath];
     IMConversation *c = self.conversations[indexPath.row];
-    [cell configureWithConversation:c mine:[c.lastFrom isEqualToString:self.userID]];
+    [cell configureWithConversation:c mine:[c.lastFrom isEqualToString:self.userID] host:self.host];
     return cell;
 }
 

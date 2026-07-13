@@ -33,12 +33,15 @@ static const void *kIMAvatarTokenKey = &kIMAvatarTokenKey;
         objc_setAssociatedObject(self, kIMAvatarImageViewKey, iv, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
     iv.layer.cornerRadius = self.layer.cornerRadius; // 跟随 label 已设的圆角
-    iv.image = nil;
-    iv.hidden = YES;
-
     // 3) cell 复用安全：每次配置自增 token，异步回调只认最新 token。
     NSUInteger token = [objc_getAssociatedObject(self, kIMAvatarTokenKey) unsignedIntegerValue] + 1;
     objc_setAssociatedObject(self, kIMAvatarTokenKey, @(token), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+    // 命中内存缓存 → 直接同步显图，**不先清空回退首字母**（消除 reloadData 逐格闪动）。
+    UIImage *cached = url.length ? [[IMImageLoader shared] cachedImageForURL:url] : nil;
+    if (cached) { iv.image = cached; iv.hidden = NO; return; }
+    iv.image = nil;
+    iv.hidden = YES;
 
     if (url.length == 0) { return; }
     __weak typeof(self) ws = self;

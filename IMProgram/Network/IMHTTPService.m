@@ -424,6 +424,13 @@ static NSString *IMFriendlyNetworkError(NSError *error) {
     [self runOKRequest:req fallback:@"转让失败" completion:completion];
 }
 
+- (void)dissolveGroupWithToken:(NSString *)token convID:(NSString *)convID
+                    completion:(void (^)(NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@""]
+                                                   method:@"DELETE" token:token body:nil];
+    [self runOKRequest:req fallback:@"解散失败" completion:completion];
+}
+
 #pragma mark - 会话管理（M4.5）
 
 - (void)updateConversationSettingsWithToken:(NSString *)token convID:(NSString *)convID

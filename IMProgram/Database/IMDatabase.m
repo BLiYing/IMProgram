@@ -171,6 +171,17 @@
     }];
 }
 
+- (NSInteger)clearMessagesForConv:(NSString *)convID {
+    if (convID.length == 0) { return 0; }
+    __block NSInteger removed = 0;
+    [_queue inDatabase:^(FMDatabase *db) {
+        if ([db executeUpdate:@"DELETE FROM im_message_local WHERE conv_id=?", convID]) {
+            removed = (NSInteger)db.changes;
+        }
+    }];
+    return removed;
+}
+
 - (int64_t)maxConvSeqForConv:(NSString *)convID {
     __block int64_t maxSeq = 0;
     [_queue inDatabase:^(FMDatabase *db) {

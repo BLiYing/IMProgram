@@ -15,6 +15,9 @@ NS_ASSUME_NONNULL_BEGIN
 /// 预置缓存：上传完成后把本地预览图种到该 URL 名下，气泡切服务器 URL 时无需重新下载（不闪图）。
 - (void)cacheImage:(nullable UIImage *)image forURL:(nullable NSString *)urlString;
 
+/// 同步取内存缓存（命中即返回，否则 nil）。供列表/头像 reloadData 时**直接显图不回退首字母**、消除闪动。
+- (nullable UIImage *)cachedImageForURL:(nullable NSString *)urlString;
+
 @end
 
 NS_ASSUME_NONNULL_END

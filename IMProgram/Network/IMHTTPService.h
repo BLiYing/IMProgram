@@ -131,6 +131,11 @@ BOOL IMIsAuthErrorCode(NSInteger code);
                         userID:(NSString *)userID
                     completion:(void (^)(NSError *_Nullable error))completion;
 
+/// 解散群组（仅群主）：DELETE /api/v1/groups/{id}。删群并广播 dissolve 群事件。completion 在主线程回调。
+- (void)dissolveGroupWithToken:(NSString *)token
+                        convID:(NSString *)convID
+                    completion:(void (^)(NSError *_Nullable error))completion;
+
 #pragma mark - 会话管理（M4.5）
 
 /// 更新会话级设置（置顶/免打扰/标未读，整体替换）：PUT /api/v1/conversations/{id}/settings。completion 主线程回调。
