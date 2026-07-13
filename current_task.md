@@ -4,6 +4,15 @@
 > 历史流水见 `current_task.archive.md` + `git log`。关键约定见 `CLAUDE.md` / `ARCHITECTURE.md` / `CODING_STYLE.md`。
 
 ## 当前焦点
+- **✅ 群聊详情页完整实现已提交（2026-07-13，commit e4270a8，已 push）**
+  - **IMChatDetailViewController** 新增会话详情页（群聊为主，单聊备用）
+  - **IMChatDetailTabs** 动态标签页（群成员 + 媒体 / 文件 / 链接）
+  - **IMGroupManageViewController** 群管理入口（设置头像、编辑群名、成员管理）
+  - **IMPopoverCard** 通用浮层卡片（会话菜单 + 详情页操作菜单共用）
+  - **优化**：图片加载缓存、头像复用全局渲染、数据库查询接口扩展
+  - **单测** IMChatDetailTabsTests 覆盖标签页逻辑（build + test-build 绿）
+  - **待真机验证**（用户自装测试）
+  
 - **M3-5 群聊 iOS 端完成（2026-07-11，build+test-build 零 error/warning，模拟器实跑测试全绿；真机走查待用户）**，镜像 Web（`../im-web` M3-4）交互：
   - **模型/网络**：`IMGroupInfo`/`IMGroupMember`（角色 owner/admin/member 枚举 + 脏数据安全解析 + `nicknameOfMember:`）；`IMConversation` 加 `isGroup/name/avatarURL/memberCount/lastFromNickname`；`IMMessageModel.fromNickname`（`new_msg.from_nickname`，随消息落库——`IMDatabase` 加 `from_nickname` 列老库自动 ALTER）；`IMHTTPService` groups 接口族（create/list/info/update/invite/leave/remove/setRole/transfer）+ 3002xx 友好中文（**300204 不映射**，透传服务端原因如"群主需先转让"）；`IMSocketManager` `group` 帧 → `IMSocketDidReceiveGroupEventNotification`（event/convID/target）+ `sendText:toConv:`（群按 conv_id 路由、to 留空）。
   - **UI（新增 `Modules/Group/`）**：通讯录「群聊」入口 → `IMGroupListViewController`（我的群列表 + 右上 + 建群：`IMGroupMemberPickerViewController` 好友多选 → 起群名弹窗 → 建群即进群聊）；聊天页群模式（标题"群名（N人）"、右上 ⓘ → `IMGroupInfoViewController`、对方气泡内顶部主色小字**发送者昵称**（from_nickname→成员表→uid 三级回退）、typing 显示"谁"在输入、**被移出→吐司+0.9s 后退出本页**、非群成员发言被拒 300203 挂系统行）；群资料页（成员列表+群主/管理员徽章、邀请（picker 排除已在群）、退出群聊（群主被拦文案透传）、改群名（owner/admin 右上铅笔）、点成员 ActionSheet 管理：设/撤管理员·转让群主·移出，按 my_role 权限矩阵显隐，服务端二次校验）；会话列表群项（群名/群头像、预览"昵称: 内容"，群项不显示 presence/✓✓）+ `group` 帧节流刷新。
@@ -29,10 +38,19 @@
   - ③**拉黑改微信式单向(已定+实现)**：hub 仅拦"被拉黑方→拉黑方"；**拉黑方→被拉黑方照常投递**(对方收得到)。两端聊天页不再封禁拉黑方输入(Web 改非阻断提示行、iOS 移除封禁横幅)。`TestBlockedCannotSend` 改测单向。Web 浏览器实测：拉黑方发送成功✓+提示在+输入可用。iOS 真编译过、真机待验。
 
 ## 下一步
-1. **真机走查 M3-5 群聊**（清单见最近一次 checkpoint：建群/群消息昵称/群资料管理/被移出）；主线随后端 M3-6 Admin 群治理（iOS 无任务）。
-2. 群聊 iOS 待补（对齐 Web 的同款欠账）：群头像上传（现首字母圈）、群内已读细化（自己消息恒单 ✓）、@提醒（M4 期）。
-3. （欠账，换真账号后更重要）本地库 `im.sqlite` 按 uid 隔离：不同账号共用一库会串号缓存。
-4. （性能轨道，按需）iOS 双向分页。
+1. **用户真机测试 M4.5 会话菜单 + 群聊详情页**（优先）：
+   - 会话菜单四件套（置顶/免打扰/标未读/删除）+ 指示符
+   - 群聊详情页全流程（进详情 → 成员交互 → 设置头像 → 管理权限 → 退出/解散）
+   - 头像闪动、标签页切换、更多菜单等 UI 细节验收
+   - 反馈→迭代修复
+   
+2. **M4.5-3 统一资料页** 设计稿拍板后开工：
+   - 聊天详情页重构为标准资料页（成员页签改为资料页的成员卡片）
+   - 设置页逐项（Devices/Folders/Notifications/…按 Telegram）
+   
+3. 群聊 iOS 欠账（对齐 Web）：群头像上传、群内已读细化、@提醒（M5-6）。
+
+4. 本地库 `im.sqlite` 按 uid 隔离（规模化必须，现不影响单号流程）。
 
 ## 已知坑 / 限制
 - **登录已支持真账号密码**：登录页「免密登录（开发）」仍保留（凭 uid 直签，需后端 `-dev-login`）。注意 dev-login 建的账号（空密码哈希）无法再走密码登录；测密码登录请用「注册并登录」建新号或清 `imserver.db`。
