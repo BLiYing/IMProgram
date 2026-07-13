@@ -367,10 +367,12 @@ static CGFloat const kPillsRowH = 78;
     self.collapsedBar.frame = CGRectMake(0, 0, W, barH);
     self.collapsedTitle.frame = CGRectMake(60, self.topInset, W - 120, 44);
     // 圆形返回键：leading ~系统边距、垂直居中于导航区；chevron 居中于 36pt 玻璃圆（匹配系统新版）。
+    // 玻璃与按钮是兄弟视图，两者用同一 rect（不能用 bounds，否则玻璃会跑到左上角）。
     CGFloat backD = 36;
-    self.backButton.frame = CGRectMake(8, self.topInset + (44 - backD) / 2, backD, backD);
+    CGRect backRect = CGRectMake(8, self.topInset + (44 - backD) / 2, backD, backD);
+    self.backButton.frame = backRect;
     self.backButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
-    self.backGlass.frame = self.backButton.bounds;
+    self.backGlass.frame = backRect;
     self.backGlass.layer.cornerRadius = backD / 2;
     self.backGlass.clipsToBounds = YES;
     self.stickyBar.frame = CGRectMake(0, barH, W, 44);
@@ -500,22 +502,20 @@ static CGFloat const kPillsRowH = 78;
 
     // 返回键（自绘，因导航栏隐藏）——与系统默认返回按钮**同款外观**：裸 chevron.backward、accent 色、无圆底，
     // 加一层淡阴影保证压在照片上也看得清。
+    // 圆形玻璃底：**独立视图垫在按钮之下**（不塞进按钮内部，否则模糊会盖住 chevron）。
+    // 匹配系统新版返回键的"chevron 居中于半透明模糊圆"。
+    self.backGlass = [[UIVisualEffectView alloc] initWithEffect:
+                      [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemThinMaterial]];
+    self.backGlass.userInteractionEnabled = NO;
+    [self.view addSubview:self.backGlass];
+
     self.backButton = [UIButton buttonWithType:UIButtonTypeSystem];
     UIImage *chev = [UIImage systemImageNamed:@"chevron.backward"
-                             withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:17 weight:UIImageSymbolWeightSemibold]];
+                             withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:18 weight:UIImageSymbolWeightSemibold]];
     [self.backButton setImage:chev forState:UIControlStateNormal];
-    self.backButton.tintColor = UIColor.whiteColor; // 白 chevron（全局一致）
-    // 圆形玻璃底：匹配系统新版返回键（chevron 居中于半透明模糊圆），而非裸 chevron。
-    self.backGlass = [[UIVisualEffectView alloc] initWithEffect:
-                      [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemUltraThinMaterialDark]];
-    self.backGlass.userInteractionEnabled = NO;
-    [self.backButton insertSubview:self.backGlass atIndex:0]; // 垫在 chevron 之下
-    // 圆底轻微阴影增强层次（压在照片上更清晰）。
-    self.backButton.layer.shadowColor = UIColor.blackColor.CGColor;
-    self.backButton.layer.shadowOpacity = 0.25; self.backButton.layer.shadowRadius = 3;
-    self.backButton.layer.shadowOffset = CGSizeMake(0, 1);
+    self.backButton.tintColor = UIColor.whiteColor; // 白 chevron，浮在玻璃圆之上
     [self.backButton addTarget:self action:@selector(goBack) forControlEvents:UIControlEventTouchUpInside];
-    [self.view addSubview:self.backButton];
+    [self.view addSubview:self.backButton]; // 加在玻璃之后 → 在其上层
 }
 
 - (UILabel *)makeNameLabel:(CGFloat)size color:(UIColor *)color shadow:(BOOL)shadow {
