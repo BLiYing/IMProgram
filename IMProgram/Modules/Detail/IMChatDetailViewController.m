@@ -808,11 +808,13 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
 /// 页签分区滚到折叠顶栏下方即显示吸顶条（其下列表继续滚动，无缝衔接）。
 - (void)updateStickyTabs {
     NSInteger sec = [self indexOfSection:IMDetailSectionTabs];
-    if (sec == NSNotFound || self.tabs.count == 0) { self.stickyBar.hidden = YES; return; }
+    if (sec == NSNotFound || self.tabs.count == 0) { self.stickyBar.hidden = YES; self.segmented.hidden = NO; return; }
     CGRect hr = [self.tableView rectForHeaderInSection:sec];
     CGFloat headerTopInView = hr.origin.y - self.tableView.contentOffset.y;
     BOOL pinned = headerTopInView <= self.topInset + 44 + 0.5;
     self.stickyBar.hidden = !pinned;
+    // 贴顶后隐藏表内真分段——吸顶条透明，真 header 上移时会从其后透出，与镜像分段并存（两个 tab 栏）。
+    self.segmented.hidden = pinned;
     if (pinned && self.stickySeg.selectedSegmentIndex != self.selectedTab) {
         self.stickySeg.selectedSegmentIndex = self.selectedTab;
     }
