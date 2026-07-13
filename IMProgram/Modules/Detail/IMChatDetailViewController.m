@@ -266,6 +266,7 @@ static CGFloat const kPillsRowH = 78;
 @property (nonatomic, strong) UIVisualEffectView *collapsedBar; ///< 折叠态顶栏（blur）
 @property (nonatomic, strong) UILabel *collapsedTitle;
 @property (nonatomic, strong) UIButton *backButton;
+@property (nonatomic, strong) UIVisualEffectView *backGlass; ///< 返回键圆形玻璃底（匹配系统新版返回键）
 // 页签
 @property (nonatomic, strong) UISegmentedControl *segmented;
 @property (nonatomic, strong) UIView *stickyBar;               ///< 页签滚到顶时的悬浮吸顶条（透明，仅托分段控件）
@@ -365,10 +366,13 @@ static CGFloat const kPillsRowH = 78;
     CGFloat barH = self.topInset + 44;
     self.collapsedBar.frame = CGRectMake(0, 0, W, barH);
     self.collapsedTitle.frame = CGRectMake(60, self.topInset, W - 120, 44);
-    // 与系统返回按钮同位：leading ~系统边距、垂直居中于导航区，44 触控区、图标靠左。
-    self.backButton.frame = CGRectMake(4, self.topInset, 44, 44);
-    self.backButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
-    self.backButton.contentEdgeInsets = UIEdgeInsetsMake(0, 8, 0, 0);
+    // 圆形返回键：leading ~系统边距、垂直居中于导航区；chevron 居中于 36pt 玻璃圆（匹配系统新版）。
+    CGFloat backD = 36;
+    self.backButton.frame = CGRectMake(8, self.topInset + (44 - backD) / 2, backD, backD);
+    self.backButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
+    self.backGlass.frame = self.backButton.bounds;
+    self.backGlass.layer.cornerRadius = backD / 2;
+    self.backGlass.clipsToBounds = YES;
     self.stickyBar.frame = CGRectMake(0, barH, W, 44);
     [self layoutSegmented:self.stickySeg inWidth:W];
     [self syncScrollInset];
@@ -498,12 +502,17 @@ static CGFloat const kPillsRowH = 78;
     // 加一层淡阴影保证压在照片上也看得清。
     self.backButton = [UIButton buttonWithType:UIButtonTypeSystem];
     UIImage *chev = [UIImage systemImageNamed:@"chevron.backward"
-                             withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:20 weight:UIImageSymbolWeightSemibold]];
+                             withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:17 weight:UIImageSymbolWeightSemibold]];
     [self.backButton setImage:chev forState:UIControlStateNormal];
-    // 全局白色（与首页/群聊列表右上加号一致）；下方 shadow halo 保证压在照片/浅底上也看得清。
-    self.backButton.tintColor = UIColor.whiteColor;
+    self.backButton.tintColor = UIColor.whiteColor; // 白 chevron（全局一致）
+    // 圆形玻璃底：匹配系统新版返回键（chevron 居中于半透明模糊圆），而非裸 chevron。
+    self.backGlass = [[UIVisualEffectView alloc] initWithEffect:
+                      [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemUltraThinMaterialDark]];
+    self.backGlass.userInteractionEnabled = NO;
+    [self.backButton insertSubview:self.backGlass atIndex:0]; // 垫在 chevron 之下
+    // 圆底轻微阴影增强层次（压在照片上更清晰）。
     self.backButton.layer.shadowColor = UIColor.blackColor.CGColor;
-    self.backButton.layer.shadowOpacity = 0.4; self.backButton.layer.shadowRadius = 3; // 白键需更强 halo，压浅底也清晰
+    self.backButton.layer.shadowOpacity = 0.25; self.backButton.layer.shadowRadius = 3;
     self.backButton.layer.shadowOffset = CGSizeMake(0, 1);
     [self.backButton addTarget:self action:@selector(goBack) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:self.backButton];
