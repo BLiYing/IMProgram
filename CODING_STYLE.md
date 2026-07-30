@@ -34,6 +34,7 @@
 
 ### 5. 错误处理与日志
 - 所有 **网络 / IO / 数据库** 调用必须有明确错误恢复分支，不允许吞掉 `NSError`。
+- 完整日志规则见 `docs/LOGGING.md`，跨端 Request ID/字段/隐私契约见 `../IMServer/docs/LOGGING.md`。
 - 日志统一通过 `IMLog.h`（底层 CocoaLumberjack），禁止业务代码直接调用 `NSLog` 或 `DDLog*`。
 - 按模块使用稳定 tag：`IM.APP` / `IM.HTTP` / `IM.WS` / `IM.DB` / `IM.UI`；HTTP 请求另带唯一 `req=<X-Request-ID>`，请求与响应必须使用同一 ID。
 - HTTP 日志必须先脱敏 password/token/authorization/cookie/phone/secret 等字段；multipart/binary 只记元数据，单条正文最多 16 KB。
@@ -70,4 +71,5 @@
 ## 三、通用约定
 - 提交信息：`类型(模块): 描述`，如 `feat(chat): 增加消息已读回执`。
 - 每个非平凡改动后更新 `current_task.md`。
+- 今后新增业务/技术 Markdown 文档统一放入 `docs/`；README、工程指令、`current_task.md` 和既有入口规范保留根目录。
 - 三方依赖统一用 CocoaPods 或 SPM（二选一，定后写入 ARCHITECTURE.md）。
