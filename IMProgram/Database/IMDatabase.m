@@ -39,7 +39,7 @@
              "client_msg_id TEXT, server_msg_id TEXT, conv_id TEXT NOT NULL,"
              "sender TEXT, recipient TEXT, content_type TEXT, content TEXT,"
              "conv_seq INTEGER, timestamp INTEGER, status INTEGER, note TEXT)"];
-        if (!ok) { IMLog(@"[db] 建表失败: %@", db.lastErrorMessage); }
+        if (!ok) { IMLogDatabase(@"建表失败: %@", db.lastErrorMessage); }
         [db executeUpdate:@"CREATE INDEX IF NOT EXISTS idx_local_conv ON im_message_local(conv_id)"];
         // 老库迁移（非破坏）：补 note 列——失败消息的系统提示（如被拉黑拒收文案）落库，重进会话不丢。
         if (![self column:@"note" existsInTable:@"im_message_local" db:db]) {

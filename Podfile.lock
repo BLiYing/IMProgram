@@ -1,4 +1,7 @@
 PODS:
+  - CocoaLumberjack (3.9.1):
+    - CocoaLumberjack/Core (= 3.9.1)
+  - CocoaLumberjack/Core (3.9.1)
   - FMDB (2.7.12):
     - FMDB/standard (= 2.7.12)
   - FMDB/Core (2.7.12)
@@ -6,15 +9,18 @@ PODS:
     - FMDB/Core
 
 DEPENDENCIES:
+  - CocoaLumberjack (~> 3.9.0)
   - FMDB
 
 SPEC REPOS:
   trunk:
+    - CocoaLumberjack
     - FMDB
 
 SPEC CHECKSUMS:
+  CocoaLumberjack: e4ba3b414dfca8c1916c6303d37f63b3a95134c6
   FMDB: 728731dd336af3936ce00f91d9d8495f5718a0e6
 
-PODFILE CHECKSUM: 54e16981368650d542aece76d7d1900bdc0328b1
+PODFILE CHECKSUM: 2ae9183c4443f90c807ad72c3951daa45760d5a0
 
 COCOAPODS: 1.16.2

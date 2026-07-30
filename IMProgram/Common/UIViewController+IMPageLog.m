@@ -31,7 +31,7 @@
 
     NSString *title = self.title.length ? self.title
                     : (self.navigationItem.title.length ? self.navigationItem.title : @"-");
-    IMLog(@"📄 页面出现：%@（标题：%@）", cls, title);
+    IMLogUI(@"📄 页面出现：%@（标题：%@）", cls, title);
 }
 
 @end

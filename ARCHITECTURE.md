@@ -5,6 +5,7 @@
 - 通信：**自建 WebSocket 长连接**
 - 依赖管理：**CocoaPods**
 - 本地存储：SQLite（FMDB / WCDB）+ NSUserDefaults（轻量配置）
+- 日志：**CocoaLumberjack 3.9.x**（控制台 + 5 MB 滚动文件，最多保留 7 份）
 - UI：UIKit，纯代码 + AutoLayout（Masonry）
 
 ## 候选三方库（CocoaPods）
@@ -12,6 +13,7 @@
 |------|----|
 | WebSocket | `SocketRocket`（成熟稳定）或 `Starscream`(Swift) |
 | 网络 HTTP | `AFNetworking` |
+| 日志 | `CocoaLumberjack`（已采用） |
 | 布局 | `Masonry` |
 | 数据库 | `FMDB` 或 `WCDB` |
 | 图片 | `SDWebImage` |

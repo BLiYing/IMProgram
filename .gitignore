@@ -29,3 +29,6 @@ Carthage/Build/
 
 # 临时验证脚本
 temp_verify.*
+
+# Codex Code Graph 本地索引（机器相关缓存）
+/.codegraph/

@@ -92,7 +92,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
 
 - (void)connectToHost:(NSString *)host userID:(NSString *)userID {
     if (host.length == 0 || userID.length == 0) {
-        IMLog(@"connect 参数为空，忽略");
+        IMLogSocket(@"connect 参数为空，忽略");
         return;
     }
     dispatch_async(_queue, ^{
@@ -130,7 +130,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
         dispatch_async(self->_queue, ^{
             if (self->_manualClose) { return; }
             if (token.length == 0) {
-                IMLog(@"登录换取 token 失败，稍后重连: %@", error.localizedDescription);
+                IMLogSocket(@"登录换取 token 失败，稍后重连: %@", error.localizedDescription);
                 [self scheduleReconnect];
                 return;
             }
@@ -146,7 +146,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     NSString *urlStr = [NSString stringWithFormat:@"ws://%@/ws?token=%@", host, encoded];
     NSURL *url = [NSURL URLWithString:urlStr];
     if (!url) {
-        IMLog(@"非法 ws 地址 host=%@", host);
+        IMLogSocket(@"非法 ws 地址 host=%@", host);
         [self scheduleReconnect];
         return;
     }
@@ -158,7 +158,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     _task = [_session webSocketTaskWithURL:url];
     [_task resume];
     [self receiveNext];
-    IMLog(@"connecting ws://%@/ws (token)", host);
+    IMLogSocket(@"connecting ws://%@/ws (token)", host);
 }
 
 /// 经 HTTP 登录接口换取 JWT（开发期无密码，仅凭 uid 签发）。completion 可能在任意线程回调。
@@ -210,7 +210,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     if (self.state == IMSocketStateDisconnected && _task == nil) {
         return; // 已处理过，避免重复
     }
-    IMLog(@"disconnected: %@", error.localizedDescription ?: @"(closed)");
+    IMLogSocket(@"disconnected: %@", error.localizedDescription ?: @"(closed)");
     [self teardownSocket];
     [self updateState:IMSocketStateDisconnected];
     if (!_manualClose) {
@@ -223,7 +223,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     if (_manualClose) { return; }
     NSTimeInterval delay = MIN(kIMReconnectCap, kIMReconnectBase * pow(2, _reconnectAttempts));
     _reconnectAttempts++;
-    IMLog(@"reconnect in %.1fs (attempt %ld)", delay, (long)_reconnectAttempts);
+    IMLogSocket(@"reconnect in %.1fs (attempt %ld)", delay, (long)_reconnectAttempts);
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), _queue, ^{
         if (self->_manualClose) { return; }
         [self openSocket];
@@ -260,7 +260,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     NSError *err = nil;
     id obj = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:&err] : nil;
     if (![obj isKindOfClass:[NSDictionary class]]) {
-        IMLog(@"丢弃非法信封: %@ (%@)", text, err.localizedDescription);
+        IMLogSocket(@"丢弃非法信封: %@ (%@)", text, err.localizedDescription);
         return;
     }
     NSDictionary *env = obj;
@@ -303,10 +303,10 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
             // 带 client_msg_id 的 error = 对某条 send_msg 的拒绝（如被拉黑）→ 立刻判该条发送失败。
             [self handleSendRejected:cmid code:[payload[@"code"] integerValue] message:payload[@"message"]];
         } else {
-            IMLog(@"服务端 error: %@", payload);
+            IMLogSocket(@"服务端 error: %@", payload);
         }
     } else {
-        IMLog(@"未处理类型: %@", type);
+        IMLogSocket(@"未处理类型: %@", type);
     }
 }
 
@@ -459,12 +459,12 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     [self cancelAckTimer:p];
     if (p.retries < kIMMaxResend) {
         p.retries++;
-        IMLog(@"ack 超时，重发 %@ (第 %ld 次)", p.clientMsgID, (long)p.retries);
+        IMLogSocket(@"ack 超时，重发 %@ (第 %ld 次)", p.clientMsgID, (long)p.retries);
         [self writeData:p.payload];
         [self armAckTimer:p];
     } else {
         [_pending removeObjectForKey:p.clientMsgID];
-        IMLog(@"ack 重发耗尽，判失败 %@", p.clientMsgID);
+        IMLogSocket(@"ack 重发耗尽，判失败 %@", p.clientMsgID);
         [self finishSend:p.completion success:NO error:[self errorWithCode:5002 msg:@"ack 超时"] convSeq:0];
     }
 }
@@ -797,7 +797,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     if (data) { env[kIMKeyData] = data; }
     NSError *err = nil;
     NSData *json = [NSJSONSerialization dataWithJSONObject:env options:0 error:&err];
-    if (!json) { IMLog(@"信封序列化失败: %@", err.localizedDescription); }
+    if (!json) { IMLogSocket(@"信封序列化失败: %@", err.localizedDescription); }
     return json;
 }
 
@@ -805,13 +805,13 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
 - (void)writeData:(NSData *)data {
     NSURLSessionWebSocketTask *task = _task;
     if (!task || self.state != IMSocketStateConnected) {
-        IMLog(@"未连接，暂不发送（待重连后由超时重发兜底）");
+        IMLogSocket(@"未连接，暂不发送（待重连后由超时重发兜底）");
         return;
     }
     NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
     NSURLSessionWebSocketMessage *msg = [[NSURLSessionWebSocketMessage alloc] initWithString:text];
     [task sendMessage:msg completionHandler:^(NSError *error) {
-        if (error) { IMLog(@"发送失败: %@", error.localizedDescription); }
+        if (error) { IMLogSocket(@"发送失败: %@", error.localizedDescription); }
     }];
 }
 
@@ -857,7 +857,7 @@ didOpenWithProtocol:(NSString *)protocol {
         [self updateState:IMSocketStateConnected];
         [self startHeartbeat];
         [self syncTrackedConversations]; // 按各会话 synced_conv_seq 触发增量同步，补回离线/缺失消息
-        IMLog(@"connected as uid=%@", self.userID);
+        IMLogSocket(@"connected as uid=%@", self.userID);
     });
 }
 

@@ -4,9 +4,19 @@
 #import "IMConversation.h"
 #import "IMUserCard.h"
 #import "IMGroupInfo.h"
+#import "IMHTTPLogFormatter.h"
 #import "IMLog.h"
 
 static NSString * const kIMHTTPErrorDomain = @"IMHTTPService";
+static NSString * const kIMRequestIDHeader = @"X-Request-ID";
+
+static BOOL IMHTTPLogIncludesBusinessContent(void) {
+#ifdef DEBUG
+    return YES;
+#else
+    return NO;
+#endif
+}
 
 /// 上传进度桥（iOS 15+ per-task delegate）：completionHandler 任务仍会收到 didSendBodyData，
 /// 借此把 multipart 上行字节进度回给调用方（主线程 0..1）。task 强持有本对象，无需外部保活。
@@ -623,20 +633,47 @@ static NSString *IMFriendlyNetworkError(NSError *error) {
 - (void)runRequest:(NSURLRequest *)req
           progress:(void (^)(double fraction))progress
         completion:(void (^)(NSDictionary *body, NSError *error))completion {
+    NSMutableURLRequest *request = [req mutableCopy];
+    NSString *requestID = [request valueForHTTPHeaderField:kIMRequestIDHeader];
+    if (requestID.length == 0) {
+        requestID = IMHTTPNewRequestID();
+        [request setValue:requestID forHTTPHeaderField:kIMRequestIDHeader];
+    }
+    NSString *method = request.HTTPMethod ?: @"GET";
+    NSString *path = request.URL.path.length > 0 ? request.URL.path : @"/";
+    NSString *contentType = [request valueForHTTPHeaderField:@"Content-Type"];
+    NSString *requestBody = IMHTTPLogBody(request.HTTPBody, contentType, IMHTTPLogIncludesBusinessContent());
+    CFAbsoluteTime startedAt = CFAbsoluteTimeGetCurrent();
+    IMLogHTTP(@"[req=%@][REQUEST] %@ %@ bytes=%lu body=%@",
+              requestID, method, path, (unsigned long)request.HTTPBody.length, requestBody);
+
     __weak typeof(self) weakSelf = self;
-    NSURLSessionDataTask *task = [NSURLSession.sharedSession dataTaskWithRequest:req
+    NSURLSessionDataTask *task = [NSURLSession.sharedSession dataTaskWithRequest:request
                                                              completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         __strong typeof(weakSelf) self = weakSelf;
+        NSHTTPURLResponse *httpResponse = [response isKindOfClass:NSHTTPURLResponse.class] ? (NSHTTPURLResponse *)response : nil;
+        NSString *serverRequestID = [httpResponse valueForHTTPHeaderField:kIMRequestIDHeader];
+        NSString *correlationID = serverRequestID.length > 0 ? serverRequestID : requestID;
+        NSTimeInterval durationMs = (CFAbsoluteTimeGetCurrent() - startedAt) * 1000;
         if (error) {
+            IMLogErrorWithTag(IMLogTagHTTP,
+                              @"[req=%@][ERROR] %@ %@ duration_ms=%.1f domain=%@ code=%ld message=%@",
+                              correlationID, method, path, durationMs,
+                              error.domain, (long)error.code, error.localizedDescription ?: @"-");
             // 传输层失败（连不上/超时）：转友好中文，不把英文 NSError 原文弹给用户。
             [self callOnMain:^{ completion(nil, [self errorWithMessage:IMFriendlyNetworkError(error)]); }];
             return;
         }
+        NSInteger status = httpResponse.statusCode;
+        NSString *responseType = [httpResponse valueForHTTPHeaderField:@"Content-Type"];
+        NSString *responseBody = IMHTTPLogBody(data, responseType, IMHTTPLogIncludesBusinessContent());
+        IMLogHTTP(@"[req=%@][RESPONSE] status=%ld duration_ms=%.1f bytes=%lu body=%@",
+                  correlationID, (long)status, durationMs, (unsigned long)data.length, responseBody);
+
         id obj = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : nil;
         NSDictionary *body = [obj isKindOfClass:[NSDictionary class]] ? obj : nil;
         if (!body) {
             // 非 JSON / 空响应（后端没起或打到错地址）：友好提示 + 附 HTTP 码便于排查。
-            NSInteger status = [response isKindOfClass:[NSHTTPURLResponse class]] ? ((NSHTTPURLResponse *)response).statusCode : 0;
             NSString *msg = status == 0 ? @"服务器无响应，请确认后端已启动"
                 : [NSString stringWithFormat:@"服务器响应异常 (HTTP %ld)", (long)status];
             [self callOnMain:^{ completion(nil, [self errorWithMessage:msg]); }];

@@ -34,7 +34,10 @@
 
 ### 5. 错误处理与日志
 - 所有 **网络 / IO / 数据库** 调用必须有明确错误恢复分支，不允许吞掉 `NSError`。
-- 统一日志宏（封装 `NSLog`，Release 关闭），禁止裸 `NSLog` 散落。
+- 日志统一通过 `IMLog.h`（底层 CocoaLumberjack），禁止业务代码直接调用 `NSLog` 或 `DDLog*`。
+- 按模块使用稳定 tag：`IM.APP` / `IM.HTTP` / `IM.WS` / `IM.DB` / `IM.UI`；HTTP 请求另带唯一 `req=<X-Request-ID>`，请求与响应必须使用同一 ID。
+- HTTP 日志必须先脱敏 password/token/authorization/cookie/phone/secret 等字段；multipart/binary 只记元数据，单条正文最多 16 KB。
+- Debug 可记录脱敏后的业务正文；Release 对消息正文等业务内容及非 JSON 正文做隐藏，不允许为排障临时绕过脱敏。
 - 异步回调统一在主线程更新 UI。
 
 ### 6. UI
