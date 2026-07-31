@@ -18,6 +18,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (class, nonatomic, readonly) UIColor *textTertiary;
 @property (class, nonatomic, readonly) UIColor *pageBackground;
 @property (class, nonatomic, readonly) UIColor *groupedBackground;
+@property (class, nonatomic, readonly) UIColor *cardBackground;
 @property (class, nonatomic, readonly) UIColor *surface;
 @property (class, nonatomic, readonly) UIColor *surfaceElevated;
 @property (class, nonatomic, readonly) UIColor *separator;

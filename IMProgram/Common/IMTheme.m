@@ -35,6 +35,7 @@
 + (UIColor *)textTertiary { return UIColor.tertiaryLabelColor; }
 + (UIColor *)pageBackground { return UIColor.systemBackgroundColor; }
 + (UIColor *)groupedBackground { return UIColor.systemGroupedBackgroundColor; }
++ (UIColor *)cardBackground { return UIColor.secondarySystemGroupedBackgroundColor; }
 + (UIColor *)surface { return UIColor.secondarySystemBackgroundColor; }
 + (UIColor *)surfaceElevated { return UIColor.tertiarySystemBackgroundColor; }
 + (UIColor *)separator { return UIColor.separatorColor; }

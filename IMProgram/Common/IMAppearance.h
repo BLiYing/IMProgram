@@ -29,6 +29,9 @@ typedef NS_ENUM(NSInteger, IMAppearanceMode) {
 @property (nonatomic, readonly) UIColor *wallpaperBottomColor;
 @property (nonatomic, readonly) UIColor *wallpaperDoodleColor;
 
+- (UIColor *)accentColorForThemeID:(NSString *)themeID;
+- (UIColor *)bubbleMeColorForThemeID:(NSString *)themeID;
+- (NSArray<UIColor *> *)wallpaperColorsForThemeID:(NSString *)themeID;
 - (void)applyInterfaceStyle;
 - (void)resetToDefaults;
 

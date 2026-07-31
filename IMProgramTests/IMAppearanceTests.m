@@ -55,4 +55,17 @@
     XCTAssertEqualObjects(IMAppearance.shared.wallpaperID, @"doodle");
 }
 
+- (void)testEveryBuiltInThemeProvidesPreviewPalette {
+    for (NSString *themeID in @[@"classic", @"ocean", @"violet", @"midnight"]) {
+        XCTAssertNotNil([IMAppearance.shared accentColorForThemeID:themeID]);
+        XCTAssertNotNil([IMAppearance.shared bubbleMeColorForThemeID:themeID]);
+        XCTAssertEqual([IMAppearance.shared wallpaperColorsForThemeID:themeID].count, 2);
+    }
+    NSArray<UIColor *> *fallback = [IMAppearance.shared wallpaperColorsForThemeID:@"unknown"];
+    NSArray<UIColor *> *classic = [IMAppearance.shared wallpaperColorsForThemeID:@"classic"];
+    UITraitCollection *light = [UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleLight];
+    XCTAssertEqualObjects([fallback.firstObject resolvedColorWithTraitCollection:light],
+                          [classic.firstObject resolvedColorWithTraitCollection:light]);
+}
+
 @end

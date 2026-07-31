@@ -101,14 +101,22 @@ static BOOL IMContainsString(NSArray<NSString *> *values, NSString *value) {
 }
 
 - (UIColor *)accentColor {
-    if ([self.themeID isEqualToString:@"ocean"]) { return UIColor.systemBlueColor; }
-    if ([self.themeID isEqualToString:@"violet"]) { return UIColor.systemPurpleColor; }
-    if ([self.themeID isEqualToString:@"midnight"]) { return [UIColor colorWithRed:0.24 green:0.62 blue:0.88 alpha:1]; }
+    return [self accentColorForThemeID:self.themeID];
+}
+
+- (UIColor *)accentColorForThemeID:(NSString *)themeID {
+    if ([themeID isEqualToString:@"ocean"]) { return UIColor.systemBlueColor; }
+    if ([themeID isEqualToString:@"violet"]) { return UIColor.systemPurpleColor; }
+    if ([themeID isEqualToString:@"midnight"]) { return [UIColor colorWithRed:0.24 green:0.62 blue:0.88 alpha:1]; }
     return UIColor.systemGreenColor;
 }
 
 - (UIColor *)bubbleMeColor {
-    NSString *theme = self.themeID;
+    return [self bubbleMeColorForThemeID:self.themeID];
+}
+
+- (UIColor *)bubbleMeColorForThemeID:(NSString *)themeID {
+    NSString *theme = [themeID copy];
     return [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *trait) {
         BOOL dark = trait.userInterfaceStyle == UIUserInterfaceStyleDark;
         if ([theme isEqualToString:@"ocean"]) {
@@ -128,16 +136,16 @@ static BOOL IMContainsString(NSArray<NSString *> *values, NSString *value) {
     }];
 }
 
-- (NSArray<UIColor *> *)wallpaperPairLight:(BOOL)dark {
-    if ([self.themeID isEqualToString:@"ocean"]) {
+- (NSArray<UIColor *> *)wallpaperPairForThemeID:(NSString *)themeID dark:(BOOL)dark {
+    if ([themeID isEqualToString:@"ocean"]) {
         return dark ? @[[UIColor colorWithRed:0.04 green:0.12 blue:0.20 alpha:1], [UIColor colorWithRed:0.07 green:0.24 blue:0.32 alpha:1]]
                     : @[[UIColor colorWithRed:0.72 green:0.91 blue:0.98 alpha:1], [UIColor colorWithRed:0.58 green:0.78 blue:0.94 alpha:1]];
     }
-    if ([self.themeID isEqualToString:@"violet"]) {
+    if ([themeID isEqualToString:@"violet"]) {
         return dark ? @[[UIColor colorWithRed:0.12 green:0.07 blue:0.22 alpha:1], [UIColor colorWithRed:0.25 green:0.12 blue:0.32 alpha:1]]
                     : @[[UIColor colorWithRed:0.88 green:0.79 blue:0.98 alpha:1], [UIColor colorWithRed:0.72 green:0.86 blue:0.98 alpha:1]];
     }
-    if ([self.themeID isEqualToString:@"midnight"]) {
+    if ([themeID isEqualToString:@"midnight"]) {
         return dark ? @[[UIColor colorWithRed:0.02 green:0.05 blue:0.10 alpha:1], [UIColor colorWithRed:0.05 green:0.13 blue:0.20 alpha:1]]
                     : @[[UIColor colorWithRed:0.75 green:0.84 blue:0.89 alpha:1], [UIColor colorWithRed:0.56 green:0.72 blue:0.81 alpha:1]];
     }
@@ -146,15 +154,25 @@ static BOOL IMContainsString(NSArray<NSString *> *values, NSString *value) {
 }
 
 - (UIColor *)wallpaperTopColor {
-    return [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *trait) {
-        return [self wallpaperPairLight:trait.userInterfaceStyle == UIUserInterfaceStyleDark].firstObject;
-    }];
+    return [self wallpaperColorsForThemeID:self.themeID].firstObject;
 }
 
 - (UIColor *)wallpaperBottomColor {
-    return [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *trait) {
-        return [self wallpaperPairLight:trait.userInterfaceStyle == UIUserInterfaceStyleDark].lastObject;
+    return [self wallpaperColorsForThemeID:self.themeID].lastObject;
+}
+
+- (NSArray<UIColor *> *)wallpaperColorsForThemeID:(NSString *)themeID {
+    NSString *resolvedTheme = IMContainsString(@[@"classic", @"ocean", @"violet", @"midnight"], themeID)
+        ? [themeID copy] : @"classic";
+    UIColor *top = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *trait) {
+        return [self wallpaperPairForThemeID:resolvedTheme
+                                        dark:trait.userInterfaceStyle == UIUserInterfaceStyleDark].firstObject;
     }];
+    UIColor *bottom = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *trait) {
+        return [self wallpaperPairForThemeID:resolvedTheme
+                                        dark:trait.userInterfaceStyle == UIUserInterfaceStyleDark].lastObject;
+    }];
+    return @[top, bottom];
 }
 
 - (UIColor *)wallpaperDoodleColor {

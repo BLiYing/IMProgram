@@ -4,7 +4,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface IMAppearanceViewController : UITableViewController
+@interface IMAppearanceViewController : UIViewController
 @end
 
 NS_ASSUME_NONNULL_END

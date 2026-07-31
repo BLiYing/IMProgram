@@ -20,6 +20,7 @@
 | 品牌操作、链接、选中态 | `IMTheme.accent` | 随聊天主题变化 |
 | 页面背景 | `IMTheme.pageBackground` | 导航内容、普通页面 |
 | 分组页面背景 | `IMTheme.groupedBackground` | 设置、表单、分组列表 |
+| 分组卡片背景 | `IMTheme.cardBackground` | 浅色白、深色深灰，始终与分组页面区分 |
 | 输入栏、附件面板、一级表面 | `IMTheme.surface` | 与页面形成一层层级 |
 | 浮层、嵌套卡片 | `IMTheme.surfaceElevated` | 不连续叠加超过两层 |
 | 标题、正文 | `IMTheme.textPrimary` | 保证最高可读性 |
@@ -51,7 +52,13 @@
 
 ## 5. 列表、卡片与输入
 
-- 设置页使用 `UITableViewStyleInsetGrouped`；普通数据列表使用 Plain。
+- 普通设置页使用 `UITableViewStyleInsetGrouped`；“外观”等需要实时预览的沉浸式设置中心可使用
+  `UIScrollView + UIStackView`，但仍须保持分组卡片、16 pt 页面边距和统一语义令牌。
+- 外观页的主题颜色、显示模式、聊天外观、应用图标必须各自处于独立卡片；卡片之间至少
+  24 pt，卡片与屏幕左右保持 16 pt；分组标题左边缘必须与卡片左边缘对齐。分割线统一
+  使用 `IMTheme.separator`，不得按区块换色。
+- 分组页面上的卡片使用 `IMTheme.cardBackground`，不得直接使用
+  `pageBackground` 或 `groupedBackground`；该动态语义色须保证浅色和深色模式下都与页面分层。
 - Cell 主背景使用系统表面色；选中态使用系统选中背景或 `accent` 的低透明度。
 - 卡片圆角默认 `IMTheme.radiusCard`，连续圆角使用 `kCACornerCurveContinuous`。
 - 输入栏使用 `surface`，输入框使用 `pageBackground`，边框使用 `separator`。
@@ -66,6 +73,9 @@
 - 聊天正文读取 `IMAppearance.chatFontSize`（14～22 pt）。
 - 外观变更通过 `IMAppearanceDidChangeNotification` 实时刷新已打开的聊天页。
 - 应用图标只能切换预先打包的 Alternate Icons，不能在运行时生成。
+- 图标选择器必须使用对应 App Icon 的真实缩略资源，不得用 SF Symbol 或占位图冒充。
+- 外观首页须提供真实聊天预览和可视化缩略图；主题、壁纸、字号、圆角不得只用文字或
+  `UISegmentedControl` 表达。字号与圆角调节页应在完整聊天场景中实时反馈。
 
 ## 7. 深色模式验收
 
