@@ -44,6 +44,8 @@
 ### 6. UI
 - 优先纯代码 / 约束（Masonry 或原生 AutoLayout）；Storyboard 仅用于启动屏与简单页面。
 - ViewController 不写业务逻辑，遵循分层（见 ARCHITECTURE.md）。
+- 新增或修改 UI 前必须读取 `docs/UI_COLOR.md`；使用 `IMTheme` 语义令牌与
+  `IMAppearance` 外观设置，禁止业务页面散落固定 RGB/Hex。
 
 ---
 

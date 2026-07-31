@@ -26,6 +26,7 @@
 #import "IMMenuAction.h"
 #import "UIViewController+IMToast.h"
 #import "IMTheme.h"
+#import "IMAppearance.h"
 #import "IMLog.h"
 #import <Photos/Photos.h>
 #import <AVFoundation/AVFoundation.h>
@@ -154,14 +155,14 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
 
         _bubble = [UIView new];
         _bubble.translatesAutoresizingMaskIntoConstraints = NO;
-        _bubble.layer.cornerRadius = 18;
+        _bubble.layer.cornerRadius = IMAppearance.shared.bubbleRadius;
         _bubble.layer.masksToBounds = YES;
         [self.contentView addSubview:_bubble];
 
         _text = [UILabel new];
         _text.translatesAutoresizingMaskIntoConstraints = NO;
         _text.numberOfLines = 0;
-        _text.font = [UIFont systemFontOfSize:17];
+        _text.font = [UIFont systemFontOfSize:IMTheme.chatFontSize];
         [_bubble addSubview:_text];
 
         _failBadge = [UILabel new];
@@ -268,6 +269,8 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     _dividerHeight.constant = showsDivider ? 28 : 0;
 
     _bubble.backgroundColor = mine ? IMTheme.bubbleMe : IMTheme.bubbleThem;
+    _bubble.layer.cornerRadius = IMAppearance.shared.bubbleRadius;
+    _text.font = [UIFont systemFontOfSize:IMTheme.chatFontSize];
     // 正文 + 小字尾巴（时间/✓/✓✓）拼成一段富文本，保证状态一定随气泡渲染。
     NSMutableAttributedString *body = [NSMutableAttributedString new];
     // 群聊：对方气泡顶部一行发送者昵称（主色小字，Telegram 式）。名字段落加 paragraphSpacing 与正文留间距。
@@ -331,7 +334,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     // 正文：文件消息 → SF Symbol 文档图标 + 文件名（emoji 在富文本里渲染成 "?" tofu，故用符号内嵌，点击整条气泡打开）；
     // 纯 URL → 链接蓝+下划线（点击打开）；其余普通文本。
     NSString *contentText = message.content ?: @"";
-    NSMutableDictionary *contentAttr = [@{ NSFontAttributeName: [UIFont systemFontOfSize:17],
+    NSMutableDictionary *contentAttr = [@{ NSFontAttributeName: [UIFont systemFontOfSize:IMTheme.chatFontSize],
                                            NSForegroundColorAttributeName: IMTheme.textPrimary } mutableCopy];
     if ([message.contentType isEqualToString:@"file"]) {
         NSString *fname = IMFileNameFromContent(message.content);
@@ -342,7 +345,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         att.bounds = CGRectMake(0, -3, 18, 18);
         [body appendAttributedString:[NSAttributedString attributedStringWithAttachment:att]];
         [body appendAttributedString:[[NSAttributedString alloc] initWithString:[@"  " stringByAppendingString:fname]
-            attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:17], NSForegroundColorAttributeName: fileColor }]];
+            attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:IMTheme.chatFontSize], NSForegroundColorAttributeName: fileColor }]];
     } else {
         if (IMLooksLikeURL(contentText)) {
             contentAttr[NSForegroundColorAttributeName] = UIColor.systemBlueColor;
@@ -550,7 +553,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         _thumb.translatesAutoresizingMaskIntoConstraints = NO;
         _thumb.contentMode = UIViewContentModeScaleAspectFill;
         _thumb.clipsToBounds = YES;
-        _thumb.layer.cornerRadius = 10;
+        _thumb.layer.cornerRadius = IMTheme.radiusBubble;
         _thumb.backgroundColor = UIColor.tertiarySystemFillColor;
         _thumb.userInteractionEnabled = YES;
         [_thumb addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tapped)]];
@@ -634,6 +637,8 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     _progressLabel.text = p <= 0 ? @"等待中" : [NSString stringWithFormat:@"%d%%", (int)(p * 100)];
 }
 - (void)configureWithURL:(NSString *)fullURL isVideo:(BOOL)isVideo mine:(BOOL)mine previewImage:(UIImage *)preview senderName:(NSString *)senderName {
+    _thumb.layer.cornerRadius = IMTheme.radiusBubble;
+    _senderLabel.font = [UIFont systemFontOfSize:MAX(12, IMTheme.chatFontSize - 4) weight:UIFontWeightSemibold];
     _url = fullURL;
     _leading.active = !mine;
     _trailing.active = mine;
@@ -851,7 +856,7 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
         _tiles = [NSMutableArray array];
         _container = [UIView new];
         _container.translatesAutoresizingMaskIntoConstraints = NO;
-        _container.layer.cornerRadius = 12;
+        _container.layer.cornerRadius = IMTheme.radiusBubble;
         _container.clipsToBounds = YES;
         [self.contentView addSubview:_container];
 
@@ -907,6 +912,8 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
                     previews:(NSDictionary<NSString *, UIImage *> *)previews
                     progress:(NSDictionary<NSString *, NSNumber *> *)progress
                   senderName:(NSString *)senderName {
+    _container.layer.cornerRadius = IMTheme.radiusBubble;
+    _senderLabel.font = [UIFont systemFontOfSize:MAX(12, IMTheme.chatFontSize - 4) weight:UIFontWeightSemibold];
     _host = host;
     _leading.active = !mine;
     _trailing.active = mine;
@@ -1096,8 +1103,8 @@ static void IMParseChatRecord(NSString *content, NSString **outTitle, NSArray<NS
         self.selectionStyle = UITableViewCellSelectionStyleNone;
         _card = [UIView new];
         _card.translatesAutoresizingMaskIntoConstraints = NO;
-        _card.backgroundColor = UIColor.secondarySystemBackgroundColor;
-        _card.layer.cornerRadius = 10;
+        _card.backgroundColor = IMTheme.surface;
+        _card.layer.cornerRadius = IMTheme.radiusBubble;
         _card.userInteractionEnabled = YES;
         [_card addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tapped)]];
         [self.contentView addSubview:_card];
@@ -1152,6 +1159,9 @@ static void IMParseChatRecord(NSString *content, NSString **outTitle, NSArray<NS
     return self;
 }
 - (void)configureWithMessage:(IMMessageModel *)message mine:(BOOL)mine {
+    _card.layer.cornerRadius = IMTheme.radiusBubble;
+    _title.font = [UIFont systemFontOfSize:MAX(14, IMTheme.chatFontSize - 2) weight:UIFontWeightSemibold];
+    _preview.font = [UIFont systemFontOfSize:MAX(12, IMTheme.chatFontSize - 5)];
     NSString *title; NSArray<NSString *> *lines;
     IMParseChatRecord(message.content, &title, &lines);
     _title.text = title;
@@ -1202,14 +1212,14 @@ static void IMParseChatRecord(NSString *content, NSString **outTitle, NSArray<NS
         _quote.hidden = YES;
 
         _link = [UILabel new];
-        _link.font = [UIFont systemFontOfSize:16];
+        _link.font = [UIFont systemFontOfSize:IMTheme.chatFontSize];
         _link.numberOfLines = 0;
         _link.userInteractionEnabled = YES;
         [_link addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tapped)]];
 
         _card = [UIView new];
-        _card.backgroundColor = UIColor.secondarySystemBackgroundColor;
-        _card.layer.cornerRadius = 10;
+        _card.backgroundColor = IMTheme.surface;
+        _card.layer.cornerRadius = IMTheme.radiusBubble;
         _card.clipsToBounds = YES;
         _card.userInteractionEnabled = YES;
         _card.hidden = YES; // 拉到 OG 预览才显示（否则仅链接文本，与 Web 一致）
@@ -1266,6 +1276,10 @@ static void IMParseChatRecord(NSString *content, NSString **outTitle, NSArray<NS
     return self;
 }
 - (void)configureWithMessage:(IMMessageModel *)message mine:(BOOL)mine {
+    _card.layer.cornerRadius = IMTheme.radiusBubble;
+    _quote.font = [UIFont systemFontOfSize:MAX(12, IMTheme.chatFontSize - 4)];
+    _title.font = [UIFont systemFontOfSize:MAX(14, IMTheme.chatFontSize - 2) weight:UIFontWeightSemibold];
+    _desc.font = [UIFont systemFontOfSize:MAX(12, IMTheme.chatFontSize - 5)];
     NSString *url = message.content ?: @"";
     _url = url;
     _leading.active = !mine;
@@ -1280,7 +1294,7 @@ static void IMParseChatRecord(NSString *content, NSString **outTitle, NSArray<NS
     }
     // URL 文本始终显示（蓝色下划线，可点击）；卡片拉到预览再显示在下方。
     _link.attributedText = [[NSAttributedString alloc] initWithString:url attributes:@{
-        NSFontAttributeName: [UIFont systemFontOfSize:16],
+        NSFontAttributeName: [UIFont systemFontOfSize:IMTheme.chatFontSize],
         NSForegroundColorAttributeName: UIColor.systemBlueColor,
         NSUnderlineStyleAttributeName: @(NSUnderlineStyleSingle),
     }];
@@ -1466,6 +1480,8 @@ static void IMParseChatRecord(NSString *content, NSString **outTitle, NSArray<NS
         [self installInfoAvatarButtonWithURL:self.peerAvatarURL seed:self.peerID name:name action:@selector(singleInfoTapped)];
     }
     [self setupUI];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(appearanceChanged)
+                                               name:IMAppearanceDidChangeNotification object:nil];
     [self observeKeyboard];
     // 消息操作（撤回/编辑/置顶，M4）：应用到本会话某条 → 就地刷新；我方操作被拒（超窗）→ 吐司。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onMsgOpApplied:)
@@ -1481,6 +1497,21 @@ static void IMParseChatRecord(NSString *content, NSString **outTitle, NSArray<NS
 - (void)onConversationCleared:(NSNotification *)note {
     if (![note.userInfo[kIMConvIDKey] isEqualToString:self.convID]) { return; }
     [self.messages removeAllObjects];
+    [self.tableView reloadData];
+}
+
+/// 外观设置实时生效：刷新壁纸、消息 Cell、输入框与当前主题色，不需要重新进入聊天。
+- (void)appearanceChanged {
+    self.view.tintColor = IMTheme.accent;
+    self.inputBar.backgroundColor = IMTheme.surface;
+    self.inputField.backgroundColor = IMTheme.pageBackground;
+    self.inputField.font = [UIFont systemFontOfSize:MAX(15, IMTheme.chatFontSize - 1)];
+    self.inputField.layer.cornerRadius = IMAppearance.shared.bubbleRadius;
+    self.inputField.layer.borderColor =
+        [IMTheme.separator resolvedColorWithTraitCollection:self.traitCollection].CGColor;
+    if ([self.tableView.backgroundView isKindOfClass:IMChatBackgroundView.class]) {
+        [(IMChatBackgroundView *)self.tableView.backgroundView refreshAppearance];
+    }
     [self.tableView reloadData];
 }
 
@@ -1804,12 +1835,12 @@ static void IMParseChatRecord(NSString *content, NSString **outTitle, NSArray<NS
     self.inputField = pasteField;
     self.inputField.translatesAutoresizingMaskIntoConstraints = NO;
     self.inputField.placeholder = @"输入消息…";
-    self.inputField.font = [UIFont systemFontOfSize:16];
+    self.inputField.font = [UIFont systemFontOfSize:MAX(15, IMTheme.chatFontSize - 1)];
     self.inputField.returnKeyType = UIReturnKeySend;
     self.inputField.delegate = self;
     // 圆角胶囊输入框（Telegram 风格）。
     self.inputField.backgroundColor = UIColor.systemBackgroundColor;
-    self.inputField.layer.cornerRadius = 18;
+    self.inputField.layer.cornerRadius = IMAppearance.shared.bubbleRadius;
     self.inputField.layer.borderWidth = 1;
     self.inputField.layer.borderColor = UIColor.separatorColor.CGColor;
     UIView *pad = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 12, 0)];

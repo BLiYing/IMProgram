@@ -7,6 +7,7 @@
 - 本地存储：SQLite（FMDB / WCDB）+ NSUserDefaults（轻量配置）
 - 日志：**CocoaLumberjack 3.9.x**（控制台 + 5 MB 滚动文件，最多保留 7 份）
 - UI：UIKit，纯代码 + AutoLayout（Masonry）
+- 外观：`IMAppearance`（本地偏好/通知/模式）→ `IMTheme`（语义令牌）→ 页面；规范见 `docs/UI_COLOR.md`
 
 ## 候选三方库（CocoaPods）
 | 用途 | 库 |

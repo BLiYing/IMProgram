@@ -2,6 +2,7 @@
 
 #import "IMChatBackgroundView.h"
 #import "IMTheme.h"
+#import "IMAppearance.h"
 
 @implementation IMChatBackgroundView {
     CAGradientLayer *_gradient;
@@ -19,7 +20,7 @@
         _doodle.userInteractionEnabled = NO;
         [self addSubview:_doodle];
 
-        [self applyColors];
+        [self refreshAppearance];
     }
     return self;
 }
@@ -34,18 +35,24 @@
 - (void)traitCollectionDidChange:(UITraitCollection *)previous {
     [super traitCollectionDidChange:previous];
     if ([self.traitCollection hasDifferentColorAppearanceComparedToTraitCollection:previous]) {
-        [self applyColors];
+        [self refreshAppearance];
     }
 }
 
-- (void)applyColors {
+- (void)refreshAppearance {
     // resolvedColor: 在当前 trait 下取出具体色给 CALayer（CALayer 不随动态色自动刷新）。
     _gradient.colors = @[
         (id)[IMTheme.wallpaperTop resolvedColorWithTraitCollection:self.traitCollection].CGColor,
         (id)[IMTheme.wallpaperBottom resolvedColorWithTraitCollection:self.traitCollection].CGColor,
     ];
-    _doodleTile = [self makeDoodleTile];
-    _doodle.backgroundColor = [UIColor colorWithPatternImage:_doodleTile];
+    NSString *wallpaper = IMAppearance.shared.wallpaperID;
+    _gradient.hidden = [wallpaper isEqualToString:@"plain"];
+    _doodle.hidden = ![wallpaper isEqualToString:@"doodle"];
+    self.backgroundColor = [wallpaper isEqualToString:@"plain"] ? IMTheme.wallpaperTop : UIColor.clearColor;
+    if (!_doodle.hidden) {
+        _doodleTile = [self makeDoodleTile];
+        _doodle.backgroundColor = [UIColor colorWithPatternImage:_doodleTile];
+    }
 }
 
 /// 生成一张涂鸦平铺图：在固定网格上画一组 SF Symbol（位置/符号写死 → 平铺稳定不抖）。

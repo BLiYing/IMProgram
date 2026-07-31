@@ -1,10 +1,12 @@
 //  IMAnimator.m
 
 #import "IMAnimator.h"
+#import "IMAppearance.h"
 
 @implementation IMAnimator
 
 + (void)springPopIn:(UIView *)view {
+    if (!IMAppearance.shared.animationsEnabled) { view.transform = CGAffineTransformIdentity; view.alpha = 1; return; }
     view.transform = CGAffineTransformMakeScale(0.8, 0.8);
     view.alpha = 0;
     [UIView animateWithDuration:0.42 delay:0
@@ -17,6 +19,7 @@
 }
 
 + (void)tapBounce:(UIView *)view {
+    if (!IMAppearance.shared.animationsEnabled) { return; }
     [UIView animateWithDuration:0.08 animations:^{
         view.transform = CGAffineTransformMakeScale(0.95, 0.95);
     } completion:^(BOOL finished) {

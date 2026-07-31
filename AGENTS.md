@@ -20,6 +20,8 @@ iOS 即时通讯（IM）聊天 App。标准 Xcode 工程，UIKit + Storyboard。
 - **每次开始主要回复前，先读 `current_task.md` 恢复上下文**，改动后更新它。
 - **`current_task.md` 是"活快照"，不是流水账**：固定四节（当前焦点 / 下一步 / 已知坑·限制 / 关联工程·常用命令），**就地覆盖，禁止往下追加 `Status ②③④…` 新块**。需要留痕的历史交给 `git log` 与 `current_task.archive.md`（只读归档）。逐功能×端状态一律只写 `../IMServer/docs/CLIENT_PARITY.md`（唯一来源），别处不复述 ✅。
 - 遵循 `CODING_STYLE.md`：类前缀 `IM`、4 空格缩进、网络/IO 必须有错误恢复。
+- **新增或修改任何 UI 前必须读取 `docs/UI_COLOR.md`**；颜色/字号/圆角使用 `IMTheme`，
+  用户外观偏好使用 `IMAppearance`，禁止业务页面直接持久化外观或新增魔法颜色。
 - 架构设计见 `ARCHITECTURE.md`；通信协议见 `../IMServer/docs/PROTOCOL.md`。
 - 日志实现见 `docs/LOGGING.md`，跨端共同契约见 `../IMServer/docs/LOGGING.md`；新增日志必须走 `IMLog.h`。
 - **今后新增的业务/技术 Markdown 文档一律放入 `docs/`**。根目录仅保留 README、AGENTS/CLAUDE、`current_task.md` 及既有工程入口规范；不为整理目录而移动这些入口文件。

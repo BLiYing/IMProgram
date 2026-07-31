@@ -4,6 +4,7 @@
 
 #import "IMSettingsViewController.h"
 #import "IMProfileEditViewController.h"
+#import "IMAppearanceViewController.h"
 #import "IMBlockedListViewController.h"
 #import "IMFavoritesViewController.h"
 #import "IMLoginViewController.h"
@@ -271,7 +272,7 @@
                          handler:^{ [ws comingSoon:@"数据与存储"]; }],
         [IMSettingsRow rowWithId:@"appearance" title:@"外观" image:@"circle.lefthalf.filled"
                           iconBg:UIColor.systemBlueColor right:nil destructive:NO
-                         handler:^{ [ws comingSoon:@"外观"]; }],
+                         handler:^{ [ws.navigationController pushViewController:[IMAppearanceViewController new] animated:YES]; }],
         [IMSettingsRow rowWithId:@"powerSaving" title:@"省电模式" image:@"bolt.fill"
                           iconBg:UIColor.systemYellowColor right:@"关闭" destructive:NO
                          handler:^{ [ws comingSoon:@"省电模式"]; }],

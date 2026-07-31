@@ -15,6 +15,13 @@ NS_ASSUME_NONNULL_BEGIN
 @property (class, nonatomic, readonly) UIColor *bubbleThem;    // 对方气泡底（白/深灰）
 @property (class, nonatomic, readonly) UIColor *textPrimary;
 @property (class, nonatomic, readonly) UIColor *textSecondary;
+@property (class, nonatomic, readonly) UIColor *textTertiary;
+@property (class, nonatomic, readonly) UIColor *pageBackground;
+@property (class, nonatomic, readonly) UIColor *groupedBackground;
+@property (class, nonatomic, readonly) UIColor *surface;
+@property (class, nonatomic, readonly) UIColor *surfaceElevated;
+@property (class, nonatomic, readonly) UIColor *separator;
+@property (class, nonatomic, readonly) UIColor *danger;
 @property (class, nonatomic, readonly) UIColor *checkRead;     // 已读双勾绿
 @property (class, nonatomic, readonly) UIColor *unreadBadge;   // 未读胶囊（蓝，区别于绿在线点/绿勾）
 @property (class, nonatomic, readonly) UIColor *bubbleMetaTime; // 气泡内时间小字（浅色气泡上的次要色）
@@ -33,6 +40,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (class, nonatomic, readonly) CGFloat space4;        // 16
 @property (class, nonatomic, readonly) CGFloat radiusBubble;  // 14
 @property (class, nonatomic, readonly) CGFloat radiusCard;    // 8
+@property (class, nonatomic, readonly) CGFloat chatFontSize;
 
 // 工具
 /// 毫秒时间戳 → "HH:mm"（今天）/"MM-dd"（更早）；0 返回空串。

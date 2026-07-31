@@ -11,6 +11,7 @@
 #import "IMHTTPService.h"
 #import "IMSessionStore.h"
 #import "IMLog.h"
+#import "IMAppearance.h"
 
 @interface SceneDelegate ()
 
@@ -25,6 +26,7 @@
     if (![windowScene isKindOfClass:UIWindowScene.class]) { return; }
 
     self.window = [[UIWindow alloc] initWithWindowScene:windowScene];
+    [IMAppearance.shared applyInterfaceStyle];
     IMLog(@"launch hasSession=%d uid=%@ host=%@", [IMSessionStore hasSession], IMSessionStore.userID, IMSessionStore.host);
     if ([IMSessionStore hasSession]) {
         // 保持登录：先显示加载态，用已存 host/uid/password 静默重登拿新 token（socket 重连也需 password），
@@ -35,6 +37,8 @@
         [self showLogin];
     }
     [self.window makeKeyAndVisible];
+    [IMAppearance.shared applyInterfaceStyle];
+    self.window.tintColor = IMAppearance.shared.accentColor;
 }
 
 /// 用持久化的凭据静默重登，恢复 currentToken 后进入主界面。

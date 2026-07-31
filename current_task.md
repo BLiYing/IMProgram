@@ -4,6 +4,7 @@
 > 历史流水见 `current_task.archive.md` + `git log`。关键约定见 `CLAUDE.md` / `ARCHITECTURE.md` / `CODING_STYLE.md`。
 
 ## 当前焦点
+- **✅ iOS 外观个性化首版（2026-07-31，build + test-build 绿，用户真机测试通过）**：设置页“外观”已接通 Telegram 风格预览；支持跟随系统/浅色/深色（默认系统）、经典绿/海洋蓝/紫晶/深海主题、涂鸦/渐变/纯色壁纸、14～22 聊天字号、6～24 气泡圆角、全局动画开关，以及默认/蓝色/紫色/深色 Alternate App Icon。`IMAppearance` 统一持久化、输入校验和跨页面通知，文本/图片/相册/聊天记录/链接消息及输入框实时刷新；`IMAppearanceTests` 覆盖数值边界与非法偏好回退。三张备用图标均为 1024×1024 无 Alpha，构建产物已确认生成 `CFBundleAlternateIcons`。新增 `docs/UI_COLOR.md`，并在 AGENTS/CLAUDE/CODING_STYLE 中设为 UI 修改必读。高级调色器、定时夜间、单会话主题、动态壁纸暂未实现。
 - **✅ 会话菜单与交互动效修复（2026-07-31，用户真机测试通过）**：右上角加号菜单改为同一 host 单实例，阻止导航栏连续点击叠出多张卡片；置顶/取消置顶保持服务端确认后再本地按权威排序平滑移动行，随后静默同步；聊天附件面板首次创建先完成 Auto Layout，修正从左上角错误起跳。按用户要求未编译。
 - **✅ 三端统一品牌图标与启动页（2026-07-31，用户测试通过）**：iOS AppIcon 接入未来感即时通讯共用图标（双气泡无限连接 + 实时脉冲），使用不含透明通道的 1024×1024 PNG，由系统负责圆角蒙版；原空白 `LaunchScreen` 已改为深海军蓝底、居中品牌图，并提供 1x/2x/3x 资源。按用户要求未编译。
 - **三端日志与文档治理（2026-07-31）**：新增 `docs/LOGGING.md` 记录 iOS 的 CocoaLumberjack/HTTP/WS/DB/UI 使用规则，并引用 IMServer 的跨端共同契约；工程约定要求后续新增业务/技术 Markdown 统一放入 `docs/`，根目录入口文件除外。
