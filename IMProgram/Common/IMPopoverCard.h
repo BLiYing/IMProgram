@@ -16,6 +16,8 @@ NS_ASSUME_NONNULL_BEGIN
 @end
 
 @interface IMPopoverCard : NSObject
+/// 同一 host 内是否已有弹出卡片。用于避免导航栏按钮连续点击叠出多个菜单。
++ (BOOL)isPresentingInHostView:(UIView *)host;
 /// 在 host 内、锚定 anchor 下方弹出卡片。视图层级自持有，关闭即释放。
 + (void)presentFromAnchor:(UIView *)anchor inHostView:(UIView *)host items:(NSArray<IMPopoverCardItem *> *)items;
 @end

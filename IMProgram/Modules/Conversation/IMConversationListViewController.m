@@ -456,6 +456,7 @@ static CGFloat const kIMRowLeading = 16;
 
 /// 右上角 ＋ 自绘卡片：新建群聊 / 添加好友 / 扫一扫（与详情「更多」同款 IMPopoverCard，锚按钮正下方）。
 - (void)plusTapped:(UIButton *)anchor {
+    if ([IMPopoverCard isPresentingInHostView:self.view]) { return; }
     __weak typeof(self) ws = self;
     NSArray<IMPopoverCardItem *> *items = @[
         [IMPopoverCardItem itemWithTitle:@"新建群聊" symbol:@"person.3" destructive:NO handler:^{ [ws startNewGroup]; }],
@@ -639,7 +640,44 @@ static CGFloat const kIMRowLeading = 16;
 /// 置顶/取消置顶：pinned_at=现在ms/0（服务端据此把置顶会话排列表顶）。
 - (void)setConversation:(IMConversation *)c pinned:(BOOL)pinned {
     int64_t pinnedAt = pinned ? (int64_t)([NSDate date].timeIntervalSince1970 * 1000.0) : 0;
-    [self updateSettingsForConversation:c pinnedAt:pinnedAt muted:c.muted markedUnread:c.markedUnread fail:@"置顶失败"];
+    if (c.convID.length == 0 || self.token.length == 0) { return; }
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService updateConversationSettingsWithToken:self.token convID:c.convID
+        pinnedAt:pinnedAt muted:c.muted markedUnread:c.markedUnread completion:^(NSError *error) {
+            if (error) { [ws im_showToast:error.localizedDescription ?: @"置顶失败"]; return; }
+            [ws animateConversation:c pinnedAt:pinnedAt];
+            // 服务端仍是最终排序来源；动画结束后静默拉取一次，收敛多端同时操作。
+            [ws performSelector:@selector(reload) withObject:nil afterDelay:0.42];
+        }];
+}
+
+/// 服务端确认置顶后，先按与服务端一致的规则在本地移动这一行，避免整表 reload 造成的突跳。
+- (void)animateConversation:(IMConversation *)conversation pinnedAt:(int64_t)pinnedAt {
+    NSUInteger oldIndex = [self.conversations indexOfObject:conversation];
+    if (oldIndex == NSNotFound) { [self reload]; return; }
+
+    conversation.pinnedAt = pinnedAt;
+    NSArray<IMConversation *> *sorted = [self.conversations sortedArrayUsingComparator:^NSComparisonResult(IMConversation *a, IMConversation *b) {
+        if ((a.pinnedAt > 0) != (b.pinnedAt > 0)) { return a.pinnedAt > 0 ? NSOrderedAscending : NSOrderedDescending; }
+        if (a.pinnedAt > 0 && a.pinnedAt != b.pinnedAt) { return a.pinnedAt > b.pinnedAt ? NSOrderedAscending : NSOrderedDescending; }
+        if (a.timestamp == b.timestamp) { return NSOrderedSame; }
+        return a.timestamp > b.timestamp ? NSOrderedAscending : NSOrderedDescending;
+    }];
+    NSUInteger newIndex = [sorted indexOfObject:conversation];
+    self.conversations = sorted;
+    self.emptyLabel.hidden = sorted.count > 0;
+
+    NSIndexPath *from = [NSIndexPath indexPathForRow:(NSInteger)oldIndex inSection:0];
+    NSIndexPath *to = [NSIndexPath indexPathForRow:(NSInteger)newIndex inSection:0];
+    if (oldIndex == newIndex) {
+        [self.tableView reloadRowsAtIndexPaths:@[to] withRowAnimation:UITableViewRowAnimationAutomatic];
+        return;
+    }
+    [self.tableView performBatchUpdates:^{
+        [self.tableView moveRowAtIndexPath:from toIndexPath:to];
+    } completion:^(BOOL finished) {
+        if (finished) { [self.tableView reloadRowsAtIndexPaths:@[to] withRowAnimation:UITableViewRowAnimationNone]; }
+    }];
 }
 
 /// 免打扰/取消免打扰：muted 切换（弱提示，不改未读）。

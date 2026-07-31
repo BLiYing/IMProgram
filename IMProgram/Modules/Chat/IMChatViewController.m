@@ -2136,7 +2136,12 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 /// 展开/收起附件面板（首次点击惰性构建 2×3 网格）。面板显示在输入栏「下方」（微信式）：
 /// 展开时收起键盘、把输入栏上顶 kIMAttachPanelHeight，面板填充其下方空间。
 - (void)toggleAttachPanel {
-    if (!self.attachPanel) { [self buildAttachPanel]; }
+    if (!self.attachPanel) {
+        [self buildAttachPanel];
+        // 首次建面板时先解析约束，确保动画从输入栏下方的真实初始 frame 开始，
+        // 而非 Auto Layout 尚未赋值时的左上角 (0,0)。
+        [self.view layoutIfNeeded];
+    }
     [self showAttachPanel:!self.attachPanelVisible];
 }
 

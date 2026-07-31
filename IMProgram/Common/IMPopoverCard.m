@@ -3,6 +3,8 @@
 #import "IMPopoverCard.h"
 #import "IMTheme.h"
 
+static NSInteger const kIMPopoverCardOverlayTag = 917241;
+
 @implementation IMPopoverCardItem
 + (instancetype)itemWithTitle:(NSString *)title symbol:(NSString *)symbol
                   destructive:(BOOL)destructive handler:(void (^)(void))handler {
@@ -14,11 +16,16 @@
 
 @implementation IMPopoverCard
 
++ (BOOL)isPresentingInHostView:(UIView *)host {
+    return host && [host viewWithTag:kIMPopoverCardOverlayTag] != nil;
+}
+
 + (void)presentFromAnchor:(UIView *)anchor inHostView:(UIView *)host items:(NSArray<IMPopoverCardItem *> *)items {
-    if (items.count == 0 || !anchor || !host) { return; }
+    if (items.count == 0 || !anchor || !host || [self isPresentingInHostView:host]) { return; }
 
     // dim 覆盖层：捕获点击关闭（几乎透明，像原生下拉菜单）。
     UIView *dim = [[UIView alloc] initWithFrame:host.bounds];
+    dim.tag = kIMPopoverCardOverlayTag;
     dim.backgroundColor = [UIColor.blackColor colorWithAlphaComponent:0.001];
     dim.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     [host addSubview:dim];
