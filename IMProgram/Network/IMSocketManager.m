@@ -52,6 +52,8 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
 @interface IMSocketManager () <NSURLSessionWebSocketDelegate>
 @property (nonatomic, assign) IMSocketState state;
 @property (nonatomic, copy, nullable)   NSString *userID;
+- (void)cancelAllPendingSendsWithMessage:(NSString *)message;
+- (BOOL)applyMsgOpPayload:(NSDictionary *)payload advancingSyncedConvSeq:(int64_t)syncedConvSeq;
 @end
 
 @implementation IMSocketManager {
@@ -62,10 +64,12 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     int64_t   _seq;                   ///< 客户端单调自增请求号
     BOOL      _manualClose;           ///< 用户主动断开，禁止自动重连
     NSInteger _reconnectAttempts;
+    NSUInteger _connectionGeneration;  ///< 使旧登录请求/socket 回调在切账号或新重连后失效
     dispatch_source_t _pingTimer;
     NSMutableDictionary<NSString *, IMPendingSend *> *_pending;
-    NSMutableDictionary<NSString *, NSNumber *> *_syncedSeq; // conv_id -> 已同步到的最大 conv_seq
+    NSMutableDictionary<NSString *, NSNumber *> *_syncedSeq; // conv_id -> 已连续同步完成的 conv_seq（非“见过的最大值”）
     NSMutableSet<NSString *> *_trackedConvs;                 // 需在重连后增量同步的会话
+    NSMutableSet<NSString *> *_syncingConvs;                 // 已发出 sync_req、等待该会话响应，避免实时连发造成请求风暴
     NSMutableSet<NSString *> *_pendingOps;                   // 已发出、待确认的消息操作 client_msg_id（撤回/编辑/置顶），供失败回滚
 }
 
@@ -83,6 +87,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
         _pending = [NSMutableDictionary dictionary];
         _syncedSeq = [NSMutableDictionary dictionary];
         _trackedConvs = [NSMutableSet set];
+        _syncingConvs = [NSMutableSet set];
         _pendingOps = [NSMutableSet set];
         _state = IMSocketStateDisconnected;
     }
@@ -97,6 +102,16 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
         return;
     }
     dispatch_async(_queue, ^{
+        BOOL accountChanged = self.userID.length > 0 && ![self.userID isEqualToString:userID];
+        if (accountChanged) {
+            // 同一单例会跨登录复用；同步游标若不按账号清空，会把上个账号在同一 conv_id 的位置带过来，
+            // 新账号便会从过大的 since 开始，永久漏掉历史。
+            [self->_syncedSeq removeAllObjects];
+            [self->_trackedConvs removeAllObjects];
+            [self->_syncingConvs removeAllObjects];
+            [self->_pendingOps removeAllObjects];
+            [self cancelAllPendingSendsWithMessage:@"账号已切换"];
+        }
         // 幂等：已连到同一 host+uid 且未主动断开 → 复用现连接（避免会话列表/聊天页重复调用造成重连抖动）。
         if (self.state != IMSocketStateDisconnected && !self->_manualClose
             && [self->_host isEqualToString:host] && [self.userID isEqualToString:userID]) {
@@ -114,6 +129,11 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     dispatch_async(_queue, ^{
         self->_manualClose = YES;
         [self teardownSocket];
+        [self->_syncedSeq removeAllObjects];
+        [self->_trackedConvs removeAllObjects];
+        [self->_syncingConvs removeAllObjects];
+        [self->_pendingOps removeAllObjects];
+        [self cancelAllPendingSendsWithMessage:@"连接已关闭"];
         [self updateState:IMSocketStateDisconnected];
     });
 }
@@ -121,6 +141,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
 /// 建立一条新连接（仅在 _queue 调用）：先经 HTTP 登录换取 JWT，再用 ?token= 连 ws。
 - (void)openSocket {
     [self teardownSocket];
+    NSUInteger generation = ++_connectionGeneration;
     [self updateState:IMSocketStateConnecting];
     NSString *host = _host;
     NSString *uid = self.userID;
@@ -129,7 +150,11 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) { return; }
         dispatch_async(self->_queue, ^{
-            if (self->_manualClose) { return; }
+            // 登录 HTTP 可能在切换账号/发起新一轮重连之后才返回；绝不能用旧 uid 的 token 建立新连接。
+            if (self->_manualClose || generation != self->_connectionGeneration
+                || ![self.userID isEqualToString:uid] || ![self->_host isEqualToString:host]) {
+                return;
+            }
             if (token.length == 0) {
                 IMLogSocket(@"登录换取 token 失败，稍后重连: %@", error.localizedDescription);
                 [self scheduleReconnect];
@@ -213,6 +238,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     }
     IMLogSocket(@"disconnected: %@", error.localizedDescription ?: @"(closed)");
     [self teardownSocket];
+    [_syncingConvs removeAllObjects]; // 未收到的 sync_resp 已失效；重连后从已持久化连续位置重发
     [self updateState:IMSocketStateDisconnected];
     if (!_manualClose) {
         [self scheduleReconnect];
@@ -224,9 +250,10 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     if (_manualClose) { return; }
     NSTimeInterval delay = MIN(kIMReconnectCap, kIMReconnectBase * pow(2, _reconnectAttempts));
     _reconnectAttempts++;
+    NSUInteger generation = _connectionGeneration;
     IMLogSocket(@"reconnect in %.1fs (attempt %ld)", delay, (long)_reconnectAttempts);
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), _queue, ^{
-        if (self->_manualClose) { return; }
+        if (self->_manualClose || generation != self->_connectionGeneration) { return; }
         [self openSocket];
     });
 }
@@ -496,6 +523,19 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     }
 }
 
+/// 主动退出或切换账号时终止旧账号的未决发送，避免其定时器在新账号连接上重发旧负载（仅在 _queue 调用）。
+- (void)cancelAllPendingSendsWithMessage:(NSString *)message {
+    NSArray<IMPendingSend *> *pending = _pending.allValues;
+    [_pending removeAllObjects];
+    for (IMPendingSend *item in pending) {
+        [self cancelAckTimer:item];
+        [self finishSend:item.completion
+                 success:NO
+                   error:[self errorWithCode:5005 msg:message ?: @"发送已取消"]
+                 convSeq:0];
+    }
+}
+
 /// 处理 ack：匹配待确认项，停表，回调成功（仅在 _queue 调用）。
 - (void)handleAck:(NSDictionary *)data {
     NSString *clientMsgID = data[@"client_msg_id"];
@@ -504,7 +544,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     [self cancelAckTimer:p];
     [_pending removeObjectForKey:clientMsgID];
     int64_t convSeq = [data[@"conv_seq"] longLongValue];
-    [self updateSyncedSeqForConv:data[@"conv_id"] seq:convSeq]; // 自己发的消息也推进同步位点
+    // ACK 只证明这一条已保存，不证明它之前的所有 conv_seq 已连续同步；不能拿它推进历史游标。
     [self finishSend:p.completion success:YES error:nil convSeq:convSeq];
 }
 
@@ -531,37 +571,67 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     for (NSDictionary *conv in convs) {
         if (![conv isKindOfClass:[NSDictionary class]]) { continue; }
         NSString *convID = conv[@"conv_id"];
+        if (convID.length > 0) { [_syncingConvs removeObject:convID]; }
+        int64_t pageStart = [self syncedSeqForConv:convID];
         NSArray *messages = [conv[@"messages"] isKindOfClass:[NSArray class]] ? conv[@"messages"] : @[];
         for (NSDictionary *md in messages) {
             if (![md isKindOfClass:[NSDictionary class]]) { continue; }
             [self processIncomingMessage:[IMMessageModel receivedMessageWithNewMsgData:md]];
         }
+        int64_t responseLatest = [conv[@"latest_conv_seq"] longLongValue];
+        int64_t continuous = [self syncedSeqForConv:convID];
+        // latest_conv_seq 是“本页最后一条”，只能用于校验，不能强制覆盖客户端连续位置。
+        // 若服务端页内意外缺号，停在空洞前并等待后续重连重试，绝不越级落游标。
+        BOOL pageIsContinuous = responseLatest == continuous;
+        if (!pageIsContinuous) {
+            IMLogSocket(@"sync page not contiguous conv=%@ start=%lld response_latest=%lld continuous=%lld",
+                        convID ?: @"", pageStart, responseLatest, continuous);
+        }
         if ([conv[@"has_more"] boolValue] && convID.length > 0) {
-            [self sendSyncReqForConvs:@[convID]]; // 以更新后的位点继续翻页
+            if (pageIsContinuous && continuous > pageStart) {
+                [self sendSyncReqForConvs:@[convID]]; // 仅以本页实际连续处理完成的位置继续翻页
+            } else {
+                IMLogSocket(@"sync pagination stopped without continuous progress conv=%@", convID);
+            }
         }
     }
 }
 
 /// 统一处理收到的一条消息：推进同步位点、回执、投递 delegate（仅在 _queue 调用）。
 - (void)processIncomingMessage:(IMMessageModel *)msg {
+    int64_t prevSynced = [self syncedSeqForConv:msg.convID];
+    BOOL isNextContiguous = msg.convSeq > 0 && msg.convSeq == prevSynced + 1;
     // msg_op 事件行（撤回/编辑/置顶，来自 sync 补拉）：应用其效果、不作气泡渲染、不入库为消息。
     if ([msg.contentType isEqualToString:kIMTypeMsgOp]) {
-        [self updateSyncedSeqForConv:msg.convID seq:msg.convSeq];
         NSDictionary *op = [self jsonObjectFromString:msg.content];
-        if (op) { [self applyMsgOpPayload:op]; }
+        BOOL applied = op && [self applyMsgOpPayload:op
+                             advancingSyncedConvSeq:isNextContiguous ? msg.convSeq : 0];
+        if (isNextContiguous && applied) {
+            [self updateSyncedSeqForConv:msg.convID seq:msg.convSeq];
+        }
         return;
     }
     // 空洞自愈：conv_seq 由服务端连续分配，若收到的序号跳过了已同步位点之后的中间段，
     // 说明中间有未拉取（离线）消息 → 先从已同步位点补拉，避免实时消息把 synced 推过空洞造成漏消息。
-    int64_t prevSynced = [self syncedSeqForConv:msg.convID];
     if (prevSynced > 0 && msg.convSeq > prevSynced + 1 && [_trackedConvs containsObject:msg.convID]) {
         [self sendSyncReqForConvs:@[msg.convID]]; // 用当前（更低的）位点作 since，把缺口拉回
+    } else if (prevSynced == 0 && msg.convSeq > 1 && [_trackedConvs containsObject:msg.convID]) {
+        [self sendSyncReqForConvs:@[msg.convID]]; // 新账号首次只见到较大序号，同样必须从 0 补齐
     }
-    [self updateSyncedSeqForConv:msg.convID seq:msg.convSeq];
-    [self sendReceiptForConv:msg.convID upTo:msg.convSeq];
     // 落库放在网络层：无论当前在会话列表还是聊天页（甚至无页面）收到的消息都持久化，
     // 避免「在列表收到、未入库、之后开聊天页因 synced 已前进而漏拉」。按 conv_seq 幂等 upsert。
-    [IMDatabase.sharedDatabase saveMessage:msg];
+    BOOL saved = [IMDatabase.sharedDatabase saveIncomingMessage:msg
+                                         advancingSyncedConvSeq:isNextContiguous ? msg.convSeq : 0];
+    if ([msg.contentType isEqualToString:@"file"]) {
+        IMLogSocket(@"file message conv=%@ seq=%lld from=%@ name=%@ bytes=%lld",
+                    msg.convID, msg.convSeq, msg.from ?: @"", msg.fileName ?: @"", msg.fileSize);
+    }
+    if (isNextContiguous && saved) {
+        [self updateSyncedSeqForConv:msg.convID seq:msg.convSeq];
+    } else if (!saved) {
+        IMLogSocket(@"incoming message not durable; cursor held conv=%@ seq=%lld", msg.convID, msg.convSeq);
+    }
+    if (saved) { [self sendReceiptForConv:msg.convID upTo:msg.convSeq]; }
     __weak typeof(self) weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
         __strong typeof(weakSelf) self = weakSelf;
@@ -648,10 +718,14 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
 /// 应用一条消息操作到本地（DB 落库 + 主线程广播）。payload 来自实时 msg_op 帧或 sync 的 msg_op 事件行负载。
 /// 仅在 _queue 调用。
 - (void)applyMsgOpPayload:(NSDictionary *)payload {
+    [self applyMsgOpPayload:payload advancingSyncedConvSeq:0];
+}
+
+- (BOOL)applyMsgOpPayload:(NSDictionary *)payload advancingSyncedConvSeq:(int64_t)syncedConvSeq {
     NSString *op = [payload[@"op"] isKindOfClass:[NSString class]] ? payload[@"op"] : @"";
     NSString *convID = [payload[@"conv_id"] isKindOfClass:[NSString class]] ? payload[@"conv_id"] : @"";
     int64_t target = [payload[@"target_conv_seq"] longLongValue];
-    if (convID.length == 0 || target <= 0) { return; }
+    if (convID.length == 0 || target <= 0) { return NO; }
 
     NSString *cmid = [payload[@"client_msg_id"] isKindOfClass:[NSString class]] ? payload[@"client_msg_id"] : nil;
     if (cmid.length > 0) { [_pendingOps removeObject:cmid]; } // 我方操作成功回执
@@ -667,17 +741,20 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     } else if ([op isEqualToString:kIMMsgOpPin]) {
         pinnedAt = now;
     } else {
-        return; // 未知 op：忽略不崩
+        return NO; // 未知 op：忽略不崩
     }
     NSString *by = [payload[@"by"] isKindOfClass:[NSString class]] ? payload[@"by"] : nil;
-    [IMDatabase.sharedDatabase applyMsgOpForConv:convID targetConvSeq:target
-                                      recalledAt:recalledAt recalledBy:by
-                                        editedAt:editedAt pinnedAt:pinnedAt newContent:newContent];
+    BOOL applied = [IMDatabase.sharedDatabase applyMsgOpForConv:convID targetConvSeq:target
+                                                     recalledAt:recalledAt recalledBy:by
+                                                       editedAt:editedAt pinnedAt:pinnedAt newContent:newContent
+                                           advancingSyncedConvSeq:syncedConvSeq];
+    if (!applied) { return NO; }
     dispatch_async(dispatch_get_main_queue(), ^{
         NSMutableDictionary *info = [@{ kIMConvIDKey: convID, kIMMsgOpTargetSeqKey: @(target), kIMMsgOpKey: op } mutableCopy];
         if (newContent) { info[kIMMsgOpContentKey] = newContent; }
         [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidApplyMsgOpNotification object:self userInfo:info];
     });
+    return YES;
 }
 
 /// 从 JSON 字符串解析字典（op 事件行 content 自描述负载）；非法返回 nil。
@@ -805,7 +882,9 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
 - (void)sendSyncReqForConvs:(NSArray<NSString *> *)convIDs {
     NSMutableArray *cursors = [NSMutableArray array];
     for (NSString *convID in convIDs) {
+        if ([_syncingConvs containsObject:convID]) { continue; }
         [cursors addObject:@{ @"conv_id": convID, @"since_conv_seq": @([self syncedSeqForConv:convID]) }];
+        [_syncingConvs addObject:convID];
     }
     if (cursors.count == 0) { return; }
     [self sendEnvelopeType:kIMTypeSyncReq data:@{ @"cursors": cursors } completion:nil];

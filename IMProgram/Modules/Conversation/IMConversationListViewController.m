@@ -409,14 +409,14 @@ static CGFloat const kIMRowLeading = 16;
     }];
 }
 
-/// 把会话登记到长连接的增量同步集（每会话仅一次）：以本地已存最大 conv_seq 为起点，
+/// 把会话登记到长连接的增量同步集（每会话仅一次）：以 SQLite 持久化的连续同步位置为起点，
 /// （重）连后自动 sync_req 补拉离线消息。修复"登录后停在会话列表，对端离线期间发的消息不入库，
 /// 之后开聊天页因 synced 已被实时消息推过而漏拉"。
 - (void)trackConversationsForSync {
     for (IMConversation *c in self.conversations) {
         if (c.convID.length == 0 || [self.trackedConvIDs containsObject:c.convID]) { continue; }
         [self.trackedConvIDs addObject:c.convID];
-        int64_t synced = [IMDatabase.sharedDatabase maxConvSeqForConv:c.convID];
+        int64_t synced = [IMDatabase.sharedDatabase syncedConvSeqForConv:c.convID];
         [IMSocketManager.sharedManager trackConversation:c.convID syncedSeq:synced];
     }
 }

@@ -38,6 +38,58 @@
     XCTAssertEqual(decoded.fileSize, 7340032);
 }
 
+- (void)testServerSyncBackfillsFileSizeWithoutDuplicatingOptimisticMessage {
+    NSURL *url = [self temporaryDatabaseURL];
+    IMDatabase *database = [[IMDatabase alloc] initWithFileURL:url];
+    [database useOwnerUserID:@"alice"];
+
+    IMMessageModel *optimistic = [IMMessageModel new];
+    optimistic.clientMsgID = @"client-1";
+    optimistic.convID = @"u_alice_bob";
+    optimistic.from = @"alice";
+    optimistic.to = @"bob";
+    optimistic.contentType = @"file";
+    optimistic.content = @"/uploads/report.xlsx";
+    optimistic.fileName = @"季度报表.xlsx";
+    optimistic.fileSize = 0;
+    optimistic.convSeq = 9;
+    optimistic.timestamp = 900;
+    optimistic.status = IMMessageStatusSent;
+    [database saveMessage:optimistic];
+
+    IMMessageModel *authoritative = [IMMessageModel receivedMessageWithNewMsgData:@{
+        @"server_msg_id": @"server-9", @"conv_id": optimistic.convID, @"conv_seq": @9,
+        @"from": @"alice", @"content_type": @"file", @"content": optimistic.content,
+        @"file_name": @"季度报表.xlsx", @"file_size": @7340032, @"timestamp": @901,
+    }];
+    [database saveMessage:authoritative];
+
+    NSArray<IMMessageModel *> *messages = [database messagesForConv:optimistic.convID];
+    XCTAssertEqual(messages.count, 1);
+    XCTAssertEqual(messages.firstObject.fileSize, 7340032);
+    XCTAssertEqualObjects(messages.firstObject.fileName, @"季度报表.xlsx");
+    [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
+}
+
+- (void)testBackfilledHistoryUsesConversationSequenceOrder {
+    NSURL *url = [self temporaryDatabaseURL];
+    IMDatabase *database = [[IMDatabase alloc] initWithFileURL:url];
+    [database useOwnerUserID:@"alice"];
+    for (NSNumber *seq in @[@9, @7, @8]) {
+        IMMessageModel *message = [IMMessageModel new];
+        message.convID = @"u_alice_bob";
+        message.from = @"bob";
+        message.contentType = @"text";
+        message.content = seq.stringValue;
+        message.convSeq = seq.longLongValue;
+        message.timestamp = seq.longLongValue;
+        [database saveMessage:message];
+    }
+    NSArray<IMMessageModel *> *messages = [database messagesForConv:@"u_alice_bob"];
+    XCTAssertEqualObjects([messages valueForKey:@"content"], (@[@"7", @"8", @"9"]));
+    [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
+}
+
 - (void)testSentFileCacheIsOwnerIsolatedAndDeduplicated {
     IMDatabase *database = [[IMDatabase alloc] initWithFileURL:[self temporaryDatabaseURL]];
     NSDictionary *file = @{

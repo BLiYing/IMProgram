@@ -47,6 +47,72 @@
     [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
 }
 
+- (void)testContinuousSyncCursorIsOwnerIsolatedAndSurvivesSnapshotReplacement {
+    NSURL *url = [self temporaryDatabaseURL];
+    IMDatabase *database = [[IMDatabase alloc] initWithFileURL:url];
+
+    [database useOwnerUserID:@"alice"];
+    IMConversation *aliceConversation = [self conversationWithID:@"shared-conv" peer:@"bob" content:@"摘要"];
+    [database replaceCachedConversations:@[aliceConversation]];
+    // 本地偶然先收到 seq=9，不能把 9 当成“1～9 已连续同步”。
+    IMMessageModel *sparse = [IMMessageModel new];
+    sparse.convID = @"shared-conv";
+    sparse.from = @"alice";
+    sparse.contentType = @"text";
+    sparse.content = @"较新消息";
+    sparse.convSeq = 9;
+    sparse.timestamp = 9;
+    [database saveMessage:sparse];
+    XCTAssertEqual([database maxConvSeqForConv:@"shared-conv"], 9);
+    XCTAssertEqual([database syncedConvSeqForConv:@"shared-conv"], 0);
+
+    [database advanceSyncedConvSeqForConv:@"shared-conv" toConvSeq:6];
+    XCTAssertEqual([database syncedConvSeqForConv:@"shared-conv"], 6);
+    [database replaceCachedConversations:@[aliceConversation]];
+    XCTAssertEqual([database syncedConvSeqForConv:@"shared-conv"], 6);
+
+    [database useOwnerUserID:@"charlie"];
+    IMConversation *charlieConversation = [self conversationWithID:@"shared-conv" peer:@"dave" content:@"另一账号"];
+    [database replaceCachedConversations:@[charlieConversation]];
+    XCTAssertEqual([database syncedConvSeqForConv:@"shared-conv"], 0);
+    [database advanceSyncedConvSeqForConv:@"shared-conv" toConvSeq:3];
+
+    [database useOwnerUserID:@"alice"];
+    XCTAssertEqual([database syncedConvSeqForConv:@"shared-conv"], 6);
+    [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
+}
+
+- (void)testIncomingMessageAndContinuousCursorCommitTogetherWithoutSkippingSparseMessage {
+    NSURL *url = [self temporaryDatabaseURL];
+    IMDatabase *database = [[IMDatabase alloc] initWithFileURL:url];
+    [database useOwnerUserID:@"alice"];
+    [database replaceCachedConversations:@[[self conversationWithID:@"u_alice_u_bob" peer:@"bob" content:@""]]];
+
+    IMMessageModel *first = [IMMessageModel new];
+    first.convID = @"u_alice_u_bob";
+    first.from = @"bob";
+    first.to = @"alice";
+    first.contentType = @"text";
+    first.content = @"one";
+    first.convSeq = 1;
+    first.timestamp = 1;
+    XCTAssertTrue([database saveIncomingMessage:first advancingSyncedConvSeq:1]);
+
+    IMMessageModel *sparse = [IMMessageModel new];
+    sparse.convID = first.convID;
+    sparse.from = @"bob";
+    sparse.to = @"alice";
+    sparse.contentType = @"text";
+    sparse.content = @"three";
+    sparse.convSeq = 3;
+    sparse.timestamp = 3;
+    XCTAssertTrue([database saveIncomingMessage:sparse advancingSyncedConvSeq:0]);
+
+    XCTAssertEqual([database messagesForConv:first.convID].count, 2);
+    XCTAssertEqual([database syncedConvSeqForConv:first.convID], 1);
+    [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
+}
+
 - (void)testConversationAndMessagesAreIsolatedByOwner {
     NSURL *url = [self temporaryDatabaseURL];
     IMDatabase *database = [[IMDatabase alloc] initWithFileURL:url];

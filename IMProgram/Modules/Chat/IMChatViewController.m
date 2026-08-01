@@ -442,8 +442,9 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     self.connState = IMSocketManager.sharedManager.state;
     [self updateTitle];
     [IMSocketManager.sharedManager connectToHost:self.host userID:self.userID];
-    // 登记本会话：以本地已存最大 conv_seq 为同步起点（断点续传），自动增量拉回缺失消息。
-    int64_t synced = [IMDatabase.sharedDatabase maxConvSeqForConv:self.convID];
+    // 登记本会话：以 SQLite 中“已连续同步完成”的位置为起点，不能用本地最大消息序号代替，
+    // 否则只存有较新消息时会永久跳过前面的空洞。
+    int64_t synced = [IMDatabase.sharedDatabase syncedConvSeqForConv:self.convID];
     [IMSocketManager.sharedManager trackConversation:self.convID syncedSeq:synced];
 }
 
@@ -1632,12 +1633,36 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     // 同一条消息可能既被 new_msg 推送、又被 sync_resp 拉到，按 conv_seq 去重。
     if (message.convSeq > 0) {
         NSNumber *key = @(message.convSeq);
-        if ([self.seenConvSeqs containsObject:key]) { return; }
+        if ([self.seenConvSeqs containsObject:key]) {
+            // 完整历史校正会再次下发已经实时上屏的消息。不能重复插入，但要让权威元数据回填当前内存模型；
+            // 否则 SQLite 已从 0 修复成真实 file_size，当前页面仍会一直显示 0 KB，直到重新进入会话。
+            if ([message.contentType isEqualToString:@"file"] && message.fileSize > 0) {
+                for (IMMessageModel *existing in self.messages) {
+                    if (existing.convSeq != message.convSeq) { continue; }
+                    existing.fileSize = message.fileSize;
+                    if (message.fileName.length > 0) { existing.fileName = message.fileName; }
+                    if (message.serverMsgID.length > 0) { existing.serverMsgID = message.serverMsgID; }
+                    [self.tableView reloadData];
+                    break;
+                }
+            }
+            return;
+        }
         [self.seenConvSeqs addObject:key];
     }
     // 收到新消息：贴底才自动贴底；在上方看历史则不打断，累加到"↓N"（CHAT_UX §9）。
     BOOL wasNearBottom = [self isNearBottom];
     [self.messages addObject:message];
+    [self.messages sortUsingComparator:^NSComparisonResult(IMMessageModel *a, IMMessageModel *b) {
+        if (a.convSeq > 0 && b.convSeq > 0 && a.convSeq != b.convSeq) {
+            return a.convSeq < b.convSeq ? NSOrderedAscending : NSOrderedDescending;
+        }
+        if ((a.convSeq > 0) != (b.convSeq > 0)) {
+            return a.convSeq > 0 ? NSOrderedAscending : NSOrderedDescending;
+        }
+        if (a.timestamp == b.timestamp) { return NSOrderedSame; }
+        return a.timestamp < b.timestamp ? NSOrderedAscending : NSOrderedDescending;
+    }];
     [self.tableView reloadData];
     if (wasNearBottom) { [self scrollToBottomAnimated:YES]; }
     // 可见即读 + ↓N 刷新：贴底时新消息进视口即标已读；在上方看历史则不读、↓N 计数 +1（markVisibleRowsRead 内重算）。

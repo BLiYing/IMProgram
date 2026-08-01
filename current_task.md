@@ -5,6 +5,15 @@
 
 ## 当前焦点
 
+- **多端历史连续同步与文件元数据补全（2026-08-02，build/test-build 通过；待跨端实测）**：iOS 将
+  `synced_conv_seq` 作为 `(owner_uid,conv_id)` 隔离的独立 SQLite 状态，禁止以本地
+  `MAX(conv_seq)`、单条 ACK 或实时见过的最大序号越级推进；消息/会话摘要/连续游标同事务提交，
+  多页仅从本页实际连续完成位置继续。账号切换会清空内存游标/in-flight/旧账号未决发送，并用连接
+  代次丢弃迟到的旧登录请求与重连任务。重复权威消息会补全当前聊天内存和 SQLite 的
+  `file_name/file_size`，不再出现另一端文件长期 0 KB。Web 已同步同一机制，协议见
+  `../IMServer/docs/PROTOCOL.md §6.2`；根因、不变量和自动化分层方案已记录在
+  `../IMServer/docs/CONTINUOUS_SYNC_AND_MULTI_CLIENT_TESTING.md`。待用户删库后做跨端、断线、
+  多页和切账号实测。本轮 `xcodebuild build` 与 `build-for-testing` 均通过。
 - **✅ 文件分页、文件语义与大小展示（2026-08-01，build/test-build 及用户测试通过）**：
   已发送文件服务端游标分页 + 按 uid 隔离 SQLite 缓存、相册原资源强制按文件发送均已由用户验收。
   新增 `file_size` 贯穿发送、转发、Socket 接收、消息模型和 SQLite；聊天气泡/详情文件 Tab 显示
@@ -91,19 +100,35 @@
   - ③**拉黑改微信式单向(已定+实现)**：hub 仅拦"被拉黑方→拉黑方"；**拉黑方→被拉黑方照常投递**(对方收得到)。两端聊天页不再封禁拉黑方输入(Web 改非阻断提示行、iOS 移除封禁横幅)。`TestBlockedCannotSend` 改测单向。Web 浏览器实测：拉黑方发送成功✓+提示在+输入可用。iOS 真编译过、真机待验。
 
 ## 下一步
-1. **用户真机测试 M4.5 会话菜单 + 群聊详情页**（优先）：
+1. **iOS 一账号一 SQLite 数据库（下一会话首要焦点；不兼容旧数据）**：把当前
+   `Documents/im.sqlite` 单文件 + `owner_uid` 逻辑隔离重构为账号级物理隔离。建议目录为
+   `Library/Application Support/IM/accounts/<SHA-256(uid)>/im.sqlite`，禁止直接使用 uid 作为路径；
+   登录前的最近账号/凭据继续由 `IMSessionStore` 管理，不建立匿名业务库。`IMDatabase` 必须从“可变
+   `_ownerUserID` + 永久单例 queue”改为显式账号数据库上下文：切账号先使旧上下文失效并等待/关闭旧
+   `FMDatabaseQueue`，再为新 uid 创建目录、打开数据库、执行该账号库的 schema 初始化。数据库操作需
+   固定到创建时的 owner/context generation，不能在异步任务执行中临时读取一个已变化的当前 uid。
+   保留 `IMSocketManager` 的连接代次、旧登录/旧 Socket 回调屏蔽和未决发送清理；物理分库不能替代网络
+   竞态保护。消息、会话摘要、`synced_conv_seq` 仍须同事务提交；新库游标从 0 开始，不从最大消息推断。
+   本轮明确不迁移、不读取、不删除旧 `Documents/im.sqlite`，按删除 App/无旧数据验证。退出登录默认
+   保留该账号离线缓存；未来“删除账号缓存”应只删除对应哈希目录。新增 XCTest 至少覆盖：不同 uid
+   得到不同文件 URL、A/B 同 `conv_id` 物理隔离、A→B→A 重开恢复、连续游标隔离、切换后旧上下文不可
+   写入新库、非法/超长 uid 不影响路径、数据库目录/建表失败有日志与恢复。完成后更新
+   `docs/LOCAL_FIRST_CONVERSATION_STORAGE.md`、`../IMServer/docs/CONTINUOUS_SYNC_AND_MULTI_CLIENT_TESTING.md`
+   和 `CLIENT_PARITY.md`，再开始 Playwright + iOS 跨端自动化测试基建。
+
+2. **用户真机测试 M4.5 会话菜单 + 群聊详情页**：
    - 会话菜单四件套（置顶/免打扰/标未读/删除）+ 指示符
    - 群聊详情页全流程（进详情 → 成员交互 → 设置头像 → 管理权限 → 退出/解散）
    - 头像闪动、标签页切换、更多菜单等 UI 细节验收
    - 反馈→迭代修复
    
-2. **M4.5-3 统一资料页** 设计稿拍板后开工：
+3. **M4.5-3 统一资料页** 设计稿拍板后开工：
    - 聊天详情页重构为标准资料页（成员页签改为资料页的成员卡片）
    - 设置页逐项（Devices/Folders/Notifications/…按 Telegram）
    
-3. 群聊 iOS 欠账（对齐 Web）：群头像上传、群内已读细化、@提醒（M5-6）。
+4. 群聊 iOS 欠账（对齐 Web）：群头像上传、群内已读细化、@提醒（M5-6）。
 
-4. 本地媒体文件离线缓存（当前 SQLite 已保存消息与媒体 URL，但远程图片/视频未下载过时离线不可查看）。
+5. 本地媒体文件离线缓存（当前 SQLite 已保存消息与媒体 URL，但远程图片/视频未下载过时离线不可查看）。
 
 ## 已知坑 / 限制
 - CocoaLumberjack 只接管应用主动输出的日志；iOS/UIKit/Network.framework 自身的系统诊断仍由系统写入 Xcode 控制台。Debug 文件日志会保留脱敏后的业务正文，仅用于开发设备，分享日志前仍需复核。
@@ -112,7 +137,8 @@
 - **presence/typing 仅聊天页标题**生效；会话列表不显示在线点（后续可同 notification 广播 presence）。
 - 聊天壁纸为 CG 自绘 SF Symbol 近似，非 Telegram 原涂鸦。
 - 测试只跑 `-only-testing:IMProgramTests`（UITests 会因 Accessibility 超时拖垮）。
-- 改后端协议字段后**需重启后端**再测；涉及本地库的回归需在模拟器**删 App 重装**清 `im.sqlite`。
+- 改后端协议字段后**需重启后端**再测；当前本地库仍是 `Documents/im.sqlite`，下一焦点将改为账号哈希
+  目录下独立 `im.sqlite`；本轮不迁移旧库，验证前需在模拟器**删 App 重装**。
 - 已读=可见即读（已实现）：未读随滚动逐步清；进会话只清当前可见的，需滚到底才全清。↓N 徽标=视口下方未读数，随滚动递减、滚到底隐藏（按 pendingReadSeq 实时重算，非静态）。
 
 ## 关联工程 / 常用命令

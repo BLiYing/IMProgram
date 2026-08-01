@@ -154,7 +154,7 @@
     XCTAssertEqualObjects(loaded[0].content, @"hi");
     XCTAssertEqual(loaded[0].convSeq, 3);
     XCTAssertEqual(loaded[0].status, IMMessageStatusSent);
-    XCTAssertEqual([db2 maxConvSeqForConv:@"u_1_u_2"], 3); // 派生同步位点
+    XCTAssertEqual([db2 maxConvSeqForConv:@"u_1_u_2"], 3); // 仅验证本地查询；连续同步位点是独立字段
     XCTAssertEqual([db2 maxConvSeqForConv:@"none"], 0);
 
     [NSFileManager.defaultManager removeItemAtURL:tmp error:NULL];

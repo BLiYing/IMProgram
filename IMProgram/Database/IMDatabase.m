@@ -102,10 +102,15 @@
              "last_recalled INTEGER, last_content_type TEXT, latest_conv_seq INTEGER,"
              "read_seq INTEGER, peer_read_seq INTEGER, timestamp INTEGER, unread INTEGER,"
              "pinned_at INTEGER, muted INTEGER, marked_unread INTEGER,server_snapshot_seq INTEGER NOT NULL DEFAULT 0,"
+             "synced_conv_seq INTEGER NOT NULL DEFAULT 0,"
              "PRIMARY KEY(owner_uid,conv_id))"];
         if (!ok) { IMLogDatabase(@"会话缓存建表失败: %@", db.lastErrorMessage); }
         if (![self column:@"server_snapshot_seq" existsInTable:@"im_conversation_local" db:db]) {
             [db executeUpdate:@"ALTER TABLE im_conversation_local ADD COLUMN server_snapshot_seq INTEGER NOT NULL DEFAULT 0"];
+        }
+        // 连续同步位置是独立状态；0 表示尚未证明任何连续区间，必须从头确认，不能由本地 MAX(conv_seq) 推断。
+        if (![self column:@"synced_conv_seq" existsInTable:@"im_conversation_local" db:db]) {
+            [db executeUpdate:@"ALTER TABLE im_conversation_local ADD COLUMN synced_conv_seq INTEGER NOT NULL DEFAULT 0"];
         }
     }];
 }
@@ -219,6 +224,17 @@
 - (void)writeCachedConversations:(NSArray<IMConversation *> *)conversations {
     NSString *owner = [self ownerUserID];
     [_queue inTransaction:^(FMDatabase *db, BOOL *rollback) {
+        // HTTP 会话快照只描述列表状态，不能抹掉 WebSocket 已连续同步到的位置。
+        NSMutableDictionary<NSString *, NSNumber *> *syncCursors = [NSMutableDictionary dictionary];
+        FMResultSet *cursorRS = [db executeQuery:
+            @"SELECT conv_id,synced_conv_seq FROM im_conversation_local WHERE owner_uid=?", owner];
+        while ([cursorRS next]) {
+            NSString *convID = [cursorRS stringForColumn:@"conv_id"] ?: @"";
+            if (convID.length > 0) {
+                syncCursors[convID] = @([cursorRS longLongIntForColumn:@"synced_conv_seq"]);
+            }
+        }
+        [cursorRS close];
         if (![db executeUpdate:@"DELETE FROM im_conversation_local WHERE owner_uid=?", owner]) {
             IMLogDatabase(@"清理旧会话缓存失败 owner=%@: %@", owner, db.lastErrorMessage);
             *rollback = YES;
@@ -227,12 +243,13 @@
         [conversations enumerateObjectsUsingBlock:^(IMConversation *c, NSUInteger idx, BOOL *stop) {
             if (c.convID.length == 0) { return; }
             BOOL ok = [db executeUpdate:
-                @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,peer,peer_nickname,peer_avatar_url,last_content,last_from,last_from_nickname,last_recalled,last_content_type,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,peer,peer_nickname,peer_avatar_url,last_content,last_from,last_from_nickname,last_recalled,last_content_type,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq,synced_conv_seq) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 owner, c.convID, @(idx), @(c.isGroup), c.name ?: @"", c.avatarURL ?: @"",
                 @(c.memberCount), c.peer ?: @"", c.peerNickname ?: @"", c.peerAvatarURL ?: @"",
                 c.lastContent ?: @"", c.lastFrom ?: @"", c.lastFromNickname ?: @"", @(c.lastRecalled),
                 c.lastContentType ?: @"", @(c.latestConvSeq), @(c.readSeq), @(c.peerReadSeq),
-                @(c.timestamp), @(c.unread), @(c.pinnedAt), @(c.muted), @(c.markedUnread), @(c.latestConvSeq)];
+                @(c.timestamp), @(c.unread), @(c.pinnedAt), @(c.muted), @(c.markedUnread), @(c.latestConvSeq),
+                syncCursors[c.convID] ?: @0];
             if (!ok) {
                 IMLogDatabase(@"写入会话缓存失败 owner=%@ conv=%@: %@", owner, c.convID, db.lastErrorMessage);
                 *rollback = YES;
@@ -256,18 +273,26 @@
 #pragma mark - 读写（接口语义同归档版：出站按 client_msg_id upsert，入站按 conv_seq 去重；保持插入顺序）
 
 - (void)saveMessage:(IMMessageModel *)message {
-    if (message.convID.length == 0) { return; }
+    [self saveIncomingMessage:message advancingSyncedConvSeq:0];
+}
+
+- (BOOL)saveIncomingMessage:(IMMessageModel *)message advancingSyncedConvSeq:(int64_t)syncedConvSeq {
+    if (message.convID.length == 0) { return NO; }
     NSString *owner = [self ownerUserID];
+    __block BOOL saved = NO;
     [_queue inTransaction:^(FMDatabase *db, BOOL *rollback) {
         NSNumber *rowID = [self existingRowIDFor:message owner:owner in:db];
         BOOL inserted = rowID == nil;
         BOOL ok = NO;
         if (rowID) {
             ok = [db executeUpdate:
-                @"UPDATE im_message_local SET server_msg_id=?,sender=?,recipient=?,content_type=?,content=?,file_name=?,file_size=?,conv_seq=?,timestamp=?,status=?,note=?,from_nickname=?,recalled_at=?,recalled_by=?,edited_at=?,pinned_at=?,reply_to_conv_seq=?,reply_snapshot=?,forward_from=?,group_id=?,poster=? WHERE row_id=?",
+                @"UPDATE im_message_local SET server_msg_id=?,sender=?,recipient=?,content_type=?,content=?,"
+                 "file_name=CASE WHEN LENGTH(?)>0 THEN ? ELSE file_name END,"
+                 "file_size=CASE WHEN ?>0 THEN ? ELSE file_size END,"
+                 "conv_seq=?,timestamp=?,status=?,note=?,from_nickname=?,recalled_at=?,recalled_by=?,edited_at=?,pinned_at=?,reply_to_conv_seq=?,reply_snapshot=?,forward_from=?,group_id=?,poster=? WHERE row_id=?",
                 message.serverMsgID ?: @"", message.from ?: @"", message.to ?: @"",
                 message.contentType ?: @"text", message.content ?: @"",
-                message.fileName ?: @"", @(message.fileSize),
+                message.fileName ?: @"", message.fileName ?: @"", @(message.fileSize), @(message.fileSize),
                 @(message.convSeq), @(message.timestamp), @(message.status), message.note ?: @"",
                 message.fromNickname ?: @"", @(message.recalledAt), message.recalledBy ?: @"",
                 @(message.editedAt), @(message.pinnedAt), @(message.replyToConvSeq), message.replySnapshot ?: @"", message.forwardFrom ?: @"", message.groupID ?: @"", message.poster ?: @"", rowID];
@@ -289,8 +314,18 @@
         }
         if (![self updateConversationForMessage:message owner:owner inserted:inserted inDB:db]) {
             *rollback = YES;
+            return;
         }
+        if (syncedConvSeq > 0 && ![db executeUpdate:
+            @"UPDATE im_conversation_local SET synced_conv_seq=MAX(synced_conv_seq,?) WHERE owner_uid=? AND conv_id=?",
+            @(syncedConvSeq), owner, message.convID]) {
+            IMLogDatabase(@"消息与连续位置原子提交失败 owner=%@ conv=%@: %@", owner, message.convID, db.lastErrorMessage);
+            *rollback = YES;
+            return;
+        }
+        saved = YES;
     }];
+    return saved;
 }
 
 /// 消息与会话摘要必须在同一事务收敛，否则断网杀进程后会出现“消息还在、会话不见了”。
@@ -454,14 +489,15 @@
     }];
 }
 
-/// 出站消息按 (conv_id, client_msg_id) 匹配；入站（无 client_msg_id）按 (conv_id, conv_seq) 匹配。
+/// 出站消息按 (conv_id, client_msg_id) 匹配；入站按 (conv_id, conv_seq) 匹配所有消息。
+/// 后者包含本机带 client_msg_id 的乐观消息，重启补拉时才能用服务端记录覆盖原行而非插入重复气泡。
 - (NSNumber *)existingRowIDFor:(IMMessageModel *)message owner:(NSString *)owner in:(FMDatabase *)db {
     FMResultSet *rs = nil;
     if (message.clientMsgID.length > 0) {
         rs = [db executeQuery:@"SELECT row_id FROM im_message_local WHERE owner_uid=? AND conv_id=? AND client_msg_id=? LIMIT 1",
               owner, message.convID, message.clientMsgID];
     } else if (message.convSeq > 0) {
-        rs = [db executeQuery:@"SELECT row_id FROM im_message_local WHERE owner_uid=? AND conv_id=? AND (client_msg_id IS NULL OR client_msg_id='') AND conv_seq=? LIMIT 1",
+        rs = [db executeQuery:@"SELECT row_id FROM im_message_local WHERE owner_uid=? AND conv_id=? AND conv_seq=? LIMIT 1",
               owner, message.convID, @(message.convSeq)];
     }
     NSNumber *rowID = nil;
@@ -474,7 +510,11 @@
     NSString *owner = [self ownerUserID];
     NSMutableArray<IMMessageModel *> *out = [NSMutableArray array];
     [_queue inDatabase:^(FMDatabase *db) {
-        FMResultSet *rs = [db executeQuery:@"SELECT * FROM im_message_local WHERE owner_uid=? AND conv_id=? ORDER BY row_id ASC", owner, convID];
+        // 补拉的旧消息可能晚于实时新消息写入，必须按服务端 conv_seq，而不是 SQLite row_id 排序。
+        FMResultSet *rs = [db executeQuery:
+            @"SELECT * FROM im_message_local WHERE owner_uid=? AND conv_id=? "
+             "ORDER BY CASE WHEN conv_seq>0 THEN 0 ELSE 1 END,conv_seq ASC,timestamp ASC,row_id ASC",
+            owner, convID];
         while ([rs next]) {
             IMMessageModel *m = [IMMessageModel new];
             m.clientMsgID = [rs stringForColumn:@"client_msg_id"];
@@ -549,6 +589,32 @@
     return maxSeq;
 }
 
+- (int64_t)syncedConvSeqForConv:(NSString *)convID {
+    if (convID.length == 0) { return 0; }
+    NSString *owner = [self ownerUserID];
+    __block int64_t syncedSeq = 0;
+    [_queue inDatabase:^(FMDatabase *db) {
+        FMResultSet *rs = [db executeQuery:
+            @"SELECT synced_conv_seq FROM im_conversation_local WHERE owner_uid=? AND conv_id=? LIMIT 1",
+            owner, convID];
+        if ([rs next]) { syncedSeq = [rs longLongIntForColumn:@"synced_conv_seq"]; }
+        [rs close];
+    }];
+    return syncedSeq;
+}
+
+- (void)advanceSyncedConvSeqForConv:(NSString *)convID toConvSeq:(int64_t)convSeq {
+    if (convID.length == 0 || convSeq <= 0) { return; }
+    NSString *owner = [self ownerUserID];
+    [_queue inDatabase:^(FMDatabase *db) {
+        if (![db executeUpdate:
+              @"UPDATE im_conversation_local SET synced_conv_seq=MAX(synced_conv_seq,?) WHERE owner_uid=? AND conv_id=?",
+              @(convSeq), owner, convID]) {
+            IMLogDatabase(@"推进连续同步位置失败 owner=%@ conv=%@: %@", owner, convID, db.lastErrorMessage);
+        }
+    }];
+}
+
 - (void)applyMsgOpForConv:(NSString *)convID
             targetConvSeq:(int64_t)targetConvSeq
                recalledAt:(int64_t)recalledAt
@@ -556,8 +622,23 @@
                  editedAt:(int64_t)editedAt
                  pinnedAt:(int64_t)pinnedAt
                newContent:(nullable NSString *)newContent {
-    if (convID.length == 0 || targetConvSeq <= 0) { return; }
+    [self applyMsgOpForConv:convID targetConvSeq:targetConvSeq
+                 recalledAt:recalledAt recalledBy:recalledBy
+                   editedAt:editedAt pinnedAt:pinnedAt newContent:newContent
+      advancingSyncedConvSeq:0];
+}
+
+- (BOOL)applyMsgOpForConv:(NSString *)convID
+            targetConvSeq:(int64_t)targetConvSeq
+               recalledAt:(int64_t)recalledAt
+               recalledBy:(nullable NSString *)recalledBy
+                 editedAt:(int64_t)editedAt
+                 pinnedAt:(int64_t)pinnedAt
+               newContent:(nullable NSString *)newContent
+    advancingSyncedConvSeq:(int64_t)syncedConvSeq {
+    if (convID.length == 0 || targetConvSeq <= 0) { return NO; }
     NSString *owner = [self ownerUserID];
+    __block BOOL applied = NO;
     [_queue inTransaction:^(FMDatabase *db, BOOL *rollback) {
         NSMutableArray *sets = [NSMutableArray array];
         NSMutableArray *args = [NSMutableArray array];
@@ -591,7 +672,17 @@
                 *rollback = YES;
             }
         }
+        if (*rollback) { return; }
+        if (syncedConvSeq > 0 && ![db executeUpdate:
+            @"UPDATE im_conversation_local SET synced_conv_seq=MAX(synced_conv_seq,?) WHERE owner_uid=? AND conv_id=?",
+            @(syncedConvSeq), owner, convID]) {
+            IMLogDatabase(@"消息操作与连续位置原子提交失败 owner=%@ conv=%@: %@", owner, convID, db.lastErrorMessage);
+            *rollback = YES;
+            return;
+        }
+        applied = YES;
     }];
+    return applied;
 }
 
 @end

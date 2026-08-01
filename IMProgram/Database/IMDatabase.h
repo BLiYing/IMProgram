@@ -36,6 +36,8 @@ NS_ASSUME_NONNULL_BEGIN
 /// 保存/更新一条消息：出站按 clientMsgID upsert（sending→sent 覆盖），入站按 conv_seq 去重。
 /// 同一事务内同步会话最后一条、未读数和排序；新会话会建立可离线打开的最小摘要。
 - (void)saveMessage:(IMMessageModel *)message;
+/// 接收/补拉路径：消息、会话摘要与连续同步位置在同一事务提交。返回 NO 时调用方不得推进内存游标。
+- (BOOL)saveIncomingMessage:(IMMessageModel *)message advancingSyncedConvSeq:(int64_t)syncedConvSeq;
 
 /// 单调推进本地会话已读位点，并按缓存中的消息重新计算未读数。
 - (void)markConversation:(NSString *)convID readUpToConvSeq:(int64_t)convSeq;
@@ -64,8 +66,14 @@ NS_ASSUME_NONNULL_BEGIN
 /// 本地清空某会话的全部消息（仅本端，不影响对端；对应详情页「清空聊天记录」）。返回删除条数。
 - (NSInteger)clearMessagesForConv:(NSString *)convID;
 
-/// 该会话已存消息的最大 conv_seq（派生的同步位点，0 表示无）。
+/// 该会话已存消息的最大 conv_seq（仅供本地数据查询，不能作为连续同步游标）。
 - (int64_t)maxConvSeqForConv:(NSString *)convID;
+
+/// 服务端历史已经连续同步完成的位置。与“本地最大消息序号”分离，避免有 7、8、9 时误认为 1～6 也已同步。
+- (int64_t)syncedConvSeqForConv:(NSString *)convID;
+
+/// 单调推进当前账号该会话的连续同步位置；普通接收路径优先用消息+游标原子接口。
+- (void)advanceSyncedConvSeqForConv:(NSString *)convID toConvSeq:(int64_t)convSeq;
 
 /// 把一次消息操作（撤回/编辑/置顶，M4）就地应用到已落库消息（按 conv_seq 定位）。目标不存在则忽略。
 /// recalledAt/editedAt/pinnedAt 传 0 表示不改该项；newContent 非 nil 时改 content（编辑）。
@@ -76,6 +84,15 @@ NS_ASSUME_NONNULL_BEGIN
                  editedAt:(int64_t)editedAt
                  pinnedAt:(int64_t)pinnedAt
                newContent:(nullable NSString *)newContent;
+/// sync 中的操作事件：操作派生状态与事件连续位置同事务提交；失败时调用方不得推进内存游标。
+- (BOOL)applyMsgOpForConv:(NSString *)convID
+            targetConvSeq:(int64_t)targetConvSeq
+               recalledAt:(int64_t)recalledAt
+               recalledBy:(nullable NSString *)recalledBy
+                 editedAt:(int64_t)editedAt
+                 pinnedAt:(int64_t)pinnedAt
+               newContent:(nullable NSString *)newContent
+    advancingSyncedConvSeq:(int64_t)syncedConvSeq;
 
 @end
 
