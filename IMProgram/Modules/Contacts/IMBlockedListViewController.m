@@ -66,7 +66,7 @@
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) { return; }
         if (token.length == 0) {
-            [self showError:[NSString stringWithFormat:@"登录失败：%@", error.localizedDescription]];
+            IMLog(@"黑名单刷新登录失败（保留当前内容）：%@", error.localizedDescription ?: @"未知错误");
             return;
         }
         self.token = token;
@@ -74,7 +74,7 @@
             __strong typeof(weakSelf) self = weakSelf;
             if (!self) { return; }
             if (err) {
-                [self showError:[NSString stringWithFormat:@"拉取黑名单失败：%@", err.localizedDescription]];
+                IMLog(@"黑名单刷新失败（保留当前内容）：%@", err.localizedDescription ?: @"未知错误");
                 return;
             }
             self.blocked = list ?: @[];

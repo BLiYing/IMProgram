@@ -4,21 +4,50 @@
 
 #import <Foundation/Foundation.h>
 
+@class IMConversation;
 @class IMMessageModel;
 
 NS_ASSUME_NONNULL_BEGIN
 
 @interface IMDatabase : NSObject
 
-/// 默认库（Documents/im_store.archive）。
+/// 默认库（Documents/im.sqlite）。
 + (instancetype)sharedDatabase;
 
 /// 指定文件（供测试用临时路径）。
 - (instancetype)initWithFileURL:(NSURL *)fileURL NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 
+/// 选择当前账号的数据命名空间。App 进入主界面前必须调用；同一 SQLite 文件内按 owner_uid 强制隔离。
+- (void)useOwnerUserID:(NSString *)userID;
+
+/// 当前账号的本地会话快照（服务不可用时用于离线首屏）。
+- (NSArray<IMConversation *> *)cachedConversations;
+
+/// 原子替换当前账号的完整会话快照。空数组表示服务端权威列表为空。
+- (void)replaceCachedConversations:(NSArray<IMConversation *> *)conversations;
+
 /// 保存/更新一条消息：出站按 clientMsgID upsert（sending→sent 覆盖），入站按 conv_seq 去重。
+/// 同一事务内同步会话最后一条、未读数和排序；新会话会建立可离线打开的最小摘要。
 - (void)saveMessage:(IMMessageModel *)message;
+
+/// 单调推进本地会话已读位点，并按缓存中的消息重新计算未读数。
+- (void)markConversation:(NSString *)convID readUpToConvSeq:(int64_t)convSeq;
+
+/// 用户在会话列表显式选择“设为已读”时，清零摘要未读并推进到指定位置。
+- (void)markConversationFullyRead:(NSString *)convID upToConvSeq:(int64_t)convSeq;
+
+/// 持久化对端已读位点（单聊列表的已读双勾）。
+- (void)markConversation:(NSString *)convID peerReadUpToConvSeq:(int64_t)convSeq;
+
+/// 应用服务端 conv_update 的完整会话设置；会话不存在时等待下一次权威列表补齐。
+- (void)applyCachedSettingsForConversation:(NSString *)convID
+                                  pinnedAt:(int64_t)pinnedAt
+                                     muted:(BOOL)muted
+                              markedUnread:(BOOL)markedUnread;
+
+/// 删除当前账号的一条本地会话摘要（消息记录仍按服务端“仅清会话”语义保留）。
+- (void)deleteCachedConversation:(NSString *)convID;
 
 /// 取某会话的全部消息（按存入顺序，约等于时间顺序）。
 - (NSArray<IMMessageModel *> *)messagesForConv:(NSString *)convID;

@@ -2257,6 +2257,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 - (void)flushReadPosition {
     if (self.pendingReadSeq > self.maxReadReported) {
         self.maxReadReported = self.pendingReadSeq;
+        [IMDatabase.sharedDatabase markConversation:self.convID readUpToConvSeq:self.maxReadReported];
         [IMSocketManager.sharedManager markReadConv:self.convID upToConvSeq:self.maxReadReported];
     }
 }

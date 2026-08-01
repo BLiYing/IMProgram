@@ -143,14 +143,14 @@ static CGFloat const kIMGroupAvatarSize = 44;
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) { return; }
         if (token.length == 0) {
-            [self im_showToast:error.localizedDescription ?: @"登录失败"];
+            IMLog(@"群聊列表刷新登录失败（保留当前内容）：%@", error.localizedDescription ?: @"未知错误");
             return;
         }
         [IMHTTPService.sharedService groupsWithToken:token completion:^(NSArray<IMGroupInfo *> *groups, NSError *err) {
             __strong typeof(weakSelf) self = weakSelf;
             if (!self) { return; }
             if (err) {
-                [self im_showToast:err.localizedDescription];
+                IMLog(@"群聊列表刷新失败（保留当前内容）：%@", err.localizedDescription ?: @"未知错误");
                 return;
             }
             self.groups = groups ?: @[];

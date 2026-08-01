@@ -2,10 +2,8 @@
 
 #import "IMConversationListViewController.h"
 #import "IMChatViewController.h"
-#import "IMLoginViewController.h"
 #import "IMHTTPService.h"
 #import "IMSocketManager.h"
-#import "IMSessionStore.h"
 #import "IMDatabase.h"
 #import "IMConversation.h"
 #import "IMMenuAction.h"
@@ -252,8 +250,6 @@ static CGFloat const kIMRowLeading = 16;
 @property (nonatomic, strong) UILabel *emptyLabel;
 @property (nonatomic, assign) BOOL visible; // 在屏时才响应新消息刷新（避免进聊天页时无谓拉取）
 @property (nonatomic, strong) NSMutableSet<NSString *> *trackedConvIDs; // 已登记增量同步的会话（每会话只登记一次）
-@property (nonatomic, assign) BOOL authPromptActive;  // 鉴权失效提示框正显示中（防叠框）
-@property (nonatomic, assign) BOOL authDismissed;     // 用户已选"取消"留看缓存 → 本会话不再提示
 @end
 
 @implementation IMConversationListViewController
@@ -263,7 +259,8 @@ static CGFloat const kIMRowLeading = 16;
     if (self) {
         _host = [host copy];
         _userID = [userID copy];
-        _conversations = @[];
+        [IMDatabase.sharedDatabase useOwnerUserID:userID];
+        _conversations = [IMDatabase.sharedDatabase cachedConversations];
         _trackedConvIDs = [NSMutableSet set];
     }
     return self;
@@ -296,7 +293,7 @@ static CGFloat const kIMRowLeading = 16;
     self.emptyLabel.textColor = IMTheme.textSecondary;
     self.emptyLabel.textAlignment = NSTextAlignmentCenter;
     self.emptyLabel.numberOfLines = 0;
-    self.emptyLabel.hidden = YES;
+    self.emptyLabel.hidden = self.conversations.count > 0;
     [self.view addSubview:self.emptyLabel];
     [NSLayoutConstraint activateConstraints:@[
         [self.emptyLabel.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
@@ -304,13 +301,12 @@ static CGFloat const kIMRowLeading = 16;
         [self.emptyLabel.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:IMTheme.space4 * 2],
         [self.emptyLabel.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-IMTheme.space4 * 2],
     ]];
+    [self.tableView reloadData];
 }
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     self.visible = YES;
-    // 保持长连接在会话列表常驻：收到任意会话新消息即实时刷新未读/最后一条（不必切 Tab）。
-    [IMSocketManager.sharedManager connectToHost:self.host userID:self.userID];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketMessage:)
                                                name:IMSocketDidReceiveMessageNotification object:nil];
     // 已读回执（对端已读→我发的✓✓；本人多端已读→未读清零）也触发列表刷新。
@@ -325,6 +321,10 @@ static CGFloat const kIMRowLeading = 16;
     // 连接状态变化 → 标题显示 连接中/未连接（取代"任何失败都弹框"）。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketState:)
                                                name:IMSocketDidChangeStateNotification object:nil];
+    // 即使 HTTP 当前不可用，也先把 SQLite 中的会话登记给 socket；服务恢复后可立即按本地位点补拉。
+    [self trackConversationsForSync];
+    // 必须先监听再发起连接，避免快速连接时错过 Connecting/Connected 通知。
+    [IMSocketManager.sharedManager connectToHost:self.host userID:self.userID];
     [self updateTitleForState:IMSocketManager.sharedManager.state];
     [self reload];
 }
@@ -341,7 +341,12 @@ static CGFloat const kIMRowLeading = 16;
 
 /// 连接状态 → 标题后缀（连接中/未连接），网络问题不再弹框。
 - (void)onSocketState:(NSNotification *)note {
-    [self updateTitleForState:(IMSocketState)[note.userInfo[@"state"] integerValue]];
+    IMSocketState state = (IMSocketState)[note.userInfo[@"state"] integerValue];
+    [self updateTitleForState:state];
+    if (state == IMSocketStateConnected && self.visible) {
+        // 服务恢复后立即取得权威资料；失败仍保留本地列表，不弹窗。
+        [self reload];
+    }
 }
 
 - (void)updateTitleForState:(IMSocketState)state {
@@ -350,10 +355,18 @@ static CGFloat const kIMRowLeading = 16;
         case IMSocketStateDisconnected: self.title = @"会话（未连接）"; break;
         default:                        self.title = @"会话"; break;
     }
+    // 当前工程隐藏了 UINavigationBar，标题实际由 IMMainNavigationController 的 Liquid Bar 绘制；
+    // 只改 self.title 不会触发其同步，必须立即推动导航容器重新布局。
+    [self.navigationController.view setNeedsLayout];
+    [self.navigationController.view layoutIfNeeded];
 }
 
 /// 收到新消息（任意会话）→ 节流刷新列表（合并连发的多条，避免每条都拉一次）。
 - (void)onSocketMessage:(NSNotification *)note {
+    // 消息已经在 SQLite 事务内同步了会话摘要，先刷新本地数据；HTTP 仅用于稍后权威收敛。
+    self.conversations = [IMDatabase.sharedDatabase cachedConversations];
+    self.emptyLabel.hidden = self.conversations.count > 0;
+    [self.tableView reloadData];
     if (!self.visible) { return; }
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(reload) object:nil];
     [self performSelector:@selector(reload) withObject:nil afterDelay:0.4];
@@ -373,11 +386,9 @@ static CGFloat const kIMRowLeading = 16;
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) { return; }
         if (token.length == 0) {
-            // 鉴权失败（账号没了/密码错/token 失效）→ 退回登录页重新登录；
-            // 网络失败（连不上）→ 不弹框，标题已显"未连接"，靠 socket 自动重连。
-            if (IMIsAuthErrorCode(error.code)) {
-                [self promptAuthExpired:error.localizedDescription];
-            }
+            // 已有本地登录态时，任何刷新失败都不弹窗、不跳登录页；连接状态由 WebSocket 标题统一表达。
+            // 真正退出账号只能由用户主动操作，避免断网/服务重启打断离线浏览。
+            IMLog(@"会话刷新登录失败（保留本地缓存）：%@", error.localizedDescription ?: @"未知错误");
             return;
         }
         self.token = token;
@@ -390,6 +401,7 @@ static CGFloat const kIMRowLeading = 16;
                 return;
             }
             self.conversations = convs ?: @[];
+            [IMDatabase.sharedDatabase replaceCachedConversations:self.conversations];
             self.emptyLabel.hidden = self.conversations.count > 0;
             [self.tableView reloadData];
             [self trackConversationsForSync]; // 登记会话用于（重）连后增量同步，补拉离线消息
@@ -415,37 +427,6 @@ static CGFloat const kIMRowLeading = 16;
                                                            preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
-}
-
-/// 鉴权失效（账号不存在/密码错/被封/token 失效）→ 弹框让用户选：重新登录 / 取消(留看本地缓存)。
-/// 只提示一次（authPromptActive 防叠框、authDismissed 防刷屏），不强制踢走。
-- (void)promptAuthExpired:(NSString *)reason {
-    if (self.authPromptActive || self.authDismissed) { return; }
-    self.authPromptActive = YES;
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"登录已失效"
-        message:[NSString stringWithFormat:@"%@。可重新登录；或取消，继续查看本地聊天记录。", reason]
-        preferredStyle:UIAlertControllerStyleAlert];
-    __weak typeof(self) weakSelf = self;
-    [alert addAction:[UIAlertAction actionWithTitle:@"重新登录" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-        weakSelf.authPromptActive = NO;
-        [weakSelf bounceToLogin];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction *a) {
-        weakSelf.authPromptActive = NO;
-        weakSelf.authDismissed = YES;                 // 本会话不再提示，留看缓存
-        [IMSocketManager.sharedManager disconnect];   // 停止自动重连风暴
-    }]];
-    [self presentViewController:alert animated:YES completion:nil];
-}
-
-/// 真正退回登录页（断连 + 替换根控制器）。
-- (void)bounceToLogin {
-    UIWindow *window = self.view.window;
-    if (!window) { return; }
-    [IMSocketManager.sharedManager disconnect];
-    [IMSessionStore clear]; // 鉴权失效退回登录：清持久化会话，避免下次启动又静默重登失败
-    IMLoginViewController *login = [IMLoginViewController new];
-    window.rootViewController = [[UINavigationController alloc] initWithRootViewController:login];
 }
 
 #pragma mark - 交互
@@ -536,6 +517,8 @@ static CGFloat const kIMRowLeading = 16;
         [IMHTTPService.sharedService updateConversationSettingsWithToken:self.token convID:c.convID
             pinnedAt:c.pinnedAt muted:c.muted markedUnread:NO completion:^(NSError *error) { /* 忽略：返回时 viewWillAppear 会 reload */ }];
         c.markedUnread = NO; // 本地即时置位，避免返回瞬间闪一下旧红点
+        [IMDatabase.sharedDatabase applyCachedSettingsForConversation:c.convID
+                                                              pinnedAt:c.pinnedAt muted:c.muted markedUnread:NO];
     }
     if (c.isGroup) {
         IMChatViewController *chat = [[IMChatViewController alloc] initWithHost:self.host userID:self.userID
@@ -616,11 +599,22 @@ static CGFloat const kIMRowLeading = 16;
         [IMHTTPService.sharedService updateConversationSettingsWithToken:self.token convID:c.convID
             pinnedAt:c.pinnedAt muted:c.muted markedUnread:NO completion:^(NSError *error) {
                 if (error) { [ws im_showToast:error.localizedDescription]; return; }
+                c.markedUnread = NO;
+                c.unread = 0;
+                [IMDatabase.sharedDatabase markConversationFullyRead:c.convID upToConvSeq:c.latestConvSeq];
+                [IMDatabase.sharedDatabase applyCachedSettingsForConversation:c.convID
+                                                                      pinnedAt:c.pinnedAt muted:c.muted markedUnread:NO];
+                NSUInteger idx = [ws.conversations indexOfObject:c];
+                if (idx != NSNotFound) {
+                    [ws.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:idx inSection:0]]
+                                       withRowAnimation:UITableViewRowAnimationAutomatic];
+                }
                 [ws reload];
             }];
         return;
     }
     c.unread = 0;
+    [IMDatabase.sharedDatabase markConversationFullyRead:c.convID upToConvSeq:c.latestConvSeq];
     NSUInteger idx = [self.conversations indexOfObject:c];
     if (idx != NSNotFound) {
         [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:idx inSection:0]]
@@ -661,6 +655,10 @@ static CGFloat const kIMRowLeading = 16;
     }];
     NSUInteger newIndex = [sorted indexOfObject:conversation];
     self.conversations = sorted;
+    [IMDatabase.sharedDatabase applyCachedSettingsForConversation:conversation.convID
+                                                          pinnedAt:conversation.pinnedAt
+                                                             muted:conversation.muted
+                                                      markedUnread:conversation.markedUnread];
     self.emptyLabel.hidden = sorted.count > 0;
 
     NSIndexPath *from = [NSIndexPath indexPathForRow:(NSInteger)oldIndex inSection:0];
@@ -690,6 +688,12 @@ static CGFloat const kIMRowLeading = 16;
     [IMHTTPService.sharedService updateConversationSettingsWithToken:self.token convID:c.convID
         pinnedAt:pinnedAt muted:muted markedUnread:markedUnread completion:^(NSError *error) {
             if (error) { [ws im_showToast:error.localizedDescription ?: fail]; return; }
+            c.pinnedAt = pinnedAt;
+            c.muted = muted;
+            c.markedUnread = markedUnread;
+            [IMDatabase.sharedDatabase applyCachedSettingsForConversation:c.convID
+                                                                  pinnedAt:pinnedAt muted:muted markedUnread:markedUnread];
+            [ws.tableView reloadData];
             [ws reload];
         }];
 }
@@ -700,6 +704,12 @@ static CGFloat const kIMRowLeading = 16;
     __weak typeof(self) ws = self;
     [IMHTTPService.sharedService deleteConversationWithToken:self.token convID:c.convID completion:^(NSError *error) {
         if (error) { [ws im_showToast:error.localizedDescription ?: @"删除失败"]; return; }
+        NSMutableArray<IMConversation *> *remaining = [ws.conversations mutableCopy];
+        [remaining removeObject:c];
+        ws.conversations = remaining;
+        [IMDatabase.sharedDatabase deleteCachedConversation:c.convID];
+        ws.emptyLabel.hidden = remaining.count > 0;
+        [ws.tableView reloadData];
         [ws reload];
     }];
 }

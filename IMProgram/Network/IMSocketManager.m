@@ -2,6 +2,7 @@
 
 #import "IMSocketManager.h"
 #import "IMProtocol.h"
+#import "IMConversation.h"
 #import "IMMessageModel.h"
 #import "IMDatabase.h"
 #import "IMHTTPService.h"
@@ -97,7 +98,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     }
     dispatch_async(_queue, ^{
         // 幂等：已连到同一 host+uid 且未主动断开 → 复用现连接（避免会话列表/聊天页重复调用造成重连抖动）。
-        if (self.state == IMSocketStateConnected && !self->_manualClose
+        if (self.state != IMSocketStateDisconnected && !self->_manualClose
             && [self->_host isEqualToString:host] && [self.userID isEqualToString:userID]) {
             return;
         }
@@ -581,6 +582,15 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
 /// 收到会话级设置变更帧（置顶/免打扰/标未读/删除会话，M4.5）：主线程广播，会话列表据此刷新（多端同步）。
 - (void)handleConvUpdate:(NSDictionary *)data {
     NSString *convID = [data[@"conv_id"] isKindOfClass:[NSString class]] ? data[@"conv_id"] : @"";
+    NSString *action = [data[@"action"] isKindOfClass:[NSString class]] ? data[@"action"] : @"";
+    if ([action isEqualToString:@"settings"]) {
+        [IMDatabase.sharedDatabase applyCachedSettingsForConversation:convID
+                                                              pinnedAt:[data[@"pinned_at"] longLongValue]
+                                                                 muted:[data[@"muted"] boolValue]
+                                                          markedUnread:[data[@"marked_unread"] boolValue]];
+    } else if ([action isEqualToString:@"delete"]) {
+        [IMDatabase.sharedDatabase deleteCachedConversation:convID];
+    }
     dispatch_async(dispatch_get_main_queue(), ^{
         [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidUpdateConversationNotification
                                                           object:self
@@ -693,6 +703,11 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     NSString *from = [data[@"from"] isKindOfClass:[NSString class]] ? data[@"from"] : @"";
     int64_t upTo = [data[@"up_to_conv_seq"] longLongValue];
     if (convID.length == 0) { return; }
+    if ([from isEqualToString:self.userID]) {
+        [IMDatabase.sharedDatabase markConversation:convID readUpToConvSeq:upTo];
+    } else {
+        [IMDatabase.sharedDatabase markConversation:convID peerReadUpToConvSeq:upTo];
+    }
     __weak typeof(self) weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
         __strong typeof(weakSelf) self = weakSelf;
@@ -780,6 +795,16 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
 /// （重）连成功后对所有已登记会话发起增量同步（仅在 _queue 调用）。
 - (void)syncTrackedConversations {
     [self sendSyncReqForConvs:_trackedConvs.allObjects];
+    // 离线期间在本地读过的位点也要在重连后重放；服务端按最大值幂等推进。
+    for (IMConversation *conversation in IMDatabase.sharedDatabase.cachedConversations) {
+        if (conversation.readSeq > 0) {
+            [self sendEnvelopeType:kIMTypeReceipt
+                              data:@{ @"conv_id": conversation.convID ?: @"",
+                                      @"status": @"read",
+                                      @"up_to_conv_seq": @(conversation.readSeq) }
+                        completion:nil];
+        }
+    }
 }
 
 #pragma mark - 信封编码与写出
@@ -810,8 +835,17 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     }
     NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
     NSURLSessionWebSocketMessage *msg = [[NSURLSessionWebSocketMessage alloc] initWithString:text];
+    __weak typeof(self) weakSelf = self;
     [task sendMessage:msg completionHandler:^(NSError *error) {
-        if (error) { IMLogSocket(@"发送失败: %@", error.localizedDescription); }
+        if (!error) { return; }
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self) { return; }
+        IMLogSocket(@"发送失败: %@", error.localizedDescription);
+        dispatch_async(self->_queue, ^{
+            if (task == self->_task) {
+                [self handleDisconnect:error];
+            }
+        });
     }];
 }
 

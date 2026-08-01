@@ -8,6 +8,12 @@
 #import "IMProgram-Swift.h"
 #import "IMChatDetailViewController.h"
 #import "IMChatViewController.h"
+#import "IMDatabase.h"
+
+/// 可选的自定义导航背景进度接口；声明后仍通过 respondsToSelector 兼容未实现页面。
+@interface UIViewController (IMNavigationBackgroundProgress)
+- (CGFloat)im_navigationBackgroundProgress;
+@end
 
 /// 主界面统一导航容器：所有非根页面自动隐藏 TabBar，并恢复系统边缘侧滑返回。
 /// 这样新增页面只需正常 push，不再依赖每个控制器手动设置 hidesBottomBarWhenPushed。
@@ -157,6 +163,8 @@
 - (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID {
     self = [super initWithNibName:nil bundle:nil];
     if (self) {
+        // 必须先切换账号命名空间，再创建任何会读取本地消息/会话的子页面。
+        [IMDatabase.sharedDatabase useOwnerUserID:userID];
         IMConversationListViewController *convList =
             [[IMConversationListViewController alloc] initWithHost:host userID:userID];
         UINavigationController *convNav = [[IMMainNavigationController alloc] initWithRootViewController:convList];

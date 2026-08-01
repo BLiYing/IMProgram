@@ -81,7 +81,7 @@
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) { return; }
         if (token.length == 0) {
-            [self showError:[NSString stringWithFormat:@"登录失败：%@", error.localizedDescription]];
+            IMLog(@"好友关系自动加载登录失败（静默保留当前内容）：%@", error.localizedDescription ?: @"未知错误");
             return;
         }
         self.token = token;

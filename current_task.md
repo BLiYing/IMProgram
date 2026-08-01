@@ -5,7 +5,8 @@
 
 ## 当前焦点
 
-- **✅ 聊天 Cell 解耦 + 离线启动保持会话（2026-08-01）**：`IMChatViewController` 内 6 个消息 Cell 已全部迁至 `Modules/Chat/Cells/`，一个 Cell 一对 `.h/.m`（文本气泡、系统消息、图片/视频、相册、聊天记录、链接卡片），控制器只保留数据源与交互编排；已有本地登录态时，App 启动不再先等待 HTTP 静默登录并因服务器不可达跳登录页，而是立即进入主界面，由会话页显示“未连接”并自动重连。新增 `IMSessionStoreTests` 覆盖离线凭据可恢复。iOS/Web 均已使用本地数据库：iOS 为 FMDB/SQLite `im.sqlite`，Web 为 IndexedDB 消息库 + localStorage 会话缓存；iOS 仍有全局单库未按 uid 隔离的已知欠账。`xcodebuild build` 与 `build-for-testing` 均通过。
+- **✅ iOS 本地优先会话 + 长连接状态（2026-08-01，用户已抽查部分真机场景，符合预期；按要求未编译）**：FMDB/SQLite 会话与消息按 `owner_uid` 隔离；消息和会话摘要同事务落库；新增 `server_snapshot_seq` 区分 HTTP 已统计未读与本地增量，避免首次历史同步未读翻倍，并覆盖乱序补拉、重复消息和部分已读。新单聊/群聊/多端发送副本可建立最小会话；编辑/撤回、本人/对端 read 回执及 `conv_update` 设置/删除均同步本地摘要。离线启动会先登记缓存会话，重连后补拉消息并重放本地已读位点，Connected 时自动重取权威列表。会话页先订阅 socket 状态再连接，状态变化立即同步自定义 Liquid 标题栏；WebSocket 写失败进入断线重连；会话、通讯录、黑名单、好友关系、群列表和资料页的自动 HTTP 刷新失败均静默保留当前内容，不弹“登录失败”；用户主动搜索/保存/好友操作的失败仍保留反馈。设计记录见 `docs/LOCAL_FIRST_CONVERSATION_STORAGE.md`。本轮新增测试但遵照用户要求未编译。
+- **✅ 聊天 Cell 解耦 + 离线启动保持会话（2026-08-01）**：`IMChatViewController` 内 6 个消息 Cell 已全部迁至 `Modules/Chat/Cells/`，一个 Cell 一对 `.h/.m`（文本气泡、系统消息、图片/视频、相册、聊天记录、链接卡片），控制器只保留数据源与交互编排；已有本地登录态时，App 启动不再先等待 HTTP 静默登录并因服务器不可达跳登录页，而是立即进入主界面，由会话页显示“未连接”并自动重连。新增 `IMSessionStoreTests` 覆盖离线凭据可恢复。`xcodebuild build` 与 `build-for-testing` 均通过。
 - iOS 导航统一：详情页及所有 Tab/普通页面统一使用 `IMLiquidNavigationBar` 自定义 Liquid Glass 导航；详情头像统一圆形布局，HTTP 头像可点击预览；规范见 `docs/LIQUID_GLASS_NAVIGATION.md`。
 - 本轮未编译：统一导航中间标题改为纯文字、单图标操作改为圆形按钮；会话列表增加导航安全区避让；聊天页恢复右上头像、群聊成员数副标题并铺至状态栏；“我”页收藏入口以上改为头像/昵称/账号信息头部，含二维码与编辑按钮。
 - 最新调整（未编译）：普通页面标题与右侧按钮垂直对齐；仅聊天页保留标题玻璃背景并显示群成员副标题；聊天头像改为直接使用 UIBarButtonItem 图片以保证可见和可点击；“我”页头部按 Telegram 风格重新留白，并随滚动淡出头像/资料、在顶栏显示昵称。
@@ -75,7 +76,7 @@
 - **里程碑层面 M1+M2+M2.5 客户端基本收口**。下一步可选 M3 群聊。
 - **自测修复（2026-06-16）**：①好友申请/同意实时——socket 收 `friend` 帧 → `IMSocketDidReceiveFriendEventNotification` → 通讯录(init 即订阅,节流)reload,Tab 角标无需切页即亮;②找人改精确匹配(`对方完整 uid 或手机号`占位)。
 - **自测修复（2026-06-17）**：①「拒绝」按钮曾被禁用点击无反应 → 按钮三态(primary/secondary 可点/disabled)修复;②**黑名单页** `IMBlockedListViewController`（「我」页→黑名单）：`?status=blocked` 列表 + 解除(unblock);③HTTP 错误码 → 友好中文(`IMFriendlyMessageForCode`,被拉黑用模糊文案"暂时无法添加对方为好友"不暴露)。
-- **登录失败 UX 修（2026-06-17，两端）**：会话列表原来"任何登录失败都弹模态框、标题无连接态"。现：NSError 带业务码 + `IMIsAuthErrorCode`;socket 加 `IMSocketDidChangeStateNotification`，会话列表标题显示「会话（连接中…/未连接）」;reload 失败分流——**鉴权失败(账号没了/密码错/token失效)→ 弹框「重新登录/取消」**(取消则留看本地缓存、不强制踢走、只提示一次:authPromptActive/authDismissed)，**网络失败→不弹框**(标题已显未连接、靠自动重连)。Web 同步:`onAuthError`→`window.confirm`(确定登录/取消留看缓存)、网络→保持 header 状态+重连。两端浏览器/编译验证通过。
+- **登录失败 UX（2026-08-01 当前策略）**：iOS 已有本地登录态时，HTTP 鉴权或网络失败均不弹模态框、不自动清登录态，继续展示本地缓存；WebSocket 用 `IMSocketDidChangeStateNotification` 驱动「会话（连接中…/未连接）」并自动重连。用户主动退出才清理登录态。Web 仍保留鉴权失败确认框，属于端交互差异。
 - **拉黑模型重构 + 拒收反馈（2026-06-17，两端）**：
   - ①**拉黑≠解绑（blocked 标记模型）**：后端 `im_friend` 加与 `status` 正交的 `blocked` 标记（启动自动迁移老 `status='blocked'`→`blocked=1`，非破坏）。`Block` 只置标记、好友关系(双方 accepted)不动 → **双方好友列表始终互见**(拉黑方带标记)；`Unblock` 只清标记。`BlockedBetween`/黑名单查询改用标记。iOS：`IMUserCard.blocked` 解析 + 通讯录被拉黑好友副标题"· 已拉黑" + 左滑"解除拉黑"。Web：`FriendEntry.blocked`、`peerBlocked` 改用标记、好友列表"已拉黑"标签 + 菜单"解除拉黑"。**Web 浏览器实测全过**；iOS 真编译+test-build 过、真机待验。
   - ②**被拒收微信式反馈**：被拉黑方发消息 → 气泡左红❗ + 下方居中系统行「消息已发出，但被对方拒收了」，**不弹窗**(iOS `IMBubbleCell._failBadge/_sysNote` + `IMMessageModel.note`；Web `ChatMessage.note` + `.fail-badge/.sys-note`)。Web 实测过；**iOS 系统行真机待复验**(代码路径已逐段核对正确，疑用户上次测时走了 10s 超时而非拒收)。
@@ -95,7 +96,7 @@
    
 3. 群聊 iOS 欠账（对齐 Web）：群头像上传、群内已读细化、@提醒（M5-6）。
 
-4. 本地库 `im.sqlite` 按 uid 隔离（规模化必须，现不影响单号流程）。
+4. 本地媒体文件离线缓存（当前 SQLite 已保存消息与媒体 URL，但远程图片/视频未下载过时离线不可查看）。
 
 ## 已知坑 / 限制
 - CocoaLumberjack 只接管应用主动输出的日志；iOS/UIKit/Network.framework 自身的系统诊断仍由系统写入 Xcode 控制台。Debug 文件日志会保留脱敏后的业务正文，仅用于开发设备，分享日志前仍需复核。
@@ -105,7 +106,6 @@
 - 聊天壁纸为 CG 自绘 SF Symbol 近似，非 Telegram 原涂鸦。
 - 测试只跑 `-only-testing:IMProgramTests`（UITests 会因 Accessibility 超时拖垮）。
 - 改后端协议字段后**需重启后端**再测；涉及本地库的回归需在模拟器**删 App 重装**清 `im.sqlite`。
-- **本地库 `im.sqlite` 全局单文件、不分账号、登出不清**（未修）：同一设备切号会看到上一个账号的缓存；若服务端 `imserver.db` 被清而本地没清会 conv_seq 串号 → 旧缓存显示、新消息被跳过、已读双勾错乱。**干净重测：删 App + `rm imserver.db*` 同时做**。根治待办：本地库按 uid 隔离（`im_<uid>.sqlite` 或表加 owner 列过滤）。
 - 已读=可见即读（已实现）：未读随滚动逐步清；进会话只清当前可见的，需滚到底才全清。↓N 徽标=视口下方未读数，随滚动递减、滚到底隐藏（按 pendingReadSeq 实时重算，非静态）。
 
 ## 关联工程 / 常用命令

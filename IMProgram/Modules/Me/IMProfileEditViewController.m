@@ -97,14 +97,14 @@
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) { return; }
         if (token.length == 0) {
-            [self showMessage:[NSString stringWithFormat:@"登录失败：%@", error.localizedDescription]];
+            IMLog(@"资料自动加载登录失败（静默保留当前内容）：%@", error.localizedDescription ?: @"未知错误");
             return;
         }
         self.token = token;
         [IMHTTPService.sharedService myProfileWithToken:token completion:^(IMUserCard *profile, NSError *err) {
             __strong typeof(weakSelf) self = weakSelf;
             if (!self || !profile) {
-                if (err) { [weakSelf showMessage:[NSString stringWithFormat:@"拉取资料失败：%@", err.localizedDescription]]; }
+                if (err) { IMLog(@"资料自动加载失败（保留当前内容）：%@", err.localizedDescription ?: @"未知错误"); }
                 return;
             }
             self.nicknameField.text = profile.nickname;
