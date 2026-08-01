@@ -33,6 +33,10 @@ static CGFloat const kIMRowLeading = 16;
     UILabel *_name;
     UILabel *_last;
     UILabel *_time;
+    UIStackView *_nameStateStack;
+    UIStackView *_deliveryTimeStack;
+    UIImageView *_pin;
+    UIImageView *_mute;
     UILabel *_check;   // 最后一条是我发的 → 时间左侧显示 ✓✓（绿）
     UILabel *_badge;
     UIView *_dot;      // 手动"标未读"小圆点（无未读数时显示，M4.5）
@@ -55,7 +59,8 @@ static CGFloat const kIMRowLeading = 16;
         _name.translatesAutoresizingMaskIntoConstraints = NO;
         _name.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
         _name.textColor = IMTheme.textPrimary;
-        [self.contentView addSubview:_name];
+        _name.lineBreakMode = NSLineBreakByTruncatingTail;
+        [_name setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
 
         _last = [UILabel new];
         _last.translatesAutoresizingMaskIntoConstraints = NO;
@@ -68,14 +73,43 @@ static CGFloat const kIMRowLeading = 16;
         _time.font = [UIFont systemFontOfSize:13];
         _time.textColor = IMTheme.textSecondary;
         _time.textAlignment = NSTextAlignmentRight;
-        [self.contentView addSubview:_time];
+
+        UIImageSymbolConfiguration *stateConfig =
+            [UIImageSymbolConfiguration configurationWithPointSize:13 weight:UIImageSymbolWeightSemibold];
+        _pin = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"pin.fill" withConfiguration:stateConfig]];
+        _mute = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"bell.slash.fill" withConfiguration:stateConfig]];
+        for (UIImageView *icon in @[_pin, _mute]) {
+            icon.translatesAutoresizingMaskIntoConstraints = NO;
+            icon.contentMode = UIViewContentModeScaleAspectFit;
+            icon.tintColor = IMTheme.textSecondary;
+            icon.hidden = YES;
+            [icon setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+            [icon setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+            [NSLayoutConstraint activateConstraints:@[
+                [icon.widthAnchor constraintEqualToConstant:14],
+                [icon.heightAnchor constraintEqualToConstant:14],
+            ]];
+        }
+        _nameStateStack = [[UIStackView alloc] initWithArrangedSubviews:@[_name, _pin, _mute]];
+        _nameStateStack.translatesAutoresizingMaskIntoConstraints = NO;
+        _nameStateStack.axis = UILayoutConstraintAxisHorizontal;
+        _nameStateStack.alignment = UIStackViewAlignmentCenter;
+        _nameStateStack.spacing = 4;
+        [self.contentView addSubview:_nameStateStack];
 
         _check = [UILabel new];
         _check.translatesAutoresizingMaskIntoConstraints = NO;
         _check.font = [UIFont systemFontOfSize:13];
         _check.textColor = IMTheme.checkRead;
         _check.text = @"✓✓";
-        [self.contentView addSubview:_check];
+        [_check setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+        [_check setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+        _deliveryTimeStack = [[UIStackView alloc] initWithArrangedSubviews:@[_check, _time]];
+        _deliveryTimeStack.translatesAutoresizingMaskIntoConstraints = NO;
+        _deliveryTimeStack.axis = UILayoutConstraintAxisHorizontal;
+        _deliveryTimeStack.alignment = UIStackViewAlignmentCenter;
+        _deliveryTimeStack.spacing = 4;
+        [self.contentView addSubview:_deliveryTimeStack];
 
         _badge = [UILabel new];
         _badge.translatesAutoresizingMaskIntoConstraints = NO;
@@ -106,18 +140,15 @@ static CGFloat const kIMRowLeading = 16;
             [_avatar.widthAnchor constraintEqualToConstant:kIMAvatarSize],
             [_avatar.heightAnchor constraintEqualToConstant:kIMAvatarSize],
 
-            [_name.leadingAnchor constraintEqualToAnchor:_avatar.trailingAnchor constant:12],
-            [_name.topAnchor constraintEqualToAnchor:_avatar.topAnchor constant:2],
-            [_name.trailingAnchor constraintLessThanOrEqualToAnchor:_time.leadingAnchor constant:-8],
+            [_nameStateStack.leadingAnchor constraintEqualToAnchor:_avatar.trailingAnchor constant:12],
+            [_nameStateStack.topAnchor constraintEqualToAnchor:_avatar.topAnchor constant:2],
+            [_nameStateStack.trailingAnchor constraintLessThanOrEqualToAnchor:_deliveryTimeStack.leadingAnchor constant:-8],
 
-            [_time.trailingAnchor constraintEqualToAnchor:g.trailingAnchor],
-            [_time.centerYAnchor constraintEqualToAnchor:_name.centerYAnchor],
+            [_deliveryTimeStack.trailingAnchor constraintEqualToAnchor:g.trailingAnchor],
+            [_deliveryTimeStack.centerYAnchor constraintEqualToAnchor:_nameStateStack.centerYAnchor],
 
-            [_check.trailingAnchor constraintEqualToAnchor:_time.leadingAnchor constant:-4],
-            [_check.centerYAnchor constraintEqualToAnchor:_time.centerYAnchor],
-
-            [_last.leadingAnchor constraintEqualToAnchor:_name.leadingAnchor],
-            [_last.topAnchor constraintEqualToAnchor:_name.bottomAnchor constant:4],
+            [_last.leadingAnchor constraintEqualToAnchor:_nameStateStack.leadingAnchor],
+            [_last.topAnchor constraintEqualToAnchor:_nameStateStack.bottomAnchor constant:4],
             [_last.trailingAnchor constraintLessThanOrEqualToAnchor:_badge.leadingAnchor constant:-8],
 
             [_badge.trailingAnchor constraintEqualToAnchor:g.trailingAnchor],
@@ -169,8 +200,11 @@ static CGFloat const kIMRowLeading = 16;
         _name.text = display;
         _last.text = recalledPreview ?: (c.lastContent.length > 0 ? c.lastContent : @"（无消息）");
     }
-    // 会话管理指示（M4.5）：置顶 pin.fill 前缀、免打扰 bell.slash.fill 后缀（SF Symbol，随字号对齐）。
-    [self decorateName:(_name.text ?: @"") pinned:(c.pinnedAt > 0) muted:c.muted];
+    // 名称 → 置顶 → 免打扰：状态图标紧跟实际显示的名称，长名称只截断文字。
+    _pin.hidden = c.pinnedAt <= 0;
+    _mute.hidden = !c.muted;
+    _pin.tintColor = IMTheme.textSecondary;
+    _mute.tintColor = IMTheme.textSecondary;
     // 置顶行背景轻微区分（微信/Telegram 式，深浅色皆适配）。
     self.contentView.backgroundColor = c.pinnedAt > 0 ? [IMTheme.accent colorWithAlphaComponent:0.10] : UIColor.clearColor;
     _time.text = [IMTheme timeStringFromMillis:c.timestamp];
@@ -203,40 +237,6 @@ static CGFloat const kIMRowLeading = 16;
         _badgeWidth.constant = 0;
         _dot.hidden = YES;
     }
-}
-
-/// 用 SF Symbol 装饰会话名：置顶 pin.fill 前缀、免打扰 bell.slash.fill 后缀（随字号对齐，紧凑间距）。
-- (void)decorateName:(NSString *)display pinned:(BOOL)pinned muted:(BOOL)muted {
-    if (!pinned && !muted) { _name.text = display; return; } // 无装饰：走普通文本，避免多余开销
-    UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:14 weight:UIImageSymbolWeightSemibold];
-    CGFloat cap = _name.font.capHeight; // 图标垂直居中于 cap 高度，与文字基线对齐
-    NSMutableAttributedString *s = [NSMutableAttributedString new];
-    if (pinned) {
-        UIImage *pin = [[UIImage systemImageNamed:@"pin.fill" withConfiguration:cfg]
-                        imageWithTintColor:IMTheme.accent renderingMode:UIImageRenderingModeAlwaysOriginal];
-        if (pin) {
-            NSTextAttachment *a = [NSTextAttachment new];
-            a.image = pin;
-            a.bounds = CGRectMake(0, (cap - pin.size.height) / 2.0, pin.size.width, pin.size.height);
-            [s appendAttributedString:[NSAttributedString attributedStringWithAttachment:a]];
-            [s appendAttributedString:[[NSAttributedString alloc] initWithString:@" "]]; // 窄空格，避免"间隔太远"
-        }
-    }
-    [s appendAttributedString:[[NSAttributedString alloc] initWithString:display]];
-    if (muted) {
-        [s appendAttributedString:[[NSAttributedString alloc] initWithString:@" "]];
-        UIImage *bell = [[UIImage systemImageNamed:@"bell.slash.fill" withConfiguration:cfg]
-                         imageWithTintColor:IMTheme.textSecondary renderingMode:UIImageRenderingModeAlwaysOriginal];
-        if (bell) {
-            NSTextAttachment *a = [NSTextAttachment new];
-            a.image = bell;
-            a.bounds = CGRectMake(0, (cap - bell.size.height) / 2.0, bell.size.width, bell.size.height);
-            [s appendAttributedString:[NSAttributedString attributedStringWithAttachment:a]];
-        }
-    }
-    [s addAttributes:@{ NSFontAttributeName: _name.font, NSForegroundColorAttributeName: IMTheme.textPrimary }
-              range:NSMakeRange(0, s.length)];
-    _name.attributedText = s;
 }
 
 @end
