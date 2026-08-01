@@ -232,7 +232,7 @@
 - (void)buildProfileHeader {
     CGFloat W = self.view.bounds.size.width;
     // tableHeader 只负责为资料头部留出滚动空间；头像/文字悬浮在 table 之上，才能像详情页一样连续形变。
-    self.profileHeader = [[UIView alloc] initWithFrame:CGRectMake(0, 0, W, 350)];
+    self.profileHeader = [[UIView alloc] initWithFrame:CGRectMake(0, 0, W, 230)];
     self.profileHeader.backgroundColor = UIColor.clearColor;
     self.tableView.tableHeaderView = self.profileHeader;
 
@@ -311,19 +311,28 @@
 
 - (void)scrollViewDidScroll:(UIScrollView *)scrollView {
     [self applyProfileHeaderMorph];
+    [self.navigationController.view setNeedsLayout];
+}
+
+- (CGFloat)im_navigationBackgroundProgress {
+    CGFloat raw = self.tableView.contentOffset.y + self.tableView.adjustedContentInset.top;
+    CGFloat progress = MIN(MAX(raw / 120.0, 0), 1);
+    return progress * progress * (3 - 2 * progress);
 }
 
 - (void)applyProfileHeaderMorph {
     CGFloat W = self.view.bounds.size.width;
     if (W <= 0 || !self.profileAvatar) { return; }
     CGFloat raw = self.tableView.contentOffset.y + self.tableView.adjustedContentInset.top;
-    CGFloat linear = MIN(MAX(raw / 170.0, 0), 1);
-    CGFloat q = linear * linear * (3 - 2 * linear);
-    CGFloat top = self.view.safeAreaInsets.top;
-    CGFloat restD = MIN(132, W * 0.34);
-    CGFloat restCY = top + 154;
-    CGFloat islandBottom = MAX(36, top - 8);
-    CGFloat contactEnd = 0.40;
+    // 与 Telegram PeerInfoHeaderNode 一致，以 120pt 滚动距离驱动头像/灵动岛遮罩。
+    CGFloat q = MIN(MAX(raw / 120.0, 0), 1);
+    // 本页由主导航额外增加 56pt safe-area；头像基准必须使用设备状态栏 inset，避免落到标题栏下方。
+    CGFloat top = self.view.window.safeAreaInsets.top;
+    // 与 IMChatDetailViewController 保持同一初始几何：92pt 圆头像紧邻导航栏，而非落在页面中部。
+    CGFloat restD = 92;
+    CGFloat restCY = top + 58;
+    CGFloat islandBottom = MAX(36, top - 9);
+    CGFloat contactEnd = 0.38;
     CGFloat swallow = 0, w = restD, h = restD, cy = restCY;
     BOOL attached = q >= contactEnd;
     if (!attached) {
@@ -338,9 +347,12 @@
         h = 64 + (6 - 64) * swallow;
         cy = islandBottom - 5 + h * 0.5;
     }
+    CGFloat neckPulse = attached && !UIAccessibilityIsReduceMotionEnabled() ? sin(M_PI * swallow) : 0;
+    CGFloat drawW = w * (1 - 0.08 * neckPulse);
+    CGFloat drawH = h * (1 + 0.08 * neckPulse);
     self.profileAvatar.transform = CGAffineTransformIdentity;
-    self.profileAvatar.frame = CGRectMake((W - w) / 2, cy - h / 2, w, h);
-    self.profileAvatar.layer.cornerRadius = attached ? 0 : MIN(w, h) / 2;
+    self.profileAvatar.frame = CGRectMake((W - drawW) / 2, cy - drawH / 2, drawW, drawH);
+    self.profileAvatar.layer.cornerRadius = attached ? 0 : MIN(drawW, drawH) / 2;
     self.profileAvatarBlur.frame = self.profileAvatar.bounds;
     self.profileAvatarFade.frame = self.profileAvatar.bounds;
     self.profileAvatarBlur.alpha = MAX(0, MIN(1, swallow * 1.10 - 0.10));
@@ -377,7 +389,7 @@
     }
 
     CGFloat labelsAlpha = MIN(MAX(1 - q * 2.3, 0), 1);
-    CGFloat nameY = cy + h / 2 + 18;
+    CGFloat nameY = cy + drawH / 2 + 8;
     self.profileName.frame = CGRectMake(20, nameY, W - 40, 40);
     self.profileMeta.frame = CGRectMake(20, nameY + 43, W - 40, 26);
     self.profileName.alpha = labelsAlpha;

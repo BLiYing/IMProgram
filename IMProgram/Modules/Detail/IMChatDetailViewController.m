@@ -322,6 +322,7 @@ static CGFloat const kPillsRowH = 78;
 @property (nonatomic, strong) UILabel *nameBelow;     ///< 圆头像下居中名
 @property (nonatomic, strong) UILabel *subBelow;
 @property (nonatomic, strong) IMLiquidNavigationBar *liquidNavigationBar;
+@property (nonatomic, strong) UIView *pillsView;            ///< 搜索/更多独立按钮，放在 tableHeader 中避开 grouped 卡片背景
 // 页签
 @property (nonatomic, strong) UISegmentedControl *segmented;
 @property (nonatomic, strong) UIView *stickyBar;               ///< 页签滚到顶时的悬浮吸顶条（透明，仅托分段控件）
@@ -403,10 +404,7 @@ static CGFloat const kPillsRowH = 78;
 }
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
-    // 仅当不是往更深页推进时恢复导航栏（返回上一页时）。子页各自在 viewWillAppear 恢复。
-    if (self.isMovingFromParentViewController) {
-        [self.navigationController setNavigationBarHidden:NO animated:animated];
-    }
+    // 主导航容器始终隐藏系统 UINavigationBar。返回时若临时恢复系统栏，会与统一 Glass 导航栏叠加产生双标题/双阴影。
 }
 
 - (void)viewDidLayoutSubviews {
@@ -420,17 +418,19 @@ static CGFloat const kPillsRowH = 78;
         spacer.frame = CGRectMake(0, 0, W, headerH);
         self.tableView.tableHeaderView = spacer; // 触发重新测量
     }
+    self.pillsView.frame = CGRectMake(0, self.topInset + 208, W, kPillsRowH);
     CGFloat barH = self.topInset + 44;
     self.stickyBar.frame = CGRectMake(0, barH, W, 44);
     [self layoutSegmented:self.stickySeg inWidth:W];
     [self syncScrollInset];
     [self applyHeaderMorph]; // 尺寸变化后重算
+    [self updatePillsVisibility];
 }
 
 /// 所有详情页统一使用圆形头像头部；URL 仅替换头像内容。
 - (CGFloat)absorbOffset { return 180; } // 头像完全被吸附所需上滑距离
 - (CGFloat)headerHeight {
-    return self.topInset + 200;
+    return self.topInset + 200 + 8 + kPillsRowH;
 }
 
 /// 补足底部 inset，确保内容够短时也能上滑到「吸附」与「页签贴顶」位（否则松手回弹、动效走不完）。
@@ -464,6 +464,8 @@ static CGFloat const kPillsRowH = 78;
     [self.tableView registerClass:IMDetailMediaContainerCell.class forCellReuseIdentifier:@"mediagrid"];
     UIView *spacer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 300)];
     spacer.backgroundColor = UIColor.clearColor;
+    self.pillsView = [self buildPillsView];
+    [spacer addSubview:self.pillsView];
     self.tableView.tableHeaderView = spacer;
     [self.view addSubview:self.tableView];
 
@@ -474,6 +476,56 @@ static CGFloat const kPillsRowH = 78;
     sr.direction = UISwipeGestureRecognizerDirectionRight; sr.delegate = self;
     [self.tableView addGestureRecognizer:sl];
     [self.tableView addGestureRecognizer:sr];
+}
+
+- (UIView *)buildPillsView {
+    UIView *host = [UIView new];
+    host.backgroundColor = UIColor.clearColor;
+    NSMutableArray *specs = [NSMutableArray array];
+    if (self.isGroup) {
+        [specs addObject:@{@"t": @"搜索", @"s": @"magnifyingglass", @"a": @"search"}];
+    } else {
+        if (self.showsMessagePill) {
+            [specs addObject:@{@"t": @"消息", @"s": @"bubble.right.fill", @"a": @"message"}];
+        }
+        [specs addObject:@{@"t": @"呼叫", @"s": @"phone.fill", @"a": @"call"}];
+        [specs addObject:@{@"t": @"视频", @"s": @"video.fill", @"a": @"video"}];
+    }
+    [specs addObject:@{@"t": @"更多", @"s": @"ellipsis", @"a": @"more"}];
+
+    UIStackView *stack = [UIStackView new];
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    stack.axis = UILayoutConstraintAxisHorizontal;
+    stack.distribution = UIStackViewDistributionFillEqually;
+    stack.spacing = 9;
+    [host addSubview:stack];
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.leadingAnchor constraintEqualToAnchor:host.leadingAnchor constant:16],
+        [stack.trailingAnchor constraintEqualToAnchor:host.trailingAnchor constant:-16],
+        [stack.topAnchor constraintEqualToAnchor:host.topAnchor constant:6],
+        [stack.bottomAnchor constraintEqualToAnchor:host.bottomAnchor constant:-6],
+    ]];
+    for (NSDictionary *spec in specs) {
+        UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+        UIButtonConfiguration *cfg = IMGlassButtonConfiguration();
+        cfg.image = [UIImage systemImageNamed:spec[@"s"]];
+        cfg.title = spec[@"t"];
+        cfg.imagePlacement = NSDirectionalRectEdgeTop;
+        cfg.imagePadding = 4;
+        cfg.baseForegroundColor = IMTheme.accent;
+        cfg.titleTextAttributesTransformer = ^NSDictionary *(NSDictionary *old) {
+            NSMutableDictionary *attrs = [old mutableCopy];
+            attrs[NSFontAttributeName] = [UIFont systemFontOfSize:11];
+            return attrs;
+        };
+        cfg.cornerStyle = UIButtonConfigurationCornerStyleLarge;
+        button.configuration = cfg;
+        button.accessibilityLabel = spec[@"a"];
+        [button addTarget:self action:([spec[@"a"] isEqualToString:@"more"] ? @selector(moreTapped:) : @selector(pillTapped:))
+         forControlEvents:UIControlEventTouchUpInside];
+        [stack addArrangedSubview:button];
+    }
+    return host;
 }
 
 /// 给分段控件挂"点击即贴顶"的 tap（与其自身选择手势并存），支持单 tab / 重复点当前 tab 也贴顶。
@@ -589,7 +641,8 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
     CGFloat off = MAX(0, self.tableView.contentOffset.y); // 下拉橡皮筋不参与形变
     CGFloat top = self.topInset;
     BOOL reduceMotion = UIAccessibilityIsReduceMotionEnabled();
-    CGFloat q = IMSmooth(off / [self absorbOffset]);
+    // Telegram PeerInfoHeaderNode 以 contentOffset / 120 驱动灵动岛头像遮罩。
+    CGFloat q = IMClamp(off / 120.0, 0, 1);
     CGFloat swallow = 0;
     BOOL attachedToIsland = NO;
     CGFloat restD = 92, restCY = top + 58;
@@ -630,6 +683,7 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
 
     // 大图态使用白色导航按钮；头像收成圆形后回到当前深浅模式的 label 色。
     self.liquidNavigationBar.immersiveAppearanceProgress = 0;
+    self.liquidNavigationBar.backgroundEffectProgress = IMSmooth((q - 0.28) / 0.72);
 
     // 初始进入时只保留独立返回按钮；标题胶囊在头像水滴
     // 吸附接近完成时才渐显，恢复详情页原有的滚动形变节奏。
@@ -640,13 +694,9 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
 
 /// 操作排接近自定义导航栏时平滑淡出，避免搜索/更多按钮穿过返回与编辑按钮。
 - (void)updatePillsVisibility {
-    NSInteger section = [self indexOfSection:IMDetailSectionPills];
-    if (section == NSNotFound) { return; }
-    NSIndexPath *indexPath = [NSIndexPath indexPathForRow:0 inSection:section];
-    UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:indexPath];
-    if (!cell) { return; }
-    CGRect row = [self.tableView rectForRowAtIndexPath:indexPath];
-    CGFloat topInView = CGRectGetMinY(row) - self.tableView.contentOffset.y;
+    if (!self.pillsView.superview) { return; }
+    CGRect frameInView = [self.pillsView.superview convertRect:self.pillsView.frame toView:self.view];
+    CGFloat topInView = CGRectGetMinY(frameInView);
     CGFloat navigationBottom = self.topInset + 56;
     CGFloat navigationAlpha = IMClamp((topInView - navigationBottom) / 36, 0, 1);
     CGFloat labelAlpha = 1;
@@ -656,8 +706,8 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
         labelAlpha = IMClamp((clearance - 6) / 24, 0, 1);
     }
     CGFloat alpha = MIN(navigationAlpha, labelAlpha);
-    cell.contentView.alpha = alpha;
-    cell.userInteractionEnabled = alpha > 0.2;
+    self.pillsView.alpha = alpha;
+    self.pillsView.userInteractionEnabled = alpha > 0.2;
 }
 
 /// 锚点触感：正圆成形（photo p≈1、未进吸附）与吸附完成（q≈1）各一次；反向复位后可再触发。
@@ -903,7 +953,6 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
 /// 当前页面的 section 顺序。
 - (NSArray<NSNumber *> *)sectionLayout {
     NSMutableArray<NSNumber *> *s = [NSMutableArray array];
-    [s addObject:@(IMDetailSectionPills)];
     if (!self.isGroup) { [s addObject:@(IMDetailSectionInfo)]; } // 单聊：备注名/用户名
     [s addObject:@(IMDetailSectionSettings)];
     if (self.tabs.count > 0) { [s addObject:@(IMDetailSectionTabs)]; }

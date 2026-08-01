@@ -7,6 +7,7 @@
 #import "IMUserSearchViewController.h"
 #import "IMProgram-Swift.h"
 #import "IMChatDetailViewController.h"
+#import "IMChatViewController.h"
 
 /// 主界面统一导航容器：所有非根页面自动隐藏 TabBar，并恢复系统边缘侧滑返回。
 /// 这样新增页面只需正常 push，不再依赖每个控制器手动设置 hidesBottomBarWhenPushed。
@@ -65,21 +66,33 @@
     BOOL ownsBar = [top isKindOfClass:IMChatDetailViewController.class];
     self.imLiquidBar.hidden = ownsBar;
     UIEdgeInsets insets = top.additionalSafeAreaInsets;
-    CGFloat extraTop = ownsBar || [top isKindOfClass:NSClassFromString(@"IMChatViewController")] ? 0 : 56;
+    BOOL isChat = [top isKindOfClass:IMChatViewController.class];
+    // 聊天列表必须从自定义标题栏下方开始；只有详情页自持沉浸式导航并允许内容铺到顶端。
+    CGFloat extraTop = ownsBar ? 0 : 56;
     if (fabs(insets.top - extraTop) > 0.5) {
         insets.top = extraTop;
         top.additionalSafeAreaInsets = insets;
     }
     if (ownsBar) { return; }
     self.imLiquidBar.titleText = top.title ?: @"";
-    self.imLiquidBar.showsTitleGlass = [top isKindOfClass:NSClassFromString(@"IMChatViewController")];
+    self.imLiquidBar.showsTitleGlass = isChat;
     NSString *subtitle = @"";
-    if ([top respondsToSelector:@selector(im_navigationSubtitle)]) {
-        subtitle = [top performSelector:@selector(im_navigationSubtitle)] ?: @"";
+    if (isChat) {
+        subtitle = [(IMChatViewController *)top im_navigationSubtitle] ?: @"";
     }
     self.imLiquidBar.subtitleText = subtitle;
     self.imLiquidBar.compactContentProgress = 1;
     self.imLiquidBar.immersiveAppearanceProgress = 0;
+    CGFloat backgroundProgress = 1;
+    if ([top respondsToSelector:@selector(im_navigationBackgroundProgress)]) {
+        NSMethodSignature *signature = [top methodSignatureForSelector:@selector(im_navigationBackgroundProgress)];
+        NSInvocation *invocation = [NSInvocation invocationWithMethodSignature:signature];
+        invocation.selector = @selector(im_navigationBackgroundProgress);
+        invocation.target = top;
+        [invocation invoke];
+        [invocation getReturnValue:&backgroundProgress];
+    }
+    self.imLiquidBar.backgroundEffectProgress = backgroundProgress;
 
     UIBarButtonItem *left = top.navigationItem.leftBarButtonItem;
     UIBarButtonItem *right = top.navigationItem.rightBarButtonItem;

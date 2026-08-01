@@ -95,6 +95,11 @@ public final class IMLiquidNavigationBar: UIView {
         didSet { refreshColors() }
     }
 
+    /// Telegram PeerInfo 的导航背景在资料头部展开时完全透明，随内容折叠才渐进显现。
+    public var backgroundEffectProgress: CGFloat = 1 {
+        didSet { updateBackgroundEffect() }
+    }
+
     private let backButton = IMLiquidHighlightButton(type: .system)
     private let actionButton = IMLiquidHighlightButton(type: .system)
     private let titleLabel = UILabel()
@@ -102,6 +107,7 @@ public final class IMLiquidNavigationBar: UIView {
     private let backGlass = UIVisualEffectView()
     private let titleGlass = UIVisualEffectView()
     private let actionGlass = UIVisualEffectView()
+    private let backgroundGlass = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterial))
 
     @objc(initWithTitle:subtitle:actionTitle:)
     public init(title: String, subtitle: String, actionTitle: String?) {
@@ -120,6 +126,10 @@ public final class IMLiquidNavigationBar: UIView {
     private func buildView() {
         backgroundColor = .clear
         isOpaque = false
+
+        backgroundGlass.isUserInteractionEnabled = false
+        insertSubview(backgroundGlass, at: 0)
+        updateBackgroundEffect()
 
         [backGlass, titleGlass, actionGlass].forEach { glass in
             glass.effect = Self.makeGlassEffect()
@@ -199,6 +209,7 @@ public final class IMLiquidNavigationBar: UIView {
         if previousTraitCollection == nil ||
             traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) {
             [backGlass, titleGlass, actionGlass].forEach { $0.effect = Self.makeGlassEffect() }
+            backgroundGlass.effect = UIBlurEffect(style: .systemUltraThinMaterial)
             refreshColors()
         }
     }
@@ -213,6 +224,10 @@ public final class IMLiquidNavigationBar: UIView {
         actionGlass.alpha = 1
         actionButton.alpha = 1
         actionButton.isUserInteractionEnabled = !actionButton.isHidden
+    }
+
+    private func updateBackgroundEffect() {
+        backgroundGlass.alpha = min(max(backgroundEffectProgress, 0), 1)
     }
 
     private func updateLeftButton() {
@@ -238,6 +253,14 @@ public final class IMLiquidNavigationBar: UIView {
 
     public override func layoutSubviews() {
         super.layoutSubviews()
+        // 从屏幕顶部覆盖到导航栏下缘，包含状态栏区域；页面内容可在其下方继续滚动。
+        backgroundGlass.frame = bounds
+        // 底缘柔和退场，避免磨砂导航与下方内容形成一条割裂的硬边。
+        let fade = CAGradientLayer()
+        fade.frame = backgroundGlass.bounds
+        fade.colors = [UIColor.white.cgColor, UIColor.white.cgColor, UIColor.clear.cgColor]
+        fade.locations = [0, 0.72, 1]
+        backgroundGlass.layer.mask = fade
         let top = safeAreaInsets.top
         let buttonY = top + 6
         let buttonSize: CGFloat = 44
