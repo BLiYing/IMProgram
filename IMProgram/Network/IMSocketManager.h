@@ -113,6 +113,7 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
                      toConv:(NSString *)convID
                      toUser:(NSString *)toUserID
                 forwardFrom:(NSString *)forwardFrom
+                   fileName:(nullable NSString *)fileName
                  completion:(nullable IMSendCompletion)completion;
 
 /// 上报「已读到 convSeq」：对端据此显示已读双勾，本人未读随之清零（仅 read 推进已读位点）。
@@ -131,6 +132,13 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
 /// 发送富媒体（M4-6）：content=已上传 URL，contentType=image|video|file。群聊 toUser 传空。返回 client_msg_id。
 - (NSString *)sendMedia:(NSString *)url
            contentType:(NSString *)contentType
+                toConv:(NSString *)convID
+                toUser:(NSString *)toUserID
+            completion:(nullable IMSendCompletion)completion;
+
+/// 发送文件消息，fileName 随消息持久化并同步到所有终端。
+- (NSString *)sendFile:(NSString *)url
+              fileName:(NSString *)fileName
                 toConv:(NSString *)convID
                 toUser:(NSString *)toUserID
             completion:(nullable IMSendCompletion)completion;

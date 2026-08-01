@@ -1178,8 +1178,8 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
     cell.detailTextLabel.textColor = IMTheme.textSecondary;
     if (t.kind == IMDetailTabKindFiles) {
-        cell.textLabel.text = IMMediaFileName(m.content);
-        cell.imageView.image = IMFileTypeIconForName(m.content, 36);
+        cell.textLabel.text = m.fileName.length > 0 ? m.fileName : @"文件";
+        cell.imageView.image = IMFileTypeIconForName(m.fileName, 36);
         cell.detailTextLabel.text = [IMTheme timeStringFromMillis:m.timestamp];
     } else if (t.kind == IMDetailTabKindVoice) {
         cell.textLabel.text = @"语音消息";

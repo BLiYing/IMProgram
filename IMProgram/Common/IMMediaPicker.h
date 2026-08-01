@@ -28,6 +28,9 @@ extern const long long kIMMaxVideoBytes; // 视频体积上限（与服务端 10
 /// 最终待上传数据（图片压缩或原图字节 / 视频转码 720p 或原文件，含 ≤100MB 校验）；
 /// 主线程回调，nil=加载失败或超限。
 - (void)loadData:(void (^)(IMPickedMedia *_Nullable item))completion;
+
+/// 文件面板专用：读取相册资源原始字节，不压缩、不转码，并保留扩展名。
+- (void)loadFileData:(void (^)(IMPickedMedia *_Nullable item))completion;
 @end
 
 @interface IMMediaPicker : NSObject
@@ -43,6 +46,11 @@ extern const long long kIMMaxVideoBytes; // 视频体积上限（与服务端 10
 + (void)presentImagePickerFromViewController:(UIViewController *)host
                                        limit:(NSInteger)limit
                            handlesCompletion:(void (^)(NSArray<IMPickedMediaHandle *> *handles))completion;
+
+/// 文件面板相册入口：图片/视频多选，选完直接回调原始资源句柄，不显示媒体压缩选项。
++ (void)presentFilePickerFromViewController:(UIViewController *)host
+                                      limit:(NSInteger)limit
+                          handlesCompletion:(void (^)(NSArray<IMPickedMediaHandle *> *handles))completion;
 
 @end
 

@@ -52,12 +52,20 @@
              "owner_uid TEXT NOT NULL DEFAULT '',"
              "client_msg_id TEXT, server_msg_id TEXT, conv_id TEXT NOT NULL,"
              "sender TEXT, recipient TEXT, content_type TEXT, content TEXT,"
+             "file_name TEXT,"
              "conv_seq INTEGER, timestamp INTEGER, status INTEGER, note TEXT)"];
         if (!ok) { IMLogDatabase(@"建表失败: %@", db.lastErrorMessage); }
         if (![self column:@"owner_uid" existsInTable:@"im_message_local" db:db]) {
             [db executeUpdate:@"ALTER TABLE im_message_local ADD COLUMN owner_uid TEXT NOT NULL DEFAULT ''"];
         }
         [db executeUpdate:@"CREATE INDEX IF NOT EXISTS idx_local_owner_conv ON im_message_local(owner_uid,conv_id)"];
+        ok = [db executeUpdate:
+            @"CREATE TABLE IF NOT EXISTS im_sent_file_local ("
+             "owner_uid TEXT NOT NULL, server_msg_id TEXT NOT NULL, url TEXT NOT NULL,"
+             "name TEXT NOT NULL, timestamp INTEGER NOT NULL,"
+             "PRIMARY KEY(owner_uid,url))"];
+        if (!ok) { IMLogDatabase(@"创建已发送文件缓存失败: %@", db.lastErrorMessage); }
+        [db executeUpdate:@"CREATE INDEX IF NOT EXISTS idx_sent_file_owner_time ON im_sent_file_local(owner_uid,timestamp DESC)"];
         // 老库迁移（非破坏）：补 note 列——失败消息的系统提示（如被拉黑拒收文案）落库，重进会话不丢。
         if (![self column:@"note" existsInTable:@"im_message_local" db:db]) {
             [db executeUpdate:@"ALTER TABLE im_message_local ADD COLUMN note TEXT"];
@@ -116,6 +124,48 @@
 }
 
 #pragma mark - 会话缓存
+
+- (NSArray<NSDictionary *> *)cachedSentFiles {
+    NSString *owner = [self ownerUserID];
+    NSMutableArray<NSDictionary *> *files = [NSMutableArray array];
+    [_queue inDatabase:^(FMDatabase *db) {
+        FMResultSet *rs = [db executeQuery:
+            @"SELECT server_msg_id,url,name,timestamp FROM im_sent_file_local WHERE owner_uid=? ORDER BY timestamp DESC,server_msg_id DESC",
+            owner];
+        while ([rs next]) {
+            [files addObject:@{
+                @"server_msg_id": [rs stringForColumn:@"server_msg_id"] ?: @"",
+                @"url": [rs stringForColumn:@"url"] ?: @"",
+                @"name": [rs stringForColumn:@"name"] ?: @"",
+                @"timestamp": @([rs longLongIntForColumn:@"timestamp"]),
+            }];
+        }
+        [rs close];
+    }];
+    return files;
+}
+
+- (void)cacheSentFiles:(NSArray<NSDictionary *> *)files {
+    if (files.count == 0) { return; }
+    NSString *owner = [self ownerUserID];
+    [_queue inTransaction:^(FMDatabase *db, BOOL *rollback) {
+        for (NSDictionary *file in files) {
+            NSString *serverID = [file[@"server_msg_id"] isKindOfClass:NSString.class] ? file[@"server_msg_id"] : @"";
+            NSString *url = [file[@"url"] isKindOfClass:NSString.class] ? file[@"url"] : @"";
+            NSString *name = [file[@"name"] isKindOfClass:NSString.class] ? file[@"name"] : @"";
+            if (serverID.length == 0 || url.length == 0 || name.length == 0) { continue; }
+            BOOL ok = [db executeUpdate:
+                @"INSERT INTO im_sent_file_local(owner_uid,server_msg_id,url,name,timestamp) VALUES(?,?,?,?,?) "
+                 "ON CONFLICT(owner_uid,url) DO UPDATE SET server_msg_id=excluded.server_msg_id,name=excluded.name,timestamp=excluded.timestamp",
+                owner, serverID, url, name, @([file[@"timestamp"] longLongValue])];
+            if (!ok) {
+                IMLogDatabase(@"缓存已发送文件失败 owner=%@: %@", owner, db.lastErrorMessage);
+                *rollback = YES;
+                return;
+            }
+        }
+    }];
+}
 
 - (NSArray<IMConversation *> *)cachedConversations {
     NSString *owner = [self ownerUserID];
@@ -209,18 +259,20 @@
         BOOL ok = NO;
         if (rowID) {
             ok = [db executeUpdate:
-                @"UPDATE im_message_local SET server_msg_id=?,sender=?,recipient=?,content_type=?,content=?,conv_seq=?,timestamp=?,status=?,note=?,from_nickname=?,recalled_at=?,recalled_by=?,edited_at=?,pinned_at=?,reply_to_conv_seq=?,reply_snapshot=?,forward_from=?,group_id=?,poster=? WHERE row_id=?",
+                @"UPDATE im_message_local SET server_msg_id=?,sender=?,recipient=?,content_type=?,content=?,file_name=?,conv_seq=?,timestamp=?,status=?,note=?,from_nickname=?,recalled_at=?,recalled_by=?,edited_at=?,pinned_at=?,reply_to_conv_seq=?,reply_snapshot=?,forward_from=?,group_id=?,poster=? WHERE row_id=?",
                 message.serverMsgID ?: @"", message.from ?: @"", message.to ?: @"",
                 message.contentType ?: @"text", message.content ?: @"",
+                message.fileName ?: @"",
                 @(message.convSeq), @(message.timestamp), @(message.status), message.note ?: @"",
                 message.fromNickname ?: @"", @(message.recalledAt), message.recalledBy ?: @"",
                 @(message.editedAt), @(message.pinnedAt), @(message.replyToConvSeq), message.replySnapshot ?: @"", message.forwardFrom ?: @"", message.groupID ?: @"", message.poster ?: @"", rowID];
         } else {
             ok = [db executeUpdate:
-                @"INSERT INTO im_message_local (owner_uid,client_msg_id,server_msg_id,conv_id,sender,recipient,content_type,content,conv_seq,timestamp,status,note,from_nickname,recalled_at,recalled_by,edited_at,pinned_at,reply_to_conv_seq,reply_snapshot,forward_from,group_id,poster) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                @"INSERT INTO im_message_local (owner_uid,client_msg_id,server_msg_id,conv_id,sender,recipient,content_type,content,file_name,conv_seq,timestamp,status,note,from_nickname,recalled_at,recalled_by,edited_at,pinned_at,reply_to_conv_seq,reply_snapshot,forward_from,group_id,poster) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 owner, message.clientMsgID ?: @"", message.serverMsgID ?: @"", message.convID,
                 message.from ?: @"", message.to ?: @"", message.contentType ?: @"text",
-                message.content ?: @"", @(message.convSeq), @(message.timestamp), @(message.status),
+                message.content ?: @"", message.fileName ?: @"",
+                @(message.convSeq), @(message.timestamp), @(message.status),
                 message.note ?: @"", message.fromNickname ?: @"", @(message.recalledAt),
                 message.recalledBy ?: @"", @(message.editedAt), @(message.pinnedAt),
                 @(message.replyToConvSeq), message.replySnapshot ?: @"", message.forwardFrom ?: @"", message.groupID ?: @"", message.poster ?: @""];
@@ -427,6 +479,8 @@
             m.to          = [rs stringForColumn:@"recipient"];
             m.contentType = [rs stringForColumn:@"content_type"];
             m.content     = [rs stringForColumn:@"content"];
+            NSString *fileName = [rs stringForColumn:@"file_name"];
+            m.fileName    = fileName.length > 0 ? fileName : nil;
             m.convSeq     = [rs longLongIntForColumn:@"conv_seq"];
             m.timestamp   = [rs longLongIntForColumn:@"timestamp"];
             m.status      = (IMMessageStatus)[rs longForColumn:@"status"];

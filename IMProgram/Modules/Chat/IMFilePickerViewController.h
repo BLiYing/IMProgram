@@ -6,6 +6,9 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+typedef void (^IMSentFilePageCompletion)(NSArray<NSDictionary *> *_Nullable files, BOOL hasMore, NSError *_Nullable error);
+typedef void (^IMSentFilePageLoader)(BOOL nextPage, IMSentFilePageCompletion completion);
+
 @interface IMFilePickerViewController : UIViewController
 
 /// recentFiles：@[@{@"url",@"name"}]（新→旧）。
@@ -14,7 +17,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (instancetype)initWithRecentFiles:(NSArray<NSDictionary *> *)recentFiles
                         onFromPhotos:(dispatch_block_t)onFromPhotos
                          onFromFiles:(dispatch_block_t)onFromFiles
-                        onPickRecent:(void (^)(NSString *url, NSString *name))onPickRecent NS_DESIGNATED_INITIALIZER;
+                        onPickRecent:(void (^)(NSString *url, NSString *name))onPickRecent
+                            loadPage:(IMSentFilePageLoader)loadPage NS_DESIGNATED_INITIALIZER;
 
 - (instancetype)init NS_UNAVAILABLE;
 - (instancetype)initWithNibName:(nullable NSString *)nib bundle:(nullable NSBundle *)bundle NS_UNAVAILABLE;

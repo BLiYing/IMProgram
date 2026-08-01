@@ -549,6 +549,32 @@ static NSString *IMFriendlyNetworkError(NSError *error) {
     }];
 }
 
+- (void)sentFilesWithToken:(NSString *)token
+                     cursor:(NSString *)cursor
+                 completion:(void (^)(NSArray<NSDictionary *> *, NSString *, BOOL, NSError *))completion {
+    NSString *path = @"/api/v1/files/sent?limit=50";
+    if (cursor.length > 0) {
+        NSString *encoded = [cursor stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLQueryAllowedCharacterSet];
+        path = [path stringByAppendingFormat:@"&cursor=%@", encoded ?: @""];
+    }
+    NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
+    if (!req) {
+        [self callOnMain:^{ completion(nil, nil, NO, [self errorWithMessage:@"非法服务器地址"]); }];
+        return;
+    }
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(nil, nil, NO, error); return; }
+        if ([body[@"code"] integerValue] != 0) {
+            completion(nil, nil, NO, [self errorWithMessage:[self messageFrom:body fallback:@"拉取文件失败"]]);
+            return;
+        }
+        NSDictionary *data = [body[@"data"] isKindOfClass:NSDictionary.class] ? body[@"data"] : @{};
+        NSArray *files = [data[@"files"] isKindOfClass:NSArray.class] ? data[@"files"] : @[];
+        NSString *next = [data[@"next_cursor"] isKindOfClass:NSString.class] ? data[@"next_cursor"] : nil;
+        completion(files, next, [data[@"has_more"] boolValue], nil);
+    }];
+}
+
 #pragma mark - 内部
 
 /// 构造带 Bearer 的请求；body 非空时按 JSON 写入并设 Content-Type。

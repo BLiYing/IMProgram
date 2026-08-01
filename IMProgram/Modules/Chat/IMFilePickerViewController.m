@@ -7,22 +7,28 @@
 @end
 
 @implementation IMFilePickerViewController {
-    NSArray<NSDictionary *> *_recent;
+    NSMutableArray<NSDictionary *> *_recent;
     dispatch_block_t _onFromPhotos;
     dispatch_block_t _onFromFiles;
     void (^_onPickRecent)(NSString *, NSString *);
+    IMSentFilePageLoader _loadPage;
+    BOOL _loading;
+    BOOL _hasMore;
     UITableView *_tableView;
 }
 
 - (instancetype)initWithRecentFiles:(NSArray<NSDictionary *> *)recentFiles
                         onFromPhotos:(dispatch_block_t)onFromPhotos
                          onFromFiles:(dispatch_block_t)onFromFiles
-                        onPickRecent:(void (^)(NSString *, NSString *))onPickRecent {
+                        onPickRecent:(void (^)(NSString *, NSString *))onPickRecent
+                            loadPage:(IMSentFilePageLoader)loadPage {
     if ((self = [super initWithNibName:nil bundle:nil])) {
-        _recent = recentFiles ?: @[];
+        _recent = [recentFiles mutableCopy] ?: [NSMutableArray array];
         _onFromPhotos = [onFromPhotos copy];
         _onFromFiles = [onFromFiles copy];
         _onPickRecent = [onPickRecent copy];
+        _loadPage = [loadPage copy];
+        _hasMore = YES;
         if (@available(iOS 15.0, *)) {
             self.modalPresentationStyle = UIModalPresentationPageSheet;
             self.sheetPresentationController.detents = @[UISheetPresentationControllerDetent.mediumDetent,
@@ -45,6 +51,36 @@
     _tableView.delegate = self;
     [_tableView registerClass:UITableViewCell.class forCellReuseIdentifier:@"c"];
     [self.view addSubview:_tableView];
+    [self loadNextPage:NO];
+}
+
+- (void)loadNextPage:(BOOL)nextPage {
+    if (_loading || !_loadPage || (nextPage && !_hasMore)) { return; }
+    _loading = YES;
+    __weak typeof(self) ws = self;
+    _loadPage(nextPage, ^(NSArray<NSDictionary *> *files, BOOL hasMore, NSError *error) {
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        self->_loading = NO;
+        if (error) {
+            self->_hasMore = NO; // 离线时静默保留 SQLite 缓存，避免滚动反复请求
+            return;
+        }
+        self->_hasMore = hasMore;
+        if (!nextPage) { [self->_recent removeAllObjects]; }
+        NSMutableSet<NSString *> *known = [NSMutableSet set];
+        for (NSDictionary *item in self->_recent) {
+            NSString *serverID = [item[@"server_msg_id"] isKindOfClass:NSString.class] ? item[@"server_msg_id"] : @"";
+            if (serverID.length > 0) { [known addObject:serverID]; }
+        }
+        for (NSDictionary *item in files ?: @[]) {
+            NSString *serverID = [item[@"server_msg_id"] isKindOfClass:NSString.class] ? item[@"server_msg_id"] : @"";
+            if (serverID.length == 0 || [known containsObject:serverID]) { continue; }
+            [known addObject:serverID];
+            [self->_recent addObject:item];
+        }
+        [self->_tableView reloadData];
+    });
 }
 
 - (void)closeTapped { [self dismissViewControllerAnimated:YES completion:nil]; }
@@ -97,6 +133,12 @@
     NSString *name = [f[@"name"] isKindOfClass:NSString.class] ? f[@"name"] : @"";
     void (^cb)(NSString *, NSString *) = _onPickRecent;
     [self dismissViewControllerAnimated:YES completion:^{ if (cb && url.length) { cb(url, name); } }];
+}
+
+- (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (indexPath.section == 1 && indexPath.row >= (NSInteger)_recent.count - 5) {
+        [self loadNextPage:YES];
+    }
 }
 
 @end

@@ -21,7 +21,6 @@
 #import "IMMediaUtil.h"
 #import "UILabel+IMAvatar.h"
 #import "IMFilePickerViewController.h"
-#import "IMRecentFiles.h"
 #import "IMUserCard.h"
 #import "IMGroupInfo.h"
 #import "IMGroupInfoViewController.h"
@@ -1253,16 +1252,66 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 /// 文件面板（Telegram 式）：从相册/从文件 入口 + 「最近发送的文件」列表（复发不再上传）。
 - (void)openFilePanel {
     __weak typeof(self) ws = self;
+    __block NSString *nextCursor = nil;
     IMFilePickerViewController *panel = [[IMFilePickerViewController alloc]
-        initWithRecentFiles:[IMRecentFiles listForOwner:self.userID]
-        onFromPhotos:^{ [ws openPhotoPicker]; }
+        initWithRecentFiles:[IMDatabase.sharedDatabase cachedSentFiles]
+        onFromPhotos:^{ [ws openPhotoFilePicker]; }
         onFromFiles:^{ [ws presentDocumentPicker]; }
-        onPickRecent:^(NSString *url, NSString *name) { [ws sendMediaURL:url contentType:@"file"]; }];
+        onPickRecent:^(NSString *url, NSString *name) { [ws sendMediaURL:url contentType:@"file" fileName:name]; }
+        loadPage:^(BOOL nextPage, IMSentFilePageCompletion completion) {
+            NSString *token = IMHTTPService.sharedService.currentToken;
+            if (token.length == 0) {
+                completion(nil, NO, [NSError errorWithDomain:@"IMFilePicker" code:-1 userInfo:nil]);
+                return;
+            }
+            NSString *cursor = nextPage ? nextCursor : nil;
+            [IMHTTPService.sharedService sentFilesWithToken:token cursor:cursor
+                completion:^(NSArray<NSDictionary *> *files, NSString *cursorAfter, BOOL hasMore, NSError *error) {
+                    if (!error) {
+                        nextCursor = cursorAfter;
+                        [IMDatabase.sharedDatabase cacheSentFiles:files ?: @[]];
+                    }
+                    completion(files, hasMore, error);
+                }];
+        }];
     UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:panel];
     [self presentViewController:nav animated:YES completion:nil];
 }
 
-/// 系统文档选择器（可访问 iCloud/本机「文件」App，拷贝模式）→ 上传 → 发文件消息 + 记入最近文件。
+/// 文件面板中的相册入口：读取原始资源字节，以 file 消息逐个发送，不进入图片/视频气泡或相册宫格。
+- (void)openPhotoFilePicker {
+    __weak typeof(self) ws = self;
+    [IMMediaPicker presentFilePickerFromViewController:self limit:9
+                           handlesCompletion:^(NSArray<IMPickedMediaHandle *> *handles) {
+        [ws uploadPhotoFiles:handles index:0];
+    }];
+}
+
+- (void)uploadPhotoFiles:(NSArray<IMPickedMediaHandle *> *)handles index:(NSUInteger)index {
+    if (index >= handles.count) { return; }
+    __weak typeof(self) ws = self;
+    [handles[index] loadFileData:^(IMPickedMedia *item) {
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        NSString *token = IMHTTPService.sharedService.currentToken;
+        if (item.data.length == 0 || item.fileName.length == 0 || token.length == 0) {
+            [self im_showToast:@"文件读取失败"];
+            [self uploadPhotoFiles:handles index:index + 1];
+            return;
+        }
+        [IMHTTPService.sharedService uploadData:item.data fileName:item.fileName mimeType:item.mimeType token:token
+            completion:^(NSString *url, NSString *contentType, NSError *error) {
+                if (error || url.length == 0) {
+                    [self im_showToast:@"文件上传失败"];
+                } else {
+                    [self sendMediaURL:url contentType:@"file" fileName:item.fileName];
+                }
+                [self uploadPhotoFiles:handles index:index + 1];
+            }];
+    }];
+}
+
+/// 系统文档选择器（可访问 iCloud/本机「文件」App，拷贝模式）→ 上传 → 发文件消息；成功后写 SQLite 已发送文件缓存。
 - (void)presentDocumentPicker {
     UIDocumentPickerViewController *picker =
         [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeItem] asCopy:YES];
@@ -1288,8 +1337,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
             [self im_showToast:error.localizedDescription.length ? error.localizedDescription : @"文件上传失败"];
             return;
         }
-        [IMRecentFiles recordForOwner:self.userID url:up name:originalName]; // 记入最近文件
-        [self sendMediaURL:up contentType:(contentType ?: @"file")];
+        [self sendMediaURL:up contentType:@"file" fileName:originalName];
     }];
 }
 
@@ -1323,18 +1371,34 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 
 /// 发送已上传的媒体：走 socket sendMedia，乐观上屏。
 - (void)sendMediaURL:(NSString *)url contentType:(NSString *)contentType {
+    [self sendMediaURL:url contentType:contentType fileName:nil];
+}
+
+- (void)sendMediaURL:(NSString *)url contentType:(NSString *)contentType fileName:(NSString *)fileName {
     __block NSString *clientMsgID = nil;
+    int64_t sentAt = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
     __weak typeof(self) ws = self;
     IMSendCompletion completion = ^(BOOL success, NSError *error, int64_t convSeq) {
         [ws handleSendResult:success convSeq:convSeq error:error forClientMsgID:clientMsgID];
+        if (success && [contentType isEqualToString:@"file"] && fileName.length > 0) {
+            [IMDatabase.sharedDatabase cacheSentFiles:@[@{
+                @"server_msg_id": clientMsgID ?: @"",
+                @"url": url ?: @"", @"name": fileName, @"timestamp": @(sentAt),
+            }]];
+        }
     };
     NSString *toUser = self.isGroupChat ? @"" : self.peerID;
-    clientMsgID = [IMSocketManager.sharedManager sendMedia:url contentType:contentType toConv:self.convID toUser:toUser completion:completion];
+    if ([contentType isEqualToString:@"file"]) {
+        clientMsgID = [IMSocketManager.sharedManager sendFile:url fileName:fileName ?: @"" toConv:self.convID toUser:toUser completion:completion];
+    } else {
+        clientMsgID = [IMSocketManager.sharedManager sendMedia:url contentType:contentType toConv:self.convID toUser:toUser completion:completion];
+    }
 
     IMMessageModel *m = [IMMessageModel new];
     m.clientMsgID = clientMsgID; m.convID = self.convID; m.to = self.peerID; m.from = self.userID;
     m.content = url; m.contentType = contentType; m.status = IMMessageStatusSending;
-    m.timestamp = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
+    m.fileName = fileName;
+    m.timestamp = sentAt;
     [IMDatabase.sharedDatabase saveMessage:m];
     [self.messages addObject:m];
     [self appendReloadAndScroll];
@@ -1439,6 +1503,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         : (message.fromNickname.length > 0 ? message.fromNickname : (message.from ?: @"")); // 转发链保留最初作者
     NSString *content = message.content;
     NSString *contentType = message.contentType ?: @"text";
+    NSString *fileName = message.fileName;
     __weak typeof(self) ws = self;
     IMForwardPickerViewController *picker = [[IMForwardPickerViewController alloc]
         initWithHost:self.host token:token onDone:^(NSArray<IMConversation *> *selected) {
@@ -1446,7 +1511,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         if (!self || selected.count == 0) { return; }
         for (IMConversation *c in selected) {
             NSString *toUser = c.isGroup ? @"" : (c.peer ?: @"");
-            [self forwardEchoContent:content contentType:contentType forwardFrom:origin
+            [self forwardEchoContent:content contentType:contentType forwardFrom:origin fileName:fileName
                               toConv:c.convID toUser:toUser];
         }
         [self im_showToast:selected.count == 1 ? @"已转发" : [NSString stringWithFormat:@"已转发到 %lu 个会话", (unsigned long)selected.count]];
@@ -2024,16 +2089,24 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 /// 转发的发送方本地回显（用户反馈 #2）：服务端不回显自己发的消息，转发若不落库/上屏，
 /// 发送方在目标会话里看不到这条转发。与普通发送一致：乐观消息落库（目标是当前会话则上屏），
 /// ACK 后按 clientMsgID upsert 状态/conv_seq（页面已退出也能改到库，重进会话读到正确状态）。
-- (void)forwardEchoContent:(NSString *)content contentType:(NSString *)ct forwardFrom:(NSString *)origin
+- (void)forwardEchoContent:(NSString *)content contentType:(NSString *)ct forwardFrom:(NSString *)origin fileName:(NSString *)fileName
                     toConv:(NSString *)convID toUser:(NSString *)toUser {
     IMMessageModel *m = [IMMessageModel new];
+    int64_t sentAt = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
     __weak typeof(self) ws = self;
     NSString *clientMsgID = [IMSocketManager.sharedManager forwardContent:content contentType:ct
                                                                    toConv:convID toUser:toUser forwardFrom:origin
+                                                                 fileName:fileName
                                                                completion:^(BOOL success, NSError *error, int64_t convSeq) {
         m.status = success ? IMMessageStatusSent : IMMessageStatusFailed;
         m.convSeq = convSeq;
         [IMDatabase.sharedDatabase saveMessage:m];
+        if (success && [ct isEqualToString:@"file"] && fileName.length > 0) {
+            [IMDatabase.sharedDatabase cacheSentFiles:@[@{
+                @"server_msg_id": m.clientMsgID ?: @"", @"url": content,
+                @"name": fileName, @"timestamp": @(sentAt),
+            }]];
+        }
         __strong typeof(ws) self = ws;
         if (self && [convID isEqualToString:self.convID]) {
             if (convSeq > 0) { [self.seenConvSeqs addObject:@(convSeq)]; } // 防 sync 重复回显
@@ -2043,9 +2116,10 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     m.clientMsgID = clientMsgID;
     m.convID = convID; m.to = toUser; m.from = self.userID;
     m.content = content; m.contentType = ct;
+    m.fileName = fileName;
     m.forwardFrom = origin.length > 0 ? origin : nil;
     m.status = IMMessageStatusSending;
-    m.timestamp = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
+    m.timestamp = sentAt;
     [IMDatabase.sharedDatabase saveMessage:m];
     if ([convID isEqualToString:self.convID]) {
         [self.messages addObject:m];
@@ -2071,7 +2145,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
             if (m.recalledAt > 0 || m.content.length == 0 || [m.contentType isEqualToString:@"system"]) { continue; }
             NSString *origin = m.forwardFrom.length > 0 ? m.forwardFrom
                 : (m.fromNickname.length > 0 ? m.fromNickname : (m.from ?: @""));
-            [self forwardEchoContent:m.content contentType:(m.contentType ?: @"text") forwardFrom:origin
+            [self forwardEchoContent:m.content contentType:(m.contentType ?: @"text") forwardFrom:origin fileName:m.fileName
                               toConv:c.convID toUser:toUser];
         }
     }
@@ -2083,7 +2157,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     if (json.length == 0) { return; }
     for (IMConversation *c in convs) {
         NSString *toUser = c.isGroup ? @"" : (c.peer ?: @"");
-        [self forwardEchoContent:json contentType:@"chat_record" forwardFrom:@""
+        [self forwardEchoContent:json contentType:@"chat_record" forwardFrom:@"" fileName:nil
                           toConv:c.convID toUser:toUser];
     }
     [self exitSelection];

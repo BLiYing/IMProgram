@@ -24,6 +24,12 @@ NS_ASSUME_NONNULL_BEGIN
 /// 当前账号的本地会话快照（服务不可用时用于离线首屏）。
 - (NSArray<IMConversation *> *)cachedConversations;
 
+/// 当前账号已发送文件的本地缓存（按时间倒序）；用于文件面板离线首屏。
+- (NSArray<NSDictionary *> *)cachedSentFiles;
+
+/// 合并服务端分页结果（按 server_msg_id 去重），与其他账号严格隔离。
+- (void)cacheSentFiles:(NSArray<NSDictionary *> *)files;
+
 /// 原子替换当前账号的完整会话快照。空数组表示服务端权威列表为空。
 - (void)replaceCachedConversations:(NSArray<IMConversation *> *)conversations;
 

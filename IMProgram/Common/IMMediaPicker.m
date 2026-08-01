@@ -83,6 +83,39 @@ static UIImage *IMPickerDownscale(UIImage *src, CGFloat maxSide) {
     });
 }
 
+- (void)loadFileData:(void (^)(IMPickedMedia *_Nullable))completion {
+    if (!completion) { return; }
+    NSString *typeIdentifier = nil;
+    for (NSString *candidate in _ip.registeredTypeIdentifiers) {
+        UTType *type = [UTType typeWithIdentifier:candidate];
+        if ((self.isVideo && [type conformsToType:UTTypeMovie]) ||
+            (!self.isVideo && [type conformsToType:UTTypeImage])) {
+            typeIdentifier = candidate;
+            break;
+        }
+    }
+    if (typeIdentifier.length == 0) {
+        dispatch_async(dispatch_get_main_queue(), ^{ completion(nil); });
+        return;
+    }
+    NSString *suggestedName = _ip.suggestedName;
+    [_ip loadDataRepresentationForTypeIdentifier:typeIdentifier completionHandler:^(NSData *data, NSError *error) {
+        IMPickedMedia *item = nil;
+        if (data.length > 0 && !error) {
+            UTType *type = [UTType typeWithIdentifier:typeIdentifier];
+            NSString *extension = type.preferredFilenameExtension ?: (self.isVideo ? @"mov" : @"jpg");
+            NSString *name = suggestedName.length > 0 ? suggestedName : (self.isVideo ? @"video" : @"photo");
+            if (name.pathExtension.length == 0) { name = [name stringByAppendingPathExtension:extension]; }
+            item = [IMPickedMedia new];
+            item.data = data;
+            item.fileName = name;
+            item.mimeType = type.preferredMIMEType ?: @"application/octet-stream";
+            item.isVideo = self.isVideo;
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{ completion(item); });
+    }];
+}
+
 #pragma mark 图片（在 _work 串行队列上执行）
 
 - (IMPickedMedia *)buildImageItem {
@@ -229,19 +262,26 @@ static IMMediaPicker *gActivePicker; // 会话期间自持有（PHPicker delegat
 + (void)presentFromViewController:(UIViewController *)host
                             limit:(NSInteger)limit
                 handlesCompletion:(void (^)(NSArray<IMPickedMediaHandle *> *))completion {
-    [self presentFromViewController:host limit:limit imagesOnly:NO skipSendPrompt:NO handlesCompletion:completion];
+    [self presentFromViewController:host limit:limit imagesOnly:NO skipSendPrompt:NO preferCurrentRepresentation:NO handlesCompletion:completion];
 }
 
 + (void)presentImagePickerFromViewController:(UIViewController *)host
                                        limit:(NSInteger)limit
                            handlesCompletion:(void (^)(NSArray<IMPickedMediaHandle *> *))completion {
-    [self presentFromViewController:host limit:limit imagesOnly:YES skipSendPrompt:YES handlesCompletion:completion];
+    [self presentFromViewController:host limit:limit imagesOnly:YES skipSendPrompt:YES preferCurrentRepresentation:NO handlesCompletion:completion];
+}
+
++ (void)presentFilePickerFromViewController:(UIViewController *)host
+                                      limit:(NSInteger)limit
+                          handlesCompletion:(void (^)(NSArray<IMPickedMediaHandle *> *))completion {
+    [self presentFromViewController:host limit:limit imagesOnly:NO skipSendPrompt:YES preferCurrentRepresentation:YES handlesCompletion:completion];
 }
 
 + (void)presentFromViewController:(UIViewController *)host
                             limit:(NSInteger)limit
                        imagesOnly:(BOOL)imagesOnly
                    skipSendPrompt:(BOOL)skipSendPrompt
+      preferCurrentRepresentation:(BOOL)preferCurrentRepresentation
                 handlesCompletion:(void (^)(NSArray<IMPickedMediaHandle *> *))completion {
     IMMediaPicker *p = [IMMediaPicker new];
     p->_host = host;
@@ -252,6 +292,9 @@ static IMMediaPicker *gActivePicker; // 会话期间自持有（PHPicker delegat
 
     PHPickerConfiguration *cfg = [[PHPickerConfiguration alloc] init]; // 不带 photoLibrary：免相册权限（进程外选择器）
     cfg.selectionLimit = limit;
+    if (preferCurrentRepresentation) {
+        cfg.preferredAssetRepresentationMode = PHPickerConfigurationAssetRepresentationModeCurrent;
+    }
     cfg.filter = imagesOnly
         ? PHPickerFilter.imagesFilter // 头像：仅图片，视频不可见
         : [PHPickerFilter anyFilterMatchingSubfilters:@[PHPickerFilter.imagesFilter,

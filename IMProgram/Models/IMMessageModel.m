@@ -12,6 +12,7 @@
     m.fromNickname = [self stringForKey:@"from_nickname" in:data];
     m.contentType = [self stringForKey:@"content_type" in:data] ?: @"text";
     m.content     = [self stringForKey:@"content" in:data] ?: @"";
+    m.fileName    = [self stringForKey:@"file_name" in:data];
     m.convSeq     = [data[@"conv_seq"] longLongValue];
     m.timestamp   = [data[@"timestamp"] longLongValue];
     m.status      = IMMessageStatusReceived;
@@ -37,6 +38,7 @@
     if (self.to) { d[@"to"] = self.to; }
     d[@"content_type"] = self.contentType ?: @"text";
     d[@"content"] = self.content ?: @"";
+    if (self.fileName) { d[@"file_name"] = self.fileName; }
     d[@"conv_seq"] = @(self.convSeq);
     d[@"timestamp"] = @(self.timestamp);
     d[@"status"] = @(self.status);
@@ -62,6 +64,7 @@
     m.to          = [self stringForKey:@"to" in:dict];
     m.contentType = [self stringForKey:@"content_type" in:dict] ?: @"text";
     m.content     = [self stringForKey:@"content" in:dict] ?: @"";
+    m.fileName    = [self stringForKey:@"file_name" in:dict];
     m.convSeq     = [dict[@"conv_seq"] longLongValue];
     m.timestamp   = [dict[@"timestamp"] longLongValue];
     m.status      = (IMMessageStatus)[dict[@"status"] integerValue];

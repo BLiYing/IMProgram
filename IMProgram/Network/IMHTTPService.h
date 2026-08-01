@@ -40,6 +40,14 @@ BOOL IMIsAuthErrorCode(NSInteger code);
 - (void)conversationsWithToken:(NSString *)token
                     completion:(void (^)(NSArray<IMConversation *> *_Nullable conversations, NSError *_Nullable error))completion;
 
+/// 我发送的文件：服务端游标分页，默认 50 条。cursor 为空取第一页。
+- (void)sentFilesWithToken:(NSString *)token
+                     cursor:(nullable NSString *)cursor
+                 completion:(void (^)(NSArray<NSDictionary *> *_Nullable files,
+                                      NSString *_Nullable nextCursor,
+                                      BOOL hasMore,
+                                      NSError *_Nullable error))completion;
+
 #pragma mark - 通讯录（M2.5 找人 / 好友关系）
 
 /// 找人：按 query 搜索用户（昵称/手机号/uid/标签，后端去 phone、排除自己）。completion 在主线程回调。

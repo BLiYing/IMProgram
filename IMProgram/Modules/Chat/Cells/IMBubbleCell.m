@@ -280,7 +280,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     NSMutableDictionary *contentAttr = [@{ NSFontAttributeName: [UIFont systemFontOfSize:IMTheme.chatFontSize],
                                            NSForegroundColorAttributeName: IMTheme.textPrimary } mutableCopy];
     if ([message.contentType isEqualToString:@"file"]) {
-        NSString *fname = IMFileNameFromContent(message.content);
+        NSString *fname = message.fileName.length > 0 ? message.fileName : @"文件";
         UIColor *fileColor = IMTheme.accent;
         NSTextAttachment *att = [NSTextAttachment new];
         att.image = IMFileTypeIconForName(fname, 26);
