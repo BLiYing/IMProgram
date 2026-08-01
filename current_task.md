@@ -5,6 +5,7 @@
 
 ## 当前焦点
 
+- **✅ 聊天 Cell 解耦 + 离线启动保持会话（2026-08-01）**：`IMChatViewController` 内 6 个消息 Cell 已全部迁至 `Modules/Chat/Cells/`，一个 Cell 一对 `.h/.m`（文本气泡、系统消息、图片/视频、相册、聊天记录、链接卡片），控制器只保留数据源与交互编排；已有本地登录态时，App 启动不再先等待 HTTP 静默登录并因服务器不可达跳登录页，而是立即进入主界面，由会话页显示“未连接”并自动重连。新增 `IMSessionStoreTests` 覆盖离线凭据可恢复。iOS/Web 均已使用本地数据库：iOS 为 FMDB/SQLite `im.sqlite`，Web 为 IndexedDB 消息库 + localStorage 会话缓存；iOS 仍有全局单库未按 uid 隔离的已知欠账。`xcodebuild build` 与 `build-for-testing` 均通过。
 - iOS 导航统一：详情页及所有 Tab/普通页面统一使用 `IMLiquidNavigationBar` 自定义 Liquid Glass 导航；详情头像统一圆形布局，HTTP 头像可点击预览；规范见 `docs/LIQUID_GLASS_NAVIGATION.md`。
 - 本轮未编译：统一导航中间标题改为纯文字、单图标操作改为圆形按钮；会话列表增加导航安全区避让；聊天页恢复右上头像、群聊成员数副标题并铺至状态栏；“我”页收藏入口以上改为头像/昵称/账号信息头部，含二维码与编辑按钮。
 - 最新调整（未编译）：普通页面标题与右侧按钮垂直对齐；仅聊天页保留标题玻璃背景并显示群成员副标题；聊天头像改为直接使用 UIBarButtonItem 图片以保证可见和可点击；“我”页头部按 Telegram 风格重新留白，并随滚动淡出头像/资料、在顶栏显示昵称。
