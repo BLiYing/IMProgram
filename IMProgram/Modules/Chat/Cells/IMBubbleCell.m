@@ -242,6 +242,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
                                      NSForegroundColorAttributeName: IMTheme.textSecondary };
         [body appendAttributedString:[[NSAttributedString alloc] initWithString:@"▏" attributes:quoteAttr]];
         NSString *glyph = IMMediaGlyphForSnippet(snap);
+        BOOL fileSnippet = [snap isEqualToString:@"[文件]"];
         if (replyThumbURL.length > 0) {
             // 真缩略图：先用占位图标撑住固定 24x24 位置（行高稳定），异步图到达后原地替换重渲。
             NSTextAttachment *att = [NSTextAttachment new];
@@ -261,29 +262,29 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
             };
             if (replyThumbIsVideo) { [[IMVideoThumbnailLoader shared] loadPosterForVideoURL:replyThumbURL completion:apply]; }
             else { [[IMImageLoader shared] loadImageURL:replyThumbURL completion:apply]; }
-        } else if (glyph) {
+        } else if (glyph || fileSnippet) {
             NSTextAttachment *att = [NSTextAttachment new];
-            att.image = [[UIImage systemImageNamed:glyph] imageWithTintColor:IMTheme.textSecondary
-                                                              renderingMode:UIImageRenderingModeAlwaysOriginal];
-            att.bounds = CGRectMake(0, -2, 15, 13);
+            att.image = fileSnippet ? IMFileTypeIconForName(nil, 18)
+                                    : [[UIImage systemImageNamed:glyph] imageWithTintColor:IMTheme.textSecondary
+                                                                             renderingMode:UIImageRenderingModeAlwaysOriginal];
+            att.bounds = fileSnippet ? CGRectMake(0, -4, 18, 18) : CGRectMake(0, -2, 15, 13);
             [body appendAttributedString:[NSAttributedString attributedStringWithAttachment:att]];
             [body appendAttributedString:[[NSAttributedString alloc] initWithString:@" " attributes:quoteAttr]];
         }
         [body appendAttributedString:[[NSAttributedString alloc]
             initWithString:[NSString stringWithFormat:@"%@\n", snap] attributes:quoteAttr]];
     }
-    // 正文：文件消息 → SF Symbol 文档图标 + 文件名（emoji 在富文本里渲染成 "?" tofu，故用符号内嵌，点击整条气泡打开）；
+    // 正文：文件消息 → 跨端共用的折角文件图标 + 文件名，点击整条气泡打开；
     // 纯 URL → 链接蓝+下划线（点击打开）；其余普通文本。
     NSString *contentText = message.content ?: @"";
     NSMutableDictionary *contentAttr = [@{ NSFontAttributeName: [UIFont systemFontOfSize:IMTheme.chatFontSize],
                                            NSForegroundColorAttributeName: IMTheme.textPrimary } mutableCopy];
     if ([message.contentType isEqualToString:@"file"]) {
         NSString *fname = IMFileNameFromContent(message.content);
-        UIColor *fileColor = UIColor.systemBlueColor;
-        UIImage *icon = [UIImage systemImageNamed:IMFileGlyphForName(fname)] ?: [UIImage systemImageNamed:@"doc.fill"];
+        UIColor *fileColor = IMTheme.accent;
         NSTextAttachment *att = [NSTextAttachment new];
-        att.image = [icon imageWithTintColor:fileColor renderingMode:UIImageRenderingModeAlwaysOriginal];
-        att.bounds = CGRectMake(0, -3, 18, 18);
+        att.image = IMFileTypeIconForName(fname, 26);
+        att.bounds = CGRectMake(0, -7, 26, 26);
         [body appendAttributedString:[NSAttributedString attributedStringWithAttachment:att]];
         [body appendAttributedString:[[NSAttributedString alloc] initWithString:[@"  " stringByAppendingString:fname]
             attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:IMTheme.chatFontSize], NSForegroundColorAttributeName: fileColor }]];

@@ -1179,8 +1179,7 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
     cell.detailTextLabel.textColor = IMTheme.textSecondary;
     if (t.kind == IMDetailTabKindFiles) {
         cell.textLabel.text = IMMediaFileName(m.content);
-        cell.imageView.image = [UIImage systemImageNamed:IMFileGlyphForName(m.content)] ?: [UIImage systemImageNamed:@"doc.fill"];
-        cell.imageView.tintColor = IMTheme.accent;
+        cell.imageView.image = IMFileTypeIconForName(m.content, 36);
         cell.detailTextLabel.text = [IMTheme timeStringFromMillis:m.timestamp];
     } else if (t.kind == IMDetailTabKindVoice) {
         cell.textLabel.text = @"语音消息";

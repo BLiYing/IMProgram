@@ -1,7 +1,7 @@
 //  IMMediaUtil.h
 //  媒体/链接相关的小工具（聊天页、收藏页、聊天记录详情等共用，避免重复实现）。
 
-#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -14,8 +14,10 @@ FOUNDATION_EXPORT NSString *IMMediaFileName(NSString *_Nullable content);
 /// 整条内容是否就是一个 http(s) 链接（无空白）→ 用于 URL 消息渲染判定。
 FOUNDATION_EXPORT BOOL IMMediaLooksLikeURL(NSString *_Nullable s);
 
-/// 文件消息图标：按扩展名给 SF Symbol 名（emoji 在富文本/标签里可能渲染成 "?" tofu，故统一用符号内嵌）。
-/// 返回的符号名调用方仍应对 systemImageNamed: 回退到 "doc.fill"（iOS 13 起保证可用）。聊天/收藏等共用。
-FOUNDATION_EXPORT NSString *IMFileGlyphForName(NSString *_Nullable name);
+/// 按文件扩展名返回跨端统一类型标识；未覆盖的扩展名回退 unknown。
+FOUNDATION_EXPORT NSString *IMFileTypeIdentifierForName(NSString *_Nullable name);
+
+/// 返回指定 pointSize 的原色“折角文件卡”图标；聊天/文件选择/详情/收藏共用同一映射。
+FOUNDATION_EXPORT UIImage *IMFileTypeIconForName(NSString *_Nullable name, CGFloat pointSize);
 
 NS_ASSUME_NONNULL_END

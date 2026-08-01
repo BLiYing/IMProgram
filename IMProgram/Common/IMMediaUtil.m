@@ -25,14 +25,72 @@ BOOL IMMediaLooksLikeURL(NSString *s) {
     return [NSURL URLWithString:s] != nil;
 }
 
-NSString *IMFileGlyphForName(NSString *name) {
-    NSString *ext = name.pathExtension.lowercaseString ?: @"";
-    if ([@[@"jpg", @"jpeg", @"png", @"gif", @"heic", @"webp", @"bmp"] containsObject:ext]) { return @"photo.fill"; }
-    if ([@[@"mp4", @"mov", @"m4v", @"avi", @"mkv"] containsObject:ext])  { return @"film.fill"; }
-    if ([@[@"mp3", @"wav", @"m4a", @"aac", @"flac"] containsObject:ext])  { return @"music.note"; }
-    if ([@[@"zip", @"rar", @"7z", @"tar", @"gz"] containsObject:ext])     { return @"archivebox.fill"; }
-    if ([ext isEqualToString:@"pdf"])                                     { return @"doc.richtext.fill"; }
-    if ([@[@"csv", @"xls", @"xlsx", @"numbers"] containsObject:ext])      { return @"tablecells.fill"; }
-    if ([@[@"doc", @"docx", @"pages", @"txt", @"rtf", @"md"] containsObject:ext]) { return @"doc.text.fill"; }
-    return @"doc.fill";
+static BOOL IMExtensionIn(NSString *ext, NSArray<NSString *> *extensions) {
+    return [extensions containsObject:ext];
+}
+
+NSString *IMFileTypeIdentifierForName(NSString *name) {
+    NSString *fileName = IMMediaFileName(name ?: @"");
+    fileName = [fileName componentsSeparatedByCharactersInSet:
+                [NSCharacterSet characterSetWithCharactersInString:@"?#"]].firstObject ?: fileName;
+    NSString *ext = fileName.pathExtension.lowercaseString ?: @"";
+    if ([ext isEqualToString:@"pdf"]) { return @"pdf"; }
+    if (IMExtensionIn(ext, @[@"doc", @"docx", @"docm", @"dot", @"dotx", @"odt"])) { return @"word"; }
+    if (IMExtensionIn(ext, @[@"xls", @"xlsx", @"xlsm", @"xlsb", @"xlt", @"xltx", @"ods"])) { return @"excel"; }
+    if (IMExtensionIn(ext, @[@"ppt", @"pptx", @"pptm", @"pps", @"ppsx", @"odp"])) { return @"powerpoint"; }
+    if (IMExtensionIn(ext, @[@"csv", @"tsv"])) { return @"csv"; }
+    if ([ext isEqualToString:@"pages"]) { return @"pages"; }
+    if ([ext isEqualToString:@"numbers"]) { return @"numbers"; }
+    if ([ext isEqualToString:@"key"]) { return @"keynote"; }
+    if (IMExtensionIn(ext, @[@"txt", @"rtf", @"rtfd", @"log"])) { return @"text"; }
+    if (IMExtensionIn(ext, @[@"md", @"markdown"])) { return @"markdown"; }
+    if (IMExtensionIn(ext, @[@"xml", @"xsd", @"xsl", @"xslt", @"plist"])) { return @"xml"; }
+    if (IMExtensionIn(ext, @[@"json", @"geojson"])) { return @"json"; }
+    if (IMExtensionIn(ext, @[@"jpg", @"jpeg", @"png", @"gif", @"webp", @"heic", @"heif", @"bmp",
+                              @"tif", @"tiff", @"svg", @"ico", @"raw", @"dng", @"psd"])) { return @"image"; }
+    if (IMExtensionIn(ext, @[@"mp4", @"mov", @"m4v", @"avi", @"mkv", @"webm", @"wmv", @"flv",
+                              @"mpg", @"mpeg", @"3gp"])) { return @"video"; }
+    if (IMExtensionIn(ext, @[@"mp3", @"m4a", @"aac", @"wav", @"flac", @"ogg", @"opus", @"wma",
+                              @"aiff", @"caf"])) { return @"audio"; }
+    if (IMExtensionIn(ext, @[@"zip", @"rar", @"7z", @"tar", @"gz", @"bz2", @"xz", @"tgz"])) { return @"archive"; }
+    if (IMExtensionIn(ext, @[@"html", @"htm", @"css", @"scss", @"less", @"js", @"jsx", @"ts", @"tsx",
+                              @"swift", @"m", @"mm", @"h", @"c", @"cc", @"cpp", @"cxx", @"java", @"kt",
+                              @"kts", @"py", @"go", @"rs", @"rb", @"php", @"sh", @"zsh", @"yaml", @"yml",
+                              @"toml", @"ini"])) { return @"code"; }
+    if (IMExtensionIn(ext, @[@"db", @"sqlite", @"sqlite3", @"sql", @"mdb", @"accdb"])) { return @"database"; }
+    if (IMExtensionIn(ext, @[@"ttf", @"otf", @"woff", @"woff2", @"eot"])) { return @"font"; }
+    if (IMExtensionIn(ext, @[@"epub", @"mobi", @"azw", @"azw3", @"fb2"])) { return @"ebook"; }
+    if (IMExtensionIn(ext, @[@"dmg", @"pkg", @"exe", @"msi", @"apk", @"ipa", @"appimage", @"deb", @"rpm"])) { return @"package"; }
+    return @"unknown";
+}
+
+UIImage *IMFileTypeIconForName(NSString *name, CGFloat pointSize) {
+    NSString *kind = IMFileTypeIdentifierForName(name);
+    CGFloat size = MAX(1, pointSize);
+    NSString *cacheKey = [NSString stringWithFormat:@"%@-%.1f-%.1f", kind, size, UIScreen.mainScreen.scale];
+    static NSCache<NSString *, UIImage *> *cache;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{ cache = [NSCache new]; });
+    UIImage *cached = [cache objectForKey:cacheKey];
+    if (cached) { return cached; }
+
+    UIImage *source = [UIImage imageNamed:[@"FileType_" stringByAppendingString:kind]];
+    if (!source && ![kind isEqualToString:@"unknown"]) {
+        source = [UIImage imageNamed:@"FileType_unknown"];
+    }
+    if (!source) { return [UIImage systemImageNamed:@"questionmark.square.fill"] ?: [UIImage new]; }
+    UIGraphicsImageRendererFormat *format = [UIGraphicsImageRendererFormat defaultFormat];
+    format.opaque = NO;
+    format.scale = UIScreen.mainScreen.scale;
+    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(size, size) format:format];
+    UIImage *result = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
+        CGFloat ratio = source.size.width > 0 && source.size.height > 0 ? source.size.width / source.size.height : 1;
+        CGSize drawSize = ratio > 1 ? CGSizeMake(size, size / ratio) : CGSizeMake(size * ratio, size);
+        CGRect rect = CGRectMake((size - drawSize.width) / 2, (size - drawSize.height) / 2,
+                                 drawSize.width, drawSize.height);
+        [source drawInRect:rect];
+    }];
+    result = [result imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal];
+    [cache setObject:result forKey:cacheKey];
+    return result;
 }

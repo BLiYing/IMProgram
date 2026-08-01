@@ -1,6 +1,7 @@
 //  IMFilePickerViewController.m
 
 #import "IMFilePickerViewController.h"
+#import "IMMediaUtil.h"
 
 @interface IMFilePickerViewController () <UITableViewDataSource, UITableViewDelegate>
 @end
@@ -79,7 +80,7 @@
         NSDictionary *f = _recent[(NSUInteger)ip.row];
         cell.textLabel.text = [f[@"name"] isKindOfClass:NSString.class] ? f[@"name"] : @"文件";
         cell.textLabel.numberOfLines = 1;
-        cell.imageView.image = [UIImage systemImageNamed:@"doc"];
+        cell.imageView.image = IMFileTypeIconForName(cell.textLabel.text, 34);
         cell.accessoryType = UITableViewCellAccessoryNone;
     }
     return cell;

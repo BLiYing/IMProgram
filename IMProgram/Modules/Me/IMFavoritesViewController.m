@@ -6,6 +6,7 @@
 #import "IMImageLoader.h"
 #import "IMVideoThumbnailLoader.h"
 #import "IMMediaViewerViewController.h"
+#import "IMTheme.h"
 
 #pragma mark - 收藏 Cell（文本/链接直显；图片/视频缩略图；文件名）
 
@@ -65,16 +66,15 @@
     _playBadge.hidden = !isVideo;
     _thumb.image = nil;
     if ([ct isEqualToString:@"file"]) {
-        // 文件：SF Symbol 文档图标 + 文件名（emoji 在 label 里可能渲染成 "?" tofu，故用符号内嵌，与聊天气泡一致）。
+        // 文件：复用文件选择/聊天/详情同一套原色折角图标。
         NSString *fname = IMMediaFileName(text);
-        UIImage *icon = [UIImage systemImageNamed:IMFileGlyphForName(fname)] ?: [UIImage systemImageNamed:@"doc.fill"];
         NSTextAttachment *att = [NSTextAttachment new];
-        att.image = [icon imageWithTintColor:UIColor.systemBlueColor renderingMode:UIImageRenderingModeAlwaysOriginal];
-        att.bounds = CGRectMake(0, -2, 16, 16);
+        att.image = IMFileTypeIconForName(fname, 22);
+        att.bounds = CGRectMake(0, -5, 22, 22);
         NSMutableAttributedString *s = [[NSMutableAttributedString alloc] initWithAttributedString:
             [NSAttributedString attributedStringWithAttachment:att]];
         [s appendAttributedString:[[NSAttributedString alloc] initWithString:[@"  " stringByAppendingString:fname]
-            attributes:@{ NSFontAttributeName: _text.font, NSForegroundColorAttributeName: UIColor.systemBlueColor }]];
+            attributes:@{ NSFontAttributeName: _text.font, NSForegroundColorAttributeName: IMTheme.accent }]];
         _text.attributedText = s;
     } else {
         _text.text = text;
