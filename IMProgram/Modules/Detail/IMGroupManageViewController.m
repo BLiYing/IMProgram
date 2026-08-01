@@ -98,7 +98,6 @@ typedef NS_ENUM(NSInteger, IMManageSection) {
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
-    [self.navigationController setNavigationBarHidden:NO animated:animated]; // 详情页隐藏了导航栏，这里恢复
 }
 
 - (void)refreshHeaderAvatar {

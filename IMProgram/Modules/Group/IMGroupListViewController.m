@@ -10,6 +10,7 @@
 #import "UIViewController+IMToast.h"
 #import "IMTheme.h"
 #import "IMLog.h"
+#import "IMNavigationButton.h"
 
 #pragma mark - 群行 Cell（首字母/头像圈 + 群名 + 群主副标题）
 
@@ -102,9 +103,11 @@ static CGFloat const kIMGroupAvatarSize = 44;
     [super viewDidLoad];
     self.title = @"群聊";
     self.view.backgroundColor = UIColor.systemBackgroundColor;
+    // 与通讯录入口保持一致，交给系统导航栏生成标准 Liquid Glass 按钮和按压反馈。
     self.navigationItem.rightBarButtonItem =
-        [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAdd
-                                                      target:self action:@selector(createTapped)];
+        [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"plus"]
+                                         style:UIBarButtonItemStylePlain
+                                        target:self action:@selector(createTapped)];
 
     self.tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStylePlain];
     self.tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;

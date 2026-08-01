@@ -202,7 +202,9 @@
     self.emptyLabel.hidden = (pending.count + accepted.count) > 0;
     [self.tableView reloadData];
     // Tab 角标：把待处理申请数显示在"通讯录"Tab 上（清零靠重新进入时再算）。
-    self.navigationController.tabBarItem.badgeValue = pending.count > 0 ? [NSString stringWithFormat:@"%lu", (unsigned long)pending.count] : nil;
+    NSString *badge = pending.count > 0 ? [NSString stringWithFormat:@"%lu", (unsigned long)pending.count] : nil;
+    if (@available(iOS 18.0, *)) { self.navigationController.tab.badgeValue = badge; }
+    else { self.navigationController.tabBarItem.badgeValue = badge; }
 }
 
 #pragma mark - 交互

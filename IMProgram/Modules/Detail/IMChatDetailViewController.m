@@ -21,10 +21,12 @@
 #import "IMVideoThumbnailLoader.h"
 #import "IMMediaUtil.h"
 #import "IMPopoverCard.h"
+#import "IMGlass.h"
 #import "UILabel+IMAvatar.h"
 #import "UIViewController+IMToast.h"
 #import "IMTheme.h"
 #import <objc/runtime.h>
+#import "IMProgram-Swift.h"
 
 #pragma mark - 形变头像视图（图片铺满 + 首字母回退，圆角随外部调节；供头部形变用）
 
@@ -35,10 +37,14 @@
 @property (nonatomic, strong) UILabel *letter;
 @property (nonatomic, strong) UIImageView *photo;
 - (void)setAvatarURL:(nullable NSString *)url seed:(NSString *)seed name:(nullable NSString *)name;
+- (void)applyAbsorptionMaskProgress:(CGFloat)progress;
 @end
 
 @implementation IMDetailAvatarView {
     NSUInteger _token;
+    CAShapeLayer *_absorptionMask;
+    UIVisualEffectView *_absorptionBlur;
+    UIView *_absorptionFade;
 }
 - (instancetype)initWithFrame:(CGRect)frame {
     if ((self = [super initWithFrame:frame])) {
@@ -52,6 +58,17 @@
         _photo.clipsToBounds = YES;
         _photo.hidden = YES;
         [self addSubview:_photo];                 // 图在首字母之上
+        // Telegram 的吸附不只改变轮廓，还会随着遮罩进度增加暗色模糊和黑色覆盖，
+        // 让头像在接近系统黑色灵动岛时自然“融进去”。
+        _absorptionBlur = [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleDark]];
+        _absorptionBlur.userInteractionEnabled = NO;
+        _absorptionBlur.alpha = 0;
+        [self addSubview:_absorptionBlur];
+        _absorptionFade = [UIView new];
+        _absorptionFade.userInteractionEnabled = NO;
+        _absorptionFade.backgroundColor = UIColor.blackColor;
+        _absorptionFade.alpha = 0;
+        [self addSubview:_absorptionFade];
     }
     return self;
 }
@@ -59,6 +76,8 @@
     [super layoutSubviews];
     _letter.frame = self.bounds;
     _photo.frame = self.bounds;                   // 显式铺满，随 morph 每帧更新
+    _absorptionBlur.frame = self.bounds;
+    _absorptionFade.frame = self.bounds;
     _letter.font = [UIFont systemFontOfSize:MAX(10, self.bounds.size.width * 0.4) weight:UIFontWeightSemibold];
 }
 - (void)setAvatarURL:(NSString *)url seed:(NSString *)seed name:(NSString *)name {
@@ -76,6 +95,46 @@
         self->_photo.frame = self.bounds;          // 应用时再钉一次 frame，防止 0×0 起步残留
         self->_photo.hidden = NO;
     }];
+}
+- (void)applyAbsorptionMaskProgress:(CGFloat)progress {
+    progress = MIN(MAX(progress, 0), 1);
+    if (progress <= 0.001 || CGRectIsEmpty(self.bounds)) {
+        self.layer.mask = nil;
+        _absorptionBlur.alpha = 0;
+        _absorptionFade.alpha = 0;
+        return;
+    }
+
+    if (!_absorptionMask) { _absorptionMask = [CAShapeLayer layer]; }
+    CGFloat w = CGRectGetWidth(self.bounds), h = CGRectGetHeight(self.bounds);
+    CGFloat cx = w * 0.5;
+    // 顶部使用短平口藏入灵动岛下方，随后以两段连续贝塞尔曲线形成窄颈和圆润腹部。
+    // 相比尖头水滴，这种“桥接/融合”轮廓更接近 Telegram 的 UserAvatarMask 动画。
+    CGFloat shoulder = w * (0.49 - 0.10 * progress);
+    CGFloat neckHalf = MAX(2, w * (0.17 - 0.05 * progress));
+    CGFloat neckY = h * (0.13 + 0.08 * progress);
+    CGFloat bellyY = h * (0.43 + 0.04 * progress);
+    UIBezierPath *path = [UIBezierPath bezierPath];
+    [path moveToPoint:CGPointMake(cx - neckHalf, 0)];
+    [path addLineToPoint:CGPointMake(cx + neckHalf, 0)];
+    [path addCurveToPoint:CGPointMake(cx + shoulder, bellyY)
+            controlPoint1:CGPointMake(cx + neckHalf, neckY)
+            controlPoint2:CGPointMake(cx + shoulder, h * 0.19)];
+    [path addCurveToPoint:CGPointMake(cx, h)
+            controlPoint1:CGPointMake(cx + shoulder, h * 0.78)
+            controlPoint2:CGPointMake(cx + w * 0.20, h)];
+    [path addCurveToPoint:CGPointMake(cx - shoulder, bellyY)
+            controlPoint1:CGPointMake(cx - w * 0.20, h)
+            controlPoint2:CGPointMake(cx - shoulder, h * 0.78)];
+    [path addCurveToPoint:CGPointMake(cx - neckHalf, 0)
+            controlPoint1:CGPointMake(cx - shoulder, h * 0.20)
+            controlPoint2:CGPointMake(cx - neckHalf, neckY)];
+    [path closePath];
+    _absorptionMask.frame = self.bounds;
+    _absorptionMask.path = path.CGPath;
+    self.layer.mask = _absorptionMask;
+    _absorptionBlur.alpha = MIN(MAX(-0.10 + progress * 1.10, 0), 1);
+    _absorptionFade.alpha = MIN(MAX(-0.25 + progress * 1.55, 0), 1);
 }
 @end
 
@@ -237,7 +296,7 @@ typedef NS_ENUM(NSInteger, IMDetailSection) {
 
 static CGFloat const kPillsRowH = 78;
 
-@interface IMChatDetailViewController () <UITableViewDataSource, UITableViewDelegate, UIScrollViewDelegate, UIGestureRecognizerDelegate>
+@interface IMChatDetailViewController () <UITableViewDataSource, UITableViewDelegate, UIScrollViewDelegate, UIGestureRecognizerDelegate, IMLiquidNavigationBarDelegate>
 // 身份
 @property (nonatomic, copy) NSString *host;
 @property (nonatomic, copy) NSString *userID;
@@ -262,10 +321,7 @@ static CGFloat const kPillsRowH = 78;
 @property (nonatomic, strong) UILabel *subOnImage;
 @property (nonatomic, strong) UILabel *nameBelow;     ///< 圆头像下居中名
 @property (nonatomic, strong) UILabel *subBelow;
-@property (nonatomic, strong) UIButton *cameraBadge;  ///< 群主/管理员设群头像入口
-@property (nonatomic, strong) UIVisualEffectView *collapsedBar; ///< 折叠态顶栏（blur）
-@property (nonatomic, strong) UILabel *collapsedTitle;
-@property (nonatomic, strong) UIButton *backButton; ///< 仿 Telegram：白 chevron + 50% 黑圆底，折叠时圆淡出
+@property (nonatomic, strong) IMLiquidNavigationBar *liquidNavigationBar;
 // 页签
 @property (nonatomic, strong) UISegmentedControl *segmented;
 @property (nonatomic, strong) UIView *stickyBar;               ///< 页签滚到顶时的悬浮吸顶条（透明，仅托分段控件）
@@ -297,7 +353,8 @@ static CGFloat const kPillsRowH = 78;
         _peerAvatarURL = [peerAvatarURL copy];
         _convID = IMConversationID(userID, peerID);
         _isGroup = NO;
-        _hasPhoto = peerAvatarURL.length > 0;
+        // URL 只决定圆形头像内容，不再触发全幅大图头部。
+        _hasPhoto = NO;
         self.hidesBottomBarWhenPushed = YES;
     }
     return self;
@@ -310,7 +367,7 @@ static CGFloat const kPillsRowH = 78;
         _host = [host copy]; _userID = [userID copy]; _convID = [convID copy];
         _groupName = [groupName copy]; _isGroup = YES;
         _peerAvatarURL = [groupAvatarURL copy];   // 复用字段承载群头像，供 headerAvatarURL 立即取用
-        _hasPhoto = groupAvatarURL.length > 0;    // 有群头像→进入即方形照片态，避免闪回退圈
+        _hasPhoto = NO;
         self.hidesBottomBarWhenPushed = YES;
     }
     return self;
@@ -341,7 +398,8 @@ static CGFloat const kPillsRowH = 78;
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
-    [self.navigationController setNavigationBarHidden:YES animated:animated]; // 自绘折叠顶栏 + 返回键
+    // Telegram 风格详情页：保留 UINavigationController 堆栈和侧滑返回，但隐藏系统导航栏。
+    [self.navigationController setNavigationBarHidden:YES animated:animated];
 }
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
@@ -363,24 +421,16 @@ static CGFloat const kPillsRowH = 78;
         self.tableView.tableHeaderView = spacer; // 触发重新测量
     }
     CGFloat barH = self.topInset + 44;
-    self.collapsedBar.frame = CGRectMake(0, 0, W, barH);
-    self.collapsedTitle.frame = CGRectMake(60, self.topInset, W - 120, 44);
-    // 返回键：leading ~系统边距、垂直居中于导航区；chevron 居中于 36pt 圆（仿 Telegram）。
-    CGFloat backD = 36;
-    self.backButton.frame = CGRectMake(8, self.topInset + (44 - backD) / 2, backD, backD);
-    self.backButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
-    self.backButton.layer.cornerRadius = backD / 2;
     self.stickyBar.frame = CGRectMake(0, barH, W, 44);
     [self layoutSegmented:self.stickySeg inWidth:W];
     [self syncScrollInset];
     [self applyHeaderMorph]; // 尺寸变化后重算
 }
 
-/// photo 头部 = 全幅方块（约正方，morph 起点）；无头像 = 圆默认态区。
-- (CGFloat)photoRestHeight { return MIN(self.view.bounds.size.width, 320); }
-- (CGFloat)absorbOffset { return self.hasPhoto ? 300 : 180; } // 头像完全被"吸走"所需上滑距离
+/// 所有详情页统一使用圆形头像头部；URL 仅替换头像内容。
+- (CGFloat)absorbOffset { return 180; } // 头像完全被吸附所需上滑距离
 - (CGFloat)headerHeight {
-    return self.topInset + (self.hasPhoto ? [self photoRestHeight] : 200);
+    return self.topInset + 200;
 }
 
 /// 补足底部 inset，确保内容够短时也能上滑到「吸附」与「页签贴顶」位（否则松手回弹、动效走不完）。
@@ -408,6 +458,7 @@ static CGFloat const kPillsRowH = 78;
     self.tableView.dataSource = self; self.tableView.delegate = self;
     self.tableView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
     self.tableView.showsVerticalScrollIndicator = NO;
+    self.tableView.sectionHeaderTopPadding = 0;
     [self.tableView registerClass:UITableViewCell.class forCellReuseIdentifier:@"plain"];
     [self.tableView registerClass:IMDetailMemberCell.class forCellReuseIdentifier:@"member"];
     [self.tableView registerClass:IMDetailMediaContainerCell.class forCellReuseIdentifier:@"mediagrid"];
@@ -449,10 +500,12 @@ static CGFloat const kPillsRowH = 78;
 - (void)buildHeaderOverlay {
     NSString *seed = self.isGroup ? self.convID : (self.peerID ?: @"");
     NSString *name = self.displayTitle;
-    NSString *url = self.hasPhoto ? [self headerAvatarURL] : nil;
+    NSString *url = [self headerAvatarURL];
 
     self.avatarView = [[IMDetailAvatarView alloc] initWithFrame:CGRectZero];
     [self.avatarView setAvatarURL:url seed:seed name:name];
+    self.avatarView.userInteractionEnabled = YES;
+    [self.avatarView addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(avatarTapped)]];
     [self.view addSubview:self.avatarView];
 
     self.nameOnImage = [self makeNameLabel:22 color:UIColor.whiteColor shadow:YES];
@@ -465,24 +518,18 @@ static CGFloat const kPillsRowH = 78;
     self.nameOnImage.text = name; self.nameBelow.text = name;
     self.subOnImage.text = self.displaySubtitle; self.subBelow.text = self.displaySubtitle;
 
-    // 群主/管理员：头像相机角标（设群头像快捷入口）。
-    self.cameraBadge = [UIButton buttonWithType:UIButtonTypeSystem];
-    [self.cameraBadge setImage:[UIImage systemImageNamed:@"camera.fill"] forState:UIControlStateNormal];
-    self.cameraBadge.tintColor = UIColor.whiteColor;
-    self.cameraBadge.backgroundColor = IMTheme.accent;
-    self.cameraBadge.layer.cornerRadius = 15; self.cameraBadge.layer.masksToBounds = YES;
-    self.cameraBadge.hidden = YES;
-    [self.cameraBadge addTarget:self action:@selector(openGroupManage) forControlEvents:UIControlEventTouchUpInside];
-    [self.view addSubview:self.cameraBadge];
-
-    // 折叠态顶栏（blur + 标题），滚动到吸附态淡入。
-    self.collapsedBar = [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemChromeMaterial]];
-    self.collapsedBar.alpha = 0;
-    [self.view addSubview:self.collapsedBar];
-    self.collapsedTitle = [self makeNameLabel:16 color:IMTheme.textPrimary shadow:NO];
-    self.collapsedTitle.textAlignment = NSTextAlignmentCenter;
-    self.collapsedTitle.text = name;
-    [self.collapsedBar.contentView addSubview:self.collapsedTitle];
+    self.liquidNavigationBar = [[IMLiquidNavigationBar alloc] initWithTitle:name
+                                                                     subtitle:self.displaySubtitle
+                                                                  actionTitle:@"编辑"];
+    self.liquidNavigationBar.delegate = self;
+    self.liquidNavigationBar.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:self.liquidNavigationBar];
+    [NSLayoutConstraint activateConstraints:@[
+        [self.liquidNavigationBar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [self.liquidNavigationBar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [self.liquidNavigationBar.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [self.liquidNavigationBar.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:56],
+    ]];
 
     // 吸顶条：页签滚到折叠顶栏下方时出现，只放镜像分段控件——**无整行背景色**（分段控件自带药丸底即可）。
     self.stickyBar = [[UIView alloc] initWithFrame:CGRectZero];
@@ -495,19 +542,6 @@ static CGFloat const kPillsRowH = 78;
     [self addTabPinTapTo:self.stickySeg];
     [self.stickyBar addSubview:self.stickySeg];
 
-    // 返回键（自绘，因导航栏隐藏）——与系统默认返回按钮**同款外观**：裸 chevron.backward、accent 色、无圆底，
-    // 加一层淡阴影保证压在照片上也看得清。
-    // 仿 Telegram 照片上的返回键：白 chevron + 50% 黑圆底（源码 UIColor(white:0, alpha:0.5)）。
-    // 圆底直接做在按钮上（不再用模糊层，避免盖住 chevron）；折叠时圆底在 applyHeaderMorph 里淡出。
-    self.backButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    UIImage *chev = [UIImage systemImageNamed:@"chevron.backward"
-                             withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:18 weight:UIImageSymbolWeightSemibold]];
-    [self.backButton setImage:chev forState:UIControlStateNormal];
-    self.backButton.tintColor = UIColor.whiteColor;
-    self.backButton.backgroundColor = [UIColor colorWithWhite:0 alpha:0.5];
-    self.backButton.layer.masksToBounds = YES;
-    [self.backButton addTarget:self action:@selector(goBack) forControlEvents:UIControlEventTouchUpInside];
-    [self.view addSubview:self.backButton];
 }
 
 - (UILabel *)makeNameLabel:(CGFloat)size color:(UIColor *)color shadow:(BOOL)shadow {
@@ -545,6 +579,7 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
 
 - (void)scrollViewDidScroll:(UIScrollView *)scrollView {
     [self applyHeaderMorph];
+    [self updatePillsVisibility];
     [self updateStickyTabs];
 }
 
@@ -553,68 +588,76 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
     if (W <= 0) { return; }
     CGFloat off = MAX(0, self.tableView.contentOffset.y); // 下拉橡皮筋不参与形变
     CGFloat top = self.topInset;
-    CGFloat islandCY = MAX(11, top * 0.5);   // 状态栏/灵动岛竖直中心近似
     BOOL reduceMotion = UIAccessibilityIsReduceMotionEnabled();
-    CGFloat absD = 18;                        // 被吸走时的最小直径
-
-    CGFloat w, h, cy, radiusFactor, q;        // q: 吸附(水滴→灵动岛)进度 0..1
-    CGFloat p = 1;                            // p: 方→圆进度（无头像恒 1）
-    if (self.hasPhoto) {
-        CGFloat restH = [self photoRestHeight];
-        CGFloat A1 = 150, A2 = [self absorbOffset];   // 0..A1 方→圆；A1..A2 圆→水滴→吸走
-        CGFloat circD = 88, circCY = top + 56;
-        p = IMSmooth(off / A1);
-        q = IMSmooth((off - A1) / (A2 - A1));
-        if (q <= 0) {
-            w = IMLerp(W, circD, p); h = IMLerp(restH, circD, p);
-            cy = IMLerp(restH / 2, circCY, p); radiusFactor = p;   // 方(0)→圆(1)
-        } else {
-            w = h = IMLerp(circD, absD, q);
-            cy = IMLerp(circCY, islandCY, q); radiusFactor = 1;
-        }
+    CGFloat q = IMSmooth(off / [self absorbOffset]);
+    CGFloat swallow = 0;
+    BOOL attachedToIsland = NO;
+    CGFloat restD = 92, restCY = top + 58;
+    CGFloat islandBottom = MAX(36, top - 9);
+    CGFloat contactEnd = 0.38;
+    CGFloat w, h, cy;
+    if (q < contactEnd) {
+        CGFloat contact = IMSmooth(q / contactEnd);
+        w = h = IMLerp(restD, 64, contact);
+        cy = IMLerp(restCY, islandBottom + h * 0.5 - 2, contact);
     } else {
-        CGFloat A = [self absorbOffset];       // 无头像：圆默认态直接被吸走
-        CGFloat restD = 92, restCY = top + 58;
-        q = IMSmooth(off / A);
-        w = h = IMLerp(restD, absD, q);
-        cy = IMLerp(restCY, islandCY, q); radiusFactor = 1;
+        swallow = IMSmooth((q - contactEnd) / (1 - contactEnd));
+        w = IMLerp(64, 18, swallow);
+        h = IMLerp(64, 6, swallow);
+        cy = islandBottom - 5 + h * 0.5;
+        attachedToIsland = YES;
     }
 
-    // 水滴拉伸：仅在吸附段，竖向拉长、横向收窄，像一滴水被吸走。
-    CGFloat env = reduceMotion ? 0 : sin(M_PI * IMClamp(q, 0, 1));
-    CGFloat sx = 1 - 0.18 * env, sy = 1 + 0.55 * env;
-    CGFloat drawW = w * sx, drawH = h * sy;
+    // 接触前维持圆形上移；接触后顶部固定，水滴主体向上收缩。
+    CGFloat neckPulse = (attachedToIsland && !reduceMotion) ? sin(M_PI * swallow) : 0;
+    CGFloat drawW = w * (1 - 0.08 * neckPulse);
+    CGFloat drawH = h * (1 + 0.08 * neckPulse);
     self.avatarView.frame = CGRectMake(W / 2 - drawW / 2, cy - drawH / 2, drawW, drawH);
-    self.avatarView.layer.cornerRadius = MIN(drawW, drawH) / 2 * radiusFactor; // 方→圆 由 radiusFactor 控
-    self.avatarView.alpha = q > 0.82 ? IMClamp(1 - (q - 0.82) / 0.16, 0, 1) : 1; // 末段淡出没入岛
+    [self.avatarView applyAbsorptionMaskProgress:(attachedToIsland ? swallow : 0)];
+    self.avatarView.layer.cornerRadius = attachedToIsland ? 0 : MIN(drawW, drawH) / 2;
+    self.avatarView.alpha = swallow > 0.88 ? IMClamp(1 - (swallow - 0.88) / 0.12, 0, 1) : 1;
 
-    // 名字：图上名（photo 顶部）淡出；圆下名淡入、吸附再淡出。
-    self.nameOnImage.alpha = self.hasPhoto ? IMClamp(1 - p * 2, 0, 1) : 0;
-    self.subOnImage.alpha = self.nameOnImage.alpha;
-    CGFloat belowIn = self.hasPhoto ? IMClamp((p - 0.5) / 0.4, 0, 1) * IMClamp(1 - q * 2.6, 0, 1)
-                                    : IMClamp(1 - q * 2.4, 0, 1);
-    self.nameBelow.alpha = belowIn; self.subBelow.alpha = belowIn;
-    if (self.hasPhoto) {
-        CGFloat ny = [self photoRestHeight] - 54;
-        self.nameOnImage.frame = CGRectMake(18, ny, W - 36, 28);
-        self.subOnImage.frame = CGRectMake(18, ny + 28, W - 36, 18);
-    }
+    // 统一圆头像下方标题，URL 头像不会切换到另一套大图标题布局。
+    self.nameOnImage.alpha = 0;
+    self.subOnImage.alpha = 0;
+    CGFloat belowIn = IMClamp(1 - q * 2.4, 0, 1);
     CGFloat belowY = cy + drawH / 2 + 8;
     self.nameBelow.frame = CGRectMake(0, belowY, W, 26);
     self.subBelow.frame = CGRectMake(0, belowY + 26, W, 18);
 
-    // 相机角标（群编辑头像入口；贴头像右下，吸附时淡出）。
-    if (self.isGroup && !self.cameraBadge.hidden) {
-        CGRect a = self.avatarView.frame;
-        CGFloat pad = 16; // 离照片右/下边留白，便于点击也更美观（原先贴边）
-        self.cameraBadge.frame = CGRectMake(CGRectGetMaxX(a) - 30 - pad, CGRectGetMaxY(a) - 30 - pad, 30, 30);
-        self.cameraBadge.alpha = IMClamp(1 - q * 4, 0, 1);
-    }
+    self.nameBelow.alpha = belowIn;
+    self.subBelow.alpha = belowIn;
 
-    CGFloat collapse = IMClamp((q - 0.6) / 0.4, 0, 1);
-    self.collapsedBar.alpha = collapse; // 折叠顶栏淡入
-    self.backButton.backgroundColor = [UIColor colorWithWhite:0 alpha:0.5 * (1 - collapse)]; // 仿 Telegram：折叠时黑圆淡出（顶栏 blur 已提供对比）
-    [self fireHapticsForPhase:q hasPhoto:self.hasPhoto phaseP:p];
+    // 大图态使用白色导航按钮；头像收成圆形后回到当前深浅模式的 label 色。
+    self.liquidNavigationBar.immersiveAppearanceProgress = 0;
+
+    // 初始进入时只保留独立返回按钮；标题胶囊在头像水滴
+    // 吸附接近完成时才渐显，恢复详情页原有的滚动形变节奏。
+    self.liquidNavigationBar.compactContentProgress = IMSmooth((q - 0.72) / 0.24);
+
+    [self fireHapticsForPhase:q hasPhoto:NO phaseP:1];
+}
+
+/// 操作排接近自定义导航栏时平滑淡出，避免搜索/更多按钮穿过返回与编辑按钮。
+- (void)updatePillsVisibility {
+    NSInteger section = [self indexOfSection:IMDetailSectionPills];
+    if (section == NSNotFound) { return; }
+    NSIndexPath *indexPath = [NSIndexPath indexPathForRow:0 inSection:section];
+    UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:indexPath];
+    if (!cell) { return; }
+    CGRect row = [self.tableView rectForRowAtIndexPath:indexPath];
+    CGFloat topInView = CGRectGetMinY(row) - self.tableView.contentOffset.y;
+    CGFloat navigationBottom = self.topInset + 56;
+    CGFloat navigationAlpha = IMClamp((topInView - navigationBottom) / 36, 0, 1);
+    CGFloat labelAlpha = 1;
+    if (self.subBelow.alpha > 0.05) {
+        // 圆头像下方标题仍可见时，优先淡出操作排，避免按钮覆盖“3 位成员”等副标题。
+        CGFloat clearance = topInView - CGRectGetMaxY(self.subBelow.frame);
+        labelAlpha = IMClamp((clearance - 6) / 24, 0, 1);
+    }
+    CGFloat alpha = MIN(navigationAlpha, labelAlpha);
+    cell.contentView.alpha = alpha;
+    cell.userInteractionEnabled = alpha > 0.2;
 }
 
 /// 锚点触感：正圆成形（photo p≈1、未进吸附）与吸附完成（q≈1）各一次；反向复位后可再触发。
@@ -622,7 +665,6 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
     if (q >= 0.98 && !self.didHapticAbsorb) {
         self.didHapticAbsorb = YES;
         [[[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleSoft] impactOccurred];
-        [self bumpIsland];
     }
     if (q < 0.5) { self.didHapticAbsorb = NO; }
     if (hasPhoto && q <= 0 && p >= 0.98 && !self.didHapticCircle) {
@@ -630,14 +672,6 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
         [[[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleSoft] impactOccurred];
     }
     if (p < 0.5) { self.didHapticCircle = NO; }
-}
-
-/// 灵动岛回应：折叠顶栏做一次轻微横向鼓胀回弹（无真实岛时也是柔和反馈）。
-- (void)bumpIsland {
-    CAKeyframeAnimation *a = [CAKeyframeAnimation animationWithKeyPath:@"transform.scale.x"];
-    a.values = @[@1.0, @1.06, @0.99, @1.0]; a.keyTimes = @[@0, @0.35, @0.7, @1.0];
-    a.duration = 0.42; a.timingFunction = [CAMediaTimingFunction functionWithControlPoints:0.34 :1.56 :0.64 :1];
-    [self.collapsedBar.layer addAnimation:a forKey:@"bump"];
 }
 
 #pragma mark - 数据加载
@@ -669,15 +703,29 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
         self.group = group;
         self.groupName = group.name;
         BOOL manage = group.myRole == IMGroupRoleOwner || group.myRole == IMGroupRoleAdmin;
-        BOOL nowHasPhoto = group.avatarURL.length > 0;
-        if (nowHasPhoto != self.hasPhoto) { self.hasPhoto = nowHasPhoto; [self.view setNeedsLayout]; }
         [self.avatarView setAvatarURL:[self headerAvatarURL] seed:self.convID name:group.name];
-        self.cameraBadge.hidden = !manage;
+        // 头像编辑统一由右上角“编辑”进入。
+        self.liquidNavigationBar.actionTitle = manage ? @"编辑" : nil;
         [self refreshHeaderTexts];
         [self rebuildTabs];
         [self.tableView reloadData];
         [self.view setNeedsLayout];
     }];
+}
+
+- (void)avatarTapped {
+    NSString *url = [self headerAvatarURL];
+    NSURL *URL = [NSURL URLWithString:url];
+    NSString *scheme = URL.scheme.lowercaseString;
+    if (url.length == 0 || !([scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"])) {
+        return;
+    }
+    IMMediaViewerViewController *viewer =
+        [IMMediaViewerViewController viewerWithURL:url isVideo:NO
+                                   preloadedImage:self.avatarView.photo.image
+                                    onOpenGallery:nil];
+    viewer.modalPresentationStyle = UIModalPresentationFullScreen;
+    [self presentViewController:viewer animated:YES completion:nil];
 }
 
 - (void)loadPeerBlockState {
@@ -696,8 +744,10 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
 
 - (void)refreshHeaderTexts {
     NSString *name = self.displayTitle, *sub = self.displaySubtitle;
-    self.nameOnImage.text = name; self.nameBelow.text = name; self.collapsedTitle.text = name;
+    self.nameOnImage.text = name; self.nameBelow.text = name;
     self.subOnImage.text = sub; self.subBelow.text = sub;
+    self.liquidNavigationBar.titleText = name;
+    self.liquidNavigationBar.subtitleText = sub;
 }
 
 - (void)reloadSettingsAndPills {
@@ -910,7 +960,10 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
     seg.frame = CGRectMake((width - w) / 2, 6, w, 32);
 }
 - (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
-    return [self sectionKindAt:section] == IMDetailSectionTabs ? 44 : UITableViewAutomaticDimension;
+    IMDetailSection kind = [self sectionKindAt:section];
+    if (kind == IMDetailSectionTabs) { return 44; }
+    if (kind == IMDetailSectionPills) { return 8; }
+    return 12;
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -939,13 +992,29 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
     return [tableView dequeueReusableCellWithIdentifier:@"plain" forIndexPath:indexPath];
 }
 
+- (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell
+ forRowAtIndexPath:(NSIndexPath *)indexPath {
+    if ([self sectionKindAt:indexPath.section] != IMDetailSectionPills) { return; }
+    // insetGrouped 会在展示阶段重新生成分组卡片背景，因此这里再次明确清空，避免按钮下方残留整行圆角底框。
+    cell.backgroundColor = UIColor.clearColor;
+    cell.contentView.backgroundColor = UIColor.clearColor;
+    cell.backgroundView.backgroundColor = UIColor.clearColor;
+    cell.backgroundConfiguration = [UIBackgroundConfiguration clearConfiguration];
+    [self updatePillsVisibility];
+}
+
 #pragma mark - Cells
 
 - (UITableViewCell *)pillsCell:(UITableView *)tv {
-    UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:@"plain"];
-    if (!cell) { cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"plain"]; }
-    for (UIView *v in cell.contentView.subviews) { [v removeFromSuperview]; }
+    // 不复用普通分组 cell，避免 UIKit 将其他 section 的 grouped 背景配置带到操作排。
+    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
     cell.selectionStyle = UITableViewCellSelectionStyleNone;
+    cell.backgroundColor = UIColor.clearColor;
+    cell.contentView.backgroundColor = UIColor.clearColor;
+    UIView *clearBackground = [UIView new];
+    clearBackground.backgroundColor = UIColor.clearColor;
+    cell.backgroundView = clearBackground;
+    cell.backgroundConfiguration = [UIBackgroundConfiguration clearConfiguration];
     // 操作排按入口定制（去「静音」——下面有免打扰开关，重复）：
     NSMutableArray *specs = [NSMutableArray array];
     if (self.isGroup) {
@@ -963,7 +1032,7 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
     stack.axis = UILayoutConstraintAxisHorizontal; stack.distribution = UIStackViewDistributionFillEqually; stack.spacing = 9;
     for (NSDictionary *spec in specs) {
         UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
-        UIButtonConfiguration *cfg = [UIButtonConfiguration plainButtonConfiguration];
+        UIButtonConfiguration *cfg = IMGlassButtonConfiguration();
         cfg.image = [UIImage systemImageNamed:spec[@"s"]];
         cfg.title = spec[@"t"];
         cfg.imagePlacement = NSDirectionalRectEdgeTop; cfg.imagePadding = 4;
@@ -971,11 +1040,10 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
         cfg.titleTextAttributesTransformer = ^NSDictionary *(NSDictionary *old) {
             NSMutableDictionary *d = [old mutableCopy]; d[NSFontAttributeName] = [UIFont systemFontOfSize:11]; return d;
         };
+        cfg.cornerStyle = UIButtonConfigurationCornerStyleLarge;
         b.configuration = cfg;
-        b.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
-        b.layer.cornerRadius = 12; b.layer.masksToBounds = YES;
         b.accessibilityLabel = spec[@"a"];
-        // 「更多」用自绘卡片，**保证锚在按钮正下方** + 上→下弹出动画（原生 UIMenu 位置由系统决定，会盖住按钮）。
+        // 「更多」交给 IMPopoverCard 的 UIKit action sheet/popover；iOS 26 自动使用 Liquid Glass。
         [b addTarget:self action:([spec[@"a"] isEqualToString:@"more"] ? @selector(moreTapped:) : @selector(pillTapped:))
       forControlEvents:UIControlEventTouchUpInside];
         [stack addArrangedSubview:b];
@@ -1220,7 +1288,7 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
     [self.navigationController pushViewController:chat animated:YES];
 }
 
-/// 「更多」自绘卡片：锚在按钮**正下方右对齐**，从上→下 spring 弹出。清空记录=普通色；退出/删除群/拉黑=红。
+/// 「更多」系统菜单：清空记录=普通色；退出/删除群/拉黑=红。
 - (void)moreTapped:(UIButton *)anchor {
     NSMutableArray<IMPopoverCardItem *> *items = [NSMutableArray array];
     __weak typeof(self) ws = self;
@@ -1372,7 +1440,6 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
             [self loadGroupInfo];
         }];
     }];
-    [self.navigationController setNavigationBarHidden:NO animated:YES];
     [self.navigationController pushViewController:picker animated:YES];
 }
 
@@ -1408,7 +1475,6 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
     IMGroupManageViewController *vc = [[IMGroupManageViewController alloc] initWithHost:self.host userID:self.userID
                                                                                 convID:self.convID group:self.group
                                                                              onChanged:^{ [ws loadGroupInfo]; }];
-    [self.navigationController setNavigationBarHidden:NO animated:YES];
     [self.navigationController pushViewController:vc animated:YES];
 }
 
@@ -1423,6 +1489,19 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
     if (url.length == 0) { return; }
     NSURL *u = [NSURL URLWithString:url];
     if (u) { [UIApplication.sharedApplication openURL:u options:@{} completionHandler:nil]; }
+}
+- (void)headerActionTapped {
+    if (self.isGroup) { [self openGroupManage]; }
+    else { [self editRemark]; }
+}
+- (void)liquidNavigationBarDidTapBack:(IMLiquidNavigationBar *)bar {
+    [self.navigationController popViewControllerAnimated:YES];
+}
+- (void)liquidNavigationBarDidTapAction:(IMLiquidNavigationBar *)bar {
+    [self headerActionTapped];
+}
+- (void)liquidNavigationBarDidTapLeft:(IMLiquidNavigationBar *)bar {
+    [self liquidNavigationBarDidTapBack:bar];
 }
 - (void)goBack { [self.navigationController popViewControllerAnimated:YES]; }
 

@@ -16,6 +16,7 @@
 #import "UILabel+IMAvatar.h"
 #import "IMHTTPService.h"
 #import "IMUserCard.h"
+#import "IMGlass.h"
 
 #pragma mark - 行模型（数据驱动单一来源）
 
@@ -190,6 +191,15 @@
 @property (nonatomic, strong) NSArray<NSArray<IMSettingsRow *> *> *groups; // 普通分组（不含头部资料）
 @property (nonatomic, copy, nullable) NSString *myNickname;  // 本人资料（拉取后填头部）
 @property (nonatomic, copy, nullable) NSString *myAvatarURL;
+@property (nonatomic, copy, nullable) NSString *myPhone;
+@property (nonatomic, strong) UIView *profileHeader;
+@property (nonatomic, strong) UIView *profileOverlay;
+@property (nonatomic, strong) UILabel *profileAvatar;
+@property (nonatomic, strong) UILabel *profileName;
+@property (nonatomic, strong) UILabel *profileMeta;
+@property (nonatomic, strong) CAShapeLayer *profileAvatarMask;
+@property (nonatomic, strong) UIVisualEffectView *profileAvatarBlur;
+@property (nonatomic, strong) UIView *profileAvatarFade;
 @end
 
 @implementation IMSettingsViewController
@@ -205,7 +215,7 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"我";
+    self.title = @"";
     self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
 
     [self buildGroups];
@@ -215,13 +225,171 @@
     self.tableView.dataSource = self;
     self.tableView.delegate = self;
     [self.tableView registerClass:IMSettingsCell.class forCellReuseIdentifier:@"row"];
-    [self.tableView registerClass:IMProfileHeaderCell.class forCellReuseIdentifier:@"profile"];
     [self.view addSubview:self.tableView];
+    [self buildProfileHeader];
+}
+
+- (void)buildProfileHeader {
+    CGFloat W = self.view.bounds.size.width;
+    // tableHeader 只负责为资料头部留出滚动空间；头像/文字悬浮在 table 之上，才能像详情页一样连续形变。
+    self.profileHeader = [[UIView alloc] initWithFrame:CGRectMake(0, 0, W, 350)];
+    self.profileHeader.backgroundColor = UIColor.clearColor;
+    self.tableView.tableHeaderView = self.profileHeader;
+
+    self.navigationItem.leftBarButtonItem =
+        [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"qrcode"]
+                                         style:UIBarButtonItemStylePlain target:self action:@selector(showQRCode)];
+    self.navigationItem.leftBarButtonItem.accessibilityLabel = @"我的二维码";
+    self.navigationItem.rightBarButtonItem =
+        [[UIBarButtonItem alloc] initWithTitle:@"编辑" style:UIBarButtonItemStylePlain
+                                        target:self action:@selector(openProfile)];
+
+    self.profileOverlay = [[UIView alloc] initWithFrame:self.view.bounds];
+    self.profileOverlay.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    self.profileOverlay.backgroundColor = UIColor.clearColor;
+    self.profileOverlay.userInteractionEnabled = NO;
+    [self.view addSubview:self.profileOverlay];
+
+    self.profileAvatar = [UILabel new];
+    self.profileAvatar.textAlignment = NSTextAlignmentCenter;
+    self.profileAvatar.textColor = UIColor.whiteColor;
+    self.profileAvatar.font = [UIFont systemFontOfSize:34 weight:UIFontWeightSemibold];
+    self.profileAvatar.layer.masksToBounds = YES;
+    [self.profileOverlay addSubview:self.profileAvatar];
+
+    self.profileAvatarBlur = [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleDark]];
+    self.profileAvatarBlur.userInteractionEnabled = NO;
+    self.profileAvatarBlur.alpha = 0;
+    [self.profileAvatar addSubview:self.profileAvatarBlur];
+    self.profileAvatarFade = [UIView new];
+    self.profileAvatarFade.backgroundColor = UIColor.blackColor;
+    self.profileAvatarFade.userInteractionEnabled = NO;
+    self.profileAvatarFade.alpha = 0;
+    [self.profileAvatar addSubview:self.profileAvatarFade];
+
+    self.profileName = [UILabel new];
+    self.profileName.textAlignment = NSTextAlignmentCenter;
+    self.profileName.font = [UIFont systemFontOfSize:28 weight:UIFontWeightSemibold];
+    self.profileName.textColor = IMTheme.textPrimary;
+    [self.profileOverlay addSubview:self.profileName];
+
+    self.profileMeta = [UILabel new];
+    self.profileMeta.textAlignment = NSTextAlignmentCenter;
+    self.profileMeta.font = [UIFont systemFontOfSize:17 weight:UIFontWeightRegular];
+    self.profileMeta.textColor = IMTheme.textSecondary;
+    [self.profileOverlay addSubview:self.profileMeta];
+    [self refreshProfileHeader];
+    [self applyProfileHeaderMorph];
+}
+
+- (void)refreshProfileHeader {
+    NSString *display = self.myNickname.length ? self.myNickname : self.userID;
+    self.profileName.text = display;
+    NSString *phone = self.myPhone.length ? self.myPhone : self.userID;
+    self.profileMeta.text = [NSString stringWithFormat:@"%@ · @%@", phone, self.userID];
+    [self.profileAvatar im_setAvatarURL:self.myAvatarURL seed:self.userID displayName:display];
+    [self.profileAvatar bringSubviewToFront:self.profileAvatarBlur];
+    [self.profileAvatar bringSubviewToFront:self.profileAvatarFade];
+    [self applyProfileHeaderMorph];
+}
+
+- (void)showQRCode {
+    [self im_showComingSoon:@"我的二维码"];
 }
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
+    self.title = @"";
     [self loadMyProfile]; // 拉本人昵称/头像填头部（编辑保存后返回也会刷新）
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    self.profileOverlay.frame = self.view.bounds;
+    [self applyProfileHeaderMorph];
+}
+
+- (void)scrollViewDidScroll:(UIScrollView *)scrollView {
+    [self applyProfileHeaderMorph];
+}
+
+- (void)applyProfileHeaderMorph {
+    CGFloat W = self.view.bounds.size.width;
+    if (W <= 0 || !self.profileAvatar) { return; }
+    CGFloat raw = self.tableView.contentOffset.y + self.tableView.adjustedContentInset.top;
+    CGFloat linear = MIN(MAX(raw / 170.0, 0), 1);
+    CGFloat q = linear * linear * (3 - 2 * linear);
+    CGFloat top = self.view.safeAreaInsets.top;
+    CGFloat restD = MIN(132, W * 0.34);
+    CGFloat restCY = top + 154;
+    CGFloat islandBottom = MAX(36, top - 8);
+    CGFloat contactEnd = 0.40;
+    CGFloat swallow = 0, w = restD, h = restD, cy = restCY;
+    BOOL attached = q >= contactEnd;
+    if (!attached) {
+        CGFloat c = q / contactEnd;
+        c = c * c * (3 - 2 * c);
+        w = h = restD + (64 - restD) * c;
+        cy = restCY + (islandBottom + h * 0.5 - 2 - restCY) * c;
+    } else {
+        swallow = (q - contactEnd) / (1 - contactEnd);
+        swallow = swallow * swallow * (3 - 2 * swallow);
+        w = 64 + (18 - 64) * swallow;
+        h = 64 + (6 - 64) * swallow;
+        cy = islandBottom - 5 + h * 0.5;
+    }
+    self.profileAvatar.transform = CGAffineTransformIdentity;
+    self.profileAvatar.frame = CGRectMake((W - w) / 2, cy - h / 2, w, h);
+    self.profileAvatar.layer.cornerRadius = attached ? 0 : MIN(w, h) / 2;
+    self.profileAvatarBlur.frame = self.profileAvatar.bounds;
+    self.profileAvatarFade.frame = self.profileAvatar.bounds;
+    self.profileAvatarBlur.alpha = MAX(0, MIN(1, swallow * 1.10 - 0.10));
+    self.profileAvatarFade.alpha = MAX(0, MIN(1, swallow * 1.55 - 0.25));
+
+    if (!attached) {
+        self.profileAvatar.layer.mask = nil;
+    } else {
+        if (!self.profileAvatarMask) { self.profileAvatarMask = [CAShapeLayer layer]; }
+        CGFloat cx = w * 0.5;
+        CGFloat shoulder = w * (0.49 - 0.10 * swallow);
+        CGFloat neckHalf = MAX(2, w * (0.17 - 0.05 * swallow));
+        CGFloat neckY = h * (0.13 + 0.08 * swallow);
+        CGFloat bellyY = h * (0.43 + 0.04 * swallow);
+        UIBezierPath *path = [UIBezierPath bezierPath];
+        [path moveToPoint:CGPointMake(cx - neckHalf, 0)];
+        [path addLineToPoint:CGPointMake(cx + neckHalf, 0)];
+        [path addCurveToPoint:CGPointMake(cx + shoulder, bellyY)
+                controlPoint1:CGPointMake(cx + neckHalf, neckY)
+                controlPoint2:CGPointMake(cx + shoulder, h * 0.19)];
+        [path addCurveToPoint:CGPointMake(cx, h)
+                controlPoint1:CGPointMake(cx + shoulder, h * 0.78)
+                controlPoint2:CGPointMake(cx + w * 0.20, h)];
+        [path addCurveToPoint:CGPointMake(cx - shoulder, bellyY)
+                controlPoint1:CGPointMake(cx - w * 0.20, h)
+                controlPoint2:CGPointMake(cx - shoulder, h * 0.78)];
+        [path addCurveToPoint:CGPointMake(cx - neckHalf, 0)
+                controlPoint1:CGPointMake(cx - shoulder, h * 0.20)
+                controlPoint2:CGPointMake(cx - neckHalf, neckY)];
+        [path closePath];
+        self.profileAvatarMask.frame = self.profileAvatar.bounds;
+        self.profileAvatarMask.path = path.CGPath;
+        self.profileAvatar.layer.mask = self.profileAvatarMask;
+    }
+
+    CGFloat labelsAlpha = MIN(MAX(1 - q * 2.3, 0), 1);
+    CGFloat nameY = cy + h / 2 + 18;
+    self.profileName.frame = CGRectMake(20, nameY, W - 40, 40);
+    self.profileMeta.frame = CGRectMake(20, nameY + 43, W - 40, 26);
+    self.profileName.alpha = labelsAlpha;
+    self.profileMeta.alpha = labelsAlpha;
+    self.profileAvatar.alpha = swallow > 0.88 ? MAX(0, 1 - (swallow - 0.88) / 0.12) : 1;
+
+    NSString *display = self.myNickname.length ? self.myNickname : self.userID;
+    NSString *wantedTitle = q > 0.72 ? display : @"";
+    if (![self.title isEqualToString:wantedTitle]) {
+        self.title = wantedTitle;
+        [self.navigationController.view setNeedsLayout];
+    }
 }
 
 /// 用已登录的 currentToken 拉本人资料，填头部昵称+头像；失败静默（头部回退 uid+首字母圈）。
@@ -235,7 +403,8 @@
             typeof(self) ss = ws; if (!ss) { return; }
             ss.myNickname = profile.displayName;
             ss.myAvatarURL = profile.avatarURL;
-            [ss.tableView reloadSections:[NSIndexSet indexSetWithIndex:0] withRowAnimation:UITableViewRowAnimationNone];
+            ss.myPhone = profile.phone;
+            [ss refreshProfileHeader];
         });
     }];
 }
@@ -320,34 +489,27 @@
 #pragma mark - UITableView
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return 1 + (NSInteger)self.groups.count; // section 0 = 头部资料
+    return (NSInteger)self.groups.count;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    if (section == 0) { return 1; }
-    return (NSInteger)self.groups[section - 1].count;
+    return (NSInteger)self.groups[section].count;
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
-    return indexPath.section == 0 ? 84 : 50;
+    return 50;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (indexPath.section == 0) {
-        IMProfileHeaderCell *cell = [tableView dequeueReusableCellWithIdentifier:@"profile" forIndexPath:indexPath];
-        [cell configureWithUserID:self.userID nickname:self.myNickname avatarURL:self.myAvatarURL];
-        return cell;
-    }
     IMSettingsCell *cell = [tableView dequeueReusableCellWithIdentifier:@"row" forIndexPath:indexPath];
-    [cell configureWithRow:self.groups[indexPath.section - 1][indexPath.row]];
+    [cell configureWithRow:self.groups[indexPath.section][indexPath.row]];
     return cell;
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     [IMAnimator selectionChanged];
-    if (indexPath.section == 0) { [self openProfile]; return; }
-    IMSettingsRow *row = self.groups[indexPath.section - 1][indexPath.row];
+    IMSettingsRow *row = self.groups[indexPath.section][indexPath.row];
     if (row.handler) { row.handler(); }
 }
 

@@ -411,11 +411,17 @@ didFinishDownloadingToURL:(NSURL *)location {
     ]];
 
     _originalChip = [UIButton buttonWithType:UIButtonTypeSystem];
-    [_originalChip setTitle:@"查看原视频" forState:UIControlStateNormal];
-    [_originalChip setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-    _originalChip.titleLabel.font = [UIFont systemFontOfSize:13];
+    UIButtonConfiguration *originalConfig = [UIButtonConfiguration plainButtonConfiguration];
+    originalConfig.title = @"查看原视频";
+    originalConfig.baseForegroundColor = UIColor.whiteColor;
+    originalConfig.contentInsets = NSDirectionalEdgeInsetsMake(6, 12, 6, 12);
+    originalConfig.titleTextAttributesTransformer = ^NSDictionary<NSAttributedStringKey, id> *(NSDictionary<NSAttributedStringKey, id> *attrs) {
+        NSMutableDictionary *updated = [attrs mutableCopy];
+        updated[NSFontAttributeName] = [UIFont systemFontOfSize:13];
+        return updated;
+    };
+    _originalChip.configuration = originalConfig;
     _originalChip.backgroundColor = [UIColor colorWithWhite:0 alpha:0.4];
-    _originalChip.contentEdgeInsets = UIEdgeInsetsMake(6, 12, 6, 12);
     _originalChip.layer.cornerRadius = 14;
     _originalChip.translatesAutoresizingMaskIntoConstraints = NO;
     [_originalChip addTarget:self action:@selector(tapOriginal) forControlEvents:UIControlEventTouchUpInside];

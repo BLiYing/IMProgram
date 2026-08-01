@@ -37,6 +37,10 @@ extern NSNotificationName const IMChatConversationClearedNotification;
 /// 群头像（会话列表进入时透传，供右上头像按钮**立即显真头像、免闪首字母**；空则回退首字母，进入后 reloadGroupInfo 补正）。
 @property (nonatomic, copy, nullable) NSString *groupAvatarURL;
 
+/// 供统一自定义导航栏读取群聊副标题（成员人数）；不改变聊天业务状态。
+- (BOOL)im_isGroupChat;
+- (nullable NSString *)im_navigationSubtitle;
+
 - (instancetype)init NS_UNAVAILABLE;
 - (instancetype)initWithNibName:(nullable NSString *)nibNameOrNil bundle:(nullable NSBundle *)nibBundleOrNil NS_UNAVAILABLE;
 - (instancetype)initWithCoder:(NSCoder *)coder NS_UNAVAILABLE;

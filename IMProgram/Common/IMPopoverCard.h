@@ -1,6 +1,5 @@
 //  IMPopoverCard.h
-//  自绘弹出卡片（替代原生 UIMenu 的位置不可控问题）：锚在按钮**正下方右对齐**、上→下 spring 弹出、
-//  圆角用 continuous 与全局一致、点卡外/点项均关闭。会话详情「更多」与会话列表「+」共用。
+//  兼容旧调用方的系统菜单入口：内部使用 UIKit action sheet/popover，iOS 26 自动获得 Liquid Glass。
 
 #import <UIKit/UIKit.h>
 
@@ -18,8 +17,12 @@ NS_ASSUME_NONNULL_BEGIN
 @interface IMPopoverCard : NSObject
 /// 同一 host 内是否已有弹出卡片。用于避免导航栏按钮连续点击叠出多个菜单。
 + (BOOL)isPresentingInHostView:(UIView *)host;
-/// 在 host 内、锚定 anchor 下方弹出卡片。视图层级自持有，关闭即释放。
+/// 在 host 内锚定 anchor 展示系统 action sheet/popover；关闭和动画由 UIKit 管理。
 + (void)presentFromAnchor:(UIView *)anchor inHostView:(UIView *)host items:(NSArray<IMPopoverCardItem *> *)items;
+/// 导航栏按钮必须使用 UIBarButtonItem 作为 iPad popover 锚点，不能把它强转成 UIView。
++ (void)presentFromBarButtonItem:(UIBarButtonItem *)barButtonItem
+                      inHostView:(UIView *)host
+                           items:(NSArray<IMPopoverCardItem *> *)items;
 @end
 
 NS_ASSUME_NONNULL_END

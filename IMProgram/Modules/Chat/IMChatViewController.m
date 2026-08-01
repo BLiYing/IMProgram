@@ -28,6 +28,7 @@
 #import "IMTheme.h"
 #import "IMAppearance.h"
 #import "IMLog.h"
+#import "IMGlass.h"
 #import <Photos/Photos.h>
 #import <AVFoundation/AVFoundation.h>
 #import <SafariServices/SafariServices.h>
@@ -1558,41 +1559,69 @@ static void IMParseChatRecord(NSString *content, NSString **outTitle, NSArray<NS
     }];
 }
 
-/// 右上圆头像按钮（单聊对方 / 群聊群头像），点击进资料页。**全 frame-based**（32×32 固定圆）：
-/// 首字母底 + 图片都是 frame 定尺子视图，不用约束（导航栏自定义视图 + 约束图易被压成 0/异形）。
+/// 右上圆头像按钮（单聊对方 / 群聊群头像），点击进资料页。
+/// 44pt 官方 Glass 按钮直接承接点击和系统按压动画，内部 30pt 头像严格裁圆。
+static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name, CGFloat diameter) {
+    CGSize size = CGSizeMake(diameter, diameter);
+    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:size];
+    UIImage *avatar = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
+        CGRect rect = (CGRect){CGPointZero, size};
+        UIBezierPath *circle = [UIBezierPath bezierPathWithOvalInRect:rect];
+        [circle addClip];
+        if (photo) {
+            CGFloat scale = MAX(diameter / photo.size.width, diameter / photo.size.height);
+            CGSize drawSize = CGSizeMake(photo.size.width * scale, photo.size.height * scale);
+            CGRect drawRect = CGRectMake((diameter - drawSize.width) / 2,
+                                         (diameter - drawSize.height) / 2,
+                                         drawSize.width, drawSize.height);
+            [photo drawInRect:drawRect];
+        } else {
+            [[IMTheme avatarColorForSeed:seed] setFill];
+            UIRectFill(rect);
+            NSString *display = name.length ? name : seed;
+            display = display.length >= 2 ? [display substringFromIndex:display.length - 2] : display;
+            NSDictionary *attrs = @{
+                NSFontAttributeName: [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold],
+                NSForegroundColorAttributeName: UIColor.whiteColor,
+            };
+            CGSize textSize = [display sizeWithAttributes:attrs];
+            [display drawAtPoint:CGPointMake((diameter - textSize.width) / 2,
+                                             (diameter - textSize.height) / 2) withAttributes:attrs];
+        }
+    }];
+    // 导航项图片默认会被当成模板图着色，真实头像因此可能变成透明/纯色；头像必须保留原始像素。
+    return [avatar imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal];
+}
+
+- (void)refreshUnifiedNavigationBar {
+    [self.navigationController.view setNeedsLayout];
+    [self.navigationController.view layoutIfNeeded];
+}
+
 - (void)installInfoAvatarButtonWithURL:(nullable NSString *)url seed:(NSString *)seed
                                   name:(nullable NSString *)name action:(SEL)action {
-    CGFloat d = 32;
-    UIButton *b = [UIButton buttonWithType:UIButtonTypeCustom];
-    b.frame = CGRectMake(0, 0, d, d);
-    b.layer.cornerRadius = d / 2; b.layer.masksToBounds = YES;
-    b.backgroundColor = [IMTheme avatarColorForSeed:seed];
-    [b addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
-
-    UILabel *letter = [[UILabel alloc] initWithFrame:b.bounds];
-    letter.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    letter.textAlignment = NSTextAlignmentCenter; letter.textColor = UIColor.whiteColor;
-    letter.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
-    NSString *dn = name.length ? name : seed;
-    letter.text = dn.length >= 2 ? [dn substringFromIndex:dn.length - 2] : dn;
-    letter.userInteractionEnabled = NO;
-    [b addSubview:letter];
-
-    UIImageView *img = [[UIImageView alloc] initWithFrame:b.bounds];
-    img.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    img.contentMode = UIViewContentModeScaleAspectFill; img.clipsToBounds = YES;
-    img.userInteractionEnabled = NO; img.hidden = YES;
-    [b addSubview:img];
+    CGFloat avatarD = 30;
+    UIBarButtonItem *item = [[UIBarButtonItem alloc] initWithImage:IMChatAvatarImage(nil, seed, name, avatarD)
+                                                              style:UIBarButtonItemStylePlain
+                                                             target:self action:action];
+    item.accessibilityLabel = name.length ? [NSString stringWithFormat:@"%@的聊天详情", name] : @"聊天详情";
+    self.navigationItem.rightBarButtonItem = item;
+    [self refreshUnifiedNavigationBar];
 
     NSString *full = url.length ? [self fullMediaURL:url] : @"";
     if (full.length) {
+        __weak UIBarButtonItem *weakItem = item;
         [[IMImageLoader shared] loadImageURL:full completion:^(UIImage *i) {
             if (!i) { return; }
-            img.image = i; img.frame = b.bounds; img.hidden = NO;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                UIBarButtonItem *barItem = weakItem;
+                if (barItem) {
+                    barItem.image = IMChatAvatarImage(i, seed, name, avatarD);
+                    [self refreshUnifiedNavigationBar];
+                }
+            });
         }];
     }
-    UIBarButtonItem *item = [[UIBarButtonItem alloc] initWithCustomView:b];
-    self.navigationItem.rightBarButtonItem = item;
 }
 
 - (void)groupInfoTapped {
@@ -1693,8 +1722,6 @@ static void IMParseChatRecord(NSString *content, NSString **outTitle, NSArray<NS
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
-    // 聊天页始终显示导航栏——若从隐藏了导航栏的页面（如资料页 IMChatDetailViewController）跳入，这里恢复。
-    [self.navigationController setNavigationBarHidden:NO animated:animated];
     IMSocketManager.sharedManager.delegate = self;
     // 同步当前真实连接态：socket 通常在会话列表页就已连上，进本页不会再触发 didChangeState，
     // 若不主动拉一次，connState 会停在默认值 → 标题误显「未连接」。
@@ -1915,7 +1942,8 @@ static void IMParseChatRecord(NSString *content, NSString **outTitle, NSArray<NS
     self.inputBottom = [inputBar.bottomAnchor constraintEqualToAnchor:guide.bottomAnchor];
     self.typingHeight = [self.typingLabel.heightAnchor constraintEqualToConstant:0];
     [NSLayoutConstraint activateConstraints:@[
-        [self.tableView.topAnchor constraintEqualToAnchor:guide.topAnchor],
+        // 聊天背景和消息内容铺到状态栏下方；统一 Glass 导航栏叠加在内容之上。
+        [self.tableView.topAnchor constraintEqualToAnchor:self.view.topAnchor],
         [self.tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [self.tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
         [self.tableView.bottomAnchor constraintEqualToAnchor:self.typingLabel.topAnchor],
@@ -2792,14 +2820,22 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     }
     if (self.isGroupChat) {
         NSString *name = self.groupName.length > 0 ? self.groupName : @"群聊";
-        NSUInteger count = self.groupInfo.members.count;
-        NSString *countStr = count > 0 ? [NSString stringWithFormat:@"（%lu人）", (unsigned long)count] : @"";
-        self.title = [NSString stringWithFormat:@"%@%@%@", name, countStr, suffix];
+        self.title = [NSString stringWithFormat:@"%@%@", name, suffix];
+        [self refreshUnifiedNavigationBar];
         return;
     }
     NSString *dot = self.peerOnline ? @"🟢 " : @"";
     if (self.connState == IMSocketStateConnected && self.peerOnline) { suffix = @"（在线）"; }
     self.title = [NSString stringWithFormat:@"%@%@%@", dot, self.peerID, suffix];
+    [self refreshUnifiedNavigationBar];
+}
+
+- (BOOL)im_isGroupChat { return self.isGroupChat; }
+
+- (NSString *)im_navigationSubtitle {
+    if (!self.isGroupChat) { return @""; }
+    NSUInteger count = self.groupInfo.members.count;
+    return count > 0 ? [NSString stringWithFormat:@"%lu 位成员", (unsigned long)count] : @"";
 }
 
 - (void)socketManager:(IMSocketManager *)manager didReceiveMessage:(IMMessageModel *)message {

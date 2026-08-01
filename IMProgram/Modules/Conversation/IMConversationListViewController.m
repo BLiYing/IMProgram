@@ -19,6 +19,7 @@
 #import "IMUserSearchViewController.h"
 #import "IMGroupMemberPickerViewController.h"
 #import "IMGroupInfo.h"
+#import "IMNavigationButton.h"
 
 #pragma mark - 会话 Cell（Telegram 风格：圆形头像 + 名称/最后一条 + 时间 + 未读蓝胶囊）
 
@@ -272,22 +273,17 @@ static CGFloat const kIMRowLeading = 16;
     [super viewDidLoad];
     self.title = @"会话";
     self.view.backgroundColor = UIColor.systemBackgroundColor;
-    // 右上角 ＋：自绘卡片（IMPopoverCard）在按钮正下方弹出——新建群聊 / 添加好友 / 扫一扫。
-    UIButton *plus = [UIButton buttonWithType:UIButtonTypeSystem];
-    plus.frame = CGRectMake(0, 0, 40, 40);
-    [plus setImage:[UIImage systemImageNamed:@"plus"
-                          withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:20 weight:UIImageSymbolWeightSemibold]]
-          forState:UIControlStateNormal];
-    // 十字图标居中显示（原右对齐导致视觉偏移）；统一默认白色，与群聊列表右上角加号一致。
-    plus.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
-    plus.tintColor = UIColor.whiteColor;
-    [plus addTarget:self action:@selector(plusTapped:) forControlEvents:UIControlEventTouchUpInside];
-    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithCustomView:plus];
+    // 使用系统 UIBarButtonItem；iOS 26 会把标题、返回键和此按钮分成独立 Liquid Glass 控件。
+    self.navigationItem.rightBarButtonItem =
+        [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"plus"]
+                                         style:UIBarButtonItemStylePlain
+                                        target:self action:@selector(plusTapped:)];
 
     self.tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStylePlain];
     self.tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     self.tableView.dataSource = self;
     self.tableView.delegate = self;
+    self.tableView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentAutomatic;
     self.tableView.rowHeight = 76;
     // 分隔线左缩进对齐文字（不压头像下方），Telegram/微信式。
     self.tableView.separatorInset = UIEdgeInsetsMake(0, kIMRowLeading + kIMAvatarSize + 12, 0, 0);
@@ -454,8 +450,8 @@ static CGFloat const kIMRowLeading = 16;
 
 #pragma mark - 交互
 
-/// 右上角 ＋ 自绘卡片：新建群聊 / 添加好友 / 扫一扫（与详情「更多」同款 IMPopoverCard，锚按钮正下方）。
-- (void)plusTapped:(UIButton *)anchor {
+/// 右上角 ＋ 系统菜单：新建群聊 / 添加好友 / 扫一扫（与详情「更多」同款 UIKit 弹窗）。
+- (void)plusTapped:(UIBarButtonItem *)barButtonItem {
     if ([IMPopoverCard isPresentingInHostView:self.view]) { return; }
     __weak typeof(self) ws = self;
     NSArray<IMPopoverCardItem *> *items = @[
@@ -463,7 +459,7 @@ static CGFloat const kIMRowLeading = 16;
         [IMPopoverCardItem itemWithTitle:@"添加好友" symbol:@"person.badge.plus" destructive:NO handler:^{ [ws openAddFriend]; }],
         [IMPopoverCardItem itemWithTitle:@"扫一扫" symbol:@"qrcode.viewfinder" destructive:NO handler:^{ [ws im_showToast:@"扫一扫功能开发中"]; }],
     ];
-    [IMPopoverCard presentFromAnchor:anchor inHostView:self.view items:items];
+    [IMPopoverCard presentFromBarButtonItem:barButtonItem inHostView:self.view items:items];
 }
 
 /// 新建群聊：选好友 → 起群名 → 建群 → 直接进入新群会话（复用通讯录群聊页同一流程）。
