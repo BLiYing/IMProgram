@@ -334,8 +334,8 @@
     CGFloat islandBottom = MAX(36, top - 9);
     CGFloat contactEnd = 0.38;
     CGFloat swallow = 0, w = restD, h = restD, cy = restCY;
-    BOOL attached = q >= contactEnd;
-    if (!attached) {
+    BOOL attached = NO;
+    if (q <= contactEnd) {
         CGFloat c = q / contactEnd;
         c = c * c * (3 - 2 * c);
         w = h = restD + (64 - restD) * c;
@@ -346,10 +346,13 @@
         w = 64 + (18 - 64) * swallow;
         h = 64 + (6 - 64) * swallow;
         cy = islandBottom - 5 + h * 0.5;
+        attached = swallow > 0.001;
     }
     CGFloat neckPulse = attached && !UIAccessibilityIsReduceMotionEnabled() ? sin(M_PI * swallow) : 0;
     CGFloat drawW = w * (1 - 0.08 * neckPulse);
     CGFloat drawH = h * (1 + 0.08 * neckPulse);
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
     self.profileAvatar.transform = CGAffineTransformIdentity;
     self.profileAvatar.frame = CGRectMake((W - drawW) / 2, cy - drawH / 2, drawW, drawH);
     self.profileAvatar.layer.cornerRadius = attached ? 0 : MIN(drawW, drawH) / 2;
@@ -387,6 +390,7 @@
         self.profileAvatarMask.path = path.CGPath;
         self.profileAvatar.layer.mask = self.profileAvatarMask;
     }
+    [CATransaction commit];
 
     CGFloat labelsAlpha = MIN(MAX(1 - q * 2.3, 0), 1);
     CGFloat nameY = cy + drawH / 2 + 8;

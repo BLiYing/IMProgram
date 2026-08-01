@@ -130,9 +130,12 @@
             controlPoint1:CGPointMake(cx - shoulder, h * 0.20)
             controlPoint2:CGPointMake(cx - neckHalf, neckY)];
     [path closePath];
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
     _absorptionMask.frame = self.bounds;
     _absorptionMask.path = path.CGPath;
     self.layer.mask = _absorptionMask;
+    [CATransaction commit];
     _absorptionBlur.alpha = MIN(MAX(-0.10 + progress * 1.10, 0), 1);
     _absorptionFade.alpha = MIN(MAX(-0.25 + progress * 1.55, 0), 1);
 }
@@ -649,7 +652,7 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
     CGFloat islandBottom = MAX(36, top - 9);
     CGFloat contactEnd = 0.38;
     CGFloat w, h, cy;
-    if (q < contactEnd) {
+    if (q <= contactEnd) {
         CGFloat contact = IMSmooth(q / contactEnd);
         w = h = IMLerp(restD, 64, contact);
         cy = IMLerp(restCY, islandBottom + h * 0.5 - 2, contact);
@@ -658,16 +661,19 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
         w = IMLerp(64, 18, swallow);
         h = IMLerp(64, 6, swallow);
         cy = islandBottom - 5 + h * 0.5;
-        attachedToIsland = YES;
+        attachedToIsland = swallow > 0.001;
     }
 
     // 接触前维持圆形上移；接触后顶部固定，水滴主体向上收缩。
     CGFloat neckPulse = (attachedToIsland && !reduceMotion) ? sin(M_PI * swallow) : 0;
     CGFloat drawW = w * (1 - 0.08 * neckPulse);
     CGFloat drawH = h * (1 + 0.08 * neckPulse);
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
     self.avatarView.frame = CGRectMake(W / 2 - drawW / 2, cy - drawH / 2, drawW, drawH);
-    [self.avatarView applyAbsorptionMaskProgress:(attachedToIsland ? swallow : 0)];
     self.avatarView.layer.cornerRadius = attachedToIsland ? 0 : MIN(drawW, drawH) / 2;
+    [self.avatarView applyAbsorptionMaskProgress:(attachedToIsland ? swallow : 0)];
+    [CATransaction commit];
     self.avatarView.alpha = swallow > 0.88 ? IMClamp(1 - (swallow - 0.88) / 0.12, 0, 1) : 1;
 
     // 统一圆头像下方标题，URL 头像不会切换到另一套大图标题布局。
