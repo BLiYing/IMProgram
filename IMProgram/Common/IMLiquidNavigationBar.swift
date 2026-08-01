@@ -221,7 +221,8 @@ public final class IMLiquidNavigationBar: UIView {
         titleGlass.alpha = showsTitleGlass ? progress : 0
         titleLabel.alpha = progress
         subtitleLabel.alpha = progress
-        actionGlass.alpha = 1
+        actionGlass.isHidden = actionButton.isHidden
+        actionGlass.alpha = actionButton.isHidden ? 0 : 1
         actionButton.alpha = 1
         actionButton.isUserInteractionEnabled = !actionButton.isHidden
     }

@@ -450,7 +450,7 @@ static CGFloat const kIMRowLeading = 16;
 
 #pragma mark - 交互
 
-/// 右上角 ＋ 系统菜单：新建群聊 / 添加好友 / 扫一扫（与详情「更多」同款 UIKit 弹窗）。
+/// 右上角 ＋ Telegram 式锚点菜单：新建群聊 / 添加好友 / 扫一扫（与详情「更多」复用同一组件）。
 - (void)plusTapped:(UIBarButtonItem *)barButtonItem {
     if ([IMPopoverCard isPresentingInHostView:self.view]) { return; }
     __weak typeof(self) ws = self;

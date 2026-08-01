@@ -1,5 +1,5 @@
 //  IMPopoverCard.h
-//  兼容旧调用方的系统菜单入口：内部使用 UIKit action sheet/popover，iOS 26 自动获得 Liquid Glass。
+//  Telegram 式锚点上下文菜单：磨砂圆角卡片、图标、分隔线与危险操作语义。
 
 #import <UIKit/UIKit.h>
 
@@ -17,9 +17,9 @@ NS_ASSUME_NONNULL_BEGIN
 @interface IMPopoverCard : NSObject
 /// 同一 host 内是否已有弹出卡片。用于避免导航栏按钮连续点击叠出多个菜单。
 + (BOOL)isPresentingInHostView:(UIView *)host;
-/// 在 host 内锚定 anchor 展示系统 action sheet/popover；关闭和动画由 UIKit 管理。
+/// 在 host 内锚定 anchor 展示 Telegram 式上下文菜单。
 + (void)presentFromAnchor:(UIView *)anchor inHostView:(UIView *)host items:(NSArray<IMPopoverCardItem *> *)items;
-/// 导航栏按钮必须使用 UIBarButtonItem 作为 iPad popover 锚点，不能把它强转成 UIView。
+/// 导航栏按钮入口；使用导航栏右上按钮的屏幕位置作为锚点。
 + (void)presentFromBarButtonItem:(UIBarButtonItem *)barButtonItem
                       inHostView:(UIView *)host
                            items:(NSArray<IMPopoverCardItem *> *)items;

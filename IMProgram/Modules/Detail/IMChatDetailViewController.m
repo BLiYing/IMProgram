@@ -572,7 +572,7 @@ static CGFloat const kPillsRowH = 78;
 
     self.liquidNavigationBar = [[IMLiquidNavigationBar alloc] initWithTitle:name
                                                                      subtitle:self.displaySubtitle
-                                                                  actionTitle:@"编辑"];
+                                                                  actionTitle:(self.isGroup ? @"编辑" : nil)];
     self.liquidNavigationBar.delegate = self;
     self.liquidNavigationBar.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:self.liquidNavigationBar];
@@ -1337,7 +1337,7 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
     [self.navigationController pushViewController:chat animated:YES];
 }
 
-/// 「更多」系统菜单：清空记录=普通色；退出/删除群/拉黑=红。
+/// 「更多」Telegram 式锚点菜单：清空记录=普通色；退出/删除群/拉黑=红。
 - (void)moreTapped:(UIButton *)anchor {
     NSMutableArray<IMPopoverCardItem *> *items = [NSMutableArray array];
     __weak typeof(self) ws = self;
