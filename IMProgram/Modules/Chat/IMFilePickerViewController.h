@@ -11,13 +11,13 @@ typedef void (^IMSentFilePageLoader)(BOOL nextPage, IMSentFilePageCompletion com
 
 @interface IMFilePickerViewController : UIViewController
 
-/// recentFiles：@[@{@"url",@"name"}]（新→旧）。
-/// onFromPhotos / onFromFiles：选「从相册/从文件」的回调；onPickRecent：点最近文件（url,name）复发。
+/// recentFiles：@[@{@"url",@"name",@"size",@"timestamp"}]（新→旧）。
+/// onFromPhotos / onFromFiles：选「从相册/从文件」的回调；onPickRecent：点最近文件（url,name,size）复发。
 /// 三个回调触发前面板已自行关闭。
 - (instancetype)initWithRecentFiles:(NSArray<NSDictionary *> *)recentFiles
                         onFromPhotos:(dispatch_block_t)onFromPhotos
                          onFromFiles:(dispatch_block_t)onFromFiles
-                        onPickRecent:(void (^)(NSString *url, NSString *name))onPickRecent
+                        onPickRecent:(void (^)(NSString *url, NSString *name, int64_t size))onPickRecent
                             loadPage:(IMSentFilePageLoader)loadPage NS_DESIGNATED_INITIALIZER;
 
 - (instancetype)init NS_UNAVAILABLE;

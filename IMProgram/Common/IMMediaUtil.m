@@ -1,6 +1,7 @@
 //  IMMediaUtil.m
 
 #import "IMMediaUtil.h"
+#import <math.h>
 
 NSString *IMMediaFullURL(NSString *content, NSString *host) {
     if (content.length == 0) { return @""; }
@@ -17,6 +18,37 @@ NSString *IMMediaFileName(NSString *content) {
         return [decoded substringFromIndex:r.location + 2];
     }
     return decoded; // 老文件（无 __）回退整段名
+}
+
+NSString *IMFormatFileSize(int64_t bytes) {
+    if (bytes < 0) { return @""; }
+    if (bytes == 0) { return @"0 KB"; }
+    double value = 0;
+    NSString *unit = nil;
+    if (bytes >= 1024LL * 1024LL * 1024LL) {
+        value = (double)bytes / (1024.0 * 1024.0 * 1024.0);
+        unit = @"GB";
+    } else if (bytes >= 1024LL * 1024LL) {
+        value = (double)bytes / (1024.0 * 1024.0);
+        unit = @"MB";
+    } else {
+        value = (double)bytes / 1024.0;
+        unit = @"KB";
+    }
+    value = MAX(0.1, value);
+    NSString *number = fabs(value - round(value)) < 0.05
+        ? [NSString stringWithFormat:@"%.0f", value]
+        : [NSString stringWithFormat:@"%.1f", value];
+    return [NSString stringWithFormat:@"%@ %@", number, unit];
+}
+
+NSString *IMFormatFileDateTime(int64_t timestampMillis) {
+    if (timestampMillis <= 0) { return @""; }
+    NSDateFormatter *formatter = [NSDateFormatter new];
+    formatter.locale = [NSLocale localeWithLocaleIdentifier:@"zh_CN"];
+    formatter.dateFormat = @"yyyy-MM-dd HH:mm";
+    NSDate *date = [NSDate dateWithTimeIntervalSince1970:(NSTimeInterval)timestampMillis / 1000.0];
+    return [formatter stringFromDate:date] ?: @"";
 }
 
 BOOL IMMediaLooksLikeURL(NSString *s) {

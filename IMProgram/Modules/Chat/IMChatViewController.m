@@ -1257,7 +1257,9 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         initWithRecentFiles:[IMDatabase.sharedDatabase cachedSentFiles]
         onFromPhotos:^{ [ws openPhotoFilePicker]; }
         onFromFiles:^{ [ws presentDocumentPicker]; }
-        onPickRecent:^(NSString *url, NSString *name) { [ws sendMediaURL:url contentType:@"file" fileName:name]; }
+        onPickRecent:^(NSString *url, NSString *name, int64_t size) {
+            [ws sendMediaURL:url contentType:@"file" fileName:name fileSize:size];
+        }
         loadPage:^(BOOL nextPage, IMSentFilePageCompletion completion) {
             NSString *token = IMHTTPService.sharedService.currentToken;
             if (token.length == 0) {
@@ -1304,7 +1306,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
                 if (error || url.length == 0) {
                     [self im_showToast:@"文件上传失败"];
                 } else {
-                    [self sendMediaURL:url contentType:@"file" fileName:item.fileName];
+                    [self sendMediaURL:url contentType:@"file" fileName:item.fileName fileSize:(int64_t)item.data.length];
                 }
                 [self uploadPhotoFiles:handles index:index + 1];
             }];
@@ -1337,7 +1339,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
             [self im_showToast:error.localizedDescription.length ? error.localizedDescription : @"文件上传失败"];
             return;
         }
-        [self sendMediaURL:up contentType:@"file" fileName:originalName];
+        [self sendMediaURL:up contentType:@"file" fileName:originalName fileSize:(int64_t)data.length];
     }];
 }
 
@@ -1371,10 +1373,14 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 
 /// 发送已上传的媒体：走 socket sendMedia，乐观上屏。
 - (void)sendMediaURL:(NSString *)url contentType:(NSString *)contentType {
-    [self sendMediaURL:url contentType:contentType fileName:nil];
+    [self sendMediaURL:url contentType:contentType fileName:nil fileSize:0];
 }
 
 - (void)sendMediaURL:(NSString *)url contentType:(NSString *)contentType fileName:(NSString *)fileName {
+    [self sendMediaURL:url contentType:contentType fileName:fileName fileSize:0];
+}
+
+- (void)sendMediaURL:(NSString *)url contentType:(NSString *)contentType fileName:(NSString *)fileName fileSize:(int64_t)fileSize {
     __block NSString *clientMsgID = nil;
     int64_t sentAt = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
     __weak typeof(self) ws = self;
@@ -1383,13 +1389,13 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         if (success && [contentType isEqualToString:@"file"] && fileName.length > 0) {
             [IMDatabase.sharedDatabase cacheSentFiles:@[@{
                 @"server_msg_id": clientMsgID ?: @"",
-                @"url": url ?: @"", @"name": fileName, @"timestamp": @(sentAt),
+                @"url": url ?: @"", @"name": fileName, @"size": @(fileSize), @"timestamp": @(sentAt),
             }]];
         }
     };
     NSString *toUser = self.isGroupChat ? @"" : self.peerID;
     if ([contentType isEqualToString:@"file"]) {
-        clientMsgID = [IMSocketManager.sharedManager sendFile:url fileName:fileName ?: @"" toConv:self.convID toUser:toUser completion:completion];
+        clientMsgID = [IMSocketManager.sharedManager sendFile:url fileName:fileName ?: @"" fileSize:fileSize toConv:self.convID toUser:toUser completion:completion];
     } else {
         clientMsgID = [IMSocketManager.sharedManager sendMedia:url contentType:contentType toConv:self.convID toUser:toUser completion:completion];
     }
@@ -1398,6 +1404,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     m.clientMsgID = clientMsgID; m.convID = self.convID; m.to = self.peerID; m.from = self.userID;
     m.content = url; m.contentType = contentType; m.status = IMMessageStatusSending;
     m.fileName = fileName;
+    m.fileSize = fileSize;
     m.timestamp = sentAt;
     [IMDatabase.sharedDatabase saveMessage:m];
     [self.messages addObject:m];
@@ -1504,6 +1511,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     NSString *content = message.content;
     NSString *contentType = message.contentType ?: @"text";
     NSString *fileName = message.fileName;
+    int64_t fileSize = message.fileSize;
     __weak typeof(self) ws = self;
     IMForwardPickerViewController *picker = [[IMForwardPickerViewController alloc]
         initWithHost:self.host token:token onDone:^(NSArray<IMConversation *> *selected) {
@@ -1511,7 +1519,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         if (!self || selected.count == 0) { return; }
         for (IMConversation *c in selected) {
             NSString *toUser = c.isGroup ? @"" : (c.peer ?: @"");
-            [self forwardEchoContent:content contentType:contentType forwardFrom:origin fileName:fileName
+            [self forwardEchoContent:content contentType:contentType forwardFrom:origin fileName:fileName fileSize:fileSize
                               toConv:c.convID toUser:toUser];
         }
         [self im_showToast:selected.count == 1 ? @"已转发" : [NSString stringWithFormat:@"已转发到 %lu 个会话", (unsigned long)selected.count]];
@@ -2089,7 +2097,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 /// 转发的发送方本地回显（用户反馈 #2）：服务端不回显自己发的消息，转发若不落库/上屏，
 /// 发送方在目标会话里看不到这条转发。与普通发送一致：乐观消息落库（目标是当前会话则上屏），
 /// ACK 后按 clientMsgID upsert 状态/conv_seq（页面已退出也能改到库，重进会话读到正确状态）。
-- (void)forwardEchoContent:(NSString *)content contentType:(NSString *)ct forwardFrom:(NSString *)origin fileName:(NSString *)fileName
+- (void)forwardEchoContent:(NSString *)content contentType:(NSString *)ct forwardFrom:(NSString *)origin fileName:(NSString *)fileName fileSize:(int64_t)fileSize
                     toConv:(NSString *)convID toUser:(NSString *)toUser {
     IMMessageModel *m = [IMMessageModel new];
     int64_t sentAt = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
@@ -2097,6 +2105,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     NSString *clientMsgID = [IMSocketManager.sharedManager forwardContent:content contentType:ct
                                                                    toConv:convID toUser:toUser forwardFrom:origin
                                                                  fileName:fileName
+                                                                 fileSize:fileSize
                                                                completion:^(BOOL success, NSError *error, int64_t convSeq) {
         m.status = success ? IMMessageStatusSent : IMMessageStatusFailed;
         m.convSeq = convSeq;
@@ -2104,7 +2113,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         if (success && [ct isEqualToString:@"file"] && fileName.length > 0) {
             [IMDatabase.sharedDatabase cacheSentFiles:@[@{
                 @"server_msg_id": m.clientMsgID ?: @"", @"url": content,
-                @"name": fileName, @"timestamp": @(sentAt),
+                @"name": fileName, @"size": @(fileSize), @"timestamp": @(sentAt),
             }]];
         }
         __strong typeof(ws) self = ws;
@@ -2117,6 +2126,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     m.convID = convID; m.to = toUser; m.from = self.userID;
     m.content = content; m.contentType = ct;
     m.fileName = fileName;
+    m.fileSize = fileSize;
     m.forwardFrom = origin.length > 0 ? origin : nil;
     m.status = IMMessageStatusSending;
     m.timestamp = sentAt;
@@ -2145,7 +2155,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
             if (m.recalledAt > 0 || m.content.length == 0 || [m.contentType isEqualToString:@"system"]) { continue; }
             NSString *origin = m.forwardFrom.length > 0 ? m.forwardFrom
                 : (m.fromNickname.length > 0 ? m.fromNickname : (m.from ?: @""));
-            [self forwardEchoContent:m.content contentType:(m.contentType ?: @"text") forwardFrom:origin fileName:m.fileName
+            [self forwardEchoContent:m.content contentType:(m.contentType ?: @"text") forwardFrom:origin fileName:m.fileName fileSize:m.fileSize
                               toConv:c.convID toUser:toUser];
         }
     }
@@ -2157,7 +2167,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     if (json.length == 0) { return; }
     for (IMConversation *c in convs) {
         NSString *toUser = c.isGroup ? @"" : (c.peer ?: @"");
-        [self forwardEchoContent:json contentType:@"chat_record" forwardFrom:@"" fileName:nil
+        [self forwardEchoContent:json contentType:@"chat_record" forwardFrom:@"" fileName:nil fileSize:0
                           toConv:c.convID toUser:toUser];
     }
     [self exitSelection];

@@ -11,6 +11,12 @@ FOUNDATION_EXPORT NSString *IMMediaFullURL(NSString *_Nullable content, NSString
 /// 从文件消息 URL 取原始显示文件名：存储名格式 <随机>__<原名>.<ext>，取 "__" 之后并百分号解码。
 FOUNDATION_EXPORT NSString *IMMediaFileName(NSString *_Nullable content);
 
+/// 把协议/SQLite 中的原始字节数格式化为 KB / MB / GB（1024 进制，最多一位小数）；无有效大小返回空串。
+FOUNDATION_EXPORT NSString *IMFormatFileSize(int64_t bytes);
+
+/// 把协议/SQLite 中的毫秒时间戳格式化为本地时间 yyyy-MM-dd HH:mm；无有效时间返回空串。
+FOUNDATION_EXPORT NSString *IMFormatFileDateTime(int64_t timestampMillis);
+
 /// 整条内容是否就是一个 http(s) 链接（无空白）→ 用于 URL 消息渲染判定。
 FOUNDATION_EXPORT BOOL IMMediaLooksLikeURL(NSString *_Nullable s);
 

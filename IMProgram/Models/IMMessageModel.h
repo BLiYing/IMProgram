@@ -25,6 +25,7 @@ typedef NS_ENUM(NSInteger, IMMessageStatus) {
 @property (nonatomic, copy)   NSString *contentType; ///< text|image|audio...
 @property (nonatomic, copy)   NSString *content;     ///< 文本内容
 @property (nonatomic, copy, nullable) NSString *fileName; ///< file 消息原始文件名
+@property (nonatomic, assign) int64_t fileSize; ///< file 消息原始字节数；界面只格式化，不重新读取文件
 @property (nonatomic, assign) int64_t  convSeq;      ///< 会话内单调序号，ack/new_msg 后填充
 @property (nonatomic, assign) int64_t  timestamp;    ///< 服务端时间（毫秒）
 @property (nonatomic, assign) IMMessageStatus status;

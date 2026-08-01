@@ -2,6 +2,7 @@
 
 #import "IMFilePickerViewController.h"
 #import "IMMediaUtil.h"
+#import "IMTheme.h"
 
 @interface IMFilePickerViewController () <UITableViewDataSource, UITableViewDelegate>
 @end
@@ -10,7 +11,7 @@
     NSMutableArray<NSDictionary *> *_recent;
     dispatch_block_t _onFromPhotos;
     dispatch_block_t _onFromFiles;
-    void (^_onPickRecent)(NSString *, NSString *);
+    void (^_onPickRecent)(NSString *, NSString *, int64_t);
     IMSentFilePageLoader _loadPage;
     BOOL _loading;
     BOOL _hasMore;
@@ -20,7 +21,7 @@
 - (instancetype)initWithRecentFiles:(NSArray<NSDictionary *> *)recentFiles
                         onFromPhotos:(dispatch_block_t)onFromPhotos
                          onFromFiles:(dispatch_block_t)onFromFiles
-                        onPickRecent:(void (^)(NSString *, NSString *))onPickRecent
+                        onPickRecent:(void (^)(NSString *, NSString *, int64_t))onPickRecent
                             loadPage:(IMSentFilePageLoader)loadPage {
     if ((self = [super initWithNibName:nil bundle:nil])) {
         _recent = [recentFiles mutableCopy] ?: [NSMutableArray array];
@@ -42,14 +43,13 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"文件";
-    self.view.backgroundColor = UIColor.systemBackgroundColor;
+    self.view.backgroundColor = IMTheme.pageBackground;
     self.navigationItem.leftBarButtonItem =
         [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemClose target:self action:@selector(closeTapped)];
     _tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStyleInsetGrouped];
     _tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     _tableView.dataSource = self;
     _tableView.delegate = self;
-    [_tableView registerClass:UITableViewCell.class forCellReuseIdentifier:@"c"];
     [self.view addSubview:_tableView];
     [self loadNextPage:NO];
 }
@@ -101,8 +101,10 @@
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)ip {
-    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"c" forIndexPath:ip];
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"c"];
+    if (!cell) { cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"c"]; }
     cell.imageView.tintColor = self.view.tintColor;
+    cell.detailTextLabel.text = nil;
     if (ip.section == 0) {
         if (ip.row == 0) {
             cell.textLabel.text = @"从相册中选择";
@@ -117,6 +119,15 @@
         cell.textLabel.text = [f[@"name"] isKindOfClass:NSString.class] ? f[@"name"] : @"文件";
         cell.textLabel.numberOfLines = 1;
         cell.imageView.image = IMFileTypeIconForName(cell.textLabel.text, 34);
+        NSString *size = IMFormatFileSize([f[@"size"] longLongValue]);
+        NSString *dateTime = IMFormatFileDateTime([f[@"timestamp"] longLongValue]);
+        if (size.length > 0 && dateTime.length > 0) {
+            cell.detailTextLabel.text = [NSString stringWithFormat:@"%@ · %@", size, dateTime];
+        } else {
+            cell.detailTextLabel.text = size.length > 0 ? size : dateTime;
+        }
+        cell.detailTextLabel.textColor = IMTheme.textSecondary;
+        cell.detailTextLabel.font = [UIFont systemFontOfSize:12];
         cell.accessoryType = UITableViewCellAccessoryNone;
     }
     return cell;
@@ -131,8 +142,9 @@
     NSDictionary *f = _recent[(NSUInteger)ip.row];
     NSString *url = [f[@"url"] isKindOfClass:NSString.class] ? f[@"url"] : @"";
     NSString *name = [f[@"name"] isKindOfClass:NSString.class] ? f[@"name"] : @"";
-    void (^cb)(NSString *, NSString *) = _onPickRecent;
-    [self dismissViewControllerAnimated:YES completion:^{ if (cb && url.length) { cb(url, name); } }];
+    int64_t size = [f[@"size"] longLongValue];
+    void (^cb)(NSString *, NSString *, int64_t) = _onPickRecent;
+    [self dismissViewControllerAnimated:YES completion:^{ if (cb && url.length) { cb(url, name, size); } }];
 }
 
 - (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {

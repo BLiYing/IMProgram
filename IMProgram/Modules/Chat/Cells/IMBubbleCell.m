@@ -288,6 +288,12 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         [body appendAttributedString:[NSAttributedString attributedStringWithAttachment:att]];
         [body appendAttributedString:[[NSAttributedString alloc] initWithString:[@"  " stringByAppendingString:fname]
             attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:IMTheme.chatFontSize], NSForegroundColorAttributeName: fileColor }]];
+        NSString *sizeText = IMFormatFileSize(message.fileSize);
+        if (sizeText.length > 0) {
+            [body appendAttributedString:[[NSAttributedString alloc] initWithString:[@"\n" stringByAppendingString:sizeText]
+                attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:12],
+                              NSForegroundColorAttributeName: IMTheme.textSecondary }]];
+        }
     } else {
         if (IMLooksLikeURL(contentText)) {
             contentAttr[NSForegroundColorAttributeName] = UIColor.systemBlueColor;

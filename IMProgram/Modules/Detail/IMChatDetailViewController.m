@@ -1180,7 +1180,9 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
     if (t.kind == IMDetailTabKindFiles) {
         cell.textLabel.text = m.fileName.length > 0 ? m.fileName : @"文件";
         cell.imageView.image = IMFileTypeIconForName(m.fileName, 36);
-        cell.detailTextLabel.text = [IMTheme timeStringFromMillis:m.timestamp];
+        NSString *size = IMFormatFileSize(m.fileSize);
+        NSString *time = IMFormatFileDateTime(m.timestamp);
+        cell.detailTextLabel.text = size.length > 0 ? [NSString stringWithFormat:@"%@ · %@", size, time] : time;
     } else if (t.kind == IMDetailTabKindVoice) {
         cell.textLabel.text = @"语音消息";
         cell.imageView.image = [UIImage systemImageNamed:@"waveform"]; cell.imageView.tintColor = IMTheme.accent;

@@ -358,7 +358,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     return [self sendText:text toUser:(toUserID ?: @"") convID:convID replyToConvSeq:0 forwardFrom:forwardFrom completion:completion];
 }
 
-- (NSString *)forwardContent:(NSString *)content contentType:(NSString *)contentType toConv:(NSString *)convID toUser:(NSString *)toUserID forwardFrom:(NSString *)forwardFrom fileName:(NSString *)fileName completion:(IMSendCompletion)completion {
+- (NSString *)forwardContent:(NSString *)content contentType:(NSString *)contentType toConv:(NSString *)convID toUser:(NSString *)toUserID forwardFrom:(NSString *)forwardFrom fileName:(NSString *)fileName fileSize:(int64_t)fileSize completion:(IMSendCompletion)completion {
     NSString *ct = contentType.length > 0 ? contentType : @"text";
     if ([ct isEqualToString:@"text"]) { // 文本走既有路径（可带引用等），媒体走带 content_type 的负载
         return [self forwardText:content toConv:convID toUser:toUserID forwardFrom:forwardFrom completion:completion];
@@ -373,6 +373,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     } mutableCopy];
     if (forwardFrom.length > 0) { payload[@"forward_from"] = forwardFrom; }
     if ([ct isEqualToString:@"file"] && fileName.length > 0) { payload[@"file_name"] = fileName; }
+    if ([ct isEqualToString:@"file"] && fileSize > 0) { payload[@"file_size"] = @(fileSize); }
     dispatch_async(_queue, ^{
         [self enqueueSendWithClientMsgID:clientMsgID payload:payload completion:completion];
     });
@@ -383,7 +384,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     return [self sendMedia:url contentType:contentType toConv:convID toUser:toUserID groupID:nil poster:nil completion:completion];
 }
 
-- (NSString *)sendFile:(NSString *)url fileName:(NSString *)fileName toConv:(NSString *)convID toUser:(NSString *)toUserID completion:(IMSendCompletion)completion {
+- (NSString *)sendFile:(NSString *)url fileName:(NSString *)fileName fileSize:(int64_t)fileSize toConv:(NSString *)convID toUser:(NSString *)toUserID completion:(IMSendCompletion)completion {
     NSString *clientMsgID = [NSUUID UUID].UUIDString;
     NSMutableDictionary *payload = [@{
         @"client_msg_id": clientMsgID,
@@ -392,6 +393,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
         @"content_type": @"file",
         @"content": url ?: @"",
         @"file_name": fileName ?: @"",
+        @"file_size": @(fileSize),
     } mutableCopy];
     dispatch_async(_queue, ^{
         [self enqueueSendWithClientMsgID:clientMsgID payload:payload completion:completion];
