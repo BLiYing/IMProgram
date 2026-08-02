@@ -5,6 +5,18 @@
 
 ## 当前焦点
 
+- **✅ 系统 Files 选择与返回链（2026-08-02，iOS 26 真机测试通过；按用户要求未编译）**：
+  诊断日志确认应用只创建一次 picker（唯一地址 `0x1078a8000`），随后模拟器的
+  `com.apple.DocumentManagerUICore.Service` 连接中断并以 `FBSceneErrorDomain Code=2` 明确报告
+  remote view controller 崩溃、系统自动重启；重复 `DOCRemote…` 页面来自这次系统服务重启，不是应用
+  重复 present。日志还同时出现 iOS 26.3 runtime 缺失 AppleColorEmoji 字体、IconServices 无法解析
+  `com.apple.ios-simulator`。同时发现全局页面日志曾进入 `DOCRemote…` 私有控制器并读取
+  `navigationItem`；该属性可能被懒创建，存在干扰系统私有返回栈及远程视图生命周期的风险。现已将
+  页面日志严格限制为 `IM*` 自有控制器，在读取 title/navigationItem 前即过滤所有系统/三方页面，并补
+  回归测试。另撤回无效且可能排除 `.pages` 等包文档的 `UTTypeData` 规避，恢复 `UTTypeItem`；保留稳定
+  宿主、picker 单实例保护和诊断日志。用户已确认 iOS 26 真机选择、返回“浏览”及继续选择均正常，故
+  真机功能收口；iOS 26.3 Simulator 的 DocumentManager remote service 崩溃登记为 runtime 限制，若需
+  继续追踪应向 Apple Feedback 附最小复现与 sysdiagnose。
 - **iOS 单库账号上下文 generation 加固（2026-08-02，用户确认测试通过）**：保留
   `Documents/im.sqlite` + `owner_uid` 逻辑隔离，新增绑定数据库实例、owner 与账号激活代次的
   `IMDatabaseAccountContext`；异步任务以创建时令牌通过原子“校验 + 执行”入口访问数据库。

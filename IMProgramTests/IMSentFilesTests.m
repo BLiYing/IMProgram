@@ -1,13 +1,30 @@
 #import <XCTest/XCTest.h>
 
 #import "IMDatabase.h"
+#import "IMFilePickerViewController.h"
 #import "IMMessageModel.h"
 #import "IMMediaUtil.h"
+#import "UIViewController+IMPageLog.h"
 
 @interface IMSentFilesTests : XCTestCase
 @end
 
 @implementation IMSentFilesTests
+
+- (void)testPageLoggerNeverTouchesSystemDocumentPickerControllers {
+    XCTAssertTrue(IMShouldLogPageClassName(@"IMFilePickerViewController"));
+    XCTAssertFalse(IMShouldLogPageClassName(@"UIDocumentPickerViewController"));
+    XCTAssertFalse(IMShouldLogPageClassName(@"DOCRemoteContainerViewController"));
+    XCTAssertFalse(IMShouldLogPageClassName(@"DOCRemoteViewController"));
+}
+
+- (void)testSystemDocumentPickerUsesStableFullScreenBrowserPresentation {
+    UIDocumentPickerViewController *picker = [IMFilePickerViewController systemDocumentPicker];
+
+    XCTAssertEqual(picker.modalPresentationStyle, UIModalPresentationFullScreen);
+    XCTAssertFalse(picker.allowsMultipleSelection);
+    XCTAssertTrue(picker.shouldShowFileExtensions);
+}
 
 - (NSURL *)temporaryDatabaseURL {
     NSString *name = [NSString stringWithFormat:@"sent-files-%@.sqlite", NSUUID.UUID.UUIDString];

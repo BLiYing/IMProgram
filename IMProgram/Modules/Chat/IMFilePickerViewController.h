@@ -11,12 +11,15 @@ typedef void (^IMSentFilePageLoader)(BOOL nextPage, IMSentFilePageCompletion com
 
 @interface IMFilePickerViewController : UIViewController
 
+/// 创建系统文件浏览器。由文件面板直接呈现，保持 Files / File Provider 的完整内部导航栈。
++ (UIDocumentPickerViewController *)systemDocumentPicker;
+
 /// recentFiles：@[@{@"url",@"name",@"size",@"timestamp"}]（新→旧）。
-/// onFromPhotos / onFromFiles：选「从相册/从文件」的回调；onPickRecent：点最近文件（url,name,size）复发。
-/// 三个回调触发前面板已自行关闭。
+/// onFromPhotos：选择相册入口；onPickDocument：系统 Files 返回的本地 URL；
+/// onPickRecent：点最近文件（url,name,size）复发。回调触发前面板已自行关闭。
 - (instancetype)initWithRecentFiles:(NSArray<NSDictionary *> *)recentFiles
                         onFromPhotos:(dispatch_block_t)onFromPhotos
-                         onFromFiles:(dispatch_block_t)onFromFiles
+                      onPickDocument:(void (^)(NSURL *url))onPickDocument
                         onPickRecent:(void (^)(NSString *url, NSString *name, int64_t size))onPickRecent
                             loadPage:(IMSentFilePageLoader)loadPage NS_DESIGNATED_INITIALIZER;
 

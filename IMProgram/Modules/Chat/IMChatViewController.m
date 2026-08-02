@@ -37,7 +37,6 @@
 #import <Photos/Photos.h>
 #import <AVFoundation/AVFoundation.h>
 #import <SafariServices/SafariServices.h>
-#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import "IMBottomSheet.h"
 
 NSNotificationName const IMChatConversationClearedNotification = @"IMChatConversationClearedNotification";
@@ -78,7 +77,7 @@ static NSString *IMReplySnippet(IMMessageModel *m) {
 
 #pragma mark - 聊天页
 
-@interface IMChatViewController () <IMSocketManagerDelegate, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIDocumentPickerDelegate>
+@interface IMChatViewController () <IMSocketManagerDelegate, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate>
 @property (nonatomic, copy) NSString *host;
 @property (nonatomic, copy) NSString *userID;
 @property (nonatomic, strong) IMDatabaseAccountContext *databaseContext;
@@ -1287,7 +1286,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     IMFilePickerViewController *panel = [[IMFilePickerViewController alloc]
         initWithRecentFiles:cachedFiles
         onFromPhotos:^{ [ws openPhotoFilePicker]; }
-        onFromFiles:^{ [ws presentDocumentPicker]; }
+        onPickDocument:^(NSURL *url) { [ws handlePickedDocumentURL:url]; }
         onPickRecent:^(NSString *url, NSString *name, int64_t size) {
             [ws sendMediaURL:url contentType:@"file" fileName:name fileSize:size];
         }
@@ -1346,17 +1345,8 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     }];
 }
 
-/// 系统文档选择器（可访问 iCloud/本机「文件」App，拷贝模式）→ 上传 → 发文件消息；成功后写 SQLite 已发送文件缓存。
-- (void)presentDocumentPicker {
-    UIDocumentPickerViewController *picker =
-        [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeItem] asCopy:YES];
-    picker.allowsMultipleSelection = NO;
-    picker.delegate = self;
-    [self presentViewController:picker animated:YES completion:nil];
-}
-
-- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
-    NSURL *url = urls.firstObject;
+/// 系统 Files 返回本地副本后上传并发送；选择器生命周期由 IMFilePickerViewController 维护。
+- (void)handlePickedDocumentURL:(NSURL *)url {
     if (!url) { return; }
     NSData *data = [NSData dataWithContentsOfURL:url];
     NSString *token = IMHTTPService.sharedService.currentToken;

@@ -4,6 +4,10 @@
 #import "IMLog.h"
 #import <objc/runtime.h>
 
+BOOL IMShouldLogPageClassName(NSString *className) {
+    return [className hasPrefix:@"IM"];
+}
+
 @implementation UIViewController (IMPageLog)
 
 + (void)load {
@@ -25,9 +29,10 @@
 }
 
 - (void)im_pagelog_logCurrentPage {
-    // 过滤 UIKit 自带的容器/包装控制器，只留真正“看得见的页面”，避免刷屏。
+    // 严格限制为应用自有类。不可读取 DOCRemote… 等系统/三方控制器的 navigationItem；
+    // 该属性可能被懒创建，触碰系统私有导航栈会干扰 UIDocumentPicker 的远程视图生命周期。
     NSString *cls = NSStringFromClass(self.class);
-    if ([cls hasPrefix:@"UI"] || [cls hasPrefix:@"_UI"]) { return; }
+    if (!IMShouldLogPageClassName(cls)) { return; }
 
     NSString *title = self.title.length ? self.title
                     : (self.navigationItem.title.length ? self.navigationItem.title : @"-");
