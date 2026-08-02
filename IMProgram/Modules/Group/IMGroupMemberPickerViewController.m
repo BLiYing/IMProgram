@@ -113,6 +113,9 @@
         ? [NSString stringWithFormat:@"已选 %lu 人", (unsigned long)self.picked.count]
         : @"选择好友";
     self.navigationItem.rightBarButtonItem.enabled = self.picked.count > 0;
+    // 本页承载在共享 imLiquidBar 上，其标题/启用态只在布局时同步；选择变化后必须主动触发一次
+    // 重新布局，否则「创建」按钮的 enabled 停留在初始 NO，点击被吞、无法建群。
+    [self.navigationController.view setNeedsLayout];
 }
 
 #pragma mark - UITableView

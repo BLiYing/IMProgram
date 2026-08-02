@@ -153,6 +153,9 @@ public final class IMLiquidNavigationBar: UIView {
         addSubview(backButton)
 
         actionButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .medium)
+        // 通过 init(actionTitle:) 传入的标题不会触发 didSet（Swift 初始化期不发观察者），
+        // 必须在此显式落到按钮上，否则「编辑」等文字有点击区却不渲染。
+        actionButton.setTitle(actionTitle, for: .normal)
         actionButton.accessibilityLabel = actionTitle
         actionButton.addTarget(self, action: #selector(actionTapped), for: .touchUpInside)
         actionButton.isHidden = (actionTitle?.isEmpty ?? true) && actionImage == nil
