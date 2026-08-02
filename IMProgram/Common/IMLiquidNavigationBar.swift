@@ -128,6 +128,10 @@ public final class IMLiquidNavigationBar: UIView {
         isOpaque = false
 
         backgroundGlass.isUserInteractionEnabled = false
+        // systemUltraThinMaterial 在深色模式下偏亮，磨砂会显成一块比背景亮的色块。
+        // 叠一层随明暗自适应的背景色 tint：深色模式压向背景黑、浅色模式保持透明（不动浅色观感），
+        // 与页面背景保持一致；tint 随磨砂一起被底部渐变蒙版渐隐，故渐变仍生效。
+        backgroundGlass.contentView.backgroundColor = Self.backgroundTint()
         insertSubview(backgroundGlass, at: 0)
         updateBackgroundEffect()
 
@@ -244,6 +248,15 @@ public final class IMLiquidNavigationBar: UIView {
         backButton.isHidden = !showsBackButton && !custom
         backGlass.isHidden = backButton.isHidden
         setNeedsLayout()
+    }
+
+    /// 磨砂背景 tint：深色模式压向背景黑，浅色模式透明。动态色随 trait 自动解析，无需手动刷新。
+    private static func backgroundTint() -> UIColor {
+        UIColor { trait in
+            trait.userInterfaceStyle == .dark
+                ? UIColor.black.withAlphaComponent(0.55)
+                : .clear
+        }
     }
 
     private static func makeGlassEffect() -> UIVisualEffect {
