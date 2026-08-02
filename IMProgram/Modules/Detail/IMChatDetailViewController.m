@@ -27,6 +27,7 @@
 #import "IMTheme.h"
 #import "IMLog.h"
 #import <objc/runtime.h>
+#import "IMDropletHeaderMorph.h"
 #import "IMProgram-Swift.h"
 
 #pragma mark - 形变头像视图（图片铺满 + 首字母回退，圆角随外部调节；供头部形变用）
@@ -290,6 +291,7 @@ static CGFloat const kPillsRowH = 78;
 @property (nonatomic, strong) UILabel *nameBelow;     ///< 圆头像下居中名
 @property (nonatomic, strong) UILabel *subBelow;
 @property (nonatomic, strong) IMLiquidNavigationBar *liquidNavigationBar;
+@property (nonatomic, strong) IMDropletHeaderMorph *headerMorph; ///< 共享 Zone① 头部形变驱动（与「我」页同一套）
 @property (nonatomic, strong) UIView *pillsView;            ///< 搜索/更多独立按钮，放在 tableHeader 中避开 grouped 卡片背景
 // 页签
 @property (nonatomic, strong) UISegmentedControl *segmented;
@@ -403,8 +405,7 @@ static CGFloat const kPillsRowH = 78;
         self.tableView.tableHeaderView = spacer; // 触发重新测量
     }
     self.pillsView.frame = CGRectMake(0, self.topInset + 208, W, kPillsRowH);
-    CGFloat barH = self.topInset + 44;
-    self.stickyBar.frame = CGRectMake(0, barH, W, 44);
+    self.stickyBar.frame = CGRectMake(0, [self tabPinTop], W, 44);
     [self layoutSegmented:self.stickySeg inWidth:W];
     [self syncScrollInset];
     [self applyHeaderMorph]; // 尺寸变化后重算
@@ -412,20 +413,21 @@ static CGFloat const kPillsRowH = 78;
 }
 
 /// 所有详情页统一使用圆形头像头部；URL 仅替换头像内容。
-- (CGFloat)absorbOffset { return 180; } // 头像完全被吸附所需上滑距离
 - (CGFloat)headerHeight {
     return self.topInset + 200 + 8 + kPillsRowH;
 }
 
-/// 补足底部 inset，确保内容够短时也能上滑到「吸附」与「页签贴顶」位（否则松手回弹、动效走不完）。
+/// 补足底部 inset，确保内容够短时也能上滑到「头部收拢」与「页签贴顶」位。
+/// 2(2)a：wantMax 精确取到「tab 贴顶」为止（不再多给 +24）→ 内容不足一屏时，贴顶即为最大 offset，
+/// 无法再继续上滑进空白。内容够多时 naturalMax 远大于 wantMax，bottom=0，自然自由滚动（走 Zone② detent）。
 - (void)syncScrollInset {
     CGFloat viewH = self.tableView.bounds.size.height;
     if (viewH <= 0) { return; }
-    CGFloat wantMax = [self absorbOffset] + 24;
+    CGFloat wantMax = [self headerCollapseOffset]; // 至少能滚到头部收拢(态H)
     NSInteger tabSec = [self indexOfSection:IMDetailSectionTabs];
     if (tabSec != NSNotFound) {
         CGRect hr = [self.tableView rectForHeaderInSection:tabSec];
-        wantMax = MAX(wantMax, hr.origin.y - (self.topInset + 44) + 24); // 页签能滚到贴顶
+        wantMax = MAX(wantMax, hr.origin.y - [self tabPinTop]); // 恰好滚到页签贴顶为止
     }
     CGFloat naturalMax = self.tableView.contentSize.height - viewH; // 不含 inset 的最大 offset
     CGFloat bottom = MAX(0, wantMax - naturalMax);
@@ -605,11 +607,26 @@ static CGFloat const kPillsRowH = 78;
     [self.stickySeg addTarget:self action:@selector(stickySegChanged:) forControlEvents:UIControlEventValueChanged];
     [self addTabPinTapTo:self.stickySeg];
     [self.stickyBar addSubview:self.stickySeg];
+    [self styleSegmented:self.stickySeg];
 
     // 名字/副标题上移锁定后要充当导航栏 title，必须渲染在液态导航栏与吸顶条【之上】
     //（否则被磨砂背景盖住变虚）。居中文字标签 userInteractionEnabled 默认 NO，不挡两侧按钮点击。
     [self.view bringSubviewToFront:self.nameBelow];
     [self.view bringSubviewToFront:self.subBelow];
+
+    // 共享 Zone① 头部形变驱动：与「我」页 IMSettingsViewController 同一套；改一处两页同步。
+    self.headerMorph = [IMDropletHeaderMorph new];
+    self.headerMorph.container = self.headerContainer;
+    self.headerMorph.avatar = self.avatarView;
+    self.headerMorph.bottomCover = self.dropletBottomCover;
+    self.headerMorph.topCover = self.dropletTopCover;
+    self.headerMorph.mask = self.dropletMask;
+    self.headerMorph.name = self.nameBelow;
+    self.headerMorph.meta = self.subBelow;
+    self.headerMorph.bar = self.liquidNavigationBar;
+    self.headerMorph.nameRestFont = 26;
+    self.headerMorph.metaRestFont = 15;
+    self.headerMorph.collapseOffset = [self headerCollapseOffset];
 }
 
 - (UILabel *)makeNameLabel:(CGFloat)size color:(UIColor *)color shadow:(BOOL)shadow {
@@ -642,8 +659,6 @@ static CGFloat const kPillsRowH = 78;
 #pragma mark - 头部形变（滚动驱动）
 
 static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), b); }
-static CGFloat IMSmooth(CGFloat x) { x = IMClamp(x, 0, 1); return x * x * (3 - 2 * x); }
-static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t; }
 
 - (void)scrollViewDidScroll:(UIScrollView *)scrollView {
     [self applyHeaderMorph];
@@ -651,128 +666,75 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
     [self updateStickyTabs];
 }
 
+/// tab 贴顶时顶边（距标题栏底 topInset+56 留 12pt 呼吸位）。stickyBar / pinOffset / updateStickyTabs 统一取此值。
+- (CGFloat)tabPinTop { return self.topInset + 68; }
+/// 运行时实时的页签栏高度（tab 高度改了这里自动跟随），用于 Zone② detent 的半-tab 临界。
+- (CGFloat)tabBarHeight {
+    NSInteger sec = [self indexOfSection:IMDetailSectionTabs];
+    if (sec == NSNotFound) { return 44; }
+    CGFloat h = [self.tableView rectForHeaderInSection:sec].size.height;
+    return h > 0 ? h : 44;
+}
+
+/// 松手临界吸附：Zone①(头部收拢) + Zone②(tab 贴顶后列表起步 detent)。
+- (void)scrollViewWillEndDragging:(UIScrollView *)scrollView withVelocity:(CGPoint)velocity
+                    targetContentOffset:(inout CGPoint *)targetContentOffset {
+    CGFloat off = scrollView.contentOffset.y;
+    CGFloat H = [self headerCollapseOffset];
+    // Zone①：仅当【惯性落点】也落在 (0,H) 收拢带内才吸附（否则快速甩动的动量应穿过 H 直达列表，不被卡住）。
+    if (off < H && targetContentOffset->y < H) {
+        CGFloat snap = [IMDropletHeaderMorph snapTargetForOffset:off velocity:velocity.y collapseOffset:H];
+        if (snap >= 0) { targetContentOffset->y = snap; return; }
+    }
+    // Zone②：tab 贴顶后，列表在 tab 正下方(off=pin)起步上滑。落点在 (pin, pin+半tab) 内 → 回弹到 pin
+    //（撤销这段滑动，tab 仍贴顶）；≥ 半tab → 放行自然滚动。
+    CGFloat pin = [self pinOffset];
+    if (pin <= 0) { return; }
+    CGFloat half = [self tabBarHeight] / 2;
+    CGFloat t = targetContentOffset->y;
+    if (t > pin && t < pin + half) { targetContentOffset->y = pin; }
+}
+
+/// 2(1)：页签选中色/背景色对调。原本选中段=浅色药丸、底轨=灰；对调为选中段=原底色、底轨=原选中色。
+- (void)styleSegmented:(UISegmentedControl *)seg {
+    UIColor *origSelected = UIColor.systemBackgroundColor;      // 原「选中段」色
+    UIColor *origTrack    = [UIColor tertiarySystemFillColor];  // 原「底轨/背景」色
+    seg.selectedSegmentTintColor = origTrack;                  // 选中段 ← 原背景色
+    seg.backgroundColor = origSelected;                        // 底轨   ← 原选中色
+    [seg setTitleTextAttributes:@{NSForegroundColorAttributeName: UIColor.labelColor}
+                       forState:UIControlStateSelected];
+    [seg setTitleTextAttributes:@{NSForegroundColorAttributeName: UIColor.secondaryLabelColor}
+                       forState:UIControlStateNormal];
+}
+
+/// 头部完全收拢（态H）所需上滑距离：此时 name/成员进标题栏、pills 恰好停到标题栏下方。
+/// 由 pills 几何推导：pills rest 顶 = topInset+208，停靠目标顶 = topInset+64 → H = 144（保持两者同步）。
+- (CGFloat)headerCollapseOffset { return 144; }
+
 - (void)applyHeaderMorph {
     CGFloat W = self.view.bounds.size.width;
     if (W <= 0) { return; }
     CGFloat off = MAX(0, self.tableView.contentOffset.y); // 下拉橡皮筋不参与形变
-    CGFloat top = self.topInset;                          // == statusBarHeight（灵动岛机型 ≈ 59）
-    // Telegram PeerInfoHeaderNode 以 contentOffset / 120 驱动灵动岛头像遮罩（maskValue）。
-    CGFloat q = IMClamp(off / 120.0, 0, 1);
-    // 头像缩放/上移不吃 maskValue，而是吃 titleCollapseFraction = contentOffset / 128
-    //（`PeerInfoHeaderNode.swift` L1624/L1759），两者略微异步是 Telegram 原始节奏。
-    CGFloat tcf = IMClamp(off / 128.0, 0, 1);
-    // 关键：头像 rest 尺寸/圆心必须与固定 171pt Lottie 圆对齐，否则头像比遮罩小、缩得比遮罩快，
-    // 露出的差集会把黑色 bottomCover 当成“一滑就出现的大遮罩”。Telegram: avatarSize=100，
-    // avatarFrame.y = statusBarHeight + 22 → 圆心 = statusBarHeight + 72。
-    CGFloat restD = 100;
-    CGFloat restCY = top + 72;
-    // avatarMinScale = 0.55；avatarScale = 1*(1-tcf) + 0.55*tcf（`PeerInfoHeaderNode.swift` L1759）。
-    CGFloat avatarScale = IMLerp(1, 0.55, tcf);
-    CGFloat diameter = restD * avatarScale;
-    // avatarOffset = apparentTitleLockOffset(7*tcf) + 10*tcf = 17*tcf（L1660/L1760）。
-    CGFloat cy = restCY - off + 17 * tcf;
-
-    // 静态容器：宽度铺满，高度覆盖遮罩带 + rest 头像整体。所有 mask/覆盖层在容器坐标系内定位，
-    // 因此头像上滑期间它们保持在灵动岛下方（屏幕 Y 47.5..218.5）不动。
-    CGRect containerFrame = CGRectMake(0, 0, W, MAX(restCY + restD / 2 + 8, 260));
-    if (!CGRectEqualToRect(self.headerContainer.frame, containerFrame)) {
-        self.headerContainer.frame = containerFrame;
-    }
-
-    [CATransaction begin];
-    [CATransaction setDisableActions:YES];
-    // 头像在容器坐标系内移动/缩放。始终保持 cornerRadius=r（圆形），
-    // 由 headerContainer.maskView 进一步塑成水滴——避免出现方形被切割的过渡瞬间。
-    self.avatarView.frame = CGRectMake(W / 2 - diameter / 2, cy - diameter / 2, diameter, diameter);
-    self.avatarView.layer.cornerRadius = diameter / 2;
-    self.avatarView.clipsToBounds = YES;
-
-    // Telegram 遮罩：171×171，圆心 (W/2, 133)，即 Y=47.5..218.5——灵动岛正下方。
-    CGRect maskFrame = CGRectMake(W / 2 - 85.5, 47.5, 171, 171);
-    self.dropletBottomCover.frame = maskFrame;
-    self.dropletTopCover.frame = maskFrame;
-    self.dropletMask.frame = maskFrame;
-
-    if (q > 0.03) {
-        // Telegram: bottomCover 是纯黑，alpha = maskValue（线性）；topCover 内部对同一 value 做延迟。
-        self.dropletBottomCover.hidden = NO;
-        self.dropletBottomCover.backgroundColor = [UIColor colorWithWhite:0 alpha:q];
-        self.dropletTopCover.hidden = NO;
-        [self.dropletTopCover setProgress:q];
-        [self.dropletMask setProgress:q];
-        // 关键：mask 挂到静态容器，而不是缩小中的头像，遮罩才不会被 50pt 的 avatar bounds 截掉。
-        if (self.headerContainer.maskView != self.dropletMask) {
-            self.headerContainer.maskView = self.dropletMask;
-        }
-    } else {
-        self.dropletBottomCover.hidden = YES;
-        self.dropletBottomCover.backgroundColor = [UIColor colorWithWhite:0 alpha:0];
-        self.dropletTopCover.hidden = YES;
-        [self.dropletTopCover setProgress:0];
-        [self.dropletMask setProgress:0];
-        if (self.headerContainer.maskView != nil) {
-            self.headerContainer.maskView = nil;
-        }
-    }
-    [CATransaction commit];
-    self.avatarView.alpha = 1;
-
+    // Zone① 全部形变（头像吸附 + 遮罩/覆盖 + name/成员迁移进标题栏）交给共享驱动，与「我」页同一套。
+    self.headerMorph.topInset = self.topInset;
+    self.headerMorph.collapseOffset = [self headerCollapseOffset];
+    [self.headerMorph applyForOffset:off width:W];
+    // 图上名（photo 模式）本页不用，恒隐。
     self.nameOnImage.alpha = 0;
     self.subOnImage.alpha = 0;
-    // 名字/副标题：不淡出、不 1:1 跟随头像，而是以【更慢】的速度上移，因此从第 1pt 起就与头像/水滴
-    // 拉开距离、永远留在水滴下方；到达导航栏 title 行后【锁死】不再上移（继续上滑也不会飞出去）。
-    // 名字与副标题共用同一 shift → 全程保持恒定间距、一起上移。缩放与迁移进度同步，落点 ≈ 导航栏字号。
-    CGFloat nameH = 32, subH = 20;
-    // rest 基准用【静态】圆心（restCY 不含 -off），名字才不会跟着头像 1:1 跑。
-    CGFloat staticRestNameTop = restCY + restD / 2 + 8;
-    CGFloat staticRestNameCenterY = staticRestNameTop + nameH / 2;
-
-    CGFloat kNameSpeed = 0.85;          // 上移速度（× off）；< 1 保证与头像拉开距离，数值越小间距越明显
-    CGFloat kLockCenterY = top + 19;    // 锁定终点：液态导航栏 title 中心（buttonY=top+6, titleY 中心≈top+19）
-    CGFloat nameCenterY = MAX(kLockCenterY, staticRestNameCenterY - kNameSpeed * off);
-    CGFloat nameShift = nameCenterY - staticRestNameCenterY;        // ≤ 0
-    // 迁移进度：0=rest，1=已锁定到 title；缩放随它从 1 → 端点字号，锁定时刚好缩放到位。
-    CGFloat migrate = (staticRestNameCenterY > kLockCenterY)
-        ? IMClamp(nameShift / (kLockCenterY - staticRestNameCenterY), 0, 1) : 0;
-    CGFloat titleScale = IMLerp(1.0, 17.0 / 26.0, migrate);   // 26pt name → ≈17pt
-    CGFloat subScale   = IMLerp(1.0, 13.0 / 15.0, migrate);   // 15pt sub  → ≈13pt
-
-    // 写 frame 前先复位 transform，避免 UIKit 反解 frame → bounds/center 漂移。
-    self.nameBelow.transform = CGAffineTransformIdentity;
-    self.subBelow.transform = CGAffineTransformIdentity;
-    self.nameBelow.frame = CGRectMake(0, staticRestNameTop, W, nameH);
-    // name 锁定到标题栏时（migrate=1），间距从 2pt 缩小到 0，让成员标签更贴近名字。
-    CGFloat metaGap = 2 - 2 * migrate;
-    self.subBelow.frame = CGRectMake(0, staticRestNameTop + nameH + metaGap, W, subH);
-    // 同一 nameShift 平移作用于两者 layer center → 恒定间距一起上移；各自缩放绕自身中心不改间距。
-    CGAffineTransform nameT = CGAffineTransformScale(CGAffineTransformMakeTranslation(0, nameShift), titleScale, titleScale);
-    self.nameBelow.transform = nameT;
-    CGAffineTransform subT = CGAffineTransformScale(CGAffineTransformMakeTranslation(0, nameShift), subScale, subScale);
-    self.subBelow.transform = subT;
-    self.nameBelow.alpha = 1;
-    self.subBelow.alpha = 1;
-
-    // 大图态使用白色导航按钮；头像收成圆形后回到当前深浅模式的 label 色。
-    self.liquidNavigationBar.immersiveAppearanceProgress = 0;
-    self.liquidNavigationBar.backgroundEffectProgress = IMSmooth((q - 0.28) / 0.72);
-    // 名字标签本身（渲染在导航栏之上）承担 title，胶囊内部 titleLabel/subtitleLabel 不再重复出现。
-    self.liquidNavigationBar.compactContentProgress = 0;
-
+    CGFloat q = IMClamp(off / 120.0, 0, 1);
     [self fireHapticsForPhase:q hasPhoto:NO phaseP:1];
 }
 
-/// 操作排接近自定义导航栏时平滑淡出，避免搜索/更多按钮穿过返回与编辑按钮。
+/// 操作排（搜索/更多）：不再淡出。随内容上滑停靠到标题栏正下方并【始终可见】(态H)；
+/// 继续上滑(Zone②)时它自然滚到磨砂标题栏之后被遮挡（= 滚走），无需 alpha 淡出。
 - (void)updatePillsVisibility {
     if (!self.pillsView.superview) { return; }
     CGRect frameInView = [self.pillsView.superview convertRect:self.pillsView.frame toView:self.view];
     CGFloat topInView = CGRectGetMinY(frameInView);
-    CGFloat navigationBottom = self.topInset + 56;
-    CGFloat navigationAlpha = IMClamp((topInView - navigationBottom) / 36, 0, 1);
-    // 名字/副标题现在始终 alpha=1，随滑动上移+缩小到导航栏；不再需要按 frame 做遮挡回避。
-    // 只保留 pills 进入导航栏区的通用淡出，避免搜索/更多按钮穿过返回与编辑按钮。
-    CGFloat alpha = navigationAlpha;
-    self.pillsView.alpha = alpha;
-    self.pillsView.userInteractionEnabled = alpha > 0.2;
+    self.pillsView.alpha = 1;
+    // 进入标题栏区(被磨砂栏遮挡)后停用点击，避免隔着导航栏误触搜索/更多。
+    self.pillsView.userInteractionEnabled = topInView > self.topInset + 56;
 }
 
 /// 锚点触感：正圆成形（photo p≈1、未进吸附）与吸附完成（q≈1）各一次；反向复位后可再触发。
@@ -903,6 +865,7 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
         self.segmented.apportionsSegmentWidthsByContent = YES; // 段宽按内容固定（单/多 tab 一致）
         [self.segmented addTarget:self action:@selector(segmentChanged:) forControlEvents:UIControlEventValueChanged];
         [self addTabPinTapTo:self.segmented]; // 单 tab / 重复点当前 tab 也能贴顶
+        [self styleSegmented:self.segmented]; // 2(1)：选中色/背景色对调
     }
     [self.segmented removeAllSegments];
     [self.stickySeg removeAllSegments];
@@ -936,7 +899,7 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
     NSInteger sec = [self indexOfSection:IMDetailSectionTabs];
     if (sec == NSNotFound) { return 0; }
     CGRect hr = [self.tableView rectForHeaderInSection:sec];
-    return MAX(0, hr.origin.y - (self.topInset + 44));
+    return MAX(0, hr.origin.y - [self tabPinTop]);
 }
 - (BOOL)tabsArePinned { return self.tableView.contentOffset.y >= [self pinOffset] - 1; }
 
@@ -979,7 +942,7 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
     if (sec == NSNotFound || self.tabs.count == 0) { self.stickyBar.hidden = YES; self.segmented.hidden = NO; return; }
     CGRect hr = [self.tableView rectForHeaderInSection:sec];
     CGFloat headerTopInView = hr.origin.y - self.tableView.contentOffset.y;
-    BOOL pinned = headerTopInView <= self.topInset + 44 + 0.5;
+    BOOL pinned = headerTopInView <= [self tabPinTop] + 0.5;
     self.stickyBar.hidden = !pinned;
     // 贴顶后隐藏表内真分段——吸顶条透明，真 header 上移时会从其后透出，与镜像分段并存（两个 tab 栏）。
     self.segmented.hidden = pinned;

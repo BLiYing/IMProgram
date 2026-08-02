@@ -17,6 +17,7 @@
 #import "IMHTTPService.h"
 #import "IMUserCard.h"
 #import "IMGlass.h"
+#import "IMDropletHeaderMorph.h"
 #import "IMProgram-Swift.h"
 
 #pragma mark - 行模型（数据驱动单一来源）
@@ -205,6 +206,7 @@
 @property (nonatomic, strong) UILabel *profileName;
 @property (nonatomic, strong) UILabel *profileMeta;
 @property (nonatomic, strong) IMLiquidNavigationBar *liquidNavigationBar;  ///< 「我」页沉浸式导航栏，与详情页对称
+@property (nonatomic, strong) IMDropletHeaderMorph *headerMorph;           ///< 共享 Zone① 头部形变（与详情页同一套）
 @end
 
 @implementation IMSettingsViewController
@@ -234,10 +236,7 @@
     [self buildProfileHeader];
 }
 
-#pragma mark - 头部形变（滚动驱动）
-
-static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), b); }
-static CGFloat IMSmooth(CGFloat x) { x = IMClamp(x, 0, 1); return x * x * (3 - 2 * x); }
+#pragma mark - 头部形变（滚动驱动，Zone① 由 IMDropletHeaderMorph 共享驱动）
 
 - (void)buildProfileHeader {
     CGFloat W = self.view.bounds.size.width;
@@ -325,6 +324,20 @@ static CGFloat IMSmooth(CGFloat x) { x = IMClamp(x, 0, 1); return x * x * (3 - 2
     ]];
     [self.view bringSubviewToFront:self.profileName];
     [self.view bringSubviewToFront:self.profileMeta];
+
+    // 共享 Zone① 头部形变驱动：与详情页 IMChatDetailViewController 同一套，改一处两页同步。
+    self.headerMorph = [IMDropletHeaderMorph new];
+    self.headerMorph.container = self.dropletContainer;
+    self.headerMorph.avatar = self.profileAvatar;
+    self.headerMorph.bottomCover = self.dropletBottomCover;
+    self.headerMorph.topCover = self.dropletTopCover;
+    self.headerMorph.mask = self.dropletMask;
+    self.headerMorph.name = self.profileName;
+    self.headerMorph.meta = self.profileMeta;
+    self.headerMorph.bar = self.liquidNavigationBar;
+    self.headerMorph.nameRestFont = 28;   // 我页 name 28pt（详情页 26pt）
+    self.headerMorph.metaRestFont = 17;   // 我页 meta 17pt（详情页 15pt）
+    [self applyProfileHeaderMorph];
 }
 
 #pragma mark - IMLiquidNavigationBarDelegate（自持 bar 的左/右按钮响应）
@@ -361,8 +374,26 @@ static CGFloat IMSmooth(CGFloat x) { x = IMClamp(x, 0, 1); return x * x * (3 - 2
 }
 
 - (void)scrollViewDidScroll:(UIScrollView *)scrollView {
+    // 3(2) 下拉钳制：顶部橡皮筋最多 44pt 即钳住，配合共享驱动 off≥0 冻结 → 头像与 name 永不重叠。
+    CGFloat minY = -scrollView.adjustedContentInset.top - 44;
+    if (scrollView.contentOffset.y < minY) {
+        scrollView.contentOffset = CGPointMake(scrollView.contentOffset.x, minY);
+    }
     [self applyProfileHeaderMorph];
     [self.navigationController.view setNeedsLayout];
+}
+
+/// Zone① 松手临界吸附（与详情页共用同一驱动）。raw = contentOffset.y + adjustedContentInset.top。
+- (void)scrollViewWillEndDragging:(UIScrollView *)scrollView withVelocity:(CGPoint)velocity
+                    targetContentOffset:(inout CGPoint *)targetContentOffset {
+    CGFloat adj = scrollView.adjustedContentInset.top;
+    CGFloat H = 144;
+    CGFloat offNow = scrollView.contentOffset.y + adj;
+    CGFloat projRaw = targetContentOffset->y + adj;
+    if (offNow < H && projRaw < H) {
+        CGFloat snap = [IMDropletHeaderMorph snapTargetForOffset:offNow velocity:velocity.y collapseOffset:H];
+        if (snap >= 0) { targetContentOffset->y = snap - adj; }  // 换回 contentOffset 坐标
+    }
 }
 
 - (CGFloat)im_navigationBackgroundProgress {
@@ -374,98 +405,13 @@ static CGFloat IMSmooth(CGFloat x) { x = IMClamp(x, 0, 1); return x * x * (3 - 2
 - (void)applyProfileHeaderMorph {
     CGFloat W = self.view.bounds.size.width;
     if (W <= 0 || !self.profileAvatar) { return; }
+    // raw = 相对页面顶部的滚动距离（主导航额外 +56 safe-area 已计入 adjustedContentInset）。
     CGFloat raw = self.tableView.contentOffset.y + self.tableView.adjustedContentInset.top;
-    // Telegram PeerInfoHeaderNode: contentOffset / 120 驱动灵动岛遮罩（maskValue）。
-    CGFloat q = MIN(MAX(raw / 120.0, 0), 1);
-    // 头像缩放/上移吃 titleCollapseFraction = contentOffset / 128（`PeerInfoHeaderNode.swift` L1624/L1759），
-    // 与 maskValue 微异步是 Telegram 原始节奏。
-    CGFloat tcf = MIN(MAX(raw / 128.0, 0), 1);
-    // 本页由主导航额外增加 56pt safe-area；头像基准必须使用设备状态栏 inset，避免落到标题栏下方。
-    CGFloat top = self.view.window.safeAreaInsets.top;
-    // 与 IMChatDetailViewController 完全对齐：restD=100（=avatarSize），restCY=top+72（=statusBarHeight+22+50）。
-    // 只有头像等于 171pt Lottie 圆内接尺寸时，露出的差集才会最小，暗色是随进度慢慢出现的一圈，
-    // 而不是一滑动就把黑色 bottomCover 整片让出来。
-    CGFloat restD = 100;
-    CGFloat restCY = top + 72;
-    CGFloat avatarScale = 1 - 0.45 * tcf;
-    CGFloat diameter = restD * avatarScale;
-    // avatarOffset = apparentTitleLockOffset(7·tcf) + 10·tcf = 17·tcf（L1660/L1760）。
-    CGFloat cy = restCY - raw + 17 * tcf;
-
-    // 静态水滴容器：高度覆盖遮罩带 + rest 头像。所有 mask/covers 在容器坐标系内以固定像素坐标定位，
-    // 头像上滑期间它们保持在灵动岛下方（屏幕 Y 47.5..218.5）不动。
-    CGRect containerFrame = CGRectMake(0, 0, W, MAX(restCY + restD / 2 + 8, 260));
-    if (!CGRectEqualToRect(self.dropletContainer.frame, containerFrame)) {
-        self.dropletContainer.frame = containerFrame;
-    }
-
-    [CATransaction begin];
-    [CATransaction setDisableActions:YES];
-    // 头像在容器坐标系内移动/缩放。始终保持 cornerRadius=r（圆形），
-    // 由 dropletContainer.maskView 进一步塑成水滴——避免出现方形被切割的过渡瞬间。
-    self.profileAvatar.transform = CGAffineTransformIdentity;
-    self.profileAvatar.frame = CGRectMake(W / 2 - diameter / 2, cy - diameter / 2, diameter, diameter);
-    self.profileAvatar.layer.cornerRadius = diameter / 2;
-
-    CGRect maskFrame = CGRectMake(W / 2 - 85.5, 47.5, 171, 171);
-    self.dropletBottomCover.frame = maskFrame;
-    self.dropletTopCover.frame = maskFrame;
-    self.dropletMask.frame = maskFrame;
-
-    if (q > 0.03) {
-        self.dropletBottomCover.hidden = NO;
-        self.dropletBottomCover.backgroundColor = [UIColor colorWithWhite:0 alpha:q];
-        self.dropletTopCover.hidden = NO;
-        [self.dropletTopCover setProgress:q];
-        [self.dropletMask setProgress:q];
-        if (self.dropletContainer.maskView != self.dropletMask) {
-            self.dropletContainer.maskView = self.dropletMask;
-        }
-    } else {
-        self.dropletBottomCover.hidden = YES;
-        self.dropletBottomCover.backgroundColor = [UIColor colorWithWhite:0 alpha:0];
-        self.dropletTopCover.hidden = YES;
-        [self.dropletTopCover setProgress:0];
-        [self.dropletMask setProgress:0];
-        if (self.dropletContainer.maskView != nil) {
-            self.dropletContainer.maskView = nil;
-        }
-    }
-    [CATransaction commit];
-    self.profileAvatar.alpha = 1;
-
-    // 与详情页 IMChatDetailViewController 同一套：profileName 以【更慢】速度上移（从第 1pt 起就与头像/
-    // 水滴拉开距离、永远留在水滴下方），到达标题栏行后【锁死】不再上移；profileMeta（手机号·@uid）与
-    // name 共用同一 shift → 恒定间距一起上移。缩放与迁移进度同步。
-    // 本页自持 liquidNavigationBar（共享 imLiquidBar 已隐藏），profileName bringSubviewToFront 到 bar 之上，
-    // 锁点取 top+19（bar title 中心）——name 缩放上移后居中进标题栏，与详情页完全对称。
-    CGFloat nameH = 34, metaH = 22;
-    CGFloat staticRestNameTop = restCY + restD / 2 + 8;               // 用静态 restCY，不含 -raw
-    CGFloat staticRestNameCenterY = staticRestNameTop + nameH / 2;
-
-    CGFloat kNameSpeed = 0.85;              // < 1 → 与头像拉开距离
-    CGFloat kLockCenterY = top + 19;        // 锁到自持 bar 的 title 中心（同详情页），name 居中进标题栏
-    CGFloat nameCenterY = MAX(kLockCenterY, staticRestNameCenterY - kNameSpeed * raw);
-    CGFloat nameShift = nameCenterY - staticRestNameCenterY;          // ≤ 0
-    CGFloat migrate = (staticRestNameCenterY > kLockCenterY)
-        ? MIN(MAX(nameShift / (kLockCenterY - staticRestNameCenterY), 0), 1) : 0;
-    CGFloat titleScale = 1.0 - (1.0 - 17.0 / 28.0) * migrate;   // 28pt name → ≈17pt
-    CGFloat metaScale  = 1.0 - (1.0 - 13.0 / 17.0) * migrate;   // 17pt meta → ≈13pt
-
-    // 写 frame 前先复位 transform，避免 UIKit 反解出现漂移。
-    self.profileName.transform = CGAffineTransformIdentity;
-    self.profileMeta.transform = CGAffineTransformIdentity;
-    self.profileName.frame = CGRectMake(0, staticRestNameTop, W, nameH);
-    self.profileMeta.frame = CGRectMake(0, staticRestNameTop + nameH + 2, W, metaH);  // 与 name 固定间距
-    self.profileName.transform = CGAffineTransformScale(CGAffineTransformMakeTranslation(0, nameShift), titleScale, titleScale);
-    self.profileMeta.transform = CGAffineTransformScale(CGAffineTransformMakeTranslation(0, nameShift), metaScale, metaScale);
-    self.profileName.alpha = 1;
-    self.profileMeta.alpha = 1.0 - migrate;   // 一起上移、恒定间距，同时渐进淡出（migrate=1 时完全透明）
-
-    // 自持导航栏配置（与详情页对称）：profileName 标签本身承担 title，禁用 bar 的内置 title 显示。
-    self.liquidNavigationBar.compactContentProgress = 0;
-    self.liquidNavigationBar.immersiveAppearanceProgress = 0;
-    self.liquidNavigationBar.backgroundEffectProgress = IMSmooth((tcf - 0.28) / 0.72);
+    // Zone① 全部形变交给共享驱动（与详情页同一套）；topInset 用设备状态栏 inset。
+    // 驱动内部 off=MAX(0,raw)：下拉(raw<0)时头像/name 冻结在 rest，天然不会与 name 重叠（配合下方钳制）。
+    self.headerMorph.topInset = self.view.window.safeAreaInsets.top;
+    self.headerMorph.collapseOffset = 144;
+    [self.headerMorph applyForOffset:raw width:W];
 
     // title 保持空（不用共享 bar 的 title）——profileName 标签本身承担标题角色。
     if (self.title.length) {

@@ -5,19 +5,16 @@
 
 ## 当前焦点
 
-- **详情页水滴吸附遮罩重构（2026-08-02，✅ compile-only，待真机验收）**：
-  `IMChatDetailViewController` 头像折叠效果按 Telegram-iOS `PeerInfoHeaderNode`/`PeerInfoAvatarListNode`
-  一比一复刻。原问题：171pt Lottie mask 直接挂到 92→50pt 的 avatarView，`q>0.03` 又把
-  `cornerRadius` 归零，遮罩被小头像 bounds 裁成矩形（视频里"一滑动就出现方形被切割"）。修法：
-  新增 `IMDetailHeaderContainer`（静态容器，`clipsToBounds=NO`、hitTest 只透传头像）对应
-  Telegram `avatarListNode.containerNode`；头像 + `dropletBottomCover`（bottomCoverNode：黑底
-  alpha=maskValue）+ `dropletTopCover`（IMTelegramAvatarEffectsView 即 topCoverNode：blur+
-  radial gradient+fade）+ `dropletMask` 全部挂到容器；`headerContainer.maskView = dropletMask`，
-  遮罩再也不会被头像 bounds 截断。头像 cornerRadius 始终保持 `diameter/2`，用 mask 塑造水滴形
-  避免方形过渡瞬间。avatarOffset 从 `17*q` 校准为 Telegram 非过场值 `10*q`。
-  `IMSettingsViewController.applyProfileHeaderMorph` 存在同款反模式（`profileAvatar.maskView =
-  profileAvatarMask`），本轮未动——如需一起改另行通知。
-  Xcode 编译通过（compile-only，未装模拟器，符合用户既定偏好）。
+- **水滴头部：共享驱动 + 松手临界吸附重构（2026-08-03，✅ workspace 编译通过，待真机验收）**：
+  抽出共享 `IMProgram/Common/IMDropletHeaderMorph.{h,m}` 承载 Zone①（头像吸附 + name/meta 迁移进标题栏
+  + 松手临界吸附），详情页与「我」页共用同一驱动 → 改一处两页同步。整页一个 tableView 分两段吸附：
+  **Zone①(off 0→H=144)** 头部收拢，临界 A=头像吸附过半(H/2)、快速甩动无视位置补完，`scrollViewWillEndDragging`
+  改写 targetContentOffset（仅当惯性落点也在带内才吸附，快速甩动可穿过直达列表）；**Zone②(pin→)** 详情页页签贴顶，
+  贴顶线 `tabPinTop=topInset+68`（距标题栏底 12pt），detent 临界 B=运行时半个 tab 高（落点在 (pin,pin+半tab)
+  回弹到 pin、tab 仍贴顶）。细节：name↔meta 间距每帧插值收窄到 18.5pt(=标题栏副标题间距)；pills 停靠标题栏下方
+  **不再淡出**；页签选中色↔背景色对调(`styleSegmented:`)；`syncScrollInset` 精确到贴顶为止(2(2)a 内容不足一屏禁上滑)；
+  「我」页 meta 随统一**不再单独淡出**(跟随迁移)、下拉钳制 44pt+驱动 off≥0 冻结防重叠、name 锁点 top+19 居中进标题栏。
+  文档已同步重写：`docs/TELEGRAM_AVATAR_DROPLET.md`。**待真机验收手感**（临界值 0.5、甩动阈值 0.3、H=144、贴顶 68 均可调）。
 - **✅ 系统 Files 选择与返回链（2026-08-02，iOS 26 真机测试通过；按用户要求未编译）**：
   诊断日志确认应用只创建一次 picker（唯一地址 `0x1078a8000`），随后模拟器的
   `com.apple.DocumentManagerUICore.Service` 连接中断并以 `FBSceneErrorDomain Code=2` 明确报告
