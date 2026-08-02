@@ -5,6 +5,13 @@
 
 ## 当前焦点
 
+- **iOS 单库账号上下文 generation 加固（2026-08-02，用户确认测试通过）**：保留
+  `Documents/im.sqlite` + `owner_uid` 逻辑隔离，新增绑定数据库实例、owner 与账号激活代次的
+  `IMDatabaseAccountContext`；异步任务以创建时令牌通过原子“校验 + 执行”入口访问数据库。
+  Socket、会话列表 HTTP 回调、聊天发送回调及详情页本地操作已接入；A→B→A 后第一代 A 的迟到
+  操作无法写入 B 或第二代 A；退出后重新登录同一 uid 也会推进代次。新增 XCTest 覆盖同账号重新
+  激活失效、A→B→A 拒写、操作与切换线性化及
+  跨数据库实例拒绝。账号哈希目录物理分库降级为后续增强，不阻塞当前功能迭代。
 - **多端历史连续同步与文件元数据补全（2026-08-02，build/test-build 通过；待跨端实测）**：iOS 将
   `synced_conv_seq` 作为 `(owner_uid,conv_id)` 隔离的独立 SQLite 状态，禁止以本地
   `MAX(conv_seq)`、单条 ACK 或实时见过的最大序号越级推进；消息/会话摘要/连续游标同事务提交，
@@ -100,21 +107,8 @@
   - ③**拉黑改微信式单向(已定+实现)**：hub 仅拦"被拉黑方→拉黑方"；**拉黑方→被拉黑方照常投递**(对方收得到)。两端聊天页不再封禁拉黑方输入(Web 改非阻断提示行、iOS 移除封禁横幅)。`TestBlockedCannotSend` 改测单向。Web 浏览器实测：拉黑方发送成功✓+提示在+输入可用。iOS 真编译过、真机待验。
 
 ## 下一步
-1. **iOS 一账号一 SQLite 数据库（下一会话首要焦点；不兼容旧数据）**：把当前
-   `Documents/im.sqlite` 单文件 + `owner_uid` 逻辑隔离重构为账号级物理隔离。建议目录为
-   `Library/Application Support/IM/accounts/<SHA-256(uid)>/im.sqlite`，禁止直接使用 uid 作为路径；
-   登录前的最近账号/凭据继续由 `IMSessionStore` 管理，不建立匿名业务库。`IMDatabase` 必须从“可变
-   `_ownerUserID` + 永久单例 queue”改为显式账号数据库上下文：切账号先使旧上下文失效并等待/关闭旧
-   `FMDatabaseQueue`，再为新 uid 创建目录、打开数据库、执行该账号库的 schema 初始化。数据库操作需
-   固定到创建时的 owner/context generation，不能在异步任务执行中临时读取一个已变化的当前 uid。
-   保留 `IMSocketManager` 的连接代次、旧登录/旧 Socket 回调屏蔽和未决发送清理；物理分库不能替代网络
-   竞态保护。消息、会话摘要、`synced_conv_seq` 仍须同事务提交；新库游标从 0 开始，不从最大消息推断。
-   本轮明确不迁移、不读取、不删除旧 `Documents/im.sqlite`，按删除 App/无旧数据验证。退出登录默认
-   保留该账号离线缓存；未来“删除账号缓存”应只删除对应哈希目录。新增 XCTest 至少覆盖：不同 uid
-   得到不同文件 URL、A/B 同 `conv_id` 物理隔离、A→B→A 重开恢复、连续游标隔离、切换后旧上下文不可
-   写入新库、非法/超长 uid 不影响路径、数据库目录/建表失败有日志与恢复。完成后更新
-   `docs/LOCAL_FIRST_CONVERSATION_STORAGE.md`、`../IMServer/docs/CONTINUOUS_SYNC_AND_MULTI_CLIENT_TESTING.md`
-   和 `CLIENT_PARITY.md`，再开始 Playwright + iOS 跨端自动化测试基建。
+1. **账号切换与连续同步真机/跨端实测**：代码与自动化测试已由用户确认通过；后续在真机验证
+   A→B→A 快速切换、旧 Socket/HTTP 回调不污染当前账号，以及断线、多页、连续游标和文件元数据补全。
 
 2. **用户真机测试 M4.5 会话菜单 + 群聊详情页**：
    - 会话菜单四件套（置顶/免打扰/标未读/删除）+ 指示符
@@ -130,6 +124,11 @@
 
 5. 本地媒体文件离线缓存（当前 SQLite 已保存消息与媒体 URL，但远程图片/视频未下载过时离线不可查看）。
 
+6. **账号哈希目录物理分库（后续增强，不阻塞功能迭代）**：未来需要按账号删除缓存、降低单库损坏
+   影响面或强化物理隔离时，再迁移到
+   `Library/Application Support/IM/accounts/<SHA-256(uid)>/im.sqlite`。届时补目录/建库失败恢复、
+   A/B 同 `conv_id` 物理隔离、A→B→A 重开及非法/超长 uid 路径测试；当前不迁移、不读取、不删除旧库。
+
 ## 已知坑 / 限制
 - CocoaLumberjack 只接管应用主动输出的日志；iOS/UIKit/Network.framework 自身的系统诊断仍由系统写入 Xcode 控制台。Debug 文件日志会保留脱敏后的业务正文，仅用于开发设备，分享日志前仍需复核。
 - **登录已支持真账号密码**：登录页「免密登录（开发）」仍保留（凭 uid 直签，需后端 `-dev-login`）。注意 dev-login 建的账号（空密码哈希）无法再走密码登录；测密码登录请用「注册并登录」建新号或清 `imserver.db`。
@@ -137,8 +136,8 @@
 - **presence/typing 仅聊天页标题**生效；会话列表不显示在线点（后续可同 notification 广播 presence）。
 - 聊天壁纸为 CG 自绘 SF Symbol 近似，非 Telegram 原涂鸦。
 - 测试只跑 `-only-testing:IMProgramTests`（UITests 会因 Accessibility 超时拖垮）。
-- 改后端协议字段后**需重启后端**再测；当前本地库仍是 `Documents/im.sqlite`，下一焦点将改为账号哈希
-  目录下独立 `im.sqlite`；本轮不迁移旧库，验证前需在模拟器**删 App 重装**。
+- 改后端协议字段后**需重启后端**再测；当前继续使用 `Documents/im.sqlite` + `owner_uid`，账号切换由
+  database context generation 防迟到串写；账号哈希目录物理分库已降级为后续增强。本轮仍按无旧数据验证。
 - 已读=可见即读（已实现）：未读随滚动逐步清；进会话只清当前可见的，需滚到底才全清。↓N 徽标=视口下方未读数，随滚动递减、滚到底隐藏（按 pendingReadSeq 实时重算，非静态）。
 
 ## 关联工程 / 常用命令

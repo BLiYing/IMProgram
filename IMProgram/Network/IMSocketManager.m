@@ -54,6 +54,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
 @property (nonatomic, copy, nullable)   NSString *userID;
 - (void)cancelAllPendingSendsWithMessage:(NSString *)message;
 - (BOOL)applyMsgOpPayload:(NSDictionary *)payload advancingSyncedConvSeq:(int64_t)syncedConvSeq;
+- (BOOL)performDatabaseOperation:(void (^)(IMDatabase *database))operation;
 @end
 
 @implementation IMSocketManager {
@@ -65,6 +66,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     BOOL      _manualClose;           ///< 用户主动断开，禁止自动重连
     NSInteger _reconnectAttempts;
     NSUInteger _connectionGeneration;  ///< 使旧登录请求/socket 回调在切账号或新重连后失效
+    IMDatabaseAccountContext *_databaseContext; ///< 与当前连接账号及激活代次绑定，拒绝 A→B→A 的迟到落库
     dispatch_source_t _pingTimer;
     NSMutableDictionary<NSString *, IMPendingSend *> *_pending;
     NSMutableDictionary<NSString *, NSNumber *> *_syncedSeq; // conv_id -> 已连续同步完成的 conv_seq（非“见过的最大值”）
@@ -102,7 +104,15 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
         return;
     }
     dispatch_async(_queue, ^{
-        BOOL accountChanged = self.userID.length > 0 && ![self.userID isEqualToString:userID];
+        IMDatabaseAccountContext *databaseContext = IMDatabase.sharedDatabase.currentAccountContext;
+        if (![databaseContext.ownerUserID isEqualToString:userID]) {
+            IMLogSocket(@"忽略与当前数据库账号不一致的连接请求 socket_uid=%@ db_uid=%@",
+                        userID, databaseContext.ownerUserID ?: @"(none)");
+            return;
+        }
+        BOOL activationChanged = self->_databaseContext && self->_databaseContext != databaseContext;
+        BOOL accountChanged = activationChanged
+            || (self.userID.length > 0 && ![self.userID isEqualToString:userID]);
         if (accountChanged) {
             // 同一单例会跨登录复用；同步游标若不按账号清空，会把上个账号在同一 conv_id 的位置带过来，
             // 新账号便会从过大的 since 开始，永久漏掉历史。
@@ -112,8 +122,10 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
             [self->_pendingOps removeAllObjects];
             [self cancelAllPendingSendsWithMessage:@"账号已切换"];
         }
+        self->_databaseContext = databaseContext;
         // 幂等：已连到同一 host+uid 且未主动断开 → 复用现连接（避免会话列表/聊天页重复调用造成重连抖动）。
         if (self.state != IMSocketStateDisconnected && !self->_manualClose
+            && !activationChanged
             && [self->_host isEqualToString:host] && [self.userID isEqualToString:userID]) {
             return;
         }
@@ -123,6 +135,18 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
         self->_reconnectAttempts = 0;
         [self openSocket];
     });
+}
+
+/// Socket 的所有落库都必须携带连接建立时捕获的账号上下文。
+/// 账号在主线程先切换后，旧 socket 队列中尚未处理的帧会在这里被数据库层再次拒绝。
+- (BOOL)performDatabaseOperation:(void (^)(IMDatabase *database))operation {
+    IMDatabaseAccountContext *context = _databaseContext;
+    BOOL performed = [IMDatabase.sharedDatabase performWithAccountContext:context block:operation];
+    if (!performed) {
+        IMLogSocket(@"丢弃失效连接代次的数据库操作 socket_uid=%@ db_context_uid=%@",
+                    self.userID ?: @"", context.ownerUserID ?: @"");
+    }
+    return performed;
 }
 
 - (void)disconnect {
@@ -620,8 +644,12 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     }
     // 落库放在网络层：无论当前在会话列表还是聊天页（甚至无页面）收到的消息都持久化，
     // 避免「在列表收到、未入库、之后开聊天页因 synced 已前进而漏拉」。按 conv_seq 幂等 upsert。
-    BOOL saved = [IMDatabase.sharedDatabase saveIncomingMessage:msg
-                                         advancingSyncedConvSeq:isNextContiguous ? msg.convSeq : 0];
+    __block BOOL saved = NO;
+    BOOL contextIsCurrent = [self performDatabaseOperation:^(IMDatabase *database) {
+        saved = [database saveIncomingMessage:msg
+                       advancingSyncedConvSeq:isNextContiguous ? msg.convSeq : 0];
+    }];
+    if (!contextIsCurrent) { return; }
     if ([msg.contentType isEqualToString:@"file"]) {
         IMLogSocket(@"file message conv=%@ seq=%lld from=%@ name=%@ bytes=%lld",
                     msg.convID, msg.convSeq, msg.from ?: @"", msg.fileName ?: @"", msg.fileSize);
@@ -672,14 +700,20 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
 - (void)handleConvUpdate:(NSDictionary *)data {
     NSString *convID = [data[@"conv_id"] isKindOfClass:[NSString class]] ? data[@"conv_id"] : @"";
     NSString *action = [data[@"action"] isKindOfClass:[NSString class]] ? data[@"action"] : @"";
+    BOOL contextIsCurrent = YES;
     if ([action isEqualToString:@"settings"]) {
-        [IMDatabase.sharedDatabase applyCachedSettingsForConversation:convID
-                                                              pinnedAt:[data[@"pinned_at"] longLongValue]
-                                                                 muted:[data[@"muted"] boolValue]
-                                                          markedUnread:[data[@"marked_unread"] boolValue]];
+        contextIsCurrent = [self performDatabaseOperation:^(IMDatabase *database) {
+            [database applyCachedSettingsForConversation:convID
+                                                 pinnedAt:[data[@"pinned_at"] longLongValue]
+                                                    muted:[data[@"muted"] boolValue]
+                                             markedUnread:[data[@"marked_unread"] boolValue]];
+        }];
     } else if ([action isEqualToString:@"delete"]) {
-        [IMDatabase.sharedDatabase deleteCachedConversation:convID];
+        contextIsCurrent = [self performDatabaseOperation:^(IMDatabase *database) {
+            [database deleteCachedConversation:convID];
+        }];
     }
+    if (!contextIsCurrent) { return; }
     dispatch_async(dispatch_get_main_queue(), ^{
         [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidUpdateConversationNotification
                                                           object:self
@@ -744,10 +778,13 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
         return NO; // 未知 op：忽略不崩
     }
     NSString *by = [payload[@"by"] isKindOfClass:[NSString class]] ? payload[@"by"] : nil;
-    BOOL applied = [IMDatabase.sharedDatabase applyMsgOpForConv:convID targetConvSeq:target
-                                                     recalledAt:recalledAt recalledBy:by
-                                                       editedAt:editedAt pinnedAt:pinnedAt newContent:newContent
-                                           advancingSyncedConvSeq:syncedConvSeq];
+    __block BOOL applied = NO;
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        applied = [database applyMsgOpForConv:convID targetConvSeq:target
+                                    recalledAt:recalledAt recalledBy:by
+                                      editedAt:editedAt pinnedAt:pinnedAt newContent:newContent
+                          advancingSyncedConvSeq:syncedConvSeq];
+    }];
     if (!applied) { return NO; }
     dispatch_async(dispatch_get_main_queue(), ^{
         NSMutableDictionary *info = [@{ kIMConvIDKey: convID, kIMMsgOpTargetSeqKey: @(target), kIMMsgOpKey: op } mutableCopy];
@@ -799,11 +836,17 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     NSString *from = [data[@"from"] isKindOfClass:[NSString class]] ? data[@"from"] : @"";
     int64_t upTo = [data[@"up_to_conv_seq"] longLongValue];
     if (convID.length == 0) { return; }
+    BOOL contextIsCurrent = NO;
     if ([from isEqualToString:self.userID]) {
-        [IMDatabase.sharedDatabase markConversation:convID readUpToConvSeq:upTo];
+        contextIsCurrent = [self performDatabaseOperation:^(IMDatabase *database) {
+            [database markConversation:convID readUpToConvSeq:upTo];
+        }];
     } else {
-        [IMDatabase.sharedDatabase markConversation:convID peerReadUpToConvSeq:upTo];
+        contextIsCurrent = [self performDatabaseOperation:^(IMDatabase *database) {
+            [database markConversation:convID peerReadUpToConvSeq:upTo];
+        }];
     }
+    if (!contextIsCurrent) { return; }
     __weak typeof(self) weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
         __strong typeof(weakSelf) self = weakSelf;
@@ -894,7 +937,11 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
 - (void)syncTrackedConversations {
     [self sendSyncReqForConvs:_trackedConvs.allObjects];
     // 离线期间在本地读过的位点也要在重连后重放；服务端按最大值幂等推进。
-    for (IMConversation *conversation in IMDatabase.sharedDatabase.cachedConversations) {
+    __block NSArray<IMConversation *> *cachedConversations = @[];
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        cachedConversations = database.cachedConversations;
+    }];
+    for (IMConversation *conversation in cachedConversations) {
         if (conversation.readSeq > 0) {
             [self sendEnvelopeType:kIMTypeReceipt
                               data:@{ @"conv_id": conversation.convID ?: @"",

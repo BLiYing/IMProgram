@@ -400,4 +400,144 @@
     [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
 }
 
+- (void)testReactivatingSameOwnerInvalidatesPreviousLoginContext {
+    NSURL *url = [self temporaryDatabaseURL];
+    IMDatabase *database = [[IMDatabase alloc] initWithFileURL:url];
+
+    IMDatabaseAccountContext *first = [database useOwnerUserID:@" alice "];
+    IMDatabaseAccountContext *second = [database useOwnerUserID:@"alice"];
+
+    XCTAssertNotNil(first);
+    XCTAssertNotEqual(first, second);
+    XCTAssertEqualObjects(first.ownerUserID, @"alice");
+    XCTAssertEqual(database.currentAccountContext, second);
+    __block BOOL executed = NO;
+    XCTAssertFalse([database performWithAccountContext:first block:^(IMDatabase *db) {
+        (void)db;
+        executed = YES;
+    }]);
+    XCTAssertFalse(executed);
+    [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
+}
+
+- (void)testStaleAccountContextCannotWriteAfterAToBToA {
+    NSURL *url = [self temporaryDatabaseURL];
+    IMDatabase *database = [[IMDatabase alloc] initWithFileURL:url];
+    IMDatabaseAccountContext *firstAlice = [database useOwnerUserID:@"alice"];
+
+    IMMessageModel *aliceBase = [IMMessageModel new];
+    aliceBase.clientMsgID = @"alice-base";
+    aliceBase.convID = @"shared-conv";
+    aliceBase.contentType = @"text";
+    aliceBase.content = @"first activation";
+    XCTAssertTrue([database performWithAccountContext:firstAlice block:^(IMDatabase *db) {
+        [db saveMessage:aliceBase];
+    }]);
+
+    IMDatabaseAccountContext *bob = [database useOwnerUserID:@"bob"];
+    IMMessageModel *lateAlice = [IMMessageModel new];
+    lateAlice.clientMsgID = @"late-alice";
+    lateAlice.convID = @"shared-conv";
+    lateAlice.contentType = @"text";
+    lateAlice.content = @"must be rejected";
+    XCTAssertFalse([database performWithAccountContext:firstAlice block:^(IMDatabase *db) {
+        [db saveMessage:lateAlice];
+    }]);
+    XCTAssertEqual([database messagesForConv:@"shared-conv"].count, 0);
+
+    IMMessageModel *bobMessage = [IMMessageModel new];
+    bobMessage.clientMsgID = @"bob-current";
+    bobMessage.convID = @"shared-conv";
+    bobMessage.contentType = @"text";
+    bobMessage.content = @"bob";
+    XCTAssertTrue([database performWithAccountContext:bob block:^(IMDatabase *db) {
+        [db saveMessage:bobMessage];
+    }]);
+
+    IMDatabaseAccountContext *secondAlice = [database useOwnerUserID:@"alice"];
+    XCTAssertNotEqual(firstAlice, secondAlice);
+    XCTAssertFalse([database performWithAccountContext:firstAlice block:^(IMDatabase *db) {
+        [db saveMessage:lateAlice];
+    }]);
+    NSArray<IMMessageModel *> *aliceMessages = [database messagesForConv:@"shared-conv"];
+    XCTAssertEqual(aliceMessages.count, 1);
+    XCTAssertEqualObjects(aliceMessages.firstObject.content, @"first activation");
+    IMMessageModel *secondAliceMessage = [IMMessageModel new];
+    secondAliceMessage.clientMsgID = @"second-alice";
+    secondAliceMessage.convID = @"shared-conv";
+    secondAliceMessage.contentType = @"text";
+    secondAliceMessage.content = @"second activation";
+    XCTAssertTrue([database performWithAccountContext:secondAlice block:^(IMDatabase *db) {
+        [db saveMessage:secondAliceMessage];
+    }]);
+    XCTAssertEqual([database messagesForConv:@"shared-conv"].count, 2);
+    [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
+}
+
+- (void)testAccountSwitchWaitsForValidatedContextOperation {
+    NSURL *url = [self temporaryDatabaseURL];
+    IMDatabase *database = [[IMDatabase alloc] initWithFileURL:url];
+    IMDatabaseAccountContext *alice = [database useOwnerUserID:@"alice"];
+    dispatch_semaphore_t operationEntered = dispatch_semaphore_create(0);
+    dispatch_semaphore_t releaseOperation = dispatch_semaphore_create(0);
+    dispatch_semaphore_t operationFinished = dispatch_semaphore_create(0);
+    dispatch_semaphore_t switchStarted = dispatch_semaphore_create(0);
+    dispatch_semaphore_t switchFinished = dispatch_semaphore_create(0);
+
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        [database performWithAccountContext:alice block:^(IMDatabase *db) {
+            dispatch_semaphore_signal(operationEntered);
+            dispatch_semaphore_wait(releaseOperation,
+                                    dispatch_time(DISPATCH_TIME_NOW, (int64_t)(NSEC_PER_SEC)));
+            IMMessageModel *message = [IMMessageModel new];
+            message.clientMsgID = @"linearized-a";
+            message.convID = @"shared-conv";
+            message.contentType = @"text";
+            message.content = @"alice";
+            [db saveMessage:message];
+        }];
+        dispatch_semaphore_signal(operationFinished);
+    });
+    XCTAssertEqual(dispatch_semaphore_wait(operationEntered,
+                                           dispatch_time(DISPATCH_TIME_NOW, (int64_t)(NSEC_PER_SEC))), 0);
+
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        dispatch_semaphore_signal(switchStarted);
+        [database useOwnerUserID:@"bob"];
+        dispatch_semaphore_signal(switchFinished);
+    });
+    XCTAssertEqual(dispatch_semaphore_wait(switchStarted,
+                                           dispatch_time(DISPATCH_TIME_NOW, (int64_t)(NSEC_PER_SEC))), 0);
+    XCTAssertNotEqual(dispatch_semaphore_wait(switchFinished,
+                                              dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC))), 0);
+    dispatch_semaphore_signal(releaseOperation);
+    XCTAssertEqual(dispatch_semaphore_wait(operationFinished,
+                                           dispatch_time(DISPATCH_TIME_NOW, (int64_t)(NSEC_PER_SEC))), 0);
+    XCTAssertEqual(dispatch_semaphore_wait(switchFinished,
+                                           dispatch_time(DISPATCH_TIME_NOW, (int64_t)(NSEC_PER_SEC))), 0);
+
+    XCTAssertEqual([database messagesForConv:@"shared-conv"].count, 0);
+    [database useOwnerUserID:@"alice"];
+    XCTAssertEqualObjects([database messagesForConv:@"shared-conv"].firstObject.content, @"alice");
+    [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
+}
+
+- (void)testAccountContextCannotBeUsedWithAnotherDatabaseInstance {
+    NSURL *firstURL = [self temporaryDatabaseURL];
+    NSURL *secondURL = [self temporaryDatabaseURL];
+    IMDatabase *firstDatabase = [[IMDatabase alloc] initWithFileURL:firstURL];
+    IMDatabase *secondDatabase = [[IMDatabase alloc] initWithFileURL:secondURL];
+    IMDatabaseAccountContext *foreignContext = [firstDatabase useOwnerUserID:@"alice"];
+    [secondDatabase useOwnerUserID:@"alice"];
+
+    __block BOOL executed = NO;
+    XCTAssertFalse([secondDatabase performWithAccountContext:foreignContext block:^(IMDatabase *db) {
+        (void)db;
+        executed = YES;
+    }]);
+    XCTAssertFalse(executed);
+    [NSFileManager.defaultManager removeItemAtURL:firstURL error:NULL];
+    [NSFileManager.defaultManager removeItemAtURL:secondURL error:NULL];
+}
+
 @end

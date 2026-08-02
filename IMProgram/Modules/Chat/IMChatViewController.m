@@ -81,6 +81,7 @@ static NSString *IMReplySnippet(IMMessageModel *m) {
 @interface IMChatViewController () <IMSocketManagerDelegate, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIDocumentPickerDelegate>
 @property (nonatomic, copy) NSString *host;
 @property (nonatomic, copy) NSString *userID;
+@property (nonatomic, strong) IMDatabaseAccountContext *databaseContext;
 @property (nonatomic, copy) NSString *peerID;         // 单聊对端 uid；群聊为空串
 @property (nonatomic, assign) BOOL isGroupChat;        // YES=群聊（convID 为群 topic_id）
 @property (nonatomic, copy, nullable) NSString *groupName;     // 群名（进入时用会话项的，拉到群资料后刷新）
@@ -141,13 +142,23 @@ static NSString *IMReplySnippet(IMMessageModel *m) {
         _userID = [userID copy];
         _peerID = [peerID copy];
         _convID = IMConversationID(userID, peerID);
+        IMDatabaseAccountContext *context = IMDatabase.sharedDatabase.currentAccountContext;
+        if (![context.ownerUserID isEqualToString:userID]) {
+            IMLogDatabase(@"聊天页账号与当前数据库上下文不一致 page_uid=%@ db_uid=%@",
+                          userID, context.ownerUserID ?: @"(none)");
+        }
+        _databaseContext = [context.ownerUserID isEqualToString:userID] ? context : nil;
         _entryReadSeq = readSeq;
         _entryUnread = unread;
         _peerReadSeq = peerReadSeq;   // 进会话即用服务端已知对端已读位点播种（实时回执再往上推进）
         _maxReadReported = readSeq;   // 已读起点=进入前位点，仅在可见消息超过它时才上报
         _pendingReadSeq = readSeq;
         // 本地落库：进入即秒显历史。
-        _messages = [[IMDatabase.sharedDatabase messagesForConv:_convID] mutableCopy];
+        __block NSArray<IMMessageModel *> *cachedMessages = @[];
+        [IMDatabase.sharedDatabase performWithAccountContext:_databaseContext block:^(IMDatabase *database) {
+            cachedMessages = [database messagesForConv:_convID];
+        }];
+        _messages = [cachedMessages mutableCopy];
         _seenConvSeqs = [NSMutableSet set];
         for (IMMessageModel *m in _messages) {
             if (m.convSeq > 0) { [_seenConvSeqs addObject:@(m.convSeq)]; }
@@ -168,13 +179,21 @@ static NSString *IMReplySnippet(IMMessageModel *m) {
         _groupName = [name copy];
         _convID = [convID copy];
         // 指定初始化器按 IMConversationID(uid,"") 预载了错误会话，这里按群 convID 重载本地历史。
-        _messages = [[IMDatabase.sharedDatabase messagesForConv:convID] mutableCopy];
+        __block NSArray<IMMessageModel *> *cachedMessages = @[];
+        [IMDatabase.sharedDatabase performWithAccountContext:_databaseContext block:^(IMDatabase *database) {
+            cachedMessages = [database messagesForConv:convID];
+        }];
+        _messages = [cachedMessages mutableCopy];
         [_seenConvSeqs removeAllObjects];
         for (IMMessageModel *m in _messages) {
             if (m.convSeq > 0) { [_seenConvSeqs addObject:@(m.convSeq)]; }
         }
     }
     return self;
+}
+
+- (BOOL)performDatabaseOperation:(void (^)(IMDatabase *database))operation {
+    return [IMDatabase.sharedDatabase performWithAccountContext:self.databaseContext block:operation];
 }
 
 - (void)viewDidLoad {
@@ -444,7 +463,10 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     [IMSocketManager.sharedManager connectToHost:self.host userID:self.userID];
     // 登记本会话：以 SQLite 中“已连续同步完成”的位置为起点，不能用本地最大消息序号代替，
     // 否则只存有较新消息时会永久跳过前面的空洞。
-    int64_t synced = [IMDatabase.sharedDatabase syncedConvSeqForConv:self.convID];
+    __block int64_t synced = 0;
+    if (![self performDatabaseOperation:^(IMDatabase *database) {
+        synced = [database syncedConvSeqForConv:self.convID];
+    }]) { return; }
     [IMSocketManager.sharedManager trackConversation:self.convID syncedSeq:synced];
 }
 
@@ -778,7 +800,9 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
         m.replyToConvSeq = replySeq;
         m.replySnapshot = IMReplySnippet(self.replyingTo);
     }
-    [IMDatabase.sharedDatabase saveMessage:m]; // 落库（sending）
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        [database saveMessage:m]; // 落库（sending）
+    }];
     [self.messages addObject:m];
     self.inputField.text = @"";
     [self updateSendButtonVisibility];
@@ -1202,7 +1226,9 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     m.poster = poster.length > 0 ? poster : nil;
     if (preview && realID.length > 0) { self.outboxPreviews[realID] = preview; }
     [self.outboxPreviews removeObjectForKey:oldKey];
-    [IMDatabase.sharedDatabase saveMessage:m];
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        [database saveMessage:m];
+    }];
     [self refreshVisibleCellForMessage:m];
 }
 
@@ -1254,8 +1280,12 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 - (void)openFilePanel {
     __weak typeof(self) ws = self;
     __block NSString *nextCursor = nil;
+    __block NSArray<NSDictionary *> *cachedFiles = @[];
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        cachedFiles = database.cachedSentFiles;
+    }];
     IMFilePickerViewController *panel = [[IMFilePickerViewController alloc]
-        initWithRecentFiles:[IMDatabase.sharedDatabase cachedSentFiles]
+        initWithRecentFiles:cachedFiles
         onFromPhotos:^{ [ws openPhotoFilePicker]; }
         onFromFiles:^{ [ws presentDocumentPicker]; }
         onPickRecent:^(NSString *url, NSString *name, int64_t size) {
@@ -1272,7 +1302,9 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
                 completion:^(NSArray<NSDictionary *> *files, NSString *cursorAfter, BOOL hasMore, NSError *error) {
                     if (!error) {
                         nextCursor = cursorAfter;
-                        [IMDatabase.sharedDatabase cacheSentFiles:files ?: @[]];
+                        [ws performDatabaseOperation:^(IMDatabase *database) {
+                            [database cacheSentFiles:files ?: @[]];
+                        }];
                     }
                     completion(files, hasMore, error);
                 }];
@@ -1388,10 +1420,12 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     IMSendCompletion completion = ^(BOOL success, NSError *error, int64_t convSeq) {
         [ws handleSendResult:success convSeq:convSeq error:error forClientMsgID:clientMsgID];
         if (success && [contentType isEqualToString:@"file"] && fileName.length > 0) {
-            [IMDatabase.sharedDatabase cacheSentFiles:@[@{
-                @"server_msg_id": clientMsgID ?: @"",
-                @"url": url ?: @"", @"name": fileName, @"size": @(fileSize), @"timestamp": @(sentAt),
-            }]];
+            [ws performDatabaseOperation:^(IMDatabase *database) {
+                [database cacheSentFiles:@[@{
+                    @"server_msg_id": clientMsgID ?: @"",
+                    @"url": url ?: @"", @"name": fileName, @"size": @(fileSize), @"timestamp": @(sentAt),
+                }]];
+            }];
         }
     };
     NSString *toUser = self.isGroupChat ? @"" : self.peerID;
@@ -1407,7 +1441,9 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     m.fileName = fileName;
     m.fileSize = fileSize;
     m.timestamp = sentAt;
-    [IMDatabase.sharedDatabase saveMessage:m];
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        [database saveMessage:m];
+    }];
     [self.messages addObject:m];
     [self appendReloadAndScroll];
 }
@@ -1575,7 +1611,9 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
             m.note = (!success && (error.code == 200102 || error.code == 300004 ||
                                    error.code == 300203 || error.code == 300206)) ? error.localizedDescription : nil;
             m.convSeq = convSeq;
-            [IMDatabase.sharedDatabase saveMessage:m]; // upsert：更新状态/conv_seq/note（含被拒文案，重进会话不丢）
+            if (![self performDatabaseOperation:^(IMDatabase *database) {
+                [database saveMessage:m]; // upsert：更新状态/conv_seq/note（含被拒文案，重进会话不丢）
+            }]) { return; }
             if (convSeq > 0) { [self.seenConvSeqs addObject:@(convSeq)]; } // 防 sync 重复回显自己发的
             // 相册成员的 ACK 只定点刷宫格角标/状态胶囊（全表 reloadData 是批量发送闪屏的元凶之一）。
             if (m.groupID.length > 0) {
@@ -1628,7 +1666,9 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 }
 
 - (void)socketManager:(IMSocketManager *)manager didReceiveMessage:(IMMessageModel *)message {
-    [IMDatabase.sharedDatabase saveMessage:message]; // 任何会话的消息都落库（按 conv_seq 幂等）
+    if (![self performDatabaseOperation:^(IMDatabase *database) {
+        [database saveMessage:message]; // 任何会话的消息都落库（按 conv_seq 幂等）
+    }]) { return; }
     if (![message.convID isEqualToString:self.convID]) { return; } // 非本会话不在此页显示
     // 同一条消息可能既被 new_msg 推送、又被 sync_resp 拉到，按 conv_seq 去重。
     if (message.convSeq > 0) {
@@ -1985,7 +2025,9 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 
 /// 本地删除一条消息（仅本端：从库 + 内存移除并刷新；不影响对端）。
 - (void)deleteMessage:(IMMessageModel *)message {
-    [IMDatabase.sharedDatabase deleteMessage:message];
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        [database deleteMessage:message];
+    }];
     [self.messages removeObject:message];
     if (message.convSeq > 0) { [self.seenConvSeqs removeObject:@(message.convSeq)]; }
     [self.tableView reloadData];
@@ -2132,17 +2174,22 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
                                                                  fileName:fileName
                                                                  fileSize:fileSize
                                                                completion:^(BOOL success, NSError *error, int64_t convSeq) {
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
         m.status = success ? IMMessageStatusSent : IMMessageStatusFailed;
         m.convSeq = convSeq;
-        [IMDatabase.sharedDatabase saveMessage:m];
+        if (![self performDatabaseOperation:^(IMDatabase *database) {
+            [database saveMessage:m];
+        }]) { return; }
         if (success && [ct isEqualToString:@"file"] && fileName.length > 0) {
-            [IMDatabase.sharedDatabase cacheSentFiles:@[@{
-                @"server_msg_id": m.clientMsgID ?: @"", @"url": content,
-                @"name": fileName, @"size": @(fileSize), @"timestamp": @(sentAt),
-            }]];
+            [self performDatabaseOperation:^(IMDatabase *database) {
+                [database cacheSentFiles:@[@{
+                    @"server_msg_id": m.clientMsgID ?: @"", @"url": content,
+                    @"name": fileName, @"size": @(fileSize), @"timestamp": @(sentAt),
+                }]];
+            }];
         }
-        __strong typeof(ws) self = ws;
-        if (self && [convID isEqualToString:self.convID]) {
+        if ([convID isEqualToString:self.convID]) {
             if (convSeq > 0) { [self.seenConvSeqs addObject:@(convSeq)]; } // 防 sync 重复回显
             [self.tableView reloadData];
         }
@@ -2155,7 +2202,9 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     m.forwardFrom = origin.length > 0 ? origin : nil;
     m.status = IMMessageStatusSending;
     m.timestamp = sentAt;
-    [IMDatabase.sharedDatabase saveMessage:m];
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        [database saveMessage:m];
+    }];
     if ([convID isEqualToString:self.convID]) {
         [self.messages addObject:m];
         [self appendReloadAndScroll];
@@ -2219,7 +2268,9 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     [ac addAction:[UIAlertAction actionWithTitle:@"删除" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
         __strong typeof(ws) self = ws;
         for (IMMessageModel *m in msgs) {
-            [IMDatabase.sharedDatabase deleteMessage:m];
+            [self performDatabaseOperation:^(IMDatabase *database) {
+                [database deleteMessage:m];
+            }];
             [self.messages removeObject:m];
             if (m.convSeq > 0) { [self.seenConvSeqs removeObject:@(m.convSeq)]; }
         }
@@ -2366,7 +2417,9 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 - (void)flushReadPosition {
     if (self.pendingReadSeq > self.maxReadReported) {
         self.maxReadReported = self.pendingReadSeq;
-        [IMDatabase.sharedDatabase markConversation:self.convID readUpToConvSeq:self.maxReadReported];
+        [self performDatabaseOperation:^(IMDatabase *database) {
+            [database markConversation:self.convID readUpToConvSeq:self.maxReadReported];
+        }];
         [IMSocketManager.sharedManager markReadConv:self.convID upToConvSeq:self.maxReadReported];
     }
 }

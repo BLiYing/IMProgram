@@ -5,9 +5,17 @@
 #import <Foundation/Foundation.h>
 
 @class IMConversation;
+@class IMDatabaseAccountContext;
 @class IMMessageModel;
 
 NS_ASSUME_NONNULL_BEGIN
+
+/// 不透明账号上下文：绑定 owner_uid 与一次账号激活代次。
+/// A→B→A 后第一代 A 上下文仍会失效，不能仅靠 uid 判断迟到异步回调是否合法。
+@interface IMDatabaseAccountContext : NSObject
+@property (nonatomic, copy, readonly) NSString *ownerUserID;
+- (instancetype)init NS_UNAVAILABLE;
+@end
 
 @interface IMDatabase : NSObject
 
@@ -19,7 +27,17 @@ NS_ASSUME_NONNULL_BEGIN
 - (instancetype)init NS_UNAVAILABLE;
 
 /// 选择当前账号的数据命名空间。App 进入主界面前必须调用；同一 SQLite 文件内按 owner_uid 强制隔离。
-- (void)useOwnerUserID:(NSString *)userID;
+/// 每次调用都代表一次新账号激活并推进代次（即使 uid 相同），使上一登录周期上下文失效。
+/// 子页面只应捕获 currentAccountContext，不应重复激活。空 uid 返回 nil 且不切换。
+- (nullable IMDatabaseAccountContext *)useOwnerUserID:(NSString *)userID;
+
+/// 当前账号上下文；尚未选择真实账号时返回 nil。异步任务应在发起时捕获该对象。
+- (nullable IMDatabaseAccountContext *)currentAccountContext;
+
+/// 仅当 context 仍是当前账号的同一激活代次时同步执行 block。
+/// 校验与执行相对账号切换原子化；返回 NO 表示迟到/跨库 context，block 不会执行。
+- (BOOL)performWithAccountContext:(IMDatabaseAccountContext *)context
+                            block:(void (^)(IMDatabase *database))block;
 
 /// 当前账号的本地会话快照（服务不可用时用于离线首屏）。
 - (NSArray<IMConversation *> *)cachedConversations;

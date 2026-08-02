@@ -18,9 +18,37 @@
 
 @end
 
+@interface IMDatabaseAccountContext ()
+@property (nonatomic, copy, readwrite) NSString *ownerUserID;
+@property (nonatomic, copy) NSString *databaseIdentifier;
+@property (nonatomic, assign) NSUInteger generation;
+- (instancetype)initWithOwnerUserID:(NSString *)ownerUserID
+                  databaseIdentifier:(NSString *)databaseIdentifier
+                          generation:(NSUInteger)generation;
+@end
+
+@implementation IMDatabaseAccountContext
+
+- (instancetype)initWithOwnerUserID:(NSString *)ownerUserID
+                  databaseIdentifier:(NSString *)databaseIdentifier
+                          generation:(NSUInteger)generation {
+    self = [super init];
+    if (self) {
+        _ownerUserID = [ownerUserID copy];
+        _databaseIdentifier = [databaseIdentifier copy];
+        _generation = generation;
+    }
+    return self;
+}
+
+@end
+
 @implementation IMDatabase {
     FMDatabaseQueue *_queue;
     NSString *_ownerUserID;
+    NSString *_databaseIdentifier;
+    NSUInteger _accountGeneration;
+    IMDatabaseAccountContext *_accountContext;
 }
 
 + (instancetype)sharedDatabase {
@@ -38,6 +66,7 @@
     self = [super init];
     if (self) {
         _ownerUserID = @"__default__";
+        _databaseIdentifier = NSUUID.UUID.UUIDString;
         _queue = [FMDatabaseQueue databaseQueueWithPath:fileURL.path];
         [self createTables];
     }
@@ -115,14 +144,42 @@
     }];
 }
 
-- (void)useOwnerUserID:(NSString *)userID {
+- (nullable IMDatabaseAccountContext *)useOwnerUserID:(NSString *)userID {
     NSString *owner = [userID stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     if (owner.length == 0) {
         IMLogDatabase(@"拒绝切换到空 owner_uid，继续使用当前账号命名空间");
-        return;
+        return nil;
     }
     @synchronized (self) {
         _ownerUserID = [owner copy];
+        _accountGeneration++;
+        _accountContext = [[IMDatabaseAccountContext alloc] initWithOwnerUserID:_ownerUserID
+                                                             databaseIdentifier:_databaseIdentifier
+                                                                     generation:_accountGeneration];
+        return _accountContext;
+    }
+}
+
+- (nullable IMDatabaseAccountContext *)currentAccountContext {
+    @synchronized (self) {
+        return _accountContext;
+    }
+}
+
+- (BOOL)performWithAccountContext:(IMDatabaseAccountContext *)context
+                            block:(void (^)(IMDatabase *database))block {
+    if (!context || !block) { return NO; }
+    @synchronized (self) {
+        BOOL current = [_databaseIdentifier isEqualToString:context.databaseIdentifier]
+            && _accountGeneration == context.generation
+            && [_ownerUserID isEqualToString:context.ownerUserID];
+        if (!current) {
+            IMLogDatabase(@"丢弃失效账号上下文的数据库操作 owner=%@ generation=%lu",
+                          context.ownerUserID, (unsigned long)context.generation);
+            return NO;
+        }
+        block(self);
+        return YES;
     }
 }
 

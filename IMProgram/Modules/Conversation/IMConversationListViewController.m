@@ -245,6 +245,7 @@ static CGFloat const kIMRowLeading = 16;
 @property (nonatomic, copy) NSString *host;
 @property (nonatomic, copy) NSString *userID;
 @property (nonatomic, copy) NSString *token;
+@property (nonatomic, strong) IMDatabaseAccountContext *databaseContext;
 @property (nonatomic, strong) NSArray<IMConversation *> *conversations;
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) UILabel *emptyLabel;
@@ -259,11 +260,24 @@ static CGFloat const kIMRowLeading = 16;
     if (self) {
         _host = [host copy];
         _userID = [userID copy];
-        [IMDatabase.sharedDatabase useOwnerUserID:userID];
-        _conversations = [IMDatabase.sharedDatabase cachedConversations];
+        IMDatabaseAccountContext *context = IMDatabase.sharedDatabase.currentAccountContext;
+        if (![context.ownerUserID isEqualToString:userID]) {
+            IMLogDatabase(@"会话页账号与当前数据库上下文不一致 page_uid=%@ db_uid=%@",
+                          userID, context.ownerUserID ?: @"(none)");
+        }
+        _databaseContext = [context.ownerUserID isEqualToString:userID] ? context : nil;
+        __block NSArray<IMConversation *> *cached = @[];
+        [IMDatabase.sharedDatabase performWithAccountContext:_databaseContext block:^(IMDatabase *database) {
+            cached = database.cachedConversations;
+        }];
+        _conversations = cached;
         _trackedConvIDs = [NSMutableSet set];
     }
     return self;
+}
+
+- (BOOL)performDatabaseOperation:(void (^)(IMDatabase *database))operation {
+    return [IMDatabase.sharedDatabase performWithAccountContext:self.databaseContext block:operation];
 }
 
 - (void)viewDidLoad {
@@ -364,7 +378,11 @@ static CGFloat const kIMRowLeading = 16;
 /// 收到新消息（任意会话）→ 节流刷新列表（合并连发的多条，避免每条都拉一次）。
 - (void)onSocketMessage:(NSNotification *)note {
     // 消息已经在 SQLite 事务内同步了会话摘要，先刷新本地数据；HTTP 仅用于稍后权威收敛。
-    self.conversations = [IMDatabase.sharedDatabase cachedConversations];
+    __block NSArray<IMConversation *> *cached = nil;
+    if (![self performDatabaseOperation:^(IMDatabase *database) {
+        cached = database.cachedConversations;
+    }]) { return; }
+    self.conversations = cached ?: @[];
     self.emptyLabel.hidden = self.conversations.count > 0;
     [self.tableView reloadData];
     if (!self.visible) { return; }
@@ -401,7 +419,9 @@ static CGFloat const kIMRowLeading = 16;
                 return;
             }
             self.conversations = convs ?: @[];
-            [IMDatabase.sharedDatabase replaceCachedConversations:self.conversations];
+            if (![self performDatabaseOperation:^(IMDatabase *database) {
+                [database replaceCachedConversations:self.conversations];
+            }]) { return; }
             self.emptyLabel.hidden = self.conversations.count > 0;
             [self.tableView reloadData];
             [self trackConversationsForSync]; // 登记会话用于（重）连后增量同步，补拉离线消息
@@ -416,7 +436,10 @@ static CGFloat const kIMRowLeading = 16;
     for (IMConversation *c in self.conversations) {
         if (c.convID.length == 0 || [self.trackedConvIDs containsObject:c.convID]) { continue; }
         [self.trackedConvIDs addObject:c.convID];
-        int64_t synced = [IMDatabase.sharedDatabase syncedConvSeqForConv:c.convID];
+        __block int64_t synced = 0;
+        if (![self performDatabaseOperation:^(IMDatabase *database) {
+            synced = [database syncedConvSeqForConv:c.convID];
+        }]) { return; }
         [IMSocketManager.sharedManager trackConversation:c.convID syncedSeq:synced];
     }
 }
@@ -517,8 +540,10 @@ static CGFloat const kIMRowLeading = 16;
         [IMHTTPService.sharedService updateConversationSettingsWithToken:self.token convID:c.convID
             pinnedAt:c.pinnedAt muted:c.muted markedUnread:NO completion:^(NSError *error) { /* 忽略：返回时 viewWillAppear 会 reload */ }];
         c.markedUnread = NO; // 本地即时置位，避免返回瞬间闪一下旧红点
-        [IMDatabase.sharedDatabase applyCachedSettingsForConversation:c.convID
-                                                              pinnedAt:c.pinnedAt muted:c.muted markedUnread:NO];
+        [self performDatabaseOperation:^(IMDatabase *database) {
+            [database applyCachedSettingsForConversation:c.convID
+                                                 pinnedAt:c.pinnedAt muted:c.muted markedUnread:NO];
+        }];
     }
     if (c.isGroup) {
         IMChatViewController *chat = [[IMChatViewController alloc] initWithHost:self.host userID:self.userID
@@ -601,9 +626,11 @@ static CGFloat const kIMRowLeading = 16;
                 if (error) { [ws im_showToast:error.localizedDescription]; return; }
                 c.markedUnread = NO;
                 c.unread = 0;
-                [IMDatabase.sharedDatabase markConversationFullyRead:c.convID upToConvSeq:c.latestConvSeq];
-                [IMDatabase.sharedDatabase applyCachedSettingsForConversation:c.convID
-                                                                      pinnedAt:c.pinnedAt muted:c.muted markedUnread:NO];
+                if (![ws performDatabaseOperation:^(IMDatabase *database) {
+                    [database markConversationFullyRead:c.convID upToConvSeq:c.latestConvSeq];
+                    [database applyCachedSettingsForConversation:c.convID
+                                                         pinnedAt:c.pinnedAt muted:c.muted markedUnread:NO];
+                }]) { return; }
                 NSUInteger idx = [ws.conversations indexOfObject:c];
                 if (idx != NSNotFound) {
                     [ws.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:idx inSection:0]]
@@ -614,7 +641,9 @@ static CGFloat const kIMRowLeading = 16;
         return;
     }
     c.unread = 0;
-    [IMDatabase.sharedDatabase markConversationFullyRead:c.convID upToConvSeq:c.latestConvSeq];
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        [database markConversationFullyRead:c.convID upToConvSeq:c.latestConvSeq];
+    }];
     NSUInteger idx = [self.conversations indexOfObject:c];
     if (idx != NSNotFound) {
         [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:idx inSection:0]]
@@ -655,10 +684,12 @@ static CGFloat const kIMRowLeading = 16;
     }];
     NSUInteger newIndex = [sorted indexOfObject:conversation];
     self.conversations = sorted;
-    [IMDatabase.sharedDatabase applyCachedSettingsForConversation:conversation.convID
-                                                          pinnedAt:conversation.pinnedAt
-                                                             muted:conversation.muted
-                                                      markedUnread:conversation.markedUnread];
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        [database applyCachedSettingsForConversation:conversation.convID
+                                             pinnedAt:conversation.pinnedAt
+                                                muted:conversation.muted
+                                         markedUnread:conversation.markedUnread];
+    }];
     self.emptyLabel.hidden = sorted.count > 0;
 
     NSIndexPath *from = [NSIndexPath indexPathForRow:(NSInteger)oldIndex inSection:0];
@@ -691,8 +722,10 @@ static CGFloat const kIMRowLeading = 16;
             c.pinnedAt = pinnedAt;
             c.muted = muted;
             c.markedUnread = markedUnread;
-            [IMDatabase.sharedDatabase applyCachedSettingsForConversation:c.convID
-                                                                  pinnedAt:pinnedAt muted:muted markedUnread:markedUnread];
+            if (![ws performDatabaseOperation:^(IMDatabase *database) {
+                [database applyCachedSettingsForConversation:c.convID
+                                                     pinnedAt:pinnedAt muted:muted markedUnread:markedUnread];
+            }]) { return; }
             [ws.tableView reloadData];
             [ws reload];
         }];
@@ -707,7 +740,9 @@ static CGFloat const kIMRowLeading = 16;
         NSMutableArray<IMConversation *> *remaining = [ws.conversations mutableCopy];
         [remaining removeObject:c];
         ws.conversations = remaining;
-        [IMDatabase.sharedDatabase deleteCachedConversation:c.convID];
+        if (![ws performDatabaseOperation:^(IMDatabase *database) {
+            [database deleteCachedConversation:c.convID];
+        }]) { return; }
         ws.emptyLabel.hidden = remaining.count > 0;
         [ws.tableView reloadData];
         [ws reload];

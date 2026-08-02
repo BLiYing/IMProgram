@@ -25,6 +25,7 @@
 #import "UILabel+IMAvatar.h"
 #import "UIViewController+IMToast.h"
 #import "IMTheme.h"
+#import "IMLog.h"
 #import <objc/runtime.h>
 #import "IMProgram-Swift.h"
 
@@ -305,6 +306,7 @@ static CGFloat const kPillsRowH = 78;
 @property (nonatomic, copy) NSString *userID;
 @property (nonatomic, copy) NSString *convID;
 @property (nonatomic, assign) BOOL isGroup;
+@property (nonatomic, strong) IMDatabaseAccountContext *databaseContext;
 // 单聊对端
 @property (nonatomic, copy, nullable) NSString *peerID;
 @property (nonatomic, copy, nullable) NSString *peerNickname;
@@ -356,6 +358,12 @@ static CGFloat const kPillsRowH = 78;
         _peerNickname = remark.length ? [remark copy] : [peerNickname copy];
         _peerAvatarURL = [peerAvatarURL copy];
         _convID = IMConversationID(userID, peerID);
+        IMDatabaseAccountContext *context = IMDatabase.sharedDatabase.currentAccountContext;
+        if (![context.ownerUserID isEqualToString:userID]) {
+            IMLogDatabase(@"单聊详情页账号与当前数据库上下文不一致 page_uid=%@ db_uid=%@",
+                          userID, context.ownerUserID ?: @"(none)");
+        }
+        _databaseContext = [context.ownerUserID isEqualToString:userID] ? context : nil;
         _isGroup = NO;
         // URL 只决定圆形头像内容，不再触发全幅大图头部。
         _hasPhoto = NO;
@@ -369,12 +377,22 @@ static CGFloat const kPillsRowH = 78;
     self = [super initWithNibName:nil bundle:nil];
     if (self) {
         _host = [host copy]; _userID = [userID copy]; _convID = [convID copy];
+        IMDatabaseAccountContext *context = IMDatabase.sharedDatabase.currentAccountContext;
+        if (![context.ownerUserID isEqualToString:userID]) {
+            IMLogDatabase(@"群详情页账号与当前数据库上下文不一致 page_uid=%@ db_uid=%@",
+                          userID, context.ownerUserID ?: @"(none)");
+        }
+        _databaseContext = [context.ownerUserID isEqualToString:userID] ? context : nil;
         _groupName = [groupName copy]; _isGroup = YES;
         _peerAvatarURL = [groupAvatarURL copy];   // 复用字段承载群头像，供 headerAvatarURL 立即取用
         _hasPhoto = NO;
         self.hidesBottomBarWhenPushed = YES;
     }
     return self;
+}
+
+- (BOOL)performDatabaseOperation:(void (^)(IMDatabase *database))operation {
+    return [IMDatabase.sharedDatabase performWithAccountContext:self.databaseContext block:operation];
 }
 
 - (void)viewDidLoad {
@@ -832,7 +850,10 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
 #pragma mark - 页签
 
 - (void)rebuildTabs {
-    NSArray<IMMessageModel *> *msgs = [IMDatabase.sharedDatabase messagesForConv:self.convID];
+    __block NSArray<IMMessageModel *> *msgs = @[];
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        msgs = [database messagesForConv:self.convID];
+    }];
     self.tabs = [IMChatDetailTabs tabsForMessages:msgs isGroup:self.isGroup];
     if (self.selectedTab >= (NSInteger)self.tabs.count) { self.selectedTab = 0; }
     // 分段控件
@@ -932,7 +953,10 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
     if (self.tabs.count == 0) { return; }
     IMChatDetailTab *t = self.tabs[self.selectedTab];
     if (t.kind == IMDetailTabKindMembers) { return; }
-    NSArray<IMMessageModel *> *msgs = [IMDatabase.sharedDatabase messagesForConv:self.convID];
+    __block NSArray<IMMessageModel *> *msgs = @[];
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        msgs = [database messagesForConv:self.convID];
+    }];
     if (t.kind == IMDetailTabKindMedia) {
         NSMutableArray<IMMediaItem *> *items = [NSMutableArray array];
         for (IMMessageModel *m in msgs) {
@@ -1381,7 +1405,9 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
 - (void)confirmClearHistory {
     NSString *msg = self.isGroup ? @"仅清空本机记录，不影响其他成员。" : @"将删除此会话在本机的全部消息，且无法恢复。";
     [self confirmDestructive:@"清空聊天记录？" message:msg action:@"清空" handler:^{
-        [IMDatabase.sharedDatabase clearMessagesForConv:self.convID];
+        if (![self performDatabaseOperation:^(IMDatabase *database) {
+            [database clearMessagesForConv:self.convID];
+        }]) { return; }
         [self rebuildTabs];
         [self.tableView reloadData];
         // 通知底层聊天页清空内存并刷新（否则返回聊天页仍显旧消息）。
