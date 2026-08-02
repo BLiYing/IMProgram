@@ -27,6 +27,9 @@ NS_ASSUME_NONNULL_BEGIN
 /// name / meta 的 rest 字号（详情 26/15，我页 28/17），用于计算缩放端点（→17/13pt）。
 @property (nonatomic, assign) CGFloat nameRestFont;
 @property (nonatomic, assign) CGFloat metaRestFont;
+/// meta 是否随迁移进度淡出（`alpha = 1 - migrate`）。默认 NO（跟随 name 进标题栏当副标题，如详情页成员数）；
+/// 「我」页置 YES → 手机号·uid 迁移途中渐进淡出，锁定时完全不可见。
+@property (nonatomic, assign) BOOL metaFades;
 /// 头部完全收拢（态H）所需上滑距离：此时 name/成员进标题栏、pills 恰好停到标题栏下方。默认 144。
 @property (nonatomic, assign) CGFloat collapseOffset;
 

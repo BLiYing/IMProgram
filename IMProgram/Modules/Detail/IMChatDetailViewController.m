@@ -259,6 +259,8 @@ typedef NS_ENUM(NSInteger, IMDetailSection) {
 };
 
 static CGFloat const kPillsRowH = 78;
+static CGFloat const kTabBarH   = 52;   ///< 页签栏高度（含分段控件上下留白）；分段控件本体 = kTabBarH-12
+static CGFloat const kTabSegH   = 40;   ///< 分段控件本体高度（点击面积）
 
 @interface IMChatDetailViewController () <UITableViewDataSource, UITableViewDelegate, UIScrollViewDelegate, UIGestureRecognizerDelegate, IMLiquidNavigationBarDelegate>
 // 身份
@@ -405,7 +407,7 @@ static CGFloat const kPillsRowH = 78;
         self.tableView.tableHeaderView = spacer; // 触发重新测量
     }
     self.pillsView.frame = CGRectMake(0, self.topInset + 208, W, kPillsRowH);
-    self.stickyBar.frame = CGRectMake(0, [self tabPinTop], W, 44);
+    self.stickyBar.frame = CGRectMake(0, [self tabPinTop], W, kTabBarH);
     [self layoutSegmented:self.stickySeg inWidth:W];
     [self syncScrollInset];
     [self applyHeaderMorph]; // 尺寸变化后重算
@@ -417,23 +419,24 @@ static CGFloat const kPillsRowH = 78;
     return self.topInset + 200 + 8 + kPillsRowH;
 }
 
-/// 补足底部 inset，确保内容够短时也能上滑到「头部收拢」与「页签贴顶」位。
-/// 2(2)a：wantMax 精确取到「tab 贴顶」为止（不再多给 +24）→ 内容不足一屏时，贴顶即为最大 offset，
-/// 无法再继续上滑进空白。内容够多时 naturalMax 远大于 wantMax，bottom=0，自然自由滚动（走 Zone② detent）。
+/// 底部 inset + 橡皮筋策略：
+/// - **始终**补足到「能滚到头部收拢(H) + 页签贴顶(pin)」→ 任何内容长度都能上滑贴顶、点 tab 也能贴顶。
+/// - 内容够长（贴顶后列表仍填满屏幕）→ 允许橡皮筋、可继续自然滚动（走 Zone② detent）。
+/// - 内容不足（贴顶后下方是空白）→ `bounces=NO`：能滚到 pin 但**贴顶后禁止再越界上滑**（2(2)a，硬停不回弹）。
 - (void)syncScrollInset {
     CGFloat viewH = self.tableView.bounds.size.height;
     if (viewH <= 0) { return; }
-    CGFloat wantMax = [self headerCollapseOffset]; // 至少能滚到头部收拢(态H)
-    NSInteger tabSec = [self indexOfSection:IMDetailSectionTabs];
-    if (tabSec != NSNotFound) {
-        CGRect hr = [self.tableView rectForHeaderInSection:tabSec];
-        wantMax = MAX(wantMax, hr.origin.y - [self tabPinTop]); // 恰好滚到页签贴顶为止
-    }
+    CGFloat pin = [self pinOffset];
+    CGFloat wantMax = MAX([self headerCollapseOffset], pin);        // 至少能滚到收拢 + 贴顶
     CGFloat naturalMax = self.tableView.contentSize.height - viewH; // 不含 inset 的最大 offset
     CGFloat bottom = MAX(0, wantMax - naturalMax);
     if (ABS(self.tableView.contentInset.bottom - bottom) > 0.5) {
         self.tableView.contentInset = UIEdgeInsetsMake(0, 0, bottom, 0);
     }
+    // 贴顶后是否还有内容可滚：有→允许橡皮筋自然滚动；没有→硬停（贴顶即到顶，禁止越界上滑）。
+    BOOL longEnough = naturalMax >= pin - 0.5;
+    self.tableView.bounces = longEnough;
+    self.tableView.alwaysBounceVertical = longEnough;
 }
 
 #pragma mark - 构建 UI
@@ -445,6 +448,11 @@ static CGFloat const kPillsRowH = 78;
     self.tableView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
     self.tableView.showsVerticalScrollIndicator = NO;
     self.tableView.sectionHeaderTopPadding = 0;
+    // 关闭高度估算：所有行/页眉走精确 heightFor…，reloadData 后 contentSize / rectForHeaderInSection 立即准确，
+    // 切 tab 时 pinOffset 才不会因估算落偏（#4 维持贴顶的前提）。
+    self.tableView.estimatedRowHeight = 0;
+    self.tableView.estimatedSectionHeaderHeight = 0;
+    self.tableView.estimatedSectionFooterHeight = 0;
     [self.tableView registerClass:UITableViewCell.class forCellReuseIdentifier:@"plain"];
     [self.tableView registerClass:IMDetailMemberCell.class forCellReuseIdentifier:@"member"];
     [self.tableView registerClass:IMDetailMediaContainerCell.class forCellReuseIdentifier:@"mediagrid"];
@@ -666,14 +674,15 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
     [self updateStickyTabs];
 }
 
-/// tab 贴顶时顶边（距标题栏底 topInset+56 留 12pt 呼吸位）。stickyBar / pinOffset / updateStickyTabs 统一取此值。
-- (CGFloat)tabPinTop { return self.topInset + 68; }
+/// tab 贴顶时顶边。贴到标题栏底(topInset+56)之上一点，让分段控件紧贴标题栏、上方内容被磨砂栏遮住不外露。
+/// stickyBar / pinOffset / updateStickyTabs 统一取此值。
+- (CGFloat)tabPinTop { return self.topInset + 48; }
 /// 运行时实时的页签栏高度（tab 高度改了这里自动跟随），用于 Zone② detent 的半-tab 临界。
 - (CGFloat)tabBarHeight {
     NSInteger sec = [self indexOfSection:IMDetailSectionTabs];
-    if (sec == NSNotFound) { return 44; }
+    if (sec == NSNotFound) { return kTabBarH; }
     CGFloat h = [self.tableView rectForHeaderInSection:sec].size.height;
-    return h > 0 ? h : 44;
+    return h > 0 ? h : kTabBarH;
 }
 
 /// 松手临界吸附：Zone①(头部收拢) + Zone②(tab 贴顶后列表起步 detent)。
@@ -696,14 +705,18 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
 }
 
 /// 2(1)：页签选中色/背景色对调。原本选中段=浅色药丸、底轨=灰；对调为选中段=原底色、底轨=原选中色。
+/// 2(2)：字号加大到 15pt，配合 kTabSegH=40 的更高分段控件，点击面积更大、交互更友好。
 - (void)styleSegmented:(UISegmentedControl *)seg {
     UIColor *origSelected = UIColor.systemBackgroundColor;      // 原「选中段」色
     UIColor *origTrack    = [UIColor tertiarySystemFillColor];  // 原「底轨/背景」色
     seg.selectedSegmentTintColor = origTrack;                  // 选中段 ← 原背景色
     seg.backgroundColor = origSelected;                        // 底轨   ← 原选中色
-    [seg setTitleTextAttributes:@{NSForegroundColorAttributeName: UIColor.labelColor}
+    UIFont *segFont = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
+    [seg setTitleTextAttributes:@{NSForegroundColorAttributeName: UIColor.labelColor,
+                                  NSFontAttributeName: segFont}
                        forState:UIControlStateSelected];
-    [seg setTitleTextAttributes:@{NSForegroundColorAttributeName: UIColor.secondaryLabelColor}
+    [seg setTitleTextAttributes:@{NSForegroundColorAttributeName: UIColor.secondaryLabelColor,
+                                  NSFontAttributeName: segFont}
                        forState:UIControlStateNormal];
 }
 
@@ -917,12 +930,21 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
     [UIView performWithoutAnimation:^{
         [self.tableView reloadData];       // 整表零动画重建：内容瞬时替换，无逐行高度动画
         [self.tableView layoutIfNeeded];
-        [self syncScrollInset];            // 先撑够底部 inset，避免下一步 setOffset 被夹到顶
-        if (wasPinned) {                   // 已贴顶：直接钉在贴顶位（无任何滚动动画，不露头部）
+        [self syncScrollInset];            // 始终补足 inset → pin 可达（估算已关，pinOffset 立即准确）
+        if (wasPinned) {                   // #4 已贴顶：直接钉在贴顶位（不露头部、不回进入态）
             self.tableView.contentOffset = CGPointMake(0, [self pinOffset]);
         }
     }];
-    if (!wasPinned && scrollToPin) {       // 之前在头部区、点了 tab：平滑滚到贴顶
+    if (wasPinned) {
+        // 安全网：reloadData 后布局在下一帧可能再次结算，届时强制断言一次贴顶位，抵消偶发落偏。
+        __weak typeof(self) ws = self;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(ws) self = ws;
+            if (!self || [self indexOfSection:IMDetailSectionTabs] == NSNotFound) { return; }
+            [self syncScrollInset];
+            self.tableView.contentOffset = CGPointMake(0, [self pinOffset]);
+        });
+    } else if (scrollToPin) {              // 之前在头部区、点了 tab：平滑滚到贴顶（#2(2) 点 tab 即贴顶）
         __weak typeof(self) ws = self;
         dispatch_async(dispatch_get_main_queue(), ^{ [ws scrollTabsToPinAnimated:YES]; });
     }
@@ -1029,22 +1051,22 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
 
 - (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
     if ([self sectionKindAt:section] != IMDetailSectionTabs) { return nil; }
-    UIView *wrap = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tableView.bounds.size.width, 44)];
+    UIView *wrap = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tableView.bounds.size.width, kTabBarH)];
     [self layoutSegmented:self.segmented inWidth:tableView.bounds.size.width];
     [wrap addSubview:self.segmented];
     return wrap;
 }
 
-/// 分段控件按内容宽居中（贴顶条与表内一致，单/多 tab 段宽固定）。
+/// 分段控件按内容宽居中（贴顶条与表内一致，单/多 tab 段宽固定）。段高 kTabSegH、下限加宽 → 点击面积更大。
 - (void)layoutSegmented:(UISegmentedControl *)seg inWidth:(CGFloat)width {
-    CGFloat w = [seg sizeThatFits:CGSizeMake(width - 32, 32)].width;
-    w = IMClamp(w, 120, width - 32);        // 下限保证单 tab 也有合理固定宽
+    CGFloat w = [seg sizeThatFits:CGSizeMake(width - 32, kTabSegH)].width;
+    w = IMClamp(w, 200, width - 32);        // 下限加宽到 200，单/多 tab 都有更大点击面积
     seg.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
-    seg.frame = CGRectMake((width - w) / 2, 6, w, 32);
+    seg.frame = CGRectMake((width - w) / 2, (kTabBarH - kTabSegH) / 2, w, kTabSegH);
 }
 - (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
     IMDetailSection kind = [self sectionKindAt:section];
-    if (kind == IMDetailSectionTabs) { return 44; }
+    if (kind == IMDetailSectionTabs) { return kTabBarH; }
     if (kind == IMDetailSectionPills) { return 8; }
     return 12;
 }

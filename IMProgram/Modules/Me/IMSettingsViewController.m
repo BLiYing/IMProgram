@@ -337,6 +337,7 @@
     self.headerMorph.bar = self.liquidNavigationBar;
     self.headerMorph.nameRestFont = 28;   // 我页 name 28pt（详情页 26pt）
     self.headerMorph.metaRestFont = 17;   // 我页 meta 17pt（详情页 15pt）
+    self.headerMorph.metaFades = YES;     // 我页手机号·uid 迁移途中渐进淡出（详情页成员数不淡出）
     [self applyProfileHeaderMorph];
 }
 
@@ -370,7 +371,26 @@
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
     self.profileOverlay.frame = self.view.bounds;
+    [self syncHeaderScrollRoom];
     [self applyProfileHeaderMorph];
+}
+
+/// #1：大屏机型（如 17 Pro Max）上「我」页内容常常一屏放得下 → tableView 不可滚 → raw 恒为 0 → name 永远
+/// 不迁移进标题栏。这里补足底部 inset，保证最大 raw ≥ 收拢距离 H，让 name 能完整走到标题栏（migrate=1）。
+- (void)syncHeaderScrollRoom {
+    CGFloat viewH = self.tableView.bounds.size.height;
+    if (viewH <= 0) { return; }
+    CGFloat H = 144 + 8;   // 收拢距离 + 余量，确保 migrate 能到 1
+    // 当前（不含我们要加的 bottom）能达到的最大 raw = contentOffset.y_max + adjustedContentInset.top。
+    CGFloat safeBottom = self.tableView.adjustedContentInset.bottom - self.tableView.contentInset.bottom;
+    CGFloat maxRawWithoutOurs = self.tableView.contentSize.height + safeBottom - viewH
+                              + self.tableView.adjustedContentInset.top;
+    CGFloat bottom = MAX(0, H - maxRawWithoutOurs);
+    if (ABS(self.tableView.contentInset.bottom - bottom) > 0.5) {
+        UIEdgeInsets in = self.tableView.contentInset;
+        in.bottom = bottom;
+        self.tableView.contentInset = in;
+    }
 }
 
 - (void)scrollViewDidScroll:(UIScrollView *)scrollView {

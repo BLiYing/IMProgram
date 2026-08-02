@@ -98,7 +98,7 @@ static inline CGFloat IMHM_Smooth(CGFloat x) { x = IMHM_Clamp(x, 0, 1); return x
     self.name.transform = CGAffineTransformMakeScale(titleScale, titleScale);
     self.meta.transform = CGAffineTransformMakeScale(metaScale, metaScale);
     self.name.alpha = 1;
-    self.meta.alpha = 1;
+    self.meta.alpha = self.metaFades ? (1.0 - migrate) : 1.0;
 
     // 自持导航栏：name 标签本身承担 title（compactContentProgress=0 关掉胶囊内置标题，避免双标题）。
     self.bar.immersiveAppearanceProgress = 0;
