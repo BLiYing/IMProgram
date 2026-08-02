@@ -38,14 +38,18 @@
 @property (nonatomic, strong) UILabel *letter;
 @property (nonatomic, strong) UIImageView *photo;
 - (void)setAvatarURL:(nullable NSString *)url seed:(NSString *)seed name:(nullable NSString *)name;
-- (void)applyAbsorptionMaskProgress:(CGFloat)progress;
+@end
+
+/// Static coordinate group hosting the moving avatar plus the fixed-Y 171pt droplet
+/// mask/effects —对应 Telegram `PeerInfoAvatarListNode.containerNode`。所有子层共享同一
+/// mask（灵动岛下方 171pt Lottie），因此头像缩到 50pt 时也不会被自身 bounds 切成矩形。
+/// hitTest 只透传给 `interactiveChild`（头像），避免大容器吞掉表格触摸。
+@interface IMDetailHeaderContainer : UIView
+@property (nonatomic, weak) UIView *interactiveChild;
 @end
 
 @implementation IMDetailAvatarView {
     NSUInteger _token;
-    CAShapeLayer *_absorptionMask;
-    UIVisualEffectView *_absorptionBlur;
-    UIView *_absorptionFade;
 }
 - (instancetype)initWithFrame:(CGRect)frame {
     if ((self = [super initWithFrame:frame])) {
@@ -59,17 +63,6 @@
         _photo.clipsToBounds = YES;
         _photo.hidden = YES;
         [self addSubview:_photo];                 // 图在首字母之上
-        // Telegram 的吸附不只改变轮廓，还会随着遮罩进度增加暗色模糊和黑色覆盖，
-        // 让头像在接近系统黑色灵动岛时自然“融进去”。
-        _absorptionBlur = [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleDark]];
-        _absorptionBlur.userInteractionEnabled = NO;
-        _absorptionBlur.alpha = 0;
-        [self addSubview:_absorptionBlur];
-        _absorptionFade = [UIView new];
-        _absorptionFade.userInteractionEnabled = NO;
-        _absorptionFade.backgroundColor = UIColor.blackColor;
-        _absorptionFade.alpha = 0;
-        [self addSubview:_absorptionFade];
     }
     return self;
 }
@@ -77,8 +70,6 @@
     [super layoutSubviews];
     _letter.frame = self.bounds;
     _photo.frame = self.bounds;                   // 显式铺满，随 morph 每帧更新
-    _absorptionBlur.frame = self.bounds;
-    _absorptionFade.frame = self.bounds;
     _letter.font = [UIFont systemFontOfSize:MAX(10, self.bounds.size.width * 0.4) weight:UIFontWeightSemibold];
 }
 - (void)setAvatarURL:(NSString *)url seed:(NSString *)seed name:(NSString *)name {
@@ -97,48 +88,16 @@
         self->_photo.hidden = NO;
     }];
 }
-- (void)applyAbsorptionMaskProgress:(CGFloat)progress {
-    progress = MIN(MAX(progress, 0), 1);
-    if (progress <= 0.001 || CGRectIsEmpty(self.bounds)) {
-        self.layer.mask = nil;
-        _absorptionBlur.alpha = 0;
-        _absorptionFade.alpha = 0;
-        return;
-    }
+@end
 
-    if (!_absorptionMask) { _absorptionMask = [CAShapeLayer layer]; }
-    CGFloat w = CGRectGetWidth(self.bounds), h = CGRectGetHeight(self.bounds);
-    CGFloat cx = w * 0.5;
-    // 顶部使用短平口藏入灵动岛下方，随后以两段连续贝塞尔曲线形成窄颈和圆润腹部。
-    // 相比尖头水滴，这种“桥接/融合”轮廓更接近 Telegram 的 UserAvatarMask 动画。
-    CGFloat shoulder = w * (0.49 - 0.10 * progress);
-    CGFloat neckHalf = MAX(2, w * (0.17 - 0.05 * progress));
-    CGFloat neckY = h * (0.13 + 0.08 * progress);
-    CGFloat bellyY = h * (0.43 + 0.04 * progress);
-    UIBezierPath *path = [UIBezierPath bezierPath];
-    [path moveToPoint:CGPointMake(cx - neckHalf, 0)];
-    [path addLineToPoint:CGPointMake(cx + neckHalf, 0)];
-    [path addCurveToPoint:CGPointMake(cx + shoulder, bellyY)
-            controlPoint1:CGPointMake(cx + neckHalf, neckY)
-            controlPoint2:CGPointMake(cx + shoulder, h * 0.19)];
-    [path addCurveToPoint:CGPointMake(cx, h)
-            controlPoint1:CGPointMake(cx + shoulder, h * 0.78)
-            controlPoint2:CGPointMake(cx + w * 0.20, h)];
-    [path addCurveToPoint:CGPointMake(cx - shoulder, bellyY)
-            controlPoint1:CGPointMake(cx - w * 0.20, h)
-            controlPoint2:CGPointMake(cx - shoulder, h * 0.78)];
-    [path addCurveToPoint:CGPointMake(cx - neckHalf, 0)
-            controlPoint1:CGPointMake(cx - shoulder, h * 0.20)
-            controlPoint2:CGPointMake(cx - neckHalf, neckY)];
-    [path closePath];
-    [CATransaction begin];
-    [CATransaction setDisableActions:YES];
-    _absorptionMask.frame = self.bounds;
-    _absorptionMask.path = path.CGPath;
-    self.layer.mask = _absorptionMask;
-    [CATransaction commit];
-    _absorptionBlur.alpha = MIN(MAX(-0.10 + progress * 1.10, 0), 1);
-    _absorptionFade.alpha = MIN(MAX(-0.25 + progress * 1.55, 0), 1);
+@implementation IMDetailHeaderContainer
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    if (self.hidden || self.alpha <= 0.01 || !self.userInteractionEnabled) { return nil; }
+    UIView *child = self.interactiveChild;
+    if (!child || child.hidden || child.alpha <= 0.01) { return nil; }
+    CGPoint p = [self convertPoint:point toView:child];
+    if (![child pointInside:p withEvent:event]) { return nil; }
+    return [child hitTest:p withEvent:event] ?: child;
 }
 @end
 
@@ -321,7 +280,11 @@ static CGFloat const kPillsRowH = 78;
 @property (nonatomic, assign) BOOL muted;
 // UI
 @property (nonatomic, strong) UITableView *tableView;
+@property (nonatomic, strong) IMDetailHeaderContainer *headerContainer; ///< 静态坐标容器：承载头像 + 灵动岛遮罩/覆盖层
 @property (nonatomic, strong) IMDetailAvatarView *avatarView;
+@property (nonatomic, strong) UIView *dropletBottomCover;                  ///< 灵动岛下方黑底（Telegram bottomCoverNode）
+@property (nonatomic, strong) IMTelegramAvatarEffectsView *dropletTopCover;///< 顶部 blur+gradient+fade（topCoverNode）
+@property (nonatomic, strong) IMTelegramAvatarMaskView *dropletMask;       ///< 171pt Lottie（UserAvatarMask）
 @property (nonatomic, strong) UILabel *nameOnImage;   ///< 图上名（photo 模式顶部）
 @property (nonatomic, strong) UILabel *subOnImage;
 @property (nonatomic, strong) UILabel *nameBelow;     ///< 圆头像下居中名
@@ -575,18 +538,47 @@ static CGFloat const kPillsRowH = 78;
     NSString *name = self.displayTitle;
     NSString *url = [self headerAvatarURL];
 
+    // 静态头部容器：完整覆盖遮罩带（灵动岛下 171pt）+ 头像 rest 位置。
+    // 头像/黑底/effects/mask 全部挂在这里，mask 作用于容器本身而非小尺寸头像，
+    // 避免 171pt 遮罩被 50pt 头像 bounds 裁成矩形。
+    self.headerContainer = [[IMDetailHeaderContainer alloc] initWithFrame:CGRectZero];
+    self.headerContainer.backgroundColor = UIColor.clearColor;
+    self.headerContainer.userInteractionEnabled = YES;
+    self.headerContainer.clipsToBounds = NO;
+    [self.view addSubview:self.headerContainer];
+
+    // 灵动岛遮罩底层黑底：对应 Telegram `bottomCoverNode`，alpha 随 maskValue 线性增长。
+    self.dropletBottomCover = [[UIView alloc] initWithFrame:CGRectZero];
+    self.dropletBottomCover.userInteractionEnabled = NO;
+    self.dropletBottomCover.hidden = YES;
+    self.dropletBottomCover.backgroundColor = [UIColor colorWithWhite:0 alpha:0];
+    [self.headerContainer addSubview:self.dropletBottomCover];
+
     self.avatarView = [[IMDetailAvatarView alloc] initWithFrame:CGRectZero];
     [self.avatarView setAvatarURL:url seed:seed name:name];
     self.avatarView.userInteractionEnabled = YES;
     [self.avatarView addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(avatarTapped)]];
-    [self.view addSubview:self.avatarView];
+    [self.headerContainer addSubview:self.avatarView];
+    self.headerContainer.interactiveChild = self.avatarView;
+
+    // 顶部 blur+径向渐变+黑色淡入：对应 Telegram `topCoverNode` (DynamicIslandBlurNode)。
+    self.dropletTopCover = [[IMTelegramAvatarEffectsView alloc] initWithFrame:CGRectZero];
+    self.dropletTopCover.userInteractionEnabled = NO;
+    self.dropletTopCover.hidden = YES;
+    [self.headerContainer addSubview:self.dropletTopCover];
+
+    // Lottie 遮罩本体：只在 progress>0.03 时挂到 headerContainer.maskView。
+    self.dropletMask = [[IMTelegramAvatarMaskView alloc] initWithFrame:CGRectZero];
+    self.dropletMask.userInteractionEnabled = NO;
 
     self.nameOnImage = [self makeNameLabel:22 color:UIColor.whiteColor shadow:YES];
     self.nameOnImage.textAlignment = NSTextAlignmentLeft;
     self.subOnImage = [self makeNameLabel:13 color:[UIColor.whiteColor colorWithAlphaComponent:0.85] shadow:YES];
     self.subOnImage.textAlignment = NSTextAlignmentLeft;
-    self.nameBelow = [self makeNameLabel:20 color:IMTheme.textPrimary shadow:NO];
-    self.subBelow = [self makeNameLabel:13 color:IMTheme.textSecondary shadow:NO];
+    // 起点比导航栏 title (17pt) 略大，滑动过程会 CGAffineTransformScale 到 ≈17pt，视觉即"移动+缩小到标题栏"。
+    // 对齐 Telegram PeerInfoHeaderNode.titleFont ≈ 28pt / titleMinScale=0.6 → 端点 16.8pt。
+    self.nameBelow = [self makeNameLabel:26 color:IMTheme.textPrimary shadow:NO];
+    self.subBelow = [self makeNameLabel:15 color:IMTheme.textSecondary shadow:NO];
     for (UILabel *l in @[self.nameOnImage, self.subOnImage, self.nameBelow, self.subBelow]) { [self.view addSubview:l]; }
     self.nameOnImage.text = name; self.nameBelow.text = name;
     self.subOnImage.text = self.displaySubtitle; self.subBelow.text = self.displaySubtitle;
@@ -603,7 +595,6 @@ static CGFloat const kPillsRowH = 78;
         [self.liquidNavigationBar.topAnchor constraintEqualToAnchor:self.view.topAnchor],
         [self.liquidNavigationBar.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:56],
     ]];
-
     // 吸顶条：页签滚到折叠顶栏下方时出现，只放镜像分段控件——**无整行背景色**（分段控件自带药丸底即可）。
     self.stickyBar = [[UIView alloc] initWithFrame:CGRectZero];
     self.stickyBar.backgroundColor = UIColor.clearColor;
@@ -615,6 +606,10 @@ static CGFloat const kPillsRowH = 78;
     [self addTabPinTapTo:self.stickySeg];
     [self.stickyBar addSubview:self.stickySeg];
 
+    // 名字/副标题上移锁定后要充当导航栏 title，必须渲染在液态导航栏与吸顶条【之上】
+    //（否则被磨砂背景盖住变虚）。居中文字标签 userInteractionEnabled 默认 NO，不挡两侧按钮点击。
+    [self.view bringSubviewToFront:self.nameBelow];
+    [self.view bringSubviewToFront:self.subBelow];
 }
 
 - (UILabel *)makeNameLabel:(CGFloat)size color:(UIColor *)color shadow:(BOOL)shadow {
@@ -660,58 +655,108 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
     CGFloat W = self.view.bounds.size.width;
     if (W <= 0) { return; }
     CGFloat off = MAX(0, self.tableView.contentOffset.y); // 下拉橡皮筋不参与形变
-    CGFloat top = self.topInset;
-    BOOL reduceMotion = UIAccessibilityIsReduceMotionEnabled();
-    // Telegram PeerInfoHeaderNode 以 contentOffset / 120 驱动灵动岛头像遮罩。
+    CGFloat top = self.topInset;                          // == statusBarHeight（灵动岛机型 ≈ 59）
+    // Telegram PeerInfoHeaderNode 以 contentOffset / 120 驱动灵动岛头像遮罩（maskValue）。
     CGFloat q = IMClamp(off / 120.0, 0, 1);
-    CGFloat swallow = 0;
-    BOOL attachedToIsland = NO;
-    CGFloat restD = 92, restCY = top + 58;
-    CGFloat islandBottom = MAX(36, top - 9);
-    CGFloat contactEnd = 0.38;
-    CGFloat w, h, cy;
-    if (q <= contactEnd) {
-        CGFloat contact = IMSmooth(q / contactEnd);
-        w = h = IMLerp(restD, 64, contact);
-        cy = IMLerp(restCY, islandBottom + h * 0.5 - 2, contact);
-    } else {
-        swallow = IMSmooth((q - contactEnd) / (1 - contactEnd));
-        w = IMLerp(64, 18, swallow);
-        h = IMLerp(64, 6, swallow);
-        cy = islandBottom - 5 + h * 0.5;
-        attachedToIsland = swallow > 0.001;
+    // 头像缩放/上移不吃 maskValue，而是吃 titleCollapseFraction = contentOffset / 128
+    //（`PeerInfoHeaderNode.swift` L1624/L1759），两者略微异步是 Telegram 原始节奏。
+    CGFloat tcf = IMClamp(off / 128.0, 0, 1);
+    // 关键：头像 rest 尺寸/圆心必须与固定 171pt Lottie 圆对齐，否则头像比遮罩小、缩得比遮罩快，
+    // 露出的差集会把黑色 bottomCover 当成“一滑就出现的大遮罩”。Telegram: avatarSize=100，
+    // avatarFrame.y = statusBarHeight + 22 → 圆心 = statusBarHeight + 72。
+    CGFloat restD = 100;
+    CGFloat restCY = top + 72;
+    // avatarMinScale = 0.55；avatarScale = 1*(1-tcf) + 0.55*tcf（`PeerInfoHeaderNode.swift` L1759）。
+    CGFloat avatarScale = IMLerp(1, 0.55, tcf);
+    CGFloat diameter = restD * avatarScale;
+    // avatarOffset = apparentTitleLockOffset(7*tcf) + 10*tcf = 17*tcf（L1660/L1760）。
+    CGFloat cy = restCY - off + 17 * tcf;
+
+    // 静态容器：宽度铺满，高度覆盖遮罩带 + rest 头像整体。所有 mask/覆盖层在容器坐标系内定位，
+    // 因此头像上滑期间它们保持在灵动岛下方（屏幕 Y 47.5..218.5）不动。
+    CGRect containerFrame = CGRectMake(0, 0, W, MAX(restCY + restD / 2 + 8, 260));
+    if (!CGRectEqualToRect(self.headerContainer.frame, containerFrame)) {
+        self.headerContainer.frame = containerFrame;
     }
 
-    // 接触前维持圆形上移；接触后顶部固定，水滴主体向上收缩。
-    CGFloat neckPulse = (attachedToIsland && !reduceMotion) ? sin(M_PI * swallow) : 0;
-    CGFloat drawW = w * (1 - 0.08 * neckPulse);
-    CGFloat drawH = h * (1 + 0.08 * neckPulse);
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
-    self.avatarView.frame = CGRectMake(W / 2 - drawW / 2, cy - drawH / 2, drawW, drawH);
-    self.avatarView.layer.cornerRadius = attachedToIsland ? 0 : MIN(drawW, drawH) / 2;
-    [self.avatarView applyAbsorptionMaskProgress:(attachedToIsland ? swallow : 0)];
-    [CATransaction commit];
-    self.avatarView.alpha = swallow > 0.88 ? IMClamp(1 - (swallow - 0.88) / 0.12, 0, 1) : 1;
+    // 头像在容器坐标系内移动/缩放。始终保持 cornerRadius=r（圆形），
+    // 由 headerContainer.maskView 进一步塑成水滴——避免出现方形被切割的过渡瞬间。
+    self.avatarView.frame = CGRectMake(W / 2 - diameter / 2, cy - diameter / 2, diameter, diameter);
+    self.avatarView.layer.cornerRadius = diameter / 2;
+    self.avatarView.clipsToBounds = YES;
 
-    // 统一圆头像下方标题，URL 头像不会切换到另一套大图标题布局。
+    // Telegram 遮罩：171×171，圆心 (W/2, 133)，即 Y=47.5..218.5——灵动岛正下方。
+    CGRect maskFrame = CGRectMake(W / 2 - 85.5, 47.5, 171, 171);
+    self.dropletBottomCover.frame = maskFrame;
+    self.dropletTopCover.frame = maskFrame;
+    self.dropletMask.frame = maskFrame;
+
+    if (q > 0.03) {
+        // Telegram: bottomCover 是纯黑，alpha = maskValue（线性）；topCover 内部对同一 value 做延迟。
+        self.dropletBottomCover.hidden = NO;
+        self.dropletBottomCover.backgroundColor = [UIColor colorWithWhite:0 alpha:q];
+        self.dropletTopCover.hidden = NO;
+        [self.dropletTopCover setProgress:q];
+        [self.dropletMask setProgress:q];
+        // 关键：mask 挂到静态容器，而不是缩小中的头像，遮罩才不会被 50pt 的 avatar bounds 截掉。
+        if (self.headerContainer.maskView != self.dropletMask) {
+            self.headerContainer.maskView = self.dropletMask;
+        }
+    } else {
+        self.dropletBottomCover.hidden = YES;
+        self.dropletBottomCover.backgroundColor = [UIColor colorWithWhite:0 alpha:0];
+        self.dropletTopCover.hidden = YES;
+        [self.dropletTopCover setProgress:0];
+        [self.dropletMask setProgress:0];
+        if (self.headerContainer.maskView != nil) {
+            self.headerContainer.maskView = nil;
+        }
+    }
+    [CATransaction commit];
+    self.avatarView.alpha = 1;
+
     self.nameOnImage.alpha = 0;
     self.subOnImage.alpha = 0;
-    CGFloat belowIn = IMClamp(1 - q * 2.4, 0, 1);
-    CGFloat belowY = cy + drawH / 2 + 8;
-    self.nameBelow.frame = CGRectMake(0, belowY, W, 26);
-    self.subBelow.frame = CGRectMake(0, belowY + 26, W, 18);
+    // 名字/副标题：不淡出、不 1:1 跟随头像，而是以【更慢】的速度上移，因此从第 1pt 起就与头像/水滴
+    // 拉开距离、永远留在水滴下方；到达导航栏 title 行后【锁死】不再上移（继续上滑也不会飞出去）。
+    // 名字与副标题共用同一 shift → 全程保持恒定间距、一起上移。缩放与迁移进度同步，落点 ≈ 导航栏字号。
+    CGFloat nameH = 32, subH = 20;
+    // rest 基准用【静态】圆心（restCY 不含 -off），名字才不会跟着头像 1:1 跑。
+    CGFloat staticRestNameTop = restCY + restD / 2 + 8;
+    CGFloat staticRestNameCenterY = staticRestNameTop + nameH / 2;
 
-    self.nameBelow.alpha = belowIn;
-    self.subBelow.alpha = belowIn;
+    CGFloat kNameSpeed = 0.85;          // 上移速度（× off）；< 1 保证与头像拉开距离，数值越小间距越明显
+    CGFloat kLockCenterY = top + 19;    // 锁定终点：液态导航栏 title 中心（buttonY=top+6, titleY 中心≈top+19）
+    CGFloat nameCenterY = MAX(kLockCenterY, staticRestNameCenterY - kNameSpeed * off);
+    CGFloat nameShift = nameCenterY - staticRestNameCenterY;        // ≤ 0
+    // 迁移进度：0=rest，1=已锁定到 title；缩放随它从 1 → 端点字号，锁定时刚好缩放到位。
+    CGFloat migrate = (staticRestNameCenterY > kLockCenterY)
+        ? IMClamp(nameShift / (kLockCenterY - staticRestNameCenterY), 0, 1) : 0;
+    CGFloat titleScale = IMLerp(1.0, 17.0 / 26.0, migrate);   // 26pt name → ≈17pt
+    CGFloat subScale   = IMLerp(1.0, 13.0 / 15.0, migrate);   // 15pt sub  → ≈13pt
+
+    // 写 frame 前先复位 transform，避免 UIKit 反解 frame → bounds/center 漂移。
+    self.nameBelow.transform = CGAffineTransformIdentity;
+    self.subBelow.transform = CGAffineTransformIdentity;
+    self.nameBelow.frame = CGRectMake(0, staticRestNameTop, W, nameH);
+    // name 锁定到标题栏时（migrate=1），间距从 2pt 缩小到 0，让成员标签更贴近名字。
+    CGFloat metaGap = 2 - 2 * migrate;
+    self.subBelow.frame = CGRectMake(0, staticRestNameTop + nameH + metaGap, W, subH);
+    // 同一 nameShift 平移作用于两者 layer center → 恒定间距一起上移；各自缩放绕自身中心不改间距。
+    CGAffineTransform nameT = CGAffineTransformScale(CGAffineTransformMakeTranslation(0, nameShift), titleScale, titleScale);
+    self.nameBelow.transform = nameT;
+    CGAffineTransform subT = CGAffineTransformScale(CGAffineTransformMakeTranslation(0, nameShift), subScale, subScale);
+    self.subBelow.transform = subT;
+    self.nameBelow.alpha = 1;
+    self.subBelow.alpha = 1;
 
     // 大图态使用白色导航按钮；头像收成圆形后回到当前深浅模式的 label 色。
     self.liquidNavigationBar.immersiveAppearanceProgress = 0;
     self.liquidNavigationBar.backgroundEffectProgress = IMSmooth((q - 0.28) / 0.72);
-
-    // 初始进入时只保留独立返回按钮；标题胶囊在头像水滴
-    // 吸附接近完成时才渐显，恢复详情页原有的滚动形变节奏。
-    self.liquidNavigationBar.compactContentProgress = IMSmooth((q - 0.72) / 0.24);
+    // 名字标签本身（渲染在导航栏之上）承担 title，胶囊内部 titleLabel/subtitleLabel 不再重复出现。
+    self.liquidNavigationBar.compactContentProgress = 0;
 
     [self fireHapticsForPhase:q hasPhoto:NO phaseP:1];
 }
@@ -723,13 +768,9 @@ static CGFloat IMLerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t;
     CGFloat topInView = CGRectGetMinY(frameInView);
     CGFloat navigationBottom = self.topInset + 56;
     CGFloat navigationAlpha = IMClamp((topInView - navigationBottom) / 36, 0, 1);
-    CGFloat labelAlpha = 1;
-    if (self.subBelow.alpha > 0.05) {
-        // 圆头像下方标题仍可见时，优先淡出操作排，避免按钮覆盖“3 位成员”等副标题。
-        CGFloat clearance = topInView - CGRectGetMaxY(self.subBelow.frame);
-        labelAlpha = IMClamp((clearance - 6) / 24, 0, 1);
-    }
-    CGFloat alpha = MIN(navigationAlpha, labelAlpha);
+    // 名字/副标题现在始终 alpha=1，随滑动上移+缩小到导航栏；不再需要按 frame 做遮挡回避。
+    // 只保留 pills 进入导航栏区的通用淡出，避免搜索/更多按钮穿过返回与编辑按钮。
+    CGFloat alpha = navigationAlpha;
     self.pillsView.alpha = alpha;
     self.pillsView.userInteractionEnabled = alpha > 0.2;
 }

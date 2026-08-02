@@ -69,7 +69,8 @@
 - (void)syncLiquidBar {
     if (!self.isViewLoaded || !self.imLiquidBar) { return; }
     UIViewController *top = self.topViewController;
-    BOOL ownsBar = [top isKindOfClass:IMChatDetailViewController.class];
+    BOOL ownsBar = [top isKindOfClass:IMChatDetailViewController.class]
+               || [top isKindOfClass:IMSettingsViewController.class];
     self.imLiquidBar.hidden = ownsBar;
     UIEdgeInsets insets = top.additionalSafeAreaInsets;
     BOOL isChat = [top isKindOfClass:IMChatViewController.class];

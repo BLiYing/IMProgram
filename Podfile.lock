@@ -7,20 +7,24 @@ PODS:
   - FMDB/Core (2.7.12)
   - FMDB/standard (2.7.12):
     - FMDB/Core
+  - lottie-ios (4.6.0)
 
 DEPENDENCIES:
   - CocoaLumberjack (~> 3.9.0)
   - FMDB
+  - lottie-ios (= 4.6.0)
 
 SPEC REPOS:
   trunk:
     - CocoaLumberjack
     - FMDB
+    - lottie-ios
 
 SPEC CHECKSUMS:
   CocoaLumberjack: e4ba3b414dfca8c1916c6303d37f63b3a95134c6
   FMDB: 728731dd336af3936ce00f91d9d8495f5718a0e6
+  lottie-ios: 8f959969761e9c45d70353667d00af0e5b9cadb3
 
-PODFILE CHECKSUM: 2ae9183c4443f90c807ad72c3951daa45760d5a0
+PODFILE CHECKSUM: 332e608c6b7a334d74c194df18a0613e8dea0118
 
 COCOAPODS: 1.16.2

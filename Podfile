@@ -16,6 +16,7 @@ inhibit_all_warnings!
 target 'IMProgram' do
   pod 'FMDB'                                      # SQLite 封装（本地消息/会话落库，IMDatabase 用）
   pod 'CocoaLumberjack', '~> 3.9.0'               # 统一控制台/文件日志、级别与滚动策略
+  pod 'lottie-ios', '4.6.0'                       # Telegram TGS/Lottie 矢量头像吸附遮罩
 
   target 'IMProgramTests' do
     inherit! :search_paths

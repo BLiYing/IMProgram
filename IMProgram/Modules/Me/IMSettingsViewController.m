@@ -17,6 +17,7 @@
 #import "IMHTTPService.h"
 #import "IMUserCard.h"
 #import "IMGlass.h"
+#import "IMProgram-Swift.h"
 
 #pragma mark - 行模型（数据驱动单一来源）
 
@@ -184,7 +185,7 @@
 
 #pragma mark - 控制器
 
-@interface IMSettingsViewController () <UITableViewDataSource, UITableViewDelegate>
+@interface IMSettingsViewController () <UITableViewDataSource, UITableViewDelegate, IMLiquidNavigationBarDelegate>
 @property (nonatomic, copy) NSString *host;
 @property (nonatomic, copy) NSString *userID;
 @property (nonatomic, strong) UITableView *tableView;
@@ -194,12 +195,16 @@
 @property (nonatomic, copy, nullable) NSString *myPhone;
 @property (nonatomic, strong) UIView *profileHeader;
 @property (nonatomic, strong) UIView *profileOverlay;
+/// 静态坐标容器：承载头像 + 灵动岛 171pt 遮罩/覆盖层，与 IMChatDetailViewController 相同——
+/// 遮罩挂到容器本身而不是缩到 55pt 的头像，避免大遮罩被头像 bounds 切成矩形。
+@property (nonatomic, strong) UIView *dropletContainer;
+@property (nonatomic, strong) UIView *dropletBottomCover;                     ///< Telegram bottomCoverNode
+@property (nonatomic, strong) IMTelegramAvatarEffectsView *dropletTopCover;   ///< Telegram topCoverNode（blur+gradient+fade）
+@property (nonatomic, strong) IMTelegramAvatarMaskView *dropletMask;          ///< 171pt UserAvatarMask（挂到 dropletContainer.maskView）
 @property (nonatomic, strong) UILabel *profileAvatar;
 @property (nonatomic, strong) UILabel *profileName;
 @property (nonatomic, strong) UILabel *profileMeta;
-@property (nonatomic, strong) CAShapeLayer *profileAvatarMask;
-@property (nonatomic, strong) UIVisualEffectView *profileAvatarBlur;
-@property (nonatomic, strong) UIView *profileAvatarFade;
+@property (nonatomic, strong) IMLiquidNavigationBar *liquidNavigationBar;  ///< 「我」页沉浸式导航栏，与详情页对称
 @end
 
 @implementation IMSettingsViewController
@@ -229,6 +234,11 @@
     [self buildProfileHeader];
 }
 
+#pragma mark - 头部形变（滚动驱动）
+
+static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), b); }
+static CGFloat IMSmooth(CGFloat x) { x = IMClamp(x, 0, 1); return x * x * (3 - 2 * x); }
+
 - (void)buildProfileHeader {
     CGFloat W = self.view.bounds.size.width;
     // tableHeader 只负责为资料头部留出滚动空间；头像/文字悬浮在 table 之上，才能像详情页一样连续形变。
@@ -250,37 +260,78 @@
     self.profileOverlay.userInteractionEnabled = NO;
     [self.view addSubview:self.profileOverlay];
 
+    // 名字/副标题不能挂到 dropletContainer——mask 会同时把它们裁掉；单独挂在 profileOverlay 上，保持完整可见。
+    // 静态水滴容器：宽度铺满、位置钉在导航栏下方；头像/黑底/effects 都在其内部围绕 (W/2, top+72) 布局。
+    self.dropletContainer = [UIView new];
+    self.dropletContainer.backgroundColor = UIColor.clearColor;
+    self.dropletContainer.userInteractionEnabled = NO;
+    self.dropletContainer.clipsToBounds = NO;
+    [self.view addSubview:self.dropletContainer];
+
+    self.dropletBottomCover = [UIView new];
+    self.dropletBottomCover.userInteractionEnabled = NO;
+    self.dropletBottomCover.hidden = YES;
+    self.dropletBottomCover.backgroundColor = [UIColor colorWithWhite:0 alpha:0];
+    [self.dropletContainer addSubview:self.dropletBottomCover];
+
     self.profileAvatar = [UILabel new];
     self.profileAvatar.textAlignment = NSTextAlignmentCenter;
     self.profileAvatar.textColor = UIColor.whiteColor;
     self.profileAvatar.font = [UIFont systemFontOfSize:34 weight:UIFontWeightSemibold];
     self.profileAvatar.layer.masksToBounds = YES;
-    [self.profileOverlay addSubview:self.profileAvatar];
+    [self.dropletContainer addSubview:self.profileAvatar];
 
-    self.profileAvatarBlur = [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleDark]];
-    self.profileAvatarBlur.userInteractionEnabled = NO;
-    self.profileAvatarBlur.alpha = 0;
-    [self.profileAvatar addSubview:self.profileAvatarBlur];
-    self.profileAvatarFade = [UIView new];
-    self.profileAvatarFade.backgroundColor = UIColor.blackColor;
-    self.profileAvatarFade.userInteractionEnabled = NO;
-    self.profileAvatarFade.alpha = 0;
-    [self.profileAvatar addSubview:self.profileAvatarFade];
+    self.dropletTopCover = [[IMTelegramAvatarEffectsView alloc] initWithFrame:CGRectZero];
+    self.dropletTopCover.userInteractionEnabled = NO;
+    self.dropletTopCover.hidden = YES;
+    [self.dropletContainer addSubview:self.dropletTopCover];
+
+    // Lottie 遮罩：只在 q>0.03 时挂到 dropletContainer.maskView，其余时刻脱挂让所有子层完整可见。
+    self.dropletMask = [[IMTelegramAvatarMaskView alloc] initWithFrame:CGRectZero];
+    self.dropletMask.userInteractionEnabled = NO;
 
     self.profileName = [UILabel new];
     self.profileName.textAlignment = NSTextAlignmentCenter;
     self.profileName.font = [UIFont systemFontOfSize:28 weight:UIFontWeightSemibold];
     self.profileName.textColor = IMTheme.textPrimary;
-    [self.profileOverlay addSubview:self.profileName];
+    // 直接挂在 self.view（不是 profileOverlay），锁定后才能 bringSubviewToFront 到 bar 之上充当 title。
+    [self.view addSubview:self.profileName];
 
     self.profileMeta = [UILabel new];
     self.profileMeta.textAlignment = NSTextAlignmentCenter;
     self.profileMeta.font = [UIFont systemFontOfSize:17 weight:UIFontWeightRegular];
     self.profileMeta.textColor = IMTheme.textSecondary;
-    [self.profileOverlay addSubview:self.profileMeta];
+    [self.view addSubview:self.profileMeta];
     [self refreshProfileHeader];
     [self applyProfileHeaderMorph];
+
+    // 沉浸式导航栏：与 IMChatDetailViewController 完全对称，name 锁定时进到标题栏里。
+    // 初始文本从 profileName 读取（refreshProfileHeader 已填）。
+    NSString *nameText = self.profileName.text ?: @"";
+    NSString *metaText = self.profileMeta.text ?: @"";
+    self.liquidNavigationBar = [[IMLiquidNavigationBar alloc] initWithTitle:nameText
+                                                                     subtitle:metaText
+                                                                  actionTitle:@"编辑"];
+    // 自持 bar：共享 imLiquidBar 对本页已隐藏，左（二维码）右（编辑）按钮必须由本 VC 直接配置并响应。
+    self.liquidNavigationBar.delegate = self;
+    self.liquidNavigationBar.leftImage = [UIImage systemImageNamed:@"qrcode"];
+    self.liquidNavigationBar.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:self.liquidNavigationBar];
+    [NSLayoutConstraint activateConstraints:@[
+        [self.liquidNavigationBar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [self.liquidNavigationBar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [self.liquidNavigationBar.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [self.liquidNavigationBar.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:56],
+    ]];
+    [self.view bringSubviewToFront:self.profileName];
+    [self.view bringSubviewToFront:self.profileMeta];
 }
+
+#pragma mark - IMLiquidNavigationBarDelegate（自持 bar 的左/右按钮响应）
+
+- (void)liquidNavigationBarDidTapLeft:(IMLiquidNavigationBar *)bar { [self showQRCode]; }
+- (void)liquidNavigationBarDidTapBack:(IMLiquidNavigationBar *)bar { [self showQRCode]; }
+- (void)liquidNavigationBarDidTapAction:(IMLiquidNavigationBar *)bar { [self openProfile]; }
 
 - (void)refreshProfileHeader {
     NSString *display = self.myNickname.length ? self.myNickname : self.userID;
@@ -288,8 +339,8 @@
     NSString *phone = self.myPhone.length ? self.myPhone : self.userID;
     self.profileMeta.text = [NSString stringWithFormat:@"%@ · @%@", phone, self.userID];
     [self.profileAvatar im_setAvatarURL:self.myAvatarURL seed:self.userID displayName:display];
-    [self.profileAvatar bringSubviewToFront:self.profileAvatarBlur];
-    [self.profileAvatar bringSubviewToFront:self.profileAvatarFade];
+    // topCover 必须盖在头像之上，才能把 blur/gradient/黑色 fade 应用到头像图像上。
+    [self.dropletContainer bringSubviewToFront:self.dropletTopCover];
     [self applyProfileHeaderMorph];
 }
 
@@ -324,86 +375,101 @@
     CGFloat W = self.view.bounds.size.width;
     if (W <= 0 || !self.profileAvatar) { return; }
     CGFloat raw = self.tableView.contentOffset.y + self.tableView.adjustedContentInset.top;
-    // 与 Telegram PeerInfoHeaderNode 一致，以 120pt 滚动距离驱动头像/灵动岛遮罩。
+    // Telegram PeerInfoHeaderNode: contentOffset / 120 驱动灵动岛遮罩（maskValue）。
     CGFloat q = MIN(MAX(raw / 120.0, 0), 1);
+    // 头像缩放/上移吃 titleCollapseFraction = contentOffset / 128（`PeerInfoHeaderNode.swift` L1624/L1759），
+    // 与 maskValue 微异步是 Telegram 原始节奏。
+    CGFloat tcf = MIN(MAX(raw / 128.0, 0), 1);
     // 本页由主导航额外增加 56pt safe-area；头像基准必须使用设备状态栏 inset，避免落到标题栏下方。
     CGFloat top = self.view.window.safeAreaInsets.top;
-    // 与 IMChatDetailViewController 保持同一初始几何：92pt 圆头像紧邻导航栏，而非落在页面中部。
-    CGFloat restD = 92;
-    CGFloat restCY = top + 58;
-    CGFloat islandBottom = MAX(36, top - 9);
-    CGFloat contactEnd = 0.38;
-    CGFloat swallow = 0, w = restD, h = restD, cy = restCY;
-    BOOL attached = NO;
-    if (q <= contactEnd) {
-        CGFloat c = q / contactEnd;
-        c = c * c * (3 - 2 * c);
-        w = h = restD + (64 - restD) * c;
-        cy = restCY + (islandBottom + h * 0.5 - 2 - restCY) * c;
-    } else {
-        swallow = (q - contactEnd) / (1 - contactEnd);
-        swallow = swallow * swallow * (3 - 2 * swallow);
-        w = 64 + (18 - 64) * swallow;
-        h = 64 + (6 - 64) * swallow;
-        cy = islandBottom - 5 + h * 0.5;
-        attached = swallow > 0.001;
+    // 与 IMChatDetailViewController 完全对齐：restD=100（=avatarSize），restCY=top+72（=statusBarHeight+22+50）。
+    // 只有头像等于 171pt Lottie 圆内接尺寸时，露出的差集才会最小，暗色是随进度慢慢出现的一圈，
+    // 而不是一滑动就把黑色 bottomCover 整片让出来。
+    CGFloat restD = 100;
+    CGFloat restCY = top + 72;
+    CGFloat avatarScale = 1 - 0.45 * tcf;
+    CGFloat diameter = restD * avatarScale;
+    // avatarOffset = apparentTitleLockOffset(7·tcf) + 10·tcf = 17·tcf（L1660/L1760）。
+    CGFloat cy = restCY - raw + 17 * tcf;
+
+    // 静态水滴容器：高度覆盖遮罩带 + rest 头像。所有 mask/covers 在容器坐标系内以固定像素坐标定位，
+    // 头像上滑期间它们保持在灵动岛下方（屏幕 Y 47.5..218.5）不动。
+    CGRect containerFrame = CGRectMake(0, 0, W, MAX(restCY + restD / 2 + 8, 260));
+    if (!CGRectEqualToRect(self.dropletContainer.frame, containerFrame)) {
+        self.dropletContainer.frame = containerFrame;
     }
-    CGFloat neckPulse = attached && !UIAccessibilityIsReduceMotionEnabled() ? sin(M_PI * swallow) : 0;
-    CGFloat drawW = w * (1 - 0.08 * neckPulse);
-    CGFloat drawH = h * (1 + 0.08 * neckPulse);
+
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
+    // 头像在容器坐标系内移动/缩放。始终保持 cornerRadius=r（圆形），
+    // 由 dropletContainer.maskView 进一步塑成水滴——避免出现方形被切割的过渡瞬间。
     self.profileAvatar.transform = CGAffineTransformIdentity;
-    self.profileAvatar.frame = CGRectMake((W - drawW) / 2, cy - drawH / 2, drawW, drawH);
-    self.profileAvatar.layer.cornerRadius = attached ? 0 : MIN(drawW, drawH) / 2;
-    self.profileAvatarBlur.frame = self.profileAvatar.bounds;
-    self.profileAvatarFade.frame = self.profileAvatar.bounds;
-    self.profileAvatarBlur.alpha = MAX(0, MIN(1, swallow * 1.10 - 0.10));
-    self.profileAvatarFade.alpha = MAX(0, MIN(1, swallow * 1.55 - 0.25));
+    self.profileAvatar.frame = CGRectMake(W / 2 - diameter / 2, cy - diameter / 2, diameter, diameter);
+    self.profileAvatar.layer.cornerRadius = diameter / 2;
 
-    if (!attached) {
-        self.profileAvatar.layer.mask = nil;
+    CGRect maskFrame = CGRectMake(W / 2 - 85.5, 47.5, 171, 171);
+    self.dropletBottomCover.frame = maskFrame;
+    self.dropletTopCover.frame = maskFrame;
+    self.dropletMask.frame = maskFrame;
+
+    if (q > 0.03) {
+        self.dropletBottomCover.hidden = NO;
+        self.dropletBottomCover.backgroundColor = [UIColor colorWithWhite:0 alpha:q];
+        self.dropletTopCover.hidden = NO;
+        [self.dropletTopCover setProgress:q];
+        [self.dropletMask setProgress:q];
+        if (self.dropletContainer.maskView != self.dropletMask) {
+            self.dropletContainer.maskView = self.dropletMask;
+        }
     } else {
-        if (!self.profileAvatarMask) { self.profileAvatarMask = [CAShapeLayer layer]; }
-        CGFloat cx = w * 0.5;
-        CGFloat shoulder = w * (0.49 - 0.10 * swallow);
-        CGFloat neckHalf = MAX(2, w * (0.17 - 0.05 * swallow));
-        CGFloat neckY = h * (0.13 + 0.08 * swallow);
-        CGFloat bellyY = h * (0.43 + 0.04 * swallow);
-        UIBezierPath *path = [UIBezierPath bezierPath];
-        [path moveToPoint:CGPointMake(cx - neckHalf, 0)];
-        [path addLineToPoint:CGPointMake(cx + neckHalf, 0)];
-        [path addCurveToPoint:CGPointMake(cx + shoulder, bellyY)
-                controlPoint1:CGPointMake(cx + neckHalf, neckY)
-                controlPoint2:CGPointMake(cx + shoulder, h * 0.19)];
-        [path addCurveToPoint:CGPointMake(cx, h)
-                controlPoint1:CGPointMake(cx + shoulder, h * 0.78)
-                controlPoint2:CGPointMake(cx + w * 0.20, h)];
-        [path addCurveToPoint:CGPointMake(cx - shoulder, bellyY)
-                controlPoint1:CGPointMake(cx - w * 0.20, h)
-                controlPoint2:CGPointMake(cx - shoulder, h * 0.78)];
-        [path addCurveToPoint:CGPointMake(cx - neckHalf, 0)
-                controlPoint1:CGPointMake(cx - shoulder, h * 0.20)
-                controlPoint2:CGPointMake(cx - neckHalf, neckY)];
-        [path closePath];
-        self.profileAvatarMask.frame = self.profileAvatar.bounds;
-        self.profileAvatarMask.path = path.CGPath;
-        self.profileAvatar.layer.mask = self.profileAvatarMask;
+        self.dropletBottomCover.hidden = YES;
+        self.dropletBottomCover.backgroundColor = [UIColor colorWithWhite:0 alpha:0];
+        self.dropletTopCover.hidden = YES;
+        [self.dropletTopCover setProgress:0];
+        [self.dropletMask setProgress:0];
+        if (self.dropletContainer.maskView != nil) {
+            self.dropletContainer.maskView = nil;
+        }
     }
     [CATransaction commit];
+    self.profileAvatar.alpha = 1;
 
-    CGFloat labelsAlpha = MIN(MAX(1 - q * 2.3, 0), 1);
-    CGFloat nameY = cy + drawH / 2 + 8;
-    self.profileName.frame = CGRectMake(20, nameY, W - 40, 40);
-    self.profileMeta.frame = CGRectMake(20, nameY + 43, W - 40, 26);
-    self.profileName.alpha = labelsAlpha;
-    self.profileMeta.alpha = labelsAlpha;
-    self.profileAvatar.alpha = swallow > 0.88 ? MAX(0, 1 - (swallow - 0.88) / 0.12) : 1;
+    // 与详情页 IMChatDetailViewController 同一套：profileName 以【更慢】速度上移（从第 1pt 起就与头像/
+    // 水滴拉开距离、永远留在水滴下方），到达标题栏行后【锁死】不再上移；profileMeta（手机号·@uid）与
+    // name 共用同一 shift → 恒定间距一起上移。缩放与迁移进度同步。
+    // 本页自持 liquidNavigationBar（共享 imLiquidBar 已隐藏），profileName bringSubviewToFront 到 bar 之上，
+    // 锁点取 top+19（bar title 中心）——name 缩放上移后居中进标题栏，与详情页完全对称。
+    CGFloat nameH = 34, metaH = 22;
+    CGFloat staticRestNameTop = restCY + restD / 2 + 8;               // 用静态 restCY，不含 -raw
+    CGFloat staticRestNameCenterY = staticRestNameTop + nameH / 2;
 
-    NSString *display = self.myNickname.length ? self.myNickname : self.userID;
-    NSString *wantedTitle = q > 0.72 ? display : @"";
-    if (![self.title isEqualToString:wantedTitle]) {
-        self.title = wantedTitle;
+    CGFloat kNameSpeed = 0.85;              // < 1 → 与头像拉开距离
+    CGFloat kLockCenterY = top + 19;        // 锁到自持 bar 的 title 中心（同详情页），name 居中进标题栏
+    CGFloat nameCenterY = MAX(kLockCenterY, staticRestNameCenterY - kNameSpeed * raw);
+    CGFloat nameShift = nameCenterY - staticRestNameCenterY;          // ≤ 0
+    CGFloat migrate = (staticRestNameCenterY > kLockCenterY)
+        ? MIN(MAX(nameShift / (kLockCenterY - staticRestNameCenterY), 0), 1) : 0;
+    CGFloat titleScale = 1.0 - (1.0 - 17.0 / 28.0) * migrate;   // 28pt name → ≈17pt
+    CGFloat metaScale  = 1.0 - (1.0 - 13.0 / 17.0) * migrate;   // 17pt meta → ≈13pt
+
+    // 写 frame 前先复位 transform，避免 UIKit 反解出现漂移。
+    self.profileName.transform = CGAffineTransformIdentity;
+    self.profileMeta.transform = CGAffineTransformIdentity;
+    self.profileName.frame = CGRectMake(0, staticRestNameTop, W, nameH);
+    self.profileMeta.frame = CGRectMake(0, staticRestNameTop + nameH + 2, W, metaH);  // 与 name 固定间距
+    self.profileName.transform = CGAffineTransformScale(CGAffineTransformMakeTranslation(0, nameShift), titleScale, titleScale);
+    self.profileMeta.transform = CGAffineTransformScale(CGAffineTransformMakeTranslation(0, nameShift), metaScale, metaScale);
+    self.profileName.alpha = 1;
+    self.profileMeta.alpha = 1.0 - migrate;   // 一起上移、恒定间距，同时渐进淡出（migrate=1 时完全透明）
+
+    // 自持导航栏配置（与详情页对称）：profileName 标签本身承担 title，禁用 bar 的内置 title 显示。
+    self.liquidNavigationBar.compactContentProgress = 0;
+    self.liquidNavigationBar.immersiveAppearanceProgress = 0;
+    self.liquidNavigationBar.backgroundEffectProgress = IMSmooth((tcf - 0.28) / 0.72);
+
+    // title 保持空（不用共享 bar 的 title）——profileName 标签本身承担标题角色。
+    if (self.title.length) {
+        self.title = @"";
         [self.navigationController.view setNeedsLayout];
     }
 }
