@@ -211,10 +211,15 @@ BOOL IMIsAuthErrorCode(NSInteger code);
           progress:(nullable void (^)(double fraction))progress
         completion:(void (^)(NSString *_Nullable url, NSString *_Nullable contentType, NSError *_Nullable error))completion;
 
+/// error 是否服务端**业务拒绝**（HTTP 层成功但 code>0，如「上传会话不存在或已过期」）——
+/// 与网络失败（超时/断网，code=-1 或 NSURLErrorDomain）相对：前者重试同一请求必然再失败。
++ (BOOL)isBusinessError:(nullable NSError *)error;
+
 /// 分片上传四端点的公共通道（供 IMChunkedUploader 使用，不直接给业务层用）。
 /// body 为 nil=无请求体；PUT 分片时 body 即原始字节（非 multipart）。
 /// 回调在**主线程**（与其余 HTTP 通道一致）；调用方若要做读盘等重活务必自行切到后台队列。
-- (void)performUploadAPI:(NSString *)path
+/// 返回底层 task（非法地址时 nil）：暂停/放弃传输链时应 cancel 它，否则 8MB 请求体会继续传完。
+- (nullable NSURLSessionTask *)performUploadAPI:(NSString *)path
                   method:(NSString *)method
                     body:(nullable NSData *)body
                    token:(NSString *)token

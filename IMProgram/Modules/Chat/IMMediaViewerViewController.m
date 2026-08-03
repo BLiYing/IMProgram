@@ -3,6 +3,7 @@
 #import "IMMediaViewerViewController.h"
 #import "IMImageLoader.h"
 #import "IMVideoThumbnailLoader.h"
+#import "IMOriginalVideoCache.h"
 #import "UIViewController+IMToast.h"
 #import "IMLog.h"
 #import <AVFoundation/AVFoundation.h>
@@ -33,6 +34,7 @@
     UIButton         *_speedButton;
     UIButton         *_originalChip;
     BOOL              _downloadingOriginal;  // 原视频下载中（chip 显示百分比，#1）
+    BOOL              _usingLocalOriginal;   // 打开时已命中本地原件缓存 → 本地播放，不显「查看原视频」chip
     NSURLSession     *_originalSession;      // delegate 模式才有进度回调
     id                _timeObserver;
     AVPlayerItem     *_observedItem;      // 正在观察 status 的 item（换 item 时要迁移，dealloc 时要摘）
@@ -130,7 +132,12 @@
     _videoContainer.backgroundColor = UIColor.blackColor;
     [self.view addSubview:_videoContainer];
 
-    NSURL *u = [NSURL URLWithString:_url];
+    // 已有本地原件（下载过 / 自己发送成功时收编）→ 直接本地播放：秒开、不耗流量，
+    // 「查看原视频」chip 也不再显示（用户反馈：看过原视频后重进不该再问一次）。
+    NSURL *u = [IMOriginalVideoCache hasCacheForFullURL:_url]
+        ? [IMOriginalVideoCache cacheURLForFullURL:_url]
+        : [NSURL URLWithString:_url];
+    _usingLocalOriginal = u.isFileURL;
     _player = [AVPlayer playerWithURL:u];
     _playerLayer = [AVPlayerLayer playerLayerWithPlayer:_player];
     _playerLayer.videoGravity = AVLayerVideoGravityResizeAspect;
@@ -302,13 +309,9 @@
     [[_originalSession downloadTaskWithURL:u] resume];
 }
 
-/// 原视频本地缓存路径（Caches/im_original_videos/<url-hash>.mp4）。
+/// 原视频本地缓存路径（逻辑收敛到 IMOriginalVideoCache，发送侧收编共用同一目录/命名）。
 - (NSURL *)originalCacheURL {
-    NSString *dir = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject
-                     stringByAppendingPathComponent:@"im_original_videos"];
-    [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:NULL];
-    NSString *name = [NSString stringWithFormat:@"%lu.mp4", (unsigned long)_url.hash];
-    return [NSURL fileURLWithPath:[dir stringByAppendingPathComponent:name]];
+    return [IMOriginalVideoCache cacheURLForFullURL:_url];
 }
 
 /// 切到本地原视频继续播放（保持进度），并隐藏「查看原视频」chip。
@@ -459,6 +462,7 @@ didFinishDownloadingToURL:(NSURL *)location {
         [row.bottomAnchor constraintEqualToAnchor:_downloadButton.topAnchor constant:-14],
     ]];
 
+    if (_usingLocalOriginal) { return; } // 播的已是本地原件：无需「查看原视频」chip 与 HEAD 探体积
     _originalChip = [UIButton buttonWithType:UIButtonTypeSystem];
     UIButtonConfiguration *originalConfig = [UIButtonConfiguration plainButtonConfiguration];
     originalConfig.title = @"查看原视频";
@@ -603,6 +607,17 @@ didFinishDownloadingToURL:(NSURL *)location {
 #pragma mark - 关闭 / 清理
 
 - (void)dismissSelf { [self dismissViewControllerAnimated:YES completion:nil]; }
+
+/// 退出页面即停播 + 取消原视频下载。不能只依赖 dealloc：NSURLSession 以 delegate 模式**强持有**
+/// 本控制器，下载不结束 dealloc 永远不来——曾导致退出后下载完成、switchToLocalOriginal 里的
+/// play 把声音在后台拉起来（幽灵播放）。invalidateAndCancel 同时打破这条保活链。
+- (void)viewDidDisappear:(BOOL)animated {
+    [super viewDidDisappear:animated];
+    [_player pause];
+    [_originalSession invalidateAndCancel];
+    _originalSession = nil;
+    _downloadingOriginal = NO;
+}
 
 - (void)dealloc {
     if (_timeObserver && _player) { [_player removeTimeObserver:_timeObserver]; }

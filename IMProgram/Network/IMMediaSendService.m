@@ -13,6 +13,7 @@
 #import "IMImageLoader.h"
 #import "IMVideoThumbnailLoader.h"
 #import "IMMediaUtil.h"
+#import "IMOriginalVideoCache.h"
 #import "IMLog.h"
 
 NSNotificationName const IMMediaSendProgressDidChangeNotification = @"IMMediaSendProgressDidChange";
@@ -489,7 +490,13 @@ NSString * const kIMMediaSendMessageKey = @"message";
     if (preview && realID.length > 0) { self.previews[realID] = preview; }
     [self.previews removeObjectForKey:oldKey];
     [self.progressMap removeObjectForKey:oldKey];
-    [[IMPendingMediaStore shared] removeLocalRef:pendingRef]; // 已成功发出，本地副本没用了
+    // 视频副本不删，收编为"原视频"缓存（字节与服务器完全相同）：自己发的视频重开查看器
+    // 立即本地播放、不显「查看原视频」chip、不重新拉流。图片本就有缩略图缓存，副本照删。
+    NSString *pendingPath = [[IMPendingMediaStore shared] filePathForLocalRef:pendingRef];
+    if ([ct isEqualToString:@"video"] && pendingPath) {
+        [IMOriginalVideoCache adoptFileAtPath:pendingPath forFullURL:IMMediaFullURL(url, host)];
+    }
+    [[IMPendingMediaStore shared] removeLocalRef:pendingRef]; // 已成功发出（文件已被收编时只清旁挂记录）
     [_jobs removeObjectForKey:oldKey];
     [[NSNotificationCenter defaultCenter] postNotificationName:IMMediaSendDidDispatchNotification object:self userInfo:@{
         kIMMediaSendConvIDKey: convID ?: @"",

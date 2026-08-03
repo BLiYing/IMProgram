@@ -2046,11 +2046,19 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
                       showAvatar:lastAlb gutter:grpAlb];
         __weak typeof(self) ws = self;
         alb.onTapItem = ^(IMMessageModel *mm) {
-            if (mm.content.length > 0) { [ws presentMediaViewerForMessage:mm preloaded:nil]; } // 上传中不可点
+            __strong typeof(ws) self = ws;
+            if (!self) { return; }
+            // 待发格（排队/压缩/上传/失败）：走与单张气泡同一状态机——⏸↔↑ 暂停恢复、↻ 重试、✕ 确认取消。
+            BOOL pendingTile = [IMPendingMediaStore isLocalRef:mm.content]
+                || (mm.convSeq <= 0 && mm.content.length == 0
+                    && (mm.status == IMMessageStatusSending || mm.status == IMMessageStatusFailed));
+            if (pendingTile) { [self handlePendingMediaTap:mm]; return; }
+            if (mm.content.length > 0) { [self presentMediaViewerForMessage:mm preloaded:nil]; }
         };
         alb.menuForItem = ^UIMenu *(IMMessageModel *mm) {
             __strong typeof(ws) self = ws;
-            if (!self || mm.content.length == 0) { return nil; } // 上传中无菜单
+            if (!self) { return nil; }
+            // 待发格也给长按菜单（含「取消发送」——可单独取消宫格里的某一项）。
             return [IMMenuAction menuWithActions:[self messageActionsForMessage:mm
                                                                            mine:[mm.from isEqualToString:self.userID]]];
         };
@@ -2067,7 +2075,11 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         BOOL lastI = grpI && [self isLastInSenderRun:indexPath.row];
         NSString *senderNameI = firstI ? [self senderNameForMessage:m] : nil;
         // 本地待发（im-pending://）不是网络地址：只显本地缩略图，绝不拿它去拼 URL 发请求。
-        BOOL pendingLocal = [IMPendingMediaStore isLocalRef:m.content];
+        // 本地待发件 = content 已是 im-pending:// 引用，**或**还没走到落盘那步（排队/压缩期 content 为空）。
+        // 后者漏掉的话，排队期点中心 ✕ 会被当成"打开查看器"（URL 为空 → 看起来没反应）。
+        BOOL pendingLocal = [IMPendingMediaStore isLocalRef:m.content]
+            || (m.convSeq <= 0 && m.content.length == 0
+                && (m.status == IMMessageStatusSending || m.status == IMMessageStatusFailed));
         UIImage *previewI = pendingLocal ? [self pendingPreviewForMessage:m] : self.outboxPreviews[key];
         [img configureWithMessage:m
                           fullURL:((m.content.length > 0 && !pendingLocal) ? [self fullMediaURL:m.content] : @"")
@@ -2261,7 +2273,9 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         }]];
     }
     // 取消发送：仅本人、仍在发送/失败的本地待发件（发出去拿到 conv_seq 后走撤回，不走这里）。
-    if (mine && message.convSeq <= 0 && [IMPendingMediaStore isLocalRef:message.content]
+    // content 为空 = 还在排队/压缩（尚未落盘），同样允许取消。
+    if (mine && message.convSeq <= 0
+        && ([IMPendingMediaStore isLocalRef:message.content] || message.content.length == 0)
         && (message.status == IMMessageStatusSending || message.status == IMMessageStatusFailed)) {
         [actions addObject:[IMMenuAction actionWithId:@"cancelSend" title:@"取消发送" image:@"xmark.circle" handler:^{
             [ws cancelPendingMessage:message];

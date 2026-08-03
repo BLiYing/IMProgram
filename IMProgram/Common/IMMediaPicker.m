@@ -133,13 +133,20 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
         // 快路径：系统预览图**毫秒级**返回，不需要先把整个视频从相册拷出来。
         // 走 _work 队列的抽帧路径要等 ensureVideoTmpURL 拷完 70MB（真机实测 ~28s），
         // 用户在这段时间只能看着空白方块——正是"选完视频缩略图空白+后续跳动"的根因。
+        CFAbsoluteTime startedAt = CFAbsoluteTimeGetCurrent();
         [_ip loadPreviewImageWithOptions:@{} completionHandler:^(__kindof id<NSSecureCoding> item, NSError *error) {
             UIImage *preview = [item isKindOfClass:UIImage.class] ? (UIImage *)item
                              : ([item isKindOfClass:NSData.class] ? [UIImage imageWithData:(NSData *)item] : nil);
+            double ms = (CFAbsoluteTimeGetCurrent() - startedAt) * 1000;
             if (preview) {
+                IMLogDebugWithTag(IMLogTagMedia, @"video_thumb_preview_ok ms=%.0f size=%.0fx%.0f",
+                                  ms, preview.size.width, preview.size.height);
                 dispatch_async(dispatch_get_main_queue(), ^{ completion(IMPickerDownscale(preview, 600)); });
             } else {
-                [self loadThumbnailByExtractingFrame:completion]; // 拿不到预览才落慢路径
+                // 慢路径 = 要等整个视频从相册拷出再抽帧，期间气泡只能显示占位——这条 WARN 就是"空白几秒"的实锤。
+                IMLogWarnWithTag(IMLogTagMedia, @"video_thumb_preview_miss ms=%.0f item=%@ error=%@ fallback=frame_extract",
+                                 ms, item ? NSStringFromClass([item class]) : @"nil", error.localizedDescription ?: @"-");
+                [self loadThumbnailByExtractingFrame:completion];
             }
         }];
         return;
@@ -152,9 +159,12 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
 
 /// 慢路径兜底：等视频临时文件就绪后抽首帧（与 loadData 共享 _work 串行队列与 tmp 文件）。
 - (void)loadThumbnailByExtractingFrame:(void (^)(UIImage *_Nullable))completion {
+    CFAbsoluteTime startedAt = CFAbsoluteTimeGetCurrent();
     dispatch_async(_work, ^{
         UIImage *thumb = nil;
         NSURL *url = [self ensureVideoTmpURL];
+        IMLogWithTag(IMLogTagMedia, @"video_thumb_frame_extract copy_wait_ms=%.0f has_file=%d",
+                     (CFAbsoluteTimeGetCurrent() - startedAt) * 1000, url != nil);
         if (url) {
             AVURLAsset *asset = [AVURLAsset URLAssetWithURL:url options:nil];
             AVAssetImageGenerator *gen = [[AVAssetImageGenerator alloc] initWithAsset:asset];

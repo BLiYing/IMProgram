@@ -670,13 +670,13 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     }];
 }
 
-- (void)performUploadAPI:(NSString *)path
-                  method:(NSString *)method
-                    body:(NSData *)body
-                   token:(NSString *)token
-              completion:(void (^)(NSDictionary *_Nullable, NSError *_Nullable))completion {
+- (NSURLSessionTask *)performUploadAPI:(NSString *)path
+                                method:(NSString *)method
+                                  body:(NSData *)body
+                                 token:(NSString *)token
+                            completion:(void (^)(NSDictionary *_Nullable, NSError *_Nullable))completion {
     NSURL *url = [self urlForPath:path];
-    if (!url) { completion(nil, [self errorWithMessage:@"非法服务器地址"]); return; }
+    if (!url) { completion(nil, [self errorWithMessage:@"非法服务器地址"]); return nil; }
     NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
     req.HTTPMethod = method ?: @"POST";
     req.timeoutInterval = 60;
@@ -688,17 +688,25 @@ BOOL IMIsTransientNetworkError(NSError *error) {
         req.HTTPBody = body;
     }
     __weak typeof(self) ws = self;
-    [self runRequest:req progress:nil completion:^(NSDictionary *resp, NSError *error) {
+    return [self runTaskForRequest:req completion:^(NSDictionary *resp, NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
         if (error) { completion(nil, error); return; }
         if ([resp[@"code"] integerValue] != 0) {
-            completion(nil, [self errorWithMessage:[self messageFrom:resp fallback:@"上传失败"]]);
+            // 透传业务码（>0）：调用方据此区分「服务端明确拒绝」（如上传会话过期 → 该换会话重来）
+            // 与「网络失败」（code=-1 → 保留 offset 稍后重试）。
+            NSInteger code = [resp[@"code"] integerValue];
+            completion(nil, [self errorWithCode:(code != 0 ? code : -1)
+                                        message:[self messageFrom:resp fallback:@"上传失败"]]);
             return;
         }
         NSDictionary *d = [resp[@"data"] isKindOfClass:NSDictionary.class] ? resp[@"data"] : @{};
         completion(d, nil);
     }];
+}
+
++ (BOOL)isBusinessError:(NSError *)error {
+    return [error.domain isEqualToString:kIMHTTPErrorDomain] && error.code > 0;
 }
 
 /// 把 multipart 信封（头 + 文件字节 + 尾）写到临时文件，供 uploadTaskWithRequest:fromFile: 流式读取。
@@ -775,6 +783,11 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     [self runRequest:req progress:nil completion:completion];
 }
 
+- (NSURLSessionTask *)runTaskForRequest:(NSURLRequest *)req
+                             completion:(void (^)(NSDictionary *body, NSError *error))completion {
+    return [self runRequest:req bodyFile:nil progress:nil completion:completion];
+}
+
 /// 上传专用会话：大文件上行必须与普通 API 用不同的超时口径。
 /// `timeoutIntervalForRequest` 是**空闲**超时（两次数据回调之间），`timeoutIntervalForResource` 才是整单上限。
 /// 之前所有请求共用 30s，74MB 视频传到 46s 被 -1001 掐断（见 2026-08-03 真机日志）。
@@ -798,7 +811,9 @@ BOOL IMIsTransientNetworkError(NSError *error) {
 }
 
 /// bodyFile 非空 → 走 uploadTaskWithRequest:fromFile:（请求体从磁盘流式读，不进内存）。
-- (void)runRequest:(NSURLRequest *)req
+/// 返回底层 task：分片上传的暂停/换链需要**真正 abort 在飞请求**（不 abort 的话 8MB 请求体会
+/// 继续上传到完为止——快速连点暂停/恢复曾累积 30 个并发 PUT 挤爆带宽，见 2026-08-03 真机日志）。
+- (NSURLSessionTask *)runRequest:(NSURLRequest *)req
           bodyFile:(NSURL *)bodyFile
           progress:(void (^)(double fraction))progress
         completion:(void (^)(NSDictionary *body, NSError *error))completion {
@@ -867,6 +882,7 @@ BOOL IMIsTransientNetworkError(NSError *error) {
         if (@available(iOS 15.0, *)) { task.delegate = bridge; } // task 强持有 delegate，completionHandler 任务仍会收 didSendBodyData
     }
     [task resume];
+    return task;
 }
 
 - (void)callOnMain:(void (^)(void))block {

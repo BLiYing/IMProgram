@@ -36,6 +36,7 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     NSString *_url;
     BOOL _sizeFromMedia;       // YES=尺寸来自协议/预览（权威），加载出图后无需重排
     BOOL _isVideoCell;         // 上传态结束后据此还原中心播放按钮（图片则隐藏）
+    NSString *_timeText;       // 右下角时间文案（暂停时替换「发送中…」用）
 }
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
@@ -256,6 +257,7 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
 /// 右下角：时间 +（自己消息）✓ 已送达 / ✓✓ 已读。发送中/失败沿用气泡的文案口径。
 - (void)applyMetaBadgeForMessage:(IMMessageModel *)message mine:(BOOL)mine peerReadSeq:(int64_t)peerReadSeq {
     NSString *time = [IMTheme timeStringFromMillis:message.timestamp] ?: @"";
+    _timeText = time;
     UIColor *base = IMTheme.mediaBadgeText;
     if (!mine) {
         [self setMetaText:time checks:nil checkColor:base];
@@ -321,9 +323,28 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName) {
     _durationWrap.hidden = YES;                  // 与时长角标互斥（同占左上角）
     _progressWrap.hidden = NO;
     _progressWrap.backgroundColor = progress.failed ? IMTheme.danger : IMTheme.mediaBadgeBackground;
-    NSString *text = [progress displayText];
-    if (progress.pausedByUser && !progress.failed) { text = [@"已暂停 · " stringByAppendingString:text]; }
-    _progressLabel.text = text;
+    BOOL paused = progress.pausedByUser && !progress.failed;
+    if (paused) {
+        // 暂停态：小 ⏸ 图标 + 字节数——不用「已暂停」文本（国际化后文案长度不可控，图标零成本）。
+        UIImage *icon = [[UIImage systemImageNamed:@"pause.fill"
+                                 withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:9 weight:UIImageSymbolWeightBold]]
+                         imageWithTintColor:IMTheme.mediaBadgeText renderingMode:UIImageRenderingModeAlwaysOriginal];
+        NSTextAttachment *att = [NSTextAttachment new];
+        att.image = icon;
+        att.bounds = CGRectMake(0, (_progressLabel.font.capHeight - 9) / 2.0, 9, 9);
+        NSMutableAttributedString *s = [[NSAttributedString attributedStringWithAttachment:att] mutableCopy];
+        [s appendAttributedString:[[NSAttributedString alloc]
+            initWithString:[@" " stringByAppendingString:[progress displayText]]
+                attributes:@{ NSFontAttributeName: _progressLabel.font,
+                              NSForegroundColorAttributeName: IMTheme.mediaBadgeText }]];
+        _progressLabel.attributedText = s;
+    } else {
+        _progressLabel.text = [progress displayText];
+    }
+    // 右下角只在**真正传输**时显「发送中…」；暂停时回落为时间（configure 按 status=sending 写死了发送中）。
+    if (!progress.failed) {
+        [self setMetaText:(paused ? (_timeText ?: @"") : @"发送中…") checks:nil checkColor:IMTheme.mediaBadgeText];
+    }
     [self.contentView bringSubviewToFront:_progressWrap];
     NSString *symbol = IMUploadCenterSymbol(progress);
     if (symbol) {

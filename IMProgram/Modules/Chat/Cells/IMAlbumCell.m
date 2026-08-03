@@ -2,6 +2,7 @@
 #import "IMMessageModel.h"
 #import "IMUploadProgress.h"
 #import "IMPendingMediaStore.h"
+#import "IMMediaFormat.h"
 #import "IMImageLoader.h"
 #import "IMVideoThumbnailLoader.h"
 #import "IMMediaUtil.h"
@@ -11,6 +12,7 @@
 @interface IMAlbumTileView : UIView
 @property (nonatomic, strong) UIImageView *imageView;
 @property (nonatomic, strong) UIImageView *playBadge;
+@property (nonatomic, strong) UILabel *durationChip; ///< 左上角视频时长角标（上传态隐藏，与覆盖层互斥）
 @property (nonatomic, strong) IMMessageModel *member; ///< 本格对应的消息（tap/菜单定位用）
 @property (nonatomic, copy)   NSString *loadKey;      ///< 异步加载防串图
 - (void)setProgress:(nullable IMUploadProgress *)p; ///< nil/已完成=无覆盖；否则环形进度；failed=红「!」
@@ -21,6 +23,7 @@
     CAShapeLayer *_ringBG;   // 环底
     CAShapeLayer *_ring;     // 进度环
     UILabel      *_failBadge;
+    UIImageView  *_stateBadge; // 环中心小图标：⏸ 可暂停 / ↑ 已暂停(点击续传) / ✕ 排队压缩(点击取消)
 }
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
@@ -78,6 +81,22 @@
         _failBadge.clipsToBounds = YES;
         _failBadge.hidden = YES;
         [self addSubview:_failBadge];
+
+        _stateBadge = [UIImageView new];
+        _stateBadge.tintColor = UIColor.whiteColor;
+        _stateBadge.contentMode = UIViewContentModeCenter;
+        _stateBadge.hidden = YES;
+        [self addSubview:_stateBadge];
+
+        _durationChip = [UILabel new];
+        _durationChip.font = [UIFont monospacedDigitSystemFontOfSize:10 weight:UIFontWeightMedium];
+        _durationChip.textColor = UIColor.whiteColor;
+        _durationChip.backgroundColor = [UIColor colorWithWhite:0 alpha:0.45];
+        _durationChip.textAlignment = NSTextAlignmentCenter;
+        _durationChip.layer.cornerRadius = 8;
+        _durationChip.clipsToBounds = YES;
+        _durationChip.hidden = YES;
+        [self addSubview:_durationChip];
     }
     return self;
 }
@@ -87,6 +106,10 @@
     _playBadge.center = c;
     _failBadge.frame = CGRectMake(0, 0, 28, 28);
     _failBadge.center = c;
+    _stateBadge.frame = CGRectMake(0, 0, 30, 30);
+    _stateBadge.center = c;
+    CGSize d = [_durationChip sizeThatFits:CGSizeMake(CGFLOAT_MAX, 16)];
+    _durationChip.frame = CGRectMake(4, 4, d.width + 10, 16);
     CGRect ringFrame = CGRectMake(c.x - 18, c.y - 18, 36, 36);
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
@@ -95,16 +118,32 @@
     [CATransaction commit];
 }
 - (void)setProgress:(IMUploadProgress *)p {
+    // 时长角标不参与覆盖层互斥：宫格的进度是中心圆环，左上角本就空着——探测出时长（上传前）即显示。
+    // （单张气泡不同：其左上角要显「已传/总大小」文字，才需要互斥。）
     if (!p || (!p.failed && p.overallFraction >= 1)) { // 无进度 / 完成
         _dim.hidden = YES; _ringBG.hidden = YES; _ring.hidden = YES; _failBadge.hidden = YES;
+        _stateBadge.hidden = YES;
+        _playBadge.hidden = ![self.member.contentType isEqualToString:@"video"]; // 恢复播放角标（refresh 路径不走 bind）
         return;
     }
+    _playBadge.hidden = YES; // 上传/失败态中心位让给状态图标（传完由重新 bind 恢复）
     if (p.failed) {
         _dim.hidden = NO; _ringBG.hidden = YES; _ring.hidden = YES; _failBadge.hidden = NO;
+        _stateBadge.hidden = YES;
         return;
     }
     _dim.hidden = NO; _failBadge.hidden = YES;
     _ringBG.hidden = NO; _ring.hidden = NO;
+    // 环中心小图标（与单张气泡同一状态机，小一号）：
+    //   排队/压缩 → ✕（点击确认取消）；上传中可暂停 → ⏸；已暂停 → ↑（点击继续上传）。
+    NSString *symbol = nil;
+    if (p.phase == IMUploadPhaseQueued || p.phase == IMUploadPhaseTranscoding) { symbol = @"xmark"; }
+    else if (p.pausable) { symbol = p.pausedByUser ? @"arrow.up" : @"pause.fill"; }
+    _stateBadge.image = symbol
+        ? [UIImage systemImageNamed:symbol
+                  withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:13 weight:UIImageSymbolWeightBold]]
+        : nil;
+    _stateBadge.hidden = symbol == nil;
     [CATransaction begin];
     [CATransaction setDisableActions:YES]; // 高频进度回调不做隐式动画（避免滞后）
     // 用融合后的总进度：转码 0→35%、上传 35%→100%，跨阶段连续，不会走到头又跳回 0。
@@ -291,6 +330,10 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
     tile.member = m;
     BOOL isVideo = [m.contentType isEqualToString:@"video"];
     tile.playBadge.hidden = !isVideo;
+    // 左上角时长角标（与单张气泡一致）；上传态由 setProgress 按覆盖层互斥隐藏/恢复。
+    tile.durationChip.text = isVideo ? IMFormatMediaDuration(m.duration) : nil;
+    tile.durationChip.hidden = tile.durationChip.text.length == 0;
+    [tile setNeedsLayout];
     [tile setProgress:progress[m.clientMsgID ?: @""]];
 
     UIImage *preview = previews[m.clientMsgID ?: @""];
@@ -330,6 +373,16 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
         [tile setProgress:progress[m.clientMsgID ?: @""]];
         UIImage *preview = previews[m.clientMsgID ?: @""];
         if (preview && tile.imageView.image == nil) { tile.imageView.image = preview; }
+        // 时长在探测完成（上传开始前）才写进模型：定点刷新也要回填，否则要等整行重 configure
+        // （滑出屏再滑回）才显示——真机反馈"传完+滑动一下才出现"的根因。
+        if ([m.contentType isEqualToString:@"video"]) {
+            NSString *text = IMFormatMediaDuration(m.duration);
+            if (text.length > 0 && ![text isEqualToString:tile.durationChip.text]) {
+                tile.durationChip.text = text;
+                [tile setNeedsLayout]; // 重算胶囊宽度
+            }
+            tile.durationChip.hidden = tile.durationChip.text.length == 0;
+        }
     }
     [self updateMetaWithMembers:members mine:mine];
 }
