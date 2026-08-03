@@ -77,7 +77,7 @@ static NSString *IMReplySnippet(IMMessageModel *m) {
 
 #pragma mark - 聊天页
 
-@interface IMChatViewController () <IMSocketManagerDelegate, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate>
+@interface IMChatViewController () <IMSocketManagerDelegate, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIDocumentPickerDelegate>
 @property (nonatomic, copy) NSString *host;
 @property (nonatomic, copy) NSString *userID;
 @property (nonatomic, strong) IMDatabaseAccountContext *databaseContext;
@@ -1286,7 +1286,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     IMFilePickerViewController *panel = [[IMFilePickerViewController alloc]
         initWithRecentFiles:cachedFiles
         onFromPhotos:^{ [ws openPhotoFilePicker]; }
-        onPickDocument:^(NSURL *url) { [ws handlePickedDocumentURL:url]; }
+        onFromFiles:^{ [ws presentDocumentPicker]; }
         onPickRecent:^(NSString *url, NSString *name, int64_t size) {
             [ws sendMediaURL:url contentType:@"file" fileName:name fileSize:size];
         }
@@ -1345,7 +1345,20 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     }];
 }
 
-/// 系统 Files 返回本地副本后上传并发送；选择器生命周期由 IMFilePickerViewController 维护。
+/// 文件面板关闭后，由聊天页直接呈现系统文件浏览器（全屏、单实例配置见 +systemDocumentPicker）。
+/// 系统自行维护 Files/File Provider 的内部返回栈，选完或点叉叉都由系统关闭 picker 直接回到聊天页。
+- (void)presentDocumentPicker {
+    UIDocumentPickerViewController *picker = [IMFilePickerViewController systemDocumentPicker];
+    picker.delegate = self;
+    [self presentViewController:picker animated:YES completion:nil];
+}
+
+- (void)documentPicker:(UIDocumentPickerViewController *)controller
+    didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
+    [self handlePickedDocumentURL:urls.firstObject];
+}
+
+/// 系统 Files 返回本地副本后上传并发送。
 - (void)handlePickedDocumentURL:(NSURL *)url {
     if (!url) { return; }
     NSData *data = [NSData dataWithContentsOfURL:url];

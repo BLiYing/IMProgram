@@ -1,24 +1,22 @@
 //  IMFilePickerViewController.m
 
 #import "IMFilePickerViewController.h"
-#import "IMLog.h"
 #import "IMMediaUtil.h"
 #import "IMTheme.h"
 
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
-@interface IMFilePickerViewController () <UITableViewDataSource, UITableViewDelegate, UIDocumentPickerDelegate>
+@interface IMFilePickerViewController () <UITableViewDataSource, UITableViewDelegate>
 @end
 
 @implementation IMFilePickerViewController {
     NSMutableArray<NSDictionary *> *_recent;
     dispatch_block_t _onFromPhotos;
-    void (^_onPickDocument)(NSURL *);
+    dispatch_block_t _onFromFiles;
     void (^_onPickRecent)(NSString *, NSString *, int64_t);
     IMSentFilePageLoader _loadPage;
     BOOL _loading;
     BOOL _hasMore;
-    BOOL _documentPickerPresented;
     UITableView *_tableView;
 }
 
@@ -35,13 +33,13 @@
 
 - (instancetype)initWithRecentFiles:(NSArray<NSDictionary *> *)recentFiles
                         onFromPhotos:(dispatch_block_t)onFromPhotos
-                      onPickDocument:(void (^)(NSURL *))onPickDocument
+                         onFromFiles:(dispatch_block_t)onFromFiles
                         onPickRecent:(void (^)(NSString *, NSString *, int64_t))onPickRecent
                             loadPage:(IMSentFilePageLoader)loadPage {
     if ((self = [super initWithNibName:nil bundle:nil])) {
         _recent = [recentFiles mutableCopy] ?: [NSMutableArray array];
         _onFromPhotos = [onFromPhotos copy];
-        _onPickDocument = [onPickDocument copy];
+        _onFromFiles = [onFromFiles copy];
         _onPickRecent = [onPickRecent copy];
         _loadPage = [loadPage copy];
         _hasMore = YES;
@@ -104,38 +102,6 @@
     [self dismissViewControllerAnimated:YES completion:^{ if (then) { then(); } }];
 }
 
-- (void)presentSystemDocumentPicker {
-    if (_documentPickerPresented || self.presentedViewController) {
-        IMLogUI(@"忽略重复的系统文件浏览器呈现请求");
-        return;
-    }
-    UIDocumentPickerViewController *picker = [IMFilePickerViewController systemDocumentPicker];
-    picker.delegate = self;
-    _documentPickerPresented = YES;
-    IMLogUI(@"打开系统文件浏览器：picker=%p，contentType=%@", picker, UTTypeItem.identifier);
-    [self presentViewController:picker animated:YES completion:nil];
-}
-
-- (void)documentPicker:(UIDocumentPickerViewController *)controller
-    didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
-    NSURL *url = urls.firstObject;
-    IMLogUI(@"系统文件浏览器完成选择：picker=%p，count=%lu", controller, (unsigned long)urls.count);
-    _documentPickerPresented = NO;
-    // 系统会自行关闭 picker；从文件面板的呈现者（聊天页）一次性收起整条模态栈，
-    // 直接回到聊天页并把选中文件交给回调发送，不再返回中间的文件面板。
-    void (^callback)(NSURL *) = _onPickDocument;
-    [self.presentingViewController dismissViewControllerAnimated:YES completion:^{
-        if (callback && url) { callback(url); }
-    }];
-}
-
-- (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller {
-    IMLogUI(@"系统文件浏览器取消选择：picker=%p", controller);
-    _documentPickerPresented = NO;
-    // 点叉叉取消：同样收起整条模态栈，直接回到聊天页。
-    [self.presentingViewController dismissViewControllerAnimated:YES completion:nil];
-}
-
 // section 0 = 入口两项；section 1 = 最近发送的文件
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return _recent.count > 0 ? 2 : 1; }
 
@@ -183,11 +149,9 @@
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)ip {
     [tableView deselectRowAtIndexPath:ip animated:YES];
     if (ip.section == 0) {
-        if (ip.row == 0) {
-            [self dismissThen:_onFromPhotos];
-        } else {
-            [self presentSystemDocumentPicker];
-        }
+        // 两个入口都先关闭本面板，再由聊天页承载后续选择器——
+        // 系统文件浏览器直接盖在聊天页上，点叉叉/选完都直接回聊天页，不回落本面板。
+        [self dismissThen:(ip.row == 0 ? _onFromPhotos : _onFromFiles)];
         return;
     }
     NSDictionary *f = _recent[(NSUInteger)ip.row];
