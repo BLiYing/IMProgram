@@ -211,6 +211,15 @@ BOOL IMIsAuthErrorCode(NSInteger code);
           progress:(nullable void (^)(double fraction))progress
         completion:(void (^)(NSString *_Nullable url, NSString *_Nullable contentType, NSError *_Nullable error))completion;
 
+/// 分片上传四端点的公共通道（供 IMChunkedUploader 使用，不直接给业务层用）。
+/// body 为 nil=无请求体；PUT 分片时 body 即原始字节（非 multipart）。
+/// 回调在**主线程**（与其余 HTTP 通道一致）；调用方若要做读盘等重活务必自行切到后台队列。
+- (void)performUploadAPI:(NSString *)path
+                  method:(NSString *)method
+                    body:(nullable NSData *)body
+                   token:(NSString *)token
+              completion:(void (^)(NSDictionary *_Nullable data, NSError *_Nullable error))completion;
+
 @end
 
 NS_ASSUME_NONNULL_END

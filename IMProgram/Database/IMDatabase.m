@@ -558,6 +558,20 @@
 
 /// 出站消息按 (conv_id, client_msg_id) 匹配；入站按 (conv_id, conv_seq) 匹配所有消息。
 /// 后者包含本机带 client_msg_id 的乐观消息，重启补拉时才能用服务端记录覆盖原行而非插入重复气泡。
+- (void)replaceClientMsgID:(NSString *)oldClientMsgID
+           withClientMsgID:(NSString *)newClientMsgID
+                    inConv:(NSString *)convID {
+    if (oldClientMsgID.length == 0 || newClientMsgID.length == 0 || convID.length == 0) { return; }
+    if ([oldClientMsgID isEqualToString:newClientMsgID]) { return; }
+    NSString *owner = [self ownerUserID];
+    [_queue inDatabase:^(FMDatabase *db) {
+        if (![db executeUpdate:@"UPDATE im_message_local SET client_msg_id=? WHERE owner_uid=? AND conv_id=? AND client_msg_id=?",
+              newClientMsgID, owner, convID, oldClientMsgID]) {
+            IMLogDatabase(@"改写 client_msg_id 失败 conv=%@: %@", convID, db.lastErrorMessage);
+        }
+    }];
+}
+
 - (NSNumber *)existingRowIDFor:(IMMessageModel *)message owner:(NSString *)owner in:(FMDatabase *)db {
     FMResultSet *rs = nil;
     if (message.clientMsgID.length > 0) {

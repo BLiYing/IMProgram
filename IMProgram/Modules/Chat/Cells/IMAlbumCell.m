@@ -1,6 +1,7 @@
 #import "IMAlbumCell.h"
 #import "IMMessageModel.h"
 #import "IMUploadProgress.h"
+#import "IMPendingMediaStore.h"
 #import "IMImageLoader.h"
 #import "IMVideoThumbnailLoader.h"
 #import "IMMediaUtil.h"
@@ -94,7 +95,7 @@
     [CATransaction commit];
 }
 - (void)setProgress:(IMUploadProgress *)p {
-    if (!p || (!p.failed && p.fraction >= 1)) { // 无进度 / 完成
+    if (!p || (!p.failed && p.overallFraction >= 1)) { // 无进度 / 完成
         _dim.hidden = YES; _ringBG.hidden = YES; _ring.hidden = YES; _failBadge.hidden = YES;
         return;
     }
@@ -106,7 +107,8 @@
     _ringBG.hidden = NO; _ring.hidden = NO;
     [CATransaction begin];
     [CATransaction setDisableActions:YES]; // 高频进度回调不做隐式动画（避免滞后）
-    _ring.strokeEnd = MAX(0.02, p.fraction); // 0% 也露一点头，可感知"在动"
+    // 用融合后的总进度：转码 0→35%、上传 35%→100%，跨阶段连续，不会走到头又跳回 0。
+    _ring.strokeEnd = MAX(0.02, p.overallFraction); // 0% 也露一点头，可感知"在动"
     [CATransaction commit];
 }
 @end
@@ -194,12 +196,20 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
         _avatar.hidden = YES;
         [self.contentView addSubview:_avatar];
 
+        // 左右/上下两组约束**恒定激活，靠优先级切换**，不再用 active 开关。
+        // 真机日志里出现过 leading 与 trailing、topPlain 与 topUnderName 同时激活导致
+        // "Unable to simultaneously satisfy constraints"，UIKit 的恢复方式是打断 width/height，
+        // 于是宫格以错误尺寸布局并反复重算（滚动卡顿的一部分）。优先级方案从结构上就不可能冲突。
         _leading = [_container.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12];
         _trailing = [_container.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-12];
         _containerHeight = [_container.heightAnchor constraintEqualToConstant:100];
         _containerTopPlain = [_container.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:3];
         _containerTopUnderName = [_container.topAnchor constraintEqualToAnchor:_senderLabel.bottomAnchor constant:4];
-        _containerTopPlain.active = YES;
+        // 自适应行高：UIKit 会给 contentView 加 UIView-Encapsulated-Layout-Height（required），
+        // 我们的高度必须让位，否则每次行高变化都报冲突。999 保证正常情况下仍精确生效。
+        _containerHeight.priority = UILayoutPriorityDefaultHigh + 1; // 751 足够压过内容，且低于 required
+        NSLayoutConstraint *widthConstraint = [_container.widthAnchor constraintEqualToConstant:kIMAlbumWidth];
+        widthConstraint.priority = UILayoutPriorityRequired - 1;     // 999
         [NSLayoutConstraint activateConstraints:@[
             [_senderLabel.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:4],
             [_senderLabel.leadingAnchor constraintEqualToAnchor:_container.leadingAnchor constant:2],
@@ -209,11 +219,25 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
             [_avatar.widthAnchor constraintEqualToConstant:30],
             [_avatar.heightAnchor constraintEqualToConstant:30],
             [_container.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3],
-            [_container.widthAnchor constraintEqualToConstant:kIMAlbumWidth],
-            _containerHeight,
+            // 恒定的边界约束（required）：无论左右贴哪边，都不许超出内容区。
+            [_container.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.contentView.leadingAnchor constant:12],
+            [_container.trailingAnchor constraintLessThanOrEqualToAnchor:self.contentView.trailingAnchor constant:-12],
+            [_container.topAnchor constraintGreaterThanOrEqualToAnchor:self.contentView.topAnchor constant:3],
+            widthConstraint, _containerHeight, _leading, _trailing, _containerTopPlain, _containerTopUnderName,
         ]];
+        [self applyAlignmentMine:NO showName:NO];
     }
     return self;
+}
+
+/// 靠**优先级**切换左右贴边与顶部锚点（四条约束始终激活，不存在"两条 required 同时生效"）。
+/// 生效的一侧 999，让位的一侧 1（最低），求解器自然忽略后者。
+- (void)applyAlignmentMine:(BOOL)mine showName:(BOOL)showName {
+    const UILayoutPriority on = UILayoutPriorityRequired - 1, off = UILayoutPriorityFittingSizeLevel;
+    _leading.priority = mine ? off : on;
+    _trailing.priority = mine ? on : off;
+    _containerTopPlain.priority = showName ? off : on;
+    _containerTopUnderName.priority = showName ? on : off;
 }
 
 - (void)configureWithMembers:(NSArray<IMMessageModel *> *)members mine:(BOOL)mine host:(NSString *)host
@@ -223,13 +247,10 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
     _container.layer.cornerRadius = IMTheme.radiusBubble;
     _senderLabel.font = [UIFont systemFontOfSize:MAX(12, IMTheme.chatFontSize - 4) weight:UIFontWeightSemibold];
     _host = host;
-    _leading.active = !mine;
-    _trailing.active = mine;
     BOOL showName = senderName.length > 0;
     _senderLabel.text = senderName;
     _senderLabel.hidden = !showName;
-    _containerTopPlain.active = !showName;
-    _containerTopUnderName.active = showName;
+    [self applyAlignmentMine:mine showName:showName];
     _containerHeight.constant = IMAlbumHeightForCount(members.count);
 
     // 按需补足块视图；多余的隐藏。
@@ -274,17 +295,27 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
 
     UIImage *preview = previews[m.clientMsgID ?: @""];
     if (preview) { tile.imageView.image = preview; tile.loadKey = nil; return; }
-    if (m.content.length == 0) { tile.imageView.image = nil; tile.loadKey = nil; return; } // 占位灰底
+    // content 为空=尚未上传；im-pending:// = 本地待发文件（不是网络地址，拿去拼 URL 会发出无效请求）。
+    if (m.content.length == 0 || [IMPendingMediaStore isLocalRef:m.content]) {
+        tile.imageView.image = nil; tile.loadKey = nil; return; // 占位灰底，缩略图由 previews 提供
+    }
     NSString *full = IMMediaFullURL(m.content, _host);
-    tile.loadKey = full;
+    // 视频优先用封面 JPEG：抽帧要对远端视频发 range 请求拉几 MB，一屏九宫格就是九次。
+    NSString *posterFull = (isVideo && m.poster.length > 0) ? IMMediaFullURL(m.poster, _host) : nil;
+    NSString *imageURL = posterFull ?: full;
+    tile.loadKey = imageURL;
+    // 同步命中缓存直接出图，不置 nil —— 否则每次滚进可视区都闪一下（与气泡同款问题）。
+    UIImage *cached = (isVideo && !posterFull) ? [[IMVideoThumbnailLoader shared] cachedPosterForURL:imageURL]
+                                              : [[IMImageLoader shared] cachedImageForURL:imageURL];
+    if (cached) { tile.imageView.image = cached; return; }
     tile.imageView.image = nil;
     __weak IMAlbumTileView *wt = tile;
     void (^apply)(UIImage *) = ^(UIImage *img) {
         __strong IMAlbumTileView *t = wt;
-        if (t && img && [t.loadKey isEqualToString:full]) { t.imageView.image = img; }
+        if (t && img && [t.loadKey isEqualToString:imageURL]) { t.imageView.image = img; }
     };
-    if (isVideo) { [[IMVideoThumbnailLoader shared] loadPosterForVideoURL:full completion:apply]; }
-    else { [[IMImageLoader shared] loadImageURL:full completion:apply]; }
+    if (isVideo && !posterFull) { [[IMVideoThumbnailLoader shared] loadPosterForVideoURL:full completion:apply]; }
+    else { [[IMImageLoader shared] loadImageURL:imageURL completion:apply]; }
 }
 
 - (void)refreshWithPreviews:(NSDictionary<NSString *, UIImage *> *)previews

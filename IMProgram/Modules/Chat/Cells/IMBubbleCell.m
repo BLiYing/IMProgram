@@ -1,5 +1,6 @@
 #import "IMBubbleCell.h"
 #import "IMMessageModel.h"
+#import "IMUploadProgress.h"
 #import "IMImageLoader.h"
 #import "IMVideoThumbnailLoader.h"
 #import "IMMediaUtil.h"
@@ -291,11 +292,14 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         [body appendAttributedString:[NSAttributedString attributedStringWithAttachment:att]];
         [body appendAttributedString:[[NSAttributedString alloc] initWithString:[@"  " stringByAppendingString:fname]
             attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:IMTheme.chatFontSize], NSForegroundColorAttributeName: fileColor }]];
-        NSString *sizeText = IMFormatFileSize(message.fileSize);
+        // 上传中：第二行显「已传 / 总大小 · 点击暂停」，而不是干等（大文件几十秒界面毫无反馈）。
+        NSString *sizeText = self.uploadProgress
+            ? [self.uploadProgress fileLineText]
+            : IMFormatFileSize(message.fileSize);
         if (sizeText.length > 0) {
             [body appendAttributedString:[[NSAttributedString alloc] initWithString:[@"\n" stringByAppendingString:sizeText]
                 attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:12],
-                              NSForegroundColorAttributeName: IMTheme.textSecondary }]];
+                              NSForegroundColorAttributeName: (self.uploadProgress.failed ? IMTheme.danger : IMTheme.textSecondary) }]];
         }
     } else {
         if (IMLooksLikeURL(contentText)) {

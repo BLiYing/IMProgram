@@ -22,6 +22,8 @@ extern const long long kIMMaxVideoBytes; // 视频体积上限（与服务端 10
 @property (nonatomic, assign) CGSize    pixelSize;
 /// 视频时长（毫秒）；0=非视频或未知。随消息上行（duration），收端在封面左上角显 mm:ss。
 @property (nonatomic, assign) int64_t   durationMillis;
+/// 最终产物的视频编码四字符码（如 avc1 / hvc1）；仅日志用，空=非视频或读不到。
+@property (nonatomic, copy, nullable) NSString *videoCodec;
 @end
 
 /// 惰性媒体句柄：持有 NSItemProvider，重活（压缩/转码）延后到 loadData。
@@ -30,9 +32,13 @@ extern const long long kIMMaxVideoBytes; // 视频体积上限（与服务端 10
 @property (nonatomic, assign, readonly) BOOL isVideo;
 /// 预览级缩略图（视频=首帧 / 图片=降采样 ≤600px）；主线程回调，失败回 nil（调用方显灰占位）。
 - (void)loadThumbnail:(void (^)(UIImage *_Nullable thumb))completion;
-/// 最终待上传数据（图片压缩或原图字节 / 视频转码 720p 或原文件，含 ≤100MB 校验）；
-/// 主线程回调，nil=加载失败或超限。
+/// 最终待上传数据（图片压缩或原图字节 / 视频转码，含 ≤100MB 校验）；主线程回调，nil=加载失败或超限。
 - (void)loadData:(void (^)(IMPickedMedia *_Nullable item))completion;
+
+/// 带转码进度的变体：progress 在主线程按 0..1 回调（仅视频转码阶段有值，图片与直传不回调）。
+/// 调用方据此把「压缩」与「上传」融合成一条连续进度。
+- (void)loadData:(void (^)(IMPickedMedia *_Nullable item))completion
+        progress:(nullable void (^)(double fraction))progress;
 
 /// 文件面板专用：读取相册资源原始字节，不压缩、不转码，并保留扩展名。
 - (void)loadFileData:(void (^)(IMPickedMedia *_Nullable item))completion;

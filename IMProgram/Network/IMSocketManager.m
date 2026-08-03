@@ -454,12 +454,12 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     // 只记元数据，不记 content/poster URL 之外的业务正文（URL 属媒体元信息，允许）。
     if (attributes.pixelWidth <= 0 || attributes.pixelHeight <= 0) {
         // 收端只能回退"加载完再自适应"，是排版异常的头号根因 → 发出即留痕。
-        IMLogWarnWithTag(IMLogTagSocket, @"media_meta_missing conv_id=%@ client_msg_id=%@ content_type=%@ bytes=%lld has_poster=%@",
+        IMLogWarnWithTag(IMLogTagMedia, @"media_meta_missing conv_id=%@ client_msg_id=%@ content_type=%@ bytes=%lld has_poster=%@",
                          payload[@"conv_id"], payload[@"client_msg_id"], ct, attributes.fileSize,
                          attributes.poster.length > 0 ? @"1" : @"0");
         return;
     }
-    IMLogSocket(@"media_meta_attached conv_id=%@ client_msg_id=%@ content_type=%@ media_w=%ld media_h=%ld duration_ms=%lld bytes=%lld",
+    IMLogMedia(@"media_meta_attached conv_id=%@ client_msg_id=%@ content_type=%@ media_w=%ld media_h=%ld duration_ms=%lld bytes=%lld",
                 payload[@"conv_id"], payload[@"client_msg_id"], ct,
                 (long)attributes.pixelWidth, (long)attributes.pixelHeight, attributes.durationMillis, attributes.fileSize);
 }

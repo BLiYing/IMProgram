@@ -13,6 +13,9 @@ FOUNDATION_EXPORT NSString * const IMLogTagHTTP;
 FOUNDATION_EXPORT NSString * const IMLogTagSocket;
 FOUNDATION_EXPORT NSString * const IMLogTagDatabase;
 FOUNDATION_EXPORT NSString * const IMLogTagUI;
+/// 媒体全链路（选择/探测 → 转码 → 上传 → 渲染 → 播放）。单独成桶是为了能一条命令捞出整条链路：
+/// 分散在 IM.UI / IM.WS 里会和其余 UI、信令日志混在一起，排查发不出去/播不了时无从下手。
+FOUNDATION_EXPORT NSString * const IMLogTagMedia;
 
 /// App 启动时调用一次：注册系统控制台与滚动文件 Logger。
 FOUNDATION_EXPORT void IMLogConfigure(void);
@@ -35,5 +38,6 @@ FOUNDATION_EXPORT void IMLogConfigure(void);
 #define IMLogSocket(fmt, ...) IMLogWithTag(IMLogTagSocket, fmt, ##__VA_ARGS__)
 #define IMLogDatabase(fmt, ...) IMLogWithTag(IMLogTagDatabase, fmt, ##__VA_ARGS__)
 #define IMLogUI(fmt, ...) IMLogWithTag(IMLogTagUI, fmt, ##__VA_ARGS__)
+#define IMLogMedia(fmt, ...) IMLogWithTag(IMLogTagMedia, fmt, ##__VA_ARGS__)
 
 NS_ASSUME_NONNULL_END

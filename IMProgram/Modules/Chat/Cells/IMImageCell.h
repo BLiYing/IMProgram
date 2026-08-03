@@ -17,9 +17,12 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) void (^onMediaSizeResolved)(void);
 
 /// fullURL 为空=尚未上传完成（只显本地预览、不发起网络加载）。
+/// posterURL 为视频封面的完整 URL（message.poster 补 host 后）：**有封面就绝不去抽帧**——
+/// 抽帧要对远端视频发 range 请求拉几 MB，而封面只是一张几十 KB 的 JPEG。
 /// 尺寸/时长/时间/已读态全部取自 message，故直接传模型而非逐个参数。
 - (void)configureWithMessage:(IMMessageModel *)message
                      fullURL:(NSString *)fullURL
+                   posterURL:(nullable NSString *)posterURL
                         mine:(BOOL)mine
                  peerReadSeq:(int64_t)peerReadSeq
                 previewImage:(nullable UIImage *)preview

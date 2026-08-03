@@ -91,6 +91,26 @@ static NSString *IMFriendlyNetworkError(NSError *error) {
     return error.localizedDescription.length > 0 ? error.localizedDescription : @"网络错误";
 }
 
+/// 上传失败自动重试的次数上限（不含首次）。
+static const NSInteger kIMUploadMaxRetries = 2;
+
+/// 是否"重试有意义"的传输层错误：超时/连接中断/网络切换。
+/// 业务错误（413 超限、鉴权失败）重试只是白费流量，必须排除。
+BOOL IMIsTransientNetworkError(NSError *error) {
+    NSError *underlying = error.userInfo[NSUnderlyingErrorKey] ?: error;
+    if (![underlying.domain isEqualToString:NSURLErrorDomain]) { return NO; }
+    switch (underlying.code) {
+        case NSURLErrorTimedOut:
+        case NSURLErrorNetworkConnectionLost:
+        case NSURLErrorCannotConnectToHost:
+        case NSURLErrorNotConnectedToInternet:
+        case NSURLErrorDNSLookupFailed:
+            return YES;
+        default:
+            return NO;
+    }
+}
+
 @interface IMHTTPService ()
 @property (atomic, copy, nullable) NSString *currentToken; // 对外只读，内部可写
 @end
@@ -611,26 +631,113 @@ static NSString *IMFriendlyNetworkError(NSError *error) {
         completion:(void (^)(NSString *, NSString *, NSError *))completion {
     NSURL *url = [self urlForPath:@"/api/v1/upload"];
     if (!url || data.length == 0) { [self callOnMain:^{ completion(nil, nil, [self errorWithMessage:@"无效的上传"]); }]; return; }
+    // multipart 信封落磁盘再流式上传：原先把 74MB 视频再拷进 NSMutableData，峰值内存翻倍且拼装本身就慢。
     NSString *boundary = [@"----IMBoundary" stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSURL *bodyFile = [self writeMultipartBodyToTempFileWithData:data fileName:fileName mimeType:mimeType boundary:boundary];
+    if (!bodyFile) { [self callOnMain:^{ completion(nil, nil, [self errorWithMessage:@"上传准备失败（磁盘空间不足？）"]); }]; return; }
+
     NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
     req.HTTPMethod = @"POST";
-    req.timeoutInterval = 30;
+    req.timeoutInterval = 60; // 空闲超时；整单上限由 uploadSession 的 timeoutIntervalForResource 控制
     [req setValue:[NSString stringWithFormat:@"Bearer %@", token ?: @""] forHTTPHeaderField:@"Authorization"];
     [req setValue:[NSString stringWithFormat:@"multipart/form-data; boundary=%@", boundary] forHTTPHeaderField:@"Content-Type"];
-    NSMutableData *body = [NSMutableData data];
-    [body appendData:[[NSString stringWithFormat:@"--%@\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
-    [body appendData:[[NSString stringWithFormat:@"Content-Disposition: form-data; name=\"file\"; filename=\"%@\"\r\n", fileName ?: @"file"] dataUsingEncoding:NSUTF8StringEncoding]];
-    [body appendData:[[NSString stringWithFormat:@"Content-Type: %@\r\n\r\n", mimeType ?: @"application/octet-stream"] dataUsingEncoding:NSUTF8StringEncoding]];
-    [body appendData:data];
-    [body appendData:[[NSString stringWithFormat:@"\r\n--%@--\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
-    req.HTTPBody = body;
-    [self runRequest:req progress:progress completion:^(NSDictionary *resp, NSError *error) {
+
+    __weak typeof(self) ws = self;
+    void (^cleanup)(void) = ^{ [NSFileManager.defaultManager removeItemAtURL:bodyFile error:NULL]; };
+    [self runUploadRequest:req bodyFile:bodyFile attempt:0 progress:progress completion:^(NSDictionary *resp, NSError *error) {
+        __strong typeof(ws) self = ws;
+        cleanup();
+        if (!self) { return; }
         if (error) { completion(nil, nil, error); return; }
         if ([resp[@"code"] integerValue] != 0) { completion(nil, nil, [self errorWithMessage:[self messageFrom:resp fallback:@"上传失败"]]); return; }
         NSDictionary *d = [resp[@"data"] isKindOfClass:[NSDictionary class]] ? resp[@"data"] : @{};
         NSString *u = [d[@"url"] isKindOfClass:[NSString class]] ? d[@"url"] : nil;
         NSString *ct = [d[@"content_type"] isKindOfClass:[NSString class]] ? d[@"content_type"] : @"image";
         completion(u, ct, u ? nil : [self errorWithMessage:@"上传响应异常"]);
+    }];
+}
+
+- (void)performUploadAPI:(NSString *)path
+                  method:(NSString *)method
+                    body:(NSData *)body
+                   token:(NSString *)token
+              completion:(void (^)(NSDictionary *_Nullable, NSError *_Nullable))completion {
+    NSURL *url = [self urlForPath:path];
+    if (!url) { completion(nil, [self errorWithMessage:@"非法服务器地址"]); return; }
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
+    req.HTTPMethod = method ?: @"POST";
+    req.timeoutInterval = 60;
+    [req setValue:[NSString stringWithFormat:@"Bearer %@", token ?: @""] forHTTPHeaderField:@"Authorization"];
+    if (body) {
+        // 分片是原始字节（application/octet-stream），不是 multipart —— 服务端直接 io.Copy 落盘。
+        BOOL isJSON = [path hasSuffix:@"/init"];
+        [req setValue:(isJSON ? @"application/json" : @"application/octet-stream") forHTTPHeaderField:@"Content-Type"];
+        req.HTTPBody = body;
+    }
+    __weak typeof(self) ws = self;
+    [self runRequest:req progress:nil completion:^(NSDictionary *resp, NSError *error) {
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        if (error) { completion(nil, error); return; }
+        if ([resp[@"code"] integerValue] != 0) {
+            completion(nil, [self errorWithMessage:[self messageFrom:resp fallback:@"上传失败"]]);
+            return;
+        }
+        NSDictionary *d = [resp[@"data"] isKindOfClass:NSDictionary.class] ? resp[@"data"] : @{};
+        completion(d, nil);
+    }];
+}
+
+/// 把 multipart 信封（头 + 文件字节 + 尾）写到临时文件，供 uploadTaskWithRequest:fromFile: 流式读取。
+/// 返回 nil = 写盘失败。
+- (nullable NSURL *)writeMultipartBodyToTempFileWithData:(NSData *)data
+                                                fileName:(NSString *)fileName
+                                                mimeType:(NSString *)mimeType
+                                                boundary:(NSString *)boundary {
+    NSURL *dst = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:
+                                         [@"im-upload-" stringByAppendingString:NSUUID.UUID.UUIDString]]];
+    NSString *head = [NSString stringWithFormat:
+        @"--%@\r\nContent-Disposition: form-data; name=\"file\"; filename=\"%@\"\r\nContent-Type: %@\r\n\r\n",
+        boundary, fileName ?: @"file", mimeType ?: @"application/octet-stream"];
+    NSString *tail = [NSString stringWithFormat:@"\r\n--%@--\r\n", boundary];
+    if (![NSFileManager.defaultManager createFileAtPath:dst.path contents:nil attributes:nil]) { return nil; }
+    NSFileHandle *fh = [NSFileHandle fileHandleForWritingToURL:dst error:NULL];
+    if (!fh) { return nil; }
+    NSError *werr = nil;
+    BOOL ok = [fh writeData:[head dataUsingEncoding:NSUTF8StringEncoding] error:&werr]
+           && [fh writeData:data error:&werr]
+           && [fh writeData:[tail dataUsingEncoding:NSUTF8StringEncoding] error:&werr];
+    [fh closeAndReturnError:NULL];
+    if (!ok) {
+        IMLogErrorWithTag(IMLogTagHTTP, @"upload_body_write_failed error=%@", werr.localizedDescription ?: @"-");
+        [NSFileManager.defaultManager removeItemAtURL:dst error:NULL];
+        return nil;
+    }
+    return dst;
+}
+
+/// 传输层瞬时错误（超时/连接中断/网络切换）自动重试；业务错误（4xx/5xx 的 JSON 信封）不重试。
+/// 大文件上传一次失败就是几十秒白干，用户只会看到"发送失败"，必须自愈。
+- (void)runUploadRequest:(NSURLRequest *)req
+                bodyFile:(NSURL *)bodyFile
+                 attempt:(NSInteger)attempt
+                progress:(void (^)(double))progress
+              completion:(void (^)(NSDictionary *body, NSError *error))completion {
+    __weak typeof(self) ws = self;
+    [self runRequest:req bodyFile:bodyFile progress:progress completion:^(NSDictionary *body, NSError *error) {
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        if (!error || attempt >= kIMUploadMaxRetries || !IMIsTransientNetworkError(error)) {
+            completion(body, error);
+            return;
+        }
+        NSTimeInterval delay = 1.5 * (double)(attempt + 1); // 1.5s / 3s，够短不至于让用户干等
+        IMLogWarnWithTag(IMLogTagHTTP, @"upload_retry attempt=%ld delay_s=%.1f reason=%@",
+                         (long)(attempt + 1), delay, error.localizedDescription ?: @"-");
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            if (progress) { progress(0); } // 重试从头传，进度回零，别让 UI 卡在半截
+            [self runUploadRequest:req bodyFile:bodyFile attempt:attempt + 1 progress:progress completion:completion];
+        });
     }];
 }
 
@@ -655,8 +762,31 @@ static NSString *IMFriendlyNetworkError(NSError *error) {
     [self runRequest:req progress:nil completion:completion];
 }
 
+/// 上传专用会话：大文件上行必须与普通 API 用不同的超时口径。
+/// `timeoutIntervalForRequest` 是**空闲**超时（两次数据回调之间），`timeoutIntervalForResource` 才是整单上限。
+/// 之前所有请求共用 30s，74MB 视频传到 46s 被 -1001 掐断（见 2026-08-03 真机日志）。
+- (NSURLSession *)uploadSession {
+    static NSURLSession *session;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSURLSessionConfiguration *cfg = [NSURLSessionConfiguration defaultSessionConfiguration];
+        cfg.timeoutIntervalForRequest = 60;      // 60s 没有任何字节进出才算卡死
+        cfg.timeoutIntervalForResource = 60 * 60; // 整单上限 1h，弱网大文件也不会被硬掐
+        session = [NSURLSession sessionWithConfiguration:cfg];
+    });
+    return session;
+}
+
 /// runRequest 的带上行进度变体：progress 非空时挂 per-task delegate 取 didSendBodyData（上传专用）。
 - (void)runRequest:(NSURLRequest *)req
+          progress:(void (^)(double fraction))progress
+        completion:(void (^)(NSDictionary *body, NSError *error))completion {
+    [self runRequest:req bodyFile:nil progress:progress completion:completion];
+}
+
+/// bodyFile 非空 → 走 uploadTaskWithRequest:fromFile:（请求体从磁盘流式读，不进内存）。
+- (void)runRequest:(NSURLRequest *)req
+          bodyFile:(NSURL *)bodyFile
           progress:(void (^)(double fraction))progress
         completion:(void (^)(NSDictionary *body, NSError *error))completion {
     NSMutableURLRequest *request = [req mutableCopy];
@@ -668,14 +798,17 @@ static NSString *IMFriendlyNetworkError(NSError *error) {
     NSString *method = request.HTTPMethod ?: @"GET";
     NSString *path = request.URL.path.length > 0 ? request.URL.path : @"/";
     NSString *contentType = [request valueForHTTPHeaderField:@"Content-Type"];
-    NSString *requestBody = IMHTTPLogBody(request.HTTPBody, contentType, IMHTTPLogIncludesBusinessContent());
+    unsigned long long bodyBytes = request.HTTPBody.length;
+    if (bodyFile) {
+        bodyBytes = [[NSFileManager.defaultManager attributesOfItemAtPath:bodyFile.path error:NULL][NSFileSize] unsignedLongLongValue];
+    }
+    NSString *requestBody = bodyFile ? [NSString stringWithFormat:@"<multipart file %llu bytes>", bodyBytes]
+                                     : IMHTTPLogBody(request.HTTPBody, contentType, IMHTTPLogIncludesBusinessContent());
     CFAbsoluteTime startedAt = CFAbsoluteTimeGetCurrent();
-    IMLogHTTP(@"[req=%@][REQUEST] %@ %@ bytes=%lu body=%@",
-              requestID, method, path, (unsigned long)request.HTTPBody.length, requestBody);
+    IMLogHTTP(@"[req=%@][REQUEST] %@ %@ bytes=%llu body=%@", requestID, method, path, bodyBytes, requestBody);
 
     __weak typeof(self) weakSelf = self;
-    NSURLSessionDataTask *task = [NSURLSession.sharedSession dataTaskWithRequest:request
-                                                             completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+    void (^handler)(NSData *, NSURLResponse *, NSError *) = ^(NSData *data, NSURLResponse *response, NSError *error) {
         __strong typeof(weakSelf) self = weakSelf;
         NSHTTPURLResponse *httpResponse = [response isKindOfClass:NSHTTPURLResponse.class] ? (NSHTTPURLResponse *)response : nil;
         NSString *serverRequestID = [httpResponse valueForHTTPHeaderField:kIMRequestIDHeader];
@@ -686,8 +819,11 @@ static NSString *IMFriendlyNetworkError(NSError *error) {
                               @"[req=%@][ERROR] %@ %@ duration_ms=%.1f domain=%@ code=%ld message=%@",
                               correlationID, method, path, durationMs,
                               error.domain, (long)error.code, error.localizedDescription ?: @"-");
-            // 传输层失败（连不上/超时）：转友好中文，不把英文 NSError 原文弹给用户。
-            [self callOnMain:^{ completion(nil, [self errorWithMessage:IMFriendlyNetworkError(error)]); }];
+            // 传输层失败（连不上/超时）：转友好中文，不把英文 NSError 原文弹给用户；
+            // 原始 NSError 挂在 NSUnderlyingErrorKey，上传重试据此判断是否值得重试。
+            NSError *friendly = [NSError errorWithDomain:kIMHTTPErrorDomain code:-1
+                userInfo:@{ NSLocalizedDescriptionKey: IMFriendlyNetworkError(error), NSUnderlyingErrorKey: error }];
+            [self callOnMain:^{ completion(nil, friendly); }];
             return;
         }
         NSInteger status = httpResponse.statusCode;
@@ -706,7 +842,12 @@ static NSString *IMFriendlyNetworkError(NSError *error) {
             return;
         }
         [self callOnMain:^{ completion(body, nil); }];
-    }];
+    };
+    // 上传（有请求体文件或需要进度）走上传会话，其余走共享会话保持原行为。
+    NSURLSessionTask *task = bodyFile
+        ? [[self uploadSession] uploadTaskWithRequest:request fromFile:bodyFile completionHandler:handler]
+        : (progress ? [[self uploadSession] dataTaskWithRequest:request completionHandler:handler]
+                    : [NSURLSession.sharedSession dataTaskWithRequest:request completionHandler:handler]);
     if (progress) {
         IMUploadProgressBridge *bridge = [IMUploadProgressBridge new];
         bridge.onProgress = progress;

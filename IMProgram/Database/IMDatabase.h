@@ -54,6 +54,13 @@ NS_ASSUME_NONNULL_BEGIN
 /// 保存/更新一条消息：出站按 clientMsgID upsert（sending→sent 覆盖），入站按 conv_seq 去重。
 /// 同一事务内同步会话最后一条、未读数和排序；新会话会建立可离线打开的最小摘要。
 - (void)saveMessage:(IMMessageModel *)message;
+
+/// 把乐观发送时的临时 client_msg_id 就地换成真实 ID。
+/// 消息行是按 client_msg_id 认的：不改键直接以新 ID 保存会**插出重复行**，
+/// 留下一条永远失败的孤儿气泡（临时键那条）。
+- (void)replaceClientMsgID:(NSString *)oldClientMsgID
+           withClientMsgID:(NSString *)newClientMsgID
+                    inConv:(NSString *)convID;
 /// 接收/补拉路径：消息、会话摘要与连续同步位置在同一事务提交。返回 NO 时调用方不得推进内存游标。
 - (BOOL)saveIncomingMessage:(IMMessageModel *)message advancingSyncedConvSeq:(int64_t)syncedConvSeq;
 

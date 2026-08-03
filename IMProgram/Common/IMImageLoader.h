@@ -1,5 +1,6 @@
 //  IMImageLoader.h
-//  头像图片异步加载：支持 data:image 内联 base64 与 http(s) 远程；内存缓存；completion 必在主线程。
+//  图片异步加载：支持 data:image 内联 base64 与 http(s) 远程。
+//  内存缓存（按解码字节数限容）+ 磁盘缓存（LRU，冷启动免重下）+ 降采样解码（不在主线程解大图）。
 
 #import <UIKit/UIKit.h>
 
@@ -9,7 +10,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (instancetype)shared;
 
-/// 加载头像图：urlString 可为 data:image base64 或 http(s)。空/失败 → completion(nil)。completion 总在主线程回调。
+/// 加载图片：urlString 可为 data:image base64 或 http(s)。空/失败 → completion(nil)。
+/// **命中内存缓存时同步回调**（调用线程），其余情况在主线程回调——同步命中是为了消除
+/// "先置空再填图"造成的滚动闪烁，调用方可安全地在 cellForRow 里直接用返回值。
 - (void)loadImageURL:(nullable NSString *)urlString completion:(void (^)(UIImage *_Nullable image))completion;
 
 /// 预置缓存：上传完成后把本地预览图种到该 URL 名下，气泡切服务器 URL 时无需重新下载（不闪图）。

@@ -19,6 +19,8 @@
 #import "IMChatRecordViewController.h"
 #import "IMMediaPicker.h"
 #import "IMMediaUtil.h"
+#import "IMPendingMediaStore.h"
+#import "IMChunkedUploader.h"
 #import "UILabel+IMAvatar.h"
 #import "IMFilePickerViewController.h"
 #import "IMUserCard.h"
@@ -37,6 +39,7 @@
 #import "IMGlass.h"
 #import <Photos/Photos.h>
 #import <AVFoundation/AVFoundation.h>
+#import <ImageIO/ImageIO.h>
 #import <SafariServices/SafariServices.h>
 #import "IMPopoverCard.h"
 
@@ -77,6 +80,35 @@ static NSString *IMReplySnippet(IMMessageModel *m) {
 @end
 
 #pragma mark - 聊天页
+
+/// 本地待发文件的缩略图（在后台队列调用）：视频抽首帧，图片按目标尺寸降采样，绝不整图解码。
+static UIImage *IMPendingVideoThumbnail(NSString *path) {
+    AVURLAsset *asset = [AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:path] options:nil];
+    AVAssetImageGenerator *gen = [[AVAssetImageGenerator alloc] initWithAsset:asset];
+    gen.appliesPreferredTrackTransform = YES;
+    gen.maximumSize = CGSizeMake(600, 600);
+    CGImageRef cg = [gen copyCGImageAtTime:CMTimeMakeWithSeconds(0.1, 600) actualTime:NULL error:NULL];
+    if (!cg) { return nil; }
+    UIImage *thumb = [UIImage imageWithCGImage:cg];
+    CGImageRelease(cg);
+    return thumb;
+}
+
+static UIImage *IMPendingImageThumbnail(NSString *path) {
+    CGImageSourceRef src = CGImageSourceCreateWithURL((__bridge CFURLRef)[NSURL fileURLWithPath:path], NULL);
+    if (!src) { return nil; }
+    CGImageRef cg = CGImageSourceCreateThumbnailAtIndex(src, 0, (__bridge CFDictionaryRef)@{
+        (id)kCGImageSourceCreateThumbnailFromImageAlways: @YES,
+        (id)kCGImageSourceCreateThumbnailWithTransform: @YES,
+        (id)kCGImageSourceShouldCacheImmediately: @YES,
+        (id)kCGImageSourceThumbnailMaxPixelSize: @(1024),
+    });
+    CFRelease(src);
+    if (!cg) { return nil; }
+    UIImage *thumb = [UIImage imageWithCGImage:cg];
+    CGImageRelease(cg);
+    return thumb;
+}
 
 @interface IMChatViewController () <IMSocketManagerDelegate, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIDocumentPickerDelegate>
 @property (nonatomic, copy) NSString *host;
@@ -130,6 +162,10 @@ static NSString *IMReplySnippet(IMMessageModel *m) {
 @property (nonatomic, strong) NSMutableDictionary<NSString *, UIImage *> *outboxPreviews;
 // 上传进度：值带「已传比例 + 媒体本体总字节数」，界面显「3.2 MB / 7.9 MB」；失败为 failedProgress。
 @property (nonatomic, strong) NSMutableDictionary<NSString *, IMUploadProgress *> *outboxProgress;
+// 进行中的分片上传任务（大文件）：key=clientMsgID，供气泡点击暂停/继续。
+@property (nonatomic, strong) NSMutableDictionary<NSString *, IMChunkedUploadTask *> *uploadTasks;
+// 正在后台解码缩略图的待发件，避免同一行反复触发解码。
+@property (nonatomic, strong) NSMutableSet<NSString *> *pendingPreviewLoading;
 @end
 
 @implementation IMChatViewController
@@ -166,6 +202,8 @@ static NSString *IMReplySnippet(IMMessageModel *m) {
         }
         _outboxPreviews = [NSMutableDictionary dictionary];
         _outboxProgress = [NSMutableDictionary dictionary];
+        _uploadTasks = [NSMutableDictionary dictionary];
+        _pendingPreviewLoading = [NSMutableSet set];
     }
     return self;
 }
@@ -469,6 +507,7 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
         synced = [database syncedConvSeqForConv:self.convID];
     }]) { return; }
     [IMSocketManager.sharedManager trackConversation:self.convID syncedSeq:synced];
+    [self reattachRunningUploads]; // 上传任务活在 uploader 单例里，回到本页要重新接管它的进度与完成回调
 }
 
 #pragma mark - 拉黑（微信式单向：拉黑者仍可发，故聊天页不拦输入；黑名单状态在通讯录管理）
@@ -1123,7 +1162,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         m.timestamp = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
         [self.messages addObject:m];
         [pending addObject:m];
-        self.outboxProgress[m.clientMsgID] = [IMUploadProgress queuedWithTotalBytes:0]; // 排队中（总大小待 loadData 后才知道）
+        self.outboxProgress[m.clientMsgID] = [IMUploadProgress queued]; // 排队中（体积/是否需转码都要等 loadData）
     }
     [self.tableView reloadData]; // 一次性上屏：宫格只有 1 个可见 cell（从行零高），无逐条插行闪动
     [self scrollToAbsoluteBottom];
@@ -1147,6 +1186,13 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     if (idx >= handles.count) { return; }
     IMMessageModel *m = msgs[idx];
     __weak typeof(self) ws = self;
+    // 转码与上传融合成一条进度：转码期显「压缩中 42%」，上传期显「已传 / 总大小」，环形进度只增不减。
+    void (^onTranscode)(double) = ^(double fraction) {
+        __strong typeof(ws) self2 = ws;
+        if (!self2) { return; }
+        self2.outboxProgress[m.clientMsgID ?: @""] = [IMUploadProgress transcodingWithFraction:fraction];
+        [self2 updateUploadProgressForMessage:m];
+    };
     [handles[idx] loadData:^(IMPickedMedia *item) { // 压缩/转码在句柄内部串行队列执行
         __strong typeof(ws) self = ws;
         if (!self) { return; }
@@ -1161,14 +1207,25 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         m.mediaH = (NSInteger)item.pixelSize.height;
         m.duration = item.durationMillis;
         m.fileSize = (int64_t)item.data.length;
+        // 待发字节落盘 + 消息落库：上传一旦失败（超时/杀进程），重进会话仍看得到这条并能重试。
+        // 句柄 IMPickedMediaHandle 走完 loadData 就没用了，字节不落盘就永远拿不回来。
+        NSString *localRef = [[IMPendingMediaStore shared] storeData:item.data
+                                                      forClientMsgID:m.clientMsgID ?: @""
+                                                           extension:item.fileName.pathExtension];
+        if (localRef) {
+            m.content = localRef;
+            [self persistOutboxMessage:m];
+        }
         [self refreshVisibleCellForMessage:m]; // 尺寸已知 → 气泡从方形占位切到真实比例
         [IMHTTPService.sharedService uploadData:item.data fileName:item.fileName mimeType:item.mimeType token:token
             progress:^(double fraction) {
                 __strong typeof(ws) self2 = ws;
                 if (!self2) { return; }
                 // 分母用**媒体本体字节数**而非 multipart 整包（后者含 boundary/头，会比文件属性大一截）。
-                self2.outboxProgress[m.clientMsgID ?: @""] =
-                    [IMUploadProgress progressWithFraction:fraction totalBytes:(int64_t)item.data.length];
+                NSString *key = m.clientMsgID ?: @"";
+                self2.outboxProgress[key] = [IMUploadProgress uploadingWithFraction:fraction
+                                                                         totalBytes:(int64_t)item.data.length
+                                                                           previous:self2.outboxProgress[key]];
                 [self2 updateUploadProgressForMessage:m]; // 只改覆盖层/环 strokeEnd，不 reload（无闪烁）
             }
             completion:^(NSString *url, NSString *contentType, NSError *error) {
@@ -1182,13 +1239,90 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
                 }
                 [self2 uploadMediaHandles:handles messages:msgs index:idx + 1];
             }];
-    }];
+    } progress:onTranscode];
+}
+
+/// 待发/失败的乐观气泡落库（content 为 im-pending:// 本地引用）。
+/// 成功发出后 finishOutboxMessage 会把 content 换成服务器 URL 再存一次，并删掉本地副本。
+///
+/// **content 为空的不落库**：那种行重进会话既显示不出内容也无法重试，只会留下一个永久的空气泡
+/// （字节还没落盘就失败时会走到这里，例如未登录、句柄解码失败、磁盘写满）。
+- (void)persistOutboxMessage:(IMMessageModel *)m {
+    if (m.content.length == 0) { return; }
+    [self performDatabaseOperation:^(IMDatabase *database) { [database saveMessage:m]; }];
+}
+
+/// 本地待发媒体的缩略图：重进会话时消息 content 是 im-pending:// 本地文件，直接出图，不走网络。
+/// **解码放后台**：cellForRow 里同步解一张 4K 图或抽一帧 74MB 视频会直接卡住滚动
+/// （正是 IMImageLoader 刚清掉的那种主线程解码）。首帧返回 nil，解完再刷该行。
+- (UIImage *)pendingPreviewForMessage:(IMMessageModel *)m {
+    NSString *key = m.clientMsgID ?: @"";
+    UIImage *cached = self.outboxPreviews[key];
+    if (cached) { return cached; }
+    if (key.length == 0 || [self.pendingPreviewLoading containsObject:key]) { return nil; }
+    NSString *path = [[IMPendingMediaStore shared] filePathForLocalRef:m.content];
+    if (!path) { return nil; }
+    [self.pendingPreviewLoading addObject:key];
+    BOOL isVideo = [m.contentType isEqualToString:@"video"];
+    __weak typeof(self) ws = self;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        UIImage *thumb = isVideo ? IMPendingVideoThumbnail(path) : IMPendingImageThumbnail(path);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(ws) self = ws;
+            if (!self) { return; }
+            [self.pendingPreviewLoading removeObject:key];
+            if (!thumb) { return; }
+            self.outboxPreviews[key] = thumb;
+            [self refreshVisibleCellForMessage:m];
+        });
+    });
+    return nil;
+}
+
+/// 重试一条本地待发失败的媒体消息：从本地副本读回字节重新上传，不需要用户重选。
+- (void)retryPendingMessage:(IMMessageModel *)m {
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    NSString *fileName = [[IMPendingMediaStore shared] filePathForLocalRef:m.content].lastPathComponent;
+    NSData *data = [[IMPendingMediaStore shared] dataForLocalRef:m.content];
+    if (data.length == 0 || token.length == 0) {
+        [self im_showToast:@"本地文件已丢失，无法重试"];
+        return;
+    }
+    BOOL isVideo = [m.contentType isEqualToString:@"video"];
+    m.status = IMMessageStatusSending;
+    NSString *key = m.clientMsgID ?: @"";
+    self.outboxProgress[key] = [IMUploadProgress uploadingWithFraction:0 totalBytes:(int64_t)data.length previous:nil];
+    [self persistOutboxMessage:m];
+    [self refreshVisibleCellForMessage:m];
+    IMLogWithTag(IMLogTagMedia, @"media_retry conv_id=%@ client_msg_id=%@ content_type=%@ bytes=%lu",
+                 self.convID, key, m.contentType ?: @"", (unsigned long)data.length);
+
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService uploadData:data
+                                   fileName:(fileName ?: (isVideo ? @"video.mp4" : @"photo.jpg"))
+                                   mimeType:(isVideo ? @"video/mp4" : @"image/jpeg")
+                                      token:token
+        progress:^(double fraction) {
+            __strong typeof(ws) self2 = ws;
+            if (!self2) { return; }
+            self2.outboxProgress[key] = [IMUploadProgress uploadingWithFraction:fraction
+                                                                     totalBytes:(int64_t)data.length
+                                                                       previous:self2.outboxProgress[key]];
+            [self2 updateUploadProgressForMessage:m];
+        }
+        completion:^(NSString *url, NSString *contentType, NSError *error) {
+            __strong typeof(ws) self2 = ws;
+            if (!self2) { return; }
+            if (error || url.length == 0) { [self2 markOutboxFailed:m toastIndex:1]; return; }
+            [self2 dispatchOutboxMessage:m serverURL:url contentType:(m.contentType ?: contentType ?: @"image")];
+        }];
 }
 
 - (void)markOutboxFailed:(IMMessageModel *)m toastIndex:(NSUInteger)n {
     m.status = IMMessageStatusFailed;
+    [self persistOutboxMessage:m]; // 失败也要落库，否则退出会话这条就凭空消失了
     // 用户只看到一句 toast；失败的会话/消息定位靠这条（HTTP 层的 request_id 日志可据 client_msg_id 对账）。
-    IMLogWarnWithTag(IMLogTagUI, @"media_send_failed conv_id=%@ client_msg_id=%@ content_type=%@ media_w=%ld media_h=%ld bytes=%lld",
+    IMLogWarnWithTag(IMLogTagMedia, @"media_send_failed conv_id=%@ client_msg_id=%@ content_type=%@ media_w=%ld media_h=%ld bytes=%lld",
                      self.convID, m.clientMsgID ?: @"", m.contentType ?: @"", (long)m.mediaW, (long)m.mediaH, m.fileSize);
     self.outboxProgress[m.clientMsgID ?: @""] = [IMUploadProgress failedProgress]; // 宫格该格标"!" / 单张气泡标"发送失败"
     [self updateUploadProgressForMessage:m];
@@ -1238,6 +1372,12 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     NSString *realID = [IMSocketManager.sharedManager sendMedia:url contentType:ct
                                                          toConv:self.convID toUser:toUser
                                                      attributes:attrs completion:completion];
+    NSString *pendingRef = m.content; // 落库时用的 im-pending:// 本地引用，发出后即可删本地副本
+    // 消息行按 client_msg_id 认：先把库里的临时键改成真实 ID，否则下面的 save 会插出重复行。
+    NSString *convID = self.convID;
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        [database replaceClientMsgID:oldKey withClientMsgID:realID inConv:convID];
+    }];
     m.clientMsgID = realID;
     m.content = url;
     m.contentType = ct;
@@ -1247,6 +1387,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     [self performDatabaseOperation:^(IMDatabase *database) {
         [database saveMessage:m];
     }];
+    [[IMPendingMediaStore shared] removeLocalRef:pendingRef]; // 已成功发出，本地副本没用了
     [self refreshVisibleCellForMessage:m];
 }
 
@@ -1384,13 +1525,153 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     [self handlePickedDocumentURL:urls.firstObject];
 }
 
+/// 大文件分片发送：先把文件落到待发目录并**立刻上屏**一条 sending 气泡（带进度、可暂停），
+/// 再走分片上传；中断/退出会话都不丢，重进能看到并继续。
+- (void)sendLargeFileAtURL:(NSURL *)fileURL fileName:(NSString *)fileName size:(int64_t)size token:(NSString *)token {
+    IMMessageModel *m = [IMMessageModel new];
+    m.clientMsgID = [@"outbox-" stringByAppendingString:NSUUID.UUID.UUIDString];
+    m.convID = self.convID; m.to = self.peerID; m.from = self.userID;
+    m.contentType = @"file";
+    m.fileName = fileName;
+    m.fileSize = size;
+    m.status = IMMessageStatusSending;
+    m.timestamp = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
+    // 文件系统拷贝，不经内存：几百 MB 的文件读进 NSData 足以触发 jetsam。
+    NSString *localRef = [[IMPendingMediaStore shared] storeFileAtURL:fileURL
+                                                      forClientMsgID:m.clientMsgID
+                                                           extension:fileName.pathExtension];
+    if (!localRef) { [self im_showToast:@"本地暂存失败，请重试"]; return; }
+    m.content = localRef;
+    [self.messages addObject:m];
+    [self persistOutboxMessage:m];
+    self.outboxProgress[m.clientMsgID] = [IMUploadProgress queued];
+    [self appendReloadAndScroll];
+    [self startChunkedUploadForMessage:m token:token];
+}
+
+/// 进入/回到会话时接管仍在跑的分片上传：任务活在 uploader 单例里，聊天页只是它的显示端。
+/// 不接管的话，退出再进来就会看到一条"卡住不动、点了没反应"的气泡。
+- (void)reattachRunningUploads {
+    for (IMMessageModel *m in self.messages) {
+        NSString *key = m.clientMsgID ?: @"";
+        IMChunkedUploadTask *task = [[IMChunkedUploader shared] taskForKey:key];
+        if (!task) { continue; }
+        self.uploadTasks[key] = task;
+        self.outboxProgress[key] = [IMUploadProgress uploadingWithFraction:
+            (task.totalBytes > 0 ? (double)task.sentBytes / (double)task.totalBytes : 0)
+                                                                totalBytes:task.totalBytes previous:nil];
+        self.outboxProgress[key].pausedByUser = task.paused;
+        [self bindUploadTask:task toMessage:m];
+    }
+}
+
+/// 驱动一条文件消息的分片上传，并把任务句柄存起来供暂停/继续。
+/// resumeID 从待发目录的旁挂文件读取——App 重启后照样能接着传，而不是从 0 重来。
+- (void)startChunkedUploadForMessage:(IMMessageModel *)m token:(NSString *)token {
+    NSString *path = [[IMPendingMediaStore shared] filePathForLocalRef:m.content];
+    if (!path) { [self markOutboxFailed:m toastIndex:1]; return; }
+    NSString *key = m.clientMsgID ?: @"";
+    IMChunkedUploadTask *task = [[IMChunkedUploader shared]
+        uploadFileAtURL:[NSURL fileURLWithPath:path]
+               fileName:(m.fileName ?: path.lastPathComponent)
+                  token:token
+                    key:key
+               resumeID:[[IMPendingMediaStore shared] uploadIDForLocalRef:m.content]];
+    self.uploadTasks[key] = task;
+    [self bindUploadTask:task toMessage:m];
+}
+
+/// 把任务的进度/完成/upload_id 回调接到**当前**聊天页（重进会话时会重新绑一次）。
+- (void)bindUploadTask:(IMChunkedUploadTask *)task toMessage:(IMMessageModel *)m {
+    NSString *key = m.clientMsgID ?: @"";
+    NSString *pendingRef = m.content;
+    __weak typeof(self) ws = self;
+    task.uploadIDHandler = ^(NSString *uploadID) {
+        [[IMPendingMediaStore shared] setUploadID:uploadID forLocalRef:pendingRef]; // 跨启动续传的锚点
+    };
+    task.progressHandler = ^(int64_t sent, int64_t total) {
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        double fraction = total > 0 ? (double)sent / (double)total : 0;
+        self.outboxProgress[key] = [IMUploadProgress uploadingWithFraction:fraction totalBytes:total
+                                                                  previous:self.outboxProgress[key]];
+        [self refreshVisibleCellForMessage:m]; // 文件气泡的进度在正文里，必须重渲染整条
+    };
+    task.completionHandler = ^(NSString *url, NSString *contentType, NSError *error) {
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        [self.uploadTasks removeObjectForKey:key];
+        if (error || url.length == 0) { [self markOutboxFailed:m toastIndex:1]; return; }
+        [self finishChunkedFileMessage:m serverURL:url oldKey:key];
+    };
+}
+
+/// 分片上传完成 → 走 socket 正式发送文件消息，并把库里的临时键换成真实 ID、删本地副本。
+- (void)finishChunkedFileMessage:(IMMessageModel *)m serverURL:(NSString *)url oldKey:(NSString *)oldKey {
+    NSString *pendingRef = m.content;
+    NSString *toUser = self.isGroupChat ? @"" : self.peerID;
+    __weak typeof(self) ws = self;
+    NSString *realID = [IMSocketManager.sharedManager sendFile:url fileName:(m.fileName ?: @"file")
+                                                     fileSize:m.fileSize toConv:self.convID toUser:toUser
+                                                   completion:^(BOOL success, NSError *error, int64_t convSeq) {
+        [ws handleSendResult:success convSeq:convSeq error:error forClientMsgID:m.clientMsgID];
+    }];
+    NSString *convID = self.convID;
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        [database replaceClientMsgID:oldKey withClientMsgID:realID inConv:convID];
+    }];
+    [self.outboxProgress removeObjectForKey:oldKey];
+    m.clientMsgID = realID;
+    m.content = url;
+    [self persistOutboxMessage:m];
+    [[IMPendingMediaStore shared] removeLocalRef:pendingRef];
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        [database cacheSentFiles:@[@{ @"server_msg_id": realID ?: @"", @"url": url ?: @"",
+                                      @"name": m.fileName ?: @"", @"size": @(m.fileSize),
+                                      @"timestamp": @(m.timestamp) }]];
+    }];
+    [self refreshVisibleCellForMessage:m];
+}
+
+/// 点击上传中的文件气泡：暂停 ↔ 继续；失败则重试。
+- (void)toggleUploadForMessage:(IMMessageModel *)m {
+    NSString *key = m.clientMsgID ?: @"";
+    IMUploadProgress *prog = self.outboxProgress[key];
+    IMChunkedUploadTask *task = self.uploadTasks[key];
+    if (m.status == IMMessageStatusFailed || (!task && prog.failed)) {
+        NSString *token = IMHTTPService.sharedService.currentToken;
+        if (token.length == 0) { [self im_showToast:@"未登录，无法重试"]; return; }
+        m.status = IMMessageStatusSending;
+        [self persistOutboxMessage:m];
+        [self startChunkedUploadForMessage:m token:token]; // 内部读旁挂 upload_id 续传
+        return;
+    }
+    if (!task) { return; }
+    if (task.paused) {
+        [task resume];
+        prog.pausedByUser = NO;
+    } else {
+        [task pause];
+        prog.pausedByUser = YES;
+    }
+    [self refreshVisibleCellForMessage:m];
+}
+
 /// 系统 Files 返回本地副本后上传并发送。
+/// 大文件走**分片上传**：气泡立刻上屏并显示进度，可点击暂停/继续，断网后从服务端 offset 续传。
 - (void)handlePickedDocumentURL:(NSURL *)url {
     if (!url) { return; }
-    NSData *data = [NSData dataWithContentsOfURL:url];
     NSString *token = IMHTTPService.sharedService.currentToken;
     NSString *originalName = url.lastPathComponent ?: @"file.bin";
-    if (data.length == 0 || token.length == 0) { [self im_showToast:@"文件读取失败"]; return; }
+    // 先 stat 再决定走哪条路：大文件绝不能为了判断大小就整包读进内存。
+    int64_t size = (int64_t)[[NSFileManager.defaultManager attributesOfItemAtPath:url.path error:NULL][NSFileSize] unsignedLongLongValue];
+    if (size <= 0 || token.length == 0) { [self im_showToast:@"文件读取失败"]; return; }
+    if (size >= (int64_t)IMChunkedUploader.chunkedThresholdBytes) {
+        [self sendLargeFileAtURL:url fileName:originalName size:size token:token]; // 全程走文件，不进内存
+        return;
+    }
+    NSData *data = [NSData dataWithContentsOfURL:url];
+    if (data.length == 0) { [self im_showToast:@"文件读取失败"]; return; }
     __weak typeof(self) ws = self;
     [IMHTTPService.sharedService uploadData:data fileName:originalName
                                    mimeType:@"application/octet-stream" token:token
@@ -1888,16 +2169,30 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         BOOL firstI = grpI && [self isFirstInSenderRun:indexPath.row];
         BOOL lastI = grpI && [self isLastInSenderRun:indexPath.row];
         NSString *senderNameI = firstI ? [self senderNameForMessage:m] : nil;
+        // 本地待发（im-pending://）不是网络地址：只显本地缩略图，绝不拿它去拼 URL 发请求。
+        BOOL pendingLocal = [IMPendingMediaStore isLocalRef:m.content];
+        UIImage *previewI = pendingLocal ? [self pendingPreviewForMessage:m] : self.outboxPreviews[key];
         [img configureWithMessage:m
-                          fullURL:(m.content.length > 0 ? [self fullMediaURL:m.content] : @"")
+                          fullURL:((m.content.length > 0 && !pendingLocal) ? [self fullMediaURL:m.content] : @"")
+                        posterURL:(m.poster.length > 0 ? [self fullMediaURL:m.poster] : nil)
                              mine:mineI peerReadSeq:self.peerReadSeq
-                     previewImage:self.outboxPreviews[key] senderName:senderNameI];
+                     previewImage:previewI senderName:senderNameI];
         [img applyGroupAvatarURL:(grpI ? [self senderAvatarURLForMessage:m] : nil)
                             seed:(m.from ?: @"") name:(grpI ? [self senderNameForMessage:m] : nil)
                       showAvatar:lastI gutter:grpI];
-        [img setUploadProgress:self.outboxProgress[key]];
+        // 失败的本地待发件：进度角标显"发送失败"（内存里的进度在重进会话后是空的，按状态补上）。
+        IMUploadProgress *progI = self.outboxProgress[key];
+        if (!progI && pendingLocal && m.status == IMMessageStatusFailed) { progI = [IMUploadProgress failedProgress]; }
+        [img setUploadProgress:progI];
         __weak typeof(self) ws = self;
-        img.onTap = ^(UIImage *image) { [ws presentMediaViewerForMessage:m preloaded:image]; };
+        img.onTap = ^(UIImage *image) {
+            __strong typeof(ws) self = ws;
+            if (!self) { return; }
+            // 失败件点一下就重试（从本地副本重传），而不是打开一个还不存在的远端媒体。
+            if (pendingLocal && m.status == IMMessageStatusFailed) { [self retryPendingMessage:m]; return; }
+            if (pendingLocal) { return; } // 上传中：不可点
+            [self presentMediaViewerForMessage:m preloaded:image];
+        };
         // 老消息无 media_w/h：异步出图后才知比例 → 刷一次行高（无动画，不打断滚动）。
         img.onMediaSizeResolved = ^{ [ws refreshRowHeightsWithoutAnimation]; };
         return img;
@@ -1921,6 +2216,14 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
             replyThumbIsVideo = [target.contentType isEqualToString:@"video"];
         }
     }
+    // 文件上传中/失败：正文第二行显进度与可点击提示（必须在 configure 之前设，正文是一次性拼的）。
+    NSString *bubbleKey = m.clientMsgID ?: @"";
+    IMUploadProgress *fileProgress = self.outboxProgress[bubbleKey];
+    if (!fileProgress && [m.contentType isEqualToString:@"file"] && m.status == IMMessageStatusFailed
+        && [IMPendingMediaStore isLocalRef:m.content]) {
+        fileProgress = [IMUploadProgress failedProgress]; // 重进会话：内存进度已空，按落库状态补
+    }
+    cell.uploadProgress = fileProgress;
     [cell configureWithMessage:m mine:mine peerReadSeq:self.peerReadSeq
                      dayHeader:[self dayHeaderForRow:indexPath.row]
             showsUnreadDivider:showsDivider
@@ -2408,7 +2711,14 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (self.selecting) { [self updateSelectionUI]; }
+    if (self.selecting) { [self updateSelectionUI]; return; }
+    if (indexPath.row >= (NSInteger)self.messages.count) { return; }
+    IMMessageModel *m = self.messages[indexPath.row];
+    // 上传中/失败的文件气泡：点击 = 暂停 / 继续 / 重试（大文件传几十秒，必须能中途干预）。
+    if ([m.contentType isEqualToString:@"file"] && [IMPendingMediaStore isLocalRef:m.content]) {
+        [self toggleUploadForMessage:m];
+        [tableView deselectRowAtIndexPath:indexPath animated:NO];
+    }
 }
 
 - (void)tableView:(UITableView *)tableView didDeselectRowAtIndexPath:(NSIndexPath *)indexPath {

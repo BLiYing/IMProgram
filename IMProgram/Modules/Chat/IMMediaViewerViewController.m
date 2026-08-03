@@ -4,6 +4,7 @@
 #import "IMImageLoader.h"
 #import "IMVideoThumbnailLoader.h"
 #import "UIViewController+IMToast.h"
+#import "IMLog.h"
 #import <AVFoundation/AVFoundation.h>
 #import <Photos/Photos.h>
 
@@ -34,6 +35,8 @@
     BOOL              _downloadingOriginal;  // 原视频下载中（chip 显示百分比，#1）
     NSURLSession     *_originalSession;      // delegate 模式才有进度回调
     id                _timeObserver;
+    AVPlayerItem     *_observedItem;      // 正在观察 status 的 item（换 item 时要迁移，dealloc 时要摘）
+    UILabel          *_unplayableLabel;   // 解不了码时的降级说明（避免只剩黑屏）
     BOOL              _started;    // 是否已首次播放
     BOOL              _scrubbing;
     NSArray<NSNumber *> *_speeds;
@@ -170,6 +173,49 @@
                                                      usingBlock:^(CMTime time) { [ws2 syncScrubber]; }];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(videoDidEnd)
                                                  name:AVPlayerItemDidPlayToEndTimeNotification object:_player.currentItem];
+    // 解不了码/取不到流时 AVPlayer 只会黑屏不报错 → 监听 item 状态，失败就给明确提示 + 保存入口，
+    // 别让用户对着黑框猜。iOS 能解 HEVC，故这条主要兜网络异常与对端发来的异常封装。
+    [self observePlaybackFailureOn:_player.currentItem];
+}
+
+/// KVO 观察 item.status。换 item（切本地原视频）时必须迁移，dealloc 前必须摘，否则崩。
+- (void)observePlaybackFailureOn:(AVPlayerItem *)item {
+    if (_observedItem == item) { return; }
+    [_observedItem removeObserver:self forKeyPath:@"status"];
+    _observedItem = item;
+    [_observedItem addObserver:self forKeyPath:@"status" options:NSKeyValueObservingOptionNew context:NULL];
+}
+
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {
+    if (![keyPath isEqualToString:@"status"] || ![object isKindOfClass:AVPlayerItem.class]) { return; }
+    AVPlayerItem *item = object;
+    if (item.status != AVPlayerItemStatusFailed) { return; }
+    IMLogWarnWithTag(IMLogTagMedia, @"video_playback_failed error=%@", item.error.localizedDescription ?: @"(nil)");
+    dispatch_async(dispatch_get_main_queue(), ^{ [self showPlaybackUnsupported]; });
+}
+
+/// 播放失败降级：盖一层说明 + 「保存到相册」，封面继续显示（封面是 JPEG，与视频编码无关）。
+- (void)showPlaybackUnsupported {
+    if (_unplayableLabel) { return; }
+    _playButton.hidden = YES;
+    _poster.hidden = NO;
+    _unplayableLabel = [UILabel new];
+    _unplayableLabel.text = @"无法播放该视频\n可保存后用其他播放器打开";
+    _unplayableLabel.numberOfLines = 0;
+    _unplayableLabel.textAlignment = NSTextAlignmentCenter;
+    _unplayableLabel.textColor = UIColor.whiteColor;
+    _unplayableLabel.font = [UIFont systemFontOfSize:15];
+    _unplayableLabel.backgroundColor = [UIColor colorWithWhite:0 alpha:0.55];
+    _unplayableLabel.layer.cornerRadius = 10;
+    _unplayableLabel.layer.masksToBounds = YES;
+    _unplayableLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:_unplayableLabel];
+    [NSLayoutConstraint activateConstraints:@[
+        [_unplayableLabel.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
+        [_unplayableLabel.centerYAnchor constraintEqualToAnchor:self.view.centerYAnchor],
+        [_unplayableLabel.widthAnchor constraintLessThanOrEqualToAnchor:self.view.widthAnchor multiplier:0.8],
+        [_unplayableLabel.heightAnchor constraintGreaterThanOrEqualToConstant:64],
+    ]];
 }
 
 - (void)togglePlayback {
@@ -274,6 +320,7 @@
     [_player replaceCurrentItemWithPlayerItem:item];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(videoDidEnd)
                                                  name:AVPlayerItemDidPlayToEndTimeNotification object:item];
+    [self observePlaybackFailureOn:item]; // 观察对象随之迁移，否则会盯着已废弃的 item
     if (CMTIME_IS_VALID(pos) && CMTimeGetSeconds(pos) > 0.1) {
         [_player seekToTime:pos toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
     }
@@ -559,6 +606,7 @@ didFinishDownloadingToURL:(NSURL *)location {
 
 - (void)dealloc {
     if (_timeObserver && _player) { [_player removeTimeObserver:_timeObserver]; }
+    [_observedItem removeObserver:self forKeyPath:@"status"]; // 不摘会崩（KVO 未注销即释放）
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [_originalSession invalidateAndCancel]; // 查看器关闭即取消进行中的原视频下载
     [_player pause];

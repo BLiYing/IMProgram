@@ -79,14 +79,22 @@ static const CGFloat kIMBadgeHeight = 18;
         _avatar.hidden = YES;
         [self.contentView addSubview:_avatar];
 
+        // 与 IMAlbumCell 同策略：左右/上下两组约束恒定激活、**靠优先级切换**，杜绝
+        // "两条 required 同时生效 → UIKit 打断 width/height" 的自适应行高冲突（真机日志实录）。
         _leading = [_thumb.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12];
         _trailing = [_thumb.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-12];
         _thumbTopPlain = [_thumb.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:3];
         _thumbTopUnderName = [_thumb.topAnchor constraintEqualToAnchor:_senderLabel.bottomAnchor constant:4];
         _thumbWidth = [_thumb.widthAnchor constraintEqualToConstant:kIMMediaFallbackSide];
         _thumbHeight = [_thumb.heightAnchor constraintEqualToConstant:kIMMediaFallbackSide];
-        _thumbTopPlain.active = YES;
+        _thumbWidth.priority = UILayoutPriorityRequired - 1;              // 999，让位 Encapsulated-Layout-Width
+        _thumbHeight.priority = UILayoutPriorityDefaultHigh + 1;          // 751，让位 Encapsulated-Layout-Height
         [NSLayoutConstraint activateConstraints:@[
+            // 恒定边界（required）：无论贴左还是贴右，都不许超出内容区。
+            [_thumb.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.contentView.leadingAnchor constant:12],
+            [_thumb.trailingAnchor constraintLessThanOrEqualToAnchor:self.contentView.trailingAnchor constant:-12],
+            [_thumb.topAnchor constraintGreaterThanOrEqualToAnchor:self.contentView.topAnchor constant:3],
+            _leading, _trailing, _thumbTopPlain, _thumbTopUnderName,
             [_senderLabel.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:4],
             [_senderLabel.leadingAnchor constraintEqualToAnchor:_thumb.leadingAnchor constant:2],
             [_senderLabel.trailingAnchor constraintLessThanOrEqualToAnchor:self.contentView.trailingAnchor constant:-12],
@@ -108,8 +116,18 @@ static const CGFloat kIMBadgeHeight = 18;
             [_metaWrap.bottomAnchor constraintEqualToAnchor:_thumb.bottomAnchor constant:-kIMBadgeInset],
             [_metaWrap.leadingAnchor constraintGreaterThanOrEqualToAnchor:_thumb.leadingAnchor constant:kIMBadgeInset],
         ]];
+        [self applyAlignmentMine:NO showName:NO];
     }
     return self;
+}
+
+/// 靠**优先级**切换左右贴边与顶部锚点（四条约束始终激活）。生效侧 999，让位侧最低优先级。
+- (void)applyAlignmentMine:(BOOL)mine showName:(BOOL)showName {
+    const UILayoutPriority on = UILayoutPriorityRequired - 1, off = UILayoutPriorityFittingSizeLevel;
+    _leading.priority = mine ? off : on;
+    _trailing.priority = mine ? on : off;
+    _thumbTopPlain.priority = showName ? off : on;
+    _thumbTopUnderName.priority = showName ? on : off;
 }
 
 /// 造一个「半透明黑底 + 白字」的悬浮角标胶囊（浅色图上也读得清，不靠文字阴影）。
@@ -142,6 +160,7 @@ static const CGFloat kIMBadgeHeight = 18;
 
 - (void)configureWithMessage:(IMMessageModel *)message
                      fullURL:(NSString *)fullURL
+                   posterURL:(NSString *)posterURL
                         mine:(BOOL)mine
                  peerReadSeq:(int64_t)peerReadSeq
                 previewImage:(UIImage *)preview
@@ -150,18 +169,15 @@ static const CGFloat kIMBadgeHeight = 18;
     _thumb.layer.cornerRadius = IMTheme.radiusBubble;
     _senderLabel.font = [UIFont systemFontOfSize:MAX(12, IMTheme.chatFontSize - 4) weight:UIFontWeightSemibold];
     _url = fullURL;
-    _leading.active = !mine;
-    _trailing.active = mine;
     BOOL showName = senderName.length > 0;
     _senderLabel.text = senderName;
     _senderLabel.hidden = !showName;
-    _thumbTopPlain.active = !showName;
-    _thumbTopUnderName.active = showName;
+    [self applyAlignmentMine:mine showName:showName];
     _thumb.image = preview; // 本地预览先行（上传中/防闪）；无预览为 nil 占位灰底
     _playBadge.hidden = !isVideo;
     _progressWrap.hidden = YES;
 
-    [self applyDisplaySizeForMessage:message preview:preview fullURL:fullURL isVideo:isVideo];
+    [self applyDisplaySizeForMessage:message preview:preview posterURL:posterURL fullURL:fullURL isVideo:isVideo];
     [self applyDurationBadge:(isVideo ? message.duration : 0)];
     [self applyMetaBadgeForMessage:message mine:mine peerReadSeq:peerReadSeq];
 
@@ -175,19 +191,23 @@ static const CGFloat kIMBadgeHeight = 18;
         // 尺寸原先未知（老消息/无预览）→ 用真实图重排一次，避免长图被塞进方框。
         if (!self->_sizeFromMedia) { [self resizeToImageSize:image.size]; }
     };
-    if (isVideo) {
-        [[IMVideoThumbnailLoader shared] loadPosterForVideoURL:fullURL completion:apply]; // 视频显首帧
-    } else {
+    if (!isVideo) {
         [[IMImageLoader shared] loadImageURL:fullURL completion:apply];
+    } else if (posterURL.length > 0) {
+        [[IMImageLoader shared] loadImageURL:posterURL completion:apply]; // 封面是普通 JPEG，走图片缓存
+    } else {
+        // 没有封面（老消息/发送端抓帧失败）才回退抽帧——代价是要拉远端视频的一段数据。
+        [[IMVideoThumbnailLoader shared] loadPosterForVideoURL:fullURL completion:apply];
     }
 }
 
 /// 缩略图显示尺寸：协议下发的 media_w/h 最权威 → 本地预览图 → 已缓存的图/封面 → 未知回退方块。
 - (void)applyDisplaySizeForMessage:(IMMessageModel *)message preview:(UIImage *)preview
-                           fullURL:(NSString *)fullURL isVideo:(BOOL)isVideo {
+                         posterURL:(NSString *)posterURL fullURL:(NSString *)fullURL isVideo:(BOOL)isVideo {
     CGSize pixels = CGSizeMake(message.mediaW, message.mediaH);
     if (pixels.width <= 0 || pixels.height <= 0) {
-        UIImage *known = preview ?: [self cachedImageForURL:fullURL isVideo:isVideo];
+        UIImage *known = preview ?: [self cachedImageForURL:(isVideo && posterURL.length > 0 ? posterURL : fullURL)
+                                                    isVideo:(isVideo && posterURL.length == 0)];
         pixels = known ? CGSizeMake(known.size.width * known.scale, known.size.height * known.scale) : CGSizeZero;
     }
     _sizeFromMedia = pixels.width > 0 && pixels.height > 0;
@@ -305,7 +325,7 @@ static const CGFloat kIMBadgeHeight = 18;
     _durationWrap.hidden = YES; _durationLabel.text = nil;
     _metaWrap.hidden = YES; _metaLabel.attributedText = nil;
     _senderLabel.hidden = YES; _senderLabel.text = nil;
-    _thumbTopUnderName.active = NO; _thumbTopPlain.active = YES;
+    [self applyAlignmentMine:NO showName:NO];
     _thumbWidth.constant = kIMMediaFallbackSide; _thumbHeight.constant = kIMMediaFallbackSide;
     _sizeFromMedia = NO;
     _avatar.hidden = YES; _leading.constant = 12;

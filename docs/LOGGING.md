@@ -11,6 +11,7 @@
   - `IMLogSocket`
   - `IMLogDatabase`
   - `IMLogUI`
+  - `IMLogMedia`（媒体全链路：探测/转码/上传/渲染/播放，Tag `IM.MEDIA`）
   - 对应的 Debug/Warn/Error 宏
 - 禁止业务代码直接调用 `NSLog` 或 `DDLog*`。
 

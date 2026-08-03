@@ -13,6 +13,7 @@ NSString * const IMLogTagHTTP = @"IM.HTTP";
 NSString * const IMLogTagSocket = @"IM.WS";
 NSString * const IMLogTagDatabase = @"IM.DB";
 NSString * const IMLogTagUI = @"IM.UI";
+NSString * const IMLogTagMedia = @"IM.MEDIA";
 
 void IMLogConfigure(void) {
     static dispatch_once_t onceToken;

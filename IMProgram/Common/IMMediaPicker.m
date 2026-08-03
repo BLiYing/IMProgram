@@ -67,17 +67,36 @@ static void IMPickerReadVideoMeta(NSURL *url, CGSize *outSize, int64_t *outMilli
     if (shown.width > 0 && shown.height > 0) { *outSize = CGSizeMake(round(fabs(shown.width)), round(fabs(shown.height))); }
 }
 
+/// 读视频轨编码的四字符码（avc1=H.264 / hvc1·hev1=HEVC）。空=读不到/无视频轨。
+/// **不能靠扩展名判断**：.mov 里可能是 H.264，.mp4 里也可能是 HEVC。
+static NSString *IMPickerVideoCodec(NSURL *url) {
+    if (!url) { return nil; }
+    AVURLAsset *asset = [AVURLAsset URLAssetWithURL:url options:nil];
+    AVAssetTrack *track = [asset tracksWithMediaType:AVMediaTypeVideo].firstObject;
+    CMFormatDescriptionRef desc = (__bridge CMFormatDescriptionRef)track.formatDescriptions.firstObject;
+    if (!desc) { return nil; }
+    FourCharCode code = CMFormatDescriptionGetMediaSubType(desc);
+    char chars[5] = { (char)((code >> 24) & 0xFF), (char)((code >> 16) & 0xFF),
+                      (char)((code >> 8) & 0xFF), (char)(code & 0xFF), 0 };
+    return [NSString stringWithUTF8String:chars];
+}
+
+/// HEVC 的两种四字符码。Chrome/Firefox 解不了 → 视频消息必须转成 H.264 才发得出去。
+static BOOL IMPickerIsHEVCCodec(NSString *codec) {
+    return [codec isEqualToString:@"hvc1"] || [codec isEqualToString:@"hev1"];
+}
+
 /// 量不到尺寸/时长 → 收端只能按未知渲染（无时长角标、比例回退）。这是排版问题的源头，必须留痕。
 /// 只记元数据（是否视频、字节数、量到的值），不记文件路径与内容。
 static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, int64_t durationMillis) {
     BOOL sizeKnown = size.width > 0 && size.height > 0;
     BOOL durationKnown = !isVideo || durationMillis > 0;
     if (sizeKnown && durationKnown) {
-        IMLogDebugWithTag(IMLogTagUI, @"media_probe_ok is_video=%d bytes=%lu media_w=%.0f media_h=%.0f duration_ms=%lld",
+        IMLogDebugWithTag(IMLogTagMedia, @"media_probe_ok is_video=%d bytes=%lu media_w=%.0f media_h=%.0f duration_ms=%lld",
                           isVideo, (unsigned long)bytes, size.width, size.height, durationMillis);
         return;
     }
-    IMLogWarnWithTag(IMLogTagUI, @"media_probe_incomplete is_video=%d bytes=%lu media_w=%.0f media_h=%.0f duration_ms=%lld",
+    IMLogWarnWithTag(IMLogTagMedia, @"media_probe_incomplete is_video=%d bytes=%lu media_w=%.0f media_h=%.0f duration_ms=%lld",
                      isVideo, (unsigned long)bytes, size.width, size.height, durationMillis);
 }
 
@@ -128,8 +147,12 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
 }
 
 - (void)loadData:(void (^)(IMPickedMedia *_Nullable))completion {
+    [self loadData:completion progress:nil];
+}
+
+- (void)loadData:(void (^)(IMPickedMedia *_Nullable))completion progress:(void (^)(double))progress {
     dispatch_async(_work, ^{
-        IMPickedMedia *item = self.isVideo ? [self buildVideoItem] : [self buildImageItem];
+        IMPickedMedia *item = self.isVideo ? [self buildVideoItemWithProgress:progress] : [self buildImageItem];
         dispatch_async(dispatch_get_main_queue(), ^{ completion(item); });
     });
 }
@@ -227,43 +250,57 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
     return _videoTmpURL;
 }
 
-/// 返回 nil = 加载失败或超 100MB。original=YES 直传原文件；否则转码 720p mp4（失败回落原文件）。
-- (IMPickedMedia *)buildVideoItem {
+/// 返回 nil = 加载失败或超 100MB。
+///
+/// **视频消息一律保证可播**（IM 通行做法，静默转码，不问用户）：
+///   - 「发送」：转 720p H.264 MP4（同时压体积）。
+///   - 「发送原视频」：源已是 H.264 → 直传不动；源是 HEVC → 转 H.264 MP4 但**保持原分辨率**
+///     （HighestQuality），只换编码不降画质——否则 Chrome/Firefox 收到只能看封面、点开播不了。
+///   - 需要原封不动的原始文件时走**文件消息**（那条路径本就不转码）。
+///
+/// 转码失败回落原文件（宁可发出去也不失败），但会留痕；产物编码也会打日志核对。
+- (IMPickedMedia *)buildVideoItemWithProgress:(void (^)(double))progress {
     NSURL *tmpURL = [self ensureVideoTmpURL];
     if (!tmpURL) { return nil; }
+    NSString *sourceCodec = IMPickerVideoCodec(tmpURL);
+    NSString *preset = _original ? AVAssetExportPresetHighestQuality : AVAssetExportPreset1280x720;
+    BOOL needsTranscode = !_original || IMPickerIsHEVCCodec(sourceCodec);
+
     NSString *ext = _videoExt;
     NSData *raw = nil;
-    CGSize pixelSize = CGSizeZero;
-    int64_t durationMillis = 0;
-    if (_original) {
-        raw = [NSData dataWithContentsOfURL:tmpURL];
-        IMPickerReadVideoMeta(tmpURL, &pixelSize, &durationMillis);
-    } else {
-        AVURLAsset *asset = [AVURLAsset URLAssetWithURL:tmpURL options:nil];
-        NSURL *outURL = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:
-                         [[NSUUID UUID].UUIDString stringByAppendingPathExtension:@"mp4"]]];
-        AVAssetExportSession *export = [[AVAssetExportSession alloc] initWithAsset:asset
-                                                                        presetName:AVAssetExportPreset1280x720];
-        export.outputURL = outURL;
-        export.outputFileType = AVFileTypeMPEG4;
-        export.shouldOptimizeForNetworkUse = YES;
-        dispatch_semaphore_t sem = dispatch_semaphore_create(0);
-        [export exportAsynchronouslyWithCompletionHandler:^{ dispatch_semaphore_signal(sem); }];
-        dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(120 * NSEC_PER_SEC)));
-        if (export.status == AVAssetExportSessionStatusCompleted) {
+    NSURL *finalURL = tmpURL;
+    if (needsTranscode) {
+        NSURL *outURL = [self exportVideoAtURL:tmpURL preset:preset progress:progress];
+        if (outURL) {
             raw = [NSData dataWithContentsOfURL:outURL];
             ext = @"mp4";
-            IMPickerReadVideoMeta(outURL, &pixelSize, &durationMillis); // 量**转码后**的尺寸（收端拿到的就是这份）
-            [[NSFileManager defaultManager] removeItemAtURL:outURL error:NULL];
+            finalURL = outURL;
         } else {
-            raw = [NSData dataWithContentsOfURL:tmpURL]; // 转码失败 → 回落原文件（服务端仍有 100MB 兜底）
-            IMPickerReadVideoMeta(tmpURL, &pixelSize, &durationMillis);
+            raw = [NSData dataWithContentsOfURL:tmpURL]; // 回落原文件（服务端仍有 100MB 兜底）
         }
+    } else {
+        IMLogDebugWithTag(IMLogTagMedia, @"video_transcode_skipped codec=%@ reason=already_h264", sourceCodec);
+        raw = [NSData dataWithContentsOfURL:tmpURL];
     }
+
+    CGSize pixelSize = CGSizeZero;
+    int64_t durationMillis = 0;
+    IMPickerReadVideoMeta(finalURL, &pixelSize, &durationMillis); // 量**最终产物**（收端拿到的就是这份）
+    NSString *outCodec = IMPickerVideoCodec(finalURL);
+    if (![finalURL isEqual:tmpURL]) { [[NSFileManager defaultManager] removeItemAtURL:finalURL error:NULL]; }
     [[NSFileManager defaultManager] removeItemAtURL:tmpURL error:NULL];
     _videoTmpURL = nil;
     if (raw.length == 0) { return nil; }
     if ((long long)raw.length > kIMMaxVideoBytes) { return nil; } // 超 100MB：剔除（调用方标"失败"）
+
+    // 产物编码不信文档只信实测：仍是 HEVC 说明预设选错，收端照样播不了，必须能一眼看出来。
+    if (IMPickerIsHEVCCodec(outCodec)) {
+        IMLogWarnWithTag(IMLogTagMedia, @"video_still_hevc_after_transcode source_codec=%@ out_codec=%@ preset=%@ bytes=%lu",
+                         sourceCodec, outCodec, preset, (unsigned long)raw.length);
+    } else {
+        IMLogDebugWithTag(IMLogTagMedia, @"video_ready source_codec=%@ out_codec=%@ transcoded=%d bytes=%lu",
+                          sourceCodec, outCodec, needsTranscode, (unsigned long)raw.length);
+    }
 
     IMPickedMedia *m = [IMPickedMedia new];
     m.data = raw;
@@ -272,8 +309,59 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
     m.isVideo = YES;
     m.pixelSize = pixelSize;
     m.durationMillis = durationMillis;
+    m.videoCodec = outCodec;
     IMPickerLogMediaMeta(YES, raw.length, pixelSize, durationMillis);
     return m;
+}
+
+/// 同步导出（本方法只在 _work 串行队列调用）：轮询 export.progress 把转码进度回给调用方。
+/// 返回 nil = 导出失败/超时，调用方回落原文件。
+- (NSURL *)exportVideoAtURL:(NSURL *)sourceURL preset:(NSString *)preset progress:(void (^)(double))progress {
+    AVURLAsset *asset = [AVURLAsset URLAssetWithURL:sourceURL options:nil];
+    NSURL *outURL = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:
+                     [[NSUUID UUID].UUIDString stringByAppendingPathExtension:@"mp4"]]];
+    AVAssetExportSession *export = [[AVAssetExportSession alloc] initWithAsset:asset presetName:preset];
+    if (!export) {
+        IMLogWarnWithTag(IMLogTagMedia, @"video_transcode_failed reason=export_session_unavailable preset=%@", preset);
+        return nil;
+    }
+    export.outputURL = outURL;
+    export.outputFileType = AVFileTypeMPEG4;
+    export.shouldOptimizeForNetworkUse = YES;
+
+    // AVAssetExportSession.progress 不支持 KVO，轮询是标准做法；0.25s 足够顺滑又不空转。
+    dispatch_source_t ticker = nil;
+    if (progress) {
+        ticker = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+        dispatch_source_set_timer(ticker, dispatch_time(DISPATCH_TIME_NOW, 0), 250 * NSEC_PER_MSEC, 50 * NSEC_PER_MSEC);
+        dispatch_source_set_event_handler(ticker, ^{ progress(MIN(1.0, MAX(0.0, (double)export.progress))); });
+        dispatch_resume(ticker);
+    }
+    dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+    [export exportAsynchronouslyWithCompletionHandler:^{ dispatch_semaphore_signal(sem); }];
+    long timedOut = dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(120 * NSEC_PER_SEC)));
+    if (ticker) { dispatch_source_cancel(ticker); }
+
+    if (timedOut != 0) {
+        IMLogWarnWithTag(IMLogTagMedia, @"video_transcode_failed reason=timeout preset=%@ timeout_s=120", preset);
+        [export cancelExport];
+        // 取消是异步的，等一小会儿再删，否则可能删在导出线程仍在写的文件上；不删则会在 tmp 里
+        // 留下几十 MB 的半成品（status 失败分支是删了的，这里漏删属实现不一致）。
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)),
+                       dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+            [[NSFileManager defaultManager] removeItemAtURL:outURL error:NULL];
+        });
+        return nil;
+    }
+    if (export.status != AVAssetExportSessionStatusCompleted) {
+        // 回落=发出去的仍是原编码（可能 HEVC），收端可能播不了 → 用户无感，只能靠这条日志定位。
+        IMLogWarnWithTag(IMLogTagMedia, @"video_transcode_failed reason=status status=%ld preset=%@ error=%@",
+                         (long)export.status, preset, export.error.localizedDescription ?: @"(nil)");
+        [[NSFileManager defaultManager] removeItemAtURL:outURL error:NULL];
+        return nil;
+    }
+    if (progress) { dispatch_async(dispatch_get_main_queue(), ^{ progress(1.0); }); }
+    return outURL;
 }
 
 #pragma mark 文件加载辅助（同步封装，仅在 _work 队列上调用）
