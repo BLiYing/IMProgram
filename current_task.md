@@ -5,6 +5,17 @@
 
 ## 当前焦点
 
+- **✅ 若干 UI 修复批次（2026-08-03，改代码未编译，用户验收通过并已提交）**：
+  ①深色模式下统一 `IMLiquidNavigationBar` 磨砂过亮 → 在 `backgroundGlass` 叠一层随明暗自适应的
+  背景 tint（深色 `black·0.55`、浅色透明），压向页面背景色、渐变保留（`480c112`）；
+  ②`IMLiquidNavigationBar` 经 init 传入的 `actionTitle` 不触发 Swift `didSet` → 按钮从未 `setTitle`，
+  「我」页/详情页右上「编辑」有点击区却不渲染 → `buildView` 内显式落标题（`763df80`）；
+  ③建群选择页 `IMGroupMemberPickerViewController` 承载于共享 imLiquidBar，选好友后未触发重新布局
+  → 「创建」按钮停留初始 `disabled` 吞掉点击 → `updateSelectionUI` 内补 `[navigationController.view setNeedsLayout]`（`763df80`）；
+  ④聊天页日期胶囊「今天」底色写死（橄榄绿/黑）不跟随主题 → 改 `[IMTheme.accent colorWithAlphaComponent:0.64]`，
+  与外观页预览同源、白字一致，`configure` 里刷新以随主题切换（`d8b18d7`）。
+  另诊断一则**非 bug**：web(1001) 看 1001 自己从 iOS 发的图/视频未读=0 是正确行为——自己发的消息在
+  自己其它端永远不计未读（服务端 `unreadCount` 排除 `sender==本人`），非缓存问题。
 - **水滴头部：共享驱动 + 松手临界吸附重构（2026-08-03，✅ workspace 编译通过，待真机验收）**：
   抽出共享 `IMProgram/Common/IMDropletHeaderMorph.{h,m}` 承载 Zone①（头像吸附 + name/meta 迁移进标题栏
   + 松手临界吸附），详情页与「我」页共用同一驱动 → 改一处两页同步。整页一个 tableView 分两段吸附：
