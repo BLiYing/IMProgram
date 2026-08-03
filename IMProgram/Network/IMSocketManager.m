@@ -72,6 +72,8 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     NSMutableDictionary<NSString *, NSNumber *> *_syncedSeq; // conv_id -> 已连续同步完成的 conv_seq（非“见过的最大值”）
     NSMutableSet<NSString *> *_trackedConvs;                 // 需在重连后增量同步的会话
     NSMutableSet<NSString *> *_syncingConvs;                 // 已发出 sync_req、等待该会话响应，避免实时连发造成请求风暴
+    NSMutableDictionary<NSString *, NSNumber *> *_syncStalledUntil; // conv_id -> 该时刻(CFAbsoluteTime)前不再发 sync_req：
+                                                             // 整页处理完位点没动（落库持续失败/页内空洞）时热重试只会烧 CPU
     NSMutableSet<NSString *> *_pendingOps;                   // 已发出、待确认的消息操作 client_msg_id（撤回/编辑/置顶），供失败回滚
 }
 
@@ -90,6 +92,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
         _syncedSeq = [NSMutableDictionary dictionary];
         _trackedConvs = [NSMutableSet set];
         _syncingConvs = [NSMutableSet set];
+        _syncStalledUntil = [NSMutableDictionary dictionary];
         _pendingOps = [NSMutableSet set];
         _state = IMSocketStateDisconnected;
     }
@@ -648,6 +651,20 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
             IMLogSocket(@"sync page not contiguous conv=%@ start=%lld response_latest=%lld continuous=%lld",
                         convID ?: @"", pageStart, responseLatest, continuous);
         }
+        // 一整页处理完位点纹丝没动（典型：落库持续失败）——立刻重拉只会拿到同一页、再失败，
+        // 形成打满 CPU/磁盘的热循环（真机复现：13s 内 2.2 万条失败日志）。退避 10s 后再试。
+        if (messages.count > 0 && continuous == pageStart && convID.length > 0) {
+            _syncStalledUntil[convID] = @(CFAbsoluteTimeGetCurrent() + 10);
+            IMLogSocket(@"sync stalled (no durable progress); backing off 10s conv=%@ synced=%lld", convID, continuous);
+            __weak typeof(self) weakSelf = self;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(10 * NSEC_PER_SEC)), _queue, ^{
+                __strong typeof(weakSelf) self = weakSelf;
+                if (!self) { return; }
+                [self sendSyncReqForConvs:@[convID]]; // 到点重试；仍无进展会再次退避，节奏 6 次/分钟
+            });
+            continue;
+        }
+        [_syncStalledUntil removeObjectForKey:convID ?: @""];
         if ([conv[@"has_more"] boolValue] && convID.length > 0) {
             if (pageIsContinuous && continuous > pageStart) {
                 [self sendSyncReqForConvs:@[convID]]; // 仅以本页实际连续处理完成的位置继续翻页
@@ -961,8 +978,10 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
 /// 为指定会话从各自已同步位点发一个 sync_req（仅在 _queue 调用）。
 - (void)sendSyncReqForConvs:(NSArray<NSString *> *)convIDs {
     NSMutableArray *cursors = [NSMutableArray array];
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
     for (NSString *convID in convIDs) {
         if ([_syncingConvs containsObject:convID]) { continue; }
+        if (_syncStalledUntil[convID].doubleValue > now) { continue; } // 退避期内不追加请求（处理空洞/落库失败的热循环）
         [cursors addObject:@{ @"conv_id": convID, @"since_conv_seq": @([self syncedSeqForConv:convID]) }];
         [_syncingConvs addObject:convID];
     }

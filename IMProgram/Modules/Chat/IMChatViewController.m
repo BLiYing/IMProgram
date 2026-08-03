@@ -2047,7 +2047,15 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
             [self presentMediaViewerForMessage:m preloaded:image];
         };
         // 老消息无 media_w/h：异步出图后才知比例 → 刷一次行高（无动画，不打断滚动）。
-        img.onMediaSizeResolved = ^{ [ws refreshRowHeightsWithoutAnimation]; };
+        // 行高变化会把底部偏移顶走——若此刻本就贴底（典型：刚进会话），必须重新贴底，
+        // 否则用户看到的是"进来没停在最新消息"。上滚读历史时不动（wasNearBottom=NO）。
+        img.onMediaSizeResolved = ^{
+            __strong typeof(ws) self = ws;
+            if (!self) { return; }
+            BOOL wasNearBottom = [self isNearBottom];
+            [self refreshRowHeightsWithoutAnimation];
+            if (wasNearBottom) { [self scrollToAbsoluteBottom]; }
+        };
         return img;
     }
     IMBubbleCell *cell = [tableView dequeueReusableCellWithIdentifier:@"bubble" forIndexPath:indexPath];

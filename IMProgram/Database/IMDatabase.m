@@ -104,7 +104,11 @@
             [db executeUpdate:@"ALTER TABLE im_message_local ADD COLUMN from_nickname TEXT"];
         }
         // 老库迁移（非破坏）：补 M4 消息操作派生状态列（撤回/编辑/置顶），重进会话撤回态仍在。
+        // ⚠️ CREATE TABLE 里新增的列**必须同步加进这张迁移表**——只改建表语句对已有库无效。
+        //   file_name 曾漏在这里：老库 INSERT 报 "no column named file_name"，每条消息落库失败、
+        //   同步游标永不推进，客户端热循环重拉同一页（真机日志 13s 内 2.2 万条失败）。
         NSDictionary<NSString *, NSString *> *opCols = @{
+            @"file_name": @"TEXT", // 文件消息原始文件名（曾漏迁移，见上）
             @"recalled_at": @"INTEGER", @"recalled_by": @"TEXT",
             @"edited_at": @"INTEGER", @"pinned_at": @"INTEGER",
             @"reply_to_conv_seq": @"INTEGER", @"reply_snapshot": @"TEXT", // M4-2 引用回复
