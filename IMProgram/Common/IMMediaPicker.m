@@ -7,8 +7,8 @@
 #import <ImageIO/ImageIO.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
-// 视频不按时长限制（用户拍板），仅保留与服务端一致的 100MB 体积上限。
-const long long kIMMaxVideoBytes = 100LL * 1024 * 1024;
+// 视频不按时长限制（用户拍板），仅保留与服务端一致的 2GB 体积上限。
+const long long kIMMaxVideoBytes = 2048LL * 1024 * 1024;
 
 static const CGFloat kIMImageMaxSide = 2048;   // 压缩：长边上限
 static const CGFloat kIMImageJPEGQuality = 0.8;
@@ -250,7 +250,7 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
     return _videoTmpURL;
 }
 
-/// 返回 nil = 加载失败或超 100MB。
+/// 返回 nil = 加载失败或超 2GB。
 ///
 /// **视频消息一律保证可播**（IM 通行做法，静默转码，不问用户）：
 ///   - 「发送」：转 720p H.264 MP4（同时压体积）。
@@ -276,7 +276,7 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
             ext = @"mp4";
             finalURL = outURL;
         } else {
-            raw = [NSData dataWithContentsOfURL:tmpURL]; // 回落原文件（服务端仍有 100MB 兜底）
+            raw = [NSData dataWithContentsOfURL:tmpURL]; // 回落原文件（服务端仍有 2GB 兜底）
         }
     } else {
         IMLogDebugWithTag(IMLogTagMedia, @"video_transcode_skipped codec=%@ reason=already_h264", sourceCodec);
@@ -291,7 +291,7 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
     [[NSFileManager defaultManager] removeItemAtURL:tmpURL error:NULL];
     _videoTmpURL = nil;
     if (raw.length == 0) { return nil; }
-    if ((long long)raw.length > kIMMaxVideoBytes) { return nil; } // 超 100MB：剔除（调用方标"失败"）
+    if ((long long)raw.length > kIMMaxVideoBytes) { return nil; } // 超 2GB：剔除（调用方标"失败"）
 
     // 产物编码不信文档只信实测：仍是 HEVC 说明预设选错，收端照样播不了，必须能一眼看出来。
     if (IMPickerIsHEVCCodec(outCodec)) {
