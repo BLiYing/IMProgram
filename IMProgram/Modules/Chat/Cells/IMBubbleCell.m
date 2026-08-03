@@ -73,7 +73,8 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
 
         _datePill = [UIView new];
         _datePill.translatesAutoresizingMaskIntoConstraints = NO;
-        _datePill.backgroundColor = IMTheme.datePillBg;
+        // 日期胶囊底色跟随所选聊天主题的强调色（与外观页「今天」预览一致：accent·0.64，白字）。
+        _datePill.backgroundColor = [IMTheme.accent colorWithAlphaComponent:0.64];
         _datePill.layer.cornerRadius = 12;
         _datePill.layer.masksToBounds = YES;
         [self.contentView addSubview:_datePill];
@@ -202,6 +203,8 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
           replyThumbIsVideo:(BOOL)replyThumbIsVideo {
     BOOL showsDate = dayHeader.length > 0;
     _datePill.hidden = !showsDate;
+    // 复用 cell 时按当前主题强调色刷新，切主题后无需整表重建也能与外观页预览保持一致。
+    _datePill.backgroundColor = [IMTheme.accent colorWithAlphaComponent:0.64];
     _dateLabel.text = dayHeader;
     _datePillHeight.constant = showsDate ? 24 : 0;
     _datePillTop.constant = showsDate ? 8 : 0;
