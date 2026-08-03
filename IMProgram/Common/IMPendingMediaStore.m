@@ -72,6 +72,25 @@ NSString * const kIMPendingMediaScheme = @"im-pending://";
     return [kIMPendingMediaScheme stringByAppendingString:name];
 }
 
+- (NSString *)storeByMovingFileAtURL:(NSURL *)fileURL forClientMsgID:(NSString *)clientMsgID extension:(NSString *)extension {
+    if (!fileURL || clientMsgID.length == 0) { return nil; }
+    NSString *name = extension.length > 0 ? [clientMsgID stringByAppendingPathExtension:extension] : clientMsgID;
+    NSString *path = [_dir stringByAppendingPathComponent:name];
+    [NSFileManager.defaultManager removeItemAtPath:path error:NULL];
+    NSError *err = nil;
+    if (![NSFileManager.defaultManager moveItemAtURL:fileURL toURL:[NSURL fileURLWithPath:path] error:&err]) {
+        // 跨卷 move 会失败（tmp 与 Application Support 一般同卷，属兜底）——回落 copy。
+        if ([NSFileManager.defaultManager copyItemAtURL:fileURL toURL:[NSURL fileURLWithPath:path] error:&err]) {
+            [NSFileManager.defaultManager removeItemAtURL:fileURL error:NULL];
+        } else {
+            IMLogErrorWithTag(IMLogTagMedia, @"pending_move_failed client_msg_id=%@ error=%@",
+                              clientMsgID, err.localizedDescription ?: @"-");
+            return nil;
+        }
+    }
+    return [kIMPendingMediaScheme stringByAppendingString:name];
+}
+
 - (int64_t)byteSizeForLocalRef:(NSString *)localRef {
     NSString *path = [self filePathForLocalRef:localRef];
     if (!path) { return 0; }

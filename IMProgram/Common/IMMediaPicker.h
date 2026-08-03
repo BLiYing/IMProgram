@@ -14,6 +14,11 @@ extern const long long kIMMaxVideoBytes; // 视频体积上限（与服务端 2G
 /// 一个已就绪（已按需压缩）的媒体项——loadData 的产物，可直接上传。
 @interface IMPickedMedia : NSObject
 @property (nonatomic, strong) NSData   *data;
+/// 视频最终产物落在磁盘（转码产物或原件临时文件）：非空表示字节**不在内存**（data=nil），
+/// 由取用方负责搬走或删除。上限提到 2GB 后视频绝不能整包进 NSData。
+@property (nonatomic, strong, nullable) NSURL *fileURL;
+/// 待上传字节数：data 路径 = data.length；fileURL 路径 = 文件大小。
+@property (nonatomic, assign) long long byteCount;
 @property (nonatomic, copy)   NSString *fileName;   ///< 带扩展名（如 photo.jpg / video.mp4）
 @property (nonatomic, copy)   NSString *mimeType;
 @property (nonatomic, assign) BOOL      isVideo;

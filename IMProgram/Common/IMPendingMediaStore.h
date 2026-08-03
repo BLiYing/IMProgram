@@ -29,6 +29,11 @@ extern NSString * const kIMPendingMediaScheme;
                        forClientMsgID:(NSString *)clientMsgID
                             extension:(nullable NSString *)extension;
 
+/// 同上，但**移动**源文件（源是我们自己的临时文件时免一次 2GB 级拷贝）；跨卷自动回落 copy+删源。
+- (nullable NSString *)storeByMovingFileAtURL:(NSURL *)fileURL
+                               forClientMsgID:(NSString *)clientMsgID
+                                    extension:(nullable NSString *)extension;
+
 /// 待发文件的字节数（不读内容）；不存在返回 0。
 - (int64_t)byteSizeForLocalRef:(nullable NSString *)localRef;
 

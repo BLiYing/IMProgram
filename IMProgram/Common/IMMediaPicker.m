@@ -14,6 +14,8 @@ static const CGFloat kIMImageMaxSide = 2048;   // 压缩：长边上限
 static const CGFloat kIMImageJPEGQuality = 0.8;
 
 @implementation IMPickedMedia
+// data 路径不必逐处赋值：未显式设置时取 data.length（fileURL 路径由构造点写入文件大小）。
+- (long long)byteCount { return _byteCount > 0 ? _byteCount : (long long)self.data.length; }
 @end
 
 /// 等比降采样（aspect fit，scale=1），控内存；nil/尺寸已小直接原样返回。
@@ -267,50 +269,52 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
     BOOL needsTranscode = !_original || IMPickerIsHEVCCodec(sourceCodec);
 
     NSString *ext = _videoExt;
-    NSData *raw = nil;
     NSURL *finalURL = tmpURL;
     if (needsTranscode) {
         NSURL *outURL = [self exportVideoAtURL:tmpURL preset:preset progress:progress];
         if (outURL) {
-            raw = [NSData dataWithContentsOfURL:outURL];
             ext = @"mp4";
             finalURL = outURL;
-        } else {
-            raw = [NSData dataWithContentsOfURL:tmpURL]; // 回落原文件（服务端仍有 2GB 兜底）
         }
+        // 导出失败：finalURL 保持 tmpURL，回落原文件（服务端仍有 2GB 兜底）。
     } else {
         IMLogDebugWithTag(IMLogTagMedia, @"video_transcode_skipped codec=%@ reason=already_h264", sourceCodec);
-        raw = [NSData dataWithContentsOfURL:tmpURL];
     }
 
     CGSize pixelSize = CGSizeZero;
     int64_t durationMillis = 0;
     IMPickerReadVideoMeta(finalURL, &pixelSize, &durationMillis); // 量**最终产物**（收端拿到的就是这份）
     NSString *outCodec = IMPickerVideoCodec(finalURL);
-    if (![finalURL isEqual:tmpURL]) { [[NSFileManager defaultManager] removeItemAtURL:finalURL error:NULL]; }
-    [[NSFileManager defaultManager] removeItemAtURL:tmpURL error:NULL];
+    // 产物留在磁盘、所有权移交给 IMPickedMedia（fileURL）——上限 2GB 后绝不能读进 NSData。
+    // 只清理不再需要的那份：转码成功时删原件；产物本身由取用方（发送服务落盘后）删除。
+    if (![finalURL isEqual:tmpURL]) { [[NSFileManager defaultManager] removeItemAtURL:tmpURL error:NULL]; }
     _videoTmpURL = nil;
-    if (raw.length == 0) { return nil; }
-    if ((long long)raw.length > kIMMaxVideoBytes) { return nil; } // 超 2GB：剔除（调用方标"失败"）
+    long long byteCount = (long long)[[[NSFileManager defaultManager]
+        attributesOfItemAtPath:finalURL.path error:NULL][NSFileSize] unsignedLongLongValue];
+    if (byteCount <= 0 || byteCount > kIMMaxVideoBytes) {
+        [[NSFileManager defaultManager] removeItemAtURL:finalURL error:NULL];
+        return nil; // 读不到/超 2GB：剔除（调用方标"失败"）
+    }
 
     // 产物编码不信文档只信实测：仍是 HEVC 说明预设选错，收端照样播不了，必须能一眼看出来。
     if (IMPickerIsHEVCCodec(outCodec)) {
-        IMLogWarnWithTag(IMLogTagMedia, @"video_still_hevc_after_transcode source_codec=%@ out_codec=%@ preset=%@ bytes=%lu",
-                         sourceCodec, outCodec, preset, (unsigned long)raw.length);
+        IMLogWarnWithTag(IMLogTagMedia, @"video_still_hevc_after_transcode source_codec=%@ out_codec=%@ preset=%@ bytes=%lld",
+                         sourceCodec, outCodec, preset, byteCount);
     } else {
-        IMLogDebugWithTag(IMLogTagMedia, @"video_ready source_codec=%@ out_codec=%@ transcoded=%d bytes=%lu",
-                          sourceCodec, outCodec, needsTranscode, (unsigned long)raw.length);
+        IMLogDebugWithTag(IMLogTagMedia, @"video_ready source_codec=%@ out_codec=%@ transcoded=%d bytes=%lld",
+                          sourceCodec, outCodec, needsTranscode, byteCount);
     }
 
     IMPickedMedia *m = [IMPickedMedia new];
-    m.data = raw;
+    m.fileURL = finalURL;
+    m.byteCount = byteCount;
     m.fileName = [@"video." stringByAppendingString:ext];
     m.mimeType = [ext isEqualToString:@"mov"] ? @"video/quicktime" : @"video/mp4";
     m.isVideo = YES;
     m.pixelSize = pixelSize;
     m.durationMillis = durationMillis;
     m.videoCodec = outCodec;
-    IMPickerLogMediaMeta(YES, raw.length, pixelSize, durationMillis);
+    IMPickerLogMediaMeta(YES, (NSUInteger)byteCount, pixelSize, durationMillis);
     return m;
 }
 

@@ -21,6 +21,7 @@
 #import "IMMediaUtil.h"
 #import "IMPendingMediaStore.h"
 #import "IMChunkedUploader.h"
+#import "IMMediaSendService.h"
 #import "UILabel+IMAvatar.h"
 #import "IMFilePickerViewController.h"
 #import "IMUserCard.h"
@@ -158,12 +159,6 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
 @property (nonatomic, strong) NSLayoutConstraint *replyLabelLeadingNoThumb; // 无缩略图时 label 贴竖条
 @property (nonatomic, strong) NSLayoutConstraint *replyLabelLeadingThumb;   // 有缩略图时 label 贴缩略图
 @property (nonatomic, strong) NSLayoutConstraint *replyBarHeight;
-// 批量发送 UX：选完立即上屏乐观气泡（本地预览），逐项真实字节进度居中显示。key=clientMsgID（发送前为 outbox- 临时键）。
-@property (nonatomic, strong) NSMutableDictionary<NSString *, UIImage *> *outboxPreviews;
-// 上传进度：值带「已传比例 + 媒体本体总字节数」，界面显「3.2 MB / 7.9 MB」；失败为 failedProgress。
-@property (nonatomic, strong) NSMutableDictionary<NSString *, IMUploadProgress *> *outboxProgress;
-// 进行中的分片上传任务（大文件）：key=clientMsgID，供气泡点击暂停/继续。
-@property (nonatomic, strong) NSMutableDictionary<NSString *, IMChunkedUploadTask *> *uploadTasks;
 // 正在后台解码缩略图的待发件，避免同一行反复触发解码。
 @property (nonatomic, strong) NSMutableSet<NSString *> *pendingPreviewLoading;
 @end
@@ -200,9 +195,6 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
         for (IMMessageModel *m in _messages) {
             if (m.convSeq > 0) { [_seenConvSeqs addObject:@(m.convSeq)]; }
         }
-        _outboxPreviews = [NSMutableDictionary dictionary];
-        _outboxProgress = [NSMutableDictionary dictionary];
-        _uploadTasks = [NSMutableDictionary dictionary];
         _pendingPreviewLoading = [NSMutableSet set];
     }
     return self;
@@ -235,6 +227,10 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
     return [IMDatabase.sharedDatabase performWithAccountContext:self.databaseContext block:operation];
 }
 
+// 待发预览/进度归常驻发送服务持有（key=clientMsgID 全局唯一）：页面销毁重建后引用即接上状态。
+- (NSMutableDictionary<NSString *, UIImage *> *)outboxPreviews { return IMMediaSendService.shared.previews; }
+- (NSMutableDictionary<NSString *, IMUploadProgress *> *)outboxProgress { return IMMediaSendService.shared.progressMap; }
+
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor = UIColor.systemBackgroundColor;
@@ -264,6 +260,103 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
     // 资料页清空聊天记录 → 本会话清空内存并刷新（否则返回聊天页仍显旧消息）。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onConversationCleared:)
                                                name:IMChatConversationClearedNotification object:nil];
+    // 媒体/文件发送全程活在 IMMediaSendService（退出本页不中断）；本页只订阅它的通知渲染进度与结果。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onMediaSendProgress:)
+                                               name:IMMediaSendProgressDidChangeNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onMediaSendMetaChanged:)
+                                               name:IMMediaSendMetaDidChangeNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onMediaSendDispatched:)
+                                               name:IMMediaSendDidDispatchNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onMediaSendFailed:)
+                                               name:IMMediaSendDidFailNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onMediaSendAck:)
+                                               name:IMMediaSendAckNotification object:nil];
+}
+
+#pragma mark - 常驻发送服务通知
+
+/// userInfo 里的 convID 是否本会话。
+- (BOOL)mediaSendNoteIsMine:(NSNotification *)note {
+    return [note.userInfo[kIMMediaSendConvIDKey] isEqualToString:self.convID];
+}
+
+/// 按 clientMsgID 找本页消息模型（服务实例与本页实例可能不是同一个对象——重进会话后本页持有的是
+/// 从库里读出的副本）。
+- (IMMessageModel *)messageForClientMsgID:(NSString *)clientMsgID {
+    if (clientMsgID.length == 0) { return nil; }
+    for (IMMessageModel *m in self.messages) {
+        if ([m.clientMsgID isEqualToString:clientMsgID]) { return m; }
+    }
+    return nil;
+}
+
+- (void)onMediaSendProgress:(NSNotification *)note {
+    if (![self mediaSendNoteIsMine:note]) { return; }
+    IMMessageModel *m = [self messageForClientMsgID:note.userInfo[kIMMediaSendClientMsgIDKey]];
+    if (!m) { return; }
+    if ([m.contentType isEqualToString:@"file"]) {
+        [self refreshVisibleCellForMessage:m]; // 文件气泡的进度在正文里，必须重渲染整条
+    } else {
+        [self updateUploadProgressForMessage:m]; // 只改覆盖层/环 strokeEnd，不 reload（无闪烁）
+    }
+}
+
+/// 元数据/缩略图就绪：气泡从方形占位切到真实比例，行高变化后若原本贴底则重新贴底
+/// （否则内容会被顶出屏幕，看起来像"列表突然滚动了一下"）。
+- (void)onMediaSendMetaChanged:(NSNotification *)note {
+    if (![self mediaSendNoteIsMine:note]) { return; }
+    IMMessageModel *m = [self messageForClientMsgID:note.userInfo[kIMMediaSendClientMsgIDKey]];
+    if (!m) { return; }
+    BOOL wasNearBottom = [self isNearBottom];
+    [self refreshVisibleCellForMessage:m];
+    [self refreshRowHeightsWithoutAnimation];
+    if (wasNearBottom) { [self scrollToAbsoluteBottom]; }
+}
+
+/// 上传完成、消息已发出、库里已换真实 ID：把本页模型同步过去（若持有的是旧副本）。
+- (void)onMediaSendDispatched:(NSNotification *)note {
+    if (![self mediaSendNoteIsMine:note]) { return; }
+    IMMessageModel *serviceModel = note.userInfo[kIMMediaSendMessageKey];
+    NSString *oldKey = note.userInfo[kIMMediaSendOldClientMsgIDKey];
+    IMMessageModel *mine = [self messageForClientMsgID:oldKey] ?: [self messageForClientMsgID:serviceModel.clientMsgID];
+    if (!mine) { return; }
+    if (mine != serviceModel) {
+        // 本页持有库副本：用服务实例整体替换（后续 ack/刷新都以它为准），避免两份模型漂移。
+        NSUInteger idx = [self.messages indexOfObjectIdenticalTo:mine];
+        if (idx != NSNotFound) { [self.messages replaceObjectAtIndex:idx withObject:serviceModel]; }
+    }
+    [self refreshVisibleCellForMessage:serviceModel];
+}
+
+- (void)onMediaSendFailed:(NSNotification *)note {
+    if (![self mediaSendNoteIsMine:note]) { return; }
+    IMMessageModel *m = [self messageForClientMsgID:note.userInfo[kIMMediaSendClientMsgIDKey]];
+    if (!m) { return; }
+    m.status = IMMessageStatusFailed; // 服务实例已置位；本页若持有库副本在此对齐
+    [self updateUploadProgressForMessage:m];
+    [self refreshVisibleCellForMessage:m];
+    [self im_showToast:@"发送失败，点击可重试"];
+}
+
+/// 服务端 ack（状态/conv_seq/note 已由服务落库）：只更新内存模型与界面。
+- (void)onMediaSendAck:(NSNotification *)note {
+    if (![self mediaSendNoteIsMine:note]) { return; }
+    IMMessageModel *serviceModel = note.userInfo[kIMMediaSendMessageKey];
+    IMMessageModel *mine = [self messageForClientMsgID:serviceModel.clientMsgID];
+    if (!mine) { return; }
+    BOOL wasNearBottom = [self isNearBottom];
+    if (mine != serviceModel) {
+        mine.status = serviceModel.status;
+        mine.convSeq = serviceModel.convSeq;
+        mine.note = serviceModel.note;
+    }
+    if (mine.convSeq > 0) { [self.seenConvSeqs addObject:@(mine.convSeq)]; } // 防 sync 重复回显自己发的
+    if (mine.groupID.length > 0) {
+        [self refreshVisibleCellForMessage:mine]; // 相册成员的 ACK 只定点刷宫格角标/状态胶囊
+        return;
+    }
+    [self.tableView reloadData];
+    if (wasNearBottom) { [self scrollToBottomAnimated:YES]; } // 被拒收挂系统行后仍贴底可见
 }
 
 /// 会话历史被清空（资料页操作）：本会话则清空内存消息 + 刷新表。
@@ -1162,88 +1255,18 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         m.timestamp = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
         [self.messages addObject:m];
         [pending addObject:m];
-        self.outboxProgress[m.clientMsgID] = [IMUploadProgress queued]; // 排队中（体积/是否需转码都要等 loadData）
     }
+    // 转码 → 落盘 → 上传 → 发消息全程活在常驻服务（退出本页/无页面存活都不中断）；
+    // enqueue 会先置好 queued 进度与缩略图加载，本页只负责上屏与渲染。
+    [IMMediaSendService.shared enqueueMediaHandles:handles messages:pending
+                                            toUser:(self.isGroupChat ? @"" : self.peerID)
+                                         dbContext:self.databaseContext];
     [self.tableView reloadData]; // 一次性上屏：宫格只有 1 个可见 cell（从行零高），无逐条插行闪动
     [self scrollToAbsoluteBottom];
-    // 缩略图逐格异步补上（拿到即刷对应格子，不动布局/行高）。
-    for (NSUInteger i = 0; i < handles.count; i++) {
-        IMMessageModel *m = pending[i];
-        __weak typeof(self) ws = self;
-        [handles[i] loadThumbnail:^(UIImage *thumb) {
-            __strong typeof(ws) self = ws;
-            if (!self || !thumb) { return; }
-            self.outboxPreviews[m.clientMsgID ?: @""] = thumb; // 键随转正式发送迁移（读属性即取最新）
-            [self refreshVisibleCellForMessage:m];
-        }];
-    }
-    [self uploadMediaHandles:handles messages:pending index:0];
-}
-
-/// 串行处理+上传（避免并发转码/挤占带宽；单项失败标记该格但不中断后续）。
-- (void)uploadMediaHandles:(NSArray<IMPickedMediaHandle *> *)handles
-                  messages:(NSArray<IMMessageModel *> *)msgs index:(NSUInteger)idx {
-    if (idx >= handles.count) { return; }
-    IMMessageModel *m = msgs[idx];
-    __weak typeof(self) ws = self;
-    // 转码与上传融合成一条进度：转码期显「压缩中 42%」，上传期显「已传 / 总大小」，环形进度只增不减。
-    void (^onTranscode)(double) = ^(double fraction) {
-        __strong typeof(ws) self2 = ws;
-        if (!self2) { return; }
-        self2.outboxProgress[m.clientMsgID ?: @""] = [IMUploadProgress transcodingWithFraction:fraction];
-        [self2 updateUploadProgressForMessage:m];
-    };
-    [handles[idx] loadData:^(IMPickedMedia *item) { // 压缩/转码在句柄内部串行队列执行
-        __strong typeof(ws) self = ws;
-        if (!self) { return; }
-        NSString *token = IMHTTPService.sharedService.currentToken;
-        if (item.data.length == 0 || token.length == 0) {
-            [self markOutboxFailed:m toastIndex:idx + 1];
-            [self uploadMediaHandles:handles messages:msgs index:idx + 1];
-            return;
-        }
-        // 发送端量出的媒体元数据：先落到消息模型（本地气泡立刻按原比例排版），随后随 send_msg 上行给收端。
-        m.mediaW = (NSInteger)item.pixelSize.width;
-        m.mediaH = (NSInteger)item.pixelSize.height;
-        m.duration = item.durationMillis;
-        m.fileSize = (int64_t)item.data.length;
-        // 待发字节落盘 + 消息落库：上传一旦失败（超时/杀进程），重进会话仍看得到这条并能重试。
-        // 句柄 IMPickedMediaHandle 走完 loadData 就没用了，字节不落盘就永远拿不回来。
-        NSString *localRef = [[IMPendingMediaStore shared] storeData:item.data
-                                                      forClientMsgID:m.clientMsgID ?: @""
-                                                           extension:item.fileName.pathExtension];
-        if (localRef) {
-            m.content = localRef;
-            [self persistOutboxMessage:m];
-        }
-        [self refreshVisibleCellForMessage:m]; // 尺寸已知 → 气泡从方形占位切到真实比例
-        [IMHTTPService.sharedService uploadData:item.data fileName:item.fileName mimeType:item.mimeType token:token
-            progress:^(double fraction) {
-                __strong typeof(ws) self2 = ws;
-                if (!self2) { return; }
-                // 分母用**媒体本体字节数**而非 multipart 整包（后者含 boundary/头，会比文件属性大一截）。
-                NSString *key = m.clientMsgID ?: @"";
-                self2.outboxProgress[key] = [IMUploadProgress uploadingWithFraction:fraction
-                                                                         totalBytes:(int64_t)item.data.length
-                                                                           previous:self2.outboxProgress[key]];
-                [self2 updateUploadProgressForMessage:m]; // 只改覆盖层/环 strokeEnd，不 reload（无闪烁）
-            }
-            completion:^(NSString *url, NSString *contentType, NSError *error) {
-                __strong typeof(ws) self2 = ws;
-                if (!self2) { return; }
-                if (error || url.length == 0) {
-                    [self2 markOutboxFailed:m toastIndex:idx + 1];
-                } else {
-                    [self2 dispatchOutboxMessage:m serverURL:url
-                                     contentType:(contentType ?: m.contentType ?: (item.isVideo ? @"video" : @"image"))];
-                }
-                [self2 uploadMediaHandles:handles messages:msgs index:idx + 1];
-            }];
-    } progress:onTranscode];
 }
 
 /// 待发/失败的乐观气泡落库（content 为 im-pending:// 本地引用）。
-/// 成功发出后 finishOutboxMessage 会把 content 换成服务器 URL 再存一次，并删掉本地副本。
+/// 成功发出后常驻服务会把 content 换成服务器 URL 再存一次，并删掉本地副本。
 ///
 /// **content 为空的不落库**：那种行重进会话既显示不出内容也无法重试，只会留下一个永久的空气泡
 /// （字节还没落盘就失败时会走到这里，例如未登录、句柄解码失败、磁盘写满）。
@@ -1279,115 +1302,12 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     return nil;
 }
 
-/// 重试一条本地待发失败的媒体消息：从本地副本读回字节重新上传，不需要用户重选。
+/// 重试一条本地待发失败的消息（图片/视频/文件通吃）：交给常驻服务从本地副本续（文件走分片续传）。
 - (void)retryPendingMessage:(IMMessageModel *)m {
-    NSString *token = IMHTTPService.sharedService.currentToken;
-    NSString *fileName = [[IMPendingMediaStore shared] filePathForLocalRef:m.content].lastPathComponent;
-    NSData *data = [[IMPendingMediaStore shared] dataForLocalRef:m.content];
-    if (data.length == 0 || token.length == 0) {
-        [self im_showToast:@"本地文件已丢失，无法重试"];
-        return;
-    }
-    BOOL isVideo = [m.contentType isEqualToString:@"video"];
-    m.status = IMMessageStatusSending;
-    NSString *key = m.clientMsgID ?: @"";
-    self.outboxProgress[key] = [IMUploadProgress uploadingWithFraction:0 totalBytes:(int64_t)data.length previous:nil];
-    [self persistOutboxMessage:m];
-    [self refreshVisibleCellForMessage:m];
-    IMLogWithTag(IMLogTagMedia, @"media_retry conv_id=%@ client_msg_id=%@ content_type=%@ bytes=%lu",
-                 self.convID, key, m.contentType ?: @"", (unsigned long)data.length);
-
-    __weak typeof(self) ws = self;
-    [IMHTTPService.sharedService uploadData:data
-                                   fileName:(fileName ?: (isVideo ? @"video.mp4" : @"photo.jpg"))
-                                   mimeType:(isVideo ? @"video/mp4" : @"image/jpeg")
-                                      token:token
-        progress:^(double fraction) {
-            __strong typeof(ws) self2 = ws;
-            if (!self2) { return; }
-            self2.outboxProgress[key] = [IMUploadProgress uploadingWithFraction:fraction
-                                                                     totalBytes:(int64_t)data.length
-                                                                       previous:self2.outboxProgress[key]];
-            [self2 updateUploadProgressForMessage:m];
-        }
-        completion:^(NSString *url, NSString *contentType, NSError *error) {
-            __strong typeof(ws) self2 = ws;
-            if (!self2) { return; }
-            if (error || url.length == 0) { [self2 markOutboxFailed:m toastIndex:1]; return; }
-            [self2 dispatchOutboxMessage:m serverURL:url contentType:(m.contentType ?: contentType ?: @"image")];
-        }];
-}
-
-- (void)markOutboxFailed:(IMMessageModel *)m toastIndex:(NSUInteger)n {
-    m.status = IMMessageStatusFailed;
-    [self persistOutboxMessage:m]; // 失败也要落库，否则退出会话这条就凭空消失了
-    // 用户只看到一句 toast；失败的会话/消息定位靠这条（HTTP 层的 request_id 日志可据 client_msg_id 对账）。
-    IMLogWarnWithTag(IMLogTagMedia, @"media_send_failed conv_id=%@ client_msg_id=%@ content_type=%@ media_w=%ld media_h=%ld bytes=%lld",
-                     self.convID, m.clientMsgID ?: @"", m.contentType ?: @"", (long)m.mediaW, (long)m.mediaH, m.fileSize);
-    self.outboxProgress[m.clientMsgID ?: @""] = [IMUploadProgress failedProgress]; // 宫格该格标"!" / 单张气泡标"发送失败"
-    [self updateUploadProgressForMessage:m];
-    [self im_showToast:[NSString stringWithFormat:@"第 %lu 项发送失败", (unsigned long)n]];
-}
-
-/// 上传完成 → 转正式发送：预览种进加载器缓存（防切 URL 闪图）。视频先把首帧封面上传，拿到 URL 后带 poster 发送
-/// （收端——尤其解不了 HEVC 的 Web——直显封面免解码）；其余直接发送。
-- (void)dispatchOutboxMessage:(IMMessageModel *)m serverURL:(NSString *)url contentType:(NSString *)ct {
-    NSString *oldKey = m.clientMsgID ?: @"";
-    UIImage *preview = self.outboxPreviews[oldKey];
-    [self.outboxProgress removeObjectForKey:oldKey];
-    NSString *full = IMMediaFullURL(url, self.host);
-    if (preview) {
-        if ([ct isEqualToString:@"video"]) { [[IMVideoThumbnailLoader shared] cachePoster:preview forURL:full]; }
-        else { [[IMImageLoader shared] cacheImage:preview forURL:full]; }
-    }
-    // 视频封面：把首帧预览图 JPEG 上传作 poster，成功后带 URL 发送；无预览/上传失败则无封面不阻塞发送。
-    NSData *posterJPEG = ([ct isEqualToString:@"video"] && preview) ? UIImageJPEGRepresentation(preview, 0.8) : nil;
-    NSString *token = IMHTTPService.sharedService.currentToken;
-    if (posterJPEG.length > 0 && token.length > 0) {
-        __weak typeof(self) ws = self;
-        [IMHTTPService.sharedService uploadData:posterJPEG fileName:@"poster.jpg" mimeType:@"image/jpeg" token:token
-            completion:^(NSString *posterURL, NSString *pct, NSError *perr) {
-                [ws finishOutboxMessage:m serverURL:url contentType:ct
-                                 poster:(perr ? @"" : (posterURL ?: @"")) oldKey:oldKey preview:preview];
-            }];
-        return;
-    }
-    [self finishOutboxMessage:m serverURL:url contentType:ct poster:@"" oldKey:oldKey preview:preview];
-}
-
-/// 真正发送并落库（poster 为已上传的视频封面 URL，可空）。
-- (void)finishOutboxMessage:(IMMessageModel *)m serverURL:(NSString *)url contentType:(NSString *)ct
-                     poster:(NSString *)poster oldKey:(NSString *)oldKey preview:(UIImage *)preview {
-    __weak typeof(self) ws = self;
-    IMSendCompletion completion = ^(BOOL success, NSError *error, int64_t convSeq) {
-        [ws handleSendResult:success convSeq:convSeq error:error forClientMsgID:m.clientMsgID];
-    };
-    NSString *toUser = self.isGroupChat ? @"" : self.peerID;
-    // 随消息上行发送端量出的尺寸/时长/字节数（PROTOCOL §4.1），收端据此按原比例排版 + 显时长角标。
-    IMMediaAttributes *attrs = [IMMediaAttributes attributesWithGroupID:m.groupID poster:poster];
-    attrs.pixelWidth = m.mediaW;
-    attrs.pixelHeight = m.mediaH;
-    attrs.durationMillis = m.duration;
-    attrs.fileSize = m.fileSize;
-    NSString *realID = [IMSocketManager.sharedManager sendMedia:url contentType:ct
-                                                         toConv:self.convID toUser:toUser
-                                                     attributes:attrs completion:completion];
-    NSString *pendingRef = m.content; // 落库时用的 im-pending:// 本地引用，发出后即可删本地副本
-    // 消息行按 client_msg_id 认：先把库里的临时键改成真实 ID，否则下面的 save 会插出重复行。
-    NSString *convID = self.convID;
-    [self performDatabaseOperation:^(IMDatabase *database) {
-        [database replaceClientMsgID:oldKey withClientMsgID:realID inConv:convID];
-    }];
-    m.clientMsgID = realID;
-    m.content = url;
-    m.contentType = ct;
-    m.poster = poster.length > 0 ? poster : nil;
-    if (preview && realID.length > 0) { self.outboxPreviews[realID] = preview; }
-    [self.outboxPreviews removeObjectForKey:oldKey];
-    [self performDatabaseOperation:^(IMDatabase *database) {
-        [database saveMessage:m];
-    }];
-    [[IMPendingMediaStore shared] removeLocalRef:pendingRef]; // 已成功发出，本地副本没用了
+    BOOL ok = [IMMediaSendService.shared retryMessage:m
+                                               toUser:(self.isGroupChat ? @"" : self.peerID)
+                                            dbContext:self.databaseContext];
+    if (!ok) { [self im_showToast:@"本地文件已丢失，无法重试"]; return; }
     [self refreshVisibleCellForMessage:m];
 }
 
@@ -1544,106 +1464,39 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     m.content = localRef;
     [self.messages addObject:m];
     [self persistOutboxMessage:m];
-    self.outboxProgress[m.clientMsgID] = [IMUploadProgress queued];
+    // 分片上传 + 完成后发消息活在常驻服务：退出会话、甚至所有聊天页都销毁，传完照样发出去。
+    [IMMediaSendService.shared enqueueFileMessage:m
+                                           toUser:(self.isGroupChat ? @"" : self.peerID)
+                                        dbContext:self.databaseContext];
     [self appendReloadAndScroll];
-    [self startChunkedUploadForMessage:m token:token];
 }
 
-/// 进入/回到会话时接管仍在跑的分片上传：任务活在 uploader 单例里，聊天页只是它的显示端。
-/// 不接管的话，退出再进来就会看到一条"卡住不动、点了没反应"的气泡。
+/// 进入/回到会话时合并常驻服务里仍在跑的作业：
+/// - 转码/落盘尚未完成的媒体（未落库）→ 本页列表看不到，把服务实例并进来；
+/// - 已落库的行（库副本）→ 换成服务实例，让后续进度/完成直接作用于同一对象。
 - (void)reattachRunningUploads {
-    for (IMMessageModel *m in self.messages) {
-        NSString *key = m.clientMsgID ?: @"";
-        IMChunkedUploadTask *task = [[IMChunkedUploader shared] taskForKey:key];
-        if (!task) { continue; }
-        self.uploadTasks[key] = task;
-        self.outboxProgress[key] = [IMUploadProgress uploadingWithFraction:
-            (task.totalBytes > 0 ? (double)task.sentBytes / (double)task.totalBytes : 0)
-                                                                totalBytes:task.totalBytes previous:nil];
-        self.outboxProgress[key].pausedByUser = task.paused;
-        [self bindUploadTask:task toMessage:m];
+    BOOL changed = NO;
+    for (IMMessageModel *serviceModel in [IMMediaSendService.shared inFlightMessagesInConv:self.convID]) {
+        IMMessageModel *mine = [self messageForClientMsgID:serviceModel.clientMsgID];
+        if (!mine) {
+            [self.messages addObject:serviceModel];
+            changed = YES;
+        } else if (mine != serviceModel) {
+            NSUInteger idx = [self.messages indexOfObjectIdenticalTo:mine];
+            if (idx != NSNotFound) { [self.messages replaceObjectAtIndex:idx withObject:serviceModel]; }
+            changed = YES;
+        }
     }
+    if (changed) { [self.tableView reloadData]; }
 }
 
-/// 驱动一条文件消息的分片上传，并把任务句柄存起来供暂停/继续。
-/// resumeID 从待发目录的旁挂文件读取——App 重启后照样能接着传，而不是从 0 重来。
-- (void)startChunkedUploadForMessage:(IMMessageModel *)m token:(NSString *)token {
-    NSString *path = [[IMPendingMediaStore shared] filePathForLocalRef:m.content];
-    if (!path) { [self markOutboxFailed:m toastIndex:1]; return; }
-    NSString *key = m.clientMsgID ?: @"";
-    IMChunkedUploadTask *task = [[IMChunkedUploader shared]
-        uploadFileAtURL:[NSURL fileURLWithPath:path]
-               fileName:(m.fileName ?: path.lastPathComponent)
-                  token:token
-                    key:key
-               resumeID:[[IMPendingMediaStore shared] uploadIDForLocalRef:m.content]];
-    self.uploadTasks[key] = task;
-    [self bindUploadTask:task toMessage:m];
-}
-
-/// 把任务的进度/完成/upload_id 回调接到**当前**聊天页（重进会话时会重新绑一次）。
-- (void)bindUploadTask:(IMChunkedUploadTask *)task toMessage:(IMMessageModel *)m {
-    NSString *key = m.clientMsgID ?: @"";
-    NSString *pendingRef = m.content;
-    __weak typeof(self) ws = self;
-    task.uploadIDHandler = ^(NSString *uploadID) {
-        [[IMPendingMediaStore shared] setUploadID:uploadID forLocalRef:pendingRef]; // 跨启动续传的锚点
-    };
-    task.progressHandler = ^(int64_t sent, int64_t total) {
-        __strong typeof(ws) self = ws;
-        if (!self) { return; }
-        double fraction = total > 0 ? (double)sent / (double)total : 0;
-        self.outboxProgress[key] = [IMUploadProgress uploadingWithFraction:fraction totalBytes:total
-                                                                  previous:self.outboxProgress[key]];
-        [self refreshVisibleCellForMessage:m]; // 文件气泡的进度在正文里，必须重渲染整条
-    };
-    task.completionHandler = ^(NSString *url, NSString *contentType, NSError *error) {
-        __strong typeof(ws) self = ws;
-        if (!self) { return; }
-        [self.uploadTasks removeObjectForKey:key];
-        if (error || url.length == 0) { [self markOutboxFailed:m toastIndex:1]; return; }
-        [self finishChunkedFileMessage:m serverURL:url oldKey:key];
-    };
-}
-
-/// 分片上传完成 → 走 socket 正式发送文件消息，并把库里的临时键换成真实 ID、删本地副本。
-- (void)finishChunkedFileMessage:(IMMessageModel *)m serverURL:(NSString *)url oldKey:(NSString *)oldKey {
-    NSString *pendingRef = m.content;
-    NSString *toUser = self.isGroupChat ? @"" : self.peerID;
-    __weak typeof(self) ws = self;
-    NSString *realID = [IMSocketManager.sharedManager sendFile:url fileName:(m.fileName ?: @"file")
-                                                     fileSize:m.fileSize toConv:self.convID toUser:toUser
-                                                   completion:^(BOOL success, NSError *error, int64_t convSeq) {
-        [ws handleSendResult:success convSeq:convSeq error:error forClientMsgID:m.clientMsgID];
-    }];
-    NSString *convID = self.convID;
-    [self performDatabaseOperation:^(IMDatabase *database) {
-        [database replaceClientMsgID:oldKey withClientMsgID:realID inConv:convID];
-    }];
-    [self.outboxProgress removeObjectForKey:oldKey];
-    m.clientMsgID = realID;
-    m.content = url;
-    [self persistOutboxMessage:m];
-    [[IMPendingMediaStore shared] removeLocalRef:pendingRef];
-    [self performDatabaseOperation:^(IMDatabase *database) {
-        [database cacheSentFiles:@[@{ @"server_msg_id": realID ?: @"", @"url": url ?: @"",
-                                      @"name": m.fileName ?: @"", @"size": @(m.fileSize),
-                                      @"timestamp": @(m.timestamp) }]];
-    }];
-    [self refreshVisibleCellForMessage:m];
-}
-
-/// 点击上传中的文件气泡：暂停 ↔ 继续；失败则重试。
+/// 点击上传中的文件气泡：暂停 ↔ 继续；失败则重试（交给常驻服务续传）。
 - (void)toggleUploadForMessage:(IMMessageModel *)m {
     NSString *key = m.clientMsgID ?: @"";
     IMUploadProgress *prog = self.outboxProgress[key];
-    IMChunkedUploadTask *task = self.uploadTasks[key];
+    IMChunkedUploadTask *task = [[IMChunkedUploader shared] taskForKey:key];
     if (m.status == IMMessageStatusFailed || (!task && prog.failed)) {
-        NSString *token = IMHTTPService.sharedService.currentToken;
-        if (token.length == 0) { [self im_showToast:@"未登录，无法重试"]; return; }
-        m.status = IMMessageStatusSending;
-        [self persistOutboxMessage:m];
-        [self startChunkedUploadForMessage:m token:token]; // 内部读旁挂 upload_id 续传
+        [self retryPendingMessage:m]; // 服务内部读旁挂 upload_id 续传
         return;
     }
     if (!task) { return; }
