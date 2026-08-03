@@ -4,8 +4,9 @@
 #import "IMHTTPService.h"
 #import "IMLog.h"
 
-/// 单片大小。4MB：足够摊薄每片的往返开销，又不至于让一次失败浪费太多重传。
-static const NSUInteger kIMChunkSize = 4 * 1024 * 1024;
+/// 单片大小。8MB=服务端 init 响应建议值（chunk_size）与其单片上限：局域网实测 4MB 片速率仅 ~1MB/s，
+/// 每片一次往返的固定开销占比过高；片加倍可少一半往返。失败重传的代价上限也是 8MB，可接受。
+static const NSUInteger kIMChunkSize = 8 * 1024 * 1024;
 /// 小于该值走一次性 multipart：分片要多 3 次往返（init/complete/status），小文件反而更慢。
 static const NSUInteger kIMChunkedThreshold = 8 * 1024 * 1024;
 

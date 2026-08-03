@@ -19,6 +19,7 @@ NSNotificationName const IMMediaSendProgressDidChangeNotification = @"IMMediaSen
 NSNotificationName const IMMediaSendMetaDidChangeNotification = @"IMMediaSendMetaDidChange";
 NSNotificationName const IMMediaSendDidDispatchNotification = @"IMMediaSendDidDispatch";
 NSNotificationName const IMMediaSendDidFailNotification = @"IMMediaSendDidFail";
+NSNotificationName const IMMediaSendDidCancelNotification = @"IMMediaSendDidCancel";
 NSNotificationName const IMMediaSendAckNotification = @"IMMediaSendAck";
 
 NSString * const kIMMediaSendConvIDKey = @"conv_id";
@@ -36,6 +37,7 @@ NSString * const kIMMediaSendMessageKey = @"message";
 @property (nonatomic, strong, nullable) IMPickedMediaHandle *handle; ///< 媒体作业转码前持有；落盘后置空
 @property (nonatomic, copy) NSString *toUser;                        ///< 群聊传 @""
 @property (nonatomic, strong, nullable) IMDatabaseAccountContext *dbContext;
+@property (nonatomic, assign) BOOL cancelled; ///< 用户取消：各阶段边界检查后丢弃，不再推进
 @end
 @implementation IMMediaSendJob
 @end
@@ -53,6 +55,7 @@ NSString * const kIMMediaSendMessageKey = @"message";
     BOOL _mediaProcessing;
     NSString *_currentMediaKey; ///< 正在跑的媒体作业键：文件作业/重试完成时不得误推进串行队列
     dispatch_queue_t _io; ///< 磁盘搬运（storeData / move）绝不能在主线程：74MB 写盘足以卡掉一次滚动
+    NSCountedSet<NSString *> *_failedConvs; ///< 本次运行中失败未重试的发送件按会话计数（列表红感叹号）
 }
 
 + (instancetype)shared {
@@ -69,6 +72,7 @@ NSString * const kIMMediaSendMessageKey = @"message";
         _previews = [NSMutableDictionary dictionary];
         _progressMap = [NSMutableDictionary dictionary];
         _io = dispatch_queue_create("im.mediasend.io", DISPATCH_QUEUE_SERIAL);
+        _failedConvs = [NSCountedSet set];
     }
     return self;
 }
@@ -89,6 +93,10 @@ NSString * const kIMMediaSendMessageKey = @"message";
 
 - (BOOL)hasActiveJobForClientMsgID:(NSString *)clientMsgID {
     return clientMsgID.length > 0 && _jobs[clientMsgID] != nil;
+}
+
+- (BOOL)hasFailedOutboxInConv:(NSString *)convID {
+    return convID.length > 0 && [_failedConvs countForObject:convID] > 0;
 }
 
 #pragma mark 入列（媒体）
@@ -137,6 +145,11 @@ NSString * const kIMMediaSendMessageKey = @"message";
     [job.handle loadData:^(IMPickedMedia *item) { // 压缩/转码在句柄内部串行队列，回调主线程
         __strong typeof(ws) self = ws;
         if (!self) { return; }
+        if (job.cancelled) { // 转码期被取消：产物直接丢弃（转码本身无法中途打断）
+            if (item.fileURL) { [[NSFileManager defaultManager] removeItemAtURL:item.fileURL error:NULL]; }
+            [self advanceMediaQueueAfter:(m.clientMsgID ?: @"")];
+            return;
+        }
         NSString *token = IMHTTPService.sharedService.currentToken;
         if ((item.byteCount <= 0) || token.length == 0) {
             [self failJob:job];
@@ -171,6 +184,11 @@ NSString * const kIMMediaSendMessageKey = @"message";
         dispatch_async(dispatch_get_main_queue(), ^{
             __strong typeof(ws) self = ws;
             if (!self) { return; }
+            if (job.cancelled) { // 落盘窗口内被取消：清掉刚写的副本
+                [[IMPendingMediaStore shared] removeLocalRef:localRef];
+                [self advanceMediaQueueAfter:clientMsgID];
+                return;
+            }
             if (localRef) {
                 // 落库先行：从这一刻起，无论转码后杀进程还是退出会话，这条消息都能回来并可重试。
                 m.content = localRef;
@@ -218,6 +236,7 @@ NSString * const kIMMediaSendMessageKey = @"message";
             completion:^(NSString *url, NSString *contentType, NSError *error) {
                 __strong typeof(ws) self2 = ws;
                 if (!self2) { return; }
+                if (job.cancelled) { [self2 advanceMediaQueueAfter:key]; return; } // 一次性上传无法中断，结果丢弃
                 if (error || url.length == 0) { [self2 failJob:job]; return; }
                 [self2 finishUploadedJob:job serverURL:url
                              contentType:(contentType ?: m.contentType ?: @"image")];
@@ -241,23 +260,34 @@ NSString * const kIMMediaSendMessageKey = @"message";
                   token:token
                     key:key
                resumeID:[[IMPendingMediaStore shared] uploadIDForLocalRef:pendingRef]];
+    // 分片作业可暂停：立即标记（中心按钮显 ⏸），不等第一片回调。
+    int64_t pendingBytes = [[IMPendingMediaStore shared] byteSizeForLocalRef:pendingRef];
+    IMUploadProgress *initial = [IMUploadProgress uploadingWithFraction:
+        (task.totalBytes > 0 ? (double)task.sentBytes / (double)task.totalBytes : 0)
+                                                             totalBytes:(task.totalBytes > 0 ? task.totalBytes : pendingBytes)
+                                                               previous:self.progressMap[key]];
+    initial.pausable = YES;
+    initial.pausedByUser = task.paused;
+    self.progressMap[key] = initial;
+    [self postNotification:IMMediaSendProgressDidChangeNotification forMessage:m oldKey:nil];
     __weak typeof(self) ws = self;
     task.uploadIDHandler = ^(NSString *uploadID) {
         [[IMPendingMediaStore shared] setUploadID:uploadID forLocalRef:pendingRef]; // 跨启动续传的锚点
     };
     task.progressHandler = ^(int64_t sent, int64_t total) {
         __strong typeof(ws) self = ws;
-        if (!self) { return; }
+        if (!self || job.cancelled) { return; }
         double fraction = total > 0 ? (double)sent / (double)total : 0;
         IMUploadProgress *p = [IMUploadProgress uploadingWithFraction:fraction totalBytes:total
                                                              previous:self.progressMap[key]];
+        p.pausable = YES;
         p.pausedByUser = self.progressMap[key].pausedByUser;
         self.progressMap[key] = p;
         [self postNotification:IMMediaSendProgressDidChangeNotification forMessage:m oldKey:nil];
     };
     task.completionHandler = ^(NSString *url, NSString *contentType, NSError *error) {
         __strong typeof(ws) self = ws;
-        if (!self) { return; }
+        if (!self || job.cancelled) { return; }
         if (error || url.length == 0) { [self failJob:job]; return; }
         [self finishUploadedJob:job serverURL:url
                     contentType:([m.contentType isEqualToString:@"file"] ? @"file"
@@ -302,6 +332,7 @@ NSString * const kIMMediaSendMessageKey = @"message";
     job.toUser = toUser ?: @"";
     job.dbContext = dbContext;
     _jobs[key] = job;
+    [_failedConvs removeObject:m.convID ?: @""]; // 重新入列即摘掉列表的失败标
     m.status = IMMessageStatusSending;
     [self saveMessage:m context:dbContext];
     self.progressMap[key] = [IMUploadProgress uploadingWithFraction:0 totalBytes:byteCount previous:nil];
@@ -314,6 +345,47 @@ NSString * const kIMMediaSendMessageKey = @"message";
     [self uploadStoredJob:job byteCount:byteCount inMemoryData:nil mimeType:mime fileName:fileName];
     [self postNotification:IMMediaSendProgressDidChangeNotification forMessage:m oldKey:nil];
     return YES;
+}
+
+#pragma mark 暂停 / 取消
+
+- (BOOL)togglePauseForMessage:(IMMessageModel *)m {
+    NSString *key = m.clientMsgID ?: @"";
+    IMChunkedUploadTask *task = [[IMChunkedUploader shared] taskForKey:key];
+    if (!task) { return NO; } // 一次性小上传/转码期：无可暂停的任务
+    if (task.paused) {
+        [task resume]; // 恢复先问服务端 status 拿 offset，服务端才是"传到哪了"的唯一权威
+        self.progressMap[key].pausedByUser = NO;
+    } else {
+        [task pause];  // 停在分片边界，已传字节保留在服务端
+        self.progressMap[key].pausedByUser = YES;
+    }
+    [self postNotification:IMMediaSendProgressDidChangeNotification forMessage:m oldKey:nil];
+    return YES;
+}
+
+- (void)cancelMessage:(IMMessageModel *)m dbContext:(IMDatabaseAccountContext *)dbContext {
+    NSString *key = m.clientMsgID ?: @"";
+    IMMediaSendJob *job = _jobs[key];
+    job.cancelled = YES;
+    if (m.status == IMMessageStatusFailed) { [_failedConvs removeObject:m.convID ?: @""]; }
+    [[[IMChunkedUploader shared] taskForKey:key] cancel]; // 分片任务立即停；一次性上传由完成回调按 cancelled 丢弃
+    [_mediaQueue removeObject:key];
+    [self.progressMap removeObjectForKey:key];
+    [self.previews removeObjectForKey:key];
+    [[IMPendingMediaStore shared] removeLocalRef:m.content]; // content 非 pending 引用时是 no-op
+    [self performDB:(job.dbContext ?: dbContext) block:^(IMDatabase *db) { [db deleteMessage:m]; }];
+    [_jobs removeObjectForKey:key];
+    IMLogWithTag(IMLogTagMedia, @"media_send_cancelled conv_id=%@ client_msg_id=%@ content_type=%@",
+                 m.convID, key, m.contentType ?: @"");
+    [[NSNotificationCenter defaultCenter] postNotificationName:IMMediaSendDidCancelNotification object:self userInfo:@{
+        kIMMediaSendConvIDKey: m.convID ?: @"",
+        kIMMediaSendClientMsgIDKey: key,
+        kIMMediaSendMessageKey: m,
+    }];
+    // 推进队列：advance 内部按 _currentMediaKey 守卫——不是当前作业则 no-op；
+    // 转码/一次性上传仍悬着的回调稍后再 advance 一次也会因守卫已清而无害。
+    [self advanceMediaQueueAfter:key];
 }
 
 #pragma mark 完成 / 失败
@@ -436,6 +508,7 @@ NSString * const kIMMediaSendMessageKey = @"message";
     IMLogWarnWithTag(IMLogTagMedia, @"media_send_failed conv_id=%@ client_msg_id=%@ content_type=%@ media_w=%ld media_h=%ld bytes=%lld",
                      m.convID, key, m.contentType ?: @"", (long)m.mediaW, (long)m.mediaH, m.fileSize);
     self.progressMap[key] = [IMUploadProgress failedProgress];
+    [_failedConvs addObject:m.convID ?: @""];
     [_jobs removeObjectForKey:key];
     [[NSNotificationCenter defaultCenter] postNotificationName:IMMediaSendDidFailNotification object:self userInfo:@{
         kIMMediaSendConvIDKey: m.convID ?: @"",

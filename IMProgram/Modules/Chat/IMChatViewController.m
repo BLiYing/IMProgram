@@ -271,6 +271,18 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
                                                name:IMMediaSendDidFailNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onMediaSendAck:)
                                                name:IMMediaSendAckNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onMediaSendCancelled:)
+                                               name:IMMediaSendDidCancelNotification object:nil];
+}
+
+/// 用户取消发送：服务已删库行与本地副本，本页移除这行气泡。
+- (void)onMediaSendCancelled:(NSNotification *)note {
+    if (![self mediaSendNoteIsMine:note]) { return; }
+    NSString *key = note.userInfo[kIMMediaSendClientMsgIDKey];
+    IMMessageModel *mine = [self messageForClientMsgID:key];
+    if (!mine) { return; }
+    [self.messages removeObjectIdenticalTo:mine];
+    [self.tableView reloadData];
 }
 
 #pragma mark - 常驻发送服务通知
@@ -1302,6 +1314,34 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     return nil;
 }
 
+/// 点按待发中的图片/视频气泡（中心按钮状态机）：
+///   失败 ↻ → 重试；上传中 ⏸ ↔ 已暂停 ↑ → 切换；排队/压缩 ✕ → 确认后取消（整图可点，防误触必须确认）。
+- (void)handlePendingMediaTap:(IMMessageModel *)m {
+    if (m.status == IMMessageStatusFailed) { [self retryPendingMessage:m]; return; }
+    if ([IMMediaSendService.shared togglePauseForMessage:m]) { return; } // 分片上传：暂停↔继续
+    IMUploadProgress *p = self.outboxProgress[m.clientMsgID ?: @""];
+    if (p.phase == IMUploadPhaseQueued || p.phase == IMUploadPhaseTranscoding) {
+        [self confirmCancelPendingMessage:m]; // 排队/压缩期无任务可暂停，点按=询问取消
+    }
+    // 一次性小上传进行中：无可操作，忽略点击
+}
+
+/// 取消发送前确认（长按菜单直达 cancelPendingMessage，点按走这里防误触）。
+- (void)confirmCancelPendingMessage:(IMMessageModel *)m {
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:nil message:@"取消发送这条消息？"
+                                                            preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak typeof(self) ws = self;
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消发送" style:UIAlertActionStyleDestructive
+                                            handler:^(UIAlertAction *a) { [ws cancelPendingMessage:m]; }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"继续发送" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+/// 取消发送：服务负责停任务/删副本/删库行并广播 DidCancel，本页在通知里移除该行。
+- (void)cancelPendingMessage:(IMMessageModel *)m {
+    [IMMediaSendService.shared cancelMessage:m dbContext:self.databaseContext];
+}
+
 /// 重试一条本地待发失败的消息（图片/视频/文件通吃）：交给常驻服务从本地副本续（文件走分片续传）。
 - (void)retryPendingMessage:(IMMessageModel *)m {
     BOOL ok = [IMMediaSendService.shared retryMessage:m
@@ -1474,6 +1514,8 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 /// 进入/回到会话时合并常驻服务里仍在跑的作业：
 /// - 转码/落盘尚未完成的媒体（未落库）→ 本页列表看不到，把服务实例并进来；
 /// - 已落库的行（库副本）→ 换成服务实例，让后续进度/完成直接作用于同一对象。
+/// 并**自动认领孤儿 sending 行**：杀进程重启后库里 status=sending 但服务无作业的行，
+/// 直接续传（凭旁挂 upload_id 从服务端 offset 继续，用户无感）；本地副本丢失才降级为失败可重试。
 - (void)reattachRunningUploads {
     BOOL changed = NO;
     for (IMMessageModel *serviceModel in [IMMediaSendService.shared inFlightMessagesInConv:self.convID]) {
@@ -1487,27 +1529,29 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
             changed = YES;
         }
     }
+    NSString *toUser = self.isGroupChat ? @"" : self.peerID;
+    for (IMMessageModel *m in self.messages) {
+        if (m.status != IMMessageStatusSending || m.convSeq > 0) { continue; }
+        if (![IMPendingMediaStore isLocalRef:m.content]) { continue; }
+        if ([IMMediaSendService.shared hasActiveJobForClientMsgID:m.clientMsgID]) { continue; }
+        if (![IMMediaSendService.shared retryMessage:m toUser:toUser dbContext:self.databaseContext]) {
+            m.status = IMMessageStatusFailed; // 本地副本已丢失：无法续传，标失败给出 ↻（点了会提示副本丢失）
+            [self persistOutboxMessage:m];
+        }
+        changed = YES;
+    }
     if (changed) { [self.tableView reloadData]; }
 }
 
-/// 点击上传中的文件气泡：暂停 ↔ 继续；失败则重试（交给常驻服务续传）。
+/// 点击上传中的文件气泡：暂停 ↔ 继续；失败则重试（都交给常驻服务，状态经通知回流刷新）。
 - (void)toggleUploadForMessage:(IMMessageModel *)m {
     NSString *key = m.clientMsgID ?: @"";
     IMUploadProgress *prog = self.outboxProgress[key];
-    IMChunkedUploadTask *task = [[IMChunkedUploader shared] taskForKey:key];
-    if (m.status == IMMessageStatusFailed || (!task && prog.failed)) {
+    if (m.status == IMMessageStatusFailed || prog.failed) {
         [self retryPendingMessage:m]; // 服务内部读旁挂 upload_id 续传
         return;
     }
-    if (!task) { return; }
-    if (task.paused) {
-        [task resume];
-        prog.pausedByUser = NO;
-    } else {
-        [task pause];
-        prog.pausedByUser = YES;
-    }
-    [self refreshVisibleCellForMessage:m];
+    [IMMediaSendService.shared togglePauseForMessage:m];
 }
 
 /// 系统 Files 返回本地副本后上传并发送。
@@ -2041,9 +2085,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         img.onTap = ^(UIImage *image) {
             __strong typeof(ws) self = ws;
             if (!self) { return; }
-            // 失败件点一下就重试（从本地副本重传），而不是打开一个还不存在的远端媒体。
-            if (pendingLocal && m.status == IMMessageStatusFailed) { [self retryPendingMessage:m]; return; }
-            if (pendingLocal) { return; } // 上传中：不可点
+            if (pendingLocal) { [self handlePendingMediaTap:m]; return; } // 中心按钮状态机：⏸/↑/↻/✕
             [self presentMediaViewerForMessage:m preloaded:image];
         };
         // 老消息无 media_w/h：异步出图后才知比例 → 刷一次行高（无动画，不打断滚动）。
@@ -2216,6 +2258,13 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     if (mine && [message.contentType isEqualToString:@"text"] && message.content.length > 0 && message.recalledAt == 0) {
         [actions addObject:[IMMenuAction actionWithId:@"edit" title:@"编辑" image:@"pencil" handler:^{
             [ws beginEditMessage:message];
+        }]];
+    }
+    // 取消发送：仅本人、仍在发送/失败的本地待发件（发出去拿到 conv_seq 后走撤回，不走这里）。
+    if (mine && message.convSeq <= 0 && [IMPendingMediaStore isLocalRef:message.content]
+        && (message.status == IMMessageStatusSending || message.status == IMMessageStatusFailed)) {
+        [actions addObject:[IMMenuAction actionWithId:@"cancelSend" title:@"取消发送" image:@"xmark.circle" handler:^{
+            [ws cancelPendingMessage:message];
         }]];
     }
     [actions addObject:[IMMenuAction actionWithId:@"multiSelect" title:@"多选" image:@"checkmark.circle" handler:^{

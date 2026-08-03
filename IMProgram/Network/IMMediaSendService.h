@@ -25,6 +25,8 @@ extern NSNotificationName const IMMediaSendMetaDidChangeNotification;
 extern NSNotificationName const IMMediaSendDidDispatchNotification;
 /// 作业失败（消息已以 failed 状态落库，可点击重试）。userInfo: conv_id, client_msg_id。
 extern NSNotificationName const IMMediaSendDidFailNotification;
+/// 用户取消发送（本地副本与消息行已删除，页面应移除该行）。userInfo: conv_id, client_msg_id。
+extern NSNotificationName const IMMediaSendDidCancelNotification;
 /// 服务端 ack 结果（状态/conv_seq/被拒 note 已落库）。userInfo: conv_id, client_msg_id, success(NSNumber),
 /// conv_seq(NSNumber)。
 extern NSNotificationName const IMMediaSendAckNotification;
@@ -54,6 +56,10 @@ extern NSString * const kIMMediaSendMessageKey;
 /// 该 clientMsgID 是否有活跃作业（排队/转码/上传中；不含已 dispatch）。
 - (BOOL)hasActiveJobForClientMsgID:(NSString *)clientMsgID;
 
+/// 会话内是否有**本次运行中**失败、尚未重试/取消的发送件（会话列表显红色感叹号用）。
+/// 不含 App 重启前遗留的失败行（那些行进会话即见，列表不另行标注）。
+- (BOOL)hasFailedOutboxInConv:(NSString *)convID;
+
 /// 相册媒体（图片/视频）批量入列：句柄逐项串行 loadData（转码带进度）→ 字节落盘+落库 →
 /// 上传（≥分片阈值走分片、可续传）→ 视频补传封面 → socket 发消息。
 /// messages 与 handles 一一对应（调用方已创建乐观模型并上屏）；缩略图也由服务加载并写入 previews。
@@ -69,10 +75,19 @@ extern NSString * const kIMMediaSendMessageKey;
                  dbContext:(nullable IMDatabaseAccountContext *)dbContext;
 
 /// 重试一条已落库的待发消息（content 为 im-pending:// 本地引用；image/video/file 通吃）。
-/// 文件走分片续传（读旁挂 upload_id）；返回 NO=本地副本已丢失，无法重试。
+/// 分片作业读旁挂 upload_id 从服务端 offset 续传（杀进程后的孤儿 sending 行也走这里自动认领）；
+/// 返回 NO=本地副本已丢失，无法重试。
 - (BOOL)retryMessage:(IMMessageModel *)m
               toUser:(NSString *)toUser
            dbContext:(nullable IMDatabaseAccountContext *)dbContext;
+
+/// 暂停 ↔ 继续（仅分片作业可暂停；恢复时以服务端 offset 为准续传）。
+/// 返回 NO=该消息当前没有可暂停的上传任务（如一次性小上传/转码期）。
+- (BOOL)togglePauseForMessage:(IMMessageModel *)m;
+
+/// 取消发送：停止上传/丢弃转码产物、删除本地待发副本与消息行，发 DidCancel 通知。
+/// 转码本身无法中途打断（AVAssetExportSession 只支持 cancel 整单），产物就绪后会被直接丢弃。
+- (void)cancelMessage:(IMMessageModel *)m dbContext:(nullable IMDatabaseAccountContext *)dbContext;
 
 @end
 

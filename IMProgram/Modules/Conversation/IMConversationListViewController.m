@@ -18,6 +18,7 @@
 #import "IMGroupMemberPickerViewController.h"
 #import "IMGroupInfo.h"
 #import "IMNavigationButton.h"
+#import "IMMediaSendService.h"
 
 #pragma mark - 会话 Cell（Telegram 风格：圆形头像 + 名称/最后一条 + 时间 + 未读蓝胶囊）
 
@@ -26,6 +27,8 @@ static CGFloat const kIMRowLeading = 16;
 
 @interface IMConversationCell : UITableViewCell
 - (void)configureWithConversation:(IMConversation *)c mine:(BOOL)mine host:(NSString *)host;
+/// 本地发送状态标（配置副标题**之后**调用）：sending → 副标题前缀 ↑ 圈；failed → 红色感叹号。
+- (void)applyOutboxSending:(BOOL)sending failed:(BOOL)failed;
 @end
 
 @implementation IMConversationCell {
@@ -41,6 +44,25 @@ static CGFloat const kIMRowLeading = 16;
     UILabel *_badge;
     UIView *_dot;      // 手动"标未读"小圆点（无未读数时显示，M4.5）
     NSLayoutConstraint *_badgeWidth;
+}
+
+- (void)applyOutboxSending:(BOOL)sending failed:(BOOL)failed {
+    if ((!sending && !failed) || _last.text.length == 0) { return; }
+    // 微信式：正在发送 → 副标题前置 ↑ 圈；有失败件 → 红色感叹号（同时存在时失败优先，更需要用户处理）。
+    NSString *symbol = failed ? @"exclamationmark.circle.fill" : @"arrow.up.circle";
+    UIColor *tint = failed ? UIColor.systemRedColor : IMTheme.accent;
+    UIImage *icon = [[UIImage systemImageNamed:symbol
+                             withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:13 weight:UIImageSymbolWeightMedium]]
+                     imageWithTintColor:tint renderingMode:UIImageRenderingModeAlwaysOriginal];
+    NSTextAttachment *att = [NSTextAttachment new];
+    att.image = icon;
+    CGFloat side = 14;
+    att.bounds = CGRectMake(0, (_last.font.capHeight - side) / 2.0, side, side); // cap 高居中，不顶行高
+    NSMutableAttributedString *s = [[NSAttributedString attributedStringWithAttachment:att] mutableCopy];
+    [s appendAttributedString:[[NSAttributedString alloc]
+        initWithString:[@" " stringByAppendingString:_last.text]
+            attributes:@{ NSFontAttributeName: _last.font, NSForegroundColorAttributeName: _last.textColor }]];
+    _last.attributedText = s;
 }
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
@@ -251,6 +273,7 @@ static CGFloat const kIMRowLeading = 16;
 @property (nonatomic, strong) UILabel *emptyLabel;
 @property (nonatomic, assign) BOOL visible; // 在屏时才响应新消息刷新（避免进聊天页时无谓拉取）
 @property (nonatomic, strong) NSMutableSet<NSString *> *trackedConvIDs; // 已登记增量同步的会话（每会话只登记一次）
+@property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *outboxStates; // conv → 0无/1发送中/2失败（去抖用）
 @end
 
 @implementation IMConversationListViewController
@@ -335,6 +358,12 @@ static CGFloat const kIMRowLeading = 16;
     // 连接状态变化 → 标题显示 连接中/未连接（取代"任何失败都弹框"）。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketState:)
                                                name:IMSocketDidChangeStateNotification object:nil];
+    // 本地媒体/文件发送状态 → 副标题 ↑/! 标记刷新（进度通知每片一次，reloadData 对小列表足够便宜）。
+    for (NSNotificationName n in @[IMMediaSendProgressDidChangeNotification, IMMediaSendMetaDidChangeNotification,
+                                   IMMediaSendDidDispatchNotification, IMMediaSendDidFailNotification,
+                                   IMMediaSendDidCancelNotification]) {
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onMediaSendStateChange:) name:n object:nil];
+    }
     // 即使 HTTP 当前不可用，也先把 SQLite 中的会话登记给 socket；服务恢复后可立即按本地位点补拉。
     [self trackConversationsForSync];
     // 必须先监听再发起连接，避免快速连接时错过 Connecting/Connected 通知。
@@ -351,6 +380,24 @@ static CGFloat const kIMRowLeading = 16;
     [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidReceiveGroupEventNotification object:nil];
     [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidUpdateConversationNotification object:nil];
     [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidChangeStateNotification object:nil];
+    for (NSNotificationName n in @[IMMediaSendProgressDidChangeNotification, IMMediaSendMetaDidChangeNotification,
+                                   IMMediaSendDidDispatchNotification, IMMediaSendDidFailNotification,
+                                   IMMediaSendDidCancelNotification]) {
+        [NSNotificationCenter.defaultCenter removeObserver:self name:n object:nil];
+    }
+}
+
+/// 发送状态变化 → 仅当该会话的 ↑/! 标记真正翻转时才 reload（进度通知每片一次，逐次刷新纯浪费）。
+- (void)onMediaSendStateChange:(NSNotification *)note {
+    NSString *convID = note.userInfo[@"conv_id"];
+    if (convID.length == 0) { return; }
+    BOOL sending = [IMMediaSendService.shared inFlightMessagesInConv:convID].count > 0;
+    BOOL failed = [IMMediaSendService.shared hasFailedOutboxInConv:convID];
+    NSInteger state = failed ? 2 : (sending ? 1 : 0);
+    if (!self.outboxStates) { self.outboxStates = [NSMutableDictionary dictionary]; }
+    if ([self.outboxStates[convID] integerValue] == state) { return; }
+    self.outboxStates[convID] = @(state);
+    [self.tableView reloadData];
 }
 
 /// 连接状态 → 标题后缀（连接中/未连接），网络问题不再弹框。
@@ -573,6 +620,9 @@ static CGFloat const kIMRowLeading = 16;
     IMConversationCell *cell = [tableView dequeueReusableCellWithIdentifier:@"conv" forIndexPath:indexPath];
     IMConversation *c = self.conversations[indexPath.row];
     [cell configureWithConversation:c mine:[c.lastFrom isEqualToString:self.userID] host:self.host];
+    // 本地发送状态（常驻发送服务）：发送中 ↑ / 失败红 !，随服务通知刷新（onMediaSendStateChange）。
+    [cell applyOutboxSending:[IMMediaSendService.shared inFlightMessagesInConv:c.convID].count > 0
+                      failed:[IMMediaSendService.shared hasFailedOutboxInConv:c.convID]];
     return cell;
 }
 

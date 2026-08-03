@@ -129,20 +129,39 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
 }
 
 - (void)loadThumbnail:(void (^)(UIImage *_Nullable))completion {
+    if (self.isVideo) {
+        // 快路径：系统预览图**毫秒级**返回，不需要先把整个视频从相册拷出来。
+        // 走 _work 队列的抽帧路径要等 ensureVideoTmpURL 拷完 70MB（真机实测 ~28s），
+        // 用户在这段时间只能看着空白方块——正是"选完视频缩略图空白+后续跳动"的根因。
+        [_ip loadPreviewImageWithOptions:@{} completionHandler:^(__kindof id<NSSecureCoding> item, NSError *error) {
+            UIImage *preview = [item isKindOfClass:UIImage.class] ? (UIImage *)item
+                             : ([item isKindOfClass:NSData.class] ? [UIImage imageWithData:(NSData *)item] : nil);
+            if (preview) {
+                dispatch_async(dispatch_get_main_queue(), ^{ completion(IMPickerDownscale(preview, 600)); });
+            } else {
+                [self loadThumbnailByExtractingFrame:completion]; // 拿不到预览才落慢路径
+            }
+        }];
+        return;
+    }
+    dispatch_async(_work, ^{
+        UIImage *thumb = IMPickerDownscale([self loadUIImage], 600);
+        dispatch_async(dispatch_get_main_queue(), ^{ completion(thumb); });
+    });
+}
+
+/// 慢路径兜底：等视频临时文件就绪后抽首帧（与 loadData 共享 _work 串行队列与 tmp 文件）。
+- (void)loadThumbnailByExtractingFrame:(void (^)(UIImage *_Nullable))completion {
     dispatch_async(_work, ^{
         UIImage *thumb = nil;
-        if (self.isVideo) {
-            NSURL *url = [self ensureVideoTmpURL];
-            if (url) {
-                AVURLAsset *asset = [AVURLAsset URLAssetWithURL:url options:nil];
-                AVAssetImageGenerator *gen = [[AVAssetImageGenerator alloc] initWithAsset:asset];
-                gen.appliesPreferredTrackTransform = YES;
-                gen.maximumSize = CGSizeMake(600, 600);
-                CGImageRef cg = [gen copyCGImageAtTime:CMTimeMakeWithSeconds(0.1, 600) actualTime:NULL error:NULL];
-                if (cg) { thumb = [UIImage imageWithCGImage:cg]; CGImageRelease(cg); }
-            }
-        } else {
-            thumb = IMPickerDownscale([self loadUIImage], 600);
+        NSURL *url = [self ensureVideoTmpURL];
+        if (url) {
+            AVURLAsset *asset = [AVURLAsset URLAssetWithURL:url options:nil];
+            AVAssetImageGenerator *gen = [[AVAssetImageGenerator alloc] initWithAsset:asset];
+            gen.appliesPreferredTrackTransform = YES;
+            gen.maximumSize = CGSizeMake(600, 600);
+            CGImageRef cg = [gen copyCGImageAtTime:CMTimeMakeWithSeconds(0.1, 600) actualTime:NULL error:NULL];
+            if (cg) { thumb = [UIImage imageWithCGImage:cg]; CGImageRelease(cg); }
         }
         dispatch_async(dispatch_get_main_queue(), ^{ completion(thumb); });
     });

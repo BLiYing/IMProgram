@@ -14,6 +14,8 @@ static const CGFloat kIMMediaMinSide = 80;   // 极端长条的短边下限（�
 static const CGFloat kIMBadgeInset = 6;      // 角标距缩略图边缘
 static const CGFloat kIMBadgeHeight = 18;
 
+static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标（播放/暂停/继续/重试/取消）
+
 @implementation IMImageCell {
     UIImageView *_thumb;
     UIImageView *_playBadge;   // 视频封面上的播放角标
@@ -33,6 +35,7 @@ static const CGFloat kIMBadgeHeight = 18;
     NSLayoutConstraint *_thumbTopUnderName;  // 有昵称：thumb 挂昵称下方
     NSString *_url;
     BOOL _sizeFromMedia;       // YES=尺寸来自协议/预览（权威），加载出图后无需重排
+    BOOL _isVideoCell;         // 上传态结束后据此还原中心播放按钮（图片则隐藏）
 }
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
@@ -174,6 +177,8 @@ static const CGFloat kIMBadgeHeight = 18;
     _senderLabel.hidden = !showName;
     [self applyAlignmentMine:mine showName:showName];
     _thumb.image = preview; // 本地预览先行（上传中/防闪）；无预览为 nil 占位灰底
+    _isVideoCell = isVideo;
+    _playBadge.image = IMCenterBadgeImage(@"play.circle.fill"); // 复用期可能残留上传态图标，先还原
     _playBadge.hidden = !isVideo;
     _progressWrap.hidden = YES;
 
@@ -289,18 +294,45 @@ static const CGFloat kIMBadgeHeight = 18;
 
 #pragma mark - 上传进度
 
+/// 上传状态机的中心按钮图标（占播放按钮的位置，上传完成前视频本来也不能播）：
+///   排队/压缩 → ✕（取消发送）；上传中(可暂停) → ⏸；已暂停 → ↑（点击继续**上**传，与将来下载的 ↓ 呼应）；
+///   失败 → ↻（点击重试）；一次性小上传 → 不显按钮（几秒传完，无暂停价值）。
+static NSString *IMUploadCenterSymbol(IMUploadProgress *p) {
+    if (p.failed) { return @"arrow.clockwise.circle.fill"; }
+    if (p.phase == IMUploadPhaseQueued || p.phase == IMUploadPhaseTranscoding) { return @"xmark.circle.fill"; }
+    if (!p.pausable) { return nil; }
+    return p.pausedByUser ? @"arrow.up.circle.fill" : @"pause.circle.fill";
+}
+
+static UIImage *IMCenterBadgeImage(NSString *symbolName) {
+    return [UIImage systemImageNamed:symbolName
+                   withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:44 weight:UIImageSymbolWeightRegular]];
+}
+
 - (void)setUploadProgress:(IMUploadProgress *)progress {
-    if (progress == nil) {                       // 不在上传中：恢复时长角标
+    if (progress == nil) {                       // 不在上传中：恢复时长角标与（视频的）播放按钮
         _progressWrap.hidden = YES;
         _progressWrap.backgroundColor = IMTheme.mediaBadgeBackground;
         _durationWrap.hidden = _durationLabel.text.length == 0;
+        _playBadge.image = IMCenterBadgeImage(@"play.circle.fill");
+        _playBadge.hidden = !_isVideoCell;
         return;
     }
     _durationWrap.hidden = YES;                  // 与时长角标互斥（同占左上角）
     _progressWrap.hidden = NO;
     _progressWrap.backgroundColor = progress.failed ? IMTheme.danger : IMTheme.mediaBadgeBackground;
-    _progressLabel.text = [progress displayText];
+    NSString *text = [progress displayText];
+    if (progress.pausedByUser && !progress.failed) { text = [@"已暂停 · " stringByAppendingString:text]; }
+    _progressLabel.text = text;
     [self.contentView bringSubviewToFront:_progressWrap];
+    NSString *symbol = IMUploadCenterSymbol(progress);
+    if (symbol) {
+        _playBadge.image = IMCenterBadgeImage(symbol);
+        _playBadge.hidden = NO;
+        [self.contentView bringSubviewToFront:_playBadge];
+    } else {
+        _playBadge.hidden = YES;
+    }
 }
 
 #pragma mark -

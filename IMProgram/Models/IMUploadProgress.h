@@ -48,6 +48,10 @@ typedef NS_ENUM(NSInteger, IMUploadPhase) {
 /// 暂停态（用户主动停在分片边界，服务端保留已传字节）。
 @property (nonatomic, assign) BOOL pausedByUser;
 
+/// 是否可暂停：走分片上传的作业为 YES（点⏸停在片边界）；一次性小上传为 NO（几秒传完，无暂停价值）。
+/// 决定媒体气泡中心按钮：uploading+pausable → ⏸；paused → ↑（点击续传）；failed → ↻。
+@property (nonatomic, assign) BOOL pausable;
+
 @end
 
 NS_ASSUME_NONNULL_END

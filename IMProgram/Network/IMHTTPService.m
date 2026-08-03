@@ -113,6 +113,8 @@ BOOL IMIsTransientNetworkError(NSError *error) {
 
 @interface IMHTTPService ()
 @property (atomic, copy, nullable) NSString *currentToken; // 对外只读，内部可写
+@property (atomic, copy, nullable) NSString *tokenUserID;      // 缓存 token 归属的 uid（切账号即失效）
+@property (atomic, assign) CFAbsoluteTime tokenFetchedAt;      // 取得时刻：TTL 内直接复用，不重复 POST /login
 @end
 
 @implementation IMHTTPService
@@ -126,6 +128,15 @@ BOOL IMIsTransientNetworkError(NSError *error) {
 
 - (void)loginWithUserID:(NSString *)userID
              completion:(void (^)(NSString *, NSError *))completion {
+    // TTL 内同账号直接复用缓存 token：会话列表每次 viewWillAppear 都会走到这里，
+    // 不去重就是每切一次页面一次 POST /login（真机日志一分钟内 5 次）。TTL 取 10 分钟，
+    // 远小于服务端 24h 过期；异常失效（如服务端换密钥）由下一次 TTL 过期后的重登自愈。
+    NSString *cached = self.currentToken;
+    if (cached.length > 0 && [self.tokenUserID isEqualToString:userID]
+        && CFAbsoluteTimeGetCurrent() - self.tokenFetchedAt < 600) {
+        [self callOnMain:^{ completion(cached, nil); }];
+        return;
+    }
     NSDictionary *reqBody = @{ @"username": userID ?: @"", @"password": self.password ?: @"" };
     NSURLRequest *req = [self postRequestToPath:@"/api/v1/login" body:reqBody];
     if (!req) {
@@ -143,6 +154,8 @@ BOOL IMIsTransientNetworkError(NSError *error) {
             return;
         }
         self.currentToken = token; // 缓存：供聊天页等无需重登即可发 HTTP（举报）
+        self.tokenUserID = userID;
+        self.tokenFetchedAt = CFAbsoluteTimeGetCurrent();
         completion(token, nil);
     }];
 }
