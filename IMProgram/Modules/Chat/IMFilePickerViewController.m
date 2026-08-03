@@ -20,7 +20,6 @@
     BOOL _hasMore;
     BOOL _documentPickerPresented;
     UITableView *_tableView;
-    NSURL *_pickedDocumentURL;
 }
 
 + (UIDocumentPickerViewController *)systemDocumentPicker {
@@ -68,24 +67,6 @@
     _tableView.delegate = self;
     [self.view addSubview:_tableView];
     [self loadNextPage:NO];
-}
-
-- (void)viewDidAppear:(BOOL)animated {
-    [super viewDidAppear:animated];
-    // UIDocumentPicker 自己负责关闭 File Provider 页面；等文件面板重新可见后再关闭面板，
-    // 避免应用与系统同时 dismiss 导致 Files 的返回栈被截断。
-    if (!_documentPickerPresented || self.presentedViewController) { return; }
-    _documentPickerPresented = NO;
-    NSURL *url = _pickedDocumentURL;
-    if (!url) {
-        IMLogUI(@"系统文件浏览器已关闭，返回文件面板");
-        return;
-    }
-    _pickedDocumentURL = nil;
-    void (^callback)(NSURL *) = _onPickDocument;
-    [self dismissViewControllerAnimated:YES completion:^{
-        if (callback) { callback(url); }
-    }];
 }
 
 - (void)loadNextPage:(BOOL)nextPage {
@@ -138,13 +119,21 @@
 - (void)documentPicker:(UIDocumentPickerViewController *)controller
     didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
     NSURL *url = urls.firstObject;
-    if (!url) { return; }
     IMLogUI(@"系统文件浏览器完成选择：picker=%p，count=%lu", controller, (unsigned long)urls.count);
-    _pickedDocumentURL = [url copy];
+    _documentPickerPresented = NO;
+    // 系统会自行关闭 picker；从文件面板的呈现者（聊天页）一次性收起整条模态栈，
+    // 直接回到聊天页并把选中文件交给回调发送，不再返回中间的文件面板。
+    void (^callback)(NSURL *) = _onPickDocument;
+    [self.presentingViewController dismissViewControllerAnimated:YES completion:^{
+        if (callback && url) { callback(url); }
+    }];
 }
 
 - (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller {
     IMLogUI(@"系统文件浏览器取消选择：picker=%p", controller);
+    _documentPickerPresented = NO;
+    // 点叉叉取消：同样收起整条模态栈，直接回到聊天页。
+    [self.presentingViewController dismissViewControllerAnimated:YES completion:nil];
 }
 
 // section 0 = 入口两项；section 1 = 最近发送的文件
