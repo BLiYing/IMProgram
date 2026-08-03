@@ -26,6 +26,9 @@
     m.forwardFrom    = [self stringForKey:@"forward_from" in:data];
     m.groupID        = [self stringForKey:@"group_id" in:data];
     m.poster         = [self stringForKey:@"poster" in:data];
+    m.mediaW         = [data[@"media_w"] integerValue];
+    m.mediaH         = [data[@"media_h"] integerValue];
+    m.duration       = [data[@"duration"] longLongValue];
     return m;
 }
 
@@ -53,6 +56,9 @@
     if (self.forwardFrom) { d[@"forward_from"] = self.forwardFrom; }
     if (self.groupID) { d[@"group_id"] = self.groupID; }
     if (self.poster) { d[@"poster"] = self.poster; }
+    if (self.mediaW > 0) { d[@"media_w"] = @(self.mediaW); }
+    if (self.mediaH > 0) { d[@"media_h"] = @(self.mediaH); }
+    if (self.duration > 0) { d[@"duration"] = @(self.duration); }
     return d;
 }
 
@@ -80,6 +86,9 @@
     m.forwardFrom    = [self stringForKey:@"forward_from" in:dict];
     m.groupID        = [self stringForKey:@"group_id" in:dict];
     m.poster         = [self stringForKey:@"poster" in:dict];
+    m.mediaW         = [dict[@"media_w"] integerValue];
+    m.mediaH         = [dict[@"media_h"] integerValue];
+    m.duration       = [dict[@"duration"] longLongValue];
     return m;
 }
 

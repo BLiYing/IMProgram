@@ -1,6 +1,7 @@
 #import <UIKit/UIKit.h>
 
 @class IMMessageModel;
+@class IMUploadProgress;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -11,10 +12,10 @@ NS_ASSUME_NONNULL_BEGIN
                         mine:(BOOL)mine
                         host:(NSString *)host
                     previews:(NSDictionary<NSString *, UIImage *> *)previews
-                    progress:(NSDictionary<NSString *, NSNumber *> *)progress
+                    progress:(NSDictionary<NSString *, IMUploadProgress *> *)progress
                   senderName:(nullable NSString *)senderName;
 - (void)refreshWithPreviews:(NSDictionary<NSString *, UIImage *> *)previews
-                   progress:(NSDictionary<NSString *, NSNumber *> *)progress;
+                   progress:(NSDictionary<NSString *, IMUploadProgress *> *)progress;
 - (void)applyGroupAvatarURL:(nullable NSString *)url
                        seed:(NSString *)seed
                        name:(nullable NSString *)name

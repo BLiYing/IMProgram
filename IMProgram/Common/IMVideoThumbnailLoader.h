@@ -17,6 +17,9 @@ NS_ASSUME_NONNULL_BEGIN
 /// 预置缓存：上传完成后把本地首帧种到该 URL 名下，气泡切服务器 URL 时无需重新抽帧（不闪图）。
 - (void)cachePoster:(nullable UIImage *)poster forURL:(nullable NSString *)urlString;
 
+/// 同步取缓存封面（不发起抽帧）。cell 布局阶段据此推断视频比例，未命中返回 nil。
+- (nullable UIImage *)cachedPosterForURL:(nullable NSString *)urlString;
+
 @end
 
 NS_ASSUME_NONNULL_END

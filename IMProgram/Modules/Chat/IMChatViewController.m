@@ -27,6 +27,7 @@
 #import "IMChatDetailViewController.h"
 #import "IMProtocol.h"
 #import "IMMessageModel.h"
+#import "IMUploadProgress.h"
 #import "IMDatabase.h"
 #import "IMMenuAction.h"
 #import "UIViewController+IMToast.h"
@@ -127,7 +128,8 @@ static NSString *IMReplySnippet(IMMessageModel *m) {
 @property (nonatomic, strong) NSLayoutConstraint *replyBarHeight;
 // 批量发送 UX：选完立即上屏乐观气泡（本地预览），逐项真实字节进度居中显示。key=clientMsgID（发送前为 outbox- 临时键）。
 @property (nonatomic, strong) NSMutableDictionary<NSString *, UIImage *> *outboxPreviews;
-@property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *outboxProgress; // 0..1 上传中；-2 失败
+// 上传进度：值带「已传比例 + 媒体本体总字节数」，界面显「3.2 MB / 7.9 MB」；失败为 failedProgress。
+@property (nonatomic, strong) NSMutableDictionary<NSString *, IMUploadProgress *> *outboxProgress;
 @end
 
 @implementation IMChatViewController
@@ -1121,7 +1123,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         m.timestamp = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
         [self.messages addObject:m];
         [pending addObject:m];
-        self.outboxProgress[m.clientMsgID] = @(0.0); // 排队中 → 环形进度 0%
+        self.outboxProgress[m.clientMsgID] = [IMUploadProgress queuedWithTotalBytes:0]; // 排队中（总大小待 loadData 后才知道）
     }
     [self.tableView reloadData]; // 一次性上屏：宫格只有 1 个可见 cell（从行零高），无逐条插行闪动
     [self scrollToAbsoluteBottom];
@@ -1154,11 +1156,19 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
             [self uploadMediaHandles:handles messages:msgs index:idx + 1];
             return;
         }
+        // 发送端量出的媒体元数据：先落到消息模型（本地气泡立刻按原比例排版），随后随 send_msg 上行给收端。
+        m.mediaW = (NSInteger)item.pixelSize.width;
+        m.mediaH = (NSInteger)item.pixelSize.height;
+        m.duration = item.durationMillis;
+        m.fileSize = (int64_t)item.data.length;
+        [self refreshVisibleCellForMessage:m]; // 尺寸已知 → 气泡从方形占位切到真实比例
         [IMHTTPService.sharedService uploadData:item.data fileName:item.fileName mimeType:item.mimeType token:token
             progress:^(double fraction) {
                 __strong typeof(ws) self2 = ws;
                 if (!self2) { return; }
-                self2.outboxProgress[m.clientMsgID ?: @""] = @(fraction);
+                // 分母用**媒体本体字节数**而非 multipart 整包（后者含 boundary/头，会比文件属性大一截）。
+                self2.outboxProgress[m.clientMsgID ?: @""] =
+                    [IMUploadProgress progressWithFraction:fraction totalBytes:(int64_t)item.data.length];
                 [self2 updateUploadProgressForMessage:m]; // 只改覆盖层/环 strokeEnd，不 reload（无闪烁）
             }
             completion:^(NSString *url, NSString *contentType, NSError *error) {
@@ -1177,7 +1187,10 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 
 - (void)markOutboxFailed:(IMMessageModel *)m toastIndex:(NSUInteger)n {
     m.status = IMMessageStatusFailed;
-    self.outboxProgress[m.clientMsgID ?: @""] = @(-2); // 宫格该格标"!" / 单张气泡居中标"发送失败"
+    // 用户只看到一句 toast；失败的会话/消息定位靠这条（HTTP 层的 request_id 日志可据 client_msg_id 对账）。
+    IMLogWarnWithTag(IMLogTagUI, @"media_send_failed conv_id=%@ client_msg_id=%@ content_type=%@ media_w=%ld media_h=%ld bytes=%lld",
+                     self.convID, m.clientMsgID ?: @"", m.contentType ?: @"", (long)m.mediaW, (long)m.mediaH, m.fileSize);
+    self.outboxProgress[m.clientMsgID ?: @""] = [IMUploadProgress failedProgress]; // 宫格该格标"!" / 单张气泡标"发送失败"
     [self updateUploadProgressForMessage:m];
     [self im_showToast:[NSString stringWithFormat:@"第 %lu 项发送失败", (unsigned long)n]];
 }
@@ -1216,9 +1229,15 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         [ws handleSendResult:success convSeq:convSeq error:error forClientMsgID:m.clientMsgID];
     };
     NSString *toUser = self.isGroupChat ? @"" : self.peerID;
+    // 随消息上行发送端量出的尺寸/时长/字节数（PROTOCOL §4.1），收端据此按原比例排版 + 显时长角标。
+    IMMediaAttributes *attrs = [IMMediaAttributes attributesWithGroupID:m.groupID poster:poster];
+    attrs.pixelWidth = m.mediaW;
+    attrs.pixelHeight = m.mediaH;
+    attrs.durationMillis = m.duration;
+    attrs.fileSize = m.fileSize;
     NSString *realID = [IMSocketManager.sharedManager sendMedia:url contentType:ct
                                                          toConv:self.convID toUser:toUser
-                                                        groupID:m.groupID poster:poster completion:completion];
+                                                     attributes:attrs completion:completion];
     m.clientMsgID = realID;
     m.content = url;
     m.contentType = ct;
@@ -1245,6 +1264,14 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     [self.tableView reloadRowsAtIndexPaths:@[ip] withRowAnimation:UITableViewRowAnimationNone];
 }
 
+/// 就地重算行高（媒体 cell 拿到真实比例后调用）：不 reload、不动画，避免打断滚动与图片闪烁。
+- (void)refreshRowHeightsWithoutAnimation {
+    [UIView performWithoutAnimation:^{
+        [self.tableView beginUpdates];
+        [self.tableView endUpdates];
+    }];
+}
+
 /// 进度只改可见 cell 的覆盖层/进度环（不 reload，避免高频进度回调闪烁）。
 - (void)updateUploadProgressForMessage:(IMMessageModel *)m {
     NSUInteger row = [self visibleRowForMessage:m];
@@ -1253,8 +1280,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     if ([cell isKindOfClass:IMAlbumCell.class]) {
         [(IMAlbumCell *)cell refreshWithPreviews:self.outboxPreviews progress:self.outboxProgress];
     } else if ([cell isKindOfClass:IMImageCell.class]) {
-        NSNumber *p = self.outboxProgress[m.clientMsgID ?: @""];
-        [(IMImageCell *)cell setUploadProgress:(p ? p.floatValue : -1)];
+        [(IMImageCell *)cell setUploadProgress:self.outboxProgress[m.clientMsgID ?: @""]];
     }
 }
 
@@ -1399,8 +1425,19 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         __strong typeof(ws) self = ws;
         if (!self) { return; }
         if (error || url.length == 0) { [self im_showToast:@"图片上传失败"]; return; }
-        [self sendMediaURL:url contentType:(contentType ?: @"image")];
+        [self sendMediaURL:url contentType:(contentType ?: @"image") fileName:nil fileSize:0
+           mediaAttributes:[self mediaAttributesForImage:image bytes:(int64_t)data.length]];
     }];
+}
+
+/// 单图路径（相机/粘贴）的媒体元数据：像素尺寸 + 上传字节数，供收端按原比例排版。
+- (IMMediaAttributes *)mediaAttributesForImage:(UIImage *)image bytes:(int64_t)bytes {
+    IMMediaAttributes *attrs = [IMMediaAttributes new];
+    CGFloat scale = image.scale > 0 ? image.scale : 1;
+    attrs.pixelWidth = (NSInteger)round(image.size.width * scale);
+    attrs.pixelHeight = (NSInteger)round(image.size.height * scale);
+    attrs.fileSize = bytes;
+    return attrs;
 }
 
 - (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker {
@@ -1409,14 +1446,20 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 
 /// 发送已上传的媒体：走 socket sendMedia，乐观上屏。
 - (void)sendMediaURL:(NSString *)url contentType:(NSString *)contentType {
-    [self sendMediaURL:url contentType:contentType fileName:nil fileSize:0];
+    [self sendMediaURL:url contentType:contentType fileName:nil fileSize:0 mediaAttributes:nil];
 }
 
 - (void)sendMediaURL:(NSString *)url contentType:(NSString *)contentType fileName:(NSString *)fileName {
-    [self sendMediaURL:url contentType:contentType fileName:fileName fileSize:0];
+    [self sendMediaURL:url contentType:contentType fileName:fileName fileSize:0 mediaAttributes:nil];
 }
 
 - (void)sendMediaURL:(NSString *)url contentType:(NSString *)contentType fileName:(NSString *)fileName fileSize:(int64_t)fileSize {
+    [self sendMediaURL:url contentType:contentType fileName:fileName fileSize:fileSize mediaAttributes:nil];
+}
+
+/// mediaAttributes：图片/视频的尺寸与时长（相机/粘贴等单图路径由调用方量出）；file 消息传 nil。
+- (void)sendMediaURL:(NSString *)url contentType:(NSString *)contentType fileName:(NSString *)fileName
+            fileSize:(int64_t)fileSize mediaAttributes:(IMMediaAttributes *)mediaAttributes {
     __block NSString *clientMsgID = nil;
     int64_t sentAt = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
     __weak typeof(self) ws = self;
@@ -1435,14 +1478,18 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     if ([contentType isEqualToString:@"file"]) {
         clientMsgID = [IMSocketManager.sharedManager sendFile:url fileName:fileName ?: @"" fileSize:fileSize toConv:self.convID toUser:toUser completion:completion];
     } else {
-        clientMsgID = [IMSocketManager.sharedManager sendMedia:url contentType:contentType toConv:self.convID toUser:toUser completion:completion];
+        clientMsgID = [IMSocketManager.sharedManager sendMedia:url contentType:contentType toConv:self.convID toUser:toUser
+                                                    attributes:mediaAttributes completion:completion];
     }
 
     IMMessageModel *m = [IMMessageModel new];
     m.clientMsgID = clientMsgID; m.convID = self.convID; m.to = self.peerID; m.from = self.userID;
     m.content = url; m.contentType = contentType; m.status = IMMessageStatusSending;
     m.fileName = fileName;
-    m.fileSize = fileSize;
+    m.fileSize = mediaAttributes.fileSize > 0 ? mediaAttributes.fileSize : fileSize;
+    m.mediaW = mediaAttributes.pixelWidth;
+    m.mediaH = mediaAttributes.pixelHeight;
+    m.duration = mediaAttributes.durationMillis;
     m.timestamp = sentAt;
     [self performDatabaseOperation:^(IMDatabase *database) {
         [database saveMessage:m];
@@ -1535,7 +1582,8 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         __strong typeof(ws) self = ws;
         if (!self) { return; }
         if (error || url.length == 0) { [self im_showToast:@"图片上传失败"]; return; }
-        [self sendMediaURL:url contentType:(contentType ?: @"image")];
+        [self sendMediaURL:url contentType:(contentType ?: @"image") fileName:nil fileSize:0
+           mediaAttributes:[self mediaAttributesForImage:image bytes:(int64_t)jpeg.length]];
     }];
 }
 
@@ -1552,6 +1600,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     NSString *contentType = message.contentType ?: @"text";
     NSString *fileName = message.fileName;
     int64_t fileSize = message.fileSize;
+    IMMediaAttributes *attrs = [self forwardAttributesForMessage:message];
     __weak typeof(self) ws = self;
     IMForwardPickerViewController *picker = [[IMForwardPickerViewController alloc]
         initWithHost:self.host token:token onDone:^(NSArray<IMConversation *> *selected) {
@@ -1560,7 +1609,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         for (IMConversation *c in selected) {
             NSString *toUser = c.isGroup ? @"" : (c.peer ?: @"");
             [self forwardEchoContent:content contentType:contentType forwardFrom:origin fileName:fileName fileSize:fileSize
-                              toConv:c.convID toUser:toUser];
+                          attributes:attrs toConv:c.convID toUser:toUser];
         }
         [self im_showToast:selected.count == 1 ? @"已转发" : [NSString stringWithFormat:@"已转发到 %lu 个会话", (unsigned long)selected.count]];
     }];
@@ -1834,21 +1883,23 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     if ([m.contentType isEqualToString:@"image"] || [m.contentType isEqualToString:@"video"]) {
         IMImageCell *img = [tableView dequeueReusableCellWithIdentifier:@"image" forIndexPath:indexPath];
         BOOL mineI = [m.from isEqualToString:self.userID];
-        BOOL isVideo = [m.contentType isEqualToString:@"video"];
         NSString *key = m.clientMsgID ?: @"";
         BOOL grpI = self.isGroupChat && !mineI;
         BOOL firstI = grpI && [self isFirstInSenderRun:indexPath.row];
         BOOL lastI = grpI && [self isLastInSenderRun:indexPath.row];
         NSString *senderNameI = firstI ? [self senderNameForMessage:m] : nil;
-        [img configureWithURL:(m.content.length > 0 ? [self fullMediaURL:m.content] : @"")
-                      isVideo:isVideo mine:mineI previewImage:self.outboxPreviews[key] senderName:senderNameI];
+        [img configureWithMessage:m
+                          fullURL:(m.content.length > 0 ? [self fullMediaURL:m.content] : @"")
+                             mine:mineI peerReadSeq:self.peerReadSeq
+                     previewImage:self.outboxPreviews[key] senderName:senderNameI];
         [img applyGroupAvatarURL:(grpI ? [self senderAvatarURLForMessage:m] : nil)
                             seed:(m.from ?: @"") name:(grpI ? [self senderNameForMessage:m] : nil)
                       showAvatar:lastI gutter:grpI];
-        NSNumber *prog = self.outboxProgress[key];
-        [img setUploadProgress:(prog ? prog.floatValue : -1)];
+        [img setUploadProgress:self.outboxProgress[key]];
         __weak typeof(self) ws = self;
         img.onTap = ^(UIImage *image) { [ws presentMediaViewerForMessage:m preloaded:image]; };
+        // 老消息无 media_w/h：异步出图后才知比例 → 刷一次行高（无动画，不打断滚动）。
+        img.onMediaSizeResolved = ^{ [ws refreshRowHeightsWithoutAnimation]; };
         return img;
     }
     IMBubbleCell *cell = [tableView dequeueReusableCellWithIdentifier:@"bubble" forIndexPath:indexPath];
@@ -2169,6 +2220,26 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 /// ACK 后按 clientMsgID upsert 状态/conv_seq（页面已退出也能改到库，重进会话读到正确状态）。
 - (void)forwardEchoContent:(NSString *)content contentType:(NSString *)ct forwardFrom:(NSString *)origin fileName:(NSString *)fileName fileSize:(int64_t)fileSize
                     toConv:(NSString *)convID toUser:(NSString *)toUser {
+    [self forwardEchoContent:content contentType:ct forwardFrom:origin fileName:fileName fileSize:fileSize
+                  attributes:nil toConv:convID toUser:toUser];
+}
+
+/// 从源消息取出转发要一并带走的媒体元数据（封面/尺寸/时长）；非媒体消息返回 nil。
+- (IMMediaAttributes *)forwardAttributesForMessage:(IMMessageModel *)message {
+    BOOL isMedia = [message.contentType isEqualToString:@"image"] || [message.contentType isEqualToString:@"video"];
+    if (!isMedia) { return nil; }
+    IMMediaAttributes *attrs = [IMMediaAttributes new];
+    attrs.poster = message.poster;          // 视频封面（不带的话 Web 收端解不了 HEVC 就只剩空白）
+    attrs.pixelWidth = message.mediaW;
+    attrs.pixelHeight = message.mediaH;
+    attrs.durationMillis = message.duration;
+    attrs.fileSize = message.fileSize;
+    return attrs;
+}
+
+/// attributes：原消息的封面/尺寸/时长。转发不带就等于把这些信息丢了（收端只能按未知渲染，事后补不回）。
+- (void)forwardEchoContent:(NSString *)content contentType:(NSString *)ct forwardFrom:(NSString *)origin fileName:(NSString *)fileName fileSize:(int64_t)fileSize
+                attributes:(IMMediaAttributes *)attributes toConv:(NSString *)convID toUser:(NSString *)toUser {
     IMMessageModel *m = [IMMessageModel new];
     int64_t sentAt = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
     __weak typeof(self) ws = self;
@@ -2176,6 +2247,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
                                                                    toConv:convID toUser:toUser forwardFrom:origin
                                                                  fileName:fileName
                                                                  fileSize:fileSize
+                                                               attributes:attributes
                                                                completion:^(BOOL success, NSError *error, int64_t convSeq) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
@@ -2202,6 +2274,10 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     m.content = content; m.contentType = ct;
     m.fileName = fileName;
     m.fileSize = fileSize;
+    m.poster = attributes.poster.length > 0 ? attributes.poster : nil;
+    m.mediaW = attributes.pixelWidth;
+    m.mediaH = attributes.pixelHeight;
+    m.duration = attributes.durationMillis;
     m.forwardFrom = origin.length > 0 ? origin : nil;
     m.status = IMMessageStatusSending;
     m.timestamp = sentAt;
@@ -2233,7 +2309,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
             NSString *origin = m.forwardFrom.length > 0 ? m.forwardFrom
                 : (m.fromNickname.length > 0 ? m.fromNickname : (m.from ?: @""));
             [self forwardEchoContent:m.content contentType:(m.contentType ?: @"text") forwardFrom:origin fileName:m.fileName fileSize:m.fileSize
-                              toConv:c.convID toUser:toUser];
+                          attributes:[self forwardAttributesForMessage:m] toConv:c.convID toUser:toUser];
         }
     }
     [self exitSelection];

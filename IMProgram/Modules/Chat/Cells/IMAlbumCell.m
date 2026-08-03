@@ -1,5 +1,6 @@
 #import "IMAlbumCell.h"
 #import "IMMessageModel.h"
+#import "IMUploadProgress.h"
 #import "IMImageLoader.h"
 #import "IMVideoThumbnailLoader.h"
 #import "IMMediaUtil.h"
@@ -11,7 +12,7 @@
 @property (nonatomic, strong) UIImageView *playBadge;
 @property (nonatomic, strong) IMMessageModel *member; ///< 本格对应的消息（tap/菜单定位用）
 @property (nonatomic, copy)   NSString *loadKey;      ///< 异步加载防串图
-- (void)setProgress:(nullable NSNumber *)p; ///< nil=无/完成；0..1=环形进度；<0=失败
+- (void)setProgress:(nullable IMUploadProgress *)p; ///< nil/已完成=无覆盖；否则环形进度；failed=红「!」
 @end
 
 @implementation IMAlbumTileView {
@@ -92,12 +93,12 @@
     _ring.frame = ringFrame;
     [CATransaction commit];
 }
-- (void)setProgress:(NSNumber *)p {
-    if (!p || p.floatValue >= 1) { // 无进度 / 完成
+- (void)setProgress:(IMUploadProgress *)p {
+    if (!p || (!p.failed && p.fraction >= 1)) { // 无进度 / 完成
         _dim.hidden = YES; _ringBG.hidden = YES; _ring.hidden = YES; _failBadge.hidden = YES;
         return;
     }
-    if (p.floatValue < 0) { // 失败
+    if (p.failed) {
         _dim.hidden = NO; _ringBG.hidden = YES; _ring.hidden = YES; _failBadge.hidden = NO;
         return;
     }
@@ -105,7 +106,7 @@
     _ringBG.hidden = NO; _ring.hidden = NO;
     [CATransaction begin];
     [CATransaction setDisableActions:YES]; // 高频进度回调不做隐式动画（避免滞后）
-    _ring.strokeEnd = MAX(0.02, p.floatValue); // 0% 也露一点头，可感知"在动"
+    _ring.strokeEnd = MAX(0.02, p.fraction); // 0% 也露一点头，可感知"在动"
     [CATransaction commit];
 }
 @end
@@ -217,7 +218,7 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
 
 - (void)configureWithMembers:(NSArray<IMMessageModel *> *)members mine:(BOOL)mine host:(NSString *)host
                     previews:(NSDictionary<NSString *, UIImage *> *)previews
-                    progress:(NSDictionary<NSString *, NSNumber *> *)progress
+                    progress:(NSDictionary<NSString *, IMUploadProgress *> *)progress
                   senderName:(NSString *)senderName {
     _container.layer.cornerRadius = IMTheme.radiusBubble;
     _senderLabel.font = [UIFont systemFontOfSize:MAX(12, IMTheme.chatFontSize - 4) weight:UIFontWeightSemibold];
@@ -265,7 +266,7 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
 /// 单块绑定：本地预览优先（上传中/防闪），否则按 URL 异步加载（复用防串图）。
 - (void)bindTile:(IMAlbumTileView *)tile toMember:(IMMessageModel *)m
         previews:(NSDictionary<NSString *, UIImage *> *)previews
-        progress:(NSDictionary<NSString *, NSNumber *> *)progress {
+        progress:(NSDictionary<NSString *, IMUploadProgress *> *)progress {
     tile.member = m;
     BOOL isVideo = [m.contentType isEqualToString:@"video"];
     tile.playBadge.hidden = !isVideo;
@@ -287,7 +288,7 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
 }
 
 - (void)refreshWithPreviews:(NSDictionary<NSString *, UIImage *> *)previews
-                   progress:(NSDictionary<NSString *, NSNumber *> *)progress {
+                   progress:(NSDictionary<NSString *, IMUploadProgress *> *)progress {
     BOOL mine = NO;
     NSMutableArray<IMMessageModel *> *members = [NSMutableArray array];
     for (IMAlbumTileView *tile in _tiles) {

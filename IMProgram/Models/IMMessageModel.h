@@ -47,6 +47,11 @@ typedef NS_ENUM(NSInteger, IMMessageStatus) {
 @property (nonatomic, copy, nullable) NSString *groupID;
 /// M4+ 视频封面：首帧图 URL（发送时生成上传，随消息回带）；收端直显封面免解码原视频（空=非视频/无封面）。
 @property (nonatomic, copy, nullable) NSString *poster;
+/// M4+ 媒体像素宽高（image/video，发送端量出，随消息回带）；0=未知 → 气泡回退方形占位、加载完再自适应。
+@property (nonatomic, assign) NSInteger mediaW;
+@property (nonatomic, assign) NSInteger mediaH;
+/// M4+ 视频时长（**毫秒**，随消息回带）；0=未知/非视频 → 不显时长角标。
+@property (nonatomic, assign) int64_t duration;
 /// M4-5 翻译：译文（**内存临时态，不落库**；翻译后挂气泡下方）。
 @property (nonatomic, copy, nullable) NSString *translation;
 

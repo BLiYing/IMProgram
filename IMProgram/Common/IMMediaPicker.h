@@ -17,6 +17,11 @@ extern const long long kIMMaxVideoBytes; // 视频体积上限（与服务端 10
 @property (nonatomic, copy)   NSString *fileName;   ///< 带扩展名（如 photo.jpg / video.mp4）
 @property (nonatomic, copy)   NSString *mimeType;
 @property (nonatomic, assign) BOOL      isVideo;
+/// **最终产物**（压缩/转码后）的像素尺寸，已按 EXIF/视频 preferredTransform 校正为显示方向；
+/// CGSizeZero=未知。随消息上行（media_w/media_h），收端据此按原比例渲染气泡。
+@property (nonatomic, assign) CGSize    pixelSize;
+/// 视频时长（毫秒）；0=非视频或未知。随消息上行（duration），收端在封面左上角显 mm:ss。
+@property (nonatomic, assign) int64_t   durationMillis;
 @end
 
 /// 惰性媒体句柄：持有 NSItemProvider，重活（压缩/转码）延后到 loadData。

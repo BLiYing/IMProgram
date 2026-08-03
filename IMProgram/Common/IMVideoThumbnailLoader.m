@@ -26,6 +26,10 @@
     if (poster && urlString.length > 0) { [_cache setObject:poster forKey:urlString]; }
 }
 
+- (UIImage *)cachedPosterForURL:(NSString *)urlString {
+    return urlString.length > 0 ? [_cache objectForKey:urlString] : nil;
+}
+
 - (void)loadPosterForVideoURL:(NSString *)urlString completion:(void (^)(UIImage *_Nullable))completion {
     if (!completion) { return; }
     if (urlString.length == 0) { completion(nil); return; }

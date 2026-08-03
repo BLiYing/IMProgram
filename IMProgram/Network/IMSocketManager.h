@@ -4,6 +4,7 @@
 //  对齐 IMServer/docs/PROTOCOL.md。所有回调切回主线程。
 
 #import <Foundation/Foundation.h>
+#import "IMMediaAttributes.h"
 
 @class IMSocketManager;
 @class IMMessageModel;
@@ -117,6 +118,18 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
                    fileSize:(int64_t)fileSize
                  completion:(nullable IMSendCompletion)completion;
 
+/// 转发（媒体元数据变体）：attributes 带原消息的封面/尺寸/时长——**转发必须带上**，
+/// 否则收端只能按"未知"渲染（比例、时长角标全丢），且这些字段发送时即冻结、事后补不回来。
+- (NSString *)forwardContent:(NSString *)content
+                 contentType:(NSString *)contentType
+                      toConv:(NSString *)convID
+                      toUser:(NSString *)toUserID
+                 forwardFrom:(NSString *)forwardFrom
+                    fileName:(nullable NSString *)fileName
+                    fileSize:(int64_t)fileSize
+                  attributes:(nullable IMMediaAttributes *)attributes
+                  completion:(nullable IMSendCompletion)completion;
+
 /// 上报「已读到 convSeq」：对端据此显示已读双勾，本人未读随之清零（仅 read 推进已读位点）。
 - (void)markReadConv:(NSString *)convID upToConvSeq:(int64_t)convSeq;
 
@@ -161,6 +174,15 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
                 groupID:(nullable NSString *)groupID
                  poster:(nullable NSString *)poster
             completion:(nullable IMSendCompletion)completion;
+
+/// 发送富媒体（完整元数据变体，M4+，**其余重载最终都汇到这里**）：attributes 带相册分组、封面、
+/// 像素宽高、视频时长与原始字节数（见 IMMediaAttributes / PROTOCOL §4.1），nil 等价于无元数据。
+- (NSString *)sendMedia:(NSString *)url
+            contentType:(NSString *)contentType
+                 toConv:(NSString *)convID
+                 toUser:(NSString *)toUserID
+             attributes:(nullable IMMediaAttributes *)attributes
+             completion:(nullable IMSendCompletion)completion;
 
 /// 登记一个会话用于增量同步：每次（重）连成功后，自动从该会话已同步位点发 sync_req
 /// 拉取离线/缺失的消息。

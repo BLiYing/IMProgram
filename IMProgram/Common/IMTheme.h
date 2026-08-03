@@ -26,6 +26,10 @@ NS_ASSUME_NONNULL_BEGIN
 @property (class, nonatomic, readonly) UIColor *checkRead;     // 已读双勾绿
 @property (class, nonatomic, readonly) UIColor *unreadBadge;   // 未读胶囊（蓝，区别于绿在线点/绿勾）
 @property (class, nonatomic, readonly) UIColor *bubbleMetaTime; // 气泡内时间小字（浅色气泡上的次要色）
+// 媒体（图片/视频）上的悬浮角标：底恒为半透明黑，故字色不随明暗主题变化（浅色图上也要读得清）。
+@property (class, nonatomic, readonly) UIColor *mediaBadgeBackground; // 时长/时间/进度角标底
+@property (class, nonatomic, readonly) UIColor *mediaBadgeText;       // 角标文字（白）
+@property (class, nonatomic, readonly) UIColor *mediaBadgeCheckRead;  // 角标内已读双勾（亮绿，暗底可辨）
 
 // 聊天壁纸（Telegram 绿主题：渐变 + 涂鸦）
 @property (class, nonatomic, readonly) UIColor *wallpaperTop;     // 渐变上端

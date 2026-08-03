@@ -44,6 +44,9 @@
 + (UIColor *)checkRead { return [self dynamicLight:[self rgb:0x4CA64C] dark:[self rgb:0x7DDc7D]]; }
 + (UIColor *)unreadBadge { return UIColor.systemBlueColor; }
 + (UIColor *)bubbleMetaTime { return [self dynamicLight:[self rgb:0x6B8A5E] dark:[self rgb:0x9FB89A]]; }
++ (UIColor *)mediaBadgeBackground { return [self rgb:0x000000 alpha:0.5]; }
++ (UIColor *)mediaBadgeText { return UIColor.whiteColor; }
++ (UIColor *)mediaBadgeCheckRead { return [self rgb:0x7DDC7D]; }
 
 + (UIColor *)wallpaperTop { return IMAppearance.shared.wallpaperTopColor; }
 + (UIColor *)wallpaperBottom { return IMAppearance.shared.wallpaperBottomColor; }

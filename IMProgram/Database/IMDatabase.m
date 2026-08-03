@@ -111,7 +111,10 @@
             @"forward_from": @"TEXT", // M4-3 转发溯源
             @"group_id": @"TEXT",     // M4+ 相册分组（同批多图/视频聚簇渲染宫格）
             @"poster": @"TEXT",       // M4+ 视频封面首帧 URL
-            @"file_size": @"INTEGER NOT NULL DEFAULT 0", // 文件原始字节数
+            @"file_size": @"INTEGER NOT NULL DEFAULT 0", // 文件/媒体原始字节数
+            @"media_w": @"INTEGER NOT NULL DEFAULT 0",   // M4+ 媒体像素宽（按原比例渲染气泡）
+            @"media_h": @"INTEGER NOT NULL DEFAULT 0",   // M4+ 媒体像素高
+            @"duration": @"INTEGER NOT NULL DEFAULT 0",  // M4+ 视频时长（毫秒，封面左上角角标）
         };
         for (NSString *col in opCols) {
             if (![self column:col existsInTable:@"im_message_local" db:db]) {
@@ -346,23 +349,30 @@
                 @"UPDATE im_message_local SET server_msg_id=?,sender=?,recipient=?,content_type=?,content=?,"
                  "file_name=CASE WHEN LENGTH(?)>0 THEN ? ELSE file_name END,"
                  "file_size=CASE WHEN ?>0 THEN ? ELSE file_size END,"
+                 // 媒体尺寸/时长同 file_size：本地发送端量出的值优先保留，服务端回声若为 0（老消息/老端）不覆盖。
+                 "media_w=CASE WHEN ?>0 THEN ? ELSE media_w END,"
+                 "media_h=CASE WHEN ?>0 THEN ? ELSE media_h END,"
+                 "duration=CASE WHEN ?>0 THEN ? ELSE duration END,"
                  "conv_seq=?,timestamp=?,status=?,note=?,from_nickname=?,recalled_at=?,recalled_by=?,edited_at=?,pinned_at=?,reply_to_conv_seq=?,reply_snapshot=?,forward_from=?,group_id=?,poster=? WHERE row_id=?",
                 message.serverMsgID ?: @"", message.from ?: @"", message.to ?: @"",
                 message.contentType ?: @"text", message.content ?: @"",
                 message.fileName ?: @"", message.fileName ?: @"", @(message.fileSize), @(message.fileSize),
+                @(message.mediaW), @(message.mediaW), @(message.mediaH), @(message.mediaH),
+                @(message.duration), @(message.duration),
                 @(message.convSeq), @(message.timestamp), @(message.status), message.note ?: @"",
                 message.fromNickname ?: @"", @(message.recalledAt), message.recalledBy ?: @"",
                 @(message.editedAt), @(message.pinnedAt), @(message.replyToConvSeq), message.replySnapshot ?: @"", message.forwardFrom ?: @"", message.groupID ?: @"", message.poster ?: @"", rowID];
         } else {
             ok = [db executeUpdate:
-                @"INSERT INTO im_message_local (owner_uid,client_msg_id,server_msg_id,conv_id,sender,recipient,content_type,content,file_name,file_size,conv_seq,timestamp,status,note,from_nickname,recalled_at,recalled_by,edited_at,pinned_at,reply_to_conv_seq,reply_snapshot,forward_from,group_id,poster) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                @"INSERT INTO im_message_local (owner_uid,client_msg_id,server_msg_id,conv_id,sender,recipient,content_type,content,file_name,file_size,conv_seq,timestamp,status,note,from_nickname,recalled_at,recalled_by,edited_at,pinned_at,reply_to_conv_seq,reply_snapshot,forward_from,group_id,poster,media_w,media_h,duration) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 owner, message.clientMsgID ?: @"", message.serverMsgID ?: @"", message.convID,
                 message.from ?: @"", message.to ?: @"", message.contentType ?: @"text",
                 message.content ?: @"", message.fileName ?: @"", @(message.fileSize),
                 @(message.convSeq), @(message.timestamp), @(message.status),
                 message.note ?: @"", message.fromNickname ?: @"", @(message.recalledAt),
                 message.recalledBy ?: @"", @(message.editedAt), @(message.pinnedAt),
-                @(message.replyToConvSeq), message.replySnapshot ?: @"", message.forwardFrom ?: @"", message.groupID ?: @"", message.poster ?: @""];
+                @(message.replyToConvSeq), message.replySnapshot ?: @"", message.forwardFrom ?: @"", message.groupID ?: @"", message.poster ?: @"",
+                @(message.mediaW), @(message.mediaH), @(message.duration)];
         }
         if (!ok) {
             IMLogDatabase(@"保存消息失败 owner=%@ conv=%@: %@", owner, message.convID, db.lastErrorMessage);
@@ -605,6 +615,9 @@
             m.groupID = gid.length > 0 ? gid : nil;
             NSString *poster = [rs stringForColumn:@"poster"];
             m.poster = poster.length > 0 ? poster : nil;
+            m.mediaW   = [rs longForColumn:@"media_w"];
+            m.mediaH   = [rs longForColumn:@"media_h"];
+            m.duration = [rs longLongIntForColumn:@"duration"];
             [out addObject:m];
         }
         [rs close];

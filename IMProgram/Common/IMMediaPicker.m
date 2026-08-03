@@ -1,8 +1,10 @@
 //  IMMediaPicker.m
 
 #import "IMMediaPicker.h"
+#import "IMLog.h"
 #import <PhotosUI/PhotosUI.h>
 #import <AVFoundation/AVFoundation.h>
+#import <ImageIO/ImageIO.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 // 视频不按时长限制（用户拍板），仅保留与服务端一致的 100MB 体积上限。
@@ -28,6 +30,55 @@ static UIImage *IMPickerDownscale(UIImage *src, CGFloat maxSide) {
     return [r imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
         [src drawInRect:CGRectMake(0, 0, target.width, target.height)];
     }];
+}
+
+/// UIImage 的像素尺寸（size 是点，乘 scale 得像素）。
+static CGSize IMPickerPixelSizeOfImage(UIImage *image) {
+    if (!image) { return CGSizeZero; }
+    CGFloat s = image.scale > 0 ? image.scale : 1;
+    return CGSizeMake(round(image.size.width * s), round(image.size.height * s));
+}
+
+/// 从图片字节读像素尺寸：只解文件头，不整图解码（原图直传路径没有 UIImage 可用）。
+/// EXIF 方向 ≥5 表示旋转 90°，需交换宽高才是**显示尺寸**——否则收端会把竖图当横图排版。
+static CGSize IMPickerPixelSizeOfImageData(NSData *data) {
+    if (data.length == 0) { return CGSizeZero; }
+    CGImageSourceRef src = CGImageSourceCreateWithData((__bridge CFDataRef)data, NULL);
+    if (!src) { return CGSizeZero; }
+    NSDictionary *props = CFBridgingRelease(CGImageSourceCopyPropertiesAtIndex(src, 0, NULL));
+    CFRelease(src);
+    CGFloat w = [props[(NSString *)kCGImagePropertyPixelWidth] doubleValue];
+    CGFloat h = [props[(NSString *)kCGImagePropertyPixelHeight] doubleValue];
+    if (w <= 0 || h <= 0) { return CGSizeZero; }
+    NSInteger orientation = [props[(NSString *)kCGImagePropertyOrientation] integerValue];
+    return orientation >= 5 ? CGSizeMake(h, w) : CGSizeMake(w, h);
+}
+
+/// 读视频轨的显示像素尺寸（含 preferredTransform 旋转）与时长毫秒；读不到则保持零值。
+static void IMPickerReadVideoMeta(NSURL *url, CGSize *outSize, int64_t *outMillis) {
+    if (!url) { return; }
+    AVURLAsset *asset = [AVURLAsset URLAssetWithURL:url options:nil];
+    Float64 seconds = CMTimeGetSeconds(asset.duration);
+    if (outMillis && isfinite(seconds) && seconds > 0) { *outMillis = (int64_t)llround(seconds * 1000); }
+    AVAssetTrack *track = [asset tracksWithMediaType:AVMediaTypeVideo].firstObject;
+    if (!track || !outSize) { return; }
+    CGSize natural = track.naturalSize;
+    CGSize shown = CGRectApplyAffineTransform(CGRectMake(0, 0, natural.width, natural.height), track.preferredTransform).size;
+    if (shown.width > 0 && shown.height > 0) { *outSize = CGSizeMake(round(fabs(shown.width)), round(fabs(shown.height))); }
+}
+
+/// 量不到尺寸/时长 → 收端只能按未知渲染（无时长角标、比例回退）。这是排版问题的源头，必须留痕。
+/// 只记元数据（是否视频、字节数、量到的值），不记文件路径与内容。
+static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, int64_t durationMillis) {
+    BOOL sizeKnown = size.width > 0 && size.height > 0;
+    BOOL durationKnown = !isVideo || durationMillis > 0;
+    if (sizeKnown && durationKnown) {
+        IMLogDebugWithTag(IMLogTagUI, @"media_probe_ok is_video=%d bytes=%lu media_w=%.0f media_h=%.0f duration_ms=%lld",
+                          isVideo, (unsigned long)bytes, size.width, size.height, durationMillis);
+        return;
+    }
+    IMLogWarnWithTag(IMLogTagUI, @"media_probe_incomplete is_video=%d bytes=%lu media_w=%.0f media_h=%.0f duration_ms=%lld",
+                     isVideo, (unsigned long)bytes, size.width, size.height, durationMillis);
 }
 
 #pragma mark - 惰性句柄
@@ -111,6 +162,7 @@ static UIImage *IMPickerDownscale(UIImage *src, CGFloat maxSide) {
             item.fileName = name;
             item.mimeType = type.preferredMIMEType ?: @"application/octet-stream";
             item.isVideo = self.isVideo;
+            if (!self.isVideo) { item.pixelSize = IMPickerPixelSizeOfImageData(data); }
         }
         dispatch_async(dispatch_get_main_queue(), ^{ completion(item); });
     }];
@@ -132,18 +184,23 @@ static UIImage *IMPickerDownscale(UIImage *src, CGFloat maxSide) {
             m.mimeType = [ext isEqualToString:@"png"] ? @"image/png"
                        : [ext isEqualToString:@"heic"] ? @"image/heic" : @"image/jpeg";
             m.isVideo = NO;
+            m.pixelSize = IMPickerPixelSizeOfImageData(raw); // 原图直传：从文件头取尺寸，不整图解码
+            IMPickerLogMediaMeta(NO, raw.length, m.pixelSize, 0);
             return m;
         } // 拿不到原始文件 → 回落压缩路径
     }
     UIImage *image = [self loadUIImage];
     if (!image) { return nil; }
-    NSData *jpeg = UIImageJPEGRepresentation(IMPickerDownscale(image, kIMImageMaxSide), kIMImageJPEGQuality);
+    UIImage *scaled = IMPickerDownscale(image, kIMImageMaxSide);
+    NSData *jpeg = UIImageJPEGRepresentation(scaled, kIMImageJPEGQuality);
     if (jpeg.length == 0) { return nil; }
     IMPickedMedia *m = [IMPickedMedia new];
     m.data = jpeg;
     m.fileName = @"photo.jpg";
     m.mimeType = @"image/jpeg";
     m.isVideo = NO;
+    m.pixelSize = IMPickerPixelSizeOfImage(scaled); // 上报**压缩后**尺寸（收端拿到的就是这张）
+    IMPickerLogMediaMeta(NO, jpeg.length, m.pixelSize, 0);
     return m;
 }
 
@@ -176,8 +233,11 @@ static UIImage *IMPickerDownscale(UIImage *src, CGFloat maxSide) {
     if (!tmpURL) { return nil; }
     NSString *ext = _videoExt;
     NSData *raw = nil;
+    CGSize pixelSize = CGSizeZero;
+    int64_t durationMillis = 0;
     if (_original) {
         raw = [NSData dataWithContentsOfURL:tmpURL];
+        IMPickerReadVideoMeta(tmpURL, &pixelSize, &durationMillis);
     } else {
         AVURLAsset *asset = [AVURLAsset URLAssetWithURL:tmpURL options:nil];
         NSURL *outURL = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:
@@ -193,9 +253,11 @@ static UIImage *IMPickerDownscale(UIImage *src, CGFloat maxSide) {
         if (export.status == AVAssetExportSessionStatusCompleted) {
             raw = [NSData dataWithContentsOfURL:outURL];
             ext = @"mp4";
+            IMPickerReadVideoMeta(outURL, &pixelSize, &durationMillis); // 量**转码后**的尺寸（收端拿到的就是这份）
             [[NSFileManager defaultManager] removeItemAtURL:outURL error:NULL];
         } else {
             raw = [NSData dataWithContentsOfURL:tmpURL]; // 转码失败 → 回落原文件（服务端仍有 100MB 兜底）
+            IMPickerReadVideoMeta(tmpURL, &pixelSize, &durationMillis);
         }
     }
     [[NSFileManager defaultManager] removeItemAtURL:tmpURL error:NULL];
@@ -208,6 +270,9 @@ static UIImage *IMPickerDownscale(UIImage *src, CGFloat maxSide) {
     m.fileName = [@"video." stringByAppendingString:ext];
     m.mimeType = [ext isEqualToString:@"mov"] ? @"video/quicktime" : @"video/mp4";
     m.isVideo = YES;
+    m.pixelSize = pixelSize;
+    m.durationMillis = durationMillis;
+    IMPickerLogMediaMeta(YES, raw.length, pixelSize, durationMillis);
     return m;
 }
 

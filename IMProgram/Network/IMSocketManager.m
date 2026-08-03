@@ -410,6 +410,11 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
 }
 
 - (NSString *)forwardContent:(NSString *)content contentType:(NSString *)contentType toConv:(NSString *)convID toUser:(NSString *)toUserID forwardFrom:(NSString *)forwardFrom fileName:(NSString *)fileName fileSize:(int64_t)fileSize completion:(IMSendCompletion)completion {
+    return [self forwardContent:content contentType:contentType toConv:convID toUser:toUserID forwardFrom:forwardFrom
+                       fileName:fileName fileSize:fileSize attributes:nil completion:completion];
+}
+
+- (NSString *)forwardContent:(NSString *)content contentType:(NSString *)contentType toConv:(NSString *)convID toUser:(NSString *)toUserID forwardFrom:(NSString *)forwardFrom fileName:(NSString *)fileName fileSize:(int64_t)fileSize attributes:(IMMediaAttributes *)attributes completion:(IMSendCompletion)completion {
     NSString *ct = contentType.length > 0 ? contentType : @"text";
     if ([ct isEqualToString:@"text"]) { // 文本走既有路径（可带引用等），媒体走带 content_type 的负载
         return [self forwardText:content toConv:convID toUser:toUserID forwardFrom:forwardFrom completion:completion];
@@ -425,10 +430,38 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     if (forwardFrom.length > 0) { payload[@"forward_from"] = forwardFrom; }
     if ([ct isEqualToString:@"file"] && fileName.length > 0) { payload[@"file_name"] = fileName; }
     if ([ct isEqualToString:@"file"] && fileSize > 0) { payload[@"file_size"] = @(fileSize); }
+    [self applyMediaAttributes:attributes toPayload:payload]; // 封面/尺寸/时长随转发一并带走
     dispatch_async(_queue, ^{
         [self enqueueSendWithClientMsgID:clientMsgID payload:payload completion:completion];
     });
     return clientMsgID;
+}
+
+/// 把媒体元数据写进 send_msg 负载（PROTOCOL §4.1）：0/空=未知，不上行。发送与转发共用。
+/// 这里是媒体上行的唯一收口，故也是"发出去到底带没带尺寸/时长"的唯一可信日志点。
+- (void)applyMediaAttributes:(IMMediaAttributes *)attributes toPayload:(NSMutableDictionary *)payload {
+    if (!attributes) { return; }
+    if (attributes.groupID.length > 0) { payload[@"group_id"] = attributes.groupID; } // 相册分组（M4+），服务端透传
+    if (attributes.poster.length > 0) { payload[@"poster"] = attributes.poster; }     // 视频封面首帧 URL（M4+），收端直显免解码
+    if (attributes.pixelWidth > 0)  { payload[@"media_w"] = @(attributes.pixelWidth); }
+    if (attributes.pixelHeight > 0) { payload[@"media_h"] = @(attributes.pixelHeight); }
+    if (attributes.durationMillis > 0) { payload[@"duration"] = @(attributes.durationMillis); }
+    if (attributes.fileSize > 0 && !payload[@"file_size"]) { payload[@"file_size"] = @(attributes.fileSize); }
+
+    NSString *ct = payload[@"content_type"] ?: @"";
+    BOOL isMedia = [ct isEqualToString:@"image"] || [ct isEqualToString:@"video"];
+    if (!isMedia) { return; }
+    // 只记元数据，不记 content/poster URL 之外的业务正文（URL 属媒体元信息，允许）。
+    if (attributes.pixelWidth <= 0 || attributes.pixelHeight <= 0) {
+        // 收端只能回退"加载完再自适应"，是排版异常的头号根因 → 发出即留痕。
+        IMLogWarnWithTag(IMLogTagSocket, @"media_meta_missing conv_id=%@ client_msg_id=%@ content_type=%@ bytes=%lld has_poster=%@",
+                         payload[@"conv_id"], payload[@"client_msg_id"], ct, attributes.fileSize,
+                         attributes.poster.length > 0 ? @"1" : @"0");
+        return;
+    }
+    IMLogSocket(@"media_meta_attached conv_id=%@ client_msg_id=%@ content_type=%@ media_w=%ld media_h=%ld duration_ms=%lld bytes=%lld",
+                payload[@"conv_id"], payload[@"client_msg_id"], ct,
+                (long)attributes.pixelWidth, (long)attributes.pixelHeight, attributes.durationMillis, attributes.fileSize);
 }
 
 - (NSString *)sendMedia:(NSString *)url contentType:(NSString *)contentType toConv:(NSString *)convID toUser:(NSString *)toUserID completion:(IMSendCompletion)completion {
@@ -457,6 +490,11 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
 }
 
 - (NSString *)sendMedia:(NSString *)url contentType:(NSString *)contentType toConv:(NSString *)convID toUser:(NSString *)toUserID groupID:(NSString *)groupID poster:(NSString *)poster completion:(IMSendCompletion)completion {
+    return [self sendMedia:url contentType:contentType toConv:convID toUser:toUserID
+                attributes:[IMMediaAttributes attributesWithGroupID:groupID poster:poster] completion:completion];
+}
+
+- (NSString *)sendMedia:(NSString *)url contentType:(NSString *)contentType toConv:(NSString *)convID toUser:(NSString *)toUserID attributes:(IMMediaAttributes *)attributes completion:(IMSendCompletion)completion {
     NSString *clientMsgID = [NSUUID UUID].UUIDString;
     NSMutableDictionary *payload = [@{
         @"client_msg_id": clientMsgID,
@@ -465,8 +503,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
         @"content_type":  contentType ?: @"image",
         @"content":       url ?: @"",
     } mutableCopy];
-    if (groupID.length > 0) { payload[@"group_id"] = groupID; } // 相册分组（M4+），服务端透传
-    if (poster.length > 0) { payload[@"poster"] = poster; }     // 视频封面首帧 URL（M4+），收端直显免解码
+    [self applyMediaAttributes:attributes toPayload:payload];
     dispatch_async(_queue, ^{
         [self enqueueSendWithClientMsgID:clientMsgID payload:payload completion:completion];
     });
