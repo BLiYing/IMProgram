@@ -48,8 +48,10 @@ static CGFloat const kIMContextMenuMargin = 8;
 }
 - (void)layoutSubviews {
     [super layoutSubviews];
-    self.titleLabel.frame = CGRectMake(16, 0, self.bounds.size.width - 62, self.bounds.size.height);
-    self.iconView.frame = CGRectMake(self.bounds.size.width - 46, 0, 30, self.bounds.size.height);
+    // 图标在左、文字在右（对齐系统长按 UIMenu 与微信式菜单）。
+    self.iconView.frame = CGRectMake(16, 0, 24, self.bounds.size.height);
+    CGFloat titleX = 16 + 24 + 12;
+    self.titleLabel.frame = CGRectMake(titleX, 0, self.bounds.size.width - titleX - 14, self.bounds.size.height);
 }
 - (void)setHighlighted:(BOOL)highlighted {
     [super setHighlighted:highlighted];
@@ -81,7 +83,7 @@ static CGFloat const kIMContextMenuMargin = 8;
 
         _card = IMGlassEffectView(NO);
         _card.clipsToBounds = YES;
-        _card.layer.cornerRadius = 14;
+        _card.layer.cornerRadius = IMTheme.radiusBubble;  // 走设计令牌，不写魔法值（当前=14，与气泡同档）
         _card.layer.cornerCurve = kCACornerCurveContinuous;
         _card.layer.borderWidth = 1.0 / UIScreen.mainScreen.scale;
         _card.layer.borderColor = [IMTheme.separator colorWithAlphaComponent:0.55].CGColor;

@@ -37,7 +37,7 @@
 #import <Photos/Photos.h>
 #import <AVFoundation/AVFoundation.h>
 #import <SafariServices/SafariServices.h>
-#import "IMBottomSheet.h"
+#import "IMPopoverCard.h"
 
 NSNotificationName const IMChatConversationClearedNotification = @"IMChatConversationClearedNotification";
 
@@ -1055,18 +1055,18 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
                                     preloadedImage:image
                                      onOpenGallery:^{ [ws openConversationMediaGallery]; }];
     // 「更多」外部动作（内置「下载」由查看器自己加在最前）。
-    NSMutableArray<IMBottomSheetItem *> *acts = [NSMutableArray array];
+    NSMutableArray<IMPopoverCardItem *> *acts = [NSMutableArray array];
     if (m.convSeq > 0) {
-        [acts addObject:[IMBottomSheetItem itemWithTitle:@"定位到聊天位置" symbol:@"text.bubble" handler:^{
+        [acts addObject:[IMPopoverCardItem itemWithTitle:@"定位到聊天位置" symbol:@"text.bubble" destructive:NO handler:^{
             [ws jumpToConvSeq:m.convSeq];
         }]];
     }
-    [acts addObject:[IMBottomSheetItem itemWithTitle:@"收藏" symbol:@"bookmark" handler:^{ [ws favoriteMessage:m]; }]];
-    [acts addObject:[IMBottomSheetItem itemWithTitle:@"复制" symbol:@"doc.on.doc" handler:^{
+    [acts addObject:[IMPopoverCardItem itemWithTitle:@"收藏" symbol:@"bookmark" destructive:NO handler:^{ [ws favoriteMessage:m]; }]];
+    [acts addObject:[IMPopoverCardItem itemWithTitle:@"复制" symbol:@"doc.on.doc" destructive:NO handler:^{
         [ws copyMessageToPasteboard:m]; // 图片→复制图片字节（可粘贴回输入框发图）；其余→复制链接
     }]];
     if (m.recalledAt == 0 && m.convSeq > 0) {
-        [acts addObject:[IMBottomSheetItem itemWithTitle:@"转发" symbol:@"arrowshape.turn.up.right" handler:^{ [ws forwardMessage:m]; }]];
+        [acts addObject:[IMPopoverCardItem itemWithTitle:@"转发" symbol:@"arrowshape.turn.up.right" destructive:NO handler:^{ [ws forwardMessage:m]; }]];
     }
     viewer.moreActions = acts;
     [self presentViewController:viewer animated:YES completion:nil];

@@ -43,6 +43,7 @@
     UIButton *_closeButton;
     UIButton *_downloadButton;
     UIButton *_galleryButton;
+    UIButton *_moreButton;   // 「更多」锚点（IMPopoverCard 从它旁边展开）
     BOOL      _saving;
 }
 
@@ -364,6 +365,7 @@ didFinishDownloadingToURL:(NSURL *)location {
     if (self.moreActions.count > 0) {
         UIButton *more = [self circleButtonWithSymbol:@"ellipsis" pointSize:16];
         [more addTarget:self action:@selector(showMoreSheet) forControlEvents:UIControlEventTouchUpInside];
+        _moreButton = more;
         [self.view addSubview:more];
         [NSLayoutConstraint activateConstraints:@[
             [more.trailingAnchor constraintEqualToAnchor:rightAnchorView.leadingAnchor constant:-14],
@@ -467,21 +469,22 @@ didFinishDownloadingToURL:(NSURL *)location {
     }] resume];
 }
 
-/// 「更多」底部面板：内置「下载」（不关查看器）+ 外部动作（先关查看器再执行，回到聊天页上下文）。
+/// 「更多」锚点菜单：内置「下载」（不关查看器）+ 外部动作（先关查看器再执行，回到聊天页上下文）。
+/// 锚定右下角「⋯」按钮，靠近屏幕下沿时 IMPopoverCard 自动向上展开。
 - (void)showMoreSheet {
     __weak typeof(self) ws = self;
-    NSMutableArray<IMBottomSheetItem *> *items = [NSMutableArray array];
-    [items addObject:[IMBottomSheetItem itemWithTitle:@"下载" symbol:@"arrow.down.to.line" handler:^{
+    NSMutableArray<IMPopoverCardItem *> *items = [NSMutableArray array];
+    [items addObject:[IMPopoverCardItem itemWithTitle:@"下载" symbol:@"arrow.down.to.line" destructive:NO handler:^{
         [ws saveToAlbum];
     }]];
-    for (IMBottomSheetItem *ext in self.moreActions) {
-        dispatch_block_t inner = ext.handler;
-        [items addObject:[IMBottomSheetItem itemWithTitle:ext.title symbol:ext.symbol handler:^{
+    for (IMPopoverCardItem *ext in self.moreActions) {
+        void (^inner)(void) = ext.handler;
+        [items addObject:[IMPopoverCardItem itemWithTitle:ext.title symbol:ext.symbol destructive:ext.destructive handler:^{
             __strong typeof(ws) self = ws;
             [self dismissViewControllerAnimated:YES completion:^{ if (inner) { inner(); } }];
         }]];
     }
-    [IMBottomSheet showInView:self.view items:items];
+    [IMPopoverCard presentFromAnchor:_moreButton inHostView:self.view items:items];
 }
 
 - (void)openGallery {
