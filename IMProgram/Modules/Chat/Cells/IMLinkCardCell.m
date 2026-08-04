@@ -2,12 +2,14 @@
 #import "IMMessageModel.h"
 #import "IMHTTPService.h"
 #import "IMImageLoader.h"
+#import "UILabel+IMAvatar.h"
 #import "IMTheme.h"
 
 static NSString *IMLocalizeSnippet(NSString *snap) {
     if ([snap isEqualToString:@"[image]"]) { return @"[图片]"; }
     if ([snap isEqualToString:@"[video]"]) { return @"[视频]"; }
     if ([snap isEqualToString:@"[file]"])  { return @"[文件]"; }
+    if ([snap hasPrefix:@"[file] "]) { return [@"[文件] " stringByAppendingString:[snap substringFromIndex:7]]; } // 文件带原名（M4-x）
     return snap ?: @"";
 }
 
@@ -25,6 +27,10 @@ static NSString *IMLocalizeSnippet(NSString *snap) {
     NSLayoutConstraint *_leading;
     NSLayoutConstraint *_trailing;
     NSString *_url;
+    UILabel *_senderLabel;    // 群聊对方消息：发送者昵称（连续段首条显示，主色小字）
+    UILabel *_avatar;         // 群聊对方消息：头像（连续段末条显示，贴内容底左侧）
+    NSLayoutConstraint *_stackTop;          // 无昵称：stack 贴 cell 顶
+    NSLayoutConstraint *_stackTopUnderName; // 有昵称：stack 接昵称底
 }
 + (NSCache<NSString *, NSDictionary *> *)previewCache {
     static NSCache *c; static dispatch_once_t once; dispatch_once(&once, ^{ c = [NSCache new]; c.countLimit = 200; });
@@ -63,6 +69,24 @@ static NSString *IMLocalizeSnippet(NSString *snap) {
         _stack.translatesAutoresizingMaskIntoConstraints = NO;
         [self.contentView addSubview:_stack];
 
+        // 群聊对方消息（与 IMBubbleCell/IMImageCell 一致）：昵称在内容上方、头像贴内容底左侧。
+        _senderLabel = [UILabel new];
+        _senderLabel.translatesAutoresizingMaskIntoConstraints = NO;
+        _senderLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+        _senderLabel.textColor = IMTheme.accent;
+        _senderLabel.hidden = YES;
+        [self.contentView addSubview:_senderLabel];
+
+        _avatar = [UILabel new];
+        _avatar.translatesAutoresizingMaskIntoConstraints = NO;
+        _avatar.textColor = UIColor.whiteColor;
+        _avatar.textAlignment = NSTextAlignmentCenter;
+        _avatar.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+        _avatar.layer.cornerRadius = 15;
+        _avatar.layer.masksToBounds = YES;
+        _avatar.hidden = YES;
+        [self.contentView addSubview:_avatar];
+
         _thumb = [UIImageView new];
         _thumb.translatesAutoresizingMaskIntoConstraints = NO;
         _thumb.contentMode = UIViewContentModeScaleAspectFill;
@@ -84,10 +108,22 @@ static NSString *IMLocalizeSnippet(NSString *snap) {
         _leading = [_stack.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12];
         _trailing = [_stack.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-12];
         _thumbHeight = [_thumb.heightAnchor constraintEqualToConstant:0]; // 无图时为 0
+        // stack 顶：无昵称贴 cell 顶，有昵称接昵称底（群聊连续段首条）——二选一。
+        _stackTop = [_stack.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:3];
+        _stackTopUnderName = [_stack.topAnchor constraintEqualToAnchor:_senderLabel.bottomAnchor constant:4];
         [NSLayoutConstraint activateConstraints:@[
-            [_stack.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:3],
+            _stackTop,
             [_stack.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3],
             [_stack.widthAnchor constraintEqualToConstant:260],
+            // 昵称：顶贴 cell、左对齐内容（stack 左移时随之右移）。
+            [_senderLabel.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:4],
+            [_senderLabel.leadingAnchor constraintEqualToAnchor:_stack.leadingAnchor constant:2],
+            [_senderLabel.trailingAnchor constraintLessThanOrEqualToAnchor:self.contentView.trailingAnchor constant:-12],
+            // 头像：30×30 贴 cell 左、底对齐内容底（连续段末条才 show）。
+            [_avatar.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12],
+            [_avatar.bottomAnchor constraintEqualToAnchor:_stack.bottomAnchor],
+            [_avatar.widthAnchor constraintEqualToConstant:30],
+            [_avatar.heightAnchor constraintEqualToConstant:30],
             [_thumb.topAnchor constraintEqualToAnchor:_card.topAnchor],
             [_thumb.leadingAnchor constraintEqualToAnchor:_card.leadingAnchor],
             [_thumb.trailingAnchor constraintEqualToAnchor:_card.trailingAnchor],
@@ -106,7 +142,8 @@ static NSString *IMLocalizeSnippet(NSString *snap) {
     }
     return self;
 }
-- (void)configureWithMessage:(IMMessageModel *)message mine:(BOOL)mine {
+- (void)configureWithMessage:(IMMessageModel *)message mine:(BOOL)mine
+                  senderName:(NSString *)senderName {
     _card.layer.cornerRadius = IMTheme.radiusBubble;
     _quote.font = [UIFont systemFontOfSize:MAX(12, IMTheme.chatFontSize - 4)];
     _title.font = [UIFont systemFontOfSize:MAX(14, IMTheme.chatFontSize - 2) weight:UIFontWeightSemibold];
@@ -115,6 +152,13 @@ static NSString *IMLocalizeSnippet(NSString *snap) {
     _url = url;
     _leading.active = !mine;
     _trailing.active = mine;
+    // 群聊对方消息昵称（连续段首条）：显示时 stack 接昵称底，否则贴 cell 顶。
+    BOOL showName = senderName.length > 0;
+    _senderLabel.font = [UIFont systemFontOfSize:MAX(12, IMTheme.chatFontSize - 4) weight:UIFontWeightSemibold];
+    _senderLabel.text = senderName;
+    _senderLabel.hidden = !showName;
+    _stackTop.active = !showName;
+    _stackTopUnderName.active = showName;
     // 引用行（共性 #1）：URL 消息带引用时也要显示引用条 + OG 卡片。
     if (message.replyToConvSeq > 0) {
         NSString *snap = IMLocalizeSnippet(message.replySnapshot.length > 0 ? message.replySnapshot : @"原消息");
@@ -166,9 +210,35 @@ static NSString *IMLocalizeSnippet(NSString *snap) {
     } else {
         _thumbHeight.constant = 0;
     }
+    // 卡片从「仅链接」展开为「链接 + OG 卡片」→ 行高变大。UITableViewAutomaticDimension 不会自动重测，
+    // 必须回调聊天页刷一次行高，否则展开内容被压进旧行高（表现为卡片被裁、滚动后才正常）。
+    // 延到下一轮 runloop：命中 previewCache 时本方法**同步**跑在 cellForRow 内部，此刻回调会重入
+    // tableView 的 begin/endUpdates（与 IMImageCell.onMediaSizeResolved 同样的防重入处理）。
+    void (^resolved)(void) = self.onContentSizeResolved;
+    if (resolved) { dispatch_async(dispatch_get_main_queue(), resolved); }
 }
 - (void)tapped { if (_onTap && _url) { _onTap(_url); } }
-- (void)prepareForReuse { [super prepareForReuse]; _thumb.image = nil; _thumbHeight.constant = 0; _card.hidden = YES; _quote.hidden = YES; _onTap = nil; }
-- (UIView *)previewTargetView { return _card; }
+
+- (void)applyGroupAvatarURL:(NSString *)url seed:(NSString *)seed name:(NSString *)name
+                 showAvatar:(BOOL)showAvatar gutter:(BOOL)gutter {
+    _leading.constant = gutter ? 48 : 12;   // 对方群消息留 30 头像列（12 + 30 + 6），与其他 cell 一致
+    if (gutter && showAvatar) {
+        _avatar.hidden = NO;
+        [_avatar im_setAvatarURL:url seed:seed displayName:name];
+    } else {
+        _avatar.hidden = YES;
+    }
+}
+
+- (void)prepareForReuse {
+    [super prepareForReuse];
+    _thumb.image = nil; _thumbHeight.constant = 0; _card.hidden = YES; _quote.hidden = YES;
+    _senderLabel.hidden = YES; _senderLabel.text = nil; _avatar.hidden = YES; _leading.constant = 12;
+    _onTap = nil; _onContentSizeResolved = nil;
+}
+
+/// 高亮/预览目标=网址文本+OG 卡片整体（=stack）：与 Web 一致一起高亮；也避免无 OG 卡片时
+/// 圈到隐藏的 _card（零尺寸 → 高亮/长按预览落空）。
+- (UIView *)previewTargetView { return _stack; }
 
 @end
