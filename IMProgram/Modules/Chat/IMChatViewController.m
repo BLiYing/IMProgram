@@ -1908,8 +1908,11 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 
 /// 跳转到被引用的原消息：滚到该 conv_seq 行并高亮一闪（与 Web quoteflash 同节奏，1.2s）。
 - (void)jumpToConvSeq:(int64_t)targetConvSeq {
+    int64_t earliest = 0; // 当前已加载最早 conv_seq(>0)，用于区分"未加载到"与"已删除"
     for (NSUInteger i = 0; i < self.messages.count; i++) {
-        if (self.messages[i].convSeq == targetConvSeq) {
+        int64_t s = self.messages[i].convSeq;
+        if (s > 0 && (earliest == 0 || s < earliest)) { earliest = s; }
+        if (s == targetConvSeq) {
             NSIndexPath *ip = [NSIndexPath indexPathForRow:(NSInteger)i inSection:0];
             [self.tableView scrollToRowAtIndexPath:ip atScrollPosition:UITableViewScrollPositionMiddle animated:YES];
             // 等滚动动画到位后再闪（已在视口时 scrollToRow 也可能微调，同样适用）。
@@ -1918,7 +1921,11 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
             return;
         }
     }
-    [self im_showToast:@"原消息不在当前视图"];
+    // 跳不到分两种：落在窗口内却缺失 → 已被本地删除；目标比"已加载最早一条"还早 → 本地库未同步到这么早。
+    // 注：iOS 进会话全量载入本地 DB、无上拉分页（见 current_task「已知坑」），故不提示"上拉加载"，与 Web 文案有别。
+    NSString *toast = (earliest > 0 && targetConvSeq < earliest)
+        ? @"原消息不在本地" : @"原消息已被删除";
+    [self im_showToast:toast];
 }
 
 /// 目标行高亮一闪：在气泡/卡片（previewTargetView）上盖一层强调色遮罩淡出——
@@ -2137,9 +2144,28 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     // 纯 URL 文本消息：URL 文本 + 链接富预览卡片（OG），点击应用内打开（带引用时也显示引用行+卡片）。
     if ([m.contentType isEqualToString:@"text"] && m.recalledAt == 0 && m.translation.length == 0 && IMLooksLikeURL(m.content)) {
         IMLinkCardCell *link = [tableView dequeueReusableCellWithIdentifier:@"link" forIndexPath:indexPath];
-        [link configureWithMessage:m mine:[m.from isEqualToString:self.userID]];
+        BOOL mineL = [m.from isEqualToString:self.userID];
+        BOOL grpL = self.isGroupChat && !mineL;
+        BOOL firstL = grpL && [self isFirstInSenderRun:indexPath.row];
+        BOOL lastL = grpL && [self isLastInSenderRun:indexPath.row];
+        [link configureWithMessage:m mine:mineL senderName:(firstL ? [self senderNameForMessage:m] : nil)];
+        [link applyGroupAvatarURL:(grpL ? [self senderAvatarURLForMessage:m] : nil)
+                             seed:(m.from ?: @"") name:(grpL ? [self senderNameForMessage:m] : nil)
+                       showAvatar:lastL gutter:grpL];
         __weak typeof(self) ws = self;
         link.onTap = ^(NSString *url) { [ws openLink:url]; };
+        // OG 预览异步展开 → 刷行高（滚动中延迟到停止；与 IMImageCell.onMediaSizeResolved 同守卫）。
+        link.onContentSizeResolved = ^{
+            __strong typeof(ws) self = ws;
+            if (!self) { return; }
+            if (self.tableView.isDragging || self.tableView.isDecelerating) {
+                self.needsRowHeightSettle = YES;
+                return;
+            }
+            BOOL wasNearBottom = [self isNearBottom];
+            [self refreshRowHeightsWithoutAnimation];
+            if (wasNearBottom) { [self scrollToAbsoluteBottom]; }
+        };
         return link;
     }
     // 相册宫格（M4+）：同 group_id 的多图/视频合并为一个 cell（leader 行渲染宫格，从行零高）。

@@ -4,6 +4,16 @@
 > 历史流水见 `current_task.archive.md` + `git log`。关键约定见 `CLAUDE.md` / `ARCHITECTURE.md` / `CODING_STYLE.md`。
 
 ## 当前焦点
+- **引用跳转跳不到分两句 toast（2026-08-05，✅ BUILD SUCCEEDED；待实测）**：`jumpToConvSeq` 找不到目标行时，
+  `目标 conv_seq < 已加载最早` → 「原消息不在本地」（iOS 全量载入本地 DB、**无上拉分页**，故不提示"上拉加载"，
+  与 Web「请上拉加载」有别），落在已加载范围内却缺失 → 「原消息已被删除」（原统一「原消息不在当前视图」）。
+- **URL 链接卡片三修（2026-08-04 晚，✅ iOS BUILD SUCCEEDED；待实测）**：`IMLinkCardCell` 补齐与其他
+  cell 一致的能力。①**群聊左对齐**：原缺 `applyGroupAvatarURL:…gutter:`、`_leading` 写死 12 → 群聊对方
+  链接卡不留 30pt 头像列，比文本气泡左突出。新增该方法（gutter=48 + 昵称/头像）并在 VC 链接分支调用。
+  ②**整体高亮**：`previewTargetView` 从只返回 `_card` 改为返回 `_stack`（网址文本+OG 卡片一起高亮，
+  对齐 Web；也修无 OG 卡片时圈到隐藏零尺寸 `_card` 的落空）。③**卡片被压缩滚动后才正常**：OG 预览
+  异步展开改行高但无人触发重测 → 加 `onContentSizeResolved` 回调（同 IMImageCell.onMediaSizeResolved：
+  cellForRow 内同步命中缓存时延到下一 runloop 防重入、滚动中延迟到停止）。
 - **无进行中开发**（2026-08-04 收口）：文件消息两栏布局+圆环状态机、相册文件并入常驻发送服务、
   长按菜单矩阵/预览只圈气泡、多选（锚定不跳/取消键/可选范围）、粘贴图+文预览条、滚动贴底与
   上滑弹跳修复、标题栏定宽、引用聊天记录快照三层修——**全部已实测通过并提交**（详见归档
