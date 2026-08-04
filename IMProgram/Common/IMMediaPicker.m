@@ -188,38 +188,58 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
     });
 }
 
-- (void)loadFileData:(void (^)(IMPickedMedia *_Nullable))completion {
-    if (!completion) { return; }
-    NSString *typeIdentifier = nil;
+/// 文件面板路径的原始资源类型（视频=Movie / 图片=Image 的首个可用 identifier）；nil=拿不到。
+- (NSString *)fileTypeIdentifier {
     for (NSString *candidate in _ip.registeredTypeIdentifiers) {
         UTType *type = [UTType typeWithIdentifier:candidate];
         if ((self.isVideo && [type conformsToType:UTTypeMovie]) ||
             (!self.isVideo && [type conformsToType:UTTypeImage])) {
-            typeIdentifier = candidate;
-            break;
+            return candidate;
         }
     }
-    if (typeIdentifier.length == 0) {
-        dispatch_async(dispatch_get_main_queue(), ^{ completion(nil); });
-        return;
-    }
-    NSString *suggestedName = _ip.suggestedName;
-    [_ip loadDataRepresentationForTypeIdentifier:typeIdentifier completionHandler:^(NSData *data, NSError *error) {
+    return nil;
+}
+
+- (NSString *)suggestedFileName {
+    NSString *typeID = [self fileTypeIdentifier];
+    UTType *type = typeID.length > 0 ? [UTType typeWithIdentifier:typeID] : nil;
+    NSString *ext = type.preferredFilenameExtension ?: (self.isVideo ? @"mov" : @"jpg");
+    NSString *name = _ip.suggestedName;
+    if (name.length == 0) { name = self.isVideo ? @"video" : @"photo"; }
+    if (name.pathExtension.length == 0) { name = [name stringByAppendingPathExtension:ext] ?: name; }
+    return name;
+}
+
+- (void)loadFileURL:(void (^)(IMPickedMedia *_Nullable))completion {
+    if (!completion) { return; }
+    dispatch_async(_work, ^{
         IMPickedMedia *item = nil;
-        if (data.length > 0 && !error) {
-            UTType *type = [UTType typeWithIdentifier:typeIdentifier];
-            NSString *extension = type.preferredFilenameExtension ?: (self.isVideo ? @"mov" : @"jpg");
-            NSString *name = suggestedName.length > 0 ? suggestedName : (self.isVideo ? @"video" : @"photo");
-            if (name.pathExtension.length == 0) { name = [name stringByAppendingPathExtension:extension]; }
-            item = [IMPickedMedia new];
-            item.data = data;
-            item.fileName = name;
-            item.mimeType = type.preferredMIMEType ?: @"application/octet-stream";
-            item.isVideo = self.isVideo;
-            if (!self.isVideo) { item.pixelSize = IMPickerPixelSizeOfImageData(data); }
+        NSString *typeID = [self fileTypeIdentifier];
+        if (typeID.length > 0) {
+            NSString *ext = nil;
+            // 2GB 级原件从相册导出（iCloud 资产还要先下载）远超默认 60s，放宽到 10 分钟；超时按失败处理可重试。
+            NSURL *url = [self copyFileForType:typeID outExt:&ext timeoutSeconds:600];
+            int64_t size = url ? (int64_t)[[[NSFileManager defaultManager] attributesOfItemAtPath:url.path
+                                                                                            error:NULL][NSFileSize] unsignedLongLongValue] : 0;
+            if (url && size > 0) {
+                UTType *type = [UTType typeWithIdentifier:typeID];
+                NSString *name = [self suggestedFileName];
+                // 扩展名以导出产物为准：suggestedName 的扩展可能与实际资源不符（如 HEIC/MOV 变体）。
+                if (ext.length > 0 && ![name.pathExtension.lowercaseString isEqualToString:ext]) {
+                    name = [[name stringByDeletingPathExtension] stringByAppendingPathExtension:ext] ?: name;
+                }
+                item = [IMPickedMedia new];
+                item.fileURL = url;
+                item.byteCount = size;
+                item.fileName = name;
+                item.mimeType = type.preferredMIMEType ?: @"application/octet-stream";
+                item.isVideo = self.isVideo;
+            } else if (url) {
+                [[NSFileManager defaultManager] removeItemAtURL:url error:NULL]; // 空文件视为失败，清掉残件
+            }
         }
         dispatch_async(dispatch_get_main_queue(), ^{ completion(item); });
-    }];
+    });
 }
 
 #pragma mark 图片（在 _work 串行队列上执行）
@@ -401,6 +421,10 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
 
 /// loadFileRepresentation 的同步封装：把 provider 的文件拷到临时目录（provider 的 URL 回调后即失效，必须拷贝）。
 - (NSURL *)copyFileForType:(NSString *)typeID outExt:(NSString **)outExt {
+    return [self copyFileForType:typeID outExt:outExt timeoutSeconds:60];
+}
+
+- (NSURL *)copyFileForType:(NSString *)typeID outExt:(NSString **)outExt timeoutSeconds:(int64_t)timeoutSeconds {
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
     __block NSURL *copied = nil;
     __block NSString *ext = nil;
@@ -415,7 +439,7 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
         }
         dispatch_semaphore_signal(sem);
     }];
-    dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(60 * NSEC_PER_SEC)));
+    dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeoutSeconds * NSEC_PER_SEC)));
     if (outExt && ext.length) { *outExt = ext; }
     return copied;
 }

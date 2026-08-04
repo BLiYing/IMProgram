@@ -45,8 +45,13 @@ extern const long long kIMMaxVideoBytes; // 视频体积上限（与服务端 2G
 - (void)loadData:(void (^)(IMPickedMedia *_Nullable item))completion
         progress:(nullable void (^)(double fraction))progress;
 
-/// 文件面板专用：读取相册资源原始字节，不压缩、不转码，并保留扩展名。
-- (void)loadFileData:(void (^)(IMPickedMedia *_Nullable item))completion;
+/// 文件面板专用（磁盘路径）：把相册原始资源导出为**临时文件**——不压缩、不转码、绝不进内存，
+/// 2GB 级视频也安全。回调主线程；成功时 item.fileURL 非空（所有权移交调用方）、data 恒为 nil。
+- (void)loadFileURL:(void (^)(IMPickedMedia *_Nullable item))completion;
+
+/// 选择器返回瞬间即可用的建议文件名（含扩展名，best-effort）：乐观气泡不必等导出完成。
+/// 拿不到 suggestedName 时回落 photo.jpg / video.mov。
+- (NSString *)suggestedFileName;
 @end
 
 @interface IMMediaPicker : NSObject

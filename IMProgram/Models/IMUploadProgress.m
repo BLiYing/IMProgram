@@ -46,12 +46,12 @@ static const double kIMUploadWeight = 0.65;
 }
 
 - (NSString *)fileLineText {
-    if (self.failed) { return @"发送失败 · 点击重试"; }
-    if (self.pausedByUser) {
-        NSString *sent = IMFormatUploadProgress(self.fraction, self.totalBytes);
-        return [NSString stringWithFormat:@"已暂停 %@ · 点击继续", sent];
-    }
-    return [[self displayText] stringByAppendingString:@" · 点击暂停"];
+    if (self.failed) { return @"发送失败"; }
+    // 排队 = 尚未开始传输：文件面板相册路径此阶段还在从相册导出原件（大小未知），统一显「准备中…」。
+    if (self.phase == IMUploadPhaseQueued) { return @"准备中…"; }
+    if (self.phase == IMUploadPhaseTranscoding) { return [self displayText]; } // 文件不转码，防御回落
+    // 上传/暂停均只显纯字节数（「已传」有歧义像传完了；暂停态由气泡在行首加 ⏸ 小图标，同媒体角标）。
+    return IMFormatUploadProgress(self.fraction, self.totalBytes);
 }
 
 - (NSString *)displayText {

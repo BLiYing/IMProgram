@@ -307,7 +307,7 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
     IMMessageModel *m = [self messageForClientMsgID:note.userInfo[kIMMediaSendClientMsgIDKey]];
     if (!m) { return; }
     if ([m.contentType isEqualToString:@"file"]) {
-        [self refreshVisibleCellForMessage:m]; // 文件气泡的进度在正文里，必须重渲染整条
+        [self refreshVisibleCellForMessage:m]; // 文件气泡：圆环/状态行/文案随 configure 一次性布好，整行重渲染
     } else {
         [self updateUploadProgressForMessage:m]; // 只改覆盖层/环 strokeEnd，不 reload（无闪烁）
     }
@@ -1314,8 +1314,8 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     return nil;
 }
 
-/// 点按待发中的图片/视频气泡（中心按钮状态机）：
-///   失败 ↻ → 重试；上传中 ⏸ ↔ 已暂停 ↑ → 切换；排队/压缩 ✕ → 确认后取消（整图可点，防误触必须确认）。
+/// 点按待发中的图片/视频气泡（中心按钮状态机）或文件气泡的左侧图标位（同一套状态机）：
+///   失败 ↻ → 重试；上传中 ⏸ ↔ 已暂停 ↑ → 切换；排队/压缩/准备中 ✕ → 确认后取消（防误触必须确认）。
 - (void)handlePendingMediaTap:(IMMessageModel *)m {
     if (m.status == IMMessageStatusFailed) { [self retryPendingMessage:m]; return; }
     if ([IMMediaSendService.shared togglePauseForMessage:m]) { return; } // 分片上传：暂停↔继续
@@ -1356,6 +1356,12 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 - (void)refreshVisibleCellForMessage:(IMMessageModel *)m {
     NSUInteger row = [self visibleRowForMessage:m];
     if (row == NSNotFound) { return; }
+    // 行数守卫：消息可能刚 addObject 尚未 reloadData（如入列时服务同步广播初始进度），
+    // 此时定点 reloadRows 会触发 UITableView 行数断言直接崩溃（真机 2026-08-04 crash 实锤）→ 整表刷。
+    if ((NSInteger)row >= [self.tableView numberOfRowsInSection:0]) {
+        [self.tableView reloadData];
+        return;
+    }
     NSIndexPath *ip = [NSIndexPath indexPathForRow:(NSInteger)row inSection:0];
     UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:ip];
     if ([cell isKindOfClass:IMAlbumCell.class]) {
@@ -1439,37 +1445,39 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     [self presentViewController:nav animated:YES completion:nil];
 }
 
-/// 文件面板中的相册入口：读取原始资源字节，以 file 消息逐个发送，不进入图片/视频气泡或相册宫格。
+/// 文件面板中的相册入口：以 file 消息发送原始资源，不进入图片/视频气泡或相册宫格。
+/// 与 Files 大文件路径同构：选完**立刻上屏**（旧实现要等整个原件拷进内存 + 一次性传完才见气泡，
+/// 大视频等几分钟毫无反馈），导出/落盘/上传/发送全程活在常驻服务，≥8MB 分片可暂停续传。
 - (void)openPhotoFilePicker {
     __weak typeof(self) ws = self;
     [IMMediaPicker presentFilePickerFromViewController:self limit:9
                            handlesCompletion:^(NSArray<IMPickedMediaHandle *> *handles) {
-        [ws uploadPhotoFiles:handles index:0];
+        [ws sendPhotoFileHandles:handles];
     }];
 }
 
-- (void)uploadPhotoFiles:(NSArray<IMPickedMediaHandle *> *)handles index:(NSUInteger)index {
-    if (index >= handles.count) { return; }
-    __weak typeof(self) ws = self;
-    [handles[index] loadFileData:^(IMPickedMedia *item) {
-        __strong typeof(ws) self = ws;
-        if (!self) { return; }
-        NSString *token = IMHTTPService.sharedService.currentToken;
-        if (item.data.length == 0 || item.fileName.length == 0 || token.length == 0) {
-            [self im_showToast:@"文件读取失败"];
-            [self uploadPhotoFiles:handles index:index + 1];
-            return;
-        }
-        [IMHTTPService.sharedService uploadData:item.data fileName:item.fileName mimeType:item.mimeType token:token
-            completion:^(NSString *url, NSString *contentType, NSError *error) {
-                if (error || url.length == 0) {
-                    [self im_showToast:@"文件上传失败"];
-                } else {
-                    [self sendMediaURL:url contentType:@"file" fileName:item.fileName fileSize:(int64_t)item.data.length];
-                }
-                [self uploadPhotoFiles:handles index:index + 1];
-            }];
-    }];
+- (void)sendPhotoFileHandles:(NSArray<IMPickedMediaHandle *> *)handles {
+    if (handles.count == 0) { return; }
+    NSMutableArray<IMMessageModel *> *pending = [NSMutableArray arrayWithCapacity:handles.count];
+    for (IMPickedMediaHandle *h in handles) {
+        IMMessageModel *m = [IMMessageModel new];
+        m.clientMsgID = [@"outbox-" stringByAppendingString:NSUUID.UUID.UUIDString]; // 临时键，转正式发送时换真 ID
+        m.convID = self.convID; m.to = self.peerID; m.from = self.userID;
+        m.content = @""; // 导出完成前无本地副本；服务落盘后写 im-pending:// 并落库
+        m.contentType = @"file";
+        m.fileName = [h suggestedFileName];
+        m.fileSize = 0; // 未知，导出完成后服务补写（第二行先显「准备中…」）
+        m.status = IMMessageStatusSending;
+        m.timestamp = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
+        [self.messages addObject:m];
+        [pending addObject:m];
+    }
+    // 先上屏再入列（与 sendLargeFileAtURL 同理：入列路径若同步广播进度，reloadRows 会撞行数断言）。
+    [self.tableView reloadData];
+    [self scrollToAbsoluteBottom];
+    [IMMediaSendService.shared enqueuePhotoFileHandles:handles messages:pending
+                                                toUser:(self.isGroupChat ? @"" : self.peerID)
+                                             dbContext:self.databaseContext];
 }
 
 /// 文件面板关闭后，由聊天页直接呈现系统文件浏览器（全屏、单实例配置见 +systemDocumentPicker）。
@@ -1504,11 +1512,13 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     m.content = localRef;
     [self.messages addObject:m];
     [self persistOutboxMessage:m];
+    // **先上屏再入列**：enqueue 内部会同步广播初始进度（分片作业立即标 ⏸），通知回调按 messages
+    // 数组定位新行去 reloadRows——若 tableView 还不知道这行存在，行数断言直接崩（真机 2026-08-04 实锤）。
+    [self appendReloadAndScroll];
     // 分片上传 + 完成后发消息活在常驻服务：退出会话、甚至所有聊天页都销毁，传完照样发出去。
     [IMMediaSendService.shared enqueueFileMessage:m
                                            toUser:(self.isGroupChat ? @"" : self.peerID)
                                         dbContext:self.databaseContext];
-    [self appendReloadAndScroll];
 }
 
 /// 进入/回到会话时合并常驻服务里仍在跑的作业：
@@ -1541,17 +1551,6 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         changed = YES;
     }
     if (changed) { [self.tableView reloadData]; }
-}
-
-/// 点击上传中的文件气泡：暂停 ↔ 继续；失败则重试（都交给常驻服务，状态经通知回流刷新）。
-- (void)toggleUploadForMessage:(IMMessageModel *)m {
-    NSString *key = m.clientMsgID ?: @"";
-    IMUploadProgress *prog = self.outboxProgress[key];
-    if (m.status == IMMessageStatusFailed || prog.failed) {
-        [self retryPendingMessage:m]; // 服务内部读旁挂 upload_id 续传
-        return;
-    }
-    [IMMediaSendService.shared togglePauseForMessage:m];
 }
 
 /// 系统 Files 返回本地副本后上传并发送。
@@ -2131,7 +2130,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
             replyThumbIsVideo = [target.contentType isEqualToString:@"video"];
         }
     }
-    // 文件上传中/失败：正文第二行显进度与可点击提示（必须在 configure 之前设，正文是一次性拼的）。
+    // 文件上传中/失败：左侧图标位显圆环状态机、第二行显进度（必须在 configure 之前设，整条一次性布好）。
     NSString *bubbleKey = m.clientMsgID ?: @"";
     IMUploadProgress *fileProgress = self.outboxProgress[bubbleKey];
     if (!fileProgress && [m.contentType isEqualToString:@"file"] && m.status == IMMessageStatusFailed
@@ -2139,6 +2138,16 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         fileProgress = [IMUploadProgress failedProgress]; // 重进会话：内存进度已空，按落库状态补
     }
     cell.uploadProgress = fileProgress;
+    // 图标位点击 = 媒体同款状态机（⏸/↑/↻/✕）；仅上传中/失败态挂回调（完成态点整条气泡打开文件）。
+    if (fileProgress && [m.contentType isEqualToString:@"file"]) {
+        __weak typeof(self) wsFile = self;
+        cell.onFileControlTap = ^{
+            __strong typeof(wsFile) self = wsFile;
+            if (self) { [self handlePendingMediaTap:m]; }
+        };
+    } else {
+        cell.onFileControlTap = nil;
+    }
     [cell configureWithMessage:m mine:mine peerReadSeq:self.peerReadSeq
                      dayHeader:[self dayHeaderForRow:indexPath.row]
             showsUnreadDivider:showsDivider
@@ -2636,13 +2645,8 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     if (self.selecting) { [self updateSelectionUI]; return; }
-    if (indexPath.row >= (NSInteger)self.messages.count) { return; }
-    IMMessageModel *m = self.messages[indexPath.row];
-    // 上传中/失败的文件气泡：点击 = 暂停 / 继续 / 重试（大文件传几十秒，必须能中途干预）。
-    if ([m.contentType isEqualToString:@"file"] && [IMPendingMediaStore isLocalRef:m.content]) {
-        [self toggleUploadForMessage:m];
-        [tableView deselectRowAtIndexPath:indexPath animated:NO];
-    }
+    // 上传中/失败的文件气泡不再响应整条点击：暂停/继续/重试/取消收敛到左侧图标位的圆环状态机
+    //（cell.onFileControlTap → handlePendingMediaTap:），气泡其余区域仅在发送完成后点击打开文件。
 }
 
 - (void)tableView:(UITableView *)tableView didDeselectRowAtIndexPath:(NSIndexPath *)indexPath {

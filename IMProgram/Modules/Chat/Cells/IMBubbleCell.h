@@ -7,9 +7,14 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface IMBubbleCell : UITableViewCell
 
-/// 文件消息上传中的进度（nil=非上传态）。文件气泡第二行据此显「已传 / 总大小 · 点击暂停」。
-/// 必须在 configure 之前设置：气泡正文是一次性拼好的富文本。
+/// 文件消息上传中的进度（nil=非上传态）。文件气泡左侧图标位据此变圆环状态机
+///（排队✕ / 上传中⏸ / 已暂停↑ / 失败↻，与媒体气泡中心按钮同一套 glyph），第二行显进度文案。
+/// 必须在 configure 之前设置：configure 一次性布好整条气泡。
 @property (nonatomic, strong, nullable) IMUploadProgress *uploadProgress;
+
+/// 文件气泡左侧图标位被点按（仅上传中/失败态可点：暂停↔继续 / 重试 / 排队期取消）。
+/// 完成态图标不可点，点击整条气泡=打开文件（走 VC 的表级手势）。
+@property (nonatomic, copy, nullable) void (^onFileControlTap)(void);
 - (void)configureWithMessage:(IMMessageModel *)message
                         mine:(BOOL)mine
                  peerReadSeq:(int64_t)peerReadSeq

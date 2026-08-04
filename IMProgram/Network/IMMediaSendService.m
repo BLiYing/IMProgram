@@ -39,6 +39,7 @@ NSString * const kIMMediaSendMessageKey = @"message";
 @property (nonatomic, copy) NSString *toUser;                        ///< 群聊传 @""
 @property (nonatomic, strong, nullable) IMDatabaseAccountContext *dbContext;
 @property (nonatomic, assign) BOOL cancelled; ///< 用户取消：各阶段边界检查后丢弃，不再推进
+@property (nonatomic, assign) BOOL asFile;    ///< 文件面板相册路径：原件导出（loadFileURL），不压缩不转码，以 file 消息发送
 @end
 @implementation IMMediaSendJob
 @end
@@ -131,6 +132,32 @@ NSString * const kIMMediaSendMessageKey = @"message";
     [self processNextMediaJob];
 }
 
+/// 文件面板相册入口批量入列（与 enqueueMediaHandles 同构，走同一条串行队列）：
+/// 原件导出（不压缩不转码、不进内存）→ 落盘+落库 → 上传（≥分片阈值可暂停续传）→ socket 发 file 消息。
+/// messages 与 handles 一一对应（调用方已创建乐观 file 模型并上屏，fileSize=0 导出完成后补）。
+/// 文件气泡显示类型图标，不加载缩略图。
+- (void)enqueuePhotoFileHandles:(NSArray<IMPickedMediaHandle *> *)handles
+                       messages:(NSArray<IMMessageModel *> *)messages
+                         toUser:(NSString *)toUser
+                      dbContext:(IMDatabaseAccountContext *)dbContext {
+    NSParameterAssert(handles.count == messages.count);
+    for (NSUInteger i = 0; i < handles.count && i < messages.count; i++) {
+        IMMessageModel *m = messages[i];
+        NSString *key = m.clientMsgID ?: @"";
+        if (key.length == 0 || _jobs[key]) { continue; }
+        IMMediaSendJob *job = [IMMediaSendJob new];
+        job.message = m;
+        job.handle = handles[i];
+        job.toUser = toUser ?: @"";
+        job.dbContext = dbContext;
+        job.asFile = YES;
+        _jobs[key] = job;
+        [_mediaQueue addObject:key];
+        self.progressMap[key] = [IMUploadProgress queued]; // 文件气泡此阶段显「准备中…」
+    }
+    [self processNextMediaJob];
+}
+
 /// 串行推进媒体队列：转码/上传一次只跑一条（单项失败不阻塞后续）。
 - (void)processNextMediaJob {
     if (_mediaProcessing || _mediaQueue.count == 0) { return; }
@@ -143,6 +170,28 @@ NSString * const kIMMediaSendMessageKey = @"message";
 
     IMMessageModel *m = job.message;
     __weak typeof(self) ws = self;
+    if (job.asFile) { // 文件面板相册路径：原件导出为磁盘临时文件（不压缩不转码，2GB 不进内存）
+        [job.handle loadFileURL:^(IMPickedMedia *item) {
+            __strong typeof(ws) self = ws;
+            if (!self) { return; }
+            if (job.cancelled) { // 导出期被取消：产物直接丢弃（loadFileRepresentation 无法中途打断）
+                if (item.fileURL) { [[NSFileManager defaultManager] removeItemAtURL:item.fileURL error:NULL]; }
+                [self advanceMediaQueueAfter:(m.clientMsgID ?: @"")];
+                return;
+            }
+            NSString *token = IMHTTPService.sharedService.currentToken;
+            if (item.byteCount <= 0 || token.length == 0) {
+                if (item.fileURL) { [[NSFileManager defaultManager] removeItemAtURL:item.fileURL error:NULL]; }
+                [self failJob:job];
+                return;
+            }
+            m.fileSize = item.byteCount; // 导出完成才知道真实大小；气泡第二行从「准备中…」切到进度
+            if (m.fileName.length == 0 && item.fileName.length > 0) { m.fileName = item.fileName; }
+            job.handle = nil;
+            [self storeAndUploadItem:item forJob:job];
+        }];
+        return;
+    }
     [job.handle loadData:^(IMPickedMedia *item) { // 压缩/转码在句柄内部串行队列，回调主线程
         __strong typeof(ws) self = ws;
         if (!self) { return; }
@@ -239,8 +288,10 @@ NSString * const kIMMediaSendMessageKey = @"message";
                 if (!self2) { return; }
                 if (job.cancelled) { [self2 advanceMediaQueueAfter:key]; return; } // 一次性上传无法中断，结果丢弃
                 if (error || url.length == 0) { [self2 failJob:job]; return; }
+                // file 消息必须保持 file：服务端按字节嗅探返回的 contentType 会把小视频文件变回 video。
                 [self2 finishUploadedJob:job serverURL:url
-                             contentType:(contentType ?: m.contentType ?: @"image")];
+                             contentType:([m.contentType isEqualToString:@"file"] ? @"file"
+                                                                                  : (contentType ?: m.contentType ?: @"image"))];
             }];
     };
     if (data) { start(data); return; }

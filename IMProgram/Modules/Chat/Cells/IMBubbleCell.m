@@ -64,6 +64,18 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     NSTextAttachment *_quoteThumbAtt;      // 引用媒体缩略图占位 attachment
     NSString *_quoteThumbKey;              // 复用防串图：URL 匹配才应用
     UILabel *_avatar;                      // 群聊对方头像（连续段末条，贴气泡底左侧）
+    NSLayoutConstraint *_textBottom;       // 非文件消息：正文贴气泡底（与 _fileRowBottom 互斥）
+    UIView *_fileRow;                      // 文件消息两栏容器：左 44pt 图标位 + 右 文件名/状态/时间
+    UIView *_fileIconWrap;                 // 图标位：完成=类型图标；上传中=圆环进度+状态 glyph（可点）
+    UIImageView *_fileIcon;
+    CAShapeLayer *_fileRingTrack;          // 圆环底轨（灰）
+    CAShapeLayer *_fileRing;               // 圆环进度（strokeEnd=overallFraction）
+    UILabel *_fileNameLabel;               // 文件名：最多两行、中间截断保扩展名
+    UILabel *_fileStatusLabel;             // 第二行：大小 / 准备中… / 已传 x/y / 已暂停 / 发送失败
+    UILabel *_fileMetaLabel;               // 右下角：时间 + ✓/✓✓
+    UITapGestureRecognizer *_fileTap;
+    NSLayoutConstraint *_fileRowBottom;    // 文件消息：文件行贴气泡底
+    NSLayoutConstraint *_fileMinWidth;     // 文件消息：行宽 ≥190（仅文件模式激活，勿撑大文本气泡）
 }
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
@@ -129,6 +141,55 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         _sysNote.hidden = YES;
         [self.contentView addSubview:_sysNote];
 
+        // 文件消息两栏布局（Telegram 式）：左 44pt 图标位（上传中变圆环状态机、可点），
+        // 右侧 文件名(≤2 行、中间截断) + 状态行 + 右下时间。头部（昵称/转发/引用）仍走 _text。
+        _fileRow = [UIView new];
+        _fileRow.translatesAutoresizingMaskIntoConstraints = NO;
+        _fileRow.hidden = YES;
+        [_bubble addSubview:_fileRow];
+
+        _fileIconWrap = [UIView new];
+        _fileIconWrap.translatesAutoresizingMaskIntoConstraints = NO;
+        [_fileRow addSubview:_fileIconWrap];
+        UIBezierPath *ringPath = [UIBezierPath bezierPathWithArcCenter:CGPointMake(22, 22) radius:19.5
+                                                            startAngle:-M_PI_2 endAngle:M_PI_2 * 3 clockwise:YES];
+        _fileRingTrack = [CAShapeLayer layer];
+        _fileRingTrack.path = ringPath.CGPath;
+        _fileRingTrack.fillColor = UIColor.clearColor.CGColor;
+        _fileRingTrack.lineWidth = 3;
+        _fileRingTrack.hidden = YES;
+        [_fileIconWrap.layer addSublayer:_fileRingTrack];
+        _fileRing = [CAShapeLayer layer];
+        _fileRing.path = ringPath.CGPath;
+        _fileRing.fillColor = UIColor.clearColor.CGColor;
+        _fileRing.lineWidth = 3;
+        _fileRing.lineCap = kCALineCapRound;
+        _fileRing.strokeEnd = 0;
+        _fileRing.hidden = YES;
+        [_fileIconWrap.layer addSublayer:_fileRing];
+        _fileIcon = [UIImageView new];
+        _fileIcon.translatesAutoresizingMaskIntoConstraints = NO;
+        _fileIcon.contentMode = UIViewContentModeCenter;
+        [_fileIconWrap addSubview:_fileIcon];
+        _fileTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleFileIconTap)];
+        _fileTap.enabled = NO; // 仅上传中/失败态可点；完成态放行给表级手势（点气泡=打开文件）
+        [_fileIconWrap addGestureRecognizer:_fileTap];
+
+        _fileNameLabel = [UILabel new];
+        _fileNameLabel.translatesAutoresizingMaskIntoConstraints = NO;
+        _fileNameLabel.numberOfLines = 2;
+        _fileNameLabel.lineBreakMode = NSLineBreakByTruncatingMiddle; // 两行封顶，中间截断保扩展名
+        [_fileRow addSubview:_fileNameLabel];
+
+        _fileStatusLabel = [UILabel new];
+        _fileStatusLabel.translatesAutoresizingMaskIntoConstraints = NO;
+        _fileStatusLabel.font = [UIFont systemFontOfSize:12];
+        [_fileRow addSubview:_fileStatusLabel];
+
+        _fileMetaLabel = [UILabel new];
+        _fileMetaLabel.translatesAutoresizingMaskIntoConstraints = NO;
+        [_fileRow addSubview:_fileMetaLabel];
+
         // 群聊对方头像（Telegram 式）：贴气泡底、位于左侧头像列；仅连续段末条显示。
         _avatar = [UILabel new];
         _avatar.translatesAutoresizingMaskIntoConstraints = NO;
@@ -175,7 +236,30 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
             [_text.topAnchor constraintEqualToAnchor:_bubble.topAnchor constant:6],
             [_text.leadingAnchor constraintEqualToAnchor:_bubble.leadingAnchor constant:12],
             [_text.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor constant:-12],
-            [_text.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:-6],
+
+            // 文件行：钉在头部文本之下（文本为空时高度 0，行即贴气泡顶）；bottom 与 _textBottom 互斥切换。
+            [_fileRow.topAnchor constraintEqualToAnchor:_text.bottomAnchor constant:2],
+            [_fileRow.leadingAnchor constraintEqualToAnchor:_bubble.leadingAnchor constant:12],
+            [_fileRow.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor constant:-12],
+            [_fileIconWrap.leadingAnchor constraintEqualToAnchor:_fileRow.leadingAnchor],
+            [_fileIconWrap.topAnchor constraintEqualToAnchor:_fileRow.topAnchor constant:2],
+            [_fileIconWrap.widthAnchor constraintEqualToConstant:44],
+            [_fileIconWrap.heightAnchor constraintEqualToConstant:44],
+            [_fileIconWrap.bottomAnchor constraintLessThanOrEqualToAnchor:_fileRow.bottomAnchor],
+            [_fileIcon.topAnchor constraintEqualToAnchor:_fileIconWrap.topAnchor],
+            [_fileIcon.leadingAnchor constraintEqualToAnchor:_fileIconWrap.leadingAnchor],
+            [_fileIcon.trailingAnchor constraintEqualToAnchor:_fileIconWrap.trailingAnchor],
+            [_fileIcon.bottomAnchor constraintEqualToAnchor:_fileIconWrap.bottomAnchor],
+            [_fileNameLabel.leadingAnchor constraintEqualToAnchor:_fileIconWrap.trailingAnchor constant:10],
+            [_fileNameLabel.trailingAnchor constraintEqualToAnchor:_fileRow.trailingAnchor],
+            [_fileNameLabel.topAnchor constraintEqualToAnchor:_fileRow.topAnchor],
+            [_fileStatusLabel.leadingAnchor constraintEqualToAnchor:_fileNameLabel.leadingAnchor],
+            [_fileStatusLabel.trailingAnchor constraintLessThanOrEqualToAnchor:_fileRow.trailingAnchor],
+            [_fileStatusLabel.topAnchor constraintEqualToAnchor:_fileNameLabel.bottomAnchor constant:3],
+            [_fileMetaLabel.trailingAnchor constraintEqualToAnchor:_fileRow.trailingAnchor],
+            [_fileMetaLabel.leadingAnchor constraintGreaterThanOrEqualToAnchor:_fileNameLabel.leadingAnchor],
+            [_fileMetaLabel.topAnchor constraintEqualToAnchor:_fileStatusLabel.bottomAnchor constant:2],
+            [_fileMetaLabel.bottomAnchor constraintEqualToAnchor:_fileRow.bottomAnchor],
 
             // 头像：30×30 贴 cell 左、底对齐气泡底（连续段末条才 show）。
             [_avatar.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12],
@@ -190,6 +274,13 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         _noteBottom = [_sysNote.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-6];
         _failBadgeTrailing = [_failBadge.trailingAnchor constraintEqualToAnchor:_bubble.leadingAnchor constant:-6];
         _bubbleBottom.active = YES;
+        // 气泡底：普通消息由正文撑（_textBottom），文件消息由文件行撑（_fileRowBottom），二选一。
+        _textBottom = [_text.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:-6];
+        _fileRowBottom = [_fileRow.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:-8];
+        _textBottom.active = YES;
+        // 文件气泡最小宽度：短文件名也保住排版体面；与 0.75 宽上限冲突时让路。仅文件模式激活。
+        _fileMinWidth = [_fileRow.widthAnchor constraintGreaterThanOrEqualToConstant:190];
+        _fileMinWidth.priority = UILayoutPriorityDefaultHigh;
     }
     return self;
 }
@@ -278,51 +369,51 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         [body appendAttributedString:[[NSAttributedString alloc]
             initWithString:[NSString stringWithFormat:@"%@\n", snap] attributes:quoteAttr]];
     }
-    // 正文：文件消息 → 跨端共用的折角文件图标 + 文件名，点击整条气泡打开；
-    // 纯 URL → 链接蓝+下划线（点击打开）；其余普通文本。
-    NSString *contentText = message.content ?: @"";
-    NSMutableDictionary *contentAttr = [@{ NSFontAttributeName: [UIFont systemFontOfSize:IMTheme.chatFontSize],
-                                           NSForegroundColorAttributeName: IMTheme.textPrimary } mutableCopy];
-    if ([message.contentType isEqualToString:@"file"]) {
-        NSString *fname = message.fileName.length > 0 ? message.fileName : @"文件";
-        UIColor *fileColor = IMTheme.accent;
-        NSTextAttachment *att = [NSTextAttachment new];
-        att.image = IMFileTypeIconForName(fname, 26);
-        att.bounds = CGRectMake(0, -7, 26, 26);
-        [body appendAttributedString:[NSAttributedString attributedStringWithAttachment:att]];
-        [body appendAttributedString:[[NSAttributedString alloc] initWithString:[@"  " stringByAppendingString:fname]
-            attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:IMTheme.chatFontSize], NSForegroundColorAttributeName: fileColor }]];
-        // 上传中：第二行显「已传 / 总大小 · 点击暂停」，而不是干等（大文件几十秒界面毫无反馈）。
-        NSString *sizeText = self.uploadProgress
-            ? [self.uploadProgress fileLineText]
-            : IMFormatFileSize(message.fileSize);
-        if (sizeText.length > 0) {
-            [body appendAttributedString:[[NSAttributedString alloc] initWithString:[@"\n" stringByAppendingString:sizeText]
-                attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:12],
-                              NSForegroundColorAttributeName: (self.uploadProgress.failed ? IMTheme.danger : IMTheme.textSecondary) }]];
-        }
-    } else {
+    // 正文：文件消息 → 左右两栏子视图（图标固定左侧、文件名≤2 行，见 configureFileRowWithMessage:）；
+    // 纯 URL → 链接蓝+下划线（点击打开）；其余普通文本。头部（昵称/转发/引用）两种模式都走 _text。
+    BOOL fileMode = [message.contentType isEqualToString:@"file"];
+    if (!fileMode) {
+        NSString *contentText = message.content ?: @"";
+        NSMutableDictionary *contentAttr = [@{ NSFontAttributeName: [UIFont systemFontOfSize:IMTheme.chatFontSize],
+                                               NSForegroundColorAttributeName: IMTheme.textPrimary } mutableCopy];
         if (IMLooksLikeURL(contentText)) {
             contentAttr[NSForegroundColorAttributeName] = UIColor.systemBlueColor;
             contentAttr[NSUnderlineStyleAttributeName] = @(NSUnderlineStyleSingle);
         }
         [body appendAttributedString:[[NSAttributedString alloc] initWithString:contentText attributes:contentAttr]];
+        // 翻译（M4-5）：译文另起一行挂气泡内（灰字小字）。
+        if (message.translation.length > 0) {
+            [body appendAttributedString:[[NSAttributedString alloc]
+                initWithString:[NSString stringWithFormat:@"\n%@", message.translation]
+                    attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:14],
+                                  NSForegroundColorAttributeName: IMTheme.textSecondary }]];
+        }
+        NSAttributedString *meta = [self attributedMetaForMessage:message mine:mine peerReadSeq:peerReadSeq];
+        if (meta.length > 0) {
+            [body appendAttributedString:[[NSAttributedString alloc] initWithString:@"   "
+                attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:11] }]]; // 与尾巴之间留点空隙
+            [body appendAttributedString:meta];
+        }
     }
-    // 翻译（M4-5）：译文另起一行挂气泡内（灰字小字）。
-    if (message.translation.length > 0) {
-        [body appendAttributedString:[[NSAttributedString alloc]
-            initWithString:[NSString stringWithFormat:@"\n%@", message.translation]
-                attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:14],
-                              NSForegroundColorAttributeName: IMTheme.textSecondary }]];
-    }
-    NSAttributedString *meta = [self attributedMetaForMessage:message mine:mine peerReadSeq:peerReadSeq];
-    if (meta.length > 0) {
-        [body appendAttributedString:[[NSAttributedString alloc] initWithString:@"   "
-            attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:11] }]]; // 与尾巴之间留点空隙
-        [body appendAttributedString:meta];
+    // 文件模式：头部（昵称/转发/引用）各段都以 \n 收尾（原本为衔接正文），此处已无正文跟随，
+    // 裁掉尾随换行避免头部与文件行之间多出一行空白。
+    if (fileMode && body.length > 0 && [body.string hasSuffix:@"\n"]) {
+        [body deleteCharactersInRange:NSMakeRange(body.length - 1, 1)];
     }
     _bodyText = body;
     _text.attributedText = body;
+    _fileRow.hidden = !fileMode;
+    if (fileMode) {
+        _textBottom.active = NO;
+        _fileRowBottom.active = YES;
+        _fileMinWidth.active = YES;
+        [self configureFileRowWithMessage:message mine:mine peerReadSeq:peerReadSeq];
+    } else {
+        _fileRowBottom.active = NO;
+        _fileMinWidth.active = NO;
+        _textBottom.active = YES;
+        _fileTap.enabled = NO;
+    }
 
     // 发送失败：气泡左侧红❗（仅自己）；被拒收等→气泡下方居中系统行（微信式）。
     BOOL failed = mine && message.status == IMMessageStatusFailed;
@@ -342,6 +433,73 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
 
     _leading.active = !mine;
     _trailing.active = mine;
+}
+
+#pragma mark - 文件气泡（左右两栏 + 圆环状态机）
+
+/// 文件消息内容区：左 44pt 图标位 + 右侧 文件名/状态行/时间。上传中图标位变圆环进度 + 状态 glyph
+///（与媒体气泡中心按钮同一套状态机：排队✕ / 上传中⏸ / 已暂停↑ / 失败↻），点击经 onFileControlTap 回调。
+- (void)configureFileRowWithMessage:(IMMessageModel *)message mine:(BOOL)mine peerReadSeq:(int64_t)peerReadSeq {
+    _fileNameLabel.font = [UIFont systemFontOfSize:IMTheme.chatFontSize];
+    _fileNameLabel.textColor = IMTheme.accent;
+    _fileNameLabel.text = message.fileName.length > 0 ? message.fileName : @"文件";
+    IMUploadProgress *p = self.uploadProgress;
+    UIColor *statusColor = p.failed ? IMTheme.danger : IMTheme.textSecondary;
+    NSString *statusText = p ? [p fileLineText] : IMFormatFileSize(message.fileSize);
+    if (p.pausedByUser && !p.failed) {
+        // 暂停态：行首 ⏸ 小图标 + 字节数（与媒体角标一致；不用「已暂停」文本，图标零成本更直观）。
+        UIImage *icon = [[UIImage systemImageNamed:@"pause.fill"
+                                 withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:9
+                                                                                                   weight:UIImageSymbolWeightBold]]
+                         imageWithTintColor:statusColor renderingMode:UIImageRenderingModeAlwaysOriginal];
+        NSTextAttachment *att = [NSTextAttachment new];
+        att.image = icon;
+        att.bounds = CGRectMake(0, (_fileStatusLabel.font.capHeight - 9) / 2.0, 9, 9);
+        NSMutableAttributedString *s = [[NSAttributedString attributedStringWithAttachment:att] mutableCopy];
+        [s appendAttributedString:[[NSAttributedString alloc]
+            initWithString:[@" " stringByAppendingString:statusText]
+                attributes:@{ NSFontAttributeName: _fileStatusLabel.font,
+                              NSForegroundColorAttributeName: statusColor }]];
+        _fileStatusLabel.attributedText = s;
+    } else {
+        _fileStatusLabel.text = statusText;
+        _fileStatusLabel.textColor = statusColor;
+    }
+    _fileMetaLabel.attributedText = [self attributedMetaForMessage:message mine:mine peerReadSeq:peerReadSeq];
+    [self applyFileControlStateWithFileName:_fileNameLabel.text];
+}
+
+/// 图标位状态机：无进度=文件类型图标（不可点，点整条气泡=打开）；有进度=圆环+glyph（可点）。
+- (void)applyFileControlStateWithFileName:(NSString *)fileName {
+    IMUploadProgress *p = self.uploadProgress;
+    _fileRingTrack.hidden = _fileRing.hidden = (p == nil);
+    _fileTap.enabled = (p != nil);
+    if (!p) {
+        _fileIcon.image = IMFileTypeIconForName(fileName, 38);
+        return;
+    }
+    UIColor *tint = p.failed ? IMTheme.danger : (p.pausedByUser ? IMTheme.textSecondary : IMTheme.accent);
+    _fileRingTrack.strokeColor = [(p.failed ? IMTheme.danger : IMTheme.textSecondary)
+                                  colorWithAlphaComponent:0.25].CGColor;
+    _fileRing.strokeColor = tint.CGColor;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES]; // cell 复用/进度刷新不做 strokeEnd 隐式动画
+    _fileRing.strokeEnd = p.failed ? 0 : MIN(1.0, MAX(0.0, p.overallFraction));
+    [CATransaction commit];
+    NSString *symbol = p.failed ? @"arrow.clockwise"
+        : (p.phase == IMUploadPhaseQueued || p.phase == IMUploadPhaseTranscoding) ? @"xmark"
+        : !p.pausable ? nil // 一次性小上传：只显进度环，无可操作 glyph（几秒传完，无暂停价值）
+        : p.pausedByUser ? @"arrow.up" : @"pause.fill";
+    _fileIcon.image = symbol.length > 0
+        ? [[UIImage systemImageNamed:symbol
+                   withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:15
+                                                                                     weight:UIImageSymbolWeightSemibold]]
+           imageWithTintColor:tint renderingMode:UIImageRenderingModeAlwaysOriginal]
+        : nil;
+}
+
+- (void)handleFileIconTap {
+    if (self.onFileControlTap) { self.onFileControlTap(); }
 }
 
 - (void)applyGroupAvatarURL:(NSString *)url seed:(NSString *)seed name:(NSString *)name

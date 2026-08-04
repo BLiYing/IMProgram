@@ -74,6 +74,14 @@ extern NSString * const kIMMediaSendMessageKey;
                     toUser:(NSString *)toUser
                  dbContext:(nullable IMDatabaseAccountContext *)dbContext;
 
+/// 文件面板相册入口批量入列（调用方已创建乐观 file 模型并上屏，fileSize=0 导出完成后补）：
+/// 相册原件导出（不压缩不转码、不进内存）→ 落盘+落库 → 上传（≥分片阈值可暂停续传）→ 发 file 消息。
+/// 与 enqueueMediaHandles 共用串行队列；导出期进度为 queued（气泡显「准备中…」），可取消。
+- (void)enqueuePhotoFileHandles:(NSArray<IMPickedMediaHandle *> *)handles
+                       messages:(NSArray<IMMessageModel *> *)messages
+                         toUser:(NSString *)toUser
+                      dbContext:(nullable IMDatabaseAccountContext *)dbContext;
+
 /// 重试一条已落库的待发消息（content 为 im-pending:// 本地引用；image/video/file 通吃）。
 /// 分片作业读旁挂 upload_id 从服务端 offset 续传（杀进程后的孤儿 sending 行也走这里自动认领）；
 /// 返回 NO=本地副本已丢失，无法重试。

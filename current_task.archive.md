@@ -208,3 +208,17 @@
 2. 后续新增客户端逻辑时，往 IMProgramTests 加用例并按 CLAUDE.md 命令补跑（`-only-testing:IMProgramTests`）。
 3. 接 IMDatabase（FMDB）落库：消息 sending→sent 持久化、synced_conv_seq 持久化（替换当前内存位点）。
 4. 后端（见 IMServer/current_task.md）：JWT 鉴权替换 ?uid=、errcode 包 + HTTP 登录接口。
+
+---
+
+## Status（2026-08-04 迁移：UI 统一/账号加固/文件与同步等已验收批次，从活快照迁入）
+> 以下条目原在 current_task.md「当前焦点」，均已完成并经用户验收/提交，为保活快照精简而迁入归档（只读，勿更新）。
+
+- **五处弹窗/菜单风格统一到自定义 `IMPopoverCard`（2026-08-03，用户验收通过）**：会话列表「＋」、详情页「更多」、MediaViewer「更多」统一走 `IMPopoverCard` 锚点磨砂菜单（MediaViewer 从底部 action sheet 改锚定「⋯」、空间不足自动上翻；删除 `IMBottomSheet.{h,m}`）；图标从右移到左，圆角用 `IMTheme.radiusBubble`。两处 cell 长按保留系统 `UIMenu`。取舍：非像素级一致换 App 内风格统一；不用系统 UIMenu 全统一是用户选择保留 Telegram 观感。
+- **若干 UI 修复批次（2026-08-03，用户验收通过并已提交）**：①深色模式统一导航磨砂过亮→`backgroundGlass` 叠自适应 tint（`480c112`）；②`IMLiquidNavigationBar` init 传 `actionTitle` 不触发 didSet→按钮不渲染→`buildView` 显式落标题（`763df80`）；③建群选择页选好友后「创建」钮吞点击→`updateSelectionUI` 补 `setNeedsLayout`（`763df80`）；④日期胶囊「今天」底色改 `accent·0.64` 随主题（`d8b18d7`）。另诊断非 bug：自己发的消息在自己其它端不计未读属正确行为。
+- **系统 Files 选择与返回链（2026-08-02，iOS 26 真机测试通过）**：picker 单实例、页面日志不触碰 `DOCRemote…` 私有导航项；「返回下载页」确诊为 iOS 26.3 Simulator runtime bug（remote view service `FBSceneErrorDomain Code=2` 崩溃自重启），真机无此问题。恢复 `UTTypeItem`，补回归测试。
+- **iOS 单库账号上下文 generation 加固（2026-08-02，用户确认测试通过）**：`IMDatabaseAccountContext` 绑定数据库实例/owner/激活代次，异步任务原子「校验+执行」；A→B→A 迟到操作拒写；XCTest 覆盖。物理分库降级为后续增强。
+- **文件分页、文件语义与大小展示（2026-08-01，用户测试通过）**：已发送文件服务端游标分页 + uid 隔离 SQLite 缓存；`file_size` 贯穿发送/转发/Socket/模型/SQLite；气泡与文件 Tab 显 KB/MB/GB。
+- **会话长名与跨端文件图标（2026-08-01，用户真机测试通过）**：标题行「名称→置顶→免打扰」水平 Stack；原创折角文件卡 21 类 + 未知类型，iOS Asset Catalog 与 Web SVG 同源，含扩展名映射单测。
+- **iOS 本地优先会话 + 长连接状态（2026-08-01，用户抽查通过）**：FMDB 按 `owner_uid` 隔离、`server_snapshot_seq` 防未读翻倍、离线启动先登记缓存会话；设计记录 `docs/LOCAL_FIRST_CONVERSATION_STORAGE.md`。
+- **聊天 Cell 解耦 + 离线启动保持会话（2026-08-01）**：6 个消息 Cell 迁至 `Modules/Chat/Cells/`；已有本地登录态时启动直进主界面由会话页自动重连；`IMSessionStoreTests` 覆盖。
