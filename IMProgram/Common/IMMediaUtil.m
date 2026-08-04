@@ -9,6 +9,31 @@ NSString *IMMediaFullURL(NSString *content, NSString *host) {
     return [NSString stringWithFormat:@"http://%@%@", host ?: @"", content];
 }
 
+BOOL IMLooksLikeChatRecordJSON(NSString *s) {
+    return [s hasPrefix:@"{"] && ([s containsString:@"\"items\""] || [s containsString:@"\"t\":"]);
+}
+
+NSString *IMChatRecordSnippet(NSString *recordJSON) {
+    NSString *title = nil;
+    NSData *d = [recordJSON dataUsingEncoding:NSUTF8StringEncoding];
+    NSDictionary *dict = d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:NULL] : nil;
+    if ([dict isKindOfClass:NSDictionary.class] && [dict[@"t"] isKindOfClass:NSString.class]) {
+        title = dict[@"t"];
+    } else if (recordJSON.length > 0) {
+        // 存量脏快照：旧引用把整段 JSON 截 60 字入库，反序列化必失败 → 正则抠 "t":"…" 标题。
+        NSRange key = [recordJSON rangeOfString:@"\"t\":\""];
+        if (key.location != NSNotFound) {
+            NSUInteger start = NSMaxRange(key);
+            NSRange close = [recordJSON rangeOfString:@"\"" options:0
+                                                range:NSMakeRange(start, recordJSON.length - start)];
+            if (close.location != NSNotFound && close.location > start) {
+                title = [recordJSON substringWithRange:NSMakeRange(start, close.location - start)];
+            }
+        }
+    }
+    return title.length > 0 ? [NSString stringWithFormat:@"[聊天记录] %@", title] : @"[聊天记录]";
+}
+
 NSString *IMMediaFileName(NSString *content) {
     if (content.length == 0) { return @""; }
     NSString *last = content.lastPathComponent ?: content;

@@ -1,5 +1,6 @@
 #import "IMChatRecordCell.h"
 #import "IMMessageModel.h"
+#import "IMMediaUtil.h"
 #import "IMTheme.h"
 
 static void IMParseChatRecord(NSString *content, NSString **outTitle, NSArray<NSString *> **outLines) {
@@ -16,9 +17,11 @@ static void IMParseChatRecord(NSString *content, NSString **outTitle, NSArray<NS
         NSString *n = [it[@"n"] isKindOfClass:NSString.class] ? it[@"n"] : @"";
         NSString *ct = [it[@"ct"] isKindOfClass:NSString.class] ? it[@"ct"] : @"text";
         NSString *c = [it[@"c"] isKindOfClass:NSString.class] ? it[@"c"] : @"";
+        // 文件行带原始文件名（新记录读 fn 字段；老记录从 URL 反推 <随机>__<原名>，与 Web 同逻辑）。
+        NSString *fn = [it[@"fn"] isKindOfClass:NSString.class] ? it[@"fn"] : IMMediaFileName(c);
         NSString *preview = [ct isEqualToString:@"image"] ? @"[图片]"
             : [ct isEqualToString:@"video"] ? @"[视频]"
-            : [ct isEqualToString:@"file"] ? @"[文件]" : c;
+            : [ct isEqualToString:@"file"] ? (fn.length > 0 ? [@"[文件] " stringByAppendingString:fn] : @"[文件]") : c;
         [lines addObject:[NSString stringWithFormat:@"%@: %@", n, preview]];
         if (lines.count >= 4) { break; }
     }
@@ -109,4 +112,6 @@ static void IMParseChatRecord(NSString *content, NSString **outTitle, NSArray<NS
 }
 - (void)tapped { if (_onTap) { _onTap(); } }
 - (void)prepareForReuse { [super prepareForReuse]; _onTap = nil; }
+- (UIView *)previewTargetView { return _card; }
+
 @end

@@ -1,14 +1,17 @@
 //  IMChatRecordViewController.m
 
 #import "IMChatRecordViewController.h"
+#import <SafariServices/SafariServices.h>
 #import "IMImageLoader.h"
 #import "IMVideoThumbnailLoader.h"
+#import "IMMediaUtil.h"
 #import "IMMediaViewerViewController.h"
 
 #pragma mark - 单条记录 Cell
 
 @interface IMRecordItemCell : UITableViewCell
-- (void)configureWithName:(NSString *)name type:(NSString *)type content:(NSString *)content fullURL:(NSString *)fullURL;
+- (void)configureWithName:(NSString *)name type:(NSString *)type content:(NSString *)content fullURL:(NSString *)fullURL
+                 fileName:(NSString *)fileName fileSize:(int64_t)fileSize;
 @end
 
 @implementation IMRecordItemCell {
@@ -67,7 +70,8 @@
     }
     return self;
 }
-- (void)configureWithName:(NSString *)name type:(NSString *)type content:(NSString *)content fullURL:(NSString *)fullURL {
+- (void)configureWithName:(NSString *)name type:(NSString *)type content:(NSString *)content fullURL:(NSString *)fullURL
+                 fileName:(NSString *)fileName fileSize:(int64_t)fileSize {
     _name.text = name;
     BOOL isImage = [type isEqualToString:@"image"];
     BOOL isVideo = [type isEqualToString:@"video"];
@@ -76,8 +80,31 @@
     _thumb.hidden = !isMedia;
     _playBadge.hidden = !isVideo;
     if (!isMedia) {
-        NSString *fallback = [type isEqualToString:@"file"] ? @"[文件]" : content;
-        _text.text = fallback;
+        if ([type isEqualToString:@"file"]) {
+            // 文件行=类型图标 + 原名 + 大小（与聊天文件气泡同语言），点击整行打开（详情页 didSelectRow）。
+            NSString *fn = fileName.length > 0 ? fileName : IMMediaFileName(content);
+            if (fn.length == 0) {
+                _text.text = @"[文件]";
+            } else {
+                NSTextAttachment *att = [NSTextAttachment new];
+                att.image = IMFileTypeIconForName(fn, 24);
+                att.bounds = CGRectMake(0, -6, 24, 24);
+                NSMutableAttributedString *line = [[NSAttributedString attributedStringWithAttachment:att] mutableCopy];
+                [line appendAttributedString:[[NSAttributedString alloc]
+                    initWithString:[@" " stringByAppendingString:fn]
+                        attributes:@{ NSFontAttributeName: _text.font, NSForegroundColorAttributeName: self.tintColor }]];
+                NSString *size = fileSize > 0 ? IMFormatFileSize(fileSize) : @"";
+                if (size.length > 0) {
+                    [line appendAttributedString:[[NSAttributedString alloc]
+                        initWithString:[NSString stringWithFormat:@" · %@", size]
+                            attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:13],
+                                          NSForegroundColorAttributeName: UIColor.secondaryLabelColor }]];
+                }
+                _text.attributedText = line;
+            }
+        } else {
+            _text.text = content;
+        }
         _thumb.image = nil;
         _thumbURL = nil;
         return;
@@ -150,7 +177,9 @@
     NSString *n = [it[@"n"] isKindOfClass:NSString.class] ? it[@"n"] : @"";
     NSString *ct = [it[@"ct"] isKindOfClass:NSString.class] ? it[@"ct"] : @"text";
     NSString *c = [it[@"c"] isKindOfClass:NSString.class] ? it[@"c"] : @"";
-    [cell configureWithName:n type:ct content:c fullURL:[self fullURLFor:c]];
+    NSString *fn = [it[@"fn"] isKindOfClass:NSString.class] ? it[@"fn"] : @"";
+    int64_t fs = [it[@"fs"] respondsToSelector:@selector(longLongValue)] ? [it[@"fs"] longLongValue] : 0;
+    [cell configureWithName:n type:ct content:c fullURL:[self fullURLFor:c] fileName:fn fileSize:fs];
     return cell;
 }
 
@@ -161,7 +190,16 @@
     NSString *c = [it[@"c"] isKindOfClass:NSString.class] ? it[@"c"] : @"";
     BOOL isVideo = [ct isEqualToString:@"video"];
     BOOL isImage = [ct isEqualToString:@"image"];
-    if (!isVideo && !isImage) { return; }
+    if (!isVideo && !isImage) {
+        // 文件行：应用内浏览器打开/下载（与聊天页 openLink 同口径，仅接受 http/https）。
+        if ([ct isEqualToString:@"file"]) {
+            NSURL *url = [NSURL URLWithString:[self fullURLFor:c]];
+            if (url && ([url.scheme isEqualToString:@"http"] || [url.scheme isEqualToString:@"https"])) {
+                [self presentViewController:[[SFSafariViewController alloc] initWithURL:url] animated:YES completion:nil];
+            }
+        }
+        return;
+    }
     IMMediaViewerViewController *viewer = [IMMediaViewerViewController viewerWithURL:[self fullURLFor:c]
                                                                             isVideo:isVideo
                                                                      preloadedImage:nil

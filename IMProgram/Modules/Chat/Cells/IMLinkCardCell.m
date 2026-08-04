@@ -169,4 +169,6 @@ static NSString *IMLocalizeSnippet(NSString *snap) {
 }
 - (void)tapped { if (_onTap && _url) { _onTap(_url); } }
 - (void)prepareForReuse { [super prepareForReuse]; _thumb.image = nil; _thumbHeight.constant = 0; _card.hidden = YES; _quote.hidden = YES; _onTap = nil; }
+- (UIView *)previewTargetView { return _card; }
+
 @end

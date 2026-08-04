@@ -20,6 +20,13 @@ FOUNDATION_EXPORT NSString *IMFormatFileDateTime(int64_t timestampMillis);
 /// 整条内容是否就是一个 http(s) 链接（无空白）→ 用于 URL 消息渲染判定。
 FOUNDATION_EXPORT BOOL IMMediaLooksLikeURL(NSString *_Nullable s);
 
+/// 合并转发卡片（chat_record JSON）的引用/预览快照：`[聊天记录] <标题>`。
+/// 兼容存量截断快照（旧引用把 JSON 截 60 字入库，解析不出时正则抠 "t":"…" 标题）；全失败回落 `[聊天记录]`。
+FOUNDATION_EXPORT NSString *IMChatRecordSnippet(NSString *_Nullable recordJSON);
+
+/// 字符串是否像 chat_record 的 JSON（或其截断残段）→ 渲染端把存量脏快照就地救成 `[聊天记录] 标题`。
+FOUNDATION_EXPORT BOOL IMLooksLikeChatRecordJSON(NSString *_Nullable s);
+
 /// 按文件扩展名返回跨端统一类型标识；未覆盖的扩展名回退 unknown。
 FOUNDATION_EXPORT NSString *IMFileTypeIdentifierForName(NSString *_Nullable name);
 

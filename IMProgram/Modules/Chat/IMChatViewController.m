@@ -53,6 +53,7 @@ static NSString *IMReplySnippet(IMMessageModel *m) {
     if ([m.contentType isEqualToString:@"image"]) { return @"[图片]"; }
     if ([m.contentType isEqualToString:@"video"]) { return @"[视频]"; }
     if ([m.contentType isEqualToString:@"file"])  { return @"[文件]"; }
+    if ([m.contentType isEqualToString:@"chat_record"]) { return IMChatRecordSnippet(m.content); } // [聊天记录] 标题
     NSString *c = m.content ?: @"";
     return c.length > 60 ? [[c substringToIndex:60] stringByAppendingString:@"…"] : c;
 }
@@ -1810,7 +1811,18 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 
 /// 点击引用消息（有 replyToConvSeq）→ 跳到原消息；其余点击忽略。附件面板展开时点空白先收起面板（#3）。
 - (void)handleReplyJumpTap:(UITapGestureRecognizer *)gr {
-    if (self.selecting) { return; } // 多选态：点击交给表格选中，不触发引用跳转
+    if (self.selecting) {
+        // 多选态：可选行交给表格勾选；点到发送中/失败的本地件（无勾选圈）直接提示原因，不静默。
+        CGPoint sp = [gr locationInView:self.tableView];
+        NSIndexPath *sip = [self.tableView indexPathForRowAtPoint:sp];
+        if (sip && sip.row < (NSInteger)self.messages.count) {
+            IMMessageModel *sm = self.messages[(NSUInteger)sip.row];
+            if (sm.convSeq <= 0 && ![sm.contentType isEqualToString:@"system"]) {
+                [self im_showToast:@"发送中/失败的消息不可选择"];
+            }
+        }
+        return;
+    }
     if (self.attachPanelVisible) { [self showAttachPanel:NO]; return; }
     CGPoint p = [gr locationInView:self.tableView];
     NSIndexPath *ip = [self.tableView indexPathForRowAtPoint:p];
@@ -2257,10 +2269,39 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     if ([self isAlbumMember:message]) { return nil; } // 相册宫格：菜单由每个格子自带（定位到单条成员）
     BOOL mine = [message.from isEqualToString:self.userID];
     NSArray<IMMenuAction *> *actions = [self messageActionsForMessage:message mine:mine];
-    return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil
+    // identifier 带上 indexPath：高亮/收起预览回调要凭它找到 cell（否则只能用系统默认的整行全宽快照）。
+    return [UIContextMenuConfiguration configurationWithIdentifier:indexPath previewProvider:nil
         actionProvider:^UIMenu *(NSArray<UIMenuElement *> *suggested) {
             return [IMMenuAction menuWithActions:actions];
         }];
+}
+
+/// 长按菜单只圈气泡本体：系统默认对整个 cell（contentView 全宽，含气泡两侧透明区）截图并垫系统底色
+/// 托盘——表现为"整行宽的背景色"，收起动画时这块全宽快照归位又比气泡慢半拍。改为 UITargetedPreview
+/// 指向 cell 的 previewTargetView（气泡/缩略图/卡片），背景透明 + 圆角 visiblePath，高亮与收起都干净。
+- (UITargetedPreview *)targetedPreviewForConfiguration:(UIContextMenuConfiguration *)configuration {
+    id identifier = configuration.identifier; // id<NSCopying> 不能直接发 isKindOfClass:，先落成 id
+    NSIndexPath *ip = [identifier isKindOfClass:NSIndexPath.class] ? (NSIndexPath *)identifier : nil;
+    if (!ip) { return nil; }
+    UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:ip];
+    if (![cell respondsToSelector:@selector(previewTargetView)]) { return nil; } // 系统默认兜底
+    UIView *target = [(id)cell previewTargetView];
+    if (!target || !target.window) { return nil; }
+    UIPreviewParameters *params = [UIPreviewParameters new];
+    params.backgroundColor = UIColor.clearColor; // 去掉全宽底色托盘
+    params.visiblePath = [UIBezierPath bezierPathWithRoundedRect:target.bounds
+                                                    cornerRadius:target.layer.cornerRadius];
+    return [[UITargetedPreview alloc] initWithView:target parameters:params];
+}
+
+- (UITargetedPreview *)tableView:(UITableView *)tableView
+    previewForHighlightingContextMenuWithConfiguration:(UIContextMenuConfiguration *)configuration {
+    return [self targetedPreviewForConfiguration:configuration];
+}
+
+- (UITargetedPreview *)tableView:(UITableView *)tableView
+    previewForDismissingContextMenuWithConfiguration:(UIContextMenuConfiguration *)configuration {
+    return [self targetedPreviewForConfiguration:configuration];
 }
 
 /// 单条消息的菜单动作（按显示顺序，仅含可见项）：
@@ -2270,9 +2311,15 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     __weak typeof(self) ws = self;
     NSMutableArray<IMMenuAction *> *actions = [NSMutableArray array];
 
-    [actions addObject:[IMMenuAction actionWithId:@"copy" title:@"复制" image:@"doc.on.doc" handler:^{
-        [ws copyMessageToPasteboard:message];
-    }]];
+    // 复制：仅文本（随时可复制）与已发出的图片（复制图片字节）。文件/聊天记录卡片无复制语义
+    //（后者会把整段 JSON 拷进剪贴板）；发送中的图片 content 还是本地引用，复制无意义。与 Web 对齐。
+    BOOL copyable = ([message.contentType isEqualToString:@"text"] && message.content.length > 0 && message.recalledAt == 0)
+                 || ([message.contentType isEqualToString:@"image"] && message.convSeq > 0 && message.recalledAt == 0);
+    if (copyable) {
+        [actions addObject:[IMMenuAction actionWithId:@"copy" title:@"复制" image:@"doc.on.doc" handler:^{
+            [ws copyMessageToPasteboard:message];
+        }]];
+    }
     if (message.recalledAt == 0 && message.convSeq > 0) {
         [actions addObject:[IMMenuAction actionWithId:@"reply" title:@"引用" image:@"arrowshape.turn.up.left" handler:^{
             [ws beginReplyTo:message];
@@ -2284,7 +2331,8 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         }]];
     }
     // 收藏：文本/图片/视频/文件/链接均可（快照存 content+content_type，后端通用；system/撤回除外）。
-    if (message.content.length > 0 && message.recalledAt == 0 && ![message.contentType isEqualToString:@"system"]) {
+    // 必须 convSeq>0：发送中的行 content 是 im-pending:// 本地引用，收藏它是一条别端永远打不开的死链（与 Web 对齐）。
+    if (message.convSeq > 0 && message.content.length > 0 && message.recalledAt == 0 && ![message.contentType isEqualToString:@"system"]) {
         [actions addObject:[IMMenuAction actionWithId:@"favorite" title:@"收藏" image:@"bookmark" handler:^{
             [ws favoriteMessage:message];
         }]];
@@ -2311,9 +2359,12 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
             [ws cancelPendingMessage:message];
         }]];
     }
-    [actions addObject:[IMMenuAction actionWithId:@"multiSelect" title:@"多选" image:@"checkmark.circle" handler:^{
-        [ws enterSelectionWithMessage:message];
-    }]];
+    // 多选：仅已发出的消息（发送中/失败的本地件不可勾选，入口一并收掉；与 Web visible convSeq>0 对齐）。
+    if (message.convSeq > 0) {
+        [actions addObject:[IMMenuAction actionWithId:@"multiSelect" title:@"多选" image:@"checkmark.circle" handler:^{
+            [ws enterSelectionWithMessage:message];
+        }]];
+    }
     if ([message.contentType isEqualToString:@"text"] && message.content.length > 0 && message.recalledAt == 0) {
         [actions addObject:[IMMenuAction actionWithId:@"translate" title:@"翻译" image:@"character.bubble" handler:^{
             [ws translateMessage:message];
@@ -2328,9 +2379,13 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
             [ws reportTargetType:@"user" targetID:(message.from ?: @"") title:[NSString stringWithFormat:@"举报用户 %@", message.from]];
         }]];
     }
-    [actions addObject:[IMMenuAction destructiveActionWithId:@"delete" title:@"删除" image:@"trash" handler:^{
-        [ws deleteMessage:message];
-    }]];
+    // 删除：发送中的本地件不显示——删除只删行不停止上传，传完仍会发出去（僵尸任务）；
+    // 想撤走请用「取消发送」（停任务/删副本/删库行一步到位）。失败行保留删除。
+    if (!(message.status == IMMessageStatusSending && message.convSeq <= 0)) {
+        [actions addObject:[IMMenuAction destructiveActionWithId:@"delete" title:@"删除" image:@"trash" handler:^{
+            [ws deleteMessage:message];
+        }]];
+    }
     return actions;
 }
 
@@ -2563,6 +2618,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         NSString *toUser = c.isGroup ? @"" : (c.peer ?: @"");
         for (IMMessageModel *m in msgs) {
             if (m.recalledAt > 0 || m.content.length == 0 || [m.contentType isEqualToString:@"system"]) { continue; }
+            if (m.convSeq <= 0) { continue; } // 防御：发送中/失败的本地件（多选已拦，此处兜底）
             NSString *origin = m.forwardFrom.length > 0 ? m.forwardFrom
                 : (m.fromNickname.length > 0 ? m.fromNickname : (m.from ?: @""));
             [self forwardEchoContent:m.content contentType:(m.contentType ?: @"text") forwardFrom:origin fileName:m.fileName fileSize:m.fileSize
@@ -2627,14 +2683,22 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     return (self.savedTitle.length ? self.savedTitle : (self.title.length ? self.title : (self.peerID ?: @"")));
 }
 
-/// 合并转发内容：JSON（t=标题，items=[{n:发送者, ct:类型, c:内容/URL}]），content_type=chat_record。
+/// 合并转发内容：JSON（t=标题，items=[{n:发送者, ct:类型, c:内容/URL, 文件另带 fn:文件名/fs:字节数}]），
+/// content_type=chat_record。fn/fs 与 Web 同约定；老记录无 fn 时读端从 URL 反推原名兜底。
 - (NSString *)mergedForwardJSONForMessages:(NSArray<IMMessageModel *> *)msgs {
     NSMutableArray<NSDictionary *> *items = [NSMutableArray array];
     for (IMMessageModel *m in msgs) {
         if (m.recalledAt > 0 || [m.contentType isEqualToString:@"system"] || m.content.length == 0) { continue; }
-        [items addObject:@{ @"n": [self displayNameForMessage:m] ?: @"",
-                            @"ct": m.contentType ?: @"text",
-                            @"c": m.content ?: @"" }];
+        if (m.convSeq <= 0) { continue; } // 防御：发送中/失败的本地件（多选已拦，此处兜底）
+        NSMutableDictionary *item = [@{ @"n": [self displayNameForMessage:m] ?: @"",
+                                        @"ct": m.contentType ?: @"text",
+                                        @"c": m.content ?: @"" } mutableCopy];
+        if ([m.contentType isEqualToString:@"file"]) {
+            NSString *fname = m.fileName.length > 0 ? m.fileName : IMMediaFileName(m.content);
+            if (fname.length > 0) { item[@"fn"] = fname; }
+            if (m.fileSize > 0) { item[@"fs"] = @(m.fileSize); }
+        }
+        [items addObject:item];
     }
     // 多选态下 self.title 已被替换为"已选择 N 条"，用 savedTitle 取真实会话名。
     NSString *base = self.savedTitle.length ? self.savedTitle : (self.title.length ? self.title : (self.peerID ?: @"聊天"));
@@ -2645,8 +2709,16 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 
 #pragma mark - 编辑/选择 delegate
 
+/// 多选态下该消息是否可勾选：系统提示/撤回墓碑/发送中·失败的本地件（无服务端内容，转出去是空的）不可选。
+- (BOOL)isSelectableMessage:(IMMessageModel *)m {
+    return ![m.contentType isEqualToString:@"system"] && m.recalledAt == 0 && m.convSeq > 0;
+}
+
 - (BOOL)tableView:(UITableView *)tableView canEditRowAtIndexPath:(NSIndexPath *)indexPath {
-    return self.selecting; // 仅多选态可选中
+    if (!self.selecting) { return NO; } // 仅多选态可选中
+    // 不可选的行不显示勾选圈（系统编辑态对 canEdit=NO 的行自动不画圈，无需额外 UI）。
+    if (indexPath.row >= (NSInteger)self.messages.count) { return NO; }
+    return [self isSelectableMessage:self.messages[indexPath.row]];
 }
 
 /// 多选态勾选填充（#5）：selectionStyle=None 会让编辑圈选永远不显示"已勾选"态，

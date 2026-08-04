@@ -12,6 +12,8 @@ static NSString *IMLocalizeSnippet(NSString *snap) {
     if ([snap isEqualToString:@"[image]"]) { return @"[图片]"; }
     if ([snap isEqualToString:@"[video]"]) { return @"[视频]"; }
     if ([snap isEqualToString:@"[file]"])  { return @"[文件]"; }
+    // 存量救援：旧版引用聊天记录卡片时把整段 JSON 截 60 字存进快照 → 就地救成「[聊天记录] 标题」。
+    if (IMLooksLikeChatRecordJSON(snap)) { return IMChatRecordSnippet(snap); }
     return snap ?: @"";
 }
 
@@ -24,6 +26,7 @@ static NSString *IMMediaGlyphForSnippet(NSString *snap) {
     if ([snap isEqualToString:@"[图片]"]) { return @"photo"; }
     if ([snap isEqualToString:@"[视频]"]) { return @"video"; }
     if ([snap isEqualToString:@"[文件]"]) { return @"doc"; }
+    if ([snap hasPrefix:@"[聊天记录]"]) { return @"text.bubble"; } // 引用合并转发卡片
     return nil;
 }
 
@@ -501,6 +504,8 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
            imageWithTintColor:tint renderingMode:UIImageRenderingModeAlwaysOriginal]
         : nil;
 }
+
+- (UIView *)previewTargetView { return _bubble; }
 
 - (void)handleFileIconTap {
     if (self.onFileControlTap) { self.onFileControlTap(); }

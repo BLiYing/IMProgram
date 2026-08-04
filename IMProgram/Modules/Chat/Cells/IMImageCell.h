@@ -12,6 +12,9 @@ NS_ASSUME_NONNULL_BEGIN
 ///   - 居中：播放按钮（视频）。
 @interface IMImageCell : UITableViewCell
 
+/// 长按菜单高亮/收起动画的目标视图（=缩略图本体）。
+@property (nonatomic, strong, readonly) UIView *previewTargetView;
+
 @property (nonatomic, copy, nullable) void (^onTap)(UIImage *_Nullable image);
 /// 老消息没有 media_w/media_h 时，异步出图后才知道真实比例 → 回调聊天页刷一次行高（无动画）。
 @property (nonatomic, copy, nullable) void (^onMediaSizeResolved)(void);

@@ -7,6 +7,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface IMBubbleCell : UITableViewCell
 
+/// 长按菜单高亮/收起动画的目标视图（=气泡本体）：系统默认会截整行全宽快照，露出难看的底色托盘。
+@property (nonatomic, strong, readonly) UIView *previewTargetView;
+
 /// 文件消息上传中的进度（nil=非上传态）。文件气泡左侧图标位据此变圆环状态机
 ///（排队✕ / 上传中⏸ / 已暂停↑ / 失败↻，与媒体气泡中心按钮同一套 glyph），第二行显进度文案。
 /// 必须在 configure 之前设置：configure 一次性布好整条气泡。

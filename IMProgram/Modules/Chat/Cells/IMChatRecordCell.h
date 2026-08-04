@@ -5,6 +5,8 @@
 NS_ASSUME_NONNULL_BEGIN
 
 @interface IMChatRecordCell : UITableViewCell
+/// 长按菜单高亮/收起动画的目标视图（=卡片本体）。
+@property (nonatomic, strong, readonly) UIView *previewTargetView;
 @property (nonatomic, copy, nullable) void (^onTap)(void);
 - (void)configureWithMessage:(IMMessageModel *)message mine:(BOOL)mine;
 @end

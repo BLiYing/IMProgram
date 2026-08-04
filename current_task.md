@@ -5,6 +5,21 @@
 
 ## 当前焦点
 
+- **长按菜单/多选/合并转发六件套（2026-08-04 晚，✅ 改代码未编译；两端同步，服务端零改动；待实测）**：
+  1. **长按预览只圈气泡**：补 `previewForHighlighting/Dismissing`（identifier 带 indexPath），四种 cell
+     暴露 `previewTargetView`（气泡/缩略图/卡片），clear 背景 + 圆角 visiblePath——整行宽底色托盘与
+     收起残影消除。
+  2. **菜单矩阵收敛**：复制=仅文本+已发出图片（file/chat_record 无复制；不再复制 JSON/本地引用）；
+     收藏/多选加 convSeq>0；发送中隐藏「删除」（防僵尸上传，撤走用取消发送）。Web menus.ts 同步
+     （delete/multiSelect 规则 + 2 条新单测）。
+  3. **多选范围**：system/撤回墓碑/待发件（convSeq≤0）无勾选圈（canEditRow / sel-check 隐藏）；
+     点按待发件直接 toast「发送中/失败的消息不可选择」；转发/合并转发入口再加 convSeq>0 防御过滤。
+  4. **合并转发文件行带名**：JSON items 文件项增 `fn/fs`（两端同写）；卡片摘要「[文件] 报表.xlsx」、
+     iOS 详情页文件行=类型图标+原名+大小、点击 SFSafari 打开（对齐 Web）；老记录无 fn 从 URL 反推
+     `<随机>__<原名>`（IMMediaFileName，Web fileNameFromContent 同逻辑）。
+  5. **引用聊天记录卡片**：快照改「[聊天记录] 标题」（IMChatRecordSnippet / chatRecordSnippet 两端
+     同语义），渲染端检测存量 JSON 截断快照就地救援（正则抠 "t" 标题）；引用条加 text.bubble 小图标。
+  6. Web 详情页文件行补大小显示（fn/fs 优先，回退 URL 反推）。
 - **文件消息布局重构 + 相册文件路径并入常驻服务（2026-08-04，✅ 改代码，按用户要求未编译；待真机实测）**：
   真机反馈「文件面板→从相册发大视频，气泡很久才出现」。根因：旧 `uploadPhotoFiles` 用
   `loadDataRepresentation` 把整个原件拷进**内存 NSData**（2GB 会 jetsam）+ 一次性 multipart 直传，

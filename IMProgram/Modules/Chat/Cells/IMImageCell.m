@@ -385,4 +385,6 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName) {
     _onTap = nil; _onMediaSizeResolved = nil;
 }
 
+- (UIView *)previewTargetView { return _thumb; }
+
 @end
