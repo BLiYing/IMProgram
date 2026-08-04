@@ -540,6 +540,18 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     [self.navigationController pushViewController:detail animated:YES];
 }
 
+/// 点群聊气泡对方头像 → 进该成员资料页（复用单聊右上头像同一逻辑，微信式；showsMessagePill 显「消息」入口）。
+- (void)openMemberProfileForUID:(NSString *)uid {
+    if (uid.length == 0 || [uid isEqualToString:self.userID]) { return; }
+    NSString *nick = [self.groupInfo nicknameOfMember:uid];
+    IMChatDetailViewController *vc = [[IMChatDetailViewController alloc] initSingleWithHost:self.host userID:self.userID
+                                                                                    peerID:uid
+                                                                              peerNickname:(nick.length ? nick : uid)
+                                                                             peerAvatarURL:[self.groupInfo avatarURLOfMember:uid]];
+    vc.showsMessagePill = YES;
+    [self.navigationController pushViewController:vc animated:YES];
+}
+
 /// 群变更事件：本群则刷新资料；自己被移出 → 提示并退出本页。
 - (void)onGroupEvent:(NSNotification *)note {
     NSString *convID = note.userInfo[kIMConvIDKey];
@@ -1899,12 +1911,21 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         return;
     }
     if (self.attachPanelVisible) { [self showAttachPanel:NO]; return; }
-    [self.inputField resignFirstResponder]; // 点消息区任意处收起键盘（微信式；拖拽收起仍由 Interactive 模式负责）
+    // 先在「点击那一刻的稳定布局」上定位点中的消息——必须在收键盘之前：resignFirstResponder 触发的 inset
+    // 变化会让坐标反查落到收起动画中间态的错行（曾表现为「跳到别的消息、高亮错行」）。
     CGPoint p = [gr locationInView:self.tableView];
     NSIndexPath *ip = [self.tableView indexPathForRowAtPoint:p];
+    BOOL keyboardWasUp = self.kbInset > 0;
+    [self.inputField resignFirstResponder]; // 点消息区任意处收起键盘（微信式；拖拽收起仍由 Interactive 模式负责）
     if (!ip || ip.row >= (NSInteger)self.messages.count) { return; }
     IMMessageModel *m = self.messages[(NSUInteger)ip.row];
-    if (m.replyToConvSeq > 0) { [self jumpToConvSeq:m.replyToConvSeq]; return; }
+    if (m.replyToConvSeq > 0) {
+        int64_t target = m.replyToConvSeq;
+        // 键盘正收起时，把定位滚动推迟到 inset 落定后——否则 scrollToRow 用即将失效的布局会停错位。
+        if (keyboardWasUp) { [self runAfterKeyboardHidden:^{ [self jumpToConvSeq:target]; }]; }
+        else { [self jumpToConvSeq:target]; }
+        return;
+    }
     if (m.recalledAt > 0) { return; }
     // 文件消息 → 打开/下载（URL 文本消息由独立的链接卡片 cell 自行处理点击，不在此重复）。
     if ([m.contentType isEqualToString:@"file"]) { [self openLink:[self fullMediaURL:m.content]]; }
@@ -2320,6 +2341,14 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         };
     } else {
         cell.onFileControlTap = nil;
+    }
+    // 群聊对方头像点击 → 该成员资料页（单聊/自己不挂）。
+    if (self.isGroupChat && ![m.from isEqualToString:self.userID]) {
+        NSString *memberUID = m.from;
+        __weak typeof(self) wsAvatar = self;
+        cell.onAvatarTap = ^{ [wsAvatar openMemberProfileForUID:memberUID]; };
+    } else {
+        cell.onAvatarTap = nil;
     }
     NSString *replyFromName = (self.isGroupChat && m.replyToConvSeq > 0 && m.replyToFrom.length > 0)
         ? [self replyFromNameForUID:m.replyToFrom] : nil;
@@ -3156,6 +3185,19 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         self.attachPanel.hidden = YES;
     }
     [self updateInputBottomAnimated:NO];
+}
+
+/// 把一段操作推迟到键盘完全收起（inset 落定）后在主线程执行一次——用于引用跳转等依赖稳定布局的定位。
+/// 一次性监听 UIKeyboardDidHideNotification，触发即摘除；调用方须在已 resignFirstResponder 且键盘确在弹起态时用。
+- (void)runAfterKeyboardHidden:(void (^)(void))block {
+    if (!block) { return; }
+    __block id<NSObject> token = nil;
+    token = [NSNotificationCenter.defaultCenter addObserverForName:UIKeyboardDidHideNotification
+                                                           object:nil queue:NSOperationQueue.mainQueue
+                                                       usingBlock:^(NSNotification *note) {
+        if (token) { [NSNotificationCenter.defaultCenter removeObserver:token]; token = nil; }
+        block();
+    }];
 }
 
 /// 输入栏底部偏移 = 键盘遮挡 与 面板高度 取较大者（二者互斥，但统一处理避免竞态）。

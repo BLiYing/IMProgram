@@ -4,6 +4,12 @@
 > 历史流水见 `current_task.archive.md` + `git log`。关键约定见 `CLAUDE.md` / `ARCHITECTURE.md` / `CODING_STYLE.md`。
 
 ## 当前焦点
+- **头像进资料页 + 引用跳转键盘时序（2026-08-05，改完·未编译·待实测·未提交）**：① 群聊气泡对方头像可点 →
+  `openMemberProfileForUID:` 复用单聊 `IMChatDetailViewController`（showsMessagePill 显「消息」）进资料页
+  （IMBubbleCell 加 `onAvatarTap`，VC 仅群聊对方气泡挂载、单聊/自己不挂）；② `handleMessageTap` 修「键盘未收起时
+  点引用条跳错行/高亮别条」——根因是先 `resignFirstResponder` 再 `indexPathForRowAtPoint` 落在收起动画中间态取错
+  源消息：改为**先反查取 m、后收键盘**，且键盘弹起时把 `jumpToConvSeq` 经 `runAfterKeyboardHidden:`（一次性
+  监听 KeyboardDidHide）推迟到 inset 落定后执行。
 - **引用增强（M4-2 扩展）iOS 侧已实测收口（2026-08-05，已提交）**：Model/DB 贯通 `replyToFrom`（老库自动
   ALTER；**本端回显同步带值**，review 修复）；共享 `IMLocalizeReplySnippet`/`IMReplySnippetFileName` 入
   IMMediaUtil（替换两 cell 各持 static、修问号图标 magic offset 反解，配 `IMReplySnippetTests`）；群聊
@@ -32,6 +38,9 @@
 5. 本地媒体离线缓存；账号哈希目录物理分库（后续增强）。
 
 ## 已知坑 / 限制
+- **`runAfterKeyboardHidden:` 兜底待测（2026-08-05 记）**：依赖 `resignFirstResponder` 后必然收到
+  `UIKeyboardDidHideNotification`——软键盘正常成立；若实测发现硬件/外接键盘等场景引用跳转不触发，
+  给它加个 `dispatch_after` 超时兜底（block 未执行则到点强制跑一次并摘 observer）。
 - 相册导出期杀 App 消息消失（PHPicker 句柄一次性，属预期，微信同）；导出失败的行点 ↻ 提示副本丢失，需重选。
 - Files 面板 <8MB 小文件、相机拍摄、粘贴图仍为 VC 锚定一次性上传（秒级传完；粘贴图已带预览条攒批）。
 - CocoaLumberjack 只接管应用日志；Debug 文件日志保留脱敏业务正文，分享前复核。

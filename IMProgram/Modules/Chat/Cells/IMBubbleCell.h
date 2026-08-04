@@ -18,6 +18,8 @@ NS_ASSUME_NONNULL_BEGIN
 /// 文件气泡左侧图标位被点按（仅上传中/失败态可点：暂停↔继续 / 重试 / 排队期取消）。
 /// 完成态图标不可点，点击整条气泡=打开文件（走 VC 的表级手势）。
 @property (nonatomic, copy, nullable) void (^onFileControlTap)(void);
+/// 点群聊对方头像 → 进该成员资料页（VC 在群聊对方气泡上挂载；单聊/自己不挂）。
+@property (nonatomic, copy, nullable) void (^onAvatarTap)(void);
 - (void)configureWithMessage:(IMMessageModel *)message
                         mine:(BOOL)mine
                  peerReadSeq:(int64_t)peerReadSeq

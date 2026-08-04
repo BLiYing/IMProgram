@@ -196,6 +196,8 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         _avatar.layer.cornerRadius = 15;
         _avatar.layer.masksToBounds = YES;
         _avatar.hidden = YES;
+        _avatar.userInteractionEnabled = YES; // 点头像 → 进该成员资料页（onAvatarTap，微信式）
+        [_avatar addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleAvatarTap)]];
         [self.contentView addSubview:_avatar];
 
         _leading = [_bubble.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12];
@@ -523,6 +525,10 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
 
 - (void)handleFileIconTap {
     if (self.onFileControlTap) { self.onFileControlTap(); }
+}
+
+- (void)handleAvatarTap {
+    if (self.onAvatarTap) { self.onAvatarTap(); }
 }
 
 - (void)applyGroupAvatarURL:(NSString *)url seed:(NSString *)seed name:(NSString *)name
