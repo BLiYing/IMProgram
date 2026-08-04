@@ -2,6 +2,43 @@
 
 ---
 
+## 归档于 2026-08-05（引用消息增强收口，转入四大任务协作）
+
+**当时焦点**：
+- **无进行中开发（2026-08-05 收口）**：近期批次均已**实测通过、提交并推送 origin/main**——① 群聊气泡对方
+  头像 → 成员资料页（`openMemberProfileForUID:` 复用单聊 `IMChatDetailViewController`，微信式）+ 引用跳转
+  键盘时序修复（先反查源消息、后收键盘、`jumpToConvSeq` 经 `runAfterKeyboardHidden:` 延到 inset 落定）；
+  ② 引用增强 M4-2（`replyToFrom` 群聊发送者两行式 / 文件名快照 `[file] 名`+类型图标 / 跳转失败两句提示，
+  含 /code-review 10 条修复）。更早批次——文件消息两栏+圆环状态机、相册文件入常驻服务、长按菜单·多选·
+  合并转发、统一 Liquid Glass 导航等——亦均已实测收口。
+- **URL 链接卡片三修（2026-08-04 晚）**：`IMLinkCardCell` 群聊左对齐 gutter=48 / 整体高亮 / 高度重测。
+- **已知视觉基线**：文件气泡定宽=0.75×内容区；估高按类型精确；媒体尺寸首现即落库。
+
+**当时下一步**：
+1. caption（图+文一条消息）
+2. 网络恢复秒连
+3. M4.5-3 统一资料页 + 设置逐项
+4. 群聊 iOS 欠账（对齐 Web）
+
+---
+
+## Status（2026-08-05：引用增强 M4-2 + 头像进资料页 + 键盘时序，从活快照迁入）
+> 均已实测通过、提交并推送 origin/main；逐功能×端状态见 `../IMServer/docs/CLIENT_PARITY.md` M4-2 三行（唯一来源）。
+- **群聊气泡对方头像 → 成员资料页**（`3a757b0`，用户实测通过）：`IMBubbleCell` 加 `onAvatarTap`（`_avatar`
+  开 userInteractionEnabled + tap 手势 → `handleAvatarTap` 回调）；VC `openMemberProfileForUID:` 复用单聊
+  `IMChatDetailViewController initSingle…` + `showsMessagePill`，仅群聊对方气泡挂载（单聊/自己不挂）。落实
+  「点成员先进资料页」跨端约定（微信式）。
+- **引用跳转键盘时序修复**（`3a757b0`）：`handleMessageTap` 原「先 `resignFirstResponder` 再
+  `indexPathForRowAtPoint`」使坐标反查落在键盘收起动画中间态、取错源消息（表现为跳到别条/高亮错行）。改为
+  先反查取 m、后收键盘；键盘弹起时 `jumpToConvSeq` 经新增 `runAfterKeyboardHidden:`（一次性听
+  `UIKeyboardDidHideNotification`）推迟到 inset 落定后执行。**待测兜底**：硬件/外接键盘不发 DidHide 时加
+  `dispatch_after` 超时（见活快照「已知坑」）。
+- **引用增强 M4-2 iOS 消费**（`f582d8f`）：Model/DB 贯通 `replyToFrom`（老库自动 ALTER、本端回显同步带值）；
+  共享 `IMLocalizeReplySnippet`/`IMReplySnippetFileName` 入 IMMediaUtil（替两 cell 各持 static、修问号图标
+  magic offset 反解，配 `IMReplySnippetTests`）；引用条两行式群聊发送者；文件名快照 `[file] 名` + 类型图标；
+  跳转失败两句提示（earliest=0 边界并入「不在本地」）。/code-review 八角度 10 条全修复，含 780b6f4 提交边界
+  治愈（`6c7dd96` 补 IMLinkCardCell cell 侧入库）。
+
 ## Status（2026-08-03 迁移：统一导航 Liquid Glass 大改造 + M1~M3-5 里程碑历史，从活快照迁入）
 > 以下条目原在 current_task.md「当前焦点」，均已完成/提交，为保活快照精简而迁入归档（只读，勿更新）。
 
