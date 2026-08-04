@@ -130,6 +130,7 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
 @property (nonatomic, assign) BOOL peerOnline;         // 对端在线
 @property (nonatomic, assign) IMSocketState connState; // 连接态（与在线点共同决定标题）
 @property (nonatomic, assign) BOOL didInitialPosition; // 已做进会话定位（只定位一次）
+@property (nonatomic, assign) BOOL didInitialSettle;   // 进场动画后已做过一次落定校正（防从子页返回时被强拉贴底）
 @property (nonatomic, assign) NSTimeInterval lastTypingSent; // typing 节流
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) UITextField *inputField;
@@ -307,7 +308,12 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
     IMMessageModel *m = [self messageForClientMsgID:note.userInfo[kIMMediaSendClientMsgIDKey]];
     if (!m) { return; }
     if ([m.contentType isEqualToString:@"file"]) {
-        [self refreshVisibleCellForMessage:m]; // 文件气泡：圆环/状态行/文案随 configure 一次性布好，整行重渲染
+        // 文件气泡：圆环/状态行/文案随 configure 一次性布好，整行重渲染。
+        // reload 若引起行高微变（如状态行出现/消失）会把底部顶走——原本贴底则重新贴底
+        //（与 MetaChanged/Ack 回调对称；已精确贴底时 scrollToAbsoluteBottom 首轮即返回，无额外开销）。
+        BOOL wasNearBottom = [self isNearBottom];
+        [self refreshVisibleCellForMessage:m];
+        if (wasNearBottom) { [self scrollToAbsoluteBottom]; }
     } else {
         [self updateUploadProgressForMessage:m]; // 只改覆盖层/环 strokeEnd，不 reload（无闪烁）
     }
@@ -337,7 +343,10 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
         NSUInteger idx = [self.messages indexOfObjectIdenticalTo:mine];
         if (idx != NSNotFound) { [self.messages replaceObjectAtIndex:idx withObject:serviceModel]; }
     }
+    // 上传完成瞬间气泡内容切换（文件行状态区收敛、媒体角标变化）可能微调行高：原本贴底则重新贴底。
+    BOOL wasNearBottom = [self isNearBottom];
     [self refreshVisibleCellForMessage:serviceModel];
+    if (wasNearBottom) { [self scrollToAbsoluteBottom]; }
 }
 
 - (void)onMediaSendFailed:(NSNotification *)note {
@@ -631,9 +640,14 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
     [self positionInitialIfNeeded]; // 兜底：若 layout 时机未就绪（消息晚到），这里再定位一次
-    // 进场动画结束、布局/safe-area inset 完全稳定后再精确贴一次底（无未读且用户未上滚时，#8）。
-    if (self.didInitialPosition && [self firstUnreadRow] < 0 && [self isNearBottom]) {
-        [self scrollToAbsoluteBottom];
+    // 进场动画结束、布局/safe-area inset 完全稳定后再校正一次定位（只做一次，#8）：
+    // 无未读精确贴底、有未读重锚首条未读。不以 isNearBottom 为前提——估高偏差可超 80pt，
+    // 首贴欠滚幅度恰恰会让该条件放弃修正；但必须只跑一次，否则从资料页等子页返回也会被强拉走。
+    if (self.didInitialPosition && !self.didInitialSettle) {
+        self.didInitialSettle = YES;
+        NSInteger unreadRow = [self firstUnreadRow];
+        if (unreadRow < 0) { [self scrollToAbsoluteBottom]; }
+        else { [self anchorRowToTop:unreadRow]; }
     }
     // 可见即读：把定位后当前可见的消息标为已读（不滚动也算看到）。
     dispatch_async(dispatch_get_main_queue(), ^{ [self markVisibleRowsRead]; });
@@ -1933,6 +1947,13 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         return a.timestamp < b.timestamp ? NSOrderedAscending : NSOrderedDescending;
     }];
     [self.tableView reloadData];
+    // 冷启动直进本页时 init 读库可能为空（账号数据库上下文未就绪），历史全靠 sync 事后补进——
+    // 而 reloadData 不触发 VC 的 viewDidLayoutSubviews，进会话定位永远不会跑（模拟器日志实锤：
+    // 该场景整个会话周期零 chat_initial_position）。首条消息落地时在此补一次定位。
+    if (!self.didInitialPosition) {
+        [self positionInitialIfNeeded];
+        return; // positionInitialIfNeeded 内已含精确贴底/锚定 + markVisibleRowsRead
+    }
     if (wasNearBottom) { [self scrollToBottomAnimated:YES]; }
     // 可见即读 + ↓N 刷新：贴底时新消息进视口即标已读；在上方看历史则不读、↓N 计数 +1（markVisibleRowsRead 内重算）。
     [self markVisibleRowsRead];
@@ -2698,17 +2719,34 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     self.didInitialPosition = YES;
     NSInteger unreadRow = [self firstUnreadRow];
     if (unreadRow >= 0) {
-        [self.tableView scrollToRowAtIndexPath:[NSIndexPath indexPathForRow:unreadRow inSection:0]
-                              atScrollPosition:UITableViewScrollPositionTop animated:NO];
+        [self anchorRowToTop:unreadRow];
     } else {
         // 无未读：估高会让 scrollToRow…Bottom 欠滚（stop 在真正底部之上）→ 用强制布局后的精确贴底。
         [self scrollToAbsoluteBottom];
     }
-    // 定位后下一轮 runloop（自适应高度落定）再兜一次：无未读再精确贴底 + 推进已读/刷新 ↓N。
+    IMLogDebugWithTag(IMLogTagUI, @"chat_initial_position conv_id=%@ rows=%lu unread_row=%ld offset_y=%.1f content_h=%.1f viewport_h=%.1f",
+                      self.convID, (unsigned long)self.messages.count, (long)unreadRow,
+                      self.tableView.contentOffset.y, self.tableView.contentSize.height,
+                      self.tableView.bounds.size.height);
+    // 定位后下一轮 runloop（自适应高度落定）再兜一次：无未读精确贴底；有未读重锚首条未读
+    //（估高偏差会让锚点漂移——未读只剩末尾几条时表现为"停在底部之上一截"，模拟器日志
+    //  chat_initial_position 09:41:02 实锤：偏差 350pt）。之后推进已读/刷新 ↓N。
     dispatch_async(dispatch_get_main_queue(), ^{
         if (unreadRow < 0) { [self scrollToAbsoluteBottom]; }
+        else { [self anchorRowToTop:unreadRow]; }
         [self markVisibleRowsRead];
     });
+}
+
+/// 把某行锚到视口顶（进会话停首条未读用）：scrollToRow 触发目标区域真实布局后再对齐一轮，
+/// 抵消估高偏差；行靠近末尾时 scrollToRow 自带底部 clamp——未读不足一屏时锚定即等价于贴底。
+- (void)anchorRowToTop:(NSInteger)row {
+    if (row < 0 || row >= (NSInteger)self.messages.count) { return; }
+    NSIndexPath *ip = [NSIndexPath indexPathForRow:row inSection:0];
+    for (int pass = 0; pass < 2; pass++) {
+        [self.tableView scrollToRowAtIndexPath:ip atScrollPosition:UITableViewScrollPositionTop animated:NO];
+        [self.tableView layoutIfNeeded];
+    }
 }
 
 /// 可见即读（CHAT_UX §6 完整语义）：扫描当前在视口内的行，取其最大 conv_seq；
@@ -2744,9 +2782,11 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 #pragma mark - 辅助
 
 /// 自己发送：刷新 + 始终贴底（贴底后 ↓N 自动隐藏）。
+/// 用精确贴底而非 scrollToRow…Bottom：估高（56）下后者会停在真底部之上，
+/// 发媒体/文件（真实行高远超估高）时表现为"没滚到最新消息"。
 - (void)appendReloadAndScroll {
     [self.tableView reloadData];
-    [self scrollToBottomAnimated:YES];
+    [self scrollToAbsoluteBottom];
     [self markVisibleRowsRead];
 }
 
@@ -2764,16 +2804,21 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 - (void)scrollToAbsoluteBottom {
     if (self.messages.count == 0) { return; }
     NSIndexPath *last = [NSIndexPath indexPathForRow:(NSInteger)self.messages.count - 1 inSection:0];
+    CGFloat y = 0;
     for (int pass = 0; pass < 6; pass++) {
         [self.tableView scrollToRowAtIndexPath:last atScrollPosition:UITableViewScrollPositionBottom animated:NO];
         [self.tableView layoutIfNeeded];
         CGFloat bottomInset = self.tableView.adjustedContentInset.bottom;
         CGFloat topInset = self.tableView.adjustedContentInset.top;
-        CGFloat y = self.tableView.contentSize.height - self.tableView.bounds.size.height + bottomInset;
+        y = self.tableView.contentSize.height - self.tableView.bounds.size.height + bottomInset;
         if (y < -topInset) { y = -topInset; }
         if (fabs(self.tableView.contentOffset.y - y) < 0.5) { return; } // 已精确贴底
         [self.tableView setContentOffset:CGPointMake(0, y) animated:NO];
     }
+    // 6 轮仍未收敛=估高与真实行高差距过大（历史全是媒体/多行消息）。留痕定位"首进/发送后不贴底"。
+    IMLogWarnWithTag(IMLogTagUI, @"chat_stick_bottom_not_converged conv_id=%@ rows=%lu offset_y=%.1f target_y=%.1f content_h=%.1f",
+                     self.convID, (unsigned long)self.messages.count, self.tableView.contentOffset.y, y,
+                     self.tableView.contentSize.height);
 }
 
 /// 是否贴近底部（距底 < 80pt，计入底部安全区 inset）。

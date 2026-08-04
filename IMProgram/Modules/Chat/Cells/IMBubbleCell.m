@@ -75,7 +75,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     UILabel *_fileMetaLabel;               // 右下角：时间 + ✓/✓✓
     UITapGestureRecognizer *_fileTap;
     NSLayoutConstraint *_fileRowBottom;    // 文件消息：文件行贴气泡底
-    NSLayoutConstraint *_fileMinWidth;     // 文件消息：行宽 ≥190（仅文件模式激活，勿撑大文本气泡）
+    NSLayoutConstraint *_fileMinWidth;     // 文件消息：行定宽=气泡上限宽（仅文件模式激活，勿撑大文本气泡）
 }
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
@@ -278,9 +278,13 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         _textBottom = [_text.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:-6];
         _fileRowBottom = [_fileRow.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:-8];
         _textBottom.active = YES;
-        // 文件气泡最小宽度：短文件名也保住排版体面；与 0.75 宽上限冲突时让路。仅文件模式激活。
-        _fileMinWidth = [_fileRow.widthAnchor constraintGreaterThanOrEqualToConstant:190];
-        _fileMinWidth.priority = UILayoutPriorityDefaultHigh;
+        // 文件气泡**定宽**=气泡宽度上限（0.75×内容区 − 左右 padding 24）：宽度不随状态文案长短 reflow。
+        // 旧最小宽 190 的问题：第二行「120.4 MB / 358.4 MB」等进度串会把气泡撑到各不相同的宽度，
+        // 且暂停/完成时文案变短→气泡缩窄→文件名换行数变→行高跳（列表跳动的根因之一）。
+        // 定宽后文件名可用宽恒定，行数只取决于名字本身，所有文件气泡等宽（Telegram 式）。仅文件模式激活。
+        _fileMinWidth = [_fileRow.widthAnchor constraintEqualToAnchor:self.contentView.widthAnchor
+                                                           multiplier:0.75 constant:-24];
+        _fileMinWidth.priority = UILayoutPriorityRequired - 1; // 与「气泡≤0.75」上限恰好相等，999 防御万一
     }
     return self;
 }

@@ -29,6 +29,24 @@
      初始 ⏸ 进度 → `refreshVisibleCellForMessage` 对 tableView 还不知道的新行 `reloadRows` → UITableView
      行数断言 SIGABRT。修复：①先 `appendReloadAndScroll` 再入列（sendPhotoFileHandles 同步对齐）；
      ②`refreshVisibleCellForMessage` 加行数守卫（目标行 ≥ 当前行数 → 整表 reloadData 兜底）。
+  5. **跳动/滚动三修**（真机反馈：文件气泡宽度不一且状态切换时跳动、发送/首进不贴底）：
+     ①文件气泡**定宽**=0.75×内容区−24（原最小宽 190 会被「120.4 MB / 358.4 MB」等进度串撑宽，
+     暂停/完成文案变短又缩窄 → 文件名换行数变 → 行高跳）；②`appendReloadAndScroll` 改精确贴底
+     `scrollToAbsoluteBottom`（估高下 `scrollToRow…Bottom` 恒欠滚）；③`onMediaSendProgress`(file)/
+     `onMediaSendDispatched` 补「wasNearBottom→重新贴底」（与 MetaChanged/Ack 对称）；④首进
+     `viewDidAppear` 兜底贴底去掉 `isNearBottom` 前提（欠滚>80pt 时旧条件恰好放弃修正）。
+     加诊断日志：`chat_stick_bottom_not_converged`（6 轮不收敛 WARN）、`chat_initial_position`（Debug）。
+     模拟器实测 ①② 通过；「首进不贴底、二进才贴底」由日志锁定两根因并修（2026-08-04 下午）：
+     a) **首进有未读**走「停首条未读」分支（设计如此），但锚定用估高且无二次校正——未读只剩末尾
+        几条时停在真底部之上 350pt（日志 09:41:02 实锤）→ 新增 `anchorRowToTop:`（scrollToRow→
+        layoutIfNeeded 两轮），定位后下一 runloop + viewDidAppear 各重锚一次；未读不足一屏时
+        scrollToRow 自带 clamp 即等价贴底。二进未读已清 → unread_row=-1 精确贴底（日志验证 offset
+        与 content−viewport 分毫不差）。
+     b) **冷启动直进本页**：init 读库为空（账号上下文未就绪）、历史靠 sync 补进，而 reloadData 不触发
+        viewDidLayoutSubviews → 定位整场未跑（日志：该会话零 chat_initial_position）→
+        didReceiveMessage 首条落地补跑 positionInitialIfNeeded。
+     另修回归：viewDidAppear 无条件贴底会把「从资料页返回」也强拉到底 → 加 `didInitialSettle`
+     一次性标志（进场后只校正一次）。
   - ⚠️ 未做/限制：相册导出期杀 App 消息消失（PHPicker 句柄一次性，同视频路径，属预期）；导出失败的行
     点 ↻ 提示「本地文件已丢失」（需长按取消后重选）；Files 面板 <8MB 小文件仍为 VC 锚定一次性上传
     （秒级传完，无暂停价值）；未编译未跑单测（用户要求）。
