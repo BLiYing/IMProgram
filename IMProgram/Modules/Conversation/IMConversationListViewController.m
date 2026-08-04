@@ -781,21 +781,34 @@ static CGFloat const kIMRowLeading = 16;
         }];
 }
 
-/// 删除会话（仅本人，服务端记 cleared_at 不删消息）：成功后重拉列表（会话隐藏，对方再发即复现）。
+/// 删除会话（仅本人，服务端记 cleared_at 不删消息）：成功后仅动画删除该行（会话隐藏，对方再发即复现）。
+/// 不再 reloadData + 立即 reload：整表重绘无删除动画（行突跳），紧接着的网络重拉又触发第二次 reloadData
+/// （闪动）。改为单行 deleteRows 平滑移除；服务端权威收敛交给动画结束后的静默重拉（多端同步）。
 - (void)deleteConversation:(IMConversation *)c {
     if (c.convID.length == 0 || self.token.length == 0) { return; }
     __weak typeof(self) ws = self;
     [IMHTTPService.sharedService deleteConversationWithToken:self.token convID:c.convID completion:^(NSError *error) {
         if (error) { [ws im_showToast:error.localizedDescription ?: @"删除失败"]; return; }
-        NSMutableArray<IMConversation *> *remaining = [ws.conversations mutableCopy];
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        // 取旧位置须在替换数据源之前；期间若有新消息重排导致 c 已不在列表，回退整表刷新。
+        NSUInteger idx = [self.conversations indexOfObject:c];
+        NSMutableArray<IMConversation *> *remaining = [self.conversations mutableCopy];
         [remaining removeObject:c];
-        ws.conversations = remaining;
-        if (![ws performDatabaseOperation:^(IMDatabase *database) {
+        self.conversations = remaining;
+        if (![self performDatabaseOperation:^(IMDatabase *database) {
             [database deleteCachedConversation:c.convID];
         }]) { return; }
-        ws.emptyLabel.hidden = remaining.count > 0;
-        [ws.tableView reloadData];
-        [ws reload];
+        self.emptyLabel.hidden = remaining.count > 0;
+        if (idx != NSNotFound) {
+            [self.tableView deleteRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:(NSInteger)idx inSection:0]]
+                                  withRowAnimation:UITableViewRowAnimationAutomatic];
+        } else {
+            [self.tableView reloadData];
+        }
+        // 服务端仍是最终来源；等删除动画结束后静默拉取一次收敛多端同时操作，避免与动画争抢重绘。
+        [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(reload) object:nil];
+        [self performSelector:@selector(reload) withObject:nil afterDelay:0.42];
     }];
 }
 
