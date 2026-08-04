@@ -15,9 +15,14 @@ NS_ASSUME_NONNULL_BEGIN
 /// 长按菜单高亮/收起动画的目标视图（=缩略图本体）。
 @property (nonatomic, strong, readonly) UIView *previewTargetView;
 
+/// 已知像素尺寸的媒体在气泡里的显示高度（与 cell 内部同一套缩放规则）；
+/// 尺寸未知（<=0）返回方形占位边长。供聊天页 estimatedHeightForRow 精确估高，消除上滑行高跳变。
++ (CGFloat)displayHeightForPixelWidth:(CGFloat)pixelW pixelHeight:(CGFloat)pixelH;
+
 @property (nonatomic, copy, nullable) void (^onTap)(UIImage *_Nullable image);
-/// 老消息没有 media_w/media_h 时，异步出图后才知道真实比例 → 回调聊天页刷一次行高（无动画）。
-@property (nonatomic, copy, nullable) void (^onMediaSizeResolved)(void);
+/// 老消息没有 media_w/media_h 时，异步出图后才知道真实比例 → 携带量出的像素尺寸回调聊天页：
+/// 写回模型+落库（下次进会话行高首帧即正确）并刷一次行高（无动画）。
+@property (nonatomic, copy, nullable) void (^onMediaSizeResolved)(CGSize pixelSize);
 
 /// fullURL 为空=尚未上传完成（只显本地预览、不发起网络加载）。
 /// posterURL 为视频封面的完整 URL（message.poster 补 host 后）：**有封面就绝不去抽帧**——

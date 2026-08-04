@@ -132,6 +132,7 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
 @property (nonatomic, assign) IMSocketState connState; // 连接态（与在线点共同决定标题）
 @property (nonatomic, assign) BOOL didInitialPosition; // 已做进会话定位（只定位一次）
 @property (nonatomic, assign) BOOL didInitialSettle;   // 进场动画后已做过一次落定校正（防从子页返回时被强拉贴底）
+@property (nonatomic, assign) BOOL needsRowHeightSettle; // 滚动中媒体尺寸落定 → 延迟到滚动停止再重排行高
 @property (nonatomic, assign) NSTimeInterval lastTypingSent; // typing 节流
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) UITextField *inputField;
@@ -161,6 +162,12 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
 @property (nonatomic, strong) NSLayoutConstraint *replyLabelLeadingNoThumb; // 无缩略图时 label 贴竖条
 @property (nonatomic, strong) NSLayoutConstraint *replyLabelLeadingThumb;   // 有缩略图时 label 贴缩略图
 @property (nonatomic, strong) NSLayoutConstraint *replyBarHeight;
+// 粘贴图片预览条（Telegram 式，#2 重设计）：粘贴不直接发，缩略图 chip 攒在输入栏上方（可多张、逐张 ✕），
+// 发送键统一发出（≥2 张成宫格）；与引用条纵向堆叠（引用条在上）。
+@property (nonatomic, strong) NSMutableArray<UIImage *> *pendingPasteImages;
+@property (nonatomic, strong) UIView *pasteBar;
+@property (nonatomic, strong) UIStackView *pasteChipsStack;
+@property (nonatomic, strong) NSLayoutConstraint *pasteBarHeight;
 // 正在后台解码缩略图的待发件，避免同一行反复触发解码。
 @property (nonatomic, strong) NSMutableSet<NSString *> *pendingPreviewLoading;
 @end
@@ -747,6 +754,34 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     self.replyLabelLeadingThumb = [self.replyLabel.leadingAnchor constraintEqualToAnchor:self.replyThumb.trailingAnchor constant:8];
     self.replyLabelLeadingNoThumb.active = YES;
 
+    // 粘贴图片预览条（引用条之下、输入栏之上；默认高度 0）：横向滚动的缩略图 chip，每张右上 ✕。
+    self.pasteBar = [UIView new];
+    self.pasteBar.translatesAutoresizingMaskIntoConstraints = NO;
+    self.pasteBar.backgroundColor = UIColor.secondarySystemBackgroundColor;
+    self.pasteBar.clipsToBounds = YES;
+    [self.view addSubview:self.pasteBar];
+    UIScrollView *pasteScroll = [UIScrollView new];
+    pasteScroll.translatesAutoresizingMaskIntoConstraints = NO;
+    pasteScroll.showsHorizontalScrollIndicator = NO;
+    [self.pasteBar addSubview:pasteScroll];
+    self.pasteChipsStack = [UIStackView new];
+    self.pasteChipsStack.translatesAutoresizingMaskIntoConstraints = NO;
+    self.pasteChipsStack.axis = UILayoutConstraintAxisHorizontal;
+    self.pasteChipsStack.spacing = 10;
+    self.pasteChipsStack.alignment = UIStackViewAlignmentCenter;
+    [pasteScroll addSubview:self.pasteChipsStack];
+    [NSLayoutConstraint activateConstraints:@[
+        [pasteScroll.leadingAnchor constraintEqualToAnchor:self.pasteBar.leadingAnchor constant:12],
+        [pasteScroll.trailingAnchor constraintEqualToAnchor:self.pasteBar.trailingAnchor constant:-12],
+        [pasteScroll.topAnchor constraintEqualToAnchor:self.pasteBar.topAnchor],
+        [pasteScroll.bottomAnchor constraintEqualToAnchor:self.pasteBar.bottomAnchor],
+        [self.pasteChipsStack.leadingAnchor constraintEqualToAnchor:pasteScroll.contentLayoutGuide.leadingAnchor],
+        [self.pasteChipsStack.trailingAnchor constraintEqualToAnchor:pasteScroll.contentLayoutGuide.trailingAnchor],
+        [self.pasteChipsStack.topAnchor constraintEqualToAnchor:pasteScroll.contentLayoutGuide.topAnchor],
+        [self.pasteChipsStack.bottomAnchor constraintEqualToAnchor:pasteScroll.contentLayoutGuide.bottomAnchor],
+        [self.pasteChipsStack.heightAnchor constraintEqualToAnchor:pasteScroll.frameLayoutGuide.heightAnchor],
+    ]];
+
     UIView *inputBar = [UIView new];
     self.inputBar = inputBar;
     inputBar.translatesAutoresizingMaskIntoConstraints = NO;
@@ -755,7 +790,7 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
 
     IMPasteImageTextField *pasteField = [IMPasteImageTextField new];
     __weak typeof(self) wsPaste = self;
-    pasteField.onPasteImage = ^(UIImage *image) { [wsPaste presentPastedImagePreview:image]; }; // 粘贴图片→预览→发送（#2）
+    pasteField.onPasteImage = ^(UIImage *image) { [wsPaste appendPastedImage:image]; }; // 粘贴图片→预览条攒批→发送键统一发（#2）
     self.inputField = pasteField;
     self.inputField.translatesAutoresizingMaskIntoConstraints = NO;
     self.inputField.placeholder = @"输入消息…";
@@ -850,11 +885,17 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
         [self.typingLabel.bottomAnchor constraintEqualToAnchor:self.replyBar.topAnchor],
         self.typingHeight,
 
-        // 引用条：夹在 typing 与输入栏之间；默认高度 0（cancelReply/showReply 切换）。
+        // 引用条：夹在 typing 与粘贴条之间；默认高度 0（cancelReply/showReply 切换）。
         [self.replyBar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [self.replyBar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-        [self.replyBar.bottomAnchor constraintEqualToAnchor:inputBar.topAnchor],
+        [self.replyBar.bottomAnchor constraintEqualToAnchor:self.pasteBar.topAnchor],
         (self.replyBarHeight = [self.replyBar.heightAnchor constraintEqualToConstant:0]),
+
+        // 粘贴图预览条：夹在引用条与输入栏之间；默认高度 0（refreshPasteBar 切换）。
+        [self.pasteBar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [self.pasteBar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [self.pasteBar.bottomAnchor constraintEqualToAnchor:inputBar.topAnchor],
+        (self.pasteBarHeight = [self.pasteBar.heightAnchor constraintEqualToConstant:0]),
 
         [inputBar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [inputBar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
@@ -899,15 +940,15 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     [self updateSendButtonVisibility]; // 初始（空）：显示表情/加号，隐藏发送
 }
 
-/// 输入框有内容 → 显示发送、隐藏表情/加号；无内容（即便获焦）→ 显示表情/加号、隐藏发送（#4）。
+/// 输入框有内容（文字或待发粘贴图）→ 显示发送、隐藏表情/加号；否则显示表情/加号、隐藏发送（#4）。
 /// 注意：程序化改 text（回填/清空）不触发 EditingChanged，需在改后手动调用本方法。
 - (void)updateSendButtonVisibility {
-    BOOL hasText = self.inputField.text.length > 0;
-    self.sendButton.hidden = !hasText;
-    self.emojiButton.hidden = hasText;
-    self.plusButton.hidden = hasText;
-    self.inputTrailToEmoji.active = !hasText;
-    self.inputTrailToSend.active = hasText;
+    BOOL hasContent = self.inputField.text.length > 0 || self.pendingPasteImages.count > 0;
+    self.sendButton.hidden = !hasContent;
+    self.emojiButton.hidden = hasContent;
+    self.plusButton.hidden = hasContent;
+    self.inputTrailToEmoji.active = !hasContent;
+    self.inputTrailToSend.active = hasContent;
 }
 
 #pragma mark - 发送 / 接收
@@ -926,6 +967,15 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
 - (void)sendTapped {
     NSString *text = [self.inputField.text stringByTrimmingCharactersInSet:
                       NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    // 先发预览条里攒的粘贴图（≥2 张共享 group_id 成宫格），文字随后补发一条文本（Telegram 式）。
+    if (self.pendingPasteImages.count > 0) {
+        NSArray<UIImage *> *images = [self.pendingPasteImages copy];
+        [self.pendingPasteImages removeAllObjects];
+        [self refreshPasteBar];
+        NSString *gid = images.count > 1 ? [@"alb-" stringByAppendingString:NSUUID.UUID.UUIDString] : nil;
+        for (UIImage *img in images) { [self uploadAndSendPastedImage:img groupID:gid]; }
+        [self updateSendButtonVisibility];
+    }
     if (text.length == 0) { return; }
 
     // 编辑态（M4-5）：发 msg_op edit 而非新消息；内容由服务端广播回 onMsgOpApplied 更新。
@@ -1682,6 +1732,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     m.mediaW = mediaAttributes.pixelWidth;
     m.mediaH = mediaAttributes.pixelHeight;
     m.duration = mediaAttributes.durationMillis;
+    m.groupID = mediaAttributes.groupID; // 粘贴多图：本端也按宫格聚簇渲染
     m.timestamp = sentAt;
     [self performDatabaseOperation:^(IMDatabase *database) {
         [database saveMessage:m];
@@ -1712,59 +1763,69 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     if (isMedia) { [self im_showToast:@"已复制链接"]; }
 }
 
-/// 粘贴图片预览（#2）：蒙层 + 图片 + 取消/发送。发送 = JPEG 压缩 → 上传 → 发 image 消息。
-- (void)presentPastedImagePreview:(UIImage *)image {
-    UIView *mask = [UIView new];
-    mask.frame = self.view.bounds;
-    mask.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    mask.backgroundColor = [UIColor colorWithWhite:0 alpha:0.6];
-    [self.view addSubview:mask];
-
-    UIImageView *iv = [[UIImageView alloc] initWithImage:image];
-    iv.translatesAutoresizingMaskIntoConstraints = NO;
-    iv.contentMode = UIViewContentModeScaleAspectFit;
-    iv.layer.cornerRadius = 12;
-    iv.clipsToBounds = YES;
-    [mask addSubview:iv];
-
-    UIButton *(^makeBtn)(NSString *, UIColor *) = ^(NSString *title, UIColor *bg) {
-        UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
-        b.translatesAutoresizingMaskIntoConstraints = NO;
-        [b setTitle:title forState:UIControlStateNormal];
-        [b setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-        b.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
-        b.backgroundColor = bg;
-        b.layer.cornerRadius = 20;
-        [mask addSubview:b];
-        return b;
-    };
-    UIButton *cancel = makeBtn(@"取消", [UIColor colorWithWhite:0.25 alpha:1]);
-    UIButton *sendBtn = makeBtn(@"发送", IMTheme.accent);
-    [NSLayoutConstraint activateConstraints:@[
-        [iv.centerXAnchor constraintEqualToAnchor:mask.centerXAnchor],
-        [iv.centerYAnchor constraintEqualToAnchor:mask.centerYAnchor constant:-30],
-        [iv.widthAnchor constraintLessThanOrEqualToAnchor:mask.widthAnchor constant:-48],
-        [iv.heightAnchor constraintLessThanOrEqualToAnchor:mask.heightAnchor multiplier:0.6],
-        [cancel.trailingAnchor constraintEqualToAnchor:mask.centerXAnchor constant:-16],
-        [cancel.topAnchor constraintEqualToAnchor:iv.bottomAnchor constant:24],
-        [cancel.widthAnchor constraintEqualToConstant:120],
-        [cancel.heightAnchor constraintEqualToConstant:40],
-        [sendBtn.leadingAnchor constraintEqualToAnchor:mask.centerXAnchor constant:16],
-        [sendBtn.centerYAnchor constraintEqualToAnchor:cancel.centerYAnchor],
-        [sendBtn.widthAnchor constraintEqualToConstant:120],
-        [sendBtn.heightAnchor constraintEqualToConstant:40],
-    ]];
-
-    __weak typeof(self) ws = self;
-    [cancel addAction:[UIAction actionWithHandler:^(UIAction *a) { [mask removeFromSuperview]; }]
-     forControlEvents:UIControlEventTouchUpInside];
-    [sendBtn addAction:[UIAction actionWithHandler:^(UIAction *a) {
-        [mask removeFromSuperview];
-        [ws uploadAndSendPastedImage:image];
-    }] forControlEvents:UIControlEventTouchUpInside];
+/// 粘贴图片 → 预览条攒批（#2 重设计，Telegram 式）：不直接发，缩略图 chip 出现在输入栏上方，
+/// 可继续粘贴/打字，逐张 ✕ 移除；发送键统一发出（≥2 张共享 group_id 成宫格，文字随后补发）。
+- (void)appendPastedImage:(UIImage *)image {
+    if (!image) { return; }
+    if (!self.pendingPasteImages) { self.pendingPasteImages = [NSMutableArray array]; }
+    if (self.pendingPasteImages.count >= 9) { [self im_showToast:@"一次最多发送 9 张图片"]; return; }
+    [self.pendingPasteImages addObject:image];
+    [self refreshPasteBar];
+    [self updateSendButtonVisibility];
 }
 
-- (void)uploadAndSendPastedImage:(UIImage *)image {
+/// 重建预览条 chips（张数少、重建成本可忽略）：44pt 缩略图 + 右上 ✕；条高随有无内容 0↔60 切换。
+- (void)refreshPasteBar {
+    for (UIView *v in [self.pasteChipsStack.arrangedSubviews copy]) {
+        [self.pasteChipsStack removeArrangedSubview:v];
+        [v removeFromSuperview];
+    }
+    [self.pendingPasteImages enumerateObjectsUsingBlock:^(UIImage *img, NSUInteger idx, BOOL *stop) {
+        UIView *chip = [UIView new];
+        chip.translatesAutoresizingMaskIntoConstraints = NO;
+        UIImageView *iv = [[UIImageView alloc] initWithImage:img];
+        iv.translatesAutoresizingMaskIntoConstraints = NO;
+        iv.contentMode = UIViewContentModeScaleAspectFill;
+        iv.clipsToBounds = YES;
+        iv.layer.cornerRadius = 8;
+        [chip addSubview:iv];
+        UIButton *remove = [UIButton buttonWithType:UIButtonTypeSystem];
+        remove.translatesAutoresizingMaskIntoConstraints = NO;
+        [remove setImage:[UIImage systemImageNamed:@"xmark.circle.fill"
+                                 withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:16
+                                                                                                   weight:UIImageSymbolWeightBold]]
+                forState:UIControlStateNormal];
+        remove.tintColor = UIColor.secondaryLabelColor;
+        remove.tag = (NSInteger)idx;
+        [remove addTarget:self action:@selector(removePastedImageChip:) forControlEvents:UIControlEventTouchUpInside];
+        [chip addSubview:remove];
+        [NSLayoutConstraint activateConstraints:@[
+            [chip.widthAnchor constraintEqualToConstant:50],
+            [chip.heightAnchor constraintEqualToConstant:50],
+            [iv.leadingAnchor constraintEqualToAnchor:chip.leadingAnchor],
+            [iv.bottomAnchor constraintEqualToAnchor:chip.bottomAnchor],
+            [iv.widthAnchor constraintEqualToConstant:44],
+            [iv.heightAnchor constraintEqualToConstant:44],
+            [remove.centerXAnchor constraintEqualToAnchor:iv.trailingAnchor constant:-2],
+            [remove.centerYAnchor constraintEqualToAnchor:iv.topAnchor constant:2],
+            [remove.widthAnchor constraintEqualToConstant:24],
+            [remove.heightAnchor constraintEqualToConstant:24],
+        ]];
+        [self.pasteChipsStack addArrangedSubview:chip];
+    }];
+    self.pasteBarHeight.constant = self.pendingPasteImages.count > 0 ? 60 : 0;
+    [self.view layoutIfNeeded];
+}
+
+- (void)removePastedImageChip:(UIButton *)sender {
+    NSInteger idx = sender.tag;
+    if (idx < 0 || idx >= (NSInteger)self.pendingPasteImages.count) { return; }
+    [self.pendingPasteImages removeObjectAtIndex:(NSUInteger)idx];
+    [self refreshPasteBar];
+    [self updateSendButtonVisibility];
+}
+
+- (void)uploadAndSendPastedImage:(UIImage *)image groupID:(NSString *)groupID {
     NSData *jpeg = UIImageJPEGRepresentation(image, 0.8);
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (jpeg.length == 0 || token.length == 0) { [self im_showToast:@"图片处理失败"]; return; }
@@ -1774,8 +1835,10 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         __strong typeof(ws) self = ws;
         if (!self) { return; }
         if (error || url.length == 0) { [self im_showToast:@"图片上传失败"]; return; }
+        IMMediaAttributes *attrs = [self mediaAttributesForImage:image bytes:(int64_t)jpeg.length];
+        attrs.groupID = groupID; // ≥2 张：同批共享 group_id → 两端聚簇渲染宫格
         [self sendMediaURL:url contentType:(contentType ?: @"image") fileName:nil fileSize:0
-           mediaAttributes:[self mediaAttributesForImage:image bytes:(int64_t)jpeg.length]];
+           mediaAttributes:attrs];
     }];
 }
 
@@ -1824,6 +1887,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         return;
     }
     if (self.attachPanelVisible) { [self showAttachPanel:NO]; return; }
+    [self.inputField resignFirstResponder]; // 点消息区任意处收起键盘（微信式；拖拽收起仍由 Interactive 模式负责）
     CGPoint p = [gr locationInView:self.tableView];
     NSIndexPath *ip = [self.tableView indexPathForRowAtPoint:p];
     if (!ip || ip.row >= (NSInteger)self.messages.count) { return; }
@@ -1842,16 +1906,38 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     [self presentViewController:safari animated:YES completion:nil];
 }
 
-/// 跳转到被引用的原消息：滚到该 conv_seq 行（不在已加载窗口则提示）。
+/// 跳转到被引用的原消息：滚到该 conv_seq 行并高亮一闪（与 Web quoteflash 同节奏，1.2s）。
 - (void)jumpToConvSeq:(int64_t)targetConvSeq {
     for (NSUInteger i = 0; i < self.messages.count; i++) {
         if (self.messages[i].convSeq == targetConvSeq) {
-            [self.tableView scrollToRowAtIndexPath:[NSIndexPath indexPathForRow:(NSInteger)i inSection:0]
-                                  atScrollPosition:UITableViewScrollPositionMiddle animated:YES];
+            NSIndexPath *ip = [NSIndexPath indexPathForRow:(NSInteger)i inSection:0];
+            [self.tableView scrollToRowAtIndexPath:ip atScrollPosition:UITableViewScrollPositionMiddle animated:YES];
+            // 等滚动动画到位后再闪（已在视口时 scrollToRow 也可能微调，同样适用）。
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)),
+                           dispatch_get_main_queue(), ^{ [self flashRowAtIndexPath:ip]; });
             return;
         }
     }
     [self im_showToast:@"原消息不在当前视图"];
+}
+
+/// 目标行高亮一闪：在气泡/卡片（previewTargetView）上盖一层强调色遮罩淡出——
+/// 不动 cell 自身背景（图片 cell 改背景色看不见），对所有 cell 类型通吃。
+- (void)flashRowAtIndexPath:(NSIndexPath *)ip {
+    UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:ip];
+    if (!cell) { return; }
+    UIView *target = [cell respondsToSelector:@selector(previewTargetView)]
+        ? [(id)cell previewTargetView] : cell.contentView;
+    if (!target) { return; }
+    UIView *flash = [[UIView alloc] initWithFrame:target.bounds];
+    flash.backgroundColor = [IMTheme.accent colorWithAlphaComponent:0.35];
+    flash.layer.cornerRadius = target.layer.cornerRadius;
+    flash.userInteractionEnabled = NO;
+    flash.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [target addSubview:flash];
+    [UIView animateWithDuration:0.9 delay:0.3 options:UIViewAnimationOptionCurveEaseOut
+                     animations:^{ flash.alpha = 0; }
+                     completion:^(BOOL finished) { [flash removeFromSuperview]; }];
 }
 
 - (void)handleSendResult:(BOOL)success convSeq:(int64_t)convSeq error:(NSError *)error forClientMsgID:(NSString *)clientMsgID {
@@ -2135,9 +2221,25 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         // 老消息无 media_w/h：异步出图后才知比例 → 刷一次行高（无动画，不打断滚动）。
         // 行高变化会把底部偏移顶走——若此刻本就贴底（典型：刚进会话），必须重新贴底，
         // 否则用户看到的是"进来没停在最新消息"。上滚读历史时不动（wasNearBottom=NO）。
-        img.onMediaSizeResolved = ^{
+        IMMessageModel *mediaMsg = m;
+        img.onMediaSizeResolved = ^(CGSize pixelSize) {
             __strong typeof(ws) self = ws;
             if (!self) { return; }
+            // 量出的尺寸写回模型 + 落库（一次性成本）：此后 estimatedHeight 首帧即正确，
+            // 同一条消息不会每次滚过/重进会话都触发一遍行高跳变（上滑弹跳的主根因）。
+            if (mediaMsg.mediaW <= 0 && pixelSize.width > 0 && pixelSize.height > 0) {
+                mediaMsg.mediaW = (NSInteger)round(pixelSize.width);
+                mediaMsg.mediaH = (NSInteger)round(pixelSize.height);
+                if (mediaMsg.convSeq > 0) {
+                    [self performDatabaseOperation:^(IMDatabase *database) { [database saveMessage:mediaMsg]; }];
+                }
+            }
+            // 拖拽/惯性滚动中不做 begin/endUpdates（行高瞬变 + offset 修正 = 肉眼可见的卡顿弹跳），
+            // 记脏、滚动停止后统一补一次。
+            if (self.tableView.isDragging || self.tableView.isDecelerating) {
+                self.needsRowHeightSettle = YES;
+                return;
+            }
             BOOL wasNearBottom = [self isNearBottom];
             [self refreshRowHeightsWithoutAnimation];
             if (wasNearBottom) { [self scrollToAbsoluteBottom]; }
@@ -2237,6 +2339,22 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
     if (indexPath.row < (NSInteger)self.messages.count && [self isAlbumFollowerAtRow:indexPath.row]) { return 0; }
     return UITableViewAutomaticDimension;
+}
+
+/// 按消息类型精确估高：估算与真实行高差得越远，上滑实体化行时系统的 offset 修正越猛
+///（=「滚到某处突然卡一下/弹跳」的另一半根因；主因是媒体尺寸此前不落库，见 onMediaSizeResolved）。
+- (CGFloat)tableView:(UITableView *)tableView estimatedHeightForRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (indexPath.row >= (NSInteger)self.messages.count) { return 56; }
+    IMMessageModel *m = self.messages[(NSUInteger)indexPath.row];
+    if ([self isAlbumFollowerAtRow:indexPath.row]) { return 0; }
+    if ([self isAlbumMember:m]) { return 240; } // 宫格 leader：整格粗估
+    if ([m.contentType isEqualToString:@"image"] || [m.contentType isEqualToString:@"video"]) {
+        // 已知 media_w/h → 与 cell 同一套缩放规则精确估；未知 → 方形占位边长（cell 首帧同款）。
+        return [IMImageCell displayHeightForPixelWidth:m.mediaW pixelHeight:m.mediaH] + 8;
+    }
+    if ([m.contentType isEqualToString:@"file"]) { return 84; }
+    if ([m.contentType isEqualToString:@"chat_record"]) { return 120; }
+    return 56;
 }
 
 /// 按 conv_seq 找已加载的消息（引用缩略图解析用；不在窗口内返回 nil）。
@@ -2402,6 +2520,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 #pragma mark - 多选态（#2：转发/收藏/删除）
 
 /// 进入多选：表格进入编辑多选态，隐藏输入栏、显示底部工具栏，并默认选中触发的那条。
+/// 列表**锚定长按的那条消息不动**：宫格展开为独立行会让行结构/总高度剧变，不锚定就会跳到别处。
 - (void)enterSelectionWithMessage:(IMMessageModel *)message {
     if (self.selecting) { return; }
     self.selecting = YES;
@@ -2409,11 +2528,14 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     [self cancelReply];
     [self.inputField resignFirstResponder];
 
-    self.tableView.allowsMultipleSelectionDuringEditing = YES;
-    [self.tableView setEditing:YES animated:YES];
-    [self.tableView reloadData]; // 相册宫格展开为独立行（逐条可勾选）；isAlbumMember 在多选态恒 NO
-    // 已在屏上的 cell 不会再走 willDisplay，就地改 selectionStyle 让勾选态可见（#5）。
-    for (UITableViewCell *c in self.tableView.visibleCells) { [self applySelectionStyleForCell:c]; }
+    NSUInteger row = [self.messages indexOfObject:message];
+    [self preserveScreenPositionOfRow:row during:^{
+        self.tableView.allowsMultipleSelectionDuringEditing = YES;
+        [self.tableView setEditing:YES animated:NO];
+        [self.tableView reloadData]; // 相册宫格展开为独立行（逐条可勾选）；isAlbumMember 在多选态恒 NO
+        // 已在屏上的 cell 不会再走 willDisplay，就地改 selectionStyle 让勾选态可见（#5）。
+        for (UITableViewCell *c in self.tableView.visibleCells) { [self applySelectionStyleForCell:c]; }
+    }];
 
     [self buildSelectionBarIfNeeded];
     self.selectionBar.hidden = NO;
@@ -2422,10 +2544,12 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     self.savedTitle = self.title;
     self.savedRightItem = self.navigationItem.rightBarButtonItem;
     self.navigationItem.rightBarButtonItem = nil;
+    // 必须用**带标题**的 item：统一 Liquid 标题栏按 leftTitle 渲染左位文字并把点击路由到本 item；
+    // 系统 Cancel item 无标题 → 被回落成返回箭头、点击直接 pop 出聊天页（"没有取消按钮"的根因）。
     self.navigationItem.leftBarButtonItem =
-        [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemCancel target:self action:@selector(exitSelection)];
+        [[UIBarButtonItem alloc] initWithTitle:@"取消" style:UIBarButtonItemStylePlain
+                                        target:self action:@selector(exitSelection)];
 
-    NSUInteger row = [self.messages indexOfObject:message];
     if (row != NSNotFound) {
         [self.tableView selectRowAtIndexPath:[NSIndexPath indexPathForRow:(NSInteger)row inSection:0]
                                     animated:NO scrollPosition:UITableViewScrollPositionNone];
@@ -2436,14 +2560,37 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 - (void)exitSelection {
     if (!self.selecting) { return; }
     self.selecting = NO;
-    [self.tableView setEditing:NO animated:YES];
-    [self.tableView reloadData]; // 相册宫格恢复聚簇渲染
-    for (UITableViewCell *c in self.tableView.visibleCells) { [self applySelectionStyleForCell:c]; }
+    // 退出同样锚定：以当前视口第一条可见消息为锚（宫格收拢后上方内容变矮，不锚定视口会漂移）。
+    NSIndexPath *anchor = self.tableView.indexPathsForVisibleRows.firstObject;
+    [self preserveScreenPositionOfRow:(anchor ? (NSUInteger)anchor.row : NSNotFound) during:^{
+        [self.tableView setEditing:NO animated:NO];
+        [self.tableView reloadData]; // 相册宫格恢复聚簇渲染
+        for (UITableViewCell *c in self.tableView.visibleCells) { [self applySelectionStyleForCell:c]; }
+    }];
     self.selectionBar.hidden = YES;
     self.inputBar.hidden = NO;
     self.title = self.savedTitle;
     self.navigationItem.leftBarButtonItem = nil; // 恢复默认返回
     self.navigationItem.rightBarButtonItem = self.savedRightItem;
+    [self refreshUnifiedNavigationBar]; // 标题/左右钮改动要立刻刷进 Liquid 标题栏
+}
+
+/// 在表格 mutation（编辑态切换 + reloadData）前后保持某行的屏幕位置不变（多选进出时列表不跳）。
+/// reload 后行高全部回到估算值，先落一次布局再对齐、两轮收敛（与 anchorRowToTop: 同思路）。
+- (void)preserveScreenPositionOfRow:(NSUInteger)row during:(void (NS_NOESCAPE ^)(void))mutation {
+    if (row == NSNotFound || row >= self.messages.count) { mutation(); return; }
+    NSIndexPath *ip = [NSIndexPath indexPathForRow:(NSInteger)row inSection:0];
+    CGFloat screenY = [self.tableView rectForRowAtIndexPath:ip].origin.y - self.tableView.contentOffset.y;
+    mutation();
+    for (int pass = 0; pass < 2; pass++) {
+        [self.tableView layoutIfNeeded];
+        CGFloat topInset = self.tableView.adjustedContentInset.top;
+        CGFloat maxY = self.tableView.contentSize.height - self.tableView.bounds.size.height
+                     + self.tableView.adjustedContentInset.bottom;
+        CGFloat y = [self.tableView rectForRowAtIndexPath:ip].origin.y - screenY;
+        y = MAX(-topInset, MIN(y, MAX(-topInset, maxY)));
+        [self.tableView setContentOffset:CGPointMake(0, y) animated:NO];
+    }
 }
 
 - (void)buildSelectionBarIfNeeded {
@@ -2501,6 +2648,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 - (void)updateSelectionUI {
     NSUInteger n = self.tableView.indexPathsForSelectedRows.count;
     self.title = n > 0 ? [NSString stringWithFormat:@"已选择 %lu 条", (unsigned long)n] : @"选择消息";
+    [self refreshUnifiedNavigationBar]; // 标题与「取消」左钮由统一 Liquid 栏渲染，改完必须刷一次
 }
 
 #pragma mark 多选工具栏动作
@@ -2904,6 +3052,21 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     if (self.tableView.contentSize.height <= 0) { return; }
     [self markVisibleRowsRead]; // 可见即读：滚到哪、读到哪（先推进 pendingReadSeq）
     [self updateJumpButton];    // 再据新位点刷新 ↓N 计数
+}
+
+// 滚动中媒体尺寸落定被延迟的行高重排：拖拽/惯性结束后统一补一次（滚动期间做会肉眼可见地弹跳）。
+- (void)scrollViewDidEndDragging:(UIScrollView *)scrollView willDecelerate:(BOOL)decelerate {
+    if (!decelerate) { [self settleRowHeightsIfNeeded]; }
+}
+
+- (void)scrollViewDidEndDecelerating:(UIScrollView *)scrollView {
+    [self settleRowHeightsIfNeeded];
+}
+
+- (void)settleRowHeightsIfNeeded {
+    if (!self.needsRowHeightSettle) { return; }
+    self.needsRowHeightSettle = NO;
+    [self refreshRowHeightsWithoutAnimation];
 }
 
 /// 据当前滚动位置显示/隐藏"↓N"：贴底则隐藏；离底则显示，徽标=视口下方未读数（随滚动递减）。

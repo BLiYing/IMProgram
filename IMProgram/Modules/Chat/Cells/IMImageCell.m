@@ -232,8 +232,8 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     _sizeFromMedia = YES;
     // 必须延到下一轮 runloop：IMVideoThumbnailLoader 命中缓存时是**同步**回调，本方法可能正跑在
     // cellForRowAtIndexPath 内部，此时回调聊天页会重入 tableView 的 beginUpdates/endUpdates。
-    void (^resolved)(void) = self.onMediaSizeResolved;
-    if (resolved) { dispatch_async(dispatch_get_main_queue(), resolved); }
+    void (^resolved)(CGSize) = self.onMediaSizeResolved;
+    if (resolved) { dispatch_async(dispatch_get_main_queue(), ^{ resolved(size); }); }
 }
 
 + (CGSize)maxBox {
@@ -386,5 +386,10 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName) {
 }
 
 - (UIView *)previewTargetView { return _thumb; }
+
++ (CGFloat)displayHeightForPixelWidth:(CGFloat)pixelW pixelHeight:(CGFloat)pixelH {
+    if (pixelW <= 0 || pixelH <= 0) { return kIMMediaFallbackSide; }
+    return IMMediaDisplaySize(pixelW, pixelH, [IMImageCell maxBox], kIMMediaMinSide).height;
+}
 
 @end

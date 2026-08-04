@@ -5,6 +5,35 @@
 
 ## 当前焦点
 
+- **六项体验修（2026-08-04 晚三批，✅ iOS BUILD SUCCEEDED / web tsc+91 vitest 绿；待实测）**：
+  1. **Liquid 标题栏避让**：标题盒改按较宽一侧按钮对称收缩（上限 250→220、下限 132→96、两侧留 8pt），
+     多选「取消」/右上文字钮不再与标题重叠。
+  2. **文本气泡宽度乱变（回归修复）**：文件行结构约束原是常开——hidden 视图仍参与布局，文本气泡被
+     44pt 图标位撑最小宽、复用自文件气泡的 cell 被残留文件名撑得更宽。改 `_fileConstraints` 整组随
+     文件模式 activate/deactivate + 文本模式清残留内容。
+  3. **引用跳转高亮**：`jumpToConvSeq` 滚动到位后对 previewTargetView 盖强调色遮罩淡出
+     （accent·0.35，0.3s 停留 + 0.9s 淡出，与 Web quoteflash 同节奏）。
+  4. **Web 粘贴文件**：粘贴条对齐 iOS——图片+任意文件都进预览条 chip（文件显类型图标+名字），
+     发送键统一发（图片批量成宫格、文件走分片通道）；修 `uploadAndSend` 声明序 TDZ（前移到 send 之前）。
+  5. **点空白收键盘**：`handleReplyJumpTap` 入口 resignFirstResponder（微信式）。
+  6. **上滑弹跳三修**：①`onMediaSizeResolved` 改带像素尺寸回调 → 写回模型+落库（一次性，之后估高
+     首帧即正确）；②拖拽/惯性中不做 begin/endUpdates，记脏滚动停止后补（needsRowHeightSettle）；
+     ③新增 `estimatedHeightForRowAtIndexPath` 按类型精确估高（媒体用 `displayHeightForPixelWidth:`
+     与 cell 同一套缩放规则）。
+  - caption（图+文一条消息）确认为独立里程碑，下一轮做（协议加字段+服务端+三端渲染）。
+- **多选交互修 + 粘贴图预览条（2026-08-04 晚二批，✅ 改代码未编译；待实测）**：
+  1. **进/出多选列表不跳**：新增 `preserveScreenPositionOfRow:during:`（记录锚行屏幕位置 →
+     编辑态切换+reload → 两轮布局对齐还原）；进入锚定长按那条、退出锚定视口首条可见消息。
+  2. **「取消」键修复**：旧代码用系统 Cancel item（无标题）→ Liquid 统一标题栏回落成返回箭头、
+     点击直接 pop 出聊天页。改带标题「取消」item（leftTitle 渲染文字、点击路由 exitSelection），
+     enter/exit/updateSelectionUI 补 `refreshUnifiedNavigationBar`（标题「已选择 N 条」实时刷）。
+     底部 转发/收藏/删除 三键原本就齐。
+  3. **粘贴图预览条（Telegram 式，#2 重设计）**：粘贴不再弹蒙层确认，缩略图 chip 攒在输入栏上方
+     （pasteBar，引用条之下；可多张 ≤9、逐张 ✕、横向滚动），发送键统一发出——≥2 张共享 group_id
+     成宫格（sendMediaURL 补 m.groupID 本端也聚簇），有文字随后补发文本；发送键可见性计入待发图。
+     删除旧 `presentPastedImagePreview` 蒙层。
+  4. **引用聊天记录显裸 [chat_record] 三层修**（同批）：服务端 replySnapshot 特判 chat_record 生成
+     「[聊天记录] 标题」（test.sh 全绿，**需重启后端**）；iOS/Web localizeSnippet 映射旧 token 兜底存量。
 - **长按菜单/多选/合并转发六件套（2026-08-04 晚，✅ 改代码未编译；两端同步，服务端零改动；待实测）**：
   1. **长按预览只圈气泡**：补 `previewForHighlighting/Dismissing`（identifier 带 indexPath），四种 cell
      暴露 `previewTargetView`（气泡/缩略图/卡片），clear 背景 + 圆角 visiblePath——整行宽底色托盘与

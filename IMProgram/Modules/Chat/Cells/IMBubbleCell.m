@@ -12,6 +12,7 @@ static NSString *IMLocalizeSnippet(NSString *snap) {
     if ([snap isEqualToString:@"[image]"]) { return @"[图片]"; }
     if ([snap isEqualToString:@"[video]"]) { return @"[视频]"; }
     if ([snap isEqualToString:@"[file]"])  { return @"[文件]"; }
+    if ([snap isEqualToString:@"[chat_record]"]) { return @"[聊天记录]"; } // 旧服务端 token（无标题）兜底
     // 存量救援：旧版引用聊天记录卡片时把整段 JSON 截 60 字存进快照 → 就地救成「[聊天记录] 标题」。
     if (IMLooksLikeChatRecordJSON(snap)) { return IMChatRecordSnippet(snap); }
     return snap ?: @"";
@@ -79,6 +80,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     UITapGestureRecognizer *_fileTap;
     NSLayoutConstraint *_fileRowBottom;    // 文件消息：文件行贴气泡底
     NSLayoutConstraint *_fileMinWidth;     // 文件消息：行定宽=气泡上限宽（仅文件模式激活，勿撑大文本气泡）
+    NSArray<NSLayoutConstraint *> *_fileConstraints; // 文件行全部结构约束（仅文件模式激活，见 init 注释）
 }
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
@@ -240,7 +242,27 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
             [_text.leadingAnchor constraintEqualToAnchor:_bubble.leadingAnchor constant:12],
             [_text.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor constant:-12],
 
-            // 文件行：钉在头部文本之下（文本为空时高度 0，行即贴气泡顶）；bottom 与 _textBottom 互斥切换。
+            // 头像：30×30 贴 cell 左、底对齐气泡底（连续段末条才 show）。
+            [_avatar.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12],
+            [_avatar.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor],
+            [_avatar.widthAnchor constraintEqualToConstant:30],
+            [_avatar.heightAnchor constraintEqualToConstant:30],
+        ]];
+
+        // 可切换约束：无系统行→气泡贴 cell 底；有系统行→气泡接系统行、系统行贴底。
+        _bubbleBottom = [_bubble.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3];
+        _noteTop = [_sysNote.topAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:4];
+        _noteBottom = [_sysNote.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-6];
+        _failBadgeTrailing = [_failBadge.trailingAnchor constraintEqualToAnchor:_bubble.leadingAnchor constant:-6];
+        _bubbleBottom.active = YES;
+        // 气泡底：普通消息由正文撑（_textBottom），文件消息由文件行撑（_fileRowBottom），二选一。
+        _textBottom = [_text.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:-6];
+        _fileRowBottom = [_fileRow.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:-8];
+        _textBottom.active = YES;
+        // 文件行的**全部结构约束只在文件模式激活**：hidden 的视图仍参与布局，若常开，
+        // 每个文本气泡都会被固定 44pt 图标位撑出最小宽，复用自文件气泡的 cell 还会被残留文件名
+        // 撑得更宽——正是"连续发文本宽度各种变化"的根因。文本模式整组停用，气泡宽度回归纯文本驱动。
+        _fileConstraints = @[
             [_fileRow.topAnchor constraintEqualToAnchor:_text.bottomAnchor constant:2],
             [_fileRow.leadingAnchor constraintEqualToAnchor:_bubble.leadingAnchor constant:12],
             [_fileRow.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor constant:-12],
@@ -263,24 +285,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
             [_fileMetaLabel.leadingAnchor constraintGreaterThanOrEqualToAnchor:_fileNameLabel.leadingAnchor],
             [_fileMetaLabel.topAnchor constraintEqualToAnchor:_fileStatusLabel.bottomAnchor constant:2],
             [_fileMetaLabel.bottomAnchor constraintEqualToAnchor:_fileRow.bottomAnchor],
-
-            // 头像：30×30 贴 cell 左、底对齐气泡底（连续段末条才 show）。
-            [_avatar.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12],
-            [_avatar.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor],
-            [_avatar.widthAnchor constraintEqualToConstant:30],
-            [_avatar.heightAnchor constraintEqualToConstant:30],
-        ]];
-
-        // 可切换约束：无系统行→气泡贴 cell 底；有系统行→气泡接系统行、系统行贴底。
-        _bubbleBottom = [_bubble.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3];
-        _noteTop = [_sysNote.topAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:4];
-        _noteBottom = [_sysNote.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-6];
-        _failBadgeTrailing = [_failBadge.trailingAnchor constraintEqualToAnchor:_bubble.leadingAnchor constant:-6];
-        _bubbleBottom.active = YES;
-        // 气泡底：普通消息由正文撑（_textBottom），文件消息由文件行撑（_fileRowBottom），二选一。
-        _textBottom = [_text.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:-6];
-        _fileRowBottom = [_fileRow.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:-8];
-        _textBottom.active = YES;
+        ];
         // 文件气泡**定宽**=气泡宽度上限（0.75×内容区 − 左右 padding 24）：宽度不随状态文案长短 reflow。
         // 旧最小宽 190 的问题：第二行「120.4 MB / 358.4 MB」等进度串会把气泡撑到各不相同的宽度，
         // 且暂停/完成时文案变短→气泡缩窄→文件名换行数变→行高跳（列表跳动的根因之一）。
@@ -412,14 +417,22 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     _fileRow.hidden = !fileMode;
     if (fileMode) {
         _textBottom.active = NO;
+        [NSLayoutConstraint activateConstraints:_fileConstraints];
         _fileRowBottom.active = YES;
         _fileMinWidth.active = YES;
         [self configureFileRowWithMessage:message mine:mine peerReadSeq:peerReadSeq];
     } else {
         _fileRowBottom.active = NO;
         _fileMinWidth.active = NO;
+        [NSLayoutConstraint deactivateConstraints:_fileConstraints];
         _textBottom.active = YES;
         _fileTap.enabled = NO;
+        // 清残留内容防御：复用自文件气泡的 cell 若留着文件名/状态文案，一旦约束误开又会撑宽气泡。
+        _fileNameLabel.text = nil;
+        _fileStatusLabel.text = nil;
+        _fileStatusLabel.attributedText = nil;
+        _fileMetaLabel.attributedText = nil;
+        _fileIcon.image = nil;
     }
 
     // 发送失败：气泡左侧红❗（仅自己）；被拒收等→气泡下方居中系统行（微信式）。

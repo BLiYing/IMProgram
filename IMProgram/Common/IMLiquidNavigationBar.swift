@@ -285,7 +285,11 @@ public final class IMLiquidNavigationBar: UIView {
         let actionWidth = actionButton.isHidden ? 0 : (actionCircular ? buttonSize : max(68, actionButton.intrinsicContentSize.width + 28))
         let customLeft = leftTitle?.isEmpty == false || leftImage != nil
         let leftWidth = customLeft ? max(68, backButton.intrinsicContentSize.width + 24) : buttonSize
-        let centerWidth = min(250, max(132, bounds.width - leftWidth - side - side - actionWidth - 24))
+        // 标题盒以屏幕中心对称，但必须**按较宽一侧按钮的实际边界**收缩（旧公式只按两侧之和均摊，
+        // 多选态左侧「取消」文字钮变宽时标题盒会压到它上面）。上限 250→220、下限 132→96：
+        // 宁可标题尾部截断，也不与左右按钮重叠；两侧各留 8pt 呼吸。
+        let sideOccupied = max(side + leftWidth, side + actionWidth) + 8
+        let centerWidth = min(220, max(96, bounds.width - 2 * sideOccupied))
         let centerX = (bounds.width - centerWidth) / 2
 
         backGlass.frame = CGRect(x: side, y: buttonY, width: leftWidth, height: buttonSize)
