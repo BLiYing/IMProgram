@@ -285,10 +285,12 @@ public final class IMLiquidNavigationBar: UIView {
         let actionWidth = actionButton.isHidden ? 0 : (actionCircular ? buttonSize : max(68, actionButton.intrinsicContentSize.width + 28))
         let customLeft = leftTitle?.isEmpty == false || leftImage != nil
         let leftWidth = customLeft ? max(68, backButton.intrinsicContentSize.width + 24) : buttonSize
-        // 标题盒以屏幕中心对称，但必须**按较宽一侧按钮的实际边界**收缩（旧公式只按两侧之和均摊，
-        // 多选态左侧「取消」文字钮变宽时标题盒会压到它上面）。上限 250→220、下限 132→96：
-        // 宁可标题尾部截断，也不与左右按钮重叠；两侧各留 8pt 呼吸。
-        let sideOccupied = max(side + leftWidth, side + actionWidth) + 8
+        // 标题盒宽度**按「文字按钮场景」一次算死**（预算 88pt/侧）：普通页（44 圆钮）与多选页
+        //（「取消」文字钮）同宽，进出多选、右上角换文字钮都零跳变——此前按实际按钮宽动态收缩，
+        // 状态切换时标题盒 220↔169 来回弹。兜底：某侧按钮实测超 88 预算时仍按实际值收缩
+        //（防重叠优先于防跳变）；两侧各留 8pt 呼吸，宁可标题尾部截断也不压按钮。
+        let sideBudget: CGFloat = 88
+        let sideOccupied = max(side + sideBudget, max(side + leftWidth, side + actionWidth)) + 8
         let centerWidth = min(220, max(96, bounds.width - 2 * sideOccupied))
         let centerX = (bounds.width - centerWidth) / 2
 
