@@ -4,9 +4,12 @@
 > 历史流水见 `current_task.archive.md` + `git log`。关键约定见 `CLAUDE.md` / `ARCHITECTURE.md` / `CODING_STYLE.md`。
 
 ## 当前焦点
-- **引用跳转跳不到分两句 toast（2026-08-05，✅ BUILD SUCCEEDED；待实测）**：`jumpToConvSeq` 找不到目标行时，
-  `目标 conv_seq < 已加载最早` → 「原消息不在本地」（iOS 全量载入本地 DB、**无上拉分页**，故不提示"上拉加载"，
-  与 Web「请上拉加载」有别），落在已加载范围内却缺失 → 「原消息已被删除」（原统一「原消息不在当前视图」）。
+- **引用增强（M4-2 扩展）iOS 侧已实测收口（2026-08-05，已提交）**：Model/DB 贯通 `replyToFrom`（老库自动
+  ALTER；**本端回显同步带值**，review 修复）；共享 `IMLocalizeReplySnippet`/`IMReplySnippetFileName` 入
+  IMMediaUtil（替换两 cell 各持 static、修问号图标 magic offset 反解，配 `IMReplySnippetTests`）；群聊
+  引用条两行式；跳转失败两句提示（earliest=0 边界并入「不在本地」）。780b6f4 提交边界已补
+  （6c7dd96 cell 侧入库）。**逐功能×端状态见 `../IMServer/docs/CLIENT_PARITY.md` M4-2 三行（唯一来源）**；
+  交互语义 CHAT_UX §3.1。限制：URL 消息 `IMLinkCardCell` 不显发送者行。
 - **URL 链接卡片三修（2026-08-04 晚，✅ iOS BUILD SUCCEEDED；待实测）**：`IMLinkCardCell` 补齐与其他
   cell 一致的能力。①**群聊左对齐**：原缺 `applyGroupAvatarURL:…gutter:`、`_leading` 写死 12 → 群聊对方
   链接卡不留 30pt 头像列，比文本气泡左突出。新增该方法（gutter=48 + 昵称/头像）并在 VC 链接分支调用。

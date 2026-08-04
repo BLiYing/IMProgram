@@ -2,16 +2,9 @@
 #import "IMMessageModel.h"
 #import "IMHTTPService.h"
 #import "IMImageLoader.h"
+#import "IMMediaUtil.h"
 #import "UILabel+IMAvatar.h"
 #import "IMTheme.h"
-
-static NSString *IMLocalizeSnippet(NSString *snap) {
-    if ([snap isEqualToString:@"[image]"]) { return @"[图片]"; }
-    if ([snap isEqualToString:@"[video]"]) { return @"[视频]"; }
-    if ([snap isEqualToString:@"[file]"])  { return @"[文件]"; }
-    if ([snap hasPrefix:@"[file] "]) { return [@"[文件] " stringByAppendingString:[snap substringFromIndex:7]]; } // 文件带原名（M4-x）
-    return snap ?: @"";
-}
 
 /// 文件名/纯 URL 判定统一走 IMMediaUtil（聊天/收藏/记录共用），此处保留短别名以少改调用点。
 @implementation IMLinkCardCell {
@@ -161,7 +154,7 @@ static NSString *IMLocalizeSnippet(NSString *snap) {
     _stackTopUnderName.active = showName;
     // 引用行（共性 #1）：URL 消息带引用时也要显示引用条 + OG 卡片。
     if (message.replyToConvSeq > 0) {
-        NSString *snap = IMLocalizeSnippet(message.replySnapshot.length > 0 ? message.replySnapshot : @"原消息");
+        NSString *snap = IMLocalizeReplySnippet(message.replySnapshot.length > 0 ? message.replySnapshot : @"原消息");
         _quote.text = [NSString stringWithFormat:@"▏%@", snap];
         _quote.hidden = NO;
     } else {

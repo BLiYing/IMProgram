@@ -8,15 +8,7 @@
 #import "IMAppearance.h"
 #import "IMTheme.h"
 
-static NSString *IMLocalizeSnippet(NSString *snap) {
-    if ([snap isEqualToString:@"[image]"]) { return @"[图片]"; }
-    if ([snap isEqualToString:@"[video]"]) { return @"[视频]"; }
-    if ([snap isEqualToString:@"[file]"])  { return @"[文件]"; }
-    if ([snap isEqualToString:@"[chat_record]"]) { return @"[聊天记录]"; } // 旧服务端 token（无标题）兜底
-    // 存量救援：旧版引用聊天记录卡片时把整段 JSON 截 60 字存进快照 → 就地救成「[聊天记录] 标题」。
-    if (IMLooksLikeChatRecordJSON(snap)) { return IMChatRecordSnippet(snap); }
-    return snap ?: @"";
-}
+// 引用快照本地化统一走 IMMediaUtil 的 IMLocalizeReplySnippet（与 IMLinkCardCell 共用，防两份 static 分叉）。
 
 /// 文件名/纯 URL 判定统一走 IMMediaUtil（聊天/收藏/记录共用），此处保留短别名以少改调用点。
 #define IMFileNameFromContent(c) IMMediaFileName(c)
@@ -304,7 +296,8 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
           showsUnreadDivider:(BOOL)showsDivider
                   senderName:(NSString *)senderName
                replyThumbURL:(NSString *)replyThumbURL
-          replyThumbIsVideo:(BOOL)replyThumbIsVideo {
+          replyThumbIsVideo:(BOOL)replyThumbIsVideo
+               replyFromName:(NSString *)replyFromName {
     BOOL showsDate = dayHeader.length > 0;
     _datePill.hidden = !showsDate;
     // 复用 cell 时按当前主题强调色刷新，切主题后无需整表重建也能与外观页预览保持一致。
@@ -344,12 +337,20 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     _quoteThumbKey = nil;
     if (message.replyToConvSeq > 0) {
         NSString *raw = message.replySnapshot.length > 0 ? message.replySnapshot : @"原消息";
-        NSString *snap = IMLocalizeSnippet(raw);
+        NSString *snap = IMLocalizeReplySnippet(raw);
         NSDictionary *quoteAttr = @{ NSFontAttributeName: [UIFont systemFontOfSize:13],
                                      NSForegroundColorAttributeName: IMTheme.textSecondary };
+        // 群聊两行式（M4-x）：被引用者昵称独占一行（accent 小字），其下为图标 + 内容快照；单聊不传 replyFromName。
+        if (replyFromName.length > 0) {
+            [body appendAttributedString:[[NSAttributedString alloc]
+                initWithString:[NSString stringWithFormat:@"▏%@\n", replyFromName]
+                    attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:MAX(12, IMTheme.chatFontSize - 4) weight:UIFontWeightSemibold],
+                                  NSForegroundColorAttributeName: IMTheme.accent }]];
+        }
         [body appendAttributedString:[[NSAttributedString alloc] initWithString:@"▏" attributes:quoteAttr]];
         NSString *glyph = IMMediaGlyphForSnippet(snap);
-        BOOL fileSnippet = [snap isEqualToString:@"[文件]"];
+        NSString *quoteFileName = IMReplySnippetFileName(raw); // 一次解析（wire 形/本端存量本地化形皆可），文件判定与图标共用
+        BOOL fileSnippet = quoteFileName != nil || [snap isEqualToString:@"[文件]"];
         if (replyThumbURL.length > 0) {
             // 真缩略图：先用占位图标撑住固定 24x24 位置（行高稳定），异步图到达后原地替换重渲。
             NSTextAttachment *att = [NSTextAttachment new];
@@ -371,7 +372,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
             else { [[IMImageLoader shared] loadImageURL:replyThumbURL completion:apply]; }
         } else if (glyph || fileSnippet) {
             NSTextAttachment *att = [NSTextAttachment new];
-            att.image = fileSnippet ? IMFileTypeIconForName(nil, 18)
+            att.image = fileSnippet ? IMFileTypeIconForName(quoteFileName, 18)
                                     : [[UIImage systemImageNamed:glyph] imageWithTintColor:IMTheme.textSecondary
                                                                              renderingMode:UIImageRenderingModeAlwaysOriginal];
             att.bounds = fileSnippet ? CGRectMake(0, -4, 18, 18) : CGRectMake(0, -2, 15, 13);

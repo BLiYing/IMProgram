@@ -25,7 +25,8 @@ NS_ASSUME_NONNULL_BEGIN
           showsUnreadDivider:(BOOL)showsDivider
                   senderName:(nullable NSString *)senderName
                replyThumbURL:(nullable NSString *)replyThumbURL
-           replyThumbIsVideo:(BOOL)replyThumbIsVideo;
+           replyThumbIsVideo:(BOOL)replyThumbIsVideo
+               replyFromName:(nullable NSString *)replyFromName;
 - (void)applyGroupAvatarURL:(nullable NSString *)url
                        seed:(NSString *)seed
                        name:(nullable NSString *)name

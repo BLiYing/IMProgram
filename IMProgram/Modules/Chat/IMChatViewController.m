@@ -52,7 +52,10 @@ NSNotificationName const IMChatConversationClearedNotification = @"IMChatConvers
 static NSString *IMReplySnippet(IMMessageModel *m) {
     if ([m.contentType isEqualToString:@"image"]) { return @"[图片]"; }
     if ([m.contentType isEqualToString:@"video"]) { return @"[视频]"; }
-    if ([m.contentType isEqualToString:@"file"])  { return @"[文件]"; }
+    if ([m.contentType isEqualToString:@"file"]) {
+        NSString *fn = m.fileName.length > 0 ? m.fileName : IMMediaFileName(m.content);
+        return fn.length > 0 ? [@"[文件] " stringByAppendingString:fn] : @"[文件]";
+    }
     if ([m.contentType isEqualToString:@"chat_record"]) { return IMChatRecordSnippet(m.content); } // [聊天记录] 标题
     NSString *c = m.content ?: @"";
     return c.length > 60 ? [[c substringToIndex:60] stringByAppendingString:@"…"] : c;
@@ -565,6 +568,14 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     return nick.length > 0 ? nick : (m.from ?: @"");
 }
 
+/// 引用条被引用者显示名（群聊用）：自己→"你"，否则群成员昵称→uid。协议只下发 uid，昵称本地解析。
+- (NSString *)replyFromNameForUID:(NSString *)uid {
+    if (uid.length == 0) { return nil; }
+    if ([uid isEqualToString:self.userID]) { return @"你"; }
+    NSString *nick = [self.groupInfo nicknameOfMember:uid];
+    return nick.length > 0 ? nick : uid;
+}
+
 /// 群聊发送者头像绝对 URL（无则空串——头像圈回退首字母）。相对路径补 host。
 - (NSString *)senderAvatarURLForMessage:(IMMessageModel *)m {
     NSString *url = [self.groupInfo avatarURLOfMember:m.from];
@@ -1009,6 +1020,7 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     if (replySeq > 0) { // 本端即时快照（服务端会给收件方冻结权威快照；媒体用 [图片]/[视频] 占位）
         m.replyToConvSeq = replySeq;
         m.replySnapshot = IMReplySnippet(self.replyingTo);
+        m.replyToFrom = self.replyingTo.from; // 被引用者 uid：本端回显需自带（服务端只发给收件方，ack 不回带、sync 已去重）
     }
     [self performDatabaseOperation:^(IMDatabase *database) {
         [database saveMessage:m]; // 落库（sending）
@@ -1921,9 +1933,9 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
             return;
         }
     }
-    // 跳不到分两种：落在窗口内却缺失 → 已被本地删除；目标比"已加载最早一条"还早 → 本地库未同步到这么早。
-    // 注：iOS 进会话全量载入本地 DB、无上拉分页（见 current_task「已知坑」），故不提示"上拉加载"，与 Web 文案有别。
-    NSString *toast = (earliest > 0 && targetConvSeq < earliest)
+    // 跳不到分两种：落在窗口内却缺失 → 已被本地删除；目标比"已加载最早一条"还早（或全表无已确认消息，
+    // earliest=0 判不出窗口）→ 本地没有。iOS 无上拉分页（全量载本地库），故不提示"上拉加载"，与 Web 文案刻意有别（CHAT_UX §3.1）。
+    NSString *toast = (earliest == 0 || targetConvSeq < earliest)
         ? @"原消息不在本地" : @"原消息已被删除";
     [self im_showToast:toast];
 }
@@ -2309,12 +2321,15 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     } else {
         cell.onFileControlTap = nil;
     }
+    NSString *replyFromName = (self.isGroupChat && m.replyToConvSeq > 0 && m.replyToFrom.length > 0)
+        ? [self replyFromNameForUID:m.replyToFrom] : nil;
     [cell configureWithMessage:m mine:mine peerReadSeq:self.peerReadSeq
                      dayHeader:[self dayHeaderForRow:indexPath.row]
             showsUnreadDivider:showsDivider
                     senderName:senderName
                  replyThumbURL:replyThumbURL
-             replyThumbIsVideo:replyThumbIsVideo];
+             replyThumbIsVideo:replyThumbIsVideo
+                 replyFromName:replyFromName];
     [cell applyGroupAvatarURL:(grp ? [self senderAvatarURLForMessage:m] : nil)
                          seed:(m.from ?: @"") name:(grp ? [self senderNameForMessage:m] : nil)
                    showAvatar:lastInRun gutter:grp];

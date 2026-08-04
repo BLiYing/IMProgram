@@ -41,6 +41,7 @@ typedef NS_ENUM(NSInteger, IMMessageStatus) {
 /// M4-2 引用回复：目标 conv_seq + 服务端冻结的降级快照（气泡顶部引用条）。
 @property (nonatomic, assign) int64_t replyToConvSeq;
 @property (nonatomic, copy, nullable) NSString *replySnapshot;
+@property (nonatomic, copy, nullable) NSString *replyToFrom; ///< M4-x 被引用消息发送者 uid：群聊引用条显示发送者（本地解析昵称），单聊不显示
 /// M4-3 转发溯源："转发自 X"显示名（发送时冻结）。
 @property (nonatomic, copy, nullable) NSString *forwardFrom;
 /// M4+ 相册分组：同批多图/视频共享的客户端生成 ID（空=普通消息）；聊天页据此聚簇渲染宫格。

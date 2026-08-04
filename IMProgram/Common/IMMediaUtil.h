@@ -33,4 +33,12 @@ FOUNDATION_EXPORT NSString *IMFileTypeIdentifierForName(NSString *_Nullable name
 /// 返回指定 pointSize 的原色“折角文件卡”图标；聊天/文件选择/详情/收藏共用同一映射。
 FOUNDATION_EXPORT UIImage *IMFileTypeIconForName(NSString *_Nullable name, CGFloat pointSize);
 
+/// 引用降级快照的跨端 token 本地化：[image]/[video]/[file]（含 `[file] <名>` 带文件名）→ 中文；
+/// [chat_record]/存量 JSON 就地救援；已本地化输入幂等原样。两个气泡 cell 共用（此前各持 static 已分叉）。
+FOUNDATION_EXPORT NSString *IMLocalizeReplySnippet(NSString *_Nullable snap);
+
+/// 从引用快照解析文件名：接受 wire 形 `[file] <名>` 与本端存量本地化形 `[文件] <名>`；非文件快照返回 nil。
+/// 一次解析供显示与 IMFileTypeIconForName 共用，避免对本地化字符串再做 magic offset 反解。
+FOUNDATION_EXPORT NSString *_Nullable IMReplySnippetFileName(NSString *_Nullable snap);
+
 NS_ASSUME_NONNULL_END

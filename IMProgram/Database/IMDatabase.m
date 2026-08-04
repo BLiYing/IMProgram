@@ -112,6 +112,7 @@
             @"recalled_at": @"INTEGER", @"recalled_by": @"TEXT",
             @"edited_at": @"INTEGER", @"pinned_at": @"INTEGER",
             @"reply_to_conv_seq": @"INTEGER", @"reply_snapshot": @"TEXT", // M4-2 引用回复
+            @"reply_to_from": @"TEXT", // M4-x 被引用者 uid（群聊引用条显示发送者）
             @"forward_from": @"TEXT", // M4-3 转发溯源
             @"group_id": @"TEXT",     // M4+ 相册分组（同批多图/视频聚簇渲染宫格）
             @"poster": @"TEXT",       // M4+ 视频封面首帧 URL
@@ -357,7 +358,7 @@
                  "media_w=CASE WHEN ?>0 THEN ? ELSE media_w END,"
                  "media_h=CASE WHEN ?>0 THEN ? ELSE media_h END,"
                  "duration=CASE WHEN ?>0 THEN ? ELSE duration END,"
-                 "conv_seq=?,timestamp=?,status=?,note=?,from_nickname=?,recalled_at=?,recalled_by=?,edited_at=?,pinned_at=?,reply_to_conv_seq=?,reply_snapshot=?,forward_from=?,group_id=?,poster=? WHERE row_id=?",
+                 "conv_seq=?,timestamp=?,status=?,note=?,from_nickname=?,recalled_at=?,recalled_by=?,edited_at=?,pinned_at=?,reply_to_conv_seq=?,reply_snapshot=?,reply_to_from=?,forward_from=?,group_id=?,poster=? WHERE row_id=?",
                 message.serverMsgID ?: @"", message.from ?: @"", message.to ?: @"",
                 message.contentType ?: @"text", message.content ?: @"",
                 message.fileName ?: @"", message.fileName ?: @"", @(message.fileSize), @(message.fileSize),
@@ -365,17 +366,17 @@
                 @(message.duration), @(message.duration),
                 @(message.convSeq), @(message.timestamp), @(message.status), message.note ?: @"",
                 message.fromNickname ?: @"", @(message.recalledAt), message.recalledBy ?: @"",
-                @(message.editedAt), @(message.pinnedAt), @(message.replyToConvSeq), message.replySnapshot ?: @"", message.forwardFrom ?: @"", message.groupID ?: @"", message.poster ?: @"", rowID];
+                @(message.editedAt), @(message.pinnedAt), @(message.replyToConvSeq), message.replySnapshot ?: @"", message.replyToFrom ?: @"", message.forwardFrom ?: @"", message.groupID ?: @"", message.poster ?: @"", rowID];
         } else {
             ok = [db executeUpdate:
-                @"INSERT INTO im_message_local (owner_uid,client_msg_id,server_msg_id,conv_id,sender,recipient,content_type,content,file_name,file_size,conv_seq,timestamp,status,note,from_nickname,recalled_at,recalled_by,edited_at,pinned_at,reply_to_conv_seq,reply_snapshot,forward_from,group_id,poster,media_w,media_h,duration) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                @"INSERT INTO im_message_local (owner_uid,client_msg_id,server_msg_id,conv_id,sender,recipient,content_type,content,file_name,file_size,conv_seq,timestamp,status,note,from_nickname,recalled_at,recalled_by,edited_at,pinned_at,reply_to_conv_seq,reply_snapshot,reply_to_from,forward_from,group_id,poster,media_w,media_h,duration) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 owner, message.clientMsgID ?: @"", message.serverMsgID ?: @"", message.convID,
                 message.from ?: @"", message.to ?: @"", message.contentType ?: @"text",
                 message.content ?: @"", message.fileName ?: @"", @(message.fileSize),
                 @(message.convSeq), @(message.timestamp), @(message.status),
                 message.note ?: @"", message.fromNickname ?: @"", @(message.recalledAt),
                 message.recalledBy ?: @"", @(message.editedAt), @(message.pinnedAt),
-                @(message.replyToConvSeq), message.replySnapshot ?: @"", message.forwardFrom ?: @"", message.groupID ?: @"", message.poster ?: @"",
+                @(message.replyToConvSeq), message.replySnapshot ?: @"", message.replyToFrom ?: @"", message.forwardFrom ?: @"", message.groupID ?: @"", message.poster ?: @"",
                 @(message.mediaW), @(message.mediaH), @(message.duration)];
         }
         if (!ok) {
@@ -627,6 +628,8 @@
             m.replyToConvSeq = [rs longLongIntForColumn:@"reply_to_conv_seq"];
             NSString *snap = [rs stringForColumn:@"reply_snapshot"];
             m.replySnapshot = snap.length > 0 ? snap : nil;
+            NSString *rf = [rs stringForColumn:@"reply_to_from"];
+            m.replyToFrom = rf.length > 0 ? rf : nil;
             NSString *ff = [rs stringForColumn:@"forward_from"];
             m.forwardFrom = ff.length > 0 ? ff : nil;
             NSString *gid = [rs stringForColumn:@"group_id"];

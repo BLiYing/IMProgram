@@ -151,3 +151,21 @@ UIImage *IMFileTypeIconForName(NSString *name, CGFloat pointSize) {
     [cache setObject:result forKey:cacheKey];
     return result;
 }
+
+NSString *IMReplySnippetFileName(NSString *snap) {
+    if ([snap hasPrefix:@"[file] "])  { return [snap substringFromIndex:7]; } // wire 形（服务端冻结）
+    if ([snap hasPrefix:@"[文件] "]) { return [snap substringFromIndex:5]; } // 本端存量：本地化形入库
+    return nil;
+}
+
+NSString *IMLocalizeReplySnippet(NSString *snap) {
+    if (snap.length == 0) { return @""; }
+    if ([snap isEqualToString:@"[image]"]) { return @"[图片]"; }
+    if ([snap isEqualToString:@"[video]"]) { return @"[视频]"; }
+    if ([snap isEqualToString:@"[file]"])  { return @"[文件]"; }
+    NSString *fn = IMReplySnippetFileName(snap);
+    if (fn.length > 0) { return [@"[文件] " stringByAppendingString:fn]; } // 带名文件；本地化输入幂等重组
+    if ([snap isEqualToString:@"[chat_record]"]) { return @"[聊天记录]"; } // 旧服务端 token（无标题）兜底
+    if (IMLooksLikeChatRecordJSON(snap)) { return IMChatRecordSnippet(snap); } // 存量 JSON 截段救援
+    return snap;
+}
