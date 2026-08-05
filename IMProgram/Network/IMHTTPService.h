@@ -60,7 +60,15 @@ BOOL IMIsAuthErrorCode(NSInteger code);
                   status:(nullable NSString *)status
               completion:(void (^)(NSArray<IMUserCard *> *_Nullable friends, NSError *_Nullable error))completion;
 
+/// 发好友申请（POST /api/v1/friends/request）。completion 在主线程回调。
+/// becameFriend=YES 表示**已直接成为好友、无需对方确认**（对方先申请过我；或我曾单向删除对方而对方仍视我为好友）。
+/// 调用方据此**不要提示「已发送好友申请」**——那会让用户误以为还要等对方通过；刷新界面即可。
+- (void)requestFriendWithToken:(NSString *)token
+                        peerID:(NSString *)peerID
+                    completion:(void (^)(BOOL becameFriend, NSError *_Nullable error))completion;
+
 /// 好友动作（action ∈ request/accept/reject/block/unblock），body {user_id:peerID}。completion 在主线程回调。
+/// ⚠️ 发申请请改用上面的 `requestFriendWithToken:` —— 它能区分「已发申请」与「已直接成为好友」。
 - (void)friendActionWithToken:(NSString *)token
                        action:(NSString *)action
                        peerID:(NSString *)peerID

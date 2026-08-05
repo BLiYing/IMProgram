@@ -561,11 +561,13 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0 || self.peerID.length == 0) { return; }
     __weak typeof(self) ws = self;
-    [IMHTTPService.sharedService friendActionWithToken:token action:@"request" peerID:self.peerID
-                                            completion:^(NSError *error) {
+    [IMHTTPService.sharedService requestFriendWithToken:token peerID:self.peerID
+                                             completion:^(BOOL becameFriend, NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
-        [self im_showToast:error ? (error.localizedDescription ?: @"好友申请发送失败") : @"已发送好友申请"];
+        if (error) { [self im_showToast:error.localizedDescription ?: @"好友申请发送失败"]; return; }
+        // 已直接成为好友（对方仍视我为好友）→ 不说"已发送申请"（会误导要等对方通过），直接告知可继续聊。
+        [self im_showToast:becameFriend ? @"已重新成为好友" : @"已发送好友申请"];
     }];
 }
 

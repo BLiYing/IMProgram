@@ -196,6 +196,11 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
     NSLayoutConstraint *_leading, *_trailing;
     NSLayoutConstraint *_containerTopPlain;      // 无昵称：宫格贴 cell 顶
     NSLayoutConstraint *_containerTopUnderName;  // 有昵称：宫格挂昵称下方
+    // 整组发送失败：宫格左侧红❗（仅自己）。与 IMBubbleCell/IMImageCell 同款——
+    // 注意与 IMAlbumTileView 自己的 _failBadge 不是一回事：那个是**逐格**中心的 "!"，
+    // 表达"这一格失败了"；这个在宫格外侧，表达"这条消息发失败了"，两者互补。
+    UILabel *_failBadge;
+    NSLayoutConstraint *_failBadgeTrailing;      // 仅失败时激活，避免恒占位挤压宫格
     IMRejectNoteView *_sysNote;                  // 被拒收系统行（整组共用一条，宫格下方居中）
     NSLayoutConstraint *_containerBottom;        // 无系统行时：宫格贴 cell 底
     NSLayoutConstraint *_noteTop;                // 有系统行时：系统行接宫格底
@@ -240,6 +245,18 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
         _avatar.hidden = YES;
         [self.contentView addSubview:_avatar];
 
+        _failBadge = [UILabel new];
+        _failBadge.translatesAutoresizingMaskIntoConstraints = NO;
+        _failBadge.text = @"!";
+        _failBadge.textAlignment = NSTextAlignmentCenter;
+        _failBadge.font = [UIFont boldSystemFontOfSize:13];
+        _failBadge.textColor = UIColor.whiteColor;
+        _failBadge.backgroundColor = UIColor.systemRedColor;
+        _failBadge.layer.cornerRadius = 9;
+        _failBadge.layer.masksToBounds = YES;
+        _failBadge.hidden = YES;
+        [self.contentView addSubview:_failBadge];
+
         _sysNote = [IMRejectNoteView new];
         _sysNote.translatesAutoresizingMaskIntoConstraints = NO;
         _sysNote.hidden = YES;
@@ -260,6 +277,7 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
         _containerBottom = [_container.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3];
         _noteTop = [_sysNote.topAnchor constraintEqualToAnchor:_container.bottomAnchor constant:4];
         _noteBottom = [_sysNote.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-6];
+        _failBadgeTrailing = [_failBadge.trailingAnchor constraintEqualToAnchor:_container.leadingAnchor constant:-6];
         // 自适应行高：UIKit 会给 contentView 加 UIView-Encapsulated-Layout-Height（required），
         // 我们的高度必须让位，否则每次行高变化都报冲突。999 保证正常情况下仍精确生效。
         _containerHeight.priority = UILayoutPriorityDefaultHigh + 1; // 751 足够压过内容，且低于 required
@@ -274,6 +292,10 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
             [_avatar.widthAnchor constraintEqualToConstant:30],
             [_avatar.heightAnchor constraintEqualToConstant:30],
             _containerBottom,
+            // 红❗：钉在宫格左侧、垂直居中（仅自己失败时显示，与文本/单图气泡同款）。
+            [_failBadge.widthAnchor constraintEqualToConstant:18],
+            [_failBadge.heightAnchor constraintEqualToConstant:18],
+            [_failBadge.centerYAnchor constraintEqualToAnchor:_container.centerYAnchor],
             [_sysNote.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:24],
             [_sysNote.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-24],
             // 恒定的边界约束（required）：无论左右贴哪边，都不许超出内容区。
@@ -311,10 +333,16 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
     _containerHeight.constant = IMAlbumHeightForCount(members.count);
 
     // 被拒收系统行：整组共用一条（同一批发送、被同一个原因拒收），取首个带 note 的成员。
+    // 同一趟扫出"整组是否有失败成员"，供宫格左侧红❗（与逐格 "!" 互补：那个指哪一格，这个指整条消息）。
     IMMessageModel *noted = nil;
+    BOOL anyFailed = NO;
     for (IMMessageModel *m in members) {
-        if (m.note.length > 0) { noted = m; break; }
+        if (m.note.length > 0 && !noted) { noted = m; }
+        if (m.status == IMMessageStatusFailed) { anyFailed = YES; }
     }
+    BOOL failed = mine && anyFailed;
+    _failBadge.hidden = !failed;
+    _failBadgeTrailing.active = failed;
     [_sysNote configureWithNote:noted.note code:noted.noteCode];
     BOOL hasNote = _sysNote.hasContent;
     _containerBottom.active = !hasNote;

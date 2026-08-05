@@ -342,6 +342,27 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     }];
 }
 
+- (void)requestFriendWithToken:(NSString *)token
+                        peerID:(NSString *)peerID
+                    completion:(void (^)(BOOL, NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/friends/request" method:@"POST" token:token
+                                                     body:@{ @"user_id": peerID ?: @"" }];
+    if (!req) {
+        [self callOnMain:^{ completion(NO, [self errorWithMessage:@"非法服务器地址"]); }];
+        return;
+    }
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(NO, error); return; }
+        if ([body[@"code"] integerValue] != 0) {
+            completion(NO, [self errorWithMessage:[self messageFrom:body fallback:@"操作失败"]]);
+            return;
+        }
+        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
+        NSString *outcome = [data[@"outcome"] isKindOfClass:[NSString class]] ? data[@"outcome"] : nil;
+        completion([outcome isEqualToString:@"accepted"], nil);
+    }];
+}
+
 - (void)friendActionWithToken:(NSString *)token
                        action:(NSString *)action
                        peerID:(NSString *)peerID
