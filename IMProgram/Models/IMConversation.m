@@ -1,6 +1,7 @@
 //  IMConversation.m
 
 #import "IMConversation.h"
+#import "IMPresence.h"
 
 @implementation IMConversation
 
@@ -24,6 +25,10 @@
     c.peer = [self stringForKey:@"peer" in:dict];
     c.peerNickname = [self stringForKey:@"peer_nickname" in:dict];
     c.peerAvatarURL = [self stringForKey:@"peer_avatar_url" in:dict];
+    // 单聊对端在线态快照（peer_presence/peer_online_until/peer_last_seen）；群聊/老响应无这些键 → nil，不显绿点。
+    if (!c.isGroup && dict[@"peer_presence"]) {
+        c.peerPresence = [IMPresence presenceFromConversationDictionary:dict];
+    }
     c.latestConvSeq = [dict[@"latest_conv_seq"] respondsToSelector:@selector(longLongValue)] ? [dict[@"latest_conv_seq"] longLongValue] : 0;
     c.readSeq = [dict[@"read_seq"] respondsToSelector:@selector(longLongValue)] ? [dict[@"read_seq"] longLongValue] : 0;
     c.peerReadSeq = [dict[@"peer_read_seq"] respondsToSelector:@selector(longLongValue)] ? [dict[@"peer_read_seq"] longLongValue] : 0;

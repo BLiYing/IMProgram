@@ -6,6 +6,7 @@
 
 #import "../IMProgram/Models/IMPresence.h"
 #import "../IMProgram/Models/IMUserCard.h"
+#import "../IMProgram/Models/IMConversation.h"
 
 @interface IMPresenceTests : XCTestCase
 @end
@@ -33,6 +34,22 @@ static int64_t nowMs(void) { return (int64_t)(NSDate.date.timeIntervalSince1970 
     XCTAssertEqual(p.level, IMPresenceLevelRecently);
     XCTAssertEqual(p.lastSeen, 999);
     XCTAssertFalse(p.isOnline);
+}
+
+/// 会话列表解析：单聊接入 peerPresence（列表绿点数据源）；群聊与老响应不带，peerPresence 为 nil。
+- (void)testConversationWiresPeerPresenceForSingleChatOnly {
+    NSArray<IMConversation *> *convs = [IMConversation conversationsFromArray:@[
+        @{ @"conv_id": @"u_1001_u_1003", @"is_group": @NO, @"peer": @"1003",
+           @"peer_presence": @"online", @"peer_online_until": @(nowMs() + 60000), @"peer_last_seen": @123 },
+        @{ @"conv_id": @"g_x", @"is_group": @YES, @"name": @"群",
+           @"peer_presence": @"online", @"peer_online_until": @(nowMs() + 60000) }, // 群即便带键也不解析
+        @{ @"conv_id": @"u_1001_u_1002", @"is_group": @NO, @"peer": @"1002" }, // 老响应无 presence 键
+    ]];
+    XCTAssertEqual(convs.count, 3u);
+    XCTAssertNotNil(convs[0].peerPresence);
+    XCTAssertTrue(convs[0].peerPresence.isOnline);       // 单聊在线 → 显绿点
+    XCTAssertNil(convs[1].peerPresence);                  // 群聊 → 无点
+    XCTAssertNil(convs[2].peerPresence);                  // 无 presence 键 → 无点
 }
 
 - (void)testDirtyDataIsSafe {

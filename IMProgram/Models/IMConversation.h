@@ -3,6 +3,8 @@
 
 #import <Foundation/Foundation.h>
 
+@class IMPresence;
+
 NS_ASSUME_NONNULL_BEGIN
 
 @interface IMConversation : NSObject
@@ -15,6 +17,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy) NSString *peer;            // 单聊对端 uid（群聊为空）
 @property (nonatomic, copy, nullable) NSString *peerNickname;  // 对端昵称（显示名/首字母，空回退 uid）
 @property (nonatomic, copy, nullable) NSString *peerAvatarURL; // 对端头像（data:/http，空回退首字母圈）
+@property (nonatomic, strong, nullable) IMPresence *peerPresence; // 单聊对端在线态快照（列表绿点；群聊为 nil，在线与否按 onlineUntil 实时判）
 @property (nonatomic, copy, nullable) NSString *lastContent;
 @property (nonatomic, copy, nullable) NSString *lastFrom;
 @property (nonatomic, copy, nullable) NSString *lastFromNickname; // 最后发送者昵称（仅群聊：列表预览"昵称: 内容"）

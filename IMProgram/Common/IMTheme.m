@@ -42,6 +42,8 @@
 + (UIColor *)danger { return UIColor.systemRedColor; }
 // 已读双勾绿：浅色气泡上偏深一点的绿，深色气泡上偏亮的绿，保证对比。
 + (UIColor *)checkRead { return [self dynamicLight:[self rgb:0x4CA64C] dark:[self rgb:0x7DDc7D]]; }
+// 在线态绿点：鲜亮的在线绿（Telegram/微信式），深浅色皆醒目；与已读双勾绿刻意区分（那个偏柔和）。
++ (UIColor *)onlineDot { return [self dynamicLight:[self rgb:0x34C759] dark:[self rgb:0x30D158]]; }
 + (UIColor *)unreadBadge { return UIColor.systemBlueColor; }
 + (UIColor *)bubbleMetaTime { return [self dynamicLight:[self rgb:0x6B8A5E] dark:[self rgb:0x9FB89A]]; }
 + (UIColor *)mediaBadgeBackground { return [self rgb:0x000000 alpha:0.5]; }

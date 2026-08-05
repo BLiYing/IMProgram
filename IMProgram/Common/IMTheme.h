@@ -24,6 +24,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (class, nonatomic, readonly) UIColor *separator;
 @property (class, nonatomic, readonly) UIColor *danger;
 @property (class, nonatomic, readonly) UIColor *checkRead;     // 已读双勾绿
+@property (class, nonatomic, readonly) UIColor *onlineDot;     // 在线态绿点（会话列表/通讯录头像右下角）
 @property (class, nonatomic, readonly) UIColor *unreadBadge;   // 未读胶囊（蓝，区别于绿在线点/绿勾）
 @property (class, nonatomic, readonly) UIColor *bubbleMetaTime; // 气泡内时间小字（浅色气泡上的次要色）
 // 媒体（图片/视频）上的悬浮角标：底恒为半透明黑，故字色不随明暗主题变化（浅色图上也要读得清）。

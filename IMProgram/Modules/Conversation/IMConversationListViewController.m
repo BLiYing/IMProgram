@@ -11,6 +11,7 @@
 #import "UIViewController+IMToast.h"
 #import "IMTheme.h"
 #import "UILabel+IMAvatar.h"
+#import "IMPresence.h"
 #import "IMMediaUtil.h"
 #import "IMPopoverCard.h"
 #import "IMLog.h"
@@ -43,6 +44,7 @@ static CGFloat const kIMRowLeading = 16;
     UILabel *_check;   // 最后一条是我发的 → 时间左侧显示 ✓✓（绿）
     UILabel *_badge;
     UIView *_dot;      // 手动"标未读"小圆点（无未读数时显示，M4.5）
+    UIView *_onlineDot; // 在线态绿点（仅单聊、对端在线时，头像右下角，M-presence）
     NSLayoutConstraint *_badgeWidth;
 }
 
@@ -151,6 +153,17 @@ static CGFloat const kIMRowLeading = 16;
         _dot.hidden = YES;
         [self.contentView addSubview:_dot];
 
+        // 在线态绿点：贴头像右下角，外套一圈页面底色描边使其与头像分离（微信/Telegram 式）。
+        _onlineDot = [UIView new];
+        _onlineDot.translatesAutoresizingMaskIntoConstraints = NO;
+        _onlineDot.backgroundColor = IMTheme.onlineDot;
+        _onlineDot.layer.cornerRadius = 6;   // 12pt 外圈
+        _onlineDot.layer.borderWidth = 2;
+        _onlineDot.layer.borderColor = IMTheme.pageBackground.CGColor;
+        _onlineDot.layer.masksToBounds = YES;
+        _onlineDot.hidden = YES;
+        [self.contentView addSubview:_onlineDot];
+
         [_time setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
         [_time setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
         _badgeWidth = [_badge.widthAnchor constraintEqualToConstant:0];
@@ -182,6 +195,11 @@ static CGFloat const kIMRowLeading = 16;
             [_dot.centerYAnchor constraintEqualToAnchor:_last.centerYAnchor],
             [_dot.widthAnchor constraintEqualToConstant:10],
             [_dot.heightAnchor constraintEqualToConstant:10],
+
+            [_onlineDot.trailingAnchor constraintEqualToAnchor:_avatar.trailingAnchor constant:1],
+            [_onlineDot.bottomAnchor constraintEqualToAnchor:_avatar.bottomAnchor constant:1],
+            [_onlineDot.widthAnchor constraintEqualToConstant:12],
+            [_onlineDot.heightAnchor constraintEqualToConstant:12],
         ]];
     }
     return self;
@@ -222,6 +240,9 @@ static CGFloat const kIMRowLeading = 16;
         _name.text = display;
         _last.text = recalledPreview ?: (c.lastContent.length > 0 ? c.lastContent : @"（无消息）");
     }
+    // 在线态绿点：仅单聊且对端在线时显示（快照版；isOnline 按 onlineUntil 实时判，租约到期即隐）。群聊不显示。
+    _onlineDot.hidden = c.isGroup || !c.peerPresence.isOnline;
+    _onlineDot.layer.borderColor = IMTheme.pageBackground.CGColor; // CGColor 不随主题自动更新，每次复用刷新
     // 名称 → 置顶 → 免打扰：状态图标紧跟实际显示的名称，长名称只截断文字。
     _pin.hidden = c.pinnedAt <= 0;
     _mute.hidden = !c.muted;
@@ -258,6 +279,14 @@ static CGFloat const kIMRowLeading = 16;
         _badge.hidden = YES;
         _badgeWidth.constant = 0;
         _dot.hidden = YES;
+    }
+}
+
+- (void)traitCollectionDidChange:(UITraitCollection *)previous {
+    [super traitCollectionDidChange:previous];
+    // 绿点描边用 CGColor，明暗切换不会自动重取；主题变化时手动刷新（同一像素不重配时也生效）。
+    if ([self.traitCollection hasDifferentColorAppearanceComparedToTraitCollection:previous]) {
+        _onlineDot.layer.borderColor = IMTheme.pageBackground.CGColor;
     }
 }
 
