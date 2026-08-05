@@ -2124,6 +2124,26 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     return count > 0 ? [NSString stringWithFormat:@"%lu 位成员", (unsigned long)count] : @"";
 }
 
+/// 消息排序（**唯一入口**，与 IMDatabase.messagesForConv 的 ORDER BY 及 im-web 的渲染排序三方一致）：
+/// **时间戳主排**；同一毫秒时 conv_seq=0（待发/失败）视为最大值垫底，收到的（conv_seq>0）在前。
+///
+/// ⚠️ 曾出过的坑（2026-08-05）：这里原先与 DB 一样按 conv_seq 主排、且把 conv_seq=0 一律甩末尾。
+/// 被拒收的消息**永远** conv_seq=0，于是永久钉在最底部，之后收到的消息全插到它上面 —— 用户滚到底
+/// 只见旧的失败消息、以为新消息没收到。第一次进会话走 DB（当时已修）看着正常，Web 一发消息触发本
+/// comparator 重排，时序又坏 —— **同一个 bug 在 DB 与内存两处各写了一遍**，故收敛到这一个方法。
+- (void)sortMessagesInPlace {
+    [self.messages sortUsingComparator:^NSComparisonResult(IMMessageModel *a, IMMessageModel *b) {
+        if (a.timestamp != b.timestamp) {
+            return a.timestamp < b.timestamp ? NSOrderedAscending : NSOrderedDescending;
+        }
+        // 同毫秒：conv_seq=0 视为 +∞ 垫底（等价 im-web 的 `convSeq || MAX_SAFE_INTEGER`）。
+        int64_t sa = a.convSeq > 0 ? a.convSeq : INT64_MAX;
+        int64_t sb = b.convSeq > 0 ? b.convSeq : INT64_MAX;
+        if (sa == sb) { return NSOrderedSame; }
+        return sa < sb ? NSOrderedAscending : NSOrderedDescending;
+    }];
+}
+
 - (void)socketManager:(IMSocketManager *)manager didReceiveMessage:(IMMessageModel *)message {
     if (![self performDatabaseOperation:^(IMDatabase *database) {
         [database saveMessage:message]; // 任何会话的消息都落库（按 conv_seq 幂等）
@@ -2152,16 +2172,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     // 收到新消息：贴底才自动贴底；在上方看历史则不打断，累加到"↓N"（CHAT_UX §9）。
     BOOL wasNearBottom = [self isNearBottom];
     [self.messages addObject:message];
-    [self.messages sortUsingComparator:^NSComparisonResult(IMMessageModel *a, IMMessageModel *b) {
-        if (a.convSeq > 0 && b.convSeq > 0 && a.convSeq != b.convSeq) {
-            return a.convSeq < b.convSeq ? NSOrderedAscending : NSOrderedDescending;
-        }
-        if ((a.convSeq > 0) != (b.convSeq > 0)) {
-            return a.convSeq > 0 ? NSOrderedAscending : NSOrderedDescending;
-        }
-        if (a.timestamp == b.timestamp) { return NSOrderedSame; }
-        return a.timestamp < b.timestamp ? NSOrderedAscending : NSOrderedDescending;
-    }];
+    [self sortMessagesInPlace];
     [self.tableView reloadData];
     // 冷启动直进本页时 init 读库可能为空（账号数据库上下文未就绪），历史全靠 sync 事后补进——
     // 而 reloadData 不触发 VC 的 viewDidLayoutSubviews，进会话定位永远不会跑（模拟器日志实锤：
