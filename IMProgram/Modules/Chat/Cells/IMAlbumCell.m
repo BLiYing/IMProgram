@@ -1,4 +1,5 @@
 #import "IMAlbumCell.h"
+#import "IMRejectNoteView.h"
 #import "IMMessageModel.h"
 #import "IMUploadProgress.h"
 #import "IMPendingMediaStore.h"
@@ -195,6 +196,10 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
     NSLayoutConstraint *_leading, *_trailing;
     NSLayoutConstraint *_containerTopPlain;      // 无昵称：宫格贴 cell 顶
     NSLayoutConstraint *_containerTopUnderName;  // 有昵称：宫格挂昵称下方
+    IMRejectNoteView *_sysNote;                  // 被拒收系统行（整组共用一条，宫格下方居中）
+    NSLayoutConstraint *_containerBottom;        // 无系统行时：宫格贴 cell 底
+    NSLayoutConstraint *_noteTop;                // 有系统行时：系统行接宫格底
+    NSLayoutConstraint *_noteBottom;             // 有系统行时：系统行贴 cell 底
     NSString *_host;
 }
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
@@ -235,6 +240,13 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
         _avatar.hidden = YES;
         [self.contentView addSubview:_avatar];
 
+        _sysNote = [IMRejectNoteView new];
+        _sysNote.translatesAutoresizingMaskIntoConstraints = NO;
+        _sysNote.hidden = YES;
+        __weak typeof(self) wsNote = self;
+        _sysNote.onActionTap = ^{ if (wsNote.onNoteActionTap) { wsNote.onNoteActionTap(); } };
+        [self.contentView addSubview:_sysNote];
+
         // 左右/上下两组约束**恒定激活，靠优先级切换**，不再用 active 开关。
         // 真机日志里出现过 leading 与 trailing、topPlain 与 topUnderName 同时激活导致
         // "Unable to simultaneously satisfy constraints"，UIKit 的恢复方式是打断 width/height，
@@ -244,6 +256,10 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
         _containerHeight = [_container.heightAnchor constraintEqualToConstant:100];
         _containerTopPlain = [_container.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:3];
         _containerTopUnderName = [_container.topAnchor constraintEqualToAnchor:_senderLabel.bottomAnchor constant:4];
+        // 被拒收系统行：有则「宫格 → 系统行 → cell 底」，无则宫格直接贴底（与 IMBubbleCell 同构）。
+        _containerBottom = [_container.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3];
+        _noteTop = [_sysNote.topAnchor constraintEqualToAnchor:_container.bottomAnchor constant:4];
+        _noteBottom = [_sysNote.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-6];
         // 自适应行高：UIKit 会给 contentView 加 UIView-Encapsulated-Layout-Height（required），
         // 我们的高度必须让位，否则每次行高变化都报冲突。999 保证正常情况下仍精确生效。
         _containerHeight.priority = UILayoutPriorityDefaultHigh + 1; // 751 足够压过内容，且低于 required
@@ -257,7 +273,9 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
             [_avatar.bottomAnchor constraintEqualToAnchor:_container.bottomAnchor],
             [_avatar.widthAnchor constraintEqualToConstant:30],
             [_avatar.heightAnchor constraintEqualToConstant:30],
-            [_container.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3],
+            _containerBottom,
+            [_sysNote.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:24],
+            [_sysNote.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-24],
             // 恒定的边界约束（required）：无论左右贴哪边，都不许超出内容区。
             [_container.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.contentView.leadingAnchor constant:12],
             [_container.trailingAnchor constraintLessThanOrEqualToAnchor:self.contentView.trailingAnchor constant:-12],
@@ -291,6 +309,17 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
     _senderLabel.hidden = !showName;
     [self applyAlignmentMine:mine showName:showName];
     _containerHeight.constant = IMAlbumHeightForCount(members.count);
+
+    // 被拒收系统行：整组共用一条（同一批发送、被同一个原因拒收），取首个带 note 的成员。
+    IMMessageModel *noted = nil;
+    for (IMMessageModel *m in members) {
+        if (m.note.length > 0) { noted = m; break; }
+    }
+    [_sysNote configureWithNote:noted.note code:noted.noteCode];
+    BOOL hasNote = _sysNote.hasContent;
+    _containerBottom.active = !hasNote;
+    _noteTop.active = hasNote;
+    _noteBottom.active = hasNote;
 
     // 按需补足块视图；多余的隐藏。
     while (_tiles.count < members.count) {

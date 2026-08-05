@@ -1,4 +1,5 @@
 #import "IMImageCell.h"
+#import "IMRejectNoteView.h"
 #import "IMImageLoader.h"
 #import "IMVideoThumbnailLoader.h"
 #import "IMMessageModel.h"
@@ -33,6 +34,10 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     NSLayoutConstraint *_thumbHeight;
     NSLayoutConstraint *_thumbTopPlain;      // 无昵称：thumb 贴 cell 顶
     NSLayoutConstraint *_thumbTopUnderName;  // 有昵称：thumb 挂昵称下方
+    IMRejectNoteView *_sysNote;              // 被拒收系统行（缩略图下方居中，可恢复时带「发送好友申请」）
+    NSLayoutConstraint *_thumbBottom;        // 无系统行时：thumb 贴 cell 底
+    NSLayoutConstraint *_noteTop;            // 有系统行时：系统行接 thumb 底
+    NSLayoutConstraint *_noteBottom;         // 有系统行时：系统行贴 cell 底
     NSString *_url;
     BOOL _sizeFromMedia;       // YES=尺寸来自协议/预览（权威），加载出图后无需重排
     BOOL _isVideoCell;         // 上传态结束后据此还原中心播放按钮（图片则隐藏）
@@ -83,6 +88,13 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
         _avatar.hidden = YES;
         [self.contentView addSubview:_avatar];
 
+        _sysNote = [IMRejectNoteView new];
+        _sysNote.translatesAutoresizingMaskIntoConstraints = NO;
+        _sysNote.hidden = YES;
+        __weak typeof(self) wsNote = self;
+        _sysNote.onActionTap = ^{ if (wsNote.onNoteActionTap) { wsNote.onNoteActionTap(); } };
+        [self.contentView addSubview:_sysNote];
+
         // 与 IMAlbumCell 同策略：左右/上下两组约束恒定激活、**靠优先级切换**，杜绝
         // "两条 required 同时生效 → UIKit 打断 width/height" 的自适应行高冲突（真机日志实录）。
         _leading = [_thumb.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12];
@@ -93,6 +105,10 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
         _thumbHeight = [_thumb.heightAnchor constraintEqualToConstant:kIMMediaFallbackSide];
         _thumbWidth.priority = UILayoutPriorityRequired - 1;              // 999，让位 Encapsulated-Layout-Width
         _thumbHeight.priority = UILayoutPriorityDefaultHigh + 1;          // 751，让位 Encapsulated-Layout-Height
+        // 被拒收系统行：有则「thumb → 系统行 → cell 底」，无则 thumb 直接贴底（与 IMBubbleCell 同构）。
+        _thumbBottom = [_thumb.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3];
+        _noteTop = [_sysNote.topAnchor constraintEqualToAnchor:_thumb.bottomAnchor constant:4];
+        _noteBottom = [_sysNote.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-6];
         [NSLayoutConstraint activateConstraints:@[
             // 恒定边界（required）：无论贴左还是贴右，都不许超出内容区。
             [_thumb.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.contentView.leadingAnchor constant:12],
@@ -106,8 +122,9 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
             [_avatar.bottomAnchor constraintEqualToAnchor:_thumb.bottomAnchor],
             [_avatar.widthAnchor constraintEqualToConstant:30],
             [_avatar.heightAnchor constraintEqualToConstant:30],
-            [_thumb.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3],
-            _thumbWidth, _thumbHeight,
+            _thumbBottom, _thumbWidth, _thumbHeight,
+            [_sysNote.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:24],
+            [_sysNote.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-24],
             [_playBadge.centerXAnchor constraintEqualToAnchor:_thumb.centerXAnchor],
             [_playBadge.centerYAnchor constraintEqualToAnchor:_thumb.centerYAnchor],
             // 进度与时长共用左上角位置（互斥显示：上传中显进度，传完切回时长）。
@@ -186,6 +203,12 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     [self applyDisplaySizeForMessage:message preview:preview posterURL:posterURL fullURL:fullURL isVideo:isVideo];
     [self applyDurationBadge:(isVideo ? message.duration : 0)];
     [self applyMetaBadgeForMessage:message mine:mine peerReadSeq:peerReadSeq];
+    // 被拒收系统行（如非好友 200103）：媒体消息此前无处承载 note，被拒后既无文案也无恢复入口。
+    [_sysNote configureWithNote:message.note code:message.noteCode];
+    BOOL hasNote = _sysNote.hasContent;
+    _thumbBottom.active = !hasNote;
+    _noteTop.active = hasNote;
+    _noteBottom.active = hasNote;
 
     if (fullURL.length == 0) { return; } // 尚未上传完成：只显本地预览，不发起网络加载
     __weak typeof(self) ws = self;

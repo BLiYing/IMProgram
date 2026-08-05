@@ -381,10 +381,13 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
         mine.status = serviceModel.status;
         mine.convSeq = serviceModel.convSeq;
         mine.note = serviceModel.note;
+        mine.noteCode = serviceModel.noteCode; // 随 note 一起拷：决定系统行给不给恢复入口（200103 → 发好友申请）
     }
     if (mine.convSeq > 0) { [self.seenConvSeqs addObject:@(mine.convSeq)]; } // 防 sync 重复回显自己发的
-    if (mine.groupID.length > 0) {
-        [self refreshVisibleCellForMessage:mine]; // 相册成员的 ACK 只定点刷宫格角标/状态胶囊
+    // 相册成员的 ACK 只定点刷宫格角标/状态胶囊；但**被拒收挂了系统行时行高会变**，
+    // 定点刷新不重算高度（系统行会被裁掉），必须整表 reload 走下面的分支。
+    if (mine.groupID.length > 0 && mine.note.length == 0) {
+        [self refreshVisibleCellForMessage:mine];
         return;
     }
     [self.tableView reloadData];
@@ -2236,6 +2239,8 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         [alb applyGroupAvatarURL:(grpAlb ? [self senderAvatarURLForMessage:m] : nil)
                             seed:(m.from ?: @"") name:(grpAlb ? [self senderNameForMessage:m] : nil)
                       showAvatar:lastAlb gutter:grpAlb];
+        __weak typeof(self) wsAlbNote = self;
+        alb.onNoteActionTap = ^{ [wsAlbNote sendFriendRequestFromRejectedNote]; };
         __weak typeof(self) ws = self;
         alb.onTapItem = ^(IMMessageModel *mm) {
             __strong typeof(ws) self = ws;
@@ -2286,6 +2291,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         if (!progI && pendingLocal && m.status == IMMessageStatusFailed) { progI = [IMUploadProgress failedProgress]; }
         [img setUploadProgress:progI];
         __weak typeof(self) ws = self;
+        img.onNoteActionTap = ^{ [ws sendFriendRequestFromRejectedNote]; };
         img.onTap = ^(UIImage *image) {
             __strong typeof(ws) self = ws;
             if (!self) { return; }

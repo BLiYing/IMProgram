@@ -24,6 +24,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// 写回模型+落库（下次进会话行高首帧即正确）并刷一次行高（无动画）。
 @property (nonatomic, copy, nullable) void (^onMediaSizeResolved)(CGSize pixelSize);
 
+/// 点拒收系统行的恢复入口（当前仅 200103 非好友 → 「发送好友申请」）。
+/// 仅当 message.noteCode 命中可恢复码时该行才可点，否则系统行是纯文案。
+@property (nonatomic, copy, nullable) void (^onNoteActionTap)(void);
+
 /// fullURL 为空=尚未上传完成（只显本地预览、不发起网络加载）。
 /// posterURL 为视频封面的完整 URL（message.poster 补 host 后）：**有封面就绝不去抽帧**——
 /// 抽帧要对远端视频发 range 请求拉几 MB，而封面只是一张几十 KB 的 JPEG。
