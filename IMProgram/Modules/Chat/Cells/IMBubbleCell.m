@@ -52,6 +52,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     NSLayoutConstraint *_trailing;
     UILabel *_failBadge;      // 发送失败：气泡左侧红色❗（微信式）
     UILabel *_sysNote;        // 被拒收等系统提示：气泡下方居中灰字
+    BOOL _noteActionable;     // 该系统行是否带恢复入口（可点，如非好友→发好友申请）
     NSLayoutConstraint *_bubbleBottom;   // 无系统行时：气泡贴 cell 底
     NSLayoutConstraint *_noteTop;        // 有系统行时：系统行接气泡底
     NSLayoutConstraint *_noteBottom;     // 有系统行时：系统行贴 cell 底
@@ -136,6 +137,11 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         _sysNote.textAlignment = NSTextAlignmentCenter;
         _sysNote.numberOfLines = 0;
         _sysNote.hidden = YES;
+        // 可操作的拒收系统行（如非好友 → 「发送好友申请」）：整行可点，动作短语着强调色。
+        // 整行热区而非精确命中动作文字——12pt 文字的逐字命中太难点，且该行没有别的可点元素。
+        _sysNote.userInteractionEnabled = YES;
+        [_sysNote addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self
+                                                                              action:@selector(handleNoteActionTap)]];
         [self.contentView addSubview:_sysNote];
 
         // 文件消息两栏布局（Telegram 式）：左 44pt 图标位（上传中变圆环状态机、可点），
@@ -444,7 +450,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     _failBadgeTrailing.active = failed;
     BOOL hasNote = message.note.length > 0;
     _sysNote.hidden = !hasNote;
-    _sysNote.text = message.note;
+    [self applyNote:message.note code:message.noteCode];
     _bubbleBottom.active = !hasNote;
     _noteTop.active = hasNote;
     _noteBottom.active = hasNote;
@@ -529,6 +535,40 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
 
 - (void)handleAvatarTap {
     if (self.onAvatarTap) { self.onAvatarTap(); }
+}
+
+/// 拒收系统行是否带可点击的恢复入口。当前只有「非好友」可恢复（发好友申请）；
+/// 被拉黑(200102)刻意不给——服务端对拉黑与非好友回同样的模糊文案以不泄露拉黑，
+/// 给了入口反而会因申请被 200102 拒而暴露。禁言/非群成员亦无自助恢复动作。
+static BOOL IMNoteCodeIsActionable(NSInteger code) { return code == 200103; }
+
+/// 渲染系统行：可恢复时在文案下方补一行强调色动作短语，并开启整行点击。
+- (void)applyNote:(NSString *)note code:(NSInteger)code {
+    _noteActionable = IMNoteCodeIsActionable(code) && note.length > 0;
+    _sysNote.userInteractionEnabled = _noteActionable;
+    if (!_noteActionable) {
+        _sysNote.attributedText = nil;
+        _sysNote.text = note;
+        return;
+    }
+    NSMutableParagraphStyle *ps = [NSMutableParagraphStyle new];
+    ps.alignment = NSTextAlignmentCenter;
+    ps.paragraphSpacingBefore = 2;
+    NSMutableAttributedString *s = [[NSMutableAttributedString alloc] initWithString:note attributes:@{
+        NSFontAttributeName: [UIFont systemFontOfSize:12],
+        NSForegroundColorAttributeName: IMTheme.textSecondary,
+        NSParagraphStyleAttributeName: ps,
+    }];
+    [s appendAttributedString:[[NSAttributedString alloc] initWithString:@"\n发送好友申请" attributes:@{
+        NSFontAttributeName: [UIFont systemFontOfSize:12 weight:UIFontWeightMedium],
+        NSForegroundColorAttributeName: IMTheme.accent,
+        NSParagraphStyleAttributeName: ps,
+    }]];
+    _sysNote.attributedText = s;
+}
+
+- (void)handleNoteActionTap {
+    if (_noteActionable && self.onNoteActionTap) { self.onNoteActionTap(); }
 }
 
 - (void)applyGroupAvatarURL:(NSString *)url seed:(NSString *)seed name:(NSString *)name

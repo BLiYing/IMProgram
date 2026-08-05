@@ -20,6 +20,9 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) void (^onFileControlTap)(void);
 /// 点群聊对方头像 → 进该成员资料页（VC 在群聊对方气泡上挂载；单聊/自己不挂）。
 @property (nonatomic, copy, nullable) void (^onAvatarTap)(void);
+/// 点拒收系统行的恢复入口（当前仅 200103 非好友 → 「发送好友申请」）。
+/// 仅当 message.noteCode 命中可操作码时该行才可点，否则系统行是纯文案。
+@property (nonatomic, copy, nullable) void (^onNoteActionTap)(void);
 - (void)configureWithMessage:(IMMessageModel *)message
                         mine:(BOOL)mine
                  peerReadSeq:(int64_t)peerReadSeq

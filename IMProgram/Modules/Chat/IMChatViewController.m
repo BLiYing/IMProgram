@@ -552,6 +552,20 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     [self.navigationController pushViewController:vc animated:YES];
 }
 
+/// 点拒收系统行的「发送好友申请」（非好友 200103 的恢复入口，微信式）。
+/// 服务端 Request 对「我侧陈旧 accepted」已放行（单向删除后被删方的唯一恢复路径）。
+- (void)sendFriendRequestFromRejectedNote {
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0 || self.peerID.length == 0) { return; }
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService friendActionWithToken:token action:@"request" peerID:self.peerID
+                                            completion:^(NSError *error) {
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        [self im_showToast:error ? (error.localizedDescription ?: @"好友申请发送失败") : @"已发送好友申请"];
+    }];
+}
+
 /// 群变更事件：本群则刷新资料；自己被移出 → 提示并退出本页。
 - (void)onGroupEvent:(NSNotification *)note {
     NSString *convID = note.userInfo[kIMConvIDKey];
@@ -1991,6 +2005,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
             // 覆盖：被拉黑 200102 / 非好友 200103 / 被禁言 300004 / 非群成员 300203 / 群全员禁言 300206（后端回「本群已开启全员禁言」）。
             m.note = (!success && (error.code == 200102 || error.code == 200103 || error.code == 300004 ||
                                    error.code == 300203 || error.code == 300206)) ? error.localizedDescription : nil;
+            m.noteCode = m.note ? error.code : 0; // 瞬态：决定系统行是否给恢复入口（200103 → 发好友申请）
             m.convSeq = convSeq;
             if (![self performDatabaseOperation:^(IMDatabase *database) {
                 [database saveMessage:m]; // upsert：更新状态/conv_seq/note（含被拒文案，重进会话不丢）
@@ -2350,6 +2365,9 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     } else {
         cell.onAvatarTap = nil;
     }
+    // 拒收系统行的恢复入口（非好友 200103 → 发好友申请）。cell 内部据 noteCode 判定是否可点。
+    __weak typeof(self) wsNote = self;
+    cell.onNoteActionTap = ^{ [wsNote sendFriendRequestFromRejectedNote]; };
     NSString *replyFromName = (self.isGroupChat && m.replyToConvSeq > 0 && m.replyToFrom.length > 0)
         ? [self replyFromNameForUID:m.replyToFrom] : nil;
     [cell configureWithMessage:m mine:mine peerReadSeq:self.peerReadSeq

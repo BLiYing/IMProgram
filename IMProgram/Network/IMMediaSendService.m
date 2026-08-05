@@ -494,6 +494,7 @@ NSString * const kIMMediaSendMessageKey = @"message";
         // 被拒收 → 服务端友好文案挂 note（被拉黑 200102 / 非好友 200103 / 禁言 300004 / 非群成员 300203 / 全员禁言 300206）。
         m.note = (!success && (error.code == 200102 || error.code == 200103 || error.code == 300004 ||
                                error.code == 300203 || error.code == 300206)) ? error.localizedDescription : nil;
+        m.noteCode = m.note ? error.code : 0; // 瞬态：决定系统行是否给恢复入口（200103 → 发好友申请）
         m.convSeq = convSeq;
         [self saveMessage:m context:ctx];
         [[NSNotificationCenter defaultCenter] postNotificationName:IMMediaSendAckNotification object:self userInfo:@{

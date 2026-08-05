@@ -32,6 +32,10 @@ typedef NS_ENUM(NSInteger, IMMessageStatus) {
 /// 发送失败时的系统提示（如被拉黑拒收"消息已发出，但被对方拒收了"）。**随消息落库**（IMDatabase note 列），
 /// 重进会话仍在；在该条气泡下方居中显示（微信式），不弹窗。
 @property (nonatomic, copy, nullable) NSString *note;
+/// note 对应的服务端错误码（如 200103 非好友），决定系统行是否附带可点击的恢复入口。
+/// ⚠️ **瞬态、不落库**：仅本次运行内有效，重启后 note 文案仍在但链接消失；用户点该条重试会
+/// 立即重新拿到拒收码并再次显示链接，故恢复路径不会永久丢失（有意的取舍，避免为此加 DB 列）。
+@property (nonatomic, assign) NSInteger noteCode;
 
 /// M4 消息操作派生状态（撤回/编辑/置顶），随消息落库、随 new_msg/sync 冗余下发。
 @property (nonatomic, assign) int64_t recalledAt;  ///< >0=已撤回（渲染居中系统行，隐藏原气泡）
