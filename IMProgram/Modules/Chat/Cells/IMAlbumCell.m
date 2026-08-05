@@ -459,7 +459,9 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
             if (m.status == IMMessageStatusFailed) { anyFailed = YES; }
             if (m.status != IMMessageStatusSent) { allSent = NO; }
         }
-        suffix = anyFailed ? @" !" : (allSent ? @" ✓" : @" …");
+        // 失败**不在时间胶囊里标 "!"**：整条消息的失败由宫格左侧红❗表达（被拒收还有下方系统行），
+        // 胶囊里再标一个感叹号是重复噪声。胶囊只负责时间 + 已发/发送中。
+        suffix = anyFailed ? @"" : (allSent ? @" ✓" : @" …");
     }
     _metaChip.hidden = NO;
     _metaChip.text = [NSString stringWithFormat:@" %@%@ ", time, suffix];
