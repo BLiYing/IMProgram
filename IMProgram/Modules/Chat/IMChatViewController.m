@@ -1988,8 +1988,8 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         if ([m.clientMsgID isEqualToString:clientMsgID]) {
             m.status = success ? IMMessageStatusSent : IMMessageStatusFailed;
             // 被拒收 → 把服务端友好文案挂到 note，气泡下方居中显示（微信式系统行）；其余失败（如 ack 超时）不挂 note，仍显"未发送 ✗"。
-            // 覆盖：被拉黑 200102 / 被禁言 300004 / 非群成员 300203 / 群全员禁言 300206（后端回「本群已开启全员禁言」）。
-            m.note = (!success && (error.code == 200102 || error.code == 300004 ||
+            // 覆盖：被拉黑 200102 / 非好友 200103 / 被禁言 300004 / 非群成员 300203 / 群全员禁言 300206（后端回「本群已开启全员禁言」）。
+            m.note = (!success && (error.code == 200102 || error.code == 200103 || error.code == 300004 ||
                                    error.code == 300203 || error.code == 300206)) ? error.localizedDescription : nil;
             m.convSeq = convSeq;
             if (![self performDatabaseOperation:^(IMDatabase *database) {

@@ -491,8 +491,8 @@ NSString * const kIMMediaSendMessageKey = @"message";
         __strong typeof(ws) self = ws;
         if (!self) { return; }
         m.status = success ? IMMessageStatusSent : IMMessageStatusFailed;
-        // 被拒收 → 服务端友好文案挂 note（被拉黑 200102 / 禁言 300004 / 非群成员 300203 / 全员禁言 300206）。
-        m.note = (!success && (error.code == 200102 || error.code == 300004 ||
+        // 被拒收 → 服务端友好文案挂 note（被拉黑 200102 / 非好友 200103 / 禁言 300004 / 非群成员 300203 / 全员禁言 300206）。
+        m.note = (!success && (error.code == 200102 || error.code == 200103 || error.code == 300004 ||
                                error.code == 300203 || error.code == 300206)) ? error.localizedDescription : nil;
         m.convSeq = convSeq;
         [self saveMessage:m context:ctx];

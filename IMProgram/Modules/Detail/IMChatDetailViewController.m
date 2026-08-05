@@ -274,6 +274,11 @@ static CGFloat const kTabSegH   = 40;   ///< 分段控件本体高度（点击�
 @property (nonatomic, copy, nullable) NSString *peerNickname;
 @property (nonatomic, copy, nullable) NSString *peerAvatarURL;
 @property (nonatomic, assign) BOOL peerBlocked;
+// 好友准入（微信式，任务一 P0）：非好友不显示「消息/呼叫/视频」，改显「加好友」。
+// 乐观默认 YES（多数单聊入口=已有好友），loadPeerBlockState 拉到关系后校正并重建操作排。
+@property (nonatomic, assign) BOOL peerIsFriend;
+// 群成员长按菜单用：我的 accepted 好友 uid 集合（决定成员菜单显「发送消息」还是「添加好友」）。
+@property (nonatomic, strong, nullable) NSSet<NSString *> *friendUIDs;
 // showsMessagePill 已提升为公开属性（见 .h）：单聊从群成员/通讯录等外部进入时显示「消息」入口。
 // 群
 @property (nonatomic, copy, nullable) NSString *groupName;
@@ -332,6 +337,7 @@ static CGFloat const kTabSegH   = 40;   ///< 分段控件本体高度（点击�
         }
         _databaseContext = [context.ownerUserID isEqualToString:userID] ? context : nil;
         _isGroup = NO;
+        _peerIsFriend = YES; // 乐观默认，loadPeerBlockState 校正
         // URL 只决定圆形头像内容，不再触发全幅大图头部。
         _hasPhoto = NO;
         self.hidesBottomBarWhenPushed = YES;
@@ -374,6 +380,7 @@ static CGFloat const kTabSegH   = 40;   ///< 分段控件本体高度（点击�
     [self loadConversationSettings];
     if (self.isGroup) {
         [self loadGroupInfo];
+        [self loadFriendUIDs]; // 群成员长按菜单据此显「发送消息」(好友) / 「添加好友」(非好友)
         [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onGroupEvent:)
                                                    name:IMSocketDidReceiveGroupEventNotification object:nil];
     } else {
@@ -472,12 +479,15 @@ static CGFloat const kTabSegH   = 40;   ///< 分段控件本体高度（点击�
     [self.tableView addGestureRecognizer:sr];
 }
 
-- (UIView *)buildPillsView {
-    UIView *host = [UIView new];
-    host.backgroundColor = UIColor.clearColor;
+/// 操作排按钮规格（header 悬浮 pills 与 actions cell 共用，保证一致）。
+/// 微信式好友准入（任务一 P0）：单聊非好友只显「加好友 + 更多」，不显「消息/呼叫/视频」——
+/// 非好友发消息会被服务端 200103 拒收，故不给发消息入口，主入口是加好友。
+- (NSArray<NSDictionary *> *)actionPillSpecs {
     NSMutableArray *specs = [NSMutableArray array];
     if (self.isGroup) {
         [specs addObject:@{@"t": @"搜索", @"s": @"magnifyingglass", @"a": @"search"}];
+    } else if (!self.peerIsFriend) {
+        [specs addObject:@{@"t": @"加好友", @"s": @"person.badge.plus", @"a": @"addfriend"}];
     } else {
         if (self.showsMessagePill) {
             [specs addObject:@{@"t": @"消息", @"s": @"bubble.right.fill", @"a": @"message"}];
@@ -486,6 +496,23 @@ static CGFloat const kTabSegH   = 40;   ///< 分段控件本体高度（点击�
         [specs addObject:@{@"t": @"视频", @"s": @"video.fill", @"a": @"video"}];
     }
     [specs addObject:@{@"t": @"更多", @"s": @"ellipsis", @"a": @"more"}];
+    return specs;
+}
+
+/// 好友态变化后原地重建 header 悬浮操作排（frame 由 viewDidLayoutSubviews 复位）。
+- (void)rebuildPillsView {
+    UIView *spacer = self.pillsView.superview;
+    if (!spacer) { return; }
+    [self.pillsView removeFromSuperview];
+    self.pillsView = [self buildPillsView];
+    [spacer addSubview:self.pillsView];
+    [self.view setNeedsLayout];
+}
+
+- (UIView *)buildPillsView {
+    UIView *host = [UIView new];
+    host.backgroundColor = UIColor.clearColor;
+    NSArray<NSDictionary *> *specs = [self actionPillSpecs];
 
     UIStackView *stack = [UIStackView new];
     stack.translatesAutoresizingMaskIntoConstraints = NO;
@@ -825,11 +852,41 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
     [IMHTTPService.sharedService friendsWithToken:token status:nil completion:^(NSArray<IMUserCard *> *friends, NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self || error) { return; }
+        BOOL wasFriend = self.peerIsFriend;
+        BOOL isFriend = NO;
         for (IMUserCard *c in friends) {
-            if ([c.userID isEqualToString:self.peerID]) { self.peerBlocked = c.blocked; break; }
+            if ([c.userID isEqualToString:self.peerID]) {
+                self.peerBlocked = c.blocked;
+                isFriend = (c.status == IMFriendStatusAccepted); // 拉黑的好友 status 仍 accepted，故仍算好友
+                break;
+            }
         }
-        [self.tableView reloadData]; // 刷新「更多」菜单的 拉黑/取消拉黑 文案
+        self.peerIsFriend = isFriend;
+        [self.tableView reloadData]; // 刷新「更多」菜单的 拉黑/取消拉黑 文案 + actions cell 操作排
+        if (wasFriend != isFriend) { [self rebuildPillsView]; } // 好友态变化 → 重建 header 悬浮操作排
     }];
+}
+
+/// 群模式：拉取我的 accepted 好友 uid 集合，供成员长按菜单区分「发送消息」/「添加好友」。
+- (void)loadFriendUIDs {
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0) { return; }
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService friendsWithToken:token status:nil completion:^(NSArray<IMUserCard *> *friends, NSError *error) {
+        __strong typeof(ws) self = ws;
+        if (!self || error) { return; }
+        NSMutableSet<NSString *> *uids = [NSMutableSet set];
+        for (IMUserCard *c in friends) {
+            if (c.status == IMFriendStatusAccepted && c.userID.length) { [uids addObject:c.userID]; }
+        }
+        self.friendUIDs = uids;
+        // 无需 reloadData：菜单在长按时惰性构建，届时读取最新 friendUIDs 即可。
+    }];
+}
+
+/// 我是否已是该 uid 的好友（friendUIDs 尚未加载完成时返回 NO，长按菜单默认给「添加好友」入口）。
+- (BOOL)isFriendUID:(NSString *)uid {
+    return uid.length > 0 && [self.friendUIDs containsObject:uid];
 }
 
 - (void)refreshHeaderTexts {
@@ -1120,18 +1177,8 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
     clearBackground.backgroundColor = UIColor.clearColor;
     cell.backgroundView = clearBackground;
     cell.backgroundConfiguration = [UIBackgroundConfiguration clearConfiguration];
-    // 操作排按入口定制（去「静音」——下面有免打扰开关，重复）：
-    NSMutableArray *specs = [NSMutableArray array];
-    if (self.isGroup) {
-        [specs addObject:@{@"t": @"搜索", @"s": @"magnifyingglass", @"a": @"search"}];
-    } else {
-        if (self.showsMessagePill) { // 从群成员/通讯录进 → 多显「消息」（发起单聊）
-            [specs addObject:@{@"t": @"消息", @"s": @"bubble.right.fill", @"a": @"message"}];
-        }
-        [specs addObject:@{@"t": @"呼叫", @"s": @"phone.fill", @"a": @"call"}];       // 语音通话
-        [specs addObject:@{@"t": @"视频", @"s": @"video.fill", @"a": @"video"}];      // 视频通话
-    }
-    [specs addObject:@{@"t": @"更多", @"s": @"ellipsis", @"a": @"more"}];
+    // 操作排按入口定制（去「静音」——下面有免打扰开关，重复）：与 header 悬浮 pills 共用规格。
+    NSArray<NSDictionary *> *specs = [self actionPillSpecs];
     UIStackView *stack = [[UIStackView alloc] initWithFrame:CGRectInset(cell.contentView.bounds, 0, 6)];
     stack.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     stack.axis = UILayoutConstraintAxisHorizontal; stack.distribution = UIStackViewDistributionFillEqually; stack.spacing = 9;
@@ -1315,8 +1362,14 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
     return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil
         actionProvider:^UIMenu *(NSArray<UIMenuElement *> *sug) {
         NSMutableArray<UIMenuElement *> *items = [NSMutableArray array];
-        [items addObject:[UIAction actionWithTitle:@"发送消息" image:[UIImage systemImageNamed:@"bubble.right"]
-                                        identifier:nil handler:^(UIAction *a) { [ws openChatWithMember:m]; }]];
+        // 好友准入（微信式，任务一 P0）：好友 → 「发送消息」；非好友 → 「添加好友」（非好友发消息会被 200103 拒收）。
+        if ([ws isFriendUID:m.userID]) {
+            [items addObject:[UIAction actionWithTitle:@"发送消息" image:[UIImage systemImageNamed:@"bubble.right"]
+                                            identifier:nil handler:^(UIAction *a) { [ws openChatWithMember:m]; }]];
+        } else {
+            [items addObject:[UIAction actionWithTitle:@"添加好友" image:[UIImage systemImageNamed:@"person.badge.plus"]
+                                            identifier:nil handler:^(UIAction *a) { [ws requestAddFriendUID:m.userID]; }]];
+        }
         if (ws.group.myRole == IMGroupRoleOwner && m.role == IMGroupRoleMember) {
             [items addObject:[UIAction actionWithTitle:@"设为管理员" image:[UIImage systemImageNamed:@"person.badge.shield.checkmark"]
                                             identifier:nil handler:^(UIAction *a) { [ws runGroupRole:ws.convID user:m.userID role:@"admin"]; }]];
@@ -1383,6 +1436,25 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
     else if ([a isEqualToString:@"call"]) { [self im_showToast:@"语音通话即将上线"]; }
     else if ([a isEqualToString:@"video"]) { [self im_showToast:@"视频通话即将上线"]; }
     else if ([a isEqualToString:@"message"]) { [self openChatWithPeerID:self.peerID nickname:self.peerNickname avatarURL:self.peerAvatarURL]; }
+    else if ([a isEqualToString:@"addfriend"]) { [self requestAddPeerFriend]; }
+}
+
+/// 单聊「加好友」：向对端发好友申请（微信式，任务一 P0）。
+- (void)requestAddPeerFriend { [self requestAddFriendUID:self.peerID]; }
+
+/// 向指定 uid 发好友申请（单聊 pill 与群成员菜单共用）。成功后提示「已发送好友申请」，
+/// 关系仍待对方同意（requested 非 accepted），故暂不切换操作排/菜单——对方同意经好友事件或重进刷新后才变为可发消息。
+- (void)requestAddFriendUID:(NSString *)uid {
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0 || uid.length == 0) { return; }
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService friendActionWithToken:token action:@"request" peerID:uid
+                                            completion:^(NSError *error) {
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        if (error) { [self im_showToast:error.localizedDescription ?: @"好友申请发送失败"]; return; }
+        [self im_showToast:@"已发送好友申请"];
+    }];
 }
 
 /// 与某人开始/回到单聊（操作排「消息」）。

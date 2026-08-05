@@ -4,11 +4,16 @@
 > 历史流水见 `current_task.archive.md` + `git log`。关键约定见 `CLAUDE.md` / `ARCHITECTURE.md` / `CODING_STYLE.md`。
 
 ## 当前焦点
-**参与四大任务（2026-08-05）**——协作 IMServer/im-web 讨论方案后实施代码：
-1. **任务一**：非好友聊天权限分析 + 群成员资料页交互设计
-2. **任务二**：多选消息支持合并转发的聊天记录设计
-3. **任务三**：媒体与文件下载设置设计（自动下载、按网络分阈值）
-4. **任务四**：文件与媒体消息下载 UI/UX（下载状态、进度、暂停）
+**参与四大任务（2026-08-05）**——协作 IMServer/im-web：
+1. **任务一** ✅ **P0 完成**：非好友聊天拦截（微信式）+ 群成员资料页交互
+   - `200103` 并入拒收落库集合（`IMChatViewController`/`IMMediaSendService`，气泡红❗+系统行）
+   - `IMChatDetailViewController`：资料页非好友显「加好友」隐藏「消息/呼叫/视频」（`actionPillSpecs`/`rebuildPillsView`）；
+     群成员长按菜单好友→「发送消息」、非好友→「添加好友」（`loadFriendUIDs`/`requestAddFriendUID:`）
+   - BUILD SUCCEEDED；⚠️ 待真机实测；后端已改需重启
+   - 未做 P1（全局开关切 Telegram 式）
+2. **任务二**：多选消息支持合并转发的聊天记录设计（待讨论）
+3. **任务三**：媒体与文件下载设置设计（待 Telegram 截图 + 讨论）
+4. **任务四**：文件与媒体消息下载 UI/UX（待 Telegram 截图 + 讨论）
 
 详见 `../IMServer/current_task.md` 完整需求。
 
