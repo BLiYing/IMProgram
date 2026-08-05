@@ -132,6 +132,7 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
 @property (nonatomic, assign) int64_t pendingReadSeq;  // 已滚入视口的最大 conv_seq（节流后上报）
 @property (nonatomic, assign) int64_t peerReadSeq;     // 对端已读位点（用于「已读」双勾）
 @property (nonatomic, strong) IMPresence *peerPresence; // 对端在线态（快照 + presence 帧增量更新）
+@property (nonatomic, strong) NSTimer *presenceTickTimer; // 在线态定时重算（租约到期无事件，须自己叫醒，见 startPresenceTick）
 @property (nonatomic, assign) IMSocketState connState; // 连接态（与在线点共同决定标题）
 @property (nonatomic, assign) BOOL didInitialPosition; // 已做进会话定位（只定位一次）
 @property (nonatomic, assign) BOOL didInitialSettle;   // 进场动画后已做过一次落定校正（防从子页返回时被强拉贴底）
@@ -672,7 +673,38 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     }]) { return; }
     [IMSocketManager.sharedManager trackConversation:self.convID syncedSeq:synced];
     [self refreshPeerPresence]; // 在线态初始值：presence 帧只报变化，不拉快照就只能靠碰巧撞上对方上线那一刻
+    [self startPresenceTick];   // 在线态随时间推进（租约到期 / 「N 分钟前」递增），无事件可依赖
     [self reattachRunningUploads]; // 上传任务活在 uploader 单例里，回到本页要重新接管它的进度与完成回调
+}
+
+/// 在线态定时重算（仅单聊、仅页面可见期间）。
+///
+/// 必要性：服务端**不推下线帧**，对端离线是靠本地租约到期体现的——而"租约到期"是纯粹的时间流逝，
+/// 不触发任何回调。若不自己叫醒，用户停在本页不动时副标题会永远停在「在线」（比有下线帧时更糟）。
+/// 取 30s 周期而非"在 onlineUntil 时刻排一次性 timer"，是因为降档后的「N 分钟前在线」同样需要随时间推进，
+/// 一次性 timer 只能修在线→离线那一跳，之后分钟数就冻住。
+- (void)startPresenceTick {
+    [self stopPresenceTick];
+    if (self.isGroupChat) { return; } // 群聊副标题是成员数，不随时间变
+    __weak typeof(self) weakSelf = self;
+    __block NSInteger ticks = 0;
+    self.presenceTickTimer = [NSTimer scheduledTimerWithTimeInterval:30.0 repeats:YES block:^(NSTimer *timer) {
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self) { [timer invalidate]; return; }
+        [self updateTitle];
+        // 每 4 个 tick（2 分钟）在对端不在线时重拉一次快照：单聊 topic 随首条消息才建立，
+        // 故「好友但从没聊过」的对端不在 broadcastOnline 的收件人集合里，他上线时我收不到 presence 帧。
+        // 租约模型只会让状态降级，没有任何东西能把它升回「在线」——不轮询就永远显示离线。
+        if (++ticks % 4 == 0 && !self.peerPresence.isOnline) {
+            [self refreshPeerPresence];
+        }
+    }];
+}
+
+/// 停止定时重算（离开页面时必须调用：NSTimer 强引用 block，不停会连着 VC 一起活到 timer 失效）。
+- (void)stopPresenceTick {
+    [self.presenceTickTimer invalidate];
+    self.presenceTickTimer = nil;
 }
 
 /// 拉取对端在线态快照（单聊才有）。失败静默：在线态是锦上添花，不该弹错打扰聊天。
@@ -720,6 +752,7 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
 
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
+    [self stopPresenceTick]; // 页面不可见就没必要重算；也避免 timer 拖住 VC 不释放
     if (self.isMovingFromParentViewController) {
         // 不断开长连接：返回会话列表后仍需常驻接收新消息以实时刷新未读（见 IMConversationListViewController）。
         // 仅交还 delegate，避免离开后本页继续处理消息。
@@ -2046,8 +2079,15 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 #pragma mark - IMSocketManagerDelegate（主线程回调）
 
 - (void)socketManager:(IMSocketManager *)manager didChangeState:(IMSocketState)state {
+    BOOL justConnected = (state == IMSocketStateConnected && self.connState != IMSocketStateConnected);
     self.connState = state;
     [self updateTitle];
+    if (justConnected) {
+        // 连上即补拉在线态快照，覆盖三种情况：①冷启动直接进本页时 currentToken 还是空的，
+        // viewWillAppear 里那次拉取被静默跳过且无人重试；②断线期间对端状态已变，本地快照过期；
+        // ③服务端重连竞态可能短暂把在线用户报成离线，重拉即纠正。
+        [self refreshPeerPresence];
+    }
     if (state == IMSocketStateConnected) {
         [self markVisibleRowsRead]; // 重连后把当前可见的补报一次已读（可见即读）
     }
@@ -3258,6 +3298,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 - (void)dealloc {
     [NSNotificationCenter.defaultCenter removeObserver:self];
     [NSObject cancelPreviousPerformRequestsWithTarget:self];
+    [_presenceTickTimer invalidate]; // 兜底：正常路径已在 viewWillDisappear 停掉
 }
 
 @end

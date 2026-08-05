@@ -66,6 +66,17 @@ static int64_t nowMs(void) { return (int64_t)(NSDate.date.timeIntervalSince1970 
     XCTAssertEqualObjects(p.subtitleText, @"刚刚在线");
 }
 
+/// 档位 online 但无租约（可由服务端竞态产出）：不能显示「在线」——没有租约可到期，
+/// 那个「在线」再也不会被时间推翻，会永久停在错误状态。
+- (void)testOnlineLevelWithoutLeaseIsNotShownAsOnline {
+    IMPresence *p = [IMPresence new];
+    p.level = IMPresenceLevelOnline;
+    p.onlineUntil = 0;
+    p.lastSeen = 0;
+    XCTAssertFalse(p.isOnline);
+    XCTAssertEqualObjects(p.subtitleText, @"最近在线");
+}
+
 - (void)testOnlineWinsOverLastSeen {
     IMPresence *p = [IMPresence new];
     p.onlineUntil = nowMs() + 60 * 1000;

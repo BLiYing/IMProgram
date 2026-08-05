@@ -57,7 +57,9 @@ static int64_t IMPresenceInt64(NSDictionary *dict, NSString *key) {
     if (self.lastSeen > 0) { return [self relativeLastSeenText]; }
     // 无精确时间（未知或将来被隐私设置抹掉）时回退到粗档文案。
     switch (self.level) {
-        case IMPresenceLevelOnline:    return @"在线"; // 租约已过期但档位仍为 online：快照偏旧，从宽显示
+        // 档位说 online 但租约已过期/缺失：**不能**显示「在线」——没有租约就没有到期时刻，
+        // 这个「在线」再也不会被时间推翻，会永久停在错误状态。从宽也只到「最近在线」。
+        case IMPresenceLevelOnline:    return @"最近在线";
         case IMPresenceLevelRecently:  return @"最近在线";
         case IMPresenceLevelLastWeek:  return @"一周内在线";
         case IMPresenceLevelLastMonth: return @"一个月内在线";
