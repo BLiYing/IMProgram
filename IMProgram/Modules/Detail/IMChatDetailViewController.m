@@ -1066,6 +1066,9 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
 /// 当前页面的 section 顺序。
 - (NSArray<NSNumber *> *)sectionLayout {
     NSMutableArray<NSNumber *> *s = [NSMutableArray array];
+    // 非好友（单聊）：只保留头像 + 操作排（加好友/更多），隐藏备注名·设置·页签三张卡——
+    // 尚未建立关系时这些设置无意义。仅隐藏，数据加载逻辑不动（加为好友后 reloadData 即恢复）。
+    if (!self.isGroup && !self.peerIsFriend) { return s; }
     if (!self.isGroup) { [s addObject:@(IMDetailSectionInfo)]; } // 单聊：备注名/用户名
     [s addObject:@(IMDetailSectionSettings)];
     if (self.tabs.count > 0) { [s addObject:@(IMDetailSectionTabs)]; }
