@@ -671,8 +671,10 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
         synced = [database syncedConvSeqForConv:self.convID];
     }]) { return; }
     [IMSocketManager.sharedManager trackConversation:self.convID syncedSeq:synced];
-    [self refreshPeerPresence]; // 在线态初始值：presence 帧只报变化，不拉快照就只能靠碰巧撞上对方上线那一刻
-    [self updatePeerWatch:YES]; // 订阅对端在线态：即使首聊尚无会话，对端上线也能即时推达（服务端 watch，见 PROTOCOL §5.5）
+    // 在线态初始值改由 watch 回的 presence 快照提供（省掉每次进页一次 GET /users/{id}）：
+    // watchUsers 注册即让服务端回一帧当前对端 presence，didChangePresenceForUser 渲染。首聊无会话也覆盖。
+    // 兜底仍在：未连接时由 didChangeState 连上后补拉 + 重发 watch；对端离线时由 tick 每 2 分钟轮询。
+    [self updatePeerWatch:YES];
     [self startPresenceTick];   // 在线态随时间推进（租约到期 / 「N 分钟前」递增），无事件可依赖
     [self reattachRunningUploads]; // 上传任务活在 uploader 单例里，回到本页要重新接管它的进度与完成回调
 }
