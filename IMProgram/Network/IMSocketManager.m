@@ -887,6 +887,8 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
 - (void)watchUsers:(NSArray<NSString *> *)userIDs {
     NSArray<NSString *> *set = [userIDs isKindOfClass:[NSArray class]] ? userIDs : @[];
     dispatch_async(_queue, ^{
+        // 诊断：在线态订阅链路的「发出」书挡，与服务端 watch_registered、下方 presence 收到对账。
+        IMLogSocket(@"watch → %lu 个: [%@]", (unsigned long)set.count, [set componentsJoinedByString:@","]);
         [self sendEnvelopeType:kIMTypeWatch data:@{ @"set": set } completion:nil];
     });
 }
@@ -943,6 +945,9 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     NSString *user = [data[@"user"] isKindOfClass:[NSString class]] ? data[@"user"] : nil;
     if (user.length == 0) { return; }
     IMPresence *presence = [IMPresence presenceFromFrameDictionary:data];
+    // 诊断：在线态链路的「收到」书挡（在此记全部 presence 帧，不受当前 delegate 页过滤影响）。
+    NSString *presenceStatus = [data[@"status"] isKindOfClass:[NSString class]] ? data[@"status"] : @"?";
+    IMLogSocket(@"presence 收到 %@ → %@", user, presenceStatus);
     __weak typeof(self) weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
         __strong typeof(weakSelf) self = weakSelf;
