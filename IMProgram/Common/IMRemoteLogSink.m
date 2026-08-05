@@ -2,6 +2,8 @@
 
 #import "IMRemoteLogSink.h"
 #import "IMHTTPService.h"
+#import "IMSessionStore.h"
+#import <UIKit/UIKit.h>
 
 /// 缓冲上限：超过则丢最旧的，防止服务器不可达时内存无限增长。
 static const NSUInteger kIMLogSinkMaxBuffered = 1000;
@@ -15,6 +17,7 @@ static const NSUInteger kIMLogSinkMaxBatch = 200;
 @property (nonatomic, strong) dispatch_source_t flushTimer;
 @property (nonatomic, strong) NSMutableArray<NSString *> *buffer; // 每元素为一行 NDJSON
 @property (nonatomic, strong) NSURLSession *session;        // 裸 session，不走 IMHTTPService（避免自我循环）
+@property (nonatomic, copy) NSString *deviceTag;            // 设备短 id（多台真机汇聚到一文件时区分来源）
 @end
 
 @implementation IMRemoteLogSink
@@ -27,6 +30,9 @@ static const NSUInteger kIMLogSinkMaxBatch = 200;
         cfg.timeoutIntervalForRequest = 5;
         cfg.HTTPShouldUsePipelining = YES;
         _session = [NSURLSession sessionWithConfiguration:cfg];
+        // 设备短 id：取 identifierForVendor 前 8 位（每设备稳定）。多台真机汇聚到一文件时靠它区分来源。
+        NSString *idfv = UIDevice.currentDevice.identifierForVendor.UUIDString;
+        _deviceTag = idfv.length >= 8 ? [idfv substringToIndex:8] : (idfv ?: @"?");
         [self startTimer];
     }
     return self;
@@ -55,9 +61,13 @@ static const NSUInteger kIMLogSinkMaxBatch = 200;
     NSString *rendered = formatter ? [formatter formatLogMessage:logMessage] : logMessage.message;
     if (rendered.length == 0) { return; }
 
+    // dev/uid：多台真机、多账号汇聚到同一 im-ios.log 时的来源标签，便于 grep 分离。
+    // uid 惰性读（登录后才有；未登录为 "-"）；dev 每设备稳定。这是 grep 过滤标签，不是安全边界。
     NSDictionary *obj = @{
         @"ts": @((int64_t)(logMessage.timestamp.timeIntervalSince1970 * 1000)),
         @"level": IMLogFlagName(logMessage.flag),
+        @"dev": self.deviceTag ?: @"?",
+        @"uid": IMSessionStore.userID ?: @"-",
         @"msg": rendered,
     };
     NSData *json = [NSJSONSerialization dataWithJSONObject:obj options:0 error:NULL];
