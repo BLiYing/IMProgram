@@ -138,6 +138,11 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
 /// 发送「正在输入」给会话对端（临时态，对端短暂显示后自动消失）。
 - (void)sendTypingForConv:(NSString *)convID;
 
+/// 上报「当前要显示在线态的用户全集」（全量替换语义，见 PROTOCOL §5.5）：服务端只把这些人的
+/// presence 变化推给本连接，并对新增者回一帧 presence 快照。空数组=取消全部关注（如退出聊天页）。
+/// 订阅是连接级易失态——**重连后须由调用方重发**（本页在 didChangeState 连上时重发）。
+- (void)watchUsers:(NSArray<NSString *> *)userIDs;
+
 /// 撤回自己在 convID 会话里 conv_seq=targetConvSeq 的消息（M4-1）。发出 msg_op；
 /// 成功由服务端广播回 msg_op 帧应用（IMSocketDidApplyMsgOp 通知），失败（超窗等）发 IMSocketDidRejectMsgOp。
 - (void)recallMessageInConv:(NSString *)convID targetConvSeq:(int64_t)targetConvSeq;

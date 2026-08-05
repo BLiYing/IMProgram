@@ -16,6 +16,7 @@ extern NSString * const kIMTypeNewMsg;
 extern NSString * const kIMTypeReceipt;
 extern NSString * const kIMTypeTyping;
 extern NSString * const kIMTypePresence;
+extern NSString * const kIMTypeWatch; ///< 上报「当前要显示在线态的用户全集」（在线态订阅，见 PROTOCOL §5.5）
 extern NSString * const kIMTypeSyncReq;
 extern NSString * const kIMTypeSyncResp;
 extern NSString * const kIMTypeFriend;

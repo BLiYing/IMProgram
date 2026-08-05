@@ -883,6 +883,14 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     });
 }
 
+/// 上报在线态关注全集（异步进 _queue）。userIDs 为 nil 视作空集（取消全部关注）。
+- (void)watchUsers:(NSArray<NSString *> *)userIDs {
+    NSArray<NSString *> *set = [userIDs isKindOfClass:[NSArray class]] ? userIDs : @[];
+    dispatch_async(_queue, ^{
+        [self sendEnvelopeType:kIMTypeWatch data:@{ @"set": set } completion:nil];
+    });
+}
+
 /// 处理对端已读回执（仅在 _queue 调用）：只关心 read，投递 delegate。
 - (void)handleReceipt:(NSDictionary *)data {
     if (![data[@"status"] isEqual:@"read"]) { return; } // delivered 单勾本端暂不显示

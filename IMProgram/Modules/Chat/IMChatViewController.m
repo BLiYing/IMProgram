@@ -672,6 +672,7 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     }]) { return; }
     [IMSocketManager.sharedManager trackConversation:self.convID syncedSeq:synced];
     [self refreshPeerPresence]; // 在线态初始值：presence 帧只报变化，不拉快照就只能靠碰巧撞上对方上线那一刻
+    [self updatePeerWatch:YES]; // 订阅对端在线态：即使首聊尚无会话，对端上线也能即时推达（服务端 watch，见 PROTOCOL §5.5）
     [self startPresenceTick];   // 在线态随时间推进（租约到期 / 「N 分钟前」递增），无事件可依赖
     [self reattachRunningUploads]; // 上传任务活在 uploader 单例里，回到本页要重新接管它的进度与完成回调
 }
@@ -704,6 +705,13 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
 - (void)stopPresenceTick {
     [self.presenceTickTimer invalidate];
     self.presenceTickTimer = nil;
+}
+
+/// 订阅/退订对端在线态（仅单聊）。watch=YES 关注对端（服务端只推它、并回一帧快照）；NO 清空关注。
+/// 全量替换语义，重复发送幂等；连上前发送会被 writeData 静默丢弃，故须在 didChangeState 连上时重发。
+- (void)updatePeerWatch:(BOOL)watch {
+    if (self.isGroupChat || self.peerID.length == 0) { return; }
+    [IMSocketManager.sharedManager watchUsers:(watch ? @[self.peerID] : @[])];
 }
 
 /// 拉取对端在线态快照（单聊才有）。失败静默：在线态是锦上添花，不该弹错打扰聊天。
@@ -753,6 +761,9 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     [super viewWillDisappear:animated];
     [self stopPresenceTick]; // 页面不可见就没必要重算；也避免 timer 拖住 VC 不释放
     if (self.isMovingFromParentViewController) {
+        // 真正离开聊天页（非推子页）：退订对端在线态，服务端不再向本连接推它的 presence。
+        // 推子页（资料页等）不退订——回来时 viewWillAppear 会幂等重发，中途保持关注更自然。
+        [self updatePeerWatch:NO];
         // 不断开长连接：返回会话列表后仍需常驻接收新消息以实时刷新未读（见 IMConversationListViewController）。
         // 仅交还 delegate，避免离开后本页继续处理消息。
         if (IMSocketManager.sharedManager.delegate == self) {
@@ -2071,6 +2082,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         // viewWillAppear 里那次拉取被静默跳过且无人重试；②断线期间对端状态已变，本地快照过期；
         // ③服务端重连竞态可能短暂把在线用户报成离线，重拉即纠正。
         [self refreshPeerPresence];
+        [self updatePeerWatch:YES]; // watch 是连接级易失态：重连后必须重发，否则对端上线不再推达
     }
     if (state == IMSocketStateConnected) {
         [self markVisibleRowsRead]; // 重连后把当前可见的补报一次已读（可见即读）

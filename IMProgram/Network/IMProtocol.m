@@ -11,6 +11,7 @@ NSString * const kIMTypeNewMsg   = @"new_msg";
 NSString * const kIMTypeReceipt  = @"receipt";
 NSString * const kIMTypeTyping   = @"typing";
 NSString * const kIMTypePresence = @"presence";
+NSString * const kIMTypeWatch    = @"watch";
 NSString * const kIMTypeSyncReq  = @"sync_req";
 NSString * const kIMTypeSyncResp = @"sync_resp";
 NSString * const kIMTypeFriend   = @"friend";
