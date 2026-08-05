@@ -59,6 +59,15 @@
 - 表：`message`、`session`、`user`
 - 所有 IO 调用包裹错误处理，失败有降级/重试
 
+### IMMediaSendService（常驻媒体发送队列，2026-08-03 重构）
+- **动因**：媒体发送（转码 → 落盘 → 上传 → poster → socket 发送 → ack 落库）此前整条链路的回调锚在
+  `IMChatViewController`（weak self）——转码期退出会话 = 字节未落盘、消息未落库、彻底消失；上传完成时无页面 = 永远发不出去。
+- **职责**：把整条链路托管到**常驻单例**，脱离聊天页生命周期。进度/预览字典也归服务（key=`clientMsgID`），
+  页面只 `enqueue` + 订阅通知渲染；重进会话 `reattachRunningUploads` 合并服务实例（未落库的转码窗口也可见）。
+- **配套**：`IMChunkedUploader`（≥8MB 分片、暂停/续传、旁挂 `upload_id` 支持杀进程续传）；`IMPendingMediaStore`
+  （字节落 Application Support，失败件可见/可重试）；重 IO（写盘/poster 编码）走服务的串行 IO 队列，不占主线程。
+- **未并入**：相机拍摄、粘贴图、<8MB Files 路径仍为 VC 锚定的一次性上传（小而快，风险低）。
+
 ## 消息收发数据流
 ```
 发送：UI → MessageService → 落库(sending) → SocketManager → 服务器
