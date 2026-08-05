@@ -31,6 +31,8 @@ IMFriendStatus IMFriendStatusFromString(NSString *s) {
     c.status = IMFriendStatusFromString([self stringForKey:@"status" in:dict]);
     c.blocked = [dict[@"blocked"] respondsToSelector:@selector(boolValue)] ? [dict[@"blocked"] boolValue] : NO;
     c.updatedAt = [dict[@"updated_at"] respondsToSelector:@selector(longLongValue)] ? [dict[@"updated_at"] longLongValue] : 0;
+    // 在线态快照：找人/好友列表不带这些键，解析出的是空态（level=Unknown，副标题为空串）。
+    c.presence = [IMPresence presenceFromProfileDictionary:dict];
 
     NSMutableArray<NSString *> *tags = [NSMutableArray array];
     if ([dict[@"tags"] isKindOfClass:[NSArray class]]) {

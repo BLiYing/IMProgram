@@ -5,6 +5,7 @@
 
 #import <Foundation/Foundation.h>
 #import "IMMediaAttributes.h"
+#import "IMPresence.h"
 
 @class IMSocketManager;
 @class IMMessageModel;
@@ -59,8 +60,9 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
 - (void)socketManager:(IMSocketManager *)manager didReadConv:(NSString *)convID by:(NSString *)from upToConvSeq:(int64_t)convSeq;
 /// 对端「正在输入」（主线程）。
 - (void)socketManager:(IMSocketManager *)manager didTypingInConv:(NSString *)convID by:(NSString *)from;
-/// 某用户在线状态变化（主线程）。
-- (void)socketManager:(IMSocketManager *)manager didChangePresenceForUser:(NSString *)user online:(BOOL)online;
+/// 某用户在线状态变化（主线程）。presence 只报**变化**，初始值须由 HTTP 快照提供
+/// （会话列表 peer_presence / 资料卡 presence）；服务端不推下线，靠 presence.onlineUntil 到期本地降级。
+- (void)socketManager:(IMSocketManager *)manager didChangePresenceForUser:(NSString *)user presence:(IMPresence *)presence;
 @end
 
 @interface IMSocketManager : NSObject

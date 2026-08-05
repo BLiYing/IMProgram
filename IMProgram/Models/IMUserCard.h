@@ -3,6 +3,7 @@
 //  对应后端 GET /api/v1/users/search 的 data.users 与 GET /api/v1/friends 的 data.friends。
 
 #import <Foundation/Foundation.h>
+#import "IMPresence.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -28,6 +29,7 @@ IMFriendStatus IMFriendStatusFromString(NSString *_Nullable s);
 @property (nonatomic, assign) IMFriendStatus status;       // 仅好友/申请列表有意义；找人结果为 None
 @property (nonatomic, assign) BOOL blocked;                // 我是否拉黑了对方（与 status 正交）；拉黑的好友 status 仍 accepted
 @property (nonatomic, assign) int64_t updatedAt;           // 好友关系更新时间（毫秒）；找人结果 0
+@property (nonatomic, strong) IMPresence *presence;        // 在线态快照；仅 GET /users/{id} 与 /users/me 有，找人/好友列表为空态
 
 /// 展示名：有昵称用昵称，否则回退 uid。
 @property (nonatomic, readonly) NSString *displayName;

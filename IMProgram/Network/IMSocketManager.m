@@ -930,17 +930,17 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     });
 }
 
-/// 处理在线状态广播（仅在 _queue 调用）。
+/// 处理在线状态广播（仅在 _queue 调用）。服务端只推上线；下线由 presence.onlineUntil 到期本地降级。
 - (void)handlePresence:(NSDictionary *)data {
     NSString *user = [data[@"user"] isKindOfClass:[NSString class]] ? data[@"user"] : nil;
-    BOOL online = [data[@"status"] isEqual:@"online"];
     if (user.length == 0) { return; }
+    IMPresence *presence = [IMPresence presenceFromFrameDictionary:data];
     __weak typeof(self) weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
         __strong typeof(weakSelf) self = weakSelf;
         id<IMSocketManagerDelegate> d = self.delegate;
-        if ([d respondsToSelector:@selector(socketManager:didChangePresenceForUser:online:)]) {
-            [d socketManager:self didChangePresenceForUser:user online:online];
+        if ([d respondsToSelector:@selector(socketManager:didChangePresenceForUser:presence:)]) {
+            [d socketManager:self didChangePresenceForUser:user presence:presence];
         }
     });
 }

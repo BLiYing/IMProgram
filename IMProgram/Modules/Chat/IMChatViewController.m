@@ -131,7 +131,7 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
 @property (nonatomic, assign) int64_t maxReadReported; // 已上报的最大已读 conv_seq（可见即读，单调不回退）
 @property (nonatomic, assign) int64_t pendingReadSeq;  // 已滚入视口的最大 conv_seq（节流后上报）
 @property (nonatomic, assign) int64_t peerReadSeq;     // 对端已读位点（用于「已读」双勾）
-@property (nonatomic, assign) BOOL peerOnline;         // 对端在线
+@property (nonatomic, strong) IMPresence *peerPresence; // 对端在线态（快照 + presence 帧增量更新）
 @property (nonatomic, assign) IMSocketState connState; // 连接态（与在线点共同决定标题）
 @property (nonatomic, assign) BOOL didInitialPosition; // 已做进会话定位（只定位一次）
 @property (nonatomic, assign) BOOL didInitialSettle;   // 进场动画后已做过一次落定校正（防从子页返回时被强拉贴底）
@@ -671,7 +671,22 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
         synced = [database syncedConvSeqForConv:self.convID];
     }]) { return; }
     [IMSocketManager.sharedManager trackConversation:self.convID syncedSeq:synced];
+    [self refreshPeerPresence]; // 在线态初始值：presence 帧只报变化，不拉快照就只能靠碰巧撞上对方上线那一刻
     [self reattachRunningUploads]; // 上传任务活在 uploader 单例里，回到本页要重新接管它的进度与完成回调
+}
+
+/// 拉取对端在线态快照（单聊才有）。失败静默：在线态是锦上添花，不该弹错打扰聊天。
+- (void)refreshPeerPresence {
+    if (self.isGroupChat || self.peerID.length == 0) { return; }
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0) { return; }
+    __weak typeof(self) weakSelf = self;
+    [IMHTTPService.sharedService userProfileWithToken:token userID:self.peerID completion:^(IMUserCard *card, NSError *error) {
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self || !card) { return; }
+        self.peerPresence = card.presence;
+        [self updateTitle];
+    }];
 }
 
 #pragma mark - 拉黑（微信式单向：拉黑者仍可发，故聊天页不拦输入；黑名单状态在通讯录管理）
@@ -2038,7 +2053,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     }
 }
 
-/// 标题：单聊=在线点 + 对方 uid + 连接态；群聊=群名（N人）+ 连接态。
+/// 标题：单聊=对方 uid（在线态走副标题）；群聊=群名。两者的连接态都以后缀表达。
 - (void)updateTitle {
     NSString *suffix = @"";
     switch (self.connState) {
@@ -2052,16 +2067,19 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         [self refreshUnifiedNavigationBar];
         return;
     }
-    NSString *dot = self.peerOnline ? @"🟢 " : @"";
-    if (self.connState == IMSocketStateConnected && self.peerOnline) { suffix = @"（在线）"; }
-    self.title = [NSString stringWithFormat:@"%@%@%@", dot, self.peerID, suffix];
+    self.title = [NSString stringWithFormat:@"%@%@", self.peerID, suffix];
     [self refreshUnifiedNavigationBar];
 }
 
 - (BOOL)im_isGroupChat { return self.isGroupChat; }
 
 - (NSString *)im_navigationSubtitle {
-    if (!self.isGroupChat) { return @""; }
+    if (!self.isGroupChat) {
+        // 单聊：在线态走副标题（原先的 🟢 已去掉）。断开连接时不显示——
+        // 此时本地这份快照无法再被更新，继续显示等于给出一个无法验证的状态。
+        if (self.connState != IMSocketStateConnected) { return @""; }
+        return self.peerPresence.subtitleText ?: @"";
+    }
     NSUInteger count = self.groupInfo.members.count;
     return count > 0 ? [NSString stringWithFormat:@"%lu 位成员", (unsigned long)count] : @"";
 }
@@ -2142,10 +2160,10 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     self.typingHeight.constant = 0;
 }
 
-/// 对端在线状态变化 → 更新标题在线点。
-- (void)socketManager:(IMSocketManager *)manager didChangePresenceForUser:(NSString *)user online:(BOOL)online {
+/// 对端上线 → 更新副标题。（服务端不推下线：租约到期后 subtitleText 自动降级。）
+- (void)socketManager:(IMSocketManager *)manager didChangePresenceForUser:(NSString *)user presence:(IMPresence *)presence {
     if (![user isEqualToString:self.peerID]) { return; }
-    self.peerOnline = online;
+    self.peerPresence = presence;
     [self updateTitle];
 }
 

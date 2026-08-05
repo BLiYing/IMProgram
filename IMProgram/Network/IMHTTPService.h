@@ -85,6 +85,12 @@ BOOL IMIsAuthErrorCode(NSInteger code);
 - (void)myProfileWithToken:(NSString *)token
                 completion:(void (^)(IMUserCard *_Nullable profile, NSError *_Nullable error))completion;
 
+/// 读取他人名片（GET /api/v1/users/{id}，无 phone，含在线态快照 presence）。
+/// presence 帧只报**变化**，进入聊天页/资料页时的在线态初始值须由此处取。completion 在主线程回调。
+- (void)userProfileWithToken:(NSString *)token
+                      userID:(NSString *)userID
+                  completion:(void (^)(IMUserCard *_Nullable profile, NSError *_Nullable error))completion;
+
 /// 整体更新本人资料（PUT /api/v1/users/me）。tags 传字符串数组。completion 在主线程回调。
 - (void)updateProfileWithToken:(NSString *)token
                       nickname:(NSString *)nickname

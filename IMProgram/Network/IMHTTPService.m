@@ -579,6 +579,28 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     }];
 }
 
+- (void)userProfileWithToken:(NSString *)token
+                      userID:(NSString *)userID
+                  completion:(void (^)(IMUserCard *, NSError *))completion {
+    NSString *encoded = [userID stringByAddingPercentEncodingWithAllowedCharacters:
+                         NSCharacterSet.URLPathAllowedCharacterSet] ?: @"";
+    NSString *path = [NSString stringWithFormat:@"/api/v1/users/%@", encoded];
+    NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
+    if (!req) {
+        [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }];
+        return;
+    }
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        if ([body[@"code"] integerValue] != 0) {
+            completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"拉取资料失败"]]);
+            return;
+        }
+        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
+        completion(data ? [IMUserCard cardsFromArray:@[data]].firstObject : nil, nil);
+    }];
+}
+
 - (void)updateProfileWithToken:(NSString *)token
                       nickname:(NSString *)nickname
                      avatarURL:(NSString *)avatarURL
