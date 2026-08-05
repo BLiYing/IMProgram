@@ -47,9 +47,12 @@ static const NSUInteger kIMLogSinkMaxBatch = 200;
 // DDLog 在其日志队列串行调用本方法。这里只做最小工作：格式化成一行 NDJSON，投到自己的队列缓冲。
 // **切勿在此调用任何 DDLog/IMLog**，否则自我递归。
 - (void)logMessage:(DDLogMessage *)logMessage {
-    NSString *rendered = self.logFormatter
-        ? [self.logFormatter formatLogMessage:logMessage]
-        : logMessage.message;
+    // CocoaLumberjack 硬性约束：logMessage: 内**必须直接访问 ivar `_logFormatter`**，
+    // 不能走 `self.logFormatter`——其 getter 带断言（须在 logger 队列访问），一调即崩
+    // （DDLog.m: "MUST access ivar directly, NOT via self.* syntax."）。本 sink 未设 formatter，
+    // _logFormatter 恒 nil，故直接用 logMessage.message；保留分支以便将来挂 formatter 仍正确。
+    id<DDLogFormatter> formatter = _logFormatter;
+    NSString *rendered = formatter ? [formatter formatLogMessage:logMessage] : logMessage.message;
     if (rendered.length == 0) { return; }
 
     NSDictionary *obj = @{
