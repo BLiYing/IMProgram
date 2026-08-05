@@ -9,7 +9,7 @@
    - `200103` 并入拒收落库集合（`IMChatViewController`/`IMMediaSendService`，气泡红❗+系统行）
    - `IMChatDetailViewController`：资料页非好友显「加好友」隐藏「消息/呼叫/视频」（`actionPillSpecs`/`rebuildPillsView`）；
      群成员长按菜单好友→「发送消息」、非好友→「添加好友」（`loadFriendUIDs`/`requestAddFriendUID:`）
-   - BUILD SUCCEEDED；⚠️ 待真机实测；后端已改需重启
+   - ✅ 用户实测通过（2026-08-05）
    - 未做 P1（全局开关切 Telegram 式）
 2. **任务二**：多选消息支持合并转发的聊天记录设计（待讨论）
 3. **任务三**：媒体与文件下载设置设计（待 Telegram 截图 + 讨论）
