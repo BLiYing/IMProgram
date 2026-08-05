@@ -4,6 +4,8 @@
 > 历史流水见 `current_task.archive.md` + `git log`。关键约定见 `CLAUDE.md` / `ARCHITECTURE.md` / `CODING_STYLE.md`。
 
 ## 当前焦点
+**Typing 提示位置对齐（2026-08-05，待用户手测）**：已移除输入栏上方的提示条；收到 typing 后聊天标题栏副标题显示「正在输入」，3 秒无新帧即恢复单聊在线态或群聊成员数。按本次要求未编译、未跑测试。
+
 **参与四大任务（2026-08-05）**——协作 IMServer/im-web：
 1. **任务一** ✅ **P0 完成**：非好友聊天拦截（微信式）+ 群成员资料页交互
    - `200103` 并入拒收落库集合（`IMChatViewController`/`IMMediaSendService`，气泡红❗+系统行）

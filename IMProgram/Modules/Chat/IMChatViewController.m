@@ -122,7 +122,7 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
 @property (nonatomic, copy) NSString *peerID;         // 单聊对端 uid；群聊为空串
 @property (nonatomic, assign) BOOL isGroupChat;        // YES=群聊（convID 为群 topic_id）
 @property (nonatomic, copy, nullable) NSString *groupName;     // 群名（进入时用会话项的，拉到群资料后刷新）
-@property (nonatomic, strong, nullable) IMGroupInfo *groupInfo; // 群资料缓存（标题成员数/气泡昵称回退/typing 昵称）
+@property (nonatomic, strong, nullable) IMGroupInfo *groupInfo; // 群资料缓存（标题成员数/气泡昵称回退）
 @property (nonatomic, strong) NSMutableArray<IMMessageModel *> *messages;
 @property (nonatomic, strong) NSMutableSet<NSNumber *> *seenConvSeqs; // 按 conv_seq 去重，避免推送+同步重复
 @property (nonatomic, copy) NSString *convID;
@@ -138,11 +138,10 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
 @property (nonatomic, assign) BOOL didInitialSettle;   // 进场动画后已做过一次落定校正（防从子页返回时被强拉贴底）
 @property (nonatomic, assign) BOOL needsRowHeightSettle; // 滚动中媒体尺寸落定 → 延迟到滚动停止再重排行高
 @property (nonatomic, assign) NSTimeInterval lastTypingSent; // typing 节流
+@property (nonatomic, assign) BOOL peerTyping; // 对端 typing 短暂覆盖聊天页副标题
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) UITextField *inputField;
 @property (nonatomic, strong) NSLayoutConstraint *inputBottom;
-@property (nonatomic, strong) UILabel *typingLabel;
-@property (nonatomic, strong) NSLayoutConstraint *typingHeight;
 @property (nonatomic, strong) UIButton *jumpButton;   // 右下角"↓N"回到最新
 @property (nonatomic, strong) UILabel *jumpBadge;     // 按钮上的未读计数（=视口下方未读数）
 @property (nonatomic, strong) UIView *inputBar;       // 输入栏容器
@@ -443,7 +442,7 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
 
 #pragma mark - 群聊（M3-5）
 
-/// 拉群资料：标题成员数 / 气泡昵称回退 / typing 昵称 / 群资料页数据源。best-effort。
+/// 拉群资料：标题成员数 / 气泡昵称回退 / 群资料页数据源。best-effort。
 - (void)reloadGroupInfo {
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0) { return; }
@@ -788,15 +787,6 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     [self.tableView registerClass:IMLinkCardCell.class forCellReuseIdentifier:@"link"];
     [self.view addSubview:self.tableView];
 
-    // 「对方正在输入」提示条（默认高度 0，typing 时展开）。
-    self.typingLabel = [UILabel new];
-    self.typingLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.typingLabel.font = [UIFont systemFontOfSize:12];
-    self.typingLabel.textColor = UIColor.secondaryLabelColor;
-    self.typingLabel.text = @"对方正在输入…";
-    self.typingLabel.clipsToBounds = YES;
-    [self.view addSubview:self.typingLabel];
-
     // 引用预览条（M4-2，默认高度 0；引用时展开：左竖条 + 预览文案 + 取消 ✕）。
     self.replyBar = [UIView new];
     self.replyBar.translatesAutoresizingMaskIntoConstraints = NO;
@@ -962,20 +952,14 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
 
     UILayoutGuide *guide = self.view.safeAreaLayoutGuide;
     self.inputBottom = [inputBar.bottomAnchor constraintEqualToAnchor:guide.bottomAnchor];
-    self.typingHeight = [self.typingLabel.heightAnchor constraintEqualToConstant:0];
     [NSLayoutConstraint activateConstraints:@[
         // 聊天背景和消息内容铺到状态栏下方；统一 Glass 导航栏叠加在内容之上。
         [self.tableView.topAnchor constraintEqualToAnchor:self.view.topAnchor],
         [self.tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [self.tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-        [self.tableView.bottomAnchor constraintEqualToAnchor:self.typingLabel.topAnchor],
+        [self.tableView.bottomAnchor constraintEqualToAnchor:self.replyBar.topAnchor],
 
-        [self.typingLabel.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:16],
-        [self.typingLabel.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-16],
-        [self.typingLabel.bottomAnchor constraintEqualToAnchor:self.replyBar.topAnchor],
-        self.typingHeight,
-
-        // 引用条：夹在 typing 与粘贴条之间；默认高度 0（cancelReply/showReply 切换）。
+        // 引用条：夹在消息区与粘贴条之间；默认高度 0（cancelReply/showReply 切换）。
         [self.replyBar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [self.replyBar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
         [self.replyBar.bottomAnchor constraintEqualToAnchor:self.pasteBar.topAnchor],
@@ -1015,7 +999,7 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
         [sendButton.heightAnchor constraintEqualToConstant:36],
 
         [self.jumpButton.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-16],
-        [self.jumpButton.bottomAnchor constraintEqualToAnchor:self.typingLabel.topAnchor constant:-12],
+        [self.jumpButton.bottomAnchor constraintEqualToAnchor:self.replyBar.topAnchor constant:-12],
         [self.jumpButton.widthAnchor constraintEqualToConstant:40],
         [self.jumpButton.heightAnchor constraintEqualToConstant:40],
         [self.jumpBadge.centerXAnchor constraintEqualToAnchor:self.jumpButton.trailingAnchor constant:-5],
@@ -2114,6 +2098,9 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 - (BOOL)im_isGroupChat { return self.isGroupChat; }
 
 - (NSString *)im_navigationSubtitle {
+    if (self.peerTyping) {
+        return @"正在输入";
+    }
     if (!self.isGroupChat) {
         // 单聊：在线态走副标题（原先的 🟢 已去掉）。断开连接时不显示——
         // 此时本地这份快照无法再被更新，继续显示等于给出一个无法验证的状态。
@@ -2195,20 +2182,18 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     }
 }
 
-/// 对端正在输入 → 展开提示条，3s 后自动收起（群聊显示"谁"在输入）。
+/// 对端正在输入 → 标题栏副标题暂显「正在输入」，3s 后恢复在线态/成员数。
 - (void)socketManager:(IMSocketManager *)manager didTypingInConv:(NSString *)convID by:(NSString *)from {
     if (![convID isEqualToString:self.convID] || [from isEqualToString:self.userID]) { return; }
-    if (self.isGroupChat) {
-        NSString *nick = [self.groupInfo nicknameOfMember:from];
-        self.typingLabel.text = [NSString stringWithFormat:@"%@ 正在输入…", nick.length > 0 ? nick : from];
-    }
-    self.typingHeight.constant = 20;
+    self.peerTyping = YES;
+    [self updateTitle];
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(hideTyping) object:nil];
     [self performSelector:@selector(hideTyping) withObject:nil afterDelay:3.0];
 }
 
 - (void)hideTyping {
-    self.typingHeight.constant = 0;
+    self.peerTyping = NO;
+    [self updateTitle];
 }
 
 /// 对端上线 → 更新副标题。（服务端不推下线：租约到期后 subtitleText 自动降级。）
