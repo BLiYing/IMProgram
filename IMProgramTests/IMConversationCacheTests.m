@@ -146,6 +146,77 @@
     [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
 }
 
+// 消息按**时间戳**排序：被拒收的老消息（conv_seq=0，永远拿不到 conv_seq）必须落在真实时间位置，
+// 不能被甩到收到的新消息（conv_seq>0）后面。回归 2026-08-05 复盘的时序 bug
+//（1001↔1003 单向删除：1003 的拒收消息永久钉底、1001 的新消息插到上面，用户误以为没收到）。
+// 与 im-web App.tsx 的 `timestamp || (convSeq||MAX)` 渲染排序逐条对齐。
+- (void)testRejectedMessagesSortByTimestampNotPinnedToBottom {
+    NSURL *url = [self temporaryDatabaseURL];
+    IMDatabase *database = [[IMDatabase alloc] initWithFileURL:url];
+    [database useOwnerUserID:@"1003"];
+    NSString *conv = @"u_1001_u_1003";
+
+    // 先发生：1003 发给 1001 两条，被本地拒收（conv_seq=0，failed，时间戳 100/200）。
+    IMMessageModel *rej1 = [IMMessageModel new];
+    rej1.convID = conv; rej1.clientMsgID = @"rej-1"; rej1.from = @"1003"; rej1.to = @"1001";
+    rej1.contentType = @"text"; rej1.content = @"被拒1"; rej1.convSeq = 0; rej1.timestamp = 100;
+    rej1.status = IMMessageStatusFailed; rej1.note = @"被对方拒收";
+    [database saveMessage:rej1];
+
+    IMMessageModel *rej2 = [IMMessageModel new];
+    rej2.convID = conv; rej2.clientMsgID = @"rej-2"; rej2.from = @"1003"; rej2.to = @"1001";
+    rej2.contentType = @"text"; rej2.content = @"被拒2"; rej2.convSeq = 0; rej2.timestamp = 200;
+    rej2.status = IMMessageStatusFailed; rej2.note = @"被对方拒收";
+    [database saveMessage:rej2];
+
+    // 后发生：1001 发给 1003 两条，正常收到（conv_seq 5/6，时间戳 300/400）。
+    IMMessageModel *rcv1 = [IMMessageModel new];
+    rcv1.convID = conv; rcv1.from = @"1001"; rcv1.to = @"1003";
+    rcv1.contentType = @"text"; rcv1.content = @"收到1"; rcv1.convSeq = 5; rcv1.timestamp = 300;
+    rcv1.status = IMMessageStatusReceived;
+    [database saveMessage:rcv1];
+
+    IMMessageModel *rcv2 = [IMMessageModel new];
+    rcv2.convID = conv; rcv2.from = @"1001"; rcv2.to = @"1003";
+    rcv2.contentType = @"text"; rcv2.content = @"收到2"; rcv2.convSeq = 6; rcv2.timestamp = 400;
+    rcv2.status = IMMessageStatusReceived;
+    [database saveMessage:rcv2];
+
+    NSArray<IMMessageModel *> *msgs = [database messagesForConv:conv];
+    NSArray<NSString *> *contents = [msgs valueForKey:@"content"];
+    // 期望严格按时间戳：被拒的老消息在前，收到的新消息在后（底部=最新）。
+    NSArray<NSString *> *want = @[@"被拒1", @"被拒2", @"收到1", @"收到2"];
+    XCTAssertEqualObjects(contents, want, @"应按时间戳排序，拒收老消息不得被钉到收到消息之后");
+
+    [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
+}
+
+// 同一毫秒时：待发/失败（conv_seq=0）视为最大值垫底，收到的（conv_seq>0）在前
+// —— 保住「刚发出的临时消息在底部」原意，等价 im-web 的 `convSeq || MAX_SAFE_INTEGER`。
+- (void)testSameTimestampPendingSortsAfterAcked {
+    NSURL *url = [self temporaryDatabaseURL];
+    IMDatabase *database = [[IMDatabase alloc] initWithFileURL:url];
+    [database useOwnerUserID:@"1003"];
+    NSString *conv = @"u_1001_u_1003";
+
+    IMMessageModel *pending = [IMMessageModel new]; // 刚发出、还没 ack
+    pending.convID = conv; pending.clientMsgID = @"p-1"; pending.from = @"1003"; pending.to = @"1001";
+    pending.contentType = @"text"; pending.content = @"待发"; pending.convSeq = 0; pending.timestamp = 500;
+    pending.status = IMMessageStatusSending;
+    [database saveMessage:pending];
+
+    IMMessageModel *acked = [IMMessageModel new]; // 同一毫秒的已确认消息
+    acked.convID = conv; acked.from = @"1001"; acked.to = @"1003";
+    acked.contentType = @"text"; acked.content = @"已确认"; acked.convSeq = 9; acked.timestamp = 500;
+    acked.status = IMMessageStatusReceived;
+    [database saveMessage:acked];
+
+    NSArray<NSString *> *contents = [[database messagesForConv:conv] valueForKey:@"content"];
+    XCTAssertEqualObjects(contents, (@[@"已确认", @"待发"]), @"同毫秒时 conv_seq=0 垫底");
+
+    [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
+}
+
 - (void)testAuthoritativeEmptySnapshotClearsOnlyCurrentOwner {
     NSURL *url = [self temporaryDatabaseURL];
     IMDatabase *database = [[IMDatabase alloc] initWithFileURL:url];

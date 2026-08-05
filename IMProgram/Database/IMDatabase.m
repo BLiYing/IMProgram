@@ -596,10 +596,19 @@
     NSString *owner = [self ownerUserID];
     NSMutableArray<IMMessageModel *> *out = [NSMutableArray array];
     [_queue inDatabase:^(FMDatabase *db) {
-        // 补拉的旧消息可能晚于实时新消息写入，必须按服务端 conv_seq，而不是 SQLite row_id 排序。
+        // 排序**按时间戳优先**（与 im-web App.tsx 的渲染排序 `timestamp || (convSeq||MAX)` 逐条对齐）。
+        // 曾用 `CASE WHEN conv_seq>0 THEN 0 ELSE 1`（conv_seq=0 一律垫底）——本意是让「刚发出、
+        // 还没 ack 的临时消息」显示在最底部，但**被拒收的消息永远 conv_seq=0**，于是从「临时垫底」
+        // 变成「永久钉底」：后续收到的消息（conv_seq>0）全插到它上面，用户滚到底只看到旧的失败消息、
+        // 误以为没收到（2026-08-05 复盘，1001↔1003 单向删除场景）。
+        // 改法：timestamp 主排（拒收老消息按真实时间落位）；同毫秒时 conv_seq=0 视为最大值垫底
+        // （保住「待发临时消息在底部」的原意，等价于 im-web 的 `convSeq || MAX_SAFE_INTEGER`）；
+        // row_id 兜同刻同序。补拉的旧消息时间戳本就旧，timestamp 主排同样正确排到上方，不破坏同步语义。
         FMResultSet *rs = [db executeQuery:
             @"SELECT * FROM im_message_local WHERE owner_uid=? AND conv_id=? "
-             "ORDER BY CASE WHEN conv_seq>0 THEN 0 ELSE 1 END,conv_seq ASC,timestamp ASC,row_id ASC",
+             "ORDER BY timestamp ASC,"
+             "CASE WHEN conv_seq>0 THEN conv_seq ELSE 9223372036854775807 END ASC,"
+             "row_id ASC",
             owner, convID];
         while ([rs next]) {
             IMMessageModel *m = [IMMessageModel new];
