@@ -484,16 +484,21 @@ static CGFloat const kTabSegH   = 40;   ///< 分段控件本体高度（点击�
 /// 非好友发消息会被服务端 200103 拒收，故不给发消息入口，主入口是加好友。
 - (NSArray<NSDictionary *> *)actionPillSpecs {
     NSMutableArray *specs = [NSMutableArray array];
-    if (self.isGroup) {
-        [specs addObject:@{@"t": @"搜索", @"s": @"magnifyingglass", @"a": @"search"}];
-    } else if (!self.peerIsFriend) {
-        [specs addObject:@{@"t": @"加好友", @"s": @"person.badge.plus", @"a": @"addfriend"}];
-    } else {
-        if (self.showsMessagePill) {
-            [specs addObject:@{@"t": @"消息", @"s": @"bubble.right.fill", @"a": @"message"}];
+    if (!self.isGroup) {
+        if (!self.peerIsFriend) {
+            [specs addObject:@{@"t": @"加好友", @"s": @"person.badge.plus", @"a": @"addfriend"}];
+        } else {
+            if (self.showsMessagePill) {
+                [specs addObject:@{@"t": @"消息", @"s": @"bubble.right.fill", @"a": @"message"}];
+            }
+            [specs addObject:@{@"t": @"呼叫", @"s": @"phone.fill", @"a": @"call"}];
+            [specs addObject:@{@"t": @"视频", @"s": @"video.fill", @"a": @"video"}];
         }
-        [specs addObject:@{@"t": @"呼叫", @"s": @"phone.fill", @"a": @"call"}];
-        [specs addObject:@{@"t": @"视频", @"s": @"video.fill", @"a": @"video"}];
+    }
+    // 搜索：群聊与**单聊好友**都显示（对齐 im-web；功能待开发，点击走占位 toast）。
+    // 非好友不显示——尚无聊天记录可搜，与隐藏备注名/设置/页签三张卡同一判据。
+    if (self.isGroup || self.peerIsFriend) {
+        [specs addObject:@{@"t": @"搜索", @"s": @"magnifyingglass", @"a": @"search"}];
     }
     [specs addObject:@{@"t": @"更多", @"s": @"ellipsis", @"a": @"more"}];
     return specs;
