@@ -721,6 +721,14 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
         IMLogSocket(@"file message conv=%@ seq=%lld from=%@ name=%@ bytes=%lld",
                     msg.convID, msg.convSeq, msg.from ?: @"", msg.fileName ?: @"", msg.fileSize);
     }
+    // 入站媒体体检（M4-7）：证实随消息内嵌的模糊缩略 thumb / 视频封面 poster 是否到端，
+    // 便于与「服务端是否下发」「门控渲染走了哪条占位分支（media_gated_render）」端到端对账。
+    if ([msg.contentType isEqualToString:@"image"] || [msg.contentType isEqualToString:@"video"]) {
+        IMLogMedia(@"incoming_media conv=%@ seq=%lld from=%@ type=%@ thumb_len=%lu has_poster=%d media=%ldx%ld bytes=%lld",
+                   msg.convID ?: @"", msg.convSeq, msg.from ?: @"", msg.contentType,
+                   (unsigned long)msg.thumb.length, msg.poster.length > 0,
+                   (long)msg.mediaW, (long)msg.mediaH, msg.fileSize);
+    }
     if (isNextContiguous && saved) {
         [self updateSyncedSeqForConv:msg.convID seq:msg.convSeq];
     } else if (!saved) {

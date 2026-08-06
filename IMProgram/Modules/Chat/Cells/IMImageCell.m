@@ -9,6 +9,7 @@
 #import "IMMediaUtil.h" // IMFormatFileSize
 #import "UILabel+IMAvatar.h"
 #import "IMTheme.h"
+#import "IMLog.h" // 门控占位渲染点位日志（media_gated_render / media_gated_thumb_dropped）
 
 /// 气泡最大盒子：宽取 240 与屏宽 62% 的较小者（窄屏也不顶满），高 320（长图不会撑满整屏）。
 static const CGFloat kIMMediaMaxWidth = 240;
@@ -286,19 +287,30 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
         // 尺寸原先未知（老消息/无预览）→ 用真实图重排一次，避免长图被塞进方框。
         if (!self->_sizeFromMedia) { [self resizeToImageSize:image.size]; }
     };
-    // 门控（M4-7）：收到的媒体按策略"未下载"——中心 ↓（下载中为环形 + ⏸）+ 尺寸角标，
-    // 图片显 thumb 模糊占位、视频仍显封面（封面只有几十 KB，比模糊图信息量大得多）。点击触发下载。
+    // 门控（M4-7）：收到的媒体按策略"未下载"——中心 ↓（下载中为环形 + ⏸）+ 尺寸角标，点击触发下载。
+    // 占位图源：**一律优先显示随消息内嵌的极小模糊缩略 thumb**（~1KB、免额外下载、天然"糊"符合未下载占位语义），
+    // 图片、视频一视同仁。此前视频走 `isVideo && poster` 优先取服务器封面，使内嵌 thumb 对**带封面的视频**
+    // 成了死代码 —— 视频必现不显示模糊占位（本次修复的根因）。现改为 thumb 优先，仅当无 thumb（老消息）才回退封面。
     if (self.gated) {
         [self applyGatedBadgesForMessage:message isVideo:isVideo];
-        if (isVideo && posterURL.length > 0) {
-            [[IMImageLoader shared] loadImageURL:posterURL completion:apply]; // 封面：正常出图 + 可据它重排尺寸
-        } else if (message.thumb.length > 0) {
+        BOOL hasThumb = message.thumb.length > 0;
+        BOOL hasPoster = posterURL.length > 0;
+        NSString *placeholderSource = hasThumb ? @"thumb" : (hasPoster ? @"poster" : @"none");
+        IMLogDebugWithTag(IMLogTagMedia, @"media_gated_render conv=%@ seq=%lld is_video=%d has_thumb=%d has_poster=%d source=%@",
+                          message.convID ?: @"", message.convSeq, isVideo, hasThumb, hasPoster, placeholderSource);
+        if (hasThumb) {
             void (^applyThumb)(UIImage *) = ^(UIImage *image) {
                 __strong typeof(ws) self = ws;
-                if (!self || !image || ![self->_url isEqualToString:want]) { return; }
+                if (!self || !image || ![self->_url isEqualToString:want]) {
+                    IMLogWarnWithTag(IMLogTagMedia, @"media_gated_thumb_dropped seq=%lld reason=%@",
+                                     message.convSeq, (image == nil ? @"decode_fail" : @"cell_reused"));
+                    return;
+                }
                 self->_thumb.image = image; // 仅显模糊占位（~20px 放大即糊），不据它重排尺寸
             };
             [[IMImageLoader shared] loadImageURL:message.thumb completion:applyThumb];
+        } else if (hasPoster) {
+            [[IMImageLoader shared] loadImageURL:posterURL completion:apply]; // 无内嵌 thumb（老消息）才回退封面
         }
         return;
     }
