@@ -3,6 +3,7 @@
 #import "IMChatDetailViewController.h"
 #import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
 #import "IMChatDetailTabs.h"
+#import "IMLiquidSegmentedControl.h" // 页签用的 Liquid Glass 分段控件
 #import "IMGroupManageViewController.h"
 
 #import "IMHTTPService.h"
@@ -613,9 +614,9 @@ static CGFloat const kTabSegH   = 40;   ///< 分段控件本体高度（点击�
 @property (nonatomic, strong) IMDropletHeaderMorph *headerMorph; ///< 共享 Zone① 头部形变驱动（与「我」页同一套）
 @property (nonatomic, strong) UIView *pillsView;            ///< 搜索/更多独立按钮，放在 tableHeader 中避开 grouped 卡片背景
 // 页签
-@property (nonatomic, strong) UISegmentedControl *segmented;
+@property (nonatomic, strong) IMLiquidSegmentedControl *segmented;
 @property (nonatomic, strong) UIView *stickyBar;               ///< 页签滚到顶时的悬浮吸顶条（透明，仅托分段控件）
-@property (nonatomic, strong) UISegmentedControl *stickySeg;   ///< 吸顶条内镜像分段控件
+@property (nonatomic, strong) IMLiquidSegmentedControl *stickySeg;   ///< 吸顶条内镜像分段控件
 @property (nonatomic, strong) NSArray<IMChatDetailTab *> *tabs;
 @property (nonatomic, assign) NSInteger selectedTab;
 @property (nonatomic, strong) NSArray<IMMediaItem *> *tabMedia;    ///< 当前媒体项（媒体页签）
@@ -880,7 +881,7 @@ static CGFloat const kTabSegH   = 40;   ///< 分段控件本体高度（点击�
 }
 
 /// 给分段控件挂"点击即贴顶"的 tap（与其自身选择手势并存），支持单 tab / 重复点当前 tab 也贴顶。
-- (void)addTabPinTapTo:(UISegmentedControl *)seg {
+- (void)addTabPinTapTo:(IMLiquidSegmentedControl *)seg {
     UITapGestureRecognizer *tp = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tabBarTapped)];
     tp.cancelsTouchesInView = NO; tp.delaysTouchesBegan = NO; tp.delegate = self;
     [seg addGestureRecognizer:tp];
@@ -967,12 +968,10 @@ static CGFloat const kTabSegH   = 40;   ///< 分段控件本体高度（点击�
     self.stickyBar.backgroundColor = UIColor.clearColor;
     self.stickyBar.hidden = YES;
     [self.view addSubview:self.stickyBar];
-    self.stickySeg = [[UISegmentedControl alloc] initWithItems:@[]];
-    self.stickySeg.apportionsSegmentWidthsByContent = YES; // 段宽按内容固定，贴顶前后一致
+    self.stickySeg = [[IMLiquidSegmentedControl alloc] initWithFrame:CGRectZero];
     [self.stickySeg addTarget:self action:@selector(stickySegChanged:) forControlEvents:UIControlEventValueChanged];
     [self addTabPinTapTo:self.stickySeg];
     [self.stickyBar addSubview:self.stickySeg];
-    [self styleSegmented:self.stickySeg];
 
     // 名字/副标题上移锁定后要充当导航栏 title，必须渲染在液态导航栏与吸顶条【之上】
     //（否则被磨砂背景盖住变虚）。居中文字标签 userInteractionEnabled 默认 NO，不挡两侧按钮点击。
@@ -1059,22 +1058,6 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
     CGFloat half = [self tabBarHeight] / 2;
     CGFloat t = targetContentOffset->y;
     if (t > pin && t < pin + half) { targetContentOffset->y = pin; }
-}
-
-/// 2(1)：页签选中色/背景色对调。原本选中段=浅色药丸、底轨=灰；对调为选中段=原底色、底轨=原选中色。
-/// 2(2)：字号加大到 15pt，配合 kTabSegH=40 的更高分段控件，点击面积更大、交互更友好。
-- (void)styleSegmented:(UISegmentedControl *)seg {
-    UIColor *origSelected = UIColor.systemBackgroundColor;      // 原「选中段」色
-    UIColor *origTrack    = [UIColor tertiarySystemFillColor];  // 原「底轨/背景」色
-    seg.selectedSegmentTintColor = origTrack;                  // 选中段 ← 原背景色
-    seg.backgroundColor = origSelected;                        // 底轨   ← 原选中色
-    UIFont *segFont = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
-    [seg setTitleTextAttributes:@{NSForegroundColorAttributeName: UIColor.labelColor,
-                                  NSFontAttributeName: segFont}
-                       forState:UIControlStateSelected];
-    [seg setTitleTextAttributes:@{NSForegroundColorAttributeName: UIColor.secondaryLabelColor,
-                                  NSFontAttributeName: segFont}
-                       forState:UIControlStateNormal];
 }
 
 /// 头部完全收拢（态H）所需上滑距离：此时 name/成员进标题栏、pills 恰好停到标题栏下方。
@@ -1261,27 +1244,23 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
     if (self.selectedTab >= (NSInteger)self.tabs.count) { self.selectedTab = 0; }
     // 分段控件
     if (!self.segmented) {
-        self.segmented = [[UISegmentedControl alloc] initWithItems:@[]];
-        self.segmented.apportionsSegmentWidthsByContent = YES; // 段宽按内容固定（单/多 tab 一致）
+        self.segmented = [[IMLiquidSegmentedControl alloc] initWithFrame:CGRectZero];
         [self.segmented addTarget:self action:@selector(segmentChanged:) forControlEvents:UIControlEventValueChanged];
         [self addTabPinTapTo:self.segmented]; // 单 tab / 重复点当前 tab 也能贴顶
-        [self styleSegmented:self.segmented]; // 2(1)：选中色/背景色对调
     }
-    [self.segmented removeAllSegments];
-    [self.stickySeg removeAllSegments];
-    [self.tabs enumerateObjectsUsingBlock:^(IMChatDetailTab *t, NSUInteger i, BOOL *stop) {
-        [self.segmented insertSegmentWithTitle:t.title atIndex:i animated:NO];
-        [self.stickySeg insertSegmentWithTitle:t.title atIndex:i animated:NO];
-    }];
+    NSMutableArray<NSString *> *titles = [NSMutableArray arrayWithCapacity:self.tabs.count];
+    for (IMChatDetailTab *t in self.tabs) { [titles addObject:t.title ?: @""]; }
+    self.segmented.titles = titles;
+    self.stickySeg.titles = titles;
     if (self.tabs.count > 0) {
-        self.segmented.selectedSegmentIndex = self.selectedTab;
-        self.stickySeg.selectedSegmentIndex = self.selectedTab;
+        self.segmented.selectedIndex = self.selectedTab;
+        self.stickySeg.selectedIndex = self.selectedTab;
     }
     [self recomputeTabContent];
 }
 
-- (void)segmentChanged:(UISegmentedControl *)seg { [self switchToTab:seg.selectedSegmentIndex scrollToPin:YES]; }
-- (void)stickySegChanged:(UISegmentedControl *)seg { [self switchToTab:seg.selectedSegmentIndex scrollToPin:YES]; }
+- (void)segmentChanged:(IMLiquidSegmentedControl *)seg { [self switchToTab:seg.selectedIndex scrollToPin:YES]; }
+- (void)stickySegChanged:(IMLiquidSegmentedControl *)seg { [self switchToTab:seg.selectedIndex scrollToPin:YES]; }
 
 /// 相邻页签横滑切换（左滑=下一签、右滑=上一签），带水平滑入动画（Fix-B/横滑）。
 - (void)swipeToNextTab:(UISwipeGestureRecognizer *)g {
@@ -1310,8 +1289,8 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
     if (index == self.selectedTab) { if (scrollToPin && ![self tabsArePinned]) { [self scrollTabsToPinAnimated:YES]; } return; }
     BOOL wasPinned = [self tabsArePinned];
     self.selectedTab = index;
-    self.segmented.selectedSegmentIndex = index;
-    self.stickySeg.selectedSegmentIndex = index;
+    [self.segmented setSelectedIndex:index animated:YES];
+    [self.stickySeg setSelectedIndex:index animated:YES];
     [self recomputeTabContent];
     if ([self indexOfSection:IMDetailSectionTabs] == NSNotFound) { return; }
     [UIView performWithoutAnimation:^{
@@ -1355,8 +1334,8 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
     self.stickyBar.hidden = !pinned;
     // 贴顶后隐藏表内真分段——吸顶条透明，真 header 上移时会从其后透出，与镜像分段并存（两个 tab 栏）。
     self.segmented.hidden = pinned;
-    if (pinned && self.stickySeg.selectedSegmentIndex != self.selectedTab) {
-        self.stickySeg.selectedSegmentIndex = self.selectedTab;
+    if (pinned && self.stickySeg.selectedIndex != self.selectedTab) {
+        self.stickySeg.selectedIndex = self.selectedTab;
     }
 }
 
@@ -1455,7 +1434,7 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
 }
 
 /// 分段控件按内容宽居中（贴顶条与表内一致，单/多 tab 段宽固定）。段高 kTabSegH、下限加宽 → 点击面积更大。
-- (void)layoutSegmented:(UISegmentedControl *)seg inWidth:(CGFloat)width {
+- (void)layoutSegmented:(IMLiquidSegmentedControl *)seg inWidth:(CGFloat)width {
     CGFloat w = [seg sizeThatFits:CGSizeMake(width - 32, kTabSegH)].width;
     w = IMClamp(w, 200, width - 32);        // 下限加宽到 200，单/多 tab 都有更大点击面积
     seg.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;

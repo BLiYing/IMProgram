@@ -34,10 +34,15 @@ public final class IMLiquidNavigationBar: UIView {
     // （标题、左右按钮、进度…），而这些 didSet 会连带触发 setNeedsLayout / updateLeftButton 等重排；
     // 不挡住等值写入的话，滚动或打字时每帧都在做无意义的重排。
 
+    // ⚠️ 这两处必须 setNeedsLayout()：标题的竖向槽位是按「有无副标题」二选一算的（见 layoutSubviews），
+    // 有副标题时主标题上移让位、无副标题时整体居中。曾漏掉重排 → 单聊的「在线」是 presence 单独晚到的，
+    // 期间没有任何别的属性变化触发布局，主标题仍停在「居中」槽位，副标题正好压进它下半部（重叠 7pt）；
+    // 群聊因副标题与群名/头像同批到达、被 actionImage 的 didSet 顺带重排，才看似正常。
     public var titleText: String = "" {
         didSet {
             guard oldValue != titleText else { return }
             titleLabel.text = titleText
+            setNeedsLayout()
         }
     }
 
@@ -45,6 +50,7 @@ public final class IMLiquidNavigationBar: UIView {
         didSet {
             guard oldValue != subtitleText else { return }
             subtitleLabel.text = subtitleText
+            setNeedsLayout()
         }
     }
 
@@ -359,9 +365,11 @@ public final class IMLiquidNavigationBar: UIView {
 
         titleGlass.frame = CGRect(x: centerX, y: buttonY, width: centerWidth, height: buttonSize)
         let hasSubtitle = !(subtitleLabel.text?.isEmpty ?? true)
+        // 两行场景：主标题框高收到 20（原 22 几乎占满行盒，中文字形填满 em 盒会与副标题贴死），
+        // 副标题下移到 buttonY+24 起 —— 主标题底(=buttonY+22) 与副标题顶(=buttonY+24) 留 2pt 间隙，消除重叠。
         let titleY = hasSubtitle ? buttonY + 2 : buttonY + 11
-        titleLabel.frame = CGRect(x: centerX + 12, y: titleY, width: centerWidth - 24, height: 22)
-        subtitleLabel.frame = CGRect(x: centerX + 12, y: buttonY + 23, width: centerWidth - 24, height: 17)
+        titleLabel.frame = CGRect(x: centerX + 12, y: titleY, width: centerWidth - 24, height: 20)
+        subtitleLabel.frame = CGRect(x: centerX + 12, y: buttonY + 24, width: centerWidth - 24, height: 16)
     }
 
     @objc private func backTapped() {
