@@ -7,6 +7,9 @@
 #import "IMMediaUtil.h"
 #import "IMMediaViewerViewController.h"
 
+// 记录预览/标题解析统一走 IMMediaUtil 的 IMSummarizeRecord/IMRecordItemPreview（含嵌套 chat_record→[聊天记录] 子标题），
+// 与气泡卡片 IMChatRecordCell 共用同一 token 映射，避免各持 static 分叉。
+
 #pragma mark - 单条记录 Cell
 
 @interface IMRecordItemCell : UITableViewCell
@@ -20,6 +23,9 @@
     UIImageView *_thumb;
     UIImageView *_playBadge;
     NSString *_thumbURL;
+    UIView  *_recCard;      // 嵌套合并转发：套娃 mini 卡片（标题 + 2 行预览 + 「聊天记录 ›」脚注）
+    UILabel *_recTitle;
+    UILabel *_recPreview;
 }
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
     self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
@@ -55,7 +61,53 @@
             [_playBadge.centerYAnchor constraintEqualToAnchor:_thumb.centerYAnchor],
         ]];
 
-        UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[_name, _text, _thumb]];
+        // 嵌套合并转发条目 → 套娃 mini 卡片（描边圆角、比外层窄；整行点击下钻，见 didSelectRow）。
+        _recCard = [UIView new];
+        _recCard.translatesAutoresizingMaskIntoConstraints = NO;
+        _recCard.backgroundColor = UIColor.secondarySystemBackgroundColor;
+        _recCard.layer.cornerRadius = 10;
+        _recCard.layer.borderWidth = 0.5;
+        _recCard.layer.borderColor = UIColor.separatorColor.CGColor;
+        _recTitle = [UILabel new];
+        _recTitle.translatesAutoresizingMaskIntoConstraints = NO;
+        _recTitle.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
+        _recTitle.textColor = UIColor.labelColor;
+        _recTitle.numberOfLines = 1;
+        [_recCard addSubview:_recTitle];
+        _recPreview = [UILabel new];
+        _recPreview.translatesAutoresizingMaskIntoConstraints = NO;
+        _recPreview.font = [UIFont systemFontOfSize:12];
+        _recPreview.textColor = UIColor.secondaryLabelColor;
+        _recPreview.numberOfLines = 2;
+        [_recCard addSubview:_recPreview];
+        UIView *recSep = [UIView new];
+        recSep.translatesAutoresizingMaskIntoConstraints = NO;
+        recSep.backgroundColor = UIColor.separatorColor;
+        [_recCard addSubview:recSep];
+        UILabel *recFoot = [UILabel new];
+        recFoot.translatesAutoresizingMaskIntoConstraints = NO;
+        recFoot.font = [UIFont systemFontOfSize:11];
+        recFoot.textColor = UIColor.secondaryLabelColor;
+        recFoot.text = @"聊天记录 ›";
+        [_recCard addSubview:recFoot];
+        [NSLayoutConstraint activateConstraints:@[
+            [_recCard.widthAnchor constraintEqualToConstant:240],
+            [_recTitle.topAnchor constraintEqualToAnchor:_recCard.topAnchor constant:10],
+            [_recTitle.leadingAnchor constraintEqualToAnchor:_recCard.leadingAnchor constant:12],
+            [_recTitle.trailingAnchor constraintEqualToAnchor:_recCard.trailingAnchor constant:-12],
+            [_recPreview.topAnchor constraintEqualToAnchor:_recTitle.bottomAnchor constant:6],
+            [_recPreview.leadingAnchor constraintEqualToAnchor:_recCard.leadingAnchor constant:12],
+            [_recPreview.trailingAnchor constraintEqualToAnchor:_recCard.trailingAnchor constant:-12],
+            [recSep.topAnchor constraintEqualToAnchor:_recPreview.bottomAnchor constant:8],
+            [recSep.leadingAnchor constraintEqualToAnchor:_recCard.leadingAnchor constant:12],
+            [recSep.trailingAnchor constraintEqualToAnchor:_recCard.trailingAnchor constant:-12],
+            [recSep.heightAnchor constraintEqualToConstant:0.5],
+            [recFoot.topAnchor constraintEqualToAnchor:recSep.bottomAnchor constant:6],
+            [recFoot.leadingAnchor constraintEqualToAnchor:_recCard.leadingAnchor constant:12],
+            [recFoot.bottomAnchor constraintEqualToAnchor:_recCard.bottomAnchor constant:-8],
+        ]];
+
+        UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[_name, _text, _thumb, _recCard]];
         stack.axis = UILayoutConstraintAxisVertical;
         stack.alignment = UIStackViewAlignmentLeading;
         stack.spacing = 6;
@@ -73,12 +125,23 @@
 - (void)configureWithName:(NSString *)name type:(NSString *)type content:(NSString *)content fullURL:(NSString *)fullURL
                  fileName:(NSString *)fileName fileSize:(int64_t)fileSize {
     _name.text = name;
+    BOOL isRecord = [type isEqualToString:@"chat_record"];
     BOOL isImage = [type isEqualToString:@"image"];
     BOOL isVideo = [type isEqualToString:@"video"];
     BOOL isMedia = isImage || isVideo;
-    _text.hidden = isMedia;
+    _recCard.hidden = !isRecord;
+    _text.hidden = isMedia || isRecord;
     _thumb.hidden = !isMedia;
     _playBadge.hidden = !isVideo;
+    if (isRecord) {
+        // 套娃 mini 卡片：content 即子记录 JSON（打包时嵌套保留），标题 + 前 2 行预览。
+        NSString *subTitle = nil; NSArray<NSString *> *subLines = nil;
+        IMSummarizeRecord(content, &subTitle, &subLines, 2);
+        _recTitle.text = subTitle;
+        _recPreview.text = [subLines componentsJoinedByString:@"\n"];
+        _thumb.image = nil; _thumbURL = nil;
+        return;
+    }
     if (!isMedia) {
         if ([type isEqualToString:@"file"]) {
             // 文件行=类型图标 + 原名 + 大小（与聊天文件气泡同语言），点击整行打开（详情页 didSelectRow）。
@@ -119,6 +182,13 @@
     };
     if (isVideo) { [[IMVideoThumbnailLoader shared] loadPosterForVideoURL:fullURL completion:apply]; }
     else { [[IMImageLoader shared] loadImageURL:fullURL completion:apply]; }
+}
+// CALayer 的 CGColor 不随明暗动态解析：外观切换时手动重刷 mini 卡片描边色（背景是动态 UIColor 会自更新）。
+- (void)traitCollectionDidChange:(UITraitCollection *)previous {
+    [super traitCollectionDidChange:previous];
+    if ([self.traitCollection hasDifferentColorAppearanceComparedToTraitCollection:previous]) {
+        _recCard.layer.borderColor = UIColor.separatorColor.CGColor;
+    }
 }
 @end
 
@@ -188,6 +258,14 @@
     NSDictionary *it = _items[ip.row];
     NSString *ct = [it[@"ct"] isKindOfClass:NSString.class] ? it[@"ct"] : @"text";
     NSString *c = [it[@"c"] isKindOfClass:NSString.class] ? it[@"c"] : @"";
+    if ([ct isEqualToString:@"chat_record"]) {
+        // 套娃下钻：再 push 一层详情页渲染子记录（任意深度，靠导航栈返回）。
+        // 空/非记录 JSON 不下钻（否则推出一张空白「聊天记录」死页），与顶层 openChatRecord 守卫一致。
+        if (c.length == 0 || !IMLooksLikeChatRecordJSON(c)) { return; }
+        IMChatRecordViewController *sub = [[IMChatRecordViewController alloc] initWithHost:_host recordJSON:c];
+        [self.navigationController pushViewController:sub animated:YES];
+        return;
+    }
     BOOL isVideo = [ct isEqualToString:@"video"];
     BOOL isImage = [ct isEqualToString:@"image"];
     if (!isVideo && !isImage) {

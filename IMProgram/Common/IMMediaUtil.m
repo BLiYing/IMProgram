@@ -34,6 +34,45 @@ NSString *IMChatRecordSnippet(NSString *recordJSON) {
     return title.length > 0 ? [NSString stringWithFormat:@"[聊天记录] %@", title] : @"[聊天记录]";
 }
 
+NSString *IMRecordItemPreview(NSDictionary *it) {
+    if (![it isKindOfClass:NSDictionary.class]) { return @""; }
+    NSString *ct = [it[@"ct"] isKindOfClass:NSString.class] ? it[@"ct"] : @"text";
+    NSString *c  = [it[@"c"]  isKindOfClass:NSString.class] ? it[@"c"]  : @"";
+    if ([ct isEqualToString:@"image"]) { return @"[图片]"; }
+    if ([ct isEqualToString:@"video"]) { return @"[视频]"; }
+    if ([ct isEqualToString:@"file"]) {
+        NSString *fn = [it[@"fn"] isKindOfClass:NSString.class] ? it[@"fn"] : IMMediaFileName(c);
+        return fn.length > 0 ? [@"[文件] " stringByAppendingString:fn] : @"[文件]";
+    }
+    if ([ct isEqualToString:@"chat_record"]) {
+        // 嵌套合并转发：只取子标题（maxLines=0，不再展开子条目），显「[聊天记录] 子标题」。
+        // 子 JSON 非法时标题回落「聊天记录」，此时不叠加以免「[聊天记录] 聊天记录」（与 Web 一致）。
+        NSString *t = nil; IMSummarizeRecord(c, &t, NULL, 0);
+        return (t.length > 0 && ![t isEqualToString:@"聊天记录"])
+            ? [@"[聊天记录] " stringByAppendingString:t] : @"[聊天记录]";
+    }
+    return c;
+}
+
+void IMSummarizeRecord(NSString *json, NSString **outTitle, NSArray<NSString *> **outLines, NSInteger maxLines) {
+    NSString *title = @"聊天记录";
+    NSMutableArray<NSString *> *lines = [NSMutableArray array];
+    NSData *d = [json dataUsingEncoding:NSUTF8StringEncoding];
+    NSDictionary *dict = d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:NULL] : nil;
+    if ([dict isKindOfClass:NSDictionary.class]) {
+        if ([dict[@"t"] isKindOfClass:NSString.class]) { title = dict[@"t"]; }
+        NSArray *items = [dict[@"items"] isKindOfClass:NSArray.class] ? dict[@"items"] : @[];
+        for (NSDictionary *it in items) {
+            if (maxLines <= 0 || (NSInteger)lines.count >= maxLines) { break; }
+            if (![it isKindOfClass:NSDictionary.class]) { continue; }
+            NSString *n = [it[@"n"] isKindOfClass:NSString.class] ? it[@"n"] : @"";
+            [lines addObject:[NSString stringWithFormat:@"%@: %@", n, IMRecordItemPreview(it)]];
+        }
+    }
+    if (outTitle) { *outTitle = title; }
+    if (outLines) { *outLines = lines; }
+}
+
 NSString *IMMediaFileName(NSString *content) {
     if (content.length == 0) { return @""; }
     NSString *last = content.lastPathComponent ?: content;

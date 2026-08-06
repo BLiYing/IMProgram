@@ -27,6 +27,18 @@ FOUNDATION_EXPORT NSString *IMChatRecordSnippet(NSString *_Nullable recordJSON);
 /// 字符串是否像 chat_record 的 JSON（或其截断残段）→ 渲染端把存量脏快照就地救成 `[聊天记录] 标题`。
 FOUNDATION_EXPORT BOOL IMLooksLikeChatRecordJSON(NSString *_Nullable s);
 
+/// 合并转发记录里「一条条目」的预览文案：image→[图片]、video→[视频]、file→[文件] 名、
+/// 嵌套 chat_record→`[聊天记录] 子标题`、其余→原文。三处（气泡卡片 / 详情 mini 卡片 / 详情行）
+/// 共用同一 token 映射，避免各持 static 再分叉（此前 cell 与详情页已两份）。item 非法时返回空串。
+FOUNDATION_EXPORT NSString *IMRecordItemPreview(NSDictionary *_Nullable item);
+
+/// 解析合并转发记录 JSON → 标题(*outTitle) + 前 maxLines 条「发送者: 预览」(*outLines)。
+/// maxLines<=0 时只取标题、outLines 置空；out 参数均可传 NULL。解析失败标题回落「聊天记录」。
+FOUNDATION_EXPORT void IMSummarizeRecord(NSString *_Nullable json,
+                                         NSString *_Nullable *_Nullable outTitle,
+                                         NSArray<NSString *> *_Nullable *_Nullable outLines,
+                                         NSInteger maxLines);
+
 /// 按文件扩展名返回跨端统一类型标识；未覆盖的扩展名回退 unknown。
 FOUNDATION_EXPORT NSString *IMFileTypeIdentifierForName(NSString *_Nullable name);
 
