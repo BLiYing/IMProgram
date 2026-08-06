@@ -311,7 +311,7 @@
     self.liquidNavigationBar = [[IMLiquidNavigationBar alloc] initWithTitle:nameText
                                                                      subtitle:metaText
                                                                   actionTitle:@"编辑"];
-    // 自持 bar：共享 imLiquidBar 对本页已隐藏，左（二维码）右（编辑）按钮必须由本 VC 直接配置并响应。
+    // 自持 bar：本页自绘沉浸式标题栏（导航容器不为 ownsBar 页注入栏），左（二维码）右（编辑）按钮由本 VC 直接配置并响应。
     self.liquidNavigationBar.delegate = self;
     self.liquidNavigationBar.leftImage = [UIImage systemImageNamed:@"qrcode"];
     self.liquidNavigationBar.translatesAutoresizingMaskIntoConstraints = NO;

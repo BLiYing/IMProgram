@@ -75,6 +75,19 @@ public final class IMLiquidNavigationBar: UIView {
         didSet { updateLeftButton() }
     }
 
+    /// 宿主额外撑大的顶部安全区（宿主 `additionalSafeAreaInsets.top`）。默认 0＝宿主未撑大。
+    ///
+    /// 存在的理由：本栏按 `safeAreaInsets.top + 6` 摆放按钮，而 `safeAreaInsets` 继承自宿主视图。
+    /// 自持栏页面（详情/「我」）的宿主安全区就是状态栏，直接用没问题；但导航容器注入到普通页面的栏，
+    /// 其宿主安全区已被容器用 `additionalSafeAreaInsets.top = 56` 撑大（好让列表内容从栏下方开始），
+    /// 栏继承到「状态栏 + 56」，按钮会整体下移 56pt 落到 bounds 之外——可见但 hitTest 点不到。
+    ///
+    /// 这里刻意存"宿主加了多少"而非"状态栏是多少"：前者是常量，后者随设备/旋转/是否已入窗而变。
+    /// 用减法从同一个 `safeAreaInsets` 里还原真实状态栏高度，任何时刻自洽——旋转、首次入窗都无需重新同步。
+    public var hostExtraTopInset: CGFloat = 0 {
+        didSet { setNeedsLayout() }
+    }
+
     public var leftTitle: String? {
         didSet { updateLeftButton() }
     }
@@ -278,7 +291,7 @@ public final class IMLiquidNavigationBar: UIView {
         fade.colors = [UIColor.white.cgColor, UIColor.white.cgColor, UIColor.clear.cgColor]
         fade.locations = [0, 0.72, 1]
         backgroundGlass.layer.mask = fade
-        let top = safeAreaInsets.top
+        let top = max(0, safeAreaInsets.top - hostExtraTopInset)
         let buttonY = top + 6
         let buttonSize: CGFloat = 44
         let side: CGFloat = 16
