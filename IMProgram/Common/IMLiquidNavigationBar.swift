@@ -30,16 +30,27 @@ private final class IMLiquidHighlightButton: UIButton {
 public final class IMLiquidNavigationBar: UIView {
     public weak var delegate: IMLiquidNavigationBarDelegate?
 
+    // 说明：以下属性的 didSet 一律先做等值判断再落地。导航容器每个布局周期都会把整套属性重写一遍
+    // （标题、左右按钮、进度…），而这些 didSet 会连带触发 setNeedsLayout / updateLeftButton 等重排；
+    // 不挡住等值写入的话，滚动或打字时每帧都在做无意义的重排。
+
     public var titleText: String = "" {
-        didSet { titleLabel.text = titleText }
+        didSet {
+            guard oldValue != titleText else { return }
+            titleLabel.text = titleText
+        }
     }
 
     public var subtitleText: String = "" {
-        didSet { subtitleLabel.text = subtitleText }
+        didSet {
+            guard oldValue != subtitleText else { return }
+            subtitleLabel.text = subtitleText
+        }
     }
 
     public var actionTitle: String? {
         didSet {
+            guard oldValue != actionTitle else { return }
             actionButton.setTitle(actionTitle, for: .normal)
             actionButton.accessibilityLabel = actionTitle
             actionButton.isHidden = (actionTitle?.isEmpty ?? true) && actionImage == nil
@@ -50,6 +61,7 @@ public final class IMLiquidNavigationBar: UIView {
 
     public var actionImage: UIImage? {
         didSet {
+            guard oldValue !== actionImage else { return }
             actionButton.setImage(actionImage, for: .normal)
             actionButton.isHidden = (actionTitle?.isEmpty ?? true) && actionImage == nil
             updateCompactContentVisibility()
@@ -58,21 +70,33 @@ public final class IMLiquidNavigationBar: UIView {
     }
 
     public var actionEnabled: Bool = true {
-        didSet { actionButton.isEnabled = actionEnabled }
+        didSet {
+            guard oldValue != actionEnabled else { return }
+            actionButton.isEnabled = actionEnabled
+        }
     }
 
     /// 单个图标操作（加号、通讯录添加等）使用独立圆形按钮；带文字的操作保持胶囊形。
     public var actionCircular: Bool = false {
-        didSet { setNeedsLayout() }
+        didSet {
+            guard oldValue != actionCircular else { return }
+            setNeedsLayout()
+        }
     }
 
     /// 仅聊天页保留中间标题的 Liquid Glass 背景；其他页面只显示文字。
     public var showsTitleGlass: Bool = false {
-        didSet { updateCompactContentVisibility() }
+        didSet {
+            guard oldValue != showsTitleGlass else { return }
+            updateCompactContentVisibility()
+        }
     }
 
     public var showsBackButton: Bool = true {
-        didSet { updateLeftButton() }
+        didSet {
+            guard oldValue != showsBackButton else { return }
+            updateLeftButton()
+        }
     }
 
     /// 宿主额外撑大的顶部安全区（宿主 `additionalSafeAreaInsets.top`）。默认 0＝宿主未撑大。
@@ -85,32 +109,50 @@ public final class IMLiquidNavigationBar: UIView {
     /// 这里刻意存"宿主加了多少"而非"状态栏是多少"：前者是常量，后者随设备/旋转/是否已入窗而变。
     /// 用减法从同一个 `safeAreaInsets` 里还原真实状态栏高度，任何时刻自洽——旋转、首次入窗都无需重新同步。
     public var hostExtraTopInset: CGFloat = 0 {
-        didSet { setNeedsLayout() }
+        didSet {
+            guard oldValue != hostExtraTopInset else { return }
+            setNeedsLayout()
+        }
     }
 
     public var leftTitle: String? {
-        didSet { updateLeftButton() }
+        didSet {
+            guard oldValue != leftTitle else { return }
+            updateLeftButton()
+        }
     }
 
     public var leftImage: UIImage? {
-        didSet { updateLeftButton() }
+        didSet {
+            guard oldValue !== leftImage else { return }
+            updateLeftButton()
+        }
     }
 
     /// 中间标题胶囊的显隐进度；返回按钮和右侧操作按钮始终保留。
     /// 详情页会把头像水滴吸附进度映射到此属性，避免初始状态出现第二套标题栏。
     public var compactContentProgress: CGFloat = 0 {
-        didSet { updateCompactContentVisibility() }
+        didSet {
+            guard oldValue != compactContentProgress else { return }
+            updateCompactContentVisibility()
+        }
     }
 
     /// 头像大图铺满头部时为 1，折叠到普通页面背景时为 0。
     /// 大图态强制使用白色前景和轻微暗色承托，避免浅色模式下按钮落在照片上失去对比度。
     public var immersiveAppearanceProgress: CGFloat = 0 {
-        didSet { refreshColors() }
+        didSet {
+            guard oldValue != immersiveAppearanceProgress else { return }
+            refreshColors()
+        }
     }
 
     /// Telegram PeerInfo 的导航背景在资料头部展开时完全透明，随内容折叠才渐进显现。
     public var backgroundEffectProgress: CGFloat = 1 {
-        didSet { updateBackgroundEffect() }
+        didSet {
+            guard oldValue != backgroundEffectProgress else { return }
+            updateBackgroundEffect()
+        }
     }
 
     private let backButton = IMLiquidHighlightButton(type: .system)

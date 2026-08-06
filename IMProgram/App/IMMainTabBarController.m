@@ -9,21 +9,19 @@
 #import "IMChatDetailViewController.h"
 #import "IMChatViewController.h"
 #import "IMDatabase.h"
+#import <objc/runtime.h>
 
-/// 液态标题栏在状态栏之下占用的高度。容器据此撑大被注入页面的顶部安全区（内容从栏下方开始），
-/// 并把同一个值传给栏（`hostExtraTopInset`）好让它还原真实状态栏高度。两处必须是同一个数，故抽为常量。
-static CGFloat const kIMLiquidBarExtraTopInset = 56;
+CGFloat const kIMLiquidBarHeight = 56;
 
-/// 可选的自定义导航背景进度接口；声明后仍通过 respondsToSelector 兼容未实现页面。
-@interface UIViewController (IMNavigationBackgroundProgress)
-- (CGFloat)im_navigationBackgroundProgress;
-@end
+/// 关联对象键：容器注入到某页的标题栏。**只认自己注入的那条**——不扫子视图找
+/// `IMLiquidNavigationBar`，否则会把页面自持的栏（详情/「我」的写法）误当成自己的接管、
+/// 每帧覆写它的标题与左右按钮。
+static void * const kIMInjectedBarKey = (void *)&kIMInjectedBarKey;
 
 /// 主界面统一导航容器：所有非根页面自动隐藏 TabBar，并恢复系统边缘侧滑返回。
 /// 这样新增页面只需正常 push，不再依赖每个控制器手动设置 hidesBottomBarWhenPushed。
 @interface IMMainNavigationController : UINavigationController <UIGestureRecognizerDelegate, UINavigationControllerDelegate, IMLiquidNavigationBarDelegate>
-@property (nonatomic, weak) UIBarButtonItem *leftItem;
-@property (nonatomic, weak) UIBarButtonItem *rightItem;
+- (void)syncBarForController:(UIViewController *)vc;
 @end
 
 @implementation IMMainNavigationController
@@ -85,24 +83,34 @@ static CGFloat const kIMLiquidBarExtraTopInset = 56;
 
 /// 取（首次调用则创建）某页**自己 view 内**的标题栏。放进页面自己的 view 是关键：这样侧滑返回时栏随整页
 /// 一起移动、上一页露出即完整显示（对齐 Detail 页做法）；共用一条挂在导航容器上的固定栏做不到这点。
+///
+/// 用关联对象记住"我注入的那条"，而非扫子视图找 `IMLiquidNavigationBar`：后者分不清页面自持的栏，
+/// 一旦某个自持栏页面漏进白名单就会被静默接管（标题/按钮每帧被覆写、页面自己的按钮失灵）。
 - (IMLiquidNavigationBar *)barForController:(UIViewController *)vc {
     if (![vc isViewLoaded]) { return nil; }
-    for (UIView *sub in vc.view.subviews) {
-        if ([sub isKindOfClass:IMLiquidNavigationBar.class]) { return (IMLiquidNavigationBar *)sub; }
-    }
+    IMLiquidNavigationBar *existing = objc_getAssociatedObject(vc, kIMInjectedBarKey);
+    if (existing) { return existing; }
+
+    // 顺序要害：栏高由「本页安全区顶」反推，故必须**先**撑安全区再建约束，否则首帧栏塌成 0 高。
+    // 把它放在创建栏之前而非交给调用方保证，调用顺序就不再是隐式契约。
+    [self setExtraTopInset:kIMLiquidBarHeight forController:vc];
+
     IMLiquidNavigationBar *bar = [[IMLiquidNavigationBar alloc] initWithTitle:@"" subtitle:@"" actionTitle:nil];
     bar.delegate = self;
+    // 告诉栏「宿主安全区被撑大了多少」：栏按 safeAreaInsets.top 摆按钮，不减掉这 56 按钮会下移到
+    // bounds 之外——可见但 hitTest 点不到。存"撑大了多少"（常量）而非"状态栏多高"（随设备/旋转/
+    // 是否入窗而变）：栏用减法从同一份 safeAreaInsets 还原，旋转与首次入窗都无需重新同步。
+    bar.hostExtraTopInset = kIMLiquidBarHeight;
     bar.translatesAutoresizingMaskIntoConstraints = NO;
     [vc.view addSubview:bar];
-    // 底边贴本页 safeArea 顶 + 0（而非 Detail 自持栏的 +56）：本页的 additionalSafeAreaInsets.top 已被
-    // 设为 56（见 syncBarForController:），页面自身的 safeAreaLayoutGuide 顶部 = 状态栏 + 56，56 已计入；
-    // 再 +56 会叠加成「状态栏 + 112」，标题栏整体下坠一截（Detail 页 inset 为 0，故它要显式 +56）。
     [NSLayoutConstraint activateConstraints:@[
         [bar.leadingAnchor constraintEqualToAnchor:vc.view.leadingAnchor],
         [bar.trailingAnchor constraintEqualToAnchor:vc.view.trailingAnchor],
         [bar.topAnchor constraintEqualToAnchor:vc.view.topAnchor],
+        // 底边贴本页 safeArea 顶（其中已含上面撑进去的 56）；自持栏页面 inset 为 0，故它们要显式 +56。
         [bar.bottomAnchor constraintEqualToAnchor:vc.view.safeAreaLayoutGuide.topAnchor],
     ]];
+    objc_setAssociatedObject(vc, kIMInjectedBarKey, bar, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     return bar;
 }
 
@@ -115,37 +123,32 @@ static CGFloat const kIMLiquidBarExtraTopInset = 56;
 - (void)syncBarForController:(UIViewController *)vc {
     if (!vc || ![vc isViewLoaded]) { return; }
     if ([self controllerOwnsBar:vc]) { [self setExtraTopInset:0 forController:vc]; return; }
-    [self setExtraTopInset:kIMLiquidBarExtraTopInset forController:vc]; // 列表内容从标题栏下方开始
-    IMLiquidNavigationBar *bar = [self barForController:vc];
+    IMLiquidNavigationBar *bar = [self barForController:vc]; // 内部已先撑安全区
     if (!bar) { return; }
-    [vc.view bringSubviewToFront:bar]; // 页面若在其后又加了子视图，保持栏在最上层不被盖住
-    // 告诉栏「本页安全区被我撑大了多少」：栏按 safeAreaInsets.top 摆按钮，而上面 setExtraTopInset: 已把
-    // 本页安全区撑到「状态栏+56」，不减掉这 56 按钮会下移到 bounds 之外——可见但点不到。
-    // 传常量而非"当前状态栏高度"：后者随设备/旋转/是否已入窗而变，而本容器在旋转时不会重新同步（见
-    // viewDidLayoutSubviews 的转场早退）。栏用减法从同一份 safeAreaInsets 还原，任何时刻自洽。
-    bar.hostExtraTopInset = kIMLiquidBarExtraTopInset;
+    // 页面可能在建栏之后又往 self.view 加了内容（聊天页 viewDidLoad 里先装导航按钮触发建栏、
+    // 再 setupUI 加满屏 tableView + 壁纸），会把栏埋在底下看不见。仅当栏不在最上层时才提栏——
+    // 静止态是 no-op，不会每帧打乱层级触发重排。
+    if (vc.view.subviews.lastObject != bar) { [vc.view bringSubviewToFront:bar]; }
+    [self applyTitleForController:vc toBar:bar];
+    [self applyBarItemsForController:vc toBar:bar];
+}
 
+/// 标题/副标题/背景等"内容"部分。
+- (void)applyTitleForController:(UIViewController *)vc toBar:(IMLiquidNavigationBar *)bar {
     BOOL isChat = [vc isKindOfClass:IMChatViewController.class];
     bar.titleText = vc.title ?: @"";
     bar.showsTitleGlass = isChat;
     bar.subtitleText = isChat ? ([(IMChatViewController *)vc im_navigationSubtitle] ?: @"") : @"";
     bar.compactContentProgress = 1;
     bar.immersiveAppearanceProgress = 0;
-    CGFloat backgroundProgress = 1;
-    if ([vc respondsToSelector:@selector(im_navigationBackgroundProgress)]) {
-        NSMethodSignature *signature = [vc methodSignatureForSelector:@selector(im_navigationBackgroundProgress)];
-        NSInvocation *invocation = [NSInvocation invocationWithMethodSignature:signature];
-        invocation.selector = @selector(im_navigationBackgroundProgress);
-        invocation.target = vc;
-        [invocation invoke];
-        [invocation getReturnValue:&backgroundProgress];
-    }
-    bar.backgroundEffectProgress = backgroundProgress;
+    bar.backgroundEffectProgress = 1;
+}
 
+/// 左右按钮：一律现取本页 `navigationItem`，不缓存到容器上——多条栏可同时在场（侧滑时前后两页的栏
+/// 都可见可点），缓存一份就会出现"点 A 页的按钮却触发 B 页动作"。
+- (void)applyBarItemsForController:(UIViewController *)vc toBar:(IMLiquidNavigationBar *)bar {
     UIBarButtonItem *left = vc.navigationItem.leftBarButtonItem;
     UIBarButtonItem *right = vc.navigationItem.rightBarButtonItem;
-    self.leftItem = left;   // 仅顶层栏可点，故按钮回调统一路由到 topViewController（见 didTap* 方法）
-    self.rightItem = right;
     BOOL root = self.viewControllers.firstObject == vc;
     bar.showsBackButton = !root || left != nil;
     bar.leftTitle = nil;
@@ -168,6 +171,16 @@ static CGFloat const kIMLiquidBarExtraTopInset = 56;
     bar.actionEnabled = right ? right.enabled : YES;
 }
 
+/// 被点的那条栏属于哪一页。侧滑期间前后两页的栏同时在场，必须按栏反查宿主页，
+/// 不能想当然用 topViewController（转场中它已提前指向另一页）。
+- (UIViewController *)controllerOwningBar:(IMLiquidNavigationBar *)bar {
+    UIView *host = bar.superview;
+    for (UIViewController *vc in self.viewControllers) {
+        if (vc.isViewLoaded && vc.view == host) { return vc; }
+    }
+    return self.topViewController;
+}
+
 - (void)invokeBarItem:(UIBarButtonItem *)item onController:(UIViewController *)controller {
     if (!item) { return; }
     if ([item.customView isKindOfClass:UIButton.class]) {
@@ -182,13 +195,17 @@ static CGFloat const kIMLiquidBarExtraTopInset = 56;
 }
 
 - (void)liquidNavigationBarDidTapBack:(IMLiquidNavigationBar *)bar {
+    // 只有当前顶层页的返回键才该 pop：侧滑露出的下层页的栏也可见，误触不应再弹一层。
+    if ([self controllerOwningBar:bar] != self.topViewController) { return; }
     [self popViewControllerAnimated:YES];
 }
 - (void)liquidNavigationBarDidTapLeft:(IMLiquidNavigationBar *)bar {
-    [self invokeBarItem:self.leftItem onController:self.topViewController];
+    UIViewController *owner = [self controllerOwningBar:bar];
+    [self invokeBarItem:owner.navigationItem.leftBarButtonItem onController:owner];
 }
 - (void)liquidNavigationBarDidTapAction:(IMLiquidNavigationBar *)bar {
-    [self invokeBarItem:self.rightItem onController:self.topViewController];
+    UIViewController *owner = [self controllerOwningBar:bar];
+    [self invokeBarItem:owner.navigationItem.rightBarButtonItem onController:owner];
 }
 
 - (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer {
@@ -196,6 +213,17 @@ static CGFloat const kIMLiquidBarExtraTopInset = 56;
         return self.viewControllers.count > 1 && self.transitionCoordinator == nil;
     }
     return YES;
+}
+
+@end
+
+@implementation UIViewController (IMNavigationBar)
+
+- (void)im_refreshNavigationBar {
+    UINavigationController *nav = self.navigationController;
+    if ([nav isKindOfClass:IMMainNavigationController.class]) {
+        [(IMMainNavigationController *)nav syncBarForController:self];
+    }
 }
 
 @end

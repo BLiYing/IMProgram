@@ -3,6 +3,7 @@
 //  新增设置项 = 往 groups 数组里 append 一条 IMSettingsRow，渲染层不改。
 
 #import "IMSettingsViewController.h"
+#import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
 #import "IMProfileEditViewController.h"
 #import "IMAppearanceViewController.h"
 #import "IMBlockedListViewController.h"
@@ -320,7 +321,7 @@
         [self.liquidNavigationBar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [self.liquidNavigationBar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
         [self.liquidNavigationBar.topAnchor constraintEqualToAnchor:self.view.topAnchor],
-        [self.liquidNavigationBar.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:56],
+        [self.liquidNavigationBar.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:kIMLiquidBarHeight],
     ]];
     [self.view bringSubviewToFront:self.profileName];
     [self.view bringSubviewToFront:self.profileMeta];
@@ -400,7 +401,7 @@
         scrollView.contentOffset = CGPointMake(scrollView.contentOffset.x, minY);
     }
     [self applyProfileHeaderMorph];
-    [self.navigationController.view setNeedsLayout];
+    // 本页自持标题栏（容器对自持页早退、不注入），滚动期间无需再驱动容器布局。
 }
 
 /// Zone① 松手临界吸附（与详情页共用同一驱动）。raw = contentOffset.y + adjustedContentInset.top。
@@ -436,7 +437,7 @@
     // title 保持空（不用共享 bar 的 title）——profileName 标签本身承担标题角色。
     if (self.title.length) {
         self.title = @"";
-        [self.navigationController.view setNeedsLayout];
+        [self im_refreshNavigationBar];
     }
 }
 

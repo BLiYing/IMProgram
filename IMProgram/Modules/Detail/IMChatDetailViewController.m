@@ -1,6 +1,7 @@
 //  IMChatDetailViewController.m
 
 #import "IMChatDetailViewController.h"
+#import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
 #import "IMChatDetailTabs.h"
 #import "IMGroupManageViewController.h"
 
@@ -635,7 +636,7 @@ static CGFloat const kTabSegH   = 40;   ///< 分段控件本体高度（点击�
         [self.liquidNavigationBar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [self.liquidNavigationBar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
         [self.liquidNavigationBar.topAnchor constraintEqualToAnchor:self.view.topAnchor],
-        [self.liquidNavigationBar.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:56],
+        [self.liquidNavigationBar.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:kIMLiquidBarHeight],
     ]];
     // 吸顶条：页签滚到折叠顶栏下方时出现，只放镜像分段控件——**无整行背景色**（分段控件自带药丸底即可）。
     self.stickyBar = [[UIView alloc] initWithFrame:CGRectZero];
@@ -779,7 +780,7 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
     CGFloat topInView = CGRectGetMinY(frameInView);
     self.pillsView.alpha = 1;
     // 进入标题栏区(被磨砂栏遮挡)后停用点击，避免隔着导航栏误触搜索/更多。
-    self.pillsView.userInteractionEnabled = topInView > self.topInset + 56;
+    self.pillsView.userInteractionEnabled = topInView > self.topInset + kIMLiquidBarHeight;
 }
 
 /// 锚点触感：正圆成形（photo p≈1、未进吸附）与吸附完成（q≈1）各一次；反向复位后可再触发。

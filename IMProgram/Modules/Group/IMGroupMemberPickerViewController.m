@@ -1,6 +1,7 @@
 //  IMGroupMemberPickerViewController.m
 
 #import "IMGroupMemberPickerViewController.h"
+#import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
 #import "IMContactCells.h"
 #import "IMHTTPService.h"
 #import "IMUserCard.h"
@@ -113,9 +114,9 @@
         ? [NSString stringWithFormat:@"已选 %lu 人", (unsigned long)self.picked.count]
         : @"选择好友";
     self.navigationItem.rightBarButtonItem.enabled = self.picked.count > 0;
-    // 本页的标题栏由导航容器在布局时按本页 navigationItem 同步（syncBarForController:）；选择变化后必须
-    // 主动触发一次重新布局，否则「创建」按钮的 enabled 停留在初始 NO，点击被吞、无法建群。
-    [self.navigationController.view setNeedsLayout];
+    // 标题栏按本页 navigationItem 渲染，改完必须显式请求刷新，
+    // 否则「创建」按钮的 enabled 停留在初始 NO，点击被吞、无法建群。
+    [self im_refreshNavigationBar];
 }
 
 #pragma mark - UITableView

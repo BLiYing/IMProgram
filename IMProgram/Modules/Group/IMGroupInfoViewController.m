@@ -1,6 +1,7 @@
 //  IMGroupInfoViewController.m
 
 #import "IMGroupInfoViewController.h"
+#import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
 #import "IMGroupMemberPickerViewController.h"
 #import "IMHTTPService.h"
 #import "IMSocketManager.h"
@@ -195,6 +196,8 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
             ? [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"square.and.pencil"]
                                                style:UIBarButtonItemStylePlain target:self action:@selector(renameTapped)]
             : nil;
+        // 本回调远晚于页面转场完成，标题栏早已同步过一轮；不显式刷新的话「改名」按钮整次访问都不出现。
+        [self im_refreshNavigationBar];
         [self.tableView reloadData];
     }];
 }

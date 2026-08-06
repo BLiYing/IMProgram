@@ -1,6 +1,7 @@
 //  IMChatViewController.m
 
 #import "IMChatViewController.h"
+#import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
 #import "IMChatBackgroundView.h"
 #import "IMAlbumCell.h"
 #import "IMBubbleCell.h"
@@ -494,8 +495,7 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
 }
 
 - (void)refreshUnifiedNavigationBar {
-    [self.navigationController.view setNeedsLayout];
-    [self.navigationController.view layoutIfNeeded];
+    [self im_refreshNavigationBar];
 }
 
 - (void)installInfoAvatarButtonWithURL:(nullable NSString *)url seed:(NSString *)seed

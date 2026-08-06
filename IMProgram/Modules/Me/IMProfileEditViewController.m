@@ -1,6 +1,7 @@
 //  IMProfileEditViewController.m
 
 #import "IMProfileEditViewController.h"
+#import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
 #import "IMHTTPService.h"
 #import "IMUserCard.h"
 #import "IMTheme.h"
@@ -31,8 +32,10 @@
     [super viewDidLoad];
     self.title = @"编辑资料";
     self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
+    // 用显式标题而非 UIBarButtonSystemItemSave：本页 push 进液态标题栏容器，栏靠读 item 的 title/image
+    // 渲染按钮，系统项两样都没有会渲染不出（不像模态里的系统导航栏能自绘系统项）。
     self.navigationItem.rightBarButtonItem =
-        [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemSave target:self action:@selector(saveTapped)];
+        [[UIBarButtonItem alloc] initWithTitle:@"保存" style:UIBarButtonItemStyleDone target:self action:@selector(saveTapped)];
 
     self.nicknameField = [self fieldWithPlaceholder:@"昵称"];
     self.avatarField = [self fieldWithPlaceholder:@"头像 URL"];
@@ -120,6 +123,7 @@
     [self.view endEditing:YES];
     NSArray<NSString *> *tags = [self tagsFromString:self.tagsField.text];
     self.navigationItem.rightBarButtonItem.enabled = NO;
+    [self im_refreshNavigationBar]; // 标题栏按 navigationItem 渲染，改完 enabled 必须显式刷新
     __weak typeof(self) weakSelf = self;
     [IMHTTPService.sharedService updateProfileWithToken:self.token
                                                nickname:[self trimmed:self.nicknameField.text]
@@ -130,6 +134,7 @@
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) { return; }
         self.navigationItem.rightBarButtonItem.enabled = YES;
+        [self im_refreshNavigationBar]; // 否则栏上仍是置灰态，「保存」再也点不动
         if (error) {
             [self showMessage:[NSString stringWithFormat:@"保存失败：%@", error.localizedDescription]];
             return;

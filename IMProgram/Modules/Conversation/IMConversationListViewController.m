@@ -1,6 +1,7 @@
 //  IMConversationListViewController.m
 
 #import "IMConversationListViewController.h"
+#import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
 #import "IMChatViewController.h"
 #import "IMHTTPService.h"
 #import "IMSocketManager.h"
@@ -468,9 +469,8 @@ static CGFloat const kIMRowLeading = 16;
         default:                        self.title = @"会话"; break;
     }
     // 当前工程隐藏了 UINavigationBar，标题实际由 IMMainNavigationController 的 Liquid Bar 绘制；
-    // 只改 self.title 不会触发其同步，必须立即推动导航容器重新布局。
-    [self.navigationController.view setNeedsLayout];
-    [self.navigationController.view layoutIfNeeded];
+    // 只改 self.title 不会触发其同步，必须显式请求刷新。
+    [self im_refreshNavigationBar];
 }
 
 /// 收到新消息（任意会话）→ 节流刷新列表（合并连发的多条，避免每条都拉一次）。
