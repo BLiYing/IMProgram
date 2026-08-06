@@ -385,6 +385,7 @@
 
 @implementation IMDetailFileCell {
     UIImageView *_icon; UIImageView *_glyph; CAShapeLayer *_ringBG; CAShapeLayer *_ring;
+    CAShapeLayer *_disc;       // 未下载态：与圆环同心同径的 accent 实心圆底（与聊天页文件气泡同款）
     UILabel *_title; UILabel *_sub;
     NSString *_fileName;       // configure 时记住，进度就地更新复用（免重传 message）
     int64_t _fileSizeBytes;
@@ -404,10 +405,18 @@
         _glyph.hidden = YES;
         [self.contentView addSubview:_glyph];
 
-        _ringBG = [IMDetailFileCell ringLayerWithColor:[UIColor colorWithWhite:1 alpha:0.35] rounded:NO];
-        _ring = [IMDetailFileCell ringLayerWithColor:UIColor.whiteColor rounded:YES];
-        [self.contentView.layer addSublayer:_ringBG];
-        [self.contentView.layer addSublayer:_ring];
+        _ringBG = [IMDetailFileCell ringLayerWithColor:[IMTheme.textSecondary colorWithAlphaComponent:0.25] rounded:NO];
+        _ring = [IMDetailFileCell ringLayerWithColor:IMTheme.accent rounded:YES];
+        _disc = [CAShapeLayer layer];   // 实心圆底 r15，与圆环同心（18,18）；填充留到 render 时置 accent
+        _disc.path = [UIBezierPath bezierPathWithArcCenter:CGPointMake(18, 18) radius:15
+                                                startAngle:-M_PI_2 endAngle:M_PI * 1.5 clockwise:YES].CGPath;
+        _disc.fillColor = UIColor.clearColor.CGColor;
+        _disc.frame = CGRectMake(0, 0, 36, 36);
+        _disc.hidden = YES;
+        // 全部置于 _glyph 之下：disc 最底(实心圆) → 圆环 → 状态字形在最上，避免圆底盖住 ↓/⏸。
+        [self.contentView.layer insertSublayer:_disc below:_glyph.layer];
+        [self.contentView.layer insertSublayer:_ringBG below:_glyph.layer];
+        [self.contentView.layer insertSublayer:_ring below:_glyph.layer];
 
         _title = [UILabel new];
         _title.font = [UIFont systemFontOfSize:16];
@@ -451,9 +460,9 @@
 }
 - (void)layoutSubviews {
     [super layoutSubviews];
-    if (_ring.hidden && _ringBG.hidden) { return; }
+    if (_ring.hidden && _ringBG.hidden && _disc.hidden) { return; }
     [CATransaction begin]; [CATransaction setDisableActions:YES];
-    _ringBG.frame = _icon.frame; _ring.frame = _icon.frame;
+    _ringBG.frame = _ring.frame = _disc.frame = _icon.frame;
     [CATransaction commit];
 }
 - (void)configureWithMessage:(IMMessageModel *)m download:(IMDownloadProgress *)dp {
@@ -468,7 +477,10 @@
     NSString *size = IMFormatFileSize(_fileSizeBytes);
     BOOL gated = dp != nil && dp.phase != IMDownloadPhaseDone;
     BOOL ring = dp.phase == IMDownloadPhaseDownloading || dp.phase == IMDownloadPhasePaused;
-    _ringBG.hidden = !ring; _ring.hidden = !ring;
+    BOOL notStarted = dp.phase == IMDownloadPhaseNotStarted;
+    BOOL failed = dp.phase == IMDownloadPhaseFailed;
+    _ringBG.hidden = _ring.hidden = !ring;
+    _disc.hidden = !notStarted;
     if (!gated) { // 已下载：文件类型图标 + 「1.3 MB · 已下载」（无配件、无 glyph）。
         _icon.image = IMFileTypeIconForName(_fileName, 36);
         _icon.backgroundColor = UIColor.clearColor;
@@ -480,20 +492,31 @@
         [self setNeedsLayout];
         return;
     }
+    // 门控态与聊天页文件气泡同款：不再刷彩色圆角方块底。未下载=accent 实心圆底+白↓；
+    // 下载中/暂停=灰轨+accent 进度环+accent 线性字形；失败=danger 字形（无底无环）。
     _icon.image = nil;
-    BOOL failed = dp.phase == IMDownloadPhaseFailed;
-    _icon.backgroundColor = failed ? IMTheme.danger
-                                   : (dp.phase == IMDownloadPhaseNotStarted ? [UIColor systemGray3Color] : IMTheme.accent);
-    NSString *glyph = @"arrow.down";
-    if (dp.phase == IMDownloadPhaseDownloading) { glyph = dp.pausable ? @"pause.fill" : @"xmark"; }
-    else if (failed) { glyph = dp.expired ? @"xmark.octagon" : @"arrow.clockwise"; } // 已失效：不给重试
-    _glyph.image = [UIImage systemImageNamed:glyph
-                            withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:13 weight:UIImageSymbolWeightBold]];
-    _glyph.hidden = NO;
+    _icon.backgroundColor = UIColor.clearColor;
+    UIColor *tint = failed ? IMTheme.danger : IMTheme.accent;
+    if (notStarted) { _disc.fillColor = IMTheme.accent.CGColor; }
     if (ring) {
+        _ringBG.strokeColor = [IMTheme.textSecondary colorWithAlphaComponent:0.25].CGColor;
+        _ring.strokeColor = tint.CGColor;
         [CATransaction begin]; [CATransaction setDisableActions:YES];
         _ring.strokeEnd = MAX(0.02, dp.fraction);
         [CATransaction commit];
+    }
+    NSString *glyph = notStarted ? @"arrow.down"
+        : (dp.phase == IMDownloadPhaseDownloading) ? (dp.pausable ? @"pause.fill" : nil)
+        : failed ? (dp.expired ? @"xmark.octagon" : @"arrow.clockwise") // 已失效：不给重试
+        : @"arrow.down"; // 暂停
+    UIColor *glyphColor = notStarted ? UIColor.whiteColor : tint; // 白↓落在实心圆底；其余=accent/danger 线性字形
+    if (glyph.length > 0) {
+        _glyph.image = [[UIImage systemImageNamed:glyph
+                                withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:13 weight:UIImageSymbolWeightBold]]
+                        imageWithTintColor:glyphColor renderingMode:UIImageRenderingModeAlwaysOriginal];
+        _glyph.hidden = NO;
+    } else {
+        _glyph.image = nil; _glyph.hidden = YES; // 下载中不可暂停：仅进度环、无字形（与聊天页一致）
     }
     // 副行：未下载=「240 KB · 未下载」；下载中=「18 MB / 42 MB」；暂停=行首 ⏸ + 「已下/总」（与文件气泡一致）；失败=文案。
     UIColor *subColor = failed ? IMTheme.danger : IMTheme.textSecondary;
@@ -531,7 +554,7 @@
 
 - (void)prepareForReuse {
     [super prepareForReuse];
-    _ring.hidden = YES; _ringBG.hidden = YES; _ring.strokeEnd = 0;
+    _ring.hidden = YES; _ringBG.hidden = YES; _disc.hidden = YES; _ring.strokeEnd = 0;
     _glyph.hidden = YES; _icon.image = nil; _icon.backgroundColor = UIColor.clearColor;
     _sub.attributedText = nil;
 }
