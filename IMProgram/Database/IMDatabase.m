@@ -120,6 +120,7 @@
             @"media_w": @"INTEGER NOT NULL DEFAULT 0",   // M4+ 媒体像素宽（按原比例渲染气泡）
             @"media_h": @"INTEGER NOT NULL DEFAULT 0",   // M4+ 媒体像素高
             @"duration": @"INTEGER NOT NULL DEFAULT 0",  // M4+ 视频时长（毫秒，封面左上角角标）
+            @"thumb": @"TEXT",        // M4-7 极小模糊预览（~20px JPEG 的 data URI，未下载卡片的占位）
         };
         for (NSString *col in opCols) {
             if (![self column:col existsInTable:@"im_message_local" db:db]) {
@@ -358,18 +359,22 @@
                  "media_w=CASE WHEN ?>0 THEN ? ELSE media_w END,"
                  "media_h=CASE WHEN ?>0 THEN ? ELSE media_h END,"
                  "duration=CASE WHEN ?>0 THEN ? ELSE duration END,"
+                 // thumb 同 file_name：本地发送端生成的模糊预览优先保留，服务端回声若为空不覆盖
+                 // （否则重进会话拿不到 thumb，未下载卡片退回中性占位）。
+                 "thumb=CASE WHEN LENGTH(?)>0 THEN ? ELSE thumb END,"
                  "conv_seq=?,timestamp=?,status=?,note=?,from_nickname=?,recalled_at=?,recalled_by=?,edited_at=?,pinned_at=?,reply_to_conv_seq=?,reply_snapshot=?,reply_to_from=?,forward_from=?,group_id=?,poster=? WHERE row_id=?",
                 message.serverMsgID ?: @"", message.from ?: @"", message.to ?: @"",
                 message.contentType ?: @"text", message.content ?: @"",
                 message.fileName ?: @"", message.fileName ?: @"", @(message.fileSize), @(message.fileSize),
                 @(message.mediaW), @(message.mediaW), @(message.mediaH), @(message.mediaH),
                 @(message.duration), @(message.duration),
+                message.thumb ?: @"", message.thumb ?: @"",
                 @(message.convSeq), @(message.timestamp), @(message.status), message.note ?: @"",
                 message.fromNickname ?: @"", @(message.recalledAt), message.recalledBy ?: @"",
                 @(message.editedAt), @(message.pinnedAt), @(message.replyToConvSeq), message.replySnapshot ?: @"", message.replyToFrom ?: @"", message.forwardFrom ?: @"", message.groupID ?: @"", message.poster ?: @"", rowID];
         } else {
             ok = [db executeUpdate:
-                @"INSERT INTO im_message_local (owner_uid,client_msg_id,server_msg_id,conv_id,sender,recipient,content_type,content,file_name,file_size,conv_seq,timestamp,status,note,from_nickname,recalled_at,recalled_by,edited_at,pinned_at,reply_to_conv_seq,reply_snapshot,reply_to_from,forward_from,group_id,poster,media_w,media_h,duration) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                @"INSERT INTO im_message_local (owner_uid,client_msg_id,server_msg_id,conv_id,sender,recipient,content_type,content,file_name,file_size,conv_seq,timestamp,status,note,from_nickname,recalled_at,recalled_by,edited_at,pinned_at,reply_to_conv_seq,reply_snapshot,reply_to_from,forward_from,group_id,poster,media_w,media_h,duration,thumb) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 owner, message.clientMsgID ?: @"", message.serverMsgID ?: @"", message.convID,
                 message.from ?: @"", message.to ?: @"", message.contentType ?: @"text",
                 message.content ?: @"", message.fileName ?: @"", @(message.fileSize),
@@ -377,7 +382,7 @@
                 message.note ?: @"", message.fromNickname ?: @"", @(message.recalledAt),
                 message.recalledBy ?: @"", @(message.editedAt), @(message.pinnedAt),
                 @(message.replyToConvSeq), message.replySnapshot ?: @"", message.replyToFrom ?: @"", message.forwardFrom ?: @"", message.groupID ?: @"", message.poster ?: @"",
-                @(message.mediaW), @(message.mediaH), @(message.duration)];
+                @(message.mediaW), @(message.mediaH), @(message.duration), message.thumb ?: @""];
         }
         if (!ok) {
             IMLogDatabase(@"保存消息失败 owner=%@ conv=%@: %@", owner, message.convID, db.lastErrorMessage);
@@ -648,6 +653,8 @@
             m.mediaW   = [rs longForColumn:@"media_w"];
             m.mediaH   = [rs longForColumn:@"media_h"];
             m.duration = [rs longLongIntForColumn:@"duration"];
+            NSString *thumb = [rs stringForColumn:@"thumb"];
+            m.thumb = thumb.length > 0 ? thumb : nil; // 空串视作无模糊预览（回退中性占位）
             [out addObject:m];
         }
         [rs close];

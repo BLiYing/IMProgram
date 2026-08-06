@@ -2,6 +2,7 @@
 
 @class IMMessageModel;
 @class IMUploadProgress;
+@class IMDownloadProgress;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -15,8 +16,12 @@ NS_ASSUME_NONNULL_BEGIN
 /// 必须在 configure 之前设置：configure 一次性布好整条气泡。
 @property (nonatomic, strong, nullable) IMUploadProgress *uploadProgress;
 
-/// 文件气泡左侧图标位被点按（仅上传中/失败态可点：暂停↔继续 / 重试 / 排队期取消）。
-/// 完成态图标不可点，点击整条气泡=打开文件（走 VC 的表级手势）。
+/// 文件消息**下载**态（收到的文件，M4-7；nil=不显下载态）。与 uploadProgress 互斥：
+/// 自己发的用 uploadProgress，收到的用 downloadProgress。图标位据此变圆环状态机（未下载↓ / 下载中⏸ / 暂停↓ / 失败↻ / 就绪=文件图标）。
+@property (nonatomic, strong, nullable) IMDownloadProgress *downloadProgress;
+
+/// 文件气泡左侧图标位被点按（上传中/失败态：暂停↔继续 / 重试 / 取消；下载态：下载 / 暂停↔继续 / 重试）。
+/// 完成/就绪态图标不可点，点击整条气泡=打开文件（走 VC 的表级手势）。
 @property (nonatomic, copy, nullable) void (^onFileControlTap)(void);
 /// 点群聊对方头像 → 进该成员资料页（VC 在群聊对方气泡上挂载；单聊/自己不挂）。
 @property (nonatomic, copy, nullable) void (^onAvatarTap)(void);

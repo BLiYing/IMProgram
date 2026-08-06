@@ -46,6 +46,9 @@ extern NSString * const IMSocketDidReceivePresenceNotification;
 extern NSString * const kIMPresenceUserKey;
 extern NSString * const kIMPresenceKey;
 
+/// 收到 capabilities_update（账号级自动下载策略变更，M4-7）：IMDownloadSettingsStore 据此重拉 /download-settings 做多端同步。
+extern NSString * const IMSocketDidReceiveCapabilitiesUpdateNotification;
+
 /// 连接状态。
 typedef NS_ENUM(NSInteger, IMSocketState) {
     IMSocketStateDisconnected = 0, ///< 未连接 / 已断开

@@ -21,6 +21,9 @@
 #import "IMImageLoader.h"
 #import "IMVideoThumbnailLoader.h"
 #import "IMMediaUtil.h"
+#import "IMMediaDownloadCoordinator.h" // 媒体/文件下载编排（与聊天页共用）
+#import "IMDownloadProgress.h"
+#import <QuickLook/QuickLook.h>
 #import "IMPopoverCard.h"
 #import "IMGlass.h"
 #import "UILabel+IMAvatar.h"
@@ -168,10 +171,13 @@
 #pragma mark - 媒体宫格 Cell（内嵌 3 列 CollectionView，供「媒体」页签内联展示）
 
 @interface IMDetailMediaGridCell : UICollectionViewCell
-- (void)configureWithItem:(IMMediaItem *)item;
+/// @param download nil=就绪（正常显缩略图/▶）；非 nil=未下载/下载中/暂停/失败 → 显 ↓/环形进度 + 尺寸角标，
+///                 且**不拉原图**（只显 thumb 模糊占位）。草图 §04「未下载格显 ↓ + 尺寸角标」。
+- (void)configureWithItem:(IMMediaItem *)item download:(nullable IMDownloadProgress *)download thumb:(nullable NSString *)thumb;
 @end
 @implementation IMDetailMediaGridCell {
     UIImageView *_thumb; UIImageView *_play; NSString *_url;
+    UIView *_dim; CAShapeLayer *_ringBG; CAShapeLayer *_ring; UILabel *_sizeChip;
 }
 - (instancetype)initWithFrame:(CGRect)frame {
     if ((self = [super initWithFrame:frame])) {
@@ -181,6 +187,12 @@
         _thumb.frame = self.contentView.bounds;
         _thumb.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         [self.contentView addSubview:_thumb];
+        _dim = [[UIView alloc] initWithFrame:self.contentView.bounds];
+        _dim.backgroundColor = [UIColor colorWithWhite:0 alpha:0.32];
+        _dim.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        _dim.hidden = YES;
+        [self.contentView addSubview:_dim];
+
         _play = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"play.circle.fill"]];
         _play.tintColor = UIColor.whiteColor; _play.hidden = YES;
         _play.translatesAutoresizingMaskIntoConstraints = NO;
@@ -189,25 +201,110 @@
             [_play.centerXAnchor constraintEqualToAnchor:self.contentView.centerXAnchor],
             [_play.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
         ]];
+
+        _ringBG = [IMDetailMediaGridCell ringLayerWithColor:[UIColor colorWithWhite:1 alpha:0.32] rounded:NO];
+        _ring = [IMDetailMediaGridCell ringLayerWithColor:UIColor.whiteColor rounded:YES];
+        [self.contentView.layer addSublayer:_ringBG];
+        [self.contentView.layer addSublayer:_ring];
+
+        _sizeChip = [UILabel new];
+        _sizeChip.font = [UIFont monospacedDigitSystemFontOfSize:9 weight:UIFontWeightMedium];
+        _sizeChip.textColor = UIColor.whiteColor;
+        _sizeChip.backgroundColor = [UIColor colorWithWhite:0 alpha:0.5];
+        _sizeChip.textAlignment = NSTextAlignmentCenter;
+        _sizeChip.layer.cornerRadius = 7; _sizeChip.clipsToBounds = YES;
+        _sizeChip.hidden = YES;
+        [self.contentView addSubview:_sizeChip];
     }
     return self;
 }
-- (void)configureWithItem:(IMMediaItem *)item {
-    _url = item.url; _thumb.image = nil; _play.hidden = !item.isVideo;
+
++ (CAShapeLayer *)ringLayerWithColor:(UIColor *)color rounded:(BOOL)rounded {
+    UIBezierPath *p = [UIBezierPath bezierPathWithArcCenter:CGPointMake(17, 17) radius:14
+                                                 startAngle:-M_PI_2 endAngle:M_PI * 1.5 clockwise:YES];
+    CAShapeLayer *l = [CAShapeLayer layer];
+    l.path = p.CGPath; l.fillColor = UIColor.clearColor.CGColor; l.strokeColor = color.CGColor;
+    l.lineWidth = 2.5; l.frame = CGRectMake(0, 0, 34, 34); l.hidden = YES;
+    if (rounded) { l.lineCap = kCALineCapRound; l.strokeEnd = 0; }
+    return l;
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    CGSize s = [_sizeChip sizeThatFits:CGSizeMake(CGFLOAT_MAX, 14)];
+    _sizeChip.frame = CGRectMake(3, 3, s.width + 8, 14);
+    if (_ring.hidden && _ringBG.hidden) { return; }
+    CGRect f = CGRectMake((self.bounds.size.width - 34) / 2, (self.bounds.size.height - 34) / 2, 34, 34);
+    [CATransaction begin]; [CATransaction setDisableActions:YES];
+    _ringBG.frame = f; _ring.frame = f;
+    [CATransaction commit];
+}
+
+- (void)configureWithItem:(IMMediaItem *)item download:(IMDownloadProgress *)dp thumb:(NSString *)thumb {
+    _url = item.url; _thumb.image = nil;
+    BOOL gated = dp != nil && dp.phase != IMDownloadPhaseDone;
     __weak typeof(self) ws = self; NSString *want = item.url;
     void (^apply)(UIImage *) = ^(UIImage *img) {
         __strong typeof(ws) self = ws;
         if (self && [self->_url isEqualToString:want]) { self->_thumb.image = img; }
     };
+    [self applyGate:gated ? dp : nil isVideo:item.isVideo];
+    if (gated) {
+        // 门控格不拉原图/封面：只显 thumb 模糊占位（~200B data URI），没有就留灰底。
+        if (thumb.length > 0) { [[IMImageLoader shared] loadImageURL:thumb completion:apply]; }
+        return;
+    }
     if (item.isVideo) { [[IMVideoThumbnailLoader shared] loadPosterForVideoURL:item.url completion:apply]; }
     else { [[IMImageLoader shared] loadImageURL:item.url completion:apply]; }
 }
-- (void)prepareForReuse { [super prepareForReuse]; _thumb.image = nil; }
+
+/// 门控外观：中心 ↓/⏸/↻ + 压暗 + 环形进度 + 左上角尺寸角标；dp=nil 清回就绪（缩略图 / ▶）。
+- (void)applyGate:(IMDownloadProgress *)dp isVideo:(BOOL)isVideo {
+    if (!dp) {
+        _dim.hidden = YES; _ring.hidden = YES; _ringBG.hidden = YES; _sizeChip.hidden = YES;
+        _play.image = [UIImage systemImageNamed:@"play.circle.fill"];
+        _play.hidden = !isVideo;
+        self.isAccessibilityElement = NO; self.accessibilityLabel = nil;
+        return;
+    }
+    _dim.hidden = NO;
+    NSString *sym = IMDownloadCenterSymbolName(dp);   // nil 只可能是「已失效」→ 不给按钮，无从重试
+    _play.image = sym ? [UIImage systemImageNamed:sym] : nil;
+    _play.hidden = sym == nil;
+    self.isAccessibilityElement = YES;
+    self.accessibilityTraits = UIAccessibilityTraitButton;
+    self.accessibilityLabel = [dp accessibilityText];
+    BOOL ring = dp.phase == IMDownloadPhaseDownloading || dp.phase == IMDownloadPhasePaused;
+    _ring.hidden = !ring; _ringBG.hidden = !ring;
+    if (ring) {
+        [CATransaction begin]; [CATransaction setDisableActions:YES];
+        _ring.strokeEnd = MAX(0.02, dp.fraction);
+        [CATransaction commit];
+    }
+    NSString *text = [dp displayText];
+    _sizeChip.text = text;
+    _sizeChip.hidden = text.length == 0;
+    [self setNeedsLayout];
+}
+
+- (void)prepareForReuse {
+    [super prepareForReuse];
+    _thumb.image = nil;
+    [self applyGate:nil isVideo:NO];
+}
 @end
 
 @interface IMDetailMediaContainerCell : UITableViewCell <UICollectionViewDataSource, UICollectionViewDelegateFlowLayout>
 @property (nonatomic, copy, nullable) void (^onPick)(IMMediaItem *item);
+/// 逐格门控（M4-7）：返回 nil=该格就绪；非 nil=未下载/下载中/暂停/失败，点击走 onDownloadItem。
+@property (nonatomic, copy, nullable) IMDownloadProgress *_Nullable (^stateForItemIndex)(NSInteger index);
+/// 该格的极小模糊预览（thumb data URI），门控时用作占位。
+@property (nonatomic, copy, nullable) NSString *_Nullable (^thumbForItemIndex)(NSInteger index);
+/// 门控格点击（开始/暂停/继续/重试）。
+@property (nonatomic, copy, nullable) void (^onDownloadItemIndex)(NSInteger index);
 - (void)setItems:(NSArray<IMMediaItem *> *)items;
+/// 只刷一格（下载进度高频回调时别整表重建，否则内嵌 CollectionView 每次都重来一遍）。
+- (void)refreshItemAtIndex:(NSInteger)index;
 + (CGFloat)heightForCount:(NSInteger)count width:(CGFloat)width;
 @end
 @implementation IMDetailMediaContainerCell {
@@ -234,10 +331,16 @@
     return self;
 }
 - (void)setItems:(NSArray<IMMediaItem *> *)items { _items = items; [_cv reloadData]; }
+- (void)refreshItemAtIndex:(NSInteger)index {
+    if (index < 0 || index >= (NSInteger)_items.count) { return; }
+    [_cv reloadItemsAtIndexPaths:@[[NSIndexPath indexPathForItem:index inSection:0]]];
+}
 - (NSInteger)collectionView:(UICollectionView *)cv numberOfItemsInSection:(NSInteger)s { return _items.count; }
 - (UICollectionViewCell *)collectionView:(UICollectionView *)cv cellForItemAtIndexPath:(NSIndexPath *)ip {
     IMDetailMediaGridCell *c = [cv dequeueReusableCellWithReuseIdentifier:@"g" forIndexPath:ip];
-    [c configureWithItem:_items[ip.item]];
+    IMDownloadProgress *dp = self.stateForItemIndex ? self.stateForItemIndex(ip.item) : nil;
+    NSString *thumb = (dp && self.thumbForItemIndex) ? self.thumbForItemIndex(ip.item) : nil;
+    [c configureWithItem:_items[ip.item] download:dp thumb:thumb];
     return c;
 }
 - (CGSize)collectionView:(UICollectionView *)cv layout:(UICollectionViewLayout *)l sizeForItemAtIndexPath:(NSIndexPath *)ip {
@@ -245,7 +348,162 @@
     return CGSizeMake(t, t);
 }
 - (void)collectionView:(UICollectionView *)cv didSelectItemAtIndexPath:(NSIndexPath *)ip {
+    // 门控格：点击=就地下载（铁律①不跳页），**不**进查看器；就绪格才打开（铁律②完成即止）。
+    IMDownloadProgress *dp = self.stateForItemIndex ? self.stateForItemIndex(ip.item) : nil;
+    if (dp && dp.phase != IMDownloadPhaseDone) {
+        if (self.onDownloadItemIndex) { self.onDownloadItemIndex(ip.item); }
+        return;
+    }
     if (self.onPick) { self.onPick(_items[ip.item]); }
+}
+@end
+
+#pragma mark - 文件行 Cell（三态：未下载 / 下载中 / 已下载，草图 §04）
+
+/// 左图标位即状态位：已下载=文件类型图标；未下载=灰底 ↓；下载中/暂停=环形进度 + ⏸/↓；失败=红 ↻。
+/// 右侧配件：未下载=蓝 ↓；下载中=✕（取消，与"点行=暂停/继续"分工）；已下载=⋯（更多）。
+@interface IMDetailFileCell : UITableViewCell
+@property (nonatomic, copy, nullable) void (^onAccessoryTap)(void);
+@property (nonatomic, strong, readonly) UIView *accessoryAnchorView; ///< 「⋯」菜单的锚点（=右侧按钮）
+- (void)configureWithMessage:(IMMessageModel *)m download:(nullable IMDownloadProgress *)dp;
+@end
+
+@implementation IMDetailFileCell {
+    UIImageView *_icon; UIImageView *_glyph; CAShapeLayer *_ringBG; CAShapeLayer *_ring;
+    UILabel *_title; UILabel *_sub; UIButton *_accessory;
+}
+- (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)rid {
+    if ((self = [super initWithStyle:style reuseIdentifier:rid])) {
+        _icon = [UIImageView new];
+        _icon.contentMode = UIViewContentModeScaleAspectFit;
+        _icon.translatesAutoresizingMaskIntoConstraints = NO;
+        _icon.layer.cornerRadius = 8; _icon.clipsToBounds = YES;
+        [self.contentView addSubview:_icon];
+
+        _glyph = [UIImageView new];       // 图标位中心的状态字形（↓ / ⏸ / ↻）
+        _glyph.contentMode = UIViewContentModeCenter;
+        _glyph.tintColor = UIColor.whiteColor;
+        _glyph.translatesAutoresizingMaskIntoConstraints = NO;
+        _glyph.hidden = YES;
+        [self.contentView addSubview:_glyph];
+
+        _ringBG = [IMDetailFileCell ringLayerWithColor:[UIColor colorWithWhite:1 alpha:0.35] rounded:NO];
+        _ring = [IMDetailFileCell ringLayerWithColor:UIColor.whiteColor rounded:YES];
+        [self.contentView.layer addSublayer:_ringBG];
+        [self.contentView.layer addSublayer:_ring];
+
+        _title = [UILabel new];
+        _title.font = [UIFont systemFontOfSize:16];
+        _title.lineBreakMode = NSLineBreakByTruncatingMiddle; // 文件名尾部是扩展名，中间截断更可读
+        _title.translatesAutoresizingMaskIntoConstraints = NO;
+        [self.contentView addSubview:_title];
+
+        _sub = [UILabel new];
+        _sub.font = [UIFont systemFontOfSize:12];
+        _sub.textColor = IMTheme.textSecondary;
+        _sub.translatesAutoresizingMaskIntoConstraints = NO;
+        [self.contentView addSubview:_sub];
+
+        _accessory = [UIButton buttonWithType:UIButtonTypeSystem];
+        _accessory.translatesAutoresizingMaskIntoConstraints = NO;
+        [_accessory addTarget:self action:@selector(accessoryTapped) forControlEvents:UIControlEventTouchUpInside];
+        [self.contentView addSubview:_accessory];
+
+        [NSLayoutConstraint activateConstraints:@[
+            [_icon.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:16],
+            [_icon.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
+            [_icon.widthAnchor constraintEqualToConstant:36],
+            [_icon.heightAnchor constraintEqualToConstant:36],
+            [_glyph.centerXAnchor constraintEqualToAnchor:_icon.centerXAnchor],
+            [_glyph.centerYAnchor constraintEqualToAnchor:_icon.centerYAnchor],
+            [_title.leadingAnchor constraintEqualToAnchor:_icon.trailingAnchor constant:12],
+            [_title.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:9],
+            [_title.trailingAnchor constraintLessThanOrEqualToAnchor:_accessory.leadingAnchor constant:-8],
+            [_sub.leadingAnchor constraintEqualToAnchor:_title.leadingAnchor],
+            [_sub.topAnchor constraintEqualToAnchor:_title.bottomAnchor constant:2],
+            [_sub.trailingAnchor constraintLessThanOrEqualToAnchor:_accessory.leadingAnchor constant:-8],
+            [_sub.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-9],
+            [_accessory.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-16],
+            [_accessory.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
+            [_accessory.widthAnchor constraintEqualToConstant:34],
+            [_accessory.heightAnchor constraintEqualToConstant:34],
+        ]];
+    }
+    return self;
+}
++ (CAShapeLayer *)ringLayerWithColor:(UIColor *)color rounded:(BOOL)rounded {
+    UIBezierPath *p = [UIBezierPath bezierPathWithArcCenter:CGPointMake(18, 18) radius:15
+                                                 startAngle:-M_PI_2 endAngle:M_PI * 1.5 clockwise:YES];
+    CAShapeLayer *l = [CAShapeLayer layer];
+    l.path = p.CGPath; l.fillColor = UIColor.clearColor.CGColor; l.strokeColor = color.CGColor;
+    l.lineWidth = 2.5; l.frame = CGRectMake(0, 0, 36, 36); l.hidden = YES;
+    if (rounded) { l.lineCap = kCALineCapRound; l.strokeEnd = 0; }
+    return l;
+}
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    if (_ring.hidden && _ringBG.hidden) { return; }
+    [CATransaction begin]; [CATransaction setDisableActions:YES];
+    _ringBG.frame = _icon.frame; _ring.frame = _icon.frame;
+    [CATransaction commit];
+}
+- (void)accessoryTapped { if (self.onAccessoryTap) { self.onAccessoryTap(); } }
+- (UIView *)accessoryAnchorView { return _accessory; }
+
+- (void)configureWithMessage:(IMMessageModel *)m download:(IMDownloadProgress *)dp {
+    _title.text = m.fileName.length > 0 ? m.fileName : @"文件";
+    NSString *size = IMFormatFileSize(m.fileSize);
+    BOOL gated = dp != nil && dp.phase != IMDownloadPhaseDone;
+    BOOL ring = dp.phase == IMDownloadPhaseDownloading || dp.phase == IMDownloadPhasePaused;
+    _ringBG.hidden = !ring; _ring.hidden = !ring;
+    if (!gated) { // 已下载：文件类型图标 + 「1.3 MB · 已下载」+ ⋯
+        _icon.image = IMFileTypeIconForName(m.fileName, 36);
+        _icon.backgroundColor = UIColor.clearColor;
+        _glyph.hidden = YES;
+        _sub.text = size.length > 0 ? [NSString stringWithFormat:@"%@ · 已下载", size] : @"已下载";
+        [_accessory setImage:[UIImage systemImageNamed:@"ellipsis"] forState:UIControlStateNormal];
+        _accessory.enabled = YES;
+        _accessory.tintColor = IMTheme.textSecondary;
+        _accessory.accessibilityLabel = @"更多";
+        self.accessibilityLabel = [NSString stringWithFormat:@"%@，已下载", _title.text ?: @"文件"];
+        [self setNeedsLayout];
+        return;
+    }
+    _icon.image = nil;
+    BOOL failed = dp.phase == IMDownloadPhaseFailed;
+    _icon.backgroundColor = failed ? IMTheme.danger
+                                   : (dp.phase == IMDownloadPhaseNotStarted ? [UIColor systemGray3Color] : IMTheme.accent);
+    NSString *glyph = @"arrow.down";
+    if (dp.phase == IMDownloadPhaseDownloading) { glyph = dp.pausable ? @"pause.fill" : @"xmark"; }
+    else if (failed) { glyph = dp.expired ? @"xmark.octagon" : @"arrow.clockwise"; } // 已失效：不给重试
+    _glyph.image = [UIImage systemImageNamed:glyph
+                            withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:13 weight:UIImageSymbolWeightBold]];
+    _glyph.hidden = NO;
+    if (ring) {
+        [CATransaction begin]; [CATransaction setDisableActions:YES];
+        _ring.strokeEnd = MAX(0.02, dp.fraction);
+        [CATransaction commit];
+    }
+    // 副行：未下载=「240 KB · 未下载」；下载中/暂停=「18 MB / 42 MB」；失败=「下载失败，点击重试」。
+    if (dp.phase == IMDownloadPhaseNotStarted) {
+        _sub.text = size.length > 0 ? [NSString stringWithFormat:@"%@ · 未下载", size] : @"未下载";
+    } else {
+        _sub.text = [dp fileLineText];
+    }
+    // 右侧：下载中/暂停 = ✕ 取消（点行才是暂停/继续）；已失效 = 无入口；其余 = 蓝 ↓。
+    [_accessory setImage:(dp.expired ? nil : [UIImage systemImageNamed:(ring ? @"xmark" : @"arrow.down")])
+                forState:UIControlStateNormal];
+    _accessory.enabled = !dp.expired;
+    _accessory.tintColor = IMTheme.accent;
+    _accessory.accessibilityLabel = ring ? @"取消下载" : @"下载";
+    self.accessibilityLabel = [NSString stringWithFormat:@"%@，%@", _title.text ?: @"文件", [dp accessibilityText]];
+    [self setNeedsLayout];
+}
+- (void)prepareForReuse {
+    [super prepareForReuse];
+    _onAccessoryTap = nil;
+    _ring.hidden = YES; _ringBG.hidden = YES; _ring.strokeEnd = 0;
+    _glyph.hidden = YES; _icon.image = nil; _icon.backgroundColor = UIColor.clearColor;
 }
 @end
 
@@ -263,7 +521,7 @@ static CGFloat const kPillsRowH = 78;
 static CGFloat const kTabBarH   = 52;   ///< 页签栏高度（含分段控件上下留白）；分段控件本体 = kTabBarH-12
 static CGFloat const kTabSegH   = 40;   ///< 分段控件本体高度（点击面积）
 
-@interface IMChatDetailViewController () <UITableViewDataSource, UITableViewDelegate, UIScrollViewDelegate, UIGestureRecognizerDelegate, IMLiquidNavigationBarDelegate>
+@interface IMChatDetailViewController () <UITableViewDataSource, UITableViewDelegate, UIScrollViewDelegate, UIGestureRecognizerDelegate, IMLiquidNavigationBarDelegate, QLPreviewControllerDataSource>
 // 身份
 @property (nonatomic, copy) NSString *host;
 @property (nonatomic, copy) NSString *userID;
@@ -308,7 +566,12 @@ static CGFloat const kTabSegH   = 40;   ///< 分段控件本体高度（点击�
 @property (nonatomic, strong) NSArray<IMChatDetailTab *> *tabs;
 @property (nonatomic, assign) NSInteger selectedTab;
 @property (nonatomic, strong) NSArray<IMMediaItem *> *tabMedia;    ///< 当前媒体项（媒体页签）
+@property (nonatomic, strong) NSArray<IMMessageModel *> *tabMediaMessages; ///< 与 tabMedia **逐位对齐**的消息模型（下载态/thumb 取自它）
 @property (nonatomic, strong) NSArray<IMMessageModel *> *tabRows;  ///< 当前文件/语音/链接消息
+/// 媒体/文件 Tab 的下载编排（M4-7）：与聊天页共用 IMMediaDownloadCoordinator，同一份文件天然共享一个下载态。
+@property (nonatomic, strong) IMMediaDownloadCoordinator *downloads;
+@property (nonatomic, weak, nullable) IMDetailMediaContainerCell *mediaContainerCell; ///< 只刷单格用（避免整行重建）
+@property (nonatomic, strong, nullable) NSURL *quickLookURL;  ///< QuickLook 当前预览的本地文件
 // 布局
 @property (nonatomic, assign) BOOL hasPhoto;
 @property (nonatomic, assign) CGFloat topInset;
@@ -464,6 +727,7 @@ static CGFloat const kTabSegH   = 40;   ///< 分段控件本体高度（点击�
     [self.tableView registerClass:UITableViewCell.class forCellReuseIdentifier:@"plain"];
     [self.tableView registerClass:IMDetailMemberCell.class forCellReuseIdentifier:@"member"];
     [self.tableView registerClass:IMDetailMediaContainerCell.class forCellReuseIdentifier:@"mediagrid"];
+    [self.tableView registerClass:IMDetailFileCell.class forCellReuseIdentifier:@"detailfile"];
     UIView *spacer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 300)];
     spacer.backgroundColor = UIColor.clearColor;
     self.pillsView = [self buildPillsView];
@@ -1038,7 +1302,7 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
 
 /// 依当前选中页签，预备内容数组（媒体项 / 文件·语音·链接消息）。
 - (void)recomputeTabContent {
-    self.tabMedia = @[]; self.tabRows = @[];
+    self.tabMedia = @[]; self.tabMediaMessages = @[]; self.tabRows = @[];
     if (self.tabs.count == 0) { return; }
     IMChatDetailTab *t = self.tabs[self.selectedTab];
     if (t.kind == IMDetailTabKindMembers) { return; }
@@ -1047,16 +1311,23 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
         msgs = [database messagesForConv:self.convID];
     }];
     if (t.kind == IMDetailTabKindMedia) {
-        NSMutableArray<IMMediaItem *> *items = [NSMutableArray array];
+        NSMutableArray<IMMessageModel *> *media = [NSMutableArray array];
         for (IMMessageModel *m in msgs) {
-            if (![IMChatDetailTabs message:m matchesKind:IMDetailTabKindMedia]) { continue; }
-            BOOL isVideo = [m.contentType isEqualToString:@"video"];
-            [items addObject:[IMMediaItem itemWithURL:IMMediaFullURL(m.content, self.host) isVideo:isVideo timestamp:m.timestamp]];
+            if ([IMChatDetailTabs message:m matchesKind:IMDetailTabKindMedia]) { [media addObject:m]; }
         }
-        // 新→旧
-        self.tabMedia = [items sortedArrayUsingComparator:^NSComparisonResult(IMMediaItem *a, IMMediaItem *b) {
+        // 新→旧。**先排消息再派生 item**，保证 tabMedia 与 tabMediaMessages 逐位对齐
+        //（宫格要按 index 反查消息取下载态/thumb）。
+        NSArray<IMMessageModel *> *sorted = [media sortedArrayUsingComparator:^NSComparisonResult(IMMessageModel *a, IMMessageModel *b) {
             return a.timestamp > b.timestamp ? NSOrderedAscending : (a.timestamp < b.timestamp ? NSOrderedDescending : NSOrderedSame);
         }];
+        NSMutableArray<IMMediaItem *> *items = [NSMutableArray arrayWithCapacity:sorted.count];
+        for (IMMessageModel *m in sorted) {
+            [items addObject:[IMMediaItem itemWithURL:IMMediaFullURL(m.content, self.host)
+                                              isVideo:[m.contentType isEqualToString:@"video"]
+                                            timestamp:m.timestamp]];
+        }
+        self.tabMediaMessages = sorted;
+        self.tabMedia = items;
         return;
     }
     // 文件/语音/链接：过滤 + 新→旧
@@ -1272,6 +1543,17 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
         __weak typeof(self) ws = self;
         cell.onPick = ^(IMMediaItem *item) { [ws openMediaItem:item]; };
+        // 逐格门控（M4-7）：必须在 setItems: 前挂好——reloadData 会立刻回调查询每格状态。
+        cell.stateForItemIndex = ^IMDownloadProgress *(NSInteger i) {
+            IMMessageModel *mm = [ws mediaMessageAtIndex:i];
+            return mm ? [ws.downloads stateForMessage:mm] : nil;
+        };
+        cell.thumbForItemIndex = ^NSString *(NSInteger i) { return [ws mediaMessageAtIndex:i].thumb; };
+        cell.onDownloadItemIndex = ^(NSInteger i) {
+            IMMessageModel *mm = [ws mediaMessageAtIndex:i];
+            if (mm) { [ws.downloads handleTapForMessage:mm]; }
+        };
+        self.mediaContainerCell = cell;
         [cell setItems:self.tabMedia];
         return cell;
     }
@@ -1281,15 +1563,25 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
         return [self emptyCell:tv text:empty];
     }
     IMMessageModel *m = self.tabRows[row];
+    // 文件行：三态专用 cell（未下载 ↓ / 下载中 环形 / 已下载 类型图标 + ⋯），草图 §04。
+    if (t.kind == IMDetailTabKindFiles) {
+        IMDetailFileCell *fc = [tv dequeueReusableCellWithIdentifier:@"detailfile"] ?:
+            [[IMDetailFileCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"detailfile"];
+        IMDownloadProgress *dp = [self.downloads stateForMessage:m];
+        [fc configureWithMessage:m download:dp];
+        __weak typeof(self) ws = self;
+        __weak IMDetailFileCell *wfc = fc; // 强引用会成环（cell → block → cell），必须弱持
+        BOOL downloading = dp.phase == IMDownloadPhaseDownloading || dp.phase == IMDownloadPhasePaused;
+        fc.onAccessoryTap = ^{
+            if (downloading) { [ws.downloads cancelDownloadForMessage:m]; }   // ✕ 取消
+            else if (dp) { [ws.downloads handleTapForMessage:m]; }            // ↓ 开始/重试
+            else if (wfc) { [ws presentFileActionsForMessage:m anchor:wfc.accessoryAnchorView]; } // ⋯ 更多（已下载）
+        };
+        return fc;
+    }
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
     cell.detailTextLabel.textColor = IMTheme.textSecondary;
-    if (t.kind == IMDetailTabKindFiles) {
-        cell.textLabel.text = m.fileName.length > 0 ? m.fileName : @"文件";
-        cell.imageView.image = IMFileTypeIconForName(m.fileName, 36);
-        NSString *size = IMFormatFileSize(m.fileSize);
-        NSString *time = IMFormatFileDateTime(m.timestamp);
-        cell.detailTextLabel.text = size.length > 0 ? [NSString stringWithFormat:@"%@ · %@", size, time] : time;
-    } else if (t.kind == IMDetailTabKindVoice) {
+    if (t.kind == IMDetailTabKindVoice) {
         cell.textLabel.text = @"语音消息";
         cell.imageView.image = [UIImage systemImageNamed:@"waveform"]; cell.imageView.tintColor = IMTheme.accent;
         cell.detailTextLabel.text = [IMTheme timeStringFromMillis:m.timestamp];
@@ -1325,7 +1617,14 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
         if (t.kind == IMDetailTabKindMembers) {
             if (indexPath.row == 0) { [self inviteMembers]; }
             else { [self openPeerDetail:self.group.members[indexPath.row - 1]]; } // tap→对方资料页
-        } else if (t.kind == IMDetailTabKindFiles || t.kind == IMDetailTabKindLinks) {
+        } else if (t.kind == IMDetailTabKindFiles) {
+            if (indexPath.row >= (NSInteger)self.tabRows.count) { return; }
+            IMMessageModel *m = self.tabRows[indexPath.row];
+            IMDownloadProgress *dp = [self.downloads stateForMessage:m];
+            // 未下载/失败 → 就地下载（不跳页）；下载中 ↔ 暂停/继续；已下载 → 本地 QuickLook 打开（用户主动点）。
+            if (dp) { [self.downloads handleTapForMessage:m]; }
+            else { [self openCachedFileForMessage:m]; }
+        } else if (t.kind == IMDetailTabKindLinks) {
             if (self.tabRows.count > 0) { [self openLink:IMMediaFullURL(self.tabRows[indexPath.row].content, self.host)]; }
         }
     }
@@ -1674,6 +1973,85 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
 }
 
 #pragma mark - 打开媒体 / 链接 / 返回
+
+#pragma mark - 媒体 / 文件 Tab 的下载（M4-7，草图 §04）
+
+/// 与聊天页共用同一套编排：同一份文件在两处**共享一个下载态与进度**（key 都是 content）。
+- (IMMediaDownloadCoordinator *)downloads {
+    if (!_downloads) {
+        _downloads = [[IMMediaDownloadCoordinator alloc] initWithHost:self.host
+                                                             myUserID:self.userID
+                                                              isGroup:self.isGroup];
+        _downloads.autoPrefetchEnabled = NO; // 浏览历史媒体不该顺手把几十条视频拉下来；这里只反映状态
+        __weak typeof(self) ws = self;
+        _downloads.onStateChanged = ^(IMMessageModel *m) { [ws refreshDownloadRowForMessage:m]; };
+    }
+    return _downloads;
+}
+
+- (nullable IMMessageModel *)mediaMessageAtIndex:(NSInteger)index {
+    if (index < 0 || index >= (NSInteger)self.tabMediaMessages.count) { return nil; }
+    return self.tabMediaMessages[index];
+}
+
+/// 定点刷新：媒体页只刷那一格（内嵌 CollectionView 整行重建代价高），文件页刷那一行。
+- (void)refreshDownloadRowForMessage:(IMMessageModel *)m {
+    if (self.tabs.count == 0) { return; }
+    IMChatDetailTab *t = self.tabs[self.selectedTab];
+    NSInteger section = [self indexOfSection:IMDetailSectionTabs];
+    if (section == NSNotFound) { return; }
+    if (t.kind == IMDetailTabKindMedia) {
+        NSUInteger i = [self.tabMediaMessages indexOfObjectIdenticalTo:m];
+        if (i != NSNotFound) { [self.mediaContainerCell refreshItemAtIndex:(NSInteger)i]; }
+        return;
+    }
+    if (t.kind != IMDetailTabKindFiles) { return; }
+    NSUInteger row = [self.tabRows indexOfObjectIdenticalTo:m];
+    if (row == NSNotFound || (NSInteger)row >= [self.tableView numberOfRowsInSection:section]) { return; }
+    [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:(NSInteger)row inSection:section]]
+                          withRowAnimation:UITableViewRowAnimationNone];
+}
+
+/// 已下载的文件 → 本地 QuickLook 预览（与聊天页一致，绝不自动打开，由用户点触发）。
+- (void)openCachedFileForMessage:(IMMessageModel *)m {
+    NSURL *local = [self.downloads localFileForMessage:m];
+    if (!local) { return; }
+    self.quickLookURL = local;
+    QLPreviewController *ql = [QLPreviewController new];
+    ql.dataSource = self;
+    [self presentViewController:ql animated:YES completion:nil];
+}
+
+/// 已下载文件行右侧「⋯」：打开 / 分享（锚在被点的按钮上）。
+- (void)presentFileActionsForMessage:(IMMessageModel *)m anchor:(UIView *)anchor {
+    NSURL *local = [self.downloads localFileForMessage:m];
+    NSMutableArray<IMPopoverCardItem *> *items = [NSMutableArray array];
+    __weak typeof(self) ws = self;
+    [items addObject:[IMPopoverCardItem itemWithTitle:@"打开" symbol:@"eye" destructive:NO handler:^{
+        [ws openCachedFileForMessage:m];
+    }]];
+    if (local) {
+        [items addObject:[IMPopoverCardItem itemWithTitle:@"分享" symbol:@"square.and.arrow.up" destructive:NO handler:^{
+            __strong typeof(ws) self = ws;
+            if (!self) { return; }
+            UIActivityViewController *av = [[UIActivityViewController alloc] initWithActivityItems:@[local]
+                                                                             applicationActivities:nil];
+            av.popoverPresentationController.sourceView = self.view;
+            av.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(self.view.bounds),
+                                                                     CGRectGetMidY(self.view.bounds), 1, 1);
+            [self presentViewController:av animated:YES completion:nil];
+        }]];
+    }
+    [IMPopoverCard presentFromAnchor:anchor inHostView:self.view items:items];
+}
+
+- (NSInteger)numberOfPreviewItemsInPreviewController:(QLPreviewController *)controller {
+    return self.quickLookURL ? 1 : 0;
+}
+
+- (id<QLPreviewItem>)previewController:(QLPreviewController *)controller previewItemAtIndex:(NSInteger)index {
+    return self.quickLookURL;
+}
 
 - (void)openMediaItem:(IMMediaItem *)item {
     IMMediaViewerViewController *viewer = [IMMediaViewerViewController viewerWithURL:item.url isVideo:item.isVideo

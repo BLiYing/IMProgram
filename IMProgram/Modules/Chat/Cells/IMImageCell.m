@@ -4,7 +4,9 @@
 #import "IMVideoThumbnailLoader.h"
 #import "IMMessageModel.h"
 #import "IMUploadProgress.h"
+#import "IMDownloadProgress.h"
 #import "IMMediaFormat.h"
+#import "IMMediaUtil.h" // IMFormatFileSize
 #import "UILabel+IMAvatar.h"
 #import "IMTheme.h"
 
@@ -14,6 +16,7 @@ static const CGFloat kIMMediaMaxHeight = 320;
 static const CGFloat kIMMediaMinSide = 80;   // 极端长条的短边下限（保证可点按）
 static const CGFloat kIMBadgeInset = 6;      // 角标距缩略图边缘
 static const CGFloat kIMBadgeHeight = 18;
+static const CGFloat kIMDownloadRingSide = 56; // 下载进度环外接方形边长（绕 44pt 中心圆钮一圈）
 
 static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标（播放/暂停/继续/重试/取消）
 
@@ -40,6 +43,8 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     NSLayoutConstraint *_thumbBottom;        // 无系统行时：thumb 贴 cell 底
     NSLayoutConstraint *_noteTop;            // 有系统行时：系统行接 thumb 底
     NSLayoutConstraint *_noteBottom;         // 有系统行时：系统行贴 cell 底
+    CAShapeLayer *_ringBG;     // 下载进度环底（仅门控·下载中显示）
+    CAShapeLayer *_ring;       // 下载进度环
     NSString *_url;
     BOOL _sizeFromMedia;       // YES=尺寸来自协议/预览（权威），加载出图后无需重排
     BOOL _isVideoCell;         // 上传态结束后据此还原中心播放按钮（图片则隐藏）
@@ -68,6 +73,11 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
         _playBadge.translatesAutoresizingMaskIntoConstraints = NO;
         _playBadge.hidden = YES;
         [self.contentView addSubview:_playBadge];
+
+        // 下载进度环：绕中心圆钮一圈（与相册宫格 IMAlbumTileView、草图 §02「环形进度 + ⏸」同款）。
+        // 挂在 contentView.layer 上、frame 在 layoutSubviews 里跟随 _thumb 中心。
+        _ringBG = [self makeRingLayerWithColor:[UIColor colorWithWhite:1 alpha:0.32] rounded:NO];
+        _ring = [self makeRingLayerWithColor:UIColor.whiteColor rounded:YES];
 
         _progressWrap = [self makeBadgeWrapWithLabel:&_progressLabel];
         _durationWrap = [self makeBadgeWrapWithLabel:&_durationLabel];
@@ -170,6 +180,36 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     _thumbTopUnderName.priority = showName ? on : off;
 }
 
+/// 进度环的一层（底环/进度环）：路径固定在 56×56 的局部坐标里，位置由 layoutSubviews 摆。
+- (CAShapeLayer *)makeRingLayerWithColor:(UIColor *)color rounded:(BOOL)rounded {
+    CGFloat r = kIMDownloadRingSide / 2 - 3;
+    UIBezierPath *circle = [UIBezierPath bezierPathWithArcCenter:CGPointMake(kIMDownloadRingSide / 2, kIMDownloadRingSide / 2)
+                                                          radius:r startAngle:-M_PI_2 endAngle:M_PI * 1.5 clockwise:YES];
+    CAShapeLayer *layer = [CAShapeLayer layer];
+    layer.path = circle.CGPath;
+    layer.fillColor = UIColor.clearColor.CGColor;
+    layer.strokeColor = color.CGColor;
+    layer.lineWidth = 3;
+    if (rounded) { layer.lineCap = kCALineCapRound; layer.strokeEnd = 0; }
+    layer.frame = CGRectMake(0, 0, kIMDownloadRingSide, kIMDownloadRingSide);
+    layer.hidden = YES;
+    [self.contentView.layer addSublayer:layer];
+    return layer;
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    if (_ring.hidden && _ringBG.hidden) { return; }
+    CGPoint c = CGPointMake(CGRectGetMidX(_thumb.frame), CGRectGetMidY(_thumb.frame));
+    CGRect f = CGRectMake(c.x - kIMDownloadRingSide / 2, c.y - kIMDownloadRingSide / 2,
+                          kIMDownloadRingSide, kIMDownloadRingSide);
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    _ringBG.frame = f;
+    _ring.frame = f;
+    [CATransaction commit];
+}
+
 /// 造一个「半透明黑底 + 白字」的悬浮角标胶囊（浅色图上也读得清，不靠文字阴影）。
 - (UIView *)makeBadgeWrapWithLabel:(UILabel *__strong *)outLabel {
     UIView *wrap = [UIView new];
@@ -218,6 +258,9 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     _playBadge.image = IMCenterBadgeImage(@"play.circle.fill"); // 复用期可能残留上传态图标，先还原
     _playBadge.hidden = !isVideo;
     _progressWrap.hidden = YES;
+    _progressWrap.backgroundColor = IMTheme.mediaBadgeBackground;
+    _ringBG.hidden = YES; _ring.hidden = YES; // 非门控态无进度环（复用残留清掉）
+    _thumb.isAccessibilityElement = NO; _thumb.accessibilityLabel = nil;
 
     [self applyDisplaySizeForMessage:message preview:preview posterURL:posterURL fullURL:fullURL isVideo:isVideo];
     [self applyDurationBadge:(isVideo ? message.duration : 0)];
@@ -243,6 +286,22 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
         // 尺寸原先未知（老消息/无预览）→ 用真实图重排一次，避免长图被塞进方框。
         if (!self->_sizeFromMedia) { [self resizeToImageSize:image.size]; }
     };
+    // 门控（M4-7）：收到的媒体按策略"未下载"——中心 ↓（下载中为环形 + ⏸）+ 尺寸角标，
+    // 图片显 thumb 模糊占位、视频仍显封面（封面只有几十 KB，比模糊图信息量大得多）。点击触发下载。
+    if (self.gated) {
+        [self applyGatedBadgesForMessage:message isVideo:isVideo];
+        if (isVideo && posterURL.length > 0) {
+            [[IMImageLoader shared] loadImageURL:posterURL completion:apply]; // 封面：正常出图 + 可据它重排尺寸
+        } else if (message.thumb.length > 0) {
+            void (^applyThumb)(UIImage *) = ^(UIImage *image) {
+                __strong typeof(ws) self = ws;
+                if (!self || !image || ![self->_url isEqualToString:want]) { return; }
+                self->_thumb.image = image; // 仅显模糊占位（~20px 放大即糊），不据它重排尺寸
+            };
+            [[IMImageLoader shared] loadImageURL:message.thumb completion:applyThumb];
+        }
+        return;
+    }
     if (!isVideo) {
         [[IMImageLoader shared] loadImageURL:fullURL completion:apply];
     } else if (posterURL.length > 0) {
@@ -250,6 +309,46 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     } else {
         // 没有封面（老消息/发送端抓帧失败）才回退抽帧——代价是要拉远端视频的一段数据。
         [[IMVideoThumbnailLoader shared] loadPosterForVideoURL:fullURL completion:apply];
+    }
+}
+
+/// 门控态的中心圆钮 + 左上角角标 + 进度环（草图 §02/§03 的五态：未下载 ↓ / 下载中 环+⏸ / 暂停 ↓ / 失败 ↻）。
+/// 左上角一枚胶囊同时承载尺寸与时长（`18.6 MB · 1:20`）——两者本来共用这个角，分不开就合起来显示。
+- (void)applyGatedBadgesForMessage:(IMMessageModel *)message isVideo:(BOOL)isVideo {
+    IMDownloadProgress *dp = self.downloadProgress;
+    NSString *symbol = dp ? IMDownloadCenterSymbolName(dp) : @"arrow.down.circle.fill";
+    // symbol 为 nil 只可能是「失败·文件已失效」（服务端已清理）→ 不给按钮，无从重试（草图 §02-B）。
+    _playBadge.image = symbol ? IMCenterBadgeImage(symbol) : nil;
+    _playBadge.hidden = symbol == nil;
+    if (!_playBadge.hidden) { [self.contentView bringSubviewToFront:_playBadge]; }
+    // VoiceOver：门控卡片整体读作可点的下载按钮（草图 §08-09）。
+    _thumb.isAccessibilityElement = YES;
+    _thumb.accessibilityTraits = UIAccessibilityTraitButton;
+    _thumb.accessibilityLabel = dp ? [dp accessibilityText]
+        : (message.fileSize > 0 ? [NSString stringWithFormat:@"下载，%@", IMFormatFileSize(message.fileSize)] : @"下载");
+
+    // 左上角：未下载=尺寸（+时长）；下载中/暂停=已下/总；失败=下载失败。
+    NSString *sizeText = message.fileSize > 0 ? IMFormatFileSize(message.fileSize) : nil;
+    NSString *durationText = isVideo ? IMFormatMediaDuration(message.duration) : nil;
+    NSString *stateText = (dp && dp.phase != IMDownloadPhaseNotStarted) ? [dp displayText] : sizeText;
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    if (stateText.length > 0) { [parts addObject:stateText]; }
+    if (durationText.length > 0) { [parts addObject:durationText]; }
+    _progressLabel.text = [parts componentsJoinedByString:@" · "];
+    _progressWrap.hidden = parts.count == 0;
+    _progressWrap.backgroundColor = (dp.phase == IMDownloadPhaseFailed) ? IMTheme.danger : IMTheme.mediaBadgeBackground;
+    _durationWrap.hidden = YES; // 与左上角胶囊互斥（时长已并入其中）
+    if (!_progressWrap.hidden) { [self.contentView bringSubviewToFront:_progressWrap]; }
+
+    BOOL showRing = dp.phase == IMDownloadPhaseDownloading || dp.phase == IMDownloadPhasePaused;
+    _ringBG.hidden = !showRing;
+    _ring.hidden = !showRing;
+    if (showRing) {
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES]; // 高频进度回调不做隐式动画
+        _ring.strokeEnd = MAX(0.02, dp.fraction); // 0% 也露一点头，可感知"在动"
+        [CATransaction commit];
+        [self setNeedsLayout]; // 环的 frame 跟随 _thumb，尺寸可能刚变
     }
 }
 
@@ -358,6 +457,7 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName) {
 }
 
 - (void)setUploadProgress:(IMUploadProgress *)progress {
+    if (self.gated) { return; } // 门控态（收到的未下载图）：中心 ↓ + 尺寸角标由 configure 布好，勿被上传态复位覆盖
     if (progress == nil) {                       // 不在上传中：恢复时长角标与（视频的）播放按钮
         _progressWrap.hidden = YES;
         _progressWrap.backgroundColor = IMTheme.mediaBadgeBackground;
@@ -404,7 +504,10 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName) {
 
 #pragma mark -
 
-- (void)tapped { if (_onTap) { _onTap(_thumb.image); } }
+- (void)tapped {
+    if (self.gated) { if (self.onDownloadTap) { self.onDownloadTap(); } return; } // 门控态点击=下载
+    if (_onTap) { _onTap(_thumb.image); }
+}
 
 - (void)applyGroupAvatarURL:(NSString *)url seed:(NSString *)seed name:(NSString *)name
                  showAvatar:(BOOL)showAvatar gutter:(BOOL)gutter {
@@ -429,6 +532,8 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName) {
     _sizeFromMedia = NO;
     _avatar.hidden = YES; _leading.constant = 12;
     _onTap = nil; _onMediaSizeResolved = nil;
+    _ringBG.hidden = YES; _ring.hidden = YES; _ring.strokeEnd = 0;
+    self.gated = NO; self.downloadProgress = nil; self.onDownloadTap = nil;
 }
 
 - (UIView *)previewTargetView { return _thumb; }

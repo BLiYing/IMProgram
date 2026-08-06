@@ -30,6 +30,7 @@
     m.mediaW         = [data[@"media_w"] integerValue];
     m.mediaH         = [data[@"media_h"] integerValue];
     m.duration       = [data[@"duration"] longLongValue];
+    m.thumb          = [self stringForKey:@"thumb" in:data];
     return m;
 }
 
@@ -61,6 +62,7 @@
     if (self.mediaW > 0) { d[@"media_w"] = @(self.mediaW); }
     if (self.mediaH > 0) { d[@"media_h"] = @(self.mediaH); }
     if (self.duration > 0) { d[@"duration"] = @(self.duration); }
+    if (self.thumb) { d[@"thumb"] = self.thumb; }
     return d;
 }
 
@@ -92,6 +94,7 @@
     m.mediaW         = [dict[@"media_w"] integerValue];
     m.mediaH         = [dict[@"media_h"] integerValue];
     m.duration       = [dict[@"duration"] longLongValue];
+    m.thumb          = [self stringForKey:@"thumb" in:dict];
     return m;
 }
 

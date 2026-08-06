@@ -21,6 +21,13 @@ NS_ASSUME_NONNULL_BEGIN
 /// 同步取内存缓存（命中即返回，否则 nil）。供列表/头像 reloadData 时**直接显图不回退首字母**、消除闪动。
 - (nullable UIImage *)cachedImageForURL:(nullable NSString *)urlString;
 
+/// 清空图片缓存（内存 + 磁盘）。设置页「清除缓存」调用：只删本机，云端保留可重下。
+/// 必须连内存一起清——否则 `hasCachedImageForURL:` 仍回 YES，图片卡片清完缓存也退不回"未下载"态。
+- (void)clearCache;
+
+/// 该 URL 是否已在缓存（内存或磁盘，不发起网络）。data: 内联视为已有。M4-7 图片门控据此判定"已下载不再门控"。
+- (BOOL)hasCachedImageForURL:(nullable NSString *)urlString;
+
 @end
 
 NS_ASSUME_NONNULL_END

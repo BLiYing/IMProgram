@@ -2,6 +2,7 @@
 
 @class IMMessageModel;
 @class IMUploadProgress;
+@class IMDownloadProgress;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -20,6 +21,16 @@ NS_ASSUME_NONNULL_BEGIN
 + (CGFloat)displayHeightForPixelWidth:(CGFloat)pixelW pixelHeight:(CGFloat)pixelH;
 
 @property (nonatomic, copy, nullable) void (^onTap)(UIImage *_Nullable image);
+
+/// 门控态（M4-7）：收到的媒体按自动下载策略"未下载"——显模糊占位（图片）/封面（视频）
+/// + 中心 ↓ + 尺寸角标，不加载原图 / 不放行播放。由 VC 在 configure **前**设置；
+/// tap 时触发 onDownloadTap 而非 onTap。
+@property (nonatomic, assign) BOOL gated;
+/// 门控态下的下载进度（视频走 IMMediaDownloader 有真进度：环形 + ⏸/↻）。
+/// nil 或 NotStarted = 只显 ↓；图片没有分片下载器，恒传 nil。同样必须在 configure **前**设置。
+@property (nonatomic, strong, nullable) IMDownloadProgress *downloadProgress;
+/// 门控态下点击（开始下载 / 暂停 / 继续 / 重试，由 VC 按当前态路由）。
+@property (nonatomic, copy, nullable) void (^onDownloadTap)(void);
 /// 老消息没有 media_w/media_h 时，异步出图后才知道真实比例 → 携带量出的像素尺寸回调聊天页：
 /// 写回模型+落库（下次进会话行高首帧即正确）并刷一次行高（无动画）。
 @property (nonatomic, copy, nullable) void (^onMediaSizeResolved)(CGSize pixelSize);

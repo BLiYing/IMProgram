@@ -200,6 +200,50 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     }];
 }
 
+- (void)downloadSettingsWithToken:(NSString *)token
+                       completion:(void (^)(NSDictionary *_Nullable data, NSError *_Nullable error))completion {
+    NSURL *url = [self urlForPath:@"/api/v1/download-settings"];
+    if (!url) {
+        [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }];
+        return;
+    }
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
+    [req setValue:[NSString stringWithFormat:@"Bearer %@", token ?: @""] forHTTPHeaderField:@"Authorization"];
+    req.timeoutInterval = 10;
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        if ([body[@"code"] integerValue] != 0) {
+            completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"拉取下载设置失败"]]);
+            return;
+        }
+        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
+        completion(data, nil);
+    }];
+}
+
+- (void)updateDownloadSettingsWithToken:(NSString *)token
+                               settings:(NSDictionary *)settings
+                             completion:(void (^)(NSDictionary *_Nullable data, NSError *_Nullable error))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/download-settings" method:@"PUT" token:token body:(settings ?: @{})];
+    if (!req) { [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }]; return; }
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        if ([body[@"code"] integerValue] != 0) { completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"保存下载设置失败"]]); return; }
+        completion([body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil, nil);
+    }];
+}
+
+- (void)resetDownloadSettingsWithToken:(NSString *)token
+                            completion:(void (^)(NSDictionary *_Nullable data, NSError *_Nullable error))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/download-settings/reset" method:@"POST" token:token body:@{}];
+    if (!req) { [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }]; return; }
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        if ([body[@"code"] integerValue] != 0) { completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"重置下载设置失败"]]); return; }
+        completion([body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil, nil);
+    }];
+}
+
 #pragma mark - 通讯录（找人 / 好友关系）
 
 - (void)searchUsersWithToken:(NSString *)token

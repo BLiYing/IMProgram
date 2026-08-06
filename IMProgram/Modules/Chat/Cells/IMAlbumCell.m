@@ -2,6 +2,7 @@
 #import "IMRejectNoteView.h"
 #import "IMMessageModel.h"
 #import "IMUploadProgress.h"
+#import "IMDownloadProgress.h"
 #import "IMPendingMediaStore.h"
 #import "IMMediaFormat.h"
 #import "IMImageLoader.h"
@@ -16,7 +17,10 @@
 @property (nonatomic, strong) UILabel *durationChip; ///< 左上角视频时长角标（上传态隐藏，与覆盖层互斥）
 @property (nonatomic, strong) IMMessageModel *member; ///< 本格对应的消息（tap/菜单定位用）
 @property (nonatomic, copy)   NSString *loadKey;      ///< 异步加载防串图
+@property (nonatomic, assign, readonly) BOOL gated;   ///< YES=未下载门控中（点击=下载，不进查看器）
 - (void)setProgress:(nullable IMUploadProgress *)p; ///< nil/已完成=无覆盖；否则环形进度；failed=红「!」
+/// 下载门控（M4-7）：nil=就绪（清掉门控外观）；非 nil=显 ↓/环形进度 + 尺寸角标。
+- (void)setDownloadState:(nullable IMDownloadProgress *)dp sizeBytes:(int64_t)sizeBytes;
 @end
 
 @implementation IMAlbumTileView {
@@ -118,7 +122,49 @@
     _ring.frame = ringFrame;
     [CATransaction commit];
 }
+/// 逐格下载门控（收到的媒体，M4-7）：中心 ↓/⏸/↻ + 环形进度 + 左上角尺寸角标；nil 清回就绪外观。
+/// 与上传态互斥——门控只对**收到的**消息成立，收到的消息不可能同时在上传。
+- (void)setDownloadState:(IMDownloadProgress *)dp sizeBytes:(int64_t)sizeBytes {
+    _gated = dp != nil && dp.phase != IMDownloadPhaseDone;
+    if (!_gated) {
+        _dim.hidden = YES; _ringBG.hidden = YES; _ring.hidden = YES;
+        _stateBadge.hidden = YES; _failBadge.hidden = YES;
+        _playBadge.hidden = ![self.member.contentType isEqualToString:@"video"];
+        self.isAccessibilityElement = NO; self.accessibilityLabel = nil;
+        return;
+    }
+    _playBadge.hidden = YES; _failBadge.hidden = YES;
+    _dim.hidden = NO;
+    // 中心图标沿用上传宫格的「小一号纯字形」口径（气泡用 .circle.fill 版本，这里去掉圆底）。
+    NSString *symbol = @"arrow.down";
+    if (dp.phase == IMDownloadPhaseDownloading) { symbol = dp.pausable ? @"pause.fill" : @"xmark"; }
+    else if (dp.phase == IMDownloadPhaseFailed) { symbol = dp.expired ? nil : @"arrow.clockwise"; } // 已失效：不给重试
+    _stateBadge.image = symbol ? [UIImage systemImageNamed:symbol
+                                         withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:13 weight:UIImageSymbolWeightBold]]
+                               : nil;
+    _stateBadge.hidden = symbol == nil;
+    self.isAccessibilityElement = YES;
+    self.accessibilityTraits = UIAccessibilityTraitButton;
+    self.accessibilityLabel = [dp accessibilityText];
+    BOOL showRing = dp.phase == IMDownloadPhaseDownloading || dp.phase == IMDownloadPhasePaused;
+    _ringBG.hidden = !showRing; _ring.hidden = !showRing;
+    if (showRing) {
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        _ring.strokeEnd = MAX(0.02, dp.fraction);
+        [CATransaction commit];
+    }
+    // 左上角角标：未下载显尺寸（"下载前先知道多大"），下载中/暂停显已下/总，失败显文案。
+    // 格子只有 ~78pt 宽，容不下「尺寸 · 时长」两项 → 门控期让位给尺寸，时长等就绪后回来。
+    NSString *text = dp.phase == IMDownloadPhaseNotStarted
+        ? (sizeBytes > 0 ? IMFormatFileSize(sizeBytes) : nil) : [dp displayText];
+    _durationChip.text = text;
+    _durationChip.hidden = text.length == 0;
+    [self setNeedsLayout];
+}
+
 - (void)setProgress:(IMUploadProgress *)p {
+    if (_gated) { return; } // 门控格的外观由 setDownloadState: 全权负责，勿被上传路径复位
     // 时长角标不参与覆盖层互斥：宫格的进度是中心圆环，左上角本就空着——探测出时长（上传前）即显示。
     // （单张气泡不同：其左上角要显「已传/总大小」文字，才需要互斥。）
     if (!p || (!p.failed && p.overallFraction >= 1)) { // 无进度 / 完成
@@ -391,7 +437,26 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
     tile.durationChip.text = isVideo ? IMFormatMediaDuration(m.duration) : nil;
     tile.durationChip.hidden = tile.durationChip.text.length == 0;
     [tile setNeedsLayout];
+    // 下载门控（M4-7）先于上传态判定：门控成立时 setProgress: 自会让位（收到的消息不会同时在上传）。
+    BOOL remote = m.content.length > 0 && ![IMPendingMediaStore isLocalRef:m.content];
+    IMDownloadProgress *dl = (remote && self.downloadStateForItem) ? self.downloadStateForItem(m) : nil;
+    [tile setDownloadState:dl sizeBytes:m.fileSize];
     [tile setProgress:progress[m.clientMsgID ?: @""]];
+    if (tile.gated) {
+        // 门控格不拉原图/封面：只显 thumb 模糊占位（~200B data URI），没有就留灰底。
+        tile.loadKey = nil;
+        tile.imageView.image = nil;
+        if (m.thumb.length > 0) {
+            __weak IMAlbumTileView *wt = tile;
+            NSString *thumbKey = m.thumb;
+            tile.loadKey = thumbKey;
+            [[IMImageLoader shared] loadImageURL:thumbKey completion:^(UIImage *img) {
+                __strong IMAlbumTileView *t = wt;
+                if (t && img && [t.loadKey isEqualToString:thumbKey]) { t.imageView.image = img; }
+            }];
+        }
+        return;
+    }
 
     UIImage *preview = previews[m.clientMsgID ?: @""];
     if (preview) { tile.imageView.image = preview; tile.loadKey = nil; return; }
@@ -427,6 +492,7 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
         if (tile.hidden || !m) { continue; }
         [members addObject:m];
         mine = mine || m.status != IMMessageStatusReceived;
+        if (tile.gated) { continue; } // 门控格的角标/图由 setDownloadState: 管，定点刷新别把它复位
         [tile setProgress:progress[m.clientMsgID ?: @""]];
         UIImage *preview = previews[m.clientMsgID ?: @""];
         if (preview && tile.imageView.image == nil) { tile.imageView.image = preview; }
@@ -472,7 +538,10 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
 
 - (void)tileTapped:(UITapGestureRecognizer *)gr {
     IMAlbumTileView *tile = (IMAlbumTileView *)gr.view;
-    if ([tile isKindOfClass:IMAlbumTileView.class] && tile.member && _onTapItem) { _onTapItem(tile.member); }
+    if (![tile isKindOfClass:IMAlbumTileView.class] || !tile.member) { return; }
+    // 门控格：点击=下载/暂停/继续/重试（就地，不进查看器）；就绪格才走查看器（铁律②：完成不自动打开）。
+    if (tile.gated) { if (_onDownloadItem) { _onDownloadItem(tile.member); } return; }
+    if (_onTapItem) { _onTapItem(tile.member); }
 }
 
 /// 每块自带长按菜单（定位到该块对应的单条消息 → 单张引用/转发/撤回/收藏等）。
@@ -499,10 +568,16 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
 
 - (void)prepareForReuse {
     [super prepareForReuse];
-    for (IMAlbumTileView *tile in _tiles) { tile.member = nil; tile.loadKey = nil; tile.imageView.image = nil; [tile setProgress:nil]; }
+    for (IMAlbumTileView *tile in _tiles) {
+        [tile setDownloadState:nil sizeBytes:0]; // 先清门控，否则 setProgress: 会被门控守卫挡住
+        tile.member = nil; tile.loadKey = nil; tile.imageView.image = nil;
+        [tile setProgress:nil];
+    }
     _avatar.hidden = YES;
     _leading.constant = 12;
     _onTapItem = nil;
     _menuForItem = nil;
+    _downloadStateForItem = nil;
+    _onDownloadItem = nil;
 }
 @end

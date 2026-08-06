@@ -4,6 +4,27 @@
 > 历史流水见 `current_task.archive.md` + `git log`。关键约定见 `CLAUDE.md` / `ARCHITECTURE.md` / `CODING_STYLE.md`。
 
 ## 当前焦点
+**下载 UI/UX + 数据和存储（任务三/四）✅ 阶段 0–5 全部完成（2026-08-06，build 绿，compile-only 未上模拟器，待手测）**
+- **新公共件 `IMMediaDownloadCoordinator`**（Network/）：策略判定 / 门控态 / 点击路由 / 落地位置一处实现，
+  **聊天页与会话详情页共用**（key=content ⇒ 同一份文件共享一个下载态与进度，转发/重复卡片天然去重）。
+  聊天页原先散在 VC 里的 ~100 行编排全部迁入并删除。
+- 接入四处：`IMBubbleCell`（文件五态，早前已有）/ `IMImageCell`（**新增 `downloadProgress` + 进度环**，图片与视频门控）/
+  `IMAlbumCell`（**逐格门控**：↓ / 环形 / 尺寸角标 / thumb 占位，点门控格=下载而非进查看器）/ `IMChatDetailViewController`（媒体宫格 + 文件行三态）。
+- **视频整段预取**：落地到 `IMOriginalVideoCache` —— 查看器早就认这份本地原件，下完点开即**本地播放**、不再流式拉远端。
+- **thumb 落库**：`im_message_local` 补 `thumb` 列（迁移表 + INSERT + UPDATE 用 `LENGTH(?)>0` 防空回声覆盖 + 读回），重启后未下载卡片仍有模糊预览。
+- **失败分因**：`IMDownloadProgress.expired`（404/410）→「文件已失效」**不给重试**；**无障碍** `accessibilityText` 接四处 cell。
+- **修真 bug**：设置页清缓存原先只算/清 `IMDownloads`，漏 `im_original_videos` + `im_image_cache`
+  →「显示 0 B 却占几百 MB」「清了还在」「图片清完仍不回退未下载态」。现三目录一起清 + `IMImageLoader clearCache`（连**内存**缓存）。
+- **详情页 `autoPrefetchEnabled = NO`**：浏览历史媒体不该顺手把几十条视频拉下来。
+- **日志（2026-08-06 补）**：全部走 `IMLogWithTag(IMLogTagMedia,…)`。Coordinator 记**决策**
+  （`download_auto_prefetch` / `download_start reason=auto|manual` / `download_result_failed expired=` / `download_image_gate_released`）；
+  Downloader 记**传输事实**（`download_request offset=` 断点起点 / `download_range_ignored_restart` 解释进度倒退 /
+  `download_http_error status=` / `download_completed bytes= duration_ms=`）；Store 记 `download_settings_applied version=`
+  与 `capabilities_update_received version=`（三点对账定位"另一端改了这台没变"）；清缓存记 `media_cache_cleared bytes=`。
+  **不在 `stateForMessage:` 里打日志**——它每次 cellForRow 都会走，滚动即刷屏。
+- **未做**：后台续传（background URLSession）；详情页文件行长按「转发/删除/在聊天中定位」；超大文件流量二次确认；保存到相册（P1）。
+  取舍：聊天页对**滚到的历史视频**也会按策略预取；视频超上限后不再流式播放，需下全片（对齐草图终态 ▶）。
+
 **Typing 提示位置对齐（2026-08-05，待用户手测）**：已移除输入栏上方的提示条；收到 typing 后聊天标题栏副标题显示「正在输入」，3 秒无新帧即恢复单聊在线态或群聊成员数。按本次要求未编译、未跑测试。
 
 **参与四大任务（2026-08-05）**——协作 IMServer/im-web：

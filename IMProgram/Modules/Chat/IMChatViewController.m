@@ -20,6 +20,9 @@
 #import "IMChatRecordViewController.h"
 #import "IMMediaPicker.h"
 #import "IMMediaUtil.h"
+#import "IMMediaDownloadCoordinator.h" // 下载编排（门控/进度/落地，与详情页共用）
+#import "IMDownloadProgress.h"
+#import <QuickLook/QuickLook.h>
 #import "IMPendingMediaStore.h"
 #import "IMChunkedUploader.h"
 #import "IMMediaSendService.h"
@@ -116,7 +119,10 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
     return thumb;
 }
 
-@interface IMChatViewController () <IMSocketManagerDelegate, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIDocumentPickerDelegate>
+@interface IMChatViewController () <IMSocketManagerDelegate, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIDocumentPickerDelegate, QLPreviewControllerDataSource>
+/// 收到的图片/视频/文件的下载编排（门控态 + 点击路由 + 自动预取，M4-7）。与会话详情页共用同一实现。
+@property (nonatomic, strong) IMMediaDownloadCoordinator *downloads;
+@property (nonatomic, strong, nullable) NSURL *quickLookURL; // QuickLook 预览中的本地文件
 @property (nonatomic, copy) NSString *host;
 @property (nonatomic, copy) NSString *userID;
 @property (nonatomic, strong) IMDatabaseAccountContext *databaseContext;
@@ -1991,8 +1997,17 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         return;
     }
     if (m.recalledAt > 0) { return; }
-    // 文件消息 → 打开/下载（URL 文本消息由独立的链接卡片 cell 自行处理点击，不在此重复）。
-    if ([m.contentType isEqualToString:@"file"]) { [self openLink:[self fullMediaURL:m.content]]; }
+    // 文件消息（M4-7）：自己发的保持应用内浏览器打开；收到的——已下载则本地 QuickLook 预览、未下载则点整条=触发下载。
+    if ([m.contentType isEqualToString:@"file"]) {
+        BOOL fileMine = [m.from isEqualToString:self.userID];
+        if (fileMine) {
+            [self openLink:[self fullMediaURL:m.content]];
+        } else if ([self.downloads localFileForMessage:m]) {
+            [self openCachedFile:m];
+        } else {
+            [self.downloads handleTapForMessage:m]; // 未下载/暂停/失败：点整条 = 点 ↓ 同效
+        }
+    }
 }
 
 /// 应用内浏览器打开链接（SFSafariViewController，仅接受 http/https）。
@@ -2001,6 +2016,46 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     if (!url || !([url.scheme isEqualToString:@"http"] || [url.scheme isEqualToString:@"https"])) { return; }
     SFSafariViewController *safari = [[SFSafariViewController alloc] initWithURL:url];
     [self presentViewController:safari animated:YES completion:nil];
+}
+
+#pragma mark - 下载编排（收到的图片 / 视频 / 文件，M4-7）
+
+/// 策略判定 / 门控态 / 点击路由 / 落地位置全在 `IMMediaDownloadCoordinator` 里（与会话详情页共用同一份实现）。
+- (IMMediaDownloadCoordinator *)downloads {
+    if (!_downloads) {
+        _downloads = [[IMMediaDownloadCoordinator alloc] initWithHost:self.host
+                                                             myUserID:self.userID
+                                                              isGroup:self.isGroupChat];
+        __weak typeof(self) ws = self;
+        _downloads.onStateChanged = ^(IMMessageModel *m) { [ws refreshRowForMessage:m]; };
+    }
+    return _downloads;
+}
+
+/// 定点刷新该消息的可见行（相册成员映射到宫格 leader 行；媒体气泡行高不变，reload 不动布局）。
+- (void)refreshRowForMessage:(IMMessageModel *)m {
+    NSUInteger row = [self visibleRowForMessage:m];
+    if (row == NSNotFound || (NSInteger)row >= [self.tableView numberOfRowsInSection:0]) { return; }
+    [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:(NSInteger)row inSection:0]]
+                          withRowAnimation:UITableViewRowAnimationNone];
+}
+
+/// 已下载的文件 → 本地 QuickLook 预览（不再丢给应用内浏览器）。
+- (void)openCachedFile:(IMMessageModel *)m {
+    NSURL *local = [self.downloads localFileForMessage:m];
+    if (!local) { return; }
+    self.quickLookURL = local;
+    QLPreviewController *ql = [QLPreviewController new];
+    ql.dataSource = self;
+    [self presentViewController:ql animated:YES completion:nil];
+}
+
+- (NSInteger)numberOfPreviewItemsInPreviewController:(QLPreviewController *)controller {
+    return self.quickLookURL ? 1 : 0;
+}
+
+- (id<QLPreviewItem>)previewController:(QLPreviewController *)controller previewItemAtIndex:(NSInteger)index {
+    return self.quickLookURL;
 }
 
 /// 跳转到被引用的原消息：滚到该 conv_seq 行并高亮一闪（与 Web quoteflash 同节奏，1.2s）。
@@ -2321,6 +2376,16 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         BOOL firstAlb = grpAlb && [self isFirstInSenderRun:indexPath.row];           // 连续段首条→显示名
         BOOL lastAlb = grpAlb && [self isLastInSenderRun:indexPath.row];             // 连续段末条→显示头像
         NSString *senderNameAlb = firstAlb ? [self senderNameForMessage:m] : nil;
+        // 逐格下载门控（M4-7）：必须在 configure **前**挂好——bind 每一格时会回调查询该格的门控态。
+        __weak typeof(self) wsAlbDl = self;
+        alb.downloadStateForItem = ^IMDownloadProgress *(IMMessageModel *mm) {
+            __strong typeof(wsAlbDl) self = wsAlbDl;
+            return self ? [self.downloads stateForMessage:mm] : nil;
+        };
+        alb.onDownloadItem = ^(IMMessageModel *mm) {
+            __strong typeof(wsAlbDl) self = wsAlbDl;
+            if (self) { [self.downloads handleTapForMessage:mm]; }
+        };
         [alb configureWithMembers:members mine:mineAlb host:self.host
                          previews:self.outboxPreviews progress:self.outboxProgress senderName:senderNameAlb];
         [alb applyGroupAvatarURL:(grpAlb ? [self senderAvatarURLForMessage:m] : nil)
@@ -2365,8 +2430,14 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
             || (m.convSeq <= 0 && m.content.length == 0
                 && (m.status == IMMessageStatusSending || m.status == IMMessageStatusFailed));
         UIImage *previewI = pendingLocal ? [self pendingPreviewForMessage:m] : self.outboxPreviews[key];
+        NSString *imgFullURL = ((m.content.length > 0 && !pendingLocal) ? [self fullMediaURL:m.content] : @"");
+        // 门控（M4-7）：收到的图片/视频按策略"未下载" → 显 ↓（下载中为环形进度）+ 尺寸角标，不加载原图/不放行播放。
+        // 视频封面仍照显（poster 只有几十 KB），门控挡的是**整段视频**。
+        IMDownloadProgress *gate = pendingLocal ? nil : [self.downloads stateForMessage:m];
+        img.gated = gate != nil;
+        img.downloadProgress = gate;
         [img configureWithMessage:m
-                          fullURL:((m.content.length > 0 && !pendingLocal) ? [self fullMediaURL:m.content] : @"")
+                          fullURL:imgFullURL
                         posterURL:(m.poster.length > 0 ? [self fullMediaURL:m.poster] : nil)
                              mine:mineI peerReadSeq:self.peerReadSeq
                      previewImage:previewI senderName:senderNameI];
@@ -2379,6 +2450,10 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         [img setUploadProgress:progI];
         __weak typeof(self) ws = self;
         img.onNoteActionTap = ^{ [ws sendFriendRequestFromRejectedNote]; };
+        img.onDownloadTap = ^{ // 门控点 ↓：图片=解除门控重载；视频=下载状态机（M4-7）
+            __strong typeof(ws) self = ws;
+            if (self) { [self.downloads handleTapForMessage:m]; }
+        };
         img.onTap = ^(UIImage *image) {
             __strong typeof(ws) self = ws;
             if (!self) { return; }
@@ -2440,12 +2515,21 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         fileProgress = [IMUploadProgress failedProgress]; // 重进会话：内存进度已空，按落库状态补
     }
     cell.uploadProgress = fileProgress;
-    // 图标位点击 = 媒体同款状态机（⏸/↑/↻/✕）；仅上传中/失败态挂回调（完成态点整条气泡打开文件）。
+    // 收到的文件：下载态（M4-7）。自己发的走上传态、二者互斥；有上传态时不叠加下载态。
+    cell.downloadProgress = (!mine && !fileProgress && [m.contentType isEqualToString:@"file"])
+        ? [self.downloads stateForMessage:m] : nil;
+    // 图标位点击：上传态=发送状态机（⏸/↑/↻/✕）；下载态=下载状态机（↓/⏸/↻）；就绪/完成态不挂（点整条气泡打开）。
     if (fileProgress && [m.contentType isEqualToString:@"file"]) {
         __weak typeof(self) wsFile = self;
         cell.onFileControlTap = ^{
             __strong typeof(wsFile) self = wsFile;
             if (self) { [self handlePendingMediaTap:m]; }
+        };
+    } else if (cell.downloadProgress && [m.contentType isEqualToString:@"file"]) {
+        __weak typeof(self) wsDl = self;
+        cell.onFileControlTap = ^{
+            __strong typeof(wsDl) self = wsDl;
+            if (self) { [self.downloads handleTapForMessage:m]; }
         };
     } else {
         cell.onFileControlTap = nil;

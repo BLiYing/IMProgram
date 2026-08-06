@@ -6,6 +6,7 @@
 #import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
 #import "IMProfileEditViewController.h"
 #import "IMAppearanceViewController.h"
+#import "IMDataStorageViewController.h"
 #import "IMBlockedListViewController.h"
 #import "IMFavoritesViewController.h"
 #import "IMLoginViewController.h"
@@ -485,9 +486,9 @@
         [IMSettingsRow rowWithId:@"privacy" title:@"隐私与安全" image:@"lock.fill"
                           iconBg:UIColor.systemGrayColor right:nil destructive:NO
                          handler:^{ [ws openBlocked]; }],
-        [IMSettingsRow rowWithId:@"storage" title:@"数据与存储" image:@"externaldrive.fill"
+        [IMSettingsRow rowWithId:@"storage" title:@"数据和存储" image:@"externaldrive.fill"
                           iconBg:UIColor.systemGreenColor right:nil destructive:NO
-                         handler:^{ [ws comingSoon:@"数据与存储"]; }],
+                         handler:^{ [ws.navigationController pushViewController:[IMDataStorageViewController new] animated:YES]; }],
         [IMSettingsRow rowWithId:@"appearance" title:@"外观" image:@"circle.lefthalf.filled"
                           iconBg:UIColor.systemBlueColor right:nil destructive:NO
                          handler:^{ [ws.navigationController pushViewController:[IMAppearanceViewController new] animated:YES]; }],

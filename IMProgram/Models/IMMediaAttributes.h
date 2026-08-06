@@ -18,6 +18,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) NSInteger pixelHeight;     ///< 媒体像素高（0=未知）
 @property (nonatomic, assign) int64_t durationMillis;    ///< 视频时长，毫秒（0=未知/非视频）
 @property (nonatomic, assign) int64_t fileSize;          ///< 原始字节数（0=未知）
+@property (nonatomic, copy, nullable) NSString *thumb;   ///< 极小模糊预览（~20px 缩略 JPEG 的 data URI，M4-7）：收端未下载时放大+模糊显占位，免先下原图
 
 /// 便捷构造：仅带相册分组与封面（老调用路径）。
 + (instancetype)attributesWithGroupID:(nullable NSString *)groupID poster:(nullable NSString *)poster;

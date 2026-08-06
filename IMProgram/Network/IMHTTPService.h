@@ -40,6 +40,20 @@ BOOL IMIsAuthErrorCode(NSInteger code);
 - (void)conversationsWithToken:(NSString *)token
                     completion:(void (^)(NSArray<IMConversation *> *_Nullable conversations, NSError *_Nullable error))completion;
 
+/// 拉取账号级自动下载策略（M4-7）：GET /api/v1/download-settings，回 data 字典 `{version, settings:{...}}`。
+/// completion 在主线程回调；失败 data=nil。
+- (void)downloadSettingsWithToken:(NSString *)token
+                       completion:(void (^)(NSDictionary *_Nullable data, NSError *_Nullable error))completion;
+
+/// 保存自动下载策略（M4-7）：PUT /api/v1/download-settings，body=`{cellular,wifi}`；回 data `{version, settings}`。
+- (void)updateDownloadSettingsWithToken:(NSString *)token
+                               settings:(NSDictionary *)settings
+                             completion:(void (^)(NSDictionary *_Nullable data, NSError *_Nullable error))completion;
+
+/// 恢复出厂默认（M4-7）：POST /api/v1/download-settings/reset；回 data `{version, settings}`。
+- (void)resetDownloadSettingsWithToken:(NSString *)token
+                            completion:(void (^)(NSDictionary *_Nullable data, NSError *_Nullable error))completion;
+
 /// 我发送的文件：服务端游标分页，默认 50 条。cursor 为空取第一页。
 - (void)sentFilesWithToken:(NSString *)token
                      cursor:(nullable NSString *)cursor

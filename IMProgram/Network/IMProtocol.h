@@ -23,6 +23,7 @@ extern NSString * const kIMTypeFriend;
 extern NSString * const kIMTypeGroup;
 extern NSString * const kIMTypeMsgOp;
 extern NSString * const kIMTypeConvUpdate; ///< 会话级设置变更（置顶/免打扰/标未读/删除会话，M4.5）
+extern NSString * const kIMTypeCapabilitiesUpdate; ///< 账号级配置版本变更（自动下载策略，M4-7）：据 version 重拉 /download-settings
 extern NSString * const kIMTypeError;
 
 #pragma mark - 消息操作 op（msg_op，M4）

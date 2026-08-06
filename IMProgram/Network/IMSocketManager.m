@@ -27,6 +27,7 @@ NSString * const IMSocketDidReceiveReadNotification = @"IMSocketDidReceiveReadNo
 NSString * const IMSocketDidChangeStateNotification = @"IMSocketDidChangeStateNotification";
 NSString * const kIMConvIDKey = @"convID";
 NSString * const IMSocketDidReceivePresenceNotification = @"IMSocketDidReceivePresenceNotification";
+NSString * const IMSocketDidReceiveCapabilitiesUpdateNotification = @"IMSocketDidReceiveCapabilitiesUpdateNotification";
 NSString * const kIMPresenceUserKey = @"presenceUser";
 NSString * const kIMPresenceKey = @"presence";
 NSString * const IMSocketDidApplyMsgOpNotification = @"IMSocketDidApplyMsgOpNotification";
@@ -345,6 +346,14 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
         [self applyMsgOpPayload:payload];
     } else if ([type isEqualToString:kIMTypeConvUpdate]) {
         [self handleConvUpdate:payload];
+    } else if ([type isEqualToString:kIMTypeCapabilitiesUpdate]) {
+        // 账号级配置版本变更（自动下载策略，M4-7）：只广播，IMDownloadSettingsStore 据此重拉最新配置。
+        // 记 version：与服务端 download_settings_saved 的 version、本端随后的 download_settings_applied
+        // 三点对账，就能定位「另一端改了策略但这台没跟着变」断在哪一环。
+        IMLogSocket(@"capabilities_update_received version=%lld", (int64_t)[payload[@"version"] longLongValue]);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidReceiveCapabilitiesUpdateNotification object:self];
+        });
     } else if ([type isEqualToString:kIMTypePong]) {
         // 心跳回应，无需处理
     } else if ([type isEqualToString:kIMTypeError]) {
@@ -453,6 +462,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     if (attributes.pixelHeight > 0) { payload[@"media_h"] = @(attributes.pixelHeight); }
     if (attributes.durationMillis > 0) { payload[@"duration"] = @(attributes.durationMillis); }
     if (attributes.fileSize > 0 && !payload[@"file_size"]) { payload[@"file_size"] = @(attributes.fileSize); }
+    if (attributes.thumb.length > 0) { payload[@"thumb"] = attributes.thumb; } // 极小模糊预览（M4-7），收端未下载时显模糊占位
 
     NSString *ct = payload[@"content_type"] ?: @"";
     BOOL isMedia = [ct isEqualToString:@"image"] || [ct isEqualToString:@"video"];

@@ -2,6 +2,7 @@
 #import "IMRejectNoteView.h"
 #import "IMMessageModel.h"
 #import "IMUploadProgress.h"
+#import "IMDownloadProgress.h"
 #import "IMImageLoader.h"
 #import "IMVideoThumbnailLoader.h"
 #import "IMMediaUtil.h"
@@ -464,10 +465,25 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     _fileNameLabel.font = [UIFont systemFontOfSize:IMTheme.chatFontSize];
     _fileNameLabel.textColor = IMTheme.accent;
     _fileNameLabel.text = message.fileName.length > 0 ? message.fileName : @"文件";
+    IMDownloadProgress *dp = self.downloadProgress;
     IMUploadProgress *p = self.uploadProgress;
-    UIColor *statusColor = p.failed ? IMTheme.danger : IMTheme.textSecondary;
-    NSString *statusText = p ? [p fileLineText] : IMFormatFileSize(message.fileSize);
-    if (p.pausedByUser && !p.failed) {
+    UIColor *statusColor;
+    NSString *statusText;
+    BOOL pausedPrefix;
+    if (dp) { // 收到的文件：下载态（未下载显"尺寸 · 点击下载"，就绪显尺寸，其余显 已下/总 或失败文案）
+        statusColor = (dp.phase == IMDownloadPhaseFailed) ? IMTheme.danger : IMTheme.textSecondary;
+        switch (dp.phase) {
+            case IMDownloadPhaseNotStarted: statusText = [NSString stringWithFormat:@"%@ · 点击下载", IMFormatFileSize(message.fileSize)]; break;
+            case IMDownloadPhaseDone:       statusText = IMFormatFileSize(message.fileSize); break;
+            default:                        statusText = [dp fileLineText]; break; // 下载中 / 暂停 / 失败
+        }
+        pausedPrefix = (dp.phase == IMDownloadPhasePaused);
+    } else {
+        statusColor = p.failed ? IMTheme.danger : IMTheme.textSecondary;
+        statusText = p ? [p fileLineText] : IMFormatFileSize(message.fileSize);
+        pausedPrefix = (p.pausedByUser && !p.failed);
+    }
+    if (pausedPrefix) {
         // 暂停态：行首 ⏸ 小图标 + 字节数（与媒体角标一致；不用「已暂停」文本，图标零成本更直观）。
         UIImage *icon = [[UIImage systemImageNamed:@"pause.fill"
                                  withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:9
@@ -492,6 +508,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
 
 /// 图标位状态机：无进度=文件类型图标（不可点，点整条气泡=打开）；有进度=圆环+glyph（可点）。
 - (void)applyFileControlStateWithFileName:(NSString *)fileName {
+    if (self.downloadProgress) { [self applyDownloadControlState:self.downloadProgress fileName:fileName]; return; }
     IMUploadProgress *p = self.uploadProgress;
     _fileRingTrack.hidden = _fileRing.hidden = (p == nil);
     _fileTap.enabled = (p != nil);
@@ -511,6 +528,37 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         : (p.phase == IMUploadPhaseQueued || p.phase == IMUploadPhaseTranscoding) ? @"xmark"
         : !p.pausable ? nil // 一次性小上传：只显进度环，无可操作 glyph（几秒传完，无暂停价值）
         : p.pausedByUser ? @"arrow.up" : @"pause.fill";
+    _fileIcon.image = symbol.length > 0
+        ? [[UIImage systemImageNamed:symbol
+                   withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:15
+                                                                                     weight:UIImageSymbolWeightSemibold]]
+           imageWithTintColor:tint renderingMode:UIImageRenderingModeAlwaysOriginal]
+        : nil;
+}
+
+/// 下载态图标位状态机（收到的文件，M4-7）：未下载↓ / 下载中⏸+环 / 暂停↓ / 失败↻ / 就绪=文件图标（点整条打开）。
+/// 文件图标位用小号线性符号（媒体大钮才用 .circle.fill）；就绪态放行给表级手势。
+- (void)applyDownloadControlState:(IMDownloadProgress *)dp fileName:(NSString *)fileName {
+    BOOL showRing = (dp.phase == IMDownloadPhaseDownloading || dp.phase == IMDownloadPhasePaused);
+    _fileRingTrack.hidden = _fileRing.hidden = !showRing;
+    // 已失效（服务端已清理）与就绪一样不可点：前者无从重试，后者点整条气泡打开（草图 §02-B）。
+    _fileTap.enabled = (dp.phase != IMDownloadPhaseDone && !dp.expired);
+    if (dp.phase == IMDownloadPhaseDone) {
+        _fileIcon.image = IMFileTypeIconForName(fileName, 38);
+        return;
+    }
+    UIColor *tint = (dp.phase == IMDownloadPhaseFailed) ? IMTheme.danger : IMTheme.accent;
+    if (showRing) {
+        _fileRingTrack.strokeColor = [IMTheme.textSecondary colorWithAlphaComponent:0.25].CGColor;
+        _fileRing.strokeColor = tint.CGColor;
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        _fileRing.strokeEnd = MIN(1.0, MAX(0.0, dp.fraction));
+        [CATransaction commit];
+    }
+    NSString *symbol = (dp.phase == IMDownloadPhaseFailed) ? (dp.expired ? @"xmark.octagon" : @"arrow.clockwise")
+        : (dp.phase == IMDownloadPhaseDownloading) ? (dp.pausable ? @"pause.fill" : nil)
+        : @"arrow.down"; // 未下载 / 已暂停
     _fileIcon.image = symbol.length > 0
         ? [[UIImage systemImageNamed:symbol
                    withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:15

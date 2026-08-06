@@ -57,6 +57,8 @@ typedef NS_ENUM(NSInteger, IMMessageStatus) {
 @property (nonatomic, assign) NSInteger mediaH;
 /// M4+ 视频时长（**毫秒**，随消息回带）；0=未知/非视频 → 不显时长角标。
 @property (nonatomic, assign) int64_t duration;
+/// M4-7 图片/视频极小模糊预览（~20px 缩略 JPEG 的 data URI，随消息回带）；未下载/门控时放大+模糊显占位（空=回退中性占位）。
+@property (nonatomic, copy, nullable) NSString *thumb;
 /// M4-5 翻译：译文（**内存临时态，不落库**；翻译后挂气泡下方）。
 @property (nonatomic, copy, nullable) NSString *translation;
 

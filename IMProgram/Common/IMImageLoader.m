@@ -96,8 +96,26 @@ static NSUInteger IMImageCost(UIImage *image) {
     if (image && urlString.length > 0) { [_cache setObject:image forKey:urlString cost:IMImageCost(image)]; }
 }
 
+- (void)clearCache {
+    [_cache removeAllObjects];
+    dispatch_async(_diskQueue, ^{
+        [NSFileManager.defaultManager removeItemAtPath:self->_diskDir error:NULL];
+        [NSFileManager.defaultManager createDirectoryAtPath:self->_diskDir
+                                withIntermediateDirectories:YES attributes:nil error:NULL];
+        self->_diskBytes = 0; // 记账归零，否则下次 trim 用的是清理前的旧值
+        IMLogDebugWithTag(IMLogTagMedia, @"image_cache_cleared");
+    });
+}
+
 - (UIImage *)cachedImageForURL:(NSString *)urlString {
     return urlString.length ? [_cache objectForKey:urlString] : nil;
+}
+
+- (BOOL)hasCachedImageForURL:(NSString *)urlString {
+    if (urlString.length == 0) { return NO; }
+    if ([_cache objectForKey:urlString]) { return YES; }           // 内存
+    if ([urlString hasPrefix:@"data:"]) { return YES; }            // 内联 base64：本地即得，无需下载（门控只针对远程）
+    return [NSFileManager.defaultManager fileExistsAtPath:[self diskPathForKey:urlString]]; // 磁盘
 }
 
 - (void)loadImageURL:(NSString *)urlString completion:(void (^)(UIImage *_Nullable))completion {

@@ -472,6 +472,29 @@ NSString * const kIMMediaSendMessageKey = @"message";
 }
 
 /// socket 正式发送 + 落库换真实 ID + 清理本地副本。
+/// IMTinyThumbDataURI 由预览图生成极小模糊缩略图的 data URI（最长边 ~20px 的低质 JPEG，M4-7）。
+/// 收端未下载时可直接按此放大 + 模糊显占位（对齐 Telegram 的 stripped thumbnail），不必先下原图。
+/// 刻意做得极小（<1KB）：它随每条媒体消息常驻下发，大了会拖慢会话同步。返回 nil = 无法生成（收端回退中性占位）。
+static NSString *IMTinyThumbDataURI(UIImage *image) {
+    if (!image || image.size.width <= 0 || image.size.height <= 0) { return nil; }
+    const CGFloat maxSide = 20.0;
+    CGFloat scale = MIN(maxSide / image.size.width, maxSide / image.size.height);
+    if (scale > 1.0) { scale = 1.0; } // 不放大小图
+    CGSize target = CGSizeMake(MAX(1.0, round(image.size.width * scale)),
+                               MAX(1.0, round(image.size.height * scale)));
+    UIGraphicsImageRendererFormat *fmt = [UIGraphicsImageRendererFormat preferredFormat];
+    fmt.scale = 1.0;  // 像素即点：避免 @2x/@3x 把 20px 又放大回原尺寸
+    fmt.opaque = YES; // JPEG 无透明通道
+    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:target format:fmt];
+    UIImage *small = [renderer imageWithActions:^(UIGraphicsImageRendererContext *_Nonnull ctx) {
+        [image drawInRect:CGRectMake(0, 0, target.width, target.height)];
+    }];
+    NSData *jpeg = UIImageJPEGRepresentation(small, 0.4);
+    // 兜底：异常偏大就不带（服务端 thumb 上限 4096 rune；base64 膨胀约 4/3，故原始 >2800B 直接放弃保持"极小"契约）。
+    if (jpeg.length == 0 || jpeg.length > 2800) { return nil; }
+    return [@"data:image/jpeg;base64," stringByAppendingString:[jpeg base64EncodedStringWithOptions:0]];
+}
+
 - (void)dispatchJob:(IMMediaSendJob *)job serverURL:(NSString *)url contentType:(NSString *)ct poster:(NSString *)poster {
     IMMessageModel *m = job.message;
     NSString *oldKey = m.clientMsgID ?: @"";
@@ -518,6 +541,7 @@ NSString * const kIMMediaSendMessageKey = @"message";
         attrs.pixelHeight = m.mediaH;
         attrs.durationMillis = m.duration;
         attrs.fileSize = m.fileSize;
+        attrs.thumb = IMTinyThumbDataURI(preview); // 极小模糊预览（M4-7）：图片本体 / 视频封面首帧的缩略，收端未下载时显占位
         realID = [IMSocketManager.sharedManager sendMedia:url contentType:ct
                                                    toConv:m.convID toUser:job.toUser
                                                attributes:attrs completion:ackCompletion];
