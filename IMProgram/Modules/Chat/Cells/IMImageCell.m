@@ -45,6 +45,7 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     NSLayoutConstraint *_noteBottom;         // 有系统行时：系统行贴 cell 底
     CAShapeLayer *_ringBG;     // 下载进度环底（仅门控·下载中显示）
     CAShapeLayer *_ring;       // 下载进度环
+    UIView *_ringWrap;         // 进度环容器：固定 kIMDownloadRingSide 见方、Auto Layout 居中锚 _thumb（免手动摆位错位）
     NSString *_url;
     BOOL _sizeFromMedia;       // YES=尺寸来自协议/预览（权威），加载出图后无需重排
     BOOL _isVideoCell;         // 上传态结束后据此还原中心播放按钮（图片则隐藏）
@@ -77,7 +78,12 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
         [self.contentView addSubview:_playBadge];
 
         // 下载进度环：绕中心圆钮一圈（与相册宫格 IMAlbumTileView、草图 §02「环形进度 + ⏸」同款）。
-        // 挂在 contentView.layer 上、frame 在 layoutSubviews 里跟随 _thumb 中心。
+        // 环层挂在固定尺寸、Auto Layout 居中锚 _thumb 的 _ringWrap 上（对齐 IMBubbleCell 的 _fileIconWrap），
+        // 不再随 layoutSubviews 手动按 _thumb.frame 摆位——多选/编辑态/reload 的几何抖动下也不会脱位。
+        _ringWrap = [UIView new];
+        _ringWrap.translatesAutoresizingMaskIntoConstraints = NO;
+        _ringWrap.userInteractionEnabled = NO; // 让点击穿透到 _thumb
+        [self.contentView addSubview:_ringWrap];
         _ringBG = [self makeRingLayerWithColor:[UIColor colorWithWhite:1 alpha:0.32] rounded:NO];
         _ring = [self makeRingLayerWithColor:UIColor.whiteColor rounded:YES];
 
@@ -158,6 +164,11 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
             [_sysNote.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-24],
             [_playBadge.centerXAnchor constraintEqualToAnchor:_thumb.centerXAnchor],
             [_playBadge.centerYAnchor constraintEqualToAnchor:_thumb.centerYAnchor],
+            // 进度环容器：与中心按钮同心锚 _thumb、定宽定高（环 path 在其局部坐标内居中，无需再算 frame）。
+            [_ringWrap.centerXAnchor constraintEqualToAnchor:_thumb.centerXAnchor],
+            [_ringWrap.centerYAnchor constraintEqualToAnchor:_thumb.centerYAnchor],
+            [_ringWrap.widthAnchor constraintEqualToConstant:kIMDownloadRingSide],
+            [_ringWrap.heightAnchor constraintEqualToConstant:kIMDownloadRingSide],
             // 进度与时长共用左上角位置（互斥显示：上传中显进度，传完切回时长）。
             [_progressWrap.leadingAnchor constraintEqualToAnchor:_thumb.leadingAnchor constant:kIMBadgeInset],
             [_progressWrap.topAnchor constraintEqualToAnchor:_thumb.topAnchor constant:kIMBadgeInset],
@@ -182,7 +193,7 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     _thumbTopUnderName.priority = showName ? on : off;
 }
 
-/// 进度环的一层（底环/进度环）：路径固定在 56×56 的局部坐标里，位置由 layoutSubviews 摆。
+/// 进度环的一层（底环/进度环）：路径固定在 kIMDownloadRingSide 见方的局部坐标里，随 _ringWrap 居中锚 _thumb（无需手动摆位）。
 - (CAShapeLayer *)makeRingLayerWithColor:(UIColor *)color rounded:(BOOL)rounded {
     CGFloat r = kIMDownloadRingSide / 2 - 3;
     UIBezierPath *circle = [UIBezierPath bezierPathWithArcCenter:CGPointMake(kIMDownloadRingSide / 2, kIMDownloadRingSide / 2)
@@ -195,21 +206,8 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     if (rounded) { layer.lineCap = kCALineCapRound; layer.strokeEnd = 0; }
     layer.frame = CGRectMake(0, 0, kIMDownloadRingSide, kIMDownloadRingSide);
     layer.hidden = YES;
-    [self.contentView.layer addSublayer:layer];
+    [_ringWrap.layer addSublayer:layer];
     return layer;
-}
-
-- (void)layoutSubviews {
-    [super layoutSubviews];
-    if (_ring.hidden && _ringBG.hidden) { return; }
-    CGPoint c = CGPointMake(CGRectGetMidX(_thumb.frame), CGRectGetMidY(_thumb.frame));
-    CGRect f = CGRectMake(c.x - kIMDownloadRingSide / 2, c.y - kIMDownloadRingSide / 2,
-                          kIMDownloadRingSide, kIMDownloadRingSide);
-    [CATransaction begin];
-    [CATransaction setDisableActions:YES];
-    _ringBG.frame = f;
-    _ring.frame = f;
-    [CATransaction commit];
 }
 
 /// 造一个「半透明黑底 + 白字」的悬浮角标胶囊（浅色图上也读得清，不靠文字阴影）。
@@ -356,7 +354,6 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
         [CATransaction setDisableActions:YES]; // 高频进度回调不做隐式动画
         _ring.strokeEnd = MAX(0.02, dp.fraction); // 0% 也露一点头，可感知"在动"
         [CATransaction commit];
-        [self setNeedsLayout]; // 环的 frame 跟随 _thumb（首帧尺寸可能刚定）
     }
 }
 
