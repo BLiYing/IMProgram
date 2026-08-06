@@ -68,6 +68,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     UIImageView *_fileIcon;
     CAShapeLayer *_fileRingTrack;          // 圆环底轨（灰）
     CAShapeLayer *_fileRing;               // 圆环进度（strokeEnd=overallFraction）
+    CAShapeLayer *_fileDisc;               // 未下载态：与圆环等大的实心圆底（accent 填充，中间白色 ↓）
     UILabel *_fileNameLabel;               // 文件名：最多两行、中间截断保扩展名
     UILabel *_fileStatusLabel;             // 第二行：大小 / 准备中… / 已传 x/y / 已暂停 / 发送失败
     UILabel *_fileMetaLabel;               // 右下角：时间 + ✓/✓✓
@@ -165,6 +166,11 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         _fileRing.strokeEnd = 0;
         _fileRing.hidden = YES;
         [_fileIconWrap.layer addSublayer:_fileRing];
+        _fileDisc = [CAShapeLayer layer];        // 实心圆底与圆环同心同径（radius 19.5）；置于图标之下
+        _fileDisc.path = ringPath.CGPath;
+        _fileDisc.fillColor = UIColor.clearColor.CGColor;
+        _fileDisc.hidden = YES;
+        [_fileIconWrap.layer addSublayer:_fileDisc];
         _fileIcon = [UIImageView new];
         _fileIcon.translatesAutoresizingMaskIntoConstraints = NO;
         _fileIcon.contentMode = UIViewContentModeCenter;
@@ -437,6 +443,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         _fileStatusLabel.attributedText = nil;
         _fileMetaLabel.attributedText = nil;
         _fileIcon.image = nil;
+        _fileDisc.hidden = _fileRingTrack.hidden = _fileRing.hidden = YES; // 复用回非文件消息：清掉圆底/圆环残留
     }
 
     // 发送失败：气泡左侧红❗（仅自己）；被拒收等→气泡下方居中系统行（微信式）。
@@ -526,6 +533,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
 - (void)applyFileControlStateWithFileName:(NSString *)fileName {
     if (self.downloadProgress) { [self applyDownloadControlState:self.downloadProgress fileName:fileName]; return; }
     IMUploadProgress *p = self.uploadProgress;
+    _fileDisc.hidden = YES; // 上传态/无进度态不用实心圆底
     _fileRingTrack.hidden = _fileRing.hidden = (p == nil);
     _fileTap.enabled = (p != nil);
     if (!p) {
@@ -557,6 +565,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
 - (void)applyDownloadControlState:(IMDownloadProgress *)dp fileName:(NSString *)fileName {
     BOOL showRing = (dp.phase == IMDownloadPhaseDownloading || dp.phase == IMDownloadPhasePaused);
     _fileRingTrack.hidden = _fileRing.hidden = !showRing;
+    _fileDisc.hidden = YES; // 默认隐藏实心圆底，仅未下载态显
     // 已失效（服务端已清理）与就绪一样不可点：前者无从重试，后者点整条气泡打开（草图 §02-B）。
     _fileTap.enabled = (dp.phase != IMDownloadPhaseDone && !dp.expired);
     if (dp.phase == IMDownloadPhaseDone) {
@@ -564,6 +573,12 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         return;
     }
     UIColor *tint = (dp.phase == IMDownloadPhaseFailed) ? IMTheme.danger : IMTheme.accent;
+    // 未下载态：不再是孤零零一个箭头 —— 与圆环等大的 accent 实心圆底 + 中间白色 ↓。
+    BOOL notStarted = (dp.phase == IMDownloadPhaseNotStarted);
+    if (notStarted) {
+        _fileDisc.hidden = NO;
+        _fileDisc.fillColor = IMTheme.accent.CGColor;
+    }
     if (showRing) {
         _fileRingTrack.strokeColor = [IMTheme.textSecondary colorWithAlphaComponent:0.25].CGColor;
         _fileRing.strokeColor = tint.CGColor;
@@ -575,11 +590,12 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     NSString *symbol = (dp.phase == IMDownloadPhaseFailed) ? (dp.expired ? @"xmark.octagon" : @"arrow.clockwise")
         : (dp.phase == IMDownloadPhaseDownloading) ? (dp.pausable ? @"pause.fill" : nil)
         : @"arrow.down"; // 未下载 / 已暂停
+    UIColor *glyphTint = notStarted ? UIColor.whiteColor : tint; // 未下载态箭头落在实心圆底上 → 白色
     _fileIcon.image = symbol.length > 0
         ? [[UIImage systemImageNamed:symbol
                    withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:15
                                                                                      weight:UIImageSymbolWeightSemibold]]
-           imageWithTintColor:tint renderingMode:UIImageRenderingModeAlwaysOriginal]
+           imageWithTintColor:glyphTint renderingMode:UIImageRenderingModeAlwaysOriginal]
         : nil;
 }
 
