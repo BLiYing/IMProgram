@@ -4,6 +4,8 @@
 
 #import <UIKit/UIKit.h>
 
+@class IMMessageModel;
+
 NS_ASSUME_NONNULL_BEGIN
 
 /// 会话历史被清空（资料页「清空聊天记录」）→ 聊天页据此清空内存并刷新。userInfo[kIMConvIDKey]=会话 id。
@@ -40,6 +42,16 @@ extern NSNotificationName const IMChatConversationClearedNotification;
 /// 供统一自定义导航栏读取群聊副标题（成员人数）；不改变聊天业务状态。
 - (BOOL)im_isGroupChat;
 - (nullable NSString *)im_navigationSubtitle;
+
+/// 本会话 id（单聊=IMConversationID(uid,peer)，群聊=群 topic_id）。供详情页在导航栈里反查本聊天页。
+@property (nonatomic, copy, readonly) NSString *convID;
+
+/// 转发一条消息：present 转发选择页并把选中的会话逐一回声。**presenter** 是实际弹出选择页的 VC
+/// （详情页文件列表复用本逻辑时传自己，保证呈现上下文正确、toast 落在可见页）。
+- (void)presentForwardPickerForMessage:(IMMessageModel *)message fromViewController:(UIViewController *)presenter;
+
+/// 定位到本会话某条消息：滚到该 conv_seq 行并高亮一闪。详情页「定位到聊天」pop 回本页后调用。
+- (void)jumpToConvSeq:(int64_t)convSeq;
 
 - (instancetype)init NS_UNAVAILABLE;
 - (instancetype)initWithNibName:(nullable NSString *)nibNameOrNil bundle:(nullable NSBundle *)nibBundleOrNil NS_UNAVAILABLE;

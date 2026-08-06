@@ -162,7 +162,7 @@
             [task pause];
             _states[key] = [IMDownloadProgress pausedWithReceived:task.receivedBytes total:total];
         }
-        [self notifyChanged:m];
+        [self notifyProgress:m]; // 暂停/继续只切换环+图标，就地更新即可，不必 reload
         return;
     }
     [self startDownloadForMessage:m];
@@ -178,6 +178,9 @@
     [task cancel];                          // 丢弃 .part、注销任务、不再回调
     [_states removeObjectForKey:key];       // 回到"未下载"
     [_autoTried addObject:key];             // 用户主动取消过 → 别再被策略自动拉起来（铁律③手动优先）
+    // 取消是「下载中→未下载」的整条状态切换（不是同态进度更新）：**必须 reload** 让 cellForRow 重跑
+    // stateForMessage 重新合成 notStarted。若走 notifyProgress，_states 已删空 → onProgress 收到 nil，
+    // 文件行会把 nil 当「已下载」渲染（渲染出文件图标 + "已下载"），错得离谱。
     [self notifyChanged:m];
 }
 
@@ -194,7 +197,9 @@
     IMLogWithTag(IMLogTagMedia, @"download_start %@ reason=%@ retry=%d", [self logContextForMessage:m],
                  [_autoTried containsObject:key] ? @"auto" : @"manual", _states[key].phase == IMDownloadPhaseFailed);
     _states[key] = [IMDownloadProgress downloadingWithReceived:0 total:m.fileSize pausable:YES];
-    [self notifyChanged:m];
+    // 首次点下载：未下载→下载中只是 ↓ 换成进度环（门控态不变、行高不变）→ 就地更新，**不 reload**。
+    // 这是「第一次点下载最明显的跳变/卡死」的根因修复：原先每次都 reloadRows。
+    [self notifyProgress:m];
     IMMediaDownloadTask *task = [[IMMediaDownloader shared] downloadURL:remote toDestination:dest key:key];
     [self attachHandlersToTask:task message:m];
 }
@@ -210,7 +215,7 @@
         self->_states[key] = [IMDownloadProgress downloadingWithReceived:received
                                                                   total:(total > 0 ? total : declared)
                                                                pausable:YES];
-        [self notifyChanged:m];
+        [self notifyProgress:m]; // **高频**：每片一次，务必就地更新（reload 会卡死主线程 + 图片行跳变）
     };
     task.completionHandler = ^(NSURL *localURL, NSError *error) {
         __strong typeof(ws) self = ws;
@@ -225,13 +230,21 @@
             self->_states[key] = expired
                 ? [IMDownloadProgress expiredWithTotalBytes:declared]
                 : [IMDownloadProgress failedWithReceived:0 total:declared];
+            [self notifyProgress:m]; // 失败：环消失、图标变 ↻，门控态仍在 → 就地更新
         } else {
             [self->_states removeObjectForKey:key]; // 已落地 → 下次查询 isCached 即"就绪"
+            [self notifyChanged:m]; // 就绪：cell 内容整体切换（清晰图/▶/文件图标）→ 必须 reload 重配
         }
-        [self notifyChanged:m];
     };
 }
 
+/// 高频/门控内更新：优先就地（onProgress），未接则回落 reload（onStateChanged）。
+- (void)notifyProgress:(IMMessageModel *)m {
+    if (self.onProgress) { self.onProgress(m, _states[[self keyForMessage:m]]); return; }
+    if (self.onStateChanged) { self.onStateChanged(m); }
+}
+
+/// 低频整条重配：图片解除门控 / 下载完成。
 - (void)notifyChanged:(IMMessageModel *)m {
     if (self.onStateChanged) { self.onStateChanged(m); }
 }

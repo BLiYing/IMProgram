@@ -71,6 +71,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     UILabel *_fileNameLabel;               // 文件名：最多两行、中间截断保扩展名
     UILabel *_fileStatusLabel;             // 第二行：大小 / 准备中… / 已传 x/y / 已暂停 / 发送失败
     UILabel *_fileMetaLabel;               // 右下角：时间 + ✓/✓✓
+    int64_t _fileSizeBytes;                // 记住文件字节数：进度就地更新时未下载/就绪态拼"尺寸 · …"用
     UITapGestureRecognizer *_fileTap;
     NSLayoutConstraint *_fileRowBottom;    // 文件消息：文件行贴气泡底
     NSLayoutConstraint *_fileMinWidth;     // 文件消息：行定宽=气泡上限宽（仅文件模式激活，勿撑大文本气泡）
@@ -465,6 +466,14 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     _fileNameLabel.font = [UIFont systemFontOfSize:IMTheme.chatFontSize];
     _fileNameLabel.textColor = IMTheme.accent;
     _fileNameLabel.text = message.fileName.length > 0 ? message.fileName : @"文件";
+    _fileSizeBytes = message.fileSize; // 记住：进度就地更新时未下载/就绪态要拼"尺寸 · 点击下载"
+    [self applyFileStatusLine];
+    _fileMetaLabel.attributedText = [self attributedMetaForMessage:message mine:mine peerReadSeq:peerReadSeq];
+    [self applyFileControlStateWithFileName:_fileNameLabel.text];
+}
+
+/// 第二行状态文案：按下载态（收到的文件）或上传态渲染。configure 与进度就地更新共用一份。
+- (void)applyFileStatusLine {
     IMDownloadProgress *dp = self.downloadProgress;
     IMUploadProgress *p = self.uploadProgress;
     UIColor *statusColor;
@@ -473,14 +482,14 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     if (dp) { // 收到的文件：下载态（未下载显"尺寸 · 点击下载"，就绪显尺寸，其余显 已下/总 或失败文案）
         statusColor = (dp.phase == IMDownloadPhaseFailed) ? IMTheme.danger : IMTheme.textSecondary;
         switch (dp.phase) {
-            case IMDownloadPhaseNotStarted: statusText = [NSString stringWithFormat:@"%@ · 点击下载", IMFormatFileSize(message.fileSize)]; break;
-            case IMDownloadPhaseDone:       statusText = IMFormatFileSize(message.fileSize); break;
+            case IMDownloadPhaseNotStarted: statusText = [NSString stringWithFormat:@"%@ · 点击下载", IMFormatFileSize(_fileSizeBytes)]; break;
+            case IMDownloadPhaseDone:       statusText = IMFormatFileSize(_fileSizeBytes); break;
             default:                        statusText = [dp fileLineText]; break; // 下载中 / 暂停 / 失败
         }
         pausedPrefix = (dp.phase == IMDownloadPhasePaused);
     } else {
         statusColor = p.failed ? IMTheme.danger : IMTheme.textSecondary;
-        statusText = p ? [p fileLineText] : IMFormatFileSize(message.fileSize);
+        statusText = p ? [p fileLineText] : IMFormatFileSize(_fileSizeBytes);
         pausedPrefix = (p.pausedByUser && !p.failed);
     }
     if (pausedPrefix) {
@@ -502,7 +511,14 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         _fileStatusLabel.text = statusText;
         _fileStatusLabel.textColor = statusColor;
     }
-    _fileMetaLabel.attributedText = [self attributedMetaForMessage:message mine:mine peerReadSeq:peerReadSeq];
+}
+
+/// 下载进度**就地更新**（M4-7）：宿主在高频 onProgress 回调里调用——只改第二行文案 + 图标位环/字形，
+/// 不重配整行、不 reloadRows（文件气泡固定高，reload 也无跳变，但高频 reload 会卡死主线程）。
+- (void)updateDownloadProgress:(IMDownloadProgress *)dp {
+    if (!self.downloadProgress) { return; } // 非收到文件的下载态，忽略
+    self.downloadProgress = dp;
+    [self applyFileStatusLine];
     [self applyFileControlStateWithFileName:_fileNameLabel.text];
 }
 

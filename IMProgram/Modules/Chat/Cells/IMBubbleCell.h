@@ -20,6 +20,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// 自己发的用 uploadProgress，收到的用 downloadProgress。图标位据此变圆环状态机（未下载↓ / 下载中⏸ / 暂停↓ / 失败↻ / 就绪=文件图标）。
 @property (nonatomic, strong, nullable) IMDownloadProgress *downloadProgress;
 
+/// 下载进度**就地更新**（M4-7）：宿主在高频 onProgress 回调里调用，只改第二行文案 + 图标位环/字形，
+/// 不重配整行、不 reloadRows（避免每片一次 reload 卡死主线程）。
+- (void)updateDownloadProgress:(nullable IMDownloadProgress *)progress;
+
 /// 文件气泡左侧图标位被点按（上传中/失败态：暂停↔继续 / 重试 / 取消；下载态：下载 / 暂停↔继续 / 重试）。
 /// 完成/就绪态图标不可点，点击整条气泡=打开文件（走 VC 的表级手势）。
 @property (nonatomic, copy, nullable) void (^onFileControlTap)(void);

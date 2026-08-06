@@ -536,6 +536,15 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
     _metaChip.frame = CGRectMake(kIMAlbumWidth - s.width - 6, _containerHeight.constant - s.height - 6, s.width, s.height);
 }
 
+- (void)updateDownloadProgress:(IMDownloadProgress *)dp forMessage:(IMMessageModel *)m {
+    for (IMAlbumTileView *tile in _tiles) {
+        if (tile.hidden || tile.member != m) { continue; }
+        // 复用 setDownloadState:（只改覆盖层/环/角标，不重拉图）——门控态未变，无需重载缩略图。
+        [tile setDownloadState:dp sizeBytes:m.fileSize];
+        return;
+    }
+}
+
 - (void)tileTapped:(UITapGestureRecognizer *)gr {
     IMAlbumTileView *tile = (IMAlbumTileView *)gr.view;
     if (![tile isKindOfClass:IMAlbumTileView.class] || !tile.member) { return; }

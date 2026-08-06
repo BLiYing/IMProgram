@@ -49,6 +49,8 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     BOOL _sizeFromMedia;       // YES=尺寸来自协议/预览（权威），加载出图后无需重排
     BOOL _isVideoCell;         // 上传态结束后据此还原中心播放按钮（图片则隐藏）
     NSString *_timeText;       // 右下角时间文案（暂停时替换「发送中…」用）
+    int64_t _gatedSizeBytes;   // 门控态左上角"未下载尺寸"用（供进度就地更新复用，免重传 message）
+    NSString *_gatedDurationText; // 门控态左上角时长（视频）
 }
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
@@ -312,9 +314,16 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     }
 }
 
-/// 门控态的中心圆钮 + 左上角角标 + 进度环（草图 §02/§03 的五态：未下载 ↓ / 下载中 环+⏸ / 暂停 ↓ / 失败 ↻）。
-/// 左上角一枚胶囊同时承载尺寸与时长（`18.6 MB · 1:20`）——两者本来共用这个角，分不开就合起来显示。
+/// 门控态的中心圆钮 + 左上角角标 + 进度环（草图 §02/§03 的五态）。configure 时记住尺寸/时长，
+/// 之后进度就地更新（`updateDownloadProgress:`）复用同一份渲染，无需重传 message、无需 reload。
 - (void)applyGatedBadgesForMessage:(IMMessageModel *)message isVideo:(BOOL)isVideo {
+    _gatedSizeBytes = message.fileSize;
+    _gatedDurationText = isVideo ? IMFormatMediaDuration(message.duration) : nil;
+    [self renderGatedDownloadUI];
+}
+
+/// 只依据 `self.downloadProgress` + 记住的尺寸/时长渲染门控 UI。**进度高频回调就走这条**（不碰布局约束、不 reload）。
+- (void)renderGatedDownloadUI {
     IMDownloadProgress *dp = self.downloadProgress;
     NSString *symbol = dp ? IMDownloadCenterSymbolName(dp) : @"arrow.down.circle.fill";
     // symbol 为 nil 只可能是「失败·文件已失效」（服务端已清理）→ 不给按钮，无从重试（草图 §02-B）。
@@ -325,15 +334,14 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     _thumb.isAccessibilityElement = YES;
     _thumb.accessibilityTraits = UIAccessibilityTraitButton;
     _thumb.accessibilityLabel = dp ? [dp accessibilityText]
-        : (message.fileSize > 0 ? [NSString stringWithFormat:@"下载，%@", IMFormatFileSize(message.fileSize)] : @"下载");
+        : (_gatedSizeBytes > 0 ? [NSString stringWithFormat:@"下载，%@", IMFormatFileSize(_gatedSizeBytes)] : @"下载");
 
     // 左上角：未下载=尺寸（+时长）；下载中/暂停=已下/总；失败=下载失败。
-    NSString *sizeText = message.fileSize > 0 ? IMFormatFileSize(message.fileSize) : nil;
-    NSString *durationText = isVideo ? IMFormatMediaDuration(message.duration) : nil;
+    NSString *sizeText = _gatedSizeBytes > 0 ? IMFormatFileSize(_gatedSizeBytes) : nil;
     NSString *stateText = (dp && dp.phase != IMDownloadPhaseNotStarted) ? [dp displayText] : sizeText;
     NSMutableArray<NSString *> *parts = [NSMutableArray array];
     if (stateText.length > 0) { [parts addObject:stateText]; }
-    if (durationText.length > 0) { [parts addObject:durationText]; }
+    if (_gatedDurationText.length > 0) { [parts addObject:_gatedDurationText]; }
     _progressLabel.text = [parts componentsJoinedByString:@" · "];
     _progressWrap.hidden = parts.count == 0;
     _progressWrap.backgroundColor = (dp.phase == IMDownloadPhaseFailed) ? IMTheme.danger : IMTheme.mediaBadgeBackground;
@@ -348,8 +356,16 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
         [CATransaction setDisableActions:YES]; // 高频进度回调不做隐式动画
         _ring.strokeEnd = MAX(0.02, dp.fraction); // 0% 也露一点头，可感知"在动"
         [CATransaction commit];
-        [self setNeedsLayout]; // 环的 frame 跟随 _thumb，尺寸可能刚变
+        [self setNeedsLayout]; // 环的 frame 跟随 _thumb（首帧尺寸可能刚定）
     }
+}
+
+/// 进度**就地更新**（M4-7）：宿主在 onProgress 高频回调里调用——只改中心图标/角标/环，
+/// 不重配 cell、不 reloadRows（避免主线程卡死 + 自适应高度图片行跳变）。仅门控态有意义。
+- (void)updateDownloadProgress:(IMDownloadProgress *)dp {
+    if (!self.gated) { return; }
+    self.downloadProgress = dp;
+    [self renderGatedDownloadUI];
 }
 
 /// 缩略图显示尺寸：协议下发的 media_w/h 最权威 → 本地预览图 → 已缓存的图/封面 → 未知回退方块。
@@ -533,6 +549,7 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName) {
     _avatar.hidden = YES; _leading.constant = 12;
     _onTap = nil; _onMediaSizeResolved = nil;
     _ringBG.hidden = YES; _ring.hidden = YES; _ring.strokeEnd = 0;
+    _gatedSizeBytes = 0; _gatedDurationText = nil;
     self.gated = NO; self.downloadProgress = nil; self.onDownloadTap = nil;
 }
 

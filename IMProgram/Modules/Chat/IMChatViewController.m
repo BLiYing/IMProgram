@@ -1940,6 +1940,11 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 
 /// 转发一条消息（#6）：整页会话选择器（单/多选，最多 9）→ 逐条转发，保留 content_type（图片/视频不退化成文本）。
 - (void)forwardMessage:(IMMessageModel *)message {
+    [self presentForwardPickerForMessage:message fromViewController:self];
+}
+
+/// 转发选择页由 `presenter` 弹出（详情页文件列表复用时传自己），回声逻辑与 toast 都收敛在这里。
+- (void)presentForwardPickerForMessage:(IMMessageModel *)message fromViewController:(UIViewController *)presenter {
     if (message.content.length == 0 || message.recalledAt > 0) { return; }
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0) { return; }
@@ -1951,6 +1956,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     int64_t fileSize = message.fileSize;
     IMMediaAttributes *attrs = [self forwardAttributesForMessage:message];
     __weak typeof(self) ws = self;
+    __weak UIViewController *wp = presenter;
     IMForwardPickerViewController *picker = [[IMForwardPickerViewController alloc]
         initWithHost:self.host token:token onDone:^(NSArray<IMConversation *> *selected) {
         __strong typeof(ws) self = ws;
@@ -1960,10 +1966,10 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
             [self forwardEchoContent:content contentType:contentType forwardFrom:origin fileName:fileName fileSize:fileSize
                           attributes:attrs toConv:c.convID toUser:toUser];
         }
-        [self im_showToast:selected.count == 1 ? @"已转发" : [NSString stringWithFormat:@"已转发到 %lu 个会话", (unsigned long)selected.count]];
+        [(wp ?: self) im_showToast:selected.count == 1 ? @"已转发" : [NSString stringWithFormat:@"已转发到 %lu 个会话", (unsigned long)selected.count]];
     }];
     UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:picker];
-    [self presentViewController:nav animated:YES completion:nil];
+    [(presenter ?: self) presentViewController:nav animated:YES completion:nil];
 }
 
 /// 点击引用消息（有 replyToConvSeq）→ 跳到原消息；其余点击忽略。附件面板展开时点空白先收起面板（#3）。
@@ -2027,15 +2033,38 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
                                                              myUserID:self.userID
                                                               isGroup:self.isGroupChat];
         __weak typeof(self) ws = self;
+        // 高频进度/门控内更新 → **就地**改可见 cell（绝不 reload）：这是"点下载页面卡死/列表跳变"的根因修复。
+        _downloads.onProgress = ^(IMMessageModel *m, IMDownloadProgress *state) {
+            [ws updateDownloadProgressForMessage:m state:state];
+        };
+        // 低频整条重配（下载完成/图片解除门控）→ reload 让 cellForRow 重跑，加载清晰图/▶/文件图标。
         _downloads.onStateChanged = ^(IMMessageModel *m) { [ws refreshRowForMessage:m]; };
     }
     return _downloads;
 }
 
-/// 定点刷新该消息的可见行（相册成员映射到宫格 leader 行；媒体气泡行高不变，reload 不动布局）。
-- (void)refreshRowForMessage:(IMMessageModel *)m {
+/// 下载进度**就地更新**（不 reload）：镜像上传的 updateUploadProgressForMessage:。相册→只刷那一格；
+/// 单图/视频/文件气泡→调 cell 自身的 updateDownloadProgress:（只改环/角标/图标，行高不变、主线程不卡）。
+- (void)updateDownloadProgressForMessage:(IMMessageModel *)m state:(IMDownloadProgress *)state {
     NSUInteger row = [self visibleRowForMessage:m];
     if (row == NSNotFound || (NSInteger)row >= [self.tableView numberOfRowsInSection:0]) { return; }
+    UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:(NSInteger)row inSection:0]];
+    if ([cell isKindOfClass:IMAlbumCell.class]) {
+        [(IMAlbumCell *)cell updateDownloadProgress:state forMessage:m];
+    } else if ([cell isKindOfClass:IMImageCell.class]) {
+        [(IMImageCell *)cell updateDownloadProgress:state];
+    } else if ([cell isKindOfClass:IMBubbleCell.class]) {
+        [(IMBubbleCell *)cell updateDownloadProgress:state];
+    }
+    // cell 不可见（滚出屏）：无需更新，下次滚回自然由 cellForRow 拿最新态。
+}
+
+/// 定点重配该消息的可见行（下载完成/图片解除门控）：相册成员映射到宫格 leader 行；媒体气泡行高不变。
+/// 行数守卫同上传路径：消息可能刚 addObject 尚未 reloadData，此时定点 reloadRows 会触发行数断言崩溃 → 整表刷。
+- (void)refreshRowForMessage:(IMMessageModel *)m {
+    NSUInteger row = [self visibleRowForMessage:m];
+    if (row == NSNotFound) { return; }
+    if ((NSInteger)row >= [self.tableView numberOfRowsInSection:0]) { [self.tableView reloadData]; return; }
     [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:(NSInteger)row inSection:0]]
                           withRowAnimation:UITableViewRowAnimationNone];
 }

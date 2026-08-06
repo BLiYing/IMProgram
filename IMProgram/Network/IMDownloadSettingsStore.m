@@ -30,9 +30,14 @@ NSString * const IMDownloadSettingsDidChangeNotification = @"IMDownloadSettingsD
     NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
     // capabilities_update：账号策略变更，重拉最新做多端同步。
     [nc addObserver:self selector:@selector(refresh) name:IMSocketDidReceiveCapabilitiesUpdateNotification object:nil];
-    // 连接状态变化：登录/重连后 token 就绪，补拉一次（启动时 token 尚空，refresh 会静默跳过）。
-    [nc addObserver:self selector:@selector(refresh) name:IMSocketDidChangeStateNotification object:nil];
+    // 连接状态变化：**仅在真正连上时**补拉一次（登录/重连后 token 就绪）。connecting/disconnected 不发无谓请求
+    // （弱网频繁重连会一秒几发 GET）——只认 Connected 那一帧。
+    [nc addObserver:self selector:@selector(onSocketStateChanged:) name:IMSocketDidChangeStateNotification object:nil];
     [self refresh];
+}
+
+- (void)onSocketStateChanged:(NSNotification *)note {
+    if ([note.userInfo[@"state"] integerValue] == IMSocketStateConnected) { [self refresh]; }
 }
 
 - (void)refresh {

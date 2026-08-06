@@ -29,7 +29,13 @@ NS_ASSUME_NONNULL_BEGIN
 /// 浏览历史媒体不该顺手把几十条视频全拉下来——那里只反映状态，下载一律由用户点。
 @property (nonatomic, assign) BOOL autoPrefetchEnabled;
 
-/// 某条消息的下载态变化时回调（**主线程**）：宿主据此定点刷新对应行/格。
+/// **高频**进度/门控态更新（**主线程**）：下载中每片、开始/暂停/继续/失败/取消都走这里。
+/// 宿主必须**就地更新可见 cell**（只改进度环/角标，**绝不 reloadRows**）——否则每片一次 reload
+/// 会淹没主线程（卡死）并让自适应高度的图片/视频 cell 反复重算行高（列表上下跳变）。`state` 是当前态。
+@property (nonatomic, copy, nullable) void (^onProgress)(IMMessageModel *message, IMDownloadProgress *state);
+
+/// **低频**需要整条重配的变化（**主线程**）：仅「下载完成→就绪」与「图片解除门控→加载原图」两种，
+/// 此时 cell 呈现的内容整体切换（清晰图 / ▶ / 文件图标），必须 reload 让 `cellForRow` 重跑。
 @property (nonatomic, copy, nullable) void (^onStateChanged)(IMMessageModel *message);
 
 /// 该消息当前的下载/门控态：**nil = 就绪**（已在本机，可直接显图/播放/打开）。

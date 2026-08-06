@@ -5,7 +5,9 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface IMDataStorageViewController : UITableViewController
+/// UIViewController + 内嵌 InsetGrouped UITableView（**非 UITableViewController**）：
+/// 注入式液态标题栏加进 vc.view 的子视图，若 vc.view 即可滚动 tableView，栏会随内容滚走。
+@interface IMDataStorageViewController : UIViewController
 @end
 
 NS_ASSUME_NONNULL_END

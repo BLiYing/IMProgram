@@ -9,7 +9,8 @@ NS_ASSUME_NONNULL_BEGIN
 typedef NS_ENUM(NSInteger, IMDownloadNetworkKind) { IMDownloadNetworkCellular = 0, IMDownloadNetworkWifi = 1 };
 typedef NS_ENUM(NSInteger, IMDownloadCategoryKind) { IMDownloadCategoryImage = 0, IMDownloadCategoryVideo = 1, IMDownloadCategoryFile = 2 };
 
-@interface IMAutoDownloadCategoryViewController : UITableViewController
+/// UIViewController + 内嵌 InsetGrouped UITableView（**非 UITableViewController**，理由见网络页头注）。
+@interface IMAutoDownloadCategoryViewController : UIViewController
 - (instancetype)initWithNetwork:(IMDownloadNetworkKind)network category:(IMDownloadCategoryKind)category;
 @end
 

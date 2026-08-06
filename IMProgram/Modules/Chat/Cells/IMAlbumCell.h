@@ -18,6 +18,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// 门控格点击（开始下载 / 暂停 / 继续 / 重试，由 VC 按当前态路由）。
 @property (nonatomic, copy, nullable) void (^onDownloadItem)(IMMessageModel *message);
 
+/// 某成员下载进度**就地更新**（M4-7）：只刷该格的进度环/图标，不重建宫格、不 reloadRows。
+/// 宿主在高频 onProgress 回调里调用（否则每片一次 reload 会卡死主线程）。
+- (void)updateDownloadProgress:(nullable IMDownloadProgress *)progress forMessage:(IMMessageModel *)message;
+
 /// 点拒收系统行的恢复入口（当前仅 200103 非好友 → 「发送好友申请」）。
 /// 仅当成员 noteCode 命中可恢复码时该行才可点，否则系统行是纯文案。
 @property (nonatomic, copy, nullable) void (^onNoteActionTap)(void);

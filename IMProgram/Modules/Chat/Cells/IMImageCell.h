@@ -31,6 +31,10 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, strong, nullable) IMDownloadProgress *downloadProgress;
 /// 门控态下点击（开始下载 / 暂停 / 继续 / 重试，由 VC 按当前态路由）。
 @property (nonatomic, copy, nullable) void (^onDownloadTap)(void);
+
+/// 下载进度**就地更新**（M4-7）：宿主在高频 onProgress 回调里调用，只改中心图标/角标/进度环，
+/// 不重配 cell、不触发 reloadRows——否则每片一次 reload 会卡死主线程并让自适应高度的行上下跳变。
+- (void)updateDownloadProgress:(nullable IMDownloadProgress *)progress;
 /// 老消息没有 media_w/media_h 时，异步出图后才知道真实比例 → 携带量出的像素尺寸回调聊天页：
 /// 写回模型+落库（下次进会话行高首帧即正确）并刷一次行高（无动画）。
 @property (nonatomic, copy, nullable) void (^onMediaSizeResolved)(CGSize pixelSize);

@@ -287,6 +287,13 @@
     [self setNeedsLayout];
 }
 
+/// 进度就地更新：只重画门控外观（环/中心图标/尺寸角标），不动缩略图。
+/// 只在下载中/暂停/失败态被调用（完成走 onStateChanged reload），dp 非空时 applyGate: 不读 isVideo。
+- (void)updateDownload:(IMDownloadProgress *)dp {
+    if (!dp || dp.phase == IMDownloadPhaseDone) { return; }
+    [self applyGate:dp isVideo:NO];
+}
+
 - (void)prepareForReuse {
     [super prepareForReuse];
     _thumb.image = nil;
@@ -303,8 +310,10 @@
 /// 门控格点击（开始/暂停/继续/重试）。
 @property (nonatomic, copy, nullable) void (^onDownloadItemIndex)(NSInteger index);
 - (void)setItems:(NSArray<IMMediaItem *> *)items;
-/// 只刷一格（下载进度高频回调时别整表重建，否则内嵌 CollectionView 每次都重来一遍）。
+/// 重配一格（用于「下载完成/解除门控」——需要重新拉原图）。
 - (void)refreshItemAtIndex:(NSInteger)index;
+/// 进度**就地更新**一格（高频回调用）：只改该格的环/图标/角标，不 reloadItems（reloadItems 每次都重拉图 + 卡顿）。
+- (void)updateItemAtIndex:(NSInteger)index download:(nullable IMDownloadProgress *)dp;
 + (CGFloat)heightForCount:(NSInteger)count width:(CGFloat)width;
 @end
 @implementation IMDetailMediaContainerCell {
@@ -335,6 +344,11 @@
     if (index < 0 || index >= (NSInteger)_items.count) { return; }
     [_cv reloadItemsAtIndexPaths:@[[NSIndexPath indexPathForItem:index inSection:0]]];
 }
+- (void)updateItemAtIndex:(NSInteger)index download:(IMDownloadProgress *)dp {
+    if (index < 0 || index >= (NSInteger)_items.count) { return; }
+    IMDetailMediaGridCell *c = (IMDetailMediaGridCell *)[_cv cellForItemAtIndexPath:[NSIndexPath indexPathForItem:index inSection:0]];
+    if ([c isKindOfClass:IMDetailMediaGridCell.class]) { [c updateDownload:dp]; }
+}
 - (NSInteger)collectionView:(UICollectionView *)cv numberOfItemsInSection:(NSInteger)s { return _items.count; }
 - (UICollectionViewCell *)collectionView:(UICollectionView *)cv cellForItemAtIndexPath:(NSIndexPath *)ip {
     IMDetailMediaGridCell *c = [cv dequeueReusableCellWithReuseIdentifier:@"g" forIndexPath:ip];
@@ -360,17 +374,19 @@
 
 #pragma mark - 文件行 Cell（三态：未下载 / 下载中 / 已下载，草图 §04）
 
-/// 左图标位即状态位：已下载=文件类型图标；未下载=灰底 ↓；下载中/暂停=环形进度 + ⏸/↓；失败=红 ↻。
-/// 右侧配件：未下载=蓝 ↓；下载中=✕（取消，与"点行=暂停/继续"分工）；已下载=⋯（更多）。
+/// 左图标位即状态位：已下载=文件类型图标；未下载=灰底 ↓；下载中=环形进度 + ⏸；暂停=↓（副行带 ⏸ 前缀）；失败=红 ↻。
+/// **无右侧配件**：点行=下载/暂停/继续/打开；取消下载走长按菜单（仅进行中的文件才有该项）。
 @interface IMDetailFileCell : UITableViewCell
-@property (nonatomic, copy, nullable) void (^onAccessoryTap)(void);
-@property (nonatomic, strong, readonly) UIView *accessoryAnchorView; ///< 「⋯」菜单的锚点（=右侧按钮）
 - (void)configureWithMessage:(IMMessageModel *)m download:(nullable IMDownloadProgress *)dp;
+/// 进度**就地更新**（不 reload）：只改图标位环/字形 + 副行文案；文件名不变。
+- (void)updateDownload:(nullable IMDownloadProgress *)dp;
 @end
 
 @implementation IMDetailFileCell {
     UIImageView *_icon; UIImageView *_glyph; CAShapeLayer *_ringBG; CAShapeLayer *_ring;
-    UILabel *_title; UILabel *_sub; UIButton *_accessory;
+    UILabel *_title; UILabel *_sub;
+    NSString *_fileName;       // configure 时记住，进度就地更新复用（免重传 message）
+    int64_t _fileSizeBytes;
 }
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)rid {
     if ((self = [super initWithStyle:style reuseIdentifier:rid])) {
@@ -404,11 +420,7 @@
         _sub.translatesAutoresizingMaskIntoConstraints = NO;
         [self.contentView addSubview:_sub];
 
-        _accessory = [UIButton buttonWithType:UIButtonTypeSystem];
-        _accessory.translatesAutoresizingMaskIntoConstraints = NO;
-        [_accessory addTarget:self action:@selector(accessoryTapped) forControlEvents:UIControlEventTouchUpInside];
-        [self.contentView addSubview:_accessory];
-
+        // 无右侧配件：文件名/副行直接贴内容区右缘（留 16 边距）。
         [NSLayoutConstraint activateConstraints:@[
             [_icon.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:16],
             [_icon.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
@@ -418,15 +430,11 @@
             [_glyph.centerYAnchor constraintEqualToAnchor:_icon.centerYAnchor],
             [_title.leadingAnchor constraintEqualToAnchor:_icon.trailingAnchor constant:12],
             [_title.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:9],
-            [_title.trailingAnchor constraintLessThanOrEqualToAnchor:_accessory.leadingAnchor constant:-8],
+            [_title.trailingAnchor constraintLessThanOrEqualToAnchor:self.contentView.trailingAnchor constant:-16],
             [_sub.leadingAnchor constraintEqualToAnchor:_title.leadingAnchor],
             [_sub.topAnchor constraintEqualToAnchor:_title.bottomAnchor constant:2],
-            [_sub.trailingAnchor constraintLessThanOrEqualToAnchor:_accessory.leadingAnchor constant:-8],
+            [_sub.trailingAnchor constraintLessThanOrEqualToAnchor:self.contentView.trailingAnchor constant:-16],
             [_sub.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-9],
-            [_accessory.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-16],
-            [_accessory.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
-            [_accessory.widthAnchor constraintEqualToConstant:34],
-            [_accessory.heightAnchor constraintEqualToConstant:34],
         ]];
     }
     return self;
@@ -447,25 +455,27 @@
     _ringBG.frame = _icon.frame; _ring.frame = _icon.frame;
     [CATransaction commit];
 }
-- (void)accessoryTapped { if (self.onAccessoryTap) { self.onAccessoryTap(); } }
-- (UIView *)accessoryAnchorView { return _accessory; }
-
 - (void)configureWithMessage:(IMMessageModel *)m download:(IMDownloadProgress *)dp {
-    _title.text = m.fileName.length > 0 ? m.fileName : @"文件";
-    NSString *size = IMFormatFileSize(m.fileSize);
+    _fileName = m.fileName.length > 0 ? m.fileName : @"文件";
+    _fileSizeBytes = m.fileSize;
+    _title.text = _fileName;
+    [self renderDownload:dp];
+}
+
+/// 依 dp + 记住的文件名/大小渲染（configure 与进度就地更新共用）。
+- (void)renderDownload:(IMDownloadProgress *)dp {
+    NSString *size = IMFormatFileSize(_fileSizeBytes);
     BOOL gated = dp != nil && dp.phase != IMDownloadPhaseDone;
     BOOL ring = dp.phase == IMDownloadPhaseDownloading || dp.phase == IMDownloadPhasePaused;
     _ringBG.hidden = !ring; _ring.hidden = !ring;
-    if (!gated) { // 已下载：文件类型图标 + 「1.3 MB · 已下载」+ ⋯
-        _icon.image = IMFileTypeIconForName(m.fileName, 36);
+    if (!gated) { // 已下载：文件类型图标 + 「1.3 MB · 已下载」（无配件、无 glyph）。
+        _icon.image = IMFileTypeIconForName(_fileName, 36);
         _icon.backgroundColor = UIColor.clearColor;
         _glyph.hidden = YES;
+        _sub.attributedText = nil;
+        _sub.textColor = IMTheme.textSecondary;
         _sub.text = size.length > 0 ? [NSString stringWithFormat:@"%@ · 已下载", size] : @"已下载";
-        [_accessory setImage:[UIImage systemImageNamed:@"ellipsis"] forState:UIControlStateNormal];
-        _accessory.enabled = YES;
-        _accessory.tintColor = IMTheme.textSecondary;
-        _accessory.accessibilityLabel = @"更多";
-        self.accessibilityLabel = [NSString stringWithFormat:@"%@，已下载", _title.text ?: @"文件"];
+        self.accessibilityLabel = [NSString stringWithFormat:@"%@，已下载", _fileName ?: @"文件"];
         [self setNeedsLayout];
         return;
     }
@@ -484,26 +494,45 @@
         _ring.strokeEnd = MAX(0.02, dp.fraction);
         [CATransaction commit];
     }
-    // 副行：未下载=「240 KB · 未下载」；下载中/暂停=「18 MB / 42 MB」；失败=「下载失败，点击重试」。
-    if (dp.phase == IMDownloadPhaseNotStarted) {
-        _sub.text = size.length > 0 ? [NSString stringWithFormat:@"%@ · 未下载", size] : @"未下载";
+    // 副行：未下载=「240 KB · 未下载」；下载中=「18 MB / 42 MB」；暂停=行首 ⏸ + 「已下/总」（与文件气泡一致）；失败=文案。
+    UIColor *subColor = failed ? IMTheme.danger : IMTheme.textSecondary;
+    _sub.textColor = subColor;
+    if (dp.phase == IMDownloadPhasePaused) {
+        _sub.attributedText = [IMDetailFileCell pausedSubtitle:[dp fileLineText] color:subColor font:_sub.font];
     } else {
-        _sub.text = [dp fileLineText];
+        _sub.attributedText = nil;
+        _sub.text = (dp.phase == IMDownloadPhaseNotStarted)
+            ? (size.length > 0 ? [NSString stringWithFormat:@"%@ · 未下载", size] : @"未下载")
+            : [dp fileLineText];
     }
-    // 右侧：下载中/暂停 = ✕ 取消（点行才是暂停/继续）；已失效 = 无入口；其余 = 蓝 ↓。
-    [_accessory setImage:(dp.expired ? nil : [UIImage systemImageNamed:(ring ? @"xmark" : @"arrow.down")])
-                forState:UIControlStateNormal];
-    _accessory.enabled = !dp.expired;
-    _accessory.tintColor = IMTheme.accent;
-    _accessory.accessibilityLabel = ring ? @"取消下载" : @"下载";
-    self.accessibilityLabel = [NSString stringWithFormat:@"%@，%@", _title.text ?: @"文件", [dp accessibilityText]];
+    self.accessibilityLabel = [NSString stringWithFormat:@"%@，%@", _fileName ?: @"文件", [dp accessibilityText]];
     [self setNeedsLayout];
 }
+
+/// 暂停态副行：行首嵌一个小 ⏸ 图标 + 已下/总（与 IMBubbleCell 暂停态同款，图标零成本示意"已暂停"）。
++ (NSAttributedString *)pausedSubtitle:(NSString *)text color:(UIColor *)color font:(UIFont *)font {
+    UIImage *icon = [[UIImage systemImageNamed:@"pause.fill"
+                             withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:9 weight:UIImageSymbolWeightBold]]
+                     imageWithTintColor:color renderingMode:UIImageRenderingModeAlwaysOriginal];
+    NSTextAttachment *att = [NSTextAttachment new];
+    att.image = icon;
+    att.bounds = CGRectMake(0, (font.capHeight - 9) / 2.0, 9, 9);
+    NSMutableAttributedString *s = [[NSAttributedString attributedStringWithAttachment:att] mutableCopy];
+    [s appendAttributedString:[[NSAttributedString alloc]
+        initWithString:[@" " stringByAppendingString:(text ?: @"")]
+            attributes:@{ NSFontAttributeName: font, NSForegroundColorAttributeName: color }]];
+    return s;
+}
+
+- (void)updateDownload:(IMDownloadProgress *)dp {
+    [self renderDownload:dp];
+}
+
 - (void)prepareForReuse {
     [super prepareForReuse];
-    _onAccessoryTap = nil;
     _ring.hidden = YES; _ringBG.hidden = YES; _ring.strokeEnd = 0;
     _glyph.hidden = YES; _icon.image = nil; _icon.backgroundColor = UIColor.clearColor;
+    _sub.attributedText = nil;
 }
 @end
 
@@ -1563,20 +1592,11 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
         return [self emptyCell:tv text:empty];
     }
     IMMessageModel *m = self.tabRows[row];
-    // 文件行：三态专用 cell（未下载 ↓ / 下载中 环形 / 已下载 类型图标 + ⋯），草图 §04。
+    // 文件行：三态专用 cell（未下载 ↓ / 下载中 环形+⏸ / 已下载 类型图标）。无右侧配件——
+    // 点行=下载/暂停/继续/打开；取消下载走长按菜单（仅进行中文件才有该项）。草图 §04。
     if (t.kind == IMDetailTabKindFiles) {
-        IMDetailFileCell *fc = [tv dequeueReusableCellWithIdentifier:@"detailfile"] ?:
-            [[IMDetailFileCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"detailfile"];
-        IMDownloadProgress *dp = [self.downloads stateForMessage:m];
-        [fc configureWithMessage:m download:dp];
-        __weak typeof(self) ws = self;
-        __weak IMDetailFileCell *wfc = fc; // 强引用会成环（cell → block → cell），必须弱持
-        BOOL downloading = dp.phase == IMDownloadPhaseDownloading || dp.phase == IMDownloadPhasePaused;
-        fc.onAccessoryTap = ^{
-            if (downloading) { [ws.downloads cancelDownloadForMessage:m]; }   // ✕ 取消
-            else if (dp) { [ws.downloads handleTapForMessage:m]; }            // ↓ 开始/重试
-            else if (wfc) { [ws presentFileActionsForMessage:m anchor:wfc.accessoryAnchorView]; } // ⋯ 更多（已下载）
-        };
+        IMDetailFileCell *fc = [tv dequeueReusableCellWithIdentifier:@"detailfile"];
+        [fc configureWithMessage:m download:[self.downloads stateForMessage:m]];
         return fc;
     }
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
@@ -1664,6 +1684,32 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
 
 - (UIContextMenuConfiguration *)tableView:(UITableView *)tableView
     contextMenuConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath point:(CGPoint)point {
+    // 文件行长按：转发 / 定位到聊天 / [取消下载] / 删除（草图 §04）。仅对真实消息（有 conv_seq）给菜单。
+    IMMessageModel *fm = [self fileMessageAtIndexPath:indexPath];
+    if (fm) {
+        if (fm.convSeq <= 0) { return nil; }
+        // 仅「进行中的下载」（下载中 / 已暂停，都有 .part 可弃）才提供「取消下载」。
+        IMDownloadProgress *dp = [self.downloads stateForMessage:fm];
+        BOOL cancellable = dp.phase == IMDownloadPhaseDownloading || dp.phase == IMDownloadPhasePaused;
+        __weak typeof(self) ws = self;
+        return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil
+            actionProvider:^UIMenu *(NSArray<UIMenuElement *> *sug) {
+            NSMutableArray<UIMenuElement *> *items = [NSMutableArray array];
+            [items addObject:[UIAction actionWithTitle:@"转发" image:[UIImage systemImageNamed:@"arrowshape.turn.up.right"]
+                                            identifier:nil handler:^(UIAction *a) { [ws forwardFileMessage:fm]; }]];
+            [items addObject:[UIAction actionWithTitle:@"定位到聊天" image:[UIImage systemImageNamed:@"bubble.left.and.text.bubble.right"]
+                                            identifier:nil handler:^(UIAction *a) { [ws locateFileMessageInChat:fm]; }]];
+            if (cancellable) {
+                [items addObject:[UIAction actionWithTitle:@"取消下载" image:[UIImage systemImageNamed:@"xmark.circle"]
+                                                identifier:nil handler:^(UIAction *a) { [ws.downloads cancelDownloadForMessage:fm]; }]];
+            }
+            UIAction *del = [UIAction actionWithTitle:@"删除" image:[UIImage systemImageNamed:@"trash"]
+                                           identifier:nil handler:^(UIAction *a) { [ws deleteFileMessage:fm]; }];
+            del.attributes = UIMenuElementAttributesDestructive;
+            [items addObject:del];
+            return [UIMenu menuWithTitle:@"" children:items];
+        }];
+    }
     IMGroupMember *m = [self memberAtIndexPath:indexPath];
     if (!m || [m.userID isEqualToString:self.userID]) { return nil; }
     __weak typeof(self) ws = self;
@@ -1984,6 +2030,9 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
                                                               isGroup:self.isGroup];
         _downloads.autoPrefetchEnabled = NO; // 浏览历史媒体不该顺手把几十条视频拉下来；这里只反映状态
         __weak typeof(self) ws = self;
+        // 高频进度 → 就地更新（宫格只刷那一格 cell、文件行只改 cell）；绝不 reload（否则内嵌 CollectionView 卡死）。
+        _downloads.onProgress = ^(IMMessageModel *m, IMDownloadProgress *state) { [ws updateDownloadCellForMessage:m state:state]; };
+        // 低频（下载完成）→ reload 让 cell 重配（媒体格重拉清晰图 / 文件行回类型图标 + ⋯）。
         _downloads.onStateChanged = ^(IMMessageModel *m) { [ws refreshDownloadRowForMessage:m]; };
     }
     return _downloads;
@@ -1992,6 +2041,24 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
 - (nullable IMMessageModel *)mediaMessageAtIndex:(NSInteger)index {
     if (index < 0 || index >= (NSInteger)self.tabMediaMessages.count) { return nil; }
     return self.tabMediaMessages[index];
+}
+
+/// 进度**就地更新**（不 reload）：媒体页刷那一格、文件页刷那一行的可见 cell。
+- (void)updateDownloadCellForMessage:(IMMessageModel *)m state:(IMDownloadProgress *)state {
+    if (self.tabs.count == 0) { return; }
+    IMChatDetailTab *t = self.tabs[self.selectedTab];
+    if (t.kind == IMDetailTabKindMedia) {
+        NSUInteger i = [self.tabMediaMessages indexOfObjectIdenticalTo:m];
+        if (i != NSNotFound) { [self.mediaContainerCell updateItemAtIndex:(NSInteger)i download:state]; }
+        return;
+    }
+    if (t.kind != IMDetailTabKindFiles) { return; }
+    NSInteger section = [self indexOfSection:IMDetailSectionTabs];
+    if (section == NSNotFound) { return; }
+    NSUInteger row = [self.tabRows indexOfObjectIdenticalTo:m];
+    if (row == NSNotFound || (NSInteger)row >= [self.tableView numberOfRowsInSection:section]) { return; }
+    IMDetailFileCell *cell = (IMDetailFileCell *)[self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:(NSInteger)row inSection:section]];
+    if ([cell isKindOfClass:IMDetailFileCell.class]) { [cell updateDownload:state]; }
 }
 
 /// 定点刷新：媒体页只刷那一格（内嵌 CollectionView 整行重建代价高），文件页刷那一行。
@@ -2022,27 +2089,56 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
     [self presentViewController:ql animated:YES completion:nil];
 }
 
-/// 已下载文件行右侧「⋯」：打开 / 分享（锚在被点的按钮上）。
-- (void)presentFileActionsForMessage:(IMMessageModel *)m anchor:(UIView *)anchor {
-    NSURL *local = [self.downloads localFileForMessage:m];
-    NSMutableArray<IMPopoverCardItem *> *items = [NSMutableArray array];
-    __weak typeof(self) ws = self;
-    [items addObject:[IMPopoverCardItem itemWithTitle:@"打开" symbol:@"eye" destructive:NO handler:^{
-        [ws openCachedFileForMessage:m];
-    }]];
-    if (local) {
-        [items addObject:[IMPopoverCardItem itemWithTitle:@"分享" symbol:@"square.and.arrow.up" destructive:NO handler:^{
-            __strong typeof(ws) self = ws;
-            if (!self) { return; }
-            UIActivityViewController *av = [[UIActivityViewController alloc] initWithActivityItems:@[local]
-                                                                             applicationActivities:nil];
-            av.popoverPresentationController.sourceView = self.view;
-            av.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(self.view.bounds),
-                                                                     CGRectGetMidY(self.view.bounds), 1, 1);
-            [self presentViewController:av animated:YES completion:nil];
-        }]];
+#pragma mark - 文件行长按菜单：转发 / 删除 / 定位到聊天
+
+/// 文件页某行对应的消息（越界返回 nil）。
+- (nullable IMMessageModel *)fileMessageAtIndexPath:(NSIndexPath *)ip {
+    if ([self sectionKindAt:ip.section] != IMDetailSectionTabs || self.tabs.count == 0) { return nil; }
+    if (self.tabs[self.selectedTab].kind != IMDetailTabKindFiles) { return nil; }
+    if (ip.row < 0 || ip.row >= (NSInteger)self.tabRows.count) { return nil; }
+    return self.tabRows[ip.row];
+}
+
+/// 导航栈里承载本会话的聊天页（详情页通常从它 push 而来）。转发/定位复用它的现成逻辑。
+- (nullable IMChatViewController *)originChatInStack {
+    for (UIViewController *vc in self.navigationController.viewControllers) {
+        if ([vc isKindOfClass:IMChatViewController.class]
+            && [[(IMChatViewController *)vc convID] isEqualToString:self.convID]) {
+            return (IMChatViewController *)vc;
+        }
     }
-    [IMPopoverCard presentFromAnchor:anchor inHostView:self.view items:items];
+    return nil;
+}
+
+/// 转发：复用聊天页 IMChatViewController 的转发选择+回声逻辑（present 由本页发起，呈现上下文正确）。
+- (void)forwardFileMessage:(IMMessageModel *)m {
+    IMChatViewController *chat = [self originChatInStack];
+    if (chat) { [chat presentForwardPickerForMessage:m fromViewController:self]; }
+    else { [self im_showToast:@"请回到聊天页转发"]; } // 详情页非从聊天进入（如通讯录），无聊天上下文
+}
+
+/// 定位到聊天：pop 回本会话聊天页并滚到该消息高亮一闪。
+- (void)locateFileMessageInChat:(IMMessageModel *)m {
+    IMChatViewController *chat = [self originChatInStack];
+    if (!chat) { [self im_showToast:@"请回到聊天页查看"]; return; }
+    if (m.convSeq <= 0) { [self im_showToast:@"该消息无法定位"]; return; }
+    int64_t seq = m.convSeq;
+    [self.navigationController popToViewController:chat animated:YES];
+    // pop 动画进行中滚动会被转场吞掉/落错位（dispatch_async 只是下一轮 runloop，仍在动画中）。
+    // 挂在转场协调器的完成回调上，等 pop 真正落定再跳；无协调器（罕见）回落下一轮 runloop。
+    id<UIViewControllerTransitionCoordinator> tc = self.navigationController.transitionCoordinator;
+    if (tc) {
+        [tc animateAlongsideTransition:nil completion:^(id<UIViewControllerTransitionCoordinatorContext> ctx) {
+            [chat jumpToConvSeq:seq];
+        }];
+    } else {
+        dispatch_async(dispatch_get_main_queue(), ^{ [chat jumpToConvSeq:seq]; });
+    }
+}
+
+/// 删除：服务端「删除文件消息」接口尚缺（DOWNLOAD_DATA_STORAGE_PLAN 待补）→ 先占位，不误导用户已删。
+- (void)deleteFileMessage:(IMMessageModel *)m {
+    [self im_showToast:@"删除功能开发中"];
 }
 
 - (NSInteger)numberOfPreviewItemsInPreviewController:(QLPreviewController *)controller {

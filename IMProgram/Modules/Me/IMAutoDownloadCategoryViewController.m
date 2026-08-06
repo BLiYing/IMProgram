@@ -4,6 +4,10 @@
 #import "IMDownloadSettingsUI.h"
 #import "IMDownloadSettingsStore.h"
 
+@interface IMAutoDownloadCategoryViewController () <UITableViewDataSource, UITableViewDelegate>
+@property (nonatomic, strong) UITableView *tableView;
+@end
+
 @implementation IMAutoDownloadCategoryViewController {
     IMDownloadNetworkKind _net;
     IMDownloadCategoryKind _cat;
@@ -12,7 +16,7 @@
 }
 
 - (instancetype)initWithNetwork:(IMDownloadNetworkKind)network category:(IMDownloadCategoryKind)category {
-    if ((self = [super initWithStyle:UITableViewStyleInsetGrouped])) {
+    if ((self = [super initWithNibName:nil bundle:nil])) {
         _net = network;
         _cat = category;
     }
@@ -22,6 +26,12 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = IMDownloadCategoryName(_cat);
+    self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
+    self.tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStyleInsetGrouped];
+    self.tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    self.tableView.dataSource = self;
+    self.tableView.delegate = self;
+    [self.view addSubview:self.tableView];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(reloadFromStore)
                                                name:IMDownloadSettingsDidChangeNotification object:nil];
 }
