@@ -13,6 +13,12 @@
 #import "IMNetworkMonitor.h"
 #import "IMLog.h"
 
+/// 跨实例状态广播：聊天页与详情页各持一个 coordinator，任务经 IMMediaDownloader 单例共享，
+/// 但 _states/_autoTried/_requested 是每实例私有内存态。取消/失败/解除门控等**任务消失或门控翻转**的离散
+/// 变更,靠这条通知同步到其它实例（object=发起实例,userInfo 带 key/新态/autoTried/requested 标志）。
+/// **不广播高频进度**——下载中的态其它实例查 taskForKey: 即得真值,无需同步。
+static NSString *const IMMediaDownloadCoordinatorStateBroadcast = @"IMMediaDownloadCoordinatorStateBroadcast";
+
 @implementation IMMediaDownloadCoordinator {
     NSString *_host;
     NSString *_myUserID;
@@ -21,6 +27,8 @@
     NSMutableDictionary<NSString *, IMDownloadProgress *> *_states;
     NSMutableSet<NSString *> *_autoTried;  ///< 已自动试过的 content（每条只自动预取一次）
     NSMutableSet<NSString *> *_requested;  ///< 用户已点 ↓ 的图片 content（解除门控，铁律③手动优先）
+    /// key=content → 该实例见过的消息（弱引用，宿主放手即自动清）。收到别的实例广播时据此定位要刷新的行。
+    NSMapTable<NSString *, IMMessageModel *> *_messagesByKey;
 }
 
 - (instancetype)initWithHost:(NSString *)host myUserID:(NSString *)myUserID isGroup:(BOOL)isGroup {
@@ -32,9 +40,16 @@
         _states = [NSMutableDictionary dictionary];
         _autoTried = [NSMutableSet set];
         _requested = [NSMutableSet set];
+        _messagesByKey = [NSMapTable strongToWeakObjectsMapTable];
         _autoPrefetchEnabled = YES;
+        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(onPeerBroadcast:)
+                                                     name:IMMediaDownloadCoordinatorStateBroadcast object:nil];
     }
     return self;
+}
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
 #pragma mark - 分类
@@ -97,6 +112,7 @@
     if ([self isOutOfScope:m]) { return nil; }
     if ([self isCached:m]) { return nil; }
     NSString *key = [self keyForMessage:m];
+    [self rememberMessage:m];                            // 记下,供别实例广播时反查刷新
 
     if (![self usesDownloaderForMessage:m]) {           // 图片：只有"未下载 / 就绪"两档
         if ([_requested containsObject:key]) { return nil; }
@@ -146,6 +162,8 @@
         }
         [_requested addObject:key];
         [self notifyChanged:m];
+        // 图片**不跨页广播**：一致性靠 IMImageLoader 全局缓存自洽（任一页加载过，另一页 isCached 即就绪）。
+        // 广播反而会逼详情页（autoPrefetch=NO，浏览历史刻意不自动拉媒体）联网加载，违背其省流量初衷。
         return;
     }
     if (_states[key].expired) {
@@ -163,6 +181,8 @@
             _states[key] = [IMDownloadProgress pausedWithReceived:task.receivedBytes total:total];
         }
         [self notifyProgress:m]; // 暂停/继续只切换环+图标，就地更新即可，不必 reload
+        // 暂停/继续是**活跃态**：任务仍在 singleton，另一页显示时查 taskForKey: 即得真值自愈，
+        // 无需广播（广播反而会让离屏页 reload→attachHandlers 抢走共享任务的 handler，冻结可见页进度）。
         return;
     }
     [self startDownloadForMessage:m];
@@ -182,6 +202,8 @@
     // stateForMessage 重新合成 notStarted。若走 notifyProgress，_states 已删空 → onProgress 收到 nil，
     // 文件行会把 nil 当「已下载」渲染（渲染出文件图标 + "已下载"），错得离谱。
     [self notifyChanged:m];
+    // 跨页同步：清另一页私有快照 + 同步 autoTried（否则另一页仍显暂停/下载中，或把小文件自动重下）。
+    [self broadcastKey:key state:nil autoTried:YES];
 }
 
 /// 启动/重试：置乐观"下载中"态 + 挂回调。
@@ -200,6 +222,7 @@
     // 首次点下载：未下载→下载中只是 ↓ 换成进度环（门控态不变、行高不变）→ 就地更新，**不 reload**。
     // 这是「第一次点下载最明显的跳变/卡死」的根因修复：原先每次都 reloadRows。
     [self notifyProgress:m];
+    // 开始下载亦是活跃态：不广播（另一页显示时 taskForKey: 自愈；广播会引发 handler 争抢，同上）。
     IMMediaDownloadTask *task = [[IMMediaDownloader shared] downloadURL:remote toDestination:dest key:key];
     [self attachHandlersToTask:task message:m];
 }
@@ -231,9 +254,11 @@
                 ? [IMDownloadProgress expiredWithTotalBytes:declared]
                 : [IMDownloadProgress failedWithReceived:0 total:declared];
             [self notifyProgress:m]; // 失败：环消失、图标变 ↻，门控态仍在 → 就地更新
+            [self broadcastKey:key state:self->_states[key] autoTried:NO]; // 失败态同步到另一页
         } else {
             [self->_states removeObjectForKey:key]; // 已落地 → 下次查询 isCached 即"就绪"
             [self notifyChanged:m]; // 就绪：cell 内容整体切换（清晰图/▶/文件图标）→ 必须 reload 重配
+            [self broadcastKey:key state:nil autoTried:NO]; // 就绪：另一页清快照 → isCached 即就绪
         }
     };
 }
@@ -247,6 +272,60 @@
 /// 低频整条重配：图片解除门控 / 下载完成。
 - (void)notifyChanged:(IMMessageModel *)m {
     if (self.onStateChanged) { self.onStateChanged(m); }
+}
+
+#pragma mark - 跨实例状态同步
+
+/// 记住该实例见过的消息（弱引用）：收到别实例广播时用 key 反查、刷新对应行。
+- (void)rememberMessage:(IMMessageModel *)m {
+    NSString *key = [self keyForMessage:m];
+    if (key.length == 0) { return; }
+    if ([_messagesByKey objectForKey:key] == m) { return; } // 同一对象已记 → 免热路径重复写（cellForRow 每次都来）
+    [_messagesByKey setObject:m forKey:key];
+}
+
+/// 广播一次离散状态变更给其它 coordinator 实例。state=nil 表示"清掉私有快照"（回落到 isCached/未下载）。
+- (void)broadcastKey:(NSString *)key state:(nullable IMDownloadProgress *)state autoTried:(BOOL)autoTried {
+    if (key.length == 0) { return; }
+    [[NSNotificationCenter defaultCenter] postNotificationName:IMMediaDownloadCoordinatorStateBroadcast object:self
+        userInfo:@{ @"key": key,
+                    @"state": state ?: (id)[NSNull null],
+                    @"autoTried": @(autoTried) }];
+}
+
+/// 收到别实例广播：镜像其私有态并刷新本实例已知的对应行。
+- (void)onPeerBroadcast:(NSNotification *)note {
+    if (note.object == self) { return; } // 只理会别的实例，避免自触发
+    NSDictionary *info = note.userInfo;
+    NSString *key = info[@"key"];
+    if (key.length == 0) { return; }
+    // **只处理本实例真正跟踪过的 key**：key=content，转发的同一份文件在别的会话共用同一 key，
+    // 若无差别镜像，会把别会话的态串进本实例（甚至污染从没展示过该文件的 coordinator）。
+    IMMessageModel *m = [_messagesByKey objectForKey:key];
+    if (m == nil && _states[key] == nil) { return; }
+    id st = info[@"state"];
+    if (st == [NSNull null]) { [_states removeObjectForKey:key]; }
+    else { _states[key] = st; }
+    if ([info[@"autoTried"] boolValue]) { [_autoTried addObject:key]; } // 手动取消：别再自动拉起（铁律③）
+    if (m) { [self notifyChanged:m]; } // 本实例展示过该消息 → reload 那一行重跑 stateForMessage 取新态
+}
+
+/// 页面回到前台时调用：把仍在跑的下载任务**重新接管**到本实例（handler 会被另一页展示时"抢走"——
+/// 一份共享任务只记一个回调对象），并就地刷新一次进度。否则从另一页返回后，本页可见的下载进度条会停在旧值不动。
+- (void)reattachActiveTasksForMessages:(NSArray<IMMessageModel *> *)messages {
+    for (IMMessageModel *m in messages) {
+        if ([self isOutOfScope:m] || ![self usesDownloaderForMessage:m]) { continue; }
+        NSString *key = [self keyForMessage:m];
+        IMMediaDownloadTask *task = [[IMMediaDownloader shared] taskForKey:key];
+        if (!task) { continue; } // 只关心仍在跑的任务，其余各态由 cellForRow 的 stateForMessage 自理
+        [self rememberMessage:m];
+        [self attachHandlersToTask:task message:m]; // 抢回回调：谁在前台谁收进度
+        int64_t total = task.totalBytes > 0 ? task.totalBytes : m.fileSize;
+        _states[key] = task.paused
+            ? [IMDownloadProgress pausedWithReceived:task.receivedBytes total:total]
+            : [IMDownloadProgress downloadingWithReceived:task.receivedBytes total:total pausable:YES];
+        [self notifyProgress:m]; // 就地刷新可见行：进度条从冻结值跳到真实值
+    }
 }
 
 @end

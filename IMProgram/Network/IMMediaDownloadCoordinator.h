@@ -52,6 +52,11 @@ NS_ASSUME_NONNULL_BEGIN
 /// 已下载到本机的本地文件（用于 QuickLook 打开 / 本地播放）；未下载返回 nil。
 - (nullable NSURL *)localFileForMessage:(IMMessageModel *)message;
 
+/// 页面回到前台（viewWillAppear）时调用：重新接管仍在跑的下载任务并就地刷新进度。
+/// 一份共享下载任务只记一个回调对象，会被另一页展示时"抢走"；不在回前台时抢回，本页进度条会停在旧值。
+/// 传本页相关的消息集合即可（内部只挑仍有活跃任务的处理，其余忽略）。
+- (void)reattachActiveTasksForMessages:(NSArray<IMMessageModel *> *)messages;
+
 @end
 
 NS_ASSUME_NONNULL_END

@@ -713,6 +713,13 @@ static CGFloat const kTabSegH   = 40;   ///< 分段控件本体高度（点击�
     [super viewWillAppear:animated];
     // Telegram 风格详情页：保留 UINavigationController 堆栈和侧滑返回，但隐藏系统导航栏。
     [self.navigationController setNavigationBarHidden:YES animated:animated];
+    // 回前台抢回下载回调（同聊天页）：文件列表 + 媒体宫格里仍在跑的任务，防返回后进度条冻结。
+    if (_downloads) {
+        NSMutableArray<IMMessageModel *> *ms = [NSMutableArray array];
+        if (self.tabRows.count) { [ms addObjectsFromArray:self.tabRows]; }
+        if (self.tabMediaMessages.count) { [ms addObjectsFromArray:self.tabMediaMessages]; }
+        [_downloads reattachActiveTasksForMessages:ms];
+    }
 }
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];

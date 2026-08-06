@@ -664,6 +664,9 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
+    // 回前台抢回下载回调：一份共享下载任务只记一个回调对象，从详情页（看过同一文件）返回时回调可能被它接管，
+    // 本页可见的下载进度条会停在旧值——这里让本页重新接管并就地刷新。
+    if (_downloads) { [_downloads reattachActiveTasksForMessages:self.messages]; }
     IMSocketManager.sharedManager.delegate = self;
     // 同步当前真实连接态：socket 通常在会话列表页就已连上，进本页不会再触发 didChangeState，
     // 若不主动拉一次，connState 会停在默认值 → 标题误显「未连接」。
