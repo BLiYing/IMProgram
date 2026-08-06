@@ -3271,6 +3271,11 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 }
 
 - (void)keyboardWillChange:(NSNotification *)note {
+    // 缩/放 tableView 前先判贴底：约束链让 inputBar 上移即压缩 tableView 高度，而 UITableView
+    // frame 变化时 contentOffset 顶端锚定不动 → 贴底的最新消息会被抬起的输入栏/键盘盖住而非跟随。
+    // 交互式收键盘（keyboardDismissMode=Interactive）由 tableView 拖拽驱动，此时 isTracking=YES，
+    // 跳过强制滚动以免与用户手势打架；仅在点按聚焦/收起等非拖拽路径重锚（对齐 :2282 的拖拽守卫）。
+    BOOL wasNearBottom = !self.tableView.isTracking && [self isNearBottom];
     CGRect endFrame = [note.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
     CGFloat overlap = CGRectGetHeight(self.view.bounds) - [self.view convertRect:endFrame fromView:nil].origin.y;
     self.kbInset = MAX(0, overlap - self.view.safeAreaInsets.bottom);
@@ -3279,6 +3284,9 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         self.attachPanel.hidden = YES;
     }
     [self updateInputBottomAnimated:NO];
+    // frame 落定后：原本贴底则重锚到底（弹起→上顶，收起→回落，与 inputBar 同帧移动）；
+    // 非贴底（正在往前翻历史）维持现状，不打断阅读位置。
+    if (wasNearBottom) { [self scrollToAbsoluteBottom]; }
 }
 
 /// 把一段操作推迟到键盘完全收起（inset 落定）后在主线程执行一次——用于引用跳转等依赖稳定布局的定位。
