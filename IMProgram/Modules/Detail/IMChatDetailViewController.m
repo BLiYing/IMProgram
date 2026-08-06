@@ -24,6 +24,7 @@
 #import "IMMediaDownloadCoordinator.h" // 媒体/文件下载编排（与聊天页共用）
 #import "IMDownloadProgress.h"
 #import <QuickLook/QuickLook.h>
+#import <SafariServices/SafariServices.h>
 #import "IMPopoverCard.h"
 #import "IMGlass.h"
 #import "UILabel+IMAvatar.h"
@@ -1640,6 +1641,12 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
         } else if (t.kind == IMDetailTabKindFiles) {
             if (indexPath.row >= (NSInteger)self.tabRows.count) { return; }
             IMMessageModel *m = self.tabRows[indexPath.row];
+            // 自己发的文件：原件从不进下载缓存（isOutOfScope），stateForMessage 恒为 nil，
+            // 若走 openCachedFile 会因本地无缓存静默无反应（.mov 等一律打不开）。与聊天页一致，改走远端 URL 打开。
+            if ([m.from isEqualToString:self.userID]) {
+                [self openLink:IMMediaFullURL(m.content, self.host)];
+                return;
+            }
             IMDownloadProgress *dp = [self.downloads stateForMessage:m];
             // 未下载/失败 → 就地下载（不跳页）；下载中 ↔ 暂停/继续；已下载 → 本地 QuickLook 打开（用户主动点）。
             if (dp) { [self.downloads handleTapForMessage:m]; }
@@ -2154,10 +2161,12 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
                                                                      preloadedImage:nil onOpenGallery:nil];
     [self presentViewController:viewer animated:YES completion:nil];
 }
+/// 应用内浏览器打开链接（SFSafariViewController，仅接受 http/https；与聊天页 openLink: 一致）。
 - (void)openLink:(NSString *)url {
-    if (url.length == 0) { return; }
-    NSURL *u = [NSURL URLWithString:url];
-    if (u) { [UIApplication.sharedApplication openURL:u options:@{} completionHandler:nil]; }
+    NSURL *u = [NSURL URLWithString:url ?: @""];
+    if (!u || !([u.scheme isEqualToString:@"http"] || [u.scheme isEqualToString:@"https"])) { return; }
+    SFSafariViewController *safari = [[SFSafariViewController alloc] initWithURL:u];
+    [self presentViewController:safari animated:YES completion:nil];
 }
 - (void)headerActionTapped {
     if (self.isGroup) { [self openGroupManage]; }
