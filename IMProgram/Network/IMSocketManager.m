@@ -26,6 +26,9 @@ NSString * const kIMGroupTargetKey = @"groupTarget";
 NSString * const IMSocketDidReceiveReadNotification = @"IMSocketDidReceiveReadNotification";
 NSString * const IMSocketDidChangeStateNotification = @"IMSocketDidChangeStateNotification";
 NSString * const kIMConvIDKey = @"convID";
+NSString * const IMSocketDidReceivePresenceNotification = @"IMSocketDidReceivePresenceNotification";
+NSString * const kIMPresenceUserKey = @"presenceUser";
+NSString * const kIMPresenceKey = @"presence";
 NSString * const IMSocketDidApplyMsgOpNotification = @"IMSocketDidApplyMsgOpNotification";
 NSString * const kIMMsgOpTargetSeqKey = @"msgOpTargetSeq";
 NSString * const kIMMsgOpKey = @"msgOp";
@@ -955,6 +958,10 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
         if ([d respondsToSelector:@selector(socketManager:didChangePresenceForUser:presence:)]) {
             [d socketManager:self didChangePresenceForUser:user presence:presence];
         }
+        // 同时广播给非 delegate 页（会话列表）：对端上线帧一到即时点亮列表绿点，无需等下次重拉 /conversations。
+        [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidReceivePresenceNotification
+                                                         object:self
+                                                       userInfo:@{ kIMPresenceUserKey: user, kIMPresenceKey: presence }];
     });
 }
 

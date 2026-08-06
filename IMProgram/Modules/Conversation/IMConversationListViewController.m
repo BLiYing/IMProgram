@@ -159,7 +159,7 @@ static CGFloat const kIMRowLeading = 16;
         _onlineDot.backgroundColor = IMTheme.onlineDot;
         _onlineDot.layer.cornerRadius = 6;   // 12pt 外圈
         _onlineDot.layer.borderWidth = 2;
-        _onlineDot.layer.borderColor = IMTheme.pageBackground.CGColor;
+        // borderColor 每次 configure 复用时刷新（见下），此处不设——避免与其重复且掩盖真正的赋值点。
         _onlineDot.layer.masksToBounds = YES;
         _onlineDot.hidden = YES;
         [self.contentView addSubview:_onlineDot];
@@ -196,8 +196,10 @@ static CGFloat const kIMRowLeading = 16;
             [_dot.widthAnchor constraintEqualToConstant:10],
             [_dot.heightAnchor constraintEqualToConstant:10],
 
-            [_onlineDot.trailingAnchor constraintEqualToAnchor:_avatar.trailingAnchor constant:1],
-            [_onlineDot.bottomAnchor constraintEqualToAnchor:_avatar.bottomAnchor constant:1],
+            // 头像是满圆（cornerRadius=size/2），故点心要落在圆周 4:30 方向上、而非方形包围盒的角（那样点会飘在圆外）。
+            // 圆半径 26、45° 方向的边缘点约 (44,44)，12pt 点居中于此 → 相对 avatar 右/下边各内缩 2pt，使点跨坐在圆周上。
+            [_onlineDot.trailingAnchor constraintEqualToAnchor:_avatar.trailingAnchor constant:-2],
+            [_onlineDot.bottomAnchor constraintEqualToAnchor:_avatar.bottomAnchor constant:-2],
             [_onlineDot.widthAnchor constraintEqualToConstant:12],
             [_onlineDot.heightAnchor constraintEqualToConstant:12],
         ]];
@@ -387,6 +389,9 @@ static CGFloat const kIMRowLeading = 16;
     // 连接状态变化 → 标题显示 连接中/未连接（取代"任何失败都弹框"）。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketState:)
                                                name:IMSocketDidChangeStateNotification object:nil];
+    // presence 帧 → 就地点亮/更新对应单聊行的在线绿点（对端上线即时可见，不必等重拉 /conversations）。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onPresenceChanged:)
+                                               name:IMSocketDidReceivePresenceNotification object:nil];
     // 本地媒体/文件发送状态 → 副标题 ↑/! 标记刷新（进度通知每片一次，reloadData 对小列表足够便宜）。
     for (NSNotificationName n in @[IMMediaSendProgressDidChangeNotification, IMMediaSendMetaDidChangeNotification,
                                    IMMediaSendDidDispatchNotification, IMMediaSendDidFailNotification,
@@ -409,6 +414,7 @@ static CGFloat const kIMRowLeading = 16;
     [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidReceiveGroupEventNotification object:nil];
     [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidUpdateConversationNotification object:nil];
     [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidChangeStateNotification object:nil];
+    [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidReceivePresenceNotification object:nil];
     for (NSNotificationName n in @[IMMediaSendProgressDidChangeNotification, IMMediaSendMetaDidChangeNotification,
                                    IMMediaSendDidDispatchNotification, IMMediaSendDidFailNotification,
                                    IMMediaSendDidCancelNotification]) {
@@ -436,6 +442,22 @@ static CGFloat const kIMRowLeading = 16;
     if (state == IMSocketStateConnected && self.visible) {
         // 服务恢复后立即取得权威资料；失败仍保留本地列表，不弹窗。
         [self reload];
+    }
+}
+
+/// 收到 presence 帧 → 就地更新对应单聊行的在线态并只刷这一行（对端上线即时点亮绿点，无需重拉 /conversations）。
+/// 下线不由帧驱动（服务端不推 offline），仍靠 onlineUntil 到期 + 下次 reload 熄灭。
+- (void)onPresenceChanged:(NSNotification *)note {
+    NSString *user = note.userInfo[kIMPresenceUserKey];
+    IMPresence *presence = note.userInfo[kIMPresenceKey];
+    if (user.length == 0 || !presence) { return; }
+    for (NSUInteger i = 0; i < self.conversations.count; i++) {
+        IMConversation *c = self.conversations[i];
+        if (c.isGroup || ![c.peer isEqualToString:user]) { continue; }
+        c.peerPresence = presence;
+        [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:i inSection:0]]
+                              withRowAnimation:UITableViewRowAnimationNone];
+        break; // 单聊对端唯一，命中即止
     }
 }
 

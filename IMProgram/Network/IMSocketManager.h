@@ -39,6 +39,12 @@ extern NSString * const IMSocketDidUpdateConversationNotification;
 /// 连接状态变化时广播（主线程）：非 delegate 页（如会话列表）据此显示 连接中/未连接。userInfo[@"state"]=IMSocketState。
 extern NSString * const IMSocketDidChangeStateNotification;
 extern NSString * const kIMConvIDKey;
+/// 收到 presence 帧（某用户在线态变化）时广播（主线程）：presence 只喂给单个 delegate（打开的聊天页），
+/// 此通知让非 delegate 页（如会话列表）也能就地刷新在线绿点，无需重拉 /conversations。服务端只推上线，
+/// 下线仍由 onlineUntil 到期本地降级（列表在下次 reload 时熄灭）。userInfo：kIMPresenceUserKey=uid、kIMPresenceKey=IMPresence*。
+extern NSString * const IMSocketDidReceivePresenceNotification;
+extern NSString * const kIMPresenceUserKey;
+extern NSString * const kIMPresenceKey;
 
 /// 连接状态。
 typedef NS_ENUM(NSInteger, IMSocketState) {
