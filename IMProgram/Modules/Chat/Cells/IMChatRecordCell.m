@@ -1,6 +1,7 @@
 #import "IMChatRecordCell.h"
 #import "IMMessageModel.h"
 #import "IMMediaUtil.h"
+#import "UILabel+IMAvatar.h"
 #import "IMTheme.h"
 
 static void IMParseChatRecord(NSString *content, NSString **outTitle, NSArray<NSString *> **outLines) {
@@ -36,6 +37,10 @@ static void IMParseChatRecord(NSString *content, NSString **outTitle, NSArray<NS
     UILabel *_footer;
     NSLayoutConstraint *_leading;
     NSLayoutConstraint *_trailing;
+    UILabel *_senderLabel;         // 群聊对方消息：发送者昵称（连续段首条显示，主色小字，卡片上方）
+    UILabel *_avatar;              // 群聊对方消息：头像（连续段末条显示，贴卡片底左侧）
+    NSLayoutConstraint *_cardTop;          // 无昵称：卡片贴 cell 顶
+    NSLayoutConstraint *_cardTopUnderName; // 有昵称：卡片接昵称底
 }
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
     self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
@@ -76,12 +81,44 @@ static void IMParseChatRecord(NSString *content, NSString **outTitle, NSArray<NS
         _footer.text = @"聊天记录";
         [_card addSubview:_footer];
 
+        // 群聊对方消息（与 IMBubbleCell/IMImageCell/IMLinkCardCell 一致）：昵称在卡片上方、头像贴卡片底左侧。
+        _senderLabel = [UILabel new];
+        _senderLabel.translatesAutoresizingMaskIntoConstraints = NO;
+        _senderLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+        _senderLabel.textColor = IMTheme.accent;
+        _senderLabel.hidden = YES;
+        [self.contentView addSubview:_senderLabel];
+
+        _avatar = [UILabel new];
+        _avatar.translatesAutoresizingMaskIntoConstraints = NO;
+        _avatar.textColor = UIColor.whiteColor;
+        _avatar.textAlignment = NSTextAlignmentCenter;
+        _avatar.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+        _avatar.layer.cornerRadius = 15;
+        _avatar.layer.masksToBounds = YES;
+        _avatar.hidden = YES;
+        _avatar.userInteractionEnabled = YES; // 点头像 → 进该成员资料页（onAvatarTap，微信式）
+        [_avatar addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(avatarTapped)]];
+        [self.contentView addSubview:_avatar];
+
         _leading = [_card.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12];
         _trailing = [_card.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-12];
+        // 卡片顶：无昵称贴 cell 顶，有昵称接昵称底（群聊连续段首条）——二选一。
+        _cardTop = [_card.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:3];
+        _cardTopUnderName = [_card.topAnchor constraintEqualToAnchor:_senderLabel.bottomAnchor constant:4];
+        _cardTop.active = YES;
         [NSLayoutConstraint activateConstraints:@[
-            [_card.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:3],
             [_card.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3],
             [_card.widthAnchor constraintEqualToConstant:240],
+            // 昵称：顶贴 cell、左对齐卡片（卡片左移时随之右移）。
+            [_senderLabel.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:4],
+            [_senderLabel.leadingAnchor constraintEqualToAnchor:_card.leadingAnchor constant:2],
+            [_senderLabel.trailingAnchor constraintLessThanOrEqualToAnchor:self.contentView.trailingAnchor constant:-12],
+            // 头像：30×30 贴 cell 左、底对齐卡片底（连续段末条才 show）。
+            [_avatar.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12],
+            [_avatar.bottomAnchor constraintEqualToAnchor:_card.bottomAnchor],
+            [_avatar.widthAnchor constraintEqualToConstant:30],
+            [_avatar.heightAnchor constraintEqualToConstant:30],
             [_title.topAnchor constraintEqualToAnchor:_card.topAnchor constant:10],
             [_title.leadingAnchor constraintEqualToAnchor:_card.leadingAnchor constant:12],
             [_title.trailingAnchor constraintEqualToAnchor:_card.trailingAnchor constant:-12],
@@ -99,7 +136,8 @@ static void IMParseChatRecord(NSString *content, NSString **outTitle, NSArray<NS
     }
     return self;
 }
-- (void)configureWithMessage:(IMMessageModel *)message mine:(BOOL)mine {
+- (void)configureWithMessage:(IMMessageModel *)message mine:(BOOL)mine
+                  senderName:(NSString *)senderName {
     _card.layer.cornerRadius = IMTheme.radiusBubble;
     _title.font = [UIFont systemFontOfSize:MAX(14, IMTheme.chatFontSize - 2) weight:UIFontWeightSemibold];
     _preview.font = [UIFont systemFontOfSize:MAX(12, IMTheme.chatFontSize - 5)];
@@ -109,9 +147,32 @@ static void IMParseChatRecord(NSString *content, NSString **outTitle, NSArray<NS
     _preview.text = [lines componentsJoinedByString:@"\n"];
     _leading.active = !mine;
     _trailing.active = mine;
+    // 群聊对方消息昵称（连续段首条）：显示时卡片接昵称底，否则贴 cell 顶。
+    BOOL showName = senderName.length > 0;
+    _senderLabel.font = [UIFont systemFontOfSize:MAX(12, IMTheme.chatFontSize - 4) weight:UIFontWeightSemibold];
+    _senderLabel.text = senderName;
+    _senderLabel.hidden = !showName;
+    _cardTop.active = !showName;
+    _cardTopUnderName.active = showName;
+}
+- (void)applyGroupAvatarURL:(NSString *)url seed:(NSString *)seed name:(NSString *)name
+                 showAvatar:(BOOL)showAvatar gutter:(BOOL)gutter {
+    _leading.constant = gutter ? 48 : 12;   // 对方群消息留 30 头像列（12 + 30 + 6），与其他 cell 一致
+    if (gutter && showAvatar) {
+        _avatar.hidden = NO;
+        [_avatar im_setAvatarURL:url seed:seed displayName:name];
+    } else {
+        _avatar.hidden = YES;
+    }
 }
 - (void)tapped { if (_onTap) { _onTap(); } }
-- (void)prepareForReuse { [super prepareForReuse]; _onTap = nil; }
+- (void)avatarTapped { if (_onAvatarTap) { _onAvatarTap(); } }
+- (void)prepareForReuse {
+    [super prepareForReuse];
+    _onTap = nil; _onAvatarTap = nil;
+    _senderLabel.hidden = YES; _senderLabel.text = nil;
+    _avatar.hidden = YES; _leading.constant = 12;
+}
 - (UIView *)previewTargetView { return _card; }
 
 @end

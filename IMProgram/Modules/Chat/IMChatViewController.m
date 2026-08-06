@@ -2257,9 +2257,22 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     // 合并转发（#3）：聊天记录卡片，点击进详情页看全部。
     if ([m.contentType isEqualToString:@"chat_record"]) {
         IMChatRecordCell *rec = [tableView dequeueReusableCellWithIdentifier:@"record" forIndexPath:indexPath];
-        [rec configureWithMessage:m mine:[m.from isEqualToString:self.userID]];
+        BOOL mineR = [m.from isEqualToString:self.userID];
+        BOOL grpR = self.isGroupChat && !mineR;                              // 群聊对方
+        BOOL firstR = grpR && [self isFirstInSenderRun:indexPath.row];       // 连续段首条→显示名
+        BOOL lastR = grpR && [self isLastInSenderRun:indexPath.row];         // 连续段末条→显示头像
+        [rec configureWithMessage:m mine:mineR senderName:(firstR ? [self senderNameForMessage:m] : nil)];
+        [rec applyGroupAvatarURL:(grpR ? [self senderAvatarURLForMessage:m] : nil)
+                            seed:(m.from ?: @"") name:(grpR ? [self senderNameForMessage:m] : nil)
+                      showAvatar:lastR gutter:grpR];
         __weak typeof(self) ws = self;
         rec.onTap = ^{ [ws openChatRecord:m]; };
+        // 群聊对方头像点击 → 该成员资料页（单聊/自己不挂）。
+        if (grpR) {
+            NSString *memberUID = m.from;
+            __weak typeof(self) wsAvatar = self;
+            rec.onAvatarTap = ^{ [wsAvatar openMemberProfileForUID:memberUID]; };
+        }
         return rec;
     }
     // 纯 URL 文本消息：URL 文本 + 链接富预览卡片（OG），点击应用内打开（带引用时也显示引用行+卡片）。
@@ -2517,7 +2530,12 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         return [IMImageCell displayHeightForPixelWidth:m.mediaW pixelHeight:m.mediaH] + 8;
     }
     if ([m.contentType isEqualToString:@"file"]) { return 84; }
-    if ([m.contentType isEqualToString:@"chat_record"]) { return 120; }
+    if ([m.contentType isEqualToString:@"chat_record"]) {
+        // 群聊对方连续段首条多一行发送者昵称（~22pt），估高相应加高，减少上滑实体化时的 offset 修正。
+        BOOL grpNameRec = self.isGroupChat && ![m.from isEqualToString:self.userID]
+            && [self isFirstInSenderRun:indexPath.row];
+        return grpNameRec ? 142 : 120;
+    }
     return 56;
 }
 
