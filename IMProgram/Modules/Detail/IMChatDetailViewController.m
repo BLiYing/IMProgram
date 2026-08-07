@@ -1386,7 +1386,8 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
         for (IMMessageModel *m in sorted) {
             [items addObject:[IMMediaItem itemWithURL:IMMediaFullURL(m.content, self.host)
                                               isVideo:[m.contentType isEqualToString:@"video"]
-                                            timestamp:m.timestamp]];
+                                            timestamp:m.timestamp
+                                                thumb:m.thumb]];
         }
         self.tabMediaMessages = sorted;
         self.tabMedia = items;

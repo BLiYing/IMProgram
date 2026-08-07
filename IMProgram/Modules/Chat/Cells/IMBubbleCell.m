@@ -362,9 +362,9 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         NSString *glyph = IMMediaGlyphForSnippet(snap);
         NSString *quoteFileName = IMReplySnippetFileName(raw); // 一次解析（wire 形/本端存量本地化形皆可），文件判定与图标共用
         BOOL fileSnippet = quoteFileName != nil || [snap isEqualToString:@"[文件]"];
-        // 门控一致（M4-7）：replyThumbURL 非空=已下载→真帧；否则 replyThumbData 非空=未下载→内嵌 thumb 磨砂。
-        // 二者取其一作复用 key；都空则落到下面的静态图标分支。绝不为引用小图联网拉原件/抽远端帧。
-        NSString *previewKey = replyThumbURL.length > 0 ? replyThumbURL : replyThumbData;
+        // 门控一致（M4-7）：有媒体地址即走 IMMediaPlaceholder 统一取图（真帧仅已下载 > thumb 磨砂 > nil）；
+        // 复用 key 用完整媒体地址；返回 nil（未下载且无 thumb）则保留占位图标。绝不为引用小图联网拉原件/抽远端帧。
+        NSString *previewKey = replyThumbURL;
         if (previewKey.length > 0) {
             // 真缩略图：先用占位图标撑住固定 24x24 位置（行高稳定），异步图到达后原地替换重渲。
             NSTextAttachment *att = [NSTextAttachment new];
@@ -382,12 +382,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
                 self->_quoteThumbAtt.image = IMSquareThumb(img, 24);
                 self->_text.attributedText = self->_bodyText; // 重新赋值触发重渲（bounds 固定，行高不变）
             };
-            if (replyThumbURL.length > 0) {
-                if (replyThumbIsVideo) { [[IMVideoThumbnailLoader shared] loadPosterForVideoURL:replyThumbURL completion:apply]; }
-                else { [[IMImageLoader shared] loadImageURL:replyThumbURL completion:apply]; }
-            } else {
-                [IMMediaPlaceholder frostedForThumb:replyThumbData completion:apply]; // 未下载：内嵌 thumb 磨砂
-            }
+            [IMMediaPlaceholder previewForURL:replyThumbURL isVideo:replyThumbIsVideo thumb:replyThumbData completion:apply];
         } else if (glyph || fileSnippet) {
             NSTextAttachment *att = [NSTextAttachment new];
             att.image = fileSnippet ? IMFileTypeIconForName(quoteFileName, 18)

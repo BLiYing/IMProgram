@@ -14,8 +14,7 @@
 #import "IMConversation.h"
 #import "IMImageLoader.h"
 #import "IMVideoThumbnailLoader.h"
-#import "IMMediaPlaceholder.h"   // 引用缩略门控占位（真帧>thumb磨砂>图标）
-#import "IMOriginalVideoCache.h" // 判断视频是否已本地下载，决定引用缩略用真帧还是磨砂
+#import "IMMediaPlaceholder.h"   // 引用缩略 / 媒体库统一门控取图（真帧>thumb磨砂>图标）
 #import "IMMediaViewerViewController.h"
 #import "IMConversationMediaViewController.h"
 #import "IMForwardPickerViewController.h"
@@ -1151,32 +1150,14 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     self.replyLabelLeadingThumb.active = YES;
     NSString *url = [self fullMediaURL:message.content];
     __weak typeof(self) ws = self;
-    // 防串图：异步磨砂/封面回来时，若用户已切换/取消引用目标（replyingTo 变了），丢弃这张过期图。
-    void (^apply)(UIImage *) = ^(UIImage *img) {
+    // 门控一致（M4-7）：统一取图（真帧仅已下载 > thumb 磨砂 > 媒体类型图标）；异步回来若已切换/取消
+    // 引用目标（replyingTo 变了）则丢弃这张过期图（防串图）。
+    [IMMediaPlaceholder previewForURL:url isVideo:isVideo thumb:message.thumb completion:^(UIImage *img) {
         __strong typeof(ws) self = ws;
-        if (img && self && self.replyingTo == message) { self.replyThumb.image = img; }
-    };
-    // 门控一致（M4-7）：已下载才用真帧；否则用内嵌 thumb 磨砂；都没有→媒体类型图标。绝不为预览联网拉原件。
-    if (isVideo) {
-        if ([IMOriginalVideoCache hasCacheForFullURL:url]) {
-            NSString *local = [IMOriginalVideoCache cacheURLForFullURL:url].absoluteString;
-            [[IMVideoThumbnailLoader shared] loadPosterForVideoURL:local completion:apply]; // 本地文件抽帧，无网络
-        } else if (message.thumb.length > 0) {
-            [IMMediaPlaceholder frostedForThumb:message.thumb completion:apply];
-        } else {
-            self.replyThumb.image = [[UIImage systemImageNamed:@"video.fill"]
-                imageWithTintColor:IMTheme.textSecondary renderingMode:UIImageRenderingModeAlwaysOriginal];
-        }
-    } else {
-        if ([[IMImageLoader shared] hasCachedImageForURL:url]) {
-            [[IMImageLoader shared] loadImageURL:url completion:apply]; // 命中缓存，无网络
-        } else if (message.thumb.length > 0) {
-            [IMMediaPlaceholder frostedForThumb:message.thumb completion:apply];
-        } else {
-            self.replyThumb.image = [[UIImage systemImageNamed:@"photo.fill"]
-                imageWithTintColor:IMTheme.textSecondary renderingMode:UIImageRenderingModeAlwaysOriginal];
-        }
-    }
+        if (!self || self.replyingTo != message) { return; }
+        self.replyThumb.image = img ?: [[UIImage systemImageNamed:(isVideo ? @"video.fill" : @"photo.fill")]
+            imageWithTintColor:IMTheme.textSecondary renderingMode:UIImageRenderingModeAlwaysOriginal];
+    }];
 }
 
 /// 退出引用态（或编辑态，引用条为二者共用）：收起条。
@@ -1413,7 +1394,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         BOOL isVideo = [m.contentType isEqualToString:@"video"];
         BOOL isImage = [m.contentType isEqualToString:@"image"];
         if (!isVideo && !isImage) { continue; }
-        [items addObject:[IMMediaItem itemWithURL:[self fullMediaURL:m.content] isVideo:isVideo timestamp:m.timestamp]];
+        [items addObject:[IMMediaItem itemWithURL:[self fullMediaURL:m.content] isVideo:isVideo timestamp:m.timestamp thumb:m.thumb]];
     }
     IMConversationMediaViewController *gallery = [IMConversationMediaViewController galleryWithItems:items];
     [self.navigationController pushViewController:gallery animated:YES];
@@ -2554,30 +2535,18 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     BOOL lastInRun = grp && [self isLastInSenderRun:indexPath.row];
     NSString *senderName = firstInRun ? [self senderNameForMessage:m] : nil;
     // 引用的是图片/视频：把原消息的媒体 URL 传给 cell，引用条内显示真缩略图（#4）。
-    // 引用缩略门控一致（M4-7）：已下载才把真帧 URL 交给 cell；否则传内嵌 thumb（cell 过磨砂显示）；
-    // 都没有则由 cell 退回媒体类型图标。绝不为一张 24px 引用小图联网拉原件/抽远端帧。
-    NSString *replyThumbURL = nil;   // 仅"已本地下载"时置（图片=缓存命中，视频=本地文件 URL）
-    NSString *replyThumbData = nil;  // 未下载时的内嵌 thumb dataURI（cell 磨砂）
+    // 引用的是图片/视频：把完整媒体地址 + 内嵌 thumb 交给 cell，由 IMMediaPlaceholder 统一决定
+    // 真帧(仅已下载)/thumb 磨砂/占位图标（门控一致 M4-7）。绝不为一张 24px 引用小图联网拉原件/抽远端帧。
+    NSString *replyThumbURL = nil;   // 完整媒体地址（有媒体引用目标即置）
+    NSString *replyThumbData = nil;  // 内嵌 thumb dataURI
     BOOL replyThumbIsVideo = NO;
     if (m.replyToConvSeq > 0) {
         IMMessageModel *target = [self messageWithConvSeq:m.replyToConvSeq];
         if (target && ([target.contentType isEqualToString:@"image"] || [target.contentType isEqualToString:@"video"])
             && target.recalledAt == 0 && target.content.length > 0) {
             replyThumbIsVideo = [target.contentType isEqualToString:@"video"];
-            NSString *fullURL = [self fullMediaURL:target.content];
-            if (replyThumbIsVideo) {
-                if ([IMOriginalVideoCache hasCacheForFullURL:fullURL]) {
-                    replyThumbURL = [IMOriginalVideoCache cacheURLForFullURL:fullURL].absoluteString; // 本地文件抽帧
-                } else {
-                    replyThumbData = target.thumb;
-                }
-            } else {
-                if ([[IMImageLoader shared] hasCachedImageForURL:fullURL]) {
-                    replyThumbURL = fullURL; // 命中缓存，无网络
-                } else {
-                    replyThumbData = target.thumb;
-                }
-            }
+            replyThumbURL = [self fullMediaURL:target.content];
+            replyThumbData = target.thumb;
         }
     }
     // 文件上传中/失败：左侧图标位显圆环状态机、第二行显进度（必须在 configure 之前设，整条一次性布好）。

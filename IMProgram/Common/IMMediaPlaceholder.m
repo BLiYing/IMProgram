@@ -1,6 +1,9 @@
 //  IMMediaPlaceholder.m
 #import "IMMediaPlaceholder.h"
 #import <CoreImage/CoreImage.h>
+#import "IMImageLoader.h"          // 图片本地缓存判定 + 取图
+#import "IMVideoThumbnailLoader.h" // 视频本地文件抽帧
+#import "IMOriginalVideoCache.h"   // 视频是否已本地下载
 
 /// 代理放大最长边：thumb 仅 ~20px，直接在原尺寸做高斯会糊成一团；先等比放大到中等尺寸再模糊，
 /// 收端 imageView 再放大到气泡尺寸时观感是平滑"磨砂"而非"低清块"。
@@ -35,6 +38,23 @@ static const CGFloat kIMFrostedBlurSigma = 4.0;
 + (nullable UIImage *)cachedFrostedForThumb:(NSString *)thumbDataURI {
     if (thumbDataURI.length == 0) { return nil; }
     return [[self cache] objectForKey:thumbDataURI];
+}
+
++ (void)previewForURL:(NSString *)url isVideo:(BOOL)isVideo thumb:(NSString *)thumbDataURI
+           completion:(void (^)(UIImage *_Nullable))completion {
+    // 门控一致（M4-7）：已下载才用真帧；否则内嵌 thumb 磨砂；都没有 → nil。绝不为预览联网拉原件/抽远端帧。
+    if (isVideo) {
+        if ([IMOriginalVideoCache hasCacheForFullURL:url]) {
+            NSString *local = [IMOriginalVideoCache cacheURLForFullURL:url].absoluteString; // 本地文件抽帧，无网络
+            [[IMVideoThumbnailLoader shared] loadPosterForVideoURL:local completion:completion];
+            return;
+        }
+    } else if ([[IMImageLoader shared] hasCachedImageForURL:url]) {
+        [[IMImageLoader shared] loadImageURL:url completion:completion]; // 命中缓存，无网络
+        return;
+    }
+    if (thumbDataURI.length > 0) { [self frostedForThumb:thumbDataURI completion:completion]; return; }
+    completion(nil);
 }
 
 + (void)frostedForThumb:(NSString *)thumbDataURI completion:(void (^)(UIImage *_Nullable))completion {

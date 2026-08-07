@@ -2,13 +2,16 @@
 
 #import "IMConversationMediaViewController.h"
 #import "IMMediaViewerViewController.h"
-#import "IMImageLoader.h"
-#import "IMVideoThumbnailLoader.h"
+#import "IMMediaPlaceholder.h" // 统一门控占位取图（真帧>thumb磨砂>灰底）
 
 @implementation IMMediaItem
 + (instancetype)itemWithURL:(NSString *)url isVideo:(BOOL)isVideo timestamp:(int64_t)timestamp {
+    return [self itemWithURL:url isVideo:isVideo timestamp:timestamp thumb:nil];
+}
++ (instancetype)itemWithURL:(NSString *)url isVideo:(BOOL)isVideo timestamp:(int64_t)timestamp
+                      thumb:(NSString *)thumb {
     IMMediaItem *it = [IMMediaItem new];
-    it.url = url; it.isVideo = isVideo; it.timestamp = timestamp;
+    it.url = url; it.isVideo = isVideo; it.timestamp = timestamp; it.thumb = thumb;
     return it;
 }
 @end
@@ -54,15 +57,11 @@
     _playBadge.hidden = !item.isVideo;
     __weak typeof(self) ws = self;
     NSString *want = item.url;
-    void (^apply)(UIImage *) = ^(UIImage *image) {
+    // 门控一致（M4-7）：媒体库同样走「真帧(仅已下载)>thumb 磨砂>灰底」，关自动下载时不为缩略图联网拉原件。
+    [IMMediaPlaceholder previewForURL:item.url isVideo:item.isVideo thumb:item.thumb completion:^(UIImage *image) {
         __strong typeof(ws) self = ws;
-        if (self && [self->_url isEqualToString:want]) { self->_thumb.image = image; }
-    };
-    if (item.isVideo) {
-        [[IMVideoThumbnailLoader shared] loadPosterForVideoURL:item.url completion:apply];
-    } else {
-        [[IMImageLoader shared] loadImageURL:item.url completion:apply];
-    }
+        if (self && image && [self->_url isEqualToString:want]) { self->_thumb.image = image; }
+    }];
 }
 - (void)prepareForReuse { [super prepareForReuse]; _thumb.image = nil; }
 @end
