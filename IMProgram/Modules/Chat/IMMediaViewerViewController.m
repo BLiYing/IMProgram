@@ -110,8 +110,10 @@
     [_imageView addGestureRecognizer:single];
     [_imageView addGestureRecognizer:dbl];
 
-    // 已知失效：直接画失效占位、不回源。
-    if ([IMMediaExpiryRegistry.shared isExpiredURL:_url]) { [self showExpiredOverlayForVideo:NO]; return; }
+    // 已知失效**且本机无缓存**：直接画失效占位、不回源。本机已缓存则照显真图（铁律 A），交给下方 loadImageURL 同步命中。
+    if (![[IMImageLoader shared] hasCachedImageForURL:_url] && [IMMediaExpiryRegistry.shared isExpiredURL:_url]) {
+        [self showExpiredOverlayForVideo:NO]; return;
+    }
     // 拉取（可能更清晰的）原图，兼作下载源。
     __weak typeof(self) ws = self;
     NSString *want = _url;
@@ -159,20 +161,25 @@
     _videoContainer.backgroundColor = UIColor.blackColor;
     [self.view addSubview:_videoContainer];
 
+    BOOL hasLocalOriginal = [IMOriginalVideoCache hasCacheForFullURL:_url];
+    // 已知失效**且本机无原件**（铁律 A：缓存过的照放，无视 404）→ 只画失效占位、**不建播放器/控件就 return**：
+    // 否则播放键/进度条/「查看原视频」等控件后加、浮在占位之上还可点，且 AVPlayer 仍连 404（code-review #2）。
+    // 实时探测「正在播放中」的 404 需 KVO AVPlayer.status，留待后续。
+    if (!hasLocalOriginal && [IMMediaExpiryRegistry.shared isExpiredURL:_url]) {
+        [self showExpiredOverlayForVideo:YES];
+        [self.view addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(dismissSelf)]];
+        return; // 播放器/poster/控件一律不建；teardown 对 nil _player/_originalSession/_timeObserver 均安全
+    }
+
     // 已有本地原件（下载过 / 自己发送成功时收编）→ 直接本地播放：秒开、不耗流量，
     // 「查看原视频」chip 也不再显示（用户反馈：看过原视频后重进不该再问一次）。
-    NSURL *u = [IMOriginalVideoCache hasCacheForFullURL:_url]
-        ? [IMOriginalVideoCache cacheURLForFullURL:_url]
-        : [NSURL URLWithString:_url];
+    NSURL *u = hasLocalOriginal ? [IMOriginalVideoCache cacheURLForFullURL:_url]
+                                : [NSURL URLWithString:_url];
     _usingLocalOriginal = u.isFileURL;
     _player = [AVPlayer playerWithURL:u];
     _playerLayer = [AVPlayerLayer playerLayerWithPlayer:_player];
     _playerLayer.videoGravity = AVLayerVideoGravityResizeAspect;
     [_videoContainer.layer addSublayer:_playerLayer];
-
-    // 已知失效的视频：直接画失效占位（不再尝试起播空屏）。实时探测正在播放中的 404 需 KVO AVPlayer status，
-    // 留待后续；当前靠气泡/媒体库先探到失效登记后，进查看器即命中此短路。
-    if ([IMMediaExpiryRegistry.shared isExpiredURL:_url]) { [self showExpiredOverlayForVideo:YES]; }
 
     _poster = [UIImageView new];
     _poster.contentMode = UIViewContentModeScaleAspectFit;

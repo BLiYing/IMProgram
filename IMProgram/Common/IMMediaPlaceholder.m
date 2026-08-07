@@ -101,6 +101,12 @@ static const CGFloat kIMFrostedBlurSigma = 4.0;
     return out;
 }
 
++ (UIImage *)expiredGlyphImage {
+    UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:24 weight:UIImageSymbolWeightSemibold];
+    UIImage *sym = [UIImage systemImageNamed:@"xmark.octagon.fill" withConfiguration:cfg];
+    return [sym imageWithTintColor:UIColor.whiteColor renderingMode:UIImageRenderingModeAlwaysOriginal];
+}
+
 + (UIView *)expiredOverlayWithCaption:(NSString *)caption {
     UIView *v = [UIView new];
     v.userInteractionEnabled = NO; // 终态不重试：点击穿透到底层
@@ -108,9 +114,7 @@ static const CGFloat kIMFrostedBlurSigma = 4.0;
 
     UIImageView *icon = [UIImageView new];
     icon.translatesAutoresizingMaskIntoConstraints = NO;
-    UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:26 weight:UIImageSymbolWeightSemibold];
-    UIImage *sym = [UIImage systemImageNamed:@"xmark.octagon.fill" withConfiguration:cfg];
-    icon.image = [sym imageWithTintColor:UIColor.whiteColor renderingMode:UIImageRenderingModeAlwaysOriginal];
+    icon.image = [self expiredGlyphImage]; // 与宫格/相册徽章共用同一枚 ⊘
     icon.contentMode = UIViewContentModeCenter;
     [v addSubview:icon];
 

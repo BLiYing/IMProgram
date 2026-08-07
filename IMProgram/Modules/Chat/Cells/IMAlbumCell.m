@@ -8,6 +8,7 @@
 #import "IMImageLoader.h"
 #import "IMVideoThumbnailLoader.h"
 #import "IMMediaExpiryRegistry.h" // 被动展示 404 失效登记 + 复验
+#import "IMMediaPlaceholder.h" // 共用失效 ⊘ 字形
 #import "IMMediaUtil.h"
 #import "UILabel+IMAvatar.h"
 #import "IMTheme.h"
@@ -58,10 +59,7 @@
         _playBadge.hidden = YES;
         [self addSubview:_playBadge];
 
-        _expiredBadge = [[UIImageView alloc] initWithImage:
-            [[UIImage systemImageNamed:@"xmark.octagon.fill"
-                     withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:24 weight:UIImageSymbolWeightSemibold]]
-                imageWithTintColor:UIColor.whiteColor renderingMode:UIImageRenderingModeAlwaysOriginal]];
+        _expiredBadge = [[UIImageView alloc] initWithImage:[IMMediaPlaceholder expiredGlyphImage]];
         _expiredBadge.hidden = YES;
         [self addSubview:_expiredBadge];
 
@@ -499,8 +497,10 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
     NSString *posterFull = (isVideo && m.poster.length > 0) ? IMMediaFullURL(m.poster, _host) : nil;
     NSString *imageURL = posterFull ?: full;
     tile.loadKey = imageURL;
+    // 失效**一律以内容 full URL 为 key**（视频用 full 而非 poster），与气泡/查看器/媒体库统一，
+    // 否则同一条消息在各面 key 不一致、失效状态互不传播（code-review #1）。
     // 已知失效：直接画 ⊘、不回源（掐 404 风暴）。
-    if ([IMMediaExpiryRegistry.shared isExpiredURL:imageURL]) { tile.imageView.image = nil; [tile setExpired:YES]; return; }
+    if ([IMMediaExpiryRegistry.shared isExpiredURL:full]) { tile.imageView.image = nil; [tile setExpired:YES]; return; }
     // 同步命中缓存直接出图，不置 nil —— 否则每次滚进可视区都闪一下（与气泡同款问题）。
     UIImage *cached = (isVideo && !posterFull) ? [[IMVideoThumbnailLoader shared] cachedPosterForURL:imageURL]
                                               : [[IMImageLoader shared] cachedImageForURL:imageURL];
@@ -511,8 +511,8 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
         __strong IMAlbumTileView *t = wt;
         if (!t || ![t.loadKey isEqualToString:imageURL]) { return; }
         if (img) { t.imageView.image = img; return; }
-        // 加载失败 → 复验 404，命中才画失效（区分瞬时/解码）。
-        [IMMediaExpiryRegistry.shared verifyExpiredForURL:imageURL completion:^(BOOL expired) {
+        // 加载失败 → 复验**内容 full URL**（非 poster，与各面统一 key），命中才画失效（区分瞬时/解码）。
+        [IMMediaExpiryRegistry.shared verifyExpiredForURL:full completion:^(BOOL expired) {
             __strong IMAlbumTileView *t2 = wt;
             if (t2 && expired && [t2.loadKey isEqualToString:imageURL]) { [t2 setExpired:YES]; }
         }];

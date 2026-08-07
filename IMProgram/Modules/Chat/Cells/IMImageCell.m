@@ -292,6 +292,9 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
         if (!self->_sizeFromMedia) { [self resizeToImageSize:image.size]; }
     };
     // 被动展示失效（草图 §03）：加载成功 → apply；失败 → 复验 404，命中则画失效占位（非透明）。
+    // 视频虽加载的是 posterURL，但**复验/登记一律用内容 full URL（want）**——与相册/媒体库/查看器统一 key
+    // （code-review #1/#3）。故 poster 单删而视频还在时不判失效（内容可取），仅缺缩略图；ops 通常整条 uploads
+    // 一起删，poster 与视频同亡 → full 404 → 正常判失效。
     void (^applyOrVerify)(UIImage *) = ^(UIImage *image) {
         __strong typeof(ws) self = ws;
         if (!self || ![self->_url isEqualToString:want]) { return; }

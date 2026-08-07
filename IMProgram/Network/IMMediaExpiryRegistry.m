@@ -5,7 +5,8 @@ NSString * const IMMediaExpiryDidChangeNotification = @"IMMediaExpiryDidChangeNo
 
 @implementation IMMediaExpiryRegistry {
     NSMutableSet<NSString *> *_expired;
-    dispatch_queue_t _q; // 串行保护 _expired
+    NSMutableSet<NSString *> *_verifying; // 在途复验去重：同址不并发多次 ranged-GET
+    dispatch_queue_t _q; // 串行保护 _expired / _verifying
 }
 
 + (instancetype)shared {
@@ -18,6 +19,7 @@ NSString * const IMMediaExpiryDidChangeNotification = @"IMMediaExpiryDidChangeNo
 - (instancetype)init {
     if ((self = [super init])) {
         _expired = [NSMutableSet set];
+        _verifying = [NSMutableSet set];
         _q = dispatch_queue_create("im.media.expiry", DISPATCH_QUEUE_SERIAL);
     }
     return self;
@@ -53,12 +55,22 @@ NSString * const IMMediaExpiryDidChangeNotification = @"IMMediaExpiryDidChangeNo
     if ([self isExpiredURL:url]) { done(YES); return; }
     NSURL *u = [NSURL URLWithString:url];
     if (!u || !([u.scheme isEqualToString:@"http"] || [u.scheme isEqualToString:@"https"])) { done(NO); return; }
+    // 在途去重：同一 URL 已有复验在飞 → 本次不再发第二次 ranged-GET（避免滚动/多面并发把 404 探测打成小风暴，
+    // code-review #4）。落地由那次在飞复验统一广播 IMMediaExpiryDidChangeNotification，各面下次渲染即命中 isExpiredURL。
+    __block BOOL alreadyVerifying = NO;
+    dispatch_sync(_q, ^{
+        if ([self->_verifying containsObject:url]) { alreadyVerifying = YES; }
+        else { [self->_verifying addObject:url]; }
+    });
+    if (alreadyVerifying) { done(NO); return; }
     NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:u];
     [req setValue:@"bytes=0-0" forHTTPHeaderField:@"Range"]; // 只探状态码，不拉整段
     req.timeoutInterval = 12;
     __weak typeof(self) ws = self;
     NSURLSessionDataTask *task = [NSURLSession.sharedSession dataTaskWithRequest:req
                                                               completionHandler:^(NSData *d, NSURLResponse *resp, NSError *err) {
+        __strong typeof(ws) sq = ws;
+        if (sq) { dispatch_sync(sq->_q, ^{ [sq->_verifying removeObject:url]; }); } // 复验结束，解锁在途
         NSInteger code = [resp isKindOfClass:NSHTTPURLResponse.class] ? ((NSHTTPURLResponse *)resp).statusCode : 0;
         if (code == 404 || code == 410) {
             [ws markExpiredURL:url];

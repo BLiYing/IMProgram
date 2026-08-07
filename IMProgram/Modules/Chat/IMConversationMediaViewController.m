@@ -4,6 +4,8 @@
 #import "IMMediaViewerViewController.h"
 #import "IMMediaPlaceholder.h" // 统一门控占位取图（真帧>thumb磨砂>灰底）
 #import "IMMediaExpiryRegistry.h" // 失效登记：媒体库宫格据此显 ⊘（自身只读本地、不联网探测）
+#import "IMImageLoader.h"          // 铁律 A：本机已缓存则不显失效
+#import "IMOriginalVideoCache.h"
 
 @implementation IMMediaItem
 + (instancetype)itemWithURL:(NSString *)url isVideo:(BOOL)isVideo timestamp:(int64_t)timestamp {
@@ -46,10 +48,7 @@
         _playBadge.translatesAutoresizingMaskIntoConstraints = NO;
         _playBadge.hidden = YES;
         [self.contentView addSubview:_playBadge];
-        _expiredBadge = [[UIImageView alloc] initWithImage:
-            [[UIImage systemImageNamed:@"xmark.octagon.fill"
-                     withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:24 weight:UIImageSymbolWeightSemibold]]
-                imageWithTintColor:UIColor.whiteColor renderingMode:UIImageRenderingModeAlwaysOriginal]];
+        _expiredBadge = [[UIImageView alloc] initWithImage:[IMMediaPlaceholder expiredGlyphImage]];
         _expiredBadge.translatesAutoresizingMaskIntoConstraints = NO;
         _expiredBadge.hidden = YES;
         [self.contentView addSubview:_expiredBadge];
@@ -66,7 +65,10 @@
     _url = item.url;
     _thumb.image = nil;
     // 已知失效：显 ⊘ + dim thumb、去播放键（本 VC 只读本地不联网，故不在此探测，仅据登记表展示）。
-    BOOL expired = [IMMediaExpiryRegistry.shared isExpiredURL:item.url];
+    // 铁律 A：本机有原件（图片缓存 / 视频原件缓存）→ 照显真图，不叠失效（否则把能看的原件 dim+⊘，code-review #5）。
+    BOOL hasLocal = item.isVideo ? [IMOriginalVideoCache hasCacheForFullURL:item.url]
+                                 : [[IMImageLoader shared] hasCachedImageForURL:item.url];
+    BOOL expired = !hasLocal && [IMMediaExpiryRegistry.shared isExpiredURL:item.url];
     _expiredBadge.hidden = !expired;
     _thumb.alpha = expired ? 0.5 : 1.0;
     _playBadge.hidden = expired || !item.isVideo;
