@@ -18,12 +18,36 @@
 #define IMLooksLikeURL(s) IMMediaLooksLikeURL(s)
 
 /// 若快照是媒体占位（[图片]/[视频]/[文件]），返回对应 SF Symbol 名做内嵌小图标；否则 nil。
+/// 统一用 .fill 填充变体（与输入框回复条 video.fill/photo.fill 观感一致，矢量、跟随文字色）；
+/// 均为 iOS 13 基线符号，不随系统更新消失。
 static NSString *IMMediaGlyphForSnippet(NSString *snap) {
-    if ([snap isEqualToString:@"[图片]"]) { return @"photo"; }
-    if ([snap isEqualToString:@"[视频]"]) { return @"video"; }
-    if ([snap isEqualToString:@"[文件]"]) { return @"doc"; }
-    if ([snap hasPrefix:@"[聊天记录]"]) { return @"text.bubble"; } // 引用合并转发卡片
+    if ([snap isEqualToString:@"[图片]"]) { return @"photo.fill"; }
+    if ([snap isEqualToString:@"[视频]"]) { return @"video.fill"; }
+    if ([snap isEqualToString:@"[文件]"]) { return @"doc.fill"; }
+    if ([snap hasPrefix:@"[聊天记录]"]) { return @"text.bubble.fill"; } // 引用合并转发卡片
     return nil;
+}
+
+/// 生成染成 textSecondary 的 SF Symbol 内嵌小图标，**等比缩放居中绘入 side×side 方形画布**。
+/// 关键：`NSTextAttachment` 会把图拉伸填满 `bounds`，而 video.fill 等符号是非方形（横向偏宽），
+/// 直接塞进方形 bounds 会被压扁变形——故这里先 aspect-fit 进方形画布，配方形 bounds 即不失真
+/// （后续异步真帧/磨砂本就是方形，bounds 保持不变即可无缝替换）。
+/// 防呆：名字取不到（旧系统缺该符号 → systemImageNamed: 返回 nil）时回退 photo.fill，避免留空白。
+static UIImage *IMTintedGlyph(NSString *name, CGFloat side) {
+    UIImage *sym = name.length ? [UIImage systemImageNamed:name] : nil;
+    if (!sym) { sym = [UIImage systemImageNamed:@"photo.fill"]; }
+    if (!sym) { return nil; }
+    sym = [sym imageWithTintColor:IMTheme.textSecondary renderingMode:UIImageRenderingModeAlwaysOriginal];
+    CGFloat sw = sym.size.width, sh = sym.size.height;
+    if (sw <= 0 || sh <= 0 || side <= 0) { return sym; }
+    CGFloat k = MIN(side / sw, side / sh); // aspect fit（不裁不拉，长边贴边、短边居中留白）
+    CGSize d = CGSizeMake(sw * k, sh * k);
+    UIGraphicsImageRendererFormat *fmt = [UIGraphicsImageRendererFormat defaultFormat];
+    fmt.opaque = NO;
+    UIGraphicsImageRenderer *r = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(side, side) format:fmt];
+    return [r imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
+        [sym drawInRect:CGRectMake((side - d.width) / 2, (side - d.height) / 2, d.width, d.height)];
+    }];
 }
 
 /// 方形缩略图（aspect fill + 圆角），用于引用条内嵌真图（#4）。
@@ -368,8 +392,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         if (previewKey.length > 0) {
             // 真缩略图：先用占位图标撑住固定 24x24 位置（行高稳定），异步图到达后原地替换重渲。
             NSTextAttachment *att = [NSTextAttachment new];
-            att.image = [[UIImage systemImageNamed:(glyph ?: @"photo")] imageWithTintColor:IMTheme.textSecondary
-                                                                             renderingMode:UIImageRenderingModeAlwaysOriginal];
+            att.image = IMTintedGlyph(glyph, 24); // 方形画布防拉伸；nil→回退 photo.fill；异步真图/磨砂到达后原地替换
             att.bounds = CGRectMake(0, -6, 24, 24);
             _quoteThumbAtt = att;
             _quoteThumbKey = previewKey;
@@ -386,9 +409,8 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         } else if (glyph || fileSnippet) {
             NSTextAttachment *att = [NSTextAttachment new];
             att.image = fileSnippet ? IMFileTypeIconForName(quoteFileName, 18)
-                                    : [[UIImage systemImageNamed:glyph] imageWithTintColor:IMTheme.textSecondary
-                                                                             renderingMode:UIImageRenderingModeAlwaysOriginal];
-            att.bounds = fileSnippet ? CGRectMake(0, -4, 18, 18) : CGRectMake(0, -2, 15, 13);
+                                    : IMTintedGlyph(glyph, 13); // 方形画布防拉伸（side=13 保持原行高）
+            att.bounds = fileSnippet ? CGRectMake(0, -4, 18, 18) : CGRectMake(0, -2, 13, 13);
             [body appendAttributedString:[NSAttributedString attributedStringWithAttachment:att]];
             [body appendAttributedString:[[NSAttributedString alloc] initWithString:@" " attributes:quoteAttr]];
         }
