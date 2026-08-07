@@ -2,6 +2,28 @@
 
 ---
 
+## 归档于 2026-08-07（下载 UI/UX + 数据存储 + 门控磨砂占位 全部收口）
+
+> 从活快照转入归档。以下均已完成（build/build-for-testing 绿 + 磨砂单测 iPhone 17 Pro Max 3/3 绿），**待真机手测**。
+> 完整实现原文见 `git log` 与 `../IMServer/docs/DOWNLOAD_DATA_STORAGE_PLAN.md §6.6–6.9`；机制规范 `../IMServer/docs/MEDIA_PLACEHOLDER_MECHANISM.md`；
+> 手测场景 `docs/DOWNLOAD_TEST_SCENARIOS.md`；未做/遗留见计划文档 §4 待办/§5.1/§6.5。
+
+- **下载 UI/UX 任务三/四（阶段 0–5，2026-08-06）**：`IMMediaDownloadCoordinator`（策略判定/门控/路由/落地，聊天页+详情页共用，key=content 去重）；
+  四处接入（`IMBubbleCell` 文件五态 / `IMImageCell` 图片视频门控+进度环 / `IMAlbumCell` 逐格 / `IMChatDetailViewController` 媒体宫格+文件行三态）；
+  视频整段预取落 `IMOriginalVideoCache`；`im_message_local` 加 `thumb` 列；失败分因（404/410 不给重试）；清缓存三目录一起清 + `IMImageLoader clearCache`。
+- **多轮 code-review 收口（2026-08-06~07）**：点下载卡死/列表跳变根因（改就地更新，`onProgress` 绝不 reload）；三设置页标题栏改 UIViewController+内嵌 InsetGrouped；
+  详情页文件列表去右侧配件、改长按菜单（转发/定位/删除，删除占位）；取消下载错显「已下载」根因（走 notifyChanged）；定位滚动挂 transitionCoordinator。
+- **门控磨砂占位（2026-08-07，本批最终收口）**：**根因**——门控视频「必现不显示小模糊 JPEG」是 `IMImageCell` 门控分支 `isVideo && poster` 优先取封面、
+  使内嵌 thumb 成死代码（web 每视频都生成 poster 故必现，非并发）。**修**：门控占位一律 thumb 优先（方案 A·纯净，零额外流量，无 thumb 才灰底）。
+  新公共件 `IMMediaPlaceholder`：`frostedForThumb`（thumb dataURI→高斯磨砂，代理 48px/σ=4，后台渲染+缓存，本地 base64 解码）与
+  `previewForURL`（**集中**「真帧仅已下载>thumb 磨砂>nil」）。**两档刻意分开**：聊天气泡/详情宫格=协调器策略门控（下载控件，档 A，直调 frostedForThumb）；
+  引用缩略（输入框条+气泡引用块）+ 会话媒体库宫格=被动预览（只读本地绝不联网，档 B，走 previewForURL），`IMMediaItem` 加 thumb。引用条 `replyingTo` 防串图。
+  三点日志 `media_gated_render`/`media_gated_thumb_dropped`/`incoming_media`；新增 `IMMediaPlaceholderTests`。
+  code-review 7 条：F1 解码走 base64、F2 引用条防串图、F5 单测、F7 媒体库纳入门控 已修；F3/F4 skipped、F6 self-correcting。
+- **Typing 提示位置（2026-08-05）**：移到聊天标题栏副标题「正在输入」，3s 无帧恢复；待手测。
+
+---
+
 ## 归档于 2026-08-05（引用消息增强收口，转入四大任务协作）
 
 **当时焦点**：
