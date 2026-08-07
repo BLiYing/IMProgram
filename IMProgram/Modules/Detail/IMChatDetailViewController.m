@@ -485,11 +485,16 @@
     NSString *size = IMFormatFileSize(_fileSizeBytes);
     BOOL gated = dp != nil && dp.phase != IMDownloadPhaseDone;
     BOOL ring = dp.phase == IMDownloadPhaseDownloading || dp.phase == IMDownloadPhasePaused;
-    BOOL notStarted = dp.phase == IMDownloadPhaseNotStarted;
+    // ⚠️ 必须带 `dp != nil`：IMDownloadPhaseNotStarted == 0，给 nil 发 phase 也返回 0，
+    // 已下载但无活跃状态的文件（dp==nil，重进页面/从 DB 重建即是）会被误判为「未下载」，
+    // 于是一边走 !gated 分支画文件图标、一边把绿色实心圆底(_disc)显示出来，圆盖在图标上。
+    BOOL notStarted = dp != nil && dp.phase == IMDownloadPhaseNotStarted;
     BOOL failed = dp.phase == IMDownloadPhaseFailed;
     _ringBG.hidden = _ring.hidden = !ring;
     _disc.hidden = !notStarted;
     if (!gated) { // 已下载：文件类型图标 + 「1.3 MB · 已下载」（无配件、无 glyph）。
+        // 明确清空所有下载态覆盖层：不依赖上面各布尔的推导，杜绝任何误判把圆底/圆环漏进已下载态。
+        _disc.hidden = _ring.hidden = _ringBG.hidden = YES;
         _icon.image = IMFileTypeIconForName(_fileName, 36);
         _icon.backgroundColor = UIColor.clearColor;
         _glyph.hidden = YES;
