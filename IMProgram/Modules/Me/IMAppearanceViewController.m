@@ -475,16 +475,34 @@ typedef NS_ENUM(NSInteger, IMAppearanceGridKind) {
 }
 @end
 
-@interface IMAppearanceModeViewController : UITableViewController
+// ⚠️ 必须是普通 UIViewController + 内嵌 UITableView（而非 UITableViewController）：
+// 导航容器 IMMainNavigationController 会给 push 进来的页面注入 IMLiquidNavigationBar 到 vc.view 上，
+// 并 additionalSafeAreaInsets.top=56。UITableViewController 的 vc.view 本身就是滚动的 tableView，
+// 注入栏被约束到滚动视图的 topAnchor 会被初始负 contentOffset 推到内容坐标之下 → 标题栏整体下移
+// （且随滚动漂移）。改为普通 VC，栏挂在静止的 self.view 上，位置正确（对齐主外观页/设置页写法）。
+@interface IMAppearanceModeViewController : UIViewController <UITableViewDataSource, UITableViewDelegate>
 @end
 
-@implementation IMAppearanceModeViewController
-- (instancetype)init { return [super initWithStyle:UITableViewStyleInsetGrouped]; }
+@implementation IMAppearanceModeViewController {
+    UITableView *_tableView;
+}
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"显示模式";
-    self.tableView.backgroundColor = IMTheme.groupedBackground;
-    self.tableView.rowHeight = 58;
+    self.view.backgroundColor = IMTheme.groupedBackground;
+    _tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStyleInsetGrouped];
+    _tableView.backgroundColor = IMTheme.groupedBackground;
+    _tableView.rowHeight = 58;
+    _tableView.dataSource = self;
+    _tableView.delegate = self;
+    _tableView.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:_tableView];
+    [NSLayoutConstraint activateConstraints:@[
+        [_tableView.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [_tableView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
+        [_tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [_tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+    ]];
 }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return 3; }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {

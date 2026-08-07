@@ -18,6 +18,12 @@ CGFloat const kIMLiquidBarHeight = 56;
 /// 每帧覆写它的标题与左右按钮。
 static void * const kIMInjectedBarKey = (void *)&kIMInjectedBarKey;
 
+/// 任何页面都可选实现，向注入的标题栏提供副标题（连接态 / 在线态 / 成员数等）。
+/// 聊天页与会话列表页均实现之——连接态统一走副标题（同「在线」位置），标题保持纯净。
+@protocol IMNavigationSubtitleProviding <NSObject>
+- (NSString *)im_navigationSubtitle;
+@end
+
 /// 主界面统一导航容器：所有非根页面自动隐藏 TabBar，并恢复系统边缘侧滑返回。
 /// 这样新增页面只需正常 push，不再依赖每个控制器手动设置 hidesBottomBarWhenPushed。
 @interface IMMainNavigationController : UINavigationController <UIGestureRecognizerDelegate, UINavigationControllerDelegate, IMLiquidNavigationBarDelegate>
@@ -138,7 +144,13 @@ static void * const kIMInjectedBarKey = (void *)&kIMInjectedBarKey;
     BOOL isChat = [vc isKindOfClass:IMChatViewController.class];
     bar.titleText = vc.title ?: @"";
     bar.showsTitleGlass = isChat;
-    bar.subtitleText = isChat ? ([(IMChatViewController *)vc im_navigationSubtitle] ?: @"") : @"";
+    // 副标题通用化：任何实现 im_navigationSubtitle 的页面都可提供（聊天页在线态/成员数、
+    // 会话列表连接态…）。连接态不再拼进标题后缀，统一走副标题（同「在线」位置，无括号）。
+    NSString *subtitle = @"";
+    if ([vc respondsToSelector:@selector(im_navigationSubtitle)]) {
+        subtitle = [(id<IMNavigationSubtitleProviding>)vc im_navigationSubtitle] ?: @"";
+    }
+    bar.subtitleText = subtitle;
     bar.compactContentProgress = 1;
     bar.immersiveAppearanceProgress = 0;
     bar.backgroundEffectProgress = 1;

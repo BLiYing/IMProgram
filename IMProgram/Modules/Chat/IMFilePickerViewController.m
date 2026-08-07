@@ -3,10 +3,12 @@
 #import "IMFilePickerViewController.h"
 #import "IMMediaUtil.h"
 #import "IMTheme.h"
+#import "IMMainTabBarController.h" // kIMLiquidBarHeight
+#import "IMProgram-Swift.h"        // IMLiquidNavigationBar（自持沉浸式标题栏）
 
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
-@interface IMFilePickerViewController () <UITableViewDataSource, UITableViewDelegate>
+@interface IMFilePickerViewController () <UITableViewDataSource, UITableViewDelegate, IMLiquidNavigationBarDelegate>
 @end
 
 @implementation IMFilePickerViewController {
@@ -57,15 +59,45 @@
     [super viewDidLoad];
     self.title = @"文件";
     self.view.backgroundColor = IMTheme.pageBackground;
-    self.navigationItem.leftBarButtonItem =
-        [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemClose target:self action:@selector(closeTapped)];
     _tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStyleInsetGrouped];
     _tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     _tableView.dataSource = self;
     _tableView.delegate = self;
     [self.view addSubview:_tableView];
+    [self installLiquidNavigationBar];
     [self loadNextPage:NO];
 }
+
+/// 自持沉浸式标题栏（方案 A）：本卡片以模态 sheet 呈现、不经导航容器注入，故照详情/设置页做法
+/// 自己挂一条 IMLiquidNavigationBar——撑 56pt 安全区给内容让位，栏用 hostExtraTopInset 还原 sheet
+/// 顶部真实位置。左上角关闭改用统一 Liquid Glass 圆钮（xmark），尺寸/材质与全局返回按钮一致。
+- (void)installLiquidNavigationBar {
+    UIEdgeInsets insets = self.additionalSafeAreaInsets;
+    insets.top = kIMLiquidBarHeight;
+    self.additionalSafeAreaInsets = insets;
+
+    IMLiquidNavigationBar *bar = [[IMLiquidNavigationBar alloc] initWithTitle:self.title subtitle:@"" actionTitle:nil];
+    bar.delegate = self;
+    bar.hostExtraTopInset = kIMLiquidBarHeight;
+    bar.leftImage = [UIImage systemImageNamed:@"xmark"
+                             withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:17
+                                                                                              weight:UIImageSymbolWeightSemibold]];
+    bar.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:bar];
+    [NSLayoutConstraint activateConstraints:@[
+        [bar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [bar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [bar.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [bar.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor],
+    ]];
+}
+
+#pragma mark - IMLiquidNavigationBarDelegate
+
+// 关闭：左侧 xmark（leftImage 非空 → 组件走 DidTapLeft）。DidTapBack 兜底同样关闭。
+- (void)liquidNavigationBarDidTapLeft:(IMLiquidNavigationBar *)bar { [self closeTapped]; }
+- (void)liquidNavigationBarDidTapBack:(IMLiquidNavigationBar *)bar { [self closeTapped]; }
+- (void)liquidNavigationBarDidTapAction:(IMLiquidNavigationBar *)bar { /* 无右侧操作 */ }
 
 - (void)loadNextPage:(BOOL)nextPage {
     if (_loading || !_loadPage || (nextPage && !_hasMore)) { return; }
@@ -131,6 +163,8 @@
         NSDictionary *f = _recent[(NSUInteger)ip.row];
         cell.textLabel.text = [f[@"name"] isKindOfClass:NSString.class] ? f[@"name"] : @"文件";
         cell.textLabel.numberOfLines = 1;
+        // 文件名尾部是扩展名，长名字中间截断更可读（与详情页文件列表一致，保留后缀可见）。
+        cell.textLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
         cell.imageView.image = IMFileTypeIconForName(cell.textLabel.text, 34);
         NSString *size = IMFormatFileSize([f[@"size"] longLongValue]);
         NSString *dateTime = IMFormatFileDateTime([f[@"timestamp"] longLongValue]);

@@ -306,6 +306,7 @@ static CGFloat const kIMRowLeading = 16;
 @property (nonatomic, assign) BOOL visible; // 在屏时才响应新消息刷新（避免进聊天页时无谓拉取）
 @property (nonatomic, strong) NSMutableSet<NSString *> *trackedConvIDs; // 已登记增量同步的会话（每会话只登记一次）
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *outboxStates; // conv → 0无/1发送中/2失败（去抖用）
+@property (nonatomic, assign) IMSocketState connState; // 连接态（走副标题，同聊天页「在线」位置）
 @end
 
 @implementation IMConversationListViewController
@@ -463,14 +464,22 @@ static CGFloat const kIMRowLeading = 16;
 }
 
 - (void)updateTitleForState:(IMSocketState)state {
-    switch (state) {
-        case IMSocketStateConnecting:   self.title = @"会话（连接中…）"; break;
-        case IMSocketStateDisconnected: self.title = @"会话（未连接）"; break;
-        default:                        self.title = @"会话"; break;
-    }
+    // 标题恒为「会话」；连接态走副标题（同聊天页「在线」位置，无括号）。见 im_navigationSubtitle。
+    self.connState = state;
+    self.title = @"会话";
     // 当前工程隐藏了 UINavigationBar，标题实际由 IMMainNavigationController 的 Liquid Bar 绘制；
-    // 只改 self.title 不会触发其同步，必须显式请求刷新。
+    // 只改 self.title/副标题不会触发其同步，必须显式请求刷新。
     [self im_refreshNavigationBar];
+}
+
+/// 连接态副标题：连接中 / 未连接（无括号）；已连接时不显示。供导航容器统一取用。
+- (NSString *)im_navigationSubtitle {
+    switch (self.connState) {
+        case IMSocketStateConnecting:   return @"连接中…";
+        case IMSocketStateDisconnected: return @"未连接";
+        case IMSocketStateConnected:    return @"";
+    }
+    return @"";
 }
 
 /// 收到新消息（任意会话）→ 节流刷新列表（合并连发的多条，避免每条都拉一次）。

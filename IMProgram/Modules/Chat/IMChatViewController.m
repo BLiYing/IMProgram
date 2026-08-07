@@ -1609,8 +1609,9 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
                     completion(files, hasMore, error);
                 }];
         }];
-    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:panel];
-    [self presentViewController:nav animated:YES completion:nil];
+    // 直接 present 面板（不再包 UINavigationController）：面板自持一条 IMLiquidNavigationBar，
+    // 顶部关闭按钮与全局返回按钮同款 Liquid Glass；sheet 配置在面板 init 内已设好。
+    [self presentViewController:panel animated:YES completion:nil];
 }
 
 /// 文件面板中的相册入口：以 file 消息发送原始资源，不进入图片/视频气泡或相册宫格。
@@ -2185,21 +2186,13 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     }
 }
 
-/// 标题：单聊=对方 uid（在线态走副标题）；群聊=群名。两者的连接态都以后缀表达。
+/// 标题：单聊=对方 uid；群聊=群名。连接态不再拼进标题后缀，统一走副标题（见 im_navigationSubtitle）。
 - (void)updateTitle {
-    NSString *suffix = @"";
-    switch (self.connState) {
-        case IMSocketStateConnected:    suffix = @""; break;
-        case IMSocketStateConnecting:   suffix = @"（连接中…）"; break;
-        case IMSocketStateDisconnected: suffix = @"（未连接）"; break;
-    }
     if (self.isGroupChat) {
-        NSString *name = self.groupName.length > 0 ? self.groupName : @"群聊";
-        self.title = [NSString stringWithFormat:@"%@%@", name, suffix];
-        [self refreshUnifiedNavigationBar];
-        return;
+        self.title = self.groupName.length > 0 ? self.groupName : @"群聊";
+    } else {
+        self.title = self.peerID;
     }
-    self.title = [NSString stringWithFormat:@"%@%@", self.peerID, suffix];
     [self refreshUnifiedNavigationBar];
 }
 
@@ -2209,10 +2202,15 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     if (self.peerTyping) {
         return @"正在输入";
     }
+    // 连接态优先：断开 / 连接中时副标题显示连接状态（同「在线」位置，无括号），
+    // 覆盖单聊在线态与群聊成员数——此时本地在线快照无法再更新，显示连接态才是可验证的状态。
+    switch (self.connState) {
+        case IMSocketStateConnecting:   return @"连接中…";
+        case IMSocketStateDisconnected: return @"未连接";
+        case IMSocketStateConnected:    break;
+    }
     if (!self.isGroupChat) {
-        // 单聊：在线态走副标题（原先的 🟢 已去掉）。断开连接时不显示——
-        // 此时本地这份快照无法再被更新，继续显示等于给出一个无法验证的状态。
-        if (self.connState != IMSocketStateConnected) { return @""; }
+        // 单聊：在线态走副标题（原先的 🟢 已去掉）。
         return self.peerPresence.subtitleText ?: @"";
     }
     NSUInteger count = self.groupInfo.members.count;
