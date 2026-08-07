@@ -4,6 +4,8 @@
 #import "IMImageLoader.h"
 #import "IMVideoThumbnailLoader.h"
 #import "IMOriginalVideoCache.h"
+#import "IMMediaExpiryRegistry.h" // 被动展示 404 失效登记 + 复验
+#import "IMMediaPlaceholder.h"    // 失效占位覆盖层
 #import "UIViewController+IMToast.h"
 #import "IMLog.h"
 #import <AVFoundation/AVFoundation.h>
@@ -22,6 +24,7 @@
     UIScrollView *_scroll;
     UIImageView  *_imageView;
     UIImage      *_fullImage;      // 下载用（优先原图字节）
+    UIView       *_expiredOverlay; // 失效占位覆盖层（被动展示 404）
 
     // 视频
     AVPlayer         *_player;
@@ -107,12 +110,36 @@
     [_imageView addGestureRecognizer:single];
     [_imageView addGestureRecognizer:dbl];
 
+    // 已知失效：直接画失效占位、不回源。
+    if ([IMMediaExpiryRegistry.shared isExpiredURL:_url]) { [self showExpiredOverlayForVideo:NO]; return; }
     // 拉取（可能更清晰的）原图，兼作下载源。
     __weak typeof(self) ws = self;
+    NSString *want = _url;
     [[IMImageLoader shared] loadImageURL:_url completion:^(UIImage *image) {
         __strong typeof(ws) self = ws;
-        if (self && image) { self->_imageView.image = image; self->_fullImage = image; }
+        if (!self || ![self->_url isEqualToString:want]) { return; }
+        if (image) { self->_imageView.image = image; self->_fullImage = image; return; }
+        // 无 preload 兜底且加载失败 → 复验 404，命中画失效占位（非空屏）。
+        if (self->_preloaded) { return; } // 有本地预览就不判失效（缓存过的照显，铁律 A）
+        [IMMediaExpiryRegistry.shared verifyExpiredForURL:want completion:^(BOOL expired) {
+            __strong typeof(ws) self2 = ws;
+            if (self2 && expired && [self2->_url isEqualToString:want]) { [self2 showExpiredOverlayForVideo:NO]; }
+        }];
     }];
+}
+
+/// 失效占位覆盖层（大图查看器）：盖满 self.view，⊘ + 文案；点击穿透（单击手势仍能关闭查看器）。
+- (void)showExpiredOverlayForVideo:(BOOL)isVideo {
+    if (_expiredOverlay) { return; }
+    _expiredOverlay = [IMMediaPlaceholder expiredOverlayWithCaption:(isVideo ? @"视频已失效" : @"图片已失效")];
+    _expiredOverlay.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:_expiredOverlay];
+    [NSLayoutConstraint activateConstraints:@[
+        [_expiredOverlay.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [_expiredOverlay.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [_expiredOverlay.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [_expiredOverlay.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
+    ]];
 }
 
 - (UIView *)viewForZoomingInScrollView:(UIScrollView *)scrollView { return _imageView; }
@@ -142,6 +169,10 @@
     _playerLayer = [AVPlayerLayer playerLayerWithPlayer:_player];
     _playerLayer.videoGravity = AVLayerVideoGravityResizeAspect;
     [_videoContainer.layer addSublayer:_playerLayer];
+
+    // 已知失效的视频：直接画失效占位（不再尝试起播空屏）。实时探测正在播放中的 404 需 KVO AVPlayer status，
+    // 留待后续；当前靠气泡/媒体库先探到失效登记后，进查看器即命中此短路。
+    if ([IMMediaExpiryRegistry.shared isExpiredURL:_url]) { [self showExpiredOverlayForVideo:YES]; }
 
     _poster = [UIImageView new];
     _poster.contentMode = UIViewContentModeScaleAspectFit;

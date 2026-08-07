@@ -7,6 +7,7 @@
 #import "IMMediaFormat.h"
 #import "IMImageLoader.h"
 #import "IMVideoThumbnailLoader.h"
+#import "IMMediaExpiryRegistry.h" // 被动展示 404 失效登记 + 复验
 #import "IMMediaUtil.h"
 #import "UILabel+IMAvatar.h"
 #import "IMTheme.h"
@@ -21,6 +22,8 @@
 - (void)setProgress:(nullable IMUploadProgress *)p; ///< nil/已完成=无覆盖；否则环形进度；failed=红「!」
 /// 下载门控（M4-7）：nil=就绪（清掉门控外观）；非 nil=显 ↓/环形进度 + 尺寸角标。
 - (void)setDownloadState:(nullable IMDownloadProgress *)dp sizeBytes:(int64_t)sizeBytes;
+/// 被动展示失效（曾可用图/视频被服务端清理，404）：YES=dim 底 + 中心 ⊘、不重试；NO=清除。格子小，只显 ⊘ 不带文案。
+- (void)setExpired:(BOOL)expired;
 @end
 
 @implementation IMAlbumTileView {
@@ -29,6 +32,7 @@
     CAShapeLayer *_ring;     // 进度环
     UILabel      *_failBadge;
     UIImageView  *_stateBadge; // 环中心小图标：⏸ 可暂停 / ↑ 已暂停(点击续传) / ✕ 排队压缩(点击取消)
+    UIImageView  *_expiredBadge; // 中心 ⊘（被动展示 404 失效）
 }
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
@@ -53,6 +57,13 @@
         _playBadge.tintColor = [UIColor colorWithWhite:1 alpha:0.95];
         _playBadge.hidden = YES;
         [self addSubview:_playBadge];
+
+        _expiredBadge = [[UIImageView alloc] initWithImage:
+            [[UIImage systemImageNamed:@"xmark.octagon.fill"
+                     withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:24 weight:UIImageSymbolWeightSemibold]]
+                imageWithTintColor:UIColor.whiteColor renderingMode:UIImageRenderingModeAlwaysOriginal]];
+        _expiredBadge.hidden = YES;
+        [self addSubview:_expiredBadge];
 
         UIBezierPath *circle = [UIBezierPath bezierPathWithArcCenter:CGPointMake(18, 18) radius:15
                                                           startAngle:-M_PI_2 endAngle:M_PI * 1.5 clockwise:YES];
@@ -113,6 +124,8 @@
     _failBadge.center = c;
     _stateBadge.frame = CGRectMake(0, 0, 30, 30);
     _stateBadge.center = c;
+    [_expiredBadge sizeToFit];
+    _expiredBadge.center = c;
     CGSize d = [_durationChip sizeThatFits:CGSizeMake(CGFLOAT_MAX, 16)];
     _durationChip.frame = CGRectMake(4, 4, d.width + 10, 16);
     CGRect ringFrame = CGRectMake(c.x - 18, c.y - 18, 36, 36);
@@ -161,6 +174,22 @@
     _durationChip.text = text;
     _durationChip.hidden = text.length == 0;
     [self setNeedsLayout];
+}
+
+- (void)setExpired:(BOOL)expired {
+    if (expired) {
+        _dim.hidden = NO;                 // 复用上传/门控的压暗层作 dim 底
+        _playBadge.hidden = YES; _failBadge.hidden = YES; _stateBadge.hidden = YES;
+        _ringBG.hidden = YES; _ring.hidden = YES;
+        _durationChip.hidden = YES;
+        _expiredBadge.hidden = NO;
+        self.isAccessibilityElement = YES;
+        self.accessibilityTraits = UIAccessibilityTraitImage;
+        self.accessibilityLabel = @"已失效";
+        [self setNeedsLayout];
+    } else {
+        _expiredBadge.hidden = YES;       // dim 由 setDownloadState:/setProgress: 各自决定，这里不强关
+    }
 }
 
 - (void)setProgress:(IMUploadProgress *)p {
@@ -442,6 +471,7 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
     IMDownloadProgress *dl = (remote && self.downloadStateForItem) ? self.downloadStateForItem(m) : nil;
     [tile setDownloadState:dl sizeBytes:m.fileSize];
     [tile setProgress:progress[m.clientMsgID ?: @""]];
+    [tile setExpired:NO]; // 复用防残留：先清上一条的失效外观
     if (tile.gated) {
         // 门控格不拉原图/封面：只显 thumb 模糊占位（~200B data URI），没有就留灰底。
         tile.loadKey = nil;
@@ -469,6 +499,8 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
     NSString *posterFull = (isVideo && m.poster.length > 0) ? IMMediaFullURL(m.poster, _host) : nil;
     NSString *imageURL = posterFull ?: full;
     tile.loadKey = imageURL;
+    // 已知失效：直接画 ⊘、不回源（掐 404 风暴）。
+    if ([IMMediaExpiryRegistry.shared isExpiredURL:imageURL]) { tile.imageView.image = nil; [tile setExpired:YES]; return; }
     // 同步命中缓存直接出图，不置 nil —— 否则每次滚进可视区都闪一下（与气泡同款问题）。
     UIImage *cached = (isVideo && !posterFull) ? [[IMVideoThumbnailLoader shared] cachedPosterForURL:imageURL]
                                               : [[IMImageLoader shared] cachedImageForURL:imageURL];
@@ -477,7 +509,13 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
     __weak IMAlbumTileView *wt = tile;
     void (^apply)(UIImage *) = ^(UIImage *img) {
         __strong IMAlbumTileView *t = wt;
-        if (t && img && [t.loadKey isEqualToString:imageURL]) { t.imageView.image = img; }
+        if (!t || ![t.loadKey isEqualToString:imageURL]) { return; }
+        if (img) { t.imageView.image = img; return; }
+        // 加载失败 → 复验 404，命中才画失效（区分瞬时/解码）。
+        [IMMediaExpiryRegistry.shared verifyExpiredForURL:imageURL completion:^(BOOL expired) {
+            __strong IMAlbumTileView *t2 = wt;
+            if (t2 && expired && [t2.loadKey isEqualToString:imageURL]) { [t2 setExpired:YES]; }
+        }];
     };
     if (isVideo && !posterFull) { [[IMVideoThumbnailLoader shared] loadPosterForVideoURL:full completion:apply]; }
     else { [[IMImageLoader shared] loadImageURL:imageURL completion:apply]; }

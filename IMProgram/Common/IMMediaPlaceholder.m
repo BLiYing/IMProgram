@@ -101,4 +101,39 @@ static const CGFloat kIMFrostedBlurSigma = 4.0;
     return out;
 }
 
++ (UIView *)expiredOverlayWithCaption:(NSString *)caption {
+    UIView *v = [UIView new];
+    v.userInteractionEnabled = NO; // 终态不重试：点击穿透到底层
+    v.backgroundColor = [UIColor colorWithWhite:0 alpha:0.28];
+
+    UIImageView *icon = [UIImageView new];
+    icon.translatesAutoresizingMaskIntoConstraints = NO;
+    UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:26 weight:UIImageSymbolWeightSemibold];
+    UIImage *sym = [UIImage systemImageNamed:@"xmark.octagon.fill" withConfiguration:cfg];
+    icon.image = [sym imageWithTintColor:UIColor.whiteColor renderingMode:UIImageRenderingModeAlwaysOriginal];
+    icon.contentMode = UIViewContentModeCenter;
+    [v addSubview:icon];
+
+    UILabel *label = [UILabel new];
+    label.translatesAutoresizingMaskIntoConstraints = NO;
+    label.text = caption.length > 0 ? caption : @"已失效";
+    label.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
+    label.textColor = UIColor.whiteColor;
+    label.textAlignment = NSTextAlignmentCenter;
+    label.numberOfLines = 1;
+    label.adjustsFontSizeToFitWidth = YES;
+    label.minimumScaleFactor = 0.8;
+    [v addSubview:label];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [icon.centerXAnchor constraintEqualToAnchor:v.centerXAnchor],
+        [icon.centerYAnchor constraintEqualToAnchor:v.centerYAnchor constant:-8],
+        [label.topAnchor constraintEqualToAnchor:icon.bottomAnchor constant:4],
+        [label.centerXAnchor constraintEqualToAnchor:v.centerXAnchor],
+        [label.leadingAnchor constraintGreaterThanOrEqualToAnchor:v.leadingAnchor constant:6],
+        [label.trailingAnchor constraintLessThanOrEqualToAnchor:v.trailingAnchor constant:-6],
+    ]];
+    return v;
+}
+
 @end

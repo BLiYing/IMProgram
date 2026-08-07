@@ -11,6 +11,7 @@
 #import "IMTheme.h"
 #import "IMLog.h" // 门控占位渲染点位日志（media_gated_render / media_gated_thumb_dropped）
 #import "IMMediaPlaceholder.h" // 磨砂占位统一渲染器（三处共用）
+#import "IMMediaExpiryRegistry.h" // 被动展示 404 失效登记 + 复验（曾可用媒体被清理）
 
 /// 气泡最大盒子：宽取 240 与屏宽 62% 的较小者（窄屏也不顶满），高 320（长图不会撑满整屏）。
 static const CGFloat kIMMediaMaxWidth = 240;
@@ -54,6 +55,7 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     NSString *_timeText;       // 右下角时间文案（暂停时替换「发送中…」用）
     int64_t _gatedSizeBytes;   // 门控态左上角"未下载尺寸"用（供进度就地更新复用，免重传 message）
     NSString *_gatedDurationText; // 门控态左上角时长（视频）
+    UIView *_expiredOverlay;   // 失效占位覆盖层（被动展示 404：曾可用媒体被服务端清理）；复用时移除
 }
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
@@ -278,6 +280,7 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     _noteTop.active = hasNote;
     _noteBottom.active = hasNote;
 
+    [self hideExpiredOverlay]; // 复用防残留：先清掉上一条的失效层
     if (fullURL.length == 0) { return; } // 尚未上传完成：只显本地预览，不发起网络加载
     __weak typeof(self) ws = self;
     NSString *want = fullURL;
@@ -287,6 +290,17 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
         self->_thumb.image = image;
         // 尺寸原先未知（老消息/无预览）→ 用真实图重排一次，避免长图被塞进方框。
         if (!self->_sizeFromMedia) { [self resizeToImageSize:image.size]; }
+    };
+    // 被动展示失效（草图 §03）：加载成功 → apply；失败 → 复验 404，命中则画失效占位（非透明）。
+    void (^applyOrVerify)(UIImage *) = ^(UIImage *image) {
+        __strong typeof(ws) self = ws;
+        if (!self || ![self->_url isEqualToString:want]) { return; }
+        if (image) { apply(image); return; }
+        [IMMediaExpiryRegistry.shared verifyExpiredForURL:want completion:^(BOOL expired) {
+            __strong typeof(ws) self2 = ws;
+            if (!self2 || !expired || ![self2->_url isEqualToString:want]) { return; }
+            [self2 showExpiredForVideo:isVideo message:message];
+        }];
     };
     // 门控（M4-7）：收到的媒体按策略"未下载"——中心 ↓（下载中为环形 + ⏸）+ 尺寸角标，点击触发下载。
     // 占位图源：**一律优先显示随消息内嵌的极小模糊缩略 thumb**（~1KB、免额外下载、天然"糊"符合未下载占位语义），
@@ -316,14 +330,59 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
         // 无 thumb（极老消息）：留 init 的中性灰底（方案 A·纯净门控——绝不为占位联网拉封面/原图）。
         return;
     }
+    // 已知失效：直接画失效占位、不再回源（掐 404 风暴）。
+    if ([IMMediaExpiryRegistry.shared isExpiredURL:fullURL]) {
+        [self showExpiredForVideo:isVideo message:message];
+        return;
+    }
     if (!isVideo) {
-        [[IMImageLoader shared] loadImageURL:fullURL completion:apply];
+        [[IMImageLoader shared] loadImageURL:fullURL completion:applyOrVerify];
     } else if (posterURL.length > 0) {
-        [[IMImageLoader shared] loadImageURL:posterURL completion:apply]; // 封面是普通 JPEG，走图片缓存
+        [[IMImageLoader shared] loadImageURL:posterURL completion:applyOrVerify]; // 封面是普通 JPEG，走图片缓存
     } else {
         // 没有封面（老消息/发送端抓帧失败）才回退抽帧——代价是要拉远端视频的一段数据。
-        [[IMVideoThumbnailLoader shared] loadPosterForVideoURL:fullURL completion:apply];
+        [[IMVideoThumbnailLoader shared] loadPosterForVideoURL:fullURL completion:applyOrVerify];
     }
+}
+
+/// 失效占位（被动展示 404）：保留磨砂 thumb 作 dim 底（有则显，无则中性灰底）、去中心播放/进度键、叠加 ⊘+文案层。
+- (void)showExpiredForVideo:(BOOL)isVideo message:(IMMessageModel *)message {
+    _playBadge.hidden = YES;
+    _progressWrap.hidden = YES; _ringBG.hidden = YES; _ring.hidden = YES;
+    if (message.thumb.length > 0) {
+        UIImage *cached = [IMMediaPlaceholder cachedFrostedForThumb:message.thumb];
+        if (cached) {
+            _thumb.image = cached;
+        } else {
+            __weak typeof(self) ws = self;
+            NSString *want = _url;
+            [IMMediaPlaceholder frostedForThumb:message.thumb completion:^(UIImage *blurred) {
+                __strong typeof(ws) self = ws;
+                if (self && blurred && [self->_url isEqualToString:want]) { self->_thumb.image = blurred; }
+            }];
+        }
+    }
+    [self showExpiredOverlayWithCaption:(isVideo ? @"视频已失效" : @"图片已失效")];
+}
+
+- (void)showExpiredOverlayWithCaption:(NSString *)caption {
+    [_expiredOverlay removeFromSuperview];
+    _expiredOverlay = [IMMediaPlaceholder expiredOverlayWithCaption:caption];
+    _expiredOverlay.translatesAutoresizingMaskIntoConstraints = NO;
+    _expiredOverlay.layer.cornerRadius = IMTheme.radiusBubble;
+    _expiredOverlay.clipsToBounds = YES;
+    [self.contentView addSubview:_expiredOverlay];
+    [NSLayoutConstraint activateConstraints:@[
+        [_expiredOverlay.leadingAnchor constraintEqualToAnchor:_thumb.leadingAnchor],
+        [_expiredOverlay.trailingAnchor constraintEqualToAnchor:_thumb.trailingAnchor],
+        [_expiredOverlay.topAnchor constraintEqualToAnchor:_thumb.topAnchor],
+        [_expiredOverlay.bottomAnchor constraintEqualToAnchor:_thumb.bottomAnchor],
+    ]];
+}
+
+- (void)hideExpiredOverlay {
+    [_expiredOverlay removeFromSuperview];
+    _expiredOverlay = nil;
 }
 
 /// 门控态的中心圆钮 + 左上角角标 + 进度环（草图 §02/§03 的五态）。configure 时记住尺寸/时长，
@@ -561,6 +620,7 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName) {
     _onTap = nil; _onMediaSizeResolved = nil;
     _ringBG.hidden = YES; _ring.hidden = YES; _ring.strokeEnd = 0;
     _gatedSizeBytes = 0; _gatedDurationText = nil;
+    [self hideExpiredOverlay];
     self.gated = NO; self.downloadProgress = nil; self.onDownloadTap = nil;
 }
 

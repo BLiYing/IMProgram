@@ -3,6 +3,7 @@
 #import "IMConversationMediaViewController.h"
 #import "IMMediaViewerViewController.h"
 #import "IMMediaPlaceholder.h" // 统一门控占位取图（真帧>thumb磨砂>灰底）
+#import "IMMediaExpiryRegistry.h" // 失效登记：媒体库宫格据此显 ⊘（自身只读本地、不联网探测）
 
 @implementation IMMediaItem
 + (instancetype)itemWithURL:(NSString *)url isVideo:(BOOL)isVideo timestamp:(int64_t)timestamp {
@@ -25,6 +26,7 @@
 @implementation IMMediaGridCell {
     UIImageView *_thumb;
     UIImageView *_playBadge;
+    UIImageView *_expiredBadge; // 中心 ⊘（失效）
     NSString    *_url;
 }
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -44,9 +46,18 @@
         _playBadge.translatesAutoresizingMaskIntoConstraints = NO;
         _playBadge.hidden = YES;
         [self.contentView addSubview:_playBadge];
+        _expiredBadge = [[UIImageView alloc] initWithImage:
+            [[UIImage systemImageNamed:@"xmark.octagon.fill"
+                     withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:24 weight:UIImageSymbolWeightSemibold]]
+                imageWithTintColor:UIColor.whiteColor renderingMode:UIImageRenderingModeAlwaysOriginal]];
+        _expiredBadge.translatesAutoresizingMaskIntoConstraints = NO;
+        _expiredBadge.hidden = YES;
+        [self.contentView addSubview:_expiredBadge];
         [NSLayoutConstraint activateConstraints:@[
             [_playBadge.centerXAnchor constraintEqualToAnchor:self.contentView.centerXAnchor],
             [_playBadge.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
+            [_expiredBadge.centerXAnchor constraintEqualToAnchor:self.contentView.centerXAnchor],
+            [_expiredBadge.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
         ]];
     }
     return self;
@@ -54,7 +65,11 @@
 - (void)configureWithItem:(IMMediaItem *)item {
     _url = item.url;
     _thumb.image = nil;
-    _playBadge.hidden = !item.isVideo;
+    // 已知失效：显 ⊘ + dim thumb、去播放键（本 VC 只读本地不联网，故不在此探测，仅据登记表展示）。
+    BOOL expired = [IMMediaExpiryRegistry.shared isExpiredURL:item.url];
+    _expiredBadge.hidden = !expired;
+    _thumb.alpha = expired ? 0.5 : 1.0;
+    _playBadge.hidden = expired || !item.isVideo;
     __weak typeof(self) ws = self;
     NSString *want = item.url;
     // 门控一致（M4-7）：媒体库同样走「真帧(仅已下载)>thumb 磨砂>灰底」，关自动下载时不为缩略图联网拉原件。
@@ -63,7 +78,7 @@
         if (self && image && [self->_url isEqualToString:want]) { self->_thumb.image = image; }
     }];
 }
-- (void)prepareForReuse { [super prepareForReuse]; _thumb.image = nil; }
+- (void)prepareForReuse { [super prepareForReuse]; _thumb.image = nil; _thumb.alpha = 1.0; _expiredBadge.hidden = YES; }
 @end
 
 #pragma mark - 媒体库
@@ -111,7 +126,15 @@
         empty.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         [self.view addSubview:empty];
     }
+
+    // 别处（气泡/查看器）刚探到某 URL 失效 → 刷新宫格显 ⊘（本 VC 自身不联网探测）。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onExpiryChanged)
+                                               name:IMMediaExpiryDidChangeNotification object:nil];
 }
+
+- (void)onExpiryChanged { [_collection reloadData]; }
+
+- (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
 
 - (NSInteger)collectionView:(UICollectionView *)cv numberOfItemsInSection:(NSInteger)section {
     return _items.count;

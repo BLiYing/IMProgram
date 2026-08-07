@@ -27,6 +27,11 @@ NS_ASSUME_NONNULL_BEGIN
                 thumb:(nullable NSString *)thumbDataURI
            completion:(void (^)(UIImage *_Nullable image))completion;
 
+/// 「曾可用、被服务端清理」的失效占位覆盖层（草图 §03，对齐 Web `.play-badge.expired`）：半透明 dim 底 +
+/// 居中 ⊘（xmark.octagon.fill）+ 一行文案。各被动展示面（气泡 / 相册 / 媒体库 / 查看器）复用同一版式；
+/// 调用方把它盖在自己的 imageView 上、复用时移除。`userInteractionEnabled=NO`，点击穿透到底层（终态不重试）。
++ (UIView *)expiredOverlayWithCaption:(nullable NSString *)caption;
+
 @end
 
 NS_ASSUME_NONNULL_END
