@@ -757,6 +757,35 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     }];
 }
 
+- (void)uploadAvatarData:(NSData *)data
+                   token:(NSString *)token
+              completion:(void (^)(NSString *, NSError *))completion {
+    NSURL *url = [self urlForPath:@"/api/v1/avatar"];
+    if (!url || data.length == 0) { [self callOnMain:^{ completion(nil, [self errorWithMessage:@"无效的上传"]); }]; return; }
+    NSString *boundary = [@"----IMBoundary" stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSURL *bodyFile = [self writeMultipartBodyToTempFileWithData:data fileName:@"avatar.jpg" mimeType:@"image/jpeg" boundary:boundary];
+    if (!bodyFile) { [self callOnMain:^{ completion(nil, [self errorWithMessage:@"上传准备失败（磁盘空间不足？）"]); }]; return; }
+
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
+    req.HTTPMethod = @"POST";
+    req.timeoutInterval = 60;
+    [req setValue:[NSString stringWithFormat:@"Bearer %@", token ?: @""] forHTTPHeaderField:@"Authorization"];
+    [req setValue:[NSString stringWithFormat:@"multipart/form-data; boundary=%@", boundary] forHTTPHeaderField:@"Content-Type"];
+
+    __weak typeof(self) ws = self;
+    void (^cleanup)(void) = ^{ [NSFileManager.defaultManager removeItemAtURL:bodyFile error:NULL]; };
+    [self runUploadRequest:req bodyFile:bodyFile attempt:0 progress:nil completion:^(NSDictionary *resp, NSError *error) {
+        __strong typeof(ws) self = ws;
+        cleanup();
+        if (!self) { return; }
+        if (error) { completion(nil, error); return; }
+        if ([resp[@"code"] integerValue] != 0) { completion(nil, [self errorWithMessage:[self messageFrom:resp fallback:@"上传失败"]]); return; }
+        NSDictionary *d = [resp[@"data"] isKindOfClass:[NSDictionary class]] ? resp[@"data"] : @{};
+        NSString *u = [d[@"url"] isKindOfClass:[NSString class]] ? d[@"url"] : nil;
+        completion(u, u ? nil : [self errorWithMessage:@"上传响应异常"]);
+    }];
+}
+
 - (NSURLSessionTask *)performUploadAPI:(NSString *)path
                                 method:(NSString *)method
                                   body:(NSData *)body

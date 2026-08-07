@@ -2,6 +2,8 @@
 
 #import "UILabel+IMAvatar.h"
 #import "IMImageLoader.h"
+#import "IMMediaUtil.h"
+#import "IMHTTPService.h"
 #import "IMTheme.h"
 #import <objc/runtime.h>
 
@@ -37,15 +39,19 @@ static const void *kIMAvatarTokenKey = &kIMAvatarTokenKey;
     NSUInteger token = [objc_getAssociatedObject(self, kIMAvatarTokenKey) unsignedIntegerValue] + 1;
     objc_setAssociatedObject(self, kIMAvatarTokenKey, @(token), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
+    // 统一在全局头像方法内把相对 URL（/avatars、/uploads）解析为完整地址——调用方只需传原始
+    // avatar_url，无需各自 IMMediaFullURL。绝对 http(s)/data URL 幂等原样返回。
+    NSString *full = IMMediaFullURL(url, IMHTTPService.sharedService.host);
+
     // 命中内存缓存 → 直接同步显图，**不先清空回退首字母**（消除 reloadData 逐格闪动）。
-    UIImage *cached = url.length ? [[IMImageLoader shared] cachedImageForURL:url] : nil;
+    UIImage *cached = full.length ? [[IMImageLoader shared] cachedImageForURL:full] : nil;
     if (cached) { iv.image = cached; iv.hidden = NO; return; }
     iv.image = nil;
     iv.hidden = YES;
 
-    if (url.length == 0) { return; }
+    if (full.length == 0) { return; }
     __weak typeof(self) ws = self;
-    [[IMImageLoader shared] loadImageURL:url completion:^(UIImage *_Nullable img) {
+    [[IMImageLoader shared] loadImageURL:full completion:^(UIImage *_Nullable img) {
         if (!img) { return; }
         typeof(self) ss = ws;
         if (!ss) { return; }

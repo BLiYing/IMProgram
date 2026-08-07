@@ -9,6 +9,7 @@
 #import "IMMediaPicker.h"
 #import "IMImageLoader.h"
 #import "IMMediaUtil.h"
+#import "IMAvatarCropViewController.h"
 #import "UIViewController+IMToast.h"
 #import "IMTheme.h"
 
@@ -16,6 +17,7 @@
 
 @interface IMGroupAvatarHeader : UIView
 @property (nonatomic, strong) UIImageView *avatar;
+@property (nonatomic, strong) UIImageView *cam;   ///< 中间相机提示：已有头像时隐藏
 @property (nonatomic, strong) UILabel *caption;
 @end
 @implementation IMGroupAvatarHeader
@@ -27,7 +29,9 @@
         _avatar.clipsToBounds = YES; _avatar.layer.cornerRadius = 45;
         _avatar.translatesAutoresizingMaskIntoConstraints = NO;
         [self addSubview:_avatar];
-        UIImageView *cam = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"camera.fill"]];
+        UIImageSymbolConfiguration *camCfg = [UIImageSymbolConfiguration configurationWithPointSize:24 weight:UIImageSymbolWeightRegular];
+        _cam = [[UIImageView alloc] initWithImage:[[UIImage systemImageNamed:@"camera.fill"] imageByApplyingSymbolConfiguration:camCfg]];
+        UIImageView *cam = _cam;
         cam.tintColor = IMTheme.accent; cam.translatesAutoresizingMaskIntoConstraints = NO;
         [_avatar addSubview:cam];
         _caption = [UILabel new];
@@ -102,8 +106,11 @@ typedef NS_ENUM(NSInteger, IMManageSection) {
 
 - (void)refreshHeaderAvatar {
     NSString *url = self.group.avatarURL.length ? IMMediaFullURL(self.group.avatarURL, self.host) : @"";
+    BOOL hasAvatar = url.length > 0;
+    self.header.cam.hidden = hasAvatar;                              // 已有头像时不再盖住图
+    self.header.caption.text = hasAvatar ? @"更换头像" : @"设置新头像";
     self.header.avatar.image = nil;
-    if (url.length) {
+    if (hasAvatar) {
         __weak typeof(self) ws = self;
         [[IMImageLoader shared] loadImageURL:url completion:^(UIImage *img) {
             if (img) { ws.header.avatar.image = img; }
@@ -206,19 +213,26 @@ typedef NS_ENUM(NSInteger, IMManageSection) {
 - (void)uploadAvatarHandle:(IMPickedMediaHandle *)handle {
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0) { [self im_showToast:@"未登录"]; return; }
-    [self im_showToast:@"上传中…"];
     __weak typeof(self) ws = self;
+    // 选好图 → 圆形裁切 → 头像专用上传（方案 C）→ 更新群资料。
     [handle loadData:^(IMPickedMedia *item) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
-        if (!item.data) { [self im_showToast:@"图片处理失败"]; return; }
-        [IMHTTPService.sharedService uploadData:item.data fileName:item.fileName mimeType:item.mimeType token:token
-                                    completion:^(NSString *url, NSString *ct, NSError *error) {
+        UIImage *img = item.data ? [UIImage imageWithData:item.data] : nil;
+        if (!img) { [self im_showToast:@"图片处理失败"]; return; }
+        IMAvatarCropViewController *crop = [[IMAvatarCropViewController alloc] initWithImage:img];
+        crop.onComplete = ^(NSData *jpeg) {
             __strong typeof(ws) self2 = ws;
-            if (!self2) { return; }
-            if (error || url.length == 0) { [self2 im_showToast:error.localizedDescription ?: @"上传失败"]; return; }
-            [self2 commitName:(self2.group.name ?: @"") avatarURL:url];
-        }];
+            if (!self2 || !jpeg) { return; } // nil = 用户取消
+            [self2 im_showToast:@"上传中…"];
+            [IMHTTPService.sharedService uploadAvatarData:jpeg token:token completion:^(NSString *url, NSError *error) {
+                __strong typeof(ws) self3 = ws;
+                if (!self3) { return; }
+                if (error || url.length == 0) { [self3 im_showToast:error.localizedDescription ?: @"上传失败"]; return; }
+                [self3 commitName:(self3.group.name ?: @"") avatarURL:url];
+            }];
+        };
+        [self presentViewController:crop animated:YES completion:nil];
     }];
 }
 

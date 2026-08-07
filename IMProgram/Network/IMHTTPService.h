@@ -239,6 +239,12 @@ BOOL IMIsAuthErrorCode(NSInteger code);
           progress:(nullable void (^)(double fraction))progress
         completion:(void (^)(NSString *_Nullable url, NSString *_Nullable contentType, NSError *_Nullable error))completion;
 
+/// 头像专用上传（方案 C）：multipart POST /api/v1/avatar（独立目录、内容寻址、永不清理）。
+/// data 应为裁切并缩到 256×256 的 JPEG。回调返回 /avatars/<hash>.jpg 相对 URL（主线程）。
+- (void)uploadAvatarData:(NSData *)data
+                   token:(NSString *)token
+              completion:(void (^)(NSString *_Nullable url, NSError *_Nullable error))completion;
+
 /// error 是否服务端**业务拒绝**（HTTP 层成功但 code>0，如「上传会话不存在或已过期」）——
 /// 与网络失败（超时/断网，code=-1 或 NSURLErrorDomain）相对：前者重试同一请求必然再失败。
 + (BOOL)isBusinessError:(nullable NSError *)error;
