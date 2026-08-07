@@ -414,10 +414,13 @@
         _disc.fillColor = UIColor.clearColor.CGColor;
         _disc.frame = CGRectMake(0, 0, 36, 36);
         _disc.hidden = YES;
-        // 全部置于 _glyph 之下：disc 最底(实心圆) → 圆环 → 状态字形在最上，避免圆底盖住 ↓/⏸。
-        [self.contentView.layer insertSublayer:_disc below:_glyph.layer];
-        [self.contentView.layer insertSublayer:_ringBG below:_glyph.layer];
-        [self.contentView.layer insertSublayer:_ring below:_glyph.layer];
+        // 圆底/圆环挂在 _icon.layer 上，随 _icon 固定的 36×36 frame 自动定位，无需在 layoutSubviews
+        // 手动同步坐标。旧写法把它们挂在 contentView.layer、每次布局再 `frame = _icon.frame`：
+        // iOS 26 上 cell 的 layoutSubviews 读到的 _icon.frame 尚未由约束解算，圆圈整体错位到左侧。
+        // _glyph 仍是 contentView 的子视图、恒在 _icon 之上，↓/⏸ 字形照旧压在圆底之上。
+        [_icon.layer addSublayer:_disc];    // 实心圆底（最底）
+        [_icon.layer addSublayer:_ringBG];  // 灰轨
+        [_icon.layer addSublayer:_ring];    // 进度环
 
         _title = [UILabel new];
         _title.font = [UIFont systemFontOfSize:16];
@@ -461,10 +464,14 @@
 }
 - (void)layoutSubviews {
     [super layoutSubviews];
-    if (_ring.hidden && _ringBG.hidden && _disc.hidden) { return; }
-    [CATransaction begin]; [CATransaction setDisableActions:YES];
-    _ringBG.frame = _ring.frame = _disc.frame = _icon.frame;
-    [CATransaction commit];
+    // 圆底/圆环已作为 _icon.layer 的子层、frame 恒为 (0,0,36,36)，随 _icon 自动定位，
+    // 这里不再需要手动把它们同步到 _icon.frame（那正是 iOS 26 下错位的来源）。
+    // 兜底：_icon 尺寸恒定 36×36，若 bounds 异常则纠回，防端上极端布局把子层拉变形。
+    if (!CGRectEqualToRect(_disc.frame, _icon.bounds) && !CGRectIsEmpty(_icon.bounds)) {
+        [CATransaction begin]; [CATransaction setDisableActions:YES];
+        _ringBG.frame = _ring.frame = _disc.frame = _icon.bounds;
+        [CATransaction commit];
+    }
 }
 - (void)configureWithMessage:(IMMessageModel *)m download:(IMDownloadProgress *)dp {
     _fileName = m.fileName.length > 0 ? m.fileName : @"文件";
