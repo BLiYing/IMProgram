@@ -21,6 +21,7 @@
 #import "IMMediaViewerViewController.h"
 #import "IMImageLoader.h"
 #import "IMVideoThumbnailLoader.h"
+#import "IMMediaPlaceholder.h" // 磨砂占位统一渲染器（三处共用）
 #import "IMMediaUtil.h"
 #import "IMMediaDownloadCoordinator.h" // 媒体/文件下载编排（与聊天页共用）
 #import "IMDownloadProgress.h"
@@ -252,8 +253,18 @@
     };
     [self applyGate:gated ? dp : nil isVideo:item.isVideo];
     if (gated) {
-        // 门控格不拉原图/封面：只显 thumb 模糊占位（~200B data URI），没有就留灰底。
-        if (thumb.length > 0) { [[IMImageLoader shared] loadImageURL:thumb completion:apply]; }
+        // 门控格不拉原图/封面（方案 A·纯净门控）：只把内嵌 thumb 过高斯磨砂显示，与聊天气泡同款；无 thumb 留灰底。
+        if (thumb.length > 0) {
+            UIImage *cachedFrost = [IMMediaPlaceholder cachedFrostedForThumb:thumb];
+            if (cachedFrost) {
+                _thumb.image = cachedFrost;
+            } else {
+                [IMMediaPlaceholder frostedForThumb:thumb completion:^(UIImage *blurred) {
+                    __strong typeof(ws) self = ws;
+                    if (self && blurred && [self->_url isEqualToString:want]) { self->_thumb.image = blurred; }
+                }];
+            }
+        }
         return;
     }
     if (item.isVideo) { [[IMVideoThumbnailLoader shared] loadPosterForVideoURL:item.url completion:apply]; }

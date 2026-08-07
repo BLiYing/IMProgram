@@ -14,6 +14,8 @@
 #import "IMConversation.h"
 #import "IMImageLoader.h"
 #import "IMVideoThumbnailLoader.h"
+#import "IMMediaPlaceholder.h"   // 引用缩略门控占位（真帧>thumb磨砂>图标）
+#import "IMOriginalVideoCache.h" // 判断视频是否已本地下载，决定引用缩略用真帧还是磨砂
 #import "IMMediaViewerViewController.h"
 #import "IMConversationMediaViewController.h"
 #import "IMForwardPickerViewController.h"
@@ -1149,9 +1151,28 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     self.replyLabelLeadingThumb.active = YES;
     NSString *url = [self fullMediaURL:message.content];
     __weak typeof(self) ws = self;
-    void (^apply)(UIImage *) = ^(UIImage *img) { ws.replyThumb.image = img; };
-    if (isVideo) { [[IMVideoThumbnailLoader shared] loadPosterForVideoURL:url completion:apply]; }
-    else { [[IMImageLoader shared] loadImageURL:url completion:apply]; }
+    void (^apply)(UIImage *) = ^(UIImage *img) { if (img) { ws.replyThumb.image = img; } };
+    // 门控一致（M4-7）：已下载才用真帧；否则用内嵌 thumb 磨砂；都没有→媒体类型图标。绝不为预览联网拉原件。
+    if (isVideo) {
+        if ([IMOriginalVideoCache hasCacheForFullURL:url]) {
+            NSString *local = [IMOriginalVideoCache cacheURLForFullURL:url].absoluteString;
+            [[IMVideoThumbnailLoader shared] loadPosterForVideoURL:local completion:apply]; // 本地文件抽帧，无网络
+        } else if (message.thumb.length > 0) {
+            [IMMediaPlaceholder frostedForThumb:message.thumb completion:apply];
+        } else {
+            self.replyThumb.image = [[UIImage systemImageNamed:@"video.fill"]
+                imageWithTintColor:IMTheme.textSecondary renderingMode:UIImageRenderingModeAlwaysOriginal];
+        }
+    } else {
+        if ([[IMImageLoader shared] hasCachedImageForURL:url]) {
+            [[IMImageLoader shared] loadImageURL:url completion:apply]; // 命中缓存，无网络
+        } else if (message.thumb.length > 0) {
+            [IMMediaPlaceholder frostedForThumb:message.thumb completion:apply];
+        } else {
+            self.replyThumb.image = [[UIImage systemImageNamed:@"photo.fill"]
+                imageWithTintColor:IMTheme.textSecondary renderingMode:UIImageRenderingModeAlwaysOriginal];
+        }
+    }
 }
 
 /// 退出引用态（或编辑态，引用条为二者共用）：收起条。
@@ -2529,14 +2550,30 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     BOOL lastInRun = grp && [self isLastInSenderRun:indexPath.row];
     NSString *senderName = firstInRun ? [self senderNameForMessage:m] : nil;
     // 引用的是图片/视频：把原消息的媒体 URL 传给 cell，引用条内显示真缩略图（#4）。
-    NSString *replyThumbURL = nil;
+    // 引用缩略门控一致（M4-7）：已下载才把真帧 URL 交给 cell；否则传内嵌 thumb（cell 过磨砂显示）；
+    // 都没有则由 cell 退回媒体类型图标。绝不为一张 24px 引用小图联网拉原件/抽远端帧。
+    NSString *replyThumbURL = nil;   // 仅"已本地下载"时置（图片=缓存命中，视频=本地文件 URL）
+    NSString *replyThumbData = nil;  // 未下载时的内嵌 thumb dataURI（cell 磨砂）
     BOOL replyThumbIsVideo = NO;
     if (m.replyToConvSeq > 0) {
         IMMessageModel *target = [self messageWithConvSeq:m.replyToConvSeq];
         if (target && ([target.contentType isEqualToString:@"image"] || [target.contentType isEqualToString:@"video"])
             && target.recalledAt == 0 && target.content.length > 0) {
-            replyThumbURL = [self fullMediaURL:target.content];
             replyThumbIsVideo = [target.contentType isEqualToString:@"video"];
+            NSString *fullURL = [self fullMediaURL:target.content];
+            if (replyThumbIsVideo) {
+                if ([IMOriginalVideoCache hasCacheForFullURL:fullURL]) {
+                    replyThumbURL = [IMOriginalVideoCache cacheURLForFullURL:fullURL].absoluteString; // 本地文件抽帧
+                } else {
+                    replyThumbData = target.thumb;
+                }
+            } else {
+                if ([[IMImageLoader shared] hasCachedImageForURL:fullURL]) {
+                    replyThumbURL = fullURL; // 命中缓存，无网络
+                } else {
+                    replyThumbData = target.thumb;
+                }
+            }
         }
     }
     // 文件上传中/失败：左侧图标位显圆环状态机、第二行显进度（必须在 configure 之前设，整条一次性布好）。
@@ -2584,6 +2621,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
             showsUnreadDivider:showsDivider
                     senderName:senderName
                  replyThumbURL:replyThumbURL
+                replyThumbData:replyThumbData
              replyThumbIsVideo:replyThumbIsVideo
                  replyFromName:replyFromName];
     [cell applyGroupAvatarURL:(grp ? [self senderAvatarURLForMessage:m] : nil)

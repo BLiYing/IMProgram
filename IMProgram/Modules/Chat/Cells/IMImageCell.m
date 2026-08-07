@@ -10,6 +10,7 @@
 #import "UILabel+IMAvatar.h"
 #import "IMTheme.h"
 #import "IMLog.h" // 门控占位渲染点位日志（media_gated_render / media_gated_thumb_dropped）
+#import "IMMediaPlaceholder.h" // 磨砂占位统一渲染器（三处共用）
 
 /// 气泡最大盒子：宽取 240 与屏宽 62% 的较小者（窄屏也不顶满），高 320（长图不会撑满整屏）。
 static const CGFloat kIMMediaMaxWidth = 240;
@@ -294,24 +295,25 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     if (self.gated) {
         [self applyGatedBadgesForMessage:message isVideo:isVideo];
         BOOL hasThumb = message.thumb.length > 0;
-        BOOL hasPoster = posterURL.length > 0;
-        NSString *placeholderSource = hasThumb ? @"thumb" : (hasPoster ? @"poster" : @"none");
-        IMLogDebugWithTag(IMLogTagMedia, @"media_gated_render conv=%@ seq=%lld is_video=%d has_thumb=%d has_poster=%d source=%@",
-                          message.convID ?: @"", message.convSeq, isVideo, hasThumb, hasPoster, placeholderSource);
+        IMLogDebugWithTag(IMLogTagMedia, @"media_gated_render conv=%@ seq=%lld is_video=%d has_thumb=%d source=%@",
+                          message.convID ?: @"", message.convSeq, isVideo, hasThumb, hasThumb ? @"thumb" : @"none");
         if (hasThumb) {
-            void (^applyThumb)(UIImage *) = ^(UIImage *image) {
-                __strong typeof(ws) self = ws;
-                if (!self || !image || ![self->_url isEqualToString:want]) {
-                    IMLogWarnWithTag(IMLogTagMedia, @"media_gated_thumb_dropped seq=%lld reason=%@",
-                                     message.convSeq, (image == nil ? @"decode_fail" : @"cell_reused"));
-                    return;
-                }
-                self->_thumb.image = image; // 仅显模糊占位（~20px 放大即糊），不据它重排尺寸
-            };
-            [[IMImageLoader shared] loadImageURL:message.thumb completion:applyThumb];
-        } else if (hasPoster) {
-            [[IMImageLoader shared] loadImageURL:posterURL completion:apply]; // 无内嵌 thumb（老消息）才回退封面
+            UIImage *cachedFrost = [IMMediaPlaceholder cachedFrostedForThumb:message.thumb];
+            if (cachedFrost) {
+                _thumb.image = cachedFrost; // 命中缓存：同步上磨砂图，无闪烁、不据它重排尺寸
+            } else {
+                [IMMediaPlaceholder frostedForThumb:message.thumb completion:^(UIImage *blurred) {
+                    __strong typeof(ws) self = ws;
+                    if (!self || !blurred || ![self->_url isEqualToString:want]) {
+                        IMLogWarnWithTag(IMLogTagMedia, @"media_gated_thumb_dropped seq=%lld reason=%@",
+                                         message.convSeq, (blurred == nil ? @"decode_fail" : @"cell_reused"));
+                        return;
+                    }
+                    self->_thumb.image = blurred; // 磨砂占位（~20px 放大 + 高斯），不据它重排尺寸
+                }];
+            }
         }
+        // 无 thumb（极老消息）：留 init 的中性灰底（方案 A·纯净门控——绝不为占位联网拉封面/原图）。
         return;
     }
     if (!isVideo) {

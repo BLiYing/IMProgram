@@ -5,6 +5,7 @@
 #import "IMDownloadProgress.h"
 #import "IMImageLoader.h"
 #import "IMVideoThumbnailLoader.h"
+#import "IMMediaPlaceholder.h" // 引用缩略磨砂占位（三处共用）
 #import "IMMediaUtil.h"
 #import "UILabel+IMAvatar.h"
 #import "IMAppearance.h"
@@ -305,6 +306,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
           showsUnreadDivider:(BOOL)showsDivider
                   senderName:(NSString *)senderName
                replyThumbURL:(NSString *)replyThumbURL
+              replyThumbData:(NSString *)replyThumbData
           replyThumbIsVideo:(BOOL)replyThumbIsVideo
                replyFromName:(NSString *)replyFromName {
     BOOL showsDate = dayHeader.length > 0;
@@ -360,25 +362,32 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         NSString *glyph = IMMediaGlyphForSnippet(snap);
         NSString *quoteFileName = IMReplySnippetFileName(raw); // 一次解析（wire 形/本端存量本地化形皆可），文件判定与图标共用
         BOOL fileSnippet = quoteFileName != nil || [snap isEqualToString:@"[文件]"];
-        if (replyThumbURL.length > 0) {
+        // 门控一致（M4-7）：replyThumbURL 非空=已下载→真帧；否则 replyThumbData 非空=未下载→内嵌 thumb 磨砂。
+        // 二者取其一作复用 key；都空则落到下面的静态图标分支。绝不为引用小图联网拉原件/抽远端帧。
+        NSString *previewKey = replyThumbURL.length > 0 ? replyThumbURL : replyThumbData;
+        if (previewKey.length > 0) {
             // 真缩略图：先用占位图标撑住固定 24x24 位置（行高稳定），异步图到达后原地替换重渲。
             NSTextAttachment *att = [NSTextAttachment new];
             att.image = [[UIImage systemImageNamed:(glyph ?: @"photo")] imageWithTintColor:IMTheme.textSecondary
                                                                              renderingMode:UIImageRenderingModeAlwaysOriginal];
             att.bounds = CGRectMake(0, -6, 24, 24);
             _quoteThumbAtt = att;
-            _quoteThumbKey = replyThumbURL;
+            _quoteThumbKey = previewKey;
             [body appendAttributedString:[NSAttributedString attributedStringWithAttachment:att]];
             [body appendAttributedString:[[NSAttributedString alloc] initWithString:@" " attributes:quoteAttr]];
             __weak typeof(self) ws = self;
             void (^apply)(UIImage *) = ^(UIImage *img) {
                 __strong typeof(ws) self = ws;
-                if (!self || !img || ![self->_quoteThumbKey isEqualToString:replyThumbURL]) { return; } // 复用防串图
+                if (!self || !img || ![self->_quoteThumbKey isEqualToString:previewKey]) { return; } // 复用防串图
                 self->_quoteThumbAtt.image = IMSquareThumb(img, 24);
                 self->_text.attributedText = self->_bodyText; // 重新赋值触发重渲（bounds 固定，行高不变）
             };
-            if (replyThumbIsVideo) { [[IMVideoThumbnailLoader shared] loadPosterForVideoURL:replyThumbURL completion:apply]; }
-            else { [[IMImageLoader shared] loadImageURL:replyThumbURL completion:apply]; }
+            if (replyThumbURL.length > 0) {
+                if (replyThumbIsVideo) { [[IMVideoThumbnailLoader shared] loadPosterForVideoURL:replyThumbURL completion:apply]; }
+                else { [[IMImageLoader shared] loadImageURL:replyThumbURL completion:apply]; }
+            } else {
+                [IMMediaPlaceholder frostedForThumb:replyThumbData completion:apply]; // 未下载：内嵌 thumb 磨砂
+            }
         } else if (glyph || fileSnippet) {
             NSTextAttachment *att = [NSTextAttachment new];
             att.image = fileSnippet ? IMFileTypeIconForName(quoteFileName, 18)
