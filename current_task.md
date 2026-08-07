@@ -29,6 +29,15 @@
 - **⑦ 详情页文件列表按用户要求改（2026-08-07）**：(1) **去掉右侧所有配件图标**（↓/✕/⋯ 全删）——点行=下载/暂停/继续/打开；
   **取消下载移入长按菜单**，仅「下载中/已暂停」的文件长按才出现【取消下载】项；(2) **暂停态副行加行首 ⏸ 小图标**
   （`IMDetailFileCell pausedSubtitle:`，与 `IMBubbleCell` 文件气泡暂停态完全一致）。
+- **⑧ 门控占位「磨砂化」+ 引用/媒体库纳入门控 + 集中取图（2026-08-07，iPhone 17 Pro Max 实跑单测 3/3 绿）**：
+  **根因**——门控视频「必现不显示小模糊 JPEG」是 `IMImageCell` 门控分支 `isVideo && poster` 优先取封面、
+  使内嵌 thumb 成死代码（web 每个视频都生成 poster 故必现，非并发）。**修**：门控占位一律 thumb 优先（方案 A·纯净，
+  零额外流量，无 thumb 才留灰底）。**新公共件 `IMMediaPlaceholder`**：`frostedForThumb`（thumb dataURI→高斯磨砂，
+  后台渲染+缓存，观感对齐 Telegram stripped-thumb）与 `previewForURL:isVideo:thumb:`（**集中**「真帧仅已下载>thumb 磨砂>nil」）。
+  聊天气泡/详情宫格走 `frostedForThumb`（协调器策略门控档）；**引用缩略（输入框条+气泡引用块）与会话媒体库宫格**
+  改走 `previewForURL`（cached-only 预览档，`IMMediaItem` 加 thumb、不再为 24px 预览联网抽远端帧）。引用条 `replyingTo` 防串图。
+  三点日志 `media_gated_render`/`media_gated_thumb_dropped`/`incoming_media`。新增 `IMMediaPlaceholderTests`（解码非空+代理最长边 48+非法回 nil）。
+  code-review 收口：thumb 解码改 base64（不用 dataWithContentsOfURL）；F5/F7 fixed，F3/F4 skipped、F6 self-correcting。
 
 **下载 UI/UX + 数据和存储（任务三/四）✅ 阶段 0–5 全部完成（2026-08-06，build 绿，compile-only 未上模拟器，待手测）**
 - **新公共件 `IMMediaDownloadCoordinator`**（Network/）：策略判定 / 门控态 / 点击路由 / 落地位置一处实现，
