@@ -50,9 +50,12 @@ static const CGFloat kIMFrostedBlurSigma = 4.0;
 
 /// 解码 dataURI → 等比放大到代理尺寸 → 高斯模糊 → UIImage。任一步失败尽量降级返回（不 crash、宁可略糊）。
 + (nullable UIImage *)renderFrosted:(NSString *)thumbDataURI {
-    NSURL *url = [NSURL URLWithString:thumbDataURI];
-    if (!url) { return nil; }
-    NSData *data = [NSData dataWithContentsOfURL:url]; // data: URI 本地解析，无网络
+    // data:image/...;base64,XXXX —— 与 IMImageLoader 同一套本地 base64 解码。
+    // 切勿用 NSURL+dataWithContentsOfURL：实测对 data: URI 返回 nil（磨砂恒失败→退灰底，等于功能报废）。
+    NSRange comma = [thumbDataURI rangeOfString:@","];
+    if (comma.location == NSNotFound) { return nil; }
+    NSData *data = [[NSData alloc] initWithBase64EncodedString:[thumbDataURI substringFromIndex:comma.location + 1]
+                                                      options:NSDataBase64DecodingIgnoreUnknownCharacters];
     if (data.length == 0) { return nil; }
     UIImage *small = [UIImage imageWithData:data];
     if (!small || small.size.width <= 0 || small.size.height <= 0) { return nil; }

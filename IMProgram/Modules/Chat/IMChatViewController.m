@@ -1151,7 +1151,11 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     self.replyLabelLeadingThumb.active = YES;
     NSString *url = [self fullMediaURL:message.content];
     __weak typeof(self) ws = self;
-    void (^apply)(UIImage *) = ^(UIImage *img) { if (img) { ws.replyThumb.image = img; } };
+    // 防串图：异步磨砂/封面回来时，若用户已切换/取消引用目标（replyingTo 变了），丢弃这张过期图。
+    void (^apply)(UIImage *) = ^(UIImage *img) {
+        __strong typeof(ws) self = ws;
+        if (img && self && self.replyingTo == message) { self.replyThumb.image = img; }
+    };
     // 门控一致（M4-7）：已下载才用真帧；否则用内嵌 thumb 磨砂；都没有→媒体类型图标。绝不为预览联网拉原件。
     if (isVideo) {
         if ([IMOriginalVideoCache hasCacheForFullURL:url]) {
