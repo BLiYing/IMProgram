@@ -5,24 +5,8 @@ public protocol IMLiquidNavigationBarDelegate: NSObjectProtocol {
     func liquidNavigationBarDidTapBack(_ bar: IMLiquidNavigationBar)
     func liquidNavigationBarDidTapAction(_ bar: IMLiquidNavigationBar)
     func liquidNavigationBarDidTapLeft(_ bar: IMLiquidNavigationBar)
-}
-
-private final class IMLiquidHighlightButton: UIButton {
-    override var isHighlighted: Bool {
-        didSet {
-            let target = isHighlighted
-                ? CGAffineTransform(scaleX: 0.94, y: 0.94)
-                : .identity
-            UIView.animate(
-                withDuration: 0.16,
-                delay: 0,
-                options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut]
-            ) {
-                self.transform = target
-                self.alpha = self.isHighlighted ? 0.72 : 1.0
-            }
-        }
-    }
+    /// 中间标题被点击（仅在 showsTitleGlass=YES 的页面，即聊天页可点）。可选实现。
+    @objc optional func liquidNavigationBarDidTapTitle(_ bar: IMLiquidNavigationBar)
 }
 
 @objcMembers
@@ -30,8 +14,18 @@ private final class IMLiquidHighlightButton: UIButton {
 public final class IMLiquidNavigationBar: UIView {
     public weak var delegate: IMLiquidNavigationBarDelegate?
 
+    // MARK: - 可调背景参数（独立出来便于调试：改默认值→重编译即可看效果，全局生效）
+    /// 磨砂整体不透明度系数（乘在每个实例的 backgroundEffectProgress 上）。
+    /// 调小 → 整条导航磨砂更透明（0.0 完全透明、1.0 当前默认）。想"再透明一点"就调这里。
+    public static var backgroundBlurAlpha: CGFloat = 1.0
+    /// 深色模式磨砂的压暗 tint alpha。调小 → 深色下更透明（0 = 纯磨砂不压暗）。浅色模式恒为透明不受影响。
+    public static var darkTintAlpha: CGFloat = 0.55
+    /// 底缘渐隐蒙版：顶部保持"最实"的高度比例，其下平滑渐隐到导航栏下缘透明。
+    /// 调小 → 过渡更长更柔和（消除"被切割"生硬感）；调大 → 实心区更多、过渡更短更硬。
+    public static var fadeSolidTopRatio: CGFloat = 0.2
+
     // 说明：以下属性的 didSet 一律先做等值判断再落地。导航容器每个布局周期都会把整套属性重写一遍
-    // （标题、左右按钮、进度…），而这些 didSet 会连带触发 setNeedsLayout / updateLeftButton 等重排；
+    // （标题、左右按钮、进度…），而这些 didSet 会连带触发 setNeedsLayout / 重建按钮配置等重排；
     // 不挡住等值写入的话，滚动或打字时每帧都在做无意义的重排。
 
     // ⚠️ 这两处必须 setNeedsLayout()：标题的竖向槽位是按「有无副标题」二选一算的（见 layoutSubviews），
@@ -57,9 +51,7 @@ public final class IMLiquidNavigationBar: UIView {
     public var actionTitle: String? {
         didSet {
             guard oldValue != actionTitle else { return }
-            actionButton.setTitle(actionTitle, for: .normal)
-            actionButton.accessibilityLabel = actionTitle
-            actionButton.isHidden = (actionTitle?.isEmpty ?? true) && actionImage == nil
+            applyActionConfig()
             updateCompactContentVisibility()
             setNeedsLayout()
         }
@@ -68,8 +60,7 @@ public final class IMLiquidNavigationBar: UIView {
     public var actionImage: UIImage? {
         didSet {
             guard oldValue !== actionImage else { return }
-            actionButton.setImage(actionImage, for: .normal)
-            actionButton.isHidden = (actionTitle?.isEmpty ?? true) && actionImage == nil
+            applyActionConfig()
             updateCompactContentVisibility()
             setNeedsLayout()
         }
@@ -101,7 +92,7 @@ public final class IMLiquidNavigationBar: UIView {
     public var showsBackButton: Bool = true {
         didSet {
             guard oldValue != showsBackButton else { return }
-            updateLeftButton()
+            applyBackConfig()
         }
     }
 
@@ -124,14 +115,14 @@ public final class IMLiquidNavigationBar: UIView {
     public var leftTitle: String? {
         didSet {
             guard oldValue != leftTitle else { return }
-            updateLeftButton()
+            applyBackConfig()
         }
     }
 
     public var leftImage: UIImage? {
         didSet {
             guard oldValue !== leftImage else { return }
-            updateLeftButton()
+            applyBackConfig()
         }
     }
 
@@ -145,7 +136,7 @@ public final class IMLiquidNavigationBar: UIView {
     }
 
     /// 头像大图铺满头部时为 1，折叠到普通页面背景时为 0。
-    /// 大图态强制使用白色前景和轻微暗色承托，避免浅色模式下按钮落在照片上失去对比度。
+    /// 大图态强制使用白色前景，避免浅色模式下按钮落在明暗复杂照片上失去对比度。
     public var immersiveAppearanceProgress: CGFloat = 0 {
         didSet {
             guard oldValue != immersiveAppearanceProgress else { return }
@@ -161,14 +152,18 @@ public final class IMLiquidNavigationBar: UIView {
         }
     }
 
-    private let backButton = IMLiquidHighlightButton(type: .system)
-    private let actionButton = IMLiquidHighlightButton(type: .system)
+    // 按钮本体即原生玻璃（iOS 26 用 UIButton.Configuration.glass()，旧系统降级 .gray() + 描边）：
+    // 这样点击时能拿到系统 Liquid Glass 的按压放大/聚合动画，而不是手写缩放。此前用「普通按钮 +
+    // 独立玻璃视图」分离结构，玻璃不参与交互、只能做 scale 0.94 的缩小，缺原生放大观感。
+    private let backButton = UIButton(type: .system)
+    private let actionButton = UIButton(type: .system)
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
-    private let backGlass = UIVisualEffectView()
     private let titleGlass = UIVisualEffectView()
-    private let actionGlass = UIVisualEffectView()
+    private let titleButton = UIButton(type: .custom) // 中间标题的点击区（仅聊天页启用），带按压缩放反馈
     private let backgroundGlass = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterial))
+    // 底缘柔和退场蒙版：一次性创建，layoutSubviews 只更新 frame（避免每帧新建 CAGradientLayer）。
+    private let backgroundFade = CAGradientLayer()
 
     @objc(initWithTitle:subtitle:actionTitle:)
     public init(title: String, subtitle: String, actionTitle: String?) {
@@ -194,36 +189,22 @@ public final class IMLiquidNavigationBar: UIView {
         // 与页面背景保持一致；tint 随磨砂一起被底部渐变蒙版渐隐，故渐变仍生效。
         backgroundGlass.contentView.backgroundColor = Self.backgroundTint()
         insertSubview(backgroundGlass, at: 0)
+        // 颜色一次性设定；locations 交给 layoutSubviews 按 fadeSolidTopRatio 计算（便于调参即时生效）。
+        backgroundFade.colors = [UIColor.white.cgColor, UIColor.white.cgColor, UIColor.clear.cgColor]
+        backgroundGlass.layer.mask = backgroundFade
         updateBackgroundEffect()
 
-        [backGlass, titleGlass, actionGlass].forEach { glass in
-            glass.effect = Self.makeGlassEffect()
-            glass.isUserInteractionEnabled = false
-            glass.layer.masksToBounds = true
-            glass.layer.cornerCurve = .continuous
-            addSubview(glass)
-        }
-
-        backGlass.layer.cornerRadius = 22
+        titleGlass.effect = Self.makeGlassEffect()
+        titleGlass.isUserInteractionEnabled = false
+        titleGlass.layer.masksToBounds = true
+        titleGlass.layer.cornerCurve = .continuous
         titleGlass.layer.cornerRadius = 24
-        actionGlass.layer.cornerRadius = 22
+        addSubview(titleGlass)
 
-        let chevron = UIImage(
-            systemName: "chevron.backward",
-            withConfiguration: UIImage.SymbolConfiguration(pointSize: 19, weight: .semibold)
-        )
-        backButton.setImage(chevron, for: .normal)
-        backButton.accessibilityLabel = "返回"
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
         addSubview(backButton)
 
-        actionButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .medium)
-        // 通过 init(actionTitle:) 传入的标题不会触发 didSet（Swift 初始化期不发观察者），
-        // 必须在此显式落到按钮上，否则「编辑」等文字有点击区却不渲染。
-        actionButton.setTitle(actionTitle, for: .normal)
-        actionButton.accessibilityLabel = actionTitle
         actionButton.addTarget(self, action: #selector(actionTapped), for: .touchUpInside)
-        actionButton.isHidden = (actionTitle?.isEmpty ?? true) && actionImage == nil
         addSubview(actionButton)
 
         titleLabel.text = titleText
@@ -235,25 +216,102 @@ public final class IMLiquidNavigationBar: UIView {
         subtitleLabel.textAlignment = .center
         subtitleLabel.font = .systemFont(ofSize: 13, weight: .regular)
         addSubview(subtitleLabel)
-        refreshColors()
-        updateLeftButton()
+
+        // 中间标题点击区（覆盖在标题/副标题之上）：点击回调 delegate；按下缩放做 Liquid Glass 风格按压反馈。
+        titleButton.addTarget(self, action: #selector(titleTapped), for: .touchUpInside)
+        titleButton.addTarget(self, action: #selector(titlePressDown), for: [.touchDown, .touchDragEnter])
+        titleButton.addTarget(self, action: #selector(titlePressUp),
+                              for: [.touchUpInside, .touchUpOutside, .touchCancel, .touchDragExit])
+        addSubview(titleButton)
+
+        refreshColors()          // 内部会 applyBackConfig / applyActionConfig
         updateCompactContentVisibility()
     }
 
-    private func refreshColors() {
+    /// 原生玻璃按钮配置：iOS 26 用 `.glass()`（自带按压放大）；旧系统 `.gray()` 填充 + 0.5pt 描边，
+    /// 让胶囊在浅色纯白背景（会话/群列表/通讯录）上也能「浮起来」，修复 iOS 18 浅色下与背景难分辨。
+    private func styledButtonConfig(image: UIImage?, title: String?, foreground: UIColor) -> UIButton.Configuration {
+        var cfg: UIButton.Configuration
+        if #available(iOS 26.0, *) {
+            cfg = .glass()
+        } else {
+            cfg = .gray()
+        }
+        cfg.cornerStyle = .capsule
+        cfg.contentInsets = .zero            // 尺寸由 layoutSubviews 的 frame 决定（圆钮 44×44）
+        cfg.image = image
+        if let title, !title.isEmpty {
+            var container = AttributeContainer()
+            container.font = .systemFont(ofSize: 17, weight: .medium)
+            cfg.attributedTitle = AttributedString(title, attributes: container)
+        }
+        cfg.baseForegroundColor = foreground
+        if #unavailable(iOS 26.0) {
+            cfg.background.strokeColor = UIColor.separator
+            cfg.background.strokeWidth = 0.5
+            // 沉浸大图态用深色承托白图标（等价旧 photoScrim）；无沉浸时≈系统灰填充，浅色页也能辨。
+            cfg.background.backgroundColor = currentButtonBackground()
+        }
+        return cfg
+    }
+
+    /// iOS<26 按钮承托底：无沉浸(progress0)≈系统灰填充（浅色页可辨）；沉浸大图(progress→1)渐入深色
+    /// （白图标在浅色照片上可辨，等价旧 photoScrim）。iOS26 用原生玻璃，不需要它。
+    private func currentButtonBackground() -> UIColor {
         let progress = min(max(immersiveAppearanceProgress, 0), 1)
-        // 显式按当前 trait 解析，并在照片态平滑过渡到白色，避免浅色模式按钮落在明暗复杂照片上看不见。
+        let base = UIColor.tertiarySystemFill.resolvedColor(with: traitCollection)
+        return Self.mix(base, UIColor.black.withAlphaComponent(0.5), progress: progress)
+    }
+
+    private func chevronImage() -> UIImage? {
+        UIImage(systemName: "chevron.backward",
+                withConfiguration: UIImage.SymbolConfiguration(pointSize: 19, weight: .semibold))
+    }
+
+    private func applyBackConfig() {
+        let custom = leftTitle?.isEmpty == false || leftImage != nil
+        let leftIsText = leftTitle?.isEmpty == false
+        // 图标型左按钮（默认返回箭头 / 自定义纯图标如叉叉）用圆形；文字型（如「取消」）才用胶囊。
+        let image = leftIsText ? nil : (custom ? leftImage : chevronImage())
+        let title = leftIsText ? leftTitle : nil
+        backButton.configuration = styledButtonConfig(image: image, title: title, foreground: currentPrimary())
+        backButton.accessibilityLabel = custom ? (leftTitle ?? "返回") : "返回"
+        backButton.isHidden = !showsBackButton && !custom
+        setNeedsLayout()
+    }
+
+    private func applyActionConfig() {
+        let title = (actionTitle?.isEmpty ?? true) ? nil : actionTitle
+        actionButton.configuration = styledButtonConfig(image: actionImage, title: title, foreground: currentPrimary())
+        actionButton.isEnabled = actionEnabled
+        actionButton.accessibilityLabel = actionTitle
+        actionButton.isHidden = (actionTitle?.isEmpty ?? true) && actionImage == nil
+        setNeedsLayout()
+    }
+
+    private func currentPrimary() -> UIColor {
+        let progress = min(max(immersiveAppearanceProgress, 0), 1)
         let label = UIColor.label.resolvedColor(with: traitCollection)
-        let primary = Self.mix(label, .white, progress: progress)
-        let secondary = UIColor.secondaryLabel.resolvedColor(with: traitCollection)
-        backButton.tintColor = primary
-        actionButton.tintColor = primary
-        actionButton.setTitleColor(primary, for: .normal)
+        return Self.mix(label, .white, progress: progress)
+    }
+
+    private func refreshColors() {
+        let primary = currentPrimary()
         titleLabel.textColor = primary
-        subtitleLabel.textColor = secondary
-        let photoScrim = UIColor.black.withAlphaComponent(0.16 * progress)
-        backGlass.backgroundColor = photoScrim
-        actionGlass.backgroundColor = photoScrim
+        subtitleLabel.textColor = UIColor.secondaryLabel.resolvedColor(with: traitCollection)
+        // 只改前景色（沉浸态白色过渡）与 <26 承托底，不整体重建 Configuration——
+        // 详情页头像滚动会逐帧改 immersiveAppearanceProgress，整体重建（含图片解码 / AttributedString）
+        // 是滚动热路径上的无谓开销。首次（config 尚未建）才回退到完整构建。
+        applyDynamicColors(to: backButton, primary: primary, rebuild: applyBackConfig)
+        applyDynamicColors(to: actionButton, primary: primary, rebuild: applyActionConfig)
+    }
+
+    private func applyDynamicColors(to button: UIButton, primary: UIColor, rebuild: () -> Void) {
+        guard button.configuration != nil else { rebuild(); return }
+        button.configuration?.baseForegroundColor = primary
+        if #unavailable(iOS 26.0) {
+            button.configuration?.background.backgroundColor = currentButtonBackground()
+        }
     }
 
     private static func mix(_ from: UIColor, _ to: UIColor, progress: CGFloat) -> UIColor {
@@ -276,46 +334,34 @@ public final class IMLiquidNavigationBar: UIView {
         super.traitCollectionDidChange(previousTraitCollection)
         if previousTraitCollection == nil ||
             traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) {
-            [backGlass, titleGlass, actionGlass].forEach { $0.effect = Self.makeGlassEffect() }
+            titleGlass.effect = Self.makeGlassEffect()
             backgroundGlass.effect = UIBlurEffect(style: .systemUltraThinMaterial)
-            refreshColors()
+            refreshColors()      // 重建按钮配置（前景色随 trait 重新解析）
         }
     }
 
     private func updateCompactContentVisibility() {
         let progress = min(max(compactContentProgress, 0), 1)
-        // 标题只保留文字，避免中间再出现一层玻璃胶囊；按钮玻璃仍由两侧独立承载。
+        // 标题只保留文字，避免中间再出现一层玻璃胶囊；按钮玻璃由按钮本体承载。
         titleGlass.isHidden = !showsTitleGlass
         titleGlass.alpha = showsTitleGlass ? progress : 0
         titleLabel.alpha = progress
         subtitleLabel.alpha = progress
-        actionGlass.isHidden = actionButton.isHidden
-        actionGlass.alpha = actionButton.isHidden ? 0 : 1
+        // 标题可点仅限展示玻璃且已显现（聊天页）；其他页面点击穿透、不拦截。
+        titleButton.isUserInteractionEnabled = showsTitleGlass && progress > 0.5
         actionButton.alpha = 1
         actionButton.isUserInteractionEnabled = !actionButton.isHidden
     }
 
     private func updateBackgroundEffect() {
-        backgroundGlass.alpha = min(max(backgroundEffectProgress, 0), 1)
-    }
-
-    private func updateLeftButton() {
-        let custom = leftTitle?.isEmpty == false || leftImage != nil
-        let chevron = UIImage(systemName: "chevron.backward",
-                              withConfiguration: UIImage.SymbolConfiguration(pointSize: 19, weight: .semibold))
-        backButton.setTitle(custom ? leftTitle : nil, for: .normal)
-        backButton.setImage(custom ? leftImage : chevron, for: .normal)
-        backButton.accessibilityLabel = custom ? (leftTitle ?? "") : "返回"
-        backButton.isHidden = !showsBackButton && !custom
-        backGlass.isHidden = backButton.isHidden
-        setNeedsLayout()
+        backgroundGlass.alpha = min(max(backgroundEffectProgress, 0), 1) * Self.backgroundBlurAlpha
     }
 
     /// 磨砂背景 tint：深色模式压向背景黑，浅色模式透明。动态色随 trait 自动解析，无需手动刷新。
     private static func backgroundTint() -> UIColor {
         UIColor { trait in
             trait.userInterfaceStyle == .dark
-                ? UIColor.black.withAlphaComponent(0.55)
+                ? UIColor.black.withAlphaComponent(IMLiquidNavigationBar.darkTintAlpha)
                 : .clear
         }
     }
@@ -333,19 +379,22 @@ public final class IMLiquidNavigationBar: UIView {
         super.layoutSubviews()
         // 从屏幕顶部覆盖到导航栏下缘，包含状态栏区域；页面内容可在其下方继续滚动。
         backgroundGlass.frame = bounds
-        // 底缘柔和退场，避免磨砂导航与下方内容形成一条割裂的硬边。
-        let fade = CAGradientLayer()
-        fade.frame = backgroundGlass.bounds
-        fade.colors = [UIColor.white.cgColor, UIColor.white.cgColor, UIColor.clear.cgColor]
-        fade.locations = [0, 0.72, 1]
-        backgroundGlass.layer.mask = fade
+        // 仅更新既有蒙版的 frame/locations（不再每帧重建 CAGradientLayer）；关隐式动画避免每次布局闪动。
+        // 顶部 fadeSolidTopRatio 比例保持最实，其下平滑渐隐到导航栏下缘透明（从底部往状态栏逐渐加深）。
+        let solid = min(max(Self.fadeSolidTopRatio, 0), 1)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        backgroundFade.frame = backgroundGlass.bounds
+        backgroundFade.locations = [0, NSNumber(value: Double(solid)), 1]
+        CATransaction.commit()
         let top = max(0, safeAreaInsets.top - hostExtraTopInset)
         let buttonY = top + 6
         let buttonSize: CGFloat = 44
         let side: CGFloat = 16
         let actionWidth = actionButton.isHidden ? 0 : (actionCircular ? buttonSize : max(68, actionButton.intrinsicContentSize.width + 28))
-        let customLeft = leftTitle?.isEmpty == false || leftImage != nil
-        let leftWidth = customLeft ? max(68, backButton.intrinsicContentSize.width + 24) : buttonSize
+        // 左按钮：文字型（「取消」等）用胶囊宽；图标型（返回箭头 / 叉叉等）用圆形 44（修复叉叉椭圆）。
+        let leftIsText = leftTitle?.isEmpty == false
+        let leftWidth = leftIsText ? max(68, backButton.intrinsicContentSize.width + 24) : buttonSize
         // 标题盒宽度**按「文字按钮场景」一次算死**（预算 88pt/侧）：普通页（44 圆钮）与多选页
         //（「取消」文字钮）同宽，进出多选、右上角换文字钮都零跳变——此前按实际按钮宽动态收缩，
         // 状态切换时标题盒 220↔169 来回弹。兜底：某侧按钮实测超 88 预算时仍按实际值收缩
@@ -355,15 +404,13 @@ public final class IMLiquidNavigationBar: UIView {
         let centerWidth = min(220, max(96, bounds.width - 2 * sideOccupied))
         let centerX = (bounds.width - centerWidth) / 2
 
-        backGlass.frame = CGRect(x: side, y: buttonY, width: leftWidth, height: buttonSize)
-        backButton.frame = backGlass.frame
+        backButton.frame = CGRect(x: side, y: buttonY, width: leftWidth, height: buttonSize)
 
-        actionGlass.frame = CGRect(x: bounds.width - side - actionWidth, y: buttonY,
-                                   width: actionWidth, height: buttonSize)
-        actionGlass.layer.cornerRadius = actionCircular ? buttonSize / 2 : 22
-        actionButton.frame = actionGlass.frame
+        actionButton.frame = CGRect(x: bounds.width - side - actionWidth, y: buttonY,
+                                    width: actionWidth, height: buttonSize)
 
         titleGlass.frame = CGRect(x: centerX, y: buttonY, width: centerWidth, height: buttonSize)
+        titleButton.frame = titleGlass.frame
         let hasSubtitle = !(subtitleLabel.text?.isEmpty ?? true)
         // 两行场景：主标题框高收到 20（原 22 几乎占满行盒，中文字形填满 em 盒会与副标题贴死），
         // 副标题下移到 buttonY+24 起 —— 主标题底(=buttonY+22) 与副标题顶(=buttonY+24) 留 2pt 间隙，消除重叠。
@@ -382,5 +429,24 @@ public final class IMLiquidNavigationBar: UIView {
 
     @objc private func actionTapped() {
         delegate?.liquidNavigationBarDidTapAction(self)
+    }
+
+    @objc private func titleTapped() {
+        delegate?.liquidNavigationBarDidTapTitle?(self)
+    }
+
+    @objc private func titlePressDown() { setTitlePressed(true) }
+    @objc private func titlePressUp() { setTitlePressed(false) }
+
+    /// 标题按压反馈：缩放标题玻璃与文字（Liquid Glass 风格轻按压）。只动 transform，
+    /// 不碰 alpha（透明度由 compactContentProgress 控制，避免相互覆盖）。
+    private func setTitlePressed(_ pressed: Bool) {
+        let t = pressed ? CGAffineTransform(scaleX: 0.96, y: 0.96) : .identity
+        UIView.animate(withDuration: 0.16, delay: 0,
+                       options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut]) {
+            self.titleGlass.transform = t
+            self.titleLabel.transform = t
+            self.subtitleLabel.transform = t
+        }
     }
 }

@@ -472,14 +472,9 @@ static CGFloat const kIMRowLeading = 16;
     [self im_refreshNavigationBar];
 }
 
-/// 连接态副标题：连接中 / 未连接（无括号）；已连接时不显示。供导航容器统一取用。
+/// 连接态副标题：连接中 / 未连接（无括号）；已连接时不显示。供导航容器统一取用（与聊天页共用同一映射）。
 - (NSString *)im_navigationSubtitle {
-    switch (self.connState) {
-        case IMSocketStateConnecting:   return @"连接中…";
-        case IMSocketStateDisconnected: return @"未连接";
-        case IMSocketStateConnected:    return @"";
-    }
-    return @"";
+    return IMSocketStateSubtitle(self.connState);
 }
 
 /// 收到新消息（任意会话）→ 节流刷新列表（合并连发的多条，避免每条都拉一次）。

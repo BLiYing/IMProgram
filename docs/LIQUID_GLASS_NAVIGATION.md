@@ -26,3 +26,10 @@ IMProgram 使用 `IMLiquidNavigationBar` 作为统一的自定义导航栏。它
 ## 维护入口
 
 统一实现位于 `IMProgram/Common/IMLiquidNavigationBar.swift`；导航栈接入位于 `IMProgram/App/IMMainTabBarController.m`。后续新增页面前先阅读本文档，优先扩展这两个入口而不是复制页面级导航代码。
+
+## 待排期增强（Backlog，按排期节点实现）
+
+### 中间标题改原生玻璃按钮（获系统"涌起放大"按压）
+- **现状（已实现）**：聊天页中间标题可点——`IMLiquidNavigationBar` 在标题区盖了透明点击层 `titleButton`（仅 `showsTitleGlass=YES` 即聊天页可点，其他页穿透不拦截）；按下时 `setTitlePressed:` 把标题玻璃 + 主/副标题缩放到 `0.96` 做**缩放式**按压反馈；点击经可选 delegate `liquidNavigationBarDidTapTitle:` 回调，容器转发到当前页 `rightBarButtonItem` 的 action（＝与点右上角头像同逻辑，打开 `IMChatDetailViewController`）。
+- **未尽**：标题本体是「磨砂视图 + 两个 label」而非原生玻璃按钮，拿不到 iOS 26 那种玻璃**涌起放大**动效，故用缩放近似。
+- **增强方案（改动较大，待排期）**：把中间标题重构为**原生玻璃按钮**（`UIButton` + `UIButton.Configuration.glass()`，与返回/操作按钮同源），使其获得系统按压放大/聚合动画。难点：标题是主标题 + 副标题两行的自定义竖排布局（见 `layoutSubviews` 的 `titleY`/副标题槽位），需在玻璃按钮内承载双行内容且不破坏「有无副标题」二选一的竖向布局与宽度冻结逻辑。评估工作量后单独排期。

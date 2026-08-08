@@ -219,6 +219,11 @@ static void * const kIMInjectedBarKey = (void *)&kIMInjectedBarKey;
     UIViewController *owner = [self controllerOwningBar:bar];
     [self invokeBarItem:owner.navigationItem.rightBarButtonItem onController:owner];
 }
+// 中间标题被点（仅聊天页 showsTitleGlass）：等同点右上角头像——打开会话详情。
+- (void)liquidNavigationBarDidTapTitle:(IMLiquidNavigationBar *)bar {
+    UIViewController *owner = [self controllerOwningBar:bar];
+    [self invokeBarItem:owner.navigationItem.rightBarButtonItem onController:owner];
+}
 
 - (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer {
     if (gestureRecognizer == self.interactivePopGestureRecognizer) {

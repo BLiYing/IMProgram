@@ -56,6 +56,17 @@ typedef NS_ENUM(NSInteger, IMSocketState) {
     IMSocketStateConnected,        ///< 已连接
 };
 
+/// 连接态副标题文案（放标题栏副标题，同「在线」位置，无括号）：已连接返回空串。
+/// 聊天页与会话列表页共用，避免两处各写一份 switch 导致文案漂移。
+NS_INLINE NSString *IMSocketStateSubtitle(IMSocketState state) {
+    switch (state) {
+        case IMSocketStateConnecting:   return @"连接中…";
+        case IMSocketStateDisconnected: return @"未连接";
+        case IMSocketStateConnected:    return @"";
+    }
+    return @"";
+}
+
 /// 发送结果回调：success=YES 表示收到 ack；否则 error 给出原因。
 typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_t convSeq);
 

@@ -8,6 +8,23 @@
 
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
+// 可调参数（独立出来便于调试）：
+/// 默认弹窗高度占屏比（1/2 → 2/3；改这里调默认展开高度，需 iOS 16+ 自定义 detent）。
+static const CGFloat kIMFilePickerDefaultHeightRatio = 2.0 / 3.0;
+/// 叉叉距 sheet 顶的留白（越大越靠下，远离顶部圆角/边缘，避免按压被遮挡）。
+static const CGFloat kIMFilePickerTopPadding = 16;
+
+/// sheet 在不同 detent 会切换 base/elevated 外观等级，systemGroupedBackground 因此随高度变色。
+/// 该色恒按 base（＝拖到顶时的外观）解析，保证各高度背景一致；仍随明暗自适应。
+/// 想改用「悬浮态」颜色则把 Base 换成 Elevated。
+static UIColor *IMBaseGroupedBackgroundColor(void) {
+    return [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *tc) {
+        UITraitCollection *base = [UITraitCollection traitCollectionWithUserInterfaceLevel:UIUserInterfaceLevelBase];
+        UITraitCollection *merged = [UITraitCollection traitCollectionWithTraitsFromCollections:@[tc, base]];
+        return [UIColor.systemGroupedBackgroundColor resolvedColorWithTraitCollection:merged];
+    }];
+}
+
 @interface IMFilePickerViewController () <UITableViewDataSource, UITableViewDelegate, IMLiquidNavigationBarDelegate>
 @end
 
@@ -47,9 +64,20 @@
         _hasMore = YES;
         if (@available(iOS 15.0, *)) {
             self.modalPresentationStyle = UIModalPresentationPageSheet;
-            self.sheetPresentationController.detents = @[UISheetPresentationControllerDetent.mediumDetent,
-                                                         UISheetPresentationControllerDetent.largeDetent];
-            self.sheetPresentationController.prefersGrabberVisible = YES;
+            UISheetPresentationController *sheet = self.sheetPresentationController;
+            if (@available(iOS 16.0, *)) {
+                // 默认展开高度 2/3 屏（medium 固定为 1/2，用自定义 detent 提到 2/3）。
+                UISheetPresentationControllerDetent *twoThirds =
+                    [UISheetPresentationControllerDetent customDetentWithIdentifier:@"twoThirds"
+                        resolver:^CGFloat(id<UISheetPresentationControllerDetentResolutionContext> context) {
+                            return context.maximumDetentValue * kIMFilePickerDefaultHeightRatio;
+                        }];
+                sheet.detents = @[twoThirds, UISheetPresentationControllerDetent.largeDetent];
+            } else {
+                sheet.detents = @[UISheetPresentationControllerDetent.mediumDetent,
+                                  UISheetPresentationControllerDetent.largeDetent];
+            }
+            sheet.prefersGrabberVisible = YES;
         }
     }
     return self;
@@ -58,8 +86,16 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"文件";
-    self.view.backgroundColor = IMTheme.pageBackground;
+    // sheet 不同 detent（2/3 悬浮 vs 拖到顶铺满）会切换 base/elevated 外观等级，导致分组背景变色。
+    // iOS17+ 直接把整页外观等级固定为 base（＝拖到顶时的外观），连 cells 一并一致；
+    // 背景色再用恒 base 的动态色兜底（覆盖 iOS16）。想要「悬浮态」颜色改成 Elevated 即可。
+    if (@available(iOS 17.0, *)) {
+        self.traitOverrides.userInterfaceLevel = UIUserInterfaceLevelBase;
+    }
+    UIColor *sheetBackground = IMBaseGroupedBackgroundColor();
+    self.view.backgroundColor = sheetBackground;
     _tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStyleInsetGrouped];
+    _tableView.backgroundColor = sheetBackground;
     _tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     _tableView.dataSource = self;
     _tableView.delegate = self;
@@ -72,13 +108,18 @@
 /// 自己挂一条 IMLiquidNavigationBar——撑 56pt 安全区给内容让位，栏用 hostExtraTopInset 还原 sheet
 /// 顶部真实位置。左上角关闭改用统一 Liquid Glass 圆钮（xmark），尺寸/材质与全局返回按钮一致。
 - (void)installLiquidNavigationBar {
+    // 栏总高 = 顶留白 + kIMLiquidBarHeight(56)；hostExtraTopInset 仍取 56，使叉叉 y = 顶留白 + 6。
+    // 这样叉叉整体下移 kIMFilePickerTopPadding，远离 sheet 顶部圆角/上边缘，按压区不再被遮挡。
     UIEdgeInsets insets = self.additionalSafeAreaInsets;
-    insets.top = kIMLiquidBarHeight;
+    insets.top = kIMFilePickerTopPadding + kIMLiquidBarHeight;
     self.additionalSafeAreaInsets = insets;
 
     IMLiquidNavigationBar *bar = [[IMLiquidNavigationBar alloc] initWithTitle:self.title subtitle:@"" actionTitle:nil];
     bar.delegate = self;
     bar.hostExtraTopInset = kIMLiquidBarHeight;
+    // sheet 自带背景，无需整条沉浸磨砂带——关掉它，避免深色模式顶部出现一条黑影带；
+    // 叉叉本体即原生玻璃圆钮，浮在 sheet 背景上即可。
+    bar.backgroundEffectProgress = 0;
     bar.leftImage = [UIImage systemImageNamed:@"xmark"
                              withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:17
                                                                                               weight:UIImageSymbolWeightSemibold]];

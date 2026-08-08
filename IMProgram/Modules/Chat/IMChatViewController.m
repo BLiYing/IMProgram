@@ -507,7 +507,9 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
 
 - (void)installInfoAvatarButtonWithURL:(nullable NSString *)url seed:(NSString *)seed
                                   name:(nullable NSString *)name action:(SEL)action {
-    CGFloat avatarD = 30;
+    // 内圈头像直径。外圈=标题栏 44pt 玻璃圆钮；间隔/侧 = (44 - avatarD)/2。
+    // 30→间隔 7pt；37→间隔 3.5pt（间隔减半）。想更贴边继续调大（≤44）。
+    CGFloat avatarD = 37;
     UIBarButtonItem *item = [[UIBarButtonItem alloc] initWithImage:IMChatAvatarImage(nil, seed, name, avatarD)
                                                               style:UIBarButtonItemStylePlain
                                                              target:self action:action];
@@ -2204,11 +2206,8 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     }
     // 连接态优先：断开 / 连接中时副标题显示连接状态（同「在线」位置，无括号），
     // 覆盖单聊在线态与群聊成员数——此时本地在线快照无法再更新，显示连接态才是可验证的状态。
-    switch (self.connState) {
-        case IMSocketStateConnecting:   return @"连接中…";
-        case IMSocketStateDisconnected: return @"未连接";
-        case IMSocketStateConnected:    break;
-    }
+    NSString *conn = IMSocketStateSubtitle(self.connState);
+    if (conn.length > 0) { return conn; }
     if (!self.isGroupChat) {
         // 单聊：在线态走副标题（原先的 🟢 已去掉）。
         return self.peerPresence.subtitleText ?: @"";
