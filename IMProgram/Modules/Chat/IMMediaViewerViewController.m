@@ -7,6 +7,7 @@
 #import "IMMediaExpiryRegistry.h" // 被动展示 404 失效登记 + 复验
 #import "IMMediaPlaceholder.h"    // 失效占位覆盖层
 #import "UIViewController+IMToast.h"
+#import "IMGlass.h" // 标准 Liquid Glass 按钮配置（iOS26 glass()/旧系统 gray() 降级）
 #import "IMLog.h"
 #import <AVFoundation/AVFoundation.h>
 #import <Photos/Photos.h>
@@ -197,10 +198,14 @@
     _playButton = [UIButton buttonWithType:UIButtonTypeSystem];
     UIImage *play = [UIImage systemImageNamed:@"play.fill"
                              withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:34 weight:UIImageSymbolWeightBold]];
-    [_playButton setImage:play forState:UIControlStateNormal];
-    _playButton.tintColor = UIColor.whiteColor;
-    _playButton.backgroundColor = [UIColor colorWithWhite:0 alpha:0.45];
-    _playButton.layer.cornerRadius = 36;
+    // 中央播放按钮改标准 Liquid Glass（72pt 圆钮）。
+    UIButtonConfiguration *playCfg = IMGlassButtonConfiguration();
+    playCfg.image = play;
+    playCfg.cornerStyle = UIButtonConfigurationCornerStyleCapsule;
+    playCfg.contentInsets = NSDirectionalEdgeInsetsZero;
+    playCfg.baseForegroundColor = UIColor.whiteColor;
+    _playButton.configuration = playCfg;
+    _playButton.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
     _playButton.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:_playButton];
     [_playButton addTarget:self action:@selector(togglePlayback) forControlEvents:UIControlEventTouchUpInside];
@@ -529,10 +534,15 @@ didFinishDownloadingToURL:(NSURL *)location {
     UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
     UIImage *img = [UIImage systemImageNamed:name
                           withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:pt weight:UIImageSymbolWeightSemibold]];
-    [b setImage:img forState:UIControlStateNormal];
-    b.tintColor = UIColor.whiteColor;
-    b.backgroundColor = [UIColor colorWithWhite:0 alpha:0.4];
-    b.layer.cornerRadius = 20;
+    // 标准 Liquid Glass 圆钮：iOS26 原生玻璃（自带按压放大）；旧系统 gray() 降级。
+    UIButtonConfiguration *cfg = IMGlassButtonConfiguration();
+    cfg.image = img;
+    cfg.cornerStyle = UIButtonConfigurationCornerStyleCapsule; // 方形 frame → 圆形
+    cfg.contentInsets = NSDirectionalEdgeInsetsZero;
+    cfg.baseForegroundColor = UIColor.whiteColor;
+    b.configuration = cfg;
+    // 查看器恒为全屏黑底：强制暗色外观，使玻璃/灰底偏深、白图标始终有对比。
+    b.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
     b.translatesAutoresizingMaskIntoConstraints = NO;
     return b;
 }

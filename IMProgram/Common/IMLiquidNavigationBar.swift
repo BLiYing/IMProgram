@@ -9,20 +9,50 @@ public protocol IMLiquidNavigationBarDelegate: NSObjectProtocol {
     @objc optional func liquidNavigationBarDidTapTitle(_ bar: IMLiquidNavigationBar)
 }
 
+/// 导航栏玻璃按钮：iOS 26 由 `.glass()` 配置提供**原生**按压放大/聚合；旧系统无此原生效果，
+/// 采用 Telegram 同款 alpha 按压反馈（`HighlightableButton` 范式）——比 scale 更克制、更"系统感"：
+/// 按下瞬时变暗到 0.4，松开先复位 1.0 再 0.2s ease-in-out 淡回。不用缩放/回弹。
+private final class IMLiquidGlassButton: UIButton {
+    override var isHighlighted: Bool {
+        didSet {
+            if #available(iOS 26.0, *) { return } // 原生玻璃自带按压反馈，勿再叠加手写动画
+            guard oldValue != isHighlighted else { return }
+            if isHighlighted {
+                // 按下：移除进行中的恢复动画，即时变暗（反馈要立刻可见）。
+                layer.removeAnimation(forKey: "im_press_opacity")
+                alpha = 0.4
+            } else {
+                // 松开：先复位，再 0.2s ease-in-out 淡回（对齐 Telegram animateAlpha 0.4→1.0）。
+                alpha = 1.0
+                let fade = CABasicAnimation(keyPath: "opacity")
+                fade.fromValue = 0.4
+                fade.toValue = 1.0
+                fade.duration = 0.2
+                fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                layer.add(fade, forKey: "im_press_opacity")
+            }
+        }
+    }
+}
+
 @objcMembers
 @objc(IMLiquidNavigationBar)
 public final class IMLiquidNavigationBar: UIView {
     public weak var delegate: IMLiquidNavigationBarDelegate?
 
     // MARK: - 可调背景参数（独立出来便于调试：改默认值→重编译即可看效果，全局生效）
-    /// 磨砂整体不透明度系数（乘在每个实例的 backgroundEffectProgress 上）。
-    /// 调小 → 整条导航磨砂更透明（0.0 完全透明、1.0 当前默认）。想"再透明一点"就调这里。
+    /// 磨砂上叠的**半透明底色**不透明度 —— 遮挡性的主要来源（对齐 Telegram：磨砂 + ~0.9 alpha 底色，
+    /// 遮挡靠这层底色而非磨砂厚度）。**想让标题栏更"实"、下方内容不透出，就调大它**（0…1，1=纯不透明）；
+    /// 调小 → 更通透。浅/深色共用同一 alpha，底色随明暗自适应。
+    public static var tintAlpha: CGFloat = 0.30
+    /// 整条磨砂层的显隐系数（乘在每实例 `backgroundEffectProgress` 上）。⚠️ **仅 0…1 有效**——
+    /// 它作用于 `view.alpha`（上限就是 1.0，设成 2.0 无效！）。想更"实"请调 `tintAlpha`，不是这里。
+    /// 用途是滚动淡入 / 详情页头部展开时整条淡出。
     public static var backgroundBlurAlpha: CGFloat = 1.0
-    /// 深色模式磨砂的压暗 tint alpha。调小 → 深色下更透明（0 = 纯磨砂不压暗）。浅色模式恒为透明不受影响。
-    public static var darkTintAlpha: CGFloat = 0.55
-    /// 底缘渐隐蒙版：顶部保持"最实"的高度比例，其下平滑渐隐到导航栏下缘透明。
-    /// 调小 → 过渡更长更柔和（消除"被切割"生硬感）；调大 → 实心区更多、过渡更短更硬。
-    public static var fadeSolidTopRatio: CGFloat = 0.2
+    /// 底缘渐隐蒙版：顶部保持"最实"的高度比例，其下渐隐到导航栏下缘透明。
+    /// ⚠️ 标题/按钮其实落在栏的**下半部**（状态栏在上半部），所以此值太小时标题背后会透光——
+    /// 调大 → 实心区覆盖到标题行、遮挡更强、渐隐更短；调小 → 渐隐更长更柔和但标题背后更易透。
+    public static var fadeSolidTopRatio: CGFloat = 0.3
 
     // 说明：以下属性的 didSet 一律先做等值判断再落地。导航容器每个布局周期都会把整套属性重写一遍
     // （标题、左右按钮、进度…），而这些 didSet 会连带触发 setNeedsLayout / 重建按钮配置等重排；
@@ -155,8 +185,8 @@ public final class IMLiquidNavigationBar: UIView {
     // 按钮本体即原生玻璃（iOS 26 用 UIButton.Configuration.glass()，旧系统降级 .gray() + 描边）：
     // 这样点击时能拿到系统 Liquid Glass 的按压放大/聚合动画，而不是手写缩放。此前用「普通按钮 +
     // 独立玻璃视图」分离结构，玻璃不参与交互、只能做 scale 0.94 的缩小，缺原生放大观感。
-    private let backButton = UIButton(type: .system)
-    private let actionButton = UIButton(type: .system)
+    private let backButton = IMLiquidGlassButton(type: .system)
+    private let actionButton = IMLiquidGlassButton(type: .system)
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
     private let titleGlass = UIVisualEffectView()
@@ -184,9 +214,8 @@ public final class IMLiquidNavigationBar: UIView {
         isOpaque = false
 
         backgroundGlass.isUserInteractionEnabled = false
-        // systemUltraThinMaterial 在深色模式下偏亮，磨砂会显成一块比背景亮的色块。
-        // 叠一层随明暗自适应的背景色 tint：深色模式压向背景黑、浅色模式保持透明（不动浅色观感），
-        // 与页面背景保持一致；tint 随磨砂一起被底部渐变蒙版渐隐，故渐变仍生效。
+        // 遮挡性主要靠这层半透明底色（浅/深色都叠，alpha=tintAlpha≈0.9，对齐 Telegram），
+        // 磨砂只作辅助（把透出的残余打散）。底色随磨砂一起被底部渐变蒙版渐隐，故软边仍生效。
         backgroundGlass.contentView.backgroundColor = Self.backgroundTint()
         insertSubview(backgroundGlass, at: 0)
         // 颜色一次性设定；locations 交给 layoutSubviews 按 fadeSolidTopRatio 计算（便于调参即时生效）。
@@ -358,11 +387,15 @@ public final class IMLiquidNavigationBar: UIView {
     }
 
     /// 磨砂背景 tint：深色模式压向背景黑，浅色模式透明。动态色随 trait 自动解析，无需手动刷新。
+    /// 磨砂上叠的半透明底色（遮挡性主要来源，对齐 Telegram：blur + ~0.9 alpha 底色）。
+    /// 浅色≈0xF5F5F5、深色≈0x1D1D1D，套用可调 `tintAlpha`，随明暗自适应。
+    /// 关键：之前**浅色模式恒透明**（只剩极薄 ultraThin 磨砂）→ 标题栏下内容透出，这是"太透"的根因。
     private static func backgroundTint() -> UIColor {
         UIColor { trait in
-            trait.userInterfaceStyle == .dark
-                ? UIColor.black.withAlphaComponent(IMLiquidNavigationBar.darkTintAlpha)
-                : .clear
+            let base = trait.userInterfaceStyle == .dark
+                ? UIColor(white: 0.114, alpha: 1.0)   // ≈0x1d1d1d
+                : UIColor(white: 0.96, alpha: 1.0)    // ≈0xf5f5f5
+            return base.withAlphaComponent(IMLiquidNavigationBar.tintAlpha)
         }
     }
 

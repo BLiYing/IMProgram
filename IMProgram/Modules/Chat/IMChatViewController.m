@@ -952,14 +952,13 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     self.jumpButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.jumpButton.translatesAutoresizingMaskIntoConstraints = NO;
     UIImageSymbolConfiguration *jcfg = [UIImageSymbolConfiguration configurationWithPointSize:18 weight:UIImageSymbolWeightSemibold];
-    [self.jumpButton setImage:[UIImage systemImageNamed:@"chevron.down" withConfiguration:jcfg] forState:UIControlStateNormal];
-    self.jumpButton.tintColor = IMTheme.textPrimary;
-    self.jumpButton.backgroundColor = UIColor.secondarySystemBackgroundColor;
-    self.jumpButton.layer.cornerRadius = 20;
-    self.jumpButton.layer.shadowColor = UIColor.blackColor.CGColor;
-    self.jumpButton.layer.shadowOpacity = 0.18;
-    self.jumpButton.layer.shadowRadius = 4;
-    self.jumpButton.layer.shadowOffset = CGSizeMake(0, 2);
+    // 标准 Liquid Glass 圆钮（iOS26 原生玻璃自带按压放大；旧系统 gray() 降级）；不再手绘底色/阴影。
+    UIButtonConfiguration *jumpConf = IMGlassButtonConfiguration();
+    jumpConf.image = [UIImage systemImageNamed:@"chevron.down" withConfiguration:jcfg];
+    jumpConf.cornerStyle = UIButtonConfigurationCornerStyleCapsule; // 40×40 frame → 圆形
+    jumpConf.contentInsets = NSDirectionalEdgeInsetsZero;
+    jumpConf.baseForegroundColor = IMTheme.textPrimary;
+    self.jumpButton.configuration = jumpConf;
     self.jumpButton.hidden = YES;
     [self.jumpButton addTarget:self action:@selector(jumpTapped) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:self.jumpButton];
