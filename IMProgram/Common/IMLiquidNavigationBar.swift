@@ -182,6 +182,20 @@ public final class IMLiquidNavigationBar: UIView {
         }
     }
 
+    /// **实例级**「变实」进度（0=按全局 `tintAlpha` 的通透态，1=纯色不透明且取消底缘渐隐）。
+    ///
+    /// 用途：详情页分页 tab 贴顶时，内容会从标题栏下方穿过；通透磨砂挡不住（尤其底缘渐隐区正好
+    /// 落在标题行）。对齐 Telegram PeerInfo 的做法——它在贴顶态用的是**纯色不透明**
+    /// （`opaqueBackgroundColor`，alpha=1.0，模糊被自动丢弃），而非磨砂：通透与不透光不可兼得，
+    /// 贴顶那一刻变实。做成实例级而非 static，是为了只影响调用方那一页，不动其他页面观感。
+    public var opaqueProgress: CGFloat = 0 {
+        didSet {
+            guard abs(oldValue - opaqueProgress) > 0.001 else { return }
+            updateBackgroundTint()
+            setNeedsLayout()   // 渐隐蒙版 locations 随之收敛到「全实」
+        }
+    }
+
     // 按钮本体即原生玻璃（iOS 26 用 UIButton.Configuration.glass()，旧系统降级 .gray() + 描边）：
     // 这样点击时能拿到系统 Liquid Glass 的按压放大/聚合动画，而不是手写缩放。此前用「普通按钮 +
     // 独立玻璃视图」分离结构，玻璃不参与交互、只能做 scale 0.94 的缩小，缺原生放大观感。
@@ -214,9 +228,9 @@ public final class IMLiquidNavigationBar: UIView {
         isOpaque = false
 
         backgroundGlass.isUserInteractionEnabled = false
-        // 遮挡性主要靠这层半透明底色（浅/深色都叠，alpha=tintAlpha≈0.9，对齐 Telegram），
-        // 磨砂只作辅助（把透出的残余打散）。底色随磨砂一起被底部渐变蒙版渐隐，故软边仍生效。
-        backgroundGlass.contentView.backgroundColor = Self.backgroundTint()
+        // 遮挡性主要靠这层半透明底色（浅/深色都叠，对齐 Telegram），磨砂只作辅助（把透出的残余打散）。
+        // 底色随磨砂一起被底部渐变蒙版渐隐，故软边仍生效；贴顶态由 opaqueProgress 推向纯色不透明。
+        updateBackgroundTint()
         insertSubview(backgroundGlass, at: 0)
         // 颜色一次性设定；locations 交给 layoutSubviews 按 fadeSolidTopRatio 计算（便于调参即时生效）。
         backgroundFade.colors = [UIColor.white.cgColor, UIColor.white.cgColor, UIColor.clear.cgColor]
@@ -365,6 +379,7 @@ public final class IMLiquidNavigationBar: UIView {
             traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) {
             titleGlass.effect = Self.makeGlassEffect()
             backgroundGlass.effect = UIBlurEffect(style: .systemUltraThinMaterial)
+            updateBackgroundTint() // 底色按新 trait 重新解析（非 dynamicProvider，必须手动刷）
             refreshColors()      // 重建按钮配置（前景色随 trait 重新解析）
         }
     }
@@ -387,16 +402,26 @@ public final class IMLiquidNavigationBar: UIView {
     }
 
     /// 磨砂背景 tint：深色模式压向背景黑，浅色模式透明。动态色随 trait 自动解析，无需手动刷新。
-    /// 磨砂上叠的半透明底色（遮挡性主要来源，对齐 Telegram：blur + ~0.9 alpha 底色）。
-    /// 浅色≈0xF5F5F5、深色≈0x1D1D1D，套用可调 `tintAlpha`，随明暗自适应。
+    /// 磨砂上叠的半透明底色（遮挡性主要来源，对齐 Telegram：blur + 底色）。
+    /// 浅色≈0xF5F5F5、深色≈0x1D1D1D；alpha 由全局 `tintAlpha` 与实例 `opaqueProgress` 共同决定：
+    /// 贴顶态（opaqueProgress→1）插值到 1.0 纯色不透明。
     /// 关键：之前**浅色模式恒透明**（只剩极薄 ultraThin 磨砂）→ 标题栏下内容透出，这是"太透"的根因。
-    private static func backgroundTint() -> UIColor {
-        UIColor { trait in
-            let base = trait.userInterfaceStyle == .dark
-                ? UIColor(white: 0.114, alpha: 1.0)   // ≈0x1d1d1d
-                : UIColor(white: 0.96, alpha: 1.0)    // ≈0xf5f5f5
-            return base.withAlphaComponent(IMLiquidNavigationBar.tintAlpha)
-        }
+    ///
+    /// 不用 `UIColor(dynamicProvider:)`：那样无法读到实例的 `opaqueProgress`。改为按当前 trait
+    /// 显式解析，并在 `traitCollectionDidChange` 里重刷（见 refreshColors 调用链）。
+    private func resolvedBackgroundTint() -> UIColor {
+        // 底色**跟随系统背景色**（深色≈纯黑 #000、浅色≈纯白 #fff），而非硬编码 #1d1d1d/#f5f5f5。
+        // 根因：深色下页面背景是纯黑，旧的 #1d1d1d 比背景亮一截，变实/底缘渐隐时就显出"自上而下的
+        // 蒙层块"（浅色因 #f5f5f5≈背景 #f2f2f7/#fff 而不明显）。用背景同色即与各页面融为一体，
+        // 深浅自适应、一处改动全局生效，无需逐页改色值。通透态由 tintAlpha 决定磨砂浓度不变。
+        let base = UIColor.systemBackground.resolvedColor(with: traitCollection)
+        let p = min(max(opaqueProgress, 0), 1)
+        let alpha = Self.tintAlpha + (1.0 - Self.tintAlpha) * p
+        return base.withAlphaComponent(alpha)
+    }
+
+    private func updateBackgroundTint() {
+        backgroundGlass.contentView.backgroundColor = resolvedBackgroundTint()
     }
 
     private static func makeGlassEffect() -> UIVisualEffect {
@@ -414,7 +439,9 @@ public final class IMLiquidNavigationBar: UIView {
         backgroundGlass.frame = bounds
         // 仅更新既有蒙版的 frame/locations（不再每帧重建 CAGradientLayer）；关隐式动画避免每次布局闪动。
         // 顶部 fadeSolidTopRatio 比例保持最实，其下平滑渐隐到导航栏下缘透明（从底部往状态栏逐渐加深）。
-        let solid = min(max(Self.fadeSolidTopRatio, 0), 1)
+        // 贴顶态（opaqueProgress→1）把实心区推到 1.0＝取消底缘渐隐，避免标题行背后仍是渐隐区而透光。
+        let p = min(max(opaqueProgress, 0), 1)
+        let solid = min(max(Self.fadeSolidTopRatio + (1.0 - Self.fadeSolidTopRatio) * p, 0), 1)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         backgroundFade.frame = backgroundGlass.bounds

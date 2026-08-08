@@ -322,6 +322,8 @@
 @property (nonatomic, copy, nullable) NSString *_Nullable (^thumbForItemIndex)(NSInteger index);
 /// 门控格点击（开始/暂停/继续/重试）。
 @property (nonatomic, copy, nullable) void (^onDownloadItemIndex)(NSInteger index);
+/// 内容宽确定/变化时回调（供外部按真实宽度重算行高，消除卡片底部白边）。
+@property (nonatomic, copy, nullable) void (^onContentWidthChanged)(CGFloat width);
 - (void)setItems:(NSArray<IMMediaItem *> *)items;
 /// 重配一格（用于「下载完成/解除门控」——需要重新拉原图）。
 - (void)refreshItemAtIndex:(NSInteger)index;
@@ -331,6 +333,19 @@
 @end
 @implementation IMDetailMediaContainerCell {
     UICollectionView *_cv; NSArray<IMMediaItem *> *_items;
+    CGFloat _lastReportedWidth; // 已上报给外部的内容宽（去抖，避免每次布局都回调）
+}
+
+/// 内容宽首次确定/变化时上报（旋转、iPad 分屏）。
+/// 存在的理由：行高由外部按「假设的 InsetGrouped 内缩」估算，而格子按 cell 真实宽度排布；
+/// 两者一旦不一致，行高就会比宫格内容高出几 pt，卡片底部露出白边。以真实宽度为准即可消除。
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    CGFloat w = self.contentView.bounds.size.width;
+    if (w > 0 && ABS(w - _lastReportedWidth) > 0.5) {
+        _lastReportedWidth = w;
+        if (self.onContentWidthChanged) { self.onContentWidthChanged(w); }
+    }
 }
 + (CGFloat)tileForWidth:(CGFloat)width { CGFloat cols = 3, sp = 2; return floor((width - (cols - 1) * sp) / cols); }
 + (CGFloat)heightForCount:(NSInteger)count width:(CGFloat)width {
@@ -598,6 +613,10 @@ static CGFloat const kPillsRowH = 78;
 static CGFloat const kTabBarH   = 52;   ///< 页签栏高度（含分段控件上下留白）；分段控件本体 = kTabBarH-12
 static CGFloat const kTabSegH   = 40;   ///< 分段控件本体高度（点击面积）
 
+/// 标题栏「变实」上限：头部收拢完成（名字/成员已进标题栏）时的不透明程度。
+/// 1.0=完全不透明（内容绝不透出）；调小可保留一点通透感。仅影响本页，其他页面不受影响。
+static CGFloat const kNavOpaqueOnCollapse = 0.8;
+
 @interface IMChatDetailViewController () <UITableViewDataSource, UITableViewDelegate, UIScrollViewDelegate, UIGestureRecognizerDelegate, IMLiquidNavigationBarDelegate, QLPreviewControllerDataSource>
 // 身份
 @property (nonatomic, copy) NSString *host;
@@ -648,6 +667,7 @@ static CGFloat const kTabSegH   = 40;   ///< 分段控件本体高度（点击�
 /// 媒体/文件 Tab 的下载编排（M4-7）：与聊天页共用 IMMediaDownloadCoordinator，同一份文件天然共享一个下载态。
 @property (nonatomic, strong) IMMediaDownloadCoordinator *downloads;
 @property (nonatomic, weak, nullable) IMDetailMediaContainerCell *mediaContainerCell; ///< 只刷单格用（避免整行重建）
+@property (nonatomic, assign) CGFloat mediaGridWidth;   ///< 宫格 cell 的真实内容宽（0=未知，由 cell 上报）
 @property (nonatomic, strong, nullable) NSURL *quickLookURL;  ///< QuickLook 当前预览的本地文件
 // 布局
 @property (nonatomic, assign) BOOL hasPhoto;
@@ -986,7 +1006,11 @@ static CGFloat const kTabSegH   = 40;   ///< 分段控件本体高度（点击�
         [self.liquidNavigationBar.topAnchor constraintEqualToAnchor:self.view.topAnchor],
         [self.liquidNavigationBar.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:kIMLiquidBarHeight],
     ]];
-    // 吸顶条：页签滚到折叠顶栏下方时出现，只放镜像分段控件——**无整行背景色**（分段控件自带药丸底即可）。
+    // 吸顶条：页签滚到折叠顶栏下方时出现，只托镜像分段控件——**本身保持透明**。
+    // ⚠️ 它的 z 序在导航栏【之上】（否则分段药丸顶部会被栏盖掉），所以绝不能给它不透明底：
+    // 那会把返回按钮下缘 2pt 一起涂掉（按钮 topInset+6…+50，本条从 topInset+48 起），
+    // 表现为"返回按钮被切、左侧出现分割感"（踩过一次）。
+    // 内容透出问题改由标题栏自身随头部收拢变实解决，见 applyHeaderMorph。
     self.stickyBar = [[UIView alloc] initWithFrame:CGRectZero];
     self.stickyBar.backgroundColor = UIColor.clearColor;
     self.stickyBar.hidden = YES;
@@ -1095,6 +1119,11 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
     self.headerMorph.topInset = self.topInset;
     self.headerMorph.collapseOffset = [self headerCollapseOffset];
     [self.headerMorph applyForOffset:off width:W];
+    // 标题栏随头部收拢同步「变实」：收拢到位＝群名/成员数已迁入标题栏，此时其下正开始穿过
+    // 「消息免打扰」等卡片内容；通透磨砂挡不住会透出，故此刻让底色推到不透明。
+    // 与 name/成员的迁移用**同一个进度**，观感天然同步；且只作用于本页这条自持栏，不影响其他页面。
+    CGFloat collapse = IMClamp(off / MAX(1, [self headerCollapseOffset]), 0, 1);
+    self.liquidNavigationBar.opaqueProgress = collapse * kNavOpaqueOnCollapse;
     // 图上名（photo 模式）本页不用，恒隐。
     self.nameOnImage.alpha = 0;
     self.subOnImage.alpha = 0;
@@ -1478,7 +1507,9 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
         IMChatDetailTab *t = self.tabs[self.selectedTab];
         if (t.kind == IMDetailTabKindMembers) { return 60; }
         if (t.kind == IMDetailTabKindMedia) {
-            CGFloat w = tableView.bounds.size.width - 32; // InsetGrouped 左右各 ~16
+            // 宽度必须与宫格排布用的**真实** cell 内容宽一致，否则行高多出几 pt → 卡片底部白边。
+            // 真实宽由 cell 首次布局回调上报（见 mediaGridWidth）；未知时先用估算值兜底。
+            CGFloat w = self.mediaGridWidth > 0 ? self.mediaGridWidth : tableView.bounds.size.width - 32;
             CGFloat h = [IMDetailMediaContainerCell heightForCount:self.tabMedia.count width:w];
             return h > 0 ? h : 60;
         }
@@ -1615,6 +1646,17 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
         cell.onDownloadItemIndex = ^(NSInteger i) {
             IMMessageModel *mm = [ws mediaMessageAtIndex:i];
             if (mm) { [ws.downloads handleTapForMessage:mm]; }
+        };
+        // 真实内容宽上报：与估算值不符时记下并只重算行高（beginUpdates/endUpdates 不重建 cell，无闪烁）。
+        // 宽度只在首次布局/旋转时变一次，收敛后不再触发，无循环。
+        cell.onContentWidthChanged = ^(CGFloat width) {
+            __strong typeof(ws) self = ws;
+            if (!self || ABS(self.mediaGridWidth - width) < 0.5) { return; }
+            self.mediaGridWidth = width;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self.tableView beginUpdates];
+                [self.tableView endUpdates];
+            });
         };
         self.mediaContainerCell = cell;
         [cell setItems:self.tabMedia];
