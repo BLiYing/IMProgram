@@ -5,7 +5,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface IMFavoritesViewController : UITableViewController
+@interface IMFavoritesViewController : UIViewController
 @end
 
 NS_ASSUME_NONNULL_END

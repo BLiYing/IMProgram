@@ -92,12 +92,21 @@
 }
 @end
 
+// ⚠️ 必须是普通 UIViewController + 内嵌 UITableView（而非 UITableViewController）：
+// 导航容器 IMMainNavigationController 会给 push 进来的页面注入 IMLiquidNavigationBar 到 vc.view 上，
+// 并 additionalSafeAreaInsets.top=56。UITableViewController 的 vc.view 本身就是滚动的 tableView，
+// 注入栏被约束到滚动视图 topAnchor 会被初始负 contentOffset 推到内容坐标之下 → 标题栏整体下移
+// （且随滚动漂移）。改为普通 VC，栏挂在静止的 self.view 上，位置才正确（对齐外观页/设置页写法）。
+@interface IMFavoritesViewController () <UITableViewDataSource, UITableViewDelegate>
+@end
+
 @implementation IMFavoritesViewController {
+    UITableView *_tableView;
     NSArray<NSDictionary *> *_items; // 每项含 id/content/content_type/...
 }
 
 - (instancetype)init {
-    self = [super initWithStyle:UITableViewStyleInsetGrouped];
+    self = [super init];
     if (self) { self.title = @"收藏消息"; }
     return self;
 }
@@ -105,8 +114,21 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     _items = @[];
-    self.tableView.rowHeight = 76;
-    [self.tableView registerClass:IMFavoriteCell.class forCellReuseIdentifier:@"fav"];
+    self.view.backgroundColor = IMTheme.groupedBackground;
+    _tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStyleInsetGrouped];
+    _tableView.backgroundColor = IMTheme.groupedBackground;
+    _tableView.rowHeight = 76;
+    _tableView.dataSource = self;
+    _tableView.delegate = self;
+    _tableView.translatesAutoresizingMaskIntoConstraints = NO;
+    [_tableView registerClass:IMFavoriteCell.class forCellReuseIdentifier:@"fav"];
+    [self.view addSubview:_tableView];
+    [NSLayoutConstraint activateConstraints:@[
+        [_tableView.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [_tableView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
+        [_tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [_tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+    ]];
     [self reload];
 }
 
@@ -118,7 +140,7 @@
         __strong typeof(ws) self = ws;
         if (!self) { return; }
         self->_items = error ? @[] : (favorites ?: @[]);
-        [self.tableView reloadData];
+        [self->_tableView reloadData];
     }];
 }
 
@@ -174,7 +196,7 @@
         NSMutableArray *m = [self->_items mutableCopy];
         if (indexPath.row < (NSInteger)m.count) { [m removeObjectAtIndex:(NSUInteger)indexPath.row]; }
         self->_items = m;
-        [self.tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
+        [self->_tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
         done(YES);
     }];
 }
