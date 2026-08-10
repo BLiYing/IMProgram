@@ -11,7 +11,9 @@
 @implementation IMAutoDownloadNetworkViewController {
     IMDownloadNetworkKind _net;
     IMDownloadSettings *_working;
-    __weak UILabel *_presetLabel; // "流量使用情况：中"
+    __weak UILabel *_presetLabel;      // "流量使用情况：中"
+    __weak UIStackView *_presetTicks;  // 低/中/高（+自定义）刻度行，拖动时联动高亮
+    BOOL _presetCustom;                // 当前是否处于自定义（滑杆显第四档）
 }
 
 - (instancetype)initWithNetwork:(IMDownloadNetworkKind)network {
@@ -73,11 +75,12 @@
         cell.accessoryView = sw;
         return cell;
     }
-    if (indexPath.section == 1) { // 低/中/高
+    if (indexPath.section == 1) { // 低/中/高（+ 仅自定义时临时出现的第四档）
         UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
-        NSArray<NSString *> *names = @[ @"低", @"中", @"高" ];
-        NSInteger preset = IMTrafficPresetForPolicy(p);
+        IMTrafficPreset preset = IMTrafficPresetForPolicy(p);
+        _presetCustom = (preset == IMTrafficPresetCustom);
+        NSArray<NSString *> *names = [self presetTickNames]; // 自定义时含第四档
         UILabel *title = [[UILabel alloc] init];
         title.translatesAutoresizingMaskIntoConstraints = NO;
         title.font = [UIFont systemFontOfSize:15];
@@ -86,19 +89,38 @@
         UISlider *slider = [[UISlider alloc] init];
         slider.translatesAutoresizingMaskIntoConstraints = NO;
         slider.minimumValue = 0;
-        slider.maximumValue = 2;
+        slider.maximumValue = (float)(names.count - 1); // 三档=2；自定义时=3
         slider.value = (float)preset;
         [slider addTarget:self action:@selector(presetSliderChanged:) forControlEvents:UIControlEventValueChanged];
         [slider addTarget:self action:@selector(presetSliderCommitted:) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside];
+        // 档位刻度：末档右对齐、首档左对齐，与滑杆两端对齐；当前档高亮。
+        UIStackView *ticks = [[UIStackView alloc] init];
+        ticks.translatesAutoresizingMaskIntoConstraints = NO;
+        ticks.axis = UILayoutConstraintAxisHorizontal;
+        ticks.distribution = UIStackViewDistributionFillEqually;
+        for (NSUInteger i = 0; i < names.count; i++) {
+            UILabel *t = [[UILabel alloc] init];
+            t.font = [UIFont systemFontOfSize:11];
+            t.text = names[i];
+            t.textColor = ((NSInteger)i == preset) ? UIColor.labelColor : UIColor.secondaryLabelColor;
+            t.textAlignment = (i == 0) ? NSTextAlignmentLeft
+                : (i == names.count - 1 ? NSTextAlignmentRight : NSTextAlignmentCenter);
+            [ticks addArrangedSubview:t];
+        }
+        _presetTicks = ticks;
         [cell.contentView addSubview:title];
         [cell.contentView addSubview:slider];
+        [cell.contentView addSubview:ticks];
         [NSLayoutConstraint activateConstraints:@[
             [title.leadingAnchor constraintEqualToAnchor:cell.contentView.layoutMarginsGuide.leadingAnchor],
             [title.topAnchor constraintEqualToAnchor:cell.contentView.topAnchor constant:10],
             [slider.leadingAnchor constraintEqualToAnchor:cell.contentView.layoutMarginsGuide.leadingAnchor],
             [slider.trailingAnchor constraintEqualToAnchor:cell.contentView.layoutMarginsGuide.trailingAnchor],
             [slider.topAnchor constraintEqualToAnchor:title.bottomAnchor constant:8],
-            [slider.bottomAnchor constraintEqualToAnchor:cell.contentView.bottomAnchor constant:-10],
+            [ticks.leadingAnchor constraintEqualToAnchor:slider.leadingAnchor],
+            [ticks.trailingAnchor constraintEqualToAnchor:slider.trailingAnchor],
+            [ticks.topAnchor constraintEqualToAnchor:slider.bottomAnchor constant:2],
+            [ticks.bottomAnchor constraintEqualToAnchor:cell.contentView.bottomAnchor constant:-10],
         ]];
         return cell;
     }
@@ -131,18 +153,34 @@
     [[IMDownloadSettingsStore shared] saveSettings:_working];
 }
 
+// 自定义时含第四档；仅命中预设时为三档。
+- (NSArray<NSString *> *)presetTickNames {
+    return _presetCustom ? @[ @"低", @"中", @"高", @"自定义" ] : @[ @"低", @"中", @"高" ];
+}
+
+// 拖动中：只更新文字/刻度高亮（不落库，PUT 留到松手），不重建控件（档数不变，避免抖动）。
 - (void)presetSliderChanged:(UISlider *)slider {
-    NSInteger preset = (NSInteger)lroundf(slider.value);
-    IMApplyTrafficPreset([self policy], preset); // 本地即时
-    NSArray<NSString *> *names = @[ @"低", @"中", @"高" ];
-    _presetLabel.text = [@"流量使用情况：" stringByAppendingString:names[preset]];
+    NSArray<NSString *> *names = [self presetTickNames];
+    NSInteger idx = (NSInteger)lroundf(slider.value);
+    idx = MAX(0, MIN(idx, (NSInteger)names.count - 1));
+    _presetLabel.text = [@"流量使用情况：" stringByAppendingString:names[idx]];
+    for (NSUInteger i = 0; i < _presetTicks.arrangedSubviews.count; i++) {
+        UILabel *t = (UILabel *)_presetTicks.arrangedSubviews[i];
+        t.textColor = ((NSInteger)i == idx) ? UIColor.labelColor : UIColor.secondaryLabelColor;
+    }
 }
 
 - (void)presetSliderCommitted:(UISlider *)slider {
-    NSInteger preset = (NSInteger)lroundf(slider.value);
-    slider.value = (float)preset;
-    IMApplyTrafficPreset([self policy], preset);
-    [[IMDownloadSettingsStore shared] saveSettings:_working]; // 触发 change 通知 → reloadFromStore 刷新类别行 detail
+    NSInteger idx = (NSInteger)lroundf(slider.value);
+    // 停在“自定义”这一档：它是只读指示、无预设可套用 → 吸附回第四档、保持现状不落库。
+    if (_presetCustom && idx == IMTrafficPresetCustom) {
+        slider.value = (float)IMTrafficPresetCustom;
+        return;
+    }
+    idx = MAX(0, MIN(idx, (NSInteger)IMTrafficPresetHigh)); // 只有低/中/高可套用
+    slider.value = (float)idx;
+    IMApplyTrafficPreset([self policy], idx);
+    [[IMDownloadSettingsStore shared] saveSettings:_working]; // → change 通知 → reloadFromStore：套预设后退回三档
 }
 
 - (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }

@@ -67,11 +67,12 @@ void IMApplyTrafficPreset(IMDownloadNetworkPolicy *p, NSInteger preset) {
     p.file.maxBytes = file;
 }
 
-NSInteger IMTrafficPresetForPolicy(IMDownloadNetworkPolicy *p) {
-    int64_t v = p.video.maxBytes;
-    if (v <= 0) { return 0; }
-    if (v <= 12 * kMB) { return 1; } // 中档（10MB 附近）
-    return 2;                        // 高档（15MB 及以上）
+IMTrafficPreset IMTrafficPresetForPolicy(IMDownloadNetworkPolicy *p) {
+    int64_t v = p.video.maxBytes, f = p.file.maxBytes;
+    if (v == 0 && f == 0) { return IMTrafficPresetLow; }
+    if (v == 10 * kMB && f == 1 * kMB) { return IMTrafficPresetMedium; }
+    if (v == 15 * kMB && f == 3 * kMB) { return IMTrafficPresetHigh; }
+    return IMTrafficPresetCustom; // 视频/文件都精确命中才算某档，否则自定义（滑杆据此显第四档）
 }
 
 NSString *IMNetworkSummary(IMDownloadNetworkPolicy *p) {
