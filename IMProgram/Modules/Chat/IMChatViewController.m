@@ -2999,6 +2999,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     if (!isMedia) { return nil; }
     IMMediaAttributes *attrs = [IMMediaAttributes new];
     attrs.poster = message.poster;          // 视频封面（不带的话 Web 收端解不了 HEVC 就只剩空白）
+    attrs.thumb = message.thumb;            // 极小模糊预览：不带的话收端未下载态只有空磨砂、没内容轮廓
     attrs.pixelWidth = message.mediaW;
     attrs.pixelHeight = message.mediaH;
     attrs.durationMillis = message.duration;
@@ -3044,6 +3045,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     m.fileName = fileName;
     m.fileSize = fileSize;
     m.poster = attributes.poster.length > 0 ? attributes.poster : nil;
+    m.thumb = attributes.thumb.length > 0 ? attributes.thumb : nil;
     m.mediaW = attributes.pixelWidth;
     m.mediaH = attributes.pixelHeight;
     m.duration = attributes.durationMillis;
