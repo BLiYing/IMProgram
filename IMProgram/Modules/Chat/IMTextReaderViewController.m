@@ -6,18 +6,18 @@
 #import "UIViewController+IMToast.h"
 
 @implementation IMTextReaderViewController {
-    NSString              *_text;
-    NSArray<NSString *>   *_mentionNames; // @昵称 高亮名单（nil=不高亮）
-    UITextView            *_textView;
-    NSInteger              _fontStep; // 字号档：-1 / 0 / 1 / 2 / 3（相对基准字号）
-    UIButton              *_smaller;
-    UIButton              *_bigger;
+    NSString                              *_text;
+    NSDictionary<NSString *, NSString *>  *_mentions; // @昵称 → uid（nil=不高亮）
+    UITextView                            *_textView;
+    NSInteger                              _fontStep; // 字号档：-1 / 0 / 1 / 2 / 3（相对基准字号）
+    UIButton                              *_smaller;
+    UIButton                              *_bigger;
 }
 
-+ (instancetype)readerWithText:(NSString *)text mentionNames:(NSArray<NSString *> *)mentionNames {
++ (instancetype)readerWithText:(NSString *)text mentions:(NSDictionary<NSString *, NSString *> *)mentions {
     IMTextReaderViewController *vc = [IMTextReaderViewController new];
     vc->_text = [text copy] ?: @"";
-    vc->_mentionNames = [mentionNames copy];
+    vc->_mentions = [mentions copy];
     vc.modalPresentationStyle = UIModalPresentationFullScreen;
     return vc;
 }
@@ -70,6 +70,8 @@
     _textView.textColor = IMTheme.textPrimary;
     _textView.textContainerInset = UIEdgeInsetsMake(16, 14, 24, 14);
     _textView.alwaysBounceVertical = YES;
+    // 点 @昵称 → 跳资料：TextKit 反查 tap 落点的字符属性（不走已弃用的 link 代理，全版本可用）。
+    [_textView addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleTextTap:)]];
     [self applyFont]; // 用富文本承载正文（含 @高亮）
     [self.view addSubview:_textView];
 
@@ -134,9 +136,28 @@
     CGFloat size = IMTheme.chatFontSize + (CGFloat)_fontStep;
     NSDictionary *base = @{ NSFontAttributeName: [UIFont systemFontOfSize:size],
                             NSForegroundColorAttributeName: IMTheme.textPrimary };
-    _textView.attributedText = [IMBubbleCell attributedContent:_text base:base mentionColor:IMTheme.accent names:_mentionNames];
+    _textView.attributedText = [IMBubbleCell attributedContent:_text base:base mentionColor:IMTheme.accent mentions:_mentions];
     _smaller.enabled = _fontStep > -1;
     _bigger.enabled = _fontStep < 3;
+}
+
+/// TextKit 反查：tap 落在挂了 IMMentionUIDAttributeName 的 token 上 → dismiss 自己并回调 uid。
+- (void)handleTextTap:(UITapGestureRecognizer *)gr {
+    if (_textView.attributedText.length == 0) { return; }
+    CGPoint loc = [gr locationInView:_textView];
+    loc.x -= _textView.textContainerInset.left;
+    loc.y -= _textView.textContainerInset.top;
+    NSLayoutManager *lm = _textView.layoutManager;
+    NSTextContainer *tc = _textView.textContainer;
+    NSUInteger glyphIdx = [lm glyphIndexForPoint:loc inTextContainer:tc];
+    CGRect glyphRect = [lm boundingRectForGlyphRange:NSMakeRange(glyphIdx, 1) inTextContainer:tc];
+    if (!CGRectContainsPoint(glyphRect, loc)) { return; } // 点在字外
+    NSUInteger charIdx = [lm characterIndexForGlyphAtIndex:glyphIdx];
+    if (charIdx >= _textView.attributedText.length) { return; }
+    NSString *uid = [_textView.attributedText attribute:IMMentionUIDAttributeName atIndex:charIdx effectiveRange:NULL];
+    if (uid.length == 0) { return; }
+    void (^cb)(NSString *) = self.onTapMentionUID;
+    [self dismissViewControllerAnimated:YES completion:^{ if (cb) { cb(uid); } }];
 }
 
 - (void)fontBigger  { if (_fontStep < 3)  { _fontStep++; [self applyFont]; } }

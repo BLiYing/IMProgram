@@ -6,6 +6,9 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+/// 富文本里挂在 `@昵称` token 段上的成员 uid（点击跳资料页用）。@所有人 无 uid、不挂此属性。
+extern NSString *const IMMentionUIDAttributeName;
+
 /// 文本消息显示分档（阈值与 Web longtext.ts 一致）：
 ///   Short 全显；Long 折叠前若干行 + 点气泡展开/收起；Huge 摘要卡 → 全屏阅读器。
 typedef NS_ENUM(NSInteger, IMBubbleTextTier) {
@@ -23,10 +26,11 @@ typedef NS_ENUM(NSInteger, IMBubbleTextTier) {
 + (NSString *)charCountLabelForText:(nullable NSString *)text;
 
 /// 按 `@昵称` token 切段高亮的富文本（命中 token 用 color+medium，其余用 base）。cell 与全屏阅读器共用。
+/// `mentions` = 显示名 → uid（uid 空串＝仅高亮不可点，如 @所有人）；命中且 uid 非空时挂 IMMentionUIDAttributeName。
 + (NSAttributedString *)attributedContent:(nullable NSString *)text
                                      base:(NSDictionary *)base
                              mentionColor:(UIColor *)color
-                                    names:(nullable NSArray<NSString *> *)names;
+                                 mentions:(nullable NSDictionary<NSString *, NSString *> *)mentions;
 
 /// 长按菜单高亮/收起动画的目标视图（=气泡本体）：系统默认会截整行全宽快照，露出难看的底色托盘。
 @property (nonatomic, strong, readonly) UIView *previewTargetView;
@@ -43,8 +47,12 @@ typedef NS_ENUM(NSInteger, IMBubbleTextTier) {
 /// 中长文本（Long 档）是否已展开（宿主按消息记忆，configure 前设置）。Huge/Short 档忽略此值。
 @property (nonatomic, assign) BOOL textExpanded;
 
-/// 本条消息里需要高亮的 `@昵称` 名单（宿主按当前群成员+文本推导，configure 前设置；nil=不高亮）。
-@property (nonatomic, copy, nullable) NSArray<NSString *> *mentionNames;
+/// 本条消息里需要高亮的 `@昵称` → uid 映射（宿主按当前群成员+文本推导，configure 前设置；nil=不高亮）。
+/// @所有人 以空串 uid 存入（高亮但不可点）。
+@property (nonatomic, copy, nullable) NSDictionary<NSString *, NSString *> *mentionMap;
+
+/// 命中点（cell 坐标系）落在某个 `@昵称` token 上时返回其成员 uid，否则 nil。TextKit 反查 `_text` 富文本属性。
+- (nullable NSString *)mentionUIDAtPoint:(CGPoint)pointInCell;
 
 /// 下载进度**就地更新**（M4-7）：宿主在高频 onProgress 回调里调用，只改第二行文案 + 图标位环/字形，
 /// 不重配整行、不 reloadRows（避免每片一次 reload 卡死主线程）。

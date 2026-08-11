@@ -2211,32 +2211,32 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     return [self.expandedTextKeys containsObject:[self textKeyForMessage:m]];
 }
 
-/// 本条消息里需高亮的 `@昵称` 名单（气泡内 @提及高亮）：iOS 不落库 per-message mentions，
+/// 本条消息里需高亮的 `@昵称` → uid 映射（气泡内 @提及高亮 + 点击跳资料）：iOS 不落库 per-message mentions，
 /// 改由**当前群成员 + 文本**推导——扫描群成员昵称在文本里是否有完整 token（与 Web 用服务端 mentions 收敛，
 /// 因发送侧本就按成员昵称扫文本得出 mentions）。`@所有人` 仅在发送者是群主/管理员时高亮（对齐服务端 300204 鉴权，
-/// 普通成员字面「@所有人」不误高亮）。非群聊/非文本/无 `@` 直接返回 nil。
-- (NSArray<NSString *> *)mentionNamesForMessage:(IMMessageModel *)m {
+/// 普通成员字面「@所有人」不误高亮），且 uid 存空串＝仅高亮不可点。非群聊/非文本/无 `@` 直接返回 nil。
+- (NSDictionary<NSString *, NSString *> *)mentionMapForMessage:(IMMessageModel *)m {
     if (!self.isGroupChat || ![m.contentType isEqualToString:@"text"]) { return nil; }
     NSString *text = m.content;
     if (text.length == 0 || [text rangeOfString:@"@"].location == NSNotFound) { return nil; }
     NSArray<IMGroupMember *> *members = self.groupInfo.members;
     if (members.count == 0) { return nil; }
-    NSMutableArray<NSString *> *names = [NSMutableArray array];
+    NSMutableDictionary<NSString *, NSString *> *map = [NSMutableDictionary dictionary];
     for (IMGroupMember *mem in members) {
         if ([mem.userID isEqualToString:m.from]
             && (mem.role == IMGroupRoleOwner || mem.role == IMGroupRoleAdmin)
             && IMChatTextContainsMentionToken(text, @"所有人")) {
-            [names addObject:@"所有人"];
+            map[@"所有人"] = @""; // 高亮但不可点
             break;
         }
     }
     for (IMGroupMember *mem in members) {
         NSString *nick = mem.displayName;
-        if (nick.length > 0 && ![names containsObject:nick] && IMChatTextContainsMentionToken(text, nick)) {
-            [names addObject:nick];
+        if (nick.length > 0 && !map[nick] && IMChatTextContainsMentionToken(text, nick)) {
+            map[nick] = mem.userID;
         }
     }
-    return names.count > 0 ? names : nil;
+    return map.count > 0 ? map : nil;
 }
 
 /// 切换中长文本的展开态并就地重配该行（高度随之增减，气泡内容重排）。
@@ -2255,7 +2255,9 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     if (IMLooksLikeURL(content)) { return NO; } // 纯 URL 交给链接打开逻辑
     IMBubbleTextTier tier = [IMBubbleCell textTierForContent:content];
     if (tier == IMBubbleTextTierHuge) {
-        IMTextReaderViewController *reader = [IMTextReaderViewController readerWithText:content mentionNames:[self mentionNamesForMessage:m]];
+        __weak typeof(self) ws = self;
+        IMTextReaderViewController *reader = [IMTextReaderViewController readerWithText:content mentions:[self mentionMapForMessage:m]];
+        reader.onTapMentionUID = ^(NSString *uid) { [ws openMemberProfileForUID:uid]; }; // 阅读器内点 @昵称 → 关阅读器 + 跳资料
         [self presentViewController:reader animated:YES completion:nil];
         return YES;
     }
@@ -2285,6 +2287,15 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     // 变化会让坐标反查落到收起动画中间态的错行（曾表现为「跳到别的消息、高亮错行」）。
     CGPoint p = [gr locationInView:self.tableView];
     NSIndexPath *ip = [self.tableView indexPathForRowAtPoint:p];
+    // @昵称 点击（气泡内）：必须在**收键盘前**用稳定布局命中——resign 会改 inset 让 cell 位移、坐标反查失准。
+    // 命中某个挂了 uid 的 token → 跳该成员资料页（先于长文展开/引用跳转）。
+    if (ip && ip.row < (NSInteger)self.messages.count) {
+        UITableViewCell *hitCell = [self.tableView cellForRowAtIndexPath:ip];
+        if ([hitCell isKindOfClass:IMBubbleCell.class]) {
+            NSString *muid = [(IMBubbleCell *)hitCell mentionUIDAtPoint:[self.tableView convertPoint:p toView:hitCell]];
+            if (muid.length > 0) { [self.inputField resignFirstResponder]; [self openMemberProfileForUID:muid]; return; }
+        }
+    }
     BOOL keyboardWasUp = self.kbInset > 0;
     [self.inputField resignFirstResponder]; // 点消息区任意处收起键盘（微信式；拖拽收起仍由 Interactive 模式负责）
     if (!ip || ip.row >= (NSInteger)self.messages.count) { return; }
@@ -2872,7 +2883,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     NSString *replyFromName = (self.isGroupChat && m.replyToConvSeq > 0 && m.replyToFrom.length > 0)
         ? [self replyFromNameForUID:m.replyToFrom] : nil;
     cell.textExpanded = [self isTextExpandedForMessage:m]; // 中长文本"展开全文"记忆（configure 前置）
-    cell.mentionNames = [self mentionNamesForMessage:m];   // 气泡内 @昵称 高亮名单（configure 前置）
+    cell.mentionMap = [self mentionMapForMessage:m];       // 气泡内 @昵称 高亮+跳资料映射（configure 前置）
     [cell configureWithMessage:m mine:mine peerReadSeq:self.peerReadSeq
                      dayHeader:[self dayHeaderForRow:indexPath.row]
             showsUnreadDivider:showsDivider

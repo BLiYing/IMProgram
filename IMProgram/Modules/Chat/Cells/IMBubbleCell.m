@@ -17,6 +17,8 @@
 #define IMFileNameFromContent(c) IMMediaFileName(c)
 #define IMLooksLikeURL(s) IMMediaLooksLikeURL(s)
 
+NSString *const IMMentionUIDAttributeName = @"IMMentionUID";
+
 // —— 长文本分档阈值（与 Web longtext.ts 严格一致）——
 static const NSUInteger IMTextHugeChars = 2000;
 static const NSUInteger IMTextHugeLines = 60;
@@ -176,11 +178,11 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
 + (NSAttributedString *)attributedContent:(NSString *)text
                                      base:(NSDictionary *)base
                              mentionColor:(UIColor *)color
-                                    names:(NSArray<NSString *> *)names {
+                                 mentions:(NSDictionary<NSString *, NSString *> *)mentions {
     NSMutableAttributedString *out = [NSMutableAttributedString new];
     if (text.length == 0) { return out; }
-    NSArray<NSString *> *sorted = names.count > 0
-        ? [names sortedArrayUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
+    NSArray<NSString *> *sorted = mentions.count > 0
+        ? [mentions.allKeys sortedArrayUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
               if (a.length == b.length) { return NSOrderedSame; }
               return a.length > b.length ? NSOrderedAscending : NSOrderedDescending; // 长名优先
           }]
@@ -196,20 +198,26 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         if (buf.length) { [out appendAttributedString:[[NSAttributedString alloc] initWithString:buf attributes:base]]; [buf setString:@""]; }
     };
     while (i < len) {
-        NSString *hit = nil;
+        NSString *hitName = nil;
         if (sorted && [text characterAtIndex:i] == '@') {
             for (NSString *n in sorted) {
                 NSString *token = [@"@" stringByAppendingString:n];
                 if (i + token.length <= len && [[text substringWithRange:NSMakeRange(i, token.length)] isEqualToString:token]) {
                     NSUInteger after = i + token.length;
-                    if (after >= len || [ws characterIsMember:[text characterAtIndex:after]]) { hit = token; break; }
+                    if (after >= len || [ws characterIsMember:[text characterAtIndex:after]]) { hitName = n; break; }
                 }
             }
         }
-        if (hit) {
+        if (hitName) {
             flush();
-            [out appendAttributedString:[[NSAttributedString alloc] initWithString:hit attributes:matt]];
-            i += hit.length;
+            NSMutableDictionary *seg = matt;
+            NSString *uid = mentions[hitName];
+            if (uid.length > 0) { // 有 uid 才可点：挂 uid 属性（@所有人 uid 空串，只高亮）
+                seg = [matt mutableCopy];
+                seg[IMMentionUIDAttributeName] = uid;
+            }
+            [out appendAttributedString:[[NSAttributedString alloc] initWithString:[@"@" stringByAppendingString:hitName] attributes:seg]];
+            i += hitName.length + 1;
         } else {
             [buf appendFormat:@"%C", [text characterAtIndex:i]];
             i += 1;
@@ -217,6 +225,33 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     }
     flush();
     return out;
+}
+
+/// TextKit 反查：命中点（cell 坐标系）是否落在某个挂了 IMMentionUIDAttributeName 的 `@昵称` token 上。
+- (NSString *)mentionUIDAtPoint:(CGPoint)pointInCell {
+    NSAttributedString *as = _text.attributedText;
+    if (as.length == 0 || _text.hidden) { return nil; }
+    CGPoint p = [self convertPoint:pointInCell toView:_text];
+    if (!CGRectContainsPoint(_text.bounds, p)) { return nil; }
+    NSTextStorage *storage = [[NSTextStorage alloc] initWithAttributedString:as];
+    NSLayoutManager *lm = [NSLayoutManager new];
+    [storage addLayoutManager:lm];
+    NSTextContainer *container = [[NSTextContainer alloc] initWithSize:_text.bounds.size];
+    container.lineFragmentPadding = 0;
+    container.maximumNumberOfLines = _text.numberOfLines;
+    container.lineBreakMode = _text.lineBreakMode;
+    [lm addTextContainer:container];
+    [lm ensureLayoutForTextContainer:container];
+    // UILabel 内容比 bounds 矮时会垂直居中，TextKit 从顶部排版——按实际高度差把点上移对齐。
+    CGFloat used = [lm usedRectForTextContainer:container].size.height;
+    CGFloat dy = MAX(0, (_text.bounds.size.height - used) / 2.0);
+    p.y -= dy;
+    NSUInteger glyphIdx = [lm glyphIndexForPoint:p inTextContainer:container];
+    CGRect glyphRect = [lm boundingRectForGlyphRange:NSMakeRange(glyphIdx, 1) inTextContainer:container];
+    if (!CGRectContainsPoint(glyphRect, p)) { return nil; } // 命中矩形外（点在字之外）不算
+    NSUInteger charIdx = [lm characterIndexForGlyphAtIndex:glyphIdx];
+    if (charIdx >= as.length) { return nil; }
+    return [as attribute:IMMentionUIDAttributeName atIndex:charIdx effectiveRange:NULL];
 }
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
@@ -548,7 +583,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         NSDictionary *affordanceAttr = @{ NSFontAttributeName: [UIFont systemFontOfSize:13 weight:UIFontWeightMedium],
                                           NSForegroundColorAttributeName: IMTheme.accent };
         // 气泡内 @昵称 高亮：URL 不参与（整段是链接）；其余按宿主推导的 mentionNames 上强调色。
-        NSArray<NSString *> *mNames = isURL ? nil : self.mentionNames;
+        NSDictionary<NSString *, NSString *> *mMap = isURL ? nil : self.mentionMap;
         BOOL collapsed = NO; // Long 折叠态：跳过译文/展开态尾巴，避免折叠时下方还挂译文
         if (tier == IMBubbleTextTierHuge) {
             // 超长 → 摘要卡：📄 长文本 · 约N字\n 预览(次要色, 截断) \n 查看全文 ›
@@ -563,17 +598,17 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
             NSString *preview = [IMTruncateText(contentText, 3, IMTextHugePreviewChars) stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
             NSDictionary *previewAttr = @{ NSFontAttributeName: [UIFont systemFontOfSize:13],
                                            NSForegroundColorAttributeName: IMTheme.textSecondary };
-            [body appendAttributedString:[IMBubbleCell attributedContent:preview base:previewAttr mentionColor:IMTheme.accent names:mNames]];
+            [body appendAttributedString:[IMBubbleCell attributedContent:preview base:previewAttr mentionColor:IMTheme.accent mentions:mMap]];
             [body appendAttributedString:[[NSAttributedString alloc] initWithString:@"\n查看全文 ›" attributes:affordanceAttr]];
         } else if (tier == IMBubbleTextTierLong && !self.textExpanded) {
             // 中长折叠：前若干行（并按字数硬顶）+ 省略号 + 「展开全文」
             collapsed = YES;
             NSString *shown = IMTruncateText(contentText, IMTextCollapsedLines, IMTextCollapsedChars);
-            [body appendAttributedString:[IMBubbleCell attributedContent:shown base:(isURL ? urlAttr : contentAttr) mentionColor:IMTheme.accent names:mNames]];
+            [body appendAttributedString:[IMBubbleCell attributedContent:shown base:(isURL ? urlAttr : contentAttr) mentionColor:IMTheme.accent mentions:mMap]];
             [body appendAttributedString:[[NSAttributedString alloc] initWithString:@"…\n展开全文 ∨" attributes:affordanceAttr]];
         } else {
             // 短文本，或中长已展开：全显。展开态末尾加「收起」。
-            [body appendAttributedString:[IMBubbleCell attributedContent:contentText base:(isURL ? urlAttr : contentAttr) mentionColor:IMTheme.accent names:mNames]];
+            [body appendAttributedString:[IMBubbleCell attributedContent:contentText base:(isURL ? urlAttr : contentAttr) mentionColor:IMTheme.accent mentions:mMap]];
             if (tier == IMBubbleTextTierLong) {
                 [body appendAttributedString:[[NSAttributedString alloc] initWithString:@"\n收起 ∧" attributes:affordanceAttr]];
             }
