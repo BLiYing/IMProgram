@@ -176,11 +176,21 @@ static UIImage *IMSettingsIconSpacer(void) {
         return cell;
     }
     // 重置自动下载设置：蓝色动作行。用透明占位图占住行首图标位 → 标题与上方带图标行左对齐（草图 §05 蓝字行）。
+    // 已是出厂默认（含刚点过重置）→ 无可重置：置灰 + 不可点。用户改动后自动恢复可点。
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+    BOOL atDefault = [self settingsAtDefault];
     cell.textLabel.text = @"重置自动下载设置";
-    cell.textLabel.textColor = cell.tintColor;
+    cell.textLabel.textColor = atDefault ? UIColor.tertiaryLabelColor : cell.tintColor;
+    cell.userInteractionEnabled = !atDefault;
     cell.imageView.image = IMSettingsIconSpacer();
     return cell;
+}
+
+/// 当前策略是否等于出厂默认（决定「重置」行是否可点）。
+- (BOOL)settingsAtDefault {
+    NSDictionary *cur = [[IMDownloadSettingsStore shared].settings toSettingsDictionary];
+    NSDictionary *def = [[IMDownloadSettings defaultSettings] toSettingsDictionary];
+    return [cur isEqualToDictionary:def];
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -191,6 +201,7 @@ static UIImage *IMSettingsIconSpacer(void) {
         [self.navigationController pushViewController:[[IMAutoDownloadNetworkViewController alloc] initWithNetwork:net] animated:YES];
         return;
     }
+    if ([self settingsAtDefault]) { return; } // 已是默认：无可重置（行也已置灰）
     [self confirmReset];
 }
 

@@ -11,6 +11,7 @@
 @implementation IMAutoDownloadNetworkViewController {
     IMDownloadNetworkKind _net;
     IMDownloadSettings *_working;
+    __weak UISlider *_presetSlider;    // 档位滑杆（总开关关闭时置灰禁用）
     __weak UILabel *_presetLabel;      // "流量使用情况：中"
     __weak UIStackView *_presetTicks;  // 低/中/高（+自定义）刻度行，拖动时联动高亮
     BOOL _presetCustom;                // 当前是否处于自定义（滑杆显第四档）
@@ -36,9 +37,21 @@
 
 - (void)viewWillAppear:(BOOL)animated { [super viewWillAppear:animated]; [self reloadFromStore]; }
 
+// 仅在**外部变更**（多端同步 / 子页编辑返回）时整表重载；本页自己保存触发的回声（乐观值/服务端回显）
+// 与本地 _working 一致 → 直接跳过，避免整表 reloadData 让总开关等其他卡片闪烁（见滑杆提交处的定向刷新）。
 - (void)reloadFromStore {
-    _working = [[IMDownloadSettingsStore shared].settings deepCopy];
+    IMDownloadSettings *cur = [IMDownloadSettingsStore shared].settings;
+    if (_working && [[cur toSettingsDictionary] isEqualToDictionary:[_working toSettingsDictionary]]) { return; }
+    _working = [cur deepCopy];
     [self.tableView reloadData];
+}
+
+// 总开关关闭时：档位滑杆置淡、禁滑；打开时恢复。
+- (void)applyTierEnabled:(BOOL)enabled {
+    _presetSlider.enabled = enabled;
+    _presetSlider.alpha = enabled ? 1.0 : 0.4;
+    _presetLabel.textColor = enabled ? UIColor.labelColor : UIColor.tertiaryLabelColor;
+    for (UIView *t in _presetTicks.arrangedSubviews) { t.alpha = enabled ? 1.0 : 0.4; }
 }
 
 - (IMDownloadNetworkPolicy *)policy { return IMPolicyForNetwork(_working, _net); }
@@ -108,6 +121,7 @@
             [ticks addArrangedSubview:t];
         }
         _presetTicks = ticks;
+        _presetSlider = slider;
         [cell.contentView addSubview:title];
         [cell.contentView addSubview:slider];
         [cell.contentView addSubview:ticks];
@@ -122,6 +136,7 @@
             [ticks.topAnchor constraintEqualToAnchor:slider.bottomAnchor constant:2],
             [ticks.bottomAnchor constraintEqualToAnchor:cell.contentView.bottomAnchor constant:-10],
         ]];
+        [self applyTierEnabled:p.enabled]; // 总开关关闭 → 档位置淡禁滑
         return cell;
     }
     // 类别入口
@@ -151,6 +166,7 @@
 - (void)masterSwitchChanged:(UISwitch *)sw {
     [self policy].enabled = sw.isOn;
     [[IMDownloadSettingsStore shared] saveSettings:_working];
+    [self applyTierEnabled:sw.isOn]; // 就地联动档位禁/启用（不整表重载，避免闪烁）
 }
 
 // 自定义时含第四档；仅命中预设时为三档。
@@ -180,7 +196,11 @@
     idx = MAX(0, MIN(idx, (NSInteger)IMTrafficPresetHigh)); // 只有低/中/高可套用
     slider.value = (float)idx;
     IMApplyTrafficPreset([self policy], idx);
-    [[IMDownloadSettingsStore shared] saveSettings:_working]; // → change 通知 → reloadFromStore：套预设后退回三档
+    [[IMDownloadSettingsStore shared] saveSettings:_working];
+    // 自身保存的通知被 reloadFromStore 跳过（防闪烁）→ 这里只定向刷新档位(1)与类别汇总(2)：
+    // 套预设后档位可能从四档退回三档、类别行"最大 X"随之更新；总开关(0)不动、不闪。
+    [self.tableView reloadSections:[NSIndexSet indexSetWithIndexesInRange:NSMakeRange(1, 2)]
+                  withRowAnimation:UITableViewRowAnimationNone];
 }
 
 - (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }

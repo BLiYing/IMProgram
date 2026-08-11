@@ -38,8 +38,12 @@
 
 - (void)viewWillAppear:(BOOL)animated { [super viewWillAppear:animated]; [self reloadFromStore]; }
 
+// 仅外部变更时整表重载；本页自己保存（开关/大小）触发的回声与 _working 一致 → 跳过，
+// 避免整表 reloadData 让同页其他行闪烁（开关状态由控件自身反映、大小由 _sizeTitleLabel 就地更新）。
 - (void)reloadFromStore {
-    _working = [[IMDownloadSettingsStore shared].settings deepCopy];
+    IMDownloadSettings *cur = [IMDownloadSettingsStore shared].settings;
+    if (_working && [[cur toSettingsDictionary] isEqualToDictionary:[_working toSettingsDictionary]]) { return; }
+    _working = [cur deepCopy];
     [self.tableView reloadData];
 }
 
