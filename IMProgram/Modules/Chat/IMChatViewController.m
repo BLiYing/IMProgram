@@ -2842,14 +2842,34 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     // 删除：发送中的本地件不显示——删除只删行不停止上传，传完仍会发出去（僵尸任务）；
     // 想撤走请用「取消发送」（停任务/删副本/删库行一步到位）。失败行保留删除。
     if (!(message.status == IMMessageStatusSending && message.convSeq <= 0)) {
-        [actions addObject:[IMMenuAction destructiveActionWithId:@"delete" title:@"删除" image:@"trash" handler:^{
-            [ws deleteMessage:message];
-        }]];
+        [actions addObject:[self deleteMenuActionForMessage:message mine:mine]];
     }
     return actions;
 }
 
-/// 本地删除一条消息（仅本端：从库 + 内存移除并刷新；不影响对端）。
+/// 删除菜单项（任务2，两档，与详情页一致）：
+///  - 本地未发出/失败件（convSeq<=0）：直接「删除」=本地删（服务器无此消息）。
+///  - 已发出、我发的 / 群主·管理员：「删除」→ 子菜单【为所有人删除】(msg_op delete) +【仅删除自己】(hide 多设备)。
+///  - 已发出、仅能删自己：「删除」=仅删除自己（hide）。
+- (IMMenuAction *)deleteMenuActionForMessage:(IMMessageModel *)message mine:(BOOL)mine {
+    __weak typeof(self) ws = self;
+    if (message.convSeq <= 0) {
+        return [IMMenuAction destructiveActionWithId:@"delete" title:@"删除" image:@"trash" handler:^{ [ws deleteMessage:message]; }];
+    }
+    BOOL canForEveryone = mine || (self.isGroupChat &&
+        (self.groupInfo.myRole == IMGroupRoleOwner || self.groupInfo.myRole == IMGroupRoleAdmin));
+    if (!canForEveryone) {
+        return [IMMenuAction destructiveActionWithId:@"delete" title:@"删除" image:@"trash" handler:^{ [ws hideMessageForSelf:message]; }];
+    }
+    IMMenuAction *selfOnly = [IMMenuAction destructiveActionWithId:@"deleteSelf" title:@"仅删除自己" image:@"trash"
+                                                          handler:^{ [ws hideMessageForSelf:message]; }];
+    IMMenuAction *everyone = [IMMenuAction destructiveActionWithId:@"deleteEveryone" title:@"为所有人删除" image:@"trash"
+                                                          handler:^{ [ws deleteMessageForEveryone:message]; }];
+    // 破坏性重的「为所有人删除」放最后（destructive-last，与本仓菜单约定一致，降低误触不可逆项）。
+    return [IMMenuAction submenuWithId:@"delete" title:@"删除" image:@"trash" children:@[selfOnly, everyone]];
+}
+
+/// 本地删除一条消息（仅本端：从库 + 内存移除并刷新；不影响对端）。convSeq<=0 的本地失败件走此。
 - (void)deleteMessage:(IMMessageModel *)message {
     [self performDatabaseOperation:^(IMDatabase *database) {
         [database deleteMessage:message];
@@ -2857,6 +2877,22 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     [self.messages removeObject:message];
     if (message.convSeq > 0) { [self.seenConvSeqs removeObject:@(message.convSeq)]; }
     [self.tableView reloadData];
+}
+
+/// 为所有人删除（任务2）：WS msg_op op=delete；服务端广播回经 IMSocketDidRemoveMessageNotification 移除本地。被拒走 reject 通知。
+- (void)deleteMessageForEveryone:(IMMessageModel *)message {
+    if (message.convSeq <= 0) { return; }
+    [[IMSocketManager sharedManager] deleteMessageForEveryoneInConv:(message.convID ?: self.convID) targetConvSeq:message.convSeq];
+}
+
+/// 仅删除自己（任务2）：编排（REST hide + 本端移除）收敛在 IMSocketManager，VC 只负责失败 toast。
+- (void)hideMessageForSelf:(IMMessageModel *)message {
+    if (message.convSeq <= 0) { return; }
+    __weak typeof(self) ws = self;
+    [[IMSocketManager sharedManager] hideMessageInConv:(message.convID ?: self.convID) targetConvSeq:message.convSeq
+                                            completion:^(NSError *error) {
+        if (error) { [ws im_showToast:error.localizedDescription ?: @"删除失败"]; }
+    }];
 }
 
 #pragma mark - 多选态（#2：转发/收藏/删除）

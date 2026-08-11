@@ -324,6 +324,8 @@
 @property (nonatomic, copy, nullable) void (^onDownloadItemIndex)(NSInteger index);
 /// 内容宽确定/变化时回调（供外部按真实宽度重算行高，消除卡片底部白边）。
 @property (nonatomic, copy, nullable) void (^onContentWidthChanged)(CGFloat width);
+/// 逐格长按菜单（任务2：转发/定位到聊天/[取消下载]/删除两档，与文件行一致）——由 VC 提供，返回 nil=不显示。
+@property (nonatomic, copy, nullable) UIContextMenuConfiguration *_Nullable (^contextMenuForItemIndex)(NSInteger index);
 - (void)setItems:(NSArray<IMMediaItem *> *)items;
 /// 重配一格（用于「下载完成/解除门控」——需要重新拉原图）。
 - (void)refreshItemAtIndex:(NSInteger)index;
@@ -397,6 +399,11 @@
         return;
     }
     if (self.onPick) { self.onPick(_items[ip.item]); }
+}
+/// 逐格长按菜单（任务2）：转发/定位/取消下载/删除——与文件行同一套，由 VC 按该格消息构造。
+- (UIContextMenuConfiguration *)collectionView:(UICollectionView *)cv
+    contextMenuConfigurationForItemAtIndexPath:(NSIndexPath *)ip point:(CGPoint)point {
+    return self.contextMenuForItemIndex ? self.contextMenuForItemIndex(ip.item) : nil;
 }
 @end
 
@@ -1657,6 +1664,11 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
             IMMessageModel *mm = [ws mediaMessageAtIndex:i];
             if (mm) { [ws.downloads handleTapForMessage:mm]; }
         };
+        // 任务2：媒体宫格逐格长按菜单（转发/定位/取消下载/删除两档）——与文件行同一套。
+        cell.contextMenuForItemIndex = ^UIContextMenuConfiguration *(NSInteger i) {
+            IMMessageModel *mm = [ws mediaMessageAtIndex:i];
+            return mm ? [ws contentMenuConfigForMessage:mm] : nil;
+        };
         // 真实内容宽上报：与估算值不符时记下并只重算行高（beginUpdates/endUpdates 不重建 cell，无闪烁）。
         // 宽度只在首次布局/旋转时变一次，收敛后不再触发，无循环。
         cell.onContentWidthChanged = ^(CGFloat width) {
@@ -1776,32 +1788,10 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
 
 - (UIContextMenuConfiguration *)tableView:(UITableView *)tableView
     contextMenuConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath point:(CGPoint)point {
-    // 文件行长按：转发 / 定位到聊天 / [取消下载] / 删除（草图 §04）。仅对真实消息（有 conv_seq）给菜单。
-    IMMessageModel *fm = [self fileMessageAtIndexPath:indexPath];
-    if (fm) {
-        if (fm.convSeq <= 0) { return nil; }
-        // 仅「进行中的下载」（下载中 / 已暂停，都有 .part 可弃）才提供「取消下载」。
-        IMDownloadProgress *dp = [self.downloads stateForMessage:fm];
-        BOOL cancellable = dp.phase == IMDownloadPhaseDownloading || dp.phase == IMDownloadPhasePaused;
-        __weak typeof(self) ws = self;
-        return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil
-            actionProvider:^UIMenu *(NSArray<UIMenuElement *> *sug) {
-            NSMutableArray<UIMenuElement *> *items = [NSMutableArray array];
-            [items addObject:[UIAction actionWithTitle:@"转发" image:[UIImage systemImageNamed:@"arrowshape.turn.up.right"]
-                                            identifier:nil handler:^(UIAction *a) { [ws forwardFileMessage:fm]; }]];
-            [items addObject:[UIAction actionWithTitle:@"定位到聊天" image:[UIImage systemImageNamed:@"bubble.left.and.text.bubble.right"]
-                                            identifier:nil handler:^(UIAction *a) { [ws locateFileMessageInChat:fm]; }]];
-            if (cancellable) {
-                [items addObject:[UIAction actionWithTitle:@"取消下载" image:[UIImage systemImageNamed:@"xmark.circle"]
-                                                identifier:nil handler:^(UIAction *a) { [ws.downloads cancelDownloadForMessage:fm]; }]];
-            }
-            UIAction *del = [UIAction actionWithTitle:@"删除" image:[UIImage systemImageNamed:@"trash"]
-                                           identifier:nil handler:^(UIAction *a) { [ws deleteFileMessage:fm]; }];
-            del.attributes = UIMenuElementAttributesDestructive;
-            [items addObject:del];
-            return [UIMenu menuWithTitle:@"" children:items];
-        }];
-    }
+    // 内容行长按（任务2）：文件/语音/链接三类逐行页签统一走同一套菜单（转发/定位/[取消下载]/删除）。
+    // 媒体宫格逐格菜单在容器 cell 的 collectionView contextMenu 委托里；成员行走下方成员菜单。
+    IMMessageModel *rowMsg = [self contentRowMessageAtIndexPath:indexPath];
+    if (rowMsg) { return [self contentMenuConfigForMessage:rowMsg]; }
     IMGroupMember *m = [self memberAtIndexPath:indexPath];
     if (!m || [m.userID isEqualToString:self.userID]) { return nil; }
     __weak typeof(self) ws = self;
@@ -2183,12 +2173,53 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
 
 #pragma mark - 文件行长按菜单：转发 / 删除 / 定位到聊天
 
-/// 文件页某行对应的消息（越界返回 nil）。
-- (nullable IMMessageModel *)fileMessageAtIndexPath:(NSIndexPath *)ip {
+/// 逐行内容页签（文件/语音/链接，均 tabRows 逐行）某行对应的消息（越界/媒体·成员页返回 nil）。
+/// 任务2：这三类页签的长按菜单与文件行一致；媒体走宫格逐格菜单、成员走成员菜单，各不在此。
+- (nullable IMMessageModel *)contentRowMessageAtIndexPath:(NSIndexPath *)ip {
     if ([self sectionKindAt:ip.section] != IMDetailSectionTabs || self.tabs.count == 0) { return nil; }
-    if (self.tabs[self.selectedTab].kind != IMDetailTabKindFiles) { return nil; }
+    IMDetailTabKind kind = self.tabs[self.selectedTab].kind;
+    if (kind != IMDetailTabKindFiles && kind != IMDetailTabKindVoice && kind != IMDetailTabKindLinks) { return nil; }
     if (ip.row < 0 || ip.row >= (NSInteger)self.tabRows.count) { return nil; }
     return self.tabRows[ip.row];
+}
+
+/// 详情内容长按菜单（任务2）：转发 / 定位到聊天 / [取消下载·仅进行中] / 删除（两档 sheet）。
+/// **文件·语音·链接行 + 媒体宫格逐格共用**（成员页除外）。仅对真实消息（convSeq>0）给菜单。
+- (nullable UIContextMenuConfiguration *)contentMenuConfigForMessage:(IMMessageModel *)m {
+    if (!m || m.convSeq <= 0) { return nil; }
+    __weak typeof(self) ws = self;
+    return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil
+        actionProvider:^UIMenu *(NSArray<UIMenuElement *> *sug) {
+        NSMutableArray<UIMenuElement *> *items = [NSMutableArray array];
+        [items addObject:[UIAction actionWithTitle:@"转发" image:[UIImage systemImageNamed:@"arrowshape.turn.up.right"]
+                                        identifier:nil handler:^(UIAction *a) { [ws forwardFileMessage:m]; }]];
+        [items addObject:[UIAction actionWithTitle:@"定位到聊天" image:[UIImage systemImageNamed:@"bubble.left.and.text.bubble.right"]
+                                        identifier:nil handler:^(UIAction *a) { [ws locateFileMessageInChat:m]; }]];
+        IMDownloadProgress *dp = [ws.downloads stateForMessage:m];
+        if (dp.phase == IMDownloadPhaseDownloading || dp.phase == IMDownloadPhasePaused) {
+            [items addObject:[UIAction actionWithTitle:@"取消下载" image:[UIImage systemImageNamed:@"xmark.circle"]
+                                            identifier:nil handler:^(UIAction *a) { [ws.downloads cancelDownloadForMessage:m]; }]];
+        }
+        // 删除（任务2，两档，对齐聊天页）：可为所有人删 → 原生子菜单【为所有人删除】+【仅删除自己】（点开有 push 过渡）；
+        // 否则「删除」= 仅删除自己。不再用居中 actionSheet。
+        if ([ws canDeleteForEveryone:m]) {
+            UIAction *selfOnly = [UIAction actionWithTitle:@"仅删除自己" image:[UIImage systemImageNamed:@"trash"]
+                                               identifier:nil handler:^(UIAction *a) { [ws hideMessageForSelf:m]; }];
+            selfOnly.attributes = UIMenuElementAttributesDestructive;
+            UIAction *everyone = [UIAction actionWithTitle:@"为所有人删除" image:[UIImage systemImageNamed:@"trash"]
+                                               identifier:nil handler:^(UIAction *a) { [ws deleteMessageForEveryone:m]; }];
+            everyone.attributes = UIMenuElementAttributesDestructive;
+            // 破坏性重的「为所有人删除」放最后（destructive-last，与本仓菜单约定一致）。
+            [items addObject:[UIMenu menuWithTitle:@"删除" image:[UIImage systemImageNamed:@"trash"]
+                                        identifier:nil options:0 children:@[selfOnly, everyone]]];
+        } else {
+            UIAction *del = [UIAction actionWithTitle:@"删除" image:[UIImage systemImageNamed:@"trash"]
+                                           identifier:nil handler:^(UIAction *a) { [ws hideMessageForSelf:m]; }];
+            del.attributes = UIMenuElementAttributesDestructive;
+            [items addObject:del];
+        }
+        return [UIMenu menuWithTitle:@"" children:items];
+    }];
 }
 
 /// 导航栈里承载本会话的聊天页（详情页通常从它 push 而来）。转发/定位复用它的现成逻辑。
@@ -2231,38 +2262,29 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
 /// 删除文件（任务2，两档，参照 Telegram/主流 IM）：
 /// 我发的 / 群主·管理员 → 【为所有人删除】(WS msg_op delete，对端也消失) +【仅删除自己】；
 /// 他人发的普通成员 → 仅【删除】(=仅删除自己，REST 隐藏 + 多设备同步)。
-- (void)deleteFileMessage:(IMMessageModel *)m {
-    if (m.convSeq <= 0) { [self im_showToast:@"该消息尚未同步，暂不能删除"]; return; }
-    BOOL mine = m.from.length > 0 && [m.from isEqualToString:self.userID];
-    BOOL canDeleteForEveryone = mine || (self.isGroup &&
-        (self.group.myRole == IMGroupRoleOwner || self.group.myRole == IMGroupRoleAdmin));
+/// 交互（任务2 优化）：长按菜单里「删除」——可为所有人删时展开**原生子菜单**（为所有人删除/仅删除自己），
+/// 否则「删除」=仅删除自己；不再用居中 actionSheet。菜单构造见 contentMenuConfigForMessage:。
 
-    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:nil message:nil
-                                                           preferredStyle:UIAlertControllerStyleActionSheet];
+/// 我能否为该消息「为所有人删除」：我发的，或群主/管理员。
+- (BOOL)canDeleteForEveryone:(IMMessageModel *)m {
+    if (m.from.length > 0 && [m.from isEqualToString:self.userID]) { return YES; }
+    return self.isGroup && (self.group.myRole == IMGroupRoleOwner || self.group.myRole == IMGroupRoleAdmin);
+}
+
+/// 为所有人删除（任务2）：WS msg_op op=delete；服务端广播回经 IMSocketDidRemoveMessageNotification 移除本地。被拒走 reject 通知。
+- (void)deleteMessageForEveryone:(IMMessageModel *)m {
+    if (m.convSeq <= 0) { return; }
+    [[IMSocketManager sharedManager] deleteMessageForEveryoneInConv:(m.convID ?: self.convID) targetConvSeq:m.convSeq];
+}
+
+/// 仅删除自己（任务2）：编排（REST hide + 本端移除）收敛在 IMSocketManager，VC 只负责失败 toast。
+- (void)hideMessageForSelf:(IMMessageModel *)m {
+    if (m.convSeq <= 0) { return; }
     __weak typeof(self) ws = self;
-    if (canDeleteForEveryone) {
-        [sheet addAction:[UIAlertAction actionWithTitle:@"为所有人删除" style:UIAlertActionStyleDestructive
-                                                handler:^(UIAlertAction *a) {
-            // 走 WS msg_op op=delete；服务端广播回后经 IMSocketDidRemoveMessageNotification 移除本地。被拒走 reject 通知。
-            [[IMSocketManager sharedManager] deleteMessageForEveryoneInConv:ws.convID targetConvSeq:m.convSeq];
-        }]];
-    }
-    NSString *selfTitle = canDeleteForEveryone ? @"仅删除自己" : @"删除";
-    [sheet addAction:[UIAlertAction actionWithTitle:selfTitle style:UIAlertActionStyleDestructive
-                                            handler:^(UIAlertAction *a) {
-        NSString *token = IMHTTPService.sharedService.currentToken;
-        [IMHTTPService.sharedService hideMessageWithToken:token convID:ws.convID convSeq:m.convSeq
-                                               completion:^(NSError *error) {
-            if (error) { [ws im_showToast:error.localizedDescription ?: @"删除失败"]; return; }
-            // REST 成功后本端立即物理移除（并广播移除通知刷新列表）；服务端另推 msg_hidden 同步本人其它设备。
-            [[IMSocketManager sharedManager] removeLocalMessageInConv:ws.convID targetConvSeq:m.convSeq];
-        }];
-    }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    // iPad：actionSheet 需锚点，否则崩溃。
-    sheet.popoverPresentationController.sourceView = self.view;
-    sheet.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(self.view.bounds), CGRectGetMidY(self.view.bounds), 1, 1);
-    [self presentViewController:sheet animated:YES completion:nil];
+    [[IMSocketManager sharedManager] hideMessageInConv:(m.convID ?: self.convID) targetConvSeq:m.convSeq
+                                            completion:^(NSError *error) {
+        if (error) { [ws im_showToast:error.localizedDescription ?: @"删除失败"]; }
+    }];
 }
 
 - (NSInteger)numberOfPreviewItemsInPreviewController:(QLPreviewController *)controller {

@@ -14,12 +14,19 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) NSString *systemImageName;   ///< SF Symbol 名（可空）
 @property (nonatomic, assign) BOOL destructive;                    ///< 破坏性（红色）
 @property (nonatomic, copy, nullable) void (^handler)(void);       ///< 触发回调
+@property (nonatomic, copy, nullable) NSArray<IMMenuAction *> *children; ///< 非空=子菜单（渲染为 UIMenu，点开原生 push 动画）；此时 handler 忽略
 
 /// 普通动作。
 + (instancetype)actionWithId:(NSString *)actionId
                        title:(NSString *)title
                        image:(nullable NSString *)systemImageName
                      handler:(nullable void (^)(void))handler;
+
+/// 子菜单动作：title/image 为父项，点开后 push 到 children（任务2 删除两档「为所有人删除/仅删除自己」用）。
++ (instancetype)submenuWithId:(NSString *)actionId
+                        title:(NSString *)title
+                        image:(nullable NSString *)systemImageName
+                     children:(NSArray<IMMenuAction *> *)children;
 
 /// 破坏性动作（destructive=YES）。
 + (instancetype)destructiveActionWithId:(NSString *)actionId

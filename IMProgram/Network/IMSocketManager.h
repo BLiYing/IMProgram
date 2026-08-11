@@ -181,6 +181,12 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
 /// 供 HTTP hide 成功后本端立即移除，以及收到 msg_hidden 帧 / 登录 catch-up 时移除。
 - (void)removeLocalMessageInConv:(NSString *)convID targetConvSeq:(int64_t)targetConvSeq;
 
+/// 「仅删除自己」的完整编排（任务2，聊天页/详情页共用，避免各 VC 重复 HTTP+移除）：
+/// REST `POST /messages/hide` 成功 → 本端物理移除（并广播移除通知、多设备同步）；失败经 completion 回错误由调用方决定是否 toast。
+/// convID 空或 convSeq<=0 直接空转（completion(nil)）。completion 在 HTTP 回调线程（IMHTTPService 保证主线程）。
+- (void)hideMessageInConv:(NSString *)convID targetConvSeq:(int64_t)targetConvSeq
+               completion:(nullable void (^)(NSError *_Nullable error))completion;
+
 /// 发送富媒体（M4-6）：content=已上传 URL，contentType=image|video|file。群聊 toUser 传空。返回 client_msg_id。
 - (NSString *)sendMedia:(NSString *)url
            contentType:(NSString *)contentType

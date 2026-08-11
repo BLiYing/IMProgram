@@ -862,6 +862,18 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     });
 }
 
+/// 「仅删除自己」完整编排（任务2，聊天页/详情页共用）：REST hide 成功 → 本端物理移除；失败回 completion。
+- (void)hideMessageInConv:(NSString *)convID targetConvSeq:(int64_t)targetConvSeq
+               completion:(void (^)(NSError *))completion {
+    if (convID.length == 0 || targetConvSeq <= 0) { if (completion) { completion(nil); } return; }
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService hideMessageWithToken:IMHTTPService.sharedService.currentToken convID:convID convSeq:targetConvSeq
+                                           completion:^(NSError *error) {
+        if (!error) { [ws removeLocalMessageInConv:convID targetConvSeq:targetConvSeq]; }
+        if (completion) { completion(error); }
+    }];
+}
+
 /// 物理移除的落地实现（仅在 _queue 调用）：DB 删行（可选推进同步位点）+ 主线程发 IMSocketDidRemoveMessageNotification。
 - (void)removeLocalMessageOnQueueInConv:(NSString *)convID targetConvSeq:(int64_t)targetConvSeq advancingSyncedConvSeq:(int64_t)syncedConvSeq {
     [self performDatabaseOperation:^(IMDatabase *database) {
