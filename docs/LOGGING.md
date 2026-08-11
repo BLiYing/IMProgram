@@ -24,7 +24,7 @@
 - 公共通道自动生成/透传 `X-Request-ID`，REQUEST/RESPONSE/ERROR 使用同一 `[req=…]`。
 - 自动记录 method、path、status、duration、bytes 和安全正文。
 - password/token/Authorization/cookie/phone/secret 始终脱敏。
-- multipart、二进制、Data URI 只记录元数据；正文最多 16 KB。
+- multipart、二进制、Data URI 只记录元数据；**单字段值最多 4 KB（逐值截断），整条正文最多 16 KB（兜底）**。逐值截断保证超大字段不会把同层其它字段（含脱敏证据）挤出日志。
 - Debug 可记录脱敏后的业务正文；Release 隐藏业务正文及非 JSON 正文。
 
 ## WebSocket、数据库与 UI

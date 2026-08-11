@@ -3,6 +3,11 @@
 #import "IMHTTPLogFormatter.h"
 
 static NSUInteger const kIMHTTPLogMaxCharacters = 16 * 1024;
+/// 单个字符串值的截断上限。整体 16 KB 是"一条日志最多多长"，这个是"一个字段值最多多长"。
+/// 二者缺一不可：只有整体上限时，一个超大字段（如 2 万字的 content）会把它之后序列化出来的
+/// 所有字段——包括密码脱敏后的 `"***"` 证据、以及其它有用字段——整段挤出 16 KB 之外，
+/// 日志在排查时反而残缺。逐值截断保证每个 key 都留下，只把过长的那个值截短。
+static NSUInteger const kIMHTTPLogMaxValueCharacters = 4 * 1024;
 
 NSString *IMHTTPNewRequestID(void) {
     return NSUUID.UUID.UUIDString;
@@ -35,6 +40,14 @@ static BOOL IMHTTPKeyContainsBusinessContent(NSString *key) {
         ]];
     });
     return [keys containsObject:key.lowercaseString];
+}
+
+/// 把字符串截到 limit 字符，超出部分记成 `…<truncated N chars>`。逐值截断与整体兜底共用一份。
+static NSString *IMHTTPTruncatedToLimit(NSString *value, NSUInteger limit) {
+    if (value.length <= limit) { return value; }
+    NSUInteger omitted = value.length - limit;
+    return [[value substringToIndex:limit]
+            stringByAppendingFormat:@"…<truncated %lu chars>", (unsigned long)omitted];
 }
 
 static NSString *IMHTTPDataURIMetadata(NSString *value) {
@@ -70,7 +83,10 @@ id IMHTTPSanitizedJSONObject(id object, BOOL includeBusinessContent) {
         return result;
     }
     if ([object isKindOfClass:NSString.class]) {
-        return IMHTTPDataURIMetadata(object) ?: object;
+        NSString *meta = IMHTTPDataURIMetadata(object);
+        if (meta) { return meta; }
+        // 逐值截断：单个字段值过长时就地截短，避免它把同层其它字段挤出整体上限。
+        return IMHTTPTruncatedToLimit(object, kIMHTTPLogMaxValueCharacters);
     }
     if ([object isKindOfClass:NSNumber.class] ||
         object == NSNull.null) {
@@ -79,11 +95,9 @@ id IMHTTPSanitizedJSONObject(id object, BOOL includeBusinessContent) {
     return [object description] ?: @"";
 }
 
+/// 整体上限兜底：逐值截断后，字段数极多时序列化结果仍可能超 16 KB，这里最后再夹一刀。
 static NSString *IMHTTPTruncatedString(NSString *value) {
-    if (value.length <= kIMHTTPLogMaxCharacters) { return value; }
-    NSUInteger omitted = value.length - kIMHTTPLogMaxCharacters;
-    return [[value substringToIndex:kIMHTTPLogMaxCharacters]
-            stringByAppendingFormat:@"…<truncated %lu chars>", (unsigned long)omitted];
+    return IMHTTPTruncatedToLimit(value, kIMHTTPLogMaxCharacters);
 }
 
 NSString *IMHTTPLogBody(NSData *data, NSString *contentType, BOOL includeBusinessContent) {

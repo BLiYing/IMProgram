@@ -66,6 +66,25 @@
     XCTAssertTrue([logged containsString:@"<truncated"]);
 }
 
+// 回归：超大字段值必须被**逐值**截断，不能把同层其它字段（尤其是密码脱敏证据）挤出日志。
+// 旧实现只做整体 16 KB 截断，一旦 NSJSONSerialization 把超大 content 排在 password 之前，
+// `"password":"***"` 会被整体截断吃掉——测试随 key 顺序时绿时红（iOS 26 上稳定失败）。
+// 逐值截断后，无论 key 怎么排，每个字段都保留，只有过长的那个值被截短。
+- (void)testOversizedValueIsTruncatedPerValueAndSiblingsSurvive {
+    NSString *huge = [@"" stringByPaddingToLength:60000 withString:@"x" startingAtIndex:0];
+    // 三个字段：脱敏的 password、超大的 content、末尾一个普通标记字段。
+    NSDictionary *body = @{ @"password": @"secret", @"content": huge, @"marker": @"tail-field" };
+    NSData *data = [NSJSONSerialization dataWithJSONObject:body options:0 error:NULL];
+    NSString *logged = IMHTTPLogBody(data, @"application/json", YES);
+
+    XCTAssertFalse([logged containsString:@"secret"], @"明文密码不得出现");
+    XCTAssertTrue([logged containsString:@"\"password\":\"***\""], @"密码脱敏证据必须保留，不因超大兄弟字段被挤掉");
+    XCTAssertTrue([logged containsString:@"tail-field"], @"排在超大字段之后的普通字段也必须保留");
+    XCTAssertTrue([logged containsString:@"<truncated"], @"超大值本身被截断");
+    // 整体长度受逐值上限约束：三字段各 ≤4 KB + 结构开销，远小于旧的 16 KB 整体上限。
+    XCTAssertLessThan(logged.length, (NSUInteger)(8 * 1024), @"逐值截断后整体应显著短于 16 KB 整体上限");
+}
+
 - (void)testRequestIDsAreNonEmptyAndUnique {
     NSString *first = IMHTTPNewRequestID();
     NSString *second = IMHTTPNewRequestID();
