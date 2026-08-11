@@ -22,6 +22,12 @@ typedef NS_ENUM(NSInteger, IMBubbleTextTier) {
 /// 字数标签「约 8,400 字」（千分位、按码点计）。摘要卡与全屏阅读器共用，避免重复实现。
 + (NSString *)charCountLabelForText:(nullable NSString *)text;
 
+/// 按 `@昵称` token 切段高亮的富文本（命中 token 用 color+medium，其余用 base）。cell 与全屏阅读器共用。
++ (NSAttributedString *)attributedContent:(nullable NSString *)text
+                                     base:(NSDictionary *)base
+                             mentionColor:(UIColor *)color
+                                    names:(nullable NSArray<NSString *> *)names;
+
 /// 长按菜单高亮/收起动画的目标视图（=气泡本体）：系统默认会截整行全宽快照，露出难看的底色托盘。
 @property (nonatomic, strong, readonly) UIView *previewTargetView;
 
@@ -36,6 +42,9 @@ typedef NS_ENUM(NSInteger, IMBubbleTextTier) {
 
 /// 中长文本（Long 档）是否已展开（宿主按消息记忆，configure 前设置）。Huge/Short 档忽略此值。
 @property (nonatomic, assign) BOOL textExpanded;
+
+/// 本条消息里需要高亮的 `@昵称` 名单（宿主按当前群成员+文本推导，configure 前设置；nil=不高亮）。
+@property (nonatomic, copy, nullable) NSArray<NSString *> *mentionNames;
 
 /// 下载进度**就地更新**（M4-7）：宿主在高频 onProgress 回调里调用，只改第二行文案 + 图标位环/字形，
 /// 不重配整行、不 reloadRows（避免每片一次 reload 卡死主线程）。

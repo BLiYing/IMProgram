@@ -9,7 +9,8 @@ NS_ASSUME_NONNULL_BEGIN
 @interface IMTextReaderViewController : UIViewController
 
 /// 用整段文本构造一个模态阅读器（内部 UITextView 只读可选中）。
-+ (instancetype)readerWithText:(NSString *)text;
+/// `mentionNames`：需高亮的 `@昵称` 名单（nil=不高亮），与气泡内 @提及高亮同一套。
++ (instancetype)readerWithText:(NSString *)text mentionNames:(nullable NSArray<NSString *> *)mentionNames;
 
 @end
 

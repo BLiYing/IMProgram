@@ -170,6 +170,55 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     return [NSString stringWithFormat:@"约 %@ 字", [f stringFromNumber:n] ?: n.stringValue];
 }
 
+/// 把 `text` 按已知 `@昵称` token 切段构造富文本：命中的 token 用 `color`（+medium 字重）高亮，其余用 `base`。
+/// token 边界与 `IMChatTextContainsMentionToken` 同规则（token 后须紧跟空白或结尾；长名优先，防 `@小美` 误命中 `@小美丽`）。
+/// names 为空/nil → 整段用 base。cell 与全屏阅读器共用（与 Web `segmentMentions` 同口径）。
++ (NSAttributedString *)attributedContent:(NSString *)text
+                                     base:(NSDictionary *)base
+                             mentionColor:(UIColor *)color
+                                    names:(NSArray<NSString *> *)names {
+    NSMutableAttributedString *out = [NSMutableAttributedString new];
+    if (text.length == 0) { return out; }
+    NSArray<NSString *> *sorted = names.count > 0
+        ? [names sortedArrayUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
+              if (a.length == b.length) { return NSOrderedSame; }
+              return a.length > b.length ? NSOrderedAscending : NSOrderedDescending; // 长名优先
+          }]
+        : nil;
+    NSMutableDictionary *matt = [base mutableCopy];
+    matt[NSForegroundColorAttributeName] = color;
+    UIFont *bf = base[NSFontAttributeName];
+    if (bf) { matt[NSFontAttributeName] = [UIFont systemFontOfSize:bf.pointSize weight:UIFontWeightMedium]; }
+    NSCharacterSet *ws = [NSCharacterSet whitespaceAndNewlineCharacterSet];
+    NSUInteger i = 0, len = text.length;
+    NSMutableString *buf = [NSMutableString string];
+    void (^flush)(void) = ^{
+        if (buf.length) { [out appendAttributedString:[[NSAttributedString alloc] initWithString:buf attributes:base]]; [buf setString:@""]; }
+    };
+    while (i < len) {
+        NSString *hit = nil;
+        if (sorted && [text characterAtIndex:i] == '@') {
+            for (NSString *n in sorted) {
+                NSString *token = [@"@" stringByAppendingString:n];
+                if (i + token.length <= len && [[text substringWithRange:NSMakeRange(i, token.length)] isEqualToString:token]) {
+                    NSUInteger after = i + token.length;
+                    if (after >= len || [ws characterIsMember:[text characterAtIndex:after]]) { hit = token; break; }
+                }
+            }
+        }
+        if (hit) {
+            flush();
+            [out appendAttributedString:[[NSAttributedString alloc] initWithString:hit attributes:matt]];
+            i += hit.length;
+        } else {
+            [buf appendFormat:@"%C", [text characterAtIndex:i]];
+            i += 1;
+        }
+    }
+    flush();
+    return out;
+}
+
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
     self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
     if (self) {
@@ -498,6 +547,8 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
                                    NSUnderlineStyleAttributeName: @(NSUnderlineStyleSingle) };
         NSDictionary *affordanceAttr = @{ NSFontAttributeName: [UIFont systemFontOfSize:13 weight:UIFontWeightMedium],
                                           NSForegroundColorAttributeName: IMTheme.accent };
+        // 气泡内 @昵称 高亮：URL 不参与（整段是链接）；其余按宿主推导的 mentionNames 上强调色。
+        NSArray<NSString *> *mNames = isURL ? nil : self.mentionNames;
         BOOL collapsed = NO; // Long 折叠态：跳过译文/展开态尾巴，避免折叠时下方还挂译文
         if (tier == IMBubbleTextTierHuge) {
             // 超长 → 摘要卡：📄 长文本 · 约N字\n 预览(次要色, 截断) \n 查看全文 ›
@@ -509,21 +560,20 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
                 initWithString:[NSString stringWithFormat:@" 长文本 · %@\n", [IMBubbleCell charCountLabelForText:contentText]]
                     attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:IMTheme.chatFontSize weight:UIFontWeightSemibold],
                                   NSForegroundColorAttributeName: IMTheme.textPrimary }]];
-            NSString *preview = IMTruncateText(contentText, 3, IMTextHugePreviewChars);
-            [body appendAttributedString:[[NSAttributedString alloc]
-                initWithString:[preview stringByReplacingOccurrencesOfString:@"\n" withString:@" "]
-                    attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:13],
-                                  NSForegroundColorAttributeName: IMTheme.textSecondary }]];
+            NSString *preview = [IMTruncateText(contentText, 3, IMTextHugePreviewChars) stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
+            NSDictionary *previewAttr = @{ NSFontAttributeName: [UIFont systemFontOfSize:13],
+                                           NSForegroundColorAttributeName: IMTheme.textSecondary };
+            [body appendAttributedString:[IMBubbleCell attributedContent:preview base:previewAttr mentionColor:IMTheme.accent names:mNames]];
             [body appendAttributedString:[[NSAttributedString alloc] initWithString:@"\n查看全文 ›" attributes:affordanceAttr]];
         } else if (tier == IMBubbleTextTierLong && !self.textExpanded) {
             // 中长折叠：前若干行（并按字数硬顶）+ 省略号 + 「展开全文」
             collapsed = YES;
             NSString *shown = IMTruncateText(contentText, IMTextCollapsedLines, IMTextCollapsedChars);
-            [body appendAttributedString:[[NSAttributedString alloc] initWithString:shown attributes:isURL ? urlAttr : contentAttr]];
+            [body appendAttributedString:[IMBubbleCell attributedContent:shown base:(isURL ? urlAttr : contentAttr) mentionColor:IMTheme.accent names:mNames]];
             [body appendAttributedString:[[NSAttributedString alloc] initWithString:@"…\n展开全文 ∨" attributes:affordanceAttr]];
         } else {
             // 短文本，或中长已展开：全显。展开态末尾加「收起」。
-            [body appendAttributedString:[[NSAttributedString alloc] initWithString:contentText attributes:isURL ? urlAttr : contentAttr]];
+            [body appendAttributedString:[IMBubbleCell attributedContent:contentText base:(isURL ? urlAttr : contentAttr) mentionColor:IMTheme.accent names:mNames]];
             if (tier == IMBubbleTextTierLong) {
                 [body appendAttributedString:[[NSAttributedString alloc] initWithString:@"\n收起 ∧" attributes:affordanceAttr]];
             }

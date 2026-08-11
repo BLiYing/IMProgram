@@ -2,20 +2,22 @@
 
 #import "IMTextReaderViewController.h"
 #import "IMTheme.h"
-#import "IMBubbleCell.h" // 复用 charCountLabelForText:（字数标签唯一入口）
+#import "IMBubbleCell.h" // 复用 charCountLabelForText: / attributedContent:（字数标签 + @高亮唯一入口）
 #import "UIViewController+IMToast.h"
 
 @implementation IMTextReaderViewController {
-    NSString   *_text;
-    UITextView *_textView;
-    NSInteger   _fontStep; // 字号档：-1 / 0 / 1 / 2 / 3（相对基准字号）
-    UIButton   *_smaller;
-    UIButton   *_bigger;
+    NSString              *_text;
+    NSArray<NSString *>   *_mentionNames; // @昵称 高亮名单（nil=不高亮）
+    UITextView            *_textView;
+    NSInteger              _fontStep; // 字号档：-1 / 0 / 1 / 2 / 3（相对基准字号）
+    UIButton              *_smaller;
+    UIButton              *_bigger;
 }
 
-+ (instancetype)readerWithText:(NSString *)text {
++ (instancetype)readerWithText:(NSString *)text mentionNames:(NSArray<NSString *> *)mentionNames {
     IMTextReaderViewController *vc = [IMTextReaderViewController new];
     vc->_text = [text copy] ?: @"";
+    vc->_mentionNames = [mentionNames copy];
     vc.modalPresentationStyle = UIModalPresentationFullScreen;
     return vc;
 }
@@ -66,10 +68,9 @@
     _textView.selectable = YES;              // 可选中复制
     _textView.backgroundColor = UIColor.clearColor;
     _textView.textColor = IMTheme.textPrimary;
-    _textView.text = _text;
     _textView.textContainerInset = UIEdgeInsetsMake(16, 14, 24, 14);
     _textView.alwaysBounceVertical = YES;
-    [self applyFont];
+    [self applyFont]; // 用富文本承载正文（含 @高亮）
     [self.view addSubview:_textView];
 
     [NSLayoutConstraint activateConstraints:@[
@@ -128,9 +129,12 @@
 }
 
 /// 阅读器字号 = 聊天正文字号 + 档位；档位越界时置灰对应按钮。
+/// 用富文本承载正文，以便 @昵称 高亮随字号一起重建（改字号即重算 attributedText）。
 - (void)applyFont {
     CGFloat size = IMTheme.chatFontSize + (CGFloat)_fontStep;
-    _textView.font = [UIFont systemFontOfSize:size];
+    NSDictionary *base = @{ NSFontAttributeName: [UIFont systemFontOfSize:size],
+                            NSForegroundColorAttributeName: IMTheme.textPrimary };
+    _textView.attributedText = [IMBubbleCell attributedContent:_text base:base mentionColor:IMTheme.accent names:_mentionNames];
     _smaller.enabled = _fontStep > -1;
     _bigger.enabled = _fontStep < 3;
 }

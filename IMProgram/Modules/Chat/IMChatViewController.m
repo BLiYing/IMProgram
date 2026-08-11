@@ -2211,6 +2211,34 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     return [self.expandedTextKeys containsObject:[self textKeyForMessage:m]];
 }
 
+/// 本条消息里需高亮的 `@昵称` 名单（气泡内 @提及高亮）：iOS 不落库 per-message mentions，
+/// 改由**当前群成员 + 文本**推导——扫描群成员昵称在文本里是否有完整 token（与 Web 用服务端 mentions 收敛，
+/// 因发送侧本就按成员昵称扫文本得出 mentions）。`@所有人` 仅在发送者是群主/管理员时高亮（对齐服务端 300204 鉴权，
+/// 普通成员字面「@所有人」不误高亮）。非群聊/非文本/无 `@` 直接返回 nil。
+- (NSArray<NSString *> *)mentionNamesForMessage:(IMMessageModel *)m {
+    if (!self.isGroupChat || ![m.contentType isEqualToString:@"text"]) { return nil; }
+    NSString *text = m.content;
+    if (text.length == 0 || [text rangeOfString:@"@"].location == NSNotFound) { return nil; }
+    NSArray<IMGroupMember *> *members = self.groupInfo.members;
+    if (members.count == 0) { return nil; }
+    NSMutableArray<NSString *> *names = [NSMutableArray array];
+    for (IMGroupMember *mem in members) {
+        if ([mem.userID isEqualToString:m.from]
+            && (mem.role == IMGroupRoleOwner || mem.role == IMGroupRoleAdmin)
+            && IMChatTextContainsMentionToken(text, @"所有人")) {
+            [names addObject:@"所有人"];
+            break;
+        }
+    }
+    for (IMGroupMember *mem in members) {
+        NSString *nick = mem.displayName;
+        if (nick.length > 0 && ![names containsObject:nick] && IMChatTextContainsMentionToken(text, nick)) {
+            [names addObject:nick];
+        }
+    }
+    return names.count > 0 ? names : nil;
+}
+
 /// 切换中长文本的展开态并就地重配该行（高度随之增减，气泡内容重排）。
 - (void)toggleTextExpandedForMessage:(IMMessageModel *)m atIndexPath:(NSIndexPath *)ip {
     if (!self.expandedTextKeys) { self.expandedTextKeys = [NSMutableSet set]; }
@@ -2227,7 +2255,8 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     if (IMLooksLikeURL(content)) { return NO; } // 纯 URL 交给链接打开逻辑
     IMBubbleTextTier tier = [IMBubbleCell textTierForContent:content];
     if (tier == IMBubbleTextTierHuge) {
-        [self presentViewController:[IMTextReaderViewController readerWithText:content] animated:YES completion:nil];
+        IMTextReaderViewController *reader = [IMTextReaderViewController readerWithText:content mentionNames:[self mentionNamesForMessage:m]];
+        [self presentViewController:reader animated:YES completion:nil];
         return YES;
     }
     if (tier == IMBubbleTextTierLong) {
@@ -2843,6 +2872,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     NSString *replyFromName = (self.isGroupChat && m.replyToConvSeq > 0 && m.replyToFrom.length > 0)
         ? [self replyFromNameForUID:m.replyToFrom] : nil;
     cell.textExpanded = [self isTextExpandedForMessage:m]; // 中长文本"展开全文"记忆（configure 前置）
+    cell.mentionNames = [self mentionNamesForMessage:m];   // 气泡内 @昵称 高亮名单（configure 前置）
     [cell configureWithMessage:m mine:mine peerReadSeq:self.peerReadSeq
                      dayHeader:[self dayHeaderForRow:indexPath.row]
             showsUnreadDivider:showsDivider
