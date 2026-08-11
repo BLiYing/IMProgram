@@ -125,6 +125,15 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
         replyToConvSeq:(int64_t)replyToConvSeq
             completion:(nullable IMSendCompletion)completion;
 
+/// @提及变体（M4-8，仅群聊）：mentions 为被 @ 的成员 uid，mentionAll=YES 表示 @所有人。
+/// 服务端会按当时群成员集过滤/去重、并校验 @所有人 的群角色权限（非群主/管理员回 300204）。
+- (NSString *)sendText:(NSString *)text
+                toConv:(NSString *)convID
+        replyToConvSeq:(int64_t)replyToConvSeq
+              mentions:(nullable NSArray<NSString *> *)mentions
+            mentionAll:(BOOL)mentionAll
+            completion:(nullable IMSendCompletion)completion;
+
 /// 转发变体（M4-3）：把 text 发到 convID（群=to 空/单聊=toUserID），带 forward_from 溯源。
 - (NSString *)forwardText:(NSString *)text
                   toConv:(NSString *)convID

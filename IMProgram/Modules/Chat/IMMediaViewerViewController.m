@@ -134,6 +134,7 @@
 /// 失效占位覆盖层（大图查看器）：盖满 self.view，⊘ + 文案；点击穿透（单击手势仍能关闭查看器）。
 - (void)showExpiredOverlayForVideo:(BOOL)isVideo {
     if (_expiredOverlay) { return; }
+    _downloadButton.hidden = YES; // 失效无字节可存：藏掉保存钮，别留一个点了只弹 toast 的死按钮
     _expiredOverlay = [IMMediaPlaceholder expiredOverlayWithCaption:(isVideo ? @"视频已失效" : @"图片已失效")];
     _expiredOverlay.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:_expiredOverlay];
@@ -595,6 +596,12 @@ didFinishDownloadingToURL:(NSURL *)location {
 
 - (void)saveToAlbum {
     if (_saving) { return; }
+    // 失效守卫：曾可用媒体被服务端清理(404) → 无字节可存。铁律A（本机有缓存/原件则仍可存）天然成立：
+    // 有缓存/原件时加载不会 404、URL 不会被登记失效，故命中 isExpiredURL 即代表无本机字节，直接拦。
+    if ([IMMediaExpiryRegistry.shared isExpiredURL:_url]) {
+        [self im_showToast:@"该文件已失效，无法保存"];
+        return;
+    }
     _saving = YES;
     __weak typeof(self) ws = self;
     [PHPhotoLibrary requestAuthorizationForAccessLevel:PHAccessLevelAddOnly handler:^(PHAuthorizationStatus status) {

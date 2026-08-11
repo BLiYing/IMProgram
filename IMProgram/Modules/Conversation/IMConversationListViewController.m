@@ -243,6 +243,18 @@ static CGFloat const kIMRowLeading = 16;
         _name.text = display;
         _last.text = recalledPreview ?: (c.lastContent.length > 0 ? c.lastContent : @"（无消息）");
     }
+    // 群「@我」红字前缀（M4-8）：未读区间内被 @（含 @所有人）时，预览行前挂 [有人@我]。
+    // 用富文本只染前缀、正文保持次要色；不再另加右侧红 @ 角标（左侧红字已足够醒目，见 GROUP_READ_UX_SKETCH §02）。
+    if (c.isGroup && c.mentionUnread && _last.text.length > 0) {
+        NSString *tag = @"[有人@我] ";
+        NSMutableAttributedString *s = [[NSMutableAttributedString alloc]
+            initWithString:[tag stringByAppendingString:_last.text]
+                attributes:@{ NSForegroundColorAttributeName: IMTheme.textSecondary, NSFontAttributeName: _last.font }];
+        [s addAttributes:@{ NSForegroundColorAttributeName: IMTheme.danger,
+                            NSFontAttributeName: [UIFont systemFontOfSize:_last.font.pointSize weight:UIFontWeightSemibold] }
+                   range:NSMakeRange(0, tag.length)];
+        _last.attributedText = s;
+    }
     // 在线态绿点：仅单聊且对端在线时显示（快照版；isOnline 按 onlineUntil 实时判，租约到期即隐）。群聊不显示。
     _onlineDot.hidden = c.isGroup || !c.peerPresence.isOnline;
     _onlineDot.layer.borderColor = IMTheme.pageBackground.CGColor; // CGColor 不随主题自动更新，每次复用刷新
@@ -264,7 +276,8 @@ static CGFloat const kIMRowLeading = 16;
         _check.textColor = read ? IMTheme.checkRead : IMTheme.textSecondary;
     }
     // 未读计数徽标 + 手动"标未读"圆点：免打扰会话转灰（微信/Telegram 式弱提示），否则蓝色。
-    UIColor *unreadColor = c.muted ? UIColor.systemGrayColor : IMTheme.unreadBadge;
+    // **@我 破例**（M4-8）：被 @ 时即使群设了免打扰也回到高亮色——免打扰只压普通消息，不压 @我。
+    UIColor *unreadColor = (c.muted && !c.mentionUnread) ? UIColor.systemGrayColor : IMTheme.unreadBadge;
     _badge.backgroundColor = unreadColor;
     _dot.backgroundColor = unreadColor;
     if (c.unread > 0) {

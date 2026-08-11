@@ -23,6 +23,11 @@
   （tile `setExpired:` 中心 ⊘）、大图查看器 `IMMediaViewerViewController`（图片失败复验；已知失效视频短路）、
   会话媒体库宫格 `IMConversationMediaViewController`（只读本地不联网，据登记表显 ⊘ + 监听通知刷新）。
   各路径先查登记表命中即失效占位、不回源（掐 404 风暴）。
+- **转发/保存失效守卫（2026-08-11 补，build 绿）**：失效媒体转出去对端必 404 → 拦。`IMChatViewController`
+  新增 `isMediaExpiredForForward:`（key 用 `fullMediaURL:` 同款解析）——单条转发 `presentForwardPickerForMessage:`
+  头部拦（一处盖卡片/长按/详情文件列表三入口）、逐条转发 `forwardMessages:` 跳过+计数 toast、合并转发
+  剔失效项+全失效则拦；`IMMediaViewerViewController saveToAlbum` 命中即拦（铁律A 天然成立：有缓存不会被登记），
+  并在失效覆盖层藏掉保存钮。
 - **已知未尽**：查看器**正在播放**的视频 404 需 KVO `AVPlayer.status`（当前靠气泡/媒体库先探到再短路）；失效标记
   **内存态不持久**（与协调器 `_states` 同 philosophy；原件本就落沙盒磁盘持久，重启按需重新复验一次，不会"重启变透明"）。
 - **下一步**：`xcodebuild build`（synced group 会自动纳入两新文件，勿手改 pbxproj）→ 真机手测已删媒体的四处显 ⊘。
@@ -49,6 +54,14 @@
 - CocoaLumberjack 只接管应用日志；Debug 文件日志保留脱敏业务正文，分享前复核。
 - dev-login 建的账号无法再走密码登录；测密码登录用「注册并登录」或清 `imserver.db`。
 - iOS 无双向分页（进会话全量载入本地 DB）；presence/typing 仅聊天页标题生效。
+- **查看器"正在播放中"视频 404 未接失效占位（2026-08-11 记）**：`IMMediaViewerViewController` 已有 `item.status`
+  KVO（`:233/:240`）但失败一律走「无法播放该视频」兜底；未把 404/410 分出来翻 ⊘ 失效态。窄路径（气泡/媒体库通常
+  先探到→进查看器即短路 `:170`），兜底不黑屏故可接受。补法：失败分支改走 `IMMediaExpiryRegistry verifyExpiredForURL:`
+  （`item.error` 读不出 HTTP 码，必须 ranged-GET 定性），命中→`showExpiredOverlayForVideo:YES` + mid-play teardown
+  （藏 play/poster/进度条、移 playerLayer）。~20-30 行单文件。
+- **失效标记内存态不持久（刻意，2026-08-11 记）**：`IMMediaExpiryRegistry` 用进程内 Set。冷启动后失效媒体首帧重探
+  一次（去重+ranged-GET，无感），换来**自愈**——后台恢复文件下次启动即翻回，无陈旧标记。仅当服务端上"自动 TTL
+  清理"使失效变常态，才回来上"持久化 + 标记 TTL"。
 - 测试只跑 `-only-testing:IMProgramTests`；改后端协议后需重启后端再测。
 
 ## 关联工程 / 常用命令

@@ -484,6 +484,32 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     [self runGroupInfoRequest:req fallback:@"拉取群资料失败" completion:completion];
 }
 
+- (void)readReceiptsWithToken:(NSString *)token
+                       convID:(NSString *)convID
+                      convSeq:(int64_t)convSeq
+                   completion:(void (^)(NSArray<NSString *> *, NSArray<NSString *> *, BOOL, NSError *))completion {
+    NSString *encoded = [convID stringByAddingPercentEncodingWithAllowedCharacters:
+                         NSCharacterSet.URLPathAllowedCharacterSet] ?: convID;
+    NSString *path = [NSString stringWithFormat:@"/api/v1/conversations/%@/messages/%lld/read-by", encoded, convSeq];
+    NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
+    if (!req) {
+        [self callOnMain:^{ completion(nil, nil, NO, [self errorWithMessage:@"非法服务器地址"]); }];
+        return;
+    }
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(nil, nil, NO, error); return; }
+        if ([body[@"code"] integerValue] != 0) {
+            completion(nil, nil, NO, [self errorWithMessage:[self messageFrom:body fallback:@"拉取已读状态失败"]]);
+            return;
+        }
+        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
+        NSArray *read = [data[@"read"] isKindOfClass:[NSArray class]] ? data[@"read"] : @[];
+        NSArray *unread = [data[@"unread"] isKindOfClass:[NSArray class]] ? data[@"unread"] : @[];
+        BOOL enabled = [data[@"enabled"] respondsToSelector:@selector(boolValue)] && [data[@"enabled"] boolValue];
+        completion(read, unread, enabled, nil);
+    }];
+}
+
 - (void)updateGroupWithToken:(NSString *)token convID:(NSString *)convID
                         name:(NSString *)name avatarURL:(NSString *)avatarURL
                   completion:(void (^)(NSError *))completion {

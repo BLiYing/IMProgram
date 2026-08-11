@@ -3,6 +3,15 @@
 #import "IMConversation.h"
 #import "IMPresence.h"
 
+/// JSON 布尔的严格解析：**只认 NSNumber**（JSON 的 true/false/1/0 都落成 NSNumber）。
+///
+/// 不能用 `respondsToSelector:@selector(boolValue)` —— NSString 也响应它，于是任何脏字符串
+/// （`@"yes"`/`@"true"`/`@"1"`）都会被当成 YES。对 mention_unread 这类字段尤其危险：
+/// 一个脏值就会让会话行常驻「[有人@我]」红字、并让免打扰群的未读数持续红底，用户无从消除。
+static BOOL IMBoolFromJSON(id value) {
+    return [value isKindOfClass:NSNumber.class] && [value boolValue];
+}
+
 @implementation IMConversation
 
 + (NSArray<IMConversation *> *)conversationsFromArray:(NSArray *)array {
@@ -18,7 +27,7 @@
 + (instancetype)conversationFromDictionary:(NSDictionary *)dict {
     IMConversation *c = [IMConversation new];
     c.convID = [self stringForKey:@"conv_id" in:dict];
-    c.isGroup = [dict[@"is_group"] respondsToSelector:@selector(boolValue)] && [dict[@"is_group"] boolValue];
+    c.isGroup = IMBoolFromJSON(dict[@"is_group"]);
     c.name = [self stringForKey:@"name" in:dict];
     c.avatarURL = [self stringForKey:@"avatar_url" in:dict];
     c.memberCount = [dict[@"member_count"] respondsToSelector:@selector(integerValue)] ? [dict[@"member_count"] integerValue] : 0;
@@ -34,8 +43,9 @@
     c.peerReadSeq = [dict[@"peer_read_seq"] respondsToSelector:@selector(longLongValue)] ? [dict[@"peer_read_seq"] longLongValue] : 0;
     c.unread = [dict[@"unread"] respondsToSelector:@selector(integerValue)] ? [dict[@"unread"] integerValue] : 0;
     c.pinnedAt = [dict[@"pinned_at"] respondsToSelector:@selector(longLongValue)] ? [dict[@"pinned_at"] longLongValue] : 0;
-    c.muted = [dict[@"muted"] respondsToSelector:@selector(boolValue)] && [dict[@"muted"] boolValue];
-    c.markedUnread = [dict[@"marked_unread"] respondsToSelector:@selector(boolValue)] && [dict[@"marked_unread"] boolValue];
+    c.muted = IMBoolFromJSON(dict[@"muted"]);
+    c.markedUnread = IMBoolFromJSON(dict[@"marked_unread"]);
+    c.mentionUnread = IMBoolFromJSON(dict[@"mention_unread"]);
 
     NSDictionary *last = [dict[@"last_message"] isKindOfClass:[NSDictionary class]] ? dict[@"last_message"] : nil;
     if (last) {

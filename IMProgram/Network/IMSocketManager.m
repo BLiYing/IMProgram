@@ -535,7 +535,20 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
 }
 
 /// 共用发送路径：构造 send_msg 负载并入队（ack 超时重发等由 enqueue 统一处理）。
+- (NSString *)sendText:(NSString *)text toConv:(NSString *)convID replyToConvSeq:(int64_t)replyToConvSeq
+              mentions:(NSArray<NSString *> *)mentions mentionAll:(BOOL)mentionAll completion:(IMSendCompletion)completion {
+    // 群聊：to 留空，服务端按 conv_id 查群成员写扩散；mentions 由服务端按当时成员集再过滤一次。
+    return [self sendText:text toUser:@"" convID:convID replyToConvSeq:replyToConvSeq forwardFrom:nil
+                 mentions:mentions mentionAll:mentionAll completion:completion];
+}
+
 - (NSString *)sendText:(NSString *)text toUser:(NSString *)toUserID convID:(NSString *)convID replyToConvSeq:(int64_t)replyToConvSeq forwardFrom:(NSString *)forwardFrom completion:(IMSendCompletion)completion {
+    return [self sendText:text toUser:toUserID convID:convID replyToConvSeq:replyToConvSeq forwardFrom:forwardFrom
+                 mentions:nil mentionAll:NO completion:completion];
+}
+
+- (NSString *)sendText:(NSString *)text toUser:(NSString *)toUserID convID:(NSString *)convID replyToConvSeq:(int64_t)replyToConvSeq forwardFrom:(NSString *)forwardFrom
+              mentions:(NSArray<NSString *> *)mentions mentionAll:(BOOL)mentionAll completion:(IMSendCompletion)completion {
     NSString *clientMsgID = [NSUUID UUID].UUIDString;
     NSMutableDictionary *payload = [@{
         @"client_msg_id": clientMsgID,
@@ -546,6 +559,9 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     } mutableCopy];
     if (replyToConvSeq > 0) { payload[@"reply_to"] = @{ @"conv_seq": @(replyToConvSeq) }; } // 引用（M4-2）
     if (forwardFrom.length > 0) { payload[@"forward_from"] = forwardFrom; }                 // 转发溯源（M4-3）
+    // @提及（M4-8，仅群聊有意义）：服务端会按当时群成员集过滤/去重，并校验 @所有人 的群角色权限。
+    if (mentions.count > 0) { payload[@"mentions"] = mentions; }
+    if (mentionAll) { payload[@"mention_all"] = @YES; }
     dispatch_async(_queue, ^{
         [self enqueueSendWithClientMsgID:clientMsgID payload:payload completion:completion];
     });

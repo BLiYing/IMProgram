@@ -19,7 +19,10 @@
 #import "IMConversationMediaViewController.h"
 #import "IMForwardPickerViewController.h"
 #import "IMChatRecordViewController.h"
+#import "IMMentionPickerViewController.h"
+#import "IMReadReceiptViewController.h"
 #import "IMMediaPicker.h"
+#import "IMMediaExpiryRegistry.h" // 转发/保存失效守卫：曾可用媒体被服务端清理(404)→转出去对端必 404
 #import "IMMediaUtil.h"
 #import "IMMediaDownloadCoordinator.h" // 下载编排（门控/进度/落地，与详情页共用）
 #import "IMDownloadProgress.h"
@@ -104,6 +107,38 @@ static UIImage *IMPendingVideoThumbnail(NSString *path) {
     return thumb;
 }
 
+/// 该 content_type 是否计入未读——**与服务端 conversation.unreadCount 同口径**（M4-8）：
+/// `msg_op` 事件行（撤回/编辑/置顶）是操作、`system` 系统消息（改名/入群/禁言）是群内留痕，
+/// 两者都不是"有人跟我说话了"，均不计未读。未读分割线与 ↓N 的定位必须照此排除，
+/// 否则分割线会落在不计数的行上、与角标数字对不上。
+/// 文本里是否存在一个**完整的** `@名字` token（M4-8）。
+///
+/// 必须按 token 边界判定、不能用裸 containsString:：昵称互为前缀时（「小美」/「小美丽」），
+/// `@小美丽 开会` 会把根本没被提及的「小美」也算进 mentions，让他收到一条穿透免打扰的错误强提醒。
+/// 判定规则：token 后面必须紧跟**空白或字符串结尾**。与 Web `containsMentionToken` 同一套。
+BOOL IMChatTextContainsMentionToken(NSString *_Nullable text, NSString *_Nullable displayName) {
+    if (text.length == 0 || displayName.length == 0) { return NO; }
+    NSString *needle = [@"@" stringByAppendingString:displayName];
+    NSUInteger from = 0;
+    while (from <= text.length - MIN(text.length, 1)) {
+        NSRange scan = NSMakeRange(from, text.length - from);
+        if (scan.length < needle.length) { return NO; }
+        NSRange hit = [text rangeOfString:needle options:0 range:scan];
+        if (hit.location == NSNotFound) { return NO; }
+        NSUInteger after = hit.location + hit.length;
+        if (after >= text.length) { return YES; } // 到结尾即完整 token
+        unichar next = [text characterAtIndex:after];
+        if ([NSCharacterSet.whitespaceAndNewlineCharacterSet characterIsMember:next]) { return YES; }
+        from = hit.location + 1; // 命中的是更长名字的前缀，继续往后找
+    }
+    return NO;
+}
+
+BOOL IMContentTypeCountsAsUnread(NSString *_Nullable contentType) {
+    NSString *ct = contentType ?: @"";
+    return !([ct isEqualToString:@"system"] || [ct isEqualToString:@"msg_op"]);
+}
+
 static UIImage *IMPendingImageThumbnail(NSString *path) {
     CGImageSourceRef src = CGImageSourceCreateWithURL((__bridge CFURLRef)[NSURL fileURLWithPath:path], NULL);
     if (!src) { return nil; }
@@ -131,6 +166,10 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
 @property (nonatomic, assign) BOOL isGroupChat;        // YES=群聊（convID 为群 topic_id）
 @property (nonatomic, copy, nullable) NSString *groupName;     // 群名（进入时用会话项的，拉到群资料后刷新）
 @property (nonatomic, strong, nullable) IMGroupInfo *groupInfo; // 群资料缓存（标题成员数/气泡昵称回退）
+// @提及（M4-8，仅群聊）：候选表 uid→显示名，发送时按输入框里是否还留着 `@显示名` 复核。
+@property (nonatomic, strong, nullable) NSMutableDictionary<NSString *, NSString *> *mentionCandidates;
+@property (nonatomic, assign) BOOL mentionAllPending; // 已选过 @所有人（仍需文本里留着 token 才生效）
+@property (nonatomic, assign) BOOL mentionPickerSuppressed; // 用户已手动关掉选择卡：本次 @ 输入态内不再自动弹
 @property (nonatomic, strong) NSMutableArray<IMMessageModel *> *messages;
 @property (nonatomic, strong) NSMutableSet<NSNumber *> *seenConvSeqs; // 按 conv_seq 去重，避免推送+同步重复
 @property (nonatomic, copy) NSString *convID;
@@ -1087,12 +1126,118 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
 /// 输入变化 → 发「正在输入」（2s 节流，避免每次按键都发）。
 - (void)inputChanged {
     [self updateSendButtonVisibility]; // 内容增删 → 切换发送/表情+加号（#4）
+    [self maybePresentMentionPicker];  // 群聊键入 @ → 弹成员选择卡（M4-8）
     if (self.inputField.text.length == 0) { return; }
     NSTimeInterval now = NSDate.date.timeIntervalSince1970;
     if (now - self.lastTypingSent > 2.0) {
         self.lastTypingSent = now;
         [IMSocketManager.sharedManager sendTypingForConv:self.convID];
     }
+}
+
+#pragma mark - @提及（M4-8）
+
+/// 输入框「正在输入的 @查询词」：光标前最近一个 `@` 到光标之间、且不含空白的片段。
+/// 返回 nil 表示当前不在 @ 输入态。半角 `@` 与中文键盘的全角 `＠` 都认。
+- (nullable NSString *)activeMentionQuery {
+    NSString *text = self.inputField.text ?: @"";
+    if (text.length == 0) { return nil; }
+    // UITextField 单行，取光标位置；拿不到就按整串末尾算。
+    NSInteger caret = (NSInteger)text.length;
+    UITextRange *sel = self.inputField.selectedTextRange;
+    if (sel) {
+        caret = [self.inputField offsetFromPosition:self.inputField.beginningOfDocument toPosition:sel.end];
+    }
+    if (caret <= 0 || caret > (NSInteger)text.length) { return nil; }
+    NSString *head = [text substringToIndex:(NSUInteger)caret];
+    NSRange at = [head rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"@＠"]
+                                       options:NSBackwardsSearch];
+    if (at.location == NSNotFound) { return nil; }
+    NSString *q = [head substringFromIndex:at.location + at.length];
+    // @ 后出现空白即视为这次提及已结束（用户在正常打字，不该再弹卡）。
+    if ([q rangeOfCharacterFromSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].location != NSNotFound) { return nil; }
+    return q;
+}
+
+/// 群聊里进入 @ 输入态时弹出成员选择卡。单聊不弹（@ 只在群聊有意义）。
+/// 卡片弹出后键盘焦点转到卡内搜索框，后续过滤由卡自己负责——故这里只在"卡未开"时弹一次。
+- (void)maybePresentMentionPicker {
+    // 已有任何模态在场就不弹（选择卡自身在场时同样命中，天然防重复弹）。
+    if (!self.isGroupChat || !self.groupInfo || self.presentedViewController) { return; }
+    NSString *q = [self activeMentionQuery];
+    if (!q) {
+        self.mentionPickerSuppressed = NO; // 离开 @ 输入态 → 抑制解除，下一个 @ 正常弹
+        return;
+    }
+    // 用户主动关掉过卡片：本次 @ 输入态内不再自动弹，让他能手打昵称。
+    // 否则每敲一个字符都会重新弹卡、抢走键盘，@ 后根本没法继续输入。
+    if (self.mentionPickerSuppressed) { return; }
+    __weak typeof(self) ws = self;
+    IMMentionPickerViewController *picker = [[IMMentionPickerViewController alloc]
+        initWithGroup:self.groupInfo
+         initialQuery:q
+         onPickMember:^(IMGroupMember *m) { [ws insertMentionToken:m.displayName forUID:m.userID]; }
+            onPickAll:^{ [ws insertMentionToken:@"所有人" forUID:nil]; }];
+    // 卡片一旦离场就抑制本次 @ 输入态内的自动重弹（选中后文本会带上空格，抑制自然随之解除）。
+    picker.onDismiss = ^{ ws.mentionPickerSuppressed = YES; };
+    [self presentViewController:picker animated:YES completion:nil];
+}
+
+/// 回填 token：把输入框里"正在输入的 @query"整体替换为 `@显示名 `（尾随空格便于继续打字）。
+/// uid 为 nil 表示 @所有人。被 @ 者记入 mentionCandidates，发送时按文本里是否还留着该 token 复核。
+- (void)insertMentionToken:(NSString *)displayName forUID:(nullable NSString *)uid {
+    NSString *text = self.inputField.text ?: @"";
+    NSInteger caret = (NSInteger)text.length;
+    UITextRange *sel = self.inputField.selectedTextRange;
+    if (sel) {
+        caret = [self.inputField offsetFromPosition:self.inputField.beginningOfDocument toPosition:sel.end];
+    }
+    caret = MAX(0, MIN(caret, (NSInteger)text.length));
+    NSString *head = [text substringToIndex:(NSUInteger)caret];
+    NSString *after = [text substringFromIndex:(NSUInteger)caret];
+    NSRange at = [head rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"@＠"]
+                                       options:NSBackwardsSearch];
+    // 尾随空格便于继续打字；但光标后本就以空白开头时不再补，否则会留下双空格（与 Web mention.ts 一致）。
+    BOOL afterStartsBlank = after.length > 0 &&
+        [NSCharacterSet.whitespaceAndNewlineCharacterSet characterIsMember:[after characterAtIndex:0]];
+    NSString *token = [NSString stringWithFormat:@"@%@%@", displayName, afterStartsBlank ? @"" : @" "];
+    NSUInteger caretAfterInsert = 0;
+    if (at.location == NSNotFound) {
+        self.inputField.text = [NSString stringWithFormat:@"%@%@%@", head, token, after]; // 兜底：光标处插入
+        caretAfterInsert = head.length + token.length;
+    } else {
+        NSString *before = [text substringToIndex:at.location];
+        self.inputField.text = [NSString stringWithFormat:@"%@%@%@", before, token, after];
+        caretAfterInsert = before.length + token.length;
+    }
+    if (uid.length > 0) {
+        if (!self.mentionCandidates) { self.mentionCandidates = [NSMutableDictionary dictionary]; }
+        self.mentionCandidates[uid] = displayName;
+    } else {
+        self.mentionAllPending = YES;
+    }
+    [self updateSendButtonVisibility];
+    [self.inputField becomeFirstResponder];
+    // 光标落回 token 之后（UITextField 被程序化赋值后默认停在末尾，token 后若还有正文就错位了）。
+    UITextPosition *pos = [self.inputField positionFromPosition:self.inputField.beginningOfDocument
+                                                         offset:(NSInteger)caretAfterInsert];
+    if (pos) { self.inputField.selectedTextRange = [self.inputField textRangeFromPosition:pos toPosition:pos]; }
+}
+
+/// 发送前把输入框文本还原成 mentions uid 列表：只保留**文本里仍存在完整 token** 的候选，
+/// 用户手动删掉 token 即自动不再 @ 他（草图 §07-06）。
+- (NSArray<NSString *> *)resolvedMentionsInText:(NSString *)text {
+    if (self.mentionCandidates.count == 0 || text.length == 0) { return @[]; }
+    NSMutableArray<NSString *> *out = [NSMutableArray array];
+    [self.mentionCandidates enumerateKeysAndObjectsUsingBlock:^(NSString *uid, NSString *name, BOOL *stop) {
+        if (IMChatTextContainsMentionToken(text, name)) { [out addObject:uid]; }
+    }];
+    return out;
+}
+
+/// @所有人 是否仍生效：既要标记在、文本里也要还留着完整的 `@所有人` token。
+- (BOOL)resolvedMentionAllInText:(NSString *)text {
+    return self.mentionAllPending && IMChatTextContainsMentionToken(text, @"所有人");
 }
 
 - (void)sendTapped {
@@ -1123,9 +1268,13 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
         [weakSelf handleSendResult:success convSeq:convSeq error:error forClientMsgID:clientMsgID];
     };
     int64_t replySeq = self.replyingTo.convSeq; // 引用回复（M4-2）：0=普通发送
+    // @提及（M4-8）：按输入框里**仍留着**的 token 还原 uid（删了 token 就自动不 @ 他）。
+    NSArray<NSString *> *mentions = self.isGroupChat ? [self resolvedMentionsInText:text] : @[];
+    BOOL mentionAll = self.isGroupChat && [self resolvedMentionAllInText:text];
     // 群聊按 conv_id 路由（to 留空，服务端查成员写扩散）；单聊按对端 uid。
     clientMsgID = self.isGroupChat
-        ? [IMSocketManager.sharedManager sendText:text toConv:self.convID replyToConvSeq:replySeq completion:completion]
+        ? [IMSocketManager.sharedManager sendText:text toConv:self.convID replyToConvSeq:replySeq
+                                         mentions:mentions mentionAll:mentionAll completion:completion]
         : [IMSocketManager.sharedManager sendText:text toUser:self.peerID replyToConvSeq:replySeq completion:completion];
 
     IMMessageModel *m = [IMMessageModel new];
@@ -1147,9 +1296,16 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     }];
     [self.messages addObject:m];
     self.inputField.text = @"";
+    [self clearPendingMentions]; // 发出即清，下一条重新累积（M4-8）
     [self updateSendButtonVisibility];
     [self cancelReply];
     [self appendReloadAndScroll];
+}
+
+/// 清空本条待发的 @提及态（输入框已清空，候选表与 @所有人 标记一并复位）。
+- (void)clearPendingMentions {
+    [self.mentionCandidates removeAllObjects];
+    self.mentionAllPending = NO;
 }
 
 #pragma mark - 引用回复（M4-2）
@@ -1982,6 +2138,22 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 
 #pragma mark - 转发（M4-3）
 
+/// 该消息是否为"曾可用、被服务端清理"的媒体（image/video/file）。转发透传的是 content URL 本身、不重传字节，
+/// 故本机有无缓存都救不了对端——命中即拦，与保存(看铁律A)语义不同。key 必须用查看器/气泡同款 fullMediaURL: 解析。
+- (BOOL)isMediaExpiredForForward:(IMMessageModel *)m {
+    NSString *ct = m.contentType ?: @"";
+    if (!([ct isEqualToString:@"image"] || [ct isEqualToString:@"video"] || [ct isEqualToString:@"file"])) { return NO; }
+    if (m.content.length == 0) { return NO; }
+    return [IMMediaExpiryRegistry.shared isExpiredURL:[self fullMediaURL:m.content]];
+}
+
+/// 失效媒体的类型名词（toast 用）：视频/文件/图片。
+- (NSString *)expiredNounForMessage:(IMMessageModel *)m {
+    if ([m.contentType isEqualToString:@"video"]) { return @"视频"; }
+    if ([m.contentType isEqualToString:@"file"]) { return @"文件"; }
+    return @"图片";
+}
+
 /// 转发一条消息（#6）：整页会话选择器（单/多选，最多 9）→ 逐条转发，保留 content_type（图片/视频不退化成文本）。
 - (void)forwardMessage:(IMMessageModel *)message {
     [self presentForwardPickerForMessage:message fromViewController:self];
@@ -1990,6 +2162,11 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 /// 转发选择页由 `presenter` 弹出（详情页文件列表复用时传自己），回声逻辑与 toast 都收敛在这里。
 - (void)presentForwardPickerForMessage:(IMMessageModel *)message fromViewController:(UIViewController *)presenter {
     if (message.content.length == 0 || message.recalledAt > 0) { return; }
+    // 失效守卫：曾可用媒体被服务端清理(404) → 转出去对端必 404，不给转发入口。一处拦住卡片菜单/长按菜单/详情页文件列表复用三入口。
+    if ([self isMediaExpiredForForward:message]) {
+        [(presenter ?: self) im_showToast:[NSString stringWithFormat:@"该%@已失效，无法转发", [self expiredNounForMessage:message]]];
+        return;
+    }
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0) { return; }
     NSString *origin = message.forwardFrom.length > 0 ? message.forwardFrom
@@ -2729,11 +2906,58 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     if ([self isAlbumMember:message]) { return nil; } // 相册宫格：菜单由每个格子自带（定位到单条成员）
     BOOL mine = [message.from isEqualToString:self.userID];
     NSArray<IMMenuAction *> *actions = [self messageActionsForMessage:message mine:mine];
+    // 群聊里自己发的消息：菜单**顶部**挂一条「N 人已读 ›」（M4-8）。人数要查服务端，
+    // 故用 UIDeferredMenuElement 异步填——菜单先弹出、这一行随后就位，不阻塞其它操作。
+    UIMenuElement *readRow = [self readReceiptMenuElementForMessage:message mine:mine];
     // identifier 带上 indexPath：高亮/收起预览回调要凭它找到 cell（否则只能用系统默认的整行全宽快照）。
     return [UIContextMenuConfiguration configurationWithIdentifier:indexPath previewProvider:nil
         actionProvider:^UIMenu *(NSArray<UIMenuElement *> *suggested) {
-            return [IMMenuAction menuWithActions:actions];
+            UIMenu *base = [IMMenuAction menuWithActions:actions];
+            if (!readRow) { return base; }
+            NSMutableArray<UIMenuElement *> *children = [NSMutableArray arrayWithObject:readRow];
+            [children addObjectsFromArray:base.children];
+            return [UIMenu menuWithTitle:@"" children:children];
         }];
+}
+
+/// 群聊「N 人已读」菜单行（M4-8）。返回 nil 表示不该显示这一行：
+/// 单聊 / 他人消息（只有发送者能看谁读了自己，隐私）/ 尚未拿到 conv_seq 的发送中消息。
+/// 群规模超上限时服务端回 enabled=NO，此处同样静默隐藏该行（不弹错）。
+- (nullable UIMenuElement *)readReceiptMenuElementForMessage:(IMMessageModel *)message mine:(BOOL)mine {
+    if (!self.isGroupChat || !mine || message.convSeq <= 0) { return nil; }
+    __weak typeof(self) ws = self;
+    NSString *convID = self.convID;
+    int64_t convSeq = message.convSeq;
+    return [UIDeferredMenuElement elementWithProvider:^(void (^completion)(NSArray<UIMenuElement *> *)) {
+        NSString *token = IMHTTPService.sharedService.currentToken;
+        if (token.length == 0) { completion(@[]); return; }
+        [IMHTTPService.sharedService readReceiptsWithToken:token convID:convID convSeq:convSeq
+            completion:^(NSArray<NSString *> *read, NSArray<NSString *> *unread, BOOL enabled, NSError *error) {
+                // 出错/超限：整行不出现——菜单里挂一条报错项没有任何操作价值。
+                if (error || !enabled) { completion(@[]); return; }
+                NSString *title = read.count > 0
+                    ? [NSString stringWithFormat:@"%lu 人已读", (unsigned long)read.count]
+                    : @"暂无人已读";
+                UIAction *action = [UIAction actionWithTitle:title
+                                                       image:[UIImage systemImageNamed:@"eye"]
+                                                  identifier:nil
+                                                     handler:^(__kindof UIAction *a) {
+                    [ws presentReadReceiptsWithRead:read unread:unread];
+                }];
+                // 0 人已读时保留该行但不可点（草图 §04-2：显"暂无人已读"、不可点）。
+                if (read.count == 0) { action.attributes = UIMenuElementAttributesDisabled; }
+                completion(@[action]);
+            }];
+    }];
+}
+
+/// 打开已读名单卡（半屏 + 分段 tab，点成员进其资料页）。
+- (void)presentReadReceiptsWithRead:(NSArray<NSString *> *)read unread:(NSArray<NSString *> *)unread {
+    __weak typeof(self) ws = self;
+    IMReadReceiptViewController *vc = [[IMReadReceiptViewController alloc]
+        initWithGroup:self.groupInfo readUIDs:read unreadUIDs:unread
+          onTapMember:^(NSString *uid) { [ws openMemberProfileForUID:uid]; }];
+    [self presentViewController:vc animated:YES completion:nil];
 }
 
 /// 长按菜单只圈气泡本体：系统默认对整个 cell（contentView 全宽，含气泡两侧透明区）截图并垫系统底色
@@ -3040,8 +3264,12 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         [ws pickConversationsThen:^(NSArray<IMConversation *> *convs) { [ws forwardMessages:msgs perMessageToConversations:convs]; }];
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"合并转发" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-        NSString *json = [ws mergedForwardJSONForMessages:msgs];
-        [ws pickConversationsThen:^(NSArray<IMConversation *> *convs) { [ws forwardMergedRecord:json toConversations:convs]; }];
+        __strong typeof(ws) self = ws; if (!self) { return; }
+        NSUInteger expiredCount = 0;
+        for (IMMessageModel *m in msgs) { if ([self isMediaExpiredForForward:m]) { expiredCount++; } }
+        if (expiredCount >= msgs.count) { [self im_showToast:@"所选均已失效，无法合并转发"]; return; } // 失效项会被剔出记录，全失效则整条无意义
+        NSString *json = [self mergedForwardJSONForMessages:msgs];
+        [self pickConversationsThen:^(NSArray<IMConversation *> *convs) { [self forwardMergedRecord:json toConversations:convs]; }];
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     // iPad/regular 宽度下走 popover：sourceRect 必须在 sourceView 自身坐标系内，否则锚点跑到屏幕外（原用 self.view 坐标）。
@@ -3142,11 +3370,15 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 }
 
 - (void)forwardMessages:(NSArray<IMMessageModel *> *)msgs perMessageToConversations:(NSArray<IMConversation *> *)convs {
+    // 失效媒体跳过（转出去对端必 404）：先数一次，避免在会话外层循环里重复计数。
+    NSUInteger expiredCount = 0;
+    for (IMMessageModel *m in msgs) { if ([self isMediaExpiredForForward:m]) { expiredCount++; } }
     for (IMConversation *c in convs) {
         NSString *toUser = c.isGroup ? @"" : (c.peer ?: @"");
         for (IMMessageModel *m in msgs) {
             if (m.recalledAt > 0 || m.content.length == 0 || [m.contentType isEqualToString:@"system"]) { continue; }
             if (m.convSeq <= 0) { continue; } // 防御：发送中/失败的本地件（多选已拦，此处兜底）
+            if ([self isMediaExpiredForForward:m]) { continue; } // 失效媒体跳过
             NSString *origin = m.forwardFrom.length > 0 ? m.forwardFrom
                 : (m.fromNickname.length > 0 ? m.fromNickname : (m.from ?: @""));
             [self forwardEchoContent:m.content contentType:(m.contentType ?: @"text") forwardFrom:origin fileName:m.fileName fileSize:m.fileSize
@@ -3154,7 +3386,14 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         }
     }
     [self exitSelection];
-    [self im_showToast:convs.count == 1 ? @"已转发" : [NSString stringWithFormat:@"已转发到 %lu 个会话", (unsigned long)convs.count]];
+    if (expiredCount >= msgs.count) { // 所选可选消息均为失效媒体（系统/撤回件多选态本就不可选）
+        [self im_showToast:@"所选均已失效，未转发"];
+        return;
+    }
+    NSString *base = convs.count == 1 ? @"已转发" : [NSString stringWithFormat:@"已转发到 %lu 个会话", (unsigned long)convs.count];
+    [self im_showToast:expiredCount > 0
+        ? [NSString stringWithFormat:@"%@（%lu 条已失效未转发）", base, (unsigned long)expiredCount]
+        : base];
 }
 
 - (void)forwardMergedRecord:(NSString *)json toConversations:(NSArray<IMConversation *> *)convs {
@@ -3218,6 +3457,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     for (IMMessageModel *m in msgs) {
         if (m.recalledAt > 0 || [m.contentType isEqualToString:@"system"] || m.content.length == 0) { continue; }
         if (m.convSeq <= 0) { continue; } // 防御：发送中/失败的本地件（多选已拦，此处兜底）
+        if ([self isMediaExpiredForForward:m]) { continue; } // 失效媒体剔出合并记录（收端点开必 404）
         NSMutableDictionary *item = [@{ @"n": [self displayNameForMessage:m] ?: @"",
                                         @"ct": m.contentType ?: @"text",
                                         @"c": m.content ?: @"" } mutableCopy];
@@ -3304,11 +3544,16 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 }
 
 /// 首条未读所在行：conv_seq > entryReadSeq 的第一条「对端」消息；无未读返回 -1。
+/// **必须与服务端未读口径一致**（M4-8）：服务端 unreadCount 排除 msg_op 事件行与 system 系统消息，
+/// 这里若只按 `from != 我` 找，会把分割线/进会话锚点定位到不计未读的系统行——
+/// 表现为「以下为 N 条新消息」下方实际多出几行（群改名/入群留痕都会触发）。
 - (NSInteger)firstUnreadRow {
     if (self.entryUnread <= 0) { return -1; }
     for (NSInteger i = 0; i < (NSInteger)self.messages.count; i++) {
         IMMessageModel *m = self.messages[i];
-        if (m.convSeq > self.entryReadSeq && ![m.from isEqualToString:self.userID]) { return i; }
+        if (m.convSeq <= self.entryReadSeq) { continue; }
+        if ([m.from isEqualToString:self.userID]) { continue; }
+        if (IMContentTypeCountsAsUnread(m.contentType)) { return i; }
     }
     return -1;
 }

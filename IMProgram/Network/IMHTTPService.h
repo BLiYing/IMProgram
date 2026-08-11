@@ -140,6 +140,17 @@ BOOL IMIsAuthErrorCode(NSInteger code);
                     convID:(NSString *)convID
                 completion:(void (^)(IMGroupInfo *_Nullable group, NSError *_Nullable error))completion;
 
+/// 群消息已读/未读名单（M4-8）：GET /conversations/{id}/messages/{seq}/read-by。
+/// **仅消息发送者本人**可调（他人调用服务端回 403）。`enabled=NO` 表示群规模超上限（>2000 人），
+/// 此时 read/unread 为空，调用方应隐藏入口而非报错。completion 在主线程回调。
+- (void)readReceiptsWithToken:(NSString *)token
+                       convID:(NSString *)convID
+                      convSeq:(int64_t)convSeq
+                   completion:(void (^)(NSArray<NSString *> *_Nullable readUIDs,
+                                        NSArray<NSString *> *_Nullable unreadUIDs,
+                                        BOOL enabled,
+                                        NSError *_Nullable error))completion;
+
 /// 改群资料（群名/头像；群主或管理员）。completion 在主线程回调。
 - (void)updateGroupWithToken:(NSString *)token
                       convID:(NSString *)convID
