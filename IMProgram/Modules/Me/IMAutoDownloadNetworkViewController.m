@@ -196,12 +196,20 @@
     }
     idx = MAX(0, MIN(idx, (NSInteger)IMTrafficPresetHigh)); // 只有低/中/高可套用
     slider.value = (float)idx;
+    BOOL wasCustom = _presetCustom; // 记结构是否将变（四档→三档）
     IMApplyTrafficPreset([self policy], idx);
     [[IMDownloadSettingsStore shared] saveSettings:_working];
-    // 自身保存的通知被 reloadFromStore 跳过（防闪烁）→ 这里只定向刷新档位(1)与类别汇总(2)：
-    // 套预设后档位可能从四档退回三档、类别行"最大 X"随之更新；总开关(0)不动、不闪。
-    [self.tableView reloadSections:[NSIndexSet indexSetWithIndexesInRange:NSMakeRange(1, 2)]
-                  withRowAnimation:UITableViewRowAnimationNone];
+    // 自身保存的通知被 reloadFromStore 跳过（防闪烁）→ 这里只定向刷新**真正变了的行**：
+    // 视频/文件行的"最大 X"必更新；档位滑杆仅当从四档退回三档（结构变）才重建——
+    // 在低/中/高之间调时档位/刻度已在拖动回调里就地更新，无需重建，连滑杆自身都不闪。
+    // 用 reloadRows 而非 reloadSections：后者会连页眉/页脚（"流量档位/媒体文件类型/
+    // 低只自动下.../语音消息..."）一起重建 → 那些不变的文字也跟着闪。
+    NSMutableArray<NSIndexPath *> *paths = [@[
+        [NSIndexPath indexPathForRow:1 inSection:2],
+        [NSIndexPath indexPathForRow:2 inSection:2],
+    ] mutableCopy];
+    if (wasCustom) { [paths addObject:[NSIndexPath indexPathForRow:0 inSection:1]]; }
+    [self.tableView reloadRowsAtIndexPaths:paths withRowAnimation:UITableViewRowAnimationNone];
 }
 
 - (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
