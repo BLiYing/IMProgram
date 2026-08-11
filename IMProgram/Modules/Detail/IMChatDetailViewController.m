@@ -1506,7 +1506,9 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
 /// 分段控件按内容宽居中（贴顶条与表内一致，单/多 tab 段宽固定）。段高 kTabSegH、下限加宽 → 点击面积更大。
 - (void)layoutSegmented:(IMLiquidSegmentedControl *)seg inWidth:(CGFloat)width {
     CGFloat w = [seg sizeThatFits:CGSizeMake(width - 32, kTabSegH)].width;
-    w = IMClamp(w, 200, width - 32);        // 下限加宽到 200，单/多 tab 都有更大点击面积
+    // 多 tab 下限 200（大点击面积）；**单 tab 收窄到 1/3（~67）**——单个页签无需铺那么宽，居中更紧凑。
+    CGFloat minW = self.tabs.count <= 1 ? 200.0 / 3.0 : 200;
+    w = IMClamp(w, minW, width - 32);
     seg.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
     seg.frame = CGRectMake((width - w) / 2, (kTabBarH - kTabSegH) / 2, w, kTabSegH);
 }

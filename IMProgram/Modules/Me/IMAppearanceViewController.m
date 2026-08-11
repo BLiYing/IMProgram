@@ -421,26 +421,46 @@ typedef NS_ENUM(NSInteger, IMAppearanceGridKind) {
 }
 @end
 
-@interface IMAppearanceGridViewController : UICollectionViewController <UICollectionViewDelegateFlowLayout>
+// ⚠️ 必须是普通 UIViewController + 内嵌 UICollectionView（而非 UICollectionViewController）：
+// 与下方 IMAppearanceModeViewController 同根因——导航容器 IMMainNavigationController 会给 push 页注入
+// IMLiquidNavigationBar 到 vc.view 上并 additionalSafeAreaInsets.top=56；UICollectionViewController 的
+// vc.view 本身就是滚动的 collectionView，注入栏约束到滚动视图 topAnchor 会被初始负 contentOffset 推下
+// → 标题栏下移且随滚动漂移。改为普通 VC，栏挂静止 self.view。
+@interface IMAppearanceGridViewController : UIViewController <UICollectionViewDataSource, UICollectionViewDelegate, UICollectionViewDelegateFlowLayout>
 @property (nonatomic, assign) IMAppearanceGridKind kind;
 - (instancetype)initWithKind:(IMAppearanceGridKind)kind;
 @end
 
-@implementation IMAppearanceGridViewController
+@implementation IMAppearanceGridViewController {
+    UICollectionView *_collectionView;
+}
 - (instancetype)initWithKind:(IMAppearanceGridKind)kind {
-    UICollectionViewFlowLayout *layout = [UICollectionViewFlowLayout new];
-    layout.sectionInset = UIEdgeInsetsMake(18, 16, 24, 16);
-    layout.minimumInteritemSpacing = 12;
-    layout.minimumLineSpacing = 14;
-    self = [super initWithCollectionViewLayout:layout];
+    self = [super initWithNibName:nil bundle:nil];
     if (self) { _kind = kind; }
     return self;
 }
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = self.kind == IMAppearanceGridKindTheme ? @"聊天主题" : @"聊天壁纸";
-    self.collectionView.backgroundColor = IMTheme.groupedBackground;
-    [self.collectionView registerClass:IMAppearanceGridCell.class forCellWithReuseIdentifier:@"appearance"];
+    self.view.backgroundColor = IMTheme.groupedBackground;
+
+    UICollectionViewFlowLayout *layout = [UICollectionViewFlowLayout new];
+    layout.sectionInset = UIEdgeInsetsMake(18, 16, 24, 16);
+    layout.minimumInteritemSpacing = 12;
+    layout.minimumLineSpacing = 14;
+    _collectionView = [[UICollectionView alloc] initWithFrame:self.view.bounds collectionViewLayout:layout];
+    _collectionView.backgroundColor = IMTheme.groupedBackground;
+    _collectionView.dataSource = self;
+    _collectionView.delegate = self;
+    _collectionView.translatesAutoresizingMaskIntoConstraints = NO;
+    [_collectionView registerClass:IMAppearanceGridCell.class forCellWithReuseIdentifier:@"appearance"];
+    [self.view addSubview:_collectionView];
+    [NSLayoutConstraint activateConstraints:@[
+        [_collectionView.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [_collectionView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
+        [_collectionView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [_collectionView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+    ]];
 }
 - (NSInteger)collectionView:(UICollectionView *)collectionView numberOfItemsInSection:(NSInteger)section {
     return self.kind == IMAppearanceGridKindTheme ? IMThemeIDs().count : IMWallpaperIDs().count;
