@@ -17,6 +17,53 @@
 #define IMFileNameFromContent(c) IMMediaFileName(c)
 #define IMLooksLikeURL(s) IMMediaLooksLikeURL(s)
 
+// —— 长文本分档阈值（与 Web longtext.ts 严格一致）——
+static const NSUInteger IMTextHugeChars = 2000;
+static const NSUInteger IMTextHugeLines = 60;
+static const NSUInteger IMTextLongChars = 300;
+static const NSUInteger IMTextLongLines = 10;
+static const NSUInteger IMTextCollapsedLines = 8;   // Long 折叠态气泡内保留行数
+static const NSUInteger IMTextCollapsedChars = 400; // 折叠态字数硬顶（防单行超长）
+static const NSUInteger IMTextHugePreviewChars = 120; // Huge 摘要卡预览字数
+
+static NSUInteger IMHardLineCount(NSString *s) {
+    NSUInteger n = 1;
+    for (NSUInteger i = 0; i < s.length; i++) if ([s characterAtIndex:i] == '\n') n++;
+    return n;
+}
+
+/// Unicode 码点数（代理对按 1 计），与 Web `[...text].length` 同口径——分档字数判据两端必须一致。
+/// 高代理 0xD800–0xDBFF、低代理 0xDC00–0xDFFF；成对则合并为 1 个码点。
+static NSUInteger IMCodePointCount(NSString *s) {
+    NSUInteger n = 0, i = 0, len = s.length;
+    while (i < len) {
+        unichar c = [s characterAtIndex:i];
+        BOOL high = (c >= 0xD800 && c <= 0xDBFF);
+        if (high && i + 1 < len) {
+            unichar lo = [s characterAtIndex:i + 1];
+            i += (lo >= 0xDC00 && lo <= 0xDFFF) ? 2 : 1;
+        } else {
+            i += 1;
+        }
+        n++;
+    }
+    return n;
+}
+
+/// 按行、再按字数截断（不切断组合字符/代理对），供 Long 折叠与 Huge 预览共用。
+static NSString *IMTruncateText(NSString *content, NSUInteger maxLines, NSUInteger maxChars) {
+    NSString *out = content;
+    NSArray<NSString *> *lines = [out componentsSeparatedByString:@"\n"];
+    if (lines.count > maxLines) {
+        out = [[lines subarrayWithRange:NSMakeRange(0, maxLines)] componentsJoinedByString:@"\n"];
+    }
+    if (out.length > maxChars) {
+        NSRange r = [out rangeOfComposedCharacterSequenceAtIndex:maxChars];
+        out = [out substringToIndex:r.location];
+    }
+    return out;
+}
+
 /// 若快照是媒体占位（[图片]/[视频]/[文件]），返回对应 SF Symbol 名做内嵌小图标；否则 nil。
 /// 统一用 .fill 填充变体（与输入框回复条 video.fill/photo.fill 观感一致，矢量、跟随文字色）；
 /// 均为 iOS 13 基线符号，不随系统更新消失。
@@ -102,6 +149,25 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     NSLayoutConstraint *_fileRowBottom;    // 文件消息：文件行贴气泡底
     NSLayoutConstraint *_fileMinWidth;     // 文件消息：行定宽=气泡上限宽（仅文件模式激活，勿撑大文本气泡）
     NSArray<NSLayoutConstraint *> *_fileConstraints; // 文件行全部结构约束（仅文件模式激活，见 init 注释）
+}
+
++ (IMBubbleTextTier)textTierForContent:(NSString *)content {
+    if (content.length == 0) return IMBubbleTextTierShort;
+    NSUInteger chars = IMCodePointCount(content); // 码点计，与 Web `[...text].length` 一致
+    NSUInteger lines = IMHardLineCount(content);
+    if (chars >= IMTextHugeChars || lines >= IMTextHugeLines) return IMBubbleTextTierHuge;
+    if (chars >= IMTextLongChars || lines >= IMTextLongLines) return IMBubbleTextTierLong;
+    return IMBubbleTextTierShort;
+}
+
+/// 摘要卡/阅读器的字数标签「约 8,400 字」（千分位、按码点计）。cell 与阅读器共用同一入口，避免重复实现（与 Web charCountLabel 同口径）。
++ (NSString *)charCountLabelForText:(NSString *)text {
+    NSNumberFormatter *f = [NSNumberFormatter new];
+    f.numberStyle = NSNumberFormatterDecimalStyle;
+    f.groupingSeparator = @",";
+    f.usesGroupingSeparator = YES;
+    NSNumber *n = @(IMCodePointCount(text ?: @""));
+    return [NSString stringWithFormat:@"约 %@ 字", [f stringFromNumber:n] ?: n.stringValue];
 }
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
@@ -422,15 +488,48 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     BOOL fileMode = [message.contentType isEqualToString:@"file"];
     if (!fileMode) {
         NSString *contentText = message.content ?: @"";
-        NSMutableDictionary *contentAttr = [@{ NSFontAttributeName: [UIFont systemFontOfSize:IMTheme.chatFontSize],
-                                               NSForegroundColorAttributeName: IMTheme.textPrimary } mutableCopy];
-        if (IMLooksLikeURL(contentText)) {
-            contentAttr[NSForegroundColorAttributeName] = UIColor.systemBlueColor;
-            contentAttr[NSUnderlineStyleAttributeName] = @(NSUnderlineStyleSingle);
+        BOOL isURL = IMLooksLikeURL(contentText);
+        // URL 不参与长文本分档（纯 URL 不会超长）；其余按 chars/lines 双判据分档（与 Web longtext.ts 一致）。
+        IMBubbleTextTier tier = isURL ? IMBubbleTextTierShort : [IMBubbleCell textTierForContent:contentText];
+        NSDictionary *contentAttr = @{ NSFontAttributeName: [UIFont systemFontOfSize:IMTheme.chatFontSize],
+                                       NSForegroundColorAttributeName: IMTheme.textPrimary };
+        NSDictionary *urlAttr = @{ NSFontAttributeName: [UIFont systemFontOfSize:IMTheme.chatFontSize],
+                                   NSForegroundColorAttributeName: UIColor.systemBlueColor,
+                                   NSUnderlineStyleAttributeName: @(NSUnderlineStyleSingle) };
+        NSDictionary *affordanceAttr = @{ NSFontAttributeName: [UIFont systemFontOfSize:13 weight:UIFontWeightMedium],
+                                          NSForegroundColorAttributeName: IMTheme.accent };
+        BOOL collapsed = NO; // Long 折叠态：跳过译文/展开态尾巴，避免折叠时下方还挂译文
+        if (tier == IMBubbleTextTierHuge) {
+            // 超长 → 摘要卡：📄 长文本 · 约N字\n 预览(次要色, 截断) \n 查看全文 ›
+            NSTextAttachment *icon = [NSTextAttachment new];
+            icon.image = IMTintedGlyph(@"doc.text", 15);
+            icon.bounds = CGRectMake(0, -2, 15, 15);
+            [body appendAttributedString:[NSAttributedString attributedStringWithAttachment:icon]];
+            [body appendAttributedString:[[NSAttributedString alloc]
+                initWithString:[NSString stringWithFormat:@" 长文本 · %@\n", [IMBubbleCell charCountLabelForText:contentText]]
+                    attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:IMTheme.chatFontSize weight:UIFontWeightSemibold],
+                                  NSForegroundColorAttributeName: IMTheme.textPrimary }]];
+            NSString *preview = IMTruncateText(contentText, 3, IMTextHugePreviewChars);
+            [body appendAttributedString:[[NSAttributedString alloc]
+                initWithString:[preview stringByReplacingOccurrencesOfString:@"\n" withString:@" "]
+                    attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:13],
+                                  NSForegroundColorAttributeName: IMTheme.textSecondary }]];
+            [body appendAttributedString:[[NSAttributedString alloc] initWithString:@"\n查看全文 ›" attributes:affordanceAttr]];
+        } else if (tier == IMBubbleTextTierLong && !self.textExpanded) {
+            // 中长折叠：前若干行（并按字数硬顶）+ 省略号 + 「展开全文」
+            collapsed = YES;
+            NSString *shown = IMTruncateText(contentText, IMTextCollapsedLines, IMTextCollapsedChars);
+            [body appendAttributedString:[[NSAttributedString alloc] initWithString:shown attributes:isURL ? urlAttr : contentAttr]];
+            [body appendAttributedString:[[NSAttributedString alloc] initWithString:@"…\n展开全文 ∨" attributes:affordanceAttr]];
+        } else {
+            // 短文本，或中长已展开：全显。展开态末尾加「收起」。
+            [body appendAttributedString:[[NSAttributedString alloc] initWithString:contentText attributes:isURL ? urlAttr : contentAttr]];
+            if (tier == IMBubbleTextTierLong) {
+                [body appendAttributedString:[[NSAttributedString alloc] initWithString:@"\n收起 ∧" attributes:affordanceAttr]];
+            }
         }
-        [body appendAttributedString:[[NSAttributedString alloc] initWithString:contentText attributes:contentAttr]];
-        // 翻译（M4-5）：译文另起一行挂气泡内（灰字小字）。
-        if (message.translation.length > 0) {
+        // 翻译（M4-5）：译文另起一行挂气泡内（灰字小字）。折叠态不挂（展开后再出现）。
+        if (message.translation.length > 0 && !collapsed) {
             [body appendAttributedString:[[NSAttributedString alloc]
                 initWithString:[NSString stringWithFormat:@"\n%@", message.translation]
                     attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:14],

@@ -16,6 +16,7 @@
 #import "IMVideoThumbnailLoader.h"
 #import "IMMediaPlaceholder.h"   // 引用缩略 / 媒体库统一门控取图（真帧>thumb磨砂>图标）
 #import "IMMediaViewerViewController.h"
+#import "IMTextReaderViewController.h" // 超长文本全屏阅读器
 #import "IMConversationMediaViewController.h"
 #import "IMForwardPickerViewController.h"
 #import "IMChatRecordViewController.h"
@@ -169,6 +170,8 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
 // @提及（M4-8，仅群聊）：候选表 uid→显示名，发送时按输入框里是否还留着 `@显示名` 复核。
 @property (nonatomic, strong, nullable) NSMutableDictionary<NSString *, NSString *> *mentionCandidates;
 @property (nonatomic, assign) BOOL mentionAllPending; // 已选过 @所有人（仍需文本里留着 token 才生效）
+/// 中长文本"展开全文"记忆（按消息 key）：Long 档气泡点击在折叠/展开间切换。
+@property (nonatomic, strong) NSMutableSet<NSString *> *expandedTextKeys;
 @property (nonatomic, assign) BOOL mentionPickerSuppressed; // 用户已手动关掉选择卡：本次 @ 输入态内不再自动弹
 @property (nonatomic, strong) NSMutableArray<IMMessageModel *> *messages;
 @property (nonatomic, strong) NSMutableSet<NSNumber *> *seenConvSeqs; // 按 conv_seq 去重，避免推送+同步重复
@@ -1566,9 +1569,12 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         }]];
     }
     [acts addObject:[IMPopoverCardItem itemWithTitle:@"收藏" symbol:@"bookmark" destructive:NO handler:^{ [ws favoriteMessage:m]; }]];
-    [acts addObject:[IMPopoverCardItem itemWithTitle:@"复制" symbol:@"doc.on.doc" destructive:NO handler:^{
-        [ws copyMessageToPasteboard:m]; // 图片→复制图片字节（可粘贴回输入框发图）；其余→复制链接
-    }]];
+    // 视频不提供复制：无"复制字节"语义，复制链接意义不大，产品上禁止复制视频消息（与 Web 对齐）。
+    if (!isVideo) {
+        [acts addObject:[IMPopoverCardItem itemWithTitle:@"复制" symbol:@"doc.on.doc" destructive:NO handler:^{
+            [ws copyMessageToPasteboard:m]; // 图片→复制图片字节（可粘贴回输入框发图）
+        }]];
+    }
     if (m.recalledAt == 0 && m.convSeq > 0) {
         [acts addObject:[IMPopoverCardItem itemWithTitle:@"转发" symbol:@"arrowshape.turn.up.right" destructive:NO handler:^{ [ws forwardMessage:m]; }]];
     }
@@ -2193,6 +2199,44 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     [(presenter ?: self) presentViewController:nav animated:YES completion:nil];
 }
 
+#pragma mark - 长文本展开/阅读器（Q1）
+
+/// 消息在"展开记忆"里的 key：已落库用 convSeq，发送中退回 clientMsgID。
+- (NSString *)textKeyForMessage:(IMMessageModel *)m {
+    if (m.convSeq > 0) { return [NSString stringWithFormat:@"seq-%lld", (long long)m.convSeq]; }
+    return m.clientMsgID.length > 0 ? m.clientMsgID : @"";
+}
+
+- (BOOL)isTextExpandedForMessage:(IMMessageModel *)m {
+    return [self.expandedTextKeys containsObject:[self textKeyForMessage:m]];
+}
+
+/// 切换中长文本的展开态并就地重配该行（高度随之增减，气泡内容重排）。
+- (void)toggleTextExpandedForMessage:(IMMessageModel *)m atIndexPath:(NSIndexPath *)ip {
+    if (!self.expandedTextKeys) { self.expandedTextKeys = [NSMutableSet set]; }
+    NSString *key = [self textKeyForMessage:m];
+    if ([self.expandedTextKeys containsObject:key]) { [self.expandedTextKeys removeObject:key]; }
+    else { [self.expandedTextKeys addObject:key]; }
+    [self.tableView reloadRowsAtIndexPaths:@[ip] withRowAnimation:UITableViewRowAnimationNone];
+}
+
+/// 点击文本消息的分档路由：Huge→全屏阅读器；Long→展开/收起；Short→无操作。返回 YES 表示已消费该点击。
+- (BOOL)handleLongTextTapForMessage:(IMMessageModel *)m atIndexPath:(NSIndexPath *)ip {
+    if (![m.contentType isEqualToString:@"text"] || m.recalledAt > 0) { return NO; }
+    NSString *content = m.content ?: @"";
+    if (IMLooksLikeURL(content)) { return NO; } // 纯 URL 交给链接打开逻辑
+    IMBubbleTextTier tier = [IMBubbleCell textTierForContent:content];
+    if (tier == IMBubbleTextTierHuge) {
+        [self presentViewController:[IMTextReaderViewController readerWithText:content] animated:YES completion:nil];
+        return YES;
+    }
+    if (tier == IMBubbleTextTierLong) {
+        [self toggleTextExpandedForMessage:m atIndexPath:ip];
+        return YES;
+    }
+    return NO;
+}
+
 /// 点击引用消息（有 replyToConvSeq）→ 跳到原消息；其余点击忽略。附件面板展开时点空白先收起面板（#3）。
 - (void)handleReplyJumpTap:(UITapGestureRecognizer *)gr {
     if (self.selecting) {
@@ -2216,6 +2260,9 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     [self.inputField resignFirstResponder]; // 点消息区任意处收起键盘（微信式；拖拽收起仍由 Interactive 模式负责）
     if (!ip || ip.row >= (NSInteger)self.messages.count) { return; }
     IMMessageModel *m = self.messages[(NSUInteger)ip.row];
+    // 长文本（Q1）**先于**引用跳转判定：Long/Huge 文本气泡的展开/阅读器是整条点击触发，若被引用跳转抢先，
+    // 作为引用发出的长文/超长文就永远点不开（内部已滤掉非文本/URL/撤回，短文本与媒体/文件引用照走下面的跳转）。
+    if ([self handleLongTextTapForMessage:m atIndexPath:ip]) { return; }
     if (m.replyToConvSeq > 0) {
         int64_t target = m.replyToConvSeq;
         // 键盘正收起时，把定位滚动推迟到 inset 落定后——否则 scrollToRow 用即将失效的布局会停错位。
@@ -2795,6 +2842,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     cell.onNoteActionTap = ^{ [wsNote sendFriendRequestFromRejectedNote]; };
     NSString *replyFromName = (self.isGroupChat && m.replyToConvSeq > 0 && m.replyToFrom.length > 0)
         ? [self replyFromNameForUID:m.replyToFrom] : nil;
+    cell.textExpanded = [self isTextExpandedForMessage:m]; // 中长文本"展开全文"记忆（configure 前置）
     [cell configureWithMessage:m mine:mine peerReadSeq:self.peerReadSeq
                      dayHeader:[self dayHeaderForRow:indexPath.row]
             showsUnreadDivider:showsDivider

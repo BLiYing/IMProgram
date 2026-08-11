@@ -6,7 +6,21 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+/// 文本消息显示分档（阈值与 Web longtext.ts 一致）：
+///   Short 全显；Long 折叠前若干行 + 点气泡展开/收起；Huge 摘要卡 → 全屏阅读器。
+typedef NS_ENUM(NSInteger, IMBubbleTextTier) {
+    IMBubbleTextTierShort = 0,
+    IMBubbleTextTierLong,
+    IMBubbleTextTierHuge,
+};
+
 @interface IMBubbleCell : UITableViewCell
+
+/// 纯文本内容的显示分档（URL 由调用方另判，不走此分档）。VC 与 cell 共用同一判据。
++ (IMBubbleTextTier)textTierForContent:(nullable NSString *)content;
+
+/// 字数标签「约 8,400 字」（千分位、按码点计）。摘要卡与全屏阅读器共用，避免重复实现。
++ (NSString *)charCountLabelForText:(nullable NSString *)text;
 
 /// 长按菜单高亮/收起动画的目标视图（=气泡本体）：系统默认会截整行全宽快照，露出难看的底色托盘。
 @property (nonatomic, strong, readonly) UIView *previewTargetView;
@@ -19,6 +33,9 @@ NS_ASSUME_NONNULL_BEGIN
 /// 文件消息**下载**态（收到的文件，M4-7；nil=不显下载态）。与 uploadProgress 互斥：
 /// 自己发的用 uploadProgress，收到的用 downloadProgress。图标位据此变圆环状态机（未下载↓ / 下载中⏸ / 暂停↓ / 失败↻ / 就绪=文件图标）。
 @property (nonatomic, strong, nullable) IMDownloadProgress *downloadProgress;
+
+/// 中长文本（Long 档）是否已展开（宿主按消息记忆，configure 前设置）。Huge/Short 档忽略此值。
+@property (nonatomic, assign) BOOL textExpanded;
 
 /// 下载进度**就地更新**（M4-7）：宿主在高频 onProgress 回调里调用，只改第二行文案 + 图标位环/字形，
 /// 不重配整行、不 reloadRows（避免每片一次 reload 卡死主线程）。

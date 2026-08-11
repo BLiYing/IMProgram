@@ -5,6 +5,11 @@
 
 ## 当前焦点
 
+**两项 UX 优化 ✅ 代码完成 + `/code-review` 全修（2026-08-11，**未编译·用户自测**）** — 逐端矩阵见 `../IMServer/docs/CLIENT_PARITY.md`「UX」行；与 Web 同步交付。
+> 审查修复（iOS 侧）：分档字数改按码点计 `IMCodePointCount`（emoji 场景与 Web 一致）；`groupedCount` 收敛为 `+[IMBubbleCell charCountLabelForText:]`（cell+阅读器共用）；长文/超长**引用**消息点击先于引用跳转判定（否则整条点击被跳转抢占、永远点不开展开/阅读器）。
+1. **长文本三档显示**：`IMBubbleCell +textTierForContent:`（分档判据，阈值与 Web `longtext.ts` 一致：huge `chars≥2000|lines≥60`、long `≥300|≥10`）。cell 配置——short 全显；long 折叠前 8 行/400 字 + 「展开全文 ∨ / 收起 ∧」（宿主 `expandedTextKeys` 按 `seq-<convSeq>`/clientMsgID 记忆，点气泡切换并 `reloadRows`）；huge 摘要卡（📄 长文本·约N字 + 3 行预览 + 查看全文 ›）→ 点开新建 `IMTextReaderViewController`（全屏 `UITextView` 只读可选、字号 A±、复制全文）。tap 路由在 `handleReplyJumpTap:` → `handleLongTextTapForMessage:atIndexPath:`。**iOS 无对应单测**（判据可后补 XCTest）。
+2. **视频禁复制**：`IMChatViewController` 媒体查看器 `moreActions` 加 `if (!isVideo)` 守卫（图片仍可复制；长按菜单 `messageActionsForMessage:` 的 `copyable` 本就只含 text/image，不含视频）。
+
 **任务二（IMServer 驱动）— 详情页删文件两档 + 返回按钮全局未读徽标 ✅ 三端手测通过（2026-08-11，build 通过）**
 > 完整设计/归档见 `../IMServer/current_task.archive.md`「2026-08-11 归档④」；逐端矩阵 `../IMServer/docs/CLIENT_PARITY.md`「任务二」。
 - **删文件两档**：`IMProtocol`(delete/msg_hidden 常量)、`IMDatabase`(deleteLocalMessageForConv / totalUnreadExcludingConv)、`IMSocketManager`(deleteMessageForEveryone / removeLocalMessage / msg_hidden 帧 / applyMsgOp op=delete + `IMSocketDidRemoveMessageNotification`)、`IMMessageModel.deletedAt` + `processIncomingMessage` 直加载跳过、`IMHTTPService`(hide / fetchHidden)、`IMChatDetailViewController deleteFileMessage:` 两档 actionSheet（我发的/群主·管理员=为所有人删除+仅删自己；他人=删除）、`IMConversationListViewController` 登录 fetchHidden catch-up。
