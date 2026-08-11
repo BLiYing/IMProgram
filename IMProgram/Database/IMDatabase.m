@@ -792,4 +792,46 @@
     return applied;
 }
 
+- (BOOL)deleteLocalMessageForConv:(NSString *)convID
+                          convSeq:(int64_t)convSeq
+           advancingSyncedConvSeq:(int64_t)syncedConvSeq {
+    if (convID.length == 0 || convSeq <= 0) { return NO; }
+    NSString *owner = [self ownerUserID];
+    __block BOOL applied = NO;
+    [_queue inTransaction:^(FMDatabase *db, BOOL *rollback) {
+        if (![db executeUpdate:@"DELETE FROM im_message_local WHERE owner_uid=? AND conv_id=? AND conv_seq=?",
+              owner, convID, @(convSeq)]) {
+            IMLogDatabase(@"删除本地消息失败 owner=%@ conv=%@ seq=%lld: %@", owner, convID, convSeq, db.lastErrorMessage);
+            *rollback = YES;
+            return;
+        }
+        if (syncedConvSeq > 0 && ![db executeUpdate:
+            @"UPDATE im_conversation_local SET synced_conv_seq=MAX(synced_conv_seq,?) WHERE owner_uid=? AND conv_id=?",
+            @(syncedConvSeq), owner, convID]) {
+            IMLogDatabase(@"删除消息与连续位置原子提交失败 owner=%@ conv=%@: %@", owner, convID, db.lastErrorMessage);
+            *rollback = YES;
+            return;
+        }
+        applied = YES;
+    }];
+    return applied;
+}
+
+- (NSInteger)totalUnreadExcludingConv:(nullable NSString *)excludeConvID {
+    NSString *owner = [self ownerUserID];
+    __block NSInteger total = 0;
+    [_queue inDatabase:^(FMDatabase *db) {
+        FMResultSet *rs;
+        if (excludeConvID.length > 0) {
+            rs = [db executeQuery:@"SELECT COALESCE(SUM(unread),0) AS t FROM im_conversation_local WHERE owner_uid=? AND conv_id<>?",
+                  owner, excludeConvID];
+        } else {
+            rs = [db executeQuery:@"SELECT COALESCE(SUM(unread),0) AS t FROM im_conversation_local WHERE owner_uid=?", owner];
+        }
+        if ([rs next]) { total = (NSInteger)[rs longForColumn:@"t"]; }
+        [rs close];
+    }];
+    return total;
+}
+
 @end

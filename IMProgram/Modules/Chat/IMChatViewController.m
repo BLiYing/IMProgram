@@ -277,6 +277,14 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
                                                name:IMSocketDidApplyMsgOpNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onMsgOpRejected:)
                                                name:IMSocketDidRejectMsgOpNotification object:nil];
+    // 任务2：消息被物理移除（为所有人删除 / 仅为我删除）→ 本会话则从列表删掉该条。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onMessageRemoved:)
+                                               name:IMSocketDidRemoveMessageNotification object:nil];
+    // 任务2：返回按钮全局未读徽标——其它会话来新消息 / 已读位点变化时刷新数字（本会话已排除，不受影响）。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(refreshBackUnreadBadge)
+                                               name:IMSocketDidReceiveMessageNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(refreshBackUnreadBadge)
+                                               name:IMSocketDidReceiveReadNotification object:nil];
     // 资料页清空聊天记录 → 本会话清空内存并刷新（否则返回聊天页仍显旧消息）。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onConversationCleared:)
                                                name:IMChatConversationClearedNotification object:nil];
@@ -446,6 +454,30 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
 - (void)onMsgOpRejected:(NSNotification *)note {
     NSString *msg = note.userInfo[@"message"];
     [self im_showToast:msg.length > 0 ? msg : @"操作失败"];
+}
+
+/// 任务2：某条消息被物理移除（为所有人删除 / 仅为我删除）→ 本会话则从消息列表删掉并刷新。
+- (void)onMessageRemoved:(NSNotification *)note {
+    NSString *convID = note.userInfo[kIMConvIDKey];
+    if (![convID isEqualToString:self.convID]) { return; }
+    int64_t target = [note.userInfo[kIMMsgOpTargetSeqKey] longLongValue];
+    if (target <= 0) { return; }
+    NSUInteger idx = NSNotFound;
+    for (NSUInteger i = 0; i < self.messages.count; i++) {
+        if (self.messages[i].convSeq == target) { idx = i; break; }
+    }
+    if (idx == NSNotFound) { return; }
+    [self.messages removeObjectAtIndex:idx];
+    [self.tableView reloadData];
+}
+
+/// 任务2：刷新返回按钮的全局未读总数徽标（各会话 unread 之和，排除当前会话，微信式）。
+- (void)refreshBackUnreadBadge {
+    __block NSInteger total = 0;
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        total = [database totalUnreadExcludingConv:self.convID];
+    }];
+    [self im_setBackBadgeCount:total];
 }
 
 #pragma mark - 群聊（M3-5）
@@ -675,6 +707,7 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     // 若不主动拉一次，connState 会停在默认值 → 标题误显「未连接」。
     self.connState = IMSocketManager.sharedManager.state;
     [self updateTitle];
+    [self refreshBackUnreadBadge]; // 任务2：进页即显返回按钮全局未读徽标（全局总未读减当前会话）
     [IMSocketManager.sharedManager connectToHost:self.host userID:self.userID];
     // 登记本会话：以 SQLite 中“已连续同步完成”的位置为起点，不能用本地最大消息序号代替，
     // 否则只存有较新消息时会永久跳过前面的空洞。

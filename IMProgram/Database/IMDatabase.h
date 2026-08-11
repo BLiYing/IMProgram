@@ -119,6 +119,15 @@ NS_ASSUME_NONNULL_BEGIN
                newContent:(nullable NSString *)newContent
     advancingSyncedConvSeq:(int64_t)syncedConvSeq;
 
+/// 任务2：物理删除某会话内 conv_seq 定位的一条消息（为所有人删除 / 仅为我删除共用），
+/// 并可选原子推进连续同步位置（syncedConvSeq>0 时），避免同一批 sync 重新拉回。返回是否删到行。
+- (BOOL)deleteLocalMessageForConv:(NSString *)convID
+                          convSeq:(int64_t)convSeq
+           advancingSyncedConvSeq:(int64_t)syncedConvSeq;
+
+/// 任务2：当前账号全局未读总数（各会话 unread 之和；exclude 非空时排除该会话）。用于聊天页返回按钮徽标。
+- (NSInteger)totalUnreadExcludingConv:(nullable NSString *)excludeConvID;
+
 @end
 
 NS_ASSUME_NONNULL_END

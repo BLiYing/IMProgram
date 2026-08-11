@@ -749,6 +749,9 @@ static CGFloat const kNavOpaqueOnCollapse = 0.8;
     }
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onConvUpdate:)
                                                name:IMSocketDidUpdateConversationNotification object:nil];
+    // 任务2：消息被物理移除（为所有人删除 / 仅为我删除）→ 重建页签内容（文件列表随之更新）。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onMessageRemoved:)
+                                               name:IMSocketDidRemoveMessageNotification object:nil];
 }
 
 - (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
@@ -1283,6 +1286,13 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
 - (void)onConvUpdate:(NSNotification *)note {
     if (![note.userInfo[kIMConvIDKey] isEqualToString:self.convID]) { return; }
     [self loadConversationSettings];
+}
+
+/// 任务2：某条消息被物理移除（为所有人删除 / 仅为我删除）→ 本会话则重建页签（文件列表去掉该行）。
+- (void)onMessageRemoved:(NSNotification *)note {
+    if (![note.userInfo[kIMConvIDKey] isEqualToString:self.convID]) { return; }
+    [self rebuildTabs];
+    [self.tableView reloadData];
 }
 
 #pragma mark - 页签
@@ -2218,9 +2228,41 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
     }
 }
 
-/// 删除：服务端「删除文件消息」接口尚缺（DOWNLOAD_DATA_STORAGE_PLAN 待补）→ 先占位，不误导用户已删。
+/// 删除文件（任务2，两档，参照 Telegram/主流 IM）：
+/// 我发的 / 群主·管理员 → 【为所有人删除】(WS msg_op delete，对端也消失) +【仅删除自己】；
+/// 他人发的普通成员 → 仅【删除】(=仅删除自己，REST 隐藏 + 多设备同步)。
 - (void)deleteFileMessage:(IMMessageModel *)m {
-    [self im_showToast:@"删除功能开发中"];
+    if (m.convSeq <= 0) { [self im_showToast:@"该消息尚未同步，暂不能删除"]; return; }
+    BOOL mine = m.from.length > 0 && [m.from isEqualToString:self.userID];
+    BOOL canDeleteForEveryone = mine || (self.isGroup &&
+        (self.group.myRole == IMGroupRoleOwner || self.group.myRole == IMGroupRoleAdmin));
+
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:nil message:nil
+                                                           preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak typeof(self) ws = self;
+    if (canDeleteForEveryone) {
+        [sheet addAction:[UIAlertAction actionWithTitle:@"为所有人删除" style:UIAlertActionStyleDestructive
+                                                handler:^(UIAlertAction *a) {
+            // 走 WS msg_op op=delete；服务端广播回后经 IMSocketDidRemoveMessageNotification 移除本地。被拒走 reject 通知。
+            [[IMSocketManager sharedManager] deleteMessageForEveryoneInConv:ws.convID targetConvSeq:m.convSeq];
+        }]];
+    }
+    NSString *selfTitle = canDeleteForEveryone ? @"仅删除自己" : @"删除";
+    [sheet addAction:[UIAlertAction actionWithTitle:selfTitle style:UIAlertActionStyleDestructive
+                                            handler:^(UIAlertAction *a) {
+        NSString *token = IMHTTPService.sharedService.currentToken;
+        [IMHTTPService.sharedService hideMessageWithToken:token convID:ws.convID convSeq:m.convSeq
+                                               completion:^(NSError *error) {
+            if (error) { [ws im_showToast:error.localizedDescription ?: @"删除失败"]; return; }
+            // REST 成功后本端立即物理移除（并广播移除通知刷新列表）；服务端另推 msg_hidden 同步本人其它设备。
+            [[IMSocketManager sharedManager] removeLocalMessageInConv:ws.convID targetConvSeq:m.convSeq];
+        }];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    // iPad：actionSheet 需锚点，否则崩溃。
+    sheet.popoverPresentationController.sourceView = self.view;
+    sheet.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(self.view.bounds), CGRectGetMidY(self.view.bounds), 1, 1);
+    [self presentViewController:sheet animated:YES completion:nil];
 }
 
 - (NSInteger)numberOfPreviewItemsInPreviewController:(QLPreviewController *)controller {

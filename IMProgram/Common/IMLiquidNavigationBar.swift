@@ -201,6 +201,16 @@ public final class IMLiquidNavigationBar: UIView {
     // 独立玻璃视图」分离结构，玻璃不参与交互、只能做 scale 0.94 的缩小，缺原生放大观感。
     private let backButton = IMLiquidGlassButton(type: .system)
     private let actionButton = IMLiquidGlassButton(type: .system)
+    // 任务2：返回按钮右上角的全局未读总数徽标（圆形红底白字，微信式；数字=全局总未读减当前会话）。
+    private let backBadge = UILabel()
+
+    /// 返回按钮上的全局未读总数（任务2）。0 或返回键隐藏时不显示；>99 显示「99+」。
+    @objc public var backBadgeCount: Int = 0 {
+        didSet {
+            guard oldValue != backBadgeCount else { return }
+            updateBackBadge()
+        }
+    }
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
     private let titleGlass = UIVisualEffectView()
@@ -246,6 +256,16 @@ public final class IMLiquidNavigationBar: UIView {
 
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
         addSubview(backButton)
+
+        // 未读徽标：叠在返回按钮右上角（addSubview 顺序在其后，保证盖在上层）。
+        backBadge.font = .systemFont(ofSize: 12, weight: .semibold)
+        backBadge.textColor = .white
+        backBadge.textAlignment = .center
+        backBadge.backgroundColor = .systemRed
+        backBadge.clipsToBounds = true
+        backBadge.isUserInteractionEnabled = false
+        backBadge.isHidden = true
+        addSubview(backBadge)
 
         actionButton.addTarget(self, action: #selector(actionTapped), for: .touchUpInside)
         addSubview(actionButton)
@@ -320,6 +340,14 @@ public final class IMLiquidNavigationBar: UIView {
         backButton.configuration = styledButtonConfig(image: image, title: title, foreground: currentPrimary())
         backButton.accessibilityLabel = custom ? (leftTitle ?? "返回") : "返回"
         backButton.isHidden = !showsBackButton && !custom
+        setNeedsLayout()
+    }
+
+    /// 任务2：刷新未读徽标文案与显隐（返回键不显示时徽标也隐藏），并触发重排定位。
+    private func updateBackBadge() {
+        let show = backBadgeCount > 0 && showsBackButton
+        backBadge.isHidden = !show
+        backBadge.text = backBadgeCount > 99 ? "99+" : "\(backBadgeCount)"
         setNeedsLayout()
     }
 
@@ -465,6 +493,17 @@ public final class IMLiquidNavigationBar: UIView {
         let centerX = (bounds.width - centerWidth) / 2
 
         backButton.frame = CGRect(x: side, y: buttonY, width: leftWidth, height: buttonSize)
+
+        // 未读徽标：贴返回按钮右上角（略微外溢）。宽度按文案自适应，单字为圆、多字为胶囊。
+        if !backBadge.isHidden {
+            let badgeH: CGFloat = 18
+            let textW = (backBadge.text as NSString?)?.size(withAttributes: [.font: backBadge.font as Any]).width ?? 0
+            let badgeW = max(badgeH, ceil(textW) + 10)
+            backBadge.layer.cornerRadius = badgeH / 2
+            let cx = backButton.frame.maxX - 6
+            let cy = backButton.frame.minY + 4
+            backBadge.frame = CGRect(x: cx - badgeW / 2, y: cy - badgeH / 2, width: badgeW, height: badgeH)
+        }
 
         actionButton.frame = CGRect(x: bounds.width - side - actionWidth, y: buttonY,
                                     width: actionWidth, height: buttonSize)

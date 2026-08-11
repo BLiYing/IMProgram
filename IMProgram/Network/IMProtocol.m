@@ -19,11 +19,13 @@ NSString * const kIMTypeGroup    = @"group";
 NSString * const kIMTypeMsgOp    = @"msg_op";
 NSString * const kIMTypeConvUpdate = @"conv_update";
 NSString * const kIMTypeCapabilitiesUpdate = @"capabilities_update";
+NSString * const kIMTypeMsgHidden = @"msg_hidden";
 NSString * const kIMTypeError    = @"error";
 
 NSString * const kIMMsgOpRecall  = @"recall";
 NSString * const kIMMsgOpEdit    = @"edit";
 NSString * const kIMMsgOpPin      = @"pin";
+NSString * const kIMMsgOpDelete  = @"delete";
 
 const int64_t kIMRecallWindowMs = 2 * 60 * 1000;
 

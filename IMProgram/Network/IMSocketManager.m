@@ -35,6 +35,7 @@ NSString * const kIMMsgOpTargetSeqKey = @"msgOpTargetSeq";
 NSString * const kIMMsgOpKey = @"msgOp";
 NSString * const kIMMsgOpContentKey = @"msgOpContent";
 NSString * const IMSocketDidRejectMsgOpNotification = @"IMSocketDidRejectMsgOpNotification";
+NSString * const IMSocketDidRemoveMessageNotification = @"IMSocketDidRemoveMessageNotification";
 NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdateConversationNotification";
 
 #pragma mark - 待确认发送项
@@ -344,6 +345,13 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
         [self handleGroupEvent:payload];
     } else if ([type isEqualToString:kIMTypeMsgOp]) {
         [self applyMsgOpPayload:payload];
+    } else if ([type isEqualToString:kIMTypeMsgHidden]) {
+        // 「仅为我删除」多设备同步（任务2）：本人另一端删了 → 本端物理移除。
+        NSString *convID = [payload[@"conv_id"] isKindOfClass:[NSString class]] ? payload[@"conv_id"] : @"";
+        int64_t convSeq = [payload[@"conv_seq"] longLongValue];
+        if (convID.length > 0 && convSeq > 0) {
+            [self removeLocalMessageOnQueueInConv:convID targetConvSeq:convSeq advancingSyncedConvSeq:0];
+        }
     } else if ([type isEqualToString:kIMTypeConvUpdate]) {
         [self handleConvUpdate:payload];
     } else if ([type isEqualToString:kIMTypeCapabilitiesUpdate]) {
@@ -702,6 +710,14 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
         }
         return;
     }
+    // 「为所有人删除」直加载/同步收敛（任务2）：目标行带 deleted_at>0 → 物理移除、不入库为可见消息。
+    // 对齐 recalled_at 的直渲染：不再仅依赖单独的 msg_op 事件行（拿到目标行却漏事件行时会误显已删文件）。
+    if (msg.deletedAt > 0 && msg.convID.length > 0 && msg.convSeq > 0) {
+        [self removeLocalMessageOnQueueInConv:msg.convID targetConvSeq:msg.convSeq
+                       advancingSyncedConvSeq:isNextContiguous ? msg.convSeq : 0];
+        if (isNextContiguous) { [self updateSyncedSeqForConv:msg.convID seq:msg.convSeq]; }
+        return;
+    }
     // 空洞自愈：conv_seq 由服务端连续分配，若收到的序号跳过了已同步位点之后的中间段，
     // 说明中间有未拉取（离线）消息 → 先从已同步位点补拉，避免实时消息把 synced 推过空洞造成漏消息。
     if (prevSynced > 0 && msg.convSeq > prevSynced + 1 && [_trackedConvs containsObject:msg.convID]) {
@@ -824,6 +840,39 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     });
 }
 
+/// 为所有人删除（任务2）：发 msg_op op=delete。收端（含本人）由服务端广播回帧后物理移除。
+- (void)deleteMessageForEveryoneInConv:(NSString *)convID targetConvSeq:(int64_t)targetConvSeq {
+    if (convID.length == 0 || targetConvSeq <= 0) { return; }
+    NSString *clientMsgID = [NSUUID UUID].UUIDString;
+    NSDictionary *payload = @{
+        @"op": kIMMsgOpDelete, @"conv_id": convID,
+        @"target_conv_seq": @(targetConvSeq), @"client_msg_id": clientMsgID,
+    };
+    dispatch_async(_queue, ^{
+        [self->_pendingOps addObject:clientMsgID];
+        [self sendEnvelopeType:kIMTypeMsgOp data:payload completion:nil];
+    });
+}
+
+/// 「仅为我删除」本地落地（任务2）：物理移除该条 + 主线程广播移除通知。可在任意线程调用。
+- (void)removeLocalMessageInConv:(NSString *)convID targetConvSeq:(int64_t)targetConvSeq {
+    if (convID.length == 0 || targetConvSeq <= 0) { return; }
+    dispatch_async(_queue, ^{
+        [self removeLocalMessageOnQueueInConv:convID targetConvSeq:targetConvSeq advancingSyncedConvSeq:0];
+    });
+}
+
+/// 物理移除的落地实现（仅在 _queue 调用）：DB 删行（可选推进同步位点）+ 主线程发 IMSocketDidRemoveMessageNotification。
+- (void)removeLocalMessageOnQueueInConv:(NSString *)convID targetConvSeq:(int64_t)targetConvSeq advancingSyncedConvSeq:(int64_t)syncedConvSeq {
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        [database deleteLocalMessageForConv:convID convSeq:targetConvSeq advancingSyncedConvSeq:syncedConvSeq];
+    }];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidRemoveMessageNotification object:self
+            userInfo:@{ kIMConvIDKey: convID, kIMMsgOpTargetSeqKey: @(targetConvSeq) }];
+    });
+}
+
 /// 应用一条消息操作到本地（DB 落库 + 主线程广播）。payload 来自实时 msg_op 帧或 sync 的 msg_op 事件行负载。
 /// 仅在 _queue 调用。
 - (void)applyMsgOpPayload:(NSDictionary *)payload {
@@ -838,6 +887,12 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
 
     NSString *cmid = [payload[@"client_msg_id"] isKindOfClass:[NSString class]] ? payload[@"client_msg_id"] : nil;
     if (cmid.length > 0) { [_pendingOps removeObject:cmid]; } // 我方操作成功回执
+
+    // 为所有人删除（任务2）：物理移除该条（不走 patch，区别于 recall 的改状态显墓碑）。
+    if ([op isEqualToString:kIMMsgOpDelete]) {
+        [self removeLocalMessageOnQueueInConv:convID targetConvSeq:target advancingSyncedConvSeq:syncedConvSeq];
+        return YES;
+    }
 
     int64_t now = (int64_t)([NSDate date].timeIntervalSince1970 * 1000);
     NSString *newContent = nil;

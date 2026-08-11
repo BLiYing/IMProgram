@@ -62,6 +62,16 @@ BOOL IMIsAuthErrorCode(NSInteger code);
                                       BOOL hasMore,
                                       NSError *_Nullable error))completion;
 
+/// 「仅为我删除」（任务2）：POST /api/v1/messages/hide {conv_id, conv_seq}。落 per-user 隐藏表 + 多设备同步。
+- (void)hideMessageWithToken:(NSString *)token
+                      convID:(NSString *)convID
+                     convSeq:(int64_t)convSeq
+                  completion:(void (^)(NSError *_Nullable error))completion;
+
+/// 登录 catch-up（任务2）：GET /api/v1/messages/hidden → 隐藏消息全集 `[{conv_id, conv_seq}]`。completion 主线程回调。
+- (void)fetchHiddenWithToken:(NSString *)token
+                  completion:(void (^)(NSArray<NSDictionary *> *_Nullable items, NSError *_Nullable error))completion;
+
 #pragma mark - 通讯录（M2.5 找人 / 好友关系）
 
 /// 找人：按 query 搜索用户（昵称/手机号/uid/标签，后端去 phone、排除自己）。completion 在主线程回调。

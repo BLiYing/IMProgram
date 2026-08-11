@@ -28,6 +28,9 @@ FOUNDATION_EXPORT CGFloat const kIMLiquidBarHeight;
 /// 页面不在 `IMMainNavigationController` 内（如被普通 UINavigationController present）时安全空转。
 - (void)im_refreshNavigationBar;
 
+/// 任务2：设置本页返回按钮上的全局未读总数徽标（0 或返回键隐藏时不显示）。非注入栏页面安全空转。
+- (void)im_setBackBadgeCount:(NSInteger)count;
+
 @end
 
 NS_ASSUME_NONNULL_END

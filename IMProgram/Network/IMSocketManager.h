@@ -33,6 +33,9 @@ extern NSString * const kIMMsgOpKey;
 extern NSString * const kIMMsgOpContentKey;
 /// 我发起的消息操作被拒（如撤回超时）时广播（主线程）：userInfo[@"message"]=服务端文案。
 extern NSString * const IMSocketDidRejectMsgOpNotification;
+/// 某条消息被物理移除（任务2：为所有人删除 op=delete / 仅为我删除 msg_hidden）时广播（主线程）：
+/// 聊天页/详情文件列表据此移除该条（区别于撤回的"改状态显墓碑"）。userInfo：kIMConvIDKey、kIMMsgOpTargetSeqKey(NSNumber)。
+extern NSString * const IMSocketDidRemoveMessageNotification;
 /// 会话级设置变更（置顶/免打扰/标未读/删除会话，M4.5）时广播（主线程）：会话列表据此刷新（多端同步）。
 /// userInfo[kIMConvIDKey]=会话 id。收端直接重拉会话列表取权威状态即可。
 extern NSString * const IMSocketDidUpdateConversationNotification;
@@ -169,6 +172,14 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
 
 /// 编辑自己在 convID 会话里 conv_seq=targetConvSeq 的文本消息（M4-5）。成功由服务端广播回 msg_op 帧应用。
 - (void)editMessageInConv:(NSString *)convID targetConvSeq:(int64_t)targetConvSeq content:(NSString *)content;
+
+/// 为所有人删除（任务2）：发 msg_op op=delete。发送者本人或群主/管理员可删（后端校验，无时间窗）；
+/// 成功由服务端广播回 msg_op 帧应用（物理移除本地并发 IMSocketDidRemoveMessageNotification）。被拒走 IMSocketDidRejectMsgOpNotification。
+- (void)deleteMessageForEveryoneInConv:(NSString *)convID targetConvSeq:(int64_t)targetConvSeq;
+
+/// 「仅为我删除」本地落地（任务2）：物理移除该条并广播 IMSocketDidRemoveMessageNotification。
+/// 供 HTTP hide 成功后本端立即移除，以及收到 msg_hidden 帧 / 登录 catch-up 时移除。
+- (void)removeLocalMessageInConv:(NSString *)convID targetConvSeq:(int64_t)targetConvSeq;
 
 /// 发送富媒体（M4-6）：content=已上传 URL，contentType=image|video|file。群聊 toUser 传空。返回 client_msg_id。
 - (NSString *)sendMedia:(NSString *)url

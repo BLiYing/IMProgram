@@ -28,6 +28,7 @@ static void * const kIMInjectedBarKey = (void *)&kIMInjectedBarKey;
 /// 这样新增页面只需正常 push，不再依赖每个控制器手动设置 hidesBottomBarWhenPushed。
 @interface IMMainNavigationController : UINavigationController <UIGestureRecognizerDelegate, UINavigationControllerDelegate, IMLiquidNavigationBarDelegate>
 - (void)syncBarForController:(UIViewController *)vc;
+- (void)setBackBadgeCount:(NSInteger)count forController:(UIViewController *)vc; // 任务2：返回按钮未读徽标
 @end
 
 @implementation IMMainNavigationController
@@ -123,6 +124,13 @@ static void * const kIMInjectedBarKey = (void *)&kIMInjectedBarKey;
 - (void)setExtraTopInset:(CGFloat)extra forController:(UIViewController *)vc {
     UIEdgeInsets insets = vc.additionalSafeAreaInsets;
     if (fabs(insets.top - extra) > 0.5) { insets.top = extra; vc.additionalSafeAreaInsets = insets; }
+}
+
+/// 任务2：把返回按钮未读徽标数设到某页的注入栏（页面自持栏/未注入时安全空转）。
+- (void)setBackBadgeCount:(NSInteger)count forController:(UIViewController *)vc {
+    if (!vc || ![vc isViewLoaded] || [self controllerOwnsBar:vc]) { return; }
+    IMLiquidNavigationBar *bar = [self barForController:vc];
+    bar.backBadgeCount = count;
 }
 
 /// 同步某页的标题栏（内容取自该页自身，不读 topViewController——转场中 top 已提前指向别页会出错）。
@@ -240,6 +248,13 @@ static void * const kIMInjectedBarKey = (void *)&kIMInjectedBarKey;
     UINavigationController *nav = self.navigationController;
     if ([nav isKindOfClass:IMMainNavigationController.class]) {
         [(IMMainNavigationController *)nav syncBarForController:self];
+    }
+}
+
+- (void)im_setBackBadgeCount:(NSInteger)count {
+    UINavigationController *nav = self.navigationController;
+    if ([nav isKindOfClass:IMMainNavigationController.class]) {
+        [(IMMainNavigationController *)nav setBackBadgeCount:count forController:self];
     }
 }
 

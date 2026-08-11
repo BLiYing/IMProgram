@@ -19,6 +19,8 @@
     m.status      = IMMessageStatusReceived;
     m.recalledAt  = [data[@"recalled_at"] longLongValue];
     m.recalledBy  = [self stringForKey:@"recalled_by" in:data];
+    m.deletedAt   = [data[@"deleted_at"] longLongValue]; // 任务2 为所有人删除：>0 时收端物理移除、不入库
+
     m.editedAt    = [data[@"edited_at"] longLongValue];
     m.pinnedAt    = [data[@"pinned_at"] longLongValue];
     m.replyToConvSeq = [data[@"reply_to_conv_seq"] longLongValue];

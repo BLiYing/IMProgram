@@ -695,6 +695,34 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     }];
 }
 
+- (void)hideMessageWithToken:(NSString *)token
+                      convID:(NSString *)convID
+                     convSeq:(int64_t)convSeq
+                  completion:(void (^)(NSError *))completion {
+    NSDictionary *bodyDict = @{ @"conv_id": convID ?: @"", @"conv_seq": @(convSeq) };
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/messages/hide" method:@"POST" token:token body:bodyDict];
+    [self runOKRequest:req fallback:@"删除失败" completion:completion];
+}
+
+- (void)fetchHiddenWithToken:(NSString *)token
+                  completion:(void (^)(NSArray<NSDictionary *> *, NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/messages/hidden" method:@"GET" token:token body:nil];
+    if (!req) {
+        [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }];
+        return;
+    }
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        if ([body[@"code"] integerValue] != 0) {
+            completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"拉取隐藏列表失败"]]);
+            return;
+        }
+        NSDictionary *data = [body[@"data"] isKindOfClass:NSDictionary.class] ? body[@"data"] : @{};
+        NSArray *items = [data[@"items"] isKindOfClass:NSArray.class] ? data[@"items"] : @[];
+        completion(items, nil);
+    }];
+}
+
 #pragma mark - 内部
 
 /// 构造带 Bearer 的请求；body 非空时按 JSON 写入并设 Content-Type。

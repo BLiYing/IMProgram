@@ -24,6 +24,7 @@ extern NSString * const kIMTypeGroup;
 extern NSString * const kIMTypeMsgOp;
 extern NSString * const kIMTypeConvUpdate; ///< 会话级设置变更（置顶/免打扰/标未读/删除会话，M4.5）
 extern NSString * const kIMTypeCapabilitiesUpdate; ///< 账号级配置版本变更（自动下载策略，M4-7）：据 version 重拉 /download-settings
+extern NSString * const kIMTypeMsgHidden; ///< 「仅为我删除」多设备同步（任务2）：本人另一端删了某条 → 本端物理移除
 extern NSString * const kIMTypeError;
 
 #pragma mark - 消息操作 op（msg_op，M4）
@@ -31,6 +32,7 @@ extern NSString * const kIMTypeError;
 extern NSString * const kIMMsgOpRecall; ///< 撤回
 extern NSString * const kIMMsgOpEdit;   ///< 编辑
 extern NSString * const kIMMsgOpPin;    ///< 聊天内置顶
+extern NSString * const kIMMsgOpDelete; ///< 为所有人删除（任务2）：发送者本人或群主/管理员，无时间窗，收端物理移除
 
 /// 撤回可见时间窗（毫秒，微信式 2min，与后端 Hub.recallWindow 对齐；服务端为准）。
 FOUNDATION_EXPORT const int64_t kIMRecallWindowMs;

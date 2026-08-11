@@ -527,7 +527,24 @@ static CGFloat const kIMRowLeading = 16;
             self.emptyLabel.hidden = self.conversations.count > 0;
             [self.tableView reloadData];
             [self trackConversationsForSync]; // 登记会话用于（重）连后增量同步，补拉离线消息
+            [self fetchHiddenCatchUpWithToken:token]; // 任务2：拉「仅为我删除」隐藏集并本地移除（多设备同步 catch-up）
         }];
+    }];
+}
+
+/// 任务2：登录 catch-up——拉本账号「仅为我删除」隐藏集，逐条本地物理移除（补收敛离线期间在其它设备产生的删除）。
+/// best-effort：失败静默；隐藏项量小，全量拉取。
+- (void)fetchHiddenCatchUpWithToken:(NSString *)token {
+    if (token.length == 0) { return; }
+    [IMHTTPService.sharedService fetchHiddenWithToken:token completion:^(NSArray<NSDictionary *> *items, NSError *error) {
+        if (error || items.count == 0) { return; }
+        for (NSDictionary *it in items) {
+            NSString *convID = [it[@"conv_id"] isKindOfClass:NSString.class] ? it[@"conv_id"] : nil;
+            int64_t convSeq = [it[@"conv_seq"] longLongValue];
+            if (convID.length > 0 && convSeq > 0) {
+                [IMSocketManager.sharedManager removeLocalMessageInConv:convID targetConvSeq:convSeq];
+            }
+        }
     }];
 }
 
