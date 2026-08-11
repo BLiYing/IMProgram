@@ -42,8 +42,9 @@
 // 避免整表 reloadData 让同页其他行闪烁（开关状态由控件自身反映、大小由 _sizeTitleLabel 就地更新）。
 - (void)reloadFromStore {
     IMDownloadSettings *cur = [IMDownloadSettingsStore shared].settings;
-    if (_working && [[cur toSettingsDictionary] isEqualToDictionary:[_working toSettingsDictionary]]) { return; }
-    _working = [cur deepCopy];
+    BOOL equivalent = [cur isEquivalentTo:_working];
+    _working = [cur deepCopy]; // 始终隔离独立副本：拖大小滑杆只改副本、绝不触到全局 store（否则中间值外泄）
+    if (equivalent) { return; } // 值未变（自身保存回声）→ 跳过 reloadData 防同页其他行闪烁
     [self.tableView reloadData];
 }
 

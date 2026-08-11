@@ -188,9 +188,7 @@ static UIImage *IMSettingsIconSpacer(void) {
 
 /// 当前策略是否等于出厂默认（决定「重置」行是否可点）。
 - (BOOL)settingsAtDefault {
-    NSDictionary *cur = [[IMDownloadSettingsStore shared].settings toSettingsDictionary];
-    NSDictionary *def = [[IMDownloadSettings defaultSettings] toSettingsDictionary];
-    return [cur isEqualToDictionary:def];
+    return [[IMDownloadSettingsStore shared].settings isEquivalentTo:[IMDownloadSettings defaultSettings]];
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {

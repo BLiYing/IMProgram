@@ -87,6 +87,11 @@ static NSDictionary *IMPolicyToJSON(IMDownloadNetworkPolicy *p) {
     return c;
 }
 
+- (BOOL)isEquivalentTo:(IMDownloadSettings *)other {
+    if (!other) { return NO; }
+    return [[self toSettingsDictionary] isEqualToDictionary:[other toSettingsDictionary]];
+}
+
 + (instancetype)fromJSON:(NSDictionary *)root {
     IMDownloadSettings *def = [self defaultSettings];
     if (![root isKindOfClass:[NSDictionary class]]) { return def; }

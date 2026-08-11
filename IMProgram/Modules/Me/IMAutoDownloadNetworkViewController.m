@@ -41,8 +41,9 @@
 // 与本地 _working 一致 → 直接跳过，避免整表 reloadData 让总开关等其他卡片闪烁（见滑杆提交处的定向刷新）。
 - (void)reloadFromStore {
     IMDownloadSettings *cur = [IMDownloadSettingsStore shared].settings;
-    if (_working && [[cur toSettingsDictionary] isEqualToDictionary:[_working toSettingsDictionary]]) { return; }
-    _working = [cur deepCopy];
+    BOOL equivalent = [cur isEquivalentTo:_working];
+    _working = [cur deepCopy]; // 始终隔离独立副本：拖动只改副本、绝不触到全局 store（否则未落库的中间值会外泄）
+    if (equivalent) { return; } // 值未变（自身保存的回声）→ 跳过 reloadData 防其他卡片闪烁（定向刷新在提交处）
     [self.tableView reloadData];
 }
 

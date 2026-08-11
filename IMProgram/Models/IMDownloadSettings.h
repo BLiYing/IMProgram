@@ -43,6 +43,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// 深拷贝（设置页编辑副本，避免直接改 store 的活对象）。
 - (instancetype)deepCopy;
 
+/// 策略是否等价（按 toSettingsDictionary 逐字段比较，忽略 version）。
+/// 供各设置页判定「与本地副本/出厂默认是否一致」，避免各处重复 dict 比较。
+- (BOOL)isEquivalentTo:(nullable IMDownloadSettings *)other;
+
 @end
 
 NS_ASSUME_NONNULL_END
