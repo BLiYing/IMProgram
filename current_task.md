@@ -5,6 +5,8 @@
 
 ## 当前焦点
 
+**@选择器改内联下拉面板 ✅（2026-08-12，build 绿·待手测）**：原半屏 sheet 遮挡输入框、没法接着打字匹配 → 改**输入栏上方内联面板**（`IMMentionPickerViewController initInlineWithGroup:`＋`preferredInlineHeight`，child VC 底边贴 `replyBar.top`、随键盘上移、不抢键盘，过滤词由聊天输入框 `updateQuery:` 实时驱动）；`maybePresentMentionPicker` 改 add/update/remove child + `dismissMentionPanel`。
+
 **气泡内 `@昵称` 高亮 + 点击跳资料 ✅（2026-08-12，build 绿·待手测）**：iOS 不落库 per-msg mentions，改由**当前群成员+文本**推导（`mentionMapForMessage:`→name→uid）；`@所有人`仅群主/管理员时高亮（对齐 300204、不可点）；`+[IMBubbleCell attributedContent:base:mentionColor:mentions:]` 挂 `IMMentionUIDAttributeName`，cell 与阅读器共用。**点 `@昵称` 跳资料**：气泡 UILabel 用 `NSLayoutManager` 反查 tap 落点字符属性（`mentionUIDAtPoint:`，收键盘前用稳定布局 + glyph 矩形内才算）、阅读器 UITextView 同法反查（不走已弃用 link 代理）→ `openMemberProfileForUID:`；点击先于长文展开/引用跳转。token 边界同 `IMChatTextContainsMentionToken`、长名优先。
 
 **两项 UX 优化 ✅ 代码完成 + `/code-review` 全修（2026-08-11，build 绿·用户自测）** — 逐端矩阵见 `../IMServer/docs/CLIENT_PARITY.md`「UX」行；与 Web 同步交付。

@@ -141,6 +141,12 @@ static UIColor *IMMentionBaseGroupedBackgroundColor(void) {
 
 @interface IMMentionPickerViewController () <UITableViewDataSource, UITableViewDelegate,
                                              UISearchBarDelegate, IMLiquidNavigationBarDelegate>
+/// 唯一指定初始化器：两个公开 init（模态 / 内联）都收敛到这里（共享成员/过滤/host 装配）。
+- (instancetype)initCommonWithGroup:(IMGroupInfo *)group
+                       initialQuery:(nullable NSString *)initialQuery
+                       onPickMember:(void (^)(IMGroupMember *))onPickMember
+                          onPickAll:(void (^)(void))onPickAll
+                             inline:(BOOL)isInline NS_DESIGNATED_INITIALIZER;
 @end
 
 @implementation IMMentionPickerViewController {
@@ -154,30 +160,19 @@ static UIColor *IMMentionBaseGroupedBackgroundColor(void) {
     UITableView *_tableView;
     UISearchBar *_searchBar;
     NSString *_host;
+    BOOL _inline;                        ///< YES=输入栏上方内联面板（不弹 sheet/不抢键盘/无搜索框）
 }
+
+// 内联面板：行高与最多可见行数（超出滚动）。
+static const CGFloat kIMMentionInlineRowHeight = 52;
+static const NSInteger kIMMentionInlineMaxVisibleRows = 4;
 
 - (instancetype)initWithGroup:(IMGroupInfo *)group
                  initialQuery:(NSString *)initialQuery
                  onPickMember:(void (^)(IMGroupMember *))onPickMember
                     onPickAll:(void (^)(void))onPickAll {
-    if ((self = [super initWithNibName:nil bundle:nil])) {
-        _group = group;
-        _query = [initialQuery copy] ?: @"";
-        _onPickMember = [onPickMember copy];
-        _onPickAll = [onPickAll copy];
-        // 「@所有人」仅群主/管理员可见可点。普通成员**整行不渲染**（不是置灰不可点——
-        // 避免"看得见用不了"的挫败感）。服务端另有角色校验，客户端隐藏只是 UI 层。
-        _canMentionAll = group.myRole == IMGroupRoleOwner || group.myRole == IMGroupRoleAdmin;
-
-        NSString *me = IMSessionStore.userID ?: @"";
-        NSMutableArray<IMGroupMember *> *others = [NSMutableArray array];
-        for (IMGroupMember *m in group.members) {
-            if (![m.userID isEqualToString:me]) { [others addObject:m]; } // @自己无意义
-        }
-        _all = others;
-        _filtered = [self membersMatching:_query];
-        _host = IMHTTPService.sharedService.host;
-
+    if ((self = [self initCommonWithGroup:group initialQuery:initialQuery
+                             onPickMember:onPickMember onPickAll:onPickAll inline:NO])) {
         if (@available(iOS 15.0, *)) {
             self.modalPresentationStyle = UIModalPresentationPageSheet;
             UISheetPresentationController *sheet = self.sheetPresentationController;
@@ -198,12 +193,49 @@ static UIColor *IMMentionBaseGroupedBackgroundColor(void) {
     return self;
 }
 
+- (instancetype)initInlineWithGroup:(IMGroupInfo *)group
+                       initialQuery:(NSString *)initialQuery
+                       onPickMember:(void (^)(IMGroupMember *))onPickMember
+                          onPickAll:(void (^)(void))onPickAll {
+    return [self initCommonWithGroup:group initialQuery:initialQuery
+                        onPickMember:onPickMember onPickAll:onPickAll inline:YES];
+}
+
+- (instancetype)initCommonWithGroup:(IMGroupInfo *)group
+                       initialQuery:(NSString *)initialQuery
+                       onPickMember:(void (^)(IMGroupMember *))onPickMember
+                          onPickAll:(void (^)(void))onPickAll
+                             inline:(BOOL)isInline {
+    if ((self = [super initWithNibName:nil bundle:nil])) {
+        _group = group;
+        _query = [initialQuery copy] ?: @"";
+        _onPickMember = [onPickMember copy];
+        _onPickAll = [onPickAll copy];
+        _inline = isInline;
+        // 「@所有人」仅群主/管理员可见可点。普通成员**整行不渲染**（不是置灰不可点——
+        // 避免"看得见用不了"的挫败感）。服务端另有角色校验，客户端隐藏只是 UI 层。
+        _canMentionAll = group.myRole == IMGroupRoleOwner || group.myRole == IMGroupRoleAdmin;
+
+        NSString *me = IMSessionStore.userID ?: @"";
+        NSMutableArray<IMGroupMember *> *others = [NSMutableArray array];
+        for (IMGroupMember *m in group.members) {
+            if (![m.userID isEqualToString:me]) { [others addObject:m]; } // @自己无意义
+        }
+        _all = others;
+        _filtered = [self membersMatching:_query];
+        _host = IMHTTPService.sharedService.host;
+    }
+    return self;
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"提醒谁";
     if (@available(iOS 17.0, *)) {
         self.traitOverrides.userInterfaceLevel = UIUserInterfaceLevelBase;
     }
+    if (_inline) { [self loadInlineLayout]; return; }
+
     UIColor *sheetBackground = IMMentionBaseGroupedBackgroundColor();
     self.view.backgroundColor = sheetBackground;
 
@@ -235,6 +267,47 @@ static UIColor *IMMentionBaseGroupedBackgroundColor(void) {
         [_tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
         [_tableView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
     ]];
+}
+
+/// 内联面板布局：顶部圆角卡 + 顶部一条分隔线；表格铺满，无搜索框/标题栏（过滤走聊天输入框）。
+- (void)loadInlineLayout {
+    self.view.backgroundColor = IMTheme.surface;
+    self.view.layer.cornerRadius = 14;
+    self.view.layer.maskedCorners = kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner; // 仅上圆角
+    self.view.layer.masksToBounds = YES;
+
+    UIView *hairline = [UIView new];
+    hairline.translatesAutoresizingMaskIntoConstraints = NO;
+    hairline.backgroundColor = IMTheme.separator;
+    [self.view addSubview:hairline];
+
+    _tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
+    _tableView.translatesAutoresizingMaskIntoConstraints = NO;
+    _tableView.backgroundColor = UIColor.clearColor;
+    _tableView.dataSource = self;
+    _tableView.delegate = self;
+    _tableView.rowHeight = kIMMentionInlineRowHeight;
+    _tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeNone; // 面板滚动不收键盘（键盘留给输入框）
+    _tableView.separatorInset = UIEdgeInsetsMake(0, 56, 0, 0);
+    [_tableView registerClass:IMMentionRowCell.class forCellReuseIdentifier:@"row"];
+    [self.view addSubview:_tableView];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [hairline.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [hairline.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [hairline.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [hairline.heightAnchor constraintEqualToConstant:0.5],
+        [_tableView.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [_tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [_tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [_tableView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
+    ]];
+}
+
+- (CGFloat)preferredInlineHeight {
+    NSInteger n = (NSInteger)_filtered.count + (self.showsMentionAllRow ? 1 : 0);
+    if (n <= 0) { return 0; }
+    return MIN(n, kIMMentionInlineMaxVisibleRows) * kIMMentionInlineRowHeight;
 }
 
 /// 自持 Liquid Glass 标题栏（同文件面板：模态 sheet 不经导航容器注入，须自己挂一条）。
@@ -327,8 +400,10 @@ static UIColor *IMMentionBaseGroupedBackgroundColor(void) {
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    // 内联模式：本控制器是 child，不自我 dismiss——回填 token 后由宿主移除面板（onPick* 里负责）。
     if (self.showsMentionAllRow && indexPath.row == 0) {
         void (^pick)(void) = _onPickAll;
+        if (_inline) { if (pick) { pick(); } return; }
         [self dismissViewControllerAnimated:YES completion:^{ if (pick) { pick(); } }];
         return;
     }
@@ -336,6 +411,7 @@ static UIColor *IMMentionBaseGroupedBackgroundColor(void) {
     if (idx < 0 || idx >= (NSInteger)_filtered.count) { return; }
     IMGroupMember *m = _filtered[(NSUInteger)idx];
     void (^pick)(IMGroupMember *) = _onPickMember;
+    if (_inline) { if (pick) { pick(m); } return; }
     [self dismissViewControllerAnimated:YES completion:^{ if (pick) { pick(m); } }];
 }
 

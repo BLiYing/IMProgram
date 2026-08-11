@@ -170,9 +170,10 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
 // @提及（M4-8，仅群聊）：候选表 uid→显示名，发送时按输入框里是否还留着 `@显示名` 复核。
 @property (nonatomic, strong, nullable) NSMutableDictionary<NSString *, NSString *> *mentionCandidates;
 @property (nonatomic, assign) BOOL mentionAllPending; // 已选过 @所有人（仍需文本里留着 token 才生效）
+@property (nonatomic, strong, nullable) IMMentionPickerViewController *mentionPanel; // 输入栏上方内联 @面板（child VC）
+@property (nonatomic, strong, nullable) NSLayoutConstraint *mentionPanelHeight;
 /// 中长文本"展开全文"记忆（按消息 key）：Long 档气泡点击在折叠/展开间切换。
 @property (nonatomic, strong) NSMutableSet<NSString *> *expandedTextKeys;
-@property (nonatomic, assign) BOOL mentionPickerSuppressed; // 用户已手动关掉选择卡：本次 @ 输入态内不再自动弹
 @property (nonatomic, strong) NSMutableArray<IMMessageModel *> *messages;
 @property (nonatomic, strong) NSMutableSet<NSNumber *> *seenConvSeqs; // 按 conv_seq 去重，避免推送+同步重复
 @property (nonatomic, copy) NSString *convID;
@@ -848,6 +849,7 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
 
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
+    [self dismissMentionPanel]; // 离开/推子页前收起内联 @面板，避免残留
     [self stopPresenceTick]; // 页面不可见就没必要重算；也避免 timer 拖住 VC 不释放
     if (self.isMovingFromParentViewController) {
         // 真正离开聊天页（非推子页）：退订对端在线态，服务端不再向本连接推它的 presence。
@@ -1162,28 +1164,49 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     return q;
 }
 
-/// 群聊里进入 @ 输入态时弹出成员选择卡。单聊不弹（@ 只在群聊有意义）。
-/// 卡片弹出后键盘焦点转到卡内搜索框，后续过滤由卡自己负责——故这里只在"卡未开"时弹一次。
+/// 群聊里进入 @ 输入态时在**输入栏上方**内联一个成员下拉面板（child VC，不弹 sheet、不抢键盘）。
+/// 焦点始终在聊天输入框：用户继续打字即经 `updateQuery:` 实时过滤，选中后回填 token 并移除面板（对齐 Web 桌面端范式）。
 - (void)maybePresentMentionPicker {
-    // 已有任何模态在场就不弹（选择卡自身在场时同样命中，天然防重复弹）。
-    if (!self.isGroupChat || !self.groupInfo || self.presentedViewController) { return; }
+    if (!self.isGroupChat || !self.groupInfo) { [self dismissMentionPanel]; return; }
     NSString *q = [self activeMentionQuery];
-    if (!q) {
-        self.mentionPickerSuppressed = NO; // 离开 @ 输入态 → 抑制解除，下一个 @ 正常弹
-        return;
+    if (!q) { [self dismissMentionPanel]; return; }
+    if (!self.mentionPanel) {
+        __weak typeof(self) ws = self;
+        IMMentionPickerViewController *panel = [[IMMentionPickerViewController alloc]
+            initInlineWithGroup:self.groupInfo
+                   initialQuery:q
+                   onPickMember:^(IMGroupMember *m) { [ws insertMentionToken:m.displayName forUID:m.userID]; [ws dismissMentionPanel]; }
+                      onPickAll:^{ [ws insertMentionToken:@"所有人" forUID:nil]; [ws dismissMentionPanel]; }];
+        [self addChildViewController:panel];
+        panel.view.translatesAutoresizingMaskIntoConstraints = NO;
+        [self.view addSubview:panel.view];
+        // 底边贴输入区栈顶（replyBar.top）→ 浮在消息区底部、输入栏之上；键盘弹起时随约束链一起上移。
+        self.mentionPanelHeight = [panel.view.heightAnchor constraintEqualToConstant:0];
+        [NSLayoutConstraint activateConstraints:@[
+            [panel.view.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+            [panel.view.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+            [panel.view.bottomAnchor constraintEqualToAnchor:self.replyBar.topAnchor],
+            self.mentionPanelHeight,
+        ]];
+        [panel didMoveToParentViewController:self];
+        self.mentionPanel = panel;
+    } else {
+        [self.mentionPanel updateQuery:q];
     }
-    // 用户主动关掉过卡片：本次 @ 输入态内不再自动弹，让他能手打昵称。
-    // 否则每敲一个字符都会重新弹卡、抢走键盘，@ 后根本没法继续输入。
-    if (self.mentionPickerSuppressed) { return; }
-    __weak typeof(self) ws = self;
-    IMMentionPickerViewController *picker = [[IMMentionPickerViewController alloc]
-        initWithGroup:self.groupInfo
-         initialQuery:q
-         onPickMember:^(IMGroupMember *m) { [ws insertMentionToken:m.displayName forUID:m.userID]; }
-            onPickAll:^{ [ws insertMentionToken:@"所有人" forUID:nil]; }];
-    // 卡片一旦离场就抑制本次 @ 输入态内的自动重弹（选中后文本会带上空格，抑制自然随之解除）。
-    picker.onDismiss = ^{ ws.mentionPickerSuppressed = YES; };
-    [self presentViewController:picker animated:YES completion:nil];
+    CGFloat h = [self.mentionPanel preferredInlineHeight];
+    if (h <= 0) { [self dismissMentionPanel]; return; } // 无匹配 → 不显空面板，让用户接着打字
+    self.mentionPanelHeight.constant = h;
+}
+
+/// 移除内联 @面板（选中 / 离开 @ 输入态 / 发送 / 退出会话）。
+- (void)dismissMentionPanel {
+    if (!self.mentionPanel) { return; }
+    IMMentionPickerViewController *p = self.mentionPanel;
+    self.mentionPanel = nil;
+    self.mentionPanelHeight = nil;
+    [p willMoveToParentViewController:nil];
+    [p.view removeFromSuperview];
+    [p removeFromParentViewController];
 }
 
 /// 回填 token：把输入框里"正在输入的 @query"整体替换为 `@显示名 `（尾随空格便于继续打字）。
@@ -1309,6 +1332,7 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
 - (void)clearPendingMentions {
     [self.mentionCandidates removeAllObjects];
     self.mentionAllPending = NO;
+    [self dismissMentionPanel]; // 发出后输入框已清空（编程式清空不触发 editingChanged），显式收面板
 }
 
 #pragma mark - 引用回复（M4-2）
