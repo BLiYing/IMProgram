@@ -16,6 +16,7 @@
 #import "IMVideoThumbnailLoader.h"
 #import "IMMediaPlaceholder.h"   // 引用缩略 / 媒体库统一门控取图（真帧>thumb磨砂>图标）
 #import "IMMediaViewerViewController.h"
+#import "IMMediaPagerViewController.h"
 #import "IMTextReaderViewController.h" // 超长文本全屏阅读器
 #import "IMConversationMediaViewController.h"
 #import "IMForwardPickerViewController.h"
@@ -1593,8 +1594,40 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 }
 
 /// 全屏查看图片/视频（点击媒体气泡）：复用 IMMediaViewerViewController，附「媒体库」入口。
+/// 任务3：在当前会话媒体时间线（口径同媒体库：image|video·未撤回·非空）里定位点中的这条，
+/// 套 IMMediaPagerViewController 支持左右翻页（混排、封面待点、翻到头即停）；仅一张时退化为单开。
 - (void)presentMediaViewerForMessage:(IMMessageModel *)m preloaded:(UIImage *)image {
     if (m.content.length == 0) { return; }
+    NSMutableArray<IMMessageModel *> *mediaMsgs = [NSMutableArray array];
+    for (IMMessageModel *x in self.messages) {
+        if (x.recalledAt > 0 || x.content.length == 0) { continue; }
+        if ([x.contentType isEqualToString:@"image"] || [x.contentType isEqualToString:@"video"]) {
+            [mediaMsgs addObject:x];
+        }
+    }
+    NSUInteger start = [mediaMsgs indexOfObjectIdenticalTo:m];
+    if (start == NSNotFound) {
+        // 不在时间线内（理论不至于，兜底）→ 单开自带全套控件的查看器。
+        [self presentViewController:[self buildMediaViewerForMessage:m preloaded:image] animated:YES completion:nil];
+        return;
+    }
+    // 恒走翻页容器（即便仅一张）：壳（✕/下载/媒体库/更多）在容器固定层、沉浸态一致。
+    __weak typeof(self) ws = self;
+    IMMediaPagerViewController *pager =
+        [IMMediaPagerViewController pagerWithCount:mediaMsgs.count startIndex:start
+                                      pageProvider:^IMMediaViewerViewController *(NSUInteger index) {
+            __strong typeof(ws) self = ws;
+            if (!self || index >= mediaMsgs.count) { return nil; }
+            IMMessageModel *mm = mediaMsgs[index];
+            // 仅初始点中的那条带气泡预载图（已解码），其余现建时自行按 URL 拉。
+            return [self buildMediaViewerForMessage:mm preloaded:(mm == m ? image : nil)];
+        }];
+    [self presentViewController:pager animated:YES completion:nil];
+}
+
+/// 为单条媒体消息构建一个查看器页（url/isVideo/媒体库入口/「更多」外部动作均绑定该条消息）。
+/// 翻页容器按下标对每条消息各建一份，保证「更多」里的收藏/转发/删除/定位作用在正确的消息上。
+- (IMMediaViewerViewController *)buildMediaViewerForMessage:(IMMessageModel *)m preloaded:(UIImage *)image {
     BOOL isVideo = [m.contentType isEqualToString:@"video"];
     __weak typeof(self) ws = self;
     IMMediaViewerViewController *viewer =
@@ -1620,7 +1653,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         [acts addObject:[IMPopoverCardItem itemWithTitle:@"转发" symbol:@"arrowshape.turn.up.right" destructive:NO handler:^{ [ws forwardMessage:m]; }]];
     }
     viewer.moreActions = acts;
-    [self presentViewController:viewer animated:YES completion:nil];
+    return viewer;
 }
 
 /// 会话媒体库：汇总当前会话所有图片/视频消息，按时间序展示，点击复用同一查看器。

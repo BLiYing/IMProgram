@@ -2,6 +2,7 @@
 
 #import "IMConversationMediaViewController.h"
 #import "IMMediaViewerViewController.h"
+#import "IMMediaPagerViewController.h"
 #import "IMMediaPlaceholder.h" // 统一门控占位取图（真帧>thumb磨砂>灰底）
 #import "IMMediaExpiryRegistry.h" // 失效登记：媒体库宫格据此显 ⊘（自身只读本地、不联网探测）
 #import "IMImageLoader.h"          // 铁律 A：本机已缓存则不显失效
@@ -155,13 +156,18 @@
 }
 
 - (void)collectionView:(UICollectionView *)cv didSelectItemAtIndexPath:(NSIndexPath *)ip {
-    IMMediaItem *it = _items[ip.item];
-    // 复用聊天中的查看逻辑；媒体库内不再显示「媒体库」按钮（onOpenGallery=nil）。
-    IMMediaViewerViewController *viewer = [IMMediaViewerViewController viewerWithURL:it.url
-                                                                            isVideo:it.isVideo
-                                                                     preloadedImage:nil
-                                                                      onOpenGallery:nil];
-    [self presentViewController:viewer animated:YES completion:nil];
+    // 任务3：媒体库内也支持左右翻页（网格已是完整时间线）。媒体库内不再显示「媒体库」按钮
+    // （onOpenGallery=nil），此处无消息上下文故不带「更多」动作。捕获局部 items 避免强引用 self。
+    NSArray<IMMediaItem *> *items = _items;
+    IMMediaPagerViewController *pager =
+        [IMMediaPagerViewController pagerWithCount:items.count startIndex:(NSUInteger)ip.item
+                                      pageProvider:^IMMediaViewerViewController *(NSUInteger index) {
+            if (index >= items.count) { return nil; }
+            IMMediaItem *it = items[index];
+            return [IMMediaViewerViewController viewerWithURL:it.url isVideo:it.isVideo
+                                              preloadedImage:nil onOpenGallery:nil];
+        }];
+    [self presentViewController:pager animated:YES completion:nil];
 }
 
 @end

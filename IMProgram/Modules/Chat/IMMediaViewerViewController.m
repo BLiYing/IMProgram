@@ -37,6 +37,7 @@
     UILabel          *_timeLabel;
     UIButton         *_speedButton;
     UIButton         *_originalChip;
+    BOOL              _originalChipVisible;   // chip「本应可见」（沉浸态恢复用；下载完/本地原件后置 NO）
     BOOL              _downloadingOriginal;  // 原视频下载中（chip 显示百分比，#1）
     BOOL              _usingLocalOriginal;   // 打开时已命中本地原件缓存 → 本地播放，不显「查看原视频」chip
     NSURLSession     *_originalSession;      // delegate 模式才有进度回调
@@ -104,7 +105,9 @@
     _fullImage = _preloaded;
     [_scroll addSubview:_imageView];
 
-    UITapGestureRecognizer *single = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(dismissSelf)];
+    // 无壳（翻页容器托管）：单击转给容器切 chrome；独立打开：单击关闭查看器（原行为）。
+    UITapGestureRecognizer *single = [[UITapGestureRecognizer alloc] initWithTarget:self
+        action:(_chromeless ? @selector(handleContentSingleTap) : @selector(dismissSelf))];
     UITapGestureRecognizer *dbl = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(doubleTapZoom:)];
     dbl.numberOfTapsRequired = 2;
     [single requireGestureRecognizerToFail:dbl];
@@ -169,7 +172,8 @@
     // 实时探测「正在播放中」的 404 需 KVO AVPlayer.status，留待后续。
     if (!hasLocalOriginal && [IMMediaExpiryRegistry.shared isExpiredURL:_url]) {
         [self showExpiredOverlayForVideo:YES];
-        [self.view addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(dismissSelf)]];
+        [self.view addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self
+            action:(_chromeless ? @selector(handleContentSingleTap) : @selector(dismissSelf))]];
         return; // 播放器/poster/控件一律不建；teardown 对 nil _player/_originalSession/_timeObserver 均安全
     }
 
@@ -193,8 +197,9 @@
         if (self && !self->_started) { self->_poster.image = poster; }
     }];
 
-    // 点击容器：开播前=开始播放；播放中=暂停/继续。
-    [_videoContainer addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(togglePlayback)]];
+    // 点击容器：独立打开=开播前播放/播放中暂停；无壳（翻页容器）=转给容器切 chrome（播放走中央键）。
+    [_videoContainer addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self
+        action:(_chromeless ? @selector(handleContentSingleTap) : @selector(togglePlayback))]];
 
     _playButton = [UIButton buttonWithType:UIButtonTypeSystem];
     UIImage *play = [UIImage systemImageNamed:@"play.fill"
@@ -288,7 +293,35 @@
 }
 
 - (void)setPlaying:(BOOL)playing {
-    _playButton.hidden = playing;   // 播放中隐藏中央按钮；暂停显示
+    if (_chromeless) {
+        // 无壳（沉浸）：中央键作 play↔pause 切换键——图标随播放态变，**可见性由 setAuxControlsHidden: 管**
+        // （随 chrome 显隐），不再按播放态隐藏；否则播放中单击只切 chrome、将无暂停入口。
+        UIImage *icon = [UIImage systemImageNamed:(playing ? @"pause.fill" : @"play.fill")
+                                withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:34 weight:UIImageSymbolWeightBold]];
+        UIButtonConfiguration *cfg = _playButton.configuration;
+        cfg.image = icon;
+        _playButton.configuration = cfg;
+    } else {
+        _playButton.hidden = playing;   // 独立打开：原行为（播放中隐藏中央键，点画面切播放/暂停）
+    }
+    [self.contentDelegate mediaViewerContent:self playingChanged:playing]; // 容器据此管 3s 自动隐藏（暂停常显）
+}
+
+#pragma mark - 无壳模式：容器驱动/查询接口
+
+- (void)handleContentSingleTap { [self.contentDelegate mediaViewerContentDidSingleTap:self]; }
+
+- (BOOL)isVideoContent { return _isVideo; }
+- (BOOL)isVideoPlaying { return _player != nil && _player.rate > 0; }
+- (BOOL)hasGalleryEntry { return _onOpenGallery != nil; }
+- (void)invokeOpenGallery { [self openGallery]; }
+
+/// 沉浸态（随 chrome 显隐）：隐藏中央播放/暂停键 + 倍速 + 「查看原视频」chip；
+/// **进度条 _scrubber / 时间 _timeLabel 常驻不隐**（用户要求保留）。
+- (void)setAuxControlsHidden:(BOOL)hidden {
+    _playButton.hidden = hidden;
+    _speedButton.hidden = hidden;
+    _originalChip.hidden = hidden ? YES : !_originalChipVisible; // 恢复到其"本应可见"状态（下载完/本地原件时恒隐）
 }
 
 - (void)videoDidEnd {
@@ -378,6 +411,7 @@
         [self setPlaying:YES];
     }
     _originalChip.hidden = YES;
+    _originalChipVisible = NO; // 已切本地原件：chip 恒隐（沉浸态恢复也不再显）
     [self im_showToast:@"已切换为原视频"];
 }
 
@@ -421,6 +455,10 @@ didFinishDownloadingToURL:(NSURL *)location {
 
 - (void)setupCommonControls {
     UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
+
+    // 无壳模式（翻页容器托管）：✕/下载/媒体库/更多 一律不建——由容器固定层统一绘制并绑定当前页，
+    // 翻页时不随内容滑动。此处只保留「视频底部进度条」部分（随页，沉浸态由 setAuxControlsHidden: 协调）。
+    if (_chromeless) { [self setupVideoBottomRowIfNeeded:safe]; return; }
 
     _closeButton = [self circleButtonWithSymbol:@"xmark" pointSize:16];
     [_closeButton addTarget:self action:@selector(dismissSelf) forControlEvents:UIControlEventTouchUpInside];
@@ -470,9 +508,15 @@ didFinishDownloadingToURL:(NSURL *)location {
         rightAnchorView = more;
     }
 
+    [self setupVideoBottomRowIfNeeded:safe];
+}
+
+/// 视频底部：时间 + 进度条 + 倍速；左下「查看原视频」chip。图片页直接返回。
+/// 进度条随视频页（无壳时也在页内、翻页时随内容，沉浸态保留）。锚点在有 ✕/下载壳时贴其上方，
+/// 无壳（翻页容器）时用等价的固定常量，使容器画在同位的下载/更多键与本行不重叠、对齐。
+- (void)setupVideoBottomRowIfNeeded:(UILayoutGuide *)safe {
     if (!_isVideo) { return; }
 
-    // —— 视频专属：底部时间 + 进度条 + 倍速；左下「查看原视频」——
     _timeLabel = [UILabel new];
     _timeLabel.textColor = UIColor.whiteColor;
     _timeLabel.font = [UIFont monospacedDigitSystemFontOfSize:13 weight:UIFontWeightRegular];
@@ -500,10 +544,15 @@ didFinishDownloadingToURL:(NSURL *)location {
     row.translatesAutoresizingMaskIntoConstraints = NO;
     [row setCustomSpacing:16 afterView:_scrubber];
     [self.view addSubview:row];
+    // 下载键 44pt 贴 safe.bottom-16 → 其上沿 = safe.bottom-60；本行贴其上方 -14 = safe.bottom-74。
+    // 无壳时无 _downloadButton，用等价常量复刻同一高度（容器把下载键画在同处）。
+    NSLayoutConstraint *rowBottom = _downloadButton
+        ? [row.bottomAnchor constraintEqualToAnchor:_downloadButton.topAnchor constant:-14]
+        : [row.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor constant:-74];
     [NSLayoutConstraint activateConstraints:@[
         [row.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:16],
         [row.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-16],
-        [row.bottomAnchor constraintEqualToAnchor:_downloadButton.topAnchor constant:-14],
+        rowBottom,
     ]];
 
     if (_usingLocalOriginal) { return; } // 播的已是本地原件：无需「查看原视频」chip 与 HEAD 探体积
@@ -523,9 +572,14 @@ didFinishDownloadingToURL:(NSURL *)location {
     _originalChip.translatesAutoresizingMaskIntoConstraints = NO;
     [_originalChip addTarget:self action:@selector(tapOriginal) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:_originalChip];
+    _originalChipVisible = YES; // 已建且当前应显（沉浸态恢复用）
+    // 下载键中心 = safe.bottom-38；无壳时复刻同高，使 chip 与容器下载键同排。
+    NSLayoutConstraint *chipCenterY = _downloadButton
+        ? [_originalChip.centerYAnchor constraintEqualToAnchor:_downloadButton.centerYAnchor]
+        : [_originalChip.centerYAnchor constraintEqualToAnchor:safe.bottomAnchor constant:-38];
     [NSLayoutConstraint activateConstraints:@[
         [_originalChip.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:16],
-        [_originalChip.centerYAnchor constraintEqualToAnchor:_downloadButton.centerYAnchor],
+        chipCenterY,
     ]];
     // 附带展示原视频体积（best-effort HEAD）。
     [self fetchVideoSize];
