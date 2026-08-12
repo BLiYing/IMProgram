@@ -5,7 +5,9 @@
 #import "IMChatViewController.h"
 #import "IMHTTPService.h"
 #import "IMSocketManager.h"
+#import "IMReconnectReloader.h"
 #import "IMGroupInfo.h"
+#import "IMDatabase.h"
 #import "UILabel+IMAvatar.h"
 #import "UIViewController+IMToast.h"
 #import "IMTheme.h"
@@ -84,6 +86,8 @@ static CGFloat const kIMGroupAvatarSize = 44;
 @property (nonatomic, strong) NSArray<IMGroupInfo *> *groups;
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) UILabel *emptyLabel;
+@property (nonatomic, strong, nullable) IMDatabaseAccountContext *databaseContext; // 任务5：本地缓存账号隔离
+@property (nonatomic, strong) IMReconnectReloader *reconnectReloader;              // 重连即取权威（可见时）
 @end
 
 @implementation IMGroupListViewController
@@ -93,8 +97,18 @@ static CGFloat const kIMGroupAvatarSize = 44;
     if (self) {
         _host = [host copy];
         _userID = [userID copy];
-        _groups = @[];
+        // 任务5：本地缓存优先——先用上次落库的群组种子渲染，断网也能看到，联网成功再权威覆盖。
+        IMDatabaseAccountContext *context = IMDatabase.sharedDatabase.currentAccountContext;
+        _databaseContext = [context.ownerUserID isEqualToString:userID] ? context : nil;
+        __block NSArray<IMGroupInfo *> *cachedGroups = @[];
+        [IMDatabase.sharedDatabase performWithAccountContext:_databaseContext block:^(IMDatabase *database) {
+            cachedGroups = database.cachedGroups;
+        }];
+        _groups = cachedGroups;
         self.hidesBottomBarWhenPushed = YES;
+        // 重连即取权威列表（断网期间看的是缓存种子）。仅可见时刷新。
+        __weak typeof(self) ws = self;
+        _reconnectReloader = [[IMReconnectReloader alloc] initWithReloadBlock:^{ [ws reload]; }];
     }
     return self;
 }
@@ -133,7 +147,13 @@ static CGFloat const kIMGroupAvatarSize = 44;
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
+    self.reconnectReloader.visible = YES;
     [self reload];
+}
+
+- (void)viewDidDisappear:(BOOL)animated {
+    [super viewDidDisappear:animated];
+    self.reconnectReloader.visible = NO;
 }
 
 - (void)reload {
@@ -156,6 +176,11 @@ static CGFloat const kIMGroupAvatarSize = 44;
             self.groups = groups ?: @[];
             self.emptyLabel.hidden = self.groups.count > 0;
             [self.tableView reloadData];
+            // 任务5：权威群组列表落库，供下次断网离线首屏。空数组也写（当前账号无群）。
+            NSArray<IMGroupInfo *> *snapshot = self.groups;
+            [IMDatabase.sharedDatabase performWithAccountContext:self.databaseContext block:^(IMDatabase *database) {
+                [database replaceCachedGroups:snapshot];
+            }];
         }];
     }];
 }

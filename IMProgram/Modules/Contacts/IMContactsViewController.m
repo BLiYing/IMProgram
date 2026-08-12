@@ -7,7 +7,9 @@
 #import "IMChatDetailViewController.h"
 #import "IMHTTPService.h"
 #import "IMSocketManager.h"
+#import "IMReconnectReloader.h"
 #import "IMUserCard.h"
+#import "IMDatabase.h"
 #import "IMMenuAction.h"
 #import "IMAnimator.h"
 #import "UIViewController+IMToast.h"
@@ -80,6 +82,8 @@
 @property (nonatomic, strong) NSArray<UIColor *> *entryColors;  // 与 entries 同序的图标底色
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) UILabel *emptyLabel;
+@property (nonatomic, strong, nullable) IMDatabaseAccountContext *databaseContext; // 任务5：本地缓存账号隔离
+@property (nonatomic, strong) IMReconnectReloader *reconnectReloader;              // 重连即取权威（可见时）
 @end
 
 @implementation IMContactsViewController
@@ -89,12 +93,22 @@
     if (self) {
         _host = [host copy];
         _userID = [userID copy];
-        _pending = @[];
-        _accepted = @[];
+        // 任务5：本地缓存优先——先用上次落库的好友种子渲染，断网也能看到列表，联网成功再权威覆盖。
+        IMDatabaseAccountContext *context = IMDatabase.sharedDatabase.currentAccountContext;
+        _databaseContext = [context.ownerUserID isEqualToString:userID] ? context : nil;
+        __block NSArray<IMUserCard *> *cachedFriends = @[];
+        [IMDatabase.sharedDatabase performWithAccountContext:_databaseContext block:^(IMDatabase *database) {
+            cachedFriends = database.cachedFriends;
+        }];
+        _pending = @[];              // 待处理申请不落库（易变，以服务端为准），联网后由 applyFriends 补上
+        _accepted = cachedFriends;   // 好友种子（离线首屏）
         [self buildEntries];
         // 实时好友事件：即使没在通讯录页，也据此刷新（Tab 角标随之亮/灭，无需切页）。
         [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onFriendEvent)
                                                    name:IMSocketDidReceiveFriendEventNotification object:nil];
+        // 重连即取权威资料（断网期间看的是缓存种子）。仅可见时刷新，避免离屏空跑登录+HTTP。
+        __weak typeof(self) ws = self;
+        _reconnectReloader = [[IMReconnectReloader alloc] initWithReloadBlock:^{ [ws reload]; }];
     }
     return self;
 }
@@ -157,7 +171,13 @@
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
+    self.reconnectReloader.visible = YES;
     [self reload];
+}
+
+- (void)viewDidDisappear:(BOOL)animated {
+    [super viewDidDisappear:animated];
+    self.reconnectReloader.visible = NO;
 }
 
 #pragma mark - 数据
@@ -201,6 +221,10 @@
     self.accepted = accepted;
     self.emptyLabel.hidden = (pending.count + accepted.count) > 0;
     [self.tableView reloadData];
+    // 任务5：权威好友列表落库（仅 accepted），供下次断网离线首屏。空数组也写，代表当前账号无好友。
+    [IMDatabase.sharedDatabase performWithAccountContext:self.databaseContext block:^(IMDatabase *database) {
+        [database replaceCachedFriends:accepted];
+    }];
     // Tab 角标：把待处理申请数显示在"通讯录"Tab 上（清零靠重新进入时再算）。
     NSString *badge = pending.count > 0 ? [NSString stringWithFormat:@"%lu", (unsigned long)pending.count] : nil;
     if (@available(iOS 18.0, *)) { self.navigationController.tab.badgeValue = badge; }

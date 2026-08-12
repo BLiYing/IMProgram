@@ -4,6 +4,8 @@
 #import "IMDatabase.h"
 #import "IMConversation.h"
 #import "IMMessageModel.h"
+#import "IMUserCard.h"
+#import "IMGroupInfo.h"
 #import "IMLog.h"
 
 #import <FMDB/FMDB.h>
@@ -150,6 +152,20 @@
         if (![self column:@"synced_conv_seq" existsInTable:@"im_conversation_local" db:db]) {
             [db executeUpdate:@"ALTER TABLE im_conversation_local ADD COLUMN synced_conv_seq INTEGER NOT NULL DEFAULT 0"];
         }
+
+        // 任务5：好友/群组本地快照（断网离线首屏）。仅缓存列表渲染所需字段，按 owner_uid 隔离。
+        ok = [db executeUpdate:
+            @"CREATE TABLE IF NOT EXISTS im_friend_local ("
+             "owner_uid TEXT NOT NULL, user_id TEXT NOT NULL, sort_order INTEGER NOT NULL,"
+             "nickname TEXT, avatar_url TEXT, status INTEGER, blocked INTEGER, updated_at INTEGER,"
+             "PRIMARY KEY(owner_uid,user_id))"];
+        if (!ok) { IMLogDatabase(@"好友缓存建表失败: %@", db.lastErrorMessage); }
+        ok = [db executeUpdate:
+            @"CREATE TABLE IF NOT EXISTS im_group_local ("
+             "owner_uid TEXT NOT NULL, conv_id TEXT NOT NULL, sort_order INTEGER NOT NULL,"
+             "name TEXT, avatar_url TEXT, owner TEXT, created_at INTEGER, my_role INTEGER,"
+             "PRIMARY KEY(owner_uid,conv_id))"];
+        if (!ok) { IMLogDatabase(@"群组缓存建表失败: %@", db.lastErrorMessage); }
     }];
 }
 
@@ -320,6 +336,95 @@
                 IMLogDatabase(@"写入会话缓存失败 owner=%@ conv=%@: %@", owner, c.convID, db.lastErrorMessage);
                 *rollback = YES;
                 *stop = YES;
+            }
+        }];
+    }];
+}
+
+#pragma mark - 好友 / 群组缓存（任务5·断网离线首屏）
+
+- (NSArray<IMUserCard *> *)cachedFriends {
+    NSString *owner = [self ownerUserID];
+    NSMutableArray<IMUserCard *> *out = [NSMutableArray array];
+    [_queue inDatabase:^(FMDatabase *db) {
+        FMResultSet *rs = [db executeQuery:
+            @"SELECT * FROM im_friend_local WHERE owner_uid=? ORDER BY sort_order ASC", owner];
+        if (!rs) { IMLogDatabase(@"读取好友缓存失败 owner=%@: %@", owner, db.lastErrorMessage); return; }
+        while ([rs next]) {
+            IMUserCard *c = [IMUserCard new];
+            c.userID = [rs stringForColumn:@"user_id"] ?: @"";
+            c.nickname = [rs stringForColumn:@"nickname"] ?: @"";
+            c.avatarURL = [rs stringForColumn:@"avatar_url"] ?: @"";
+            c.status = (IMFriendStatus)[rs longForColumn:@"status"];
+            c.blocked = [rs boolForColumn:@"blocked"];
+            c.updatedAt = [rs longLongIntForColumn:@"updated_at"];
+            if (c.userID.length > 0) { [out addObject:c]; }
+        }
+        [rs close];
+    }];
+    return out;
+}
+
+- (void)replaceCachedFriends:(NSArray<IMUserCard *> *)friends {
+    NSString *owner = [self ownerUserID];
+    [_queue inTransaction:^(FMDatabase *db, BOOL *rollback) {
+        if (![db executeUpdate:@"DELETE FROM im_friend_local WHERE owner_uid=?", owner]) {
+            IMLogDatabase(@"清理旧好友缓存失败 owner=%@: %@", owner, db.lastErrorMessage);
+            *rollback = YES; return;
+        }
+        [friends enumerateObjectsUsingBlock:^(IMUserCard *c, NSUInteger idx, BOOL *stop) {
+            if (c.userID.length == 0) { return; }
+            BOOL ok = [db executeUpdate:
+                @"INSERT INTO im_friend_local (owner_uid,user_id,sort_order,nickname,avatar_url,status,blocked,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+                owner, c.userID, @(idx), c.nickname ?: @"", c.avatarURL ?: @"",
+                @(c.status), @(c.blocked), @(c.updatedAt)];
+            if (!ok) {
+                IMLogDatabase(@"写入好友缓存失败 owner=%@ uid=%@: %@", owner, c.userID, db.lastErrorMessage);
+                *rollback = YES; *stop = YES;
+            }
+        }];
+    }];
+}
+
+- (NSArray<IMGroupInfo *> *)cachedGroups {
+    NSString *owner = [self ownerUserID];
+    NSMutableArray<IMGroupInfo *> *out = [NSMutableArray array];
+    [_queue inDatabase:^(FMDatabase *db) {
+        FMResultSet *rs = [db executeQuery:
+            @"SELECT * FROM im_group_local WHERE owner_uid=? ORDER BY sort_order ASC", owner];
+        if (!rs) { IMLogDatabase(@"读取群组缓存失败 owner=%@: %@", owner, db.lastErrorMessage); return; }
+        while ([rs next]) {
+            IMGroupInfo *g = [IMGroupInfo new];
+            g.convID = [rs stringForColumn:@"conv_id"] ?: @"";
+            g.name = [rs stringForColumn:@"name"] ?: @"";
+            g.avatarURL = [rs stringForColumn:@"avatar_url"] ?: @"";
+            g.owner = [rs stringForColumn:@"owner"] ?: @"";
+            g.createdAt = [rs longLongIntForColumn:@"created_at"];
+            g.myRole = (IMGroupRole)[rs longForColumn:@"my_role"];
+            g.members = @[]; // 列表不需要成员详情；进群聊详情时再联网权威拉取
+            if (g.convID.length > 0) { [out addObject:g]; }
+        }
+        [rs close];
+    }];
+    return out;
+}
+
+- (void)replaceCachedGroups:(NSArray<IMGroupInfo *> *)groups {
+    NSString *owner = [self ownerUserID];
+    [_queue inTransaction:^(FMDatabase *db, BOOL *rollback) {
+        if (![db executeUpdate:@"DELETE FROM im_group_local WHERE owner_uid=?", owner]) {
+            IMLogDatabase(@"清理旧群组缓存失败 owner=%@: %@", owner, db.lastErrorMessage);
+            *rollback = YES; return;
+        }
+        [groups enumerateObjectsUsingBlock:^(IMGroupInfo *g, NSUInteger idx, BOOL *stop) {
+            if (g.convID.length == 0) { return; }
+            BOOL ok = [db executeUpdate:
+                @"INSERT INTO im_group_local (owner_uid,conv_id,sort_order,name,avatar_url,owner,created_at,my_role) VALUES (?,?,?,?,?,?,?,?)",
+                owner, g.convID, @(idx), g.name ?: @"", g.avatarURL ?: @"", g.owner ?: @"",
+                @(g.createdAt), @(g.myRole)];
+            if (!ok) {
+                IMLogDatabase(@"写入群组缓存失败 owner=%@ conv=%@: %@", owner, g.convID, db.lastErrorMessage);
+                *rollback = YES; *stop = YES;
             }
         }];
     }];
