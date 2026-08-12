@@ -4,6 +4,7 @@
 #import "IMConversation.h"
 #import "IMUserCard.h"
 #import "IMGroupInfo.h"
+#import "IMPinnedMessage.h"
 #import "IMHTTPLogFormatter.h"
 #import "IMLog.h"
 
@@ -486,6 +487,32 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     [self runGroupInfoRequest:req fallback:@"拉取群资料失败" completion:completion];
 }
 
+- (void)pinnedMessagesWithToken:(NSString *)token
+                         convID:(NSString *)convID
+                     completion:(void (^)(NSArray<IMPinnedMessage *> *, NSError *))completion {
+    NSString *path = [NSString stringWithFormat:@"/api/v1/conversations/%@/pinned", [self pathEscape:convID]];
+    NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
+    if (!req) {
+        [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }];
+        return;
+    }
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        if ([body[@"code"] integerValue] != 0) {
+            completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"拉取置顶消息失败"]]);
+            return;
+        }
+        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
+        NSArray *raw = [data[@"items"] isKindOfClass:[NSArray class]] ? data[@"items"] : @[];
+        NSMutableArray<IMPinnedMessage *> *items = [NSMutableArray arrayWithCapacity:raw.count];
+        for (id one in raw) {
+            IMPinnedMessage *p = [IMPinnedMessage fromJSON:[one isKindOfClass:[NSDictionary class]] ? one : nil];
+            if (p) { [items addObject:p]; } // 脏项跳过，不让一条坏数据废掉整条横幅
+        }
+        completion(items, nil);
+    }];
+}
+
 - (void)readReceiptsWithToken:(NSString *)token
                        convID:(NSString *)convID
                       convSeq:(int64_t)convSeq
@@ -513,12 +540,95 @@ BOOL IMIsTransientNetworkError(NSError *error) {
 }
 
 - (void)updateGroupWithToken:(NSString *)token convID:(NSString *)convID
-                        name:(NSString *)name avatarURL:(NSString *)avatarURL
+                        name:(NSString *)name avatarURL:(NSString *)avatarURL intro:(NSString *)intro
                   completion:(void (^)(NSError *))completion {
+    // 整体替换语义：name/avatar_url/intro 都要回带当前值，省略即被清空（后端 G1）。
     NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@""]
                                                    method:@"PUT" token:token
-                                                     body:@{ @"name": name ?: @"", @"avatar_url": avatarURL ?: @"" }];
+                                                     body:@{ @"name": name ?: @"", @"avatar_url": avatarURL ?: @"", @"intro": intro ?: @"" }];
     [self runOKRequest:req fallback:@"保存群资料失败" completion:completion];
+}
+
+// 群公告发布/撤下（G1）：text 空即撤下。仅群主/管理员（越权服务端回 300204）。
+- (void)setGroupAnnouncementWithToken:(NSString *)token convID:(NSString *)convID
+                                 text:(NSString *)text completion:(void (^)(NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@"/announcement"]
+                                                   method:@"PUT" token:token body:@{ @"text": text ?: @"" }];
+    [self runOKRequest:req fallback:@"保存群公告失败" completion:completion];
+}
+
+// 群主/管理员自助全员禁言（G1）：until=0 解除 / -1 永久 / 其余到期毫秒时间戳。
+- (void)setGroupMuteWithToken:(NSString *)token convID:(NSString *)convID
+                        until:(int64_t)until completion:(void (^)(NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@"/mute"]
+                                                   method:@"PUT" token:token body:@{ @"until": @(until) }];
+    [self runOKRequest:req fallback:@"设置全员禁言失败" completion:completion];
+}
+
+// 我在本群的昵称（G1）：任意成员改自己的，空串=清除回退全局昵称。
+- (void)setGroupMyNicknameWithToken:(NSString *)token convID:(NSString *)convID
+                           nickname:(NSString *)nickname completion:(void (^)(NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@"/members/me/nickname"]
+                                                   method:@"PUT" token:token body:@{ @"nickname": nickname ?: @"" }];
+    [self runOKRequest:req fallback:@"保存群昵称失败" completion:completion];
+}
+
+// 群治理开关组（G2，群主/管理员整体替换）。
+- (void)setGroupSettingsWithToken:(NSString *)token convID:(NSString *)convID
+                     joinApproval:(BOOL)joinApproval permInvite:(BOOL)permInvite
+                     permEditInfo:(BOOL)permEditInfo permPin:(BOOL)permPin
+                   historyVisible:(BOOL)historyVisible completion:(void (^)(NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@"/settings"]
+                                                   method:@"PUT" token:token body:@{
+        @"join_approval": @(joinApproval), @"perm_invite": @(permInvite),
+        @"perm_edit_info": @(permEditInfo), @"perm_pin": @(permPin), @"history_visible": @(historyVisible),
+    }];
+    [self runOKRequest:req fallback:@"保存群设置失败" completion:completion];
+}
+
+// 单独禁言成员（G2）：until=0 解禁 / -1 永久 / 其余到期毫秒。
+- (void)muteGroupMemberWithToken:(NSString *)token convID:(NSString *)convID userID:(NSString *)userID
+                           until:(int64_t)until completion:(void (^)(NSError *))completion {
+    NSString *suffix = [NSString stringWithFormat:@"/members/%@/mute", [self pathEscape:userID]];
+    NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:suffix]
+                                                   method:@"PUT" token:token body:@{ @"until": @(until) }];
+    [self runOKRequest:req fallback:@"禁言失败" completion:completion];
+}
+
+// 移出成员带封禁档（G2）：ban=none|cooldown|forever（缺省 cooldown）。
+- (void)removeGroupMemberWithToken:(NSString *)token convID:(NSString *)convID userID:(NSString *)userID
+                               ban:(NSString *)ban completion:(void (^)(NSError *))completion {
+    NSString *suffix = [NSString stringWithFormat:@"/members/%@?ban=%@", [self pathEscape:userID], ban ?: @"cooldown"];
+    NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:suffix]
+                                                   method:@"DELETE" token:token body:nil];
+    [self runOKRequest:req fallback:@"移除失败" completion:completion];
+}
+
+// 群黑名单列表（G2，群主/管理员）→ 回 [{user_id,banned_by,banned_at,expires_at}]。
+- (void)groupBansWithToken:(NSString *)token convID:(NSString *)convID
+                completion:(void (^)(NSArray<NSDictionary *> *bans, NSError *error))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@"/bans"]
+                                                   method:@"GET" token:token body:nil];
+    if (!req) { [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }]; return; }
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        if ([body[@"code"] integerValue] != 0) {
+            completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"拉取黑名单失败"]]);
+            return;
+        }
+        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
+        NSArray *bans = [data[@"bans"] isKindOfClass:[NSArray class]] ? data[@"bans"] : @[];
+        completion(bans, nil);
+    }];
+}
+
+// 解除拉黑（G2，群主/管理员）。
+- (void)unbanGroupMemberWithToken:(NSString *)token convID:(NSString *)convID userID:(NSString *)userID
+                       completion:(void (^)(NSError *))completion {
+    NSString *suffix = [NSString stringWithFormat:@"/bans/%@", [self pathEscape:userID]];
+    NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:suffix]
+                                                   method:@"DELETE" token:token body:nil];
+    [self runOKRequest:req fallback:@"解除失败" completion:completion];
 }
 
 - (void)inviteToGroupWithToken:(NSString *)token convID:(NSString *)convID

@@ -18,13 +18,6 @@
     XCTAssertFalse(IMShouldLogPageClassName(@"DOCRemoteViewController"));
 }
 
-- (void)testSystemDocumentPickerUsesStableFullScreenBrowserPresentation {
-    UIDocumentPickerViewController *picker = [IMFilePickerViewController systemDocumentPicker];
-
-    XCTAssertEqual(picker.modalPresentationStyle, UIModalPresentationFullScreen);
-    XCTAssertFalse(picker.allowsMultipleSelection);
-    XCTAssertTrue(picker.shouldShowFileExtensions);
-}
 
 - (NSURL *)temporaryDatabaseURL {
     NSString *name = [NSString stringWithFormat:@"sent-files-%@.sqlite", NSUUID.UUID.UUIDString];

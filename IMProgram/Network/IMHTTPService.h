@@ -6,6 +6,7 @@
 @class IMConversation;
 @class IMUserCard;
 @class IMGroupInfo;
+@class IMPinnedMessage;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -140,6 +141,13 @@ BOOL IMIsAuthErrorCode(NSInteger code);
                     convID:(NSString *)convID
                 completion:(void (^)(IMGroupInfo *_Nullable group, NSError *_Nullable error))completion;
 
+/// 会话当前置顶消息（G0）：GET /conversations/{id}/pinned。须为会话成员；服务端按 pinned_at 倒序、
+/// 最多 50 条，且已排除撤回/为所有人删除/本人「仅为我删除」的。进会话拉一次回填横幅，
+/// 之后靠实时 msg_op 帧增量维护，**不轮询**。completion 在主线程回调。
+- (void)pinnedMessagesWithToken:(NSString *)token
+                         convID:(NSString *)convID
+                     completion:(void (^)(NSArray<IMPinnedMessage *> *_Nullable items, NSError *_Nullable error))completion;
+
 /// 群消息已读/未读名单（M4-8）：GET /conversations/{id}/messages/{seq}/read-by。
 /// **仅消息发送者本人**可调（他人调用服务端回 403）。`enabled=NO` 表示群规模超上限（>2000 人），
 /// 此时 read/unread 为空，调用方应隐藏入口而非报错。completion 在主线程回调。
@@ -156,7 +164,61 @@ BOOL IMIsAuthErrorCode(NSInteger code);
                       convID:(NSString *)convID
                         name:(NSString *)name
                    avatarURL:(NSString *)avatarURL
+                       intro:(NSString *)intro
                   completion:(void (^)(NSError *_Nullable error))completion;
+
+/// 发布/撤下群公告（G1，群主/管理员）：text 空即撤下。completion 在主线程回调。
+- (void)setGroupAnnouncementWithToken:(NSString *)token
+                               convID:(NSString *)convID
+                                 text:(NSString *)text
+                           completion:(void (^)(NSError *_Nullable error))completion;
+
+/// 群主/管理员自助全员禁言（G1）：until=0 解除 / -1 永久 / 其余到期毫秒时间戳。completion 在主线程回调。
+- (void)setGroupMuteWithToken:(NSString *)token
+                       convID:(NSString *)convID
+                        until:(int64_t)until
+                   completion:(void (^)(NSError *_Nullable error))completion;
+
+/// 我在本群的昵称（G1，任意成员）：nickname 空串=清除回退全局昵称。completion 在主线程回调。
+- (void)setGroupMyNicknameWithToken:(NSString *)token
+                             convID:(NSString *)convID
+                           nickname:(NSString *)nickname
+                         completion:(void (^)(NSError *_Nullable error))completion;
+
+/// 群治理开关组（G2，群主/管理员整体替换）。completion 在主线程回调。
+- (void)setGroupSettingsWithToken:(NSString *)token
+                           convID:(NSString *)convID
+                     joinApproval:(BOOL)joinApproval
+                       permInvite:(BOOL)permInvite
+                     permEditInfo:(BOOL)permEditInfo
+                          permPin:(BOOL)permPin
+                   historyVisible:(BOOL)historyVisible
+                       completion:(void (^)(NSError *_Nullable error))completion;
+
+/// 单独禁言成员（G2）：until=0 解禁 / -1 永久 / 其余到期毫秒。completion 在主线程回调。
+- (void)muteGroupMemberWithToken:(NSString *)token
+                          convID:(NSString *)convID
+                          userID:(NSString *)userID
+                           until:(int64_t)until
+                      completion:(void (^)(NSError *_Nullable error))completion;
+
+/// 移出成员带封禁档（G2）：ban=none|cooldown|forever。completion 在主线程回调。
+- (void)removeGroupMemberWithToken:(NSString *)token
+                            convID:(NSString *)convID
+                            userID:(NSString *)userID
+                               ban:(NSString *)ban
+                        completion:(void (^)(NSError *_Nullable error))completion;
+
+/// 群黑名单列表（G2，群主/管理员）→ [{user_id,banned_by,banned_at,expires_at}]。completion 在主线程回调。
+- (void)groupBansWithToken:(NSString *)token
+                    convID:(NSString *)convID
+                completion:(void (^)(NSArray<NSDictionary *> *_Nullable bans, NSError *_Nullable error))completion;
+
+/// 解除拉黑（G2，群主/管理员）。completion 在主线程回调。
+- (void)unbanGroupMemberWithToken:(NSString *)token
+                           convID:(NSString *)convID
+                           userID:(NSString *)userID
+                       completion:(void (^)(NSError *_Nullable error))completion;
 
 /// 邀请入群（任意成员可邀）。completion 在主线程回调。
 - (void)inviteToGroupWithToken:(NSString *)token

@@ -860,7 +860,10 @@
         if (recalledAt > 0) { [sets addObject:@"recalled_at=?"]; [args addObject:@(recalledAt)];
                               [sets addObject:@"recalled_by=?"]; [args addObject:recalledBy ?: @""]; }
         if (editedAt > 0)   { [sets addObject:@"edited_at=?"];   [args addObject:@(editedAt)]; }
-        if (pinnedAt > 0)   { [sets addObject:@"pinned_at=?"];   [args addObject:@(pinnedAt)]; }
+        // 置顶：>0 置顶、**<0 取消置顶**（写回 0）、0 不改该项。
+        // 取消置顶与置顶共用 op=pin，若沿用"0=不改"就永远落不了地——本地会一直显示已置顶（G0 修）。
+        if (pinnedAt > 0)      { [sets addObject:@"pinned_at=?"];   [args addObject:@(pinnedAt)]; }
+        else if (pinnedAt < 0) { [sets addObject:@"pinned_at=?"];   [args addObject:@(0)]; }
         if (newContent != nil) { [sets addObject:@"content=?"]; [args addObject:newContent]; }
         if (sets.count == 0) { return; }
         NSString *sql = [NSString stringWithFormat:@"UPDATE im_message_local SET %@ WHERE owner_uid=? AND conv_id=? AND conv_seq=?",

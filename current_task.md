@@ -5,6 +5,17 @@
 
 ## 当前焦点
 
+**G2 群治理 ✅（2026-08-13，build 绿，待手测；iOS 全量测试用户要求暂停）** — 方案 `../IMServer/docs/GROUP_FEATURES_DESIGN.md` §G2、草图 §04/§07。
+`IMGroupManageViewController` 加三卡（进群确认/全员禁言开关 · 三项「仅管理员」权限开关 + 新成员可见历史 · 黑名单入口，section 化重构避免行索引 bug）+ 新 `IMGroupBanListViewController`（左滑解除）+ `IMGroupInfoViewController` 成员菜单加「禁言…(10min/1h/1d/永久)/移出群聊(cooldown)/移出并不再允许加入(forever)」+ `IMChatViewController` 输入栏禁言锁（`refreshComposerMuteState`：myMuteUntil 或全员禁言且我是 member → inputField.enabled=NO + 占位「你已被管理员禁言」）。`IMGroupInfo` 扩 G2 字段 + `IMHTTPService` 加 setGroupSettings/muteGroupMember/removeGroupMember:ban:/groupBans/unban。**后端补** group.Info 下发开关组。
+
+**G1 群资料闭环 ✅（2026-08-12，build 绿，待手测；iOS 全量测试用户要求暂停）** — 方案 `../IMServer/docs/GROUP_FEATURES_DESIGN.md` §G1、草图 §04/§08。
+`IMGroupManageViewController` 三行（简介/公告/全员禁言开关，删「即将上线」占位）+ `IMChatDetailViewController` 设置区加「我在本群的昵称/群备注」行 + 群公告卡 + `IMChatViewController` **公告黄条横幅**（`IMPinnedBannerView` 加 `IMBannerStyleAnnouncement`，排在 G0 置顶蓝条之上，两条叠加算 `contentInset.top`）。`IMGroupInfo` 扩 G1 字段、`displayName`/`nicknameOfMember:` 群昵称优先。`IMHTTPService` 加 announcement/mute/me-nickname 三接口 + `updateGroup` 扩 intro。群备注本地（`NSUserDefaults im_grpremark_<uid>_<cid>`，与单聊备注 `im_remark_` 同范式；后端 remark 就绪、多端同步后续）。
+
+**G0 置顶消息横幅 ✅（2026-08-12，build 绿 + `IMPinnedMessageTests` 8 例，待手测）** — 方案/草图见 `../IMServer/docs/GROUP_FEATURES_DESIGN.md` §G0 与 `GROUP_FEATURES_UX_SKETCH.html` §03（**实现须严格对齐草图**）。
+新增 `IMPinnedBannerView`（竖条 + `📌 置顶消息 i/N · 发送者` + 单行预览 + 右侧列表键）与 `IMPinnedMessage` 模型；进会话拉 `GET /conversations/{id}/pinned` 回填，之后靠 `msg_op` 帧重拉；点条=跳转并轮转，列表键=ActionSheet 全部置顶（可取消当前条）；长按菜单加「置顶↔取消置顶」切换对（群内仅群主/管理员）。
+**布局要点**：横幅浮在消息表之上、贴 `safeAreaLayoutGuide.top`，用 `tableView.contentInset.top` 顶开内容——**不能用 `additionalSafeAreaInsets`**（它会反过来推动横幅自身约束，形成循环）。
+**顺带修**：`op=pin` 的 apply 写死 `pinnedAt = now`，把「取消置顶」也记成置顶；且 `IMDatabase applyMsgOpForConv:` 约定「pinnedAt 传 0 = 不改该项」导致取消永远落不了库 → 认 `payload[@"pinned"]`、约定 `pinnedAt<0` 为清零、通知补 `kIMMsgOpPinnedKey`。
+
 **@选择器改内联下拉面板 ✅（2026-08-12，build 绿·待手测）**：原半屏 sheet 遮挡输入框、没法接着打字匹配 → 改**输入栏上方内联面板**（`IMMentionPickerViewController initInlineWithGroup:`＋`preferredInlineHeight`，child VC 底边贴 `replyBar.top`、随键盘上移、不抢键盘，过滤词由聊天输入框 `updateQuery:` 实时驱动）；`maybePresentMentionPicker` 改 add/update/remove child + `dismissMentionPanel`。
 
 **气泡内 `@昵称` 高亮 + 点击跳资料 ✅（2026-08-12，build 绿·待手测）**：iOS 不落库 per-msg mentions，改由**当前群成员+文本**推导（`mentionMapForMessage:`→name→uid）；`@所有人`仅群主/管理员时高亮（对齐 300204、不可点）；`+[IMBubbleCell attributedContent:base:mentionColor:mentions:]` 挂 `IMMentionUIDAttributeName`，cell 与阅读器共用。**点 `@昵称` 跳资料**：气泡 UILabel 用 `NSLayoutManager` 反查 tap 落点字符属性（`mentionUIDAtPoint:`，收键盘前用稳定布局 + glyph 矩形内才算）、阅读器 UITextView 同法反查（不走已弃用 link 代理）→ `openMemberProfileForUID:`；点击先于长文展开/引用跳转。token 边界同 `IMChatTextContainsMentionToken`、长名优先。

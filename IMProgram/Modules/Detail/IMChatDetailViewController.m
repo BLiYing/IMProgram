@@ -1066,7 +1066,11 @@ static CGFloat const kNavOpaqueOnCollapse = 0.8;
     return raw.length ? IMMediaFullURL(raw, self.host) : @"";
 }
 - (NSString *)displayTitle {
-    if (self.isGroup) { return self.group.name.length ? self.group.name : (self.groupName.length ? self.groupName : @"群聊"); }
+    if (self.isGroup) {
+        NSString *remark = [self currentConvRemark]; // 群备注（仅本人可见，G1）优先
+        if (remark.length) { return remark; }
+        return self.group.name.length ? self.group.name : (self.groupName.length ? self.groupName : @"群聊");
+    }
     return self.peerNickname.length ? self.peerNickname : (self.peerID ?: @"");
 }
 - (NSString *)displaySubtitle {
@@ -1475,11 +1479,7 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
     switch ([self sectionKindAt:section]) {
         case IMDetailSectionPills:    return 1;
         case IMDetailSectionInfo:     return 2; // 备注名 + 用户名
-        case IMDetailSectionSettings: {
-            NSInteger n = 2; // 置顶 + 免打扰
-            if (self.isGroup && [self canManageGroup]) { n += 1; } // 群管理
-            return n;
-        }
+        case IMDetailSectionSettings: return (NSInteger)[self settingsRowKinds].count;
         case IMDetailSectionTabs:     return [self tabRowCount];
     }
     return 0;
@@ -1614,23 +1614,62 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
     return cell;
 }
 
+/// 设置区行类型（顺序即展示顺序）。群聊比单聊多「我在本群的昵称/群备注」，管理员再多「群管理」。
+typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
+    IMDetailSettingsRowPin = 0,     ///< 置顶聊天
+    IMDetailSettingsRowMute,        ///< 消息免打扰
+    IMDetailSettingsRowMyNickname,  ///< 我在本群的昵称（群聊，任意成员，G1）
+    IMDetailSettingsRowRemark,      ///< 群备注（群聊，仅本人可见，G1）
+    IMDetailSettingsRowManage,      ///< 群管理（群主/管理员）
+};
+
+/// 组装设置区当前应显示的行（避免硬编码 0/1/2 造成群/单聊分叉 bug）。
+- (NSArray<NSNumber *> *)settingsRowKinds {
+    NSMutableArray<NSNumber *> *rows = [NSMutableArray arrayWithObjects:@(IMDetailSettingsRowPin), @(IMDetailSettingsRowMute), nil];
+    if (self.isGroup) {
+        [rows addObject:@(IMDetailSettingsRowMyNickname)]; // 任意成员可改自己的群昵称
+        [rows addObject:@(IMDetailSettingsRowRemark)];     // 群备注（仅本人可见）
+        if ([self canManageGroup]) { [rows addObject:@(IMDetailSettingsRowManage)]; }
+    }
+    return rows;
+}
+
 - (UITableViewCell *)settingsCell:(UITableView *)tv row:(NSInteger)row {
-    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+    NSArray<NSNumber *> *kinds = [self settingsRowKinds];
+    IMDetailSettingsRow kind = (row < (NSInteger)kinds.count) ? (IMDetailSettingsRow)kinds[row].integerValue : IMDetailSettingsRowPin;
+    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:nil];
     cell.textLabel.textColor = IMTheme.textPrimary;
-    if (row == 0) {
-        cell.textLabel.text = @"置顶聊天";
-        UISwitch *sw = [UISwitch new]; sw.on = self.pinnedAt > 0; sw.tag = 1;
-        [sw addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
-        cell.accessoryView = sw;
-    } else if (row == 1) {
-        cell.textLabel.text = @"消息免打扰";
-        UISwitch *sw = [UISwitch new]; sw.on = self.muted; sw.tag = 2;
-        [sw addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
-        cell.accessoryView = sw;
-    } else {
-        cell.textLabel.text = @"群管理";
-        cell.detailTextLabel.text = @"仅群主/管理员";
-        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    cell.detailTextLabel.textColor = IMTheme.textSecondary;
+    switch (kind) {
+        case IMDetailSettingsRowPin: {
+            cell.textLabel.text = @"置顶聊天";
+            UISwitch *sw = [UISwitch new]; sw.on = self.pinnedAt > 0; sw.tag = 1;
+            [sw addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
+            cell.accessoryView = sw;
+            break;
+        }
+        case IMDetailSettingsRowMute: {
+            cell.textLabel.text = @"消息免打扰";
+            UISwitch *sw = [UISwitch new]; sw.on = self.muted; sw.tag = 2;
+            [sw addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
+            cell.accessoryView = sw;
+            break;
+        }
+        case IMDetailSettingsRowMyNickname:
+            cell.textLabel.text = @"我在本群的昵称";
+            cell.detailTextLabel.text = self.group.myNickname.length ? self.group.myNickname : @"未设置";
+            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            break;
+        case IMDetailSettingsRowRemark:
+            cell.textLabel.text = @"群备注";
+            cell.detailTextLabel.text = [self currentConvRemark].length ? [self currentConvRemark] : @"未设置";
+            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            break;
+        case IMDetailSettingsRowManage:
+            cell.textLabel.text = @"群管理";
+            cell.detailTextLabel.text = @"仅群主/管理员";
+            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            break;
     }
     return cell;
 }
@@ -1729,7 +1768,14 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
     IMDetailSection kind = [self sectionKindAt:indexPath.section];
     if (kind == IMDetailSectionInfo && indexPath.row == 0) { [self editRemark]; return; }
     if (kind == IMDetailSectionSettings) {
-        if (indexPath.row == 2) { [self openGroupManage]; }
+        NSArray<NSNumber *> *kinds = [self settingsRowKinds];
+        if (indexPath.row >= (NSInteger)kinds.count) { return; }
+        switch ((IMDetailSettingsRow)kinds[indexPath.row].integerValue) {
+            case IMDetailSettingsRowMyNickname: [self editMyGroupNickname]; break;
+            case IMDetailSettingsRowRemark:     [self editGroupRemark]; break;
+            case IMDetailSettingsRowManage:     [self openGroupManage]; break;
+            default: break; // 置顶/免打扰走开关，不响应行点击
+        }
         return;
     }
     if (kind == IMDetailSectionTabs && self.tabs.count > 0) {
@@ -2024,6 +2070,64 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
     [self presentViewController:alert animated:YES completion:nil];
 }
 - (NSString *)remarkKey { return [NSString stringWithFormat:@"im_remark_%@_%@", self.userID, self.peerID]; }
+
+#pragma mark - 群昵称 / 群备注（G1）
+
+/// 群备注本地键（仅本人可见；沿用单聊备注的本地存储范式，keyed by convID）。
+/// 说明：后端已有会话级 remark 字段（随 conv_update 多端同步），iOS 现用本地存储，多端同步为后续项。
+- (NSString *)groupRemarkKey { return [NSString stringWithFormat:@"im_grpremark_%@_%@", self.userID, self.convID]; }
+- (NSString *)currentConvRemark {
+    return [NSUserDefaults.standardUserDefaults stringForKey:[self groupRemarkKey]] ?: @"";
+}
+
+/// 我在本群的昵称（G1，任意成员）：走后端 → 成功后刷新群资料（气泡回退名随之更新）。
+- (void)editMyGroupNickname {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"我在本群的昵称"
+        message:@"群内所有人可见，最多 20 字；留空恢复默认昵称。" preferredStyle:UIAlertControllerStyleAlert];
+    NSString *current = self.group.myNickname ?: @"";
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) { tf.text = current; }];
+    __weak typeof(self) ws = self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
+        NSString *v = [alert.textFields.firstObject.text
+                       stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] ?: @"";
+        if ([v isEqualToString:current]) { return; }
+        NSString *token = IMHTTPService.sharedService.currentToken;
+        if (token.length == 0) { [ws im_showToast:@"未登录"]; return; }
+        [IMHTTPService.sharedService setGroupMyNicknameWithToken:token convID:ws.convID nickname:v
+                                                     completion:^(NSError *error) {
+            __strong typeof(ws) self = ws;
+            if (!self) { return; }
+            if (error) { [self im_showToast:error.localizedDescription ?: @"保存失败"]; return; }
+            self.group.myNickname = v.length ? v : nil;
+            [self loadGroupInfo]; // 成员表 group_nickname 变了，重拉刷新
+            [self im_showToast:@"已更新"];
+        }];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+/// 群备注（G1，仅本人可见）：改我看到的群名，本地存储。
+- (void)editGroupRemark {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"群备注"
+        message:@"仅自己可见，将替代群名显示。" preferredStyle:UIAlertControllerStyleAlert];
+    NSString *current = [self currentConvRemark];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) { tf.text = current; tf.placeholder = self.group.name; }];
+    __weak typeof(self) ws = self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
+        NSString *v = [alert.textFields.firstObject.text
+                       stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] ?: @"";
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        if (v.length) { [NSUserDefaults.standardUserDefaults setObject:v forKey:[self groupRemarkKey]]; }
+        else { [NSUserDefaults.standardUserDefaults removeObjectForKey:[self groupRemarkKey]]; }
+        [self refreshHeaderTexts];
+        [self.tableView reloadData];
+        [self im_showToast:@"备注已更新"];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
 
 - (void)toggleBlock {
     NSString *token = IMHTTPService.sharedService.currentToken; if (token.length == 0) { return; }

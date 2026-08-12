@@ -26,11 +26,13 @@ extern NSString * const kIMGroupTargetKey;
 /// 收到已读回执（read）时广播（主线程）：会话列表据此刷新——对端已读→我发的变✓✓；本人多端已读→未读清零。
 extern NSString * const IMSocketDidReceiveReadNotification;
 /// 消息操作（撤回/编辑/置顶，M4）应用到某条消息时广播（主线程）：聊天页/会话列表据此就地刷新。
-/// userInfo：kIMConvIDKey=会话、kIMMsgOpTargetSeqKey=目标 conv_seq(NSNumber)、kIMMsgOpKey=op、kIMMsgOpContentKey=编辑新文本(可空)。
+/// userInfo：kIMConvIDKey=会话、kIMMsgOpTargetSeqKey=目标 conv_seq(NSNumber)、kIMMsgOpKey=op、
+/// kIMMsgOpContentKey=编辑新文本(可空)、kIMMsgOpPinnedKey=置顶态 BOOL(NSNumber，仅 op=pin 带)。
 extern NSString * const IMSocketDidApplyMsgOpNotification;
 extern NSString * const kIMMsgOpTargetSeqKey;
 extern NSString * const kIMMsgOpKey;
 extern NSString * const kIMMsgOpContentKey;
+extern NSString * const kIMMsgOpPinnedKey;
 /// 我发起的消息操作被拒（如撤回超时）时广播（主线程）：userInfo[@"message"]=服务端文案。
 extern NSString * const IMSocketDidRejectMsgOpNotification;
 /// 某条消息被物理移除（任务2：为所有人删除 op=delete / 仅为我删除 msg_hidden）时广播（主线程）：
@@ -181,6 +183,10 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
 
 /// 编辑自己在 convID 会话里 conv_seq=targetConvSeq 的文本消息（M4-5）。成功由服务端广播回 msg_op 帧应用。
 - (void)editMessageInConv:(NSString *)convID targetConvSeq:(int64_t)targetConvSeq content:(NSString *)content;
+
+/// 聊天内置顶 / 取消置顶（G0）：发 msg_op op=pin；群内限群主/管理员（服务端权威，越权回 300006）。
+/// 成功由服务端广播回 msg_op 帧应用（IMSocketDidApplyMsgOp 通知），被拒走 IMSocketDidRejectMsgOp。
+- (void)pinMessageInConv:(NSString *)convID targetConvSeq:(int64_t)targetConvSeq pinned:(BOOL)pinned;
 
 /// 为所有人删除（任务2）：发 msg_op op=delete。发送者本人或群主/管理员可删（后端校验，无时间窗）；
 /// 成功由服务端广播回 msg_op 帧应用（物理移除本地并发 IMSocketDidRemoveMessageNotification）。被拒走 IMSocketDidRejectMsgOpNotification。

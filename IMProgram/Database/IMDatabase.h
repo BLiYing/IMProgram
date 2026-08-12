@@ -113,7 +113,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)advanceSyncedConvSeqForConv:(NSString *)convID toConvSeq:(int64_t)convSeq;
 
 /// 把一次消息操作（撤回/编辑/置顶，M4）就地应用到已落库消息（按 conv_seq 定位）。目标不存在则忽略。
-/// recalledAt/editedAt/pinnedAt 传 0 表示不改该项；newContent 非 nil 时改 content（编辑）。
+/// recalledAt/editedAt 传 0 表示不改该项；**pinnedAt >0=置顶 / <0=取消置顶（写回 0）/ 0=不改**；
+/// newContent 非 nil 时改 content（编辑）。
 - (void)applyMsgOpForConv:(NSString *)convID
             targetConvSeq:(int64_t)targetConvSeq
                recalledAt:(int64_t)recalledAt

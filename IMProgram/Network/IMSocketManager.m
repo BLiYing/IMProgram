@@ -34,6 +34,7 @@ NSString * const IMSocketDidApplyMsgOpNotification = @"IMSocketDidApplyMsgOpNoti
 NSString * const kIMMsgOpTargetSeqKey = @"msgOpTargetSeq";
 NSString * const kIMMsgOpKey = @"msgOp";
 NSString * const kIMMsgOpContentKey = @"msgOpContent";
+NSString * const kIMMsgOpPinnedKey = @"msgOpPinned";
 NSString * const IMSocketDidRejectMsgOpNotification = @"IMSocketDidRejectMsgOpNotification";
 NSString * const IMSocketDidRemoveMessageNotification = @"IMSocketDidRemoveMessageNotification";
 NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdateConversationNotification";
@@ -856,6 +857,20 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     });
 }
 
+/// 聊天内置顶 / 取消置顶（G0）：发 msg_op op=pin。群内限群主/管理员（服务端 300006 权威）。
+- (void)pinMessageInConv:(NSString *)convID targetConvSeq:(int64_t)targetConvSeq pinned:(BOOL)pinned {
+    if (convID.length == 0 || targetConvSeq <= 0) { return; }
+    NSString *clientMsgID = [NSUUID UUID].UUIDString;
+    NSDictionary *payload = @{
+        @"op": kIMMsgOpPin, @"conv_id": convID,
+        @"target_conv_seq": @(targetConvSeq), @"client_msg_id": clientMsgID, @"pinned": @(pinned),
+    };
+    dispatch_async(_queue, ^{
+        [self->_pendingOps addObject:clientMsgID];
+        [self sendEnvelopeType:kIMTypeMsgOp data:payload completion:nil];
+    });
+}
+
 /// 为所有人删除（任务2）：发 msg_op op=delete。收端（含本人）由服务端广播回帧后物理移除。
 - (void)deleteMessageForEveryoneInConv:(NSString *)convID targetConvSeq:(int64_t)targetConvSeq {
     if (convID.length == 0 || targetConvSeq <= 0) { return; }
@@ -931,7 +946,11 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
         editedAt = now;
         newContent = [payload[@"content"] isKindOfClass:[NSString class]] ? payload[@"content"] : @"";
     } else if ([op isEqualToString:kIMMsgOpPin]) {
-        pinnedAt = now;
+        // **必须看 payload[@"pinned"]**：取消置顶与置顶是同一个 op，早先一律 `pinnedAt = now`
+        // 会把「取消置顶」也记成置顶（G0 接横幅时发现并修）。<0 = 通知数据层清零。
+        BOOL pinned = ![payload[@"pinned"] respondsToSelector:@selector(boolValue)] || [payload[@"pinned"] boolValue];
+        int64_t ts = [payload[@"timestamp"] respondsToSelector:@selector(longLongValue)] ? [payload[@"timestamp"] longLongValue] : 0;
+        pinnedAt = pinned ? (ts > 0 ? ts : now) : -1; // 时间取服务端，多端一致；缺省才回退本地时钟
     } else {
         return NO; // 未知 op：忽略不崩
     }
@@ -947,6 +966,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     dispatch_async(dispatch_get_main_queue(), ^{
         NSMutableDictionary *info = [@{ kIMConvIDKey: convID, kIMMsgOpTargetSeqKey: @(target), kIMMsgOpKey: op } mutableCopy];
         if (newContent) { info[kIMMsgOpContentKey] = newContent; }
+        if ([op isEqualToString:kIMMsgOpPin]) { info[kIMMsgOpPinnedKey] = @(pinnedAt > 0); } // 收端据此增删横幅项
         [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidApplyMsgOpNotification object:self userInfo:info];
     });
     return YES;

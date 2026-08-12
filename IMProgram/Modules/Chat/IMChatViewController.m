@@ -43,6 +43,8 @@
 #import "IMUploadProgress.h"
 #import "IMDatabase.h"
 #import "IMMenuAction.h"
+#import "IMPinnedBannerView.h"
+#import "IMPinnedMessage.h"
 #import "UIViewController+IMToast.h"
 #import "IMTheme.h"
 #import "IMAppearance.h"
@@ -168,6 +170,16 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
 @property (nonatomic, assign) BOOL isGroupChat;        // YES=群聊（convID 为群 topic_id）
 @property (nonatomic, copy, nullable) NSString *groupName;     // 群名（进入时用会话项的，拉到群资料后刷新）
 @property (nonatomic, strong, nullable) IMGroupInfo *groupInfo; // 群资料缓存（标题成员数/气泡昵称回退）
+// 置顶消息横幅（G0）：进会话拉一次，之后靠 msg_op 帧重拉。pinnedIndex=横幅当前显示第几条（点条轮转）。
+@property (nonatomic, strong, nullable) IMPinnedBannerView *pinnedBanner;
+@property (nonatomic, strong) NSArray<IMPinnedMessage *> *pinnedItems;
+@property (nonatomic, assign) NSInteger pinnedIndex;
+@property (nonatomic, strong, nullable) NSLayoutConstraint *pinnedBannerHeight;
+// 群公告横幅（G1）：黄条，排在置顶横幅之上（优先级 公告 > 置顶）。文本随群资料下发。
+@property (nonatomic, strong, nullable) IMPinnedBannerView *announcementBanner;
+@property (nonatomic, strong, nullable) NSLayoutConstraint *announcementBannerHeight;
+@property (nonatomic, copy, nullable) NSString *announcementText;
+@property (nonatomic, assign) BOOL composerMuteLocked; ///< G2：被禁言（成员级或全员）时锁输入栏
 // @提及（M4-8，仅群聊）：候选表 uid→显示名，发送时按输入框里是否还留着 `@显示名` 复核。
 @property (nonatomic, strong, nullable) NSMutableDictionary<NSString *, NSString *> *mentionCandidates;
 @property (nonatomic, assign) BOOL mentionAllPending; // 已选过 @所有人（仍需文本里留着 token 才生效）
@@ -313,6 +325,7 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
         [self installInfoAvatarButtonWithURL:self.peerAvatarURL seed:self.peerID name:name action:@selector(singleInfoTapped)];
     }
     [self setupUI];
+    [self reloadPinnedBanner]; // 置顶横幅（G0）：进会话拉一次，之后靠 msg_op 帧增量维护，不轮询
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(appearanceChanged)
                                                name:IMAppearanceDidChangeNotification object:nil];
     [self observeKeyboard];
@@ -488,10 +501,16 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
         if (m.convSeq != target) { continue; }
         if ([op isEqualToString:kIMMsgOpRecall]) { m.recalledAt = nowMs; }
         else if ([op isEqualToString:kIMMsgOpEdit]) { m.editedAt = nowMs; if (newContent) { m.content = newContent; } }
-        else if ([op isEqualToString:kIMMsgOpPin]) { m.pinnedAt = nowMs; }
+        else if ([op isEqualToString:kIMMsgOpPin]) {
+            // 取消置顶与置顶共用 op=pin，必须看 pinned 标志（缺省视为置顶，兼容老服务端）。
+            id flag = note.userInfo[kIMMsgOpPinnedKey];
+            BOOL pinned = ![flag respondsToSelector:@selector(boolValue)] || [flag boolValue];
+            m.pinnedAt = pinned ? nowMs : 0;
+        }
         break;
     }
     [self.tableView reloadData];
+    if ([op isEqualToString:kIMMsgOpPin]) { [self reloadPinnedBanner]; } // 含别人置顶/取消的实时同步
 }
 
 /// 我方发起的操作被拒（如撤回超时）：吐司提示（不改消息）。
@@ -513,6 +532,7 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
     if (idx == NSNotFound) { return; }
     [self.messages removeObjectAtIndex:idx];
     [self.tableView reloadData];
+    [self reloadPinnedBanner]; // 删掉的可能正是一条置顶消息，别让横幅指向已消失的消息
 }
 
 /// 任务2：刷新返回按钮的全局未读总数徽标（各会话 unread 之和，排除当前会话，微信式）。
@@ -539,8 +559,129 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
         [self updateTitle];
         // 群头像加载后刷新右上圆按钮。
         [self installInfoAvatarButtonWithURL:group.avatarURL seed:self.convID name:group.name action:@selector(groupInfoTapped)];
+        self.announcementText = group.announcement.length ? group.announcement : nil; // G1 公告横幅
+        [self applyAnnouncementBanner];
+        [self refreshComposerMuteState]; // G2：被禁言则锁输入栏
         [self.tableView reloadData]; // 昵称回退可能变化（老消息无 from_nickname 时用成员表）
     }];
+}
+
+#pragma mark - 置顶消息横幅（G0）
+
+/// 能否置顶：群内限群主/管理员（= 服务端 perm_pin 默认值，G2 落群设置后改读设置）；单聊任一方可。
+- (BOOL)canPinMessages {
+    if (!self.isGroupChat) { return YES; }
+    return self.groupInfo.myRole == IMGroupRoleOwner || self.groupInfo.myRole == IMGroupRoleAdmin;
+}
+
+/// 重拉本会话置顶集合并刷新横幅。best-effort：拉不到就不显，绝不打断聊天。
+- (void)reloadPinnedBanner {
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0 || self.convID.length == 0) { return; }
+    __weak typeof(self) weakSelf = self;
+    [IMHTTPService.sharedService pinnedMessagesWithToken:token convID:self.convID
+                                             completion:^(NSArray<IMPinnedMessage *> *items, NSError *error) {
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self || error) { return; }
+        self.pinnedItems = items ?: @[];
+        [self applyPinnedBanner];
+    }];
+}
+
+/// 把当前 pinnedItems/pinnedIndex 应用到横幅，并同步 tableView 顶部内边距。
+- (void)applyPinnedBanner {
+    NSInteger total = (NSInteger)self.pinnedItems.count;
+    // 别人取消置顶会让列表变短，旧索引可能越界（横幅空白）→ 夹紧回 0。
+    if (self.pinnedIndex < 0 || self.pinnedIndex >= total) { self.pinnedIndex = 0; }
+    IMPinnedMessage *shown = total > 0 ? self.pinnedItems[self.pinnedIndex] : nil;
+    [self.pinnedBanner applyItem:shown index:self.pinnedIndex total:total isGroup:self.isGroupChat];
+    self.pinnedBannerHeight.constant = shown ? [IMPinnedBannerView bannerHeight] : 0;
+    [self updateBannerInset];
+}
+
+/// 应用群公告横幅（G1）：文本非空则显黄条。
+- (void)applyAnnouncementBanner {
+    NSString *text = self.announcementText;
+    [self.announcementBanner applyAnnouncement:text];
+    self.announcementBannerHeight.constant = text.length ? [IMPinnedBannerView bannerHeight] : 0;
+    [self updateBannerInset];
+}
+
+/// 两条横幅（公告 + 置顶）叠加后的总高，顶开消息表内容。放一处算，避免两个方法各自覆盖 inset.top。
+- (void)updateBannerInset {
+    CGFloat top = self.announcementBannerHeight.constant + self.pinnedBannerHeight.constant;
+    UIEdgeInsets inset = self.tableView.contentInset;
+    if (inset.top == top) { return; }
+    inset.top = top;
+    self.tableView.contentInset = inset;
+}
+
+/// 点公告横幅：群成员进群资料页看全文（管理员在群管理页可编辑）。
+- (void)announcementBannerTapped {
+    [self groupInfoTapped];
+}
+
+/// G2 输入栏禁言锁：成员级禁言(myMuteUntil)或全员禁言(且我是普通成员)时禁用输入并改占位文案。
+/// 服务端仍是权威（发上来照样拒 300208/300206），这里只是提前告知、不给试错。
+- (void)refreshComposerMuteState {
+    if (!self.isGroupChat || !self.groupInfo) {
+        if (self.composerMuteLocked) { [self setComposerLocked:NO reason:nil]; }
+        return;
+    }
+    int64_t now = (int64_t)([NSDate date].timeIntervalSince1970 * 1000);
+    BOOL memberMuted = self.groupInfo.myMuteUntil > now;
+    BOOL allMuted = self.groupInfo.muteUntil > now && self.groupInfo.myRole == IMGroupRoleMember;
+    NSString *reason = memberMuted ? @"你已被管理员禁言" : (allMuted ? @"本群已开启全员禁言" : nil);
+    [self setComposerLocked:(reason != nil) reason:reason];
+}
+
+- (void)setComposerLocked:(BOOL)locked reason:(nullable NSString *)reason {
+    self.composerMuteLocked = locked;
+    self.inputField.enabled = !locked;
+    self.inputField.placeholder = locked ? reason : @"输入消息…";
+    if (locked) { [self.inputField resignFirstResponder]; }
+}
+
+/// 点横幅：跳到当前那条，并轮转到下一条（Telegram 式）。
+- (void)pinnedBannerTapped {
+    NSInteger total = (NSInteger)self.pinnedItems.count;
+    if (total == 0) { return; }
+    IMPinnedMessage *shown = self.pinnedItems[MIN(MAX(self.pinnedIndex, 0), total - 1)];
+    [self jumpToConvSeq:shown.convSeq];
+    self.pinnedIndex = (self.pinnedIndex + 1) % total;
+    [self applyPinnedBanner];
+}
+
+/// 点右侧列表键：半屏列出全部置顶消息，点行跳转；有权限者可就地取消置顶。
+- (void)pinnedBannerListTapped {
+    if (self.pinnedItems.count == 0) { return; }
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"置顶消息"
+                                                                  message:nil
+                                                           preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak typeof(self) ws = self;
+    BOOL canPin = [self canPinMessages];
+    for (IMPinnedMessage *item in self.pinnedItems) {
+        NSString *sender = [item senderLabelForGroup:self.isGroupChat];
+        NSString *title = sender.length > 0
+            ? [NSString stringWithFormat:@"%@：%@", sender, item.previewText]
+            : item.previewText;
+        [sheet addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault
+                                               handler:^(UIAlertAction *action) {
+            [ws jumpToConvSeq:item.convSeq];
+        }]];
+    }
+    if (canPin) {
+        IMPinnedMessage *shown = self.pinnedItems[MIN(MAX(self.pinnedIndex, 0), (NSInteger)self.pinnedItems.count - 1)];
+        [sheet addAction:[UIAlertAction actionWithTitle:@"取消置顶当前这条" style:UIAlertActionStyleDestructive
+                                               handler:^(UIAlertAction *action) {
+            [IMSocketManager.sharedManager pinMessageInConv:(ws.convID ?: @"")
+                                              targetConvSeq:shown.convSeq pinned:NO];
+        }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    sheet.popoverPresentationController.sourceView = self.pinnedBanner;
+    sheet.popoverPresentationController.sourceRect = self.pinnedBanner.bounds;
+    [self presentViewController:sheet animated:YES completion:nil];
 }
 
 /// 右上圆头像按钮（单聊对方 / 群聊群头像），点击进资料页。
@@ -1052,7 +1193,39 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     self.jumpBadge.hidden = YES;
     [self.view addSubview:self.jumpBadge];
 
+    // 置顶消息横幅（G0）：浮在消息表之上、紧贴安全区顶（Glass 导航栏正下方）。
+    // 不改 tableView 的约束（它刻意铺到状态栏下），改用 contentInset.top 顶开内容——
+    // 走 additionalSafeAreaInsets 会反过来推动本横幅自身的约束，形成循环。
+    __weak typeof(self) wsBanner = self;
     UILayoutGuide *guide = self.view.safeAreaLayoutGuide;
+
+    // 群公告横幅（G1，黄条）：贴安全区顶，排在置顶横幅之上（优先级 公告 > 置顶）。点条=进群管理看公告全文。
+    self.announcementBanner = [[IMPinnedBannerView alloc] initWithStyle:IMBannerStyleAnnouncement];
+    self.announcementBanner.translatesAutoresizingMaskIntoConstraints = NO;
+    self.announcementBanner.hidden = YES;
+    self.announcementBanner.onTap = ^{ [wsBanner announcementBannerTapped]; };
+    [self.view addSubview:self.announcementBanner];
+
+    // 置顶消息横幅（G0，蓝条）：接在公告横幅下方。
+    self.pinnedBanner = [[IMPinnedBannerView alloc] initWithStyle:IMBannerStylePinned];
+    self.pinnedBanner.translatesAutoresizingMaskIntoConstraints = NO;
+    self.pinnedBanner.hidden = YES;
+    self.pinnedBanner.onTap = ^{ [wsBanner pinnedBannerTapped]; };
+    self.pinnedBanner.onList = ^{ [wsBanner pinnedBannerListTapped]; };
+    [self.view addSubview:self.pinnedBanner];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [self.announcementBanner.topAnchor constraintEqualToAnchor:guide.topAnchor],
+        [self.announcementBanner.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [self.announcementBanner.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        (self.announcementBannerHeight = [self.announcementBanner.heightAnchor constraintEqualToConstant:0]),
+
+        [self.pinnedBanner.topAnchor constraintEqualToAnchor:self.announcementBanner.bottomAnchor],
+        [self.pinnedBanner.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [self.pinnedBanner.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        (self.pinnedBannerHeight = [self.pinnedBanner.heightAnchor constraintEqualToConstant:0]),
+    ]];
+
     self.inputBottom = [inputBar.bottomAnchor constraintEqualToAnchor:guide.bottomAnchor];
     [NSLayoutConstraint activateConstraints:@[
         // 聊天背景和消息内容铺到状态栏下方；统一 Glass 导航栏叠加在内容之上。
@@ -2522,10 +2695,10 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         if ([m.clientMsgID isEqualToString:clientMsgID]) {
             m.status = success ? IMMessageStatusSent : IMMessageStatusFailed;
             // 被拒收 → 把服务端友好文案挂到 note，气泡下方居中显示（微信式系统行）；其余失败（如 ack 超时）不挂 note，仍显"未发送 ✗"。
-            // 覆盖：被拉黑 200102 / 非好友 200103 / 被禁言 300004 / 非群成员 300203 / 群全员禁言 300206（后端回「本群已开启全员禁言」）
+            // 覆盖：被拉黑 200102 / 非好友 200103 / 被禁言 300004 / 非群成员 300203 / 群全员禁言 300206 / 成员级禁言 300208（G2）
             //     / 内容过大 300001（合并转发套娃膨胀超上限，后端回「消息内容过大，无法发送」，无恢复入口）。
             m.note = (!success && (error.code == 200102 || error.code == 200103 || error.code == 300004 ||
-                                   error.code == 300203 || error.code == 300206 || error.code == 300001)) ? error.localizedDescription : nil;
+                                   error.code == 300203 || error.code == 300206 || error.code == 300208 || error.code == 300001)) ? error.localizedDescription : nil;
             m.noteCode = m.note ? error.code : 0; // 瞬态：决定系统行是否给恢复入口（200103 → 发好友申请）
             m.convSeq = convSeq;
             if (![self performDatabaseOperation:^(IMDatabase *database) {
@@ -3241,6 +3414,21 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         [actions addObject:[IMMenuAction actionWithId:@"recall" title:@"撤回" image:@"arrow.uturn.backward" handler:^{
             [IMSocketManager.sharedManager recallMessageInConv:(message.convID ?: @"") targetConvSeq:message.convSeq];
         }]];
+    }
+    // 置顶 ↔ 取消置顶（G0）：**切换对**，按当前状态只显示其一（与 Web menus.ts 同序同语义）。
+    // 撤回态/未发出/系统消息不可置顶（横幅不能指向墓碑或本地行）；但已撤回的置顶仍要能摘下来。
+    if ([self canPinMessages] && message.convSeq > 0) {
+        if (message.pinnedAt > 0) {
+            [actions addObject:[IMMenuAction actionWithId:@"unpin" title:@"取消置顶" image:@"pin.slash" handler:^{
+                [IMSocketManager.sharedManager pinMessageInConv:(message.convID ?: @"")
+                                                  targetConvSeq:message.convSeq pinned:NO];
+            }]];
+        } else if (message.recalledAt == 0 && ![message.contentType isEqualToString:@"system"]) {
+            [actions addObject:[IMMenuAction actionWithId:@"pin" title:@"置顶" image:@"pin" handler:^{
+                [IMSocketManager.sharedManager pinMessageInConv:(message.convID ?: @"")
+                                                  targetConvSeq:message.convSeq pinned:YES];
+            }]];
+        }
     }
     // 编辑（M4-5）：仅本人文本、已拿到 conv_seq、未撤回。必须 convSeq>0——发送中的行发 msg_op edit
     // 会因 sendTapped 的 convSeq>0 判定落空而改走「发新消息」分支，造成重复发送且编辑条卡住。

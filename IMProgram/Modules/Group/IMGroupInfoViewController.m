@@ -239,7 +239,7 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
         NSString *avatar = self.group.avatarURL;
         [self runGroupAction:^(NSString *token, void (^done)(NSError *)) {
             [IMHTTPService.sharedService updateGroupWithToken:token convID:self.convID
-                                                         name:name avatarURL:avatar completion:done];
+                                                         name:name avatarURL:avatar intro:(self.group.intro ?: @"") completion:done];
         }];
     }]];
     [self presentViewController:alert animated:YES completion:nil];
@@ -330,15 +330,61 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
             [weakSelf confirmTransferTo:member];
         }]];
     }
+    // 禁言 / 解禁（G2）：权限同移出（严格高于对方）。已被禁言显「解除禁言」，否则「禁言…」。
+    if (canRemove) {
+        int64_t now = (int64_t)([NSDate date].timeIntervalSince1970 * 1000);
+        BOOL muted = member.muteUntil > now;
+        if (muted) {
+            [sheet addAction:[UIAlertAction actionWithTitle:@"解除禁言" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+                [weakSelf runGroupAction:^(NSString *token, void (^done)(NSError *)) {
+                    [IMHTTPService.sharedService muteGroupMemberWithToken:token convID:convID userID:target until:0 completion:done];
+                }];
+            }]];
+        } else {
+            [sheet addAction:[UIAlertAction actionWithTitle:@"禁言…" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+                [weakSelf pickMuteDurationForTarget:target];
+            }]];
+        }
+    }
     if (canRemove) {
         [sheet addAction:[UIAlertAction actionWithTitle:@"移出群聊" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
             [weakSelf runGroupAction:^(NSString *token, void (^done)(NSError *)) {
-                [IMHTTPService.sharedService removeGroupMemberWithToken:token convID:convID userID:target completion:done];
+                // 默认冷却档（24h），传 cooldown 显式表达。
+                [IMHTTPService.sharedService removeGroupMemberWithToken:token convID:convID userID:target ban:@"cooldown" completion:done];
+            }];
+        }]];
+        [sheet addAction:[UIAlertAction actionWithTitle:@"移出并不再允许加入" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+            [weakSelf runGroupAction:^(NSString *token, void (^done)(NSError *)) {
+                [IMHTTPService.sharedService removeGroupMemberWithToken:token convID:convID userID:target ban:@"forever" completion:done];
             }];
         }]];
     }
     [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     // iPad 兜底锚点。
+    sheet.popoverPresentationController.sourceView = self.view;
+    sheet.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(self.view.bounds), CGRectGetMidY(self.view.bounds), 1, 1);
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+/// 禁言时长选择（G2）：10 分钟 / 1 小时 / 1 天 / 永久。
+- (void)pickMuteDurationForTarget:(NSString *)target {
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"禁言时长"
+        message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak typeof(self) weakSelf = self;
+    NSString *convID = self.convID;
+    void (^mute)(NSString *, int64_t) = ^(NSString *title, int64_t untilMs) {
+        [sheet addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            [weakSelf runGroupAction:^(NSString *token, void (^done)(NSError *)) {
+                [IMHTTPService.sharedService muteGroupMemberWithToken:token convID:convID userID:target until:untilMs completion:done];
+            }];
+        }]];
+    };
+    int64_t now = (int64_t)([NSDate date].timeIntervalSince1970 * 1000);
+    mute(@"10 分钟", now + 10 * 60 * 1000);
+    mute(@"1 小时", now + 60 * 60 * 1000);
+    mute(@"1 天", now + 24 * 60 * 60 * 1000);
+    mute(@"永久", -1); // 服务端把 <0 归一为永久
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     sheet.popoverPresentationController.sourceView = self.view;
     sheet.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(self.view.bounds), CGRectGetMidY(self.view.bounds), 1, 1);
     [self presentViewController:sheet animated:YES completion:nil];
