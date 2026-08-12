@@ -1173,9 +1173,10 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     if (!q) { [self dismissMentionPanel]; return; }
     if (self.mentionPanel) { return; } // 已开：过滤交给面板顶部搜索框，不再由聊天输入框驱动
     __weak typeof(self) ws = self;
+    // 搜索框初始为空（不回填聊天输入框里 @后的字）：没在搜索框主动打字时列表显全部成员。
     IMMentionPickerViewController *panel = [[IMMentionPickerViewController alloc]
         initInlineWithGroup:self.groupInfo
-               initialQuery:q
+               initialQuery:nil
                onPickMember:^(IMGroupMember *m) { [ws pickMentionInsert:m.displayName uid:m.userID]; }
                   onPickAll:^{ [ws pickMentionInsert:@"所有人" uid:nil]; }];
     panel.onInlineFilterChanged = ^{ [ws updateMentionPanelHeight]; };
@@ -1193,7 +1194,7 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     ]];
     [panel didMoveToParentViewController:self];
     self.mentionPanel = panel;
-    [panel focusInlineSearch]; // 焦点从聊天输入框转到面板搜索框（键盘不收）
+    // 刻意**不**聚焦搜索框：焦点留在聊天输入框，用户想搜再点搜索框（对齐用户要求）。
 }
 
 /// 面板选中某成员/@所有人：焦点先回聊天输入框（保证 caret 有效）→ 回填 token → 移除面板。

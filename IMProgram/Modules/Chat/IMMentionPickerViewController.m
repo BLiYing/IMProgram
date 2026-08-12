@@ -164,8 +164,10 @@ static UIColor *IMMentionBaseGroupedBackgroundColor(void) {
     BOOL _inline;                        ///< YES=输入栏上方内联面板（不弹 sheet/不抢键盘/无搜索框）
 }
 
-// 内联面板：搜索框高度、行高与最多可见行数（超出滚动）。
-static const CGFloat kIMMentionInlineSearchHeight = 44;
+// 内联面板：搜索框上下留白、搜索框高度、行高与最多可见行数（超出滚动）。
+static const CGFloat kIMMentionInlineTopPad = 18;    // 搜索框与面板顶（圆角）之间
+static const CGFloat kIMMentionInlineSearchGap = 18; // 搜索框与成员列表之间
+static const CGFloat kIMMentionInlineSearchHeight = 40;
 static const CGFloat kIMMentionInlineRowHeight = 52;
 static const NSInteger kIMMentionInlineMaxVisibleRows = 4;
 
@@ -309,25 +311,22 @@ static const NSInteger kIMMentionInlineMaxVisibleRows = 4;
         [hairline.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [hairline.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
         [hairline.heightAnchor constraintEqualToConstant:0.5],
-        [_searchBar.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [_searchBar.topAnchor constraintEqualToAnchor:self.view.topAnchor constant:kIMMentionInlineTopPad],
         [_searchBar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:4],
         [_searchBar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-4],
         [_searchBar.heightAnchor constraintEqualToConstant:kIMMentionInlineSearchHeight],
-        [_tableView.topAnchor constraintEqualToAnchor:_searchBar.bottomAnchor],
+        [_tableView.topAnchor constraintEqualToAnchor:_searchBar.bottomAnchor constant:kIMMentionInlineSearchGap],
         [_tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [_tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
         [_tableView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
     ]];
 }
 
-- (void)focusInlineSearch {
-    [_searchBar becomeFirstResponder];
-}
-
 - (CGFloat)preferredInlineHeight {
-    // 搜索框常驻（即使 0 匹配也留着，方便改搜索词）；下方按行数封顶。
+    // 顶部留白 + 搜索框（常驻，即使 0 匹配也留着，方便改搜索词）+ 间隔 + 成员行（封顶）。
     NSInteger n = (NSInteger)_filtered.count + (self.showsMentionAllRow ? 1 : 0);
-    return kIMMentionInlineSearchHeight + MIN(n, kIMMentionInlineMaxVisibleRows) * kIMMentionInlineRowHeight;
+    CGFloat rows = MIN(n, kIMMentionInlineMaxVisibleRows) * kIMMentionInlineRowHeight;
+    return kIMMentionInlineTopPad + kIMMentionInlineSearchHeight + kIMMentionInlineSearchGap + rows;
 }
 
 /// 自持 Liquid Glass 标题栏（同文件面板：模态 sheet 不经导航容器注入，须自己挂一条）。

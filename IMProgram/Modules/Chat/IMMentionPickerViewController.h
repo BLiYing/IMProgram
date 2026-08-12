@@ -38,9 +38,6 @@ NS_ASSUME_NONNULL_BEGIN
 /// 内联面板的建议高度（顶部搜索框 + 当前过滤结果行数，封顶若干行）。内联模式恒 > 0（搜索框常驻）。
 - (CGFloat)preferredInlineHeight;
 
-/// 内联模式：聚焦面板顶部的搜索框（弹出即调，焦点从聊天输入框转到面板搜索框、键盘不收）。
-- (void)focusInlineSearch;
-
 /// 内联模式：面板顶部搜索框文字变化后回调（宿主据此更新面板高度约束）。
 @property (nonatomic, copy, nullable) void (^onInlineFilterChanged)(void);
 /// 内联模式：点搜索框「取消」时回调（宿主移除面板并把焦点交还聊天输入框）。
