@@ -63,4 +63,13 @@ static const void *kIMAvatarTokenKey = &kIMAvatarTokenKey;
     }];
 }
 
+- (void)im_clearAvatarImage {
+    // 自增 token → 任何在途异步加载的完成回调都会因 token 不匹配而丢弃（防晚到的旧照片覆盖上来）。
+    NSUInteger token = [objc_getAssociatedObject(self, kIMAvatarTokenKey) unsignedIntegerValue] + 1;
+    objc_setAssociatedObject(self, kIMAvatarTokenKey, @(token), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    UIImageView *iv = objc_getAssociatedObject(self, kIMAvatarImageViewKey);
+    iv.image = nil;
+    iv.hidden = YES;
+}
+
 @end

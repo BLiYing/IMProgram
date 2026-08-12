@@ -109,6 +109,7 @@ static UIColor *IMMentionBaseGroupedBackgroundColor(void) {
 
 /// 「@所有人」置顶行：蓝底 @ 圆 + 副标题说明通知人数。
 - (void)configureAsMentionAllWithMemberCount:(NSInteger)others {
+    [_avatar im_clearAvatarImage]; // 复用自带照片的成员格时，先清掉覆盖照片，否则蓝底 @ 被上一格头像盖住（修复）
     _avatar.text = @"@";
     _avatar.backgroundColor = IMTheme.accent;
     _avatar.font = [UIFont systemFontOfSize:18 weight:UIFontWeightBold];
@@ -163,7 +164,8 @@ static UIColor *IMMentionBaseGroupedBackgroundColor(void) {
     BOOL _inline;                        ///< YES=输入栏上方内联面板（不弹 sheet/不抢键盘/无搜索框）
 }
 
-// 内联面板：行高与最多可见行数（超出滚动）。
+// 内联面板：搜索框高度、行高与最多可见行数（超出滚动）。
+static const CGFloat kIMMentionInlineSearchHeight = 44;
 static const CGFloat kIMMentionInlineRowHeight = 52;
 static const NSInteger kIMMentionInlineMaxVisibleRows = 4;
 
@@ -269,7 +271,7 @@ static const NSInteger kIMMentionInlineMaxVisibleRows = 4;
     ]];
 }
 
-/// 内联面板布局：顶部圆角卡 + 顶部一条分隔线；表格铺满，无搜索框/标题栏（过滤走聊天输入框）。
+/// 内联面板布局：顶部一条分隔线 + 搜索框（常驻，过滤本面板）+ 成员表格。圆角卡，无标题栏。
 - (void)loadInlineLayout {
     self.view.backgroundColor = IMTheme.surface;
     self.view.layer.cornerRadius = 14;
@@ -281,13 +283,23 @@ static const NSInteger kIMMentionInlineMaxVisibleRows = 4;
     hairline.backgroundColor = IMTheme.separator;
     [self.view addSubview:hairline];
 
+    _searchBar = [UISearchBar new];
+    _searchBar.translatesAutoresizingMaskIntoConstraints = NO;
+    _searchBar.placeholder = @"搜索成员";
+    _searchBar.delegate = self;
+    _searchBar.searchBarStyle = UISearchBarStyleMinimal;
+    _searchBar.text = _query;
+    _searchBar.showsCancelButton = YES; // 「取消」= 收起面板、焦点回聊天输入框
+    _searchBar.backgroundColor = UIColor.clearColor;
+    [self.view addSubview:_searchBar];
+
     _tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
     _tableView.translatesAutoresizingMaskIntoConstraints = NO;
     _tableView.backgroundColor = UIColor.clearColor;
     _tableView.dataSource = self;
     _tableView.delegate = self;
     _tableView.rowHeight = kIMMentionInlineRowHeight;
-    _tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeNone; // 面板滚动不收键盘（键盘留给输入框）
+    _tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeNone; // 面板滚动不收键盘（键盘留给搜索框）
     _tableView.separatorInset = UIEdgeInsetsMake(0, 56, 0, 0);
     [_tableView registerClass:IMMentionRowCell.class forCellReuseIdentifier:@"row"];
     [self.view addSubview:_tableView];
@@ -297,17 +309,25 @@ static const NSInteger kIMMentionInlineMaxVisibleRows = 4;
         [hairline.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [hairline.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
         [hairline.heightAnchor constraintEqualToConstant:0.5],
-        [_tableView.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [_searchBar.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [_searchBar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:4],
+        [_searchBar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-4],
+        [_searchBar.heightAnchor constraintEqualToConstant:kIMMentionInlineSearchHeight],
+        [_tableView.topAnchor constraintEqualToAnchor:_searchBar.bottomAnchor],
         [_tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [_tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
         [_tableView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
     ]];
 }
 
+- (void)focusInlineSearch {
+    [_searchBar becomeFirstResponder];
+}
+
 - (CGFloat)preferredInlineHeight {
+    // 搜索框常驻（即使 0 匹配也留着，方便改搜索词）；下方按行数封顶。
     NSInteger n = (NSInteger)_filtered.count + (self.showsMentionAllRow ? 1 : 0);
-    if (n <= 0) { return 0; }
-    return MIN(n, kIMMentionInlineMaxVisibleRows) * kIMMentionInlineRowHeight;
+    return kIMMentionInlineSearchHeight + MIN(n, kIMMentionInlineMaxVisibleRows) * kIMMentionInlineRowHeight;
 }
 
 /// 自持 Liquid Glass 标题栏（同文件面板：模态 sheet 不经导航容器注入，须自己挂一条）。
@@ -372,6 +392,12 @@ static const NSInteger kIMMentionInlineMaxVisibleRows = 4;
     _query = [searchText copy] ?: @"";
     _filtered = [self membersMatching:_query];
     [_tableView reloadData];
+    if (_inline && self.onInlineFilterChanged) { self.onInlineFilterChanged(); } // 宿主据此更新面板高度
+}
+
+- (void)searchBarCancelButtonClicked:(UISearchBar *)searchBar {
+    if (_inline && self.onInlineCancel) { self.onInlineCancel(); return; } // 内联：收面板、焦点回聊天输入框
+    [self dismissViewControllerAnimated:YES completion:nil]; // 模态兜底（当前模态无 cancel 按钮，保险起见）
 }
 
 #pragma mark - 表格

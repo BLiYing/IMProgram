@@ -35,8 +35,16 @@ NS_ASSUME_NONNULL_BEGIN
 /// 外部（输入框）继续键入时同步过滤词，卡片内列表实时收敛。
 - (void)updateQuery:(nullable NSString *)query;
 
-/// 内联面板的建议高度（按当前过滤结果行数，封顶若干行）；返回 0 表示无内容、宿主应移除面板。
+/// 内联面板的建议高度（顶部搜索框 + 当前过滤结果行数，封顶若干行）。内联模式恒 > 0（搜索框常驻）。
 - (CGFloat)preferredInlineHeight;
+
+/// 内联模式：聚焦面板顶部的搜索框（弹出即调，焦点从聊天输入框转到面板搜索框、键盘不收）。
+- (void)focusInlineSearch;
+
+/// 内联模式：面板顶部搜索框文字变化后回调（宿主据此更新面板高度约束）。
+@property (nonatomic, copy, nullable) void (^onInlineFilterChanged)(void);
+/// 内联模式：点搜索框「取消」时回调（宿主移除面板并把焦点交还聊天输入框）。
+@property (nonatomic, copy, nullable) void (^onInlineCancel)(void);
 
 /// 卡片彻底消失时回调一次（选中 / 点叉 / 下滑关闭都算）。
 /// 调用方据此记住"用户已经把卡关掉了"，避免用户继续打字时卡片反复自动弹回来抢键盘。

@@ -1164,38 +1164,49 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     return q;
 }
 
-/// 群聊里进入 @ 输入态时在**输入栏上方**内联一个成员下拉面板（child VC，不弹 sheet、不抢键盘）。
-/// 焦点始终在聊天输入框：用户继续打字即经 `updateQuery:` 实时过滤，选中后回填 token 并移除面板（对齐 Web 桌面端范式）。
+/// 群聊里键入 `@` 时在**输入栏上方**内联一个成员下拉面板（child VC，不弹 sheet、不遮挡输入框）。
+/// 面板顶部自带搜索框并自动聚焦：焦点从聊天输入框转到搜索框（键盘不收），过滤由搜索框驱动；
+/// 选中后焦点交还聊天输入框、回填 token 并移除面板。删掉 `@`/点取消/发送/退出会话都会移除面板。
 - (void)maybePresentMentionPicker {
     if (!self.isGroupChat || !self.groupInfo) { [self dismissMentionPanel]; return; }
     NSString *q = [self activeMentionQuery];
     if (!q) { [self dismissMentionPanel]; return; }
-    if (!self.mentionPanel) {
-        __weak typeof(self) ws = self;
-        IMMentionPickerViewController *panel = [[IMMentionPickerViewController alloc]
-            initInlineWithGroup:self.groupInfo
-                   initialQuery:q
-                   onPickMember:^(IMGroupMember *m) { [ws insertMentionToken:m.displayName forUID:m.userID]; [ws dismissMentionPanel]; }
-                      onPickAll:^{ [ws insertMentionToken:@"所有人" forUID:nil]; [ws dismissMentionPanel]; }];
-        [self addChildViewController:panel];
-        panel.view.translatesAutoresizingMaskIntoConstraints = NO;
-        [self.view addSubview:panel.view];
-        // 底边贴输入区栈顶（replyBar.top）→ 浮在消息区底部、输入栏之上；键盘弹起时随约束链一起上移。
-        self.mentionPanelHeight = [panel.view.heightAnchor constraintEqualToConstant:0];
-        [NSLayoutConstraint activateConstraints:@[
-            [panel.view.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
-            [panel.view.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-            [panel.view.bottomAnchor constraintEqualToAnchor:self.replyBar.topAnchor],
-            self.mentionPanelHeight,
-        ]];
-        [panel didMoveToParentViewController:self];
-        self.mentionPanel = panel;
-    } else {
-        [self.mentionPanel updateQuery:q];
-    }
-    CGFloat h = [self.mentionPanel preferredInlineHeight];
-    if (h <= 0) { [self dismissMentionPanel]; return; } // 无匹配 → 不显空面板，让用户接着打字
-    self.mentionPanelHeight.constant = h;
+    if (self.mentionPanel) { return; } // 已开：过滤交给面板顶部搜索框，不再由聊天输入框驱动
+    __weak typeof(self) ws = self;
+    IMMentionPickerViewController *panel = [[IMMentionPickerViewController alloc]
+        initInlineWithGroup:self.groupInfo
+               initialQuery:q
+               onPickMember:^(IMGroupMember *m) { [ws pickMentionInsert:m.displayName uid:m.userID]; }
+                  onPickAll:^{ [ws pickMentionInsert:@"所有人" uid:nil]; }];
+    panel.onInlineFilterChanged = ^{ [ws updateMentionPanelHeight]; };
+    panel.onInlineCancel = ^{ [ws dismissMentionPanel]; [ws.inputField becomeFirstResponder]; };
+    [self addChildViewController:panel];
+    panel.view.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:panel.view];
+    // 底边贴输入区栈顶（replyBar.top）→ 浮在消息区底部、输入栏之上；键盘弹起时随约束链一起上移。
+    self.mentionPanelHeight = [panel.view.heightAnchor constraintEqualToConstant:[panel preferredInlineHeight]];
+    [NSLayoutConstraint activateConstraints:@[
+        [panel.view.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [panel.view.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [panel.view.bottomAnchor constraintEqualToAnchor:self.replyBar.topAnchor],
+        self.mentionPanelHeight,
+    ]];
+    [panel didMoveToParentViewController:self];
+    self.mentionPanel = panel;
+    [panel focusInlineSearch]; // 焦点从聊天输入框转到面板搜索框（键盘不收）
+}
+
+/// 面板选中某成员/@所有人：焦点先回聊天输入框（保证 caret 有效）→ 回填 token → 移除面板。
+- (void)pickMentionInsert:(NSString *)displayName uid:(nullable NSString *)uid {
+    [self.inputField becomeFirstResponder];
+    [self insertMentionToken:displayName forUID:uid];
+    [self dismissMentionPanel];
+}
+
+- (void)updateMentionPanelHeight {
+    if (!self.mentionPanel || !self.mentionPanelHeight) { return; }
+    self.mentionPanelHeight.constant = [self.mentionPanel preferredInlineHeight];
+    [self.view layoutIfNeeded];
 }
 
 /// 移除内联 @面板（选中 / 离开 @ 输入态 / 发送 / 退出会话）。
