@@ -22,8 +22,9 @@ NS_ASSUME_NONNULL_BEGIN
                  onPickMember:(void (^)(IMGroupMember *member))onPickMember
                     onPickAll:(void (^)(void))onPickAll;
 
-/// 内联模式：作为**输入栏上方的下拉面板**嵌入聊天页（child VC），不弹 sheet、不抢键盘、无自带搜索框——
-/// 过滤词由聊天输入框实时经 `updateQuery:` 驱动（对齐 Web 桌面端范式）。选中后由回调回填 token，宿主负责移除面板。
+/// 内联模式：作为**输入栏上方的下拉面板**嵌入聊天页（child VC），不弹 sheet、不抢键盘。
+/// 列表随**聊天输入框** `@` 后的字符实时匹配（宿主经 `updateQuery:` 驱动）；面板自带的搜索框是**独立搜索**，
+/// 从空开始、不被 @文字回填，用户主动在其中打字时才以它为准（对齐 Web 桌面端范式）。选中后由回调回填 token，宿主负责移除面板。
 - (instancetype)initInlineWithGroup:(IMGroupInfo *)group
                        initialQuery:(nullable NSString *)initialQuery
                        onPickMember:(void (^)(IMGroupMember *member))onPickMember

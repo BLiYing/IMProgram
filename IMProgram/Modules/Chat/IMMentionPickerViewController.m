@@ -290,10 +290,25 @@ static const NSInteger kIMMentionInlineMaxVisibleRows = 4;
     _searchBar.placeholder = @"搜索成员";
     _searchBar.delegate = self;
     _searchBar.searchBarStyle = UISearchBarStyleMinimal;
-    _searchBar.text = _query;
-    _searchBar.showsCancelButton = YES; // 「取消」= 收起面板、焦点回聊天输入框
+    // 内联搜索框恒**从空开始**：它是独立搜索，绝不回填聊天输入框里 @后的字（列表已由 effectiveQuery 跟随 @字符）。
+    _searchBar.text = @"";
+    // 关闭钮改用右侧自绘「叉叉」，不用 UISearchBar 自带 cancel（任务2）：
+    // 系统 cancel 的 enabled 态绑定搜索框「正在编辑」，而本内联面板刻意不聚焦搜索框（焦点留在聊天输入框），
+    // 于是第一次点只是让搜索框成为 first responder（按钮高亮），第二次才真正触发 cancel——表现为「点两下才关」。
+    _searchBar.showsCancelButton = NO;
     _searchBar.backgroundColor = UIColor.clearColor;
     [self.view addSubview:_searchBar];
+
+    // 单击即收面板、焦点回聊天输入框（走 onInlineCancel，与原 cancel 语义一致）。
+    UIButton *closeButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    closeButton.translatesAutoresizingMaskIntoConstraints = NO;
+    [closeButton setImage:[UIImage systemImageNamed:@"xmark.circle.fill"
+                                  withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:20
+                                                                                                   weight:UIImageSymbolWeightRegular]]
+                 forState:UIControlStateNormal];
+    closeButton.tintColor = IMTheme.textSecondary;
+    [closeButton addTarget:self action:@selector(inlineCloseTapped) forControlEvents:UIControlEventTouchUpInside];
+    [self.view addSubview:closeButton];
 
     _tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
     _tableView.translatesAutoresizingMaskIntoConstraints = NO;
@@ -313,8 +328,12 @@ static const NSInteger kIMMentionInlineMaxVisibleRows = 4;
         [hairline.heightAnchor constraintEqualToConstant:0.5],
         [_searchBar.topAnchor constraintEqualToAnchor:self.view.topAnchor constant:kIMMentionInlineTopPad],
         [_searchBar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:4],
-        [_searchBar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-4],
+        [_searchBar.trailingAnchor constraintEqualToAnchor:closeButton.leadingAnchor constant:-4],
         [_searchBar.heightAnchor constraintEqualToConstant:kIMMentionInlineSearchHeight],
+        [closeButton.centerYAnchor constraintEqualToAnchor:_searchBar.centerYAnchor],
+        [closeButton.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-12],
+        [closeButton.widthAnchor constraintEqualToConstant:32],
+        [closeButton.heightAnchor constraintEqualToConstant:32],
         [_tableView.topAnchor constraintEqualToAnchor:_searchBar.bottomAnchor constant:kIMMentionInlineSearchGap],
         [_tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [_tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
@@ -380,16 +399,24 @@ static const NSInteger kIMMentionInlineMaxVisibleRows = 4;
     return out;
 }
 
+/// 生效过滤词：用户在**面板搜索框**主动打字时以搜索框为准（独立搜索）；否则跟随**聊天输入框** `@` 后的字符。
+/// 这样「列表随 @后字符实时匹配」与「搜索框保持独立、不被 @文字自动回填」两条互不打架；
+/// 清空搜索框即自动回落到聊天输入框驱动。
+- (NSString *)effectiveQuery {
+    NSString *box = _searchBar.text ?: @"";
+    return box.length > 0 ? box : _query;
+}
+
+/// 聊天输入框 `@` 后的字符实时驱动列表（任务1）。**不回填**面板搜索框——搜索框是独立搜索，用户没打字时保持空。
 - (void)updateQuery:(NSString *)query {
     _query = [query copy] ?: @"";
-    if (![_searchBar.text isEqualToString:_query]) { _searchBar.text = _query; }
-    _filtered = [self membersMatching:_query];
+    _filtered = [self membersMatching:[self effectiveQuery]];
     [_tableView reloadData];
 }
 
 - (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText {
-    _query = [searchText copy] ?: @"";
-    _filtered = [self membersMatching:_query];
+    // 面板搜索框＝独立搜索：只改「生效过滤词」，不写回 _query（聊天输入框的 @查询词），二者互不覆盖。
+    _filtered = [self membersMatching:[self effectiveQuery]];
     [_tableView reloadData];
     if (_inline && self.onInlineFilterChanged) { self.onInlineFilterChanged(); } // 宿主据此更新面板高度
 }
@@ -399,11 +426,16 @@ static const NSInteger kIMMentionInlineMaxVisibleRows = 4;
     [self dismissViewControllerAnimated:YES completion:nil]; // 模态兜底（当前模态无 cancel 按钮，保险起见）
 }
 
+/// 内联面板右上角「叉叉」：单击即收面板（等价于原 UISearchBar cancel，但不受其 first-responder 态限制）。
+- (void)inlineCloseTapped {
+    if (self.onInlineCancel) { self.onInlineCancel(); }
+}
+
 #pragma mark - 表格
 
 /// 「@所有人」只在**我有权限**且**无过滤词**时占第 0 行——一旦开始搜人，列表就该只剩人。
 - (BOOL)showsMentionAllRow {
-    return _canMentionAll && [_query stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet].length == 0;
+    return _canMentionAll && [[self effectiveQuery] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet].length == 0;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
@@ -417,7 +449,7 @@ static const NSInteger kIMMentionInlineMaxVisibleRows = 4;
     } else {
         NSInteger idx = indexPath.row - (self.showsMentionAllRow ? 1 : 0);
         if (idx >= 0 && idx < (NSInteger)_filtered.count) {
-            [cell configureWithMember:_filtered[(NSUInteger)idx] query:_query host:_host];
+            [cell configureWithMember:_filtered[(NSUInteger)idx] query:[self effectiveQuery] host:_host];
         }
     }
     return cell;

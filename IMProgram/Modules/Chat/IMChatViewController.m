@@ -1171,12 +1171,17 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     if (!self.isGroupChat || !self.groupInfo) { [self dismissMentionPanel]; return; }
     NSString *q = [self activeMentionQuery];
     if (!q) { [self dismissMentionPanel]; return; }
-    if (self.mentionPanel) { return; } // 已开：过滤交给面板顶部搜索框，不再由聊天输入框驱动
+    if (self.mentionPanel) {
+        // 已开：聊天输入框里 @后的文字**实时驱动**面板过滤（任务1，微信/Telegram 式）。
+        [self.mentionPanel updateQuery:q];
+        [self updateMentionPanelHeight];
+        return;
+    }
     __weak typeof(self) ws = self;
-    // 搜索框初始为空（不回填聊天输入框里 @后的字）：没在搜索框主动打字时列表显全部成员。
+    // 首次打开即按当前 @查询词过滤（刚敲下 @、后面还没字时 q 为空串 → 列表显全部成员）。
     IMMentionPickerViewController *panel = [[IMMentionPickerViewController alloc]
         initInlineWithGroup:self.groupInfo
-               initialQuery:nil
+               initialQuery:q
                onPickMember:^(IMGroupMember *m) { [ws pickMentionInsert:m.displayName uid:m.userID]; }
                   onPickAll:^{ [ws pickMentionInsert:@"所有人" uid:nil]; }];
     panel.onInlineFilterChanged = ^{ [ws updateMentionPanelHeight]; };
