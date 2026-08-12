@@ -33,7 +33,7 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     UIView  *_metaWrap;        // 右下角时间 + 已读态胶囊
     UILabel *_metaLabel;
     UILabel *_senderLabel;     // 群聊对方昵称（缩略图上方）
-    UILabel *_avatar;          // 群聊对方头像（连续段末条，贴缩略图底左侧）
+    // _avatar 由 IMMessageCell 基类持有（贴缩略图底左侧，约束在本类补）。
     NSLayoutConstraint *_leading;
     NSLayoutConstraint *_trailing;
     NSLayoutConstraint *_thumbWidth;
@@ -56,6 +56,7 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     int64_t _gatedSizeBytes;   // 门控态左上角"未下载尺寸"用（供进度就地更新复用，免重传 message）
     NSString *_gatedDurationText; // 门控态左上角时长（视频）
     UIView *_expiredOverlay;   // 失效占位覆盖层（被动展示 404：曾可用媒体被服务端清理）；复用时移除
+    // _unreadDivider / _unreadDividerHeight 由 IMMessageCell 基类持有。
 }
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
@@ -102,15 +103,7 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
         _senderLabel.hidden = YES;
         [self.contentView addSubview:_senderLabel];
 
-        _avatar = [UILabel new];
-        _avatar.translatesAutoresizingMaskIntoConstraints = NO;
-        _avatar.textColor = UIColor.whiteColor;
-        _avatar.textAlignment = NSTextAlignmentCenter;
-        _avatar.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
-        _avatar.layer.cornerRadius = 15;
-        _avatar.layer.masksToBounds = YES;
-        _avatar.hidden = YES;
-        [self.contentView addSubview:_avatar];
+        // _avatar 由 IMMessageCell 基类创建（视图 + 点击插桩）；本类只补它的 leading/bottom/size 约束。
 
         _failBadge = [UILabel new];
         _failBadge.translatesAutoresizingMaskIntoConstraints = NO;
@@ -131,11 +124,13 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
         _sysNote.onActionTap = ^{ if (wsNote.onNoteActionTap) { wsNote.onNoteActionTap(); } };
         [self.contentView addSubview:_sysNote];
 
+        // _unreadDivider 由 IMMessageCell 基类创建并自锚（顶/左/右 + 高 0）；本类把顶部内容改锚它的 bottom。
+
         // 与 IMAlbumCell 同策略：左右/上下两组约束恒定激活、**靠优先级切换**，杜绝
         // "两条 required 同时生效 → UIKit 打断 width/height" 的自适应行高冲突（真机日志实录）。
         _leading = [_thumb.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12];
         _trailing = [_thumb.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-12];
-        _thumbTopPlain = [_thumb.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:3];
+        _thumbTopPlain = [_thumb.topAnchor constraintEqualToAnchor:_unreadDivider.bottomAnchor constant:3];
         _thumbTopUnderName = [_thumb.topAnchor constraintEqualToAnchor:_senderLabel.bottomAnchor constant:4];
         _thumbWidth = [_thumb.widthAnchor constraintEqualToConstant:kIMMediaFallbackSide];
         _thumbHeight = [_thumb.heightAnchor constraintEqualToConstant:kIMMediaFallbackSide];
@@ -150,9 +145,9 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
             // 恒定边界（required）：无论贴左还是贴右，都不许超出内容区。
             [_thumb.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.contentView.leadingAnchor constant:12],
             [_thumb.trailingAnchor constraintLessThanOrEqualToAnchor:self.contentView.trailingAnchor constant:-12],
-            [_thumb.topAnchor constraintGreaterThanOrEqualToAnchor:self.contentView.topAnchor constant:3],
+            [_thumb.topAnchor constraintGreaterThanOrEqualToAnchor:_unreadDivider.bottomAnchor constant:3],
             _leading, _trailing, _thumbTopPlain, _thumbTopUnderName,
-            [_senderLabel.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:4],
+            [_senderLabel.topAnchor constraintEqualToAnchor:_unreadDivider.bottomAnchor constant:4],
             [_senderLabel.leadingAnchor constraintEqualToAnchor:_thumb.leadingAnchor constant:2],
             [_senderLabel.trailingAnchor constraintLessThanOrEqualToAnchor:self.contentView.trailingAnchor constant:-12],
             [_avatar.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12],
@@ -598,6 +593,8 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName) {
     if (_onTap) { _onTap(_thumb.image); }
 }
 
+// onAvatarTap 的手势、handleAvatarTap、applyUnreadDivider: 均由 IMMessageCell 基类提供。
+
 - (void)applyGroupAvatarURL:(NSString *)url seed:(NSString *)seed name:(NSString *)name
                  showAvatar:(BOOL)showAvatar gutter:(BOOL)gutter {
     _leading.constant = gutter ? 48 : 12;   // 对方群消息留 30 头像列（12 + 30 + 6）
@@ -621,6 +618,7 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName) {
     _sizeFromMedia = NO;
     _avatar.hidden = YES; _leading.constant = 12;
     _onTap = nil; _onMediaSizeResolved = nil;
+    // onAvatarTap / 头像与分割线的复位由 IMMessageCell 基类 prepareForReuse 统一处理。
     _ringBG.hidden = YES; _ring.hidden = YES; _ring.strokeEnd = 0;
     _gatedSizeBytes = 0; _gatedDurationText = nil;
     [self hideExpiredOverlay];

@@ -264,7 +264,7 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
     NSMutableArray<IMAlbumTileView *> *_tiles; // 复用池（按需增建）
     UILabel *_metaChip;                        // 右下角 时间+状态 小胶囊
     UILabel *_senderLabel;                     // 群聊对方昵称（宫格上方）
-    UILabel *_avatar;                          // 群聊对方头像（连续段末条，贴宫格底左侧）
+    // _avatar 由 IMMessageCell 基类持有（贴宫格底左侧，约束在本类补）。
     NSLayoutConstraint *_containerHeight;
     NSLayoutConstraint *_leading, *_trailing;
     NSLayoutConstraint *_containerTopPlain;      // 无昵称：宫格贴 cell 顶
@@ -279,6 +279,7 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
     NSLayoutConstraint *_noteTop;                // 有系统行时：系统行接宫格底
     NSLayoutConstraint *_noteBottom;             // 有系统行时：系统行贴 cell 底
     NSString *_host;
+    // _unreadDivider / _unreadDividerHeight 由 IMMessageCell 基类持有。
 }
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
     self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
@@ -308,15 +309,7 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
         _senderLabel.hidden = YES;
         [self.contentView addSubview:_senderLabel];
 
-        _avatar = [UILabel new];
-        _avatar.translatesAutoresizingMaskIntoConstraints = NO;
-        _avatar.textColor = UIColor.whiteColor;
-        _avatar.textAlignment = NSTextAlignmentCenter;
-        _avatar.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
-        _avatar.layer.cornerRadius = 15;
-        _avatar.layer.masksToBounds = YES;
-        _avatar.hidden = YES;
-        [self.contentView addSubview:_avatar];
+        // _avatar 由 IMMessageCell 基类创建（视图 + 点击插桩）；本类只补它的 leading/bottom/size 约束。
 
         _failBadge = [UILabel new];
         _failBadge.translatesAutoresizingMaskIntoConstraints = NO;
@@ -337,6 +330,8 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
         _sysNote.onActionTap = ^{ if (wsNote.onNoteActionTap) { wsNote.onNoteActionTap(); } };
         [self.contentView addSubview:_sysNote];
 
+        // _unreadDivider 由 IMMessageCell 基类创建并自锚（顶/左/右 + 高 0）；本类把顶部内容改锚它的 bottom。
+
         // 左右/上下两组约束**恒定激活，靠优先级切换**，不再用 active 开关。
         // 真机日志里出现过 leading 与 trailing、topPlain 与 topUnderName 同时激活导致
         // "Unable to simultaneously satisfy constraints"，UIKit 的恢复方式是打断 width/height，
@@ -344,7 +339,7 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
         _leading = [_container.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12];
         _trailing = [_container.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-12];
         _containerHeight = [_container.heightAnchor constraintEqualToConstant:100];
-        _containerTopPlain = [_container.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:3];
+        _containerTopPlain = [_container.topAnchor constraintEqualToAnchor:_unreadDivider.bottomAnchor constant:3];
         _containerTopUnderName = [_container.topAnchor constraintEqualToAnchor:_senderLabel.bottomAnchor constant:4];
         // 被拒收系统行：有则「宫格 → 系统行 → cell 底」，无则宫格直接贴底（与 IMBubbleCell 同构）。
         _containerBottom = [_container.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3];
@@ -357,7 +352,7 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
         NSLayoutConstraint *widthConstraint = [_container.widthAnchor constraintEqualToConstant:kIMAlbumWidth];
         widthConstraint.priority = UILayoutPriorityRequired - 1;     // 999
         [NSLayoutConstraint activateConstraints:@[
-            [_senderLabel.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:4],
+            [_senderLabel.topAnchor constraintEqualToAnchor:_unreadDivider.bottomAnchor constant:4],
             [_senderLabel.leadingAnchor constraintEqualToAnchor:_container.leadingAnchor constant:2],
             [_senderLabel.trailingAnchor constraintLessThanOrEqualToAnchor:self.contentView.trailingAnchor constant:-12],
             [_avatar.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12],
@@ -374,7 +369,7 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
             // 恒定的边界约束（required）：无论左右贴哪边，都不许超出内容区。
             [_container.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.contentView.leadingAnchor constant:12],
             [_container.trailingAnchor constraintLessThanOrEqualToAnchor:self.contentView.trailingAnchor constant:-12],
-            [_container.topAnchor constraintGreaterThanOrEqualToAnchor:self.contentView.topAnchor constant:3],
+            [_container.topAnchor constraintGreaterThanOrEqualToAnchor:_unreadDivider.bottomAnchor constant:3],
             widthConstraint, _containerHeight, _leading, _trailing, _containerTopPlain, _containerTopUnderName,
         ]];
         [self applyAlignmentMine:NO showName:NO];
@@ -602,6 +597,8 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
         actionProvider:^UIMenu *(NSArray<UIMenuElement *> *suggested) { return provider(m); }];
 }
 
+// onAvatarTap 的手势、handleAvatarTap、applyUnreadDivider: 均由 IMMessageCell 基类提供。
+
 - (void)applyGroupAvatarURL:(NSString *)url seed:(NSString *)seed name:(NSString *)name
                  showAvatar:(BOOL)showAvatar gutter:(BOOL)gutter {
     _leading.constant = gutter ? 48 : 12;   // 对方群消息留 30 头像列（12 + 30 + 6）
@@ -626,5 +623,6 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
     _menuForItem = nil;
     _downloadStateForItem = nil;
     _onDownloadItem = nil;
+    // onAvatarTap / 头像与分割线的复位由 IMMessageCell 基类 prepareForReuse 统一处理。
 }
 @end

@@ -2443,7 +2443,11 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         int64_t s = self.messages[i].convSeq;
         if (s > 0 && (earliest == 0 || s < earliest)) { earliest = s; }
         if (s == targetConvSeq) {
-            NSIndexPath *ip = [NSIndexPath indexPathForRow:(NSInteger)i inSection:0];
+            // 相册成员行本身零高（宫格整体画在 leader 行）：直接滚到成员下标会落在不可见行、高亮闪不出来。
+            // 统一经 visibleRowForMessage 映射到该相册的 leader 行（普通消息即自身行）。
+            NSUInteger visRow = [self visibleRowForMessage:self.messages[i]];
+            NSInteger targetRow = (visRow == NSNotFound) ? (NSInteger)i : (NSInteger)visRow;
+            NSIndexPath *ip = [NSIndexPath indexPathForRow:targetRow inSection:0];
             [self.tableView scrollToRowAtIndexPath:ip atScrollPosition:UITableViewScrollPositionMiddle animated:YES];
             // 等滚动动画到位后再闪（已在视口时 scrollToRow 也可能微调，同样适用）。
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)),
@@ -2600,8 +2604,22 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     }
     // 收到新消息：贴底才自动贴底；在上方看历史则不打断，累加到"↓N"（CHAT_UX §9）。
     BOOL wasNearBottom = [self isNearBottom];
+    // 绝大多数消息按序到达：直接尾插即保持有序，省掉每条都做的 O(n log n) 全量重排。
+    // 仅当来的消息落在末条之前（乱序/补拉插队）才重排一次——判定口径与 sortMessagesInPlace 的
+    // comparator 严格一致（timestamp 主序，同毫秒时 conv_seq=0 视为 +∞ 垫底）。
+    IMMessageModel *lastMsg = self.messages.lastObject;
+    BOOL needsSort = NO;
+    if (lastMsg) {
+        if (message.timestamp < lastMsg.timestamp) {
+            needsSort = YES;
+        } else if (message.timestamp == lastMsg.timestamp) {
+            int64_t sNew = message.convSeq > 0 ? message.convSeq : INT64_MAX;
+            int64_t sLast = lastMsg.convSeq > 0 ? lastMsg.convSeq : INT64_MAX;
+            needsSort = sNew < sLast;
+        }
+    }
     [self.messages addObject:message];
-    [self sortMessagesInPlace];
+    if (needsSort) { [self sortMessagesInPlace]; }
     [self.tableView reloadData];
     // 冷启动直进本页时 init 读库可能为空（账号数据库上下文未就绪），历史全靠 sync 事后补进——
     // 而 reloadData 不触发 VC 的 viewDidLayoutSubviews，进会话定位永远不会跑（模拟器日志实锤：
@@ -2618,6 +2636,9 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 /// 对端已读到 upToConvSeq → 记录并刷新（已送达 → 已读）。
 - (void)socketManager:(IMSocketManager *)manager didReadConv:(NSString *)convID by:(NSString *)from upToConvSeq:(int64_t)convSeq {
     if (![convID isEqualToString:self.convID] || [from isEqualToString:self.userID]) { return; }
+    // 群聊：单个 peerReadSeq 无法表达「谁读到哪」，任一成员已读都推进会让所有人消息误显 ✓✓（已读）。
+    // 群的已读语义走 IMReadReceiptViewController 的逐成员列表，气泡尾巴只保留 ✓（已送达）。
+    if (self.isGroupChat) { return; }
     if (convSeq > self.peerReadSeq) {
         self.peerReadSeq = convSeq;
         [self.tableView reloadData];
@@ -2660,6 +2681,14 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     IMMessageModel *m = self.messages[indexPath.row];
+    // 首条未读行只算一次（firstUnreadRow 是 O(k) 扫描且各 cell 分支都要用），各分支复用。
+    // 相册部分已读：首条未读可能落在被折叠的 follower 行，映射到其 leader 行，保证分割线画在可见行上。
+    NSInteger firstUnread = [self firstUnreadRow];
+    if (firstUnread >= 0) {
+        NSUInteger vis = [self visibleRowForMessage:self.messages[firstUnread]];
+        if (vis != NSNotFound) { firstUnread = (NSInteger)vis; }
+    }
+    BOOL rowIsFirstUnread = (indexPath.row == firstUnread);
     // 系统消息（群邀请/移除/转让/禁言等留痕）：独立居中灰字行，无气泡/头像/时间勾。
     if ([m.contentType isEqualToString:@"system"]) {
         IMSystemCell *sys = [tableView dequeueReusableCellWithIdentifier:@"system" forIndexPath:indexPath];
@@ -2693,6 +2722,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         [rec applyGroupAvatarURL:(grpR ? [self senderAvatarURLForMessage:m] : nil)
                             seed:(m.from ?: @"") name:(grpR ? [self senderNameForMessage:m] : nil)
                       showAvatar:lastR gutter:grpR];
+        [rec applyUnreadDivider:rowIsFirstUnread]; // 首条未读为聊天记录卡片时也显分割线
         __weak typeof(self) ws = self;
         rec.onTap = ^{ [ws openChatRecord:m]; };
         // 被拒收系统行的恢复入口（非好友 200103 → 发好友申请；合并转发发给非好友会命中）。
@@ -2717,6 +2747,13 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         [link applyGroupAvatarURL:(grpL ? [self senderAvatarURLForMessage:m] : nil)
                              seed:(m.from ?: @"") name:(grpL ? [self senderNameForMessage:m] : nil)
                        showAvatar:lastL gutter:grpL];
+        [link applyUnreadDivider:rowIsFirstUnread]; // 首条未读为链接卡片时也显分割线
+        // 群聊对方头像点击 → 该成员资料页（单聊/自己不挂；与文本气泡/图片/相册统一）。
+        if (grpL) {
+            NSString *memberUID = m.from;
+            __weak typeof(self) wsAvatar = self;
+            link.onAvatarTap = ^{ [wsAvatar openMemberProfileForUID:memberUID]; };
+        }
         __weak typeof(self) ws = self;
         link.onTap = ^(NSString *url) { [ws openLink:url]; };
         // OG 预览异步展开 → 刷行高（滚动中延迟到停止；与 IMImageCell.onMediaSizeResolved 同守卫）。
@@ -2763,6 +2800,13 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         [alb applyGroupAvatarURL:(grpAlb ? [self senderAvatarURLForMessage:m] : nil)
                             seed:(m.from ?: @"") name:(grpAlb ? [self senderNameForMessage:m] : nil)
                       showAvatar:lastAlb gutter:grpAlb];
+        [alb applyUnreadDivider:rowIsFirstUnread]; // 首条未读为相册宫格时也显分割线
+        // 群聊对方头像点击 → 该成员资料页（单聊/自己不挂；与文本气泡/图片/链接统一）。
+        if (grpAlb) {
+            NSString *memberUID = m.from;
+            __weak typeof(self) wsAvatar = self;
+            alb.onAvatarTap = ^{ [wsAvatar openMemberProfileForUID:memberUID]; };
+        }
         __weak typeof(self) wsAlbNote = self;
         alb.onNoteActionTap = ^{ [wsAlbNote sendFriendRequestFromRejectedNote]; };
         __weak typeof(self) ws = self;
@@ -2816,6 +2860,13 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         [img applyGroupAvatarURL:(grpI ? [self senderAvatarURLForMessage:m] : nil)
                             seed:(m.from ?: @"") name:(grpI ? [self senderNameForMessage:m] : nil)
                       showAvatar:lastI gutter:grpI];
+        [img applyUnreadDivider:rowIsFirstUnread]; // 首条未读为图片/视频时也显分割线
+        // 群聊对方头像点击 → 该成员资料页（单聊/自己不挂；与文本气泡/相册/链接统一）。
+        if (grpI) {
+            NSString *memberUID = m.from;
+            __weak typeof(self) wsAvatar = self;
+            img.onAvatarTap = ^{ [wsAvatar openMemberProfileForUID:memberUID]; };
+        }
         // 失败的本地待发件：进度角标显"发送失败"（内存里的进度在重进会话后是空的，按状态补上）。
         IMUploadProgress *progI = self.outboxProgress[key];
         if (!progI && pendingLocal && m.status == IMMessageStatusFailed) { progI = [IMUploadProgress failedProgress]; }
@@ -2862,7 +2913,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     }
     IMBubbleCell *cell = [tableView dequeueReusableCellWithIdentifier:@"bubble" forIndexPath:indexPath];
     BOOL mine = [m.from isEqualToString:self.userID];
-    BOOL showsDivider = (indexPath.row == [self firstUnreadRow]);
+    BOOL showsDivider = rowIsFirstUnread;
     // 群聊：对方气泡带发送者昵称（自己/单聊不带）；连续同发送者只首条显名、末条显头像（Telegram 式）。
     BOOL grp = self.isGroupChat && !mine;
     BOOL firstInRun = grp && [self isFirstInSenderRun:indexPath.row];
@@ -3158,8 +3209,9 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
             [IMSocketManager.sharedManager recallMessageInConv:(message.convID ?: @"") targetConvSeq:message.convSeq];
         }]];
     }
-    // 编辑（M4-5）：仅本人文本、未撤回。
-    if (mine && [message.contentType isEqualToString:@"text"] && message.content.length > 0 && message.recalledAt == 0) {
+    // 编辑（M4-5）：仅本人文本、已拿到 conv_seq、未撤回。必须 convSeq>0——发送中的行发 msg_op edit
+    // 会因 sendTapped 的 convSeq>0 判定落空而改走「发新消息」分支，造成重复发送且编辑条卡住。
+    if (mine && [message.contentType isEqualToString:@"text"] && message.content.length > 0 && message.convSeq > 0 && message.recalledAt == 0) {
         [actions addObject:[IMMenuAction actionWithId:@"edit" title:@"编辑" image:@"pencil" handler:^{
             [ws beginEditMessage:message];
         }]];
@@ -3885,12 +3937,29 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 - (void)runAfterKeyboardHidden:(void (^)(void))block {
     if (!block) { return; }
     __block id<NSObject> token = nil;
+    __block BOOL done = NO;
+    __weak typeof(self) weakSelf = self;
+    void (^teardown)(void) = ^{
+        if (token) { [NSNotificationCenter.defaultCenter removeObserver:token]; token = nil; }
+    };
     token = [NSNotificationCenter.defaultCenter addObserverForName:UIKeyboardDidHideNotification
                                                            object:nil queue:NSOperationQueue.mainQueue
                                                        usingBlock:^(NSNotification *note) {
-        if (token) { [NSNotificationCenter.defaultCenter removeObserver:token]; token = nil; }
-        block();
+        if (done) { return; }
+        done = YES;
+        teardown();
+        block(); // 键盘确已收起、布局已稳：执行跳转
     }];
+    // 兜底：外接硬件键盘/焦点被别的响应者抢走等场景 UIKeyboardDidHide 可能永不到达，届时这个一次性观察者
+    // 及其强引用的 block（内含 self）会永久驻留、泄漏整个聊天页。1s 后强制摘除；但仅当键盘确已收起
+    // （kbInset==0）才补跑跳转——否则跳转会打在还没稳定的布局上、落点偏。
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (done) { return; }
+        done = YES;
+        teardown();
+        __strong typeof(weakSelf) self = weakSelf;
+        if (self && self.kbInset <= 0) { block(); }
+    });
 }
 
 /// 输入栏底部偏移 = 键盘遮挡 与 面板高度 取较大者（二者互斥，但统一处理避免竞态）。

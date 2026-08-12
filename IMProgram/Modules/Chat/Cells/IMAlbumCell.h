@@ -1,4 +1,5 @@
 #import <UIKit/UIKit.h>
+#import "IMMessageCell.h"
 
 @class IMMessageModel;
 @class IMUploadProgress;
@@ -6,7 +7,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface IMAlbumCell : UITableViewCell
+@interface IMAlbumCell : IMMessageCell
 @property (nonatomic, copy, nullable) void (^onTapItem)(IMMessageModel *message);
 @property (nonatomic, copy, nullable) UIMenu *_Nullable (^menuForItem)(IMMessageModel *message);
 
@@ -33,6 +34,8 @@ NS_ASSUME_NONNULL_BEGIN
                   senderName:(nullable NSString *)senderName;
 - (void)refreshWithPreviews:(NSDictionary<NSString *, UIImage *> *)previews
                    progress:(NSDictionary<NSString *, IMUploadProgress *> *)progress;
+// onAvatarTap / applyUnreadDivider: 由 IMMessageCell 基类提供。
+
 - (void)applyGroupAvatarURL:(nullable NSString *)url
                        seed:(NSString *)seed
                        name:(nullable NSString *)name

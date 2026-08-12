@@ -21,9 +21,10 @@
     NSLayoutConstraint *_trailing;
     NSString *_url;
     UILabel *_senderLabel;    // 群聊对方消息：发送者昵称（连续段首条显示，主色小字）
-    UILabel *_avatar;         // 群聊对方消息：头像（连续段末条显示，贴内容底左侧）
+    // _avatar 由 IMMessageCell 基类持有（贴内容底左侧，约束在本类补）。
     NSLayoutConstraint *_stackTop;          // 无昵称：stack 贴 cell 顶
     NSLayoutConstraint *_stackTopUnderName; // 有昵称：stack 接昵称底
+    // _unreadDivider / _unreadDividerHeight 由 IMMessageCell 基类持有。
 }
 + (NSCache<NSString *, NSDictionary *> *)previewCache {
     static NSCache *c; static dispatch_once_t once; dispatch_once(&once, ^{ c = [NSCache new]; c.countLimit = 200; });
@@ -70,15 +71,7 @@
         _senderLabel.hidden = YES;
         [self.contentView addSubview:_senderLabel];
 
-        _avatar = [UILabel new];
-        _avatar.translatesAutoresizingMaskIntoConstraints = NO;
-        _avatar.textColor = UIColor.whiteColor;
-        _avatar.textAlignment = NSTextAlignmentCenter;
-        _avatar.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
-        _avatar.layer.cornerRadius = 15;
-        _avatar.layer.masksToBounds = YES;
-        _avatar.hidden = YES;
-        [self.contentView addSubview:_avatar];
+        // _avatar 由 IMMessageCell 基类创建（视图 + 点击插桩）；本类只补它的 leading/bottom/size 约束。
 
         _thumb = [UIImageView new];
         _thumb.translatesAutoresizingMaskIntoConstraints = NO;
@@ -101,15 +94,16 @@
         _leading = [_stack.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12];
         _trailing = [_stack.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-12];
         _thumbHeight = [_thumb.heightAnchor constraintEqualToConstant:0]; // 无图时为 0
-        // stack 顶：无昵称贴 cell 顶，有昵称接昵称底（群聊连续段首条）——二选一。
-        _stackTop = [_stack.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:3];
+        // _unreadDivider 由 IMMessageCell 基类创建并自锚（顶/左/右 + 高 0）；本类把顶部内容改锚它的 bottom。
+        // stack 顶：无昵称贴分割线底，有昵称接昵称底（群聊连续段首条）——二选一。
+        _stackTop = [_stack.topAnchor constraintEqualToAnchor:_unreadDivider.bottomAnchor constant:3];
         _stackTopUnderName = [_stack.topAnchor constraintEqualToAnchor:_senderLabel.bottomAnchor constant:4];
         [NSLayoutConstraint activateConstraints:@[
             _stackTop,
             [_stack.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3],
             [_stack.widthAnchor constraintEqualToConstant:260],
             // 昵称：顶贴 cell、左对齐内容（stack 左移时随之右移）。
-            [_senderLabel.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:4],
+            [_senderLabel.topAnchor constraintEqualToAnchor:_unreadDivider.bottomAnchor constant:4],
             [_senderLabel.leadingAnchor constraintEqualToAnchor:_stack.leadingAnchor constant:2],
             [_senderLabel.trailingAnchor constraintLessThanOrEqualToAnchor:self.contentView.trailingAnchor constant:-12],
             // 头像：30×30 贴 cell 左、底对齐内容底（连续段末条才 show）。
@@ -212,6 +206,8 @@
 }
 - (void)tapped { if (_onTap && _url) { _onTap(_url); } }
 
+// onAvatarTap 的手势、handleAvatarTap、applyUnreadDivider: 均由 IMMessageCell 基类提供。
+
 - (void)applyGroupAvatarURL:(NSString *)url seed:(NSString *)seed name:(NSString *)name
                  showAvatar:(BOOL)showAvatar gutter:(BOOL)gutter {
     _leading.constant = gutter ? 48 : 12;   // 对方群消息留 30 头像列（12 + 30 + 6），与其他 cell 一致
@@ -226,8 +222,9 @@
 - (void)prepareForReuse {
     [super prepareForReuse];
     _thumb.image = nil; _thumbHeight.constant = 0; _card.hidden = YES; _quote.hidden = YES;
-    _senderLabel.hidden = YES; _senderLabel.text = nil; _avatar.hidden = YES; _leading.constant = 12;
-    _onTap = nil; _onContentSizeResolved = nil;
+    _senderLabel.hidden = YES; _senderLabel.text = nil; _leading.constant = 12;
+    // onAvatarTap / 头像与分割线的复位由 IMMessageCell 基类 prepareForReuse 统一处理。
+    _onTap = nil; _onContentSizeResolved = nil; self.onAvatarTap = nil;
 }
 
 /// 高亮/预览目标=网址文本+OG 卡片整体（=stack）：与 Web 一致一起高亮；也避免无 OG 卡片时

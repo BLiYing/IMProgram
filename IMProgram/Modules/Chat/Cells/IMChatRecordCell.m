@@ -17,13 +17,14 @@
     NSLayoutConstraint *_leading;
     NSLayoutConstraint *_trailing;
     UILabel *_senderLabel;         // 群聊对方消息：发送者昵称（连续段首条显示，主色小字，卡片上方）
-    UILabel *_avatar;              // 群聊对方消息：头像（连续段末条显示，贴卡片底左侧）
+    // _avatar 由 IMMessageCell 基类持有（贴卡片底左侧，约束在本类补）。
     NSLayoutConstraint *_cardTop;          // 无昵称：卡片贴 cell 顶
     NSLayoutConstraint *_cardTopUnderName; // 有昵称：卡片接昵称底
     IMRejectNoteView *_sysNote;            // 被拒收系统行（卡片下方居中；可恢复时带「发送好友申请」）——与三类气泡共用组件
     NSLayoutConstraint *_cardBottom;       // 无系统行：卡片贴 cell 底
     NSLayoutConstraint *_noteTop;          // 有系统行：系统行接卡片底
     NSLayoutConstraint *_noteBottom;       // 有系统行：系统行贴 cell 底
+    // _unreadDivider / _unreadDividerHeight 由 IMMessageCell 基类持有。
 }
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
     self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
@@ -72,17 +73,7 @@
         _senderLabel.hidden = YES;
         [self.contentView addSubview:_senderLabel];
 
-        _avatar = [UILabel new];
-        _avatar.translatesAutoresizingMaskIntoConstraints = NO;
-        _avatar.textColor = UIColor.whiteColor;
-        _avatar.textAlignment = NSTextAlignmentCenter;
-        _avatar.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
-        _avatar.layer.cornerRadius = 15;
-        _avatar.layer.masksToBounds = YES;
-        _avatar.hidden = YES;
-        _avatar.userInteractionEnabled = YES; // 点头像 → 进该成员资料页（onAvatarTap，微信式）
-        [_avatar addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(avatarTapped)]];
-        [self.contentView addSubview:_avatar];
+        // _avatar 由 IMMessageCell 基类创建（视图 + 点击插桩）；本类只补它的 leading/bottom/size 约束。
 
         // 被拒收系统行（卡片下方，与 IMBubble/IMImage/IMAlbum 共用组件）：有 note 时接卡片底，否则隐藏、卡片直接贴 cell 底。
         _sysNote = [IMRejectNoteView new];
@@ -94,8 +85,9 @@
 
         _leading = [_card.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12];
         _trailing = [_card.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-12];
-        // 卡片顶：无昵称贴 cell 顶，有昵称接昵称底（群聊连续段首条）——二选一。
-        _cardTop = [_card.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:3];
+        // _unreadDivider 由 IMMessageCell 基类创建并自锚（顶/左/右 + 高 0）；本类把卡片顶改锚它的 bottom。
+        // 卡片顶：无昵称贴分割线底，有昵称接昵称底（群聊连续段首条）——二选一。
+        _cardTop = [_card.topAnchor constraintEqualToAnchor:_unreadDivider.bottomAnchor constant:3];
         _cardTopUnderName = [_card.topAnchor constraintEqualToAnchor:_senderLabel.bottomAnchor constant:4];
         _cardTop.active = YES;
         // 卡片底 vs 系统行：默认卡片贴 cell 底；有系统行时改由系统行贴底、卡片接系统行顶（configure 中切换）。
@@ -108,7 +100,7 @@
             [_sysNote.trailingAnchor constraintEqualToAnchor:_card.trailingAnchor],
             [_card.widthAnchor constraintEqualToConstant:240],
             // 昵称：顶贴 cell、左对齐卡片（卡片左移时随之右移）。
-            [_senderLabel.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:4],
+            [_senderLabel.topAnchor constraintEqualToAnchor:_unreadDivider.bottomAnchor constant:4],
             [_senderLabel.leadingAnchor constraintEqualToAnchor:_card.leadingAnchor constant:2],
             [_senderLabel.trailingAnchor constraintLessThanOrEqualToAnchor:self.contentView.trailingAnchor constant:-12],
             // 头像：30×30 贴 cell 左、底对齐卡片底（连续段末条才 show）。
@@ -170,10 +162,12 @@
     }
 }
 - (void)tapped { if (_onTap) { _onTap(); } }
-- (void)avatarTapped { if (_onAvatarTap) { _onAvatarTap(); } }
+// avatarTapped/handleAvatarTap、applyUnreadDivider: 由 IMMessageCell 基类提供。
+
 - (void)prepareForReuse {
     [super prepareForReuse];
-    _onTap = nil; _onAvatarTap = nil; _onNoteActionTap = nil;
+    _onTap = nil; _onNoteActionTap = nil;
+    // onAvatarTap / 头像与分割线的复位由 IMMessageCell 基类 prepareForReuse 统一处理。
     _senderLabel.hidden = YES; _senderLabel.text = nil;
     _avatar.hidden = YES; _leading.constant = 12;
 }

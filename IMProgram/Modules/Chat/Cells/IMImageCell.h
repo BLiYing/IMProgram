@@ -1,4 +1,5 @@
 #import <UIKit/UIKit.h>
+#import "IMMessageCell.h"
 
 @class IMMessageModel;
 @class IMUploadProgress;
@@ -11,7 +12,7 @@ NS_ASSUME_NONNULL_BEGIN
 ///   - 左上：视频时长 `1:05`（上传中改显「已传 / 总大小」，两者互斥不重叠）；
 ///   - 右下：发送时间 + 自己消息的 ✓/✓✓ 已读态；
 ///   - 居中：播放按钮（视频）。
-@interface IMImageCell : UITableViewCell
+@interface IMImageCell : IMMessageCell
 
 /// 长按菜单高亮/收起动画的目标视图（=缩略图本体）。
 @property (nonatomic, strong, readonly) UIView *previewTargetView;
@@ -57,6 +58,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// nil=不在上传中（隐藏进度、恢复时长角标）。
 - (void)setUploadProgress:(nullable IMUploadProgress *)progress;
+
+// onAvatarTap / applyUnreadDivider: 由 IMMessageCell 基类提供。
 
 - (void)applyGroupAvatarURL:(nullable NSString *)url
                        seed:(NSString *)seed

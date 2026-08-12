@@ -443,7 +443,10 @@
         : message.timestamp >= timestamp);
     BOOL isUnread = message.convSeq == 0 || message.convSeq > readSeq;
     BOOL representedByServerSnapshot = message.convSeq > 0 && message.convSeq <= snapshotSeq;
-    NSInteger unreadDelta = inserted && isIncoming && isUnread && !representedByServerSnapshot ? 1 : 0;
+    // 系统消息（进群/改名/踢人等）不计未读：服务端 unread 也排除它，否则群系统事件会把本地角标
+    // 顶得比权威值高，直到下次拉取 /conversations 才收敛（与服务端口径对齐）。
+    BOOL isSystem = [message.contentType isEqualToString:@"system"];
+    NSInteger unreadDelta = inserted && isIncoming && isUnread && !representedByServerSnapshot && !isSystem ? 1 : 0;
     if (!exists) {
         BOOL ok = [db executeUpdate:
             @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,peer,peer_nickname,peer_avatar_url,last_content,last_from,last_from_nickname,last_recalled,last_content_type,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq) VALUES (?,?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,0,0)",

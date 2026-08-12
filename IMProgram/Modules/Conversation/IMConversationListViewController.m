@@ -492,7 +492,18 @@ static CGFloat const kIMRowLeading = 16;
 
 /// 收到新消息（任意会话）→ 节流刷新列表（合并连发的多条，避免每条都拉一次）。
 - (void)onSocketMessage:(NSNotification *)note {
-    // 消息已经在 SQLite 事务内同步了会话摘要，先刷新本地数据；HTTP 仅用于稍后权威收敛。
+    // 消息已在 SQLite 事务内同步了会话摘要。此前每来一条都**同步读库 + 全量 reloadData**——群消息/
+    // 批量接收时会反复阻塞主线程做磁盘 SELECT 并整表重建，肉眼可见卡顿。改为节流：一次消息风暴只做
+    // 一次本地读库 + reloadData（HTTP 权威收敛仍走下方的 0.4s reload）。
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(refreshLocalConversations) object:nil];
+    [self performSelector:@selector(refreshLocalConversations) withObject:nil afterDelay:0.12];
+    if (!self.visible) { return; }
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(reload) object:nil];
+    [self performSelector:@selector(reload) withObject:nil afterDelay:0.4];
+}
+
+/// 从本地库刷新会话列表（节流后的落地）：读缓存会话 + 整表刷新。
+- (void)refreshLocalConversations {
     __block NSArray<IMConversation *> *cached = nil;
     if (![self performDatabaseOperation:^(IMDatabase *database) {
         cached = database.cachedConversations;
@@ -500,9 +511,6 @@ static CGFloat const kIMRowLeading = 16;
     self.conversations = cached ?: @[];
     self.emptyLabel.hidden = self.conversations.count > 0;
     [self.tableView reloadData];
-    if (!self.visible) { return; }
-    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(reload) object:nil];
-    [self performSelector:@selector(reload) withObject:nil afterDelay:0.4];
 }
 
 - (void)dealloc {

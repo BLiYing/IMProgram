@@ -1,15 +1,15 @@
 #import <UIKit/UIKit.h>
+#import "IMMessageCell.h"
 
 @class IMMessageModel;
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface IMChatRecordCell : UITableViewCell
+@interface IMChatRecordCell : IMMessageCell
 /// 长按菜单高亮/收起动画的目标视图（=卡片本体）。
 @property (nonatomic, strong, readonly) UIView *previewTargetView;
 @property (nonatomic, copy, nullable) void (^onTap)(void);
-/// 点群聊对方头像 → 进该成员资料页（VC 在群聊对方卡片上挂载；单聊/自己不挂）。
-@property (nonatomic, copy, nullable) void (^onAvatarTap)(void);
+// onAvatarTap 由 IMMessageCell 基类提供（点群聊对方头像 → 该成员资料页）。
 /// 点被拒收系统行的恢复动作（当前仅非好友 200103 → 发送好友申请；其余拒收码无动作，不触发）。
 @property (nonatomic, copy, nullable) void (^onNoteActionTap)(void);
 /// senderName：群聊对方消息连续段首条的发送者昵称（卡片上方主色小字）；单聊/自己/非段首传 nil。
@@ -22,6 +22,8 @@ NS_ASSUME_NONNULL_BEGIN
                        name:(nullable NSString *)name
                  showAvatar:(BOOL)showAvatar
                      gutter:(BOOL)gutter;
+
+// applyUnreadDivider: 由 IMMessageCell 基类提供。
 @end
 
 NS_ASSUME_NONNULL_END

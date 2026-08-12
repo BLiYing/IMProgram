@@ -339,7 +339,8 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
         if (error) { completion(nil, error); return; }
         if ([body[@"code"] integerValue] != 0) { completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"加载收藏失败"]]); return; }
-        id list = body[@"data"][@"favorites"];
+        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
+        id list = data[@"favorites"];
         completion([list isKindOfClass:[NSArray class]] ? list : @[], nil);
     }];
 }
@@ -381,7 +382,8 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
         if (error) { completion(nil, error); return; }
         if ([body[@"code"] integerValue] != 0) { completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"翻译失败"]]); return; }
-        id t = body[@"data"][@"translation"];
+        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
+        id t = data[@"translation"];
         completion([t isKindOfClass:[NSString class]] ? t : @"", nil);
     }];
 }

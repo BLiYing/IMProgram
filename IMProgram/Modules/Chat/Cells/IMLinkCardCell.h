@@ -1,10 +1,11 @@
 #import <UIKit/UIKit.h>
+#import "IMMessageCell.h"
 
 @class IMMessageModel;
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface IMLinkCardCell : UITableViewCell
+@interface IMLinkCardCell : IMMessageCell
 /// 长按菜单高亮/收起、引用跳转闪烁的目标视图（=网址文本+OG 卡片整体，与 Web 一致一起高亮）。
 @property (nonatomic, strong, readonly) UIView *previewTargetView;
 @property (nonatomic, copy, nullable) void (^onTap)(NSString *url);
@@ -12,6 +13,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) void (^onContentSizeResolved)(void);
 - (void)configureWithMessage:(IMMessageModel *)message mine:(BOOL)mine
                   senderName:(nullable NSString *)senderName;
+// onAvatarTap / applyUnreadDivider: 由 IMMessageCell 基类提供。
+
 /// 群聊对方消息的头像列 + 昵称（与 IMBubbleCell/IMImageCell 同签名）：gutter=YES 时左移 30pt 头像列对齐。
 - (void)applyGroupAvatarURL:(nullable NSString *)url
                        seed:(NSString *)seed
