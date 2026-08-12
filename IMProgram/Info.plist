@@ -2,6 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- App 声明支持的本地化语言。系统框架自带按钮（QuickLook「完成」、UISearchBar「取消」、
+	     UIAlert 系统项等）按「App 支持语言 ∩ 设备偏好语言」解析渲染语言；工程仅声明 en 时，
+	     中文设备上这些系统文案会落英文（Done/Cancel）。此处补声明 zh-Hans 使其在中文设备下本地化为中文。 -->
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>zh-Hans</string>
+		<string>en</string>
+	</array>
 	<!-- 仅开发骨架：允许明文连接（当前用 ws://，未上 TLS）。
 	     生产必须改回 wss:// 并删除本节（见 CONVENTIONS.md §一/§六 安全）。 -->
 	<key>NSAppTransportSecurity</key>

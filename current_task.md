@@ -71,6 +71,11 @@
 - **失效标记内存态不持久（刻意，2026-08-11 记）**：`IMMediaExpiryRegistry` 用进程内 Set。冷启动后失效媒体首帧重探
   一次（去重+ranged-GET，无感），换来**自愈**——后台恢复文件下次启动即翻回，无陈旧标记。仅当服务端上"自动 TTL
   清理"使失效变常态，才回来上"持久化 + 标记 TTL"。
+- **系统自带按钮文案本地化（2026-08-12 修）**：QLPreviewController「Done」、UISearchBar「Cancel」等**系统框架自带**文案，
+  按「App 声明支持语言 ∩ 设备偏好语言」解析渲染。工程原仅声明 `en`（`project.pbxproj` `developmentRegion=en`/`knownRegions=(en,Base)`，
+  Info.plist 无 `CFBundleLocalizations`），故中文设备上所有系统按钮落英文（Done/Cancel/Copy…）。已在 `IMProgram/Info.plist`
+  补 `CFBundleLocalizations=[zh-Hans,en]` 声明支持简体中文，一处覆盖全部同类。**未编译验证**（设备语言设中文重装后看查看器/@面板）。
+  自有 UI 文案本就硬编码中文，故未建 `zh-Hans.lproj`/改 pbxproj；将来做真·多语言再补。
 - 测试只跑 `-only-testing:IMProgramTests`；改后端协议后需重启后端再测。
 - **原图路径 JPEG 字节戴 `.heic` 帽子（2026-08-12 记，待第三方选择器落地后自然消除，暂不改）**：
   `IMMediaPicker.m buildImageItem` 原图分支（`:250`）以 `UTTypeImage.identifier` 取字节——**iOS 可能把 HEIC 自动转码成 JPEG 交付**，
