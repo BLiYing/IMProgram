@@ -72,6 +72,13 @@
   一次（去重+ranged-GET，无感），换来**自愈**——后台恢复文件下次启动即翻回，无陈旧标记。仅当服务端上"自动 TTL
   清理"使失效变常态，才回来上"持久化 + 标记 TTL"。
 - 测试只跑 `-only-testing:IMProgramTests`；改后端协议后需重启后端再测。
+- **原图路径 JPEG 字节戴 `.heic` 帽子（2026-08-12 记，待第三方选择器落地后自然消除，暂不改）**：
+  `IMMediaPicker.m buildImageItem` 原图分支（`:250`）以 `UTTypeImage.identifier` 取字节——**iOS 可能把 HEIC 自动转码成 JPEG 交付**，
+  但扩展名却另靠 `hasItemConformingToTypeIdentifier:UTTypeHEIC`（`:254`）**猜**成 `.heic` → 上传文件是 **JPEG 内容 + `.heic` 名**的错配。
+  实证：同一次发的两张（当前/自动）服务器上都叫 `photo.heic`，一张真 HEIC(`ftypheic`)、一张实为 JPEG(`FFD8FF`)。
+  危害：下载文件名后缀错、凡「信扩展名」的逻辑（如 Web 按扩展名判可否网页预览）会被带偏；Web 端靠字节嗅探/`onError` 已能各自正确显示，
+  故非阻塞。**根治**（若不换第三方选择器）：`copyFileForType:outExt:` 已能出真实扩展名，别再 `hasItemConforming` 猜；或直接嗅字节头
+  （`FFD8`→jpg / `ftypheic`→heic / `‰PNG`→png）定后缀与 mime。**结论：iOS 计划换第三方相册选择器（任务4），届时此坑自消，现暂不改。**
 
 ## 关联工程 / 常用命令
 - 后端 `/Users/liying/IOSProject/IMServer`；Web `/Users/liying/IOSProject/im-web`。
