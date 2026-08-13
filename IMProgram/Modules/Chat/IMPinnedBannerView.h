@@ -25,6 +25,8 @@ typedef NS_ENUM(NSInteger, IMBannerStyle) {
 @property (nonatomic, copy, nullable) void (^onTap)(void);
 /// 点右侧列表键（展开全部置顶）。仅多于一条时显示。
 @property (nonatomic, copy, nullable) void (^onList)(void);
+/// 点右侧关闭（✕）：**非破坏性收起本横幅**（不取消置顶、不撤下公告）。由聊天页据此隐藏该横幅。
+@property (nonatomic, copy, nullable) void (^onClose)(void);
 
 /// 公告样式专用：直接铺一段公告文本（无计数/发送者/列表键）。text 空=隐藏横幅。
 - (void)applyAnnouncement:(nullable NSString *)text;

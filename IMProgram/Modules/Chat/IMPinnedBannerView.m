@@ -4,21 +4,26 @@
 #import "IMPinnedMessage.h"
 #import "IMTheme.h"
 
-static CGFloat const kBannerHeight = 44;
+// 卡片视觉高度 + 上方留白（横幅整体高度 = 卡片 + 顶部间隔；左右间隔由内层卡片相对 self 内缩实现）。
+static CGFloat const kCardHeight = 44;
+static CGFloat const kTopGap     = 8;
+static CGFloat const kSideInset  = 8;
 
 @interface IMPinnedBannerView ()
 @property (nonatomic, assign) IMBannerStyle style;
+@property (nonatomic, strong) UIView *card;         ///< 圆角卡片（内缩于 self，四周留间隔；承载所有内容）
 @property (nonatomic, strong) UIView *bar;          ///< 左侧竖条（多条置顶时上亮下暗，暗示还有别的）
 @property (nonatomic, strong) CAGradientLayer *barGradient;
 @property (nonatomic, strong) UILabel *kicker;      ///< 「📌 置顶消息 2/3 · 小刚」
 @property (nonatomic, strong) UILabel *preview;     ///< 单行预览
 @property (nonatomic, strong) UIButton *tapButton;  ///< 覆盖主体区域的透明按钮（整条可点）
 @property (nonatomic, strong) UIButton *listButton;
+@property (nonatomic, strong) UIButton *closeButton; ///< 右侧 ✕：非破坏性收起本横幅
 @end
 
 @implementation IMPinnedBannerView
 
-+ (CGFloat)bannerHeight { return kBannerHeight; }
++ (CGFloat)bannerHeight { return kCardHeight + kTopGap; }
 
 /// 横幅强调色：公告=系统橙（对齐 sketch 黄条），入群申请=系统蓝，置顶=主题色。
 - (UIColor *)accentColor {
@@ -38,18 +43,24 @@ static CGFloat const kBannerHeight = 44;
 
 - (instancetype)initWithFrame:(CGRect)frame {
     if ((self = [super initWithFrame:frame])) {
-        self.backgroundColor = IMTheme.surfaceElevated;
+        self.backgroundColor = UIColor.clearColor; // 间隔透明，露出聊天壁纸
 
-        UIView *hairline = [UIView new];
-        hairline.backgroundColor = IMTheme.separator;
-        hairline.translatesAutoresizingMaskIntoConstraints = NO;
-        [self addSubview:hairline];
+        // 圆角卡片：内缩于 self（顶 kTopGap、左右 kSideInset），承载全部内容。
+        _card = [UIView new];
+        _card.translatesAutoresizingMaskIntoConstraints = NO;
+        _card.backgroundColor = IMTheme.surfaceElevated;
+        _card.layer.cornerRadius = 12;
+        _card.layer.cornerCurve = kCACornerCurveContinuous;
+        _card.layer.borderWidth = 1.0 / UIScreen.mainScreen.scale;
+        _card.layer.borderColor = IMTheme.separator.CGColor;
+        _card.clipsToBounds = YES;
+        [self addSubview:_card];
 
         _bar = [UIView new];
         _bar.layer.cornerRadius = 1.5;
         _bar.clipsToBounds = YES;
         _bar.translatesAutoresizingMaskIntoConstraints = NO;
-        [self addSubview:_bar];
+        [_card addSubview:_bar];
         _barGradient = [CAGradientLayer layer];
         _barGradient.startPoint = CGPointMake(0.5, 0);
         _barGradient.endPoint = CGPointMake(0.5, 1);
@@ -59,55 +70,69 @@ static CGFloat const kBannerHeight = 44;
         _kicker.font = [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
         _kicker.textColor = IMTheme.accent;
         _kicker.translatesAutoresizingMaskIntoConstraints = NO;
-        [self addSubview:_kicker];
+        [_card addSubview:_kicker];
 
         _preview = [UILabel new];
         _preview.font = [UIFont systemFontOfSize:13];
         _preview.textColor = IMTheme.textPrimary;
         _preview.lineBreakMode = NSLineBreakByTruncatingTail;
         _preview.translatesAutoresizingMaskIntoConstraints = NO;
-        [self addSubview:_preview];
+        [_card addSubview:_preview];
 
         _listButton = [UIButton buttonWithType:UIButtonTypeSystem];
         [_listButton setImage:[UIImage systemImageNamed:@"list.bullet"] forState:UIControlStateNormal];
         _listButton.tintColor = IMTheme.textSecondary;
         _listButton.translatesAutoresizingMaskIntoConstraints = NO;
         [_listButton addTarget:self action:@selector(listTapped) forControlEvents:UIControlEventTouchUpInside];
-        [self addSubview:_listButton];
+        [_card addSubview:_listButton];
 
-        // 主体点击区：盖在文字上、让在列表键左侧的整片区域都可点（文字本身不拦触摸）。
+        // 关闭（✕）：非破坏性收起横幅（不取消置顶/不撤下公告）。恒显，固定在最右端。
+        _closeButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        [_closeButton setImage:[UIImage systemImageNamed:@"xmark"] forState:UIControlStateNormal];
+        _closeButton.tintColor = IMTheme.textSecondary;
+        _closeButton.translatesAutoresizingMaskIntoConstraints = NO;
+        [_closeButton addTarget:self action:@selector(closeTapped) forControlEvents:UIControlEventTouchUpInside];
+        [_card addSubview:_closeButton];
+
+        // 主体点击区：盖在文字上、让列表键/关闭键左侧的整片区域都可点（文字本身不拦触摸）。
         _tapButton = [UIButton buttonWithType:UIButtonTypeCustom];
         _tapButton.translatesAutoresizingMaskIntoConstraints = NO;
         [_tapButton addTarget:self action:@selector(mainTapped) forControlEvents:UIControlEventTouchUpInside];
-        [self addSubview:_tapButton];
+        [_card addSubview:_tapButton];
 
         [NSLayoutConstraint activateConstraints:@[
-            [hairline.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
-            [hairline.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
-            [hairline.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
-            [hairline.heightAnchor constraintEqualToConstant:1.0 / UIScreen.mainScreen.scale],
+            [_card.topAnchor constraintEqualToAnchor:self.topAnchor constant:kTopGap],
+            [_card.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:kSideInset],
+            [_card.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-kSideInset],
+            [_card.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
 
-            [_bar.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:12],
-            [_bar.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
+            [_bar.leadingAnchor constraintEqualToAnchor:_card.leadingAnchor constant:10],
+            [_bar.centerYAnchor constraintEqualToAnchor:_card.centerYAnchor],
             [_bar.widthAnchor constraintEqualToConstant:3],
-            [_bar.heightAnchor constraintEqualToConstant:30],
+            [_bar.heightAnchor constraintEqualToConstant:26],
+
+            // 右侧按钮簇：关闭在最右，列表键在其左（仅多条置顶时显示，隐藏时仍占位——与旧版一致）。
+            [_closeButton.trailingAnchor constraintEqualToAnchor:_card.trailingAnchor constant:-6],
+            [_closeButton.centerYAnchor constraintEqualToAnchor:_card.centerYAnchor],
+            [_closeButton.widthAnchor constraintEqualToConstant:30],
+            [_closeButton.heightAnchor constraintEqualToConstant:30],
+
+            [_listButton.trailingAnchor constraintEqualToAnchor:_closeButton.leadingAnchor constant:-2],
+            [_listButton.centerYAnchor constraintEqualToAnchor:_card.centerYAnchor],
+            [_listButton.widthAnchor constraintEqualToConstant:30],
+            [_listButton.heightAnchor constraintEqualToConstant:30],
 
             [_kicker.leadingAnchor constraintEqualToAnchor:_bar.trailingAnchor constant:10],
-            [_kicker.topAnchor constraintEqualToAnchor:self.topAnchor constant:6],
+            [_kicker.topAnchor constraintEqualToAnchor:_card.topAnchor constant:6],
             [_kicker.trailingAnchor constraintLessThanOrEqualToAnchor:_listButton.leadingAnchor constant:-8],
 
             [_preview.leadingAnchor constraintEqualToAnchor:_kicker.leadingAnchor],
             [_preview.topAnchor constraintEqualToAnchor:_kicker.bottomAnchor constant:1],
             [_preview.trailingAnchor constraintLessThanOrEqualToAnchor:_listButton.leadingAnchor constant:-8],
 
-            [_listButton.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-10],
-            [_listButton.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
-            [_listButton.widthAnchor constraintEqualToConstant:34],
-            [_listButton.heightAnchor constraintEqualToConstant:34],
-
-            [_tapButton.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
-            [_tapButton.topAnchor constraintEqualToAnchor:self.topAnchor],
-            [_tapButton.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
+            [_tapButton.leadingAnchor constraintEqualToAnchor:_card.leadingAnchor],
+            [_tapButton.topAnchor constraintEqualToAnchor:_card.topAnchor],
+            [_tapButton.bottomAnchor constraintEqualToAnchor:_card.bottomAnchor],
             [_tapButton.trailingAnchor constraintEqualToAnchor:_listButton.leadingAnchor],
         ]];
     }
@@ -117,6 +142,8 @@ static CGFloat const kBannerHeight = 44;
 - (void)layoutSubviews {
     [super layoutSubviews];
     self.barGradient.frame = self.bar.bounds;
+    // 边框色随深浅色变化（CGColor 不自动跟随 trait）。
+    self.card.layer.borderColor = IMTheme.separator.CGColor;
 }
 
 /// 用 SF Symbol（染成强调色）+ 文字拼 kicker——**不用 emoji**：emoji 依赖系统字体、iOS 26 横幅内不渲染，
@@ -197,5 +224,6 @@ static CGFloat const kBannerHeight = 44;
 
 - (void)mainTapped { if (self.onTap) { self.onTap(); } }
 - (void)listTapped { if (self.onList) { self.onList(); } }
+- (void)closeTapped { if (self.onClose) { self.onClose(); } }
 
 @end

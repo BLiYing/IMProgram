@@ -184,6 +184,8 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
 // 入群申请横幅（G3，仅群主/管理员）：蓝条，置于最顶，pending_count>0 才显。点=进审批列表。
 @property (nonatomic, strong, nullable) IMPinnedBannerView *approvalBanner;
 @property (nonatomic, strong, nullable) NSLayoutConstraint *approvalBannerHeight;
+// 横幅本地收起（✕，非破坏性）持久化到 NSUserDefaults（键含 userID+convID，退出重进/换账号均正确）：
+// 记「收起时的内容签名」，签名一致才隐藏；内容变化（新置顶/改公告/申请数变）签名变→自动复现。见 bannerDismissKey:。
 @property (nonatomic, assign) BOOL composerMuteLocked; ///< G2：被禁言（成员级或全员）时锁输入栏
 // @提及（M4-8，仅群聊）：候选表 uid→显示名，发送时按输入框里是否还留着 `@显示名` 复核。
 @property (nonatomic, strong, nullable) NSMutableDictionary<NSString *, NSString *> *mentionCandidates;
@@ -599,12 +601,28 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
     }];
 }
 
+/// 置顶横幅「内容签名」（条数 + 首条 conv_seq）：收起态按此记忆，签名变化即视为新内容、自动复现。
+/// 收起处与刷新处共用同一算法，避免两处格式串分叉。
+- (nullable NSString *)currentPinnedSig {
+    NSInteger total = (NSInteger)self.pinnedItems.count;
+    return total > 0 ? [NSString stringWithFormat:@"%ld:%lld", (long)total, (long long)self.pinnedItems.firstObject.convSeq] : nil;
+}
+
+/// 横幅收起状态的 NSUserDefaults 键：含 userID + convID，换账号/换会话互不影响。
+- (NSString *)bannerDismissKey:(NSString *)kind {
+    return [NSString stringWithFormat:@"im_banner_dismiss_%@_%@_%@", kind, self.userID ?: @"", self.convID ?: @""];
+}
+
 /// 把当前 pinnedItems/pinnedIndex 应用到横幅，并同步 tableView 顶部内边距。
 - (void)applyPinnedBanner {
     NSInteger total = (NSInteger)self.pinnedItems.count;
     // 别人取消置顶会让列表变短，旧索引可能越界（横幅空白）→ 夹紧回 0。
     if (self.pinnedIndex < 0 || self.pinnedIndex >= total) { self.pinnedIndex = 0; }
     IMPinnedMessage *shown = total > 0 ? self.pinnedItems[self.pinnedIndex] : nil;
+    // 收起态持久化：仅当当前内容签名与"收起时记下的签名"一致才隐藏；新置顶签名不同 → 自动复现。
+    NSString *sig = [self currentPinnedSig];
+    NSString *dismissedSig = [NSUserDefaults.standardUserDefaults stringForKey:[self bannerDismissKey:@"pin"]];
+    if (sig.length > 0 && [sig isEqualToString:dismissedSig]) { shown = nil; }
     [self.pinnedBanner applyItem:shown index:self.pinnedIndex total:total isGroup:self.isGroupChat];
     self.pinnedBannerHeight.constant = shown ? [IMPinnedBannerView bannerHeight] : 0;
     [self updateBannerInset];
@@ -613,8 +631,10 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
 /// 应用群公告横幅（G1）：文本非空则显黄条。
 - (void)applyAnnouncementBanner {
     NSString *text = self.announcementText;
-    [self.announcementBanner applyAnnouncement:text];
-    self.announcementBannerHeight.constant = text.length ? [IMPinnedBannerView bannerHeight] : 0;
+    NSString *dismissedText = [NSUserDefaults.standardUserDefaults stringForKey:[self bannerDismissKey:@"ann"]];
+    NSString *shownText = (text.length > 0 && [text isEqualToString:dismissedText]) ? nil : text; // 公告改了→签名不同→复现
+    [self.announcementBanner applyAnnouncement:shownText];
+    self.announcementBannerHeight.constant = shownText.length ? [IMPinnedBannerView bannerHeight] : 0;
     [self updateBannerInset];
 }
 
@@ -631,8 +651,10 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
 - (void)applyApprovalBanner {
     BOOL canManage = self.groupInfo.myRole == IMGroupRoleOwner || self.groupInfo.myRole == IMGroupRoleAdmin;
     NSInteger pending = (self.isGroupChat && canManage) ? self.groupInfo.pendingCount : 0;
-    [self.approvalBanner applyApprovalCount:pending];
-    self.approvalBannerHeight.constant = pending > 0 ? [IMPinnedBannerView bannerHeight] : 0;
+    NSInteger dismissedCount = [NSUserDefaults.standardUserDefaults integerForKey:[self bannerDismissKey:@"approval"]];
+    NSInteger shownPending = (pending > 0 && pending == dismissedCount) ? 0 : pending; // 申请数变→复现
+    [self.approvalBanner applyApprovalCount:shownPending];
+    self.approvalBannerHeight.constant = shownPending > 0 ? [IMPinnedBannerView bannerHeight] : 0;
     [self updateBannerInset];
 }
 
@@ -1263,6 +1285,13 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     self.approvalBanner.translatesAutoresizingMaskIntoConstraints = NO;
     self.approvalBanner.hidden = YES;
     self.approvalBanner.onTap = ^{ [wsBanner approvalBannerTapped]; };
+    self.approvalBanner.onClose = ^{
+        __strong typeof(wsBanner) self = wsBanner; if (!self) { return; }
+        BOOL canManage = self.groupInfo.myRole == IMGroupRoleOwner || self.groupInfo.myRole == IMGroupRoleAdmin;
+        NSInteger pending = (self.isGroupChat && canManage) ? self.groupInfo.pendingCount : 0;
+        [NSUserDefaults.standardUserDefaults setInteger:pending forKey:[self bannerDismissKey:@"approval"]];
+        [self applyApprovalBanner];
+    };
     [self.view addSubview:self.approvalBanner];
 
     // 群公告横幅（G1，黄条）：接在申请横幅下方，排在置顶横幅之上（优先级 申请 > 公告 > 置顶）。点条=开公告全文视图。
@@ -1270,6 +1299,13 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     self.announcementBanner.translatesAutoresizingMaskIntoConstraints = NO;
     self.announcementBanner.hidden = YES;
     self.announcementBanner.onTap = ^{ [wsBanner announcementBannerTapped]; };
+    self.announcementBanner.onClose = ^{
+        __strong typeof(wsBanner) self = wsBanner; if (!self) { return; }
+        if (self.announcementText.length > 0) {
+            [NSUserDefaults.standardUserDefaults setObject:self.announcementText forKey:[self bannerDismissKey:@"ann"]];
+        }
+        [self applyAnnouncementBanner];
+    };
     [self.view addSubview:self.announcementBanner];
 
     // 置顶消息横幅（G0，蓝条）：接在公告横幅下方。
@@ -1278,6 +1314,12 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     self.pinnedBanner.hidden = YES;
     self.pinnedBanner.onTap = ^{ [wsBanner pinnedBannerTapped]; };
     self.pinnedBanner.onList = ^{ [wsBanner pinnedBannerListTapped]; };
+    self.pinnedBanner.onClose = ^{
+        __strong typeof(wsBanner) self = wsBanner; if (!self) { return; }
+        NSString *sig = [self currentPinnedSig];
+        if (sig.length > 0) { [NSUserDefaults.standardUserDefaults setObject:sig forKey:[self bannerDismissKey:@"pin"]]; }
+        [self applyPinnedBanner];
+    };
     [self.view addSubview:self.pinnedBanner];
 
     [NSLayoutConstraint activateConstraints:@[
@@ -3424,6 +3466,35 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     [self presentViewController:vc animated:YES completion:nil];
 }
 
+/// 逐角圆角矩形路径：按 CACornerMask 决定每个角是圆角(半径 r)还是直角(0)，手动画弧——
+/// 用于长按预览 visiblePath 精确复刻气泡（含尾巴那个直角），绕开 byRoundingCorners 的角组合渲染怪癖。
+static UIBezierPath *IMBubbleOutlinePath(CGRect rect, CGFloat radius, CACornerMask mask) {
+    CGFloat r = MIN(radius, MIN(CGRectGetWidth(rect), CGRectGetHeight(rect)) / 2.0);
+    if (r < 0) { r = 0; }
+    CGFloat tl = (mask & kCALayerMinXMinYCorner) ? r : 0; // 左上
+    CGFloat tr = (mask & kCALayerMaxXMinYCorner) ? r : 0; // 右上
+    CGFloat bl = (mask & kCALayerMinXMaxYCorner) ? r : 0; // 左下
+    CGFloat br = (mask & kCALayerMaxXMaxYCorner) ? r : 0; // 右下
+    CGFloat minX = CGRectGetMinX(rect), minY = CGRectGetMinY(rect);
+    CGFloat maxX = CGRectGetMaxX(rect), maxY = CGRectGetMaxY(rect);
+    UIBezierPath *p = [UIBezierPath bezierPath];
+    [p moveToPoint:CGPointMake(minX + tl, minY)];
+    [p addLineToPoint:CGPointMake(maxX - tr, minY)];
+    if (tr > 0) { [p addArcWithCenter:CGPointMake(maxX - tr, minY + tr) radius:tr startAngle:-M_PI_2 endAngle:0 clockwise:YES]; }
+    else { [p addLineToPoint:CGPointMake(maxX, minY)]; }
+    [p addLineToPoint:CGPointMake(maxX, maxY - br)];
+    if (br > 0) { [p addArcWithCenter:CGPointMake(maxX - br, maxY - br) radius:br startAngle:0 endAngle:M_PI_2 clockwise:YES]; }
+    else { [p addLineToPoint:CGPointMake(maxX, maxY)]; }
+    [p addLineToPoint:CGPointMake(minX + bl, maxY)];
+    if (bl > 0) { [p addArcWithCenter:CGPointMake(minX + bl, maxY - bl) radius:bl startAngle:M_PI_2 endAngle:M_PI clockwise:YES]; }
+    else { [p addLineToPoint:CGPointMake(minX, maxY)]; }
+    [p addLineToPoint:CGPointMake(minX, minY + tl)];
+    if (tl > 0) { [p addArcWithCenter:CGPointMake(minX + tl, minY + tl) radius:tl startAngle:M_PI endAngle:3 * M_PI_2 clockwise:YES]; }
+    else { [p addLineToPoint:CGPointMake(minX, minY)]; }
+    [p closePath];
+    return p;
+}
+
 /// 长按菜单只圈气泡本体：系统默认对整个 cell（contentView 全宽，含气泡两侧透明区）截图并垫系统底色
 /// 托盘——表现为"整行宽的背景色"，收起动画时这块全宽快照归位又比气泡慢半拍。改为 UITargetedPreview
 /// 指向 cell 的 previewTargetView（气泡/缩略图/卡片），背景透明 + 圆角 visiblePath，高亮与收起都干净。
@@ -3437,8 +3508,11 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     if (!target || !target.window) { return nil; }
     UIPreviewParameters *params = [UIPreviewParameters new];
     params.backgroundColor = UIColor.clearColor; // 去掉全宽底色托盘
-    params.visiblePath = [UIBezierPath bezierPathWithRoundedRect:target.bounds
-                                                    cornerRadius:target.layer.cornerRadius];
+    // 高亮路径须**逐角复刻气泡自身的 maskedCorners**：文本气泡有尾巴（某个下角是直角）。
+    // 此处**手动构造路径**而非用 `bezierPathWithRoundedRect:byRoundingCorners:`——后者在部分 iOS 版本对
+    // 「保留右下、只缺左下」这类角组合会画错（实测：自己气泡尾角正常、对方气泡却被抹成四圆角）。手动逐角
+    // 给半径就没有这个歧义；未设 maskedCorners 的（媒体/卡片=全角）四角同半径，退化为普通圆角矩形。
+    params.visiblePath = IMBubbleOutlinePath(target.bounds, target.layer.cornerRadius, target.layer.maskedCorners);
     return [[UITargetedPreview alloc] initWithView:target parameters:params];
 }
 

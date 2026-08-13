@@ -169,6 +169,9 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     NSTextAttachment *_quoteThumbAtt;      // 引用媒体缩略图占位 attachment
     NSString *_quoteThumbKey;              // 复用防串图：URL 匹配才应用
     UILabel *_avatar;                      // 群聊对方头像（连续段末条，贴气泡底左侧）
+    UILabel *_senderLabel;                 // 群聊对方昵称+角色徽标（气泡**外**上方，与媒体气泡统一；昵称在富文本内的旧写法已移除）
+    NSLayoutConstraint *_bubbleTopPlain;   // 无昵称行：气泡贴分割线底
+    NSLayoutConstraint *_bubbleTopUnderName; // 有昵称行：气泡接昵称底
     NSLayoutConstraint *_textBottom;       // 非文件消息：正文贴气泡底（与 _fileRowBottom 互斥）
     UIView *_fileRow;                      // 文件消息两栏容器：左 44pt 图标位 + 右 文件名/状态/时间
     UIView *_fileIconWrap;                 // 图标位：完成=类型图标；上传中=圆环进度+状态 glyph（可点）
@@ -415,6 +418,16 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         [_avatar addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleAvatarTap)]];
         [self.contentView addSubview:_avatar];
 
+        // 群聊对方昵称 + 角色徽标：气泡**外**上方独立一行（与图片/相册/链接/记录气泡统一）。
+        // 昵称主色小字，尾部截断；角色徽标（群主/管理员）用 IMRoleBadgeAttachment 内联挂在昵称右侧。
+        _senderLabel = [UILabel new];
+        _senderLabel.translatesAutoresizingMaskIntoConstraints = NO;
+        _senderLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+        _senderLabel.textColor = IMTheme.accent;
+        _senderLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+        _senderLabel.hidden = YES;
+        [self.contentView addSubview:_senderLabel];
+
         _leading = [_bubble.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12];
         _trailing = [_bubble.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-12];
         _datePillTop = [_datePill.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:0];
@@ -433,8 +446,12 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
             [_divider.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor],
             _dividerHeight,
 
-            [_bubble.topAnchor constraintEqualToAnchor:_divider.bottomAnchor constant:2],
             [_bubble.widthAnchor constraintLessThanOrEqualToAnchor:self.contentView.widthAnchor multiplier:0.75],
+
+            // 昵称行：贴分割线底、leading 对齐气泡（随头像 gutter 一起右移）、trailing 不超内容区。
+            [_senderLabel.topAnchor constraintEqualToAnchor:_divider.bottomAnchor constant:2],
+            [_senderLabel.leadingAnchor constraintEqualToAnchor:_bubble.leadingAnchor constant:2],
+            [_senderLabel.trailingAnchor constraintLessThanOrEqualToAnchor:self.contentView.trailingAnchor constant:-12],
 
             // 红❗：钉在气泡左侧、垂直居中（仅自己失败时显示）。
             [_failBadge.widthAnchor constraintEqualToConstant:18],
@@ -457,6 +474,11 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
             [_avatar.widthAnchor constraintEqualToConstant:30],
             [_avatar.heightAnchor constraintEqualToConstant:30],
         ]];
+
+        // 气泡顶：无昵称行→贴分割线底（_bubbleTopPlain）；有昵称行→接昵称底（_bubbleTopUnderName）。二选一。
+        _bubbleTopPlain = [_bubble.topAnchor constraintEqualToAnchor:_divider.bottomAnchor constant:2];
+        _bubbleTopUnderName = [_bubble.topAnchor constraintEqualToAnchor:_senderLabel.bottomAnchor constant:2];
+        _bubbleTopPlain.active = YES;
 
         // 可切换约束：无系统行→气泡贴 cell 底；有系统行→气泡接系统行、系统行贴底。
         _bubbleBottom = [_bubble.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3];
@@ -533,26 +555,26 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     _text.font = [UIFont systemFontOfSize:IMTheme.chatFontSize];
     // 正文 + 小字尾巴（时间/✓/✓✓）拼成一段富文本，保证状态一定随气泡渲染。
     NSMutableAttributedString *body = [NSMutableAttributedString new];
-    // 群聊：对方气泡顶部一行发送者昵称（主色小字，Telegram 式）。名字段落加 paragraphSpacing 与正文留间距。
-    // 群主/管理员在同一行昵称右侧挂一枚胶囊徽标（NSTextAttachment 烘焙的小图，样式与媒体气泡对齐）。
-    if (senderName.length > 0) {
-        NSMutableParagraphStyle *nameStyle = [NSMutableParagraphStyle new];
-        nameStyle.paragraphSpacing = 3;
-        NSString *shownName = [IMMessageCell clampSenderName:senderName]; // 最多约 12 个中文字
+    // 群聊对方昵称 + 角色徽标：移到气泡**外**上方独立 _senderLabel（与图片/相册/链接/记录气泡统一风格），
+    // 不再拼进气泡富文本。昵称≤12 中文字截断 + 群主/管理员徽标（IMRoleBadgeAttachment 内联小图，随深浅色）。
+    BOOL showSender = senderName.length > 0;
+    if (showSender) {
+        NSString *shownName = [IMMessageCell clampSenderName:senderName];
         NSMutableAttributedString *nameLine = [[NSMutableAttributedString alloc]
             initWithString:shownName
-                attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold],
+                attributes:@{ NSFontAttributeName: _senderLabel.font,
                               NSForegroundColorAttributeName: IMTheme.accent }];
         NSAttributedString *badge = IMRoleBadgeAttachment(senderRole, self.traitCollection);
         if (badge) {
             [nameLine appendAttributedString:[[NSAttributedString alloc] initWithString:@"  "
-                attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold] }]];
+                attributes:@{ NSFontAttributeName: _senderLabel.font }]];
             [nameLine appendAttributedString:badge];
         }
-        [nameLine appendAttributedString:[[NSAttributedString alloc] initWithString:@"\n"]];
-        [nameLine addAttribute:NSParagraphStyleAttributeName value:nameStyle range:NSMakeRange(0, nameLine.length)];
-        [body appendAttributedString:nameLine];
+        _senderLabel.attributedText = nameLine;
     }
+    _senderLabel.hidden = !showSender;
+    _bubbleTopPlain.active = !showSender;
+    _bubbleTopUnderName.active = showSender;
     // 转发溯源（M4-3）：气泡顶部一行"转发自 X"小灰字。
     if (message.forwardFrom.length > 0) {
         [body appendAttributedString:[[NSAttributedString alloc]
