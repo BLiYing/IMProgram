@@ -568,9 +568,10 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
 
 #pragma mark - 置顶消息横幅（G0）
 
-/// 能否置顶：群内限群主/管理员（= 服务端 perm_pin 默认值，G2 落群设置后改读设置）；单聊任一方可。
+/// 能否置顶：群内读 `perm_pin`——开(YES)=仅群主/管理员，关(NO)=全员可置顶（对齐服务端 hub.go 校验）；单聊任一方可。
 - (BOOL)canPinMessages {
     if (!self.isGroupChat) { return YES; }
+    if (!self.groupInfo.permPin) { return YES; } // 群主关闭「仅管理员可置顶」→ 全员可置顶
     return self.groupInfo.myRole == IMGroupRoleOwner || self.groupInfo.myRole == IMGroupRoleAdmin;
 }
 
