@@ -2214,8 +2214,13 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     [self.navigationController pushViewController:vc animated:YES];
 }
 
-/// 群二维码（QRCODE P0，任意成员可出示；perm_invite=1 时服务端对普通成员拦 300204）。
+/// 群二维码（QRCODE P0，任意成员可出示；perm_invite=1 时仅群主/管理员可出码——码即邀请链接）。
+/// 无权限时不进入卡片页，直接中文吐司（对齐 Web：Web 亦不打开模态、只吐司）。
 - (void)openGroupQR {
+    if (self.group.permInvite && ![self canManageGroup]) {
+        [self im_showToast:@"群主已开启「仅管理员可邀请」，你无法出示群二维码"];
+        return;
+    }
     IMQRCardViewController *vc = [[IMQRCardViewController alloc] initGroupCardWithHost:self.host userID:self.userID
                                                                               convID:self.convID groupName:self.group.name
                                                                            avatarURL:self.group.avatarURL
