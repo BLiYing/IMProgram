@@ -567,6 +567,7 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
         self.announcementText = group.announcement.length ? group.announcement : nil; // G1 公告横幅
         [self applyAnnouncementBanner];
         [self applyApprovalBanner]; // G3：群主/管理员待审入群申请横幅
+        [self maybeAutoPopAnnouncement]; // 进群/新版本自动弹一次公告卡（每版一次）
         [self refreshComposerMuteState]; // G2：被禁言则锁输入栏
         [self.tableView reloadData]; // 昵称回退可能变化（老消息无 from_nickname 时用成员表）
     }];
@@ -640,6 +641,22 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
     IMJoinRequestsViewController *vc = [[IMJoinRequestsViewController alloc] initWithToken:token convID:self.convID
                                                                                 onChanged:^{ [ws reloadGroupInfo]; }];
     [self.navigationController pushViewController:vc animated:YES];
+}
+
+/// 进群/新版本自动弹一次公告卡（sketch §02②，决策 16）：`announcementAt` 比本地记录新才弹，每版一次。
+/// 本地按 convID 存 last-seen（NSUserDefaults）；弹过即记录本版，之后 reloadGroupInfo 再进来不重复弹。
+- (void)maybeAutoPopAnnouncement {
+    NSString *text = self.announcementText;
+    int64_t at = self.groupInfo.announcementAt;
+    if (text.length == 0 || at <= 0) { return; }
+    NSString *key = [NSString stringWithFormat:@"im_ann_seen_%@", self.convID ?: @""];
+    int64_t seen = (int64_t)[NSUserDefaults.standardUserDefaults doubleForKey:key];
+    if (at <= seen) { return; }
+    // 仅在本页可见且无其他弹层时弹（被详情页盖住/已有 sheet 时先不弹，下次可见再弹）。
+    if (self.navigationController.topViewController != self || self.presentedViewController != nil) { return; }
+    [NSUserDefaults.standardUserDefaults setDouble:(double)at forKey:key];
+    NSString *sub = [IMGroupTextViewController announceSubtitleForMillis:at];
+    [IMGroupTextViewController presentFrom:self title:@"群公告" subtitle:sub body:text];
 }
 
 /// 点公告横幅：**直接开公告全文视图**（决策 16，不再跳群资料页——旧实现跳过去详情页却没公告卡，等于点了看不到）。

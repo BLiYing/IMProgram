@@ -27,6 +27,7 @@ typedef NS_ENUM(NSInteger, IMQRKind) {
 @property (nonatomic, copy) NSString *groupID;
 @property (nonatomic, copy) NSString *name;
 @property (nonatomic, copy) NSString *avatarURL;
+@property (nonatomic, copy) NSString *intro;      ///< 群简介（加群预览页展示，可空）
 @property (nonatomic, assign) NSInteger memberCount;
 @property (nonatomic, copy) NSString *inviterNickname;
 @property (nonatomic, assign) BOOL joined;

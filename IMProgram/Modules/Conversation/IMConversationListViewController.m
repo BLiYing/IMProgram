@@ -258,6 +258,18 @@ static CGFloat const kIMRowLeading = 16;
                    range:NSMakeRange(0, tag.length)];
         _last.attributedText = s;
     }
+    // 群「待审入群申请」红字前缀（G3，仅群主/管理员下发 pendingCount）：进群管理才发现太深，顶到会话列表。
+    if (c.isGroup && c.pendingCount > 0) {
+        NSString *tag = [NSString stringWithFormat:@"[%ld 待审] ", (long)c.pendingCount];
+        NSAttributedString *body = _last.attributedText.length ? _last.attributedText
+            : [[NSAttributedString alloc] initWithString:(_last.text ?: @"")
+                  attributes:@{ NSForegroundColorAttributeName: IMTheme.textSecondary, NSFontAttributeName: _last.font }];
+        NSMutableAttributedString *s = [[NSMutableAttributedString alloc] initWithString:tag
+            attributes:@{ NSForegroundColorAttributeName: IMTheme.danger,
+                          NSFontAttributeName: [UIFont systemFontOfSize:_last.font.pointSize weight:UIFontWeightSemibold] }];
+        [s appendAttributedString:body];
+        _last.attributedText = s;
+    }
     // 在线态绿点：仅单聊且对端在线时显示（快照版；isOnline 按 onlineUntil 实时判，租约到期即隐）。群聊不显示。
     _onlineDot.hidden = c.isGroup || !c.peerPresence.isOnline;
     _onlineDot.layer.borderColor = IMTheme.pageBackground.CGColor; // CGColor 不随主题自动更新，每次复用刷新
@@ -697,7 +709,10 @@ static CGFloat const kIMRowLeading = 16;
 /// G3：入群审批结果（只推申请人本人）→ 提示通过/拒绝。审批是异步的，申请人此刻很可能不在会话列表页，
 /// 故走**顶层可见控制器**弹提示（否则 toast 挂在被覆盖的列表页上、用户看不见）。
 - (void)onGroupEventForJoinResult:(NSNotification *)note {
-    if (![note.userInfo[kIMGroupEventKey] isEqualToString:@"join_result"]) { return; }
+    NSString *event = note.userInfo[kIMGroupEventKey];
+    // G3：新入群申请（只推群主/管理员）→ 重拉会话列表刷新「待审 N」红字（离线漏帧则靠下次 reload 补回）。
+    if ([event isEqualToString:@"join_request"]) { [self reload]; return; }
+    if (![event isEqualToString:@"join_result"]) { return; }
     NSString *result = note.userInfo[kIMGroupResultKey];
     [UIViewController im_showGlobalToast:[result isEqualToString:@"approved"] ? @"你的入群申请已通过，进群聊天吧" : @"你的入群申请未通过"];
 }

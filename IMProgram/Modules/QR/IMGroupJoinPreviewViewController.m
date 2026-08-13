@@ -79,6 +79,24 @@
 
     UIView *anchorTop = subtitle;
 
+    // 群简介（G3 修，未入群可见）：非空才显，排在人数下、附言/按钮之上。
+    if (self.card.intro.length > 0) {
+        UILabel *introLbl = [UILabel new];
+        introLbl.text = self.card.intro;
+        introLbl.font = [UIFont systemFontOfSize:14];
+        introLbl.textColor = IMTheme.textSecondary;
+        introLbl.textAlignment = NSTextAlignmentCenter;
+        introLbl.numberOfLines = 0;
+        introLbl.translatesAutoresizingMaskIntoConstraints = NO;
+        [self.view addSubview:introLbl];
+        [cons addObjectsFromArray:@[
+            [introLbl.topAnchor constraintEqualToAnchor:subtitle.bottomAnchor constant:14],
+            [introLbl.leadingAnchor constraintEqualToAnchor:name.leadingAnchor],
+            [introLbl.trailingAnchor constraintEqualToAnchor:name.trailingAnchor],
+        ]];
+        anchorTop = introLbl;
+    }
+
     // 需审批：附言输入框（可不填）。
     if (self.action == IMQRGroupActionApply) {
         UILabel *hdr = [UILabel new];
@@ -114,7 +132,7 @@
         [self.view addSubview:foot];
 
         [cons addObjectsFromArray:@[
-            [hdr.topAnchor constraintEqualToAnchor:subtitle.bottomAnchor constant:28],
+            [hdr.topAnchor constraintEqualToAnchor:anchorTop.bottomAnchor constant:24],
             [hdr.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:18],
 
             [field.topAnchor constraintEqualToAnchor:hdr.bottomAnchor constant:6],
@@ -139,7 +157,7 @@
             noteLbl.translatesAutoresizingMaskIntoConstraints = NO;
             [self.view addSubview:noteLbl];
             [cons addObjectsFromArray:@[
-                [noteLbl.topAnchor constraintEqualToAnchor:subtitle.bottomAnchor constant:18],
+                [noteLbl.topAnchor constraintEqualToAnchor:anchorTop.bottomAnchor constant:18],
                 [noteLbl.leadingAnchor constraintEqualToAnchor:name.leadingAnchor],
                 [noteLbl.trailingAnchor constraintEqualToAnchor:name.trailingAnchor],
             ]];

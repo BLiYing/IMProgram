@@ -40,6 +40,7 @@ static BOOL IMQRBool(NSDictionary *dict, NSString *key) {
     c.groupID = IMQRString(dict, @"group_id");
     c.name = IMQRString(dict, @"name");
     c.avatarURL = IMQRString(dict, @"avatar_url");
+    c.intro = IMQRString(dict, @"intro");
     c.memberCount = IMQRInt(dict, @"member_count");
     c.inviterNickname = IMQRString(dict, @"inviter_nickname");
     c.joined = IMQRBool(dict, @"joined");

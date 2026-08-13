@@ -14,6 +14,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) NSString *name;         // 群名（仅群聊）
 @property (nonatomic, copy, nullable) NSString *avatarURL;    // 群头像（仅群聊，空回退群名首字母圈）
 @property (nonatomic, assign) NSInteger memberCount;   // 群成员数（仅群聊）
+@property (nonatomic, assign) NSInteger pendingCount;  // 待审入群申请数（仅群聊且我是群主/管理员，供列表红点，G3）
 @property (nonatomic, copy) NSString *peer;            // 单聊对端 uid（群聊为空）
 @property (nonatomic, copy, nullable) NSString *peerNickname;  // 对端昵称（显示名/首字母，空回退 uid）
 @property (nonatomic, copy, nullable) NSString *peerAvatarURL; // 对端头像（data:/http，空回退首字母圈）
