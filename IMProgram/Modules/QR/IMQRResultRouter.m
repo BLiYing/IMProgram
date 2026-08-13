@@ -104,7 +104,8 @@ static const NSInteger kIMErrCodeQRExpired = 200110;
     IMChatViewController *chat = [[IMChatViewController alloc] initWithHost:host userID:userID
                                                                groupConvID:card.groupID
                                                                  groupName:card.name
-                                                                   readSeq:0 unread:0];
+                                                                   readSeq:0 unread:0
+                                                              groupReadSeq:0]; // 扫码入口无会话快照，全员已读位点由从会话列表进入时播种
     chat.groupAvatarURL = card.avatarURL;
     [vc.navigationController pushViewController:chat animated:YES];
 }

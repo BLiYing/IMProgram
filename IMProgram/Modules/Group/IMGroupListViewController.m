@@ -245,7 +245,8 @@ static CGFloat const kIMGroupAvatarSize = 44;
 - (void)openGroupChat:(IMGroupInfo *)group {
     IMChatViewController *chat = [[IMChatViewController alloc] initWithHost:self.host userID:self.userID
                                                                 groupConvID:group.convID groupName:group.name
-                                                                    readSeq:0 unread:0];
+                                                                    readSeq:0 unread:0
+                                                               groupReadSeq:0]; // 群列表入口无会话快照，全员已读位点由再次从会话列表进入时播种
     [self.navigationController pushViewController:chat animated:YES];
 }
 

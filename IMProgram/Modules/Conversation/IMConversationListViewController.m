@@ -669,7 +669,8 @@ static CGFloat const kIMRowLeading = 16;
         [self.navigationController popToViewController:self animated:NO];
         IMChatViewController *chat = [[IMChatViewController alloc] initWithHost:self.host userID:self.userID
                                                                     groupConvID:group.convID groupName:group.name
-                                                                        readSeq:0 unread:0];
+                                                                        readSeq:0 unread:0
+                                                                   groupReadSeq:0]; // 刚建群，无历史消息/已读
         [self.navigationController pushViewController:chat animated:YES];
     }];
 }
@@ -732,7 +733,8 @@ static CGFloat const kIMRowLeading = 16;
     if (c.isGroup) {
         IMChatViewController *chat = [[IMChatViewController alloc] initWithHost:self.host userID:self.userID
                                                                     groupConvID:c.convID groupName:c.name
-                                                                        readSeq:c.readSeq unread:c.unread];
+                                                                        readSeq:c.readSeq unread:c.unread
+                                                                   groupReadSeq:c.groupReadSeq];
         chat.groupAvatarURL = c.avatarURL; // 透传群头像，右上按钮立即显真图、免闪首字母
         [self.navigationController pushViewController:chat animated:YES];
         return;

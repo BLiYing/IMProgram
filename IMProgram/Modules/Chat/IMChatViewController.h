@@ -24,13 +24,15 @@ extern NSNotificationName const IMChatConversationClearedNotification;
                  peerReadSeq:(int64_t)peerReadSeq NS_DESIGNATED_INITIALIZER;
 
 /// 群聊入口：convID=群 topic_id（g_xxx），name=群名（可空，进入后拉群资料刷新）。
-/// readSeq/unread 语义同上（群无 peerReadSeq，恒 0 → 自己消息显示单 ✓=已送达）。
+/// readSeq/unread 语义同上。groupReadSeq=群「全员已读位点」min(其他成员已读位点)，用于
+/// 「全员都读过→我发的消息显绿✓✓」；非实时（随会话列表快照播种，无来源时传 0）。
 - (instancetype)initWithHost:(NSString *)host
                       userID:(NSString *)userID
                  groupConvID:(NSString *)convID
                    groupName:(nullable NSString *)name
                      readSeq:(int64_t)readSeq
-                      unread:(NSInteger)unread;
+                      unread:(NSInteger)unread
+                groupReadSeq:(int64_t)groupReadSeq;
 
 /// 单聊对端资料（会话列表进入时透传，供右上信息按钮打开的资料页显示昵称/头像；可空回退 uid）。群聊忽略。
 @property (nonatomic, copy, nullable) NSString *peerNickname;

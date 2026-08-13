@@ -283,9 +283,12 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
 
 - (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID
                  groupConvID:(NSString *)convID groupName:(NSString *)name
-                     readSeq:(int64_t)readSeq unread:(NSInteger)unread {
+                     readSeq:(int64_t)readSeq unread:(NSInteger)unread
+                groupReadSeq:(int64_t)groupReadSeq {
     // 复用单聊指定初始化器（peerID 空），再覆写会话标识为群 topic_id。
-    self = [self initWithHost:host userID:userID peerID:@"" readSeq:readSeq unread:unread peerReadSeq:0];
+    // 群聊没有单一对端，用「全员已读位点」播种 peerReadSeq：仅当 conv_seq ≤ 该位点（人人都读过）
+    // 才显绿✓✓（双勾语义在群里的诚实版）。非实时——didReadConv 群聊分支直接 return，不靠回执推进。
+    self = [self initWithHost:host userID:userID peerID:@"" readSeq:readSeq unread:unread peerReadSeq:groupReadSeq];
     if (self) {
         _isGroupChat = YES;
         _groupName = [name copy];
