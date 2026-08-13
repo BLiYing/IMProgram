@@ -122,6 +122,12 @@ BOOL IMIsTransientNetworkError(NSError *error) {
 @property (atomic, copy, nullable) NSString *currentToken; // 对外只读，内部可写
 @property (atomic, copy, nullable) NSString *tokenUserID;      // 缓存 token 归属的 uid（切账号即失效）
 @property (atomic, assign) CFAbsoluteTime tokenFetchedAt;      // 取得时刻：TTL 内直接复用，不重复 POST /login
+// 合并在途登录（同 @synchronized(self) 保护）：冷启动缓存尚空时 socket 与会话列表等会并发调 loginWithUserID，
+// 若各发一次 POST /login，同 device_id 的多次登录会互相顶替并踢掉 sid（后注册吊销先注册），先注册者的 token
+// 若最后写回缓存，socket 便拿着已吊销 token 握手吃 401 被误判"被踢"回登录页。故同账号在途只真发一次。
+@property (nonatomic, strong, nullable) NSMutableArray *pendingLoginCompletions;
+@property (nonatomic, assign) BOOL loginInFlight;
+@property (nonatomic, copy, nullable) NSString *loginInFlightUserID;
 @end
 
 @implementation IMHTTPService
@@ -144,6 +150,22 @@ BOOL IMIsTransientNetworkError(NSError *error) {
         [self callOnMain:^{ completion(cached, nil); }];
         return;
     }
+    // 合并在途登录：同账号已有一发在途 → 只排队，回来共享同一枚 token（见属性处说明，防冷启动并发自踢）。
+    // 极罕见的"在途中切到别的账号"走独立请求（owner=NO），不动共享队列，避免它的回调丢失。
+    BOOL owner = NO;
+    @synchronized (self) {
+        if (self.loginInFlight && [self.loginInFlightUserID isEqualToString:userID]) {
+            if (!self.pendingLoginCompletions) { self.pendingLoginCompletions = [NSMutableArray array]; }
+            [self.pendingLoginCompletions addObject:[completion copy]];
+            return;
+        }
+        if (!self.loginInFlight) {
+            self.loginInFlight = YES;
+            self.loginInFlightUserID = userID;
+            self.pendingLoginCompletions = [NSMutableArray arrayWithObject:[completion copy]];
+            owner = YES;
+        }
+    }
     // 设备管理（QR P2）：随登录上报稳定 device_id + 平台/名/版本，后端按 (uid, device_id) 顶替同一台旧会话
     // （避免每次登录堆一行），并在"已登录设备"里展示、可远程踢。字段皆可选，缺省后端按 UA 兜底。
     NSDictionary *reqBody = @{ @"username": userID ?: @"", @"password": self.password ?: @"",
@@ -153,23 +175,47 @@ BOOL IMIsTransientNetworkError(NSError *error) {
                                @"app_version": IMDeviceIdentity.appVersion };
     NSURLRequest *req = [self postRequestToPath:@"/api/v1/login" body:reqBody];
     if (!req) {
-        [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }];
+        [self finishLogin:owner userID:userID token:nil error:[self errorWithMessage:@"非法服务器地址"] soloCompletion:completion];
         return;
     }
+    __weak typeof(self) weakSelf = self;
     [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
-        if (error) { completion(nil, error); return; }
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self) { return; }
+        if (error) { [self finishLogin:owner userID:userID token:nil error:error soloCompletion:completion]; return; }
         NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
         NSString *token = [data[@"token"] isKindOfClass:[NSString class]] ? data[@"token"] : nil;
         if ([body[@"code"] integerValue] != 0 || token.length == 0) {
             // 带上业务码，便于调用方区分"鉴权失败(退登录)"与"网络问题(重试)"。
-            completion(nil, [self errorWithCode:[body[@"code"] integerValue]
-                                        message:[self messageFrom:body fallback:@"登录失败"]]);
+            [self finishLogin:owner userID:userID token:nil
+                        error:[self errorWithCode:[body[@"code"] integerValue] message:[self messageFrom:body fallback:@"登录失败"]]
+               soloCompletion:completion];
             return;
         }
         self.currentToken = token; // 缓存：供聊天页等无需重登即可发 HTTP（举报）
         self.tokenUserID = userID;
         self.tokenFetchedAt = CFAbsoluteTimeGetCurrent();
-        completion(token, nil);
+        [self finishLogin:owner userID:userID token:token error:nil soloCompletion:completion];
+    }];
+}
+
+/// 收束一次登录：owner=YES 时把共享队列里排队的 completion 全部 fan-out（并清空在途状态）；
+/// owner=NO（独立请求）只回 soloCompletion。全部切主线程回调，与旧行为一致。
+- (void)finishLogin:(BOOL)owner userID:(NSString *)userID token:(nullable NSString *)token
+              error:(nullable NSError *)error soloCompletion:(void (^)(NSString *, NSError *))soloCompletion {
+    if (!owner) {
+        [self callOnMain:^{ soloCompletion(token, error); }];
+        return;
+    }
+    NSArray *pending;
+    @synchronized (self) {
+        pending = self.pendingLoginCompletions ?: @[];
+        self.pendingLoginCompletions = nil;
+        self.loginInFlight = NO;
+        self.loginInFlightUserID = nil;
+    }
+    [self callOnMain:^{
+        for (void (^cb)(NSString *, NSError *) in pending) { cb(token, error); }
     }];
 }
 
