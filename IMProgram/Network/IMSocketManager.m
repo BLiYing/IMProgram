@@ -26,6 +26,7 @@ NSString * const kIMGroupTargetKey = @"groupTarget";
 NSString * const kIMGroupResultKey = @"groupResult";
 NSString * const IMSocketDidReceiveReadNotification = @"IMSocketDidReceiveReadNotification";
 NSString * const IMSocketDidChangeStateNotification = @"IMSocketDidChangeStateNotification";
+NSString * const IMSocketDidRevokeSessionNotification = @"IMSocketDidRevokeSessionNotification";
 NSString * const kIMConvIDKey = @"convID";
 NSString * const IMSocketDidReceivePresenceNotification = @"IMSocketDidReceivePresenceNotification";
 NSString * const IMSocketDidReceiveCapabilitiesUpdateNotification = @"IMSocketDidReceiveCapabilitiesUpdateNotification";
@@ -221,37 +222,14 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     IMLogSocket(@"connecting ws://%@/ws (token)", host);
 }
 
-/// 经 HTTP 登录接口换取 JWT（开发期无密码，仅凭 uid 签发）。completion 可能在任意线程回调。
+/// 经 HTTP 登录接口换取 JWT。completion 可能在任意线程回调（调用方 openSocket 已 dispatch 回 _queue）。
+///
+/// 统一走 IMHTTPService.loginWithUserID：与 REST 层**共用同一登录态与缓存 token**，从而 WS 与 REST
+/// 落在**同一台设备会话（sid）**上。若各自独立 POST /login，多设备管理会为同一次启动堆两条会话，
+/// 且带同一 device_id 的两次登录会互相顶替 sid（后者吊销前者），导致另一路凭据失效。
 - (void)fetchTokenForHost:(NSString *)host userID:(NSString *)uid completion:(void (^)(NSString *token, NSError *error))completion {
-    NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"http://%@/api/v1/login", host]];
-    if (!url) {
-        completion(nil, [self errorWithCode:5003 msg:@"非法登录地址"]);
-        return;
-    }
-    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
-    req.HTTPMethod = @"POST";
-    [req setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-    // 与 HTTP 层共用同一登录态：带上全局密码（空=后端开发期免密直签）。
-    NSString *password = IMHTTPService.sharedService.password ?: @"";
-    req.HTTPBody = [NSJSONSerialization dataWithJSONObject:@{ @"username": uid ?: @"", @"password": password } options:0 error:NULL];
-    req.timeoutInterval = 10;
-
-    __weak typeof(self) weakSelf = self;
-    NSURLSessionDataTask *task = [NSURLSession.sharedSession dataTaskWithRequest:req
-                                                             completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        __strong typeof(weakSelf) self = weakSelf;
-        if (error) { completion(nil, error); return; }
-        id obj = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : nil;
-        NSDictionary *body = [obj isKindOfClass:[NSDictionary class]] ? obj : nil;
-        NSDictionary *payload = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
-        NSString *token = [payload[@"token"] isKindOfClass:[NSString class]] ? payload[@"token"] : nil;
-        if ([body[@"code"] integerValue] != 0 || token.length == 0) {
-            completion(nil, [self errorWithCode:5004 msg:@"登录失败"]);
-            return;
-        }
-        completion(token, nil);
-    }];
-    [task resume];
+    IMHTTPService.sharedService.host = host; // 与 REST 层对齐同一 host（登录页登录时已设过，这里兜底）
+    [IMHTTPService.sharedService loginWithUserID:uid completion:completion];
 }
 
 /// 关闭并清理当前连接资源（仅在 _queue 调用）。
@@ -270,10 +248,27 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     if (self.state == IMSocketStateDisconnected && _task == nil) {
         return; // 已处理过，避免重复
     }
-    IMLogSocket(@"disconnected: %@", error.localizedDescription ?: @"(closed)");
+    // 鉴权被拒 vs 网络抖动：握手返回 HTTP 401 = 本机 sid 已被踢下线 / token 失效（见 gateway/client.go）。
+    // 必须与普通断线区别——普通断线只重连；401 若也盲目重连，会在 token 缓存 TTL(10min) 内反复撞 401，
+    // 缓存过期后又用稳定 device_id 静默重登换一枚新 sid，把"被踢下线"退化成 ≤10min 的临时抖动（自愈）。
+    // 注意：Hub 强制断开**当前活连接**时是 WS close（response 为握手成功的 101），不会误判；
+    // 401 只出现在随后那次"拿被吊销 token 重新握手"的重连上。response 须在 teardown 前读（teardown 会置空 _task）。
+    BOOL authRejected = NO;
+    if ([_task.response isKindOfClass:NSHTTPURLResponse.class]) {
+        authRejected = (((NSHTTPURLResponse *)_task.response).statusCode == 401);
+    }
+    IMLogSocket(@"disconnected: %@%@", error.localizedDescription ?: @"(closed)",
+                authRejected ? @" [鉴权被拒 401 → 跳登录页]" : @"");
     [self teardownSocket];
     [_syncingConvs removeAllObjects]; // 未收到的 sync_resp 已失效；重连后从已持久化连续位置重发
     [self updateState:IMSocketStateDisconnected];
+    if (authRejected) {
+        _manualClose = YES; // 停止自动重连：不再撞 401，也不让缓存过期后静默重登“自愈”
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidRevokeSessionNotification object:self];
+        });
+        return;
+    }
     if (!_manualClose) {
         [self scheduleReconnect];
     }

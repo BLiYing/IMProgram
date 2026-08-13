@@ -7,6 +7,7 @@
 @class IMUserCard;
 @class IMGroupInfo;
 @class IMPinnedMessage;
+@class IMDeviceSession;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -31,6 +32,10 @@ BOOL IMIsAuthErrorCode(NSInteger code);
 /// 登录换取 JWT：带 password 走真账号校验，password 为空走开发期免密。completion 在主线程回调。
 - (void)loginWithUserID:(NSString *)userID
              completion:(void (^)(NSString *_Nullable token, NSError *_Nullable error))completion;
+
+/// 作废内存缓存的 token（退出登录 / 被踢下线时调用）：避免 TTL 内继续复用已失效的旧 token。
+/// 不动持久化会话（那由 IMSessionStore 负责）；下次 loginWithUserID 会强制重新 POST /login。
+- (void)invalidateToken;
 
 /// 注册账号：POST /api/v1/register {username, password}（密码 ≥ 6 位由后端校验）。completion 在主线程回调。
 - (void)registerWithUsername:(NSString *)username
@@ -291,6 +296,35 @@ BOOL IMIsAuthErrorCode(NSInteger code);
 - (void)decideJoinRequestWithToken:(NSString *)token convID:(NSString *)convID
                             userID:(NSString *)userID accept:(BOOL)accept
                         completion:(void (^)(NSError *_Nullable error))completion;
+
+#pragma mark - 扫码登录（QR P1，手机确认端）
+
+/// 手机端已扫登录码：ticket → data {ticket, device, ip, location} 供确认页展示。
+/// error.code=200110 表示码已失效。completion 在主线程回调。
+- (void)qrLoginScanWithToken:(NSString *)token ticket:(NSString *)ticket
+                  completion:(void (^)(NSDictionary *_Nullable info, NSError *_Nullable error))completion;
+
+/// 手机端确认登录（网页版据此换 JWT）。error.code=200110 表示码已过期/被拒。completion 在主线程回调。
+- (void)qrLoginConfirmWithToken:(NSString *)token ticket:(NSString *)ticket
+                     completion:(void (^)(NSError *_Nullable error))completion;
+
+/// 手机端拒绝登录（"不是我"）。completion 在主线程回调。
+- (void)qrLoginRejectWithToken:(NSString *)token ticket:(NSString *)ticket
+                    completion:(void (^)(NSError *_Nullable error))completion;
+
+#pragma mark - 已登录设备（多设备管理，QR P2）
+
+/// 本账号全部有效登录会话（本机置顶，在线优先）。completion 在主线程回调。
+- (void)devicesWithToken:(NSString *)token
+              completion:(void (^)(NSArray<IMDeviceSession *> *_Nullable devices, NSError *_Nullable error))completion;
+
+/// 踢下线某设备（吊销 sid + 断其活连接）。踢本机=退出登录。completion 在主线程回调。
+- (void)revokeDeviceWithToken:(NSString *)token sessionID:(NSString *)sessionID
+                   completion:(void (^)(NSError *_Nullable error))completion;
+
+/// 退出除本机外的全部设备（当前 sid 由 token 推导，无需入参）。completion 在主线程回调。
+- (void)revokeOtherDevicesWithToken:(NSString *)token
+                         completion:(void (^)(NSError *_Nullable error))completion;
 
 #pragma mark - 会话管理（M4.5）
 

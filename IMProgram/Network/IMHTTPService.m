@@ -5,6 +5,8 @@
 #import "IMUserCard.h"
 #import "IMGroupInfo.h"
 #import "IMPinnedMessage.h"
+#import "IMDeviceModels.h"
+#import "IMDeviceIdentity.h"
 #import "IMHTTPLogFormatter.h"
 #import "IMLog.h"
 
@@ -142,7 +144,13 @@ BOOL IMIsTransientNetworkError(NSError *error) {
         [self callOnMain:^{ completion(cached, nil); }];
         return;
     }
-    NSDictionary *reqBody = @{ @"username": userID ?: @"", @"password": self.password ?: @"" };
+    // 设备管理（QR P2）：随登录上报稳定 device_id + 平台/名/版本，后端按 (uid, device_id) 顶替同一台旧会话
+    // （避免每次登录堆一行），并在"已登录设备"里展示、可远程踢。字段皆可选，缺省后端按 UA 兜底。
+    NSDictionary *reqBody = @{ @"username": userID ?: @"", @"password": self.password ?: @"",
+                               @"device_id": IMDeviceIdentity.deviceID,
+                               @"platform": IMDeviceIdentity.platform,
+                               @"device_name": IMDeviceIdentity.deviceName,
+                               @"app_version": IMDeviceIdentity.appVersion };
     NSURLRequest *req = [self postRequestToPath:@"/api/v1/login" body:reqBody];
     if (!req) {
         [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }];
@@ -163,6 +171,12 @@ BOOL IMIsTransientNetworkError(NSError *error) {
         self.tokenFetchedAt = CFAbsoluteTimeGetCurrent();
         completion(token, nil);
     }];
+}
+
+- (void)invalidateToken {
+    self.currentToken = nil;
+    self.tokenUserID = nil;
+    self.tokenFetchedAt = 0;
 }
 
 - (void)registerWithUsername:(NSString *)username
@@ -847,6 +861,56 @@ BOOL IMIsTransientNetworkError(NSError *error) {
                                                    method:@"POST" token:token
                                                      body:@{ @"action": accept ? @"approve" : @"reject" }];
     [self runOKRequest:req fallback:@"审批失败" completion:completion];
+}
+
+#pragma mark - 扫码登录（QR P1，手机确认端）
+
+- (void)qrLoginScanWithToken:(NSString *)token ticket:(NSString *)ticket
+                  completion:(void (^)(NSDictionary *, NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/qr/login/scan" method:@"POST" token:token
+                                                     body:@{ @"ticket": ticket ?: @"" }];
+    // 保留业务码：码失效回 200110，确认页据此弹"二维码已失效"而非通用错误。
+    [self runDataRequest:req fallback:@"识别登录码失败" completion:completion];
+}
+
+- (void)qrLoginConfirmWithToken:(NSString *)token ticket:(NSString *)ticket
+                     completion:(void (^)(NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/qr/login/confirm" method:@"POST" token:token
+                                                     body:@{ @"ticket": ticket ?: @"" }];
+    // 只关心成功/失败；失效码 200110 的友好文案由 messageFrom 统一映射。
+    [self runOKRequest:req fallback:@"确认登录失败" completion:completion];
+}
+
+- (void)qrLoginRejectWithToken:(NSString *)token ticket:(NSString *)ticket
+                    completion:(void (^)(NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/qr/login/reject" method:@"POST" token:token
+                                                     body:@{ @"ticket": ticket ?: @"" }];
+    [self runOKRequest:req fallback:@"拒绝登录失败" completion:completion];
+}
+
+#pragma mark - 已登录设备（多设备管理，QR P2）
+
+- (void)devicesWithToken:(NSString *)token
+              completion:(void (^)(NSArray<IMDeviceSession *> *, NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/devices" method:@"GET" token:token body:nil];
+    [self runDataRequest:req fallback:@"获取设备列表失败" completion:^(NSDictionary *data, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        NSArray *arr = [data[@"devices"] isKindOfClass:NSArray.class] ? data[@"devices"] : @[];
+        completion([IMDeviceSession fromArray:arr], nil);
+    }];
+}
+
+- (void)revokeDeviceWithToken:(NSString *)token sessionID:(NSString *)sessionID
+                   completion:(void (^)(NSError *))completion {
+    NSString *path = [NSString stringWithFormat:@"/api/v1/devices/%@/revoke", [self pathEscape:sessionID]];
+    NSMutableURLRequest *req = [self authedRequestForPath:path method:@"POST" token:token body:@{}];
+    [self runOKRequest:req fallback:@"退出设备失败" completion:completion];
+}
+
+- (void)revokeOtherDevicesWithToken:(NSString *)token
+                         completion:(void (^)(NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/devices/revoke-others" method:@"POST" token:token body:@{}];
+    [self runOKRequest:req fallback:@"退出其他设备失败" completion:completion];
 }
 
 #pragma mark - 我的资料

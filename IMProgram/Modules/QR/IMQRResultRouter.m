@@ -7,6 +7,7 @@
 #import "IMGroupJoinPreviewViewController.h"
 #import "IMHTTPService.h"
 #import "IMQRCardViewController.h"
+#import "IMQRLoginConfirmViewController.h"
 #import "IMQRModels.h"
 #import "UIViewController+IMToast.h"
 
@@ -23,6 +24,7 @@ static const NSInteger kIMErrCodeQRExpired = 200110;
     switch (resolved.kind) {
         case IMQRKindUser:  [self routeUser:resolved.user host:host userID:userID from:vc]; break;
         case IMQRKindGroup: [self routeGroup:resolved.group raw:raw host:host userID:userID from:vc]; break;
+        case IMQRKindLogin: [self routeLogin:resolved.login host:host userID:userID from:vc]; break;
         case IMQRKindUnknown:
         default:            [self routeUnknownText:resolved.unknownText from:vc]; break;
     }
@@ -108,6 +110,25 @@ static const NSInteger kIMErrCodeQRExpired = 200110;
                                                               groupReadSeq:0]; // 扫码入口无会话快照，全员已读位点由从会话列表进入时播种
     chat.groupAvatarURL = card.avatarURL;
     [vc.navigationController pushViewController:chat animated:YES];
+}
+
+#pragma mark - 扫码登录（QR P1）
+
+/// 扫到网页版登录码：先 /qr/login/scan 拿 Web 端设备/IP/位置，再 push 确认页。
+/// resolve 已校验票据可用；scan 若回 200110（并发过期/被抢）走统一失效 alert。
++ (void)routeLogin:(IMQRLoginTicket *)ticket host:(NSString *)host userID:(NSString *)userID from:(UIViewController *)vc {
+    if (!ticket || ticket.ticket.length == 0) { [vc im_showToast:@"二维码内容有误"]; return; }
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0) { [vc im_showToast:@"登录已失效，请重新登录"]; return; }
+    [IMHTTPService.sharedService qrLoginScanWithToken:token ticket:ticket.ticket
+                                          completion:^(NSDictionary *_Nullable info, NSError *_Nullable error) {
+        if (error) { [self presentError:error fromController:vc]; return; }
+        NSString *device = [info[@"device"] isKindOfClass:NSString.class] ? info[@"device"] : nil;
+        NSString *ip = [info[@"ip"] isKindOfClass:NSString.class] ? info[@"ip"] : nil;
+        NSString *location = [info[@"location"] isKindOfClass:NSString.class] ? info[@"location"] : nil;
+        [IMQRLoginConfirmViewController pushFrom:vc host:host userID:userID ticket:ticket.ticket
+                                          device:device ip:ip location:location];
+    }];
 }
 
 #pragma mark - 外来码

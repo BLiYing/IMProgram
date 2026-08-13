@@ -44,6 +44,10 @@ extern NSString * const IMSocketDidRemoveMessageNotification;
 extern NSString * const IMSocketDidUpdateConversationNotification;
 /// 连接状态变化时广播（主线程）：非 delegate 页（如会话列表）据此显示 连接中/未连接。userInfo[@"state"]=IMSocketState。
 extern NSString * const IMSocketDidChangeStateNotification;
+/// 会话被服务端吊销（多设备管理踢下线：WS 握手回 401=本机 sid 已被踢 / token 失效）时广播（主线程）。
+/// 与"网络断开"严格区分：网络抖动只重连、不发此通知；此通知**只在鉴权被拒时发**，上层（SceneDelegate）
+/// 据此清登录态并跳回登录页——否则 socket 会在 token 缓存 TTL 过后静默重登，"被踢"退化成 ≤10min 的临时抖动。
+extern NSString * const IMSocketDidRevokeSessionNotification;
 extern NSString * const kIMConvIDKey;
 /// 收到 presence 帧（某用户在线态变化）时广播（主线程）：presence 只喂给单个 delegate（打开的聊天页），
 /// 此通知让非 delegate 页（如会话列表）也能就地刷新在线绿点，无需重拉 /conversations。服务端只推上线，

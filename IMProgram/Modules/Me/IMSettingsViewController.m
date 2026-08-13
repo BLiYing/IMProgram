@@ -9,6 +9,7 @@
 #import "IMAppearanceViewController.h"
 #import "IMDataStorageViewController.h"
 #import "IMBlockedListViewController.h"
+#import "IMDeviceListViewController.h"
 #import "IMFavoritesViewController.h"
 #import "IMLoginViewController.h"
 #import "IMSocketManager.h"
@@ -476,7 +477,7 @@
                          handler:^{ [ws comingSoon:@"最近通话"]; }],
         [IMSettingsRow rowWithId:@"devices" title:@"已登录设备" image:@"laptopcomputer"
                           iconBg:UIColor.systemOrangeColor right:nil destructive:NO
-                         handler:^{ [ws comingSoon:@"已登录设备"]; }],
+                         handler:^{ [ws openDevices]; }],
         [IMSettingsRow rowWithId:@"folders" title:@"聊天文件夹" image:@"folder.fill"
                           iconBg:UIColor.systemBlueColor right:nil destructive:NO
                          handler:^{ [ws comingSoon:@"聊天文件夹"]; }],
@@ -529,6 +530,11 @@
 - (void)openBlocked {
     IMBlockedListViewController *blocked = [[IMBlockedListViewController alloc] initWithHost:self.host userID:self.userID];
     [self.navigationController pushViewController:blocked animated:YES];
+}
+
+- (void)openDevices {
+    IMDeviceListViewController *devices = [[IMDeviceListViewController alloc] initWithHost:self.host userID:self.userID];
+    [self.navigationController pushViewController:devices animated:YES];
 }
 
 - (void)logout {

@@ -11,6 +11,7 @@ typedef NS_ENUM(NSInteger, IMQRKind) {
     IMQRKindUnknown = 0,
     IMQRKindUser,
     IMQRKindGroup,
+    IMQRKindLogin,   ///< 扫码登录码 q/l/<ticket>（QR P1）：手机确认后网页版换 JWT 登录
 };
 
 /// 名片码扫后展示的对方资料。
@@ -36,11 +37,18 @@ typedef NS_ENUM(NSInteger, IMQRKind) {
 + (nullable instancetype)fromDictionary:(nullable NSDictionary *)dict;
 @end
 
+/// 扫码登录码解析结果：resolve 只回 ticket；设备/IP/位置由 POST /qr/login/scan 返回给确认页。
+@interface IMQRLoginTicket : NSObject
+@property (nonatomic, copy) NSString *ticket;
++ (nullable instancetype)fromDictionary:(nullable NSDictionary *)dict;
+@end
+
 /// POST /qr/resolve 的 data（{kind, data}）解析结果。
 @interface IMQRResolved : NSObject
 @property (nonatomic, assign) IMQRKind kind;
 @property (nonatomic, strong, nullable) IMQRUserCard *user;
 @property (nonatomic, strong, nullable) IMQRGroupCard *group;
+@property (nonatomic, strong, nullable) IMQRLoginTicket *login;   ///< kind=login 时的登录票据
 @property (nonatomic, copy, nullable) NSString *unknownText;   ///< kind=unknown 时的原文
 + (instancetype)fromDictionary:(nullable NSDictionary *)dict;
 @end

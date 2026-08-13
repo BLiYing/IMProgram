@@ -50,6 +50,17 @@ static BOOL IMQRBool(NSDictionary *dict, NSString *key) {
 }
 @end
 
+@implementation IMQRLoginTicket
++ (instancetype)fromDictionary:(NSDictionary *)dict {
+    if (![dict isKindOfClass:[NSDictionary class]]) { return nil; }
+    NSString *ticket = IMQRString(dict, @"ticket");
+    if (ticket.length == 0) { return nil; }
+    IMQRLoginTicket *t = [IMQRLoginTicket new];
+    t.ticket = ticket;
+    return t;
+}
+@end
+
 @implementation IMQRResolved
 + (instancetype)fromDictionary:(NSDictionary *)dict {
     IMQRResolved *r = [IMQRResolved new];
@@ -63,6 +74,9 @@ static BOOL IMQRBool(NSDictionary *dict, NSString *key) {
     } else if ([kind isEqualToString:@"group"]) {
         r.kind = IMQRKindGroup;
         r.group = [IMQRGroupCard fromDictionary:data];
+    } else if ([kind isEqualToString:@"login"]) {
+        r.kind = IMQRKindLogin;
+        r.login = [IMQRLoginTicket fromDictionary:data];
     } else {
         r.kind = IMQRKindUnknown;
         r.unknownText = data ? IMQRString(data, @"text") : @"";

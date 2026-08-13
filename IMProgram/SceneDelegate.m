@@ -10,6 +10,8 @@
 #import "IMMainTabBarController.h"
 #import "IMHTTPService.h"
 #import "IMSessionStore.h"
+#import "IMSocketManager.h"
+#import "UIViewController+IMToast.h"
 #import "IMLog.h"
 #import "IMAppearance.h"
 
@@ -26,6 +28,9 @@
     if (![windowScene isKindOfClass:UIWindowScene.class]) { return; }
 
     self.window = [[UIWindow alloc] initWithWindowScene:windowScene];
+    // 被踢下线（多设备管理）：socket 握手吃 401 时发此通知，强制回登录页。注册一次，跨登录态常驻。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(handleSessionRevoked)
+                                               name:IMSocketDidRevokeSessionNotification object:nil];
     [IMAppearance.shared applyInterfaceStyle];
     IMLog(@"launch hasSession=%d uid=%@ host=%@", [IMSessionStore hasSession], IMSessionStore.userID, IMSessionStore.host);
     if ([IMSessionStore hasSession]) {
@@ -47,6 +52,21 @@
 - (void)showLogin {
     IMLoginViewController *login = [IMLoginViewController new];
     self.window.rootViewController = [[UINavigationController alloc] initWithRootViewController:login];
+}
+
+/// 会话被服务端吊销（在其他设备"退出该设备/退出其他所有设备"把本机踢了）：清登录态 + 回登录页。
+/// 通知在主线程发；幂等——已在登录页则只补一次提示。
+- (void)handleSessionRevoked {
+    if ([self.window.rootViewController isKindOfClass:UINavigationController.class]
+        && [((UINavigationController *)self.window.rootViewController).topViewController isKindOfClass:IMLoginViewController.class]) {
+        return;
+    }
+    IMLog(@"session revoked → 强制登出回登录页");
+    [IMSocketManager.sharedManager disconnect];
+    [IMHTTPService.sharedService invalidateToken];
+    [IMSessionStore clear]; // 清持久化会话：下次启动直接回登录页，不再静默重登
+    [self showLogin];
+    [UIViewController im_showGlobalToast:@"该账号已在其他设备退出登录，请重新登录"];
 }
 
 - (void)sceneDidDisconnect:(UIScene *)scene {
