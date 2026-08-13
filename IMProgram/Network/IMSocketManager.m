@@ -662,92 +662,110 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
 
 /// 处理 new_msg：走统一的「收到一条消息」流程（仅在 _queue 调用）。
 - (void)handleNewMsg:(NSDictionary *)data {
-    [self processIncomingMessage:[IMMessageModel receivedMessageWithNewMsgData:data]];
+    [self processIncomingMessage:[IMMessageModel receivedMessageWithNewMsgData:data] fromSync:NO];
 }
 
-/// 处理 sync_resp：按会话投递增量消息；has_more 时以新位点继续拉（仅在 _queue 调用）。
+/// 处理 sync_resp：按会话投递增量消息，并据服务端权威 covered_conv_seq 推进游标；has_more 时以新位点继续拉。
+/// 仅在 _queue 调用。
+///
+/// 死循环修复（2026-08-13）：服务端为做**按用户可见性过滤**（G2 history_visible 抬入群下界、「仅为我删除」
+/// 隐藏项）会在 conv_seq 序列里留下客户端永远拿不到的空洞。老逻辑只按「连续」推进，游标会永久卡在空洞前一位，
+/// 每 10s 空转重拉同一页（真机曾连刷一天多）。新逻辑：本页消息全部落库成功后，把游标直接推进到服务端断言
+/// 的 covered_conv_seq——它保证 (since, covered] 内每个序号要么已下发、要么对本人不可见。落库若中途失败，
+/// 只推进到首个失败序号之前，其余靠退避重拉收敛（防落库热循环的护栏保留）。
 - (void)handleSyncResp:(NSDictionary *)data {
     NSArray *convs = [data[@"conversations"] isKindOfClass:[NSArray class]] ? data[@"conversations"] : @[];
     for (NSDictionary *conv in convs) {
         if (![conv isKindOfClass:[NSDictionary class]]) { continue; }
         NSString *convID = conv[@"conv_id"];
-        if (convID.length > 0) { [_syncingConvs removeObject:convID]; }
+        if (convID.length == 0) { continue; }
+        [_syncingConvs removeObject:convID];
         int64_t pageStart = [self syncedSeqForConv:convID];
         NSArray *messages = [conv[@"messages"] isKindOfClass:[NSArray class]] ? conv[@"messages"] : @[];
+        int64_t firstFailureSeq = 0; // 首个落库失败的下发序号（0=全部成功）
         for (NSDictionary *md in messages) {
             if (![md isKindOfClass:[NSDictionary class]]) { continue; }
-            [self processIncomingMessage:[IMMessageModel receivedMessageWithNewMsgData:md]];
+            IMMessageModel *m = [IMMessageModel receivedMessageWithNewMsgData:md];
+            BOOL durable = [self processIncomingMessage:m fromSync:YES];
+            if (!durable && firstFailureSeq == 0 && m.convSeq > 0) { firstFailureSeq = m.convSeq; }
         }
-        int64_t responseLatest = [conv[@"latest_conv_seq"] longLongValue];
-        int64_t continuous = [self syncedSeqForConv:convID];
-        // latest_conv_seq 是“本页最后一条”，只能用于校验，不能强制覆盖客户端连续位置。
-        // 若服务端页内意外缺号，停在空洞前并等待后续重连重试，绝不越级落游标。
-        BOOL pageIsContinuous = responseLatest == continuous;
-        if (!pageIsContinuous) {
-            IMLogSocket(@"sync page not contiguous conv=%@ start=%lld response_latest=%lld continuous=%lld",
-                        convID ?: @"", pageStart, responseLatest, continuous);
+        // 权威覆盖位点：全部落库成功→游标推到 covered（跨过不可见空洞）；有失败→只推到首个失败序号之前。
+        int64_t covered = [conv[@"covered_conv_seq"] longLongValue];
+        BOOL fullyDurable = (firstFailureSeq == 0);
+        int64_t advanceTo = fullyDurable ? covered : (firstFailureSeq - 1);
+        if (advanceTo > pageStart) {
+            [self updateSyncedSeqForConv:convID seq:advanceTo];
+            [self performDatabaseOperation:^(IMDatabase *database) {
+                [database advanceSyncedConvSeqForConv:convID toConvSeq:advanceTo]; // 消息行已先落库，再持久化游标
+            }];
         }
-        // 一整页处理完位点纹丝没动（典型：落库持续失败）——立刻重拉只会拿到同一页、再失败，
-        // 形成打满 CPU/磁盘的热循环（真机复现：13s 内 2.2 万条失败日志）。退避 10s 后再试。
-        if (messages.count > 0 && continuous == pageStart && convID.length > 0) {
-            _syncStalledUntil[convID] = @(CFAbsoluteTimeGetCurrent() + 10);
-            IMLogSocket(@"sync stalled (no durable progress); backing off 10s conv=%@ synced=%lld", convID, continuous);
-            __weak typeof(self) weakSelf = self;
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(10 * NSEC_PER_SEC)), _queue, ^{
-                __strong typeof(weakSelf) self = weakSelf;
-                if (!self) { return; }
-                [self sendSyncReqForConvs:@[convID]]; // 到点重试；仍无进展会再次退避，节奏 6 次/分钟
-            });
+        if (fullyDurable) {
+            [_syncStalledUntil removeObjectForKey:convID];
+            // 只有真推进了才继续翻页；否则是空页/已追平，停手（避免 has_more 误设时空转）。
+            if (advanceTo > pageStart && [conv[@"has_more"] boolValue]) {
+                [self sendSyncReqForConvs:@[convID]];
+            }
             continue;
         }
-        [_syncStalledUntil removeObjectForKey:convID ?: @""];
-        if ([conv[@"has_more"] boolValue] && convID.length > 0) {
-            if (pageIsContinuous && continuous > pageStart) {
-                [self sendSyncReqForConvs:@[convID]]; // 仅以本页实际连续处理完成的位置继续翻页
-            } else {
-                IMLogSocket(@"sync pagination stopped without continuous progress conv=%@", convID);
-            }
-        }
+        // 落库有失败（典型：磁盘/上下文异常）：退避 10s 后从（可能已部分推进的）游标重拉，防热循环。
+        _syncStalledUntil[convID] = @(CFAbsoluteTimeGetCurrent() + 10);
+        IMLogSocket(@"sync stalled (durable save failed); backing off 10s conv=%@ synced=%lld first_fail=%lld",
+                    convID, [self syncedSeqForConv:convID], firstFailureSeq);
+        __weak typeof(self) weakSelf = self;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(10 * NSEC_PER_SEC)), _queue, ^{
+            __strong typeof(weakSelf) self = weakSelf;
+            if (!self) { return; }
+            [self sendSyncReqForConvs:@[convID]]; // 到点重试；仍失败会再次退避，节奏 6 次/分钟
+        });
     }
 }
 
-/// 统一处理收到的一条消息：推进同步位点、回执、投递 delegate（仅在 _queue 调用）。
-- (void)processIncomingMessage:(IMMessageModel *)msg {
+/// 统一处理收到的一条消息：落库、回执、投递 delegate。返回该消息是否**已持久化/已处理**
+/// （sync 路径据此判断能否安全把游标推过它）。仅在 _queue 调用。
+///
+/// fromSync=YES（来自 sync_resp 补拉）：**不**在此推进游标、**不**触发空洞自愈——游标由 handleSyncResp
+/// 按服务端权威 covered_conv_seq 在整页处理完后统一推进（空洞是服务端刻意的可见性过滤，自愈会误触发）。
+/// fromSync=NO（实时 new_msg）：保持原行为——连续则推进游标，跳号则空洞自愈补拉。
+- (BOOL)processIncomingMessage:(IMMessageModel *)msg fromSync:(BOOL)fromSync {
     int64_t prevSynced = [self syncedSeqForConv:msg.convID];
     BOOL isNextContiguous = msg.convSeq > 0 && msg.convSeq == prevSynced + 1;
+    BOOL advanceHere = isNextContiguous && !fromSync; // sync 路径由 handleSyncResp 统一推进游标
     // msg_op 事件行（撤回/编辑/置顶，来自 sync 补拉）：应用其效果、不作气泡渲染、不入库为消息。
     if ([msg.contentType isEqualToString:kIMTypeMsgOp]) {
         NSDictionary *op = [self jsonObjectFromString:msg.content];
         BOOL applied = op && [self applyMsgOpPayload:op
-                             advancingSyncedConvSeq:isNextContiguous ? msg.convSeq : 0];
-        if (isNextContiguous && applied) {
+                             advancingSyncedConvSeq:advanceHere ? msg.convSeq : 0];
+        if (advanceHere && applied) {
             [self updateSyncedSeqForConv:msg.convID seq:msg.convSeq];
         }
-        return;
+        return applied; // sync：效果已应用即可推过；未应用（负载异常）则留待重拉
     }
     // 「为所有人删除」直加载/同步收敛（任务2）：目标行带 deleted_at>0 → 物理移除、不入库为可见消息。
     // 对齐 recalled_at 的直渲染：不再仅依赖单独的 msg_op 事件行（拿到目标行却漏事件行时会误显已删文件）。
     if (msg.deletedAt > 0 && msg.convID.length > 0 && msg.convSeq > 0) {
         [self removeLocalMessageOnQueueInConv:msg.convID targetConvSeq:msg.convSeq
-                       advancingSyncedConvSeq:isNextContiguous ? msg.convSeq : 0];
-        if (isNextContiguous) { [self updateSyncedSeqForConv:msg.convID seq:msg.convSeq]; }
-        return;
+                       advancingSyncedConvSeq:advanceHere ? msg.convSeq : 0];
+        if (advanceHere) { [self updateSyncedSeqForConv:msg.convID seq:msg.convSeq]; }
+        return YES; // 移除幂等，视为已处理
     }
-    // 空洞自愈：conv_seq 由服务端连续分配，若收到的序号跳过了已同步位点之后的中间段，
+    // 空洞自愈（仅实时路径）：conv_seq 由服务端连续分配，若实时收到的序号跳过了已同步位点之后的中间段，
     // 说明中间有未拉取（离线）消息 → 先从已同步位点补拉，避免实时消息把 synced 推过空洞造成漏消息。
-    if (prevSynced > 0 && msg.convSeq > prevSynced + 1 && [_trackedConvs containsObject:msg.convID]) {
-        [self sendSyncReqForConvs:@[msg.convID]]; // 用当前（更低的）位点作 since，把缺口拉回
-    } else if (prevSynced == 0 && msg.convSeq > 1 && [_trackedConvs containsObject:msg.convID]) {
-        [self sendSyncReqForConvs:@[msg.convID]]; // 新账号首次只见到较大序号，同样必须从 0 补齐
+    // sync 路径不做：那里的“跳号”是服务端刻意的可见性过滤，靠 covered_conv_seq 跨过，自愈只会空转。
+    if (!fromSync) {
+        if (prevSynced > 0 && msg.convSeq > prevSynced + 1 && [_trackedConvs containsObject:msg.convID]) {
+            [self sendSyncReqForConvs:@[msg.convID]]; // 用当前（更低的）位点作 since，把缺口拉回
+        } else if (prevSynced == 0 && msg.convSeq > 1 && [_trackedConvs containsObject:msg.convID]) {
+            [self sendSyncReqForConvs:@[msg.convID]]; // 新账号首次只见到较大序号，同样必须从 0 补齐
+        }
     }
     // 落库放在网络层：无论当前在会话列表还是聊天页（甚至无页面）收到的消息都持久化，
     // 避免「在列表收到、未入库、之后开聊天页因 synced 已前进而漏拉」。按 conv_seq 幂等 upsert。
     __block BOOL saved = NO;
     BOOL contextIsCurrent = [self performDatabaseOperation:^(IMDatabase *database) {
         saved = [database saveIncomingMessage:msg
-                       advancingSyncedConvSeq:isNextContiguous ? msg.convSeq : 0];
+                       advancingSyncedConvSeq:advanceHere ? msg.convSeq : 0];
     }];
-    if (!contextIsCurrent) { return; }
+    if (!contextIsCurrent) { return NO; } // 账号已切换：不推进、不投递
     if ([msg.contentType isEqualToString:@"file"]) {
         IMLogSocket(@"file message conv=%@ seq=%lld from=%@ name=%@ bytes=%lld",
                     msg.convID, msg.convSeq, msg.from ?: @"", msg.fileName ?: @"", msg.fileSize);
@@ -760,9 +778,9 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
                    (unsigned long)msg.thumb.length, msg.poster.length > 0,
                    (long)msg.mediaW, (long)msg.mediaH, msg.fileSize);
     }
-    if (isNextContiguous && saved) {
+    if (advanceHere && saved) {
         [self updateSyncedSeqForConv:msg.convID seq:msg.convSeq];
-    } else if (!saved) {
+    } else if (!saved && !fromSync) {
         IMLogSocket(@"incoming message not durable; cursor held conv=%@ seq=%lld", msg.convID, msg.convSeq);
     }
     if (saved) { [self sendReceiptForConv:msg.convID upTo:msg.convSeq]; }
@@ -778,6 +796,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
                                                          object:self
                                                        userInfo:@{ kIMConvIDKey: msg.convID ?: @"" }];
     });
+    return saved;
 }
 
 /// 收到好友关系变更帧：主线程广播，通讯录刷新（无需切页）。负载仅作语义，收到即刷。
