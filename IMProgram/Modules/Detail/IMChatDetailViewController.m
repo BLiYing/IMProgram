@@ -2243,7 +2243,12 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
         [self.navigationController popToViewController:self animated:YES];
         NSString *token = IMHTTPService.sharedService.currentToken; if (token.length == 0) { return; }
         [IMHTTPService.sharedService inviteToGroupWithToken:token convID:self.convID memberIDs:ids completion:^(NSError *error) {
-            if (error) { [self im_showToast:error.localizedDescription]; return; }
+            if (error) {
+                // 300207 = 被邀请者已被移出/冷却期：用邀请场景第三人称文案（区别于自加群映射的第二人称）。
+                if (error.code == 300207) { [self im_showToast:@"该成员已被移出本群，暂时无法再次邀请"]; }
+                else { [self im_showToast:error.localizedDescription]; }
+                return;
+            }
             [self loadGroupInfo];
         }];
     }];

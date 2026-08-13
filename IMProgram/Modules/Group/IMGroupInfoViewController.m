@@ -214,7 +214,13 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) { return; }
         if (error) {
-            [self im_showToast:error.localizedDescription];
+            // 按业务码分支：300207 = 被邀请者已被移出/冷却期（仅邀请动作会返，走保留码的 runDataRequest）。
+            // 用"邀请别人"的第三人称文案，区别于映射表里自加群的第二人称「你已被移出」。
+            if (error.code == 300207) {
+                [self im_showToast:@"该成员已被移出本群，暂时无法再次邀请"];
+            } else {
+                [self im_showToast:error.localizedDescription];
+            }
             return;
         }
         [self reload];

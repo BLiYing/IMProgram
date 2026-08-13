@@ -641,7 +641,11 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@"/members"]
                                                    method:@"POST" token:token
                                                      body:@{ @"member_ids": memberIDs ?: @[] }];
-    [self runOKRequest:req fallback:@"邀请失败" completion:completion];
+    // 用 runDataRequest（保留业务码）而非 runOKRequest：邀请可能返 300207（被邀请者已被移出/冷却期），
+    // UI 需按码给"邀请别人"场景的第三人称文案。data 用不到，只把 error 透传出去。
+    [self runDataRequest:req fallback:@"邀请失败" completion:^(NSDictionary *data, NSError *error) {
+        completion(error);
+    }];
 }
 
 - (void)leaveGroupWithToken:(NSString *)token convID:(NSString *)convID
