@@ -10,6 +10,10 @@
 - **UI（Modules/QR/）**：`IMQRScannerViewController`（`AVCaptureSession` 取景 + 手电筒 + 相册识别多码候选 + 「扫码/我的二维码」页签；自行 resolve 后 `onResult` 回宿主）→ `IMQRResultRouter`（**落到已有页面**：名片→资料页 `IMChatDetailViewController`、群→加群确认弹窗含 G3 加入/需审批附言/进群/满/黑名单、失效码 200110 提示、外来码域名二确认不自动跳转）；`IMQRCardView`+`IMQRCardViewController`（出码页：进页提亮、保存相册、分享、重置二次确认）；`IMJoinRequestsViewController`（待审列表，同意/拒绝）。
 - **入口/帧**：会话列表 `＋` 菜单「扫一扫」置顶 → 扫码；`IMSettingsViewController`「我的二维码」；详情页设置区「群二维码」行；`IMGroupManageViewController` 治理卡「待审入群申请(N)」；`IMSocketManager` group 帧带 `result`（`kIMGroupResultKey`）+ 会话列表 `onGroupEventForJoinResult:` 结果 toast。
 - **测试**：`IMQRModelsTests`（resolve 解析 / 动作映射 / 域名 / 申请解析）。**扫码/相机需真机手测**（模拟器无摄像头）。**改了后端需重启带 QR 路由的新二进制再测。**
+- **`/code-review` 修复（2026-08-13，三仓 5 项全修）**：iOS 两项——① 扫码页 `startSession/stopSession` 把 `isRunning`
+  判定移进串行队列（原先在主线程判，快速切「我的二维码」↔「扫码」会让启动被自己的守卫吞掉、相机永久停住）；
+  ② 扫码页「我的二维码」页签补拉 `myProfile` 显昵称+头像（原先只显 uid，对方回扫认不出是谁）。
+  另三项在 IMServer（邀请入群原子上限 + 注释订正）与 im-web（重置失败无提示 / 拖非图片文件未捕获）。
 - **已知限制**：① `IMQRResultRouter` 群分支用**确认弹窗兜底**（G3 独立「加群预览页」为后续替换项，附言目前是 alert 文本域）；
   ② 相册一图多码用 **ActionSheet 列候选**（草图里是"在图上画候选点"，需图片预览页，未做）；
   ③ 屏幕提亮只在出码页（`IMQRCardViewController`），扫码页内的「我的二维码」页签不提亮；

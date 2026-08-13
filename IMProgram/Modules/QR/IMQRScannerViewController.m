@@ -11,6 +11,7 @@
 #import "IMQRCardView.h"
 #import "IMQRImage.h"
 #import "IMQRModels.h"
+#import "IMUserCard.h"
 #import "UIViewController+IMToast.h"
 
 static const CGFloat kIMReticleSide = 220;
@@ -28,6 +29,9 @@ static const CGFloat kIMReticleSide = 220;
 @property (nonatomic, strong) UIView *cardPage;                ///< 「我的二维码」页签内容
 @property (nonatomic, strong) IMQRCardView *cardView;
 @property (nonatomic, assign) BOOL cardLoaded;
+@property (nonatomic, copy, nullable) NSString *myCardURL;   ///< 名片码内容串
+@property (nonatomic, copy, nullable) NSString *myNickname;  ///< 卡片展示名（拉到资料后补正，先用 uid）
+@property (nonatomic, copy, nullable) NSString *myAvatarURL;
 @property (nonatomic, strong) UIView *deniedView;              ///< 相机权限被拒的页面内引导
 @property (nonatomic, strong) UIView *reticle;
 @property (nonatomic, strong) UIView *scanLine;
@@ -305,9 +309,32 @@ static const CGFloat kIMReticleSide = 220;
             return;
         }
         NSString *url = [card[@"url"] isKindOfClass:NSString.class] ? card[@"url"] : nil;
-        [self.cardView configureWithAvatarURL:nil seed:self.userID name:self.userID
-                                     subtitle:[NSString stringWithFormat:@"ID %@", self.userID]
-                                     qrString:url hint:@"扫描二维码，加我为朋友"];
+        self.myCardURL = url;
+        [self renderMyCard];
+        [self loadMyProfileForCard]; // 昵称/头像另拉一次，慢到也只是先显 uid 再补正
+    }];
+}
+
+/// 把当前已知的昵称/头像/码串灌进卡片。资料未回来时先用 uid 占位——码本身不依赖资料，先能扫要紧。
+- (void)renderMyCard {
+    NSString *display = self.myNickname.length ? self.myNickname : self.userID;
+    [self.cardView configureWithAvatarURL:self.myAvatarURL seed:self.userID name:display
+                                 subtitle:[NSString stringWithFormat:@"ID %@", self.userID]
+                                 qrString:self.myCardURL hint:@"扫描二维码，加我为朋友"];
+}
+
+/// 拉本人资料补齐卡片的昵称+头像：这张卡是给对方看的，只显 uid 对方认不出是谁
+/// （与「我」页进入的名片码页保持一致）。失败静默回退 uid。
+- (void)loadMyProfileForCard {
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0 || self.myNickname.length > 0) { return; }
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService myProfileWithToken:token completion:^(IMUserCard *profile, NSError *error) {
+        __strong typeof(ws) self = ws;
+        if (!self || error || !profile) { return; }
+        self.myNickname = profile.displayName;
+        self.myAvatarURL = profile.avatarURL;
+        [self renderMyCard];
     }];
 }
 
@@ -363,17 +390,20 @@ static const CGFloat kIMReticleSide = 220;
     [self.view setNeedsLayout];
 }
 
+// 起停一律「派发到串行队列、在队列里现判 isRunning」。**不能在主线程判**：start/stop 是异步执行的，
+// 主线程读到的 isRunning 是上一次派发生效前的旧值——快速切「我的二维码」→「扫码」时，start 会看到
+// 还没来得及停的 isRunning=YES 而直接 return，随后排队的 stopRunning 才执行，相机就永久停住了。
 - (void)startSession {
     AVCaptureSession *session = self.session;
-    if (!session || session.isRunning) { return; }
+    if (!session) { return; }
     self.handling = NO;
-    dispatch_async(self.sessionQueue, ^{ [session startRunning]; });
+    dispatch_async(self.sessionQueue, ^{ if (!session.isRunning) { [session startRunning]; } });
 }
 
 - (void)stopSession {
     AVCaptureSession *session = self.session;
-    if (!session || !session.isRunning) { return; }
-    dispatch_async(self.sessionQueue, ^{ [session stopRunning]; });
+    if (!session) { return; }
+    dispatch_async(self.sessionQueue, ^{ if (session.isRunning) { [session stopRunning]; } });
 }
 
 - (void)showDeniedView {
