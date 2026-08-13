@@ -120,8 +120,6 @@
 @property (nonatomic, copy) NSString *userID;
 @property (nonatomic, copy, nullable) NSString *token;
 @property (nonatomic, strong) UITableView *tableView;
-@property (nonatomic, strong, nullable) IMDeviceSession *current;
-@property (nonatomic, strong) NSArray<IMDeviceSession *> *others;
 // 分区描述：kind=0 设备行；kind=1 动作（退出其他所有设备）。
 @property (nonatomic, strong) NSArray<NSString *> *sectionTitles;
 @property (nonatomic, strong) NSArray<NSNumber *> *sectionKinds;
@@ -135,7 +133,6 @@
     if (self) {
         _host = [host copy];
         _userID = [userID copy];
-        _others = @[];
         _sectionTitles = @[];
         _sectionKinds = @[];
         _sectionItems = @[];
@@ -193,17 +190,21 @@
         if (d.current && current == nil) { current = d; }
         else { [others addObject:d]; }
     }
-    self.current = current;
-    self.others = others;
 
     NSMutableArray<NSString *> *titles = [NSMutableArray array];
     NSMutableArray<NSNumber *> *kinds = [NSMutableArray array];
     NSMutableArray<NSArray *> *items = [NSMutableArray array];
     if (current) {
         [titles addObject:@"这台设备"]; [kinds addObject:@0]; [items addObject:@[current]];
+        if (others.count > 0) {
+            [titles addObject:@"其他设备"]; [kinds addObject:@0]; [items addObject:others];
+        }
+    } else if (others.count > 0) {
+        // 后端未标出本机（理论上不该发生：本机 sid 恒在列表里）。此时不谎称「其他设备」——用中性标题，
+        // 避免把本机当成他人设备诱导误踢；「退出其他所有设备」由服务端按本次请求 sid 保留本机，仍安全。
+        [titles addObject:@"已登录设备"]; [kinds addObject:@0]; [items addObject:others];
     }
     if (others.count > 0) {
-        [titles addObject:@"其他设备"]; [kinds addObject:@0]; [items addObject:others];
         [titles addObject:@""]; [kinds addObject:@1]; [items addObject:@[@"退出其他所有设备"]];
     }
     self.sectionTitles = titles;

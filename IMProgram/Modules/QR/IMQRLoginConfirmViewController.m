@@ -2,12 +2,11 @@
 
 #import "IMQRLoginConfirmViewController.h"
 #import "IMHTTPService.h"
+#import "IMKeyValueCardView.h"
 #import "IMTheme.h"
 #import "UIViewController+IMToast.h"
 
 @interface IMQRLoginConfirmViewController ()
-@property (nonatomic, copy) NSString *host;
-@property (nonatomic, copy) NSString *userID;
 @property (nonatomic, copy) NSString *ticket;
 @property (nonatomic, copy, nullable) NSString *device;
 @property (nonatomic, copy, nullable) NSString *ip;
@@ -20,15 +19,11 @@
 @implementation IMQRLoginConfirmViewController
 
 + (void)pushFrom:(UIViewController *)from
-            host:(NSString *)host
-          userID:(NSString *)userID
           ticket:(NSString *)ticket
           device:(NSString *)device
               ip:(NSString *)ip
         location:(NSString *)location {
     IMQRLoginConfirmViewController *vc = [IMQRLoginConfirmViewController new];
-    vc.host = host;
-    vc.userID = userID;
     vc.ticket = ticket;
     vc.device = device;
     vc.ip = ip;
@@ -130,74 +125,15 @@
     ]];
 }
 
-/// 键值信息卡：一列「标签 — 值」行，行间细分隔线。
+/// 键值信息卡（复用 IMKeyValueCardView）。
+/// 「扫码时间」= 用户此刻扫码/确认的时刻（scan 接口未回服务端时间）——按实义命名，不谎称是网页发起时间。
 - (UIView *)buildInfoCard {
-    UIStackView *stack = [UIStackView new];
-    stack.axis = UILayoutConstraintAxisVertical;
-    stack.translatesAutoresizingMaskIntoConstraints = NO;
-    stack.backgroundColor = IMTheme.cardBackground;
-    stack.layer.cornerRadius = 12;
-    stack.layoutMargins = UIEdgeInsetsMake(2, 14, 2, 14);
-    stack.layoutMarginsRelativeArrangement = YES;
-
-    NSString *timeStr = [self nowTimeString];
-    NSArray<NSArray<NSString *> *> *rows = @[
+    return [IMKeyValueCardView cardWithRows:@[
         @[@"设备", self.device.length ? self.device : @"未知设备"],
         @[@"IP 地址", self.ip.length ? self.ip : @"未知"],
         @[@"大致位置", self.location.length ? self.location : @"未知"],
-        @[@"时间", timeStr],
-    ];
-    for (NSUInteger i = 0; i < rows.count; i++) {
-        [stack addArrangedSubview:[self kvRowKey:rows[i][0] value:rows[i][1] showSeparator:(i > 0)]];
-    }
-    return stack;
-}
-
-- (UIView *)kvRowKey:(NSString *)key value:(NSString *)value showSeparator:(BOOL)sep {
-    UIView *row = [UIView new];
-    row.translatesAutoresizingMaskIntoConstraints = NO;
-
-    UILabel *k = [UILabel new];
-    k.text = key;
-    k.font = [UIFont systemFontOfSize:14];
-    k.textColor = IMTheme.textPrimary;
-    k.translatesAutoresizingMaskIntoConstraints = NO;
-    [row addSubview:k];
-
-    UILabel *v = [UILabel new];
-    v.text = value;
-    v.font = [UIFont systemFontOfSize:13];
-    v.textColor = IMTheme.textSecondary;
-    v.textAlignment = NSTextAlignmentRight;
-    v.numberOfLines = 0;
-    v.translatesAutoresizingMaskIntoConstraints = NO;
-    [row addSubview:v];
-
-    NSMutableArray<NSLayoutConstraint *> *cons = [NSMutableArray arrayWithArray:@[
-        [row.heightAnchor constraintGreaterThanOrEqualToConstant:44],
-        [k.leadingAnchor constraintEqualToAnchor:row.leadingAnchor],
-        [k.centerYAnchor constraintEqualToAnchor:row.centerYAnchor],
-        [v.trailingAnchor constraintEqualToAnchor:row.trailingAnchor],
-        [v.centerYAnchor constraintEqualToAnchor:row.centerYAnchor],
-        [v.leadingAnchor constraintGreaterThanOrEqualToAnchor:k.trailingAnchor constant:12],
-        [v.topAnchor constraintGreaterThanOrEqualToAnchor:row.topAnchor constant:9],
-        [v.bottomAnchor constraintLessThanOrEqualToAnchor:row.bottomAnchor constant:-9],
+        @[@"扫码时间", [self nowTimeString]],
     ]];
-    [k setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
-    if (sep) {
-        UIView *line = [UIView new];
-        line.backgroundColor = IMTheme.separator;
-        line.translatesAutoresizingMaskIntoConstraints = NO;
-        [row addSubview:line];
-        [cons addObjectsFromArray:@[
-            [line.topAnchor constraintEqualToAnchor:row.topAnchor],
-            [line.leadingAnchor constraintEqualToAnchor:row.leadingAnchor],
-            [line.trailingAnchor constraintEqualToAnchor:row.trailingAnchor],
-            [line.heightAnchor constraintEqualToConstant:0.5],
-        ]];
-    }
-    [NSLayoutConstraint activateConstraints:cons];
-    return row;
 }
 
 - (UIButton *)buttonWithTitle:(NSString *)title titleColor:(UIColor *)titleColor

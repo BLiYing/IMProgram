@@ -28,7 +28,9 @@
     if (![windowScene isKindOfClass:UIWindowScene.class]) { return; }
 
     self.window = [[UIWindow alloc] initWithWindowScene:windowScene];
-    // 被踢下线（多设备管理）：socket 握手吃 401 时发此通知，强制回登录页。注册一次，跨登录态常驻。
+    // 被踢下线（多设备管理）：socket 握手吃 401 时发此通知，强制回登录页。跨登录态常驻。
+    // 先 remove 再 add：scene 断开后系统可能重连并再次 willConnectToSession，避免重复注册导致一次 401 触发多次登出。
+    [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidRevokeSessionNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(handleSessionRevoked)
                                                name:IMSocketDidRevokeSessionNotification object:nil];
     [IMAppearance.shared applyInterfaceStyle];
@@ -74,6 +76,11 @@
     // This occurs shortly after the scene enters the background, or when its session is discarded.
     // Release any resources associated with this scene that can be re-created the next time the scene connects.
     // The scene may re-connect later, as its session was not necessarily discarded (see `application:didDiscardSceneSessions` instead).
+    [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidRevokeSessionNotification object:nil];
+}
+
+- (void)dealloc {
+    [NSNotificationCenter.defaultCenter removeObserver:self];
 }
 
 

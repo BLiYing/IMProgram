@@ -11,9 +11,8 @@ NS_ASSUME_NONNULL_BEGIN
 @interface IMQRLoginConfirmViewController : UIViewController
 
 /// push 进当前导航栈。device/ip/location 由 /qr/login/scan 返回（可空）。
+/// 确认/拒绝只用 ticket + 当前登录 token，无需 host/userID。
 + (void)pushFrom:(UIViewController *)from
-            host:(NSString *)host
-          userID:(NSString *)userID
           ticket:(NSString *)ticket
           device:(nullable NSString *)device
               ip:(nullable NSString *)ip

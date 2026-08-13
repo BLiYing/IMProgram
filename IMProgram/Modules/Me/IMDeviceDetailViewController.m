@@ -3,6 +3,7 @@
 #import "IMDeviceDetailViewController.h"
 #import "IMDeviceModels.h"
 #import "IMHTTPService.h"
+#import "IMKeyValueCardView.h"
 #import "IMTheme.h"
 #import "UIViewController+IMToast.h"
 
@@ -93,80 +94,19 @@
 }
 
 - (UIView *)buildInfoCard {
-    UIStackView *stack = [UIStackView new];
-    stack.axis = UILayoutConstraintAxisVertical;
-    stack.translatesAutoresizingMaskIntoConstraints = NO;
-    stack.backgroundColor = IMTheme.cardBackground;
-    stack.layer.cornerRadius = 12;
-    stack.layoutMargins = UIEdgeInsetsMake(2, 14, 2, 14);
-    stack.layoutMarginsRelativeArrangement = YES;
-
     IMDeviceSession *d = self.device;
     NSString *statusText = d.online ? @"在线" : d.lastActiveText;
     UIColor *statusColor = d.online ? IMTheme.onlineDot : IMTheme.textSecondary;
     NSString *typeText = d.appVersion.length ? [NSString stringWithFormat:@"%@ · v%@", d.platformLabel, d.appVersion]
                                              : d.platformLabel;
-
-    NSArray *rows = @[
+    return [IMKeyValueCardView cardWithRows:@[
         @[@"状态", statusText, statusColor],
-        @[@"类型", typeText, IMTheme.textSecondary],
-        @[@"登录时间", d.loginTimeText, IMTheme.textSecondary],
-        @[@"最近活跃", (d.online ? @"当前在线" : d.lastActiveText), IMTheme.textSecondary],
-        @[@"IP 地址", (d.loginIP.length ? d.loginIP : @"未知"), IMTheme.textSecondary],
-        @[@"大致位置", (d.loginLoc.length ? d.loginLoc : @"未知"), IMTheme.textSecondary],
-    ];
-    for (NSUInteger i = 0; i < rows.count; i++) {
-        NSArray *r = rows[i];
-        [stack addArrangedSubview:[self kvRowKey:r[0] value:r[1] valueColor:r[2] showSeparator:(i > 0)]];
-    }
-    return stack;
-}
-
-- (UIView *)kvRowKey:(NSString *)key value:(NSString *)value valueColor:(UIColor *)valueColor showSeparator:(BOOL)sep {
-    UIView *row = [UIView new];
-    row.translatesAutoresizingMaskIntoConstraints = NO;
-
-    UILabel *k = [UILabel new];
-    k.text = key;
-    k.font = [UIFont systemFontOfSize:14];
-    k.textColor = IMTheme.textPrimary;
-    k.translatesAutoresizingMaskIntoConstraints = NO;
-    [k setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
-    [row addSubview:k];
-
-    UILabel *v = [UILabel new];
-    v.text = value;
-    v.font = [UIFont systemFontOfSize:13];
-    v.textColor = valueColor ?: IMTheme.textSecondary;
-    v.textAlignment = NSTextAlignmentRight;
-    v.numberOfLines = 0;
-    v.translatesAutoresizingMaskIntoConstraints = NO;
-    [row addSubview:v];
-
-    NSMutableArray<NSLayoutConstraint *> *cons = [NSMutableArray arrayWithArray:@[
-        [row.heightAnchor constraintGreaterThanOrEqualToConstant:44],
-        [k.leadingAnchor constraintEqualToAnchor:row.leadingAnchor],
-        [k.centerYAnchor constraintEqualToAnchor:row.centerYAnchor],
-        [v.trailingAnchor constraintEqualToAnchor:row.trailingAnchor],
-        [v.centerYAnchor constraintEqualToAnchor:row.centerYAnchor],
-        [v.leadingAnchor constraintGreaterThanOrEqualToAnchor:k.trailingAnchor constant:12],
-        [v.topAnchor constraintGreaterThanOrEqualToAnchor:row.topAnchor constant:9],
-        [v.bottomAnchor constraintLessThanOrEqualToAnchor:row.bottomAnchor constant:-9],
+        @[@"类型", typeText],
+        @[@"登录时间", d.loginTimeText],
+        @[@"最近活跃", (d.online ? @"当前在线" : d.lastActiveText)],
+        @[@"IP 地址", (d.loginIP.length ? d.loginIP : @"未知")],
+        @[@"大致位置", (d.loginLoc.length ? d.loginLoc : @"未知")],
     ]];
-    if (sep) {
-        UIView *line = [UIView new];
-        line.backgroundColor = IMTheme.separator;
-        line.translatesAutoresizingMaskIntoConstraints = NO;
-        [row addSubview:line];
-        [cons addObjectsFromArray:@[
-            [line.topAnchor constraintEqualToAnchor:row.topAnchor],
-            [line.leadingAnchor constraintEqualToAnchor:row.leadingAnchor],
-            [line.trailingAnchor constraintEqualToAnchor:row.trailingAnchor],
-            [line.heightAnchor constraintEqualToConstant:0.5],
-        ]];
-    }
-    [NSLayoutConstraint activateConstraints:cons];
-    return row;
 }
 
 #pragma mark - 退出该设备

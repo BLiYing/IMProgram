@@ -244,19 +244,21 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
 #pragma mark - 断线与重连
 
 /// 统一处理一次断线：清理、失败未决发送、按需重连（仅在 _queue 调用）。
-- (void)handleDisconnect:(nullable NSError *)error {
+/// 从失败连接的 HTTP 响应判定"鉴权被拒"：握手返回 401 = 本机 sid 已被踢下线 / token 失效（见 gateway/client.go）。
+/// 由各断线回调传入判定结果——`didCompleteWithError:` 是拿到握手 HTTP 响应最可靠的时机。
+- (BOOL)isAuthRejectedTask:(NSURLSessionTask *)task {
+    NSURLResponse *resp = task.response;
+    return [resp isKindOfClass:NSHTTPURLResponse.class] && ((NSHTTPURLResponse *)resp).statusCode == 401;
+}
+
+- (void)handleDisconnect:(nullable NSError *)error authRejected:(BOOL)authRejected {
     if (self.state == IMSocketStateDisconnected && _task == nil) {
         return; // 已处理过，避免重复
     }
-    // 鉴权被拒 vs 网络抖动：握手返回 HTTP 401 = 本机 sid 已被踢下线 / token 失效（见 gateway/client.go）。
-    // 必须与普通断线区别——普通断线只重连；401 若也盲目重连，会在 token 缓存 TTL(10min) 内反复撞 401，
-    // 缓存过期后又用稳定 device_id 静默重登换一枚新 sid，把"被踢下线"退化成 ≤10min 的临时抖动（自愈）。
-    // 注意：Hub 强制断开**当前活连接**时是 WS close（response 为握手成功的 101），不会误判；
-    // 401 只出现在随后那次"拿被吊销 token 重新握手"的重连上。response 须在 teardown 前读（teardown 会置空 _task）。
-    BOOL authRejected = NO;
-    if ([_task.response isKindOfClass:NSHTTPURLResponse.class]) {
-        authRejected = (((NSHTTPURLResponse *)_task.response).statusCode == 401);
-    }
+    // 鉴权被拒 vs 网络抖动：401 必须与普通断线区别——普通断线只重连；401 若也盲目重连，会在 token 缓存
+    // TTL(10min) 内反复撞 401，缓存过期后又用稳定 device_id 静默重登换一枚新 sid，把"被踢下线"退化成
+    // ≤10min 的临时抖动（伪自愈）。注意：Hub 强制断**当前活连接**是 WS close（response 是握手成功的 101，
+    // authRejected=NO，不误判）；401 只出现在随后"拿被吊销 token 重新握手"的重连上。
     IMLogSocket(@"disconnected: %@%@", error.localizedDescription ?: @"(closed)",
                 authRejected ? @" [鉴权被拒 401 → 跳登录页]" : @"");
     [self teardownSocket];
@@ -300,7 +302,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
         dispatch_async(self->_queue, ^{
             if (task != self->_task) { return; }   // 旧连接的回调，丢弃
             if (error) {
-                [self handleDisconnect:error];
+                [self handleDisconnect:error authRejected:[self isAuthRejectedTask:task]];
                 return;
             }
             if (message.type == NSURLSessionWebSocketMessageTypeString) {
@@ -1185,7 +1187,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
         IMLogSocket(@"发送失败: %@", error.localizedDescription);
         dispatch_async(self->_queue, ^{
             if (task == self->_task) {
-                [self handleDisconnect:error];
+                [self handleDisconnect:error authRejected:[self isAuthRejectedTask:task]];
             }
         });
     }];
@@ -1239,9 +1241,21 @@ didOpenWithProtocol:(NSString *)protocol {
 
 - (void)URLSession:(NSURLSession *)session webSocketTask:(NSURLSessionWebSocketTask *)webSocketTask
   didCloseWithCode:(NSURLSessionWebSocketCloseCode)closeCode reason:(NSData *)reason {
+    // 走到这里说明连接曾成功建立（101）后才关闭 → 不是握手鉴权失败，authRejected:NO。
     dispatch_async(_queue, ^{
         if (webSocketTask != self->_task) { return; }
-        [self handleDisconnect:[self errorWithCode:closeCode msg:@"connection closed"]];
+        [self handleDisconnect:[self errorWithCode:closeCode msg:@"connection closed"] authRejected:NO];
+    });
+}
+
+/// 任务终态（含握手失败）。这是拿到握手 HTTP 响应最可靠的时机：升级被拒（非 101）时
+/// receiveMessage 的错误回调未必带 response，故 401 判定以此处的 task.response 为准。
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task
+didCompleteWithError:(nullable NSError *)error {
+    if (!error) { return; } // 正常完成无需处理（WS 关闭走 didCloseWithCode）
+    dispatch_async(_queue, ^{
+        if (task != self->_task) { return; }
+        [self handleDisconnect:error authRejected:[self isAuthRejectedTask:task]];
     });
 }
 

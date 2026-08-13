@@ -126,8 +126,7 @@ static const NSInteger kIMErrCodeQRExpired = 200110;
         NSString *device = [info[@"device"] isKindOfClass:NSString.class] ? info[@"device"] : nil;
         NSString *ip = [info[@"ip"] isKindOfClass:NSString.class] ? info[@"ip"] : nil;
         NSString *location = [info[@"location"] isKindOfClass:NSString.class] ? info[@"location"] : nil;
-        [IMQRLoginConfirmViewController pushFrom:vc host:host userID:userID ticket:ticket.ticket
-                                          device:device ip:ip location:location];
+        [IMQRLoginConfirmViewController pushFrom:vc ticket:ticket.ticket device:device ip:ip location:location];
     }];
 }
 
