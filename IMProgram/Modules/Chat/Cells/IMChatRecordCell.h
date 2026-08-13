@@ -14,7 +14,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) void (^onNoteActionTap)(void);
 /// senderName：群聊对方消息连续段首条的发送者昵称（卡片上方主色小字）；单聊/自己/非段首传 nil。
 - (void)configureWithMessage:(IMMessageModel *)message mine:(BOOL)mine
-                  senderName:(nullable NSString *)senderName;
+                  senderName:(nullable NSString *)senderName
+                  senderRole:(IMGroupRole)senderRole;
 /// 群聊对方消息：留 30pt 头像列（gutter=YES → leading 12→48）；连续段末条（showAvatar）显示头像。
 /// 与 IMBubbleCell / IMImageCell / IMAlbumCell / IMLinkCardCell 同签名，保持各类气泡左对齐一致。
 - (void)applyGroupAvatarURL:(nullable NSString *)url

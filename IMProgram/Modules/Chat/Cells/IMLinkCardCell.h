@@ -12,7 +12,8 @@ NS_ASSUME_NONNULL_BEGIN
 /// OG 预览异步到达、卡片展开改变了行高 → 回调聊天页刷一次行高（否则内容被压进旧行高，滚动后才正常）。
 @property (nonatomic, copy, nullable) void (^onContentSizeResolved)(void);
 - (void)configureWithMessage:(IMMessageModel *)message mine:(BOOL)mine
-                  senderName:(nullable NSString *)senderName;
+                  senderName:(nullable NSString *)senderName
+                  senderRole:(IMGroupRole)senderRole;
 // onAvatarTap / applyUnreadDivider: 由 IMMessageCell 基类提供。
 
 /// 群聊对方消息的头像列 + 昵称（与 IMBubbleCell/IMImageCell 同签名）：gutter=YES 时左移 30pt 头像列对齐。

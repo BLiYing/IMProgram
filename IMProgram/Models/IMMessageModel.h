@@ -21,6 +21,9 @@ typedef NS_ENUM(NSInteger, IMMessageStatus) {
 @property (nonatomic, copy, nullable) NSString *from;        ///< 发送方 uid
 /// 发送方昵称（仅群聊消息带，服务端冗余下发；空回退 uid）。随消息落库（IMDatabase from_nickname 列）。
 @property (nonatomic, copy, nullable) NSString *fromNickname;
+/// 发送方在本群角色（仅群聊、且 owner/admin 时带；成员表未加载/发送者已退群时的气泡徽标兜底）。
+/// 随消息落库（IMDatabase from_role 列），重进/退群后历史消息仍显徽标；显示仍以成员表当前角色优先。
+@property (nonatomic, copy, nullable) NSString *fromRole;
 @property (nonatomic, copy, nullable) NSString *to;          ///< 接收方 uid
 @property (nonatomic, copy)   NSString *contentType; ///< text|image|audio...
 @property (nonatomic, copy)   NSString *content;     ///< 文本内容

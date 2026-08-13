@@ -102,6 +102,7 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
         _senderLabel.textColor = IMTheme.accent;
         _senderLabel.hidden = YES;
         [self.contentView addSubview:_senderLabel];
+        [self installSenderRoleBadgeForNameLabel:_senderLabel];  // 群主/管理员徽标（基类统一样式/截断）
 
         // _avatar 由 IMMessageCell 基类创建（视图 + 点击插桩）；本类只补它的 leading/bottom/size 约束。
 
@@ -243,13 +244,14 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
                         mine:(BOOL)mine
                  peerReadSeq:(int64_t)peerReadSeq
                 previewImage:(UIImage *)preview
-                  senderName:(NSString *)senderName {
+                  senderName:(NSString *)senderName
+                  senderRole:(IMGroupRole)senderRole {
     BOOL isVideo = [message.contentType isEqualToString:@"video"];
     _thumb.layer.cornerRadius = IMTheme.radiusBubble;
     _senderLabel.font = [UIFont systemFontOfSize:MAX(12, IMTheme.chatFontSize - 4) weight:UIFontWeightSemibold];
     _url = fullURL;
     BOOL showName = senderName.length > 0;
-    _senderLabel.text = senderName;
+    [self applySenderName:senderName role:senderRole toNameLabel:_senderLabel];
     _senderLabel.hidden = !showName;
     [self applyAlignmentMine:mine showName:showName];
     _thumb.image = preview; // 本地预览先行（上传中/防闪）；无预览为 nil 占位灰底

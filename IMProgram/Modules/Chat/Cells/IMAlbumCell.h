@@ -31,7 +31,8 @@ NS_ASSUME_NONNULL_BEGIN
                         host:(NSString *)host
                     previews:(NSDictionary<NSString *, UIImage *> *)previews
                     progress:(NSDictionary<NSString *, IMUploadProgress *> *)progress
-                  senderName:(nullable NSString *)senderName;
+                  senderName:(nullable NSString *)senderName
+                  senderRole:(IMGroupRole)senderRole;
 - (void)refreshWithPreviews:(NSDictionary<NSString *, UIImage *> *)previews
                    progress:(NSDictionary<NSString *, IMUploadProgress *> *)progress;
 // onAvatarTap / applyUnreadDivider: 由 IMMessageCell 基类提供。

@@ -54,7 +54,8 @@ NS_ASSUME_NONNULL_BEGIN
                         mine:(BOOL)mine
                  peerReadSeq:(int64_t)peerReadSeq
                 previewImage:(nullable UIImage *)preview
-                  senderName:(nullable NSString *)senderName;
+                  senderName:(nullable NSString *)senderName
+                  senderRole:(IMGroupRole)senderRole;
 
 /// nil=不在上传中（隐藏进度、恢复时长角标）。
 - (void)setUploadProgress:(nullable IMUploadProgress *)progress;

@@ -10,6 +10,7 @@
 #import "UILabel+IMAvatar.h"
 #import "IMAppearance.h"
 #import "IMTheme.h"
+#import "IMMessageCell.h"  // +clampSenderName:（发送者昵称截断规则，各类气泡共用）
 
 // 引用快照本地化统一走 IMMediaUtil 的 IMLocalizeReplySnippet（与 IMLinkCardCell 共用，防两份 static 分叉）。
 
@@ -18,6 +19,38 @@
 #define IMLooksLikeURL(s) IMMediaLooksLikeURL(s)
 
 NSString *const IMMentionUIDAttributeName = @"IMMentionUID";
+
+/// 群主/管理员角色徽标 → 富文本内联小图（胶囊：主色 tint / 次要灰，与媒体气泡 IMMessageCell 徽标同款）。
+/// 文本气泡的昵称在气泡内富文本首行，用 NSTextAttachment 把徽标烘成图挂在昵称同一行右侧。
+/// 普通成员返回 nil（不显徽标）。颜色按当前 traitCollection 解析，随深浅色。
+static NSAttributedString *IMRoleBadgeAttachment(IMGroupRole role, UITraitCollection *traits) {
+    NSString *title = (role == IMGroupRoleOwner) ? @"群主" : (role == IMGroupRoleAdmin ? @"管理员" : nil);
+    if (!title) { return nil; }
+    UIColor *fg = (role == IMGroupRoleOwner) ? IMTheme.accent : IMTheme.textSecondary;
+    UIColor *bg = (role == IMGroupRoleOwner) ? [IMTheme.accent colorWithAlphaComponent:0.14]
+                                             : [IMTheme.separator colorWithAlphaComponent:0.5];
+    if (traits) { fg = [fg resolvedColorWithTraitCollection:traits]; bg = [bg resolvedColorWithTraitCollection:traits]; }
+    UIFont *font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
+    NSDictionary *attrs = @{ NSFontAttributeName: font, NSForegroundColorAttributeName: fg };
+    CGSize textSize = [title sizeWithAttributes:attrs];
+    const CGFloat padH = 6, height = 16, radius = 4;
+    CGFloat width = ceil(textSize.width) + padH * 2;
+    UIGraphicsImageRendererFormat *fmt = [UIGraphicsImageRendererFormat preferredFormat];
+    fmt.opaque = NO;
+    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc]
+        initWithSize:CGSizeMake(width, height) format:fmt];
+    UIImage *img = [renderer imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
+        UIBezierPath *pill = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(0, 0, width, height) cornerRadius:radius];
+        [bg setFill]; [pill fill];
+        [title drawAtPoint:CGPointMake(padH, (height - textSize.height) / 2) withAttributes:attrs];
+    }];
+    NSTextAttachment *att = [NSTextAttachment new];
+    att.image = img;
+    // 相对 13pt 昵称基线垂直居中（capHeight 与胶囊高差半分，再微调 1pt）。
+    UIFont *nameFont = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+    att.bounds = CGRectMake(0, (nameFont.capHeight - height) / 2 - 1, width, height);
+    return [NSAttributedString attributedStringWithAttachment:att];
+}
 
 // —— 长文本分档阈值（与 Web longtext.ts 严格一致）——
 static const NSUInteger IMTextHugeChars = 2000;
@@ -479,6 +512,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
                    dayHeader:(NSString *)dayHeader
           showsUnreadDivider:(BOOL)showsDivider
                   senderName:(NSString *)senderName
+                  senderRole:(IMGroupRole)senderRole
                replyThumbURL:(NSString *)replyThumbURL
               replyThumbData:(NSString *)replyThumbData
           replyThumbIsVideo:(BOOL)replyThumbIsVideo
@@ -500,14 +534,24 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     // 正文 + 小字尾巴（时间/✓/✓✓）拼成一段富文本，保证状态一定随气泡渲染。
     NSMutableAttributedString *body = [NSMutableAttributedString new];
     // 群聊：对方气泡顶部一行发送者昵称（主色小字，Telegram 式）。名字段落加 paragraphSpacing 与正文留间距。
+    // 群主/管理员在同一行昵称右侧挂一枚胶囊徽标（NSTextAttachment 烘焙的小图，样式与媒体气泡对齐）。
     if (senderName.length > 0) {
         NSMutableParagraphStyle *nameStyle = [NSMutableParagraphStyle new];
         nameStyle.paragraphSpacing = 3;
-        [body appendAttributedString:[[NSAttributedString alloc]
-            initWithString:[senderName stringByAppendingString:@"\n"]
+        NSString *shownName = [IMMessageCell clampSenderName:senderName]; // 最多约 12 个中文字
+        NSMutableAttributedString *nameLine = [[NSMutableAttributedString alloc]
+            initWithString:shownName
                 attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold],
-                              NSForegroundColorAttributeName: IMTheme.accent,
-                              NSParagraphStyleAttributeName: nameStyle }]];
+                              NSForegroundColorAttributeName: IMTheme.accent }];
+        NSAttributedString *badge = IMRoleBadgeAttachment(senderRole, self.traitCollection);
+        if (badge) {
+            [nameLine appendAttributedString:[[NSAttributedString alloc] initWithString:@"  "
+                attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold] }]];
+            [nameLine appendAttributedString:badge];
+        }
+        [nameLine appendAttributedString:[[NSAttributedString alloc] initWithString:@"\n"]];
+        [nameLine addAttribute:NSParagraphStyleAttributeName value:nameStyle range:NSMakeRange(0, nameLine.length)];
+        [body appendAttributedString:nameLine];
     }
     // 转发溯源（M4-3）：气泡顶部一行"转发自 X"小灰字。
     if (message.forwardFrom.length > 0) {

@@ -48,12 +48,84 @@
     _unreadDividerHeight.constant = shows ? 28 : 0;
 }
 
+- (void)installSenderRoleBadgeForNameLabel:(UILabel *)nameLabel {
+    if (!nameLabel || _senderRoleBadge) { return; }
+    // 昵称已在 apply 时按字符簇截断至 ≤12；truncatingTail + 低抗压再兜底极窄屏，杜绝把徽标挤出屏幕。
+    nameLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+    [nameLabel setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+
+    UIView *wrap = [UIView new];
+    wrap.translatesAutoresizingMaskIntoConstraints = NO;
+    wrap.layer.cornerRadius = 4;
+    wrap.layer.cornerCurve = kCACornerCurveContinuous;
+    wrap.layer.masksToBounds = YES;
+    wrap.hidden = YES;
+    wrap.userInteractionEnabled = NO;
+    [wrap setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [wrap setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [self.contentView addSubview:wrap];
+
+    UILabel *lbl = [UILabel new];
+    lbl.translatesAutoresizingMaskIntoConstraints = NO;
+    lbl.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
+    [wrap addSubview:lbl];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [wrap.leadingAnchor constraintEqualToAnchor:nameLabel.trailingAnchor constant:6],
+        [wrap.centerYAnchor constraintEqualToAnchor:nameLabel.centerYAnchor],
+        [wrap.trailingAnchor constraintLessThanOrEqualToAnchor:self.contentView.trailingAnchor constant:-12],
+        [wrap.heightAnchor constraintEqualToConstant:16],
+        [lbl.leadingAnchor constraintEqualToAnchor:wrap.leadingAnchor constant:6],
+        [lbl.trailingAnchor constraintEqualToAnchor:wrap.trailingAnchor constant:-6],
+        [lbl.centerYAnchor constraintEqualToAnchor:wrap.centerYAnchor],
+    ]];
+    _senderRoleBadge = wrap;
+    _senderRoleLabel = lbl;
+}
+
+- (void)applySenderName:(NSString *)name role:(IMGroupRole)role toNameLabel:(UILabel *)nameLabel {
+    nameLabel.text = [IMMessageCell clampSenderName:name];
+    if (name.length == 0 || role == IMGroupRoleMember) {
+        _senderRoleBadge.hidden = YES;
+        _senderRoleLabel.text = nil;
+        return;
+    }
+    if (role == IMGroupRoleOwner) {
+        _senderRoleLabel.text = @"群主";
+        _senderRoleLabel.textColor = IMTheme.accent;
+        _senderRoleBadge.backgroundColor = [IMTheme.accent colorWithAlphaComponent:0.14];
+    } else { // IMGroupRoleAdmin
+        _senderRoleLabel.text = @"管理员";
+        _senderRoleLabel.textColor = IMTheme.textSecondary;
+        _senderRoleBadge.backgroundColor = [IMTheme.separator colorWithAlphaComponent:0.5];
+    }
+    _senderRoleBadge.hidden = NO;
+}
+
++ (NSString *)clampSenderName:(NSString *)name {
+    static const NSUInteger kMax = 12;   // 最多约 12 个中文字
+    if (name.length == 0) { return name ?: @""; }
+    __block NSUInteger count = 0;
+    __block NSUInteger cut = NSNotFound;
+    [name enumerateSubstringsInRange:NSMakeRange(0, name.length)
+                             options:NSStringEnumerationByComposedCharacterSequences
+                          usingBlock:^(NSString *sub, NSRange r, NSRange er, BOOL *stop) {
+        count++;
+        if (count == kMax) { cut = NSMaxRange(r); }
+        if (count > kMax) { *stop = YES; }
+    }];
+    if (count <= kMax || cut == NSNotFound) { return name; }
+    return [[name substringToIndex:cut] stringByAppendingString:@"…"];
+}
+
 - (void)prepareForReuse {
     [super prepareForReuse];
     self.onAvatarTap = nil;
     _avatar.hidden = YES;
     _unreadDivider.hidden = YES;
     _unreadDividerHeight.constant = 0;
+    _senderRoleBadge.hidden = YES;
+    _senderRoleLabel.text = nil;
 }
 
 @end

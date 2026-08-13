@@ -874,6 +874,16 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     return nick.length > 0 ? nick : (m.from ?: @"");
 }
 
+/// 群聊发送者在本群的角色（气泡群主/管理员徽标用）：**优先本群成员表的当前角色**（晋升/降级后老消息随之
+/// 变化，微信式）；成员表里查不到该成员（未加载/发送者已退群）时，回退消息自带 `from_role`（服务端仅对
+/// 群主/管理员冗余下发）兜底。都拿不到则 IMGroupRoleMember（不显徽标）。
+- (IMGroupRole)senderRoleForMessage:(IMMessageModel *)m {
+    for (IMGroupMember *mem in self.groupInfo.members) {
+        if ([mem.userID isEqualToString:m.from]) { return mem.role; } // 成员表当前角色优先
+    }
+    return IMGroupRoleFromString(m.fromRole); // 兜底：发送时点角色（脏值/空→member）
+}
+
 /// 引用条被引用者显示名（群聊用）：自己→"你"，否则群成员昵称→uid。协议只下发 uid，昵称本地解析。
 - (NSString *)replyFromNameForUID:(NSString *)uid {
     if (uid.length == 0) { return nil; }
@@ -2985,7 +2995,8 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         BOOL grpR = self.isGroupChat && !mineR;                              // 群聊对方
         BOOL firstR = grpR && [self isFirstInSenderRun:indexPath.row];       // 连续段首条→显示名
         BOOL lastR = grpR && [self isLastInSenderRun:indexPath.row];         // 连续段末条→显示头像
-        [rec configureWithMessage:m mine:mineR senderName:(firstR ? [self senderNameForMessage:m] : nil)];
+        [rec configureWithMessage:m mine:mineR senderName:(firstR ? [self senderNameForMessage:m] : nil)
+                       senderRole:(firstR ? [self senderRoleForMessage:m] : IMGroupRoleMember)];
         [rec applyGroupAvatarURL:(grpR ? [self senderAvatarURLForMessage:m] : nil)
                             seed:(m.from ?: @"") name:(grpR ? [self senderNameForMessage:m] : nil)
                       showAvatar:lastR gutter:grpR];
@@ -3010,7 +3021,8 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         BOOL grpL = self.isGroupChat && !mineL;
         BOOL firstL = grpL && [self isFirstInSenderRun:indexPath.row];
         BOOL lastL = grpL && [self isLastInSenderRun:indexPath.row];
-        [link configureWithMessage:m mine:mineL senderName:(firstL ? [self senderNameForMessage:m] : nil)];
+        [link configureWithMessage:m mine:mineL senderName:(firstL ? [self senderNameForMessage:m] : nil)
+                        senderRole:(firstL ? [self senderRoleForMessage:m] : IMGroupRoleMember)];
         [link applyGroupAvatarURL:(grpL ? [self senderAvatarURLForMessage:m] : nil)
                              seed:(m.from ?: @"") name:(grpL ? [self senderNameForMessage:m] : nil)
                        showAvatar:lastL gutter:grpL];
@@ -3052,6 +3064,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         BOOL firstAlb = grpAlb && [self isFirstInSenderRun:indexPath.row];           // 连续段首条→显示名
         BOOL lastAlb = grpAlb && [self isLastInSenderRun:indexPath.row];             // 连续段末条→显示头像
         NSString *senderNameAlb = firstAlb ? [self senderNameForMessage:m] : nil;
+        IMGroupRole senderRoleAlb = firstAlb ? [self senderRoleForMessage:m] : IMGroupRoleMember;
         // 逐格下载门控（M4-7）：必须在 configure **前**挂好——bind 每一格时会回调查询该格的门控态。
         __weak typeof(self) wsAlbDl = self;
         alb.downloadStateForItem = ^IMDownloadProgress *(IMMessageModel *mm) {
@@ -3063,7 +3076,8 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
             if (self) { [self.downloads handleTapForMessage:mm]; }
         };
         [alb configureWithMembers:members mine:mineAlb host:self.host
-                         previews:self.outboxPreviews progress:self.outboxProgress senderName:senderNameAlb];
+                         previews:self.outboxPreviews progress:self.outboxProgress senderName:senderNameAlb
+                       senderRole:senderRoleAlb];
         [alb applyGroupAvatarURL:(grpAlb ? [self senderAvatarURLForMessage:m] : nil)
                             seed:(m.from ?: @"") name:(grpAlb ? [self senderNameForMessage:m] : nil)
                       showAvatar:lastAlb gutter:grpAlb];
@@ -3106,6 +3120,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         BOOL firstI = grpI && [self isFirstInSenderRun:indexPath.row];
         BOOL lastI = grpI && [self isLastInSenderRun:indexPath.row];
         NSString *senderNameI = firstI ? [self senderNameForMessage:m] : nil;
+        IMGroupRole senderRoleI = firstI ? [self senderRoleForMessage:m] : IMGroupRoleMember;
         // 本地待发（im-pending://）不是网络地址：只显本地缩略图，绝不拿它去拼 URL 发请求。
         // 本地待发件 = content 已是 im-pending:// 引用，**或**还没走到落盘那步（排队/压缩期 content 为空）。
         // 后者漏掉的话，排队期点中心 ✕ 会被当成"打开查看器"（URL 为空 → 看起来没反应）。
@@ -3123,7 +3138,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
                           fullURL:imgFullURL
                         posterURL:(m.poster.length > 0 ? [self fullMediaURL:m.poster] : nil)
                              mine:mineI peerReadSeq:self.peerReadSeq
-                     previewImage:previewI senderName:senderNameI];
+                     previewImage:previewI senderName:senderNameI senderRole:senderRoleI];
         [img applyGroupAvatarURL:(grpI ? [self senderAvatarURLForMessage:m] : nil)
                             seed:(m.from ?: @"") name:(grpI ? [self senderNameForMessage:m] : nil)
                       showAvatar:lastI gutter:grpI];
@@ -3247,6 +3262,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
                      dayHeader:[self dayHeaderForRow:indexPath.row]
             showsUnreadDivider:showsDivider
                     senderName:senderName
+                    senderRole:(firstInRun ? [self senderRoleForMessage:m] : IMGroupRoleMember)
                  replyThumbURL:replyThumbURL
                 replyThumbData:replyThumbData
              replyThumbIsVideo:replyThumbIsVideo

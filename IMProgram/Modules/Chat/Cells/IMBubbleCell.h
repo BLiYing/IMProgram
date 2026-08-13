@@ -1,4 +1,5 @@
 #import <UIKit/UIKit.h>
+#import "IMGroupInfo.h"   // IMGroupRole（群主/管理员气泡徽标）
 
 @class IMMessageModel;
 @class IMUploadProgress;
@@ -72,6 +73,7 @@ typedef NS_ENUM(NSInteger, IMBubbleTextTier) {
                    dayHeader:(nullable NSString *)dayHeader
           showsUnreadDivider:(BOOL)showsDivider
                   senderName:(nullable NSString *)senderName
+                  senderRole:(IMGroupRole)senderRole
                replyThumbURL:(nullable NSString *)replyThumbURL
               replyThumbData:(nullable NSString *)replyThumbData
            replyThumbIsVideo:(BOOL)replyThumbIsVideo

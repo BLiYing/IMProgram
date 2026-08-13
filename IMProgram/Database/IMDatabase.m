@@ -123,6 +123,7 @@
             @"media_h": @"INTEGER NOT NULL DEFAULT 0",   // M4+ 媒体像素高
             @"duration": @"INTEGER NOT NULL DEFAULT 0",  // M4+ 视频时长（毫秒，封面左上角角标）
             @"thumb": @"TEXT",        // M4-7 极小模糊预览（~20px JPEG 的 data URI，未下载卡片的占位）
+            @"from_role": @"TEXT",    // 群主/管理员气泡徽标兜底（仅 owner/admin 冗余下发；重进/退群后历史消息仍显徽标）
         };
         for (NSString *col in opCols) {
             if (![self column:col existsInTable:@"im_message_local" db:db]) {
@@ -467,7 +468,7 @@
                  // thumb 同 file_name：本地发送端生成的模糊预览优先保留，服务端回声若为空不覆盖
                  // （否则重进会话拿不到 thumb，未下载卡片退回中性占位）。
                  "thumb=CASE WHEN LENGTH(?)>0 THEN ? ELSE thumb END,"
-                 "conv_seq=?,timestamp=?,status=?,note=?,from_nickname=?,recalled_at=?,recalled_by=?,edited_at=?,pinned_at=?,reply_to_conv_seq=?,reply_snapshot=?,reply_to_from=?,forward_from=?,group_id=?,poster=? WHERE row_id=?",
+                 "conv_seq=?,timestamp=?,status=?,note=?,from_nickname=?,from_role=?,recalled_at=?,recalled_by=?,edited_at=?,pinned_at=?,reply_to_conv_seq=?,reply_snapshot=?,reply_to_from=?,forward_from=?,group_id=?,poster=? WHERE row_id=?",
                 message.serverMsgID ?: @"", message.from ?: @"", message.to ?: @"",
                 message.contentType ?: @"text", message.content ?: @"",
                 message.fileName ?: @"", message.fileName ?: @"", @(message.fileSize), @(message.fileSize),
@@ -475,16 +476,16 @@
                 @(message.duration), @(message.duration),
                 message.thumb ?: @"", message.thumb ?: @"",
                 @(message.convSeq), @(message.timestamp), @(message.status), message.note ?: @"",
-                message.fromNickname ?: @"", @(message.recalledAt), message.recalledBy ?: @"",
+                message.fromNickname ?: @"", message.fromRole ?: @"", @(message.recalledAt), message.recalledBy ?: @"",
                 @(message.editedAt), @(message.pinnedAt), @(message.replyToConvSeq), message.replySnapshot ?: @"", message.replyToFrom ?: @"", message.forwardFrom ?: @"", message.groupID ?: @"", message.poster ?: @"", rowID];
         } else {
             ok = [db executeUpdate:
-                @"INSERT INTO im_message_local (owner_uid,client_msg_id,server_msg_id,conv_id,sender,recipient,content_type,content,file_name,file_size,conv_seq,timestamp,status,note,from_nickname,recalled_at,recalled_by,edited_at,pinned_at,reply_to_conv_seq,reply_snapshot,reply_to_from,forward_from,group_id,poster,media_w,media_h,duration,thumb) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                @"INSERT INTO im_message_local (owner_uid,client_msg_id,server_msg_id,conv_id,sender,recipient,content_type,content,file_name,file_size,conv_seq,timestamp,status,note,from_nickname,from_role,recalled_at,recalled_by,edited_at,pinned_at,reply_to_conv_seq,reply_snapshot,reply_to_from,forward_from,group_id,poster,media_w,media_h,duration,thumb) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 owner, message.clientMsgID ?: @"", message.serverMsgID ?: @"", message.convID,
                 message.from ?: @"", message.to ?: @"", message.contentType ?: @"text",
                 message.content ?: @"", message.fileName ?: @"", @(message.fileSize),
                 @(message.convSeq), @(message.timestamp), @(message.status),
-                message.note ?: @"", message.fromNickname ?: @"", @(message.recalledAt),
+                message.note ?: @"", message.fromNickname ?: @"", message.fromRole ?: @"", @(message.recalledAt),
                 message.recalledBy ?: @"", @(message.editedAt), @(message.pinnedAt),
                 @(message.replyToConvSeq), message.replySnapshot ?: @"", message.replyToFrom ?: @"", message.forwardFrom ?: @"", message.groupID ?: @"", message.poster ?: @"",
                 @(message.mediaW), @(message.mediaH), @(message.duration), message.thumb ?: @""];
@@ -742,6 +743,8 @@
             m.note        = note.length > 0 ? note : nil; // 空串视作无系统提示
             NSString *nick = [rs stringForColumn:@"from_nickname"];
             m.fromNickname = nick.length > 0 ? nick : nil; // 空串视作无昵称（回退 uid）
+            NSString *frole = [rs stringForColumn:@"from_role"];
+            m.fromRole = frole.length > 0 ? frole : nil;   // 空串视作无（普通成员/单聊）
             m.recalledAt  = [rs longLongIntForColumn:@"recalled_at"];
             NSString *rby = [rs stringForColumn:@"recalled_by"];
             m.recalledBy  = rby.length > 0 ? rby : nil;

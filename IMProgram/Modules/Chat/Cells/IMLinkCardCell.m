@@ -70,6 +70,7 @@
         _senderLabel.textColor = IMTheme.accent;
         _senderLabel.hidden = YES;
         [self.contentView addSubview:_senderLabel];
+        [self installSenderRoleBadgeForNameLabel:_senderLabel];  // 群主/管理员徽标（基类统一样式/截断）
 
         // _avatar 由 IMMessageCell 基类创建（视图 + 点击插桩）；本类只补它的 leading/bottom/size 约束。
 
@@ -130,7 +131,8 @@
     return self;
 }
 - (void)configureWithMessage:(IMMessageModel *)message mine:(BOOL)mine
-                  senderName:(NSString *)senderName {
+                  senderName:(NSString *)senderName
+                  senderRole:(IMGroupRole)senderRole {
     _card.layer.cornerRadius = IMTheme.radiusBubble;
     _quote.font = [UIFont systemFontOfSize:MAX(12, IMTheme.chatFontSize - 4)];
     _title.font = [UIFont systemFontOfSize:MAX(14, IMTheme.chatFontSize - 2) weight:UIFontWeightSemibold];
@@ -142,7 +144,7 @@
     // 群聊对方消息昵称（连续段首条）：显示时 stack 接昵称底，否则贴 cell 顶。
     BOOL showName = senderName.length > 0;
     _senderLabel.font = [UIFont systemFontOfSize:MAX(12, IMTheme.chatFontSize - 4) weight:UIFontWeightSemibold];
-    _senderLabel.text = senderName;
+    [self applySenderName:senderName role:senderRole toNameLabel:_senderLabel];
     _senderLabel.hidden = !showName;
     _stackTop.active = !showName;
     _stackTopUnderName.active = showName;
