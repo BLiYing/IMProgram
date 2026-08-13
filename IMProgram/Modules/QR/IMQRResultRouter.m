@@ -73,7 +73,7 @@ static const NSInteger kIMErrCodeQRExpired = 200110;
               host:(NSString *)host userID:(NSString *)userID from:(UIViewController *)vc {
     if (!card || card.groupID.length == 0) { [vc im_showToast:@"二维码内容有误"]; return; }
     IMQRGroupAction action = IMQRGroupActionForCard(card);
-    [IMGroupJoinPreviewViewController presentFrom:vc card:card action:action onSubmit:^(NSString *hello) {
+    [IMGroupJoinPreviewViewController pushFrom:vc host:host card:card action:action onSubmit:^(NSString *hello) {
         switch (action) {
             case IMQRGroupActionEnter:    [self enterGroup:card host:host userID:userID from:vc]; break;
             case IMQRGroupActionJoin:     [self joinGroup:card raw:raw hello:@"" host:host userID:userID from:vc]; break;

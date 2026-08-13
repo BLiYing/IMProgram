@@ -5,15 +5,16 @@
 #import "UIViewController+IMToast.h"
 #import "IMTheme.h"
 
-@interface IMGroupBanListViewController ()
+@interface IMGroupBanListViewController () <UITableViewDataSource, UITableViewDelegate>
 @property (nonatomic, copy) NSString *convID;
+@property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) NSArray<NSDictionary *> *bans; ///< [{user_id,banned_by,banned_at,expires_at}]
 @end
 
 @implementation IMGroupBanListViewController
 
 - (instancetype)initWithConvID:(NSString *)convID {
-    if ((self = [super initWithStyle:UITableViewStyleInsetGrouped])) {
+    if ((self = [super initWithNibName:nil bundle:nil])) {
         _convID = [convID copy];
         _bans = @[];
     }
@@ -23,7 +24,19 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"黑名单";
+    self.view.backgroundColor = IMTheme.groupedBackground;
+    self.tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStyleInsetGrouped];
+    self.tableView.dataSource = self;
+    self.tableView.delegate = self;
+    self.tableView.translatesAutoresizingMaskIntoConstraints = NO;
     [self.tableView registerClass:UITableViewCell.class forCellReuseIdentifier:@"c"];
+    [self.view addSubview:self.tableView];
+    [NSLayoutConstraint activateConstraints:@[
+        [self.tableView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor],
+        [self.tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [self.tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [self.tableView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
+    ]];
     [self reload];
 }
 

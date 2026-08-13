@@ -2,9 +2,11 @@
 
 #import "IMGroupJoinPreviewViewController.h"
 #import "IMTheme.h"
+#import "IMMediaUtil.h"
 #import "UILabel+IMAvatar.h"
 
 @interface IMGroupJoinPreviewViewController () <UITextFieldDelegate>
+@property (nonatomic, copy) NSString *host;
 @property (nonatomic, strong) IMQRGroupCard *card;
 @property (nonatomic, assign) IMQRGroupAction action;
 @property (nonatomic, copy) void (^onSubmit)(NSString *hello);
@@ -13,32 +15,30 @@
 
 @implementation IMGroupJoinPreviewViewController
 
-+ (void)presentFrom:(UIViewController *)host
-               card:(IMQRGroupCard *)card
-             action:(IMQRGroupAction)action
-           onSubmit:(void (^)(NSString *))onSubmit {
++ (void)pushFrom:(UIViewController *)from
+            host:(NSString *)host
+            card:(IMQRGroupCard *)card
+          action:(IMQRGroupAction)action
+        onSubmit:(void (^)(NSString *))onSubmit {
     IMGroupJoinPreviewViewController *vc = [IMGroupJoinPreviewViewController new];
+    vc.host = host;
     vc.card = card;
     vc.action = action;
     vc.onSubmit = onSubmit;
-    vc.title = @"加入群聊";
-    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
-    nav.modalPresentationStyle = UIModalPresentationFullScreen;
-    [host presentViewController:nav animated:YES completion:nil];
+    vc.title = @"加入群聊"; // 容器注入的液态标题栏据此显示标题 + 返回键
+    [from.navigationController pushViewController:vc animated:YES];
 }
 
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor = IMTheme.groupedBackground;
-    self.navigationItem.leftBarButtonItem =
-        [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemClose target:self action:@selector(closeTapped)];
 
-    // 群头像（复用 UILabel+IMAvatar：有图显图、无图显首字底色）
+    // 群头像（复用 UILabel+IMAvatar + IMMediaFullURL 拼相对 URL：有图显图、无图显首字底色）
     UILabel *avatar = [UILabel new];
     avatar.translatesAutoresizingMaskIntoConstraints = NO;
     avatar.layer.cornerRadius = 36;
     avatar.clipsToBounds = YES;
-    [avatar im_setAvatarURL:self.card.avatarURL seed:self.card.groupID displayName:self.card.name];
+    [avatar im_setAvatarURL:IMMediaFullURL(self.card.avatarURL, self.host) seed:self.card.groupID displayName:self.card.name];
     [self.view addSubview:avatar];
 
     UILabel *name = [UILabel new];
@@ -191,11 +191,10 @@
 - (void)submitTapped {
     NSString *hello = self.helloField.text ?: @"";
     void (^cb)(NSString *) = self.onSubmit;
-    [self dismissViewControllerAnimated:YES completion:^{ if (cb) { cb(hello); } }];
-}
-
-- (void)closeTapped {
-    [self dismissViewControllerAnimated:YES completion:nil];
+    // 已在栈内：先出栈本预览页，再执行 join/enter（其内部会 push 聊天页或 toast 回列表），
+    // 避免预览页残留在返回栈里（从聊天页返回会先回到预览页）。出栈用无动画，紧接的 push 自己带动画。
+    [self.navigationController popViewControllerAnimated:NO];
+    dispatch_async(dispatch_get_main_queue(), ^{ if (cb) { cb(hello); } });
 }
 
 - (BOOL)textFieldShouldReturn:(UITextField *)textField {
