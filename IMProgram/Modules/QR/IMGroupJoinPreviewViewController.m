@@ -33,11 +33,16 @@
     [super viewDidLoad];
     self.view.backgroundColor = IMTheme.groupedBackground;
 
-    // 群头像（复用 UILabel+IMAvatar + IMMediaFullURL 拼相对 URL：有图显图、无图显首字底色）
+    // 群头像：与会话列表/资料页同一套「首字母圈 + 异步图」头像（UILabel+IMAvatar）。
+    // im_setAvatarURL 只负责画首字母底/取色/异步覆盖图，**外观（白字/居中/字重/圆角）须调用方按标准配好**——
+    // 之前漏配 → 无图时首字母以默认黑字左对齐渲染，像"坏头像"。这里补齐标准配置。
     UILabel *avatar = [UILabel new];
     avatar.translatesAutoresizingMaskIntoConstraints = NO;
+    avatar.textColor = UIColor.whiteColor;
+    avatar.textAlignment = NSTextAlignmentCenter;
+    avatar.font = [UIFont systemFontOfSize:30 weight:UIFontWeightSemibold];
     avatar.layer.cornerRadius = 36;
-    avatar.clipsToBounds = YES;
+    avatar.layer.masksToBounds = YES;
     [avatar im_setAvatarURL:IMMediaFullURL(self.card.avatarURL, self.host) seed:self.card.groupID displayName:self.card.name];
     [self.view addSubview:avatar];
 
