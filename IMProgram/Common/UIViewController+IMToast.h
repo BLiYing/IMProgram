@@ -10,6 +10,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// 短暂提示（底部居中，自动消失）。
 - (void)im_showToast:(NSString *)text;
 
+/// 在**当前可见的顶层控制器**上弹提示——用于"接收者可能不在屏上"的通知（如异步入群审批结果），
+/// 避免把 toast 挂到被覆盖的后台 VC 上导致用户看不见。
++ (void)im_showGlobalToast:(NSString *)text;
+
 /// "<标题>（开发中）"——后端未就绪的功能统一走这里。
 - (void)im_showComingSoon:(NSString *)title;
 

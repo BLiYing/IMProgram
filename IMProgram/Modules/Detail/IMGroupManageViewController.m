@@ -5,6 +5,7 @@
 
 #import "IMGroupManageViewController.h"
 #import "IMGroupBanListViewController.h"
+#import "IMJoinRequestsViewController.h"
 #import "IMGroupInfo.h"
 #import "IMHTTPService.h"
 #import "IMMediaPicker.h"
@@ -153,7 +154,7 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
         case IMManageSecProfile:    return IMManageProfileRowCount;
         case IMManageSecJoinSpeak:  return IMManageJoinRowCount;
         case IMManageSecPerms:      return IMManagePermRowCount;
-        default:                    return 1; // 治理：黑名单
+        default:                    return 2; // 治理：待审入群申请(G3) + 黑名单(G2)
     }
 }
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
@@ -239,13 +240,20 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
                 return [self switchCell:@"新成员仅可见入群后历史" icon:@"clock.arrow.circlepath" on:self.group.historyVisible action:@selector(historyVisibleChanged:)];
         }
     }
-    // 治理：黑名单入口。
+    // 治理：待审入群申请（G3，row 0）+ 黑名单（G2，row 1）。
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:@"g"];
-    cell.textLabel.text = @"黑名单";
     cell.textLabel.textColor = IMTheme.textPrimary;
-    cell.imageView.image = [UIImage systemImageNamed:@"nosign"];
-    cell.imageView.tintColor = IMTheme.accent;
     cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    if (indexPath.row == 0) {
+        cell.textLabel.text = @"待审入群申请";
+        cell.detailTextLabel.text = self.group.pendingCount > 0 ? [NSString stringWithFormat:@"%ld 待处理", (long)self.group.pendingCount] : @"无";
+        cell.detailTextLabel.textColor = self.group.pendingCount > 0 ? IMTheme.accent : IMTheme.textSecondary;
+        cell.imageView.image = [UIImage systemImageNamed:@"person.crop.circle.badge.checkmark"];
+    } else {
+        cell.textLabel.text = @"黑名单";
+        cell.imageView.image = [UIImage systemImageNamed:@"nosign"];
+    }
+    cell.imageView.tintColor = IMTheme.accent;
     return cell;
 }
 
@@ -258,8 +266,16 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
             case IMManageRowAnnouncement: [self editAnnouncement]; break;
         }
     } else if (indexPath.section == IMManageSecGovernance) {
-        IMGroupBanListViewController *vc = [[IMGroupBanListViewController alloc] initWithConvID:self.convID];
-        [self.navigationController pushViewController:vc animated:YES];
+        if (indexPath.row == 0) {
+            __weak typeof(self) ws = self;
+            IMJoinRequestsViewController *vc = [[IMJoinRequestsViewController alloc]
+                initWithToken:(IMHTTPService.sharedService.currentToken ?: @"") convID:self.convID
+                    onChanged:^{ if (ws.onChanged) { ws.onChanged(); } }];
+            [self.navigationController pushViewController:vc animated:YES];
+        } else {
+            IMGroupBanListViewController *vc = [[IMGroupBanListViewController alloc] initWithConvID:self.convID];
+            [self.navigationController pushViewController:vc animated:YES];
+        }
     }
 }
 

@@ -23,6 +23,7 @@ NSString * const IMSocketDidReceiveFriendEventNotification = @"IMSocketDidReceiv
 NSString * const IMSocketDidReceiveGroupEventNotification = @"IMSocketDidReceiveGroupEventNotification";
 NSString * const kIMGroupEventKey = @"groupEvent";
 NSString * const kIMGroupTargetKey = @"groupTarget";
+NSString * const kIMGroupResultKey = @"groupResult";
 NSString * const IMSocketDidReceiveReadNotification = @"IMSocketDidReceiveReadNotification";
 NSString * const IMSocketDidChangeStateNotification = @"IMSocketDidChangeStateNotification";
 NSString * const kIMConvIDKey = @"convID";
@@ -795,12 +796,14 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     NSString *convID = [data[@"conv_id"] isKindOfClass:[NSString class]] ? data[@"conv_id"] : @"";
     NSString *event = [data[@"event"] isKindOfClass:[NSString class]] ? data[@"event"] : @"";
     NSString *target = [data[@"target"] isKindOfClass:[NSString class]] ? data[@"target"] : @"";
+    NSString *result = [data[@"result"] isKindOfClass:[NSString class]] ? data[@"result"] : @""; // G3 join_result: approved|rejected
     dispatch_async(dispatch_get_main_queue(), ^{
         [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidReceiveGroupEventNotification
                                                           object:self
                                                         userInfo:@{ kIMConvIDKey: convID,
                                                                     kIMGroupEventKey: event,
-                                                                    kIMGroupTargetKey: target }];
+                                                                    kIMGroupTargetKey: target,
+                                                                    kIMGroupResultKey: result }];
     });
 }
 

@@ -255,6 +255,43 @@ BOOL IMIsAuthErrorCode(NSInteger code);
                         convID:(NSString *)convID
                     completion:(void (^)(NSError *_Nullable error))completion;
 
+#pragma mark - 二维码体系（QRCODE P0）+ 入群路径（G3）
+
+/// 我的名片码（懒生成，长期有效）→ data 字典 {url, token, expires_at}。completion 在主线程回调。
+- (void)qrMyCardWithToken:(NSString *)token
+               completion:(void (^)(NSDictionary *_Nullable card, NSError *_Nullable error))completion;
+
+/// 重置名片码（旧码立即失效）→ 同上结构。completion 在主线程回调。
+- (void)qrResetMyCardWithToken:(NSString *)token
+                    completion:(void (^)(NSDictionary *_Nullable card, NSError *_Nullable error))completion;
+
+/// 群二维码（须成员；perm_invite=1 时仅群主/管理员；7 天复用）→ {url, token, expires_at, inviter}。completion 在主线程回调。
+- (void)groupQRWithToken:(NSString *)token convID:(NSString *)convID
+              completion:(void (^)(NSDictionary *_Nullable card, NSError *_Nullable error))completion;
+
+/// 重置群码（群主/管理员）。completion 在主线程回调。
+- (void)groupQRResetWithToken:(NSString *)token convID:(NSString *)convID
+                   completion:(void (^)(NSDictionary *_Nullable card, NSError *_Nullable error))completion;
+
+/// 扫码解析管道：raw=扫到的原文（URL 或裸 token）→ {kind, data}。失效码 error.code=200110。completion 在主线程回调。
+- (void)qrResolveWithToken:(NSString *)token raw:(NSString *)raw
+                completion:(void (^)(NSDictionary *_Nullable resolved, NSError *_Nullable error))completion;
+
+/// 凭群码入群（code 可为完整 URL 或裸 token）。成功回群资料；需审批时 error.code=300210。completion 在主线程回调。
+- (void)joinGroupWithToken:(NSString *)token
+                      code:(NSString *)code
+                     hello:(NSString *)hello
+                completion:(void (^)(IMGroupInfo *_Nullable group, NSError *_Nullable error))completion;
+
+/// 待审入群申请（群主/管理员）→ [{user_id,nickname,avatar_url,hello,status,created_at,...}]。completion 在主线程回调。
+- (void)joinRequestsWithToken:(NSString *)token convID:(NSString *)convID
+                   completion:(void (^)(NSArray<NSDictionary *> *_Nullable requests, NSError *_Nullable error))completion;
+
+/// 审批一条入群申请（accept=YES→approve / NO→reject）。completion 在主线程回调。
+- (void)decideJoinRequestWithToken:(NSString *)token convID:(NSString *)convID
+                            userID:(NSString *)userID accept:(BOOL)accept
+                        completion:(void (^)(NSError *_Nullable error))completion;
+
 #pragma mark - 会话管理（M4.5）
 
 /// 更新会话级设置（置顶/免打扰/标未读，整体替换）：PUT /api/v1/conversations/{id}/settings。completion 主线程回调。

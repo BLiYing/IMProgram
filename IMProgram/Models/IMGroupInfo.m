@@ -86,6 +86,7 @@ static BOOL IMGroupBool(NSDictionary *dict, NSString *key) {
     g.permPin = IMGroupBool(dict, @"perm_pin");
     g.historyVisible = IMGroupBool(dict, @"history_visible");
     g.myMuteUntil = IMGroupInt64(dict, @"my_mute_until");
+    g.pendingCount = (NSInteger)IMGroupInt64(dict, @"pending_count");
     NSArray *rawMembers = [dict[@"members"] isKindOfClass:[NSArray class]] ? dict[@"members"] : @[];
     NSMutableArray<IMGroupMember *> *members = [NSMutableArray arrayWithCapacity:rawMembers.count];
     for (id item in rawMembers) {

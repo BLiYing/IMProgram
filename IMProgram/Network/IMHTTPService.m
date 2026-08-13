@@ -66,11 +66,15 @@ static NSString *IMFriendlyMessageForCode(NSInteger code) {
         case 200104: return @"不能添加自己为好友";                  // cannot add yourself
         case 200105: return @"申请已发出，等待对方同意";            // request pending
         case 200106: return @"没有待处理的好友申请";                // no pending request
+        case 200110: return @"二维码已失效，请向对方索取新的";      // qr expired（QRCODE P0）
         case 300201: return @"群不存在";                            // group not found
         case 300202: return @"群名不能为空且不超过 30 字";          // invalid group name
         case 300203: return @"你不在该群中";                        // not a group member
         // 300204 不映射：服务端会带具体原因（如"群主需先转让群主再退群"），透传更有用。
         case 300205: return @"群成员已达上限";                      // group member limit
+        case 300207: return @"你已被移出该群，暂时或永久不可加入";  // banned from group（G2）
+        case 300208: return @"你已被管理员禁言";                    // member muted（G2）
+        // 300210 不映射：入群申请已提交，UI 走"待审批"分支而非错误提示。
         default: return nil;
     }
 }
@@ -739,6 +743,106 @@ BOOL IMIsTransientNetworkError(NSError *error) {
         }
         completion(nil);
     }];
+}
+
+/// 取 data 字典且**保留业务码**（errorWithCode，非 errorWithMessage）——QR/入群要按 200110/300210 分支。
+- (void)runDataRequest:(nullable NSMutableURLRequest *)req
+              fallback:(NSString *)fallback
+            completion:(void (^)(NSDictionary *_Nullable data, NSError *_Nullable error))completion {
+    if (!req) {
+        [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }];
+        return;
+    }
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        NSInteger code = [body[@"code"] integerValue];
+        if (code != 0) {
+            completion(nil, [self errorWithCode:code message:[self messageFrom:body fallback:fallback]]);
+            return;
+        }
+        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : @{};
+        completion(data, nil);
+    }];
+}
+
+#pragma mark - 二维码体系（QRCODE P0）+ 入群（G3）
+
+- (void)qrMyCardWithToken:(NSString *)token
+               completion:(void (^)(NSDictionary *, NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/qr/me" method:@"GET" token:token body:nil];
+    [self runDataRequest:req fallback:@"获取名片码失败" completion:completion];
+}
+
+- (void)qrResetMyCardWithToken:(NSString *)token
+                    completion:(void (^)(NSDictionary *, NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/qr/me/reset" method:@"POST" token:token body:@{}];
+    [self runDataRequest:req fallback:@"重置名片码失败" completion:completion];
+}
+
+- (void)groupQRWithToken:(NSString *)token convID:(NSString *)convID
+              completion:(void (^)(NSDictionary *, NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@"/qr"]
+                                                   method:@"GET" token:token body:nil];
+    [self runDataRequest:req fallback:@"获取群二维码失败" completion:completion];
+}
+
+- (void)groupQRResetWithToken:(NSString *)token convID:(NSString *)convID
+                   completion:(void (^)(NSDictionary *, NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@"/qr/reset"]
+                                                   method:@"POST" token:token body:@{}];
+    [self runDataRequest:req fallback:@"重置群二维码失败" completion:completion];
+}
+
+- (void)qrResolveWithToken:(NSString *)token raw:(NSString *)raw
+                completion:(void (^)(NSDictionary *, NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/qr/resolve" method:@"POST" token:token
+                                                     body:@{ @"raw": raw ?: @"" }];
+    [self runDataRequest:req fallback:@"识别失败" completion:completion];
+}
+
+- (void)joinGroupWithToken:(NSString *)token code:(NSString *)code hello:(NSString *)hello
+                completion:(void (^)(IMGroupInfo *, NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/groups/join" method:@"POST" token:token
+                                                     body:@{ @"token": code ?: @"", @"hello": hello ?: @"" }];
+    if (!req) { [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }]; return; }
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        NSInteger c = [body[@"code"] integerValue];
+        if (c != 0) {
+            // 300210 = 需审批已提交：保留码，UI 据 error.code 走"待审批"提示分支。
+            completion(nil, [self errorWithCode:c message:[self messageFrom:body fallback:@"加入群聊失败"]]);
+            return;
+        }
+        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
+        completion([IMGroupInfo groupFromDictionary:data], nil);
+    }];
+}
+
+- (void)joinRequestsWithToken:(NSString *)token convID:(NSString *)convID
+                   completion:(void (^)(NSArray<NSDictionary *> *, NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@"/join-requests?status=pending"]
+                                                   method:@"GET" token:token body:nil];
+    if (!req) { [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }]; return; }
+    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        if ([body[@"code"] integerValue] != 0) {
+            completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"加载入群申请失败"]]);
+            return;
+        }
+        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
+        NSArray *reqs = [data[@"requests"] isKindOfClass:[NSArray class]] ? data[@"requests"] : @[];
+        completion(reqs, nil);
+    }];
+}
+
+- (void)decideJoinRequestWithToken:(NSString *)token convID:(NSString *)convID
+                            userID:(NSString *)userID accept:(BOOL)accept
+                        completion:(void (^)(NSError *))completion {
+    NSString *suffix = [NSString stringWithFormat:@"/join-requests/%@", [self pathEscape:userID]];
+    NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:suffix]
+                                                   method:@"POST" token:token
+                                                     body:@{ @"action": accept ? @"approve" : @"reject" }];
+    [self runOKRequest:req fallback:@"审批失败" completion:completion];
 }
 
 #pragma mark - 我的资料

@@ -5,6 +5,7 @@
 #import "IMSettingsViewController.h"
 #import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
 #import "IMProfileEditViewController.h"
+#import "IMQRCardViewController.h"
 #import "IMAppearanceViewController.h"
 #import "IMDataStorageViewController.h"
 #import "IMBlockedListViewController.h"
@@ -361,7 +362,9 @@
 }
 
 - (void)showQRCode {
-    [self im_showComingSoon:@"我的二维码"];
+    IMQRCardViewController *card = [[IMQRCardViewController alloc] initMyCardWithHost:self.host userID:self.userID
+                                                                           nickname:self.myNickname avatarURL:self.myAvatarURL];
+    [self.navigationController pushViewController:card animated:YES];
 }
 
 - (void)viewWillAppear:(BOOL)animated {

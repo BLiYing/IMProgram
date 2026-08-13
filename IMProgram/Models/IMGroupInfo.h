@@ -53,6 +53,7 @@ IMGroupRole IMGroupRoleFromString(NSString *_Nullable s);
 @property (nonatomic, assign) BOOL permPin;                            ///< YES=仅群主/管理员可置顶
 @property (nonatomic, assign) BOOL historyVisible;                     ///< YES=新成员仅可见入群后历史
 @property (nonatomic, assign) int64_t myMuteUntil;                     ///< 我的成员级禁言到期（G2；端上据此禁用输入栏）
+@property (nonatomic, assign) NSInteger pendingCount;                  ///< 待审入群申请数（G3，仅群主/管理员下发；普通成员恒 0）
 /// 我是否群主/管理员（公告/资料/禁言等管理权限判定，与后端权限矩阵一致）。
 @property (nonatomic, readonly) BOOL canManage;
 

@@ -3,6 +3,9 @@
 #import "IMConversationListViewController.h"
 #import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
 #import "IMChatViewController.h"
+#import "IMQRScannerViewController.h"
+#import "IMQRResultRouter.h"
+#import "IMQRModels.h"
 #import "IMHTTPService.h"
 #import "IMSocketManager.h"
 #import "IMDatabase.h"
@@ -398,6 +401,9 @@ static CGFloat const kIMRowLeading = 16;
     // 群变更（邀请/移除/退群/改名）→ 列表刷新（被移出的群随服务端订阅删除而消失）。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketMessage:)
                                                name:IMSocketDidReceiveGroupEventNotification object:nil];
+    // G3 join_result（入群审批结果，只推申请人本人）→ 提示（申请人此刻非成员，列表刷新已由上一条兜底）。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onGroupEventForJoinResult:)
+                                               name:IMSocketDidReceiveGroupEventNotification object:nil];
     // 会话级设置变更（置顶/免打扰/标未读/删除会话，M4.5）→ 列表刷新（本人其他端操作的多端同步）。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketMessage:)
                                                name:IMSocketDidUpdateConversationNotification object:nil];
@@ -599,9 +605,9 @@ static CGFloat const kIMRowLeading = 16;
     if ([IMPopoverCard isPresentingInHostView:self.view]) { return; }
     __weak typeof(self) ws = self;
     NSArray<IMPopoverCardItem *> *items = @[
+        [IMPopoverCardItem itemWithTitle:@"扫一扫" symbol:@"qrcode.viewfinder" destructive:NO handler:^{ [ws openScanner]; }],
         [IMPopoverCardItem itemWithTitle:@"新建群聊" symbol:@"person.3" destructive:NO handler:^{ [ws startNewGroup]; }],
         [IMPopoverCardItem itemWithTitle:@"添加好友" symbol:@"person.badge.plus" destructive:NO handler:^{ [ws openAddFriend]; }],
-        [IMPopoverCardItem itemWithTitle:@"扫一扫" symbol:@"qrcode.viewfinder" destructive:NO handler:^{ [ws im_showToast:@"扫一扫功能开发中"]; }],
     ];
     [IMPopoverCard presentFromBarButtonItem:barButtonItem inHostView:self.view items:items];
 }
@@ -671,6 +677,29 @@ static CGFloat const kIMRowLeading = 16;
     IMChatViewController *chat = [[IMChatViewController alloc] initWithHost:self.host userID:self.userID
                                                                     peerID:peer readSeq:0 unread:0 peerReadSeq:0];
     [self.navigationController pushViewController:chat animated:YES];
+}
+
+#pragma mark - 二维码（扫一扫 / 扫码结果路由，QRCODE P0 + G3）
+
+/// 扫一扫：全屏取景 + 相册识别 + 「我的二维码」页签；扫码页自行 resolve，结果交 IMQRResultRouter 落到已有页面。
+- (void)openScanner {
+    __weak typeof(self) ws = self;
+    IMQRScannerViewController *scanner = [[IMQRScannerViewController alloc] initWithHost:self.host userID:self.userID];
+    scanner.modalPresentationStyle = UIModalPresentationFullScreen;
+    scanner.onResult = ^(IMQRResolved *resolved, NSString *raw, NSError *error) {
+        if (!ws) { return; }
+        if (error) { [IMQRResultRouter presentError:error fromController:ws]; return; }
+        [IMQRResultRouter routeResolved:resolved raw:raw host:ws.host userID:ws.userID fromController:ws];
+    };
+    [self presentViewController:scanner animated:YES completion:nil];
+}
+
+/// G3：入群审批结果（只推申请人本人）→ 提示通过/拒绝。审批是异步的，申请人此刻很可能不在会话列表页，
+/// 故走**顶层可见控制器**弹提示（否则 toast 挂在被覆盖的列表页上、用户看不见）。
+- (void)onGroupEventForJoinResult:(NSNotification *)note {
+    if (![note.userInfo[kIMGroupEventKey] isEqualToString:@"join_result"]) { return; }
+    NSString *result = note.userInfo[kIMGroupResultKey];
+    [UIViewController im_showGlobalToast:[result isEqualToString:@"approved"] ? @"你的入群申请已通过，进群聊天吧" : @"你的入群申请未通过"];
 }
 
 /// 从会话列表进入：带 read_seq + unread + peer_read_seq，供聊天页定位未读分割线 + 可见即读起点 + 进会话即显对端已读（CHAT_UX §3/§6/§8）。

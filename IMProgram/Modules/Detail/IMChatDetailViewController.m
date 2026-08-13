@@ -5,6 +5,7 @@
 #import "IMChatDetailTabs.h"
 #import "IMLiquidSegmentedControl.h" // 页签用的 Liquid Glass 分段控件
 #import "IMGroupManageViewController.h"
+#import "IMQRCardViewController.h"
 
 #import "IMHTTPService.h"
 #import "IMSocketManager.h"
@@ -1620,6 +1621,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     IMDetailSettingsRowMute,        ///< 消息免打扰
     IMDetailSettingsRowMyNickname,  ///< 我在本群的昵称（群聊，任意成员，G1）
     IMDetailSettingsRowRemark,      ///< 群备注（群聊，仅本人可见，G1）
+    IMDetailSettingsRowGroupQR,     ///< 群二维码（群聊，任意成员，QRCODE P0）
     IMDetailSettingsRowManage,      ///< 群管理（群主/管理员）
 };
 
@@ -1629,6 +1631,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     if (self.isGroup) {
         [rows addObject:@(IMDetailSettingsRowMyNickname)]; // 任意成员可改自己的群昵称
         [rows addObject:@(IMDetailSettingsRowRemark)];     // 群备注（仅本人可见）
+        [rows addObject:@(IMDetailSettingsRowGroupQR)];    // 群二维码（任意成员可出示；perm_invite=1 时服务端拦普通成员）
         if ([self canManageGroup]) { [rows addObject:@(IMDetailSettingsRowManage)]; }
     }
     return rows;
@@ -1663,6 +1666,10 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
         case IMDetailSettingsRowRemark:
             cell.textLabel.text = @"群备注";
             cell.detailTextLabel.text = [self currentConvRemark].length ? [self currentConvRemark] : @"未设置";
+            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            break;
+        case IMDetailSettingsRowGroupQR:
+            cell.textLabel.text = @"群二维码";
             cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
             break;
         case IMDetailSettingsRowManage:
@@ -1773,6 +1780,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
         switch ((IMDetailSettingsRow)kinds[indexPath.row].integerValue) {
             case IMDetailSettingsRowMyNickname: [self editMyGroupNickname]; break;
             case IMDetailSettingsRowRemark:     [self editGroupRemark]; break;
+            case IMDetailSettingsRowGroupQR:    [self openGroupQR]; break;
             case IMDetailSettingsRowManage:     [self openGroupManage]; break;
             default: break; // 置顶/免打扰走开关，不响应行点击
         }
@@ -2203,6 +2211,16 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     IMGroupManageViewController *vc = [[IMGroupManageViewController alloc] initWithHost:self.host userID:self.userID
                                                                                 convID:self.convID group:self.group
                                                                              onChanged:^{ [ws loadGroupInfo]; }];
+    [self.navigationController pushViewController:vc animated:YES];
+}
+
+/// 群二维码（QRCODE P0，任意成员可出示；perm_invite=1 时服务端对普通成员拦 300204）。
+- (void)openGroupQR {
+    IMQRCardViewController *vc = [[IMQRCardViewController alloc] initGroupCardWithHost:self.host userID:self.userID
+                                                                              convID:self.convID groupName:self.group.name
+                                                                           avatarURL:self.group.avatarURL
+                                                                         memberCount:self.group.memberCount
+                                                                            canReset:[self canManageGroup]];
     [self.navigationController pushViewController:vc animated:YES];
 }
 

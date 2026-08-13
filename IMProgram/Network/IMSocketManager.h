@@ -23,6 +23,7 @@ extern NSString * const IMSocketDidReceiveFriendEventNotification;
 extern NSString * const IMSocketDidReceiveGroupEventNotification;
 extern NSString * const kIMGroupEventKey;
 extern NSString * const kIMGroupTargetKey;
+extern NSString * const kIMGroupResultKey; ///< G3 join_result 的 approved|rejected（其余事件空串）
 /// 收到已读回执（read）时广播（主线程）：会话列表据此刷新——对端已读→我发的变✓✓；本人多端已读→未读清零。
 extern NSString * const IMSocketDidReceiveReadNotification;
 /// 消息操作（撤回/编辑/置顶，M4）应用到某条消息时广播（主线程）：聊天页/会话列表据此就地刷新。
