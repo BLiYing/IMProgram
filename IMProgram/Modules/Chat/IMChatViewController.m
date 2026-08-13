@@ -38,6 +38,8 @@
 #import "IMGroupInfo.h"
 #import "IMGroupInfoViewController.h"
 #import "IMChatDetailViewController.h"
+#import "IMGroupTextViewController.h"
+#import "IMJoinRequestsViewController.h"
 #import "IMProtocol.h"
 #import "IMMessageModel.h"
 #import "IMUploadProgress.h"
@@ -179,6 +181,9 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
 @property (nonatomic, strong, nullable) IMPinnedBannerView *announcementBanner;
 @property (nonatomic, strong, nullable) NSLayoutConstraint *announcementBannerHeight;
 @property (nonatomic, copy, nullable) NSString *announcementText;
+// 入群申请横幅（G3，仅群主/管理员）：蓝条，置于最顶，pending_count>0 才显。点=进审批列表。
+@property (nonatomic, strong, nullable) IMPinnedBannerView *approvalBanner;
+@property (nonatomic, strong, nullable) NSLayoutConstraint *approvalBannerHeight;
 @property (nonatomic, assign) BOOL composerMuteLocked; ///< G2：被禁言（成员级或全员）时锁输入栏
 // @提及（M4-8，仅群聊）：候选表 uid→显示名，发送时按输入框里是否还留着 `@显示名` 复核。
 @property (nonatomic, strong, nullable) NSMutableDictionary<NSString *, NSString *> *mentionCandidates;
@@ -561,6 +566,7 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
         [self installInfoAvatarButtonWithURL:group.avatarURL seed:self.convID name:group.name action:@selector(groupInfoTapped)];
         self.announcementText = group.announcement.length ? group.announcement : nil; // G1 公告横幅
         [self applyAnnouncementBanner];
+        [self applyApprovalBanner]; // G3：群主/管理员待审入群申请横幅
         [self refreshComposerMuteState]; // G2：被禁言则锁输入栏
         [self.tableView reloadData]; // 昵称回退可能变化（老消息无 from_nickname 时用成员表）
     }];
@@ -608,18 +614,40 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
     [self updateBannerInset];
 }
 
-/// 两条横幅（公告 + 置顶）叠加后的总高，顶开消息表内容。放一处算，避免两个方法各自覆盖 inset.top。
+/// 三条横幅（申请 + 公告 + 置顶）叠加后的总高，顶开消息表内容。放一处算，避免各方法各自覆盖 inset.top。
 - (void)updateBannerInset {
-    CGFloat top = self.announcementBannerHeight.constant + self.pinnedBannerHeight.constant;
+    CGFloat top = self.approvalBannerHeight.constant + self.announcementBannerHeight.constant + self.pinnedBannerHeight.constant;
     UIEdgeInsets inset = self.tableView.contentInset;
     if (inset.top == top) { return; }
     inset.top = top;
     self.tableView.contentInset = inset;
 }
 
-/// 点公告横幅：群成员进群资料页看全文（管理员在群管理页可编辑）。
+/// 入群申请横幅（G3）：仅群主/管理员且 pending_count>0 才显。放在 reloadGroupInfo 后刷新（帧到达也走那条路）。
+- (void)applyApprovalBanner {
+    BOOL canManage = self.groupInfo.myRole == IMGroupRoleOwner || self.groupInfo.myRole == IMGroupRoleAdmin;
+    NSInteger pending = (self.isGroupChat && canManage) ? self.groupInfo.pendingCount : 0;
+    [self.approvalBanner applyApprovalCount:pending];
+    self.approvalBannerHeight.constant = pending > 0 ? [IMPinnedBannerView bannerHeight] : 0;
+    [self updateBannerInset];
+}
+
+/// 点入群申请横幅：进审批列表（同意/拒绝后回调重拉，角标随之更新）。
+- (void)approvalBannerTapped {
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0) { return; }
+    __weak typeof(self) ws = self;
+    IMJoinRequestsViewController *vc = [[IMJoinRequestsViewController alloc] initWithToken:token convID:self.convID
+                                                                                onChanged:^{ [ws reloadGroupInfo]; }];
+    [self.navigationController pushViewController:vc animated:YES];
+}
+
+/// 点公告横幅：**直接开公告全文视图**（决策 16，不再跳群资料页——旧实现跳过去详情页却没公告卡，等于点了看不到）。
 - (void)announcementBannerTapped {
-    [self groupInfoTapped];
+    NSString *text = self.announcementText;
+    if (text.length == 0) { return; }
+    NSString *sub = [IMGroupTextViewController announceSubtitleForMillis:self.groupInfo.announcementAt];
+    [IMGroupTextViewController presentFrom:self title:@"群公告" subtitle:sub body:text];
 }
 
 /// G2 输入栏禁言锁：成员级禁言(myMuteUntil)或全员禁言(且我是普通成员)时禁用输入并改占位文案。
@@ -1200,7 +1228,14 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     __weak typeof(self) wsBanner = self;
     UILayoutGuide *guide = self.view.safeAreaLayoutGuide;
 
-    // 群公告横幅（G1，黄条）：贴安全区顶，排在置顶横幅之上（优先级 公告 > 置顶）。点条=进群管理看公告全文。
+    // 入群申请横幅（G3，蓝条，仅群主/管理员）：贴安全区顶，排在公告/置顶之上。点=进审批列表。
+    self.approvalBanner = [[IMPinnedBannerView alloc] initWithStyle:IMBannerStyleApproval];
+    self.approvalBanner.translatesAutoresizingMaskIntoConstraints = NO;
+    self.approvalBanner.hidden = YES;
+    self.approvalBanner.onTap = ^{ [wsBanner approvalBannerTapped]; };
+    [self.view addSubview:self.approvalBanner];
+
+    // 群公告横幅（G1，黄条）：接在申请横幅下方，排在置顶横幅之上（优先级 申请 > 公告 > 置顶）。点条=开公告全文视图。
     self.announcementBanner = [[IMPinnedBannerView alloc] initWithStyle:IMBannerStyleAnnouncement];
     self.announcementBanner.translatesAutoresizingMaskIntoConstraints = NO;
     self.announcementBanner.hidden = YES;
@@ -1216,7 +1251,12 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     [self.view addSubview:self.pinnedBanner];
 
     [NSLayoutConstraint activateConstraints:@[
-        [self.announcementBanner.topAnchor constraintEqualToAnchor:guide.topAnchor],
+        [self.approvalBanner.topAnchor constraintEqualToAnchor:guide.topAnchor],
+        [self.approvalBanner.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [self.approvalBanner.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        (self.approvalBannerHeight = [self.approvalBanner.heightAnchor constraintEqualToConstant:0]),
+
+        [self.announcementBanner.topAnchor constraintEqualToAnchor:self.approvalBanner.bottomAnchor],
         [self.announcementBanner.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [self.announcementBanner.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
         (self.announcementBannerHeight = [self.announcementBanner.heightAnchor constraintEqualToConstant:0]),

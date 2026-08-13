@@ -4,6 +4,7 @@
 //  自定义壁纸判为"会话外观"，移出本页（走详情页「更多」，客户端本地，方案决策 6）。
 
 #import "IMGroupManageViewController.h"
+#import "IMGroupTextEditViewController.h"
 #import "IMGroupBanListViewController.h"
 #import "IMJoinRequestsViewController.h"
 #import "IMGroupInfo.h"
@@ -319,39 +320,30 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
     [self presentViewController:alert animated:YES completion:nil];
 }
 
-/// 编辑简介（≤200 字，多行）：用简单 alert 文本框；空串=清空。
+/// 编辑简介（≤200 字，多行编辑页 + 计数，决策 18）：整体替换，空串=清空。
 - (void)editIntro {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"群简介" message:@"最多 200 字"
-                                                           preferredStyle:UIAlertControllerStyleAlert];
     NSString *current = self.group.intro ?: @"";
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) { tf.text = current; tf.placeholder = @"介绍这个群"; }];
     __weak typeof(self) ws = self;
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-        NSString *intro = [alert.textFields.firstObject.text
-                           stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] ?: @"";
+    [IMGroupTextEditViewController presentFrom:self title:@"群简介" text:current
+                                   placeholder:@"介绍这个群" maxChars:200 commitTitle:@"保存"
+                                  allowRetract:NO footer:@"简介会展示在群资料页与加群预览页。"
+                                      onCommit:^(NSString *intro) {
         if ([intro isEqualToString:current]) { return; }
         [ws commitName:(ws.group.name ?: @"") avatarURL:(ws.group.avatarURL ?: @"") intro:intro];
-    }]];
-    [self presentViewController:alert animated:YES completion:nil];
+    }];
 }
 
-/// 编辑群公告（≤500 字）：发布走独立接口并落系统消息；清空文本=撤下公告。
+/// 编辑群公告（≤500 字，多行编辑页 + 计数，决策 18）：发布走独立接口并落系统消息；空串/撤下=撤下公告。
 - (void)editAnnouncement {
     NSString *current = self.group.announcement ?: @"";
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"群公告"
-                                                                  message:current.length ? @"编辑后发布，或清空以撤下" : @"发布后通知全体成员"
-                                                           preferredStyle:UIAlertControllerStyleAlert];
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) { tf.text = current; tf.placeholder = @"输入公告内容"; }];
     __weak typeof(self) ws = self;
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"发布" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-        NSString *text = [alert.textFields.firstObject.text
-                          stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] ?: @"";
+    [IMGroupTextEditViewController presentFrom:self title:@"群公告" text:current
+                                   placeholder:@"输入公告内容" maxChars:500 commitTitle:@"发布"
+                                  allowRetract:current.length > 0 footer:@"发布后全体成员会收到通知，并在聊天页顶部常驻。"
+                                      onCommit:^(NSString *text) {
         if ([text isEqualToString:current]) { return; }
         [ws commitAnnouncement:text];
-    }]];
-    [self presentViewController:alert animated:YES completion:nil];
+    }];
 }
 
 - (void)commitAnnouncement:(NSString *)text {

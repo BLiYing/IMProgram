@@ -6,6 +6,7 @@
 #import "IMLiquidSegmentedControl.h" // 页签用的 Liquid Glass 分段控件
 #import "IMGroupManageViewController.h"
 #import "IMQRCardViewController.h"
+#import "IMGroupTextViewController.h"
 
 #import "IMHTTPService.h"
 #import "IMSocketManager.h"
@@ -613,6 +614,7 @@
 typedef NS_ENUM(NSInteger, IMDetailSection) {
     IMDetailSectionPills = 0,  ///< 操作排（静音/搜索/更多）
     IMDetailSectionInfo,       ///< 单聊：备注名 / 用户名
+    IMDetailSectionAbout,      ///< 群公告 / 群简介（群聊·全员只读·非空才显，G1 修·决策 17）
     IMDetailSectionSettings,   ///< 置顶 / 免打扰（+群主管理员：群管理）
     IMDetailSectionTabs,       ///< 分类页签内容（header=分段控件）
 };
@@ -1461,6 +1463,7 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
     // 尚未建立关系时这些设置无意义。仅隐藏，数据加载逻辑不动（加为好友后 reloadData 即恢复）。
     if (!self.isGroup && !self.peerIsFriend) { return s; }
     if (!self.isGroup) { [s addObject:@(IMDetailSectionInfo)]; } // 单聊：备注名/用户名
+    if (self.isGroup && [self aboutRowKinds].count > 0) { [s addObject:@(IMDetailSectionAbout)]; } // 公告/简介卡（Pills 下）
     [s addObject:@(IMDetailSectionSettings)];
     if (self.tabs.count > 0) { [s addObject:@(IMDetailSectionTabs)]; }
     return s;
@@ -1480,6 +1483,7 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
     switch ([self sectionKindAt:section]) {
         case IMDetailSectionPills:    return 1;
         case IMDetailSectionInfo:     return 2; // 备注名 + 用户名
+        case IMDetailSectionAbout:    return (NSInteger)[self aboutRowKinds].count;
         case IMDetailSectionSettings: return (NSInteger)[self settingsRowKinds].count;
         case IMDetailSectionTabs:     return [self tabRowCount];
     }
@@ -1523,6 +1527,7 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
     IMDetailSection kind = [self sectionKindAt:indexPath.section];
     if (kind == IMDetailSectionPills) { return kPillsRowH; }
+    if (kind == IMDetailSectionAbout) { return 64; } // 标题 + 一行预览（subtitle 样式）
     if (kind == IMDetailSectionTabs && self.tabs.count > 0) {
         IMChatDetailTab *t = self.tabs[self.selectedTab];
         if (t.kind == IMDetailTabKindMembers) { return 60; }
@@ -1542,6 +1547,7 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
     switch ([self sectionKindAt:indexPath.section]) {
         case IMDetailSectionPills:    return [self pillsCell:tableView];
         case IMDetailSectionInfo:     return [self infoCell:tableView row:indexPath.row];
+        case IMDetailSectionAbout:    return [self aboutCell:tableView row:indexPath.row];
         case IMDetailSectionSettings: return [self settingsCell:tableView row:indexPath.row];
         case IMDetailSectionTabs:     return [self tabCell:tableView row:indexPath.row];
     }
@@ -1615,6 +1621,53 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
     return cell;
 }
 
+#pragma mark - 公告 / 简介卡（全员只读，G1 修）
+
+/// 群公告/简介卡的行类型（顺序即展示顺序）。
+typedef NS_ENUM(NSInteger, IMDetailAboutRow) {
+    IMDetailAboutRowAnnouncement = 0, ///< 群公告（非空才显）
+    IMDetailAboutRowIntro,            ///< 群简介（非空才显）
+};
+
+/// 组装公告/简介卡当前应显示的行——公告/简介**非空才显**，都空则整卡不显（sectionLayout 里据 count 决定）。
+- (NSArray<NSNumber *> *)aboutRowKinds {
+    NSMutableArray<NSNumber *> *rows = [NSMutableArray array];
+    if (!self.isGroup) { return rows; }
+    if (self.group.announcement.length > 0) { [rows addObject:@(IMDetailAboutRowAnnouncement)]; }
+    if (self.group.intro.length > 0) { [rows addObject:@(IMDetailAboutRowIntro)]; }
+    return rows;
+}
+
+/// 折行/连续空白压成单行预览（详情页卡与横幅一致）。
+- (NSString *)aboutSingleLinePreview:(NSString *)text {
+    NSArray<NSString *> *parts = [text componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    NSMutableArray<NSString *> *kept = [NSMutableArray array];
+    for (NSString *part in parts) { if (part.length > 0) { [kept addObject:part]; } }
+    return [kept componentsJoinedByString:@" "];
+}
+
+- (UITableViewCell *)aboutCell:(UITableView *)tv row:(NSInteger)row {
+    NSArray<NSNumber *> *kinds = [self aboutRowKinds];
+    IMDetailAboutRow kind = (row < (NSInteger)kinds.count) ? (IMDetailAboutRow)kinds[row].integerValue : IMDetailAboutRowAnnouncement;
+    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
+    cell.textLabel.textColor = IMTheme.textPrimary;
+    cell.detailTextLabel.textColor = IMTheme.textSecondary;
+    cell.detailTextLabel.numberOfLines = 1;
+    cell.detailTextLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+    cell.imageView.tintColor = IMTheme.accent;
+    cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    if (kind == IMDetailAboutRowAnnouncement) {
+        cell.imageView.image = [UIImage systemImageNamed:@"megaphone"];
+        cell.textLabel.text = @"群公告";
+        cell.detailTextLabel.text = [self aboutSingleLinePreview:self.group.announcement];
+    } else {
+        cell.imageView.image = [UIImage systemImageNamed:@"info.circle"];
+        cell.textLabel.text = @"群简介";
+        cell.detailTextLabel.text = [self aboutSingleLinePreview:self.group.intro];
+    }
+    return cell;
+}
+
 /// 设置区行类型（顺序即展示顺序）。群聊比单聊多「我在本群的昵称/群备注」，管理员再多「群管理」。
 typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     IMDetailSettingsRowPin = 0,     ///< 置顶聊天
@@ -1674,7 +1727,13 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
             break;
         case IMDetailSettingsRowManage:
             cell.textLabel.text = @"群管理";
-            cell.detailTextLabel.text = @"仅群主/管理员";
+            // 有待审入群申请时把红点带到「群管理」行（不必进管理页才发现，G3 修）。
+            if (self.group.pendingCount > 0) {
+                cell.detailTextLabel.text = [NSString stringWithFormat:@"%ld 待审", (long)self.group.pendingCount];
+                cell.detailTextLabel.textColor = IMTheme.danger;
+            } else {
+                cell.detailTextLabel.text = @"仅群主/管理员";
+            }
             cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
             break;
     }
@@ -1774,6 +1833,18 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     IMDetailSection kind = [self sectionKindAt:indexPath.section];
     if (kind == IMDetailSectionInfo && indexPath.row == 0) { [self editRemark]; return; }
+    if (kind == IMDetailSectionAbout) {
+        NSArray<NSNumber *> *kinds = [self aboutRowKinds];
+        if (indexPath.row >= (NSInteger)kinds.count) { return; }
+        if ((IMDetailAboutRow)kinds[indexPath.row].integerValue == IMDetailAboutRowAnnouncement) {
+            [IMGroupTextViewController presentFrom:self title:@"群公告"
+                                          subtitle:[IMGroupTextViewController announceSubtitleForMillis:self.group.announcementAt]
+                                              body:self.group.announcement];
+        } else {
+            [IMGroupTextViewController presentFrom:self title:@"群简介" subtitle:nil body:self.group.intro];
+        }
+        return;
+    }
     if (kind == IMDetailSectionSettings) {
         NSArray<NSNumber *> *kinds = [self settingsRowKinds];
         if (indexPath.row >= (NSInteger)kinds.count) { return; }

@@ -20,9 +20,11 @@ static CGFloat const kBannerHeight = 44;
 
 + (CGFloat)bannerHeight { return kBannerHeight; }
 
-/// 横幅强调色：置顶=主题色，公告=系统橙（对齐 sketch 的黄条）。
+/// 横幅强调色：公告=系统橙（对齐 sketch 黄条），入群申请=系统蓝，置顶=主题色。
 - (UIColor *)accentColor {
-    return self.style == IMBannerStyleAnnouncement ? UIColor.systemOrangeColor : IMTheme.accent;
+    if (self.style == IMBannerStyleAnnouncement) { return UIColor.systemOrangeColor; }
+    if (self.style == IMBannerStyleApproval) { return UIColor.systemBlueColor; }
+    return IMTheme.accent;
 }
 
 - (instancetype)initWithStyle:(IMBannerStyle)style {
@@ -117,6 +119,27 @@ static CGFloat const kBannerHeight = 44;
     self.barGradient.frame = self.bar.bounds;
 }
 
+/// 用 SF Symbol（染成强调色）+ 文字拼 kicker——**不用 emoji**：emoji 依赖系统字体、iOS 26 横幅内不渲染，
+/// 且无法随主题/强调色染色（决策 15）。symbol 走 `NSTextAttachment`，预先 `imageWithTintColor:` 上色。
+- (void)setKickerSymbol:(NSString *)symbolName text:(NSString *)text {
+    UIColor *accent = [self accentColor];
+    NSMutableAttributedString *s = [NSMutableAttributedString new];
+    UIImage *img = [UIImage systemImageNamed:symbolName];
+    if (img) {
+        UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:10 weight:UIImageSymbolWeightSemibold];
+        img = [[img imageByApplyingSymbolConfiguration:cfg] imageWithTintColor:accent renderingMode:UIImageRenderingModeAlwaysOriginal];
+        NSTextAttachment *att = [NSTextAttachment new];
+        att.image = img;
+        att.bounds = CGRectMake(0, -1, img.size.width, img.size.height); // 视觉居中微调
+        [s appendAttributedString:[NSAttributedString attributedStringWithAttachment:att]];
+        [s appendAttributedString:[[NSAttributedString alloc] initWithString:@" "]];
+    }
+    [s appendAttributedString:[[NSAttributedString alloc] initWithString:(text ?: @"")
+                                                             attributes:@{NSForegroundColorAttributeName: accent,
+                                                                          NSFontAttributeName: self.kicker.font}]];
+    self.kicker.attributedText = s;
+}
+
 - (void)applyItem:(IMPinnedMessage *)item index:(NSInteger)index total:(NSInteger)total isGroup:(BOOL)isGroup {
     if (!item) {
         self.hidden = YES;
@@ -124,11 +147,11 @@ static CGFloat const kBannerHeight = 44;
     }
     self.hidden = NO;
 
-    NSMutableString *kicker = [NSMutableString stringWithString:@"📌 置顶消息"];
+    NSMutableString *kicker = [NSMutableString stringWithString:@"置顶消息"];
     if (total > 1) { [kicker appendFormat:@" %ld/%ld", (long)(index + 1), (long)total]; }
     NSString *sender = [item senderLabelForGroup:isGroup];
     if (sender.length > 0) { [kicker appendFormat:@" · %@", sender]; }
-    self.kicker.text = kicker;
+    [self setKickerSymbol:@"pin.fill" text:kicker];
     self.preview.text = [item previewText];
 
     // 单条=整条实色；多条=上亮下暗的两段，一眼看出还有别的置顶（对齐 Telegram 与 Web）。
@@ -151,12 +174,22 @@ static CGFloat const kBannerHeight = 44;
 - (void)applyAnnouncement:(nullable NSString *)text {
     if (text.length == 0) { self.hidden = YES; return; }
     self.hidden = NO;
-    self.kicker.text = @"📢 群公告";
+    [self setKickerSymbol:@"megaphone" text:@"群公告"];
     // 折行/连续空白压成单行（横幅单行布局）。
     NSArray<NSString *> *parts = [text componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     NSMutableArray<NSString *> *kept = [NSMutableArray array];
     for (NSString *part in parts) { if (part.length > 0) { [kept addObject:part]; } }
     self.preview.text = [kept componentsJoinedByString:@" "];
+    self.barGradient.hidden = YES;
+    self.bar.backgroundColor = [self accentColor];
+    self.listButton.hidden = YES;
+}
+
+- (void)applyApprovalCount:(NSInteger)count {
+    if (count <= 0) { self.hidden = YES; return; }
+    self.hidden = NO;
+    [self setKickerSymbol:@"person.badge.plus" text:@"入群申请"];
+    self.preview.text = [NSString stringWithFormat:@"%ld 人申请加入本群 · 点击审批", (long)count];
     self.barGradient.hidden = YES;
     self.bar.backgroundColor = [self accentColor];
     self.listButton.hidden = YES;

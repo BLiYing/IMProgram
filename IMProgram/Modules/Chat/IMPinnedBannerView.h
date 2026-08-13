@@ -9,10 +9,11 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-/// 横幅样式（G1）：置顶=蓝条 📌，公告=黄条 📢。二者可同屏（公告在上、置顶在下）。
+/// 横幅样式：置顶=蓝条 pin，公告=橙条 megaphone，入群申请=蓝条 person.badge.plus（仅群主/管理员，G3）。可同屏。
 typedef NS_ENUM(NSInteger, IMBannerStyle) {
     IMBannerStylePinned = 0,
     IMBannerStyleAnnouncement,
+    IMBannerStyleApproval,
 };
 
 @interface IMPinnedBannerView : UIView
@@ -27,6 +28,9 @@ typedef NS_ENUM(NSInteger, IMBannerStyle) {
 
 /// 公告样式专用：直接铺一段公告文本（无计数/发送者/列表键）。text 空=隐藏横幅。
 - (void)applyAnnouncement:(nullable NSString *)text;
+
+/// 入群申请样式专用（G3，仅群主/管理员）：显示「N 人申请加入本群 · 点击审批」。count<=0=隐藏。
+- (void)applyApprovalCount:(NSInteger)count;
 
 /// 刷新展示。item 为 nil 时自身 hidden=YES（调用方据此收起高度）。
 /// index/total 用于右上角 `i/N` 计数与竖条分段；isGroup 决定是否显示发送者名。
