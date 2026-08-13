@@ -951,7 +951,9 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     } else if ([op isEqualToString:kIMMsgOpPin]) {
         // **必须看 payload[@"pinned"]**：取消置顶与置顶是同一个 op，早先一律 `pinnedAt = now`
         // 会把「取消置顶」也记成置顶（G0 接横幅时发现并修）。<0 = 通知数据层清零。
-        BOOL pinned = ![payload[@"pinned"] respondsToSelector:@selector(boolValue)] || [payload[@"pinned"] boolValue];
+        // 默认取「未置顶」：字段缺失时按取消处理，绝不误当置顶（服务端 pinned 已改非 omitempty 恒下发，
+        // 这里再兜一层——缺字段=取消，比缺字段=置顶安全，取消置顶才不会残留已置顶态）。
+        BOOL pinned = [payload[@"pinned"] respondsToSelector:@selector(boolValue)] && [payload[@"pinned"] boolValue];
         int64_t ts = [payload[@"timestamp"] respondsToSelector:@selector(longLongValue)] ? [payload[@"timestamp"] longLongValue] : 0;
         pinnedAt = pinned ? (ts > 0 ? ts : now) : -1; // 时间取服务端，多端一致；缺省才回退本地时钟
     } else {
