@@ -4,6 +4,7 @@
 
 #import "IMChatDetailViewController.h"
 #import "IMChatViewController.h"
+#import "IMGroupJoinPreviewViewController.h"
 #import "IMHTTPService.h"
 #import "IMQRCardViewController.h"
 #import "IMQRModels.h"
@@ -66,72 +67,20 @@ static const NSInteger kIMErrCodeQRExpired = 200110;
 
 #pragma mark - 群码
 
-/// ⚠️ 临时实现：G3 的「加群预览页（群头像/成员摘要/附言输入）」归群组线，本层只负责**路由到它**。
-/// 在那个页面落地前，用一张信息等价的确认弹窗兜住全部分支，保证扫码入群链路可用（G3 UI 落地后替换本方法）。
+/// G3 加群预览页（sketch §05）：独立页展示群头像/名/人数/邀请人 + 附言输入 + 主按钮（按 joinable 变）。
+/// 替换旧兜底 alert——弹窗装不下头像、也不是"页"。（备注：简介 `intro` 待 /qr/resolve 返回后再展示。）
 + (void)routeGroup:(IMQRGroupCard *)card raw:(NSString *)raw
               host:(NSString *)host userID:(NSString *)userID from:(UIViewController *)vc {
     if (!card || card.groupID.length == 0) { [vc im_showToast:@"二维码内容有误"]; return; }
-
-    NSMutableArray<NSString *> *lines = [NSMutableArray array];
-    [lines addObject:[NSString stringWithFormat:@"%ld 名成员", (long)card.memberCount]];
-    if (card.inviterNickname.length > 0) {
-        [lines addObject:[NSString stringWithFormat:@"%@ 邀请你加入", card.inviterNickname]];
-    }
-    NSString *note = IMQRGroupActionNote(card);
-    if (note.length > 0) { [lines addObject:note]; }
-
     IMQRGroupAction action = IMQRGroupActionForCard(card);
-    UIAlertController *alert =
-        [UIAlertController alertControllerWithTitle:(card.name.length ? card.name : @"群聊")
-                                            message:[lines componentsJoinedByString:@"\n"]
-                                     preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:(action == IMQRGroupActionDisabled ? @"我知道了" : @"取消")
-                                              style:UIAlertActionStyleCancel handler:nil]];
-    switch (action) {
-        case IMQRGroupActionEnter: {
-            [alert addAction:[UIAlertAction actionWithTitle:IMQRGroupActionLabel(action) style:UIAlertActionStyleDefault
-                                                    handler:^(UIAlertAction *_Nonnull a) {
-                [self enterGroup:card host:host userID:userID from:vc];
-            }]];
-            break;
+    [IMGroupJoinPreviewViewController presentFrom:vc card:card action:action onSubmit:^(NSString *hello) {
+        switch (action) {
+            case IMQRGroupActionEnter:    [self enterGroup:card host:host userID:userID from:vc]; break;
+            case IMQRGroupActionJoin:     [self joinGroup:card raw:raw hello:@"" host:host userID:userID from:vc]; break;
+            case IMQRGroupActionApply:    [self joinGroup:card raw:raw hello:hello host:host userID:userID from:vc]; break;
+            case IMQRGroupActionDisabled: break; // 不可加入：按钮禁用，不回调
         }
-        case IMQRGroupActionJoin: {
-            [alert addAction:[UIAlertAction actionWithTitle:IMQRGroupActionLabel(action) style:UIAlertActionStyleDefault
-                                                    handler:^(UIAlertAction *_Nonnull a) {
-                [self joinGroup:card raw:raw hello:@"" host:host userID:userID from:vc];
-            }]];
-            break;
-        }
-        case IMQRGroupActionApply: {
-            [alert addAction:[UIAlertAction actionWithTitle:IMQRGroupActionLabel(action) style:UIAlertActionStyleDefault
-                                                    handler:^(UIAlertAction *_Nonnull a) {
-                [self promptHelloForCard:card raw:raw host:host userID:userID from:vc];
-            }]];
-            break;
-        }
-        case IMQRGroupActionDisabled:
-            break; // 满员/黑名单：只留「我知道了」
-    }
-    [vc presentViewController:alert animated:YES completion:nil];
-}
-
-/// 需审批：让申请人写一句附言（G3 预览页里是输入框，这里先用 alert 的文本域）。
-+ (void)promptHelloForCard:(IMQRGroupCard *)card raw:(NSString *)raw
-                      host:(NSString *)host userID:(NSString *)userID from:(UIViewController *)vc {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"申请加入"
-                                                                  message:@"该群需管理员审批，可附一句说明"
-                                                           preferredStyle:UIAlertControllerStyleAlert];
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *_Nonnull field) {
-        field.placeholder = @"我是…（可不填）";
     }];
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    __weak UIAlertController *weakAlert = alert;
-    [alert addAction:[UIAlertAction actionWithTitle:@"提交申请" style:UIAlertActionStyleDefault
-                                            handler:^(UIAlertAction *_Nonnull a) {
-        NSString *hello = weakAlert.textFields.firstObject.text ?: @"";
-        [self joinGroup:card raw:raw hello:hello host:host userID:userID from:vc];
-    }]];
-    [vc presentViewController:alert animated:YES completion:nil];
 }
 
 + (void)joinGroup:(IMQRGroupCard *)card raw:(NSString *)raw hello:(NSString *)hello
