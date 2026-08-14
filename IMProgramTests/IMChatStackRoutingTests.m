@@ -91,4 +91,17 @@ static BOOL (^kIsChat)(UIViewController *) = ^BOOL(UIViewController *vc) {
     XCTAssertEqualObjects(result[0], newChat);
 }
 
+/// 聊天页恰为栈根（cut==0，如假想的「模态聊天」导航）：**刻意**整根替换为新聊天页。
+/// 被换掉的是旧聊天页而非列表页（列表做根时 cut≥1 不受影响）；旧根无返回按钮、新根同样无，
+/// 语义即「原地换会话」。此用例把该决策钉住，改动该行为须先改这里。
+- (void)testChatAsRootIsReplacedInPlace {
+    UIViewController *newChat = VC(@"chat");
+    NSArray *stack = @[ VC(@"chat"), VC(@"detail") ];
+
+    NSArray *result = IMChatCollapsedStack(stack, newChat, kIsChat);
+
+    XCTAssertEqual(result.count, 1u);
+    XCTAssertEqualObjects(result[0], newChat);
+}
+
 @end

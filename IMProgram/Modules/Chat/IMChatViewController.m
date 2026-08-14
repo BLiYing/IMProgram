@@ -367,8 +367,13 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     IMChatViewController *existing = [self existingChatForConvID:convID inNavigationController:nav];
     if (existing) {
         seed(existing);
-        [existing prepareForReuseEntry];
-        [nav popToViewController:existing animated:YES];
+        // 命中的就是栈顶（如在群里点了本群的邀请链接）：用户已在目标会话且本页是活 delegate、数据实时，
+        // 只补播种即可。不 pop（对栈顶是 no-op）也**不清定位标志**——此时 viewWillAppear 不会触发，
+        // 清了标志会在下一次任意重布局/新消息时把正上翻历史的用户猛拉回底部。
+        if (existing != nav.topViewController) {
+            [existing prepareForReuseEntry];
+            [nav popToViewController:existing animated:YES];
+        }
         return existing;
     }
     IMChatViewController *chat = build();
@@ -400,6 +405,8 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
         return [[self alloc] initWithHost:host userID:userID peerID:peerID
                                   readSeq:readSeq unread:unread peerReadSeq:peerReadSeq];
     } seed:^(IMChatViewController *chat) {
+        // 单聊与群相反：非空即覆盖。聊天页对 peer 昵称/头像没有任何服务端刷新（页内值只来自
+        // 更早的播种，可能过期），caller 的成员表/会话行快照永远 ≥ 页内值，覆盖才能修「对方改名」。
         if (peerNickname.length > 0) { chat.peerNickname = peerNickname; }
         if (peerAvatarURL.length > 0) { chat.peerAvatarURL = peerAvatarURL; }
     }];
@@ -419,21 +426,30 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
         return [[self alloc] initWithHost:host userID:userID groupConvID:convID groupName:name
                                   readSeq:readSeq unread:unread groupReadSeq:groupReadSeq];
     } seed:^(IMChatViewController *chat) {
-        if (name.length > 0) { chat.groupName = name; }              // 修：旧实例群名不再被丢弃
-        if (groupAvatarURL.length > 0) { chat.groupAvatarURL = groupAvatarURL; }
+        // 群字段只填空缺、不覆盖：页内值可能已被 reloadGroupInfo 刷成服务端最新（caller 的会话行/群卡
+        // 快照反而更旧，覆盖会把改过的群名退回旧名）；新实例初始化器已置名，fill-if-empty 语义等价。
+        // 复用时的权威刷新交给 prepareForReuseEntry 里的 reloadGroupInfo。
+        if (chat.groupName.length == 0 && name.length > 0) { chat.groupName = name; }
+        if (chat.groupAvatarURL.length == 0 && groupAvatarURL.length > 0) { chat.groupAvatarURL = groupAvatarURL; }
     }];
 }
 
-/// 复用已在栈中的旧实例前的刷新：①按最新播种值重装标题/头像按钮（否则 seed 落在无人再读的属性上）；
-/// ②从库合并被压期间（尤其跨 Tab、别的聊天页占用 delegate 时）错过的消息，修复内存空洞；
-/// ③清定位标志，让 pop 回来时像重新进入一样重锚到底部/未读，而非停在旧滚动位。
+/// 复用已在栈中的旧实例前的刷新（仅在实例非栈顶、即将真正 pop 时调用）：
+/// ①按最新播种值重装标题/头像按钮（否则 seed 落在无人再读的属性上）；群聊再拉一次 reloadGroupInfo，
+///   用服务端权威值纠正群名/头像/横幅（caller 快照与页内值都可能过期）；
+/// ②清定位标志，让 pop 回来时像重新进入一样重锚到底部/未读，而非停在旧滚动位。
+/// 被压期间错过的消息**不在这里合并**：pop 必触发 viewWillAppear，那里按 synced 游标守卫合并，
+/// 避免此处无条件全量读库 + appear 再读一次的双重开销。
 - (void)prepareForReuseEntry {
     if (self.isViewLoaded) {
         [self refreshDisplayIdentity];
-        [self mergeMissedMessagesFromStore];
+        if (self.isGroupChat) { [self reloadGroupInfo]; }
     }
     self.didInitialPosition = NO;
     self.didInitialSettle = NO;
+    // 重进语义=贴底：进入时的未读快照早已消化，清零让重锚走「无未读→精确贴底」分支；
+    // 不清的话 firstUnreadRow 会拿冻结的 entryReadSeq 把用户锚回早已读过的旧「首条未读」。
+    self.entryUnread = 0;
 }
 
 /// 按当前 peer*/group* 值重装标题与右上头像按钮（viewDidLoad 与复用刷新共用同一口径，避免漂移）。
@@ -465,6 +481,9 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     if (!added) { return NO; }
     [self sortMessagesInPlace];
     [self.tableView reloadData];
+    // 合并的新消息可能落在视口外：重算 ↓N 徽标并推进可见位点已读（与 didReceiveMessage 同口径），
+    // 否则用户停在历史位置时看不到任何「下面有新消息」的指示。
+    [self markVisibleRowsRead];
     return YES;
 }
 
