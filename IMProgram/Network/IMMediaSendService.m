@@ -531,6 +531,7 @@ static NSString *IMTinyThumbDataURI(UIImage *image) {
     };
 
     NSString *realID = nil;
+    NSString *tinyThumb = nil; // M4-7 极小模糊预览：媒体分支生成一次，既走出网也写回本地行（见下方 m.thumb）
     if ([ct isEqualToString:@"file"]) {
         realID = [IMSocketManager.sharedManager sendFile:url fileName:(m.fileName ?: @"file")
                                                 fileSize:m.fileSize toConv:m.convID toUser:job.toUser
@@ -541,7 +542,8 @@ static NSString *IMTinyThumbDataURI(UIImage *image) {
         attrs.pixelHeight = m.mediaH;
         attrs.durationMillis = m.duration;
         attrs.fileSize = m.fileSize;
-        attrs.thumb = IMTinyThumbDataURI(preview); // 极小模糊预览（M4-7）：图片本体 / 视频封面首帧的缩略，收端未下载时显占位
+        tinyThumb = IMTinyThumbDataURI(preview); // 极小模糊预览（M4-7）：图片本体 / 视频封面首帧的缩略，收端未下载时显占位
+        attrs.thumb = tinyThumb;
         realID = [IMSocketManager.sharedManager sendMedia:url contentType:ct
                                                    toConv:m.convID toUser:job.toUser
                                                attributes:attrs completion:ackCompletion];
@@ -556,6 +558,9 @@ static NSString *IMTinyThumbDataURI(UIImage *image) {
     m.content = url;
     m.contentType = ct;
     m.poster = poster.length > 0 ? poster : nil;
+    // 关键修复：把随出网发出的 thumb 也写回发送方自己的本地行——否则转发「自己发的」图片/视频时
+    // 源消息 thumb 为空，转发 payload 带不上磨砂，收端只剩空占位（收到的消息因入站已存 thumb 不受影响）。
+    m.thumb = tinyThumb.length > 0 ? tinyThumb : nil;
     [self saveMessage:m context:job.dbContext];
     if ([ct isEqualToString:@"file"] && realID.length > 0) {
         [self performDB:job.dbContext block:^(IMDatabase *db) {
