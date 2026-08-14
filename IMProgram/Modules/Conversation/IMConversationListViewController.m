@@ -665,13 +665,14 @@ static CGFloat const kIMRowLeading = 16;
                 [NSString stringWithFormat:@"建群失败：%@", error.localizedDescription ?: @"未知错误"]];
             return;
         }
-        // 回到会话列表，再直接进入新群会话。
+        // 回到会话列表（清掉建群流程页；折叠入口对建群链无聊天页可截，故仍需这步手动 pop），再进入新群会话。
         [self.navigationController popToViewController:self animated:NO];
-        IMChatViewController *chat = [[IMChatViewController alloc] initWithHost:self.host userID:self.userID
-                                                                    groupConvID:group.convID groupName:group.name
-                                                                        readSeq:0 unread:0
-                                                                   groupReadSeq:0]; // 刚建群，无历史消息/已读
-        [self.navigationController pushViewController:chat animated:YES];
+        [IMChatViewController openInNavigationController:self.navigationController
+                                                    host:self.host userID:self.userID
+                                             groupConvID:group.convID groupName:group.name
+                                                 readSeq:0 unread:0
+                                            groupReadSeq:0 // 刚建群，无历史消息/已读
+                                          groupAvatarURL:group.avatarURL];
     }];
 }
 
@@ -687,9 +688,10 @@ static CGFloat const kIMRowLeading = 16;
         return;
     }
     // 从「发起会话」进入：新会话无已读位点/未读/对端已读位点。
-    IMChatViewController *chat = [[IMChatViewController alloc] initWithHost:self.host userID:self.userID
-                                                                    peerID:peer readSeq:0 unread:0 peerReadSeq:0];
-    [self.navigationController pushViewController:chat animated:YES];
+    [IMChatViewController openInNavigationController:self.navigationController
+                                                host:self.host userID:self.userID
+                                              peerID:peer readSeq:0 unread:0 peerReadSeq:0
+                                        peerNickname:nil peerAvatarURL:nil];
 }
 
 #pragma mark - 二维码（扫一扫 / 扫码结果路由，QRCODE P0 + G3）
@@ -731,22 +733,21 @@ static CGFloat const kIMRowLeading = 16;
         }];
     }
     if (c.isGroup) {
-        IMChatViewController *chat = [[IMChatViewController alloc] initWithHost:self.host userID:self.userID
-                                                                    groupConvID:c.convID groupName:c.name
-                                                                        readSeq:c.readSeq unread:c.unread
-                                                                   groupReadSeq:c.groupReadSeq];
-        chat.groupAvatarURL = c.avatarURL; // 透传群头像，右上按钮立即显真图、免闪首字母
-        [self.navigationController pushViewController:chat animated:YES];
+        [IMChatViewController openInNavigationController:self.navigationController
+                                                    host:self.host userID:self.userID
+                                             groupConvID:c.convID groupName:c.name
+                                                 readSeq:c.readSeq unread:c.unread
+                                            groupReadSeq:c.groupReadSeq
+                                          groupAvatarURL:c.avatarURL]; // 透传群头像，右上按钮立即显真图、免闪首字母
         return;
     }
     if (c.peer.length == 0 || [c.peer isEqualToString:self.userID]) { return; }
-    IMChatViewController *chat = [[IMChatViewController alloc] initWithHost:self.host userID:self.userID
-                                                                    peerID:c.peer readSeq:c.readSeq unread:c.unread
-                                                               peerReadSeq:c.peerReadSeq];
     // 透传对端昵称/头像，供聊天页右上信息按钮打开的资料页显示。
-    chat.peerNickname = c.peerNickname;
-    chat.peerAvatarURL = c.peerAvatarURL;
-    [self.navigationController pushViewController:chat animated:YES];
+    [IMChatViewController openInNavigationController:self.navigationController
+                                                host:self.host userID:self.userID
+                                              peerID:c.peer readSeq:c.readSeq unread:c.unread
+                                         peerReadSeq:c.peerReadSeq
+                                        peerNickname:c.peerNickname peerAvatarURL:c.peerAvatarURL];
 }
 
 #pragma mark - UITableView

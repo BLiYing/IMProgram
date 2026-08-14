@@ -13,26 +13,41 @@ extern NSNotificationName const IMChatConversationClearedNotification;
 
 @interface IMChatViewController : UIViewController
 
-/// host 形如 "localhost:8080"；userID 我方 uid；peerID 对方 uid。
-/// readSeq：进入前的已读位点（定位未读分割线 + 可见即读的起点，首条未读=conv_seq>readSeq）；unread：进入时未读数；
-/// peerReadSeq：对端已读位点（进会话即据此显示"我发的"已读双勾，避免对方早前已读、本端没收到实时回执时漏显）。
-- (instancetype)initWithHost:(NSString *)host
-                      userID:(NSString *)userID
-                      peerID:(NSString *)peerID
-                     readSeq:(int64_t)readSeq
-                      unread:(NSInteger)unread
-                 peerReadSeq:(int64_t)peerReadSeq NS_DESIGNATED_INITIALIZER;
+/// 统一「进会话」入口（对标 Telegram navigateToChatController 的 useExisting + 折叠中间聊天页）：
+/// - 同会话已在本栈：popToViewController 复用（中间页出栈），并刷新其显示身份 / 从库合并被压期间
+///   错过的消息 / 重锚到底部（修复旧实例陈旧空洞与死播种）。
+/// - 不同会话：**折叠**——截掉栈里最底部的聊天页及其之上的所有页（资料页等），把新会话接到它原来的
+///   位置。于是「群聊A→成员资料→发消息C」返回时直达会话列表，而非退回 A（Telegram 行为）；
+///   也保证**同一导航栈内至多一个聊天页**。
+/// 说明：去重/折叠只作用于**单个** UINavigationController；各 Tab 有独立栈，跨 Tab 仍可能各存一个同会话
+/// 实例（数据不丢：被压实例在 viewWillAppear 按 synced 游标从库合并自愈）。
+/// **所有进聊天页的调用点一律走这里，禁止直接 alloc+push**（指定初始化器已收进 .m 类扩展，外部无法直接构造）。
+/// 返回实际落位的聊天页（nav 为空返回 nil）。
++ (nullable instancetype)openInNavigationController:(nullable UINavigationController *)nav
+                                               host:(NSString *)host
+                                             userID:(NSString *)userID
+                                             peerID:(NSString *)peerID
+                                            readSeq:(int64_t)readSeq
+                                             unread:(NSInteger)unread
+                                        peerReadSeq:(int64_t)peerReadSeq
+                                       peerNickname:(nullable NSString *)peerNickname
+                                      peerAvatarURL:(nullable NSString *)peerAvatarURL;
 
-/// 群聊入口：convID=群 topic_id（g_xxx），name=群名（可空，进入后拉群资料刷新）。
-/// readSeq/unread 语义同上。groupReadSeq=群「全员已读位点」min(其他成员已读位点)，用于
-/// 「全员都读过→我发的消息显绿✓✓」；非实时（随会话列表快照播种，无来源时传 0）。
-- (instancetype)initWithHost:(NSString *)host
-                      userID:(NSString *)userID
-                 groupConvID:(NSString *)convID
-                   groupName:(nullable NSString *)name
-                     readSeq:(int64_t)readSeq
-                      unread:(NSInteger)unread
-                groupReadSeq:(int64_t)groupReadSeq;
+/// 群聊版统一入口，语义同上。
++ (nullable instancetype)openInNavigationController:(nullable UINavigationController *)nav
+                                               host:(NSString *)host
+                                             userID:(NSString *)userID
+                                        groupConvID:(NSString *)convID
+                                          groupName:(nullable NSString *)name
+                                            readSeq:(int64_t)readSeq
+                                             unread:(NSInteger)unread
+                                       groupReadSeq:(int64_t)groupReadSeq
+                                     groupAvatarURL:(nullable NSString *)groupAvatarURL;
+
+/// 在导航栈里反查承载 convID 的聊天页（自栈顶逆序，取最靠上的匹配）。详情页转发/定位复用它，
+/// 与统一入口共用同一份查找口径，避免各处自行遍历导致方向不一致。
++ (nullable instancetype)existingChatForConvID:(NSString *)convID
+                        inNavigationController:(nullable UINavigationController *)nav;
 
 /// 单聊对端资料（会话列表进入时透传，供右上信息按钮打开的资料页显示昵称/头像；可空回退 uid）。群聊忽略。
 @property (nonatomic, copy, nullable) NSString *peerNickname;

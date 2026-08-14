@@ -149,9 +149,10 @@
 
 - (void)openChatWithPeer:(NSString *)peerID {
     if (peerID.length == 0 || [peerID isEqualToString:self.userID]) { return; }
-    IMChatViewController *chat = [[IMChatViewController alloc] initWithHost:self.host userID:self.userID
-                                                                    peerID:peerID readSeq:0 unread:0 peerReadSeq:0];
-    [self.navigationController pushViewController:chat animated:YES];
+    [IMChatViewController openInNavigationController:self.navigationController
+                                                host:self.host userID:self.userID
+                                              peerID:peerID readSeq:0 unread:0 peerReadSeq:0
+                                        peerNickname:nil peerAvatarURL:nil];
 }
 
 - (void)showError:(NSString *)message {

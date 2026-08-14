@@ -164,6 +164,19 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
 }
 
 @interface IMChatViewController () <IMSocketManagerDelegate, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIDocumentPickerDelegate, QLPreviewControllerDataSource>
+
+// 指定初始化器收进类扩展（原在 .h）：外部只能走 +openInNavigationController: 统一入口，
+// 无法直接 alloc+push，从结构上杜绝绕过导航去重/折叠的回归（曾靠头注释约束、无强制）。
+/// host 形如 "localhost:8080"；userID 我方 uid；peerID 对方 uid。readSeq/unread/peerReadSeq 见 +open 文档。
+- (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID peerID:(NSString *)peerID
+                     readSeq:(int64_t)readSeq unread:(NSInteger)unread
+                 peerReadSeq:(int64_t)peerReadSeq NS_DESIGNATED_INITIALIZER;
+/// 群聊入口：convID=群 topic_id，name 可空（进入后拉群资料刷新）；groupReadSeq=全员已读位点。
+- (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID
+                 groupConvID:(NSString *)convID groupName:(nullable NSString *)name
+                     readSeq:(int64_t)readSeq unread:(NSInteger)unread
+                groupReadSeq:(int64_t)groupReadSeq;
+
 /// 收到的图片/视频/文件的下载编排（门控态 + 点击路由 + 自动预取，M4-7）。与会话详情页共用同一实现。
 @property (nonatomic, strong) IMMediaDownloadCoordinator *downloads;
 @property (nonatomic, strong, nullable) NSURL *quickLookURL; // QuickLook 预览中的本地文件
@@ -311,6 +324,159 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
     return self;
 }
 
+#pragma mark - 统一进会话入口（导航去重 + 折叠）
+
+/// 计算「打开新聊天页」后的目标导航栈：截掉栈中**最底部**的聊天页及其之上的所有页（资料页等），
+/// 把新聊天页接到它原来的位置——于是同一栈内至多一个聊天页，从聊天页返回直达其下方（通常是会话列表）。
+/// 栈中无聊天页时即等价普通 push（返回原栈 + 新页）。isChatController 判定某页是否聊天页
+/// （生产传 isKindOfClass:IMChatViewController；单测可注入假谓词，故抽为文件级纯函数便于回归）。
+NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *stack,
+                                                 UIViewController *newChat,
+                                                 BOOL (^isChatController)(UIViewController *vc)) {
+    NSUInteger cut = NSNotFound;
+    for (NSUInteger i = 0; i < stack.count; i++) {
+        if (isChatController(stack[i])) { cut = i; break; }
+    }
+    NSMutableArray<UIViewController *> *result = [NSMutableArray array];
+    [result addObjectsFromArray:(cut == NSNotFound ? stack : [stack subarrayWithRange:NSMakeRange(0, cut)])];
+    if (newChat) { [result addObject:newChat]; }
+    return result;
+}
+
++ (nullable instancetype)existingChatForConvID:(NSString *)convID
+                        inNavigationController:(nullable UINavigationController *)nav {
+    if (convID.length == 0 || !nav) { return nil; }
+    for (UIViewController *vc in nav.viewControllers.reverseObjectEnumerator) {
+        if ([vc isKindOfClass:IMChatViewController.class]
+            && [((IMChatViewController *)vc).convID isEqualToString:convID]) {
+            return (IMChatViewController *)vc;
+        }
+    }
+    return nil;
+}
+
+/// 统一去重/折叠核心：命中同会话则 pop 复用并刷新；否则折叠中间聊天页后落新页。
+/// build 造新实例；seed 播种显示字段（复用与新建都调用，故对既有实例只覆盖 caller 提供的非空值，
+/// 不清空已有好值）。位点参数（readSeq/unread/peerReadSeq…）在复用路径刻意忽略：旧实例自维护已读
+/// 与位点，prepareForReuseEntry 会重锚到底部并标已读，比用可能过期的入参覆盖更可靠。
++ (nullable instancetype)openConvID:(NSString *)convID
+              inNavigationController:(UINavigationController *)nav
+                               build:(IMChatViewController *(^)(void))build
+                                seed:(void (^)(IMChatViewController *chat))seed {
+    if (!nav || convID.length == 0) { return nil; }
+    IMChatViewController *existing = [self existingChatForConvID:convID inNavigationController:nav];
+    if (existing) {
+        seed(existing);
+        [existing prepareForReuseEntry];
+        [nav popToViewController:existing animated:YES];
+        return existing;
+    }
+    IMChatViewController *chat = build();
+    seed(chat);
+    NSArray<UIViewController *> *target = IMChatCollapsedStack(nav.viewControllers, chat,
+                                                              ^BOOL(UIViewController *vc) {
+        return [vc isKindOfClass:IMChatViewController.class];
+    });
+    // 无聊天页可折叠 → 走标准 push（保留系统入场动画/手势）；否则整体替换栈（新页在顶，push 式动画）。
+    if (target.count == nav.viewControllers.count + 1) {
+        [nav pushViewController:chat animated:YES];
+    } else {
+        [nav setViewControllers:target animated:YES];
+    }
+    return chat;
+}
+
++ (nullable instancetype)openInNavigationController:(nullable UINavigationController *)nav
+                                               host:(NSString *)host
+                                             userID:(NSString *)userID
+                                             peerID:(NSString *)peerID
+                                            readSeq:(int64_t)readSeq
+                                             unread:(NSInteger)unread
+                                        peerReadSeq:(int64_t)peerReadSeq
+                                       peerNickname:(NSString *)peerNickname
+                                      peerAvatarURL:(NSString *)peerAvatarURL {
+    if (!nav || peerID.length == 0) { return nil; }
+    return [self openConvID:IMConversationID(userID, peerID) inNavigationController:nav build:^{
+        return [[self alloc] initWithHost:host userID:userID peerID:peerID
+                                  readSeq:readSeq unread:unread peerReadSeq:peerReadSeq];
+    } seed:^(IMChatViewController *chat) {
+        if (peerNickname.length > 0) { chat.peerNickname = peerNickname; }
+        if (peerAvatarURL.length > 0) { chat.peerAvatarURL = peerAvatarURL; }
+    }];
+}
+
++ (nullable instancetype)openInNavigationController:(nullable UINavigationController *)nav
+                                               host:(NSString *)host
+                                             userID:(NSString *)userID
+                                        groupConvID:(NSString *)convID
+                                          groupName:(NSString *)name
+                                            readSeq:(int64_t)readSeq
+                                             unread:(NSInteger)unread
+                                       groupReadSeq:(int64_t)groupReadSeq
+                                     groupAvatarURL:(NSString *)groupAvatarURL {
+    if (!nav || convID.length == 0) { return nil; }
+    return [self openConvID:convID inNavigationController:nav build:^{
+        return [[self alloc] initWithHost:host userID:userID groupConvID:convID groupName:name
+                                  readSeq:readSeq unread:unread groupReadSeq:groupReadSeq];
+    } seed:^(IMChatViewController *chat) {
+        if (name.length > 0) { chat.groupName = name; }              // 修：旧实例群名不再被丢弃
+        if (groupAvatarURL.length > 0) { chat.groupAvatarURL = groupAvatarURL; }
+    }];
+}
+
+/// 复用已在栈中的旧实例前的刷新：①按最新播种值重装标题/头像按钮（否则 seed 落在无人再读的属性上）；
+/// ②从库合并被压期间（尤其跨 Tab、别的聊天页占用 delegate 时）错过的消息，修复内存空洞；
+/// ③清定位标志，让 pop 回来时像重新进入一样重锚到底部/未读，而非停在旧滚动位。
+- (void)prepareForReuseEntry {
+    if (self.isViewLoaded) {
+        [self refreshDisplayIdentity];
+        [self mergeMissedMessagesFromStore];
+    }
+    self.didInitialPosition = NO;
+    self.didInitialSettle = NO;
+}
+
+/// 按当前 peer*/group* 值重装标题与右上头像按钮（viewDidLoad 与复用刷新共用同一口径，避免漂移）。
+- (void)refreshDisplayIdentity {
+    [self updateTitle];
+    if (self.isGroupChat) {
+        [self installInfoAvatarButtonWithURL:self.groupAvatarURL seed:self.convID name:self.groupName action:@selector(groupInfoTapped)];
+    } else {
+        NSString *name = self.peerNickname.length ? self.peerNickname : self.peerID;
+        [self installInfoAvatarButtonWithURL:self.peerAvatarURL seed:self.peerID name:name action:@selector(singleInfoTapped)];
+    }
+}
+
+/// 从 SQLite 合并本会话里内存尚无的消息（按 conv_seq 去重，保留未上号的乐观发件 conv_seq==0）。
+/// 仅在检测到落后时调用，避免每次 appear 全量重排。返回是否有新增。
+- (BOOL)mergeMissedMessagesFromStore {
+    NSString *convID = self.convID;
+    __block NSArray<IMMessageModel *> *dbMessages = @[];
+    if (![self performDatabaseOperation:^(IMDatabase *database) {
+        dbMessages = [database messagesForConv:convID];
+    }]) { return NO; }
+    BOOL added = NO;
+    for (IMMessageModel *m in dbMessages) {
+        if (m.convSeq <= 0 || [self.seenConvSeqs containsObject:@(m.convSeq)]) { continue; }
+        [self.seenConvSeqs addObject:@(m.convSeq)];
+        [self.messages addObject:m];
+        added = YES;
+    }
+    if (!added) { return NO; }
+    [self sortMessagesInPlace];
+    [self.tableView reloadData];
+    return YES;
+}
+
+/// 内存里已上号消息的最大 conv_seq（乐观发件 conv_seq==0 不计）。用于与 DB synced 游标比对判断是否落后。
+- (int64_t)maxInMemoryConvSeq {
+    int64_t maxSeq = 0;
+    for (IMMessageModel *m in self.messages) {
+        if (m.convSeq > maxSeq) { maxSeq = m.convSeq; }
+    }
+    return maxSeq;
+}
+
 - (BOOL)performDatabaseOperation:(void (^)(IMDatabase *database))operation {
     return [IMDatabase.sharedDatabase performWithAccountContext:self.databaseContext block:operation];
 }
@@ -322,19 +488,14 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor = UIColor.systemBackgroundColor;
+    // 标题 + 右上头像按钮：与复用刷新共用 refreshDisplayIdentity 同一口径（列表透传的头像立即显真图、
+    // 免闪首字母；群资料加载后再由 reloadGroupInfo 补正）。
+    [self refreshDisplayIdentity];
     if (self.isGroupChat) {
-        [self updateTitle];
-        // 右上=群头像圆按钮进群资料页（列表透传的头像立即显真图、免闪首字母；群资料加载后再补正）。
-        [self installInfoAvatarButtonWithURL:self.groupAvatarURL seed:self.convID name:self.groupName action:@selector(groupInfoTapped)];
         [self reloadGroupInfo];
         // 群变更（邀请/移除/退群/转让/改名）→ 刷新标题/群资料；被移出 → 提示并退出本页。
         [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onGroupEvent:)
                                                    name:IMSocketDidReceiveGroupEventNotification object:nil];
-    } else {
-        self.title = [NSString stringWithFormat:@"与 %@ 聊天", self.peerID];
-        // 右上=对方头像圆按钮进单聊资料页。
-        NSString *name = self.peerNickname.length ? self.peerNickname : self.peerID;
-        [self installInfoAvatarButtonWithURL:self.peerAvatarURL seed:self.peerID name:name action:@selector(singleInfoTapped)];
     }
     [self setupUI];
     [self reloadPinnedBanner]; // 置顶横幅（G0）：进会话拉一次，之后靠 msg_op 帧增量维护，不轮询
@@ -984,6 +1145,10 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
         synced = [database syncedConvSeqForConv:self.convID];
     }]) { return; }
     [IMSocketManager.sharedManager trackConversation:self.convID syncedSeq:synced];
+    // 跨 Tab 自愈：本页被压在别的 Tab 栈里期间，实时消息由网络层落库并推进本会话 synced 游标，但只投递给
+    // 当时占用 delegate 的那个聊天页——本实例内存模型会落后。切回本 Tab 触发 appear 时，若 DB 游标已超过
+    // 内存最大 conv_seq，就从库合并补齐（同栈已由折叠保证至多一个聊天页，此路径主要覆盖跨 Tab）。
+    if (synced > [self maxInMemoryConvSeq]) { [self mergeMissedMessagesFromStore]; }
     // 在线态初始值改由 watch 回的 presence 快照提供（省掉每次进页一次 GET /users/{id}）：
     // watchUsers 注册即让服务端回一帧当前对端 presence，didChangePresenceForUser 渲染。首聊无会话也覆盖。
     // 兜底仍在：未连接时由 didChangeState 连上后补拉 + 重发 watch；对端离线时由 tick 每 2 分钟轮询。

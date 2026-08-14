@@ -5,6 +5,11 @@
 
 ## 当前焦点
 
+**聊天页导航去重 + 折叠 ✅（2026-08-14，build 绿 + test-build 绿，待手测）** — 7 处 `IMChatViewController` alloc+push 收口为统一入口 `+openInNavigationController:...`（单聊/群聊各一，走私有 `+openConvID:inNavigationController:build:seed:`）。
+- **折叠（本次核心需求）**：开新会话时截掉栈里**最底部**的聊天页及其之上的所有页（资料页等），新会话接到其原位置 → 「群聊A→成员资料→发消息C」返回直达会话列表（Telegram 行为），且**同一导航栈至多一个聊天页**。纯逻辑抽为文件级 `IMChatCollapsedStack()`，配 `IMChatStackRoutingTests`（6 例，注入谓词免构造真 VC）。
+- **复用刷新（修 /code-review 发现）**：命中同会话则 `popToViewController` 复用并 `prepareForReuseEntry`——重装标题/头像按钮（修死播种）、从库合并被压期间错过的消息（修陈旧空洞）、清定位标志重锚到底部。指定初始化器移入 .m 类扩展（外部无法 alloc+push，结构性防回归）；`viewWillAppear` 按 `synced` 游标跨 Tab 自愈；详情页 `originChatInStack` 改委托 `+existingChatForConvID:`（统一查找方向）。
+- **已知限制**：去重/折叠只作用于单个 `UINavigationController`；各 Tab 独立栈，跨 Tab 仍可能各存一个同会话实例（数据不丢，靠 appear 合并自愈）。位点入参在复用路径刻意忽略（实例自维护已读/位点）。
+
 **QRCODE P0 + 群组 G3 入群 ✅（2026-08-13，build 绿 + test-build 绿，待手测；iOS 全量测试用户要求暂停）** — 方案 `../IMServer/docs/QRCODE_DESIGN.md` / `GROUP_FEATURES_DESIGN.md` §4-G3、草图 `QRCODE_UX_SKETCH.html`。
 - **网络/模型**：`IMHTTPService` 加 `qrMyCard/qrResetMyCard/groupQR/groupQRReset/qrResolve/joinGroup:code:hello:/joinRequests/decideJoinRequest`（新 `runDataRequest:` 保留业务码，join/resolve 靠 `error.code` 分 300210/200110）；`IMFriendlyMessageForCode` 加 200110/300207/300208；`IMGroupInfo.pendingCount`；新 `IMQRModels`（`IMQRResolved/IMQRUserCard/IMQRGroupCard/IMJoinRequest` + 纯映射 `IMQRUserActionForRelation/IMQRGroupActionForCard/…`）+ `IMQRImage`（`CIQRCodeGenerator` 出码 / `CIDetector` 解码，**一图多码** `decodeAllInImage:`）。
 - **UI（Modules/QR/）**：`IMQRScannerViewController`（`AVCaptureSession` 取景 + 手电筒 + 相册识别多码候选 + 「扫码/我的二维码」页签；自行 resolve 后 `onResult` 回宿主）→ `IMQRResultRouter`（**落到已有页面**：名片→资料页 `IMChatDetailViewController`、群→加群确认弹窗含 G3 加入/需审批附言/进群/满/黑名单、失效码 200110 提示、外来码域名二确认不自动跳转）；`IMQRCardView`+`IMQRCardViewController`（出码页：进页提亮、保存相册、分享、重置二次确认）；`IMJoinRequestsViewController`（待审列表，同意/拒绝）。

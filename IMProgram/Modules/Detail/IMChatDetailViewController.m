@@ -1832,11 +1832,10 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
 /// 与成员开始单聊（长按「发送消息」）。
 - (void)openChatWithMember:(IMGroupMember *)m {
     if (!m || [m.userID isEqualToString:self.userID]) { return; }
-    IMChatViewController *chat = [[IMChatViewController alloc] initWithHost:self.host userID:self.userID
-                                                                    peerID:m.userID readSeq:0 unread:0 peerReadSeq:0];
-    chat.peerNickname = m.displayName;
-    chat.peerAvatarURL = m.avatarURL;
-    [self.navigationController pushViewController:chat animated:YES];
+    [IMChatViewController openInNavigationController:self.navigationController
+                                                host:self.host userID:self.userID
+                                              peerID:m.userID readSeq:0 unread:0 peerReadSeq:0
+                                        peerNickname:m.displayName peerAvatarURL:m.avatarURL];
 }
 
 /// 移除成员（带二次确认）。
@@ -1892,10 +1891,10 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
 /// 与某人开始/回到单聊（操作排「消息」）。
 - (void)openChatWithPeerID:(NSString *)peerID nickname:(NSString *)nickname avatarURL:(NSString *)avatarURL {
     if (peerID.length == 0 || [peerID isEqualToString:self.userID]) { return; }
-    IMChatViewController *chat = [[IMChatViewController alloc] initWithHost:self.host userID:self.userID
-                                                                    peerID:peerID readSeq:0 unread:0 peerReadSeq:0];
-    chat.peerNickname = nickname; chat.peerAvatarURL = avatarURL;
-    [self.navigationController pushViewController:chat animated:YES];
+    [IMChatViewController openInNavigationController:self.navigationController
+                                                host:self.host userID:self.userID
+                                              peerID:peerID readSeq:0 unread:0 peerReadSeq:0
+                                        peerNickname:nickname peerAvatarURL:avatarURL];
 }
 
 /// 「更多」Telegram 式锚点菜单：清空记录=普通色；退出/删除群/拉黑=红。
@@ -2291,14 +2290,10 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
 }
 
 /// 导航栈里承载本会话的聊天页（详情页通常从它 push 而来）。转发/定位复用它的现成逻辑。
+/// 与统一入口共用同一份查找口径（IMChatViewController +existingChatForConvID:），避免各处自行遍历方向不一致。
 - (nullable IMChatViewController *)originChatInStack {
-    for (UIViewController *vc in self.navigationController.viewControllers) {
-        if ([vc isKindOfClass:IMChatViewController.class]
-            && [[(IMChatViewController *)vc convID] isEqualToString:self.convID]) {
-            return (IMChatViewController *)vc;
-        }
-    }
-    return nil;
+    return [IMChatViewController existingChatForConvID:self.convID
+                               inNavigationController:self.navigationController];
 }
 
 /// 转发：复用聊天页 IMChatViewController 的转发选择+回声逻辑（present 由本页发起，呈现上下文正确）。

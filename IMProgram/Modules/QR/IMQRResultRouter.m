@@ -130,13 +130,14 @@ static const NSInteger kIMErrCodeQRExpired = 200110;
 }
 
 + (void)enterGroup:(IMQRGroupCard *)card host:(NSString *)host userID:(NSString *)userID from:(UIViewController *)vc {
-    IMChatViewController *chat = [[IMChatViewController alloc] initWithHost:host userID:userID
-                                                               groupConvID:card.groupID
-                                                                 groupName:card.name
-                                                                   readSeq:0 unread:0
-                                                              groupReadSeq:0]; // 扫码入口无会话快照，全员已读位点由从会话列表进入时播种
-    chat.groupAvatarURL = card.avatarURL;
-    [vc.navigationController pushViewController:chat animated:YES];
+    // 统一入口自带导航去重：邀请链接/扫码恰好是栈里已有的会话时 pop 复用，不再叠一份。
+    [IMChatViewController openInNavigationController:vc.navigationController
+                                                host:host userID:userID
+                                         groupConvID:card.groupID
+                                           groupName:card.name
+                                             readSeq:0 unread:0
+                                        groupReadSeq:0 // 扫码入口无会话快照，全员已读位点由从会话列表进入时播种
+                                      groupAvatarURL:card.avatarURL];
 }
 
 #pragma mark - 扫码登录（QR P1）
