@@ -2793,6 +2793,22 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 
 /// 跳转到被引用的原消息：滚到该 conv_seq 行并高亮一闪（与 Web quoteflash 同节奏，1.2s）。
 - (void)jumpToConvSeq:(int64_t)targetConvSeq {
+    // 本页不在栈顶（从全屏媒体库 IMConversationMediaViewController、合并记录等 push 页里点「定位」进来，
+    // 且弹层查看器已 dismiss）→ 先弹回本聊天页再滚，否则滚动发生在被覆盖的表上、用户看不到跳转（全屏库定位失效即此）。
+    UINavigationController *nav = self.navigationController;
+    if (nav && nav.topViewController != self && [nav.viewControllers containsObject:self]) {
+        [nav popToViewController:self animated:YES];
+        // pop 动画进行中滚动会落错位；挂转场协调器完成回调，等 pop 落定再跳（无协调器回落下一轮 runloop）。
+        id<UIViewControllerTransitionCoordinator> tc = nav.transitionCoordinator;
+        if (tc) {
+            [tc animateAlongsideTransition:nil completion:^(id<UIViewControllerTransitionCoordinatorContext> ctx) {
+                [self jumpToConvSeq:targetConvSeq];
+            }];
+        } else {
+            dispatch_async(dispatch_get_main_queue(), ^{ [self jumpToConvSeq:targetConvSeq]; });
+        }
+        return;
+    }
     int64_t earliest = 0; // 当前已加载最早 conv_seq(>0)，用于区分"未加载到"与"已删除"
     for (NSUInteger i = 0; i < self.messages.count; i++) {
         int64_t s = self.messages[i].convSeq;

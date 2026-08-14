@@ -5,10 +5,13 @@
 #import "IMImageLoader.h"
 #import "IMVideoThumbnailLoader.h"
 #import "IMMediaPlaceholder.h" // 磨砂占位统一渲染器（三处共用）
+#import "IMMediaExpiryRegistry.h" // 失效登记：据此显 ⊘（只读本地、不联网探测）
+#import "IMOriginalVideoCache.h"  // 铁律 A：本机有原件则照显真图、不叠失效
 
 @implementation IMMediaTileCell {
     UIImageView *_thumb; UIImageView *_play; NSString *_url;
     UIView *_dim; CAShapeLayer *_ringBG; CAShapeLayer *_ring; UILabel *_sizeChip;
+    UIImageView *_expiredBadge; // 中心 ⊘（曾可用、被服务端清理）
 }
 - (instancetype)initWithFrame:(CGRect)frame {
     if ((self = [super initWithFrame:frame])) {
@@ -46,6 +49,15 @@
         _sizeChip.layer.cornerRadius = 7; _sizeChip.clipsToBounds = YES;
         _sizeChip.hidden = YES;
         [self.contentView addSubview:_sizeChip];
+
+        _expiredBadge = [[UIImageView alloc] initWithImage:[IMMediaPlaceholder expiredGlyphImage]];
+        _expiredBadge.translatesAutoresizingMaskIntoConstraints = NO;
+        _expiredBadge.hidden = YES;
+        [self.contentView addSubview:_expiredBadge];
+        [NSLayoutConstraint activateConstraints:@[
+            [_expiredBadge.centerXAnchor constraintEqualToAnchor:self.contentView.centerXAnchor],
+            [_expiredBadge.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
+        ]];
     }
     return self;
 }
@@ -73,8 +85,35 @@
 
 - (void)configureWithItem:(IMMediaItem *)item download:(IMDownloadProgress *)dp thumb:(NSString *)thumb {
     _url = item.url; _thumb.image = nil;
-    BOOL gated = dp != nil && dp.phase != IMDownloadPhaseDone;
     __weak typeof(self) ws = self; NSString *want = item.url;
+    void (^applyFrost)(NSString *) = ^(NSString *t) {
+        if (t.length == 0) { return; }
+        __strong typeof(ws) sself = ws;
+        if (!sself) { return; }
+        UIImage *cached = [IMMediaPlaceholder cachedFrostedForThumb:t];
+        if (cached) { sself->_thumb.image = cached; return; }
+        [IMMediaPlaceholder frostedForThumb:t completion:^(UIImage *blurred) {
+            __strong typeof(ws) s2 = ws;
+            if (s2 && blurred && [s2->_url isEqualToString:want]) { s2->_thumb.image = blurred; }
+        }];
+    };
+
+    // 失效（曾可用、被服务端清理）**且本机无原件**（铁律 A：缓存过的照显真图，不叠 ⊘）→ dim 磨砂 + ⊘，无下载/播放入口。
+    BOOL hasLocal = item.isVideo ? [IMOriginalVideoCache hasCacheForFullURL:item.url]
+                                 : [[IMImageLoader shared] hasCachedImageForURL:item.url];
+    BOOL expired = !hasLocal && [IMMediaExpiryRegistry.shared isExpiredURL:item.url];
+    if (expired) {
+        [self applyGate:nil isVideo:NO]; // 清掉门控层（环/尺寸/播放键）
+        _play.hidden = YES;
+        _expiredBadge.hidden = NO;
+        _thumb.alpha = 0.5;
+        applyFrost(thumb);
+        return;
+    }
+    _expiredBadge.hidden = YES;
+    _thumb.alpha = 1.0;
+
+    BOOL gated = dp != nil && dp.phase != IMDownloadPhaseDone;
     void (^apply)(UIImage *) = ^(UIImage *img) {
         __strong typeof(ws) self = ws;
         if (self && [self->_url isEqualToString:want]) { self->_thumb.image = img; }
@@ -82,17 +121,7 @@
     [self applyGate:gated ? dp : nil isVideo:item.isVideo];
     if (gated) {
         // 门控格不拉原图/封面（方案 A·纯净门控）：只把内嵌 thumb 过高斯磨砂显示，与聊天气泡同款；无 thumb 留灰底。
-        if (thumb.length > 0) {
-            UIImage *cachedFrost = [IMMediaPlaceholder cachedFrostedForThumb:thumb];
-            if (cachedFrost) {
-                _thumb.image = cachedFrost;
-            } else {
-                [IMMediaPlaceholder frostedForThumb:thumb completion:^(UIImage *blurred) {
-                    __strong typeof(ws) self = ws;
-                    if (self && blurred && [self->_url isEqualToString:want]) { self->_thumb.image = blurred; }
-                }];
-            }
-        }
+        applyFrost(thumb);
         return;
     }
     if (item.isVideo) { [[IMVideoThumbnailLoader shared] loadPosterForVideoURL:item.url completion:apply]; }
@@ -138,6 +167,8 @@
 - (void)prepareForReuse {
     [super prepareForReuse];
     _thumb.image = nil;
+    _thumb.alpha = 1.0;
+    _expiredBadge.hidden = YES;
     [self applyGate:nil isVideo:NO];
 }
 @end

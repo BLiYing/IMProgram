@@ -14,9 +14,10 @@
     UIPageViewController *_pager;
 
     // 固定层 chrome（不随分页滑动；由 mediaIdentity 页切换时重绑到当前页）
-    UILabel     *_titleLabel;     // 顶部居中·主标题（会话名）
-    UILabel     *_subtitleLabel;  // 顶部居中·副标题「第 i 张 / 共 N 张」
-    UIStackView *_titleStack;     // 标题+副标题竖排
+    UILabel          *_titleLabel;     // 顶部居中·主标题（会话名）
+    UILabel          *_subtitleLabel;  // 顶部居中·副标题「i / N」
+    UIStackView      *_titleStack;     // 标题+副标题竖排
+    UIVisualEffectView *_titleGlass;   // 标题玻璃底（与聊天页标题栏风格一致）
     UIButton    *_closeButton;    // 左上 ✕
     UIButton    *_downloadButton; // 右下 下载
     UIButton    *_galleryButton;  // 右下 媒体库（当前页有入口时显）
@@ -97,13 +98,27 @@
     _titleStack.alignment = UIStackViewAlignmentCenter;
     _titleStack.spacing = 1;
     _titleStack.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.view addSubview:_titleStack];
+
+    // 玻璃底：与聊天页标题栏（IMChatViewController）玻璃态风格一致；全屏黑底 → 强制暗色外观。
+    _titleGlass = IMGlassEffectView(NO);
+    _titleGlass.translatesAutoresizingMaskIntoConstraints = NO;
+    _titleGlass.layer.cornerRadius = 18;
+    _titleGlass.clipsToBounds = YES;
+    _titleGlass.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
+    _titleGlass.hidden = _titleLabel.hidden && _subtitleLabel.hidden;
+    [self.view addSubview:_titleGlass];
+    [self.view addSubview:_titleStack];   // 文字压在玻璃之上
     [NSLayoutConstraint activateConstraints:@[
         [_titleStack.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
-        [_titleStack.topAnchor constraintEqualToAnchor:safe.topAnchor constant:8],
+        [_titleStack.topAnchor constraintEqualToAnchor:safe.topAnchor constant:10],
         // 两侧各让出 ✕/下载键的宽度，标题过长省略号截断而不压到按钮。
         [_titleStack.leadingAnchor constraintGreaterThanOrEqualToAnchor:_closeButton.trailingAnchor constant:8],
         [_titleStack.trailingAnchor constraintLessThanOrEqualToAnchor:safe.trailingAnchor constant:-62],
+        // 玻璃底包裹文字（左右 +14、上下 +6 内边距），呈胶囊感标题栏。
+        [_titleGlass.leadingAnchor constraintEqualToAnchor:_titleStack.leadingAnchor constant:-14],
+        [_titleGlass.trailingAnchor constraintEqualToAnchor:_titleStack.trailingAnchor constant:14],
+        [_titleGlass.topAnchor constraintEqualToAnchor:_titleStack.topAnchor constant:-6],
+        [_titleGlass.bottomAnchor constraintEqualToAnchor:_titleStack.bottomAnchor constant:6],
     ]];
 
     _downloadButton = [self circleButtonWithSymbol:@"arrow.down.to.line" pointSize:16 diameter:44];
@@ -165,7 +180,7 @@
 }
 
 - (void)updateSubtitleForIndex:(NSUInteger)index {
-    _subtitleLabel.text = [NSString stringWithFormat:@"第 %lu 张 / 共 %lu 张", (unsigned long)(index + 1), (unsigned long)_count];
+    _subtitleLabel.text = [NSString stringWithFormat:@"%lu / %lu", (unsigned long)(index + 1), (unsigned long)_count];
 }
 
 /// 翻页后把壳重绑到当前页：更新数目 + 媒体库/更多 是否显示（按当前页配置）。
@@ -210,6 +225,7 @@
     [UIView animateWithDuration:0.22 animations:^{
         self->_closeButton.alpha = visible ? 1 : 0;
         self->_titleStack.alpha = visible ? 1 : 0;
+        self->_titleGlass.alpha = visible ? 1 : 0;
         self->_bottomStack.alpha = visible ? 1 : 0;
     }];
     // 视频页联动：隐藏倍速 / 「查看原视频」（进度条+时间常驻保留）。
