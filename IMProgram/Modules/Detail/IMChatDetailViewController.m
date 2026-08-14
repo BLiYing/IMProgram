@@ -886,6 +886,34 @@ static CGFloat const kNavOpaqueOnCollapse = 0.8;
     return specs;
 }
 
+/// 操作排单个按钮（header 悬浮 pills 与 actions cell 共用，保证外观一致）。
+/// iOS 26 的 glassButtonConfiguration 前景走单色化（≈label 色，浅色下即黑），会吞掉 baseForegroundColor 的 accent，
+/// 于是「搜索/更多/呼叫/视频」恒为黑（iOS 18 的 grayButtonConfiguration 尊重 baseForegroundColor，故无此问题）。
+/// 解决：把 accent 直接烘进图标（AlwaysOriginal）与标题（显式前景色），绕开玻璃单色化——两系统都稳定显 accent。
+- (UIButton *)actionPillButtonForSpec:(NSDictionary *)spec {
+    UIColor *tint = IMTheme.accent;
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    UIButtonConfiguration *cfg = IMGlassButtonConfiguration();
+    cfg.image = [[UIImage systemImageNamed:spec[@"s"]] imageWithTintColor:tint renderingMode:UIImageRenderingModeAlwaysOriginal];
+    cfg.title = spec[@"t"];
+    cfg.imagePlacement = NSDirectionalRectEdgeTop;
+    cfg.imagePadding = 4;
+    cfg.baseForegroundColor = tint;   // iOS 18 生效；iOS 26 由下面的显式前景色兜底
+    cfg.titleTextAttributesTransformer = ^NSDictionary *(NSDictionary *old) {
+        NSMutableDictionary *attrs = [old mutableCopy];
+        attrs[NSFontAttributeName] = [UIFont systemFontOfSize:11];
+        attrs[NSForegroundColorAttributeName] = tint;
+        return attrs;
+    };
+    cfg.cornerStyle = UIButtonConfigurationCornerStyleLarge;
+    button.configuration = cfg;
+    button.tintColor = tint;
+    button.accessibilityLabel = spec[@"a"];
+    [button addTarget:self action:([spec[@"a"] isEqualToString:@"more"] ? @selector(moreTapped:) : @selector(pillTapped:))
+     forControlEvents:UIControlEventTouchUpInside];
+    return button;
+}
+
 /// 好友态变化后原地重建 header 悬浮操作排（frame 由 viewDidLayoutSubviews 复位）。
 - (void)rebuildPillsView {
     UIView *spacer = self.pillsView.superview;
@@ -914,24 +942,7 @@ static CGFloat const kNavOpaqueOnCollapse = 0.8;
         [stack.bottomAnchor constraintEqualToAnchor:host.bottomAnchor constant:-6],
     ]];
     for (NSDictionary *spec in specs) {
-        UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
-        UIButtonConfiguration *cfg = IMGlassButtonConfiguration();
-        cfg.image = [UIImage systemImageNamed:spec[@"s"]];
-        cfg.title = spec[@"t"];
-        cfg.imagePlacement = NSDirectionalRectEdgeTop;
-        cfg.imagePadding = 4;
-        cfg.baseForegroundColor = IMTheme.accent;
-        cfg.titleTextAttributesTransformer = ^NSDictionary *(NSDictionary *old) {
-            NSMutableDictionary *attrs = [old mutableCopy];
-            attrs[NSFontAttributeName] = [UIFont systemFontOfSize:11];
-            return attrs;
-        };
-        cfg.cornerStyle = UIButtonConfigurationCornerStyleLarge;
-        button.configuration = cfg;
-        button.accessibilityLabel = spec[@"a"];
-        [button addTarget:self action:([spec[@"a"] isEqualToString:@"more"] ? @selector(moreTapped:) : @selector(pillTapped:))
-         forControlEvents:UIControlEventTouchUpInside];
-        [stack addArrangedSubview:button];
+        [stack addArrangedSubview:[self actionPillButtonForSpec:spec]];
     }
     return host;
 }
@@ -1583,22 +1594,9 @@ static CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), 
     stack.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     stack.axis = UILayoutConstraintAxisHorizontal; stack.distribution = UIStackViewDistributionFillEqually; stack.spacing = 9;
     for (NSDictionary *spec in specs) {
-        UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
-        UIButtonConfiguration *cfg = IMGlassButtonConfiguration();
-        cfg.image = [UIImage systemImageNamed:spec[@"s"]];
-        cfg.title = spec[@"t"];
-        cfg.imagePlacement = NSDirectionalRectEdgeTop; cfg.imagePadding = 4;
-        cfg.baseForegroundColor = IMTheme.accent;
-        cfg.titleTextAttributesTransformer = ^NSDictionary *(NSDictionary *old) {
-            NSMutableDictionary *d = [old mutableCopy]; d[NSFontAttributeName] = [UIFont systemFontOfSize:11]; return d;
-        };
-        cfg.cornerStyle = UIButtonConfigurationCornerStyleLarge;
-        b.configuration = cfg;
-        b.accessibilityLabel = spec[@"a"];
-        // 「更多」交给 IMPopoverCard 的 UIKit action sheet/popover；iOS 26 自动使用 Liquid Glass。
-        [b addTarget:self action:([spec[@"a"] isEqualToString:@"more"] ? @selector(moreTapped:) : @selector(pillTapped:))
-      forControlEvents:UIControlEventTouchUpInside];
-        [stack addArrangedSubview:b];
+        // 与 header 悬浮 pills 共用同一构造（含 iOS 26 玻璃前景单色化的 accent 兜底）。
+        // 「更多」在 helper 内部即挂到 moreTapped:，交给 IMPopoverCard 的 UIKit sheet/popover（iOS 26 自动 Liquid Glass）。
+        [stack addArrangedSubview:[self actionPillButtonForSpec:spec]];
     }
     [cell.contentView addSubview:stack];
     return cell;

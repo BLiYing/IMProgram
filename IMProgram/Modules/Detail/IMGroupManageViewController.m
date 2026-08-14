@@ -16,6 +16,27 @@
 #import "UIViewController+IMToast.h"
 #import "IMTheme.h"
 
+#pragma mark - 行图标（与「我」页设置项同款：accent 纯色圆角方块 + 居中白符号）
+
+/// 生成与 IMSettingsViewController 一致的行图标：accent 纯色圆角方块（30×30, r7）+ 居中白色 SF 符号。
+/// 保持本页「单一 accent 纯色·跟随主题」的现状（不用「我」页那种逐行彩色），主题切换后重开页面即以当前主题色重绘。
+static UIImage *IMGroupManageRowIcon(NSString *symbolName) {
+    CGFloat side = 30, radius = 7, maxGlyph = 18;
+    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(side, side)];
+    return [renderer imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
+        [IMTheme.accent setFill];
+        [[UIBezierPath bezierPathWithRoundedRect:CGRectMake(0, 0, side, side) cornerRadius:radius] fill];
+        UIImage *glyph = [[UIImage systemImageNamed:symbolName
+                                  withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:15 weight:UIImageSymbolWeightSemibold]]
+                          imageWithTintColor:UIColor.whiteColor renderingMode:UIImageRenderingModeAlwaysOriginal];
+        CGSize gs = glyph.size;
+        if (gs.width <= 0 || gs.height <= 0) { return; }
+        CGFloat scale = MIN(1.0, MIN(maxGlyph / gs.width, maxGlyph / gs.height));
+        CGSize drawn = CGSizeMake(gs.width * scale, gs.height * scale);
+        [glyph drawInRect:CGRectMake((side - drawn.width) / 2.0, (side - drawn.height) / 2.0, drawn.width, drawn.height)];
+    }];
+}
+
 #pragma mark - 顶部头像编辑视图（相机圈 + 「设置新头像」）
 
 @interface IMGroupAvatarHeader : UIView
@@ -186,8 +207,7 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
     cell.textLabel.text = title;
     cell.textLabel.textColor = IMTheme.textPrimary;
-    cell.imageView.image = [UIImage systemImageNamed:icon];
-    cell.imageView.tintColor = IMTheme.accent;
+    cell.imageView.image = IMGroupManageRowIcon(icon);
     cell.selectionStyle = UITableViewCellSelectionStyleNone;
     UISwitch *sw = [UISwitch new];
     sw.onTintColor = IMTheme.accent;
@@ -202,21 +222,21 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
         UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:@"c"];
         cell.textLabel.textColor = IMTheme.textPrimary;
         cell.detailTextLabel.textColor = IMTheme.textSecondary;
-        cell.imageView.tintColor = IMTheme.accent;
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         switch (indexPath.row) {
             case IMManageRowName:
-                cell.imageView.image = [UIImage systemImageNamed:@"textformat"];
+                // 「群名称」原用 textformat（Aa 字形），小尺寸下像散字、与整体图标风格不一；换成 tag.fill（名牌）更像图标。
+                cell.imageView.image = IMGroupManageRowIcon(@"tag.fill");
                 cell.textLabel.text = @"群名称";
                 cell.detailTextLabel.text = self.group.name;
                 break;
             case IMManageRowIntro:
-                cell.imageView.image = [UIImage systemImageNamed:@"text.alignleft"];
+                cell.imageView.image = IMGroupManageRowIcon(@"text.alignleft");
                 cell.textLabel.text = @"简介";
                 cell.detailTextLabel.text = self.group.intro.length ? self.group.intro : @"未填写";
                 break;
             default:
-                cell.imageView.image = [UIImage systemImageNamed:@"megaphone"];
+                cell.imageView.image = IMGroupManageRowIcon(@"megaphone.fill");
                 cell.textLabel.text = @"群公告";
                 cell.detailTextLabel.text = self.group.announcement.length ? @"已发布" : @"未发布";
                 break;
@@ -249,12 +269,11 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
         cell.textLabel.text = @"待审入群申请";
         cell.detailTextLabel.text = self.group.pendingCount > 0 ? [NSString stringWithFormat:@"%ld 待处理", (long)self.group.pendingCount] : @"无";
         cell.detailTextLabel.textColor = self.group.pendingCount > 0 ? IMTheme.accent : IMTheme.textSecondary;
-        cell.imageView.image = [UIImage systemImageNamed:@"person.crop.circle.badge.checkmark"];
+        cell.imageView.image = IMGroupManageRowIcon(@"person.crop.circle.badge.checkmark");
     } else {
         cell.textLabel.text = @"黑名单";
-        cell.imageView.image = [UIImage systemImageNamed:@"nosign"];
+        cell.imageView.image = IMGroupManageRowIcon(@"nosign");
     }
-    cell.imageView.tintColor = IMTheme.accent;
     return cell;
 }
 
