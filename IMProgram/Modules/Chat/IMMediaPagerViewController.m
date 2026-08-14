@@ -3,8 +3,10 @@
 #import "IMMediaPagerViewController.h"
 #import "IMPopoverCard.h" // 「更多」锚点菜单
 #import "IMGlass.h"       // 标准 Liquid Glass 圆钮
+#import "IMMainTabBarController.h" // kIMLiquidBarHeight
+#import "IMProgram-Swift.h"         // IMLiquidNavigationBar（复用聊天页标题栏）
 
-@interface IMMediaPagerViewController () <UIPageViewControllerDataSource, UIPageViewControllerDelegate, IMMediaViewerContentDelegate>
+@interface IMMediaPagerViewController () <UIPageViewControllerDataSource, UIPageViewControllerDelegate, IMMediaViewerContentDelegate, IMLiquidNavigationBarDelegate>
 @end
 
 @implementation IMMediaPagerViewController {
@@ -14,11 +16,7 @@
     UIPageViewController *_pager;
 
     // 固定层 chrome（不随分页滑动；由 mediaIdentity 页切换时重绑到当前页）
-    UILabel          *_titleLabel;     // 顶部居中·主标题（会话名）
-    UILabel          *_subtitleLabel;  // 顶部居中·副标题「i / N」
-    UIStackView      *_titleStack;     // 标题+副标题竖排
-    UIVisualEffectView *_titleGlass;   // 标题玻璃底（与聊天页标题栏风格一致）
-    UIButton    *_closeButton;    // 左上 ✕
+    IMLiquidNavigationBar *_navBar;  // 顶部标题栏：复用聊天页同款液态玻璃栏（返回键 + 会话名 + i/N 计数）
     UIButton    *_downloadButton; // 右下 下载
     UIButton    *_galleryButton;  // 右下 媒体库（当前页有入口时显）
     UIButton    *_moreButton;     // 右下 更多（当前页有 moreActions 时显）
@@ -64,61 +62,27 @@
     [self updateChromeForCurrent];
 }
 
-/// 固定层：左上 ✕ + 顶部计数 + 右下（更多/媒体库/下载）。这些**不放进页**，故翻页时不动。
+/// 固定层：顶部液态标题栏（复用聊天页 IMLiquidNavigationBar：返回键 + 会话名 + i/N）+ 右下（更多/媒体库/下载）。
+/// 这些**不放进页**，故翻页时不动。
 - (void)setupFixedChrome {
     UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
 
-    _closeButton = [self circleButtonWithSymbol:@"xmark" pointSize:16 diameter:40];
-    [_closeButton addTarget:self action:@selector(closeTapped) forControlEvents:UIControlEventTouchUpInside];
-    [self.view addSubview:_closeButton];
+    // 顶部标题栏：直接复用聊天页那套液态玻璃栏，风格一致。左侧默认返回键（关闭本页），中间会话名 + i/N 计数。
+    _navBar = [[IMLiquidNavigationBar alloc] initWithTitle:(self.conversationTitle ?: @"") subtitle:@"" actionTitle:nil];
+    _navBar.delegate = self;
+    _navBar.showsBackButton = YES;                 // 默认返回键（取代原 ✕）
+    // ⚠️ 标题/副标题的透明度由 compactContentProgress 驱动（默认 0 = 全透明）；主导航容器注入时会设 1，
+    // 自持必须自己设，否则整条栏只剩返回键（曾因此标题完全不显示）。showsTitleGlass=聊天页同款标题玻璃胶囊。
+    _navBar.compactContentProgress = 1;
+    _navBar.showsTitleGlass = YES;
+    _navBar.overrideUserInterfaceStyle = UIUserInterfaceStyleDark; // 全屏黑底 → 暗色玻璃 + 白前景
+    _navBar.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:_navBar];
     [NSLayoutConstraint activateConstraints:@[
-        [_closeButton.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:14],
-        [_closeButton.topAnchor constraintEqualToAnchor:safe.topAnchor constant:8],
-        [_closeButton.widthAnchor constraintEqualToConstant:40],
-        [_closeButton.heightAnchor constraintEqualToConstant:40],
-    ]];
-
-    // 顶部标题栏：主标题=会话名，副标题=「第 i 张 / 共 N 张」（居中两行，避开左上 ✕）。
-    _titleLabel = [UILabel new];
-    _titleLabel.textColor = UIColor.whiteColor;
-    _titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
-    _titleLabel.textAlignment = NSTextAlignmentCenter;
-    _titleLabel.lineBreakMode = NSLineBreakByTruncatingTail;
-    _titleLabel.text = self.conversationTitle;
-    _titleLabel.hidden = self.conversationTitle.length == 0;
-
-    _subtitleLabel = [UILabel new];
-    _subtitleLabel.textColor = [UIColor colorWithWhite:1 alpha:0.75];
-    _subtitleLabel.font = [UIFont monospacedDigitSystemFontOfSize:13 weight:UIFontWeightRegular];
-    _subtitleLabel.textAlignment = NSTextAlignmentCenter;
-    _subtitleLabel.hidden = _count <= 1; // 单张不显数目
-
-    _titleStack = [[UIStackView alloc] initWithArrangedSubviews:@[_titleLabel, _subtitleLabel]];
-    _titleStack.axis = UILayoutConstraintAxisVertical;
-    _titleStack.alignment = UIStackViewAlignmentCenter;
-    _titleStack.spacing = 1;
-    _titleStack.translatesAutoresizingMaskIntoConstraints = NO;
-
-    // 玻璃底：与聊天页标题栏（IMChatViewController）玻璃态风格一致；全屏黑底 → 强制暗色外观。
-    _titleGlass = IMGlassEffectView(NO);
-    _titleGlass.translatesAutoresizingMaskIntoConstraints = NO;
-    _titleGlass.layer.cornerRadius = 18;
-    _titleGlass.clipsToBounds = YES;
-    _titleGlass.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
-    _titleGlass.hidden = _titleLabel.hidden && _subtitleLabel.hidden;
-    [self.view addSubview:_titleGlass];
-    [self.view addSubview:_titleStack];   // 文字压在玻璃之上
-    [NSLayoutConstraint activateConstraints:@[
-        [_titleStack.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
-        [_titleStack.topAnchor constraintEqualToAnchor:safe.topAnchor constant:10],
-        // 两侧各让出 ✕/下载键的宽度，标题过长省略号截断而不压到按钮。
-        [_titleStack.leadingAnchor constraintGreaterThanOrEqualToAnchor:_closeButton.trailingAnchor constant:8],
-        [_titleStack.trailingAnchor constraintLessThanOrEqualToAnchor:safe.trailingAnchor constant:-62],
-        // 玻璃底包裹文字（左右 +14、上下 +6 内边距），呈胶囊感标题栏。
-        [_titleGlass.leadingAnchor constraintEqualToAnchor:_titleStack.leadingAnchor constant:-14],
-        [_titleGlass.trailingAnchor constraintEqualToAnchor:_titleStack.trailingAnchor constant:14],
-        [_titleGlass.topAnchor constraintEqualToAnchor:_titleStack.topAnchor constant:-6],
-        [_titleGlass.bottomAnchor constraintEqualToAnchor:_titleStack.bottomAnchor constant:6],
+        [_navBar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [_navBar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [_navBar.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [_navBar.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:kIMLiquidBarHeight],
     ]];
 
     _downloadButton = [self circleButtonWithSymbol:@"arrow.down.to.line" pointSize:16 diameter:44];
@@ -180,7 +144,8 @@
 }
 
 - (void)updateSubtitleForIndex:(NSUInteger)index {
-    _subtitleLabel.text = [NSString stringWithFormat:@"%lu / %lu", (unsigned long)(index + 1), (unsigned long)_count];
+    // 单张不显计数；多张显纯数字 i/N（挂到液态标题栏副标题）。
+    _navBar.subtitleText = _count > 1 ? [NSString stringWithFormat:@"%lu / %lu", (unsigned long)(index + 1), (unsigned long)_count] : @"";
 }
 
 /// 翻页后把壳重绑到当前页：更新数目 + 媒体库/更多 是否显示（按当前页配置）。
@@ -222,15 +187,22 @@
 
 - (void)setChromeVisible:(BOOL)visible {
     _chromeVisible = visible;
+    // 隐藏时同时停用交互：否则 alpha=0 的全宽标题栏仍会拦住顶部点击 → 误触返回（而非唤回壳）。
+    _navBar.userInteractionEnabled = visible;
+    _bottomStack.userInteractionEnabled = visible;
     [UIView animateWithDuration:0.22 animations:^{
-        self->_closeButton.alpha = visible ? 1 : 0;
-        self->_titleStack.alpha = visible ? 1 : 0;
-        self->_titleGlass.alpha = visible ? 1 : 0;
+        self->_navBar.alpha = visible ? 1 : 0;
         self->_bottomStack.alpha = visible ? 1 : 0;
     }];
     // 视频页联动：隐藏倍速 / 「查看原视频」（进度条+时间常驻保留）。
     [self.currentViewer setAuxControlsHidden:!visible];
 }
+
+#pragma mark - IMLiquidNavigationBarDelegate（复用聊天页标题栏：返回键关闭本页）
+
+- (void)liquidNavigationBarDidTapBack:(IMLiquidNavigationBar *)bar { [self closeTapped]; }
+- (void)liquidNavigationBarDidTapAction:(IMLiquidNavigationBar *)bar { /* 无右侧动作 */ }
+- (void)liquidNavigationBarDidTapLeft:(IMLiquidNavigationBar *)bar { /* 无自定义左项 */ }
 
 #pragma mark - IMMediaViewerContentDelegate
 

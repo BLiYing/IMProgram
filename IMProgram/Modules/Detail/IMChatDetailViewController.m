@@ -2400,7 +2400,26 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
                                              handler:^{ [ws locateFileMessageInChat:m]; }]];
     [acts addObject:[IMPopoverCardItem itemWithTitle:@"转发" symbol:@"arrowshape.turn.up.right" destructive:NO
                                              handler:^{ [ws forwardFileMessage:m]; }]];
+    [acts addObject:[IMPopoverCardItem itemWithTitle:@"删除" symbol:@"trash" destructive:YES
+                                             handler:^{ [ws confirmDeleteMediaMessage:m]; }]];
     return acts;
+}
+
+/// 查看器「更多」里的删除（IMPopoverCard 扁平列表 → action sheet 承载两档）：可为所有人删=弹两档；否则=仅删除自己。
+- (void)confirmDeleteMediaMessage:(IMMessageModel *)m {
+    if (!m || m.convSeq <= 0) { return; }
+    if (![self canDeleteForEveryone:m]) { [self hideMessageForSelf:m]; return; }
+    __weak typeof(self) ws = self;
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:nil message:nil
+                                                           preferredStyle:UIAlertControllerStyleActionSheet];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"仅删除自己" style:UIAlertActionStyleDestructive
+                                            handler:^(UIAlertAction *a) { [ws hideMessageForSelf:m]; }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"为所有人删除" style:UIAlertActionStyleDestructive
+                                            handler:^(UIAlertAction *a) { [ws deleteMessageForEveryone:m]; }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    sheet.popoverPresentationController.sourceView = self.view;
+    sheet.popoverPresentationController.sourceRect = CGRectMake(self.view.bounds.size.width / 2, self.view.bounds.size.height / 2, 0, 0);
+    [self presentViewController:sheet animated:YES completion:nil];
 }
 /// 应用内浏览器打开链接（SFSafariViewController，仅接受 http/https；与聊天页 openLink: 一致）。
 - (void)openLink:(NSString *)url {

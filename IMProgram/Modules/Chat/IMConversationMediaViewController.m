@@ -9,6 +9,7 @@
 #import "IMMessageModel.h"
 #import "IMMenuAction.h"
 #import "IMPopoverCard.h"
+#import "IMSocketManager.h" // IMSocketDidRemoveMessageNotification：长按删除后就地移除该格
 
 @implementation IMMediaItem
 + (instancetype)itemWithURL:(NSString *)url isVideo:(BOOL)isVideo timestamp:(int64_t)timestamp {
@@ -31,6 +32,7 @@
     NSArray<IMMediaItem *> *_items;
     NSArray<IMMessageModel *> *_messages;   // 与 _items 逐位对齐
     UICollectionView *_collection;
+    UILabel *_emptyLabel;                   // 空态提示（初始为空 / 删到空时显示）
     IMMediaDownloadCoordinator *_downloads;
     NSString *_host, *_myUserID, *_title;
     BOOL _isGroup;
@@ -95,15 +97,44 @@
     [_collection registerClass:IMMediaTileCell.class forCellWithReuseIdentifier:@"media"];
     [self.view addSubview:_collection];
 
-    if (_items.count == 0) {
-        UILabel *empty = [UILabel new];
-        empty.text = @"暂无图片或视频";
-        empty.textColor = UIColor.secondaryLabelColor;
-        empty.textAlignment = NSTextAlignmentCenter;
-        empty.frame = self.view.bounds;
-        empty.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-        [self.view addSubview:empty];
+    _emptyLabel = [UILabel new];
+    _emptyLabel.text = @"暂无图片或视频";
+    _emptyLabel.textColor = UIColor.secondaryLabelColor;
+    _emptyLabel.textAlignment = NSTextAlignmentCenter;
+    _emptyLabel.frame = self.view.bounds;
+    _emptyLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    _emptyLabel.hidden = _items.count > 0;
+    [self.view addSubview:_emptyLabel];
+
+    // 长按菜单删除（为所有人/仅自己）落地后就地移除该格——本页持快照，不监听就会残留已删消息。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onMessageRemoved:)
+                                               name:IMSocketDidRemoveMessageNotification object:nil];
+}
+
+- (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
+
+/// 某条消息被物理移除（为所有人删除 / 仅为我删除）→ 按 convID+convSeq 从快照删格并刷新；删到空显空态。
+- (void)onMessageRemoved:(NSNotification *)note {
+    NSString *convID = note.userInfo[kIMConvIDKey];
+    int64_t seq = [note.userInfo[kIMMsgOpTargetSeqKey] longLongValue];
+    if (convID.length == 0 || seq <= 0) { return; }
+    NSMutableArray<IMMediaItem *> *items = [_items mutableCopy];
+    NSMutableArray<IMMessageModel *> *msgs = [_messages mutableCopy];
+    BOOL changed = NO;
+    for (NSInteger i = (NSInteger)msgs.count - 1; i >= 0; i--) {
+        IMMessageModel *m = msgs[(NSUInteger)i];
+        // 本页快照全部来自同一会话：convID 缺失（个别本地模型未回填）时按 seq 匹配即可，不至跨会话误删。
+        if (m.convSeq == seq && (m.convID.length == 0 || [m.convID isEqualToString:convID])) {
+            [msgs removeObjectAtIndex:(NSUInteger)i];
+            if (i < (NSInteger)items.count) { [items removeObjectAtIndex:(NSUInteger)i]; }
+            changed = YES;
+        }
     }
+    if (!changed) { return; }
+    _items = items;
+    _messages = msgs;
+    [_collection reloadData];
+    _emptyLabel.hidden = _items.count > 0;
 }
 
 - (void)viewWillAppear:(BOOL)animated {

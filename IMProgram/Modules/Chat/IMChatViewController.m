@@ -1702,7 +1702,8 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
                                               content:message.content sourceConvID:message.convID
                                         sourceConvSeq:message.convSeq sourceFrom:(message.from ?: @"")
                                            completion:^(NSError *error) {
-        [ws im_showToast:error ? [NSString stringWithFormat:@"收藏失败：%@", error.localizedDescription] : @"已收藏"];
+        // toast 吐在当前可见页（从全屏媒体库的查看器收藏时，本页不可见，吐在自己身上等于没提示）。
+        [[ws visiblePresenter] im_showToast:error ? [NSString stringWithFormat:@"收藏失败：%@", error.localizedDescription] : @"已收藏"];
     }];
 }
 
@@ -1948,7 +1949,41 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     if (m.recalledAt == 0 && m.convSeq > 0) {
         [acts addObject:[IMPopoverCardItem itemWithTitle:@"转发" symbol:@"arrowshape.turn.up.right" destructive:NO handler:^{ [ws forwardMessage:m]; }]];
     }
+    // 删除（与 Web 查看器「更多」对齐）：可为所有人删则弹两档 sheet，否则=仅删除自己 / 本地删。
+    [acts addObject:[IMPopoverCardItem itemWithTitle:@"删除" symbol:@"trash" destructive:YES handler:^{ [ws confirmDeleteMediaMessage:m]; }]];
     return acts;
+}
+
+/// 当前实际可见、可承载 present 的 VC：查看器「更多」动作是「先关查看器再执行」，
+/// 从全屏媒体库进入时关完后栈顶是媒体库而非本聊天页——此时用 self 去 present 会因
+/// 「view is not in the window hierarchy」被 UIKit 拒绝（静默失败，曾致删除/转发无反应）。
+- (UIViewController *)visiblePresenter {
+    UIViewController *top = self.navigationController.topViewController ?: self;
+    return top.presentedViewController ?: top;
+}
+
+/// 查看器「更多」里的删除（IMPopoverCard 为扁平列表，用 action sheet 承载两档）：
+/// 本地未发出（convSeq<=0）=本地删；可为所有人删=弹「仅删除自己 / 为所有人删除」；否则=仅删除自己。
+- (void)confirmDeleteMediaMessage:(IMMessageModel *)m {
+    if (!m) { return; }
+    if (m.convSeq <= 0) { [self deleteMessage:m]; return; }
+    BOOL mine = [m.from isEqualToString:self.userID];
+    BOOL canEveryone = mine || (self.isGroupChat &&
+        (self.groupInfo.myRole == IMGroupRoleOwner || self.groupInfo.myRole == IMGroupRoleAdmin));
+    if (!canEveryone) { [self hideMessageForSelf:m]; return; }
+    __weak typeof(self) ws = self;
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:nil message:nil
+                                                           preferredStyle:UIAlertControllerStyleActionSheet];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"仅删除自己" style:UIAlertActionStyleDestructive
+                                            handler:^(UIAlertAction *a) { [ws hideMessageForSelf:m]; }]];
+    // 破坏性重的「为所有人删除」放最后（destructive-last，与本仓菜单约定一致）。
+    [sheet addAction:[UIAlertAction actionWithTitle:@"为所有人删除" style:UIAlertActionStyleDestructive
+                                            handler:^(UIAlertAction *a) { [ws deleteMessageForEveryone:m]; }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    UIViewController *presenter = [self visiblePresenter]; // 媒体库/聊天页谁在顶就从谁弹
+    sheet.popoverPresentationController.sourceView = presenter.view; // iPad 锚点兜底（居中）
+    sheet.popoverPresentationController.sourceRect = CGRectMake(presenter.view.bounds.size.width / 2, presenter.view.bounds.size.height / 2, 0, 0);
+    [presenter presentViewController:sheet animated:YES completion:nil];
 }
 
 /// 全屏媒体库逐格长按菜单里「消息相关」动作（转发/定位/删除，与资料 tab 一致；「取消下载」由媒体库自带）。
@@ -2558,7 +2593,8 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 
 /// 转发一条消息（#6）：整页会话选择器（单/多选，最多 9）→ 逐条转发，保留 content_type（图片/视频不退化成文本）。
 - (void)forwardMessage:(IMMessageModel *)message {
-    [self presentForwardPickerForMessage:message fromViewController:self];
+    // 从谁可见就从谁弹（查看器「更多」先关查看器再执行，栈顶可能是全屏媒体库而非本页）。
+    [self presentForwardPickerForMessage:message fromViewController:[self visiblePresenter]];
 }
 
 /// 转发选择页由 `presenter` 弹出（详情页文件列表复用时传自己），回声逻辑与 toast 都收敛在这里。
