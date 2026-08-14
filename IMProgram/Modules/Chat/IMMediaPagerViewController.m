@@ -68,12 +68,11 @@
     UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
 
     // 顶部标题栏：直接复用聊天页那套液态玻璃栏，风格一致。左侧默认返回键（关闭本页），中间会话名 + i/N 计数。
-    _navBar = [[IMLiquidNavigationBar alloc] initWithTitle:(self.conversationTitle ?: @"") subtitle:@"" actionTitle:nil];
+    // 自持栏用 standalone 初始化（内部已设 compactContentProgress=1，标题即刻可见——普通 init 默认 0
+    // 靠导航容器驱动，自持漏设会整条只剩返回键，坑已收进组件）。showsTitleGlass=聊天页同款标题玻璃胶囊。
+    _navBar = [[IMLiquidNavigationBar alloc] initStandaloneWithTitle:(self.conversationTitle ?: @"") subtitle:@"" actionTitle:nil];
     _navBar.delegate = self;
     _navBar.showsBackButton = YES;                 // 默认返回键（取代原 ✕）
-    // ⚠️ 标题/副标题的透明度由 compactContentProgress 驱动（默认 0 = 全透明）；主导航容器注入时会设 1，
-    // 自持必须自己设，否则整条栏只剩返回键（曾因此标题完全不显示）。showsTitleGlass=聊天页同款标题玻璃胶囊。
-    _navBar.compactContentProgress = 1;
     _navBar.showsTitleGlass = YES;
     _navBar.overrideUserInterfaceStyle = UIUserInterfaceStyleDark; // 全屏黑底 → 暗色玻璃 + 白前景
     _navBar.translatesAutoresizingMaskIntoConstraints = NO;

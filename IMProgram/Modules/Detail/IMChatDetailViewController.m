@@ -35,6 +35,7 @@
 #import "IMGlass.h"
 #import "UILabel+IMAvatar.h"
 #import "UIViewController+IMToast.h"
+#import "UIViewController+IMDeleteSheet.h" // 两档删除 sheet（与聊天页共用）
 #import "IMTheme.h"
 #import "IMLog.h"
 #import <objc/runtime.h>
@@ -2410,16 +2411,10 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     if (!m || m.convSeq <= 0) { return; }
     if (![self canDeleteForEveryone:m]) { [self hideMessageForSelf:m]; return; }
     __weak typeof(self) ws = self;
-    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:nil message:nil
-                                                           preferredStyle:UIAlertControllerStyleActionSheet];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"仅删除自己" style:UIAlertActionStyleDestructive
-                                            handler:^(UIAlertAction *a) { [ws hideMessageForSelf:m]; }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"为所有人删除" style:UIAlertActionStyleDestructive
-                                            handler:^(UIAlertAction *a) { [ws deleteMessageForEveryone:m]; }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    sheet.popoverPresentationController.sourceView = self.view;
-    sheet.popoverPresentationController.sourceRect = CGRectMake(self.view.bounds.size.width / 2, self.view.bounds.size.height / 2, 0, 0);
-    [self presentViewController:sheet animated:YES completion:nil];
+    // 「更多」先关查看器再执行，此刻可见的是本页；与聊天页不同，本页没有全屏媒体库入口，self 必可见。
+    UIViewController *presenter = [UIViewController im_topVisibleViewController] ?: self;
+    [presenter im_presentDeleteChoiceSheetWithSelfOnly:^{ [ws hideMessageForSelf:m]; }
+                                              everyone:^{ [ws deleteMessageForEveryone:m]; }];
 }
 /// 应用内浏览器打开链接（SFSafariViewController，仅接受 http/https；与聊天页 openLink: 一致）。
 - (void)openLink:(NSString *)url {

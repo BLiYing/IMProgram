@@ -48,6 +48,7 @@
 #import "IMPinnedBannerView.h"
 #import "IMPinnedMessage.h"
 #import "UIViewController+IMToast.h"
+#import "UIViewController+IMDeleteSheet.h" // 两档删除 sheet（与详情页共用）
 #import "IMTheme.h"
 #import "IMAppearance.h"
 #import "IMLog.h"
@@ -1697,13 +1698,12 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     if (message.content.length == 0) { return; }
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0) { return; }
-    __weak typeof(self) ws = self;
     [IMHTTPService.sharedService addFavoriteWithToken:token contentType:(message.contentType ?: @"text")
                                               content:message.content sourceConvID:message.convID
                                         sourceConvSeq:message.convSeq sourceFrom:(message.from ?: @"")
                                            completion:^(NSError *error) {
         // toast 吐在当前可见页（从全屏媒体库的查看器收藏时，本页不可见，吐在自己身上等于没提示）。
-        [[ws visiblePresenter] im_showToast:error ? [NSString stringWithFormat:@"收藏失败：%@", error.localizedDescription] : @"已收藏"];
+        [UIViewController im_showGlobalToast:error ? [NSString stringWithFormat:@"收藏失败：%@", error.localizedDescription] : @"已收藏"];
     }];
 }
 
@@ -1954,36 +1954,18 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     return acts;
 }
 
-/// 当前实际可见、可承载 present 的 VC：查看器「更多」动作是「先关查看器再执行」，
-/// 从全屏媒体库进入时关完后栈顶是媒体库而非本聊天页——此时用 self 去 present 会因
-/// 「view is not in the window hierarchy」被 UIKit 拒绝（静默失败，曾致删除/转发无反应）。
-- (UIViewController *)visiblePresenter {
-    UIViewController *top = self.navigationController.topViewController ?: self;
-    return top.presentedViewController ?: top;
-}
-
 /// 查看器「更多」里的删除（IMPopoverCard 为扁平列表，用 action sheet 承载两档）：
 /// 本地未发出（convSeq<=0）=本地删；可为所有人删=弹「仅删除自己 / 为所有人删除」；否则=仅删除自己。
 - (void)confirmDeleteMediaMessage:(IMMessageModel *)m {
     if (!m) { return; }
     if (m.convSeq <= 0) { [self deleteMessage:m]; return; }
-    BOOL mine = [m.from isEqualToString:self.userID];
-    BOOL canEveryone = mine || (self.isGroupChat &&
-        (self.groupInfo.myRole == IMGroupRoleOwner || self.groupInfo.myRole == IMGroupRoleAdmin));
-    if (!canEveryone) { [self hideMessageForSelf:m]; return; }
+    if (![self canDeleteForEveryone:m]) { [self hideMessageForSelf:m]; return; }
     __weak typeof(self) ws = self;
-    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:nil message:nil
-                                                           preferredStyle:UIAlertControllerStyleActionSheet];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"仅删除自己" style:UIAlertActionStyleDestructive
-                                            handler:^(UIAlertAction *a) { [ws hideMessageForSelf:m]; }]];
-    // 破坏性重的「为所有人删除」放最后（destructive-last，与本仓菜单约定一致）。
-    [sheet addAction:[UIAlertAction actionWithTitle:@"为所有人删除" style:UIAlertActionStyleDestructive
-                                            handler:^(UIAlertAction *a) { [ws deleteMessageForEveryone:m]; }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    UIViewController *presenter = [self visiblePresenter]; // 媒体库/聊天页谁在顶就从谁弹
-    sheet.popoverPresentationController.sourceView = presenter.view; // iPad 锚点兜底（居中）
-    sheet.popoverPresentationController.sourceRect = CGRectMake(presenter.view.bounds.size.width / 2, presenter.view.bounds.size.height / 2, 0, 0);
-    [presenter presentViewController:sheet animated:YES completion:nil];
+    // 从可见页弹（查看器「更多」是先关查看器再执行，栈顶可能是全屏媒体库而非本页；
+    // 挂到被覆盖的 self 上会被 UIKit 静默拒绝，曾致删除无反应）。
+    UIViewController *presenter = [UIViewController im_topVisibleViewController] ?: self;
+    [presenter im_presentDeleteChoiceSheetWithSelfOnly:^{ [ws hideMessageForSelf:m]; }
+                                              everyone:^{ [ws deleteMessageForEveryone:m]; }];
 }
 
 /// 全屏媒体库逐格长按菜单里「消息相关」动作（转发/定位/删除，与资料 tab 一致；「取消下载」由媒体库自带）。
@@ -1994,8 +1976,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
                                        handler:^{ [ws forwardMessage:m]; }]];
     [acts addObject:[IMMenuAction actionWithId:@"locate" title:@"定位到聊天" image:@"text.bubble"
                                        handler:^{ [ws jumpToConvSeq:m.convSeq]; }]];
-    BOOL mine = [m.from isEqualToString:self.userID];
-    [acts addObject:[self deleteMenuActionForMessage:m mine:mine]]; // actionId=@"delete"（媒体库据此在其前插「取消下载」）
+    [acts addObject:[self deleteMenuActionForMessage:m]]; // actionId=@"delete"（媒体库据此在其前插「取消下载」）
     return acts;
 }
 
@@ -2594,7 +2575,8 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 /// 转发一条消息（#6）：整页会话选择器（单/多选，最多 9）→ 逐条转发，保留 content_type（图片/视频不退化成文本）。
 - (void)forwardMessage:(IMMessageModel *)message {
     // 从谁可见就从谁弹（查看器「更多」先关查看器再执行，栈顶可能是全屏媒体库而非本页）。
-    [self presentForwardPickerForMessage:message fromViewController:[self visiblePresenter]];
+    [self presentForwardPickerForMessage:message
+                      fromViewController:([UIViewController im_topVisibleViewController] ?: self)];
 }
 
 /// 转发选择页由 `presenter` 弹出（详情页文件列表复用时传自己），回声逻辑与 toast 都收敛在这里。
@@ -3708,23 +3690,28 @@ static UIBezierPath *IMBubbleOutlinePath(CGRect rect, CGFloat radius, CACornerMa
     // 删除：发送中的本地件不显示——删除只删行不停止上传，传完仍会发出去（僵尸任务）；
     // 想撤走请用「取消发送」（停任务/删副本/删库行一步到位）。失败行保留删除。
     if (!(message.status == IMMessageStatusSending && message.convSeq <= 0)) {
-        [actions addObject:[self deleteMenuActionForMessage:message mine:mine]];
+        [actions addObject:[self deleteMenuActionForMessage:message]];
     }
     return actions;
+}
+
+/// 我能否为该消息「为所有人删除」：我发的，或群主/管理员。
+/// 权限规则的**唯一出处**（长按菜单与查看器删除共用；详情页 canDeleteForEveryone: 同规则）——改语义只改这里。
+- (BOOL)canDeleteForEveryone:(IMMessageModel *)message {
+    if (message.from.length > 0 && [message.from isEqualToString:self.userID]) { return YES; }
+    return self.isGroupChat && (self.groupInfo.myRole == IMGroupRoleOwner || self.groupInfo.myRole == IMGroupRoleAdmin);
 }
 
 /// 删除菜单项（任务2，两档，与详情页一致）：
 ///  - 本地未发出/失败件（convSeq<=0）：直接「删除」=本地删（服务器无此消息）。
 ///  - 已发出、我发的 / 群主·管理员：「删除」→ 子菜单【为所有人删除】(msg_op delete) +【仅删除自己】(hide 多设备)。
 ///  - 已发出、仅能删自己：「删除」=仅删除自己（hide）。
-- (IMMenuAction *)deleteMenuActionForMessage:(IMMessageModel *)message mine:(BOOL)mine {
+- (IMMenuAction *)deleteMenuActionForMessage:(IMMessageModel *)message {
     __weak typeof(self) ws = self;
     if (message.convSeq <= 0) {
         return [IMMenuAction destructiveActionWithId:@"delete" title:@"删除" image:@"trash" handler:^{ [ws deleteMessage:message]; }];
     }
-    BOOL canForEveryone = mine || (self.isGroupChat &&
-        (self.groupInfo.myRole == IMGroupRoleOwner || self.groupInfo.myRole == IMGroupRoleAdmin));
-    if (!canForEveryone) {
+    if (![self canDeleteForEveryone:message]) {
         return [IMMenuAction destructiveActionWithId:@"delete" title:@"删除" image:@"trash" handler:^{ [ws hideMessageForSelf:message]; }];
     }
     IMMenuAction *selfOnly = [IMMenuAction destructiveActionWithId:@"deleteSelf" title:@"仅删除自己" image:@"trash"

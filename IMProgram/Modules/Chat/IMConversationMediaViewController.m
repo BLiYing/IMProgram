@@ -118,6 +118,13 @@
     NSString *convID = note.userInfo[kIMConvIDKey];
     int64_t seq = [note.userInfo[kIMMsgOpTargetSeqKey] longLongValue];
     if (convID.length == 0 || seq <= 0) { return; }
+    // 观察者按 object:nil 注册（任何会话的删除都会进来），绝大多数命不中本页快照——
+    // 先只读扫一遍，无命中直接返回，别为不相干的通知白付两次全量 mutableCopy。
+    BOOL hit = NO;
+    for (IMMessageModel *m in _messages) {
+        if (m.convSeq == seq && (m.convID.length == 0 || [m.convID isEqualToString:convID])) { hit = YES; break; }
+    }
+    if (!hit) { return; }
     NSMutableArray<IMMediaItem *> *items = [_items mutableCopy];
     NSMutableArray<IMMessageModel *> *msgs = [_messages mutableCopy];
     BOOL changed = NO;

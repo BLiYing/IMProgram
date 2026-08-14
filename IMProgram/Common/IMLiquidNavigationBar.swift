@@ -228,6 +228,15 @@ public final class IMLiquidNavigationBar: UIView {
         buildView()
     }
 
+    /// **自持宿主**（不经主导航容器注入，如全屏媒体查看器）便捷初始化：标题即刻可见（compactContentProgress=1）。
+    /// 容器注入的栏由容器每个刷新周期驱动该进度；自持栏漏设则整条只剩返回键（多个宿主踩过同一坑），
+    /// 故把这条契约收进组件。需要自己驱动进度的自持宿主（如详情页水滴头部）仍用上面的普通初始化。
+    @objc(initStandaloneWithTitle:subtitle:actionTitle:)
+    public convenience init(standaloneTitle: String, subtitle: String, actionTitle: String?) {
+        self.init(title: standaloneTitle, subtitle: subtitle, actionTitle: actionTitle)
+        compactContentProgress = 1
+    }
+
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
