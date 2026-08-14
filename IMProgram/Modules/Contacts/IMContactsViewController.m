@@ -4,6 +4,7 @@
 #import "IMUserSearchViewController.h"
 #import "IMGroupListViewController.h"
 #import "IMContactCells.h"
+#import "IMContactSectionIndex.h"
 #import "IMChatDetailViewController.h"
 #import "IMHTTPService.h"
 #import "IMSocketManager.h"
@@ -77,7 +78,8 @@
 @property (nonatomic, copy) NSString *userID;
 @property (nonatomic, copy, nullable) NSString *token;
 @property (nonatomic, strong) NSArray<IMUserCard *> *pending;   // 对方申请我，待我同意/拒绝
-@property (nonatomic, strong) NSArray<IMUserCard *> *accepted;  // 已是好友
+@property (nonatomic, strong) NSArray<IMUserCard *> *accepted;  // 已是好友（原始集合；分组展示走 friendIndex）
+@property (nonatomic, strong) IMContactSectionIndex *friendIndex; // 好友 A–Z 分组索引（右侧纵向索引尺 + 字母表头）
 @property (nonatomic, strong) NSArray<IMMenuAction *> *entries; // 顶部入口（群聊/公众号/服务号）
 @property (nonatomic, strong) NSArray<UIColor *> *entryColors;  // 与 entries 同序的图标底色
 @property (nonatomic, strong) UITableView *tableView;
@@ -102,6 +104,7 @@
         }];
         _pending = @[];              // 待处理申请不落库（易变，以服务端为准），联网后由 applyFriends 补上
         _accepted = cachedFriends;   // 好友种子（离线首屏）
+        _friendIndex = [[IMContactSectionIndex alloc] initWithCards:cachedFriends]; // 种子也分组，离线首屏即带索引
         [self buildEntries];
         // 实时好友事件：即使没在通讯录页，也据此刷新（Tab 角标随之亮/灭，无需切页）。
         [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onFriendEvent)
@@ -205,7 +208,7 @@
     }];
 }
 
-/// 拆分为"新的朋友"(pending) 与 好友(accepted)；好友按更新时间倒序。
+/// 拆分为"新的朋友"(pending) 与 好友(accepted)；好友按拼音首字母分组（A–Z + 右侧索引尺，见 friendIndex）。
 - (void)applyFriends:(NSArray<IMUserCard *> *)friends {
     NSMutableArray<IMUserCard *> *pending = [NSMutableArray array];
     NSMutableArray<IMUserCard *> *accepted = [NSMutableArray array];
@@ -213,12 +216,9 @@
         if (c.status == IMFriendStatusPending) { [pending addObject:c]; }
         else if (c.status == IMFriendStatusAccepted) { [accepted addObject:c]; }
     }
-    [accepted sortUsingComparator:^NSComparisonResult(IMUserCard *a, IMUserCard *b) {
-        if (a.updatedAt == b.updatedAt) { return NSOrderedSame; }
-        return a.updatedAt > b.updatedAt ? NSOrderedAscending : NSOrderedDescending;
-    }];
     self.pending = pending;
     self.accepted = accepted;
+    self.friendIndex = [[IMContactSectionIndex alloc] initWithCards:accepted]; // 排序/分桶交给索引
     self.emptyLabel.hidden = (pending.count + accepted.count) > 0;
     [self.tableView reloadData];
     // 任务5：权威好友列表落库（仅 accepted），供下次断网离线首屏。空数组也写，代表当前账号无好友。
@@ -281,8 +281,8 @@
 
 #pragma mark - 分区映射
 
-// 分区布局：section 0 = 顶部入口（始终存在）；有待处理申请时 section 1 = 新的朋友、section 2 = 好友；
-// 否则 section 1 = 好友。下面以语义谓词判断，避免散落魔法下标。
+// 分区布局：section 0 = 顶部入口（始终存在）；有待处理申请时 section 1 = 新的朋友；
+// 其后接 N 个「好友 A–Z 字母分组」（由 friendIndex 提供）。下面以语义谓词判断，避免散落魔法下标。
 
 /// 顶部入口区永远是 section 0。
 - (BOOL)isEntriesSection:(NSInteger)section { return section == 0; }
@@ -292,21 +292,23 @@
 - (BOOL)isRequestsSection:(NSInteger)section {
     return [self hasRequestsSection] && section == 1;
 }
-/// 好友分区：入口之后、（可选）新的朋友之后的最后一个分区。
-- (BOOL)isFriendsSection:(NSInteger)section {
-    return section == ([self hasRequestsSection] ? 2 : 1);
-}
+/// 好友字母分组的起始 section（入口 + 可选新的朋友之后）。
+- (NSInteger)friendsBaseSection { return 1 + ([self hasRequestsSection] ? 1 : 0); }
+/// 该 section 是否属于好友字母分组区。
+- (BOOL)isFriendSection:(NSInteger)section { return section >= [self friendsBaseSection]; }
+/// section → friendIndex 内的分组下标。
+- (NSInteger)friendLocalSection:(NSInteger)section { return section - [self friendsBaseSection]; }
 
 #pragma mark - UITableView
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return 1 /*入口*/ + ([self hasRequestsSection] ? 1 : 0) + 1 /*好友*/;
+    return [self friendsBaseSection] + [self.friendIndex numberOfSections];
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if ([self isEntriesSection:section]) { return (NSInteger)self.entries.count; }
     if ([self isRequestsSection:section]) { return (NSInteger)self.pending.count; }
-    return (NSInteger)self.accepted.count;
+    return [self.friendIndex numberOfRowsInSection:[self friendLocalSection:section]];
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
@@ -314,7 +316,16 @@
     if ([self isRequestsSection:section]) {
         return [NSString stringWithFormat:@"新的朋友（%lu）", (unsigned long)self.pending.count];
     }
-    return [NSString stringWithFormat:@"好友（%lu）", (unsigned long)self.accepted.count];
+    return [self.friendIndex titleForSection:[self friendLocalSection:section]]; // 字母表头（索引 head）
+}
+
+/// 右侧纵向索引尺：列出好友字母（A–Z / #），点击跳到对应分组；无好友则不显示。
+- (NSArray<NSString *> *)sectionIndexTitlesForTableView:(UITableView *)tableView {
+    return self.friendIndex.titles.count > 0 ? self.friendIndex.titles : nil;
+}
+
+- (NSInteger)tableView:(UITableView *)tableView sectionForSectionIndexTitle:(NSString *)title atIndex:(NSInteger)index {
+    return [self friendsBaseSection] + index; // titles 与好友分组一一对应，加偏移即绝对 section
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -334,7 +345,7 @@
         return cell;
     }
     IMContactCell *cell = [tableView dequeueReusableCellWithIdentifier:@"friend" forIndexPath:indexPath];
-    IMUserCard *c = self.accepted[indexPath.row];
+    IMUserCard *c = [self.friendIndex cardAtSection:[self friendLocalSection:indexPath.section] row:indexPath.row];
     // 拉黑≠解绑：被拉黑的好友仍在列表，副标题标注"已拉黑"以区分。
     NSString *subtitle = c.blocked ? [NSString stringWithFormat:@"%@ · 已拉黑", c.userID] : c.userID;
     [cell configureWithCard:c subtitle:subtitle];
@@ -352,14 +363,16 @@
         return;
     }
     if ([self isRequestsSection:indexPath.section]) { return; } // 申请行靠按钮操作，不整行点击
-    [self openPeerDetail:self.accepted[indexPath.row]];
+    IMUserCard *c = [self.friendIndex cardAtSection:[self friendLocalSection:indexPath.section] row:indexPath.row];
+    if (c) { [self openPeerDetail:c]; }
 }
 
 /// 好友行左滑：删除好友 / 拉黑或解除拉黑（入口行/申请行不提供）。
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView
     trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (![self isFriendsSection:indexPath.section]) { return nil; }
-    IMUserCard *card = self.accepted[indexPath.row];
+    if (![self isFriendSection:indexPath.section]) { return nil; }
+    IMUserCard *card = [self.friendIndex cardAtSection:[self friendLocalSection:indexPath.section] row:indexPath.row];
+    if (!card) { return nil; }
     NSString *peer = card.userID;
     __weak typeof(self) weakSelf = self;
     UIContextualAction *del = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive

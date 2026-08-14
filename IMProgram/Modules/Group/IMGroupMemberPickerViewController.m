@@ -3,6 +3,7 @@
 #import "IMGroupMemberPickerViewController.h"
 #import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
 #import "IMContactCells.h"
+#import "IMContactSectionIndex.h"
 #import "IMHTTPService.h"
 #import "IMUserCard.h"
 #import "IMTheme.h"
@@ -14,7 +15,7 @@
 @property (nonatomic, strong, nullable) NSSet<NSString *> *excludedIDs;
 @property (nonatomic, copy) NSString *confirmTitle;
 @property (nonatomic, copy) void (^onDone)(NSArray<NSString *> *selectedIDs);
-@property (nonatomic, strong) NSArray<IMUserCard *> *friends;          // 可选好友（已排除 excludedIDs）
+@property (nonatomic, strong) IMContactSectionIndex *friendIndex;     // 可选好友（已排除 excludedIDs）的 A–Z 分组索引，兼作表格数据源
 @property (nonatomic, strong) NSMutableOrderedSet<NSString *> *picked; // 选中的 uid（保持点选顺序）
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) UILabel *emptyLabel;
@@ -33,7 +34,6 @@
         _excludedIDs = [excludedIDs copy];
         _confirmTitle = [confirmTitle copy];
         _onDone = [onDone copy];
-        _friends = @[];
         _picked = [NSMutableOrderedSet orderedSet];
         self.hidesBottomBarWhenPushed = YES;
     }
@@ -96,7 +96,7 @@
             for (IMUserCard *c in friends) {
                 if (![self.excludedIDs containsObject:c.userID]) { [usable addObject:c]; }
             }
-            self.friends = usable;
+            self.friendIndex = [[IMContactSectionIndex alloc] initWithCards:usable]; // A–Z 分组，兼作数据源
             self.emptyLabel.hidden = usable.count > 0;
             [self.tableView reloadData];
         }];
@@ -121,25 +121,44 @@
 
 #pragma mark - UITableView
 
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
+    return [self.friendIndex numberOfSections];
+}
+
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    return (NSInteger)self.friends.count;
+    return [self.friendIndex numberOfRowsInSection:section];
+}
+
+- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
+    return [self.friendIndex titleForSection:section]; // 字母表头（索引 head）
+}
+
+/// 右侧纵向索引尺：A–Z / #，点击跳转到对应分组；无好友则不显示。
+- (NSArray<NSString *> *)sectionIndexTitlesForTableView:(UITableView *)tableView {
+    return self.friendIndex.titles.count > 0 ? self.friendIndex.titles : nil;
+}
+
+- (NSInteger)tableView:(UITableView *)tableView sectionForSectionIndexTitle:(NSString *)title atIndex:(NSInteger)index {
+    return index; // 本页只有好友分组，section 与 titles 一一对应
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     IMContactCell *cell = [tableView dequeueReusableCellWithIdentifier:@"pick" forIndexPath:indexPath];
-    IMUserCard *c = self.friends[indexPath.row];
+    IMUserCard *c = [self.friendIndex cardAtSection:indexPath.section row:indexPath.row];
     [cell configureWithCard:c subtitle:c.userID];
     [cell setActionTitle:nil enabled:NO action:nil];
     cell.selectionStyle = UITableViewCellSelectionStyleDefault;
-    cell.accessoryType = [self.picked containsObject:c.userID]
-        ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
-    cell.tintColor = IMTheme.accent;
+    // 行首圆形勾选框（对齐 Web/微信 + 转发选择器），替代原尾部系统 ✓。
+    [cell setChecked:[self.picked containsObject:c.userID] showCheckbox:YES];
+    cell.accessoryType = UITableViewCellAccessoryNone;
     return cell;
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    NSString *uid = self.friends[indexPath.row].userID;
+    IMUserCard *c = [self.friendIndex cardAtSection:indexPath.section row:indexPath.row];
+    NSString *uid = c.userID;
+    if (uid.length == 0) { return; }
     if ([self.picked containsObject:uid]) { [self.picked removeObject:uid]; }
     else { [self.picked addObject:uid]; }
     [tableView reloadRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationNone];

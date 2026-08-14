@@ -4,8 +4,86 @@
 #import "IMHTTPService.h"
 #import "IMConversation.h"
 #import "UIViewController+IMToast.h"
+#import "UILabel+IMAvatar.h"
+#import "IMTheme.h"
+#import "IMCircleCheckbox.h"
 
 static const NSUInteger kIMForwardMaxSelection = 9;
+
+#pragma mark - Cell（头像圈 + 名字，对齐 Web 转发选择器 / 复用 IMReadReceipt 同款布局）
+
+@interface IMForwardPickerCell : UITableViewCell
+- (void)configureWithConversation:(IMConversation *)c multiSelect:(BOOL)multiSelect selected:(BOOL)selected;
+@end
+
+@implementation IMForwardPickerCell {
+    IMCircleCheckbox *_checkbox;   // 行首圆形勾选框（仅多选态显示，对齐 Web/微信）
+    UILabel *_avatar;
+    UILabel *_nameLabel;
+    NSLayoutConstraint *_checkboxWidth;   // 22 多选 / 0 单选（连同 avatar 前距收起）
+    NSLayoutConstraint *_avatarLeading;   // = checkbox.trailing + (多选 12 / 单选 0)
+}
+
+- (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
+    if ((self = [super initWithStyle:style reuseIdentifier:reuseIdentifier])) {
+        _checkbox = [IMCircleCheckbox new];
+        _checkbox.translatesAutoresizingMaskIntoConstraints = NO;
+        [self.contentView addSubview:_checkbox];
+
+        _avatar = [UILabel new];
+        _avatar.translatesAutoresizingMaskIntoConstraints = NO;
+        _avatar.textAlignment = NSTextAlignmentCenter;
+        _avatar.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
+        _avatar.textColor = UIColor.whiteColor;
+        _avatar.layer.cornerRadius = 17;
+        _avatar.layer.masksToBounds = YES;
+        [self.contentView addSubview:_avatar];
+
+        _nameLabel = [UILabel new];
+        _nameLabel.translatesAutoresizingMaskIntoConstraints = NO;
+        _nameLabel.font = [UIFont systemFontOfSize:15.5];
+        _nameLabel.textColor = IMTheme.textPrimary;
+        [self.contentView addSubview:_nameLabel];
+
+        UILayoutGuide *g = self.contentView.layoutMarginsGuide;
+        _checkboxWidth = [_checkbox.widthAnchor constraintEqualToConstant:0];
+        _avatarLeading = [_avatar.leadingAnchor constraintEqualToAnchor:_checkbox.trailingAnchor constant:0];
+        [NSLayoutConstraint activateConstraints:@[
+            [_checkbox.leadingAnchor constraintEqualToAnchor:g.leadingAnchor],
+            [_checkbox.centerYAnchor constraintEqualToAnchor:g.centerYAnchor],
+            [_checkbox.heightAnchor constraintEqualToConstant:22],
+            _checkboxWidth,
+            _avatarLeading,
+            [_avatar.centerYAnchor constraintEqualToAnchor:g.centerYAnchor],
+            [_avatar.widthAnchor constraintEqualToConstant:34],
+            [_avatar.heightAnchor constraintEqualToConstant:34],
+            [_nameLabel.leadingAnchor constraintEqualToAnchor:_avatar.trailingAnchor constant:12],
+            [_nameLabel.trailingAnchor constraintEqualToAnchor:g.trailingAnchor],
+            [_nameLabel.centerYAnchor constraintEqualToAnchor:g.centerYAnchor],
+            [self.contentView.heightAnchor constraintGreaterThanOrEqualToConstant:50],
+        ]];
+    }
+    return self;
+}
+
+/// 群聊用 name/avatarURL、seed=convID；单聊用 peerNickname/peerAvatarURL、seed=peer（对齐 Web convAvatarUrl）。
+/// im_setAvatarURL 内部自动解析相对 URL 并做 cell 复用防错，故直接传原始 avatar_url。
+/// 多选态在行首显圆形勾选框（选中 checkmark.circle.fill / 未选 circle）；单选态收起为 0 宽，avatar 顶到行首。
+- (void)configureWithConversation:(IMConversation *)c multiSelect:(BOOL)multiSelect selected:(BOOL)selected {
+    NSString *name = c.isGroup ? (c.name.length ? c.name : @"群聊")
+                               : (c.peerNickname.length ? c.peerNickname : (c.peer ?: @""));
+    NSString *url = c.isGroup ? c.avatarURL : c.peerAvatarURL;
+    NSString *seed = c.isGroup ? (c.convID ?: name) : (c.peer ?: name);
+    [_avatar im_setAvatarURL:url seed:seed displayName:name];
+    _nameLabel.text = name;
+
+    _checkbox.hidden = !multiSelect;
+    _checkboxWidth.constant = multiSelect ? 22 : 0;
+    _avatarLeading.constant = multiSelect ? 12 : 0; // 与 IMContactCell 统一（共享 IMCircleCheckbox）
+    if (multiSelect) { _checkbox.checked = selected; }
+}
+
+@end
 
 @interface IMForwardPickerViewController () <UITableViewDataSource, UITableViewDelegate>
 @end
@@ -43,7 +121,7 @@ static const NSUInteger kIMForwardMaxSelection = 9;
     _tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     _tableView.dataSource = self;
     _tableView.delegate = self;
-    [_tableView registerClass:UITableViewCell.class forCellReuseIdentifier:@"conv"];
+    [_tableView registerClass:IMForwardPickerCell.class forCellReuseIdentifier:@"conv"];
     [self.view addSubview:_tableView];
 
     [self loadConversations];
@@ -102,14 +180,12 @@ static const NSUInteger kIMForwardMaxSelection = 9;
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return _convs.count; }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)ip {
-    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"conv" forIndexPath:ip];
+    IMForwardPickerCell *cell = [tableView dequeueReusableCellWithIdentifier:@"conv" forIndexPath:ip];
     IMConversation *c = _convs[ip.row];
-    cell.textLabel.text = [self displayNameFor:c];
-    if (_multiSelect) {
-        cell.accessoryType = [_selected containsObject:c] ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
-    } else {
-        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-    }
+    BOOL selected = [_selected containsObject:c];
+    [cell configureWithConversation:c multiSelect:_multiSelect selected:selected];
+    // 多选态：选中态由行首圆圈承载，不再挂尾部系统 ✓；单选态保留 disclosure「>」。
+    cell.accessoryType = _multiSelect ? UITableViewCellAccessoryNone : UITableViewCellAccessoryDisclosureIndicator;
     return cell;
 }
 

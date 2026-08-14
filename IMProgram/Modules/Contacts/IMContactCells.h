@@ -15,6 +15,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)configureWithCard:(IMUserCard *)card subtitle:(nullable NSString *)subtitle;
 /// 配置右侧动作按钮：title 为 nil 隐藏；enabled=NO 显示为灰色不可点；点击回调 onAction。
 - (void)setActionTitle:(nullable NSString *)title enabled:(BOOL)enabled action:(nullable void (^)(void))onAction;
+/// 多选列表用：行首圆形勾选框。show=NO 隐藏（头像顶到前缘，默认态）；show=YES 显示并右移头像，checked 控制勾选。
+- (void)setChecked:(BOOL)checked showCheckbox:(BOOL)show;
 
 @end
 

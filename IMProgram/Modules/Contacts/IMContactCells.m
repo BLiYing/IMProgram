@@ -4,9 +4,13 @@
 #import "IMUserCard.h"
 #import "IMTheme.h"
 #import "UILabel+IMAvatar.h"
+#import "IMCircleCheckbox.h"
 
 static CGFloat const kIMContactAvatarSize = 48;
 static CGFloat const kIMContactLeading = 16;
+// 右侧纵向索引尺（sectionIndex）的让位：自定义 trailing 控件（如申请行的同意/拒绝按钮）不会被 UIKit 自动
+// 避让索引尺，需手动留出，否则右缘按钮被索引尺盖住、右侧点按打到索引上。系统 accessoryType 会自动避让、无需处理。
+static CGFloat const kIMContactIndexGutter = 16;
 
 /// 通讯录里统一的小动作按钮（绿底白字；ghost=灰底描边不可点）。用 UIButtonConfiguration（iOS15+，免 contentEdgeInsets 弃用告警）。
 static UIButton *IMMakeMiniButton(void) {
@@ -56,7 +60,8 @@ static void IMStyleMiniButton(UIButton *b, IMMiniStyle style) {
 
 /// 给 cell 添加圆形头像 + 名称 + 副标题，返回三个 label 供配置。约束基于 contentView。
 /// trailingGuide：标题/副标题右侧的可让位锚点（按钮区域）。
-static void IMBuildContactBody(UITableViewCell *cell, UILabel *__strong *avatarOut, UILabel *__strong *titleOut, UILabel *__strong *subtitleOut, UIView *trailingRef) {
+/// avatarLeadingOut（可选）：回传「头像→contentView 前缘」的 leading 约束，供调用方拆掉后改挂到行首勾选框上（多选模式）。
+static void IMBuildContactBody(UITableViewCell *cell, UILabel *__strong *avatarOut, UILabel *__strong *titleOut, UILabel *__strong *subtitleOut, UIView *trailingRef, NSLayoutConstraint *__strong *avatarLeadingOut) {
     UILabel *avatar = [UILabel new];
     avatar.translatesAutoresizingMaskIntoConstraints = NO;
     avatar.textColor = UIColor.whiteColor;
@@ -78,8 +83,9 @@ static void IMBuildContactBody(UITableViewCell *cell, UILabel *__strong *avatarO
     subtitle.textColor = IMTheme.textSecondary;
     [cell.contentView addSubview:subtitle];
 
+    NSLayoutConstraint *avatarLeading = [avatar.leadingAnchor constraintEqualToAnchor:cell.contentView.leadingAnchor constant:kIMContactLeading];
     [NSLayoutConstraint activateConstraints:@[
-        [avatar.leadingAnchor constraintEqualToAnchor:cell.contentView.leadingAnchor constant:kIMContactLeading],
+        avatarLeading,
         [avatar.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
         [avatar.widthAnchor constraintEqualToConstant:kIMContactAvatarSize],
         [avatar.heightAnchor constraintEqualToConstant:kIMContactAvatarSize],
@@ -95,6 +101,7 @@ static void IMBuildContactBody(UITableViewCell *cell, UILabel *__strong *avatarO
     *avatarOut = avatar;
     *titleOut = title;
     *subtitleOut = subtitle;
+    if (avatarLeadingOut) { *avatarLeadingOut = avatarLeading; }
 }
 
 static void IMConfigureBody(UILabel *avatar, UILabel *title, UILabel *subtitle, IMUserCard *card, NSString *sub) {
@@ -108,11 +115,14 @@ static void IMConfigureBody(UILabel *avatar, UILabel *title, UILabel *subtitle, 
 #pragma mark - IMContactCell
 
 @implementation IMContactCell {
+    IMCircleCheckbox *_checkbox;          // 行首圆形勾选框（默认隐藏，多选列表按需显示）
     UILabel *_avatar;
     UILabel *_title;
     UILabel *_subtitle;
     UIButton *_action;
     void (^_onAction)(void);
+    NSLayoutConstraint *_checkboxWidth;   // 22 显示 / 0 隐藏
+    NSLayoutConstraint *_avatarLeading;   // avatar.leading = checkbox.trailing + (显示 12 / 隐藏 0)
 }
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
@@ -126,13 +136,37 @@ static void IMConfigureBody(UILabel *avatar, UILabel *title, UILabel *subtitle, 
             [_action.trailingAnchor constraintEqualToAnchor:g.trailingAnchor],
             [_action.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
         ]];
-        IMBuildContactBody(self, &_avatar, &_title, &_subtitle, _action);
+        NSLayoutConstraint *avatarLeading = nil;
+        IMBuildContactBody(self, &_avatar, &_title, &_subtitle, _action, &avatarLeading);
+
+        // 行首圆圈（默认隐藏，宽 0）：拆掉「头像顶到前缘」的原约束，改挂到圆圈右侧，多选态右移头像。
+        _checkbox = [IMCircleCheckbox new];
+        _checkbox.translatesAutoresizingMaskIntoConstraints = NO;
+        _checkbox.hidden = YES;
+        [self.contentView addSubview:_checkbox];
+        avatarLeading.active = NO;
+        _checkboxWidth = [_checkbox.widthAnchor constraintEqualToConstant:0];
+        _avatarLeading = [_avatar.leadingAnchor constraintEqualToAnchor:_checkbox.trailingAnchor constant:0];
+        [NSLayoutConstraint activateConstraints:@[
+            [_checkbox.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:kIMContactLeading],
+            [_checkbox.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
+            [_checkbox.heightAnchor constraintEqualToConstant:22],
+            _checkboxWidth,
+            _avatarLeading,
+        ]];
     }
     return self;
 }
 
 - (void)configureWithCard:(IMUserCard *)card subtitle:(NSString *)subtitle {
     IMConfigureBody(_avatar, _title, _subtitle, card, subtitle);
+}
+
+- (void)setChecked:(BOOL)checked showCheckbox:(BOOL)show {
+    _checkbox.hidden = !show;
+    _checkboxWidth.constant = show ? 22 : 0;
+    _avatarLeading.constant = show ? 12 : 0;
+    if (show) { _checkbox.checked = checked; }
 }
 
 - (void)setActionTitle:(NSString *)title enabled:(BOOL)enabled action:(void (^)(void))onAction {
@@ -154,6 +188,7 @@ static void IMConfigureBody(UILabel *avatar, UILabel *title, UILabel *subtitle, 
     [super prepareForReuse];
     _onAction = nil;
     _action.hidden = YES;
+    [self setChecked:NO showCheckbox:NO]; // 复用回默认无勾选态
 }
 
 @end
@@ -187,12 +222,13 @@ static void IMConfigureBody(UILabel *avatar, UILabel *title, UILabel *subtitle, 
 
         UILayoutGuide *g = self.contentView.layoutMarginsGuide;
         [NSLayoutConstraint activateConstraints:@[
-            [_reject.trailingAnchor constraintEqualToAnchor:g.trailingAnchor],
+            // 留出索引尺让位：好友区显示右侧 A–Z 索引尺时，避免盖住申请行的操作按钮。
+            [_reject.trailingAnchor constraintEqualToAnchor:g.trailingAnchor constant:-kIMContactIndexGutter],
             [_reject.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
             [_accept.trailingAnchor constraintEqualToAnchor:_reject.leadingAnchor constant:-8],
             [_accept.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
         ]];
-        IMBuildContactBody(self, &_avatar, &_title, &_subtitle, _accept);
+        IMBuildContactBody(self, &_avatar, &_title, &_subtitle, _accept, NULL);
     }
     return self;
 }
