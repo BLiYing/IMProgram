@@ -6,6 +6,7 @@
 #import "IMLiquidSegmentedControl.h" // 页签用的 Liquid Glass 分段控件
 #import "IMGroupManageViewController.h"
 #import "IMQRCardViewController.h"
+#import "IMQRResultRouter.h" // 层3：本站邀请链接（/q/u、/q/g）App 内拦截走原生流程
 #import "IMGroupTextViewController.h"
 
 #import "IMHTTPService.h"
@@ -2417,7 +2418,9 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
                                               everyone:^{ [ws deleteMessageForEveryone:m]; }];
 }
 /// 应用内浏览器打开链接（SFSafariViewController，仅接受 http/https；与聊天页 openLink: 一致）。
+/// 层3：本站邀请链接（/q/u、/q/g）先走扫码同款 resolve+路由，不出 App。
 - (void)openLink:(NSString *)url {
+    if ([IMQRResultRouter routeInviteLinkIfOwn:url host:self.host userID:self.userID fromController:self]) { return; }
     NSURL *u = [NSURL URLWithString:url ?: @""];
     if (!u || !([u.scheme isEqualToString:@"http"] || [u.scheme isEqualToString:@"https"])) { return; }
     SFSafariViewController *safari = [[SFSafariViewController alloc] initWithURL:u];

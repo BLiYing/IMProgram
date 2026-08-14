@@ -30,6 +30,33 @@ static const NSInteger kIMErrCodeQRExpired = 200110;
     }
 }
 
++ (BOOL)routeInviteLinkIfOwn:(NSString *)urlString host:(NSString *)host
+                      userID:(NSString *)userID fromController:(UIViewController *)vc {
+    if (urlString.length == 0 || host.length == 0 || !vc) { return NO; }
+    NSURL *url = [NSURL URLWithString:urlString];
+    if (!url || !([url.scheme isEqualToString:@"http"] || [url.scheme isEqualToString:@"https"])) { return NO; }
+    // host 匹配（self.host 形如 "localhost:8080"，NSURL.host 不含端口 → 拼回端口比对）。
+    // 兜底：链接 host 是 localhost/127.0.0.1（dev 默认 -public-url 出的码）时也拦——真机连局域网 IP 场景
+    // 精确比对必失败，而 resolve 走的是本机配置的 host（能通），拦下来走站内流程好过跳一个打不开的 Safari。
+    NSString *urlHost = url.port ? [NSString stringWithFormat:@"%@:%@", url.host, url.port] : (url.host ?: @"");
+    BOOL isDevLoopback = [url.host isEqualToString:@"localhost"] || [url.host isEqualToString:@"127.0.0.1"];
+    if (![urlHost isEqualToString:host] && !isDevLoopback) { return NO; }
+    // 只拦名片码/群码；登录码 /q/l 与其它路径放行走浏览器（落地页承接）。
+    NSString *path = url.path ?: @"";
+    if (!([path hasPrefix:@"/q/u/"] || [path hasPrefix:@"/q/g/"])) { return NO; }
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0) { return NO; }
+    [vc im_showToast:@"解析中…"];
+    __weak UIViewController *wvc = vc;
+    [IMHTTPService.sharedService qrResolveWithToken:token raw:urlString completion:^(NSDictionary *resolved, NSError *error) {
+        __strong UIViewController *svc = wvc;
+        if (!svc) { return; }
+        if (error) { [self presentError:error fromController:svc]; return; }
+        [self routeResolved:[IMQRResolved fromDictionary:resolved] raw:urlString host:host userID:userID fromController:svc];
+    }];
+    return YES;
+}
+
 + (void)presentError:(NSError *)error fromController:(UIViewController *)vc {
     // 失效码是"扫码四分支"里的一支，给弹窗而不是一闪而过的 toast——用户需要读懂"去向对方要张新的"。
     // 刻意不区分过期/被重置/不存在（区分等于给爆破者反馈信号），文案由服务端 200110 统一映射。

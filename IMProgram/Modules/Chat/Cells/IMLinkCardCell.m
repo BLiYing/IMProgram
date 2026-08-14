@@ -8,6 +8,7 @@
 
 /// 文件名/纯 URL 判定统一走 IMMediaUtil（聊天/收藏/记录共用），此处保留短别名以少改调用点。
 @implementation IMLinkCardCell {
+    UIView *_bubble;          // 气泡底：包裹 引用+链接+OG卡 整体（与 Web 一致——链接与卡片在同一个气泡里）
     UIStackView *_stack;      // 竖排：引用行(可选) + 可点击 URL 文本 + OG 卡片(拉到才显示)
     UILabel *_quote;          // 引用快照（点击整行空白处由 tableView 手势跳原消息）
     UILabel *_link;           // URL 文本：始终显示、蓝色下划线、可点击打开
@@ -49,12 +50,23 @@
         [_link addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tapped)]];
 
         _card = [UIView new];
-        _card.backgroundColor = IMTheme.surface;
+        // 卡片改用嵌入式底色（tertiary fill）：卡片在气泡内部，surface 底会与气泡底融为一体看不出层次。
+        _card.backgroundColor = UIColor.tertiarySystemFillColor;
         _card.layer.cornerRadius = IMTheme.radiusBubble;
         _card.clipsToBounds = YES;
         _card.userInteractionEnabled = YES;
         _card.hidden = YES; // 拉到 OG 预览才显示（否则仅链接文本，与 Web 一致）
         [_card addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tapped)]];
+
+        // 气泡底：链接文本与 OG 卡片装进**同一个气泡**（对齐 Web——一个白/绿气泡里 链接 + 卡片）。
+        // 整个气泡可点（打开链接），与链接/卡片各自的 tap 同一动作。
+        _bubble = [UIView new];
+        _bubble.backgroundColor = IMTheme.surface;
+        _bubble.layer.cornerRadius = IMTheme.radiusBubble;
+        _bubble.userInteractionEnabled = YES;
+        _bubble.translatesAutoresizingMaskIntoConstraints = NO;
+        [_bubble addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tapped)]];
+        [self.contentView addSubview:_bubble];
 
         _stack = [[UIStackView alloc] initWithArrangedSubviews:@[_quote, _link, _card]];
         _stack.axis = UILayoutConstraintAxisVertical;
@@ -92,24 +104,30 @@
         _host.font = [UIFont systemFontOfSize:11]; _host.textColor = IMTheme.textSecondary;
         [_card addSubview:_host];
 
-        _leading = [_stack.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12];
-        _trailing = [_stack.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-12];
+        // 外沿约束落在**气泡**上（stack 藏在气泡内、四周留 10/8 内边距）；gutter/靠边逻辑不变。
+        _leading = [_bubble.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12];
+        _trailing = [_bubble.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-12];
         _thumbHeight = [_thumb.heightAnchor constraintEqualToConstant:0]; // 无图时为 0
         // _unreadDivider 由 IMMessageCell 基类创建并自锚（顶/左/右 + 高 0）；本类把顶部内容改锚它的 bottom。
-        // stack 顶：无昵称贴分割线底，有昵称接昵称底（群聊连续段首条）——二选一。
-        _stackTop = [_stack.topAnchor constraintEqualToAnchor:_unreadDivider.bottomAnchor constant:3];
-        _stackTopUnderName = [_stack.topAnchor constraintEqualToAnchor:_senderLabel.bottomAnchor constant:4];
+        // 气泡顶：无昵称贴分割线底，有昵称接昵称底（群聊连续段首条）——二选一。
+        _stackTop = [_bubble.topAnchor constraintEqualToAnchor:_unreadDivider.bottomAnchor constant:3];
+        _stackTopUnderName = [_bubble.topAnchor constraintEqualToAnchor:_senderLabel.bottomAnchor constant:4];
         [NSLayoutConstraint activateConstraints:@[
             _stackTop,
-            [_stack.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3],
+            [_bubble.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3],
+            // stack 嵌在气泡内：左右 10、上下 8 内边距。
+            [_stack.leadingAnchor constraintEqualToAnchor:_bubble.leadingAnchor constant:10],
+            [_stack.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor constant:-10],
+            [_stack.topAnchor constraintEqualToAnchor:_bubble.topAnchor constant:8],
+            [_stack.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:-8],
             [_stack.widthAnchor constraintEqualToConstant:260],
             // 昵称：顶贴 cell、左对齐内容（stack 左移时随之右移）。
             [_senderLabel.topAnchor constraintEqualToAnchor:_unreadDivider.bottomAnchor constant:4],
-            [_senderLabel.leadingAnchor constraintEqualToAnchor:_stack.leadingAnchor constant:2],
+            [_senderLabel.leadingAnchor constraintEqualToAnchor:_bubble.leadingAnchor constant:2],
             [_senderLabel.trailingAnchor constraintLessThanOrEqualToAnchor:self.contentView.trailingAnchor constant:-12],
-            // 头像：30×30 贴 cell 左、底对齐内容底（连续段末条才 show）。
+            // 头像：30×30 贴 cell 左、底对齐气泡底（连续段末条才 show）。
             [_avatar.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12],
-            [_avatar.bottomAnchor constraintEqualToAnchor:_stack.bottomAnchor],
+            [_avatar.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor],
             [_avatar.widthAnchor constraintEqualToConstant:30],
             [_avatar.heightAnchor constraintEqualToConstant:30],
             [_thumb.topAnchor constraintEqualToAnchor:_card.topAnchor],
@@ -141,6 +159,7 @@
     _url = url;
     _leading.active = !mine;
     _trailing.active = mine;
+    _bubble.backgroundColor = mine ? IMTheme.bubbleMe : IMTheme.surface; // 我方绿泡/对方白泡，与文本气泡一致
     // 群聊对方消息昵称（连续段首条）：显示时 stack 接昵称底，否则贴 cell 顶。
     BOOL showName = senderName.length > 0;
     _senderLabel.font = [UIFont systemFontOfSize:MAX(12, IMTheme.chatFontSize - 4) weight:UIFontWeightSemibold];
@@ -192,7 +211,10 @@
     if (image.length) {
         _thumbHeight.constant = 130;
         __weak typeof(self) ws = self;
-        [[IMImageLoader shared] loadImageURL:image completion:^(UIImage *img) {
+        // 服务端自家邀请卡返回**相对路径**（/avatars/…）——用本机配置的 host 补全（真机连局域网 IP 时
+        // 服务端并不知道端可达地址）；外站 OG 的绝对 URL 原样透传（IMMediaFullURL 对 http 前缀不动）。
+        NSString *imageURL = IMMediaFullURL(image, IMHTTPService.sharedService.host);
+        [[IMImageLoader shared] loadImageURL:imageURL completion:^(UIImage *img) {
             __strong typeof(ws) self = ws;
             if (self && [self->_url isEqualToString:url]) { self->_thumb.image = img; }
         }];
@@ -229,8 +251,8 @@
     _onTap = nil; _onContentSizeResolved = nil; self.onAvatarTap = nil;
 }
 
-/// 高亮/预览目标=网址文本+OG 卡片整体（=stack）：与 Web 一致一起高亮；也避免无 OG 卡片时
+/// 高亮/预览目标=整个气泡（链接+OG 卡片一体）：与 Web 一致一起高亮；也避免无 OG 卡片时
 /// 圈到隐藏的 _card（零尺寸 → 高亮/长按预览落空）。
-- (UIView *)previewTargetView { return _stack; }
+- (UIView *)previewTargetView { return _bubble; }
 
 @end

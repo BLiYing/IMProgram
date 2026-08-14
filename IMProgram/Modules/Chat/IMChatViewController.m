@@ -19,6 +19,7 @@
 #import "IMMediaPagerViewController.h"
 #import "IMTextReaderViewController.h" // 超长文本全屏阅读器
 #import "IMConversationMediaViewController.h"
+#import "IMQRResultRouter.h" // 层3：本站邀请链接（/q/u、/q/g）App 内拦截走原生流程
 #import "IMForwardPickerViewController.h"
 #import "IMChatRecordViewController.h"
 #import "IMMentionPickerViewController.h"
@@ -2740,6 +2741,8 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 
 /// 应用内浏览器打开链接（SFSafariViewController，仅接受 http/https）。
 - (void)openLink:(NSString *)urlString {
+    // 层3：本站邀请链接（/q/u 名片、/q/g 群码）→ 走扫码同款 resolve+路由（原生加群/名片流程），不出 App。
+    if ([IMQRResultRouter routeInviteLinkIfOwn:urlString host:self.host userID:self.userID fromController:self]) { return; }
     NSURL *url = [NSURL URLWithString:urlString ?: @""];
     if (!url || !([url.scheme isEqualToString:@"http"] || [url.scheme isEqualToString:@"https"])) { return; }
     SFSafariViewController *safari = [[SFSafariViewController alloc] initWithURL:url];

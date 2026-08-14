@@ -21,6 +21,14 @@ NS_ASSUME_NONNULL_BEGIN
 /// resolve / 入群失败的统一提示（`200110` 的文案已在 IMHTTPService 映射为「二维码已失效…」）。
 + (void)presentError:(nullable NSError *)error fromController:(UIViewController *)vc;
 
+/// 层3（App 内拦截）：urlString 若是**本站**邀请链接（host 匹配 + 路径 /q/u|g/）→ 走扫码同款
+/// resolve+路由（原生加群/名片流程），返回 YES；否则返回 NO（调用方按普通链接开 SFSafari）。
+/// 登录码 /q/l 刻意**不**拦截（聊天里点出登录确认是 QRLjacking 钓鱼面，交给落地页提示）。
++ (BOOL)routeInviteLinkIfOwn:(NSString *)urlString
+                        host:(NSString *)host
+                      userID:(NSString *)userID
+              fromController:(UIViewController *)vc;
+
 @end
 
 NS_ASSUME_NONNULL_END
