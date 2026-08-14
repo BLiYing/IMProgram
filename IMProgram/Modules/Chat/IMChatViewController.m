@@ -3105,12 +3105,13 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     }
 }
 
-/// 标题：单聊=对方 uid；群聊=群名。连接态不再拼进标题后缀，统一走副标题（见 im_navigationSubtitle）。
+/// 标题：单聊=对方昵称（缺省回退 uid）；群聊=群名。连接态不再拼进标题后缀，统一走副标题（见 im_navigationSubtitle）。
+/// 昵称随 caller 播种/复用重播种刷新（对齐会话列表/通讯录的 pull 口径，对齐 Web 显示昵称）；页内无 live 服务端刷新。
 - (void)updateTitle {
     if (self.isGroupChat) {
         self.title = self.groupName.length > 0 ? self.groupName : @"群聊";
     } else {
-        self.title = self.peerID;
+        self.title = self.peerNickname.length ? self.peerNickname : self.peerID;
     }
     [self refreshUnifiedNavigationBar];
 }
