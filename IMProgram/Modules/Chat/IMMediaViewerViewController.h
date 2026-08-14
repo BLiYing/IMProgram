@@ -19,6 +19,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// 在会话媒体时间线中的下标（任务3·翻页容器写入并据此算前后页；单独打开时无意义）。
 @property (nonatomic) NSUInteger imMediaIndex;
 
+/// 内嵌极小模糊缩略 thumb（dataURI）。未下载/加载中先显其磨砂占位 + 菊花（路线 A：避免打开瞬间黑屏），
+/// 全量到达后原地替换。翻页前由 provider 写入；空则退黑底。
+@property (nonatomic, copy, nullable) NSString *thumbDataURI;
+
 /// 无壳模式（任务3·翻页容器托管）：YES=**只画内容**（可缩放图片 / 视频画面+封面+中央播放键+底部进度条），
 /// **不画** ✕/下载/媒体库/更多（这些由容器 IMMediaPagerViewController 的固定层统一绘制并绑定当前页，
 /// 翻页时不随内容滑动）。单击画面不再关闭/直接播放，改转发给 contentDelegate（由容器切 chrome 显隐）。

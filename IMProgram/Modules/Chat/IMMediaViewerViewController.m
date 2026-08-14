@@ -55,6 +55,8 @@
     UIButton *_galleryButton;
     UIButton *_moreButton;   // 「更多」锚点（IMPopoverCard 从它旁边展开）
     BOOL      _saving;
+
+    UIActivityIndicatorView *_loadingSpinner; // 路线 A：磨砂占位上叠加载菊花，全量到达/失败即停
 }
 
 + (instancetype)viewerWithURL:(NSString *)fullURL
@@ -105,6 +107,9 @@
     _fullImage = _preloaded;
     [_scroll addSubview:_imageView];
 
+    // 路线 A：无预载图（多为门控/未下载项）→ 先显内嵌 thumb 磨砂占位 + 菊花，全量到达后替换，避免黑屏闪。
+    if (!_preloaded) { [self showThumbPlaceholder]; }
+
     // 无壳（翻页容器托管）：单击转给容器切 chrome；独立打开：单击关闭查看器（原行为）。
     UITapGestureRecognizer *single = [[UITapGestureRecognizer alloc] initWithTarget:self
         action:(_chromeless ? @selector(handleContentSingleTap) : @selector(dismissSelf))];
@@ -116,6 +121,7 @@
 
     // 已知失效**且本机无缓存**：直接画失效占位、不回源。本机已缓存则照显真图（铁律 A），交给下方 loadImageURL 同步命中。
     if (![[IMImageLoader shared] hasCachedImageForURL:_url] && [IMMediaExpiryRegistry.shared isExpiredURL:_url]) {
+        [self hideLoadingSpinner];
         [self showExpiredOverlayForVideo:NO]; return;
     }
     // 拉取（可能更清晰的）原图，兼作下载源。
@@ -124,7 +130,8 @@
     [[IMImageLoader shared] loadImageURL:_url completion:^(UIImage *image) {
         __strong typeof(ws) self = ws;
         if (!self || ![self->_url isEqualToString:want]) { return; }
-        if (image) { self->_imageView.image = image; self->_fullImage = image; return; }
+        if (image) { self->_imageView.image = image; self->_fullImage = image; [self hideLoadingSpinner]; return; }
+        [self hideLoadingSpinner];
         // 无 preload 兜底且加载失败 → 复验 404，命中画失效占位（非空屏）。
         if (self->_preloaded) { return; } // 有本地预览就不判失效（缓存过的照显，铁律 A）
         [IMMediaExpiryRegistry.shared verifyExpiredForURL:want completion:^(BOOL expired) {
@@ -133,6 +140,44 @@
         }];
     }];
 }
+
+/// 路线 A 加载占位：内嵌 thumb 磨砂图铺满（居中 aspectFit）+ 居中菊花。全量/封面到达或失败时由 hideLoadingSpinner 收起菊花。
+- (void)showThumbPlaceholder {
+    if (_thumbDataURI.length > 0) {
+        UIImageView *target = _isVideo ? _poster : _imageView;
+        UIImage *cached = [IMMediaPlaceholder cachedFrostedForThumb:_thumbDataURI];
+        if (cached) {
+            if (!target.image) { target.image = cached; }
+        } else {
+            __weak typeof(self) ws = self;
+            [IMMediaPlaceholder frostedForThumb:_thumbDataURI completion:^(UIImage *blurred) {
+                __strong typeof(ws) self = ws;
+                // 全量图/真封面已到（_fullImage / _started）则不覆盖；目标仍空才铺磨砂占位。
+                if (self && blurred && !self->_fullImage && !self->_started) {
+                    UIImageView *t = self->_isVideo ? self->_poster : self->_imageView;
+                    if (!t.image) { t.image = blurred; }
+                }
+            }];
+        }
+    }
+    [self showLoadingSpinner];
+}
+
+- (void)showLoadingSpinner {
+    if (_loadingSpinner) { _loadingSpinner.hidden = NO; [_loadingSpinner startAnimating]; return; }
+    _loadingSpinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleLarge];
+    _loadingSpinner.color = UIColor.whiteColor;
+    _loadingSpinner.hidesWhenStopped = YES;
+    _loadingSpinner.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:_loadingSpinner];
+    [NSLayoutConstraint activateConstraints:@[
+        [_loadingSpinner.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
+        [_loadingSpinner.centerYAnchor constraintEqualToAnchor:self.view.centerYAnchor],
+    ]];
+    [_loadingSpinner startAnimating];
+}
+
+- (void)hideLoadingSpinner { [_loadingSpinner stopAnimating]; }
 
 /// 失效占位覆盖层（大图查看器）：盖满 self.view，⊘ + 文案；点击穿透（单击手势仍能关闭查看器）。
 - (void)showExpiredOverlayForVideo:(BOOL)isVideo {
@@ -191,10 +236,13 @@
     _poster.contentMode = UIViewContentModeScaleAspectFit;
     _poster.backgroundColor = UIColor.blackColor;
     [_videoContainer addSubview:_poster];
+    // 路线 A：封面加载前先显内嵌 thumb 磨砂 + 菊花，封面到达后替换。
+    [self showThumbPlaceholder];
     __weak typeof(self) ws = self;
     [[IMVideoThumbnailLoader shared] loadPosterForVideoURL:_url completion:^(UIImage *poster) {
         __strong typeof(ws) self = ws;
-        if (self && !self->_started) { self->_poster.image = poster; }
+        if (self && !self->_started && poster) { self->_poster.image = poster; }
+        [self hideLoadingSpinner];
     }];
 
     // 点击容器：独立打开=开播前播放/播放中暂停；无壳（翻页容器）=转给容器切 chrome（播放走中央键）。
@@ -253,6 +301,7 @@
 /// 播放失败降级：盖一层说明 + 「保存到相册」，封面继续显示（封面是 JPEG，与视频编码无关）。
 - (void)showPlaybackUnsupported {
     if (_unplayableLabel) { return; }
+    [self hideLoadingSpinner];
     _playButton.hidden = YES;
     _poster.hidden = NO;
     _unplayableLabel = [UILabel new];
@@ -278,6 +327,7 @@
     if (!_started) {
         _started = YES;
         _poster.hidden = YES;
+        [self hideLoadingSpinner];
         [_player play];
         [self setPlaying:YES];
         return;

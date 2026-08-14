@@ -14,16 +14,17 @@
     UIPageViewController *_pager;
 
     // 固定层 chrome（不随分页滑动；由 mediaIdentity 页切换时重绑到当前页）
-    UILabel     *_counter;        // 顶部居中「i / N」
+    UILabel     *_titleLabel;     // 顶部居中·主标题（会话名）
+    UILabel     *_subtitleLabel;  // 顶部居中·副标题「第 i 张 / 共 N 张」
+    UIStackView *_titleStack;     // 标题+副标题竖排
     UIButton    *_closeButton;    // 左上 ✕
     UIButton    *_downloadButton; // 右下 下载
     UIButton    *_galleryButton;  // 右下 媒体库（当前页有入口时显）
     UIButton    *_moreButton;     // 右下 更多（当前页有 moreActions 时显）
     UIStackView *_bottomStack;    // 右下一排（更多 / 媒体库 / 下载）
 
-    // 沉浸态
-    BOOL     _chromeVisible;
-    NSTimer *_hideTimer;
+    // 沉浸态：默认显示，点按切换显隐（无自动隐藏倒计时）。
+    BOOL _chromeVisible;
 }
 
 + (instancetype)pagerWithCount:(NSUInteger)count
@@ -58,9 +59,8 @@
     [_pager didMoveToParentViewController:self];
 
     [self setupFixedChrome];
-    _chromeVisible = YES;
+    _chromeVisible = YES;   // 默认显示；点按画面才切换显隐（无自动隐藏倒计时）
     [self updateChromeForCurrent];
-    [self resetHideTimer]; // 进入即起 3s 计时（图片/播放中视频会自动隐；暂停/未开播视频常显）
 }
 
 /// 固定层：左上 ✕ + 顶部计数 + 右下（更多/媒体库/下载）。这些**不放进页**，故翻页时不动。
@@ -77,16 +77,33 @@
         [_closeButton.heightAnchor constraintEqualToConstant:40],
     ]];
 
-    _counter = [UILabel new];
-    _counter.textColor = UIColor.whiteColor;
-    _counter.font = [UIFont monospacedDigitSystemFontOfSize:14 weight:UIFontWeightMedium];
-    _counter.textAlignment = NSTextAlignmentCenter;
-    _counter.translatesAutoresizingMaskIntoConstraints = NO;
-    _counter.hidden = _count <= 1; // 单张不显计数
-    [self.view addSubview:_counter];
+    // 顶部标题栏：主标题=会话名，副标题=「第 i 张 / 共 N 张」（居中两行，避开左上 ✕）。
+    _titleLabel = [UILabel new];
+    _titleLabel.textColor = UIColor.whiteColor;
+    _titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
+    _titleLabel.textAlignment = NSTextAlignmentCenter;
+    _titleLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+    _titleLabel.text = self.conversationTitle;
+    _titleLabel.hidden = self.conversationTitle.length == 0;
+
+    _subtitleLabel = [UILabel new];
+    _subtitleLabel.textColor = [UIColor colorWithWhite:1 alpha:0.75];
+    _subtitleLabel.font = [UIFont monospacedDigitSystemFontOfSize:13 weight:UIFontWeightRegular];
+    _subtitleLabel.textAlignment = NSTextAlignmentCenter;
+    _subtitleLabel.hidden = _count <= 1; // 单张不显数目
+
+    _titleStack = [[UIStackView alloc] initWithArrangedSubviews:@[_titleLabel, _subtitleLabel]];
+    _titleStack.axis = UILayoutConstraintAxisVertical;
+    _titleStack.alignment = UIStackViewAlignmentCenter;
+    _titleStack.spacing = 1;
+    _titleStack.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:_titleStack];
     [NSLayoutConstraint activateConstraints:@[
-        [_counter.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
-        [_counter.topAnchor constraintEqualToAnchor:safe.topAnchor constant:14],
+        [_titleStack.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
+        [_titleStack.topAnchor constraintEqualToAnchor:safe.topAnchor constant:8],
+        // 两侧各让出 ✕/下载键的宽度，标题过长省略号截断而不压到按钮。
+        [_titleStack.leadingAnchor constraintGreaterThanOrEqualToAnchor:_closeButton.trailingAnchor constant:8],
+        [_titleStack.trailingAnchor constraintLessThanOrEqualToAnchor:safe.trailingAnchor constant:-62],
     ]];
 
     _downloadButton = [self circleButtonWithSymbol:@"arrow.down.to.line" pointSize:16 diameter:44];
@@ -108,7 +125,7 @@
         [_bottomStack.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor constant:-16],
     ]];
 
-    [self updateCounterForIndex:_startIndex];
+    [self updateSubtitleForIndex:_startIndex];
 
     // 下滑关闭（沉浸看图的退出手势；缩放态下由内层 scrollView 消化竖向 pan，不误触）。
     UISwipeGestureRecognizer *down = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(closeTapped)];
@@ -147,15 +164,15 @@
     return (IMMediaViewerViewController *)_pager.viewControllers.firstObject;
 }
 
-- (void)updateCounterForIndex:(NSUInteger)index {
-    _counter.text = [NSString stringWithFormat:@"%lu / %lu", (unsigned long)(index + 1), (unsigned long)_count];
+- (void)updateSubtitleForIndex:(NSUInteger)index {
+    _subtitleLabel.text = [NSString stringWithFormat:@"第 %lu 张 / 共 %lu 张", (unsigned long)(index + 1), (unsigned long)_count];
 }
 
-/// 翻页后把壳重绑到当前页：更新计数 + 媒体库/更多 是否显示（按当前页配置）。
+/// 翻页后把壳重绑到当前页：更新数目 + 媒体库/更多 是否显示（按当前页配置）。
 - (void)updateChromeForCurrent {
     IMMediaViewerViewController *cur = self.currentViewer;
     if (!cur) { return; }
-    [self updateCounterForIndex:cur.imMediaIndex];
+    [self updateSubtitleForIndex:cur.imMediaIndex];
     _galleryButton.hidden = !cur.hasGalleryEntry;      // stack 自动收起隐藏项
     _moreButton.hidden = cur.moreActions.count == 0;
 }
@@ -164,9 +181,9 @@
 
 - (void)closeTapped { [self dismissViewControllerAnimated:YES completion:nil]; }
 
-- (void)downloadTapped { [self.currentViewer saveToAlbum]; [self resetHideTimer]; }
+- (void)downloadTapped { [self.currentViewer saveToAlbum]; }
 
-- (void)galleryTapped { [self.currentViewer invokeOpenGallery]; } // 内部先关查看器再回调，无需重置计时
+- (void)galleryTapped { [self.currentViewer invokeOpenGallery]; } // 内部先关查看器再回调
 
 - (void)moreTapped {
     IMMediaViewerViewController *cur = self.currentViewer;
@@ -184,53 +201,29 @@
         }]];
     }
     [IMPopoverCard presentFromAnchor:_moreButton inHostView:self.view items:items];
-    [self resetHideTimer];
 }
 
-#pragma mark - 沉浸态：3s 自动隐藏 / 单击切换 / 暂停常显
-
-/// 当前是否应自动隐藏：图片 / 播放中视频 = 是；暂停或未开播视频 = 否（常显，用户确认）。
-- (BOOL)shouldAutoHideChrome {
-    IMMediaViewerViewController *cur = self.currentViewer;
-    if (cur.isVideoContent && !cur.isVideoPlaying) { return NO; }
-    return YES;
-}
-
-- (void)resetHideTimer {
-    [_hideTimer invalidate];
-    _hideTimer = nil;
-    if (_chromeVisible && [self shouldAutoHideChrome]) {
-        _hideTimer = [NSTimer scheduledTimerWithTimeInterval:3.0 target:self selector:@selector(autoHide) userInfo:nil repeats:NO];
-    }
-}
-
-- (void)autoHide { if ([self shouldAutoHideChrome]) { [self setChromeVisible:NO]; } }
+#pragma mark - 沉浸态：默认显示 / 单击切换显隐（无自动隐藏倒计时）
 
 - (void)setChromeVisible:(BOOL)visible {
     _chromeVisible = visible;
     [UIView animateWithDuration:0.22 animations:^{
         self->_closeButton.alpha = visible ? 1 : 0;
-        self->_counter.alpha = visible ? 1 : 0;
+        self->_titleStack.alpha = visible ? 1 : 0;
         self->_bottomStack.alpha = visible ? 1 : 0;
     }];
     // 视频页联动：隐藏倍速 / 「查看原视频」（进度条+时间常驻保留）。
     [self.currentViewer setAuxControlsHidden:!visible];
-    if (visible) { [self resetHideTimer]; } else { [_hideTimer invalidate]; _hideTimer = nil; }
 }
 
 #pragma mark - IMMediaViewerContentDelegate
 
 - (void)mediaViewerContentDidSingleTap:(IMMediaViewerViewController *)vc {
-    [self setChromeVisible:!_chromeVisible]; // 显示时点击→隐藏；隐藏时点击→显示（用户确认）
+    [self setChromeVisible:!_chromeVisible]; // 显示时点击→隐藏；隐藏时点击→显示
 }
 
 - (void)mediaViewerContent:(IMMediaViewerViewController *)vc playingChanged:(BOOL)playing {
-    if (playing) {
-        [self resetHideTimer];                 // 开播→起 3s 自动隐藏
-    } else {
-        [_hideTimer invalidate]; _hideTimer = nil;
-        if (!_chromeVisible) { [self setChromeVisible:YES]; } // 暂停→唤回按钮并常显
-    }
+    // 无自动隐藏：播放/暂停不再驱动壳的显隐（壳只由点按切换）。留空以满足协议。
 }
 
 #pragma mark - UIPageViewControllerDataSource（翻到头即停：越界返回 nil）
@@ -255,19 +248,9 @@
    previousViewControllers:(NSArray<UIViewController *> *)previousViewControllers
        transitionCompleted:(BOOL)completed {
     if (!completed) { return; }   // 未翻过去（回弹）→ 保持原状
+    // 翻页后把壳重绑到当前页（数目/媒体库/更多）；壳的显隐沿用当前态（隐藏则保持隐藏，由点按切换）。
     [self updateChromeForCurrent];
-    if (!_chromeVisible) { [self setChromeVisible:YES]; } // 翻页后恢复显示壳
-    else { [self resetHideTimer]; }
+    [self.currentViewer setAuxControlsHidden:!_chromeVisible];
 }
-
-// 关闭/退出即停计时：NSTimer 强持 self，不主动作废会把容器+子查看器+AVPlayer 多留 3s，
-// 且 autoHide 会在已消失的 VC 上空跑。dealloc 也兜底（但那时已被 timer 拖住）。
-- (void)viewWillDisappear:(BOOL)animated {
-    [super viewWillDisappear:animated];
-    [_hideTimer invalidate];
-    _hideTimer = nil;
-}
-
-- (void)dealloc { [_hideTimer invalidate]; }
 
 @end

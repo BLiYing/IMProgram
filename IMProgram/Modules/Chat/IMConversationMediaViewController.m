@@ -3,10 +3,12 @@
 #import "IMConversationMediaViewController.h"
 #import "IMMediaViewerViewController.h"
 #import "IMMediaPagerViewController.h"
-#import "IMMediaPlaceholder.h" // 统一门控占位取图（真帧>thumb磨砂>灰底）
-#import "IMMediaExpiryRegistry.h" // 失效登记：媒体库宫格据此显 ⊘（自身只读本地、不联网探测）
-#import "IMImageLoader.h"          // 铁律 A：本机已缓存则不显失效
-#import "IMOriginalVideoCache.h"
+#import "IMMediaTileCell.h"                 // 与资料 tab 共用的门控格子
+#import "IMMediaDownloadCoordinator.h"      // 门控/进度/取消（自建，与聊天页共享同一份下载态）
+#import "IMDownloadProgress.h"
+#import "IMMessageModel.h"
+#import "IMMenuAction.h"
+#import "IMPopoverCard.h"
 
 @implementation IMMediaItem
 + (instancetype)itemWithURL:(NSString *)url isVideo:(BOOL)isVideo timestamp:(int64_t)timestamp {
@@ -20,70 +22,6 @@
 }
 @end
 
-#pragma mark - 缩略图 Cell
-
-@interface IMMediaGridCell : UICollectionViewCell
-- (void)configureWithItem:(IMMediaItem *)item;
-@end
-
-@implementation IMMediaGridCell {
-    UIImageView *_thumb;
-    UIImageView *_playBadge;
-    UIImageView *_expiredBadge; // 中心 ⊘（失效）
-    NSString    *_url;
-}
-- (instancetype)initWithFrame:(CGRect)frame {
-    if ((self = [super initWithFrame:frame])) {
-        _thumb = [UIImageView new];
-        _thumb.contentMode = UIViewContentModeScaleAspectFill;
-        _thumb.clipsToBounds = YES;
-        _thumb.backgroundColor = UIColor.tertiarySystemFillColor;
-        _thumb.frame = self.contentView.bounds;
-        _thumb.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-        [self.contentView addSubview:_thumb];
-
-        _playBadge = [[UIImageView alloc] initWithImage:
-            [UIImage systemImageNamed:@"play.circle.fill"
-                    withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:26 weight:UIImageSymbolWeightRegular]]];
-        _playBadge.tintColor = UIColor.whiteColor;
-        _playBadge.translatesAutoresizingMaskIntoConstraints = NO;
-        _playBadge.hidden = YES;
-        [self.contentView addSubview:_playBadge];
-        _expiredBadge = [[UIImageView alloc] initWithImage:[IMMediaPlaceholder expiredGlyphImage]];
-        _expiredBadge.translatesAutoresizingMaskIntoConstraints = NO;
-        _expiredBadge.hidden = YES;
-        [self.contentView addSubview:_expiredBadge];
-        [NSLayoutConstraint activateConstraints:@[
-            [_playBadge.centerXAnchor constraintEqualToAnchor:self.contentView.centerXAnchor],
-            [_playBadge.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
-            [_expiredBadge.centerXAnchor constraintEqualToAnchor:self.contentView.centerXAnchor],
-            [_expiredBadge.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
-        ]];
-    }
-    return self;
-}
-- (void)configureWithItem:(IMMediaItem *)item {
-    _url = item.url;
-    _thumb.image = nil;
-    // 已知失效：显 ⊘ + dim thumb、去播放键（本 VC 只读本地不联网，故不在此探测，仅据登记表展示）。
-    // 铁律 A：本机有原件（图片缓存 / 视频原件缓存）→ 照显真图，不叠失效（否则把能看的原件 dim+⊘，code-review #5）。
-    BOOL hasLocal = item.isVideo ? [IMOriginalVideoCache hasCacheForFullURL:item.url]
-                                 : [[IMImageLoader shared] hasCachedImageForURL:item.url];
-    BOOL expired = !hasLocal && [IMMediaExpiryRegistry.shared isExpiredURL:item.url];
-    _expiredBadge.hidden = !expired;
-    _thumb.alpha = expired ? 0.5 : 1.0;
-    _playBadge.hidden = expired || !item.isVideo;
-    __weak typeof(self) ws = self;
-    NSString *want = item.url;
-    // 门控一致（M4-7）：媒体库同样走「真帧(仅已下载)>thumb 磨砂>灰底」，关自动下载时不为缩略图联网拉原件。
-    [IMMediaPlaceholder previewForURL:item.url isVideo:item.isVideo thumb:item.thumb completion:^(UIImage *image) {
-        __strong typeof(ws) self = ws;
-        if (self && image && [self->_url isEqualToString:want]) { self->_thumb.image = image; }
-    }];
-}
-- (void)prepareForReuse { [super prepareForReuse]; _thumb.image = nil; _thumb.alpha = 1.0; _expiredBadge.hidden = YES; }
-@end
-
 #pragma mark - 媒体库
 
 @interface IMConversationMediaViewController () <UICollectionViewDataSource, UICollectionViewDelegateFlowLayout>
@@ -91,17 +29,54 @@
 
 @implementation IMConversationMediaViewController {
     NSArray<IMMediaItem *> *_items;
+    NSArray<IMMessageModel *> *_messages;   // 与 _items 逐位对齐
     UICollectionView *_collection;
+    IMMediaDownloadCoordinator *_downloads;
+    NSString *_host, *_myUserID, *_title;
+    BOOL _isGroup;
+    NSArray<IMMenuAction *> *(^_contextActionsProvider)(IMMessageModel *);
+    NSArray<IMPopoverCardItem *> *(^_moreActionsProvider)(IMMessageModel *);
 }
 
-+ (instancetype)galleryWithItems:(NSArray<IMMediaItem *> *)items {
++ (instancetype)galleryWithItems:(NSArray<IMMediaItem *> *)items
+                        messages:(NSArray<IMMessageModel *> *)messages
+                            host:(NSString *)host
+                        myUserID:(NSString *)myUserID
+                         isGroup:(BOOL)isGroup
+                           title:(NSString *)title
+          contextActionsProvider:(NSArray<IMMenuAction *> *(^)(IMMessageModel *))contextActionsProvider
+             moreActionsProvider:(NSArray<IMPopoverCardItem *> *(^)(IMMessageModel *))moreActionsProvider {
     IMConversationMediaViewController *vc = [IMConversationMediaViewController new];
-    // 新到旧展示（媒体库惯例）。
-    vc->_items = [items sortedArrayUsingComparator:^NSComparisonResult(IMMediaItem *a, IMMediaItem *b) {
-        if (a.timestamp == b.timestamp) { return NSOrderedSame; }
-        return a.timestamp > b.timestamp ? NSOrderedAscending : NSOrderedDescending;
+    // 新到旧展示（媒体库惯例）：items 与 messages 逐位对齐，需成对同序重排。
+    NSUInteger n = MIN(items.count, messages.count);
+    NSMutableArray<NSNumber *> *order = [NSMutableArray arrayWithCapacity:n];
+    for (NSUInteger i = 0; i < n; i++) { [order addObject:@(i)]; }
+    [order sortUsingComparator:^NSComparisonResult(NSNumber *a, NSNumber *b) {
+        int64_t ta = items[a.unsignedIntegerValue].timestamp, tb = items[b.unsignedIntegerValue].timestamp;
+        if (ta == tb) { return NSOrderedSame; }
+        return ta > tb ? NSOrderedAscending : NSOrderedDescending;
     }];
+    NSMutableArray<IMMediaItem *> *si = [NSMutableArray arrayWithCapacity:n];
+    NSMutableArray<IMMessageModel *> *sm = [NSMutableArray arrayWithCapacity:n];
+    for (NSNumber *idx in order) { [si addObject:items[idx.unsignedIntegerValue]]; [sm addObject:messages[idx.unsignedIntegerValue]]; }
+    vc->_items = si;
+    vc->_messages = sm;
+    vc->_host = [host copy]; vc->_myUserID = [myUserID copy]; vc->_isGroup = isGroup; vc->_title = [title copy];
+    vc->_contextActionsProvider = [contextActionsProvider copy];
+    vc->_moreActionsProvider = [moreActionsProvider copy];
     return vc;
+}
+
+/// 自建下载协调器（与资料页一致）：autoPrefetch 关，只反映状态、下载一律由用户点；与聊天页共享同一份下载态（key=content）。
+- (IMMediaDownloadCoordinator *)downloads {
+    if (!_downloads) {
+        _downloads = [[IMMediaDownloadCoordinator alloc] initWithHost:(_host ?: @"") myUserID:(_myUserID ?: @"") isGroup:_isGroup];
+        _downloads.autoPrefetchEnabled = NO;
+        __weak typeof(self) ws = self;
+        _downloads.onProgress = ^(IMMessageModel *m, IMDownloadProgress *state) { [ws updateTileForMessage:m state:state]; };
+        _downloads.onStateChanged = ^(IMMessageModel *m) { [ws reloadTileForMessage:m]; };
+    }
+    return _downloads;
 }
 
 - (void)viewDidLoad {
@@ -117,7 +92,7 @@
     _collection.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     _collection.dataSource = self;
     _collection.delegate = self;
-    [_collection registerClass:IMMediaGridCell.class forCellWithReuseIdentifier:@"media"];
+    [_collection registerClass:IMMediaTileCell.class forCellWithReuseIdentifier:@"media"];
     [self.view addSubview:_collection];
 
     if (_items.count == 0) {
@@ -129,23 +104,43 @@
         empty.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         [self.view addSubview:empty];
     }
-
-    // 别处（气泡/查看器）刚探到某 URL 失效 → 刷新宫格显 ⊘（本 VC 自身不联网探测）。
-    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onExpiryChanged)
-                                               name:IMMediaExpiryDidChangeNotification object:nil];
 }
 
-- (void)onExpiryChanged { [_collection reloadData]; }
-
-- (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
-
-- (NSInteger)collectionView:(UICollectionView *)cv numberOfItemsInSection:(NSInteger)section {
-    return _items.count;
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    // 抢回仍在跑的下载回调（同资料页/聊天页）：从查看器返回或后台切回时进度不冻结。
+    if (_downloads && _messages.count) { [_downloads reattachActiveTasksForMessages:_messages]; }
 }
+
+- (nullable IMMessageModel *)messageAtIndex:(NSInteger)index {
+    if (index < 0 || index >= (NSInteger)_messages.count) { return nil; }
+    return _messages[index];
+}
+
+#pragma mark - 下载态就地刷新（同资料页）
+
+- (void)updateTileForMessage:(IMMessageModel *)m state:(IMDownloadProgress *)state {
+    NSUInteger i = [_messages indexOfObjectIdenticalTo:m];
+    if (i == NSNotFound) { return; }
+    IMMediaTileCell *c = (IMMediaTileCell *)[_collection cellForItemAtIndexPath:[NSIndexPath indexPathForItem:(NSInteger)i inSection:0]];
+    if ([c isKindOfClass:IMMediaTileCell.class]) { [c updateDownload:state]; }
+}
+
+- (void)reloadTileForMessage:(IMMessageModel *)m {
+    NSUInteger i = [_messages indexOfObjectIdenticalTo:m];
+    if (i == NSNotFound) { return; }
+    [_collection reloadItemsAtIndexPaths:@[[NSIndexPath indexPathForItem:(NSInteger)i inSection:0]]];
+}
+
+#pragma mark - CollectionView
+
+- (NSInteger)collectionView:(UICollectionView *)cv numberOfItemsInSection:(NSInteger)section { return _items.count; }
 
 - (UICollectionViewCell *)collectionView:(UICollectionView *)cv cellForItemAtIndexPath:(NSIndexPath *)ip {
-    IMMediaGridCell *cell = [cv dequeueReusableCellWithReuseIdentifier:@"media" forIndexPath:ip];
-    [cell configureWithItem:_items[ip.item]];
+    IMMediaTileCell *cell = [cv dequeueReusableCellWithReuseIdentifier:@"media" forIndexPath:ip];
+    IMMessageModel *m = [self messageAtIndex:ip.item];
+    IMDownloadProgress *dp = m ? [self.downloads stateForMessage:m] : nil;
+    [cell configureWithItem:_items[ip.item] download:dp thumb:m.thumb];
     return cell;
 }
 
@@ -156,18 +151,61 @@
 }
 
 - (void)collectionView:(UICollectionView *)cv didSelectItemAtIndexPath:(NSIndexPath *)ip {
-    // 任务3：媒体库内也支持左右翻页（网格已是完整时间线）。媒体库内不再显示「媒体库」按钮
-    // （onOpenGallery=nil），此处无消息上下文故不带「更多」动作。捕获局部 items 避免强引用 self。
+    IMMessageModel *m = [self messageAtIndex:ip.item];
+    // 门控格（未就绪）：点击=就地下载，不打开（下载优先，与资料 tab 一致）。
+    IMDownloadProgress *dp = m ? [self.downloads stateForMessage:m] : nil;
+    if (dp && dp.phase != IMDownloadPhaseDone) { if (m) { [self.downloads handleTapForMessage:m]; } return; }
+
+    // 就绪：进分页查看器，翻页范围=整个媒体库，不显「媒体库」按钮（onOpenGallery=nil，避免死循环）。
     NSArray<IMMediaItem *> *items = _items;
+    NSArray<IMMessageModel *> *msgs = _messages;
+    NSArray<IMPopoverCardItem *> *(^moreProvider)(IMMessageModel *) = _moreActionsProvider;
     IMMediaPagerViewController *pager =
         [IMMediaPagerViewController pagerWithCount:items.count startIndex:(NSUInteger)ip.item
                                       pageProvider:^IMMediaViewerViewController *(NSUInteger index) {
             if (index >= items.count) { return nil; }
             IMMediaItem *it = items[index];
-            return [IMMediaViewerViewController viewerWithURL:it.url isVideo:it.isVideo
-                                              preloadedImage:nil onOpenGallery:nil];
+            IMMediaViewerViewController *v = [IMMediaViewerViewController viewerWithURL:it.url isVideo:it.isVideo
+                                                                       preloadedImage:nil onOpenGallery:nil];
+            v.thumbDataURI = it.thumb;
+            IMMessageModel *mm = index < msgs.count ? msgs[index] : nil;
+            if (mm && moreProvider) { v.moreActions = moreProvider(mm); }
+            return v;
         }];
+    pager.conversationTitle = _title;
     [self presentViewController:pager animated:YES completion:nil];
+}
+
+/// 逐格长按菜单（与资料 tab 一致）：本页自带「取消下载」（用自建协调器），其余（转发/定位/删除）由聊天页提供。
+- (UIContextMenuConfiguration *)collectionView:(UICollectionView *)cv
+    contextMenuConfigurationForItemAtIndexPath:(NSIndexPath *)ip point:(CGPoint)point {
+    IMMessageModel *m = [self messageAtIndex:ip.item];
+    if (!m || m.convSeq <= 0) { return nil; }
+    __weak typeof(self) ws = self;
+    return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil
+        actionProvider:^UIMenu *(NSArray<UIMenuElement *> *sug) {
+        __strong typeof(ws) self = ws;
+        if (!self) { return nil; }
+        NSMutableArray<IMMenuAction *> *acts = [NSMutableArray array];
+        NSArray<IMMenuAction *> *provided = self->_contextActionsProvider ? self->_contextActionsProvider(m) : nil;
+        // 顺序对齐资料 tab：转发 / 定位 / [取消下载·仅进行中] / 删除。取消下载优先插在「删除」前；
+        // 未找到 delete（provider 约定变更兜底）则追加到末尾，保证进行中态永远有取消入口、不被静默吞掉。
+        IMDownloadProgress *dp = [self.downloads stateForMessage:m];
+        BOOL downloading = dp.phase == IMDownloadPhaseDownloading || dp.phase == IMDownloadPhasePaused;
+        IMMenuAction *cancel = downloading
+            ? [IMMenuAction actionWithId:@"cancel" title:@"取消下载" image:@"xmark.circle"
+                                 handler:^{ [ws.downloads cancelDownloadForMessage:m]; }]
+            : nil;
+        BOOL cancelInserted = NO;
+        for (IMMenuAction *a in provided) {
+            if (cancel && !cancelInserted && [a.actionId isEqualToString:@"delete"]) {
+                [acts addObject:cancel]; cancelInserted = YES;
+            }
+            [acts addObject:a];
+        }
+        if (cancel && !cancelInserted) { [acts addObject:cancel]; }
+        return [IMMenuAction menuWithActions:acts];
+    }];
 }
 
 @end

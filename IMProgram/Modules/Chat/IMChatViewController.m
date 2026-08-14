@@ -1908,6 +1908,7 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
             // 仅初始点中的那条带气泡预载图（已解码），其余现建时自行按 URL 拉。
             return [self buildMediaViewerForMessage:mm preloaded:(mm == m ? image : nil)];
         }];
+    pager.conversationTitle = [self conversationDisplayTitle];
     [self presentViewController:pager animated:YES completion:nil];
 }
 
@@ -1921,7 +1922,16 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
                                            isVideo:isVideo
                                     preloadedImage:image
                                      onOpenGallery:^{ [ws openConversationMediaGallery]; }];
-    // 「更多」外部动作（内置「下载」由查看器自己加在最前）。
+    viewer.thumbDataURI = m.thumb; // 路线 A：未下载/加载中先显内嵌 thumb 磨砂占位 + 菊花
+    viewer.moreActions = [self mediaViewerMoreActionsForMessage:m];
+    return viewer;
+}
+
+/// 查看器「更多」外部动作（定位/收藏/复制/转发；内置「下载」由查看器自己加在最前）：
+/// 聊天气泡查看器与全屏媒体库查看器共用。
+- (NSArray<IMPopoverCardItem *> *)mediaViewerMoreActionsForMessage:(IMMessageModel *)m {
+    BOOL isVideo = [m.contentType isEqualToString:@"video"];
+    __weak typeof(self) ws = self;
     NSMutableArray<IMPopoverCardItem *> *acts = [NSMutableArray array];
     if (m.convSeq > 0) {
         [acts addObject:[IMPopoverCardItem itemWithTitle:@"定位到聊天位置" symbol:@"text.bubble" destructive:NO handler:^{
@@ -1938,21 +1948,47 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     if (m.recalledAt == 0 && m.convSeq > 0) {
         [acts addObject:[IMPopoverCardItem itemWithTitle:@"转发" symbol:@"arrowshape.turn.up.right" destructive:NO handler:^{ [ws forwardMessage:m]; }]];
     }
-    viewer.moreActions = acts;
-    return viewer;
+    return acts;
+}
+
+/// 全屏媒体库逐格长按菜单里「消息相关」动作（转发/定位/删除，与资料 tab 一致；「取消下载」由媒体库自带）。
+- (NSArray<IMMenuAction *> *)mediaContextActionsForMessage:(IMMessageModel *)m {
+    __weak typeof(self) ws = self;
+    NSMutableArray<IMMenuAction *> *acts = [NSMutableArray array];
+    [acts addObject:[IMMenuAction actionWithId:@"forward" title:@"转发" image:@"arrowshape.turn.up.right"
+                                       handler:^{ [ws forwardMessage:m]; }]];
+    [acts addObject:[IMMenuAction actionWithId:@"locate" title:@"定位到聊天" image:@"text.bubble"
+                                       handler:^{ [ws jumpToConvSeq:m.convSeq]; }]];
+    BOOL mine = [m.from isEqualToString:self.userID];
+    [acts addObject:[self deleteMenuActionForMessage:m mine:mine]]; // actionId=@"delete"（媒体库据此在其前插「取消下载」）
+    return acts;
+}
+
+/// 媒体查看器/媒体库顶部标题（会话名）：单聊=对方昵称/uid，群聊=群名。
+- (NSString *)conversationDisplayTitle {
+    if (self.isGroupChat) { return self.groupName.length > 0 ? self.groupName : @"群聊"; }
+    return self.peerNickname.length > 0 ? self.peerNickname : self.peerID;
 }
 
 /// 会话媒体库：汇总当前会话所有图片/视频消息，按时间序展示，点击复用同一查看器。
 - (void)openConversationMediaGallery {
     NSMutableArray<IMMediaItem *> *items = [NSMutableArray array];
+    NSMutableArray<IMMessageModel *> *msgs = [NSMutableArray array];
     for (IMMessageModel *m in self.messages) {
         if (m.recalledAt > 0 || m.content.length == 0) { continue; }
         BOOL isVideo = [m.contentType isEqualToString:@"video"];
         BOOL isImage = [m.contentType isEqualToString:@"image"];
         if (!isVideo && !isImage) { continue; }
         [items addObject:[IMMediaItem itemWithURL:[self fullMediaURL:m.content] isVideo:isVideo timestamp:m.timestamp thumb:m.thumb]];
+        [msgs addObject:m];
     }
-    IMConversationMediaViewController *gallery = [IMConversationMediaViewController galleryWithItems:items];
+    __weak typeof(self) ws = self;
+    IMConversationMediaViewController *gallery =
+        [IMConversationMediaViewController galleryWithItems:items messages:msgs
+                                                       host:self.host myUserID:self.userID isGroup:self.isGroupChat
+                                                      title:[self conversationDisplayTitle]
+                                     contextActionsProvider:^NSArray<IMMenuAction *> *(IMMessageModel *m) { return [ws mediaContextActionsForMessage:m]; }
+                                        moreActionsProvider:^NSArray<IMPopoverCardItem *> *(IMMessageModel *m) { return [ws mediaViewerMoreActionsForMessage:m]; }];
     [self.navigationController pushViewController:gallery animated:YES];
 }
 
