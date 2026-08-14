@@ -550,8 +550,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     _divider.hidden = !showsDivider;
     _dividerHeight.constant = showsDivider ? 28 : 0;
 
-    _bubble.backgroundColor = mine ? IMTheme.bubbleMe : IMTheme.bubbleThem;
-    _bubble.layer.cornerRadius = IMAppearance.shared.bubbleRadius;
+    [IMTheme applyBubbleDirectionStyle:_bubble mine:mine]; // 底色+圆角+尾角（收发方向样式，四类气泡 cell 共用）
     _text.font = [UIFont systemFontOfSize:IMTheme.chatFontSize];
     // 正文 + 小字尾巴（时间/✓/✓✓）拼成一段富文本，保证状态一定随气泡渲染。
     NSMutableAttributedString *body = [NSMutableAttributedString new];
@@ -731,11 +730,6 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     _bubbleBottom.active = !hasNote;
     _noteTop.active = hasNote;
     _noteBottom.active = hasNote;
-
-    // 尾巴：自己靠右气泡的右下角不圆（成尾），对方靠左气泡的左下角不圆。
-    _bubble.layer.maskedCorners = mine
-        ? (kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner | kCALayerMinXMaxYCorner)
-        : (kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner | kCALayerMaxXMaxYCorner);
 
     _leading.active = !mine;
     _trailing.active = mine;

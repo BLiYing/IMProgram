@@ -33,8 +33,7 @@
         self.selectionStyle = UITableViewCellSelectionStyleNone;
         _card = [UIView new];
         _card.translatesAutoresizingMaskIntoConstraints = NO;
-        _card.backgroundColor = IMTheme.surface;
-        _card.layer.cornerRadius = IMTheme.radiusBubble;
+        _card.layer.cornerRadius = IMTheme.radiusBubble; // 底色/尾角在 configure 按 mine 设（applyBubbleDirectionStyle）
         _card.userInteractionEnabled = YES;
         [_card addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tapped)]];
         [self.contentView addSubview:_card];
@@ -129,7 +128,7 @@
 - (void)configureWithMessage:(IMMessageModel *)message mine:(BOOL)mine
                   senderName:(NSString *)senderName
                   senderRole:(IMGroupRole)senderRole {
-    _card.layer.cornerRadius = IMTheme.radiusBubble;
+    [IMTheme applyBubbleDirectionStyle:_card mine:mine]; // 底色+圆角+尾角（收发方向样式，四类气泡 cell 共用）
     _title.font = [UIFont systemFontOfSize:MAX(14, IMTheme.chatFontSize - 2) weight:UIFontWeightSemibold];
     _preview.font = [UIFont systemFontOfSize:MAX(12, IMTheme.chatFontSize - 5)];
     NSString *title = nil; NSArray<NSString *> *lines = nil;

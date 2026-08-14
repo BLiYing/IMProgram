@@ -5,6 +5,13 @@
 
 ## 当前焦点
 
+**气泡样式统一 + iOS26 长按预览修复 ✅ 代码完成（2026-08-15，待编译/手测，纯 iOS 端）** — 见 `../IMServer/current_task.md` 同条。
+- **长按菜单迁移**：从 UITableView 行级 contextMenu API（iOS26 不再回调其自定义预览 delegate → 预览退化整行矩形）迁到挂在气泡 `previewTargetView` 上的 `UIContextMenuInteraction`（`attachMessageContextMenuToCell:` 由 `willDisplayCell` 统一幂等挂，取代 cellForRow 四处散点）。配置走共享 `messageContextMenuConfigurationForIndexPath:`，预览 delegate 新旧两代都实现（iOS15 旧签名 + 16/26 `...ForItemWithIdentifier:`）。
+- **iOS26 预览只剩文字/空气泡**：`targetedPreviewForInteraction:` 把气泡**从父视图按 frame 开窗光栅化**成独立 UIImage（`CGContextTranslateCTM` + `drawViewHierarchyInRect:`）——绕过 iOS26 lift 剥离源视图背景，且开窗能带上链接卡 `_stack`、图片角标等**兄弟视图**（只画 target 子树会漏成空气泡/裸封面）。highlight 缓存快照、dismissal 复用、`willEnd` 清（防菜单期间 reload 换绑截错内容）。截图前按 `kIMFlashOverlayTag` 隐藏跳转高亮遮罩。
+- **配色/尾角统一**：链接卡接收端 `surface` 灰→`bubbleThem` 白；聊天记录卡收发都灰→按 mine 上 `bubbleMe`/`bubbleThem`；两者加尾角（媒体类不加）。方向样式（底色+圆角+尾角）收口为 `+[IMTheme applyBubbleDirectionStyle:mine:]`，IMBubbleCell/IMLinkCardCell/IMChatRecordCell 三处共用（原三份手抄）。flash 高亮层补 `maskedCorners` 跟随尾角。
+- **/code-review 自审**：8 finder × 验证，10 项发现——4 正确性（空气泡预览/收起截错/flash 烘进预览/flash 尾角）+ 5 清理（方向样式复制、attach 散点、identifier 死参、init 死赋值、共享函数）+ 1 规范（本快照）已随本次全修；2 项（宫格多选态、iOS≤18 重影）验证驳回。
+- **已知限制**：相册宫格每格长按预览仍系统默认形状（IMAlbumCell 自带交互无自定义预览，非本次范围）；长按须落在气泡上，行内空白/昵称/头像处不再出菜单（对齐 Telegram）。
+
 **聊天页导航去重 + 折叠 ✅（2026-08-14，build 绿 + test-build 绿，待手测）** — 7 处 `IMChatViewController` alloc+push 收口为统一入口 `+openInNavigationController:...`（单聊/群聊各一，走私有 `+openConvID:inNavigationController:build:seed:`）。
 - **折叠（本次核心需求）**：开新会话时截掉栈里**最底部**的聊天页及其之上的所有页（资料页等），新会话接到其原位置 → 「群聊A→成员资料→发消息C」返回直达会话列表（Telegram 行为），且**同一导航栈至多一个聊天页**。纯逻辑抽为文件级 `IMChatCollapsedStack()`，配 `IMChatStackRoutingTests`（7 例，注入谓词免构造真 VC；含钉住「聊天页为根→原地替换」语义的用例）。
 - **复用刷新（修 /code-review 发现）**：命中同会话则 `popToViewController` 复用并 `prepareForReuseEntry`——重装标题/头像按钮（修死播种）、从库合并被压期间错过的消息（修陈旧空洞）、清定位标志重锚到底部。指定初始化器移入 .m 类扩展（外部无法 alloc+push，结构性防回归）；`viewWillAppear` 按 `synced` 游标跨 Tab 自愈；详情页 `originChatInStack` 改委托 `+existingChatForConvID:`（统一查找方向）。

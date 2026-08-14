@@ -163,7 +163,7 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
     return thumb;
 }
 
-@interface IMChatViewController () <IMSocketManagerDelegate, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIDocumentPickerDelegate, QLPreviewControllerDataSource>
+@interface IMChatViewController () <IMSocketManagerDelegate, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIDocumentPickerDelegate, QLPreviewControllerDataSource, UIContextMenuInteractionDelegate>
 
 // 指定初始化器收进类扩展（原在 .h）：外部只能走 +openInNavigationController: 统一入口，
 // 无法直接 alloc+push，从结构上杜绝绕过导航去重/折叠的回归（曾靠头注释约束、无强制）。
@@ -180,6 +180,9 @@ static UIImage *IMPendingImageThumbnail(NSString *path) {
 /// 收到的图片/视频/文件的下载编排（门控态 + 点击路由 + 自动预取，M4-7）。与会话详情页共用同一实现。
 @property (nonatomic, strong) IMMediaDownloadCoordinator *downloads;
 @property (nonatomic, strong, nullable) NSURL *quickLookURL; // QuickLook 预览中的本地文件
+// 长按菜单预览快照：highlight 时光栅化一次并缓存，dismissal 复用同一张（避免菜单存续期间整表 reload
+// 后 cell 复用换绑、收起动画截到错误消息/空白）。willEnd 收起动画完成后清空。
+@property (nonatomic, strong, nullable) UIImage *cachedMenuSnapshot;
 @property (nonatomic, copy) NSString *host;
 @property (nonatomic, copy) NSString *userID;
 @property (nonatomic, strong) IMDatabaseAccountContext *databaseContext;
@@ -3038,6 +3041,9 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     [self im_showToast:toast];
 }
 
+/// 跳转高亮遮罩的 view tag（长按预览光栅化时据此临时隐藏它）。取一个不易与业务 tag 冲突的值。
+static const NSInteger kIMFlashOverlayTag = 0x1F1A5;
+
 /// 目标行高亮一闪：在气泡/卡片（previewTargetView）上盖一层强调色遮罩淡出——
 /// 不动 cell 自身背景（图片 cell 改背景色看不见），对所有 cell 类型通吃。
 - (void)flashRowAtIndexPath:(NSIndexPath *)ip {
@@ -3047,8 +3053,10 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
         ? [(id)cell previewTargetView] : cell.contentView;
     if (!target) { return; }
     UIView *flash = [[UIView alloc] initWithFrame:target.bounds];
+    flash.tag = kIMFlashOverlayTag; // 长按预览光栅化时按此 tag 临时隐藏，避免高亮蒙层被烘进静态预览
     flash.backgroundColor = [IMTheme.accent colorWithAlphaComponent:0.35];
     flash.layer.cornerRadius = target.layer.cornerRadius;
+    flash.layer.maskedCorners = target.layer.maskedCorners; // 跟随气泡尾角（否则直角尾处露出未高亮月牙缝）
     flash.userInteractionEnabled = NO;
     flash.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     [target addSubview:flash];
@@ -3660,8 +3668,14 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
 
 #pragma mark - 长按消息菜单（数据驱动：IMMenuAction 单一来源）
 
-- (UIContextMenuConfiguration *)tableView:(UITableView *)tableView
-    contextMenuConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath point:(CGPoint)point {
+/// 单条消息的长按菜单配置（供挂在气泡上的 UIContextMenuInteraction 调用）。
+/// 为什么不走 UITableView 的行级 contextMenu API：那套的自定义预览 delegate
+/// （previewForHighlighting/DismissingContextMenuWithConfiguration:）在 iOS 26 的新菜单管线里**不再被回调**
+/// （iOS 16 时 UICollectionView / UIContextMenuInteraction 均已废弃旧签名、换带 identifier 的新 API，
+/// 唯独 UITableView 没给替代签名），表现为长按预览退化成系统默认的整行全宽矩形快照。
+/// 故改为把交互直接挂在气泡视图上（attachMessageContextMenuToCell:），interaction 的新旧两代
+/// 预览 delegate 都实现（见下 pragma 段），iOS 13…26 预览形状全可控。
+- (nullable UIContextMenuConfiguration *)messageContextMenuConfigurationForIndexPath:(NSIndexPath *)indexPath {
     if (self.selecting) { return nil; } // 多选态无长按菜单
     if (indexPath.row >= (NSInteger)self.messages.count) { return nil; }
     IMMessageModel *message = self.messages[indexPath.row];
@@ -3673,8 +3687,9 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
     // 群聊里自己发的消息：菜单**顶部**挂一条「N 人已读 ›」（M4-8）。人数要查服务端，
     // 故用 UIDeferredMenuElement 异步填——菜单先弹出、这一行随后就位，不阻塞其它操作。
     UIMenuElement *readRow = [self readReceiptMenuElementForMessage:message mine:mine];
-    // identifier 带上 indexPath：高亮/收起预览回调要凭它找到 cell（否则只能用系统默认的整行全宽快照）。
-    return [UIContextMenuConfiguration configurationWithIdentifier:indexPath previewProvider:nil
+    // identifier 传 nil：预览不再靠它反查 cell（改用 interaction.view，见 targetedPreviewForInteraction:），
+    // 且 indexPath 会随行插入/删除漂移，留着只会误导。
+    return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil
         actionProvider:^UIMenu *(NSArray<UIMenuElement *> *suggested) {
             UIMenu *base = [IMMenuAction menuWithActions:actions];
             if (!readRow) { return base; }
@@ -3682,6 +3697,33 @@ static const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入�
             [children addObjectsFromArray:base.children];
             return [UIMenu menuWithTitle:@"" children:children];
         }];
+}
+
+/// 给消息 cell 的气泡本体（previewTargetView）挂长按菜单交互，由 willDisplayCell 统一调用。幂等：
+/// 同一 view 只挂一次（cell 复用时子视图实例不变，不会越挂越多）；不实现 previewTargetView 的不挂
+/// （系统行/撤回墓碑无菜单；相册宫格每个格子自带交互，定位到单条成员）。
+- (void)attachMessageContextMenuToCell:(UITableViewCell *)cell {
+    if (![cell respondsToSelector:@selector(previewTargetView)]) { return; }
+    UIView *target = [(id)cell previewTargetView];
+    if (!target) { return; }
+    for (id<UIInteraction> it in target.interactions) {
+        if ([it isKindOfClass:UIContextMenuInteraction.class]) { return; }
+    }
+    [target addInteraction:[[UIContextMenuInteraction alloc] initWithDelegate:self]];
+}
+
+#pragma mark UIContextMenuInteractionDelegate（消息气泡长按菜单）
+
+- (nullable UIContextMenuConfiguration *)contextMenuInteraction:(UIContextMenuInteraction *)interaction
+                                 configurationForMenuAtLocation:(CGPoint)location {
+    // interaction 挂在气泡视图上：向上找到所属 cell → indexPath →（复用 cell 也拿到的是当前行的消息）。
+    UITableViewCell *cell = nil;
+    for (UIView *v = interaction.view; v; v = v.superview) {
+        if ([v isKindOfClass:UITableViewCell.class]) { cell = (UITableViewCell *)v; break; }
+    }
+    NSIndexPath *indexPath = cell ? [self.tableView indexPathForCell:cell] : nil;
+    if (!indexPath) { return nil; }
+    return [self messageContextMenuConfigurationForIndexPath:indexPath];
 }
 
 /// 群聊「N 人已读」菜单行（M4-8）。返回 nil 表示不该显示这一行：
@@ -3753,35 +3795,91 @@ static UIBezierPath *IMBubbleOutlinePath(CGRect rect, CGFloat radius, CACornerMa
     return p;
 }
 
-/// 长按菜单只圈气泡本体：系统默认对整个 cell（contentView 全宽，含气泡两侧透明区）截图并垫系统底色
-/// 托盘——表现为"整行宽的背景色"，收起动画时这块全宽快照归位又比气泡慢半拍。改为 UITargetedPreview
-/// 指向 cell 的 previewTargetView（气泡/缩略图/卡片），背景透明 + 圆角 visiblePath，高亮与收起都干净。
-- (UITargetedPreview *)targetedPreviewForConfiguration:(UIContextMenuConfiguration *)configuration {
-    id identifier = configuration.identifier; // id<NSCopying> 不能直接发 isKindOfClass:，先落成 id
-    NSIndexPath *ip = [identifier isKindOfClass:NSIndexPath.class] ? (NSIndexPath *)identifier : nil;
-    if (!ip) { return nil; }
-    UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:ip];
-    if (![cell respondsToSelector:@selector(previewTargetView)]) { return nil; } // 系统默认兜底
-    UIView *target = [(id)cell previewTargetView];
-    if (!target || !target.window) { return nil; }
+/// 长按预览只圈气泡本体，且**预览视图是气泡的光栅化位图**而非活视图本身。
+/// 为什么要光栅化（iOS26 踩坑记录）：iOS26 的 lift 管线会把**源视图自身的 backgroundColor 从内容里
+/// 剥离出来当托盘层**，托盘色由 params.backgroundColor 决定——我们为去掉系统托盘设的 clearColor
+/// 在 iOS26 上会连气泡自己的白/绿底一起置透明，预览只剩文字浮在壁纸上（iOS≤18 旧管线是整视图
+/// 快照含背景，无此问题）。烘成位图后背景/圆角/尾角都在像素里，系统怎么处理"源视图背景"都影响不到它。
+/// 注意不用 snapshotViewAfterScreenUpdates:（复刻视图在源视图被系统隐藏时会变空白），
+/// 用 drawViewHierarchyInRect: 画成独立 UIImage。
+///
+/// **从父视图按气泡矩形开窗裁剪**，而非只画 target 自身子树：链接卡的内容 `_stack`、图片/视频的播放键与
+/// 时长/进度角标都是气泡的**兄弟视图**（盖在其上、不在 target 子树内），只画 target 会漏成空气泡/裸封面。
+/// 平移父视图坐标系、按 target.frame 开窗光栅化后，凡视觉落在气泡矩形内的同级视图都进快照；昵称/头像/失败❗
+/// 在矩形外自然排除。文本/记录卡内容本就在气泡子树内，此法结果与只画 target 一致，故四类 cell 统一走这条。
+///
+/// useCached=YES（dismissal 收起）复用 highlight 时缓存的快照，不重新截图——否则菜单存续期间整表 reload
+/// （收到 WS 消息即触发）会让 target 复用换绑到别的消息，收起动画截到错误内容/空白。缓存在 willEnd 清。
+- (nullable UITargetedPreview *)targetedPreviewForInteraction:(UIContextMenuInteraction *)interaction
+                                                   useCached:(BOOL)useCached {
+    UIView *target = interaction.view;
+    if (!target || !target.window || CGRectIsEmpty(target.bounds)) { return nil; }
+    UIImage *snapshot = useCached ? self.cachedMenuSnapshot : nil;
+    if (!snapshot) {
+        UIView *host = target.superview ?: target;
+        CGRect win = target.frame; // 气泡在父视图中的矩形（开窗范围）
+        // 跳转高亮遮罩（flashRowAtIndexPath: 挂在 target 上的子视图）不能烘进静态预览，否则整菜单存续期都带色。
+        UIView *flash = [target viewWithTag:kIMFlashOverlayTag];
+        BOOL flashWasHidden = flash.hidden;
+        flash.hidden = YES;
+        UIGraphicsImageRendererFormat *fmt = [UIGraphicsImageRendererFormat preferredFormat];
+        fmt.opaque = NO;
+        UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:target.bounds.size format:fmt];
+        snapshot = [renderer imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
+            CGContextTranslateCTM(ctx.CGContext, -win.origin.x, -win.origin.y); // 把气泡矩形左上角对到 (0,0)
+            [host drawViewHierarchyInRect:host.bounds afterScreenUpdates:NO];
+        }];
+        flash.hidden = flashWasHidden;
+    }
+    self.cachedMenuSnapshot = snapshot; // highlight 存、dismissal 命中后仍持有至 willEnd 清
+    UIImageView *previewView = [[UIImageView alloc] initWithImage:snapshot]; // frame 由 image 尺寸给出
     UIPreviewParameters *params = [UIPreviewParameters new];
-    params.backgroundColor = UIColor.clearColor; // 去掉全宽底色托盘
-    // 高亮路径须**逐角复刻气泡自身的 maskedCorners**：文本气泡有尾巴（某个下角是直角）。
-    // 此处**手动构造路径**而非用 `bezierPathWithRoundedRect:byRoundingCorners:`——后者在部分 iOS 版本对
-    // 「保留右下、只缺左下」这类角组合会画错（实测：自己气泡尾角正常、对方气泡却被抹成四圆角）。手动逐角
-    // 给半径就没有这个歧义；未设 maskedCorners 的（媒体/卡片=全角）四角同半径，退化为普通圆角矩形。
+    params.backgroundColor = UIColor.clearColor; // 托盘透明（位图已自带气泡底色，无需托盘补色）
+    // 高亮路径仍**逐角复刻气泡的 maskedCorners**（文本气泡尾巴=某个下角直角）：iOS≤18 靠它裁托盘/阴影；
+    // 手动构造路径而非 bezierPathWithRoundedRect:byRoundingCorners:——后者对「缺一个下角」的组合
+    // 在部分 iOS 版本会画错。未设 maskedCorners 的（媒体=全角）四角同半径，退化为普通圆角矩形。
     params.visiblePath = IMBubbleOutlinePath(target.bounds, target.layer.cornerRadius, target.layer.maskedCorners);
-    return [[UITargetedPreview alloc] initWithView:target parameters:params];
+    // 位图钉回气泡原位（container=气泡父视图、center=气泡中心）：lift/收起动画从原位起落，无跳变。
+    UIPreviewTarget *previewTarget = [[UIPreviewTarget alloc] initWithContainer:target.superview
+                                                                         center:target.center];
+    return [[UITargetedPreview alloc] initWithView:previewView parameters:params target:previewTarget];
 }
 
-- (UITargetedPreview *)tableView:(UITableView *)tableView
-    previewForHighlightingContextMenuWithConfiguration:(UIContextMenuConfiguration *)configuration {
-    return [self targetedPreviewForConfiguration:configuration];
+// 预览 delegate 两代都实现：iOS 13–15 走旧签名（16 起废弃但老系统仍回调），
+// iOS 16+（含 26）走带 identifier 的新签名——iOS 26 的菜单管线只认这一代。
+// highlight 现场光栅化并缓存；dismissal 复用缓存（useCached:YES）。
+- (UITargetedPreview *)contextMenuInteraction:(UIContextMenuInteraction *)interaction
+    previewForHighlightingMenuWithConfiguration:(UIContextMenuConfiguration *)configuration {
+    return [self targetedPreviewForInteraction:interaction useCached:NO];
 }
 
-- (UITargetedPreview *)tableView:(UITableView *)tableView
-    previewForDismissingContextMenuWithConfiguration:(UIContextMenuConfiguration *)configuration {
-    return [self targetedPreviewForConfiguration:configuration];
+- (UITargetedPreview *)contextMenuInteraction:(UIContextMenuInteraction *)interaction
+    previewForDismissingMenuWithConfiguration:(UIContextMenuConfiguration *)configuration {
+    return [self targetedPreviewForInteraction:interaction useCached:YES];
+}
+
+- (UITargetedPreview *)contextMenuInteraction:(UIContextMenuInteraction *)interaction
+                                configuration:(UIContextMenuConfiguration *)configuration
+        highlightPreviewForItemWithIdentifier:(id<NSCopying>)identifier API_AVAILABLE(ios(16.0)) {
+    return [self targetedPreviewForInteraction:interaction useCached:NO];
+}
+
+- (UITargetedPreview *)contextMenuInteraction:(UIContextMenuInteraction *)interaction
+                                configuration:(UIContextMenuConfiguration *)configuration
+        dismissalPreviewForItemWithIdentifier:(id<NSCopying>)identifier API_AVAILABLE(ios(16.0)) {
+    return [self targetedPreviewForInteraction:interaction useCached:YES];
+}
+
+/// 菜单收起：动画完成后清预览快照缓存（dismissal 预览在动画开始前取用，先清会拿不到）。
+- (void)contextMenuInteraction:(UIContextMenuInteraction *)interaction
+      willEndForConfiguration:(UIContextMenuConfiguration *)configuration
+                     animator:(id<UIContextMenuInteractionAnimating>)animator {
+    __weak typeof(self) ws = self;
+    if (animator) {
+        [animator addCompletion:^{ ws.cachedMenuSnapshot = nil; }];
+    } else {
+        self.cachedMenuSnapshot = nil;
+    }
 }
 
 /// 单条消息的菜单动作（按显示顺序，仅含可见项）：
@@ -4319,6 +4417,9 @@ static UIBezierPath *IMBubbleOutlinePath(CGRect rect, CGFloat radius, CACornerMa
 
 - (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
     [self applySelectionStyleForCell:cell];
+    // 长按菜单交互统一在此挂（单一咽喉点，取代原先在 cellForRow 各类型分支各补一行——漏接一种即静默无菜单）。
+    // 幂等；system/albumPad 等不实现 previewTargetView 的 cell 自动跳过；相册宫格每格自带交互不受影响。
+    [self attachMessageContextMenuToCell:cell];
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {

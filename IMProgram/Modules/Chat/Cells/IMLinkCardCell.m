@@ -61,8 +61,7 @@
         // 气泡底：链接文本与 OG 卡片装进**同一个气泡**（对齐 Web——一个白/绿气泡里 链接 + 卡片）。
         // 整个气泡可点（打开链接），与链接/卡片各自的 tap 同一动作。
         _bubble = [UIView new];
-        _bubble.backgroundColor = IMTheme.surface;
-        _bubble.layer.cornerRadius = IMTheme.radiusBubble;
+        _bubble.layer.cornerRadius = IMTheme.radiusBubble; // 底色/尾角在 configure 按 mine 设（applyBubbleDirectionStyle）
         _bubble.userInteractionEnabled = YES;
         _bubble.translatesAutoresizingMaskIntoConstraints = NO;
         [_bubble addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tapped)]];
@@ -73,7 +72,10 @@
         _stack.spacing = 6;
         _stack.alignment = UIStackViewAlignmentFill;
         _stack.translatesAutoresizingMaskIntoConstraints = NO;
-        [self.contentView addSubview:_stack];
+        // 内容装进**气泡子树**（约束本就全相对 _bubble）：否则 stack 只是盖在 _bubble 上的兄弟视图，
+        // 长按落点祖先链不含 _bubble → 挂在 _bubble 上的 UIContextMenuInteraction 收不到触摸（长按无反应）。
+        // 与 IMBubbleCell(_text 在 _bubble 内)/IMChatRecordCell(内容在 _card 内) 结构对齐。
+        [_bubble addSubview:_stack];
 
         // 群聊对方消息（与 IMBubbleCell/IMImageCell 一致）：昵称在内容上方、头像贴内容底左侧。
         _senderLabel = [UILabel new];
@@ -159,7 +161,7 @@
     _url = url;
     _leading.active = !mine;
     _trailing.active = mine;
-    _bubble.backgroundColor = mine ? IMTheme.bubbleMe : IMTheme.surface; // 我方绿泡/对方白泡，与文本气泡一致
+    [IMTheme applyBubbleDirectionStyle:_bubble mine:mine]; // 底色+圆角+尾角（收发方向样式，四类气泡 cell 共用）
     // 群聊对方消息昵称（连续段首条）：显示时 stack 接昵称底，否则贴 cell 顶。
     BOOL showName = senderName.length > 0;
     _senderLabel.font = [UIFont systemFontOfSize:MAX(12, IMTheme.chatFontSize - 4) weight:UIFontWeightSemibold];

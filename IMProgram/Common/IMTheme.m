@@ -64,6 +64,15 @@
 + (CGFloat)radiusCard { return 8; }
 + (CGFloat)chatFontSize { return IMAppearance.shared.chatFontSize; }
 
++ (void)applyBubbleDirectionStyle:(UIView *)bubble mine:(BOOL)mine {
+    bubble.backgroundColor = mine ? self.bubbleMe : self.bubbleThem;
+    bubble.layer.cornerRadius = self.radiusBubble;
+    // 尾巴：自己靠右气泡右下角不圆（成尾）、对方靠左气泡左下角不圆。逐 cell 手抄三份易漏改，故收口于此。
+    bubble.layer.maskedCorners = mine
+        ? (kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner | kCALayerMinXMaxYCorner)
+        : (kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner | kCALayerMaxXMaxYCorner);
+}
+
 + (NSString *)timeStringFromMillis:(int64_t)ms {
     if (ms <= 0) { return @""; }
     NSDate *date = [NSDate dateWithTimeIntervalSince1970:ms / 1000.0];

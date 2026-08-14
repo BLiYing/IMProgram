@@ -49,6 +49,11 @@ NS_ASSUME_NONNULL_BEGIN
 @property (class, nonatomic, readonly) CGFloat chatFontSize;
 
 // 工具
+/// 气泡类 cell 的「收发方向样式」单一入口：底色（我方 bubbleMe / 对方 bubbleThem）+ 圆角（radiusBubble）
+/// + 尾角（自己右下直角、对方左下直角）。文本/文件/链接卡/聊天记录/（将来）语音等所有气泡类 cell 共用，
+/// 媒体类（图片/视频/相册）不加尾角故不调本方法。长按预览的 visiblePath 读同一 maskedCorners，形状自动跟随。
++ (void)applyBubbleDirectionStyle:(UIView *)bubble mine:(BOOL)mine;
+
 /// 毫秒时间戳 → "HH:mm"（今天）/"MM-dd"（更早）；0 返回空串。
 + (NSString *)timeStringFromMillis:(int64_t)ms;
 /// 由种子（uid）派生稳定的头像底色（一组柔和色循环）。
