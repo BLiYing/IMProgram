@@ -190,6 +190,10 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (void)updateInputBottomAnimated:(BOOL)animated;
 - (void)runAfterKeyboardHidden:(void (^)(void))block;
 - (void)scrollToBottomAnimated:(BOOL)animated;
+- (void)markVisibleRowsRead;
+- (void)positionInitialIfNeeded;
+- (void)refreshPeerPresence;
+- (void)updatePeerWatch:(BOOL)watch;
 
 // —— +MediaFlow.m 中、被主实现（downloads getter 等）调用者 ——
 - (void)updateDownloadProgressForMessage:(IMMessageModel *)m state:(IMDownloadProgress *)state;
@@ -209,6 +213,10 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 
 // 引用/编辑态：@提及发送流程会调用主实现的取消编辑（+Mention.m → 主实现）。
 - (void)cancelEdit;
+
+// —— +Socket.m 中、被主实现/其它 category 广泛调用者 ——
+- (void)updateTitle;
+- (void)sortMessagesInPlace;
 
 // —— +Mention.m 中、被主实现/其它 category 调用者 ——
 - (void)sendTapped;
