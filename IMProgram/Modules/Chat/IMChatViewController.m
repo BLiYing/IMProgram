@@ -887,48 +887,7 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     return url.length > 0 ? [self fullMediaURL:url] : @"";
 }
 
-#pragma mark - Telegram 式连续消息分组（同发送者连续段：名字只显首条、头像贴末条）
-
-/// 上一「可见行」（跳过相册零高从行）；无则 -1。
-- (NSInteger)prevVisibleRow:(NSInteger)row {
-    for (NSInteger j = row - 1; j >= 0; j--) {
-        if ([self isAlbumFollowerAtRow:j]) { continue; }
-        return j;
-    }
-    return -1;
-}
-
-/// 下一「可见行」（跳过相册零高从行）；无则 messages.count。
-- (NSInteger)nextVisibleRow:(NSInteger)row {
-    for (NSInteger j = row + 1; j < (NSInteger)self.messages.count; j++) {
-        if ([self isAlbumFollowerAtRow:j]) { continue; }
-        return j;
-    }
-    return (NSInteger)self.messages.count;
-}
-
-/// 两条消息是否属于同一「连续段」：同发送者、都是普通气泡（非系统/撤回）、同一天。
-- (BOOL)message:(IMMessageModel *)a sameSenderRunAs:(IMMessageModel *)b {
-    if (![a.from isEqualToString:b.from]) { return NO; }
-    if ([a.contentType isEqualToString:@"system"] || [b.contentType isEqualToString:@"system"]) { return NO; }
-    if (a.recalledAt != 0 || b.recalledAt != 0) { return NO; }
-    if (a.timestamp > 0 && b.timestamp > 0 && ![IMTheme isMillis:a.timestamp sameDayAsMillis:b.timestamp]) { return NO; }
-    return YES;
-}
-
-/// 该行是否为连续段首条（对方群消息用；决定是否显示发送者名）。
-- (BOOL)isFirstInSenderRun:(NSInteger)row {
-    NSInteger p = [self prevVisibleRow:row];
-    if (p < 0) { return YES; }
-    return ![self message:self.messages[(NSUInteger)p] sameSenderRunAs:self.messages[(NSUInteger)row]];
-}
-
-/// 该行是否为连续段末条（对方群消息用；决定是否显示头像）。
-- (BOOL)isLastInSenderRun:(NSInteger)row {
-    NSInteger n = [self nextVisibleRow:row];
-    if (n >= (NSInteger)self.messages.count) { return YES; }
-    return ![self message:self.messages[(NSUInteger)n] sameSenderRunAs:self.messages[(NSUInteger)row]];
-}
+#pragma mark - 生命周期 / 在线态
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
