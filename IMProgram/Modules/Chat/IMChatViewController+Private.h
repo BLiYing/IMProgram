@@ -122,6 +122,9 @@ NS_ASSUME_NONNULL_BEGIN
 /// 长按预览光栅化时按此 tag 临时隐藏高亮蒙层（主实现里定义，+Menu.m 引用）。
 FOUNDATION_EXPORT const NSInteger kIMFlashOverlayTag;
 
+/// 附件面板高度（顶起输入栏的量）。+Media.m 里定义，主实现 updateInputBottom 引用。
+FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
+
 /// 跨分文件 category 互调的私有方法：主实现与各 category 都 import 本头，故都能看到彼此的私有方法签名。
 /// 一个方法只要被**定义它的那个 translation unit 以外**的地方调用，就在此登记（否则 ARC 因不知返回类型报错）。
 @interface IMChatViewController (Private)
@@ -181,10 +184,21 @@ FOUNDATION_EXPORT const NSInteger kIMFlashOverlayTag;
 - (BOOL)isTextExpandedForMessage:(IMMessageModel *)m;
 - (NSDictionary<NSString *, NSString *> *)mentionMapForMessage:(IMMessageModel *)m;
 - (NSString *)replyFromNameForUID:(NSString *)uid;
+- (IMMessageModel *)messageForClientMsgID:(NSString *)clientMsgID;
+- (void)handleSendResult:(BOOL)success convSeq:(int64_t)convSeq error:(nullable NSError *)error forClientMsgID:(NSString *)clientMsgID;
+- (void)updateInputBottomAnimated:(BOOL)animated;
 
 // —— +DataSource.m 中、被主实现/其它 category 调用者 ——
 - (BOOL)isAlbumFollowerAtRow:(NSInteger)row;
 - (NSUInteger)visibleRowForMessage:(IMMessageModel *)m;
+
+// —— +Media.m 中、被主实现/其它 category 调用者 ——
+- (void)appendPastedImage:(UIImage *)image;
+- (void)refreshPasteBar;
+- (void)reattachRunningUploads;
+- (void)refreshVisibleCellForMessage:(IMMessageModel *)m;
+- (void)updateUploadProgressForMessage:(IMMessageModel *)m;
+- (void)uploadAndSendPastedImage:(UIImage *)image groupID:(NSString *)groupID;
 
 // —— +Selection.m 中、被主实现/其它 category 调用者 ——
 - (void)enterSelectionWithMessage:(IMMessageModel *)message;
