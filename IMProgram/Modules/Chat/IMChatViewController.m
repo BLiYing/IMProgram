@@ -51,6 +51,7 @@
 #import "IMMenuAction.h"
 #import "IMPinnedBannerView.h"
 #import "IMPinnedMessage.h"
+#import "IMChatBannerStack.h"
 #import "UIViewController+IMToast.h"
 #import "UIViewController+IMDeleteSheet.h" // 两档删除 sheet（与详情页共用）
 #import "IMTheme.h"
@@ -69,7 +70,7 @@ NSNotificationName const IMChatConversationClearedNotification = @"IMChatConvers
 
 #pragma mark - 聊天页
 
-@interface IMChatViewController () <IMSocketManagerDelegate, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIDocumentPickerDelegate, QLPreviewControllerDataSource, UIContextMenuInteractionDelegate>
+@interface IMChatViewController () <IMSocketManagerDelegate, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIDocumentPickerDelegate, QLPreviewControllerDataSource, UIContextMenuInteractionDelegate, IMChatBannerStackDelegate>
 
 // 指定初始化器收进类扩展（原在 .h）：外部只能走 +openInNavigationController: 统一入口，
 // 无法直接 alloc+push，从结构上杜绝绕过导航去重/折叠的回归（曾靠头注释约束、无强制）。
@@ -96,20 +97,9 @@ NSNotificationName const IMChatConversationClearedNotification = @"IMChatConvers
 @property (nonatomic, assign) BOOL isGroupChat;        // YES=群聊（convID 为群 topic_id）
 @property (nonatomic, copy, nullable) NSString *groupName;     // 群名（进入时用会话项的，拉到群资料后刷新）
 @property (nonatomic, strong, nullable) IMGroupInfo *groupInfo; // 群资料缓存（标题成员数/气泡昵称回退）
-// 置顶消息横幅（G0）：进会话拉一次，之后靠 msg_op 帧重拉。pinnedIndex=横幅当前显示第几条（点条轮转）。
-@property (nonatomic, strong, nullable) IMPinnedBannerView *pinnedBanner;
-@property (nonatomic, strong) NSArray<IMPinnedMessage *> *pinnedItems;
-@property (nonatomic, assign) NSInteger pinnedIndex;
-@property (nonatomic, strong, nullable) NSLayoutConstraint *pinnedBannerHeight;
-// 群公告横幅（G1）：黄条，排在置顶横幅之上（优先级 公告 > 置顶）。文本随群资料下发。
-@property (nonatomic, strong, nullable) IMPinnedBannerView *announcementBanner;
-@property (nonatomic, strong, nullable) NSLayoutConstraint *announcementBannerHeight;
-@property (nonatomic, copy, nullable) NSString *announcementText;
-// 入群申请横幅（G3，仅群主/管理员）：蓝条，置于最顶，pending_count>0 才显。点=进审批列表。
-@property (nonatomic, strong, nullable) IMPinnedBannerView *approvalBanner;
-@property (nonatomic, strong, nullable) NSLayoutConstraint *approvalBannerHeight;
-// 横幅本地收起（✕，非破坏性）持久化到 NSUserDefaults（键含 userID+convID，退出重进/换账号均正确）：
-// 记「收起时的内容签名」，签名一致才隐藏；内容变化（新置顶/改公告/申请数变）签名变→自动复现。见 bannerDismissKey:。
+// 顶部三横幅栈（G0 置顶 / G1 公告 / G3 入群申请）：视图/布局/高度→内边距/收起持久化全归它，
+// 点击导航经 IMChatBannerStackDelegate 回本页处理。进会话拉一次置顶，之后靠 msg_op 帧重拉。
+@property (nonatomic, strong, nullable) IMChatBannerStack *bannerStack;
 @property (nonatomic, assign) BOOL composerMuteLocked; ///< G2：被禁言（成员级或全员）时锁输入栏
 // @提及（M4-8，仅群聊）：候选表 uid→显示名，发送时按输入框里是否还留着 `@显示名` 复核。
 @property (nonatomic, strong, nullable) NSMutableDictionary<NSString *, NSString *> *mentionCandidates;
@@ -660,9 +650,8 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
         [self updateTitle];
         // 群头像加载后刷新右上圆按钮。
         [self installInfoAvatarButtonWithURL:group.avatarURL seed:self.convID name:group.name action:@selector(groupInfoTapped)];
-        self.announcementText = group.announcement.length ? group.announcement : nil; // G1 公告横幅
-        [self applyAnnouncementBanner];
-        [self applyApprovalBanner]; // G3：群主/管理员待审入群申请横幅
+        self.bannerStack.announcementText = group.announcement.length ? group.announcement : nil; // G1 公告横幅（setter 应用）
+        [self.bannerStack applyApprovalPending:[self approvalPendingCount]]; // G3：群主/管理员待审入群申请横幅
         [self maybeAutoPopAnnouncement]; // 进群/新版本自动弹一次公告卡（每版一次）
         [self refreshComposerMuteState]; // G2：被禁言则锁输入栏
         [self.tableView reloadData]; // 昵称回退可能变化（老消息无 from_nickname 时用成员表）
@@ -687,70 +676,34 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
                                              completion:^(NSArray<IMPinnedMessage *> *items, NSError *error) {
         __strong typeof(weakSelf) self = weakSelf;
         if (!self || error) { return; }
-        self.pinnedItems = items ?: @[];
-        [self applyPinnedBanner];
+        self.bannerStack.pinnedItems = items ?: @[]; // setter 内部夹紧索引 + 收起态判定 + 顶开 tableView
     }];
 }
 
-/// 置顶横幅「内容签名」（条数 + 首条 conv_seq）：收起态按此记忆，签名变化即视为新内容、自动复现。
-/// 收起处与刷新处共用同一算法，避免两处格式串分叉。
-- (nullable NSString *)currentPinnedSig {
-    NSInteger total = (NSInteger)self.pinnedItems.count;
-    return total > 0 ? [NSString stringWithFormat:@"%ld:%lld", (long)total, (long long)self.pinnedItems.firstObject.convSeq] : nil;
+/// 待审批人数：仅群聊且我是群主/管理员才计，其余 0。喂给横幅栈决定是否显 G3 蓝条。
+- (NSInteger)approvalPendingCount {
+    BOOL canManage = self.groupInfo.myRole == IMGroupRoleOwner || self.groupInfo.myRole == IMGroupRoleAdmin;
+    return (self.isGroupChat && canManage) ? self.groupInfo.pendingCount : 0;
 }
 
-/// 横幅收起状态的 NSUserDefaults 键：含 userID + convID，换账号/换会话互不影响。
-- (NSString *)bannerDismissKey:(NSString *)kind {
-    return [NSString stringWithFormat:@"im_banner_dismiss_%@_%@_%@", kind, self.userID ?: @"", self.convID ?: @""];
-}
+#pragma mark IMChatBannerStackDelegate
 
-/// 把当前 pinnedItems/pinnedIndex 应用到横幅，并同步 tableView 顶部内边距。
-- (void)applyPinnedBanner {
-    NSInteger total = (NSInteger)self.pinnedItems.count;
-    // 别人取消置顶会让列表变短，旧索引可能越界（横幅空白）→ 夹紧回 0。
-    if (self.pinnedIndex < 0 || self.pinnedIndex >= total) { self.pinnedIndex = 0; }
-    IMPinnedMessage *shown = total > 0 ? self.pinnedItems[self.pinnedIndex] : nil;
-    // 收起态持久化：仅当当前内容签名与"收起时记下的签名"一致才隐藏；新置顶签名不同 → 自动复现。
-    NSString *sig = [self currentPinnedSig];
-    NSString *dismissedSig = [NSUserDefaults.standardUserDefaults stringForKey:[self bannerDismissKey:@"pin"]];
-    if (sig.length > 0 && [sig isEqualToString:dismissedSig]) { shown = nil; }
-    [self.pinnedBanner applyItem:shown index:self.pinnedIndex total:total isGroup:self.isGroupChat];
-    self.pinnedBannerHeight.constant = shown ? [IMPinnedBannerView bannerHeight] : 0;
-    [self updateBannerInset];
-}
-
-/// 应用群公告横幅（G1）：文本非空则显黄条。
-- (void)applyAnnouncementBanner {
-    NSString *text = self.announcementText;
-    NSString *dismissedText = [NSUserDefaults.standardUserDefaults stringForKey:[self bannerDismissKey:@"ann"]];
-    NSString *shownText = (text.length > 0 && [text isEqualToString:dismissedText]) ? nil : text; // 公告改了→签名不同→复现
-    [self.announcementBanner applyAnnouncement:shownText];
-    self.announcementBannerHeight.constant = shownText.length ? [IMPinnedBannerView bannerHeight] : 0;
-    [self updateBannerInset];
-}
-
-/// 三条横幅（申请 + 公告 + 置顶）叠加后的总高，顶开消息表内容。放一处算，避免各方法各自覆盖 inset.top。
-- (void)updateBannerInset {
-    CGFloat top = self.approvalBannerHeight.constant + self.announcementBannerHeight.constant + self.pinnedBannerHeight.constant;
+/// 三横幅叠加总高变化 → 顶开消息表内容（放一处算，避免各方法各自覆盖 inset.top）。
+- (void)bannerStackDidChangeHeight:(IMChatBannerStack *)stack {
+    CGFloat top = stack.totalHeight;
     UIEdgeInsets inset = self.tableView.contentInset;
     if (inset.top == top) { return; }
     inset.top = top;
     self.tableView.contentInset = inset;
 }
 
-/// 入群申请横幅（G3）：仅群主/管理员且 pending_count>0 才显。放在 reloadGroupInfo 后刷新（帧到达也走那条路）。
-- (void)applyApprovalBanner {
-    BOOL canManage = self.groupInfo.myRole == IMGroupRoleOwner || self.groupInfo.myRole == IMGroupRoleAdmin;
-    NSInteger pending = (self.isGroupChat && canManage) ? self.groupInfo.pendingCount : 0;
-    NSInteger dismissedCount = [NSUserDefaults.standardUserDefaults integerForKey:[self bannerDismissKey:@"approval"]];
-    NSInteger shownPending = (pending > 0 && pending == dismissedCount) ? 0 : pending; // 申请数变→复现
-    [self.approvalBanner applyApprovalCount:shownPending];
-    self.approvalBannerHeight.constant = shownPending > 0 ? [IMPinnedBannerView bannerHeight] : 0;
-    [self updateBannerInset];
+/// 点置顶横幅主体：跳到当前那条（轮转已在横幅栈内部处理）。
+- (void)bannerStack:(IMChatBannerStack *)stack didRequestJumpToConvSeq:(int64_t)convSeq {
+    [self jumpToConvSeq:convSeq];
 }
 
 /// 点入群申请横幅：进审批列表（同意/拒绝后回调重拉，角标随之更新）。
-- (void)approvalBannerTapped {
+- (void)bannerStackDidTapApproval:(IMChatBannerStack *)stack {
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0) { return; }
     __weak typeof(self) ws = self;
@@ -762,7 +715,7 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
 /// 进群/新版本自动弹一次公告卡（sketch §02②，决策 16）：`announcementAt` 比本地记录新才弹，每版一次。
 /// 本地按 convID 存 last-seen（NSUserDefaults）；弹过即记录本版，之后 reloadGroupInfo 再进来不重复弹。
 - (void)maybeAutoPopAnnouncement {
-    NSString *text = self.announcementText;
+    NSString *text = self.bannerStack.announcementText;
     int64_t at = self.groupInfo.announcementAt;
     if (text.length == 0 || at <= 0) { return; }
     NSString *key = [NSString stringWithFormat:@"im_ann_seen_%@", self.convID ?: @""];
@@ -776,8 +729,8 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
 }
 
 /// 点公告横幅：**直接开公告全文视图**（决策 16，不再跳群资料页——旧实现跳过去详情页却没公告卡，等于点了看不到）。
-- (void)announcementBannerTapped {
-    NSString *text = self.announcementText;
+- (void)bannerStackDidTapAnnouncement:(IMChatBannerStack *)stack {
+    NSString *text = stack.announcementText;
     if (text.length == 0) { return; }
     NSString *sub = [IMGroupTextViewController announceSubtitleForMillis:self.groupInfo.announcementAt];
     [IMGroupTextViewController presentFrom:self title:@"群公告" subtitle:sub body:text];
@@ -804,25 +757,16 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     if (locked) { [self.inputField resignFirstResponder]; }
 }
 
-/// 点横幅：跳到当前那条，并轮转到下一条（Telegram 式）。
-- (void)pinnedBannerTapped {
-    NSInteger total = (NSInteger)self.pinnedItems.count;
-    if (total == 0) { return; }
-    IMPinnedMessage *shown = self.pinnedItems[MIN(MAX(self.pinnedIndex, 0), total - 1)];
-    [self jumpToConvSeq:shown.convSeq];
-    self.pinnedIndex = (self.pinnedIndex + 1) % total;
-    [self applyPinnedBanner];
-}
-
 /// 点右侧列表键：半屏列出全部置顶消息，点行跳转；有权限者可就地取消置顶。
-- (void)pinnedBannerListTapped {
-    if (self.pinnedItems.count == 0) { return; }
+- (void)bannerStackDidTapPinnedList:(IMChatBannerStack *)stack {
+    NSArray<IMPinnedMessage *> *items = stack.pinnedItems;
+    if (items.count == 0) { return; }
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"置顶消息"
                                                                   message:nil
                                                            preferredStyle:UIAlertControllerStyleActionSheet];
     __weak typeof(self) ws = self;
     BOOL canPin = [self canPinMessages];
-    for (IMPinnedMessage *item in self.pinnedItems) {
+    for (IMPinnedMessage *item in items) {
         NSString *sender = [item senderLabelForGroup:self.isGroupChat];
         NSString *title = sender.length > 0
             ? [NSString stringWithFormat:@"%@：%@", sender, item.previewText]
@@ -832,8 +776,8 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
             [ws jumpToConvSeq:item.convSeq];
         }]];
     }
-    if (canPin) {
-        IMPinnedMessage *shown = self.pinnedItems[MIN(MAX(self.pinnedIndex, 0), (NSInteger)self.pinnedItems.count - 1)];
+    IMPinnedMessage *shown = stack.currentPinnedItem;
+    if (canPin && shown) {
         [sheet addAction:[UIAlertAction actionWithTitle:@"取消置顶当前这条" style:UIAlertActionStyleDestructive
                                                handler:^(UIAlertAction *action) {
             [IMSocketManager.sharedManager pinMessageInConv:(ws.convID ?: @"")
@@ -841,8 +785,8 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
         }]];
     }
     [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    sheet.popoverPresentationController.sourceView = self.pinnedBanner;
-    sheet.popoverPresentationController.sourceRect = self.pinnedBanner.bounds;
+    sheet.popoverPresentationController.sourceView = stack.pinnedBannerView;
+    sheet.popoverPresentationController.sourceRect = stack.pinnedBannerView.bounds;
     [self presentViewController:sheet animated:YES completion:nil];
 }
 
@@ -1369,70 +1313,15 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     self.jumpBadge.hidden = YES;
     [self.view addSubview:self.jumpBadge];
 
-    // 置顶消息横幅（G0）：浮在消息表之上、紧贴安全区顶（Glass 导航栏正下方）。
-    // 不改 tableView 的约束（它刻意铺到状态栏下），改用 contentInset.top 顶开内容——
-    // 走 additionalSafeAreaInsets 会反过来推动本横幅自身的约束，形成循环。
-    __weak typeof(self) wsBanner = self;
+    // 顶部三横幅栈（G0 置顶 / G1 公告 / G3 入群申请）：浮在消息表之上、紧贴安全区顶（Glass 导航栏正下方）。
+    // 视图/布局/高度→内边距/收起持久化全在 IMChatBannerStack；点击导航经 delegate 回本页。
     UILayoutGuide *guide = self.view.safeAreaLayoutGuide;
-
-    // 入群申请横幅（G3，蓝条，仅群主/管理员）：贴安全区顶，排在公告/置顶之上。点=进审批列表。
-    self.approvalBanner = [[IMPinnedBannerView alloc] initWithStyle:IMBannerStyleApproval];
-    self.approvalBanner.translatesAutoresizingMaskIntoConstraints = NO;
-    self.approvalBanner.hidden = YES;
-    self.approvalBanner.onTap = ^{ [wsBanner approvalBannerTapped]; };
-    self.approvalBanner.onClose = ^{
-        __strong typeof(wsBanner) self = wsBanner; if (!self) { return; }
-        BOOL canManage = self.groupInfo.myRole == IMGroupRoleOwner || self.groupInfo.myRole == IMGroupRoleAdmin;
-        NSInteger pending = (self.isGroupChat && canManage) ? self.groupInfo.pendingCount : 0;
-        [NSUserDefaults.standardUserDefaults setInteger:pending forKey:[self bannerDismissKey:@"approval"]];
-        [self applyApprovalBanner];
-    };
-    [self.view addSubview:self.approvalBanner];
-
-    // 群公告横幅（G1，黄条）：接在申请横幅下方，排在置顶横幅之上（优先级 申请 > 公告 > 置顶）。点条=开公告全文视图。
-    self.announcementBanner = [[IMPinnedBannerView alloc] initWithStyle:IMBannerStyleAnnouncement];
-    self.announcementBanner.translatesAutoresizingMaskIntoConstraints = NO;
-    self.announcementBanner.hidden = YES;
-    self.announcementBanner.onTap = ^{ [wsBanner announcementBannerTapped]; };
-    self.announcementBanner.onClose = ^{
-        __strong typeof(wsBanner) self = wsBanner; if (!self) { return; }
-        if (self.announcementText.length > 0) {
-            [NSUserDefaults.standardUserDefaults setObject:self.announcementText forKey:[self bannerDismissKey:@"ann"]];
-        }
-        [self applyAnnouncementBanner];
-    };
-    [self.view addSubview:self.announcementBanner];
-
-    // 置顶消息横幅（G0，蓝条）：接在公告横幅下方。
-    self.pinnedBanner = [[IMPinnedBannerView alloc] initWithStyle:IMBannerStylePinned];
-    self.pinnedBanner.translatesAutoresizingMaskIntoConstraints = NO;
-    self.pinnedBanner.hidden = YES;
-    self.pinnedBanner.onTap = ^{ [wsBanner pinnedBannerTapped]; };
-    self.pinnedBanner.onList = ^{ [wsBanner pinnedBannerListTapped]; };
-    self.pinnedBanner.onClose = ^{
-        __strong typeof(wsBanner) self = wsBanner; if (!self) { return; }
-        NSString *sig = [self currentPinnedSig];
-        if (sig.length > 0) { [NSUserDefaults.standardUserDefaults setObject:sig forKey:[self bannerDismissKey:@"pin"]]; }
-        [self applyPinnedBanner];
-    };
-    [self.view addSubview:self.pinnedBanner];
-
-    [NSLayoutConstraint activateConstraints:@[
-        [self.approvalBanner.topAnchor constraintEqualToAnchor:guide.topAnchor],
-        [self.approvalBanner.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
-        [self.approvalBanner.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-        (self.approvalBannerHeight = [self.approvalBanner.heightAnchor constraintEqualToConstant:0]),
-
-        [self.announcementBanner.topAnchor constraintEqualToAnchor:self.approvalBanner.bottomAnchor],
-        [self.announcementBanner.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
-        [self.announcementBanner.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-        (self.announcementBannerHeight = [self.announcementBanner.heightAnchor constraintEqualToConstant:0]),
-
-        [self.pinnedBanner.topAnchor constraintEqualToAnchor:self.announcementBanner.bottomAnchor],
-        [self.pinnedBanner.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
-        [self.pinnedBanner.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-        (self.pinnedBannerHeight = [self.pinnedBanner.heightAnchor constraintEqualToConstant:0]),
-    ]];
+    self.bannerStack = [[IMChatBannerStack alloc] initWithHostView:self.view
+                                                         topAnchor:guide.topAnchor
+                                                           isGroup:self.isGroupChat
+                                                            userID:self.userID
+                                                            convID:self.convID];
+    self.bannerStack.delegate = self;
 
     self.inputBottom = [inputBar.bottomAnchor constraintEqualToAnchor:guide.bottomAnchor];
     [NSLayoutConstraint activateConstraints:@[
