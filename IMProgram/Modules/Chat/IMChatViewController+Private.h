@@ -12,9 +12,10 @@
 #import "IMSocketManager.h"      // IMSocketManagerDelegate / IMSocketState
 #import "IMChatBannerStack.h"    // IMChatBannerStackDelegate
 
+#import "IMGroupInfo.h"          // IMGroupInfo / IMGroupRole（senderRoleForMessage: 返回枚举）
+
 @class IMMediaDownloadCoordinator;
 @class IMDatabaseAccountContext;
-@class IMGroupInfo;
 @class IMMentionPickerViewController;
 @class IMMessageModel;
 @class IMPresence;
@@ -116,6 +117,7 @@ NS_ASSUME_NONNULL_BEGIN
 @class IMDatabase;
 @class IMMediaAttributes;
 @class IMMenuAction;
+@class IMUploadProgress;
 
 /// 长按预览光栅化时按此 tag 临时隐藏高亮蒙层（主实现里定义，+Menu.m 引用）。
 FOUNDATION_EXPORT const NSInteger kIMFlashOverlayTag;
@@ -125,6 +127,9 @@ FOUNDATION_EXPORT const NSInteger kIMFlashOverlayTag;
 @interface IMChatViewController (Private)
 
 // —— 主实现文件中、被 category 调用者 ——
+// 发件箱缩略/进度（转发自 IMMediaSendService 单例；以 getter 形式暴露，供 cellForRow 等 dot 语法读取）。
+- (NSMutableDictionary<NSString *, UIImage *> *)outboxPreviews;
+- (NSMutableDictionary<NSString *, IMUploadProgress *> *)outboxProgress;
 - (BOOL)performDatabaseOperation:(void (^)(IMDatabase *database))operation;
 - (void)appendReloadAndScroll;
 - (void)applySelectionStyleForCell:(UITableViewCell *)cell;
@@ -155,6 +160,31 @@ FOUNDATION_EXPORT const NSInteger kIMFlashOverlayTag;
 - (void)deleteMessage:(IMMessageModel *)message;
 - (void)deleteMessageForEveryone:(IMMessageModel *)message;
 - (void)hideMessageForSelf:(IMMessageModel *)message;
+
+// 列表渲染（+DataSource.m）会调进主实现的这些方法：
+- (BOOL)isFirstInSenderRun:(NSInteger)row;
+- (BOOL)isLastInSenderRun:(NSInteger)row;
+- (NSInteger)firstUnreadRow;
+- (BOOL)isNearBottom;
+- (void)scrollToAbsoluteBottom;
+- (void)refreshRowHeightsWithoutAnimation;
+- (void)updateSendButtonVisibility;
+- (void)openChatRecord:(IMMessageModel *)message;
+- (void)openLink:(NSString *)urlString;
+- (void)sendFriendRequestFromRejectedNote;
+- (NSString *)senderAvatarURLForMessage:(IMMessageModel *)m;
+- (IMGroupRole)senderRoleForMessage:(IMMessageModel *)m;
+- (NSString *)fullMediaURL:(NSString *)content;
+- (UIImage *)pendingPreviewForMessage:(IMMessageModel *)m;
+- (void)handlePendingMediaTap:(IMMessageModel *)m;
+- (void)presentMediaViewerForMessage:(IMMessageModel *)m preloaded:(nullable UIImage *)image;
+- (BOOL)isTextExpandedForMessage:(IMMessageModel *)m;
+- (NSDictionary<NSString *, NSString *> *)mentionMapForMessage:(IMMessageModel *)m;
+- (NSString *)replyFromNameForUID:(NSString *)uid;
+
+// —— +DataSource.m 中、被主实现/其它 category 调用者 ——
+- (BOOL)isAlbumFollowerAtRow:(NSInteger)row;
+- (NSUInteger)visibleRowForMessage:(IMMessageModel *)m;
 
 // —— +Selection.m 中、被主实现/其它 category 调用者 ——
 - (void)enterSelectionWithMessage:(IMMessageModel *)message;
