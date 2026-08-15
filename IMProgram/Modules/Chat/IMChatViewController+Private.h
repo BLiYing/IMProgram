@@ -115,6 +115,10 @@ NS_ASSUME_NONNULL_BEGIN
 
 @class IMDatabase;
 @class IMMediaAttributes;
+@class IMMenuAction;
+
+/// 长按预览光栅化时按此 tag 临时隐藏高亮蒙层（主实现里定义，+Menu.m 引用）。
+FOUNDATION_EXPORT const NSInteger kIMFlashOverlayTag;
 
 /// 跨分文件 category 互调的私有方法：主实现与各 category 都 import 本头，故都能看到彼此的私有方法签名。
 /// 一个方法只要被**定义它的那个 translation unit 以外**的地方调用，就在此登记（否则 ARC 因不知返回类型报错）。
@@ -130,6 +134,27 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)refreshUnifiedNavigationBar;
 - (NSString *)senderNameForMessage:(IMMessageModel *)m;
 - (void)showAttachPanel:(BOOL)visible;
+
+// 长按菜单动作会调进主实现的这些业务方法（+Menu.m → 主实现）：
+- (void)beginReplyTo:(IMMessageModel *)message;
+- (void)beginEditMessage:(IMMessageModel *)message;
+- (void)translateMessage:(IMMessageModel *)message;
+- (void)copyMessageToPasteboard:(IMMessageModel *)message;
+- (void)forwardMessage:(IMMessageModel *)message;
+- (void)cancelPendingMessage:(IMMessageModel *)m;
+- (BOOL)canPinMessages;
+- (BOOL)isAlbumMember:(IMMessageModel *)m;
+- (void)openMemberProfileForUID:(NSString *)uid;
+- (void)reportTargetType:(NSString *)targetType targetID:(NSString *)targetID title:(NSString *)title;
+
+// —— +Menu.m 中、被主实现/其它 category 调用者 ——
+- (void)attachMessageContextMenuToCell:(UITableViewCell *)cell;
+- (NSArray<IMMenuAction *> *)messageActionsForMessage:(IMMessageModel *)message mine:(BOOL)mine;
+- (BOOL)canDeleteForEveryone:(IMMessageModel *)message;
+- (IMMenuAction *)deleteMenuActionForMessage:(IMMessageModel *)message;
+- (void)deleteMessage:(IMMessageModel *)message;
+- (void)deleteMessageForEveryone:(IMMessageModel *)message;
+- (void)hideMessageForSelf:(IMMessageModel *)message;
 
 // —— +Selection.m 中、被主实现/其它 category 调用者 ——
 - (void)enterSelectionWithMessage:(IMMessageModel *)message;
