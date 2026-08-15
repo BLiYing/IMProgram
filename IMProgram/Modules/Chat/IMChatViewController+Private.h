@@ -207,6 +207,14 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (void)updateUploadProgressForMessage:(IMMessageModel *)m;
 - (void)uploadAndSendPastedImage:(UIImage *)image groupID:(NSString *)groupID;
 
+// 引用/编辑态：@提及发送流程会调用主实现的取消编辑（+Mention.m → 主实现）。
+- (void)cancelEdit;
+
+// —— +Mention.m 中、被主实现/其它 category 调用者 ——
+- (void)sendTapped;
+- (void)maybePresentMentionPicker;
+- (void)dismissMentionPanel;
+
 // —— +Selection.m 中、被主实现/其它 category 调用者 ——
 - (void)enterSelectionWithMessage:(IMMessageModel *)message;
 - (void)updateSelectionUI;
