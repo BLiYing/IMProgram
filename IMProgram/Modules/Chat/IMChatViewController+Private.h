@@ -218,6 +218,10 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (void)updateTitle;
 - (void)sortMessagesInPlace;
 
+// —— +Scroll.m 中、被主实现/其它 category 调用者 ——
+- (void)observeKeyboard;
+- (void)updateJumpButton;
+
 // —— +Mention.m 中、被主实现/其它 category 调用者 ——
 - (void)sendTapped;
 - (void)maybePresentMentionPicker;
