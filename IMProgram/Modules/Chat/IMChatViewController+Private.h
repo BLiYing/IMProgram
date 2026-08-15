@@ -118,6 +118,7 @@ NS_ASSUME_NONNULL_BEGIN
 @class IMMediaAttributes;
 @class IMMenuAction;
 @class IMUploadProgress;
+@class IMDownloadProgress;
 
 /// 长按预览光栅化时按此 tag 临时隐藏高亮蒙层（主实现里定义，+Menu.m 引用）。
 FOUNDATION_EXPORT const NSInteger kIMFlashOverlayTag;
@@ -187,6 +188,12 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (IMMessageModel *)messageForClientMsgID:(NSString *)clientMsgID;
 - (void)handleSendResult:(BOOL)success convSeq:(int64_t)convSeq error:(nullable NSError *)error forClientMsgID:(NSString *)clientMsgID;
 - (void)updateInputBottomAnimated:(BOOL)animated;
+- (void)runAfterKeyboardHidden:(void (^)(void))block;
+- (void)scrollToBottomAnimated:(BOOL)animated;
+
+// —— +MediaFlow.m 中、被主实现（downloads getter 等）调用者 ——
+- (void)updateDownloadProgressForMessage:(IMMessageModel *)m state:(IMDownloadProgress *)state;
+- (void)refreshRowForMessage:(IMMessageModel *)m;
 
 // —— +DataSource.m 中、被主实现/其它 category 调用者 ——
 - (BOOL)isAlbumFollowerAtRow:(NSInteger)row;
