@@ -5,6 +5,12 @@
 
 ## 当前焦点
 
+**IMChatViewController 巨类拆分 ✅ 代码完成（2026-08-15，clean build 绿，待手测，纯 iOS 端）** — 应《整洁代码》拆 4718 行的 Massive VC。
+- **真·SRP 抽取（独立对象/纯函数，零～低运行时风险）**：`IMChatMessageLogic`（@提及 token/未读口径/引用占位，测试从前置声明改引头）、`IMPasteImageTextField`、`IMPendingMediaThumbnail`、`IMChatBannerStack`（G0/G1/G3 三横幅栈视图+布局+收起持久化，点击导航经 `IMChatBannerStackDelegate` 回本页）。
+- **分文件 category（同一个类、方法平移到多 TU，零运行时风险；剩余子系统全回耦 messages/tableView/nav/socket，强抽独立对象只会把耦合塞进宽 delegate 还添风险）**：`+Selection`（多选/转发）、`+Menu`（长按菜单+iOS26 光栅化预览）、`+DataSource`（cellForRow+相册聚簇+连续分组+行高）、`+Media`（附件面板/选择器/上传/查看器/粘贴）、`+MediaFlow`（转发/长文本/下载编排）、`+Mention`、`+Socket`、`+Scroll`（↓N/键盘）、`+Compose`（引用/收藏/编辑）。私有属性/协议/跨 TU 私有方法登记在 **`IMChatViewController+Private.h`**。
+- **收口**：主文件 **4718→1482 行**（仅留 init/lifecycle、导航去重折叠入口、setupUI、发送接收核心、群资料、banner delegate 装配、presence、辅助）；`_downloads` 懒加载 getter 与 `dealloc` 因直接访问 ivar 留主实现。`kIMFlashOverlayTag`/`kIMAttachPanelHeight` 由 static const 改为跨 TU 共享常量。**未改一行行为**，10 次提交每次 build 绿。
+- **待手测**：编译只能保证符号，**布局/交互（键盘顶起输入栏、附件面板、长按菜单预览、多选、↓N、@面板）需模拟器实测**——纯编译过不代表布局对。
+
 **气泡样式统一 + iOS26 长按预览修复 ✅ 代码完成（2026-08-15，待编译/手测，纯 iOS 端）** — 见 `../IMServer/current_task.md` 同条。
 - **长按菜单迁移**：从 UITableView 行级 contextMenu API（iOS26 不再回调其自定义预览 delegate → 预览退化整行矩形）迁到挂在气泡 `previewTargetView` 上的 `UIContextMenuInteraction`（`attachMessageContextMenuToCell:` 由 `willDisplayCell` 统一幂等挂，取代 cellForRow 四处散点）。配置走共享 `messageContextMenuConfigurationForIndexPath:`，预览 delegate 新旧两代都实现（iOS15 旧签名 + 16/26 `...ForItemWithIdentifier:`）。
 - **iOS26 预览只剩文字/空气泡**：`targetedPreviewForInteraction:` 把气泡**从父视图按 frame 开窗光栅化**成独立 UIImage（`CGContextTranslateCTM` + `drawViewHierarchyInRect:`）——绕过 iOS26 lift 剥离源视图背景，且开窗能带上链接卡 `_stack`、图片角标等**兄弟视图**（只画 target 子树会漏成空气泡/裸封面）。highlight 缓存快照、dismissal 复用、`willEnd` 清（防菜单期间 reload 换绑截错内容）。截图前按 `kIMFlashOverlayTag` 隐藏跳转高亮遮罩。
