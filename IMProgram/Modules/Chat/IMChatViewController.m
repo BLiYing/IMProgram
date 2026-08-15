@@ -1,6 +1,9 @@
 //  IMChatViewController.m
 
 #import "IMChatViewController.h"
+#import "IMChatMessageLogic.h"        // 文件级纯逻辑：@提及 token / 未读口径 / 引用占位
+#import "IMPasteImageTextField.h"     // 支持粘贴图片的输入框（#2）
+#import "IMPendingMediaThumbnail.h"   // 本地待发媒体缩略图生成
 #import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
 #import "IMChatBackgroundView.h"
 #import "IMAlbumCell.h"
@@ -62,106 +65,9 @@
 
 NSNotificationName const IMChatConversationClearedNotification = @"IMChatConversationClearedNotification";
 
-#pragma mark - 引用/预览媒体占位辅助（M4-2 / #5）
-
-/// 媒体消息在「引用/预览」场景的简短占位（本地生成，用于输入预览条与本端即时快照）。
-static NSString *IMReplySnippet(IMMessageModel *m) {
-    if ([m.contentType isEqualToString:@"image"]) { return @"[图片]"; }
-    if ([m.contentType isEqualToString:@"video"]) { return @"[视频]"; }
-    if ([m.contentType isEqualToString:@"file"]) {
-        NSString *fn = m.fileName.length > 0 ? m.fileName : IMMediaFileName(m.content);
-        return fn.length > 0 ? [@"[文件] " stringByAppendingString:fn] : @"[文件]";
-    }
-    if ([m.contentType isEqualToString:@"chat_record"]) { return IMChatRecordSnippet(m.content); } // [聊天记录] 标题
-    NSString *c = m.content ?: @"";
-    return c.length > 60 ? [[c substringToIndex:60] stringByAppendingString:@"…"] : c;
-}
-
-#define IMFileNameFromContent(c) IMMediaFileName(c)
 #define IMLooksLikeURL(s) IMMediaLooksLikeURL(s)
-#pragma mark - 支持粘贴图片的输入框（#2）
-
-/// UITextField 默认不接受图片粘贴；剪贴板有图片时放开 paste 菜单并回调图片（文本粘贴走原生路径）。
-@interface IMPasteImageTextField : UITextField
-@property (nonatomic, copy, nullable) void (^onPasteImage)(UIImage *image);
-@end
-
-@implementation IMPasteImageTextField
-- (BOOL)canPerformAction:(SEL)action withSender:(id)sender {
-    if (action == @selector(paste:) && UIPasteboard.generalPasteboard.hasImages) { return YES; }
-    return [super canPerformAction:action withSender:sender];
-}
-- (void)paste:(id)sender {
-    if (UIPasteboard.generalPasteboard.hasImages) {
-        UIImage *img = UIPasteboard.generalPasteboard.image;
-        if (img && self.onPasteImage) { self.onPasteImage(img); return; }
-    }
-    [super paste:sender];
-}
-@end
 
 #pragma mark - 聊天页
-
-/// 本地待发文件的缩略图（在后台队列调用）：视频抽首帧，图片按目标尺寸降采样，绝不整图解码。
-static UIImage *IMPendingVideoThumbnail(NSString *path) {
-    AVURLAsset *asset = [AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:path] options:nil];
-    AVAssetImageGenerator *gen = [[AVAssetImageGenerator alloc] initWithAsset:asset];
-    gen.appliesPreferredTrackTransform = YES;
-    gen.maximumSize = CGSizeMake(600, 600);
-    CGImageRef cg = [gen copyCGImageAtTime:CMTimeMakeWithSeconds(0.1, 600) actualTime:NULL error:NULL];
-    if (!cg) { return nil; }
-    UIImage *thumb = [UIImage imageWithCGImage:cg];
-    CGImageRelease(cg);
-    return thumb;
-}
-
-/// 该 content_type 是否计入未读——**与服务端 conversation.unreadCount 同口径**（M4-8）：
-/// `msg_op` 事件行（撤回/编辑/置顶）是操作、`system` 系统消息（改名/入群/禁言）是群内留痕，
-/// 两者都不是"有人跟我说话了"，均不计未读。未读分割线与 ↓N 的定位必须照此排除，
-/// 否则分割线会落在不计数的行上、与角标数字对不上。
-/// 文本里是否存在一个**完整的** `@名字` token（M4-8）。
-///
-/// 必须按 token 边界判定、不能用裸 containsString:：昵称互为前缀时（「小美」/「小美丽」），
-/// `@小美丽 开会` 会把根本没被提及的「小美」也算进 mentions，让他收到一条穿透免打扰的错误强提醒。
-/// 判定规则：token 后面必须紧跟**空白或字符串结尾**。与 Web `containsMentionToken` 同一套。
-BOOL IMChatTextContainsMentionToken(NSString *_Nullable text, NSString *_Nullable displayName) {
-    if (text.length == 0 || displayName.length == 0) { return NO; }
-    NSString *needle = [@"@" stringByAppendingString:displayName];
-    NSUInteger from = 0;
-    while (from <= text.length - MIN(text.length, 1)) {
-        NSRange scan = NSMakeRange(from, text.length - from);
-        if (scan.length < needle.length) { return NO; }
-        NSRange hit = [text rangeOfString:needle options:0 range:scan];
-        if (hit.location == NSNotFound) { return NO; }
-        NSUInteger after = hit.location + hit.length;
-        if (after >= text.length) { return YES; } // 到结尾即完整 token
-        unichar next = [text characterAtIndex:after];
-        if ([NSCharacterSet.whitespaceAndNewlineCharacterSet characterIsMember:next]) { return YES; }
-        from = hit.location + 1; // 命中的是更长名字的前缀，继续往后找
-    }
-    return NO;
-}
-
-BOOL IMContentTypeCountsAsUnread(NSString *_Nullable contentType) {
-    NSString *ct = contentType ?: @"";
-    return !([ct isEqualToString:@"system"] || [ct isEqualToString:@"msg_op"]);
-}
-
-static UIImage *IMPendingImageThumbnail(NSString *path) {
-    CGImageSourceRef src = CGImageSourceCreateWithURL((__bridge CFURLRef)[NSURL fileURLWithPath:path], NULL);
-    if (!src) { return nil; }
-    CGImageRef cg = CGImageSourceCreateThumbnailAtIndex(src, 0, (__bridge CFDictionaryRef)@{
-        (id)kCGImageSourceCreateThumbnailFromImageAlways: @YES,
-        (id)kCGImageSourceCreateThumbnailWithTransform: @YES,
-        (id)kCGImageSourceShouldCacheImmediately: @YES,
-        (id)kCGImageSourceThumbnailMaxPixelSize: @(1024),
-    });
-    CFRelease(src);
-    if (!cg) { return nil; }
-    UIImage *thumb = [UIImage imageWithCGImage:cg];
-    CGImageRelease(cg);
-    return thumb;
-}
 
 @interface IMChatViewController () <IMSocketManagerDelegate, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIDocumentPickerDelegate, QLPreviewControllerDataSource, UIContextMenuInteractionDelegate>
 

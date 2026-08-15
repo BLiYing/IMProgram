@@ -7,9 +7,8 @@
 #import "../IMProgram/Models/IMConversation.h"
 #import "../IMProgram/Models/IMGroupInfo.h"
 
-// IMChatViewController.m 里的文件级纯函数（无需引整个 VC 头）。
-FOUNDATION_EXPORT BOOL IMChatTextContainsMentionToken(NSString *_Nullable text, NSString *_Nullable displayName);
-FOUNDATION_EXPORT BOOL IMContentTypeCountsAsUnread(NSString *_Nullable contentType);
+// 聊天消息的文件级纯逻辑（@提及 token 判定 / 未读口径），符号由宿主 App 提供。
+#import "../IMProgram/Modules/Chat/IMChatMessageLogic.h"
 
 @interface IMMentionTests : XCTestCase
 @end
