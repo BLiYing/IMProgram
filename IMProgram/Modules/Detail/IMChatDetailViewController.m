@@ -373,7 +373,13 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
 }
 
 /// 分段控件被点击（含单 tab / 重复点当前 tab）→ 仅贴顶（切换由 valueChanged 走 switchToTab）。
-- (void)tabBarTapped { [self scrollTabsToPinAnimated:YES]; }
+/// 已贴顶时直接返回：切换不同 tab 时本 tap 与 valueChanged→switchToTab 同触发，若此刻（尤其媒体深滚后）
+/// 再发一次 animated 的 scrollTabsToPin，会与 switchToTab 的 reloadData 相撞（animated setContentOffset + reloadData
+/// → 弹到页顶，Bug b）。贴顶态无需再贴，交给 switchToTab 无动画保持即可。
+- (void)tabBarTapped {
+    if ([self tabsArePinned]) { return; }
+    [self scrollTabsToPinAnimated:YES];
+}
 
 /// 页签贴顶的目标 offset（页签分区顶对齐折叠顶栏下沿）。页签分区之上的内容固定，故此值恒定。
 - (CGFloat)pinOffset {

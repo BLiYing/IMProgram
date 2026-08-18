@@ -152,6 +152,12 @@
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gr shouldReceiveTouch:(UITouch *)touch {
     if (![gr isKindOfClass:UISwipeGestureRecognizer.class]) { return YES; }
     if (self.tabs.count == 0) { return NO; }
+    // 右滑（=上一签）与系统「左边缘向右划返回」方向相同：起手落在左边缘时让位给返回手势，
+    // 否则会先切到上一签（如「文件」→「媒体」）再退出，观感是"先滑到媒体 tab 再返回"（Bug a）。
+    if (((UISwipeGestureRecognizer *)gr).direction == UISwipeGestureRecognizerDirectionRight &&
+        [touch locationInView:self.view].x <= 24) {
+        return NO;
+    }
     CGPoint p = [touch locationInView:self.tableView];
     NSIndexPath *ip = [self.tableView indexPathForRowAtPoint:p];
     if (ip && [self sectionKindAt:ip.section] == IMDetailSectionTabs) {
