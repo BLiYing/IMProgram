@@ -373,4 +373,46 @@
     return data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"";
 }
 
+#pragma mark - 编辑/选择 delegate（tableView）
+
+/// 多选态下该消息是否可勾选：系统提示/撤回墓碑/发送中·失败的本地件（无服务端内容，转出去是空的）不可选。
+- (BOOL)isSelectableMessage:(IMMessageModel *)m {
+    return ![m.contentType isEqualToString:@"system"] && m.recalledAt == 0 && m.convSeq > 0;
+}
+
+- (BOOL)tableView:(UITableView *)tableView canEditRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (!self.selecting) { return NO; } // 仅多选态可选中
+    // 不可选的行不显示勾选圈（系统编辑态对 canEdit=NO 的行自动不画圈，无需额外 UI）。
+    if (indexPath.row >= (NSInteger)self.messages.count) { return NO; }
+    return [self isSelectableMessage:self.messages[indexPath.row]];
+}
+
+/// 多选态勾选填充（#5）：selectionStyle=None 会让编辑圈选永远不显示"已勾选"态，
+/// 进入多选须临时改回 Default（配 clear 的 multipleSelectionBackgroundView 保持气泡外观）。
+- (void)applySelectionStyleForCell:(UITableViewCell *)cell {
+    cell.selectionStyle = self.selecting ? UITableViewCellSelectionStyleDefault : UITableViewCellSelectionStyleNone;
+    if (self.selecting && !cell.multipleSelectionBackgroundView) {
+        UIView *bg = [UIView new];
+        bg.backgroundColor = UIColor.clearColor;
+        cell.multipleSelectionBackgroundView = bg;
+    }
+}
+
+- (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
+    [self applySelectionStyleForCell:cell];
+    // 长按菜单交互统一在此挂（单一咽喉点，取代原先在 cellForRow 各类型分支各补一行——漏接一种即静默无菜单）。
+    // 幂等；system/albumPad 等不实现 previewTargetView 的 cell 自动跳过；相册宫格每格自带交互不受影响。
+    [self attachMessageContextMenuToCell:cell];
+}
+
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (self.selecting) { [self updateSelectionUI]; return; }
+    // 上传中/失败的文件气泡不再响应整条点击：暂停/继续/重试/取消收敛到左侧图标位的圆环状态机
+    //（cell.onFileControlTap → handlePendingMediaTap:），气泡其余区域仅在发送完成后点击打开文件。
+}
+
+- (void)tableView:(UITableView *)tableView didDeselectRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (self.selecting) { [self updateSelectionUI]; }
+}
+
 @end

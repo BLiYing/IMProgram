@@ -390,4 +390,35 @@ static UIBezierPath *IMBubbleOutlinePath(CGRect rect, CGFloat radius, CACornerMa
     }];
 }
 
+#pragma mark - 举报（AG-3）
+
+/// 举报（AG-3）：弹出输入框填理由 → 调 POST /api/v1/reports。message 举报带会话上下文。
+- (void)reportTargetType:(NSString *)targetType targetID:(NSString *)targetID title:(NSString *)title {
+    if (targetID.length == 0) { return; }
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:title
+        message:@"请填写举报理由（可空）" preferredStyle:UIAlertControllerStyleAlert];
+    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf) { tf.placeholder = @"理由"; }];
+    __weak typeof(self) weakSelf = self;
+    [ac addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"提交举报" style:UIAlertActionStyleDestructive
+        handler:^(UIAlertAction *a) {
+            NSString *reason = ac.textFields.firstObject.text ?: @"";
+            NSString *convID = [targetType isEqualToString:@"message"] ? weakSelf.convID : nil;
+            NSString *token = IMHTTPService.sharedService.currentToken;
+            if (token.length == 0) { [weakSelf showReportResult:@"举报失败：未登录"]; return; }
+            [IMHTTPService.sharedService reportWithToken:token targetType:targetType targetID:targetID
+                convID:convID reason:reason completion:^(NSError *error) {
+                    [weakSelf showReportResult:error ? [NSString stringWithFormat:@"举报失败：%@", error.localizedDescription]
+                                                      : @"举报已提交，感谢反馈。"];
+                }];
+        }]];
+    [self presentViewController:ac animated:YES completion:nil];
+}
+
+- (void)showReportResult:(NSString *)msg {
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:nil message:msg preferredStyle:UIAlertControllerStyleAlert];
+    [ac addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:ac animated:YES completion:nil];
+}
+
 @end
