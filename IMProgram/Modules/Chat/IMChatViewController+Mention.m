@@ -3,7 +3,7 @@
 //  文本里是否仍留着 `@显示名` 复核收件人。从 IMChatViewController.m 平移，未改行为。
 
 #import "IMChatViewController+Private.h"
-#import "IMChatMessageLogic.h"   // IMChatTextContainsMentionToken / IMReplySnippet
+#import "IMChatMessageLogic.h"   // IMChatTextContainsMentionToken
 #import "IMMessageModel.h"
 #import "IMDatabase.h"
 #import "IMGroupInfo.h"
@@ -153,68 +153,6 @@
 /// @所有人 是否仍生效：既要标记在、文本里也要还留着完整的 `@所有人` token。
 - (BOOL)resolvedMentionAllInText:(NSString *)text {
     return self.mentionAllPending && IMChatTextContainsMentionToken(text, @"所有人");
-}
-
-- (void)sendTapped {
-    NSString *text = [self.inputField.text stringByTrimmingCharactersInSet:
-                      NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    // 先发预览条里攒的粘贴图（≥2 张共享 group_id 成宫格），文字随后补发一条文本（Telegram 式）。
-    if (self.pendingPasteImages.count > 0) {
-        NSArray<UIImage *> *images = [self.pendingPasteImages copy];
-        [self.pendingPasteImages removeAllObjects];
-        [self refreshPasteBar];
-        NSString *gid = images.count > 1 ? [@"alb-" stringByAppendingString:NSUUID.UUID.UUIDString] : nil;
-        for (UIImage *img in images) { [self uploadAndSendPastedImage:img groupID:gid]; }
-        [self updateSendButtonVisibility];
-    }
-    if (text.length == 0) { return; }
-
-    // 编辑态（M4-5）：发 msg_op edit 而非新消息；内容由服务端广播回 onMsgOpApplied 更新。
-    if (self.editingMessage && self.editingMessage.convSeq > 0) {
-        [IMSocketManager.sharedManager editMessageInConv:(self.editingMessage.convID ?: @"")
-                                           targetConvSeq:self.editingMessage.convSeq content:text];
-        [self cancelEdit];
-        return;
-    }
-
-    __block NSString *clientMsgID = nil;
-    __weak typeof(self) weakSelf = self;
-    IMSendCompletion completion = ^(BOOL success, NSError *error, int64_t convSeq) {
-        [weakSelf handleSendResult:success convSeq:convSeq error:error forClientMsgID:clientMsgID];
-    };
-    int64_t replySeq = self.replyingTo.convSeq; // 引用回复（M4-2）：0=普通发送
-    // @提及（M4-8）：按输入框里**仍留着**的 token 还原 uid（删了 token 就自动不 @ 他）。
-    NSArray<NSString *> *mentions = self.isGroupChat ? [self resolvedMentionsInText:text] : @[];
-    BOOL mentionAll = self.isGroupChat && [self resolvedMentionAllInText:text];
-    // 群聊按 conv_id 路由（to 留空，服务端查成员写扩散）；单聊按对端 uid。
-    clientMsgID = self.isGroupChat
-        ? [IMSocketManager.sharedManager sendText:text toConv:self.convID replyToConvSeq:replySeq
-                                         mentions:mentions mentionAll:mentionAll completion:completion]
-        : [IMSocketManager.sharedManager sendText:text toUser:self.peerID replyToConvSeq:replySeq completion:completion];
-
-    IMMessageModel *m = [IMMessageModel new];
-    m.clientMsgID = clientMsgID;
-    m.convID = self.convID;
-    m.to = self.peerID;
-    m.content = text;
-    m.from = self.userID;
-    m.contentType = @"text";
-    m.status = IMMessageStatusSending;
-    m.timestamp = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000); // 本地时间，气泡尾巴即时显示时间（与 Web 一致）
-    if (replySeq > 0) { // 本端即时快照（服务端会给收件方冻结权威快照；媒体用 [图片]/[视频] 占位）
-        m.replyToConvSeq = replySeq;
-        m.replySnapshot = IMReplySnippet(self.replyingTo);
-        m.replyToFrom = self.replyingTo.from; // 被引用者 uid：本端回显需自带（服务端只发给收件方，ack 不回带、sync 已去重）
-    }
-    [self performDatabaseOperation:^(IMDatabase *database) {
-        [database saveMessage:m]; // 落库（sending）
-    }];
-    [self.messages addObject:m];
-    self.inputField.text = @"";
-    [self clearPendingMentions]; // 发出即清，下一条重新累积（M4-8）
-    [self updateSendButtonVisibility];
-    [self cancelReply];
-    [self appendReloadAndScroll];
 }
 
 /// 清空本条待发的 @提及态（输入框已清空，候选表与 @所有人 标记一并复位）。

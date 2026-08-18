@@ -20,6 +20,11 @@ NS_ASSUME_NONNULL_BEGIN
 /// 同步取缓存封面（不发起抽帧）。cell 布局阶段据此推断视频比例，未命中返回 nil。
 - (nullable UIImage *)cachedPosterForURL:(nullable NSString *)urlString;
 
+/// 从资源（本地文件或远程）**同步**抽首帧封面（须在后台线程调用）：尊重拍摄方向、取第 0.1s 避黑帧、
+/// 限制最长边 maxSize。失败返回 nil。异步 loadPosterForVideoURL: 与发件箱本地缩略图共用这套抽帧口径，
+/// 避免「跳黑帧/方向」逻辑分叉（曾各留一份、maxSize 都对不齐）。
++ (nullable UIImage *)extractPosterFromAssetURL:(NSURL *)assetURL maxSize:(CGFloat)maxSize;
+
 @end
 
 NS_ASSUME_NONNULL_END

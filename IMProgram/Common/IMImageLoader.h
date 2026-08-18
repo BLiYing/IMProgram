@@ -10,6 +10,11 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (instancetype)shared;
 
+/// 从本地文件**同步**降采样解码缩略图（须在后台线程调用）：ImageIO 直接吐 maxPixelSize 内的小图、
+/// 尊重 EXIF 方向，绝不整图解码。失败返回 nil。与内部 http/磁盘解码共用同一降采样口径，
+/// 供发件箱本地待发图缩略等场景复用，避免各处重抄一份 CGImageSourceCreateThumbnail 配方。
++ (nullable UIImage *)downsampledImageAtFileURL:(NSURL *)fileURL maxPixelSize:(CGFloat)maxPixelSize;
+
 /// 加载图片：urlString 可为 data:image base64 或 http(s)。空/失败 → completion(nil)。
 /// **命中内存缓存时同步回调**（调用线程），其余情况在主线程回调——同步命中是为了消除
 /// "先置空再填图"造成的滚动闪烁，调用方可安全地在 cellForRow 里直接用返回值。

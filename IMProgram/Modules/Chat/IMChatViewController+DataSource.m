@@ -22,8 +22,6 @@
 #import "IMLinkCardCell.h"
 #import "IMChatRecordCell.h"
 
-#define IMLooksLikeURL(s) IMMediaLooksLikeURL(s)
-
 @implementation IMChatViewController (DataSource)
 
 #pragma mark - UITableViewDataSource
@@ -91,7 +89,7 @@
         return rec;
     }
     // 纯 URL 文本消息：URL 文本 + 链接富预览卡片（OG），点击应用内打开（带引用时也显示引用行+卡片）。
-    if ([m.contentType isEqualToString:@"text"] && m.recalledAt == 0 && m.translation.length == 0 && IMLooksLikeURL(m.content)) {
+    if ([m.contentType isEqualToString:@"text"] && m.recalledAt == 0 && m.translation.length == 0 && IMMediaLooksLikeURL(m.content)) {
         IMLinkCardCell *link = [tableView dequeueReusableCellWithIdentifier:@"link" forIndexPath:indexPath];
         BOOL mineL = [m.from isEqualToString:self.userID];
         BOOL grpL = self.isGroupChat && !mineL;

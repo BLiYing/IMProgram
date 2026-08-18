@@ -4,8 +4,6 @@
 
 #import <Foundation/Foundation.h>
 
-@class IMMessageModel;
-
 NS_ASSUME_NONNULL_BEGIN
 
 /// 文本里是否存在一个**完整的** `@名字` token（M4-8）。
@@ -20,8 +18,5 @@ FOUNDATION_EXPORT BOOL IMChatTextContainsMentionToken(NSString *_Nullable text, 
 /// 两者都不是"有人跟我说话了"，均不计未读。未读分割线与 ↓N 的定位必须照此排除，
 /// 否则分割线会落在不计数的行上、与角标数字对不上。
 FOUNDATION_EXPORT BOOL IMContentTypeCountsAsUnread(NSString *_Nullable contentType);
-
-/// 媒体消息在「引用/预览」场景的简短占位（本地生成，用于输入预览条与本端即时快照）。
-FOUNDATION_EXPORT NSString *IMReplySnippet(IMMessageModel *m);
 
 NS_ASSUME_NONNULL_END

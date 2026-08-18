@@ -24,11 +24,13 @@
 
 - (instancetype)initWithHostView:(UIView *)hostView
                        topAnchor:(NSLayoutYAxisAnchor *)topAnchor
+                        delegate:(nullable id<IMChatBannerStackDelegate>)delegate
                          isGroup:(BOOL)isGroup
                           userID:(NSString *)userID
                           convID:(NSString *)convID {
     self = [super init];
     if (self) {
+        _delegate = delegate;   // 先于任何内容 setter 绑定，保证首次 notifyHeightChanged 能送达
         _isGroup = isGroup;
         _userID = [userID copy];
         _convID = [convID copy];

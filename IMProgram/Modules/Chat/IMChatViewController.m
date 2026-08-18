@@ -67,8 +67,6 @@
 
 NSNotificationName const IMChatConversationClearedNotification = @"IMChatConversationClearedNotification";
 
-#define IMLooksLikeURL(s) IMMediaLooksLikeURL(s)
-
 #pragma mark - 聊天页
 
 // 私有类扩展（属性/协议/指定初始化器）已移至 IMChatViewController+Private.h，
@@ -1209,10 +1207,10 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     UILayoutGuide *guide = self.view.safeAreaLayoutGuide;
     self.bannerStack = [[IMChatBannerStack alloc] initWithHostView:self.view
                                                          topAnchor:guide.topAnchor
+                                                          delegate:self
                                                            isGroup:self.isGroupChat
                                                             userID:self.userID
                                                             convID:self.convID];
-    self.bannerStack.delegate = self;
 
     self.inputBottom = [inputBar.bottomAnchor constraintEqualToAnchor:guide.bottomAnchor];
     [NSLayoutConstraint activateConstraints:@[

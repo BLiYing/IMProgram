@@ -3,10 +3,17 @@
 
 #import <UIKit/UIKit.h>
 
+@class IMMessageModel;
+
 NS_ASSUME_NONNULL_BEGIN
 
 /// 相对 URL（/uploads/xxx）补 host 成绝对地址；已是 http/data: 的原样返回；空→空串。
 FOUNDATION_EXPORT NSString *IMMediaFullURL(NSString *_Nullable content, NSString *_Nullable host);
+
+/// 媒体消息在「引用/预览」场景的简短占位（本地生成，用于输入预览条与本端即时快照）：
+/// 图片/视频/文件→`[图片]`/`[视频]`/`[文件] 名`，聊天记录→标题，文本→截断。
+/// 与 IMRecordItemPreview / IMLocalizeReplySnippet 同族，统一在此维护，避免各页分叉。
+FOUNDATION_EXPORT NSString *IMReplySnippet(IMMessageModel *m);
 
 /// 从文件消息 URL 取原始显示文件名：存储名格式 <随机>__<原名>.<ext>，取 "__" 之后并百分号解码。
 FOUNDATION_EXPORT NSString *IMMediaFileName(NSString *_Nullable content);

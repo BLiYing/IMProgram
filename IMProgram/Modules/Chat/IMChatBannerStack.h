@@ -30,14 +30,18 @@ NS_ASSUME_NONNULL_BEGIN
 @interface IMChatBannerStack : NSObject
 
 /// 把三条横幅挂到 hostView 上，顶部贴 topAnchor（通常是安全区顶）。userID/convID 用于收起态持久化键。
+/// delegate 在 init 传入并**先于任何内容 setter**绑定：内容 setter（pinnedItems/announcementText/
+/// applyApprovalPending:）都以 notifyHeightChanged 收尾，若 delegate 尚未绑定，那一次顶开 tableView
+/// 内边距的回调会被 nil 消息静默吞掉、首屏消息被横幅盖住直到下次横幅事件才自愈。收进 init 从结构上杜绝该顺序坑。
 - (instancetype)initWithHostView:(UIView *)hostView
                        topAnchor:(NSLayoutYAxisAnchor *)topAnchor
+                        delegate:(nullable id<IMChatBannerStackDelegate>)delegate
                          isGroup:(BOOL)isGroup
                           userID:(NSString *)userID
                           convID:(NSString *)convID NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 
-@property (nonatomic, weak, nullable) id<IMChatBannerStackDelegate> delegate;
+@property (nonatomic, weak, nullable, readonly) id<IMChatBannerStackDelegate> delegate;
 
 #pragma mark 置顶（G0）
 /// 当前置顶集合。setter 会夹紧轮转索引并重新应用横幅。

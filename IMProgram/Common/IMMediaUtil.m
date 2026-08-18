@@ -1,12 +1,25 @@
 //  IMMediaUtil.m
 
 #import "IMMediaUtil.h"
+#import "IMMessageModel.h"
 #import <math.h>
 
 NSString *IMMediaFullURL(NSString *content, NSString *host) {
     if (content.length == 0) { return @""; }
     if ([content hasPrefix:@"http"] || [content hasPrefix:@"data:"]) { return content; }
     return [NSString stringWithFormat:@"http://%@%@", host ?: @"", content];
+}
+
+NSString *IMReplySnippet(IMMessageModel *m) {
+    if ([m.contentType isEqualToString:@"image"]) { return @"[图片]"; }
+    if ([m.contentType isEqualToString:@"video"]) { return @"[视频]"; }
+    if ([m.contentType isEqualToString:@"file"]) {
+        NSString *fn = m.fileName.length > 0 ? m.fileName : IMMediaFileName(m.content);
+        return fn.length > 0 ? [@"[文件] " stringByAppendingString:fn] : @"[文件]";
+    }
+    if ([m.contentType isEqualToString:@"chat_record"]) { return IMChatRecordSnippet(m.content); } // [聊天记录] 标题
+    NSString *c = m.content ?: @"";
+    return c.length > 60 ? [[c substringToIndex:60] stringByAppendingString:@"…"] : c;
 }
 
 BOOL IMLooksLikeChatRecordJSON(NSString *s) {

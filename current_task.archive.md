@@ -465,3 +465,104 @@
   database context generation 防迟到串写；账号哈希目录物理分库已降级为后续增强。本轮仍按无旧数据验证。
 - 已读=可见即读（已实现）：未读随滚动逐步清；进会话只清当前可见的，需滚到底才全清。↓N 徽标=视口下方未读数，随滚动递减、滚到底隐藏（按 pendingReadSeq 实时重算，非静态）。
 
+
+## 2026-08-18 归档（从 current_task.md 下沉——巨类拆分及更早已完成块，保留全文供追溯）
+
+## 当前焦点
+
+**相机拍照收端缺少 `thumb` 磨砂占位 ✅（2026-08-18，clean build 绿，待手测）** — 根因是相机/粘贴单图路径直接 `uploadData → sendMedia`，只填写 `media_w/media_h/file_size`，绕过 `IMMediaSendService` 内部的 `IMTinyThumbDataURI`，故 socket payload 不含 `thumb`；服务端透传与收端解析/磨砂渲染均正常。现将生成器导出为共享函数，在 `mediaAttributesForImage:bytes:` 统一写入 `attrs.thumb`，相机和粘贴路径同时覆盖；`IMMediaPlaceholderTests` 补 data URI 可解码、20px 尺寸和协议长度上限测试。
+- **两处修正（2026-08-18 编译/追链发现）**：① 导出声明 `IMTinyThumbDataURI` 误用裸 `nullable`（Obj-C 方法/属性专用上下文关键字），C 函数须用 `NSString * _Nullable`——否则 `unknown type name 'nullable'` 直接编译失败。② `sendMediaURL:...mediaAttributes:` 构造本地 `IMMessageModel` 时漏回填 `m.thumb`，导致**转发自己刚拍/粘贴的图**时 `forwardAttributesForMessage` 读到空 thumb、收端仍只有空磨砂；已补 `m.thumb = mediaAttributes.thumb`（表已有 thumb 列，可落库→重进会话再转发亦生效）。**build 绿；单测/手测未跑。**
+
+**IMChatViewController 巨类拆分 ✅ 代码完成（2026-08-15，clean build 绿，待手测，纯 iOS 端）** — 应《整洁代码》拆 4718 行的 Massive VC。
+- **真·SRP 抽取（独立对象/纯函数，零～低运行时风险）**：`IMChatMessageLogic`（@提及 token/未读口径/引用占位，测试从前置声明改引头）、`IMPasteImageTextField`、`IMPendingMediaThumbnail`、`IMChatBannerStack`（G0/G1/G3 三横幅栈视图+布局+收起持久化，点击导航经 `IMChatBannerStackDelegate` 回本页）。
+- **分文件 category（同一个类、方法平移到多 TU，零运行时风险；剩余子系统全回耦 messages/tableView/nav/socket，强抽独立对象只会把耦合塞进宽 delegate 还添风险）**：`+Selection`（多选/转发）、`+Menu`（长按菜单+iOS26 光栅化预览）、`+DataSource`（cellForRow+相册聚簇+连续分组+行高）、`+Media`（附件面板/选择器/上传/查看器/粘贴）、`+MediaFlow`（转发/长文本/下载编排）、`+Mention`、`+Socket`、`+Scroll`（↓N/键盘）、`+Compose`（引用/收藏/编辑）。私有属性/协议/跨 TU 私有方法登记在 **`IMChatViewController+Private.h`**。
+- **收口**：主文件 **4718→1482 行**（仅留 init/lifecycle、导航去重折叠入口、setupUI、发送接收核心、群资料、banner delegate 装配、presence、辅助）；`_downloads` 懒加载 getter 与 `dealloc` 因直接访问 ivar 留主实现。`kIMFlashOverlayTag`/`kIMAttachPanelHeight` 由 static const 改为跨 TU 共享常量。**未改一行行为**，10 次提交每次 build 绿。
+- **待手测**：编译只能保证符号，**布局/交互（键盘顶起输入栏、附件面板、长按菜单预览、多选、↓N、@面板）需模拟器实测**——纯编译过不代表布局对。
+
+**气泡样式统一 + iOS26 长按预览修复 ✅ 代码完成（2026-08-15，待编译/手测，纯 iOS 端）** — 见 `../IMServer/current_task.md` 同条。
+- **长按菜单迁移**：从 UITableView 行级 contextMenu API（iOS26 不再回调其自定义预览 delegate → 预览退化整行矩形）迁到挂在气泡 `previewTargetView` 上的 `UIContextMenuInteraction`（`attachMessageContextMenuToCell:` 由 `willDisplayCell` 统一幂等挂，取代 cellForRow 四处散点）。配置走共享 `messageContextMenuConfigurationForIndexPath:`，预览 delegate 新旧两代都实现（iOS15 旧签名 + 16/26 `...ForItemWithIdentifier:`）。
+- **iOS26 预览只剩文字/空气泡**：`targetedPreviewForInteraction:` 把气泡**从父视图按 frame 开窗光栅化**成独立 UIImage（`CGContextTranslateCTM` + `drawViewHierarchyInRect:`）——绕过 iOS26 lift 剥离源视图背景，且开窗能带上链接卡 `_stack`、图片角标等**兄弟视图**（只画 target 子树会漏成空气泡/裸封面）。highlight 缓存快照、dismissal 复用、`willEnd` 清（防菜单期间 reload 换绑截错内容）。截图前按 `kIMFlashOverlayTag` 隐藏跳转高亮遮罩。
+- **配色/尾角统一**：链接卡接收端 `surface` 灰→`bubbleThem` 白；聊天记录卡收发都灰→按 mine 上 `bubbleMe`/`bubbleThem`；两者加尾角（媒体类不加）。方向样式（底色+圆角+尾角）收口为 `+[IMTheme applyBubbleDirectionStyle:mine:]`，IMBubbleCell/IMLinkCardCell/IMChatRecordCell 三处共用（原三份手抄）。flash 高亮层补 `maskedCorners` 跟随尾角。
+- **/code-review 自审**：8 finder × 验证，10 项发现——4 正确性（空气泡预览/收起截错/flash 烘进预览/flash 尾角）+ 5 清理（方向样式复制、attach 散点、identifier 死参、init 死赋值、共享函数）+ 1 规范（本快照）已随本次全修；2 项（宫格多选态、iOS≤18 重影）验证驳回。
+- **已知限制**：相册宫格每格长按预览仍系统默认形状（IMAlbumCell 自带交互无自定义预览，非本次范围）；长按须落在气泡上，行内空白/昵称/头像处不再出菜单（对齐 Telegram）。
+
+**聊天页导航去重 + 折叠 ✅（2026-08-14，build 绿 + test-build 绿，待手测）** — 7 处 `IMChatViewController` alloc+push 收口为统一入口 `+openInNavigationController:...`（单聊/群聊各一，走私有 `+openConvID:inNavigationController:build:seed:`）。
+- **折叠（本次核心需求）**：开新会话时截掉栈里**最底部**的聊天页及其之上的所有页（资料页等），新会话接到其原位置 → 「群聊A→成员资料→发消息C」返回直达会话列表（Telegram 行为），且**同一导航栈至多一个聊天页**。纯逻辑抽为文件级 `IMChatCollapsedStack()`，配 `IMChatStackRoutingTests`（7 例，注入谓词免构造真 VC；含钉住「聊天页为根→原地替换」语义的用例）。
+- **复用刷新（修 /code-review 发现）**：命中同会话则 `popToViewController` 复用并 `prepareForReuseEntry`——重装标题/头像按钮（修死播种）、从库合并被压期间错过的消息（修陈旧空洞）、清定位标志重锚到底部。指定初始化器移入 .m 类扩展（外部无法 alloc+push，结构性防回归）；`viewWillAppear` 按 `synced` 游标跨 Tab 自愈；详情页 `originChatInStack` 改委托 `+existingChatForConvID:`（统一查找方向）。
+- **二轮 /code-review 复核修复（同日）**：① 复用 seed 群名改 fill-if-empty + `prepareForReuseEntry` 群聊补 `reloadGroupInfo`（快照旧群名不再覆盖服务端新名；单聊保持覆盖——页内无服务端刷新，caller 快照恒 ≥ 页内值）；② 命中即栈顶时只 seed、不清定位标志不 pop（防下次重布局把上翻用户拉回底部）；③ 复用重锚前清 `entryUnread`（防锚回早已读的旧「首条未读」）；④ 被压期间消息合并移到 viewWillAppear 按 synced 守卫（去掉复用路径双重读库），合并后补 `markVisibleRowsRead` 刷 ↓N；⑤ cut==0（聊天页为根）复核为刻意语义，配测试钉住。
+- **已知限制**：去重/折叠只作用于单个 `UINavigationController`；各 Tab 独立栈，跨 Tab 仍可能各存一个同会话实例（数据不丢，靠 appear 合并自愈）。位点入参在复用路径刻意忽略（实例自维护已读/位点）。`maxInMemoryConvSeq` 每次 appear O(n) 扫描（数千条量级微秒级，不值得加增量状态）。
+
+**QRCODE P0 + 群组 G3 入群 ✅（2026-08-13，build 绿 + test-build 绿，待手测；iOS 全量测试用户要求暂停）** — 方案 `../IMServer/docs/QRCODE_DESIGN.md` / `GROUP_FEATURES_DESIGN.md` §4-G3、草图 `QRCODE_UX_SKETCH.html`。
+- **网络/模型**：`IMHTTPService` 加 `qrMyCard/qrResetMyCard/groupQR/groupQRReset/qrResolve/joinGroup:code:hello:/joinRequests/decideJoinRequest`（新 `runDataRequest:` 保留业务码，join/resolve 靠 `error.code` 分 300210/200110）；`IMFriendlyMessageForCode` 加 200110/300207/300208；`IMGroupInfo.pendingCount`；新 `IMQRModels`（`IMQRResolved/IMQRUserCard/IMQRGroupCard/IMJoinRequest` + 纯映射 `IMQRUserActionForRelation/IMQRGroupActionForCard/…`）+ `IMQRImage`（`CIQRCodeGenerator` 出码 / `CIDetector` 解码，**一图多码** `decodeAllInImage:`）。
+- **UI（Modules/QR/）**：`IMQRScannerViewController`（`AVCaptureSession` 取景 + 手电筒 + 相册识别多码候选 + 「扫码/我的二维码」页签；自行 resolve 后 `onResult` 回宿主）→ `IMQRResultRouter`（**落到已有页面**：名片→资料页 `IMChatDetailViewController`、群→加群确认弹窗含 G3 加入/需审批附言/进群/满/黑名单、失效码 200110 提示、外来码域名二确认不自动跳转）；`IMQRCardView`+`IMQRCardViewController`（出码页：进页提亮、保存相册、分享、重置二次确认）；`IMJoinRequestsViewController`（待审列表，同意/拒绝）。
+- **入口/帧**：会话列表 `＋` 菜单「扫一扫」置顶 → 扫码；`IMSettingsViewController`「我的二维码」；详情页设置区「群二维码」行；`IMGroupManageViewController` 治理卡「待审入群申请(N)」；`IMSocketManager` group 帧带 `result`（`kIMGroupResultKey`）+ 会话列表 `onGroupEventForJoinResult:` 结果 toast。
+- **测试**：`IMQRModelsTests`（resolve 解析 / 动作映射 / 域名 / 申请解析）。**扫码/相机需真机手测**（模拟器无摄像头）。**改了后端需重启带 QR 路由的新二进制再测。**
+- **`/code-review` 修复（2026-08-13，三仓 5 项全修）**：iOS 两项——① 扫码页 `startSession/stopSession` 把 `isRunning`
+  判定移进串行队列（原先在主线程判，快速切「我的二维码」↔「扫码」会让启动被自己的守卫吞掉、相机永久停住）；
+  ② 扫码页「我的二维码」页签补拉 `myProfile` 显昵称+头像（原先只显 uid，对方回扫认不出是谁）。
+  另三项在 IMServer（邀请入群原子上限 + 注释订正）与 im-web（重置失败无提示 / 拖非图片文件未捕获）。
+- **已知限制**：① `IMQRResultRouter` 群分支用**确认弹窗兜底**（G3 独立「加群预览页」为后续替换项，附言目前是 alert 文本域）；
+  ② 相册一图多码用 **ActionSheet 列候选**（草图里是"在图上画候选点"，需图片预览页，未做）；
+  ③ 屏幕提亮只在出码页（`IMQRCardViewController`），扫码页内的「我的二维码」页签不提亮；
+  ④ `q/l` 登录码（P1）未做——`resolve` 对它一律回 unknown，端上会当外来码显示原文。
+- **建议**：完成后跑 `/code-review`（触及扫码/入群，可加 `/security-review`）。
+
+**G2 群治理 ✅（2026-08-13，build 绿，待手测；iOS 全量测试用户要求暂停）** — 方案 `../IMServer/docs/GROUP_FEATURES_DESIGN.md` §G2、草图 §04/§07。
+`IMGroupManageViewController` 加三卡（进群确认/全员禁言开关 · 三项「仅管理员」权限开关 + 新成员可见历史 · 黑名单入口，section 化重构避免行索引 bug）+ 新 `IMGroupBanListViewController`（左滑解除）+ `IMGroupInfoViewController` 成员菜单加「禁言…(10min/1h/1d/永久)/移出群聊(cooldown)/移出并不再允许加入(forever)」+ `IMChatViewController` 输入栏禁言锁（`refreshComposerMuteState`：myMuteUntil 或全员禁言且我是 member → inputField.enabled=NO + 占位「你已被管理员禁言」）。`IMGroupInfo` 扩 G2 字段 + `IMHTTPService` 加 setGroupSettings/muteGroupMember/removeGroupMember:ban:/groupBans/unban。**后端补** group.Info 下发开关组。
+
+**G1 群资料闭环 ✅（2026-08-12，build 绿，待手测；iOS 全量测试用户要求暂停）** — 方案 `../IMServer/docs/GROUP_FEATURES_DESIGN.md` §G1、草图 §04/§08。
+`IMGroupManageViewController` 三行（简介/公告/全员禁言开关，删「即将上线」占位）+ `IMChatDetailViewController` 设置区加「我在本群的昵称/群备注」行 + 群公告卡 + `IMChatViewController` **公告黄条横幅**（`IMPinnedBannerView` 加 `IMBannerStyleAnnouncement`，排在 G0 置顶蓝条之上，两条叠加算 `contentInset.top`）。`IMGroupInfo` 扩 G1 字段、`displayName`/`nicknameOfMember:` 群昵称优先。`IMHTTPService` 加 announcement/mute/me-nickname 三接口 + `updateGroup` 扩 intro。群备注本地（`NSUserDefaults im_grpremark_<uid>_<cid>`，与单聊备注 `im_remark_` 同范式；后端 remark 就绪、多端同步后续）。
+
+**G0 置顶消息横幅 ✅（2026-08-12，build 绿 + `IMPinnedMessageTests` 8 例，待手测）** — 方案/草图见 `../IMServer/docs/GROUP_FEATURES_DESIGN.md` §G0 与 `GROUP_FEATURES_UX_SKETCH.html` §03（**实现须严格对齐草图**）。
+新增 `IMPinnedBannerView`（竖条 + `📌 置顶消息 i/N · 发送者` + 单行预览 + 右侧列表键）与 `IMPinnedMessage` 模型；进会话拉 `GET /conversations/{id}/pinned` 回填，之后靠 `msg_op` 帧重拉；点条=跳转并轮转，列表键=ActionSheet 全部置顶（可取消当前条）；长按菜单加「置顶↔取消置顶」切换对（群内仅群主/管理员）。
+**布局要点**：横幅浮在消息表之上、贴 `safeAreaLayoutGuide.top`，用 `tableView.contentInset.top` 顶开内容——**不能用 `additionalSafeAreaInsets`**（它会反过来推动横幅自身约束，形成循环）。
+**顺带修**：`op=pin` 的 apply 写死 `pinnedAt = now`，把「取消置顶」也记成置顶；且 `IMDatabase applyMsgOpForConv:` 约定「pinnedAt 传 0 = 不改该项」导致取消永远落不了库 → 认 `payload[@"pinned"]`、约定 `pinnedAt<0` 为清零、通知补 `kIMMsgOpPinnedKey`。
+
+**@选择器改内联下拉面板 ✅（2026-08-12，build 绿·待手测）**：原半屏 sheet 遮挡输入框、没法接着打字匹配 → 改**输入栏上方内联面板**（`IMMentionPickerViewController initInlineWithGroup:`＋`preferredInlineHeight`，child VC 底边贴 `replyBar.top`、随键盘上移、不抢键盘，过滤词由聊天输入框 `updateQuery:` 实时驱动）；`maybePresentMentionPicker` 改 add/update/remove child + `dismissMentionPanel`。
+
+**气泡内 `@昵称` 高亮 + 点击跳资料 ✅（2026-08-12，build 绿·待手测）**：iOS 不落库 per-msg mentions，改由**当前群成员+文本**推导（`mentionMapForMessage:`→name→uid）；`@所有人`仅群主/管理员时高亮（对齐 300204、不可点）；`+[IMBubbleCell attributedContent:base:mentionColor:mentions:]` 挂 `IMMentionUIDAttributeName`，cell 与阅读器共用。**点 `@昵称` 跳资料**：气泡 UILabel 用 `NSLayoutManager` 反查 tap 落点字符属性（`mentionUIDAtPoint:`，收键盘前用稳定布局 + glyph 矩形内才算）、阅读器 UITextView 同法反查（不走已弃用 link 代理）→ `openMemberProfileForUID:`；点击先于长文展开/引用跳转。token 边界同 `IMChatTextContainsMentionToken`、长名优先。
+
+**两项 UX 优化 ✅ 代码完成 + `/code-review` 全修（2026-08-11，build 绿·用户自测）** — 逐端矩阵见 `../IMServer/docs/CLIENT_PARITY.md`「UX」行；与 Web 同步交付。
+> 审查修复（iOS 侧）：分档字数改按码点计 `IMCodePointCount`（emoji 场景与 Web 一致）；`groupedCount` 收敛为 `+[IMBubbleCell charCountLabelForText:]`（cell+阅读器共用）；长文/超长**引用**消息点击先于引用跳转判定（否则整条点击被跳转抢占、永远点不开展开/阅读器）。
+1. **长文本三档显示**：`IMBubbleCell +textTierForContent:`（分档判据，阈值与 Web `longtext.ts` 一致：huge `chars≥2000|lines≥60`、long `≥300|≥10`）。cell 配置——short 全显；long 折叠前 8 行/400 字 + 「展开全文 ∨ / 收起 ∧」（宿主 `expandedTextKeys` 按 `seq-<convSeq>`/clientMsgID 记忆，点气泡切换并 `reloadRows`）；huge 摘要卡（📄 长文本·约N字 + 3 行预览 + 查看全文 ›）→ 点开新建 `IMTextReaderViewController`（全屏 `UITextView` 只读可选、字号 A±、复制全文）。tap 路由在 `handleReplyJumpTap:` → `handleLongTextTapForMessage:atIndexPath:`。**iOS 无对应单测**（判据可后补 XCTest）。
+2. **视频禁复制**：`IMChatViewController` 媒体查看器 `moreActions` 加 `if (!isVideo)` 守卫（图片仍可复制；长按菜单 `messageActionsForMessage:` 的 `copyable` 本就只含 text/image，不含视频）。
+
+**任务二（IMServer 驱动）— 详情页删文件两档 + 返回按钮全局未读徽标 ✅ 三端手测通过（2026-08-11，build 通过）**
+> 完整设计/归档见 `../IMServer/current_task.archive.md`「2026-08-11 归档④」；逐端矩阵 `../IMServer/docs/CLIENT_PARITY.md`「任务二」。
+- **删文件两档**：`IMProtocol`(delete/msg_hidden 常量)、`IMDatabase`(deleteLocalMessageForConv / totalUnreadExcludingConv)、`IMSocketManager`(deleteMessageForEveryone / removeLocalMessage / msg_hidden 帧 / applyMsgOp op=delete + `IMSocketDidRemoveMessageNotification`)、`IMMessageModel.deletedAt` + `processIncomingMessage` 直加载跳过、`IMHTTPService`(hide / fetchHidden)、`IMChatDetailViewController deleteFileMessage:` 两档 actionSheet（我发的/群主·管理员=为所有人删除+仅删自己；他人=删除）、`IMConversationListViewController` 登录 fetchHidden catch-up。
+- **返回按钮全局未读徽标**：`IMLiquidNavigationBar.backBadge`（圆形红底/99+）+ `IMMainTabBarController im_setBackBadgeCount:` + `IMChatViewController refreshBackUnreadBadge`（=全局未读减当前会话，进页 + 收消息/已读位点通知刷新）。
+- 三端交叉手测通过；`/code-review` 5 条已全修。
+
+---
+
+**（更早·未编译/未测试）媒体已失效·被动展示占位（2026-08-07，⚠️ 用户要求先改后测）**
+> 对齐 im-web + `../IMServer/docs/MEDIA_EXPIRED_UX_SKETCH.html`。三条**被动展示**路径此前对 404 留空白（近乎透明），
+> 与"加载中"分不清。统一为失效终态：⊘ + 文案、不重试、不再回源。
+- **新增 `Network/IMMediaExpiryRegistry.{h,m}`**：失效登记表（进程内内存 Set）+ `verifyExpiredForURL:`（ranged-GET
+  `bytes=0-0` 读状态码，404/410 才登记）+ `IMMediaExpiryDidChangeNotification`。与下载协调器路径（主动下载判失效）互补。
+- **`IMMediaPlaceholder expiredOverlayWithCaption:`**：统一失效覆盖层（dim + ⊘ + 文案），四处复用。
+- **四处接入**：气泡 `IMImageCell`（resolved 加载失败→复验→失效占位，保留磨砂 thumb 作 dim 底）、相册 `IMAlbumCell`
+  （tile `setExpired:` 中心 ⊘）、大图查看器 `IMMediaViewerViewController`（图片失败复验；已知失效视频短路）、
+  会话媒体库宫格 `IMConversationMediaViewController`（只读本地不联网，据登记表显 ⊘ + 监听通知刷新）。
+  各路径先查登记表命中即失效占位、不回源（掐 404 风暴）。
+- **转发/保存失效守卫（2026-08-11 补，build 绿）**：失效媒体转出去对端必 404 → 拦。`IMChatViewController`
+  新增 `isMediaExpiredForForward:`（key 用 `fullMediaURL:` 同款解析）——单条转发 `presentForwardPickerForMessage:`
+  头部拦（一处盖卡片/长按/详情文件列表三入口）、逐条转发 `forwardMessages:` 跳过+计数 toast、合并转发
+  剔失效项+全失效则拦；`IMMediaViewerViewController saveToAlbum` 命中即拦（铁律A 天然成立：有缓存不会被登记），
+  并在失效覆盖层藏掉保存钮。
+- **已知未尽**：查看器**正在播放**的视频 404 需 KVO `AVPlayer.status`（当前靠气泡/媒体库先探到再短路）；失效标记
+  **内存态不持久**（与协调器 `_states` 同 philosophy；原件本就落沙盒磁盘持久，重启按需重新复验一次，不会"重启变透明"）。
+- **下一步**：`xcodebuild build`（synced group 会自动纳入两新文件，勿手改 pbxproj）→ 真机手测已删媒体的四处显 ⊘。
+
+**（上一批）下载 UI/UX + 数据存储 + 门控磨砂占位（①–⑧）全部完成**——build/build-for-testing 绿、
+磨砂单测 iPhone 17 Pro Max 3/3 绿；**待真机手测**。完成详情已转入 `current_task.archive.md`（2026-08-07 归档块）。
+
+- **手测场景清单**：`docs/DOWNLOAD_TEST_SCENARIOS.md`（新增，基于下载方案 + 门控机制文档）。
+- **门控/占位机制规范**（供 Web 对照）：`../IMServer/docs/MEDIA_PLACEHOLDER_MECHANISM.md`。
+- **未做/遗留**均记在关联文档，不放这里：下载相关见 `../IMServer/docs/DOWNLOAD_DATA_STORAGE_PLAN.md`（§4 待办 / §5.1 / §6.5）；
+  跨端遗留（任务一 P1 全局开关、iOS 通讯录在线绿点等）见 `../IMServer/docs/ROADMAP.md`。
+
+## 下一步
+1. **手测（优先）**：照 `docs/DOWNLOAD_TEST_SCENARIOS.md` 跑——门控四类（图片/视频/文件/相册宫格）+ 详情页两 Tab + 设置三层
+   + 磨砂占位（气泡 / 引用缩略 / 媒体库）+ 清缓存回退。
+2. 待手测暴露问题 → 修；无问题 → 接 `../IMServer/docs/ROADMAP.md` 下一里程碑（caption / 网络恢复秒连 等）。

@@ -22,13 +22,10 @@ static NSString *IMImageDiskKey(NSString *urlString) {
     return out;
 }
 
-/// 按目标尺寸**降采样解码**：ImageIO 直接吐小图，不会先把原图整张解成位图。
-/// 同时 kCGImageSourceShouldCacheImmediately 让解码发生在**当前后台线程**，
-/// 否则位图解码会推迟到主线程首次绘制时发生——这正是滚动掉帧的元凶。
-static UIImage *IMImageDecodeDownsampled(NSData *data, CGFloat maxPixelSize) {
-    if (data.length == 0) { return nil; }
-    CGImageSourceRef src = CGImageSourceCreateWithData((__bridge CFDataRef)data,
-        (__bridge CFDictionaryRef)@{ (id)kCGImageSourceShouldCache: @NO });
+/// 降采样解码核心（单一口径）：从已建好的 CGImageSource 直接吐目标尺寸小图。**不释放 src**（调用方持有）。
+/// kCGImageSourceCreateThumbnailWithTransform 尊重 EXIF 方向；kCGImageSourceShouldCacheImmediately 让解码
+/// 发生在**当前后台线程**，否则位图解码会推迟到主线程首次绘制时发生——这正是滚动掉帧的元凶。
+static UIImage *IMImageDownsampleFromSource(CGImageSourceRef src, CGFloat maxPixelSize) {
     if (!src) { return nil; }
     NSDictionary *opts = @{
         (id)kCGImageSourceCreateThumbnailFromImageAlways: @YES,
@@ -37,10 +34,19 @@ static UIImage *IMImageDecodeDownsampled(NSData *data, CGFloat maxPixelSize) {
         (id)kCGImageSourceThumbnailMaxPixelSize: @(maxPixelSize),
     };
     CGImageRef cg = CGImageSourceCreateThumbnailAtIndex(src, 0, (__bridge CFDictionaryRef)opts);
-    CFRelease(src);
     if (!cg) { return nil; }
     UIImage *image = [UIImage imageWithCGImage:cg];
     CGImageRelease(cg);
+    return image;
+}
+
+/// 按目标尺寸**降采样解码**（NSData 源）：ImageIO 直接吐小图，不会先把原图整张解成位图。
+static UIImage *IMImageDecodeDownsampled(NSData *data, CGFloat maxPixelSize) {
+    if (data.length == 0) { return nil; }
+    CGImageSourceRef src = CGImageSourceCreateWithData((__bridge CFDataRef)data,
+        (__bridge CFDictionaryRef)@{ (id)kCGImageSourceShouldCache: @NO });
+    UIImage *image = IMImageDownsampleFromSource(src, maxPixelSize);
+    if (src) { CFRelease(src); }
     return image;
 }
 
@@ -65,6 +71,15 @@ static NSUInteger IMImageCost(UIImage *image) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{ s = [IMImageLoader new]; });
     return s;
+}
+
++ (UIImage *)downsampledImageAtFileURL:(NSURL *)fileURL maxPixelSize:(CGFloat)maxPixelSize {
+    if (!fileURL) { return nil; }
+    CGImageSourceRef src = CGImageSourceCreateWithURL((__bridge CFURLRef)fileURL,
+        (__bridge CFDictionaryRef)@{ (id)kCGImageSourceShouldCache: @NO });
+    UIImage *image = IMImageDownsampleFromSource(src, maxPixelSize);
+    if (src) { CFRelease(src); }
+    return image;
 }
 
 - (instancetype)init {

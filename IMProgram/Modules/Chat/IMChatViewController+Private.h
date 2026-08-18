@@ -128,11 +128,13 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 
 /// 跨分文件 category 互调的私有方法：主实现与各 category 都 import 本头，故都能看到彼此的私有方法签名。
 /// 一个方法只要被**定义它的那个 translation unit 以外**的地方调用，就在此登记（否则 ARC 因不知返回类型报错）。
+/// 下面按**业务概念**粗分组，仅便于查阅；**刻意不标注定义文件**——方法会在 category 间搬家，硬写 +X.m
+/// 归属会随之失真（本已发生过：cancelReply/favoriteMessage 搬进 +Compose、showAttachPanel 在 +Media，
+/// 旧注释却仍写在「主实现」）。定义位置一律以「跳转到定义」为准。
 @interface IMChatViewController (Private)
 
-// —— 主实现文件中、被 category 调用者 ——
-// 发件箱缩略/进度（转发自 IMMediaSendService 单例；以 getter 形式暴露，供 cellForRow 等 dot 语法读取）。
-- (NSMutableDictionary<NSString *, UIImage *> *)outboxPreviews;
+// 发件箱预览 / 数据库 / 导航栏 / 发送结果等基础能力：
+- (NSMutableDictionary<NSString *, UIImage *> *)outboxPreviews;   // 转发自 IMMediaSendService 单例，供 cellForRow dot 语法读取
 - (NSMutableDictionary<NSString *, IMUploadProgress *> *)outboxProgress;
 - (BOOL)performDatabaseOperation:(void (^)(IMDatabase *database))operation;
 - (void)appendReloadAndScroll;
@@ -143,10 +145,12 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (void)refreshUnifiedNavigationBar;
 - (NSString *)senderNameForMessage:(IMMessageModel *)m;
 - (void)showAttachPanel:(BOOL)visible;
+- (void)handleSendResult:(BOOL)success convSeq:(int64_t)convSeq error:(nullable NSError *)error forClientMsgID:(NSString *)clientMsgID;
 
-// 长按菜单动作会调进主实现的这些业务方法（+Menu.m → 主实现）：
+// 引用 / 编辑 / 翻译 / 收藏 / 复制 / 转发 / 删除等消息动作：
 - (void)beginReplyTo:(IMMessageModel *)message;
 - (void)beginEditMessage:(IMMessageModel *)message;
+- (void)cancelEdit;
 - (void)translateMessage:(IMMessageModel *)message;
 - (void)copyMessageToPasteboard:(IMMessageModel *)message;
 - (void)forwardMessage:(IMMessageModel *)message;
@@ -156,7 +160,7 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (void)openMemberProfileForUID:(NSString *)uid;
 - (void)reportTargetType:(NSString *)targetType targetID:(NSString *)targetID title:(NSString *)title;
 
-// —— +Menu.m 中、被主实现/其它 category 调用者 ——
+// 长按菜单：构建 / 删除路径：
 - (void)attachMessageContextMenuToCell:(UITableViewCell *)cell;
 - (NSArray<IMMenuAction *> *)messageActionsForMessage:(IMMessageModel *)message mine:(BOOL)mine;
 - (BOOL)canDeleteForEveryone:(IMMessageModel *)message;
@@ -165,7 +169,7 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (void)deleteMessageForEveryone:(IMMessageModel *)message;
 - (void)hideMessageForSelf:(IMMessageModel *)message;
 
-// 列表渲染（+DataSource.m）会调进主实现的这些方法：
+// 列表渲染 / 相册聚簇：cell 取数、发送者身份、媒体门控、行布局：
 - (BOOL)isFirstInSenderRun:(NSInteger)row;
 - (BOOL)isLastInSenderRun:(NSInteger)row;
 - (NSInteger)firstUnreadRow;
@@ -186,7 +190,10 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (NSDictionary<NSString *, NSString *> *)mentionMapForMessage:(IMMessageModel *)m;
 - (NSString *)replyFromNameForUID:(NSString *)uid;
 - (IMMessageModel *)messageForClientMsgID:(NSString *)clientMsgID;
-- (void)handleSendResult:(BOOL)success convSeq:(int64_t)convSeq error:(nullable NSError *)error forClientMsgID:(NSString *)clientMsgID;
+- (BOOL)isAlbumFollowerAtRow:(NSInteger)row;
+- (NSUInteger)visibleRowForMessage:(IMMessageModel *)m;
+
+// 滚动 / 键盘 / 进会话定位 / 已读上报 / 在线态：
 - (void)updateInputBottomAnimated:(BOOL)animated;
 - (void)runAfterKeyboardHidden:(void (^)(void))block;
 - (void)scrollToBottomAnimated:(BOOL)animated;
@@ -194,16 +201,14 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (void)positionInitialIfNeeded;
 - (void)refreshPeerPresence;
 - (void)updatePeerWatch:(BOOL)watch;
+- (void)observeKeyboard;
+- (void)updateJumpButton;
 
-// —— +MediaFlow.m 中、被主实现（downloads getter 等）调用者 ——
+// 下载编排回调：
 - (void)updateDownloadProgressForMessage:(IMMessageModel *)m state:(IMDownloadProgress *)state;
 - (void)refreshRowForMessage:(IMMessageModel *)m;
 
-// —— +DataSource.m 中、被主实现/其它 category 调用者 ——
-- (BOOL)isAlbumFollowerAtRow:(NSInteger)row;
-- (NSUInteger)visibleRowForMessage:(IMMessageModel *)m;
-
-// —— +Media.m 中、被主实现/其它 category 调用者 ——
+// 附件面板 / 粘贴图 / 上传回填：
 - (void)appendPastedImage:(UIImage *)image;
 - (void)refreshPasteBar;
 - (void)reattachRunningUploads;
@@ -211,23 +216,21 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (void)updateUploadProgressForMessage:(IMMessageModel *)m;
 - (void)uploadAndSendPastedImage:(UIImage *)image groupID:(NSString *)groupID;
 
-// 引用/编辑态：@提及发送流程会调用主实现的取消编辑（+Mention.m → 主实现）。
-- (void)cancelEdit;
-
-// —— +Socket.m 中、被主实现/其它 category 广泛调用者 ——
+// 标题 / 排序（socket 回调广泛调用）：
 - (void)updateTitle;
 - (void)sortMessagesInPlace;
 
-// —— +Scroll.m 中、被主实现/其它 category 调用者 ——
-- (void)observeKeyboard;
-- (void)updateJumpButton;
-
-// —— +Mention.m 中、被主实现/其它 category 调用者 ——
-- (void)sendTapped;
+// @提及：面板与发送前的 token 解析（sendTapped 在 +Compose，发送时回调这些解析本条 mentions）：
 - (void)maybePresentMentionPicker;
 - (void)dismissMentionPanel;
+- (NSArray<NSString *> *)resolvedMentionsInText:(NSString *)text;
+- (BOOL)resolvedMentionAllInText:(NSString *)text;
+- (void)clearPendingMentions;
 
-// —— +Selection.m 中、被主实现/其它 category 调用者 ——
+// 文本发送（发送按钮 / 回车触发；主实现 setupUI 接线，textFieldShouldReturn 也调）：
+- (void)sendTapped;
+
+// 多选 / 转发：
 - (void)enterSelectionWithMessage:(IMMessageModel *)message;
 - (void)updateSelectionUI;
 - (IMMediaAttributes *)forwardAttributesForMessage:(IMMessageModel *)message;

@@ -26,8 +26,6 @@
 #import "IMAlbumCell.h"
 #import "UIViewController+IMToast.h"
 
-#define IMLooksLikeURL(s) IMMediaLooksLikeURL(s)
-
 @implementation IMChatViewController (MediaFlow)
 
 #pragma mark - 转发（M4-3）
@@ -142,7 +140,7 @@
 - (BOOL)handleLongTextTapForMessage:(IMMessageModel *)m atIndexPath:(NSIndexPath *)ip {
     if (![m.contentType isEqualToString:@"text"] || m.recalledAt > 0) { return NO; }
     NSString *content = m.content ?: @"";
-    if (IMLooksLikeURL(content)) { return NO; } // 纯 URL 交给链接打开逻辑
+    if (IMMediaLooksLikeURL(content)) { return NO; } // 纯 URL 交给链接打开逻辑
     IMBubbleTextTier tier = [IMBubbleCell textTierForContent:content];
     if (tier == IMBubbleTextTierHuge) {
         __weak typeof(self) ws = self;
