@@ -524,9 +524,10 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
         if ([op isEqualToString:kIMMsgOpRecall]) { m.recalledAt = nowMs; }
         else if ([op isEqualToString:kIMMsgOpEdit]) { m.editedAt = nowMs; if (newContent) { m.content = newContent; } }
         else if ([op isEqualToString:kIMMsgOpPin]) {
-            // 取消置顶与置顶共用 op=pin，必须看 pinned 标志（缺省视为置顶，兼容老服务端）。
-            id flag = note.userInfo[kIMMsgOpPinnedKey];
-            BOOL pinned = ![flag respondsToSelector:@selector(boolValue)] || [flag boolValue];
+            // 置顶/取消共用 op=pin；socket 层（applyMsgOpPayload）已按 payload[pinned] 解析成明确
+            // BOOL 下发，这里直接采用，不再各自兜一套"缺字段默认"——两端默认曾相反（socket 缺=取消 /
+            // 此处缺=置顶），一旦下发口径变动极易埋静默不同步。以 socket 的权威解析为准。
+            BOOL pinned = [note.userInfo[kIMMsgOpPinnedKey] boolValue];
             m.pinnedAt = pinned ? nowMs : 0;
         }
         break;
