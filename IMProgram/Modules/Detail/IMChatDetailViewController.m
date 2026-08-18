@@ -593,9 +593,29 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
 
 #pragma mark - Cells
 
-- (UITableViewCell *)infoCell:(UITableView *)tv row:(NSInteger)row {
-    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
+/// 系统样式 cell 统一出池：详情页各分区行原先每次 reloadData 全新 alloc（怕分支间字段残留），
+/// 改为复用池 + **出池即全字段重置**，各 builder 只设自己的差异字段——既复用又不怕残留。
+- (UITableViewCell *)dequeueStyledCell:(UITableViewCellStyle)style reuseID:(NSString *)reuseID inTable:(UITableView *)tv {
+    UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:reuseID];
+    if (!cell) { cell = [[UITableViewCell alloc] initWithStyle:style reuseIdentifier:reuseID]; }
+    cell.textLabel.text = nil;
+    cell.textLabel.textColor = IMTheme.textPrimary;
+    cell.textLabel.font = [UIFont systemFontOfSize:17];
+    cell.textLabel.textAlignment = NSTextAlignmentNatural;
+    cell.textLabel.numberOfLines = 1;
+    cell.detailTextLabel.text = nil;
     cell.detailTextLabel.textColor = IMTheme.textSecondary;
+    cell.detailTextLabel.numberOfLines = 1;
+    cell.imageView.image = nil;
+    cell.imageView.tintColor = IMTheme.accent;
+    cell.accessoryType = UITableViewCellAccessoryNone;
+    cell.accessoryView = nil;
+    cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+    return cell;
+}
+
+- (UITableViewCell *)infoCell:(UITableView *)tv row:(NSInteger)row {
+    UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleSubtitle reuseID:@"dSub" inTable:tv];
     if (row == 0) {
         cell.textLabel.text = self.displayTitle;
         cell.textLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightMedium];
@@ -638,12 +658,8 @@ typedef NS_ENUM(NSInteger, IMDetailAboutRow) {
 - (UITableViewCell *)aboutCell:(UITableView *)tv row:(NSInteger)row {
     NSArray<NSNumber *> *kinds = [self aboutRowKinds];
     IMDetailAboutRow kind = (row < (NSInteger)kinds.count) ? (IMDetailAboutRow)kinds[row].integerValue : IMDetailAboutRowAnnouncement;
-    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
-    cell.textLabel.textColor = IMTheme.textPrimary;
-    cell.detailTextLabel.textColor = IMTheme.textSecondary;
-    cell.detailTextLabel.numberOfLines = 1;
+    UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleSubtitle reuseID:@"dSub" inTable:tv];
     cell.detailTextLabel.lineBreakMode = NSLineBreakByTruncatingTail;
-    cell.imageView.tintColor = IMTheme.accent;
     cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     if (kind == IMDetailAboutRowAnnouncement) {
         cell.imageView.image = [UIImage systemImageNamed:@"megaphone"];
@@ -682,9 +698,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
 - (UITableViewCell *)settingsCell:(UITableView *)tv row:(NSInteger)row {
     NSArray<NSNumber *> *kinds = [self settingsRowKinds];
     IMDetailSettingsRow kind = (row < (NSInteger)kinds.count) ? (IMDetailSettingsRow)kinds[row].integerValue : IMDetailSettingsRowPin;
-    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:nil];
-    cell.textLabel.textColor = IMTheme.textPrimary;
-    cell.detailTextLabel.textColor = IMTheme.textSecondary;
+    UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleValue1 reuseID:@"dVal" inTable:tv];
     switch (kind) {
         case IMDetailSettingsRowPin: {
             cell.textLabel.text = @"置顶聊天";
@@ -733,9 +747,9 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     IMChatDetailTab *t = self.tabs[self.selectedTab];
     if (t.kind == IMDetailTabKindMembers) {
         if (row == 0) {
-            UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+            UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleDefault reuseID:@"dDef" inTable:tv];
             cell.textLabel.text = @"添加成员"; cell.textLabel.textColor = IMTheme.accent;
-            cell.imageView.image = [UIImage systemImageNamed:@"person.badge.plus"]; cell.imageView.tintColor = IMTheme.accent;
+            cell.imageView.image = [UIImage systemImageNamed:@"person.badge.plus"];
             return cell;
         }
         IMDetailMemberCell *cell = [tv dequeueReusableCellWithIdentifier:@"member"];
@@ -793,23 +807,22 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
         [fc configureWithMessage:m download:[self.downloads stateForMessage:m]];
         return fc;
     }
-    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
-    cell.detailTextLabel.textColor = IMTheme.textSecondary;
+    UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleSubtitle reuseID:@"dSub" inTable:tv];
     if (t.kind == IMDetailTabKindVoice) {
         cell.textLabel.text = @"语音消息";
-        cell.imageView.image = [UIImage systemImageNamed:@"waveform"]; cell.imageView.tintColor = IMTheme.accent;
+        cell.imageView.image = [UIImage systemImageNamed:@"waveform"];
         cell.detailTextLabel.text = [IMTheme timeStringFromMillis:m.timestamp];
     } else {
         cell.textLabel.text = m.content;
-        cell.textLabel.textColor = IMTheme.accent; cell.textLabel.numberOfLines = 1;
-        cell.imageView.image = [UIImage systemImageNamed:@"link"]; cell.imageView.tintColor = IMTheme.accent;
+        cell.textLabel.textColor = IMTheme.accent;
+        cell.imageView.image = [UIImage systemImageNamed:@"link"];
         cell.detailTextLabel.text = [IMTheme timeStringFromMillis:m.timestamp];
     }
     return cell;
 }
 
 - (UITableViewCell *)emptyCell:(UITableView *)tv text:(NSString *)text {
-    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+    UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleDefault reuseID:@"dDef" inTable:tv];
     cell.textLabel.text = text; cell.textLabel.textColor = IMTheme.textSecondary;
     cell.textLabel.textAlignment = NSTextAlignmentCenter;
     cell.selectionStyle = UITableViewCellSelectionStyleNone;
