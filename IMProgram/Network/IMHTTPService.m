@@ -247,18 +247,8 @@ BOOL IMIsTransientNetworkError(NSError *error) {
 - (void)conversationsWithToken:(NSString *)token
                     completion:(void (^)(NSArray<IMConversation *> *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/conversations" method:@"GET" token:token body:nil];
-    if (!req) {
-        [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }];
-        return;
-    }
-    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
-        if (error) { completion(nil, error); return; }
-        if ([body[@"code"] integerValue] != 0) {
-            completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"拉取会话失败"]]);
-            return;
-        }
-        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
-        completion([IMConversation conversationsFromArray:data[@"conversations"]], nil);
+    [self runDataRequest:req fallback:@"拉取会话失败" completion:^(NSDictionary *data, NSError *error) {
+        completion(error ? nil : [IMConversation conversationsFromArray:data[@"conversations"]], error);
     }];
 }
 
@@ -311,18 +301,8 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     NSString *q = [query stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLQueryAllowedCharacterSet] ?: @"";
     NSString *path = [NSString stringWithFormat:@"/api/v1/users/search?q=%@&limit=20", q];
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
-    if (!req) {
-        [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }];
-        return;
-    }
-    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
-        if (error) { completion(nil, error); return; }
-        if ([body[@"code"] integerValue] != 0) {
-            completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"搜索失败"]]);
-            return;
-        }
-        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
-        completion([IMUserCard cardsFromArray:data[@"users"]], nil);
+    [self runDataRequest:req fallback:@"搜索失败" completion:^(NSDictionary *data, NSError *error) {
+        completion(error ? nil : [IMUserCard cardsFromArray:data[@"users"]], error);
     }];
 }
 
@@ -334,18 +314,8 @@ BOOL IMIsTransientNetworkError(NSError *error) {
         path = [path stringByAppendingFormat:@"?status=%@", status];
     }
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
-    if (!req) {
-        [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }];
-        return;
-    }
-    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
-        if (error) { completion(nil, error); return; }
-        if ([body[@"code"] integerValue] != 0) {
-            completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"拉取好友失败"]]);
-            return;
-        }
-        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
-        completion([IMUserCard cardsFromArray:data[@"friends"]], nil);
+    [self runDataRequest:req fallback:@"拉取好友失败" completion:^(NSDictionary *data, NSError *error) {
+        completion(error ? nil : [IMUserCard cardsFromArray:data[@"friends"]], error);
     }];
 }
 
@@ -394,11 +364,8 @@ BOOL IMIsTransientNetworkError(NSError *error) {
 - (void)favoritesWithToken:(NSString *)token
                 completion:(void (^)(NSArray<NSDictionary *> *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/favorites" method:@"GET" token:token body:nil];
-    if (!req) { [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }]; return; }
-    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+    [self runDataRequest:req fallback:@"加载收藏失败" completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(nil, error); return; }
-        if ([body[@"code"] integerValue] != 0) { completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"加载收藏失败"]]); return; }
-        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
         id list = data[@"favorites"];
         completion([list isKindOfClass:[NSArray class]] ? list : @[], nil);
     }];
@@ -522,18 +489,8 @@ BOOL IMIsTransientNetworkError(NSError *error) {
 - (void)groupsWithToken:(NSString *)token
              completion:(void (^)(NSArray<IMGroupInfo *> *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/groups" method:@"GET" token:token body:nil];
-    if (!req) {
-        [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }];
-        return;
-    }
-    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
-        if (error) { completion(nil, error); return; }
-        if ([body[@"code"] integerValue] != 0) {
-            completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"拉取群列表失败"]]);
-            return;
-        }
-        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
-        completion([IMGroupInfo groupsFromArray:data[@"groups"]], nil);
+    [self runDataRequest:req fallback:@"拉取群列表失败" completion:^(NSDictionary *data, NSError *error) {
+        completion(error ? nil : [IMGroupInfo groupsFromArray:data[@"groups"]], error);
     }];
 }
 
@@ -550,17 +507,8 @@ BOOL IMIsTransientNetworkError(NSError *error) {
                      completion:(void (^)(NSArray<IMPinnedMessage *> *, NSError *))completion {
     NSString *path = [NSString stringWithFormat:@"/api/v1/conversations/%@/pinned", [self pathEscape:convID]];
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
-    if (!req) {
-        [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }];
-        return;
-    }
-    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+    [self runDataRequest:req fallback:@"拉取置顶消息失败" completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(nil, error); return; }
-        if ([body[@"code"] integerValue] != 0) {
-            completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"拉取置顶消息失败"]]);
-            return;
-        }
-        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
         NSArray *raw = [data[@"items"] isKindOfClass:[NSArray class]] ? data[@"items"] : @[];
         NSMutableArray<IMPinnedMessage *> *items = [NSMutableArray arrayWithCapacity:raw.count];
         for (id one in raw) {
@@ -667,14 +615,8 @@ BOOL IMIsTransientNetworkError(NSError *error) {
                 completion:(void (^)(NSArray<NSDictionary *> *bans, NSError *error))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@"/bans"]
                                                    method:@"GET" token:token body:nil];
-    if (!req) { [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }]; return; }
-    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+    [self runDataRequest:req fallback:@"拉取黑名单失败" completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(nil, error); return; }
-        if ([body[@"code"] integerValue] != 0) {
-            completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"拉取黑名单失败"]]);
-            return;
-        }
-        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
         NSArray *bans = [data[@"bans"] isKindOfClass:[NSArray class]] ? data[@"bans"] : @[];
         completion(bans, nil);
     }];
@@ -880,14 +822,8 @@ BOOL IMIsTransientNetworkError(NSError *error) {
                    completion:(void (^)(NSArray<NSDictionary *> *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@"/join-requests?status=pending"]
                                                    method:@"GET" token:token body:nil];
-    if (!req) { [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }]; return; }
-    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+    [self runDataRequest:req fallback:@"加载入群申请失败" completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(nil, error); return; }
-        if ([body[@"code"] integerValue] != 0) {
-            completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"加载入群申请失败"]]);
-            return;
-        }
-        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
         NSArray *reqs = [data[@"requests"] isKindOfClass:[NSArray class]] ? data[@"requests"] : @[];
         completion(reqs, nil);
     }];
@@ -1041,17 +977,8 @@ BOOL IMIsTransientNetworkError(NSError *error) {
 - (void)fetchHiddenWithToken:(NSString *)token
                   completion:(void (^)(NSArray<NSDictionary *> *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/messages/hidden" method:@"GET" token:token body:nil];
-    if (!req) {
-        [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }];
-        return;
-    }
-    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+    [self runDataRequest:req fallback:@"拉取隐藏列表失败" completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(nil, error); return; }
-        if ([body[@"code"] integerValue] != 0) {
-            completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"拉取隐藏列表失败"]]);
-            return;
-        }
-        NSDictionary *data = [body[@"data"] isKindOfClass:NSDictionary.class] ? body[@"data"] : @{};
         NSArray *items = [data[@"items"] isKindOfClass:NSArray.class] ? data[@"items"] : @[];
         completion(items, nil);
     }];
