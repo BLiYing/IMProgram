@@ -5,6 +5,12 @@
 
 ## 当前焦点
 
+**IMChatViewController 续拆：置顶横幅栈抽 +PinnedBanner.m ✅ 代码完成（2026-08-19，clean build 绿，纯平移未改行为，待手测）**
+- 主文件 653–783（G0 置顶 / BannerStackDelegate / G2 禁言锁，11 个方法）整块平移到新 `IMChatViewController+PinnedBanner.m`（157 行）。主文件 1496→1364 行，离红线 1500 更远（仍 WARN ≥1200）。
+- 跨 TU 可见性收口：`reloadPinnedBanner`/`approvalPendingCount`/`maybeAutoPopAnnouncement`/`refreshComposerMuteState`（仍被主文件调）+ `reloadGroupInfo`（被搬走的入群审批回调反向调）登记进 `+Private.h`；`setComposerLocked:` 仅 TU 内用，走文件内前置声明不进 +Private.h。删主文件 3 个已冗余 import（IMPinnedBannerView/IMJoinRequestsViewController/IMGroupTextViewController）。
+- **待手测**：置顶横幅顶开表 / 点横幅跳转 / 置顶列表 sheet 取消置顶 / 公告卡自动弹与点开 / 入群申请横幅 / 禁言锁输入栏。
+- **下一块可续拆**（同法平移）：群聊 M3-5（reloadGroupInfo/群备注/onGroupEvent）→ +Group.m；右上头像+导航栏（IMChatAvatarImage/installInfoAvatarButton/singleInfoTapped 等）→ +Nav.m。
+
 **IMChatViewController 巨类拆分 + /code-review 全修 ✅ 代码完成（2026-08-15～18，clean build 绿，待手测，纯 iOS 端）**
 - 4718 行 Massive VC 按《整洁代码》拆分：真·SRP 抽独立对象/纯函数（`IMChatMessageLogic`、`IMPasteImageTextField`、`IMPendingMediaThumbnail`、`IMChatBannerStack` 三横幅栈+delegate）；其余强耦合子系统（全回耦 messages/tableView/nav/socket）按**分文件 category** 平移到多 TU：`+Selection/+Menu/+DataSource/+Media/+MediaFlow/+Mention/+Socket/+Scroll/+Compose`。私有属性/协议/跨 TU 私有方法登记在 `IMChatViewController+Private.h`。主文件 4718→约 1470 行，未改一行行为，逐 commit build 绿。
 - **/code-review（high，8 finder）8 项全修**：① `sendTapped` 核心发送路径从 +Mention 挪到 +Compose；② `IMChatBannerStack` delegate 收进 init 参数（杜绝首帧 inset 回调因 delegate 未绑定被吞的顺序坑）；③ `IMReplySnippet` 移到 `IMMediaUtil`（与 `IMRecordItemPreview`/`IMLocalizeReplySnippet` 同族）；④⑤ 本地待发缩略图收口到 `IMVideoThumbnailLoader`/`IMImageLoader` 共享抽帧/降采样口径（消除 600↔720、options 分叉）；⑥ 删 3 处 `IMLooksLikeURL` 宏拷贝、直接调 `IMMediaLooksLikeURL`；⑦ `+Private.h` 分组注释改按业务概念、不再标注定义文件（防搬家失真）；⑧ 本快照就地覆盖。审查结论：**无正确性回归**（跨 TU 无重复方法定义、通知/定时器/socket delegate 拆除配平、横幅重写行为等价）。

@@ -178,6 +178,14 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (void)deleteMessageForEveryone:(IMMessageModel *)message;
 - (void)hideMessageForSelf:(IMMessageModel *)message;
 
+// 顶部三横幅栈（G0 置顶 / G1 公告 / G2 禁言锁 / G3 入群申请，+PinnedBanner.m）：主实现与 +Menu 互调：
+- (void)reloadPinnedBanner;
+- (NSInteger)approvalPendingCount;
+- (void)maybeAutoPopAnnouncement;
+- (void)refreshComposerMuteState;
+// 群资料重拉（主实现 +群聊 M3-5；被 +PinnedBanner 的入群审批回调等跨 TU 调用）：
+- (void)reloadGroupInfo;
+
 // 列表渲染 / 相册聚簇：cell 取数、发送者身份、媒体门控、行布局：
 - (BOOL)isFirstInSenderRun:(NSInteger)row;
 - (BOOL)isLastInSenderRun:(NSInteger)row;
