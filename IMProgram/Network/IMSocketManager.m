@@ -7,6 +7,7 @@
 #import "IMDatabase.h"
 #import "IMHTTPService.h"
 #import "IMLog.h"
+#import "IMTheme.h" // IMNowMillis
 
 #pragma mark - 调参常量
 
@@ -958,7 +959,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
         return YES;
     }
 
-    int64_t now = (int64_t)([NSDate date].timeIntervalSince1970 * 1000);
+    int64_t now = IMNowMillis();
     NSString *newContent = nil;
     int64_t recalledAt = 0, editedAt = 0, pinnedAt = 0;
     if ([op isEqualToString:kIMMsgOpRecall]) {

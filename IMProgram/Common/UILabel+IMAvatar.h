@@ -6,6 +6,10 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+/// 首字母圈的显示字符：取名字末两位（中文名去姓留名/英文名取尾），不足两位原样。
+/// 头像圈（本 category）/ 聊天页导航头像 / 详情头图共用同一规则，改动只此一处。
+FOUNDATION_EXPORT NSString *IMAvatarInitials(NSString *_Nullable name);
+
 @interface UILabel (IMAvatar)
 
 /// url：data:/http(s)，可空（空=只显首字母圈）。seed：稳定取色种子（一般 uid）。displayName：取末两位作首字母。

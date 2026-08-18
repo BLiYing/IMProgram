@@ -847,7 +847,7 @@ static CGFloat const kIMRowLeading = 16;
 
 /// 置顶/取消置顶：pinned_at=现在ms/0（服务端据此把置顶会话排列表顶）。
 - (void)setConversation:(IMConversation *)c pinned:(BOOL)pinned {
-    int64_t pinnedAt = pinned ? (int64_t)([NSDate date].timeIntervalSince1970 * 1000.0) : 0;
+    int64_t pinnedAt = pinned ? IMNowMillis() : 0;
     if (c.convID.length == 0 || self.token.length == 0) { return; }
     __weak typeof(self) ws = self;
     [IMHTTPService.sharedService updateConversationSettingsWithToken:self.token convID:c.convID

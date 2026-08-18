@@ -338,7 +338,7 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
     }
     // 禁言 / 解禁（G2）：权限同移出（严格高于对方）。已被禁言显「解除禁言」，否则「禁言…」。
     if (canRemove) {
-        int64_t now = (int64_t)([NSDate date].timeIntervalSince1970 * 1000);
+        int64_t now = IMNowMillis();
         BOOL muted = member.muteUntil > now;
         if (muted) {
             [sheet addAction:[UIAlertAction actionWithTitle:@"解除禁言" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
@@ -385,7 +385,7 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
             }];
         }]];
     };
-    int64_t now = (int64_t)([NSDate date].timeIntervalSince1970 * 1000);
+    int64_t now = IMNowMillis();
     mute(@"10 分钟", now + 10 * 60 * 1000);
     mute(@"1 小时", now + 60 * 60 * 1000);
     mute(@"1 天", now + 24 * 60 * 60 * 1000);

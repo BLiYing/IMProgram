@@ -62,7 +62,7 @@
     m.from = self.userID;
     m.contentType = @"text";
     m.status = IMMessageStatusSending;
-    m.timestamp = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000); // 本地时间，气泡尾巴即时显示时间（与 Web 一致）
+    m.timestamp = IMNowMillis(); // 本地时间，气泡尾巴即时显示时间（与 Web 一致）
     if (replySeq > 0) { // 本端即时快照（服务端会给收件方冻结权威快照；媒体用 [图片]/[视频] 占位）
         m.replyToConvSeq = replySeq;
         m.replySnapshot = IMReplySnippet(self.replyingTo);

@@ -6,6 +6,9 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+/// 当前时刻的毫秒时间戳（协议/SQLite 全用毫秒；此前 (int64_t)(...*1000) 在十余处各写一遍）。
+FOUNDATION_EXPORT int64_t IMNowMillis(void);
+
 @interface IMTheme : NSObject
 
 // 颜色

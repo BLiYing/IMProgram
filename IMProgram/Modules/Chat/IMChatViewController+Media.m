@@ -324,7 +324,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
         m.contentType = h.isVideo ? @"video" : @"image";
         m.groupID = gid;
         m.status = IMMessageStatusSending;
-        m.timestamp = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
+        m.timestamp = IMNowMillis();
         [self.messages addObject:m];
         [pending addObject:m];
     }
@@ -529,7 +529,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
         m.fileName = [h suggestedFileName];
         m.fileSize = 0; // 未知，导出完成后服务补写（第二行先显「准备中…」）
         m.status = IMMessageStatusSending;
-        m.timestamp = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
+        m.timestamp = IMNowMillis();
         [self.messages addObject:m];
         [pending addObject:m];
     }
@@ -564,7 +564,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     m.fileName = fileName;
     m.fileSize = size;
     m.status = IMMessageStatusSending;
-    m.timestamp = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
+    m.timestamp = IMNowMillis();
     // 文件系统拷贝，不经内存：几百 MB 的文件读进 NSData 足以触发 jetsam。
     NSString *localRef = [[IMPendingMediaStore shared] storeFileAtURL:fileURL
                                                       forClientMsgID:m.clientMsgID
@@ -703,7 +703,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
 - (void)sendMediaURL:(NSString *)url contentType:(NSString *)contentType fileName:(NSString *)fileName
             fileSize:(int64_t)fileSize mediaAttributes:(IMMediaAttributes *)mediaAttributes {
     __block NSString *clientMsgID = nil;
-    int64_t sentAt = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
+    int64_t sentAt = IMNowMillis();
     __weak typeof(self) ws = self;
     IMSendCompletion completion = ^(BOOL success, NSError *error, int64_t convSeq) {
         [ws handleSendResult:success convSeq:convSeq error:error forClientMsgID:clientMsgID];

@@ -1,6 +1,7 @@
 //  IMPresence.m
 
 #import "IMPresence.h"
+#import "IMTheme.h" // IMNowMillis
 
 /// 档位字符串 → 枚举（脏数据安全：未知串落 Unknown）。
 static IMPresenceLevel IMPresenceLevelFromString(NSString *s) {
@@ -49,7 +50,7 @@ static int64_t IMPresenceInt64(NSDictionary *dict, NSString *key) {
 
 - (BOOL)isOnline {
     // 只认租约，不认 level==Online：档位是取快照那一刻的判定，租约才是可随时间推移重算的依据。
-    return self.onlineUntil > (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
+    return self.onlineUntil > IMNowMillis();
 }
 
 - (NSString *)subtitleText {

@@ -149,7 +149,7 @@
 #pragma mark - 动作：设置 / 编辑 / 拉黑
 
 - (void)switchChanged:(UISwitch *)sw {
-    if (sw.tag == 1) { self.pinnedAt = sw.on ? (int64_t)([NSDate date].timeIntervalSince1970 * 1000) : 0; }
+    if (sw.tag == 1) { self.pinnedAt = sw.on ? IMNowMillis() : 0; }
     else if (sw.tag == 2) { self.muted = sw.on; }
     [self commitConversationSettings];
 }

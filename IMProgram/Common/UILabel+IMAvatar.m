@@ -10,12 +10,16 @@
 static const void *kIMAvatarImageViewKey = &kIMAvatarImageViewKey;
 static const void *kIMAvatarTokenKey = &kIMAvatarTokenKey;
 
+NSString *IMAvatarInitials(NSString *_Nullable name) {
+    return name.length >= 2 ? [name substringFromIndex:name.length - 2] : (name ?: @"");
+}
+
 @implementation UILabel (IMAvatar)
 
 - (void)im_setAvatarURL:(nullable NSString *)url seed:(NSString *)seed displayName:(nullable NSString *)displayName {
     // 1) 立即渲染首字母 + 稳定取色底（回退态，无空白闪烁）。
     NSString *name = displayName.length ? displayName : seed;
-    self.text = name.length >= 2 ? [name substringFromIndex:name.length - 2] : name;
+    self.text = IMAvatarInitials(name);
     self.backgroundColor = [IMTheme avatarColorForSeed:seed];
 
     // 2) 懒建覆盖用 UIImageView，铺满并与 label 同圆角裁剪。

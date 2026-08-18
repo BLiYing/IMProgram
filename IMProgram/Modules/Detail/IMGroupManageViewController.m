@@ -198,7 +198,7 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
 
 /// 全员禁言当前是否生效（mute_until 超过此刻；-1/极大值=永久）。
 - (BOOL)muteActive {
-    int64_t now = (int64_t)([NSDate date].timeIntervalSince1970 * 1000);
+    int64_t now = IMNowMillis();
     return self.group.muteUntil > now;
 }
 

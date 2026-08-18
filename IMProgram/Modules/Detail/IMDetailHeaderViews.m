@@ -3,6 +3,7 @@
 #import "IMDetailHeaderViews.h"
 #import "IMImageLoader.h"
 #import "IMTheme.h"
+#import "UILabel+IMAvatar.h" // IMAvatarInitials
 
 @implementation IMDetailAvatarView {
     NSUInteger _token;
@@ -29,8 +30,7 @@
     _letter.font = [UIFont systemFontOfSize:MAX(10, self.bounds.size.width * 0.4) weight:UIFontWeightSemibold];
 }
 - (void)setAvatarURL:(NSString *)url seed:(NSString *)seed name:(NSString *)name {
-    NSString *n = name.length ? name : seed;
-    _letter.text = n.length >= 2 ? [n substringFromIndex:n.length - 2] : n;
+    _letter.text = IMAvatarInitials(name.length ? name : seed);
     self.backgroundColor = [IMTheme avatarColorForSeed:seed];
     _photo.image = nil; _photo.hidden = YES;
     NSUInteger token = ++_token;

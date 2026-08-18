@@ -205,7 +205,7 @@
 - (void)forwardEchoContent:(NSString *)content contentType:(NSString *)ct forwardFrom:(NSString *)origin fileName:(NSString *)fileName fileSize:(int64_t)fileSize
                 attributes:(IMMediaAttributes *)attributes toConv:(NSString *)convID toUser:(NSString *)toUser {
     IMMessageModel *m = [IMMessageModel new];
-    int64_t sentAt = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
+    int64_t sentAt = IMNowMillis();
     __weak typeof(self) ws = self;
     NSString *clientMsgID = [IMSocketManager.sharedManager forwardContent:content contentType:ct
                                                                    toConv:convID toUser:toUser forwardFrom:origin

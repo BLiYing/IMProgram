@@ -687,7 +687,7 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
         if (self.composerMuteLocked) { [self setComposerLocked:NO reason:nil]; }
         return;
     }
-    int64_t now = (int64_t)([NSDate date].timeIntervalSince1970 * 1000);
+    int64_t now = IMNowMillis();
     BOOL memberMuted = self.groupInfo.myMuteUntil > now;
     BOOL allMuted = self.groupInfo.muteUntil > now && self.groupInfo.myRole == IMGroupRoleMember;
     NSString *reason = memberMuted ? @"你已被管理员禁言" : (allMuted ? @"本群已开启全员禁言" : nil);
@@ -753,8 +753,7 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
         } else {
             [[IMTheme avatarColorForSeed:seed] setFill];
             UIRectFill(rect);
-            NSString *display = name.length ? name : seed;
-            display = display.length >= 2 ? [display substringFromIndex:display.length - 2] : display;
+            NSString *display = IMAvatarInitials(name.length ? name : seed);
             NSDictionary *attrs = @{
                 NSFontAttributeName: [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold],
                 NSForegroundColorAttributeName: UIColor.whiteColor,
