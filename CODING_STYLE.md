@@ -43,6 +43,10 @@
 - HTTP 日志必须先脱敏 password/token/authorization/cookie/phone/secret 等字段；multipart/binary 只记元数据，单条正文最多 16 KB。
 - Debug 可记录脱敏后的业务正文；Release 对消息正文等业务内容及非 JSON 正文做隐藏，不允许为排障临时绕过脱敏。
 - 异步回调统一在主线程更新 UI。
+- **收口 HTTP 响应的共享 helper 一律保留业务码**：`runOKRequest`/`runGroupInfoRequest`/`runDataRequest`
+  等一律用 `errorWithCode:`（保业务码），不要 `errorWithMessage:`（拍成 `-1`）。丢码会逼「按码分支」的
+  调用方（如入群 300210、加好友 200103）重新手写整套信封，把好不容易的收敛一个个撤销。
+  也别 parse `error.localizedDescription` 判类型——读 `error.code`。
 
 ### 6. UI
 - 优先纯代码 / 约束（Masonry 或原生 AutoLayout）；Storyboard 仅用于启动屏与简单页面。
@@ -68,6 +72,27 @@ clone 一次，超预算即拦提交；应急 `git commit --no-verify`）。**�
 超标的正确处理是**拆分**（按上面三档），**不是放宽阈值**。历史欠账（`IMChatDetailViewController.m`
 2439 行等）在脚本里登记「只准降不准升」，逐步拆到 1500 以下。同样的病别的大页也有（详情页/会话列表/
 资料页），红线覆盖整个 `Modules/`，一处触发就顺手治，别等长成第二个 4700 行。
+
+### 8. 清理 / 重构的纪律（2026-08 `/simplify` + `/code-review` 复盘）
+「简化」最容易在不知不觉间改掉行为——本轮清理被 review 打回一批同类回归，提炼成红线：
+
+- **红线：只做能证明「行为等价」的收敛。** 一旦改动会变语义（错误码口径、`nil` vs 空、时序、
+  整体替换的字段集），那已经是**设计决策**——停下来单独评估/找人拍板，别打着「简化」旗号顺手改。
+- **整体替换（whole-replace）的写接口，每次调用必须回传所有字段。** 只传要改的字段 = 清空其余：
+  群备注被拨开关的 settings PUT 清空、`markedUnread` 被详情页硬编码 `NO` 清掉列表设的手动红点，都因此。
+  要么把独立字段**拆成各自端点**，要么把当前值**原样回传**；**禁止在整体替换调用里把某字段硬编码成默认值**。
+- **只活在内存、本地缓存不落的字段，会被列表整表重建悄悄抹掉。** `refreshLocalConversations` 等
+  「读缓存 → 整表替换 `self.conversations`」的路径，会把 `peerPresence`、会话 `remark` 这类未持久化字段
+  清零，与随后 0.4s 的 HTTP 刷新交替 = **肉眼闪烁**（绿点闪烁、群备注均踩过）。新增此类字段：**要么落
+  本地缓存表，要么在整表重建前从旧列表按 id 迁移过来**。
+- **合并刷新 / 防抖用「在途标记 `BOOL` + `dispatch_after` + weak self」，不要 `cancelPreviousPerformRequests`
+  + `performSelector:afterDelay:`。** 后者三个坑：持续通知流下 trailing-edge 一直重排 → 整段饿死不刷；
+  只挂 `NSDefaultRunLoopMode` → 列表滚动期不触发；它 **retain target**，pending 期间 `dealloc` 根本不执行，
+  「dealloc 里 cancel 兜底」是伪命题、还会续命已 pop 的 VC。
+- **cell 复用池「出池即重置」的契约，必须覆盖每一个 builder 会改的属性**（漏 `lineBreakMode` 就是下一个
+  跨行残留 bug）；反过来别重置没有任何 builder 写的属性（纯噪音，误导读者去找不存在的 writer）。
+- **单一来源的 schema / 列清单，配套回环测试必须断言「每一个」字段。** 只断言部分字段时，读路径
+  （`SELECT *` 逐列映射）漏改某列，测试照样全绿（`IMDatabaseSchemaTests` 曾漏 `editedAt` 等四列）。
 
 ---
 
