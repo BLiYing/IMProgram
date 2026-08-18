@@ -226,8 +226,11 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (void)scrollToBottomAnimated:(BOOL)animated;
 - (void)markVisibleRowsRead;
 - (void)positionInitialIfNeeded;
+- (void)anchorRowToTop:(NSInteger)row;   // +Position.m；主实现 viewDidAppear 落定校正也调
 - (void)refreshPeerPresence;
 - (void)updatePeerWatch:(BOOL)watch;
+- (void)startPresenceTick;   // +Presence.m；主实现生命周期 viewWillAppear/viewWillDisappear 调
+- (void)stopPresenceTick;
 - (void)observeKeyboard;
 - (void)updateJumpButton;
 

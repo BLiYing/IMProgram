@@ -2,7 +2,6 @@
 
 #import "IMChatViewController.h"
 #import "IMChatViewController+Private.h" // 私有类扩展（属性/协议）——与分文件 category 共享
-#import "IMChatMessageLogic.h"        // 文件级纯逻辑：@提及 token / 未读口径 / 引用占位
 #import "IMPasteImageTextField.h"     // 支持粘贴图片的输入框（#2）
 #import "IMPendingMediaThumbnail.h"   // 本地待发媒体缩略图生成
 #import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
@@ -37,7 +36,6 @@
 #import "IMChunkedUploader.h"
 #import "IMMediaSendService.h"
 #import "IMFilePickerViewController.h"
-#import "IMUserCard.h"
 #import "IMProtocol.h"
 #import "IMMessageModel.h"
 #import "IMUploadProgress.h"
@@ -413,57 +411,6 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     [self reattachRunningUploads]; // 上传任务活在 uploader 单例里，回到本页要重新接管它的进度与完成回调
 }
 
-/// 在线态定时重算（仅单聊、仅页面可见期间）。
-///
-/// 必要性：服务端**不推下线帧**，对端离线是靠本地租约到期体现的——而"租约到期"是纯粹的时间流逝，
-/// 不触发任何回调。若不自己叫醒，用户停在本页不动时副标题会永远停在「在线」（比有下线帧时更糟）。
-/// 取 30s 周期而非"在 onlineUntil 时刻排一次性 timer"，是因为降档后的「N 分钟前在线」同样需要随时间推进，
-/// 一次性 timer 只能修在线→离线那一跳，之后分钟数就冻住。
-- (void)startPresenceTick {
-    [self stopPresenceTick];
-    if (self.isGroupChat) { return; } // 群聊副标题是成员数，不随时间变
-    __weak typeof(self) weakSelf = self;
-    __block NSInteger ticks = 0;
-    self.presenceTickTimer = [NSTimer scheduledTimerWithTimeInterval:30.0 repeats:YES block:^(NSTimer *timer) {
-        __strong typeof(weakSelf) self = weakSelf;
-        if (!self) { [timer invalidate]; return; }
-        [self updateTitle];
-        // 每 4 个 tick（2 分钟）在对端不在线时重拉一次快照：单聊 topic 随首条消息才建立，
-        // 故「好友但从没聊过」的对端不在 broadcastOnline 的收件人集合里，他上线时我收不到 presence 帧。
-        // 租约模型只会让状态降级，没有任何东西能把它升回「在线」——不轮询就永远显示离线。
-        if (++ticks % 4 == 0 && !self.peerPresence.isOnline) {
-            [self refreshPeerPresence];
-        }
-    }];
-}
-
-/// 停止定时重算（离开页面时必须调用：NSTimer 强引用 block，不停会连着 VC 一起活到 timer 失效）。
-- (void)stopPresenceTick {
-    [self.presenceTickTimer invalidate];
-    self.presenceTickTimer = nil;
-}
-
-/// 订阅/退订对端在线态（仅单聊）。watch=YES 关注对端（服务端只推它、并回一帧快照）；NO 清空关注。
-/// 全量替换语义，重复发送幂等；连上前发送会被 writeData 静默丢弃，故须在 didChangeState 连上时重发。
-- (void)updatePeerWatch:(BOOL)watch {
-    if (self.isGroupChat || self.peerID.length == 0) { return; }
-    [IMSocketManager.sharedManager watchUsers:(watch ? @[self.peerID] : @[])];
-}
-
-/// 拉取对端在线态快照（单聊才有）。失败静默：在线态是锦上添花，不该弹错打扰聊天。
-- (void)refreshPeerPresence {
-    if (self.isGroupChat || self.peerID.length == 0) { return; }
-    NSString *token = IMHTTPService.sharedService.currentToken;
-    if (token.length == 0) { return; }
-    __weak typeof(self) weakSelf = self;
-    [IMHTTPService.sharedService userProfileWithToken:token userID:self.peerID completion:^(IMUserCard *card, NSError *error) {
-        __strong typeof(weakSelf) self = weakSelf;
-        if (!self || !card) { return; }
-        self.peerPresence = card.presence;
-        [self updateTitle];
-    }];
-}
-
 #pragma mark - 拉黑（微信式单向：拉黑者仍可发，故聊天页不拦输入；黑名单状态在通讯录管理）
 
 // 微信式单向：拉黑者仍可给被拉黑者发消息（对方能收到），故聊天页不再拦输入/盖横幅。
@@ -826,87 +773,6 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:nil message:msg preferredStyle:UIAlertControllerStyleAlert];
     [ac addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:ac animated:YES completion:nil];
-}
-
-/// 首条未读所在行：conv_seq > entryReadSeq 的第一条「对端」消息；无未读返回 -1。
-/// **必须与服务端未读口径一致**（M4-8）：服务端 unreadCount 排除 msg_op 事件行与 system 系统消息，
-/// 这里若只按 `from != 我` 找，会把分割线/进会话锚点定位到不计未读的系统行——
-/// 表现为「以下为 N 条新消息」下方实际多出几行（群改名/入群留痕都会触发）。
-- (NSInteger)firstUnreadRow {
-    if (self.entryUnread <= 0) { return -1; }
-    for (NSInteger i = 0; i < (NSInteger)self.messages.count; i++) {
-        IMMessageModel *m = self.messages[i];
-        if (m.convSeq <= self.entryReadSeq) { continue; }
-        if ([m.from isEqualToString:self.userID]) { continue; }
-        if (IMContentTypeCountsAsUnread(m.contentType)) { return i; }
-    }
-    return -1;
-}
-
-/// 进会话定位（只做一次）：有未读则停在首条未读，否则到底（CHAT_UX §3）。
-- (void)positionInitialIfNeeded {
-    if (self.didInitialPosition || self.messages.count == 0) { return; }
-    self.didInitialPosition = YES;
-    NSInteger unreadRow = [self firstUnreadRow];
-    if (unreadRow >= 0) {
-        [self anchorRowToTop:unreadRow];
-    } else {
-        // 无未读：估高会让 scrollToRow…Bottom 欠滚（stop 在真正底部之上）→ 用强制布局后的精确贴底。
-        [self scrollToAbsoluteBottom];
-    }
-    IMLogDebugWithTag(IMLogTagUI, @"chat_initial_position conv_id=%@ rows=%lu unread_row=%ld offset_y=%.1f content_h=%.1f viewport_h=%.1f",
-                      self.convID, (unsigned long)self.messages.count, (long)unreadRow,
-                      self.tableView.contentOffset.y, self.tableView.contentSize.height,
-                      self.tableView.bounds.size.height);
-    // 定位后下一轮 runloop（自适应高度落定）再兜一次：无未读精确贴底；有未读重锚首条未读
-    //（估高偏差会让锚点漂移——未读只剩末尾几条时表现为"停在底部之上一截"，模拟器日志
-    //  chat_initial_position 09:41:02 实锤：偏差 350pt）。之后推进已读/刷新 ↓N。
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if (unreadRow < 0) { [self scrollToAbsoluteBottom]; }
-        else { [self anchorRowToTop:unreadRow]; }
-        [self markVisibleRowsRead];
-    });
-}
-
-/// 把某行锚到视口顶（进会话停首条未读用）：scrollToRow 触发目标区域真实布局后再对齐一轮，
-/// 抵消估高偏差；行靠近末尾时 scrollToRow 自带底部 clamp——未读不足一屏时锚定即等价于贴底。
-- (void)anchorRowToTop:(NSInteger)row {
-    if (row < 0 || row >= (NSInteger)self.messages.count) { return; }
-    NSIndexPath *ip = [NSIndexPath indexPathForRow:row inSection:0];
-    for (int pass = 0; pass < 2; pass++) {
-        [self.tableView scrollToRowAtIndexPath:ip atScrollPosition:UITableViewScrollPositionTop animated:NO];
-        [self.tableView layoutIfNeeded];
-    }
-}
-
-/// 可见即读（CHAT_UX §6 完整语义）：扫描当前在视口内的行，取其最大 conv_seq；
-/// 若超过已滚入位点则记录并节流上报（read_seq 单调推进，对端据此显示已读双勾、列表未读递减）。
-- (void)markVisibleRowsRead {
-    int64_t maxSeq = 0;
-    for (NSIndexPath *ip in self.tableView.indexPathsForVisibleRows) {
-        if (ip.row < (NSInteger)self.messages.count) {
-            int64_t s = self.messages[ip.row].convSeq;
-            if (s > maxSeq) { maxSeq = s; }
-        }
-    }
-    if (maxSeq > self.pendingReadSeq) {
-        self.pendingReadSeq = maxSeq;
-        // 节流：滚动停 0.3s 后才真正发，避免每像素一条 receipt。
-        [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(flushReadPosition) object:nil];
-        [self performSelector:@selector(flushReadPosition) withObject:nil afterDelay:0.3];
-    }
-    [self updateJumpButton]; // 位点推进/新消息后刷新 ↓N 计数
-}
-
-/// 把节流累积的已读位点上报（仅在超过上次上报值时发）。
-- (void)flushReadPosition {
-    if (self.pendingReadSeq > self.maxReadReported) {
-        self.maxReadReported = self.pendingReadSeq;
-        [self performDatabaseOperation:^(IMDatabase *database) {
-            [database markConversation:self.convID readUpToConvSeq:self.maxReadReported];
-        }];
-        [IMSocketManager.sharedManager markReadConv:self.convID upToConvSeq:self.maxReadReported];
-    }
 }
 
 #pragma mark - 辅助
