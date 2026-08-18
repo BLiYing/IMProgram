@@ -9,6 +9,7 @@
 #import "UILabel+IMAvatar.h"
 #import "UIViewController+IMToast.h"
 #import "IMTheme.h"
+#import "IMTimeUtil.h"
 #import "IMLog.h"
 
 #pragma mark - 成员行 Cell（头像 + 昵称/uid + 角色徽章）

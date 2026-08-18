@@ -12,6 +12,7 @@
 #import "IMMediaUtil.h"
 #import "IMMediaExpiryRegistry.h"
 #import "IMTheme.h"
+#import "IMTimeUtil.h"
 #import "UIViewController+IMToast.h"
 
 @implementation IMChatViewController (Selection)

@@ -205,14 +205,40 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0) { return; }
     __weak typeof(self) ws = self;
-    // 单会话设置端点（GET …/{id}/settings）：只要两个布尔，不再拉整张会话列表遍历查找。
+    // 单会话设置端点（GET …/{id}/settings）：只要几个布尔，不再拉整张会话列表遍历查找。
     [IMHTTPService.sharedService conversationSettingsWithToken:token convID:self.convID
                                                     completion:^(NSDictionary *data, NSError *error) {
         __strong typeof(ws) self = ws;
-        if (!self || error) { return; }
+        if (!self) { return; }
+        if (error) {
+            // 兜底走老路（全量会话列表）：新 GET 端点是 2026-08-18 才加的，连到未重启的旧后端会 404。
+            // **不能**静默保留 0/NO 默认——开关会渲染错，且随后的提交是整体替换 PUT，会拿错误基线
+            // 悄悄清掉服务端的置顶/标未读（PUT 路由旧后端就有，写得进去）。
+            [self loadConversationSettingsViaListFallback:token];
+            return;
+        }
         self.pinnedAt = [data[@"pinned_at"] longLongValue];
         self.muted = [data[@"muted"] boolValue];
+        self.markedUnread = [data[@"marked_unread"] boolValue]; // PUT 整体替换，提交时须回传
         [self reloadSettingsAndPills];
+    }];
+}
+
+/// 旧后端兼容：按老方式拉全量会话列表找本会话的设置（仅在单会话端点失败时走）。
+- (void)loadConversationSettingsViaListFallback:(NSString *)token {
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService conversationsWithToken:token completion:^(NSArray<IMConversation *> *convs, NSError *error) {
+        __strong typeof(ws) self = ws;
+        if (!self || error) { return; }
+        for (IMConversation *c in convs) {
+            if ([c.convID isEqualToString:self.convID]) {
+                self.pinnedAt = c.pinnedAt;
+                self.muted = c.muted;
+                self.markedUnread = c.markedUnread;
+                [self reloadSettingsAndPills];
+                break;
+            }
+        }
     }];
 }
 
@@ -600,10 +626,9 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
     cell.textLabel.textColor = IMTheme.textPrimary;
     cell.textLabel.font = [UIFont systemFontOfSize:17];
     cell.textLabel.textAlignment = NSTextAlignmentNatural;
-    cell.textLabel.numberOfLines = 1;
     cell.detailTextLabel.text = nil;
     cell.detailTextLabel.textColor = IMTheme.textSecondary;
-    cell.detailTextLabel.numberOfLines = 1;
+    cell.detailTextLabel.lineBreakMode = NSLineBreakByTruncatingTail; // aboutCell 会改，出池拉回默认
     cell.imageView.image = nil;
     cell.imageView.tintColor = IMTheme.accent;
     cell.accessoryType = UITableViewCellAccessoryNone;
@@ -657,7 +682,6 @@ typedef NS_ENUM(NSInteger, IMDetailAboutRow) {
     NSArray<NSNumber *> *kinds = [self aboutRowKinds];
     IMDetailAboutRow kind = (row < (NSInteger)kinds.count) ? (IMDetailAboutRow)kinds[row].integerValue : IMDetailAboutRowAnnouncement;
     UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleSubtitle reuseID:@"dSub" inTable:tv];
-    cell.detailTextLabel.lineBreakMode = NSLineBreakByTruncatingTail;
     cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     if (kind == IMDetailAboutRowAnnouncement) {
         cell.imageView.image = [UIImage systemImageNamed:@"megaphone"];

@@ -56,6 +56,7 @@
 #import "UIViewController+IMToast.h"
 #import "UIViewController+IMDeleteSheet.h" // 两档删除 sheet（与详情页共用）
 #import "IMTheme.h"
+#import "IMTimeUtil.h"
 #import "IMAppearance.h"
 #import "IMLog.h"
 #import "IMGlass.h"
@@ -538,7 +539,15 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
         break;
     }
     [self.tableView reloadData];
-    if (pinnedAt) { [self reloadPinnedBanner]; } // 含别人置顶/取消的实时同步
+    // 横幅刷新：pin/unpin 必刷；撤回/编辑若命中横幅里的置顶项也要刷——服务端置顶列表已剔除
+    // 撤回消息、编辑改文案，不刷会留一条指向墓碑/旧文案的横幅（delete 路径同理已无条件刷）。
+    BOOL touchesPinnedBanner = NO;
+    if (recalledAt || editedAt) {
+        for (IMPinnedMessage *p in self.bannerStack.pinnedItems) {
+            if (p.convSeq == target) { touchesPinnedBanner = YES; break; }
+        }
+    }
+    if (pinnedAt || touchesPinnedBanner) { [self reloadPinnedBanner]; }
 }
 
 /// 我方发起的操作被拒（如撤回超时）：吐司提示（不改消息）。
@@ -563,11 +572,23 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     [self reloadPinnedBanner]; // 删掉的可能正是一条置顶消息，别让横幅指向已消失的消息
 }
 
-/// 合并刷新入口：消息/已读通知成批到达时，0.12s 内只跑一次徽标刷新（避免每条一次全表 SUM）。
-/// dealloc 已统一 cancelPreviousPerformRequestsWithTarget:self 兜底，无残留调用。
+/// 合并刷新入口：消息/已读通知成批到达时，每 0.12s 至多刷一次徽标（避免每条一次全表 SUM）。
+/// 刻意用「在途标记 + dispatch_after + weak」而非 cancel+performSelector 重排——后者有三个坑：
+/// ① trailing-edge 重排在持续消息流（同步补拉逐条发通知、间隔 <0.12s）下整段饿死不刷新；
+/// ② performSelector:afterDelay: 只挂 NSDefaultRunLoopMode，滚动期间不触发；
+/// ③ 它 retain target，pending 期间 dealloc 根本不会执行，"dealloc cancel 兜底"是伪命题。
+/// 本实现 pending 期间新通知直接返回（leading-window，burst 中仍按节拍刷新）；weak 捕获下
+/// 页面 pop 后定时器触发即 no-op，不续命 VC。
 - (void)scheduleBackUnreadBadgeRefresh {
-    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(refreshBackUnreadBadge) object:nil];
-    [self performSelector:@selector(refreshBackUnreadBadge) withObject:nil afterDelay:0.12];
+    if (self.backBadgeRefreshPending) { return; }
+    self.backBadgeRefreshPending = YES;
+    __weak typeof(self) ws = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.12 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        self.backBadgeRefreshPending = NO;
+        [self refreshBackUnreadBadge];
+    });
 }
 
 /// 任务2：刷新返回按钮的全局未读总数徽标（各会话 unread 之和，排除当前会话，微信式）。

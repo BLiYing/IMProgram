@@ -78,7 +78,10 @@
 /// im_message_local 的**唯一列清单**（row_id 主键除外，按建表顺序）。建表语句与老库迁移
 /// **都从这里生成**，从结构上杜绝历史事故：CREATE 加了列却漏加进迁移表 → 老库缺列 →
 /// 每条 INSERT 报 "no column named ..." → 消息落库全失败、同步游标永不推进、客户端热循环
-/// 重拉同一页（file_name 曾如此，真机日志 13s 内 2.2 万条失败）。**今后新增字段只改这一处。**
+/// 重拉同一页（file_name 曾如此，真机日志 13s 内 2.2 万条失败）。
+/// **今后新增字段共四处**：① 这里加一行（建表/迁移/INSERT 列序即全就位）② insertRowForMessage
+/// 加值映射（缺了 NSAssert 现形）③ messagesForConv 的 SELECT 映射 ④ IMDatabaseSchemaTests
+/// 的 fullyPopulated/assert 各补一行（③ 漏改由 ④ 的回环断言抓出）。
 /// 注：ALTER ADD COLUMN 不能加"NOT NULL 无默认"列；conv_id 属最初建表列、任何真实库都已存在，
 /// 其迁移分支永不触发，故保留 NOT NULL 无碍。owner_uid 用 DEFAULT '' 兜底，可安全 ADD。
 + (NSArray<NSArray<NSString *> *> *)messageColumns {
@@ -125,9 +128,13 @@
             IMLogDatabase(@"建表失败: %@", db.lastErrorMessage);
         }
         // 老库迁移（非破坏）：逐列缺则补，ADD COLUMN 幂等；与建表同一份清单，永不漂移。
+        // ALTER 失败必须落日志（CODING_STYLE §5）：列缺失=后续每条 INSERT 全败、同步卡死
+        //（file_name 事故形态），迁移期的这行日志是唯一能定位根因的线索。
         for (NSArray<NSString *> *c in [IMDatabase messageColumns]) {
             if (![self column:c[0] existsInTable:@"im_message_local" db:db]) {
-                [db executeUpdate:[NSString stringWithFormat:@"ALTER TABLE im_message_local ADD COLUMN %@ %@", c[0], c[1]]];
+                if (![db executeUpdate:[NSString stringWithFormat:@"ALTER TABLE im_message_local ADD COLUMN %@ %@", c[0], c[1]]]) {
+                    IMLogDatabase(@"迁移失败：im_message_local 补列 %@ 未成功: %@", c[0], db.lastErrorMessage);
+                }
             }
         }
         [db executeUpdate:@"CREATE INDEX IF NOT EXISTS idx_local_owner_conv ON im_message_local(owner_uid,conv_id)"];
@@ -140,7 +147,9 @@
         if (!ok) { IMLogDatabase(@"创建已发送文件缓存失败: %@", db.lastErrorMessage); }
         [db executeUpdate:@"CREATE INDEX IF NOT EXISTS idx_sent_file_owner_time ON im_sent_file_local(owner_uid,timestamp DESC)"];
         if (![self column:@"size" existsInTable:@"im_sent_file_local" db:db]) {
-            [db executeUpdate:@"ALTER TABLE im_sent_file_local ADD COLUMN size INTEGER NOT NULL DEFAULT 0"];
+            if (![db executeUpdate:@"ALTER TABLE im_sent_file_local ADD COLUMN size INTEGER NOT NULL DEFAULT 0"]) {
+                IMLogDatabase(@"迁移失败：im_sent_file_local 补列 size 未成功: %@", db.lastErrorMessage);
+            }
         }
 
         ok = [db executeUpdate:
@@ -530,22 +539,33 @@
         } else {
             // INSERT 列名串 + 值序列均由 +messageColumns × insertRowForMessage 同源生成：
             // 新增字段只改"列清单一行 + 值映射一行"，列串漂移（当年 file_name 事故）结构上不可能。
-            NSArray<NSArray<NSString *> *> *schema = [IMDatabase messageColumns];
-            NSMutableArray<NSString *> *names = [NSMutableArray arrayWithCapacity:schema.count];
-            NSMutableArray *values = [NSMutableArray arrayWithCapacity:schema.count];
-            NSMutableArray<NSString *> *marks = [NSMutableArray arrayWithCapacity:schema.count];
+            // 列清单是运行期常量 → SQL 串与列序 dispatch_once 缓存一次；每条插入只构造值数组
+            //（同步 burst 可达 2 万+ 条，之前每条重建 30×2 数组/字典/两次 join 是纯浪费）。
+            static NSString *insertSQL;
+            static NSArray<NSString *> *insertColumns;
+            static dispatch_once_t once;
+            dispatch_once(&once, ^{
+                NSArray<NSArray<NSString *> *> *schema = [IMDatabase messageColumns];
+                NSMutableArray<NSString *> *names = [NSMutableArray arrayWithCapacity:schema.count];
+                NSMutableArray<NSString *> *marks = [NSMutableArray arrayWithCapacity:schema.count];
+                for (NSArray<NSString *> *c in schema) { [names addObject:c[0]]; [marks addObject:@"?"]; }
+                insertColumns = names;
+                insertSQL = [NSString stringWithFormat:@"INSERT INTO im_message_local (%@) VALUES (%@)",
+                             [names componentsJoinedByString:@","], [marks componentsJoinedByString:@","]];
+            });
             NSDictionary<NSString *, id> *row = [self insertRowForMessage:message owner:owner];
-            for (NSArray<NSString *> *c in schema) {
-                id v = row[c[0]];
-                NSAssert(v, @"messageColumns 与 insertRowForMessage 漂移：缺列 %@ 的值", c[0]);
-                if (!v) { continue; } // release 兜底：跳过该列走建表默认值，不让整条 INSERT 失败
-                [names addObject:c[0]];
-                [values addObject:v];
-                [marks addObject:@"?"];
+            NSAssert(row.count == insertColumns.count,
+                     @"messageColumns 与 insertRowForMessage 漂移：%lu 列 vs %lu 值",
+                     (unsigned long)insertColumns.count, (unsigned long)row.count);
+            NSMutableArray *values = [NSMutableArray arrayWithCapacity:insertColumns.count];
+            for (NSString *col in insertColumns) {
+                id v = row[col];
+                NSAssert(v, @"insertRowForMessage 缺列 %@ 的值", col);
+                // release 兜底绑 NULL（列数恒与 SQL 对齐）：可空列落 NULL、NOT NULL 列让 INSERT
+                // **显式报错**并落日志——绝不静默把列从语句里抠掉（那是 file_name 事故的安静变种）。
+                [values addObject:v ?: NSNull.null];
             }
-            ok = [db executeUpdate:[NSString stringWithFormat:@"INSERT INTO im_message_local (%@) VALUES (%@)",
-                                    [names componentsJoinedByString:@","], [marks componentsJoinedByString:@","]]
-              withArgumentsInArray:values];
+            ok = [db executeUpdate:insertSQL withArgumentsInArray:values];
         }
         if (!ok) {
             IMLogDatabase(@"保存消息失败 owner=%@ conv=%@: %@", owner, message.convID, db.lastErrorMessage);
@@ -775,6 +795,8 @@
         // 改法：timestamp 主排（拒收老消息按真实时间落位）；同毫秒时 conv_seq=0 视为最大值垫底
         // （保住「待发临时消息在底部」的原意，等价于 im-web 的 `convSeq || MAX_SAFE_INTEGER`）；
         // row_id 兜同刻同序。补拉的旧消息时间戳本就旧，timestamp 主排同样正确排到上方，不破坏同步语义。
+        // ⚠️ 新增字段的第③处：下方逐列映射须同步补一行（第④处是 IMDatabaseSchemaTests 的
+        // 回环断言——漏改这里由它抓出）。SELECT * 名字取列，天然不受列序影响。
         FMResultSet *rs = [db executeQuery:
             @"SELECT * FROM im_message_local WHERE owner_uid=? AND conv_id=? "
              "ORDER BY timestamp ASC,"

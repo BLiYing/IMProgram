@@ -9,10 +9,6 @@
 + (UIColor *)rgb:(NSInteger)hex alpha:(CGFloat)a;
 @end
 
-int64_t IMNowMillis(void) {
-    return (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
-}
-
 @implementation IMTheme
 
 /// 浅/深两套取值的动态色（系统切深色自动适配，满足 UI.md 强制深色规则）。

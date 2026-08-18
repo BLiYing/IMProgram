@@ -641,8 +641,10 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     }
     [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
         if (error) { completion(nil, error); return; }
-        if ([body[@"code"] integerValue] != 0) {
-            completion(nil, [self errorWithMessage:[self messageFrom:body fallback:fallback]]);
+        NSInteger code = [body[@"code"] integerValue];
+        if (code != 0) {
+            // 保留业务码（同 runDataRequest）——300210 等审批分支得以直接复用本 helper。
+            completion(nil, [self errorWithCode:code message:[self messageFrom:body fallback:fallback]]);
             return;
         }
         NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
@@ -660,8 +662,11 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     }
     [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
         if (error) { completion(error); return; }
-        if ([body[@"code"] integerValue] != 0) {
-            completion([self errorWithMessage:[self messageFrom:body fallback:fallback]]);
+        NSInteger code = [body[@"code"] integerValue];
+        if (code != 0) {
+            // 保留业务码（同 runDataRequest）：调用方即使今天只 toast，明天要按码分支也不用改这里。
+            // 曾因这里丢码（-1）逼得 joinGroup 手写整套信封（见 git 记录），helper 丢码是手抄复发的根因。
+            completion([self errorWithCode:code message:[self messageFrom:body fallback:fallback]]);
             return;
         }
         completion(nil);
@@ -727,18 +732,8 @@ BOOL IMIsTransientNetworkError(NSError *error) {
                 completion:(void (^)(IMGroupInfo *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/groups/join" method:@"POST" token:token
                                                      body:@{ @"token": code ?: @"", @"hello": hello ?: @"" }];
-    if (!req) { [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }]; return; }
-    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
-        if (error) { completion(nil, error); return; }
-        NSInteger c = [body[@"code"] integerValue];
-        if (c != 0) {
-            // 300210 = 需审批已提交：保留码，UI 据 error.code 走"待审批"提示分支。
-            completion(nil, [self errorWithCode:c message:[self messageFrom:body fallback:@"加入群聊失败"]]);
-            return;
-        }
-        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
-        completion([IMGroupInfo groupFromDictionary:data], nil);
-    }];
+    // runGroupInfoRequest 已保留业务码：300210（需审批已提交）等分支照常按 error.code 走。
+    [self runGroupInfoRequest:req fallback:@"加入群聊失败" completion:completion];
 }
 
 - (void)joinRequestsWithToken:(NSString *)token convID:(NSString *)convID
@@ -814,23 +809,13 @@ BOOL IMIsTransientNetworkError(NSError *error) {
 
 #pragma mark - 我的资料
 
-/// 单张用户名片请求的公共尾：校验业务码 → 取 data 字典 → 映射成 IMUserCard。
-/// （me / users/:id / 更新资料三处共用，见 runOKRequest / runDataRequest 的同款收口。）
+/// 单张用户名片请求的公共尾（me / users/:id / 更新资料三处共用）：组合 runDataRequest，
+/// 只负责 data→IMUserCard 的映射——不再手抄信封体，业务码语义与全站 helper 一致。
 - (void)runUserCardRequest:(nullable NSMutableURLRequest *)req
                   fallback:(NSString *)fallback
                 completion:(void (^)(IMUserCard *, NSError *))completion {
-    if (!req) {
-        [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }];
-        return;
-    }
-    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
-        if (error) { completion(nil, error); return; }
-        if ([body[@"code"] integerValue] != 0) {
-            completion(nil, [self errorWithMessage:[self messageFrom:body fallback:fallback]]);
-            return;
-        }
-        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
-        completion(data ? [IMUserCard cardsFromArray:@[data]].firstObject : nil, nil);
+    [self runDataRequest:req fallback:fallback completion:^(NSDictionary *data, NSError *error) {
+        completion(error || data.count == 0 ? nil : [IMUserCard cardsFromArray:@[data]].firstObject, error);
     }];
 }
 

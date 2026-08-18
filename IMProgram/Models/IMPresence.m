@@ -1,7 +1,7 @@
 //  IMPresence.m
 
 #import "IMPresence.h"
-#import "IMTheme.h" // IMNowMillis
+#import "IMTimeUtil.h"
 
 /// 档位字符串 → 枚举（脏数据安全：未知串落 Unknown）。
 static IMPresenceLevel IMPresenceLevelFromString(NSString *s) {

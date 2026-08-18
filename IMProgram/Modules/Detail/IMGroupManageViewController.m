@@ -15,6 +15,7 @@
 #import "IMAvatarCropViewController.h"
 #import "UIViewController+IMToast.h"
 #import "IMTheme.h"
+#import "IMTimeUtil.h"
 
 #pragma mark - 行图标（与「我」页设置项同款：accent 纯色圆角方块 + 居中白符号）
 

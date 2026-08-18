@@ -6,6 +6,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import "IMMessageModel.h"
 #import "IMTheme.h"
+#import "IMTimeUtil.h"
 #import "IMDatabase.h"
 #import "IMHTTPService.h"
 #import "IMMenuAction.h"

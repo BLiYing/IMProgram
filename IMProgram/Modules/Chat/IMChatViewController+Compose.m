@@ -8,6 +8,7 @@
 #import "IMDatabase.h"
 #import "IMHTTPService.h"
 #import "IMTheme.h"
+#import "IMTimeUtil.h"
 #import "IMImageLoader.h"
 #import "IMMediaUtil.h"          // IMReplySnippet
 #import "IMMediaPlaceholder.h"

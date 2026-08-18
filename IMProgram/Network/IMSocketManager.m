@@ -7,7 +7,7 @@
 #import "IMDatabase.h"
 #import "IMHTTPService.h"
 #import "IMLog.h"
-#import "IMTheme.h" // IMNowMillis
+#import "IMTimeUtil.h"
 
 #pragma mark - 调参常量
 

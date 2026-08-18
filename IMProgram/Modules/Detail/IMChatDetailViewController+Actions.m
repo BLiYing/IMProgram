@@ -22,6 +22,7 @@
 #import "IMPopoverCard.h"
 #import "UIViewController+IMToast.h"
 #import "IMTheme.h"
+#import "IMTimeUtil.h"
 #import "IMLog.h"
 
 @implementation IMChatDetailViewController (Actions)
@@ -156,9 +157,15 @@
 - (void)commitConversationSettings {
     NSString *token = IMHTTPService.sharedService.currentToken; if (token.length == 0) { return; }
     __weak typeof(self) ws = self;
+    // markedUnread 必须回传当前值（PUT 整体替换）：原来硬编码 NO，在详情页拨置顶/免打扰会
+    // 顺手清掉列表页设的手动标未读红点。
     [IMHTTPService.sharedService updateConversationSettingsWithToken:token convID:self.convID
-        pinnedAt:self.pinnedAt muted:self.muted markedUnread:NO completion:^(NSError *error) {
-        if (error) { [ws im_showToast:error.localizedDescription ?: @"设置失败"]; }
+        pinnedAt:self.pinnedAt muted:self.muted markedUnread:self.markedUnread completion:^(NSError *error) {
+        __strong typeof(ws) self = ws;
+        if (!self || !error) { return; }
+        [self im_showToast:error.localizedDescription ?: @"设置失败"];
+        // 提交失败：重拉权威值并刷新开关，不让 UI 停留在"看起来成功"的失败态。
+        [self loadConversationSettings];
     }];
 }
 

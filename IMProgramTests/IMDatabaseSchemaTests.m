@@ -64,6 +64,18 @@
 
 - (void)assertMessage:(IMMessageModel *)m matchesFullyPopulated:(NSString *)convID {
     XCTAssertNotNil(m);
+    // 覆盖 fullyPopulated 的**每一个**字段：读路径（messagesForConv 的 SELECT 逐列映射）漏改
+    // 任何一列都要在这里翻红——这是列清单"新增字段四处"里的第④处守卫。
+    XCTAssertEqualObjects(m.convID, convID);
+    XCTAssertEqualObjects(m.from, @"alice");
+    XCTAssertEqualObjects(m.to, @"bob");
+    XCTAssertEqual(m.convSeq, 42);
+    XCTAssertEqual(m.timestamp, 1700000000000);
+    XCTAssertEqual(m.status, 1);
+    XCTAssertEqual(m.editedAt, 1700000002000);
+    XCTAssertEqualObjects(m.recalledBy, @"alice");
+    XCTAssertEqual(m.replyToConvSeq, 7);
+    XCTAssertEqualObjects(m.replyToFrom, @"carol");
     XCTAssertEqualObjects(m.contentType, @"image");
     XCTAssertEqualObjects(m.content, @"/uploads/pic.jpg");
     XCTAssertEqualObjects(m.fileName, @"原图.jpg");

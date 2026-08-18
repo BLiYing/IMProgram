@@ -14,6 +14,7 @@
 #import "IMAnimator.h"
 #import "UIViewController+IMToast.h"
 #import "IMTheme.h"
+#import "IMTimeUtil.h"
 #import "UILabel+IMAvatar.h"
 #import "IMPresence.h"
 #import "IMMediaUtil.h"
@@ -424,6 +425,12 @@ static CGFloat const kIMRowLeading = 16;
     // 会话级设置变更（置顶/免打扰/标未读/删除会话，M4.5）→ 列表刷新（本人其他端操作的多端同步）。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketMessage:)
                                                name:IMSocketDidUpdateConversationNotification object:nil];
+    // 消息操作（撤回/编辑）与物理删除也要刷列表预览：DB 的会话摘要行（last_recalled/last_content）
+    // 已在 socket 层同事务更新，但停在列表上时没有这两个订阅，可见行会一直显示旧预览。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketMessage:)
+                                               name:IMSocketDidApplyMsgOpNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketMessage:)
+                                               name:IMSocketDidRemoveMessageNotification object:nil];
     // 连接状态变化 → 标题显示 连接中/未连接（取代"任何失败都弹框"）。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketState:)
                                                name:IMSocketDidChangeStateNotification object:nil];
@@ -449,6 +456,7 @@ static CGFloat const kIMRowLeading = 16;
     self.visible = NO;
     for (NSNotificationName n in @[IMSocketDidReceiveMessageNotification, IMSocketDidReceiveReadNotification,
                                    IMSocketDidReceiveGroupEventNotification, IMSocketDidUpdateConversationNotification,
+                                   IMSocketDidApplyMsgOpNotification, IMSocketDidRemoveMessageNotification,
                                    IMSocketDidChangeStateNotification, IMSocketDidReceivePresenceNotification,
                                    IMMediaSendProgressDidChangeNotification, IMMediaSendMetaDidChangeNotification,
                                    IMMediaSendDidDispatchNotification, IMMediaSendDidFailNotification,
@@ -461,7 +469,7 @@ static CGFloat const kIMRowLeading = 16;
 - (void)onMediaSendStateChange:(NSNotification *)note {
     NSString *convID = note.userInfo[@"conv_id"];
     if (convID.length == 0) { return; }
-    BOOL sending = [IMMediaSendService.shared inFlightMessagesInConv:convID].count > 0;
+    BOOL sending = [IMMediaSendService.shared hasInFlightInConv:convID]; // 命中即返回，不建数组（与 cellForRow 同谓词）
     BOOL failed = [IMMediaSendService.shared hasFailedOutboxInConv:convID];
     NSInteger state = failed ? 2 : (sending ? 1 : 0);
     if (!self.outboxStates) { self.outboxStates = [NSMutableDictionary dictionary]; }

@@ -66,6 +66,7 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 // 会话设置
 @property (nonatomic, assign) int64_t pinnedAt;
 @property (nonatomic, assign) BOOL muted;
+@property (nonatomic, assign) BOOL markedUnread; ///< 手动标未读态：PUT 是整体替换，提交时必须回传，否则会清掉列表页设的红点
 // UI
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) IMDetailHeaderContainer *headerContainer; ///< 静态坐标容器：承载头像 + 灵动岛遮罩/覆盖层
@@ -129,6 +130,7 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 - (UIView *)buildPillsView;
 // 动作 / 设置 / 群昵称备注（+Actions.m）：
 - (void)commitConversationSettings;
+- (void)loadConversationSettings; ///< 拉取会话设置（提交失败时 +Actions 回拉权威值刷新开关）
 - (void)confirmClearHistory;
 - (void)confirmDestructive:(NSString *)title message:(NSString *)message action:(NSString *)action handler:(void (^)(void))handler;
 - (void)confirmDissolve;

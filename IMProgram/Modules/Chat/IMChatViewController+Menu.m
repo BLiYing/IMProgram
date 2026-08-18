@@ -12,6 +12,7 @@
 #import "IMProtocol.h"
 #import "IMGroupInfo.h"
 #import "IMTheme.h"
+#import "IMTimeUtil.h"
 #import "IMBubbleCell.h"
 #import "IMImageCell.h"
 #import "IMLinkCardCell.h"
