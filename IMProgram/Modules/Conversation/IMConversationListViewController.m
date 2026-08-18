@@ -728,11 +728,8 @@ static CGFloat const kIMRowLeading = 16;
     if (c.markedUnread && self.token.length > 0) {
         [IMHTTPService.sharedService updateConversationSettingsWithToken:self.token convID:c.convID
             pinnedAt:c.pinnedAt muted:c.muted markedUnread:NO completion:^(NSError *error) { /* 忽略：返回时 viewWillAppear 会 reload */ }];
-        c.markedUnread = NO; // 本地即时置位，避免返回瞬间闪一下旧红点
-        [self performDatabaseOperation:^(IMDatabase *database) {
-            [database applyCachedSettingsForConversation:c.convID
-                                                 pinnedAt:c.pinnedAt muted:c.muted markedUnread:NO];
-        }];
+        // 本地即时镜像，避免返回瞬间闪一下旧红点。
+        [self mirrorSettingsOnto:c pinnedAt:c.pinnedAt muted:c.muted markedUnread:NO];
     }
     if (c.isGroup) {
         [IMChatViewController openInNavigationController:self.navigationController
@@ -902,6 +899,19 @@ static CGFloat const kIMRowLeading = 16;
     [self updateSettingsForConversation:c pinnedAt:c.pinnedAt muted:muted markedUnread:c.markedUnread fail:@"设置失败"];
 }
 
+/// 把置顶/免打扰/标未读三态就地镜像到内存模型 + 本地库（乐观更新）；不刷新 UI，调用方各自选刷新方式。
+/// 返回本地库写入是否成功（失败通常是账号已切换，调用方应据此中止后续刷新）。
+/// 注：markConversationRead: 需把 markConversationFullyRead 与设置写在同一事务、并清 unread，
+/// animateConversation: 需在写库同时做移行动画——两者各有额外语义，不并入本 helper。
+- (BOOL)mirrorSettingsOnto:(IMConversation *)c pinnedAt:(int64_t)pinnedAt muted:(BOOL)muted markedUnread:(BOOL)markedUnread {
+    c.pinnedAt = pinnedAt;
+    c.muted = muted;
+    c.markedUnread = markedUnread;
+    return [self performDatabaseOperation:^(IMDatabase *database) {
+        [database applyCachedSettingsForConversation:c.convID pinnedAt:pinnedAt muted:muted markedUnread:markedUnread];
+    }];
+}
+
 /// 会话设置写入的统一入口：PUT 设置 → 成功后重拉列表（服务端已含置顶排序 + 权威状态）。
 - (void)updateSettingsForConversation:(IMConversation *)c
                              pinnedAt:(int64_t)pinnedAt muted:(BOOL)muted markedUnread:(BOOL)markedUnread
@@ -911,13 +921,7 @@ static CGFloat const kIMRowLeading = 16;
     [IMHTTPService.sharedService updateConversationSettingsWithToken:self.token convID:c.convID
         pinnedAt:pinnedAt muted:muted markedUnread:markedUnread completion:^(NSError *error) {
             if (error) { [ws im_showToast:error.localizedDescription ?: fail]; return; }
-            c.pinnedAt = pinnedAt;
-            c.muted = muted;
-            c.markedUnread = markedUnread;
-            if (![ws performDatabaseOperation:^(IMDatabase *database) {
-                [database applyCachedSettingsForConversation:c.convID
-                                                     pinnedAt:pinnedAt muted:muted markedUnread:markedUnread];
-            }]) { return; }
+            if (![ws mirrorSettingsOnto:c pinnedAt:pinnedAt muted:muted markedUnread:markedUnread]) { return; }
             [ws.tableView reloadData];
             [ws reload];
         }];
