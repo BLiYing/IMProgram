@@ -599,6 +599,13 @@ BOOL IMIsTransientNetworkError(NSError *error) {
 
 #pragma mark - 会话管理（M4.5）
 
+- (void)conversationSettingsWithToken:(NSString *)token convID:(NSString *)convID
+                           completion:(void (^)(NSDictionary *_Nullable, NSError *_Nullable))completion {
+    NSString *path = [NSString stringWithFormat:@"/api/v1/conversations/%@/settings", [self pathEscape:convID]];
+    NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
+    [self runDataRequest:req fallback:@"拉取会话设置失败" completion:completion];
+}
+
 - (void)updateConversationSettingsWithToken:(NSString *)token convID:(NSString *)convID
                                    pinnedAt:(int64_t)pinnedAt muted:(BOOL)muted markedUnread:(BOOL)markedUnread
                                  completion:(void (^)(NSError *))completion {

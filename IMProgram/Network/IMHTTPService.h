@@ -328,6 +328,12 @@ BOOL IMIsAuthErrorCode(NSInteger code);
 
 #pragma mark - 会话管理（M4.5）
 
+/// 读取本人对某会话的会话级设置：GET /api/v1/conversations/{id}/settings →
+/// data.{pinned_at,muted,marked_unread,remark}。详情页单会话拉取（免为两个布尔拉整张会话列表）。
+- (void)conversationSettingsWithToken:(NSString *)token
+                               convID:(NSString *)convID
+                           completion:(void (^)(NSDictionary *_Nullable data, NSError *_Nullable error))completion;
+
 /// 更新会话级设置（置顶/免打扰/标未读，整体替换）：PUT /api/v1/conversations/{id}/settings。completion 主线程回调。
 - (void)updateConversationSettingsWithToken:(NSString *)token
                                      convID:(NSString *)convID

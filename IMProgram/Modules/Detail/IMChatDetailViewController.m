@@ -205,16 +205,14 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0) { return; }
     __weak typeof(self) ws = self;
-    [IMHTTPService.sharedService conversationsWithToken:token completion:^(NSArray<IMConversation *> *convs, NSError *error) {
+    // 单会话设置端点（GET …/{id}/settings）：只要两个布尔，不再拉整张会话列表遍历查找。
+    [IMHTTPService.sharedService conversationSettingsWithToken:token convID:self.convID
+                                                    completion:^(NSDictionary *data, NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self || error) { return; }
-        for (IMConversation *c in convs) {
-            if ([c.convID isEqualToString:self.convID]) {
-                self.pinnedAt = c.pinnedAt; self.muted = c.muted;
-                [self reloadSettingsAndPills];
-                break;
-            }
-        }
+        self.pinnedAt = [data[@"pinned_at"] longLongValue];
+        self.muted = [data[@"muted"] boolValue];
+        [self reloadSettingsAndPills];
     }];
 }
 
