@@ -20,7 +20,6 @@ PRIVATE_H_MAX=${PRIVATE_H_MAX:-72}    # 共享类扩展（*+Private.h）@propert
 # 历史欠账（已超 MAX_LINES、待拆分）。值 = 当前行数 + 少量余量。
 grandfather_limit() {
   case "$1" in
-    IMProgram/Modules/Detail/IMChatDetailViewController.m) echo 2050 ;;
     *) echo "" ;;
   esac
 }
