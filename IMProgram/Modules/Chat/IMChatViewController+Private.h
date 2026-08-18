@@ -23,7 +23,11 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface IMChatViewController () <IMSocketManagerDelegate, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIDocumentPickerDelegate, QLPreviewControllerDataSource, UIContextMenuInteractionDelegate, IMChatBannerStackDelegate>
+// 说明：带**必需方法**的协议（UITableViewDataSource / QLPreviewControllerDataSource /
+// UIContextMenuInteractionDelegate）的 conformance 不放这里，而是挂到**真正实现其必需方法的那个 category**
+// 上（见文末），否则主实现 @implementation 所在 TU 看不到那些方法体、会报 -Wprotocol「does not conform」。
+// 这里只留**纯可选方法**协议（无必需方法，不触发该告警）。
+@interface IMChatViewController () <IMSocketManagerDelegate, UITableViewDelegate, UITextFieldDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIDocumentPickerDelegate, IMChatBannerStackDelegate>
 
 // 指定初始化器收进类扩展（原在 .h）：外部只能走 +openInNavigationController: 统一入口，
 // 无法直接 alloc+push，从结构上杜绝绕过导航去重/折叠的回归（曾靠头注释约束、无强制）。
@@ -240,7 +244,18 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (void)forwardEchoContent:(NSString *)content contentType:(NSString *)ct forwardFrom:(NSString *)origin
                   fileName:(nullable NSString *)fileName fileSize:(int64_t)fileSize
                 attributes:(nullable IMMediaAttributes *)attributes toConv:(NSString *)convID toUser:(NSString *)toUser;
+@end
 
+// 带必需方法的协议 conformance 挂在实现其必需方法的 category 上（避免主 TU 的 -Wprotocol）：
+// 声明放在共享私有头，让赋值点（如主实现 setupUI 的 tableView.dataSource=self）也看得到 conformance。
+/// UITableViewDataSource 必需的 numberOfRowsInSection / cellForRowAtIndexPath 都在 +DataSource.m。
+@interface IMChatViewController (DataSource) <UITableViewDataSource>
+@end
+/// QLPreviewControllerDataSource 必需的两个方法与 ql.dataSource=self 赋值都在 +MediaFlow.m。
+@interface IMChatViewController (MediaFlow) <QLPreviewControllerDataSource>
+@end
+/// UIContextMenuInteractionDelegate 必需的 configurationForMenuAtLocation 与 initWithDelegate:self 都在 +Menu.m。
+@interface IMChatViewController (Menu) <UIContextMenuInteractionDelegate>
 @end
 
 NS_ASSUME_NONNULL_END
