@@ -536,9 +536,26 @@ static CGFloat const kIMRowLeading = 16;
     if (![self performDatabaseOperation:^(IMDatabase *database) {
         cached = database.cachedConversations;
     }]) { return; }
+    // 本地缓存表不落 presence（在线态是内存态、租约驱动）。若直接换上缓存对象，单聊在线绿点会被
+    // 抹掉，再由 0.4s 后的 HTTP reload 点亮——消息风暴/presence 心跳下肉眼即闪烁。故把旧列表里的
+    // peerPresence 按 convID 迁移过来（租约 onlineUntil 会自然过期，迁移安全）。
+    [self carryOverPeerPresenceInto:cached];
     self.conversations = cached ?: @[];
     self.emptyLabel.hidden = self.conversations.count > 0;
     [self.tableView reloadData];
+}
+
+/// 把当前列表的单聊在线态按 convID 迁移到 newConvs（仅填补 newConvs 自身没有的，不覆盖已带的）。
+- (void)carryOverPeerPresenceInto:(NSArray<IMConversation *> *)newConvs {
+    if (newConvs.count == 0 || self.conversations.count == 0) { return; }
+    NSMutableDictionary<NSString *, IMPresence *> *byConv = [NSMutableDictionary dictionary];
+    for (IMConversation *c in self.conversations) {
+        if (!c.isGroup && c.peerPresence && c.convID.length > 0) { byConv[c.convID] = c.peerPresence; }
+    }
+    if (byConv.count == 0) { return; }
+    for (IMConversation *c in newConvs) {
+        if (!c.isGroup && !c.peerPresence) { c.peerPresence = byConv[c.convID]; }
+    }
 }
 
 - (void)dealloc {
