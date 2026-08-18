@@ -1041,52 +1041,7 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     [self.tableView registerClass:IMLinkCardCell.class forCellReuseIdentifier:@"link"];
     [self.view addSubview:self.tableView];
 
-    // 引用预览条（M4-2，默认高度 0；引用时展开：左竖条 + 预览文案 + 取消 ✕）。
-    self.replyBar = [UIView new];
-    self.replyBar.translatesAutoresizingMaskIntoConstraints = NO;
-    self.replyBar.backgroundColor = UIColor.secondarySystemBackgroundColor;
-    self.replyBar.clipsToBounds = YES;
-    [self.view addSubview:self.replyBar];
-    UIView *replyStripe = [UIView new];
-    replyStripe.translatesAutoresizingMaskIntoConstraints = NO;
-    replyStripe.backgroundColor = IMTheme.accent;
-    [self.replyBar addSubview:replyStripe];
-    self.replyThumb = [UIImageView new];
-    self.replyThumb.translatesAutoresizingMaskIntoConstraints = NO;
-    self.replyThumb.contentMode = UIViewContentModeScaleAspectFill;
-    self.replyThumb.clipsToBounds = YES;
-    self.replyThumb.layer.cornerRadius = 4;
-    self.replyThumb.hidden = YES;
-    [self.replyBar addSubview:self.replyThumb];
-    self.replyLabel = [UILabel new];
-    self.replyLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.replyLabel.font = [UIFont systemFontOfSize:13];
-    self.replyLabel.textColor = UIColor.secondaryLabelColor;
-    [self.replyBar addSubview:self.replyLabel];
-    UIButton *replyCancel = [UIButton buttonWithType:UIButtonTypeSystem];
-    replyCancel.translatesAutoresizingMaskIntoConstraints = NO;
-    [replyCancel setImage:[UIImage systemImageNamed:@"xmark.circle.fill"] forState:UIControlStateNormal];
-    replyCancel.tintColor = UIColor.tertiaryLabelColor;
-    [replyCancel addTarget:self action:@selector(cancelReply) forControlEvents:UIControlEventTouchUpInside];
-    [self.replyBar addSubview:replyCancel];
-    [NSLayoutConstraint activateConstraints:@[
-        [replyStripe.leadingAnchor constraintEqualToAnchor:self.replyBar.leadingAnchor constant:12],
-        [replyStripe.widthAnchor constraintEqualToConstant:3],
-        [replyStripe.topAnchor constraintEqualToAnchor:self.replyBar.topAnchor constant:6],
-        [replyStripe.bottomAnchor constraintEqualToAnchor:self.replyBar.bottomAnchor constant:-6],
-        [self.replyThumb.leadingAnchor constraintEqualToAnchor:replyStripe.trailingAnchor constant:8],
-        [self.replyThumb.centerYAnchor constraintEqualToAnchor:self.replyBar.centerYAnchor],
-        [self.replyThumb.widthAnchor constraintEqualToConstant:28],
-        [self.replyThumb.heightAnchor constraintEqualToConstant:28],
-        [self.replyLabel.centerYAnchor constraintEqualToAnchor:self.replyBar.centerYAnchor],
-        [replyCancel.leadingAnchor constraintEqualToAnchor:self.replyLabel.trailingAnchor constant:8],
-        [replyCancel.trailingAnchor constraintEqualToAnchor:self.replyBar.trailingAnchor constant:-12],
-        [replyCancel.centerYAnchor constraintEqualToAnchor:self.replyBar.centerYAnchor],
-    ]];
-    // label 前导：无缩略图时贴竖条、有缩略图时贴缩略图（beginReplyTo/cancel 切换）。
-    self.replyLabelLeadingNoThumb = [self.replyLabel.leadingAnchor constraintEqualToAnchor:replyStripe.trailingAnchor constant:8];
-    self.replyLabelLeadingThumb = [self.replyLabel.leadingAnchor constraintEqualToAnchor:self.replyThumb.trailingAnchor constant:8];
-    self.replyLabelLeadingNoThumb.active = YES;
+    [self buildReplyBar]; // 引用/编辑预览条（两行版）——构造收在 +Compose（与其行为同处，兼顾主文件行数预算）
 
     // 粘贴图片预览条（引用条之下、输入栏之上；默认高度 0）：横向滚动的缩略图 chip，每张右上 ✕。
     self.pasteBar = [UIView new];

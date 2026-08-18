@@ -81,53 +81,195 @@
 
 #pragma mark - 引用回复（M4-2）
 
+/// 构建引用/编辑预览条（两行版）。由 IMChatViewController 主构造调用；放在此 category 与引用行为同处。
+/// 布局：左竖条 + 36×36 缩略图/类型图标槽 + 上行「回复X」下行内容摘要 + 右侧独立锚定的取消 ✕。
+/// 条身挂 tap（跳原消息）与下滑手势（收起）。外层 leading/trailing/bottom/height 约束在主构造里随其它栏一起排。
+- (void)buildReplyBar {
+    self.replyBar = [UIView new];
+    self.replyBar.translatesAutoresizingMaskIntoConstraints = NO;
+    self.replyBar.backgroundColor = UIColor.secondarySystemBackgroundColor;
+    self.replyBar.clipsToBounds = YES;
+    [self.view addSubview:self.replyBar];
+    [self.replyBar addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(replyBarTapped)]];
+    UISwipeGestureRecognizer *replyDismiss = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(cancelReply)];
+    replyDismiss.direction = UISwipeGestureRecognizerDirectionDown;
+    [self.replyBar addGestureRecognizer:replyDismiss];
+
+    UIView *replyStripe = [UIView new];
+    replyStripe.translatesAutoresizingMaskIntoConstraints = NO;
+    replyStripe.backgroundColor = IMTheme.accent;
+    replyStripe.layer.cornerRadius = 1.5;
+    [self.replyBar addSubview:replyStripe];
+    self.replyThumb = [UIImageView new];
+    self.replyThumb.translatesAutoresizingMaskIntoConstraints = NO;
+    self.replyThumb.contentMode = UIViewContentModeScaleAspectFill;
+    self.replyThumb.clipsToBounds = YES;
+    self.replyThumb.layer.cornerRadius = 4;
+    self.replyThumb.hidden = YES;
+    [self.replyBar addSubview:self.replyThumb];
+
+    self.replyTitleLabel = [UILabel new];
+    self.replyTitleLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    self.replyTitleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+    self.replyTitleLabel.textColor = IMTheme.accent;
+    self.replyTitleLabel.numberOfLines = 1;
+    [self.replyTitleLabel setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+    self.replySnippetLabel = [UILabel new];
+    self.replySnippetLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    self.replySnippetLabel.font = [UIFont systemFontOfSize:13];
+    self.replySnippetLabel.textColor = UIColor.secondaryLabelColor;
+    self.replySnippetLabel.numberOfLines = 1;
+    [self.replySnippetLabel setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+    UIStackView *replyText = [[UIStackView alloc] initWithArrangedSubviews:@[self.replyTitleLabel, self.replySnippetLabel]];
+    replyText.translatesAutoresizingMaskIntoConstraints = NO;
+    replyText.axis = UILayoutConstraintAxisVertical;
+    replyText.alignment = UIStackViewAlignmentLeading;
+    replyText.spacing = 2;
+    [self.replyBar addSubview:replyText];
+
+    UIButton *replyCancel = [UIButton buttonWithType:UIButtonTypeSystem];
+    replyCancel.translatesAutoresizingMaskIntoConstraints = NO;
+    [replyCancel setImage:[UIImage systemImageNamed:@"xmark.circle.fill"] forState:UIControlStateNormal];
+    replyCancel.tintColor = UIColor.tertiaryLabelColor;
+    [replyCancel addTarget:self action:@selector(cancelReply) forControlEvents:UIControlEventTouchUpInside];
+    // ✕ 独立锚到条右端、优先级拉满永不让位 → 文件名再长也不会把它挤出屏幕（旧版 ✕ 位置链在 label.trailing 上是 bug 根因）。
+    [replyCancel setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [replyCancel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [self.replyBar addSubview:replyCancel];
+    [NSLayoutConstraint activateConstraints:@[
+        [replyStripe.leadingAnchor constraintEqualToAnchor:self.replyBar.leadingAnchor constant:12],
+        [replyStripe.widthAnchor constraintEqualToConstant:3],
+        [replyStripe.topAnchor constraintEqualToAnchor:self.replyBar.topAnchor constant:8],
+        [replyStripe.bottomAnchor constraintEqualToAnchor:self.replyBar.bottomAnchor constant:-8],
+        [self.replyThumb.leadingAnchor constraintEqualToAnchor:replyStripe.trailingAnchor constant:8],
+        [self.replyThumb.centerYAnchor constraintEqualToAnchor:self.replyBar.centerYAnchor],
+        [self.replyThumb.widthAnchor constraintEqualToConstant:36],
+        [self.replyThumb.heightAnchor constraintEqualToConstant:36],
+        [replyText.centerYAnchor constraintEqualToAnchor:self.replyBar.centerYAnchor],
+        // 文本堆只给「上限」到 ✕ 左侧，配合两 label 低压缩抵抗 → 内容超长时各行各自截断，绝不外推 ✕。
+        [replyText.trailingAnchor constraintLessThanOrEqualToAnchor:replyCancel.leadingAnchor constant:-8],
+        [replyCancel.trailingAnchor constraintEqualToAnchor:self.replyBar.trailingAnchor constant:-12],
+        [replyCancel.centerYAnchor constraintEqualToAnchor:self.replyBar.centerYAnchor],
+    ]];
+    // 文本堆前导：无缩略图/图标时贴竖条、有则贴槽位（setReplyPreviewForMessage 切换）。
+    self.replyTextLeadingNoThumb = [replyText.leadingAnchor constraintEqualToAnchor:replyStripe.trailingAnchor constant:8];
+    self.replyTextLeadingThumb = [replyText.leadingAnchor constraintEqualToAnchor:self.replyThumb.trailingAnchor constant:8];
+    self.replyTextLeadingNoThumb.active = YES;
+}
+
 /// 进入引用态：展开引用条显示预览，聚焦输入框。
 - (void)beginReplyTo:(IMMessageModel *)message {
     self.editingMessage = nil; // 引用与编辑互斥（共用引用条）
     self.replyingTo = message;
     NSString *who = [message.from isEqualToString:self.userID] ? @"自己"
         : (self.isGroupChat ? [self senderNameForMessage:message] : (self.peerID ?: @""));
-    self.replyLabel.text = [NSString stringWithFormat:@"回复 %@：%@", who, IMReplySnippet(message)];
-    // 引用图片/视频：预览条显示一枚小缩略图（#5）。
-    BOOL isImage = [message.contentType isEqualToString:@"image"];
-    BOOL isVideo = [message.contentType isEqualToString:@"video"];
-    [self setReplyThumbForMediaMessage:(isImage || isVideo) ? message : nil isVideo:isVideo];
-    self.replyBarHeight.constant = 40;
+    self.replyTitleLabel.text = [NSString stringWithFormat:@"回复 %@", who];
+    [self setReplyPreviewForMessage:message];
+    [self setReplyBarExpanded:YES];
     [self.inputField becomeFirstResponder];
 }
 
-/// 显示/隐藏引用预览条的缩略图并切换 label 前导约束。message=nil → 隐藏（文本引用）。
-- (void)setReplyThumbForMediaMessage:(IMMessageModel *)message isVideo:(BOOL)isVideo {
-    if (!message) {
-        self.replyThumb.hidden = YES;
-        self.replyThumb.image = nil;
-        self.replyLabelLeadingThumb.active = NO;
-        self.replyLabelLeadingNoThumb.active = YES;
+/// 依被引用消息类型配预览：左侧缩略图/类型图标 + 下行内容摘要（含截断策略）。
+/// 图片/视频=异步缩略图；文件=doc 图标 + 中间截断文件名（保住扩展名，item B）；语音=waveform；
+/// 聊天记录=列表图标；其余（文本/链接）=无图标、末尾截断。
+- (void)setReplyPreviewForMessage:(IMMessageModel *)message {
+    NSString *ct = message.contentType ?: @"text";
+    BOOL isImage = [ct isEqualToString:@"image"];
+    BOOL isVideo = [ct isEqualToString:@"video"];
+    if ([ct isEqualToString:@"file"]) {
+        NSString *fn = message.fileName.length > 0 ? message.fileName : IMMediaFileName(message.content);
+        self.replySnippetLabel.text = fn.length > 0 ? fn : @"[文件]";
+        self.replySnippetLabel.lineBreakMode = NSLineBreakByTruncatingMiddle; // 文件名中间截断：报告…final.pdf
+        // 按扩展名分型的共用文件图标（与文件气泡/详情文件行/收藏同款），而非所有文件一个 doc 图标。
+        [self showReplySlotImage:IMFileTypeIconForName(fn, 30)];
         return;
     }
+    self.replySnippetLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+    if (isImage || isVideo) {
+        self.replySnippetLabel.text = isImage ? @"图片" : @"视频";
+        [self showReplyThumbForMediaMessage:message isVideo:isVideo];
+    } else if ([ct isEqualToString:@"audio"]) {
+        self.replySnippetLabel.text = @"语音";
+        [self showReplyIconSymbol:@"waveform"];
+    } else if ([ct isEqualToString:@"chat_record"]) {
+        self.replySnippetLabel.text = IMReplySnippet(message);
+        [self showReplyIconSymbol:@"list.bullet.rectangle"];
+    } else {
+        self.replySnippetLabel.text = IMReplySnippet(message);
+        [self showReplyIconSymbol:nil];
+    }
+}
+
+/// 媒体引用：左槽异步缩略图（门控一致 M4-7：真帧仅已下载 > thumb 磨砂 > 类型图标）。切换/取消目标后丢弃过期图防串图。
+- (void)showReplyThumbForMediaMessage:(IMMessageModel *)message isVideo:(BOOL)isVideo {
+    self.replyThumb.contentMode = UIViewContentModeScaleAspectFill;
     self.replyThumb.hidden = NO;
     self.replyThumb.image = nil;
-    self.replyLabelLeadingNoThumb.active = NO;
-    self.replyLabelLeadingThumb.active = YES;
+    self.replyTextLeadingNoThumb.active = NO;
+    self.replyTextLeadingThumb.active = YES;
     NSString *url = [self fullMediaURL:message.content];
     __weak typeof(self) ws = self;
-    // 门控一致（M4-7）：统一取图（真帧仅已下载 > thumb 磨砂 > 媒体类型图标）；异步回来若已切换/取消
-    // 引用目标（replyingTo 变了）则丢弃这张过期图（防串图）。
     [IMMediaPlaceholder previewForURL:url isVideo:isVideo thumb:message.thumb completion:^(UIImage *img) {
         __strong typeof(ws) self = ws;
         if (!self || self.replyingTo != message) { return; }
-        self.replyThumb.image = img ?: [[UIImage systemImageNamed:(isVideo ? @"video.fill" : @"photo.fill")]
-            imageWithTintColor:IMTheme.textSecondary renderingMode:UIImageRenderingModeAlwaysOriginal];
+        if (img) {
+            self.replyThumb.contentMode = UIViewContentModeScaleAspectFill;
+            self.replyThumb.image = img;
+        } else { // 取不到帧/缩略 → 退化成媒体类型图标居中显示
+            self.replyThumb.contentMode = UIViewContentModeCenter;
+            self.replyThumb.image = [[UIImage systemImageNamed:(isVideo ? @"video.fill" : @"photo.fill")]
+                imageWithTintColor:IMTheme.textSecondary renderingMode:UIImageRenderingModeAlwaysOriginal];
+        }
     }];
+}
+
+/// 左槽放一张已渲染好的图（居中，如文件类型图标）。image=nil → 隐藏槽位、文本堆贴竖条（纯文本/编辑态）。
+- (void)showReplySlotImage:(nullable UIImage *)image {
+    if (!image) {
+        self.replyThumb.hidden = YES;
+        self.replyThumb.image = nil;
+        self.replyTextLeadingThumb.active = NO;
+        self.replyTextLeadingNoThumb.active = YES;
+        return;
+    }
+    self.replyThumb.contentMode = UIViewContentModeCenter;
+    self.replyThumb.image = image;
+    self.replyThumb.hidden = NO;
+    self.replyTextLeadingNoThumb.active = NO;
+    self.replyTextLeadingThumb.active = YES;
+}
+
+/// 非媒体、非文件引用：左槽显示类型 SF 图标（语音/聊天记录）。symbol=nil → 隐藏槽位。
+- (void)showReplyIconSymbol:(nullable NSString *)symbol {
+    if (symbol.length == 0) { [self showReplySlotImage:nil]; return; }
+    [self showReplySlotImage:[[UIImage systemImageNamed:symbol
+        withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:20 weight:UIImageSymbolWeightRegular]]
+        imageWithTintColor:IMTheme.textSecondary renderingMode:UIImageRenderingModeAlwaysOriginal]];
+}
+
+/// 展开/收起引用条（动画，item F）；高度 0↔54（两行）。
+- (void)setReplyBarExpanded:(BOOL)expanded {
+    CGFloat h = expanded ? 54 : 0;
+    if (self.replyBarHeight.constant == h) { return; }
+    self.replyBarHeight.constant = h;
+    [UIView animateWithDuration:0.2 delay:0 options:UIViewAnimationOptionCurveEaseInOut
+                     animations:^{ [self.view layoutIfNeeded]; } completion:nil];
+}
+
+/// 点引用条 → 跳到被引用 / 正在编辑的原消息并高亮一闪（item A）。✕ 按钮自身吃点击，不会误触。
+- (void)replyBarTapped {
+    IMMessageModel *target = self.replyingTo ?: self.editingMessage;
+    if (target.convSeq > 0) { [self jumpToConvSeq:target.convSeq]; }
 }
 
 /// 退出引用态（或编辑态，引用条为二者共用）：收起条。
 - (void)cancelReply {
     if (self.editingMessage) { [self cancelEdit]; return; }
     self.replyingTo = nil;
-    self.replyBarHeight.constant = 0;
-    self.replyLabel.text = nil;
-    [self setReplyThumbForMediaMessage:nil isVideo:NO];
+    [self setReplyBarExpanded:NO];
+    self.replyTitleLabel.text = nil;
+    self.replySnippetLabel.text = nil;
+    [self showReplyIconSymbol:nil];
 }
 
 #pragma mark - 收藏（M4-4）
@@ -152,10 +294,12 @@
 - (void)beginEditMessage:(IMMessageModel *)message {
     self.replyingTo = nil;
     self.editingMessage = message;
-    [self setReplyThumbForMediaMessage:nil isVideo:NO]; // 编辑仅文本，无缩略图
-    self.replyLabel.text = [NSString stringWithFormat:@"编辑消息：%@",
-        message.content.length > 40 ? [[message.content substringToIndex:40] stringByAppendingString:@"…"] : (message.content ?: @"")];
-    self.replyBarHeight.constant = 40;
+    [self showReplyIconSymbol:nil]; // 编辑仅文本，无图标
+    self.replyTitleLabel.text = @"编辑消息";
+    self.replySnippetLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+    self.replySnippetLabel.text = message.content.length > 60
+        ? [[message.content substringToIndex:60] stringByAppendingString:@"…"] : (message.content ?: @"");
+    [self setReplyBarExpanded:YES];
     self.inputField.text = message.content;
     [self updateSendButtonVisibility];
     [self.inputField becomeFirstResponder];
@@ -164,8 +308,9 @@
 /// 退出编辑态。
 - (void)cancelEdit {
     self.editingMessage = nil;
-    self.replyBarHeight.constant = 0;
-    self.replyLabel.text = nil;
+    [self setReplyBarExpanded:NO];
+    self.replyTitleLabel.text = nil;
+    self.replySnippetLabel.text = nil;
     self.inputField.text = @"";
     [self updateSendButtonVisibility];
 }

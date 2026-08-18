@@ -102,10 +102,11 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, strong) NSLayoutConstraint *inputTrailToEmoji; // 无内容：输入框贴表情按钮
 @property (nonatomic, strong) NSLayoutConstraint *inputTrailToSend;  // 有内容：输入框贴发送按钮
 @property (nonatomic, strong) UIView *replyBar;       // 引用预览条（输入栏上方）
-@property (nonatomic, strong) UILabel *replyLabel;
-@property (nonatomic, strong) UIImageView *replyThumb; // 引用媒体时的小缩略图（#5，图片/视频）
-@property (nonatomic, strong) NSLayoutConstraint *replyLabelLeadingNoThumb; // 无缩略图时 label 贴竖条
-@property (nonatomic, strong) NSLayoutConstraint *replyLabelLeadingThumb;   // 有缩略图时 label 贴缩略图
+@property (nonatomic, strong) UILabel *replyTitleLabel;   // 上行「回复X」/「编辑消息」（accent 色）
+@property (nonatomic, strong) UILabel *replySnippetLabel; // 下行内容摘要（secondary 色，单行截断）
+@property (nonatomic, strong) UIImageView *replyThumb; // 左侧 36×36 槽：媒体缩略图 / 文件·语音等类型图标
+@property (nonatomic, strong) NSLayoutConstraint *replyTextLeadingNoThumb; // 无缩略图/图标时文本堆贴竖条
+@property (nonatomic, strong) NSLayoutConstraint *replyTextLeadingThumb;   // 有缩略图/图标时文本堆贴槽位
 @property (nonatomic, strong) NSLayoutConstraint *replyBarHeight;
 // 粘贴图片预览条（Telegram 式，#2 重设计）：粘贴不直接发，缩略图 chip 攒在输入栏上方（可多张、逐张 ✕），
 // 发送键统一发出（≥2 张成宫格）；与引用条纵向堆叠（引用条在上）。
@@ -143,7 +144,9 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (BOOL)performDatabaseOperation:(void (^)(IMDatabase *database))operation;
 - (void)appendReloadAndScroll;
 - (void)applySelectionStyleForCell:(UITableViewCell *)cell;
+- (void)buildReplyBar;
 - (void)cancelReply;
+- (void)replyBarTapped;
 - (void)favoriteMessage:(IMMessageModel *)message;
 - (BOOL)isMediaExpiredForForward:(IMMessageModel *)m;
 - (void)refreshUnifiedNavigationBar;
