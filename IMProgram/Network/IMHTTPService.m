@@ -228,20 +228,9 @@ BOOL IMIsTransientNetworkError(NSError *error) {
 - (void)registerWithUsername:(NSString *)username
                     password:(NSString *)password
                   completion:(void (^)(NSError *))completion {
-    NSURLRequest *req = [self postRequestToPath:@"/api/v1/register"
-                                           body:@{ @"username": username ?: @"", @"password": password ?: @"" }];
-    if (!req) {
-        [self callOnMain:^{ completion([self errorWithMessage:@"非法服务器地址"]); }];
-        return;
-    }
-    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
-        if (error) { completion(error); return; }
-        if ([body[@"code"] integerValue] != 0) {
-            completion([self errorWithMessage:[self messageFrom:body fallback:@"注册失败"]]);
-            return;
-        }
-        completion(nil);
-    }];
+    NSMutableURLRequest *req = [self postRequestToPath:@"/api/v1/register"
+                                                  body:@{ @"username": username ?: @"", @"password": password ?: @"" }];
+    [self runOKRequest:req fallback:@"注册失败" completion:completion];
 }
 
 - (void)conversationsWithToken:(NSString *)token
@@ -255,18 +244,9 @@ BOOL IMIsTransientNetworkError(NSError *error) {
 - (void)downloadSettingsWithToken:(NSString *)token
                        completion:(void (^)(NSDictionary *_Nullable data, NSError *_Nullable error))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/download-settings" method:@"GET" token:token body:nil];
-    if (!req) {
-        [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }];
-        return;
-    }
-    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
-        if (error) { completion(nil, error); return; }
-        if ([body[@"code"] integerValue] != 0) {
-            completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"拉取下载设置失败"]]);
-            return;
-        }
-        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
-        completion(data, nil);
+    [self runDataRequest:req fallback:@"拉取下载设置失败" completion:^(NSDictionary *data, NSError *error) {
+        // 调用方以 nil 表示"没拿到设置"（保留旧值）；空字典还原为 nil，语义同手写版。
+        completion(data.count > 0 ? data : nil, error);
     }];
 }
 
@@ -274,22 +254,16 @@ BOOL IMIsTransientNetworkError(NSError *error) {
                                settings:(NSDictionary *)settings
                              completion:(void (^)(NSDictionary *_Nullable data, NSError *_Nullable error))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/download-settings" method:@"PUT" token:token body:(settings ?: @{})];
-    if (!req) { [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }]; return; }
-    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
-        if (error) { completion(nil, error); return; }
-        if ([body[@"code"] integerValue] != 0) { completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"保存下载设置失败"]]); return; }
-        completion([body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil, nil);
+    [self runDataRequest:req fallback:@"保存下载设置失败" completion:^(NSDictionary *data, NSError *error) {
+        completion(data.count > 0 ? data : nil, error); // nil=没拿到回执，调用方据此回滚
     }];
 }
 
 - (void)resetDownloadSettingsWithToken:(NSString *)token
                             completion:(void (^)(NSDictionary *_Nullable data, NSError *_Nullable error))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/download-settings/reset" method:@"POST" token:token body:@{}];
-    if (!req) { [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }]; return; }
-    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
-        if (error) { completion(nil, error); return; }
-        if ([body[@"code"] integerValue] != 0) { completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"重置下载设置失败"]]); return; }
-        completion([body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil, nil);
+    [self runDataRequest:req fallback:@"重置下载设置失败" completion:^(NSDictionary *data, NSError *error) {
+        completion(data.count > 0 ? data : nil, error); // nil=没拿到回执，调用方重拉刷新
     }];
 }
 
@@ -328,18 +302,7 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/reports" method:@"POST" token:token
         body:@{ @"target_type": targetType ?: @"", @"target_id": targetID ?: @"",
                 @"conv_id": convID ?: @"", @"reason": reason ?: @"" }];
-    if (!req) {
-        [self callOnMain:^{ completion([self errorWithMessage:@"非法服务器地址"]); }];
-        return;
-    }
-    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
-        if (error) { completion(error); return; }
-        if ([body[@"code"] integerValue] != 0) {
-            completion([self errorWithMessage:[self messageFrom:body fallback:@"举报失败"]]);
-            return;
-        }
-        completion(nil);
-    }];
+    [self runOKRequest:req fallback:@"举报失败" completion:completion];
 }
 
 - (void)addFavoriteWithToken:(NSString *)token
@@ -353,12 +316,7 @@ BOOL IMIsTransientNetworkError(NSError *error) {
         body:@{ @"content_type": contentType ?: @"text", @"content": content ?: @"",
                 @"source_conv_id": sourceConvID ?: @"", @"source_conv_seq": @(sourceConvSeq),
                 @"source_from": sourceFrom ?: @"" }];
-    if (!req) { [self callOnMain:^{ completion([self errorWithMessage:@"非法服务器地址"]); }]; return; }
-    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
-        if (error) { completion(error); return; }
-        if ([body[@"code"] integerValue] != 0) { completion([self errorWithMessage:[self messageFrom:body fallback:@"收藏失败"]]); return; }
-        completion(nil);
-    }];
+    [self runOKRequest:req fallback:@"收藏失败" completion:completion];
 }
 
 - (void)favoritesWithToken:(NSString *)token
@@ -376,12 +334,7 @@ BOOL IMIsTransientNetworkError(NSError *error) {
                      completion:(void (^)(NSError *))completion {
     NSString *path = [NSString stringWithFormat:@"/api/v1/favorites/%lld", favoriteID];
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"DELETE" token:token body:nil];
-    if (!req) { [self callOnMain:^{ completion([self errorWithMessage:@"非法服务器地址"]); }]; return; }
-    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
-        if (error) { completion(error); return; }
-        if ([body[@"code"] integerValue] != 0) { completion([self errorWithMessage:[self messageFrom:body fallback:@"删除失败"]]); return; }
-        completion(nil);
-    }];
+    [self runOKRequest:req fallback:@"删除失败" completion:completion];
 }
 
 - (void)linkPreviewWithToken:(NSString *)token url:(NSString *)url
@@ -389,12 +342,9 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     NSString *q = [url stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLQueryAllowedCharacterSet] ?: @"";
     NSString *path = [@"/api/v1/link-preview?url=" stringByAppendingString:q];
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
-    if (!req) { [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }]; return; }
-    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
-        if (error) { completion(nil, error); return; }
-        if ([body[@"code"] integerValue] != 0) { completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"预览失败"]]); return; }
-        id data = body[@"data"];
-        completion([data isKindOfClass:[NSDictionary class]] ? data : nil, nil);
+    [self runDataRequest:req fallback:@"预览失败" completion:^(NSDictionary *data, NSError *error) {
+        // 调用方以 nil 表示"无预览可用"（据此跳过缓存/渲染）；runDataRequest 成功恒回字典，空则还原为 nil。
+        completion(data.count > 0 ? data : nil, error);
     }];
 }
 
@@ -404,11 +354,8 @@ BOOL IMIsTransientNetworkError(NSError *error) {
                 completion:(void (^)(NSString *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/translate" method:@"POST" token:token
         body:@{ @"text": text ?: @"", @"target_lang": targetLang ?: @"zh" }];
-    if (!req) { [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }]; return; }
-    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+    [self runDataRequest:req fallback:@"翻译失败" completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(nil, error); return; }
-        if ([body[@"code"] integerValue] != 0) { completion(nil, [self errorWithMessage:[self messageFrom:body fallback:@"翻译失败"]]); return; }
-        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
         id t = data[@"translation"];
         completion([t isKindOfClass:[NSString class]] ? t : @"", nil);
     }];
@@ -419,17 +366,8 @@ BOOL IMIsTransientNetworkError(NSError *error) {
                     completion:(void (^)(BOOL, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/friends/request" method:@"POST" token:token
                                                      body:@{ @"user_id": peerID ?: @"" }];
-    if (!req) {
-        [self callOnMain:^{ completion(NO, [self errorWithMessage:@"非法服务器地址"]); }];
-        return;
-    }
-    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
+    [self runDataRequest:req fallback:@"操作失败" completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(NO, error); return; }
-        if ([body[@"code"] integerValue] != 0) {
-            completion(NO, [self errorWithMessage:[self messageFrom:body fallback:@"操作失败"]]);
-            return;
-        }
-        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
         NSString *outcome = [data[@"outcome"] isKindOfClass:[NSString class]] ? data[@"outcome"] : nil;
         completion([outcome isEqualToString:@"accepted"], nil);
     }];
@@ -441,18 +379,7 @@ BOOL IMIsTransientNetworkError(NSError *error) {
                    completion:(void (^)(NSError *))completion {
     NSString *path = [NSString stringWithFormat:@"/api/v1/friends/%@", action];
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"POST" token:token body:@{ @"user_id": peerID ?: @"" }];
-    if (!req) {
-        [self callOnMain:^{ completion([self errorWithMessage:@"非法服务器地址"]); }];
-        return;
-    }
-    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
-        if (error) { completion(error); return; }
-        if ([body[@"code"] integerValue] != 0) {
-            completion([self errorWithMessage:[self messageFrom:body fallback:@"操作失败"]]);
-            return;
-        }
-        completion(nil);
-    }];
+    [self runOKRequest:req fallback:@"操作失败" completion:completion];
 }
 
 - (void)removeFriendWithToken:(NSString *)token
@@ -461,18 +388,7 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     NSString *seg = [peerID stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet] ?: @"";
     NSString *path = [NSString stringWithFormat:@"/api/v1/friends/%@", seg];
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"DELETE" token:token body:nil];
-    if (!req) {
-        [self callOnMain:^{ completion([self errorWithMessage:@"非法服务器地址"]); }];
-        return;
-    }
-    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
-        if (error) { completion(error); return; }
-        if ([body[@"code"] integerValue] != 0) {
-            completion([self errorWithMessage:[self messageFrom:body fallback:@"删除失败"]]);
-            return;
-        }
-        completion(nil);
-    }];
+    [self runOKRequest:req fallback:@"删除失败" completion:completion];
 }
 
 #pragma mark - 群聊（M3）
@@ -1172,7 +1088,7 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     return [NSURL URLWithString:[NSString stringWithFormat:@"http://%@%@", self.host, path]];
 }
 
-- (nullable NSURLRequest *)postRequestToPath:(NSString *)path body:(NSDictionary *)body {
+- (nullable NSMutableURLRequest *)postRequestToPath:(NSString *)path body:(NSDictionary *)body {
     NSURL *url = [self urlForPath:path];
     if (!url) { return nil; }
     NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
