@@ -302,9 +302,9 @@
 /// 运行时实时的页签栏高度（tab 高度改了这里自动跟随），用于 Zone② detent 的半-tab 临界。
 - (CGFloat)tabBarHeight {
     NSInteger sec = [self indexOfSection:IMDetailSectionTabs];
-    if (sec == NSNotFound) { return kTabBarH; }
+    if (sec == NSNotFound) { return kIMDetailTabBarH; }
     CGFloat h = [self.tableView rectForHeaderInSection:sec].size.height;
-    return h > 0 ? h : kTabBarH;
+    return h > 0 ? h : kIMDetailTabBarH;
 }
 
 /// 松手临界吸附：Zone①(头部收拢) + Zone②(tab 贴顶后列表起步 detent)。
@@ -342,7 +342,7 @@
     // 「消息免打扰」等卡片内容；通透磨砂挡不住会透出，故此刻让底色推到不透明。
     // 与 name/成员的迁移用**同一个进度**，观感天然同步；且只作用于本页这条自持栏，不影响其他页面。
     CGFloat collapse = IMClamp(off / MAX(1, [self headerCollapseOffset]), 0, 1);
-    self.liquidNavigationBar.opaqueProgress = collapse * kNavOpaqueOnCollapse;
+    self.liquidNavigationBar.opaqueProgress = collapse * kIMDetailNavOpaqueOnCollapse;
     // 图上名（photo 模式）本页不用，恒隐。
     self.nameOnImage.alpha = 0;
     self.subOnImage.alpha = 0;

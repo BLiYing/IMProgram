@@ -22,7 +22,6 @@
 @class IMMessageModel;
 @class IMMediaDownloadCoordinator;
 @class IMDatabase;
-@class IMLiquidSegmentedControl;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -39,10 +38,10 @@ typedef NS_ENUM(NSInteger, IMDetailSection) {
 };
 
 /// 布局常量（原文件级 static const，抽到共享头供各 category 共用；定义在主实现文件）。
-FOUNDATION_EXPORT CGFloat const kPillsRowH;
-FOUNDATION_EXPORT CGFloat const kTabBarH;          ///< 页签栏高度（含分段控件上下留白）；分段控件本体 = kTabBarH-12
-FOUNDATION_EXPORT CGFloat const kTabSegH;          ///< 分段控件本体高度（点击面积）
-FOUNDATION_EXPORT CGFloat const kNavOpaqueOnCollapse; ///< 标题栏「变实」上限（头部收拢完成时的不透明度）
+FOUNDATION_EXPORT CGFloat const kIMDetailPillsRowH;
+FOUNDATION_EXPORT CGFloat const kIMDetailTabBarH;          ///< 页签栏高度（含分段控件上下留白）；分段控件本体 = kIMDetailTabBarH-12
+FOUNDATION_EXPORT CGFloat const kIMDetailTabSegH;          ///< 分段控件本体高度（点击面积）
+FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「变实」上限（头部收拢完成时的不透明度）
 
 @interface IMChatDetailViewController () <UITableViewDataSource, UITableViewDelegate, UIScrollViewDelegate, UIGestureRecognizerDelegate, IMLiquidNavigationBarDelegate, QLPreviewControllerDataSource>
 // 身份
@@ -128,12 +127,8 @@ FOUNDATION_EXPORT CGFloat const kNavOpaqueOnCollapse; ///< 标题栏「变实」
 - (CGFloat)tabBarHeight;
 - (NSArray<NSDictionary *> *)actionPillSpecs;
 - (UIButton *)actionPillButtonForSpec:(NSDictionary *)spec;
-- (UILabel *)makeNameLabel:(CGFloat)size color:(UIColor *)color shadow:(BOOL)shadow;
 - (UIView *)buildPillsView;
-- (void)fireHapticsForPhase:(CGFloat)q hasPhoto:(BOOL)hasPhoto phaseP:(CGFloat)p;
 // 动作 / 设置 / 群昵称备注（+Actions.m）：
-- (NSString *)groupRemarkKey;
-- (NSString *)remarkKey;
 - (void)commitConversationSettings;
 - (void)confirmClearHistory;
 - (void)confirmDestructive:(NSString *)title message:(NSString *)message action:(NSString *)action handler:(void (^)(void))handler;

@@ -52,11 +52,11 @@
 #pragma mark - 详情页
 
 // enum IMDetailSection / 私有类扩展已移至 IMChatDetailViewController+Private.h；此处定义那批共享布局常量。
-CGFloat const kPillsRowH = 78;
-CGFloat const kTabBarH   = 52;   ///< 页签栏高度（含分段控件上下留白）；分段控件本体 = kTabBarH-12
-CGFloat const kTabSegH   = 40;   ///< 分段控件本体高度（点击面积）
+CGFloat const kIMDetailPillsRowH = 78;
+CGFloat const kIMDetailTabBarH   = 52;   ///< 页签栏高度（含分段控件上下留白）；分段控件本体 = kIMDetailTabBarH-12
+CGFloat const kIMDetailTabSegH   = 40;   ///< 分段控件本体高度（点击面积）
 /// 标题栏「变实」上限：头部收拢完成（名字/成员已进标题栏）时的不透明程度。
-CGFloat const kNavOpaqueOnCollapse = 0.8;
+CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
 
 @implementation IMChatDetailViewController
 
@@ -166,8 +166,8 @@ CGFloat const kNavOpaqueOnCollapse = 0.8;
         spacer.frame = CGRectMake(0, 0, W, headerH);
         self.tableView.tableHeaderView = spacer; // 触发重新测量
     }
-    self.pillsView.frame = CGRectMake(0, self.topInset + 208, W, kPillsRowH);
-    self.stickyBar.frame = CGRectMake(0, [self tabPinTop], W, kTabBarH);
+    self.pillsView.frame = CGRectMake(0, self.topInset + 208, W, kIMDetailPillsRowH);
+    self.stickyBar.frame = CGRectMake(0, [self tabPinTop], W, kIMDetailTabBarH);
     [self layoutSegmented:self.stickySeg inWidth:W];
     [self syncScrollInset];
     [self applyHeaderMorph]; // 尺寸变化后重算
@@ -176,7 +176,7 @@ CGFloat const kNavOpaqueOnCollapse = 0.8;
 
 /// 所有详情页统一使用圆形头像头部；URL 仅替换头像内容。
 - (CGFloat)headerHeight {
-    return self.topInset + 200 + 8 + kPillsRowH;
+    return self.topInset + 200 + 8 + kIMDetailPillsRowH;
 }
 
 /// 底部 inset + 橡皮筋策略：
@@ -528,31 +528,31 @@ CGFloat const kNavOpaqueOnCollapse = 0.8;
 
 - (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
     if ([self sectionKindAt:section] != IMDetailSectionTabs) { return nil; }
-    UIView *wrap = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tableView.bounds.size.width, kTabBarH)];
+    UIView *wrap = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tableView.bounds.size.width, kIMDetailTabBarH)];
     [self layoutSegmented:self.segmented inWidth:tableView.bounds.size.width];
     [wrap addSubview:self.segmented];
     return wrap;
 }
 
-/// 分段控件按内容宽居中（贴顶条与表内一致，单/多 tab 段宽固定）。段高 kTabSegH、下限加宽 → 点击面积更大。
+/// 分段控件按内容宽居中（贴顶条与表内一致，单/多 tab 段宽固定）。段高 kIMDetailTabSegH、下限加宽 → 点击面积更大。
 - (void)layoutSegmented:(IMLiquidSegmentedControl *)seg inWidth:(CGFloat)width {
-    CGFloat w = [seg sizeThatFits:CGSizeMake(width - 32, kTabSegH)].width;
+    CGFloat w = [seg sizeThatFits:CGSizeMake(width - 32, kIMDetailTabSegH)].width;
     // 多 tab 下限 200（大点击面积）；**单 tab 收窄到 1/3（~67）**——单个页签无需铺那么宽，居中更紧凑。
     CGFloat minW = self.tabs.count <= 1 ? 200.0 / 3.0 : 200;
     w = IMClamp(w, minW, width - 32);
     seg.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
-    seg.frame = CGRectMake((width - w) / 2, (kTabBarH - kTabSegH) / 2, w, kTabSegH);
+    seg.frame = CGRectMake((width - w) / 2, (kIMDetailTabBarH - kIMDetailTabSegH) / 2, w, kIMDetailTabSegH);
 }
 - (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
     IMDetailSection kind = [self sectionKindAt:section];
-    if (kind == IMDetailSectionTabs) { return kTabBarH; }
+    if (kind == IMDetailSectionTabs) { return kIMDetailTabBarH; }
     if (kind == IMDetailSectionPills) { return 8; }
     return 12;
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
     IMDetailSection kind = [self sectionKindAt:indexPath.section];
-    if (kind == IMDetailSectionPills) { return kPillsRowH; }
+    if (kind == IMDetailSectionPills) { return kIMDetailPillsRowH; }
     if (kind == IMDetailSectionAbout) { return 64; } // 标题 + 一行预览（subtitle 样式）
     if (kind == IMDetailSectionTabs && self.tabs.count > 0) {
         IMChatDetailTab *t = self.tabs[self.selectedTab];
