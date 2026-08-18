@@ -75,61 +75,70 @@
     return self;
 }
 
+/// im_message_local 的**唯一列清单**（row_id 主键除外，按建表顺序）。建表语句与老库迁移
+/// **都从这里生成**，从结构上杜绝历史事故：CREATE 加了列却漏加进迁移表 → 老库缺列 →
+/// 每条 INSERT 报 "no column named ..." → 消息落库全失败、同步游标永不推进、客户端热循环
+/// 重拉同一页（file_name 曾如此，真机日志 13s 内 2.2 万条失败）。**今后新增字段只改这一处。**
+/// 注：ALTER ADD COLUMN 不能加"NOT NULL 无默认"列；conv_id 属最初建表列、任何真实库都已存在，
+/// 其迁移分支永不触发，故保留 NOT NULL 无碍。owner_uid 用 DEFAULT '' 兜底，可安全 ADD。
++ (NSArray<NSArray<NSString *> *> *)messageColumns {
+    return @[
+        @[@"owner_uid",        @"TEXT NOT NULL DEFAULT ''"],
+        @[@"client_msg_id",    @"TEXT"],
+        @[@"server_msg_id",    @"TEXT"],
+        @[@"conv_id",          @"TEXT NOT NULL"],
+        @[@"sender",           @"TEXT"],
+        @[@"recipient",        @"TEXT"],
+        @[@"content_type",     @"TEXT"],
+        @[@"content",          @"TEXT"],
+        @[@"file_name",        @"TEXT"],                    // 文件消息原始文件名（曾漏迁移，见上）
+        @[@"file_size",        @"INTEGER NOT NULL DEFAULT 0"], // 文件/媒体原始字节数
+        @[@"conv_seq",         @"INTEGER"],
+        @[@"timestamp",        @"INTEGER"],
+        @[@"status",           @"INTEGER"],
+        @[@"note",             @"TEXT"],                    // 失败消息的系统提示（如被拉黑拒收文案）
+        @[@"from_nickname",    @"TEXT"],                    // 群消息发送者昵称（M3，重进群聊气泡仍显昵称）
+        @[@"recalled_at",      @"INTEGER"],                 // M4 撤回/编辑/置顶派生状态
+        @[@"recalled_by",      @"TEXT"],
+        @[@"edited_at",        @"INTEGER"],
+        @[@"pinned_at",        @"INTEGER"],
+        @[@"reply_to_conv_seq",@"INTEGER"],                 // M4-2 引用回复
+        @[@"reply_snapshot",   @"TEXT"],
+        @[@"reply_to_from",    @"TEXT"],                    // M4-x 被引用者 uid（群聊引用条显示发送者）
+        @[@"forward_from",     @"TEXT"],                    // M4-3 转发溯源
+        @[@"group_id",         @"TEXT"],                    // M4+ 相册分组（同批多图/视频聚簇渲染宫格）
+        @[@"poster",           @"TEXT"],                    // M4+ 视频封面首帧 URL
+        @[@"media_w",          @"INTEGER NOT NULL DEFAULT 0"], // M4+ 媒体像素宽（按原比例渲染气泡）
+        @[@"media_h",          @"INTEGER NOT NULL DEFAULT 0"], // M4+ 媒体像素高
+        @[@"duration",         @"INTEGER NOT NULL DEFAULT 0"], // M4+ 视频时长（毫秒，封面左上角角标）
+        @[@"thumb",            @"TEXT"],                    // M4-7 极小模糊预览（~20px JPEG 的 data URI）
+        @[@"from_role",        @"TEXT"],                    // 群主/管理员气泡徽标兜底（owner/admin 冗余下发）
+    ];
+}
+
 - (void)createTables {
     [_queue inDatabase:^(FMDatabase *db) {
-        BOOL ok = [db executeUpdate:
-            @"CREATE TABLE IF NOT EXISTS im_message_local ("
-             "row_id INTEGER PRIMARY KEY AUTOINCREMENT,"
-             "owner_uid TEXT NOT NULL DEFAULT '',"
-             "client_msg_id TEXT, server_msg_id TEXT, conv_id TEXT NOT NULL,"
-             "sender TEXT, recipient TEXT, content_type TEXT, content TEXT,"
-             "file_name TEXT, file_size INTEGER NOT NULL DEFAULT 0,"
-             "conv_seq INTEGER, timestamp INTEGER, status INTEGER, note TEXT)"];
-        if (!ok) { IMLogDatabase(@"建表失败: %@", db.lastErrorMessage); }
-        if (![self column:@"owner_uid" existsInTable:@"im_message_local" db:db]) {
-            [db executeUpdate:@"ALTER TABLE im_message_local ADD COLUMN owner_uid TEXT NOT NULL DEFAULT ''"];
+        // im_message_local：建表 + 老库迁移**同源**于 +messageColumns（见其注释：防列清单漂移事故）。
+        NSMutableString *msgCols = [NSMutableString stringWithString:@"row_id INTEGER PRIMARY KEY AUTOINCREMENT"];
+        for (NSArray<NSString *> *c in [IMDatabase messageColumns]) { [msgCols appendFormat:@", %@ %@", c[0], c[1]]; }
+        if (![db executeUpdate:[NSString stringWithFormat:@"CREATE TABLE IF NOT EXISTS im_message_local (%@)", msgCols]]) {
+            IMLogDatabase(@"建表失败: %@", db.lastErrorMessage);
+        }
+        // 老库迁移（非破坏）：逐列缺则补，ADD COLUMN 幂等；与建表同一份清单，永不漂移。
+        for (NSArray<NSString *> *c in [IMDatabase messageColumns]) {
+            if (![self column:c[0] existsInTable:@"im_message_local" db:db]) {
+                [db executeUpdate:[NSString stringWithFormat:@"ALTER TABLE im_message_local ADD COLUMN %@ %@", c[0], c[1]]];
+            }
         }
         [db executeUpdate:@"CREATE INDEX IF NOT EXISTS idx_local_owner_conv ON im_message_local(owner_uid,conv_id)"];
-        ok = [db executeUpdate:
+
+        BOOL ok = [db executeUpdate:
             @"CREATE TABLE IF NOT EXISTS im_sent_file_local ("
              "owner_uid TEXT NOT NULL, server_msg_id TEXT NOT NULL, url TEXT NOT NULL,"
              "name TEXT NOT NULL, size INTEGER NOT NULL DEFAULT 0, timestamp INTEGER NOT NULL,"
              "PRIMARY KEY(owner_uid,url))"];
         if (!ok) { IMLogDatabase(@"创建已发送文件缓存失败: %@", db.lastErrorMessage); }
         [db executeUpdate:@"CREATE INDEX IF NOT EXISTS idx_sent_file_owner_time ON im_sent_file_local(owner_uid,timestamp DESC)"];
-        // 老库迁移（非破坏）：补 note 列——失败消息的系统提示（如被拉黑拒收文案）落库，重进会话不丢。
-        if (![self column:@"note" existsInTable:@"im_message_local" db:db]) {
-            [db executeUpdate:@"ALTER TABLE im_message_local ADD COLUMN note TEXT"];
-        }
-        // 老库迁移（非破坏）：补 from_nickname 列——群消息发送者昵称落库，重进群聊气泡仍显昵称（M3）。
-        if (![self column:@"from_nickname" existsInTable:@"im_message_local" db:db]) {
-            [db executeUpdate:@"ALTER TABLE im_message_local ADD COLUMN from_nickname TEXT"];
-        }
-        // 老库迁移（非破坏）：补 M4 消息操作派生状态列（撤回/编辑/置顶），重进会话撤回态仍在。
-        // ⚠️ CREATE TABLE 里新增的列**必须同步加进这张迁移表**——只改建表语句对已有库无效。
-        //   file_name 曾漏在这里：老库 INSERT 报 "no column named file_name"，每条消息落库失败、
-        //   同步游标永不推进，客户端热循环重拉同一页（真机日志 13s 内 2.2 万条失败）。
-        NSDictionary<NSString *, NSString *> *opCols = @{
-            @"file_name": @"TEXT", // 文件消息原始文件名（曾漏迁移，见上）
-            @"recalled_at": @"INTEGER", @"recalled_by": @"TEXT",
-            @"edited_at": @"INTEGER", @"pinned_at": @"INTEGER",
-            @"reply_to_conv_seq": @"INTEGER", @"reply_snapshot": @"TEXT", // M4-2 引用回复
-            @"reply_to_from": @"TEXT", // M4-x 被引用者 uid（群聊引用条显示发送者）
-            @"forward_from": @"TEXT", // M4-3 转发溯源
-            @"group_id": @"TEXT",     // M4+ 相册分组（同批多图/视频聚簇渲染宫格）
-            @"poster": @"TEXT",       // M4+ 视频封面首帧 URL
-            @"file_size": @"INTEGER NOT NULL DEFAULT 0", // 文件/媒体原始字节数
-            @"media_w": @"INTEGER NOT NULL DEFAULT 0",   // M4+ 媒体像素宽（按原比例渲染气泡）
-            @"media_h": @"INTEGER NOT NULL DEFAULT 0",   // M4+ 媒体像素高
-            @"duration": @"INTEGER NOT NULL DEFAULT 0",  // M4+ 视频时长（毫秒，封面左上角角标）
-            @"thumb": @"TEXT",        // M4-7 极小模糊预览（~20px JPEG 的 data URI，未下载卡片的占位）
-            @"from_role": @"TEXT",    // 群主/管理员气泡徽标兜底（仅 owner/admin 冗余下发；重进/退群后历史消息仍显徽标）
-        };
-        for (NSString *col in opCols) {
-            if (![self column:col existsInTable:@"im_message_local" db:db]) {
-                [db executeUpdate:[NSString stringWithFormat:@"ALTER TABLE im_message_local ADD COLUMN %@ %@", col, opCols[col]]];
-            }
-        }
         if (![self column:@"size" existsInTable:@"im_sent_file_local" db:db]) {
             [db executeUpdate:@"ALTER TABLE im_sent_file_local ADD COLUMN size INTEGER NOT NULL DEFAULT 0"];
         }
