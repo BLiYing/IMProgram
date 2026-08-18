@@ -183,8 +183,12 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (NSInteger)approvalPendingCount;
 - (void)maybeAutoPopAnnouncement;
 - (void)refreshComposerMuteState;
-// 群资料重拉（主实现 +群聊 M3-5；被 +PinnedBanner 的入群审批回调等跨 TU 调用）：
+// 群聊 M3-5（+Group.m）：reloadGroupInfo 被 +PinnedBanner 入群审批回调调；loadConvRemark 被主实现
+// viewDidLoad 调；onGroupEvent:/onConvUpdatedForRemark: 由 viewDidLoad @selector 接线：
 - (void)reloadGroupInfo;
+- (void)loadConvRemark;
+- (void)onConvUpdatedForRemark:(NSNotification *)note;
+- (void)onGroupEvent:(NSNotification *)note;
 
 // 右上圆头像按钮 / 资料页入口（+Nav.m）：安装钮由主实现与 reloadGroupInfo 调，头像点击 selector 需可见：
 - (void)installInfoAvatarButtonWithURL:(nullable NSString *)url seed:(NSString *)seed
