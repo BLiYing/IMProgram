@@ -220,9 +220,14 @@ static CGFloat const kIMRowLeading = 16;
     }
     // 富媒体预览（M4-6）：图片/视频/文件显示占位标签而非 URL（微信式，不加昵称前缀）。
     if (!recalledPreview) {
-        NSDictionary *mediaNames = @{ @"image": @"[图片]", @"video": @"[视频]", @"file": @"[文件]",
-                                      @"chat_record": @"[聊天记录]",
-                                      @"audio": @"[语音]", @"location": @"[位置]" }; // 语音/位置等类型落地后自动生效
+        // 静态占位表（每 cell 都取，不必每次重建）；语音/位置等类型落地后自动生效。
+        static NSDictionary *mediaNames;
+        static dispatch_once_t once;
+        dispatch_once(&once, ^{
+            mediaNames = @{ @"image": @"[图片]", @"video": @"[视频]", @"file": @"[文件]",
+                            @"chat_record": @"[聊天记录]",
+                            @"audio": @"[语音]", @"location": @"[位置]" };
+        });
         recalledPreview = mediaNames[c.lastContentType ?: @""];
     }
     if (c.isGroup) {
@@ -442,13 +447,10 @@ static CGFloat const kIMRowLeading = 16;
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
     self.visible = NO;
-    [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidReceiveMessageNotification object:nil];
-    [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidReceiveReadNotification object:nil];
-    [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidReceiveGroupEventNotification object:nil];
-    [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidUpdateConversationNotification object:nil];
-    [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidChangeStateNotification object:nil];
-    [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidReceivePresenceNotification object:nil];
-    for (NSNotificationName n in @[IMMediaSendProgressDidChangeNotification, IMMediaSendMetaDidChangeNotification,
+    for (NSNotificationName n in @[IMSocketDidReceiveMessageNotification, IMSocketDidReceiveReadNotification,
+                                   IMSocketDidReceiveGroupEventNotification, IMSocketDidUpdateConversationNotification,
+                                   IMSocketDidChangeStateNotification, IMSocketDidReceivePresenceNotification,
+                                   IMMediaSendProgressDidChangeNotification, IMMediaSendMetaDidChangeNotification,
                                    IMMediaSendDidDispatchNotification, IMMediaSendDidFailNotification,
                                    IMMediaSendDidCancelNotification]) {
         [NSNotificationCenter.defaultCenter removeObserver:self name:n object:nil];

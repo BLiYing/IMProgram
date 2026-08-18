@@ -30,8 +30,7 @@ static inline CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(
 
 /// 页面分区（动态组装到 _sections）。
 typedef NS_ENUM(NSInteger, IMDetailSection) {
-    IMDetailSectionPills = 0,  ///< 操作排（静音/搜索/更多）
-    IMDetailSectionInfo,       ///< 单聊：备注名 / 用户名
+    IMDetailSectionInfo = 0,   ///< 单聊：备注名 / 用户名
     IMDetailSectionAbout,      ///< 群公告 / 群简介（群聊·全员只读·非空才显，G1 修·决策 17）
     IMDetailSectionSettings,   ///< 置顶 / 免打扰（+群主管理员：群管理）
     IMDetailSectionTabs,       ///< 分类页签内容（header=分段控件）

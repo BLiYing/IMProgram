@@ -358,7 +358,7 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
         self.segmented.selectedIndex = self.selectedTab;
         self.stickySeg.selectedIndex = self.selectedTab;
     }
-    [self recomputeTabContent];
+    [self recomputeTabContentWithMessages:msgs]; // 复用上面已加载的消息，避免再读一次全表
 }
 
 - (void)segmentChanged:(IMLiquidSegmentedControl *)seg { [self switchToTab:seg.selectedIndex scrollToPin:YES]; }
@@ -447,16 +447,27 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
     }
 }
 
+/// 新→旧（timestamp 降序）比较器；媒体页与文件/语音/链接页共用。
+- (NSComparator)tabNewestFirstComparator {
+    return ^NSComparisonResult(IMMessageModel *a, IMMessageModel *b) {
+        return a.timestamp > b.timestamp ? NSOrderedAscending : (a.timestamp < b.timestamp ? NSOrderedDescending : NSOrderedSame);
+    };
+}
+
 /// 依当前选中页签，预备内容数组（媒体项 / 文件·语音·链接消息）。
-- (void)recomputeTabContent {
+/// 传入已加载的会话消息可省一次全表读（rebuildTabs 复用其结果）；传 nil 时自行从库加载。
+- (void)recomputeTabContentWithMessages:(NSArray<IMMessageModel *> *)msgs {
     self.tabMedia = @[]; self.tabMediaMessages = @[]; self.tabRows = @[];
     if (self.tabs.count == 0) { return; }
     IMChatDetailTab *t = self.tabs[self.selectedTab];
     if (t.kind == IMDetailTabKindMembers) { return; }
-    __block NSArray<IMMessageModel *> *msgs = @[];
-    [self performDatabaseOperation:^(IMDatabase *database) {
-        msgs = [database messagesForConv:self.convID];
-    }];
+    if (!msgs) {
+        __block NSArray<IMMessageModel *> *loaded = @[];
+        [self performDatabaseOperation:^(IMDatabase *database) {
+            loaded = [database messagesForConv:self.convID];
+        }];
+        msgs = loaded;
+    }
     if (t.kind == IMDetailTabKindMedia) {
         NSMutableArray<IMMessageModel *> *media = [NSMutableArray array];
         for (IMMessageModel *m in msgs) {
@@ -464,9 +475,7 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
         }
         // 新→旧。**先排消息再派生 item**，保证 tabMedia 与 tabMediaMessages 逐位对齐
         //（宫格要按 index 反查消息取下载态/thumb）。
-        NSArray<IMMessageModel *> *sorted = [media sortedArrayUsingComparator:^NSComparisonResult(IMMessageModel *a, IMMessageModel *b) {
-            return a.timestamp > b.timestamp ? NSOrderedAscending : (a.timestamp < b.timestamp ? NSOrderedDescending : NSOrderedSame);
-        }];
+        NSArray<IMMessageModel *> *sorted = [media sortedArrayUsingComparator:[self tabNewestFirstComparator]];
         NSMutableArray<IMMediaItem *> *items = [NSMutableArray arrayWithCapacity:sorted.count];
         for (IMMessageModel *m in sorted) {
             [items addObject:[IMMediaItem itemWithURL:IMMediaFullURL(m.content, self.host)
@@ -481,10 +490,10 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
     // 文件/语音/链接：过滤 + 新→旧
     NSMutableArray<IMMessageModel *> *rows = [NSMutableArray array];
     for (IMMessageModel *m in msgs) { if ([IMChatDetailTabs message:m matchesKind:t.kind]) { [rows addObject:m]; } }
-    self.tabRows = [rows sortedArrayUsingComparator:^NSComparisonResult(IMMessageModel *a, IMMessageModel *b) {
-        return a.timestamp > b.timestamp ? NSOrderedAscending : (a.timestamp < b.timestamp ? NSOrderedDescending : NSOrderedSame);
-    }];
+    self.tabRows = [rows sortedArrayUsingComparator:[self tabNewestFirstComparator]];
 }
+
+- (void)recomputeTabContent { [self recomputeTabContentWithMessages:nil]; }
 
 #pragma mark - Section 组装
 
@@ -513,7 +522,6 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     switch ([self sectionKindAt:section]) {
-        case IMDetailSectionPills:    return 1;
         case IMDetailSectionInfo:     return 2; // 备注名 + 用户名
         case IMDetailSectionAbout:    return (NSInteger)[self aboutRowKinds].count;
         case IMDetailSectionSettings: return (NSInteger)[self settingsRowKinds].count;
@@ -527,7 +535,7 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
     IMChatDetailTab *t = self.tabs[self.selectedTab];
     switch (t.kind) {
         case IMDetailTabKindMembers: return 1 + (NSInteger)self.group.members.count; // 添加成员 + 成员
-        case IMDetailTabKindMedia:   return self.tabMedia.count > 0 ? 1 : 1;          // 1 个宫格 cell（空态也占位）
+        case IMDetailTabKindMedia:   return 1;                                        // 1 个宫格 cell（空态也占位）
         default:                     return MAX(1, (NSInteger)self.tabRows.count);    // 至少 1（空态提示）
     }
 }
@@ -552,13 +560,11 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
 - (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
     IMDetailSection kind = [self sectionKindAt:section];
     if (kind == IMDetailSectionTabs) { return kIMDetailTabBarH; }
-    if (kind == IMDetailSectionPills) { return 8; }
     return 12;
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
     IMDetailSection kind = [self sectionKindAt:indexPath.section];
-    if (kind == IMDetailSectionPills) { return kIMDetailPillsRowH; }
     if (kind == IMDetailSectionAbout) { return 64; } // 标题 + 一行预览（subtitle 样式）
     if (kind == IMDetailSectionTabs && self.tabs.count > 0) {
         IMChatDetailTab *t = self.tabs[self.selectedTab];
@@ -577,7 +583,6 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     switch ([self sectionKindAt:indexPath.section]) {
-        case IMDetailSectionPills:    return [self pillsCell:tableView];
         case IMDetailSectionInfo:     return [self infoCell:tableView row:indexPath.row];
         case IMDetailSectionAbout:    return [self aboutCell:tableView row:indexPath.row];
         case IMDetailSectionSettings: return [self settingsCell:tableView row:indexPath.row];
@@ -586,42 +591,7 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
     return [tableView dequeueReusableCellWithIdentifier:@"plain" forIndexPath:indexPath];
 }
 
-- (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell
- forRowAtIndexPath:(NSIndexPath *)indexPath {
-    if ([self sectionKindAt:indexPath.section] != IMDetailSectionPills) { return; }
-    // insetGrouped 会在展示阶段重新生成分组卡片背景，因此这里再次明确清空，避免按钮下方残留整行圆角底框。
-    cell.backgroundColor = UIColor.clearColor;
-    cell.contentView.backgroundColor = UIColor.clearColor;
-    cell.backgroundView.backgroundColor = UIColor.clearColor;
-    cell.backgroundConfiguration = [UIBackgroundConfiguration clearConfiguration];
-    [self updatePillsVisibility];
-}
-
 #pragma mark - Cells
-
-- (UITableViewCell *)pillsCell:(UITableView *)tv {
-    // 不复用普通分组 cell，避免 UIKit 将其他 section 的 grouped 背景配置带到操作排。
-    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
-    cell.selectionStyle = UITableViewCellSelectionStyleNone;
-    cell.backgroundColor = UIColor.clearColor;
-    cell.contentView.backgroundColor = UIColor.clearColor;
-    UIView *clearBackground = [UIView new];
-    clearBackground.backgroundColor = UIColor.clearColor;
-    cell.backgroundView = clearBackground;
-    cell.backgroundConfiguration = [UIBackgroundConfiguration clearConfiguration];
-    // 操作排按入口定制（去「静音」——下面有免打扰开关，重复）：与 header 悬浮 pills 共用规格。
-    NSArray<NSDictionary *> *specs = [self actionPillSpecs];
-    UIStackView *stack = [[UIStackView alloc] initWithFrame:CGRectInset(cell.contentView.bounds, 0, 6)];
-    stack.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    stack.axis = UILayoutConstraintAxisHorizontal; stack.distribution = UIStackViewDistributionFillEqually; stack.spacing = 9;
-    for (NSDictionary *spec in specs) {
-        // 与 header 悬浮 pills 共用同一构造（含 iOS 26 玻璃前景单色化的 accent 兜底）。
-        // 「更多」在 helper 内部即挂到 moreTapped:，交给 IMPopoverCard 的 UIKit sheet/popover（iOS 26 自动 Liquid Glass）。
-        [stack addArrangedSubview:[self actionPillButtonForSpec:spec]];
-    }
-    [cell.contentView addSubview:stack];
-    return cell;
-}
 
 - (UITableViewCell *)infoCell:(UITableView *)tv row:(NSInteger)row {
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
