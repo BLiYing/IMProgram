@@ -5,11 +5,17 @@
 
 ## 当前焦点
 
-**IMChatViewController 续拆：置顶横幅栈抽 +PinnedBanner.m ✅ 代码完成（2026-08-19，clean build 绿，纯平移未改行为，待手测）**
-- 主文件 653–783（G0 置顶 / BannerStackDelegate / G2 禁言锁，11 个方法）整块平移到新 `IMChatViewController+PinnedBanner.m`（157 行）。主文件 1496→1364 行，离红线 1500 更远（仍 WARN ≥1200）。
-- 跨 TU 可见性收口：`reloadPinnedBanner`/`approvalPendingCount`/`maybeAutoPopAnnouncement`/`refreshComposerMuteState`（仍被主文件调）+ `reloadGroupInfo`（被搬走的入群审批回调反向调）登记进 `+Private.h`；`setComposerLocked:` 仅 TU 内用，走文件内前置声明不进 +Private.h。删主文件 3 个已冗余 import（IMPinnedBannerView/IMJoinRequestsViewController/IMGroupTextViewController）。
-- **待手测**：置顶横幅顶开表 / 点横幅跳转 / 置顶列表 sheet 取消置顶 / 公告卡自动弹与点开 / 入群申请横幅 / 禁言锁输入栏。
-- **下一块可续拆**（同法平移）：群聊 M3-5（reloadGroupInfo/群备注/onGroupEvent）→ +Group.m；右上头像+导航栏（IMChatAvatarImage/installInfoAvatarButton/singleInfoTapped 等）→ +Nav.m。
+**IMChatViewController 续拆收官：主文件 1496→725 行（6 轮平移，2026-08-19，逐 commit clean build 绿，纯平移未改行为，待手测）**
+- 六个内聚子系统整块平移到分文件 category（逐轮编译过→提交）：
+  ① `+PinnedBanner.m`（G0 置顶/BannerStackDelegate/G2 禁言锁，11 法）② `+SendService.m`（IMMediaSendService 发件箱对账/msg_op/徽标节流，15 法）
+  ③ `+Nav.m`（标题栏头像钮+资料页入口，7 法含 static 头像绘制）④ `+Group.m`（群资料/备注/群事件/发送者身份，8 法）
+  ⑤ `+Presence.m`（对端在线态定时重算/watch/快照，4 法）⑥ `+Position.m`（进会话定位+可见即读节流上报，5 法）
+  另：编辑/选择 tableView delegate 6 法并入既有 `+Selection.m`、举报 2 法并入 `+Menu.m`。
+- 跨 TU 可见性均按 `+Private.h` 约定收口（被主实现/别的 TU 调或 @selector 接线的方法登记；纯 TU 内自用的不登记）。
+  **修 Round① 埋下的 -Wprotocol**：`IMChatBannerStackDelegate` 5 方法均 @required，conformance 从类扩展移到 `(PinnedBanner)` category（对齐 DataSource/MediaFlow/Menu 约定）。共删 8 个搬空后冗余 import。
+- **剩余主文件 = 不可再分骨架**：init×2 / 统一进会话入口(工厂法) / 生命周期 / **setupUI(~215 行)** / dealloc（ivar 直接访问 + 构造/视图搭建，category 不可见 ivar，故留主实现）。
+  **setupUI 是下一个真正的体量点**：单方法 215 行，§7-正解是抽 `IMComposerBar` 协作对象（自持输入栏/附件面板/粘贴条视图+约束），**非再平移**——留待专门做。
+- **待手测**（编译只保符号，交互需模拟器实测）：三横幅顶开表/跳转/置顶 sheet、公告卡、入群申请、禁言锁、发件箱进度回填、外观切换、右上头像进资料页、群成员资料页、在线态副标题、进会话定位到首条未读、可见即读双勾、多选勾选态、举报。
 
 **IMChatViewController 巨类拆分 + /code-review 全修 ✅ 代码完成（2026-08-15～18，clean build 绿，待手测，纯 iOS 端）**
 - 4718 行 Massive VC 按《整洁代码》拆分：真·SRP 抽独立对象/纯函数（`IMChatMessageLogic`、`IMPasteImageTextField`、`IMPendingMediaThumbnail`、`IMChatBannerStack` 三横幅栈+delegate）；其余强耦合子系统（全回耦 messages/tableView/nav/socket）按**分文件 category** 平移到多 TU：`+Selection/+Menu/+DataSource/+Media/+MediaFlow/+Mention/+Socket/+Scroll/+Compose`。私有属性/协议/跨 TU 私有方法登记在 `IMChatViewController+Private.h`。主文件 4718→约 1470 行，未改一行行为，逐 commit build 绿。
