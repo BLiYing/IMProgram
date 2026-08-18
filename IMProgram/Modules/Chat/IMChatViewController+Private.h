@@ -186,6 +186,12 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 // 群资料重拉（主实现 +群聊 M3-5；被 +PinnedBanner 的入群审批回调等跨 TU 调用）：
 - (void)reloadGroupInfo;
 
+// 右上圆头像按钮 / 资料页入口（+Nav.m）：安装钮由主实现与 reloadGroupInfo 调，头像点击 selector 需可见：
+- (void)installInfoAvatarButtonWithURL:(nullable NSString *)url seed:(NSString *)seed
+                                  name:(nullable NSString *)name action:(SEL)action;
+- (void)groupInfoTapped;
+- (void)singleInfoTapped;
+
 // 列表渲染 / 相册聚簇：cell 取数、发送者身份、媒体门控、行布局：
 - (BOOL)isFirstInSenderRun:(NSInteger)row;
 - (BOOL)isLastInSenderRun:(NSInteger)row;
