@@ -57,6 +57,10 @@ extern NSString * const kIMMediaSendMessageKey;
 /// 重进会话时把它们合并进列表，否则这条消息要等落库后才可见。返回服务持有的模型实例。
 - (NSArray<IMMessageModel *> *)inFlightMessagesInConv:(NSString *)convID;
 
+/// 会话内是否有在途发送件（只判有无，不构造/排序数组）——会话列表每 cell 每次 reload 都要问，
+/// 用它替代 `inFlightMessagesInConv:.count > 0`，命中即返回。
+- (BOOL)hasInFlightInConv:(NSString *)convID;
+
 /// 该 clientMsgID 是否有活跃作业（排队/转码/上传中；不含已 dispatch）。
 - (BOOL)hasActiveJobForClientMsgID:(NSString *)clientMsgID;
 

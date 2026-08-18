@@ -760,7 +760,7 @@ static CGFloat const kIMRowLeading = 16;
     IMConversation *c = self.conversations[indexPath.row];
     [cell configureWithConversation:c mine:[c.lastFrom isEqualToString:self.userID] host:self.host];
     // 本地发送状态（常驻发送服务）：发送中 ↑ / 失败红 !，随服务通知刷新（onMediaSendStateChange）。
-    [cell applyOutboxSending:[IMMediaSendService.shared inFlightMessagesInConv:c.convID].count > 0
+    [cell applyOutboxSending:[IMMediaSendService.shared hasInFlightInConv:c.convID]
                       failed:[IMMediaSendService.shared hasFailedOutboxInConv:c.convID]];
     return cell;
 }

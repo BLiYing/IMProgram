@@ -93,6 +93,14 @@ NSString * const kIMMediaSendMessageKey = @"message";
     return out;
 }
 
+- (BOOL)hasInFlightInConv:(NSString *)convID {
+    if (convID.length == 0) { return NO; }
+    for (NSString *key in _jobs) {
+        if ([_jobs[key].message.convID isEqualToString:convID]) { return YES; } // 命中即止，不建数组/不排序
+    }
+    return NO;
+}
+
 - (BOOL)hasActiveJobForClientMsgID:(NSString *)clientMsgID {
     return clientMsgID.length > 0 && _jobs[clientMsgID] != nil;
 }

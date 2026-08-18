@@ -360,9 +360,10 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onMessageRemoved:)
                                                name:IMSocketDidRemoveMessageNotification object:nil];
     // 任务2：返回按钮全局未读徽标——其它会话来新消息 / 已读位点变化时刷新数字（本会话已排除，不受影响）。
-    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(refreshBackUnreadBadge)
+    // 走合并入口：消息成批到达时每条一次全表 SUM(unread) 是主线程阻塞浪费，0.12s 合并（同会话列表）。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(scheduleBackUnreadBadgeRefresh)
                                                name:IMSocketDidReceiveMessageNotification object:nil];
-    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(refreshBackUnreadBadge)
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(scheduleBackUnreadBadgeRefresh)
                                                name:IMSocketDidReceiveReadNotification object:nil];
     // 资料页清空聊天记录 → 本会话清空内存并刷新（否则返回聊天页仍显旧消息）。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onConversationCleared:)
@@ -556,6 +557,13 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     [self.messages removeObjectAtIndex:idx];
     [self.tableView reloadData];
     [self reloadPinnedBanner]; // 删掉的可能正是一条置顶消息，别让横幅指向已消失的消息
+}
+
+/// 合并刷新入口：消息/已读通知成批到达时，0.12s 内只跑一次徽标刷新（避免每条一次全表 SUM）。
+/// dealloc 已统一 cancelPreviousPerformRequestsWithTarget:self 兜底，无残留调用。
+- (void)scheduleBackUnreadBadgeRefresh {
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(refreshBackUnreadBadge) object:nil];
+    [self performSelector:@selector(refreshBackUnreadBadge) withObject:nil afterDelay:0.12];
 }
 
 /// 任务2：刷新返回按钮的全局未读总数徽标（各会话 unread 之和，排除当前会话，微信式）。
