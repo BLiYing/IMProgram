@@ -126,7 +126,12 @@
         [b setTitleColor:IMTheme.textPrimary forState:UIControlStateNormal];
         [b setTitleColor:IMTheme.textTertiary forState:UIControlStateDisabled];
     }
+    // 旧式 UIButton（setTitle:forState: 系列，未用 UIButtonConfiguration）→ contentEdgeInsets 仍生效；
+    // iOS15 起该属性被标记弃用（仅在 configuration 按钮上被忽略），此处按住弃用告警即可。
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
     [b setContentEdgeInsets:UIEdgeInsetsMake(0, 6, 0, 6)];
+#pragma clang diagnostic pop
     return b;
 }
 

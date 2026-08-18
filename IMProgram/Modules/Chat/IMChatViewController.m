@@ -96,8 +96,9 @@ NSNotificationName const IMChatConversationClearedNotification = @"IMChatConvers
         _pendingReadSeq = readSeq;
         // 本地落库：进入即秒显历史。
         __block NSArray<IMMessageModel *> *cachedMessages = @[];
+        NSString *convID = _convID; // 取局部，避免同步 block 隐式捕获 self（-Wimplicit-retain-self）
         [IMDatabase.sharedDatabase performWithAccountContext:_databaseContext block:^(IMDatabase *database) {
-            cachedMessages = [database messagesForConv:_convID];
+            cachedMessages = [database messagesForConv:convID];
         }];
         _messages = [cachedMessages mutableCopy];
         _seenConvSeqs = [NSMutableSet set];

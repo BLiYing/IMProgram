@@ -56,24 +56,31 @@ extern NSNotificationName const IMChatConversationClearedNotification;
 /// 群头像（会话列表进入时透传，供右上头像按钮**立即显真头像、免闪首字母**；空则回退首字母，进入后 reloadGroupInfo 补正）。
 @property (nonatomic, copy, nullable) NSString *groupAvatarURL;
 
-/// 供统一自定义导航栏读取群聊副标题（成员人数）；不改变聊天业务状态。
-- (BOOL)im_isGroupChat;
-- (nullable NSString *)im_navigationSubtitle;
-
 /// 本会话 id（单聊=IMConversationID(uid,peer)，群聊=群 topic_id）。供详情页在导航栈里反查本聊天页。
 @property (nonatomic, copy, readonly) NSString *convID;
-
-/// 转发一条消息：present 转发选择页并把选中的会话逐一回声。**presenter** 是实际弹出选择页的 VC
-/// （详情页文件列表复用本逻辑时传自己，保证呈现上下文正确、toast 落在可见页）。
-- (void)presentForwardPickerForMessage:(IMMessageModel *)message fromViewController:(UIViewController *)presenter;
-
-/// 定位到本会话某条消息：滚到该 conv_seq 行并高亮一闪。详情页「定位到聊天」pop 回本页后调用。
-- (void)jumpToConvSeq:(int64_t)convSeq;
 
 - (instancetype)init NS_UNAVAILABLE;
 - (instancetype)initWithNibName:(nullable NSString *)nibNameOrNil bundle:(nullable NSBundle *)nibBundleOrNil NS_UNAVAILABLE;
 - (instancetype)initWithCoder:(NSCoder *)coder NS_UNAVAILABLE;
 
+@end
+
+// 以下公开方法实现在分文件 category（非主 @implementation）。声明放在对应 category 接口而非主 @interface，
+// 主实现 TU 才不会报「方法未实现 / category 抢实现主类方法」——外部调用方 import 本头即可见，行为不变。
+
+/// 统一自定义导航栏读取的展示能力（实现在 +Socket.m）：群聊判定 + 副标题（在线态/连接态/成员数/输入中）。
+@interface IMChatViewController (NavigationBar)
+- (BOOL)im_isGroupChat;
+- (nullable NSString *)im_navigationSubtitle;
+@end
+
+/// 消息路由入口（实现在 +MediaFlow.m），详情页/媒体库复用：
+@interface IMChatViewController (Routing)
+/// 转发一条消息：present 转发选择页并把选中的会话逐一回声。**presenter** 是实际弹出选择页的 VC
+/// （详情页文件列表复用本逻辑时传自己，保证呈现上下文正确、toast 落在可见页）。
+- (void)presentForwardPickerForMessage:(IMMessageModel *)message fromViewController:(UIViewController *)presenter;
+/// 定位到本会话某条消息：滚到该 conv_seq 行并高亮一闪。详情页「定位到聊天」pop 回本页后调用。
+- (void)jumpToConvSeq:(int64_t)convSeq;
 @end
 
 NS_ASSUME_NONNULL_END

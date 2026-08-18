@@ -74,7 +74,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) int64_t pendingReadSeq;  // 已滚入视口的最大 conv_seq（节流后上报）
 @property (nonatomic, assign) int64_t peerReadSeq;     // 对端已读位点（用于「已读」双勾）
 @property (nonatomic, strong) IMPresence *peerPresence; // 对端在线态（快照 + presence 帧增量更新）
-@property (nonatomic, strong) NSTimer *presenceTickTimer; // 在线态定时重算（租约到期无事件，须自己叫醒，见 startPresenceTick）
+@property (nonatomic, strong, nullable) NSTimer *presenceTickTimer; // 在线态定时重算（租约到期无事件，须自己叫醒，见 startPresenceTick）
 @property (nonatomic, assign) IMSocketState connState; // 连接态（与在线点共同决定标题）
 @property (nonatomic, assign) BOOL didInitialPosition; // 已做进会话定位（只定位一次）
 @property (nonatomic, assign) BOOL didInitialSettle;   // 进场动画后已做过一次落定校正（防从子页返回时被强拉贴底）
@@ -244,6 +244,14 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (void)forwardEchoContent:(NSString *)content contentType:(NSString *)ct forwardFrom:(NSString *)origin
                   fileName:(nullable NSString *)fileName fileSize:(int64_t)fileSize
                 attributes:(nullable IMMediaAttributes *)attributes toConv:(NSString *)convID toUser:(NSString *)toUser;
+
+// target-action 选择器：主实现 setupUI 用 @selector(...) 接线，方法体在各 category（+Media/+Scroll/+MediaFlow），
+// 在此登记让主 TU 见到声明（否则 -Wundeclared-selector）：
+- (void)handleReplyJumpTap:(UITapGestureRecognizer *)gr;
+- (void)voiceTapped;
+- (void)emojiTapped;
+- (void)toggleAttachPanel;
+- (void)jumpTapped;
 @end
 
 // 带必需方法的协议 conformance 挂在实现其必需方法的 category 上（避免主 TU 的 -Wprotocol）：
