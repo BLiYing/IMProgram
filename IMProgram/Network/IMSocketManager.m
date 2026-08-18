@@ -34,9 +34,11 @@ NSString * const kIMPresenceUserKey = @"presenceUser";
 NSString * const kIMPresenceKey = @"presence";
 NSString * const IMSocketDidApplyMsgOpNotification = @"IMSocketDidApplyMsgOpNotification";
 NSString * const kIMMsgOpTargetSeqKey = @"msgOpTargetSeq";
-NSString * const kIMMsgOpKey = @"msgOp";
 NSString * const kIMMsgOpContentKey = @"msgOpContent";
-NSString * const kIMMsgOpPinnedKey = @"msgOpPinned";
+NSString * const kIMMsgOpRecalledAtKey = @"msgOpRecalledAt";
+NSString * const kIMMsgOpRecalledByKey = @"msgOpRecalledBy";
+NSString * const kIMMsgOpEditedAtKey = @"msgOpEditedAt";
+NSString * const kIMMsgOpPinnedAtKey = @"msgOpPinnedAt";
 NSString * const IMSocketDidRejectMsgOpNotification = @"IMSocketDidRejectMsgOpNotification";
 NSString * const IMSocketDidRemoveMessageNotification = @"IMSocketDidRemoveMessageNotification";
 NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdateConversationNotification";
@@ -985,9 +987,17 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     }];
     if (!applied) { return NO; }
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSMutableDictionary *info = [@{ kIMConvIDKey: convID, kIMMsgOpTargetSeqKey: @(target), kIMMsgOpKey: op } mutableCopy];
-        if (newContent) { info[kIMMsgOpContentKey] = newContent; }
-        if ([op isEqualToString:kIMMsgOpPin]) { info[kIMMsgOpPinnedKey] = @(pinnedAt > 0); } // 收端据此增删横幅项
+        // 契约（见 .h）：只下发与库一致的字段终值，收端逐字段应用、不再解读 op/pinned 协议细节。
+        NSMutableDictionary *info = [@{ kIMConvIDKey: convID, kIMMsgOpTargetSeqKey: @(target) } mutableCopy];
+        if (recalledAt > 0) {
+            info[kIMMsgOpRecalledAtKey] = @(recalledAt);
+            if (by.length > 0) { info[kIMMsgOpRecalledByKey] = by; }
+        }
+        if (editedAt > 0) {
+            info[kIMMsgOpEditedAtKey] = @(editedAt);
+            if (newContent) { info[kIMMsgOpContentKey] = newContent; }
+        }
+        if (pinnedAt != 0) { info[kIMMsgOpPinnedAtKey] = @(MAX((int64_t)0, pinnedAt)); } // -1(清零)→0=取消置顶
         [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidApplyMsgOpNotification object:self userInfo:info];
     });
     return YES;

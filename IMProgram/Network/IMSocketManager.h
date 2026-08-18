@@ -27,13 +27,18 @@ extern NSString * const kIMGroupResultKey; ///< G3 join_result 的 approved|reje
 /// 收到已读回执（read）时广播（主线程）：会话列表据此刷新——对端已读→我发的变✓✓；本人多端已读→未读清零。
 extern NSString * const IMSocketDidReceiveReadNotification;
 /// 消息操作（撤回/编辑/置顶，M4）应用到某条消息时广播（主线程）：聊天页/会话列表据此就地刷新。
-/// userInfo：kIMConvIDKey=会话、kIMMsgOpTargetSeqKey=目标 conv_seq(NSNumber)、kIMMsgOpKey=op、
-/// kIMMsgOpContentKey=编辑新文本(可空)、kIMMsgOpPinnedKey=置顶态 BOOL(NSNumber，仅 op=pin 带)。
+/// **契约：socket 层已解析 wire 语义并落库，userInfo 携带与库一致的字段终值，收端无脑逐字段应用**
+/// （收端不得再解读 op/pinned 等协议细节——两处解析曾各带相反的兜底默认，是静默不同步的温床）。
+/// userInfo：kIMConvIDKey=会话、kIMMsgOpTargetSeqKey=目标 conv_seq(NSNumber)；按操作各带：
+/// kIMMsgOpRecalledAtKey(+kIMMsgOpRecalledByKey)=撤回时刻/操作者、kIMMsgOpEditedAtKey
+/// (+kIMMsgOpContentKey)=编辑时刻/新文本、kIMMsgOpPinnedAtKey=置顶时刻(0=取消置顶)。
 extern NSString * const IMSocketDidApplyMsgOpNotification;
 extern NSString * const kIMMsgOpTargetSeqKey;
-extern NSString * const kIMMsgOpKey;
 extern NSString * const kIMMsgOpContentKey;
-extern NSString * const kIMMsgOpPinnedKey;
+extern NSString * const kIMMsgOpRecalledAtKey;
+extern NSString * const kIMMsgOpRecalledByKey;
+extern NSString * const kIMMsgOpEditedAtKey;
+extern NSString * const kIMMsgOpPinnedAtKey;
 /// 我发起的消息操作被拒（如撤回超时）时广播（主线程）：userInfo[@"message"]=服务端文案。
 extern NSString * const IMSocketDidRejectMsgOpNotification;
 /// 某条消息被物理移除（任务2：为所有人删除 op=delete / 仅为我删除 msg_hidden）时广播（主线程）：

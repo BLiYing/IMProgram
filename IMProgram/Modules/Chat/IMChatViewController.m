@@ -517,24 +517,28 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     NSString *convID = note.userInfo[kIMConvIDKey];
     if (![convID isEqualToString:self.convID]) { return; }
     int64_t target = [note.userInfo[kIMMsgOpTargetSeqKey] longLongValue];
-    NSString *op = note.userInfo[kIMMsgOpKey];
-    NSString *newContent = note.userInfo[kIMMsgOpContentKey];
-    int64_t nowMs = (int64_t)([NSDate date].timeIntervalSince1970 * 1000);
+    // 契约（IMSocketManager.h）：socket 层已解析并落库，这里逐字段采用**与库一致的终值**——
+    // 不再解读 op/pinned 协议细节（曾两处解析各带相反默认），也不再自造时间戳（曾与库值偏差，
+    // 重进会话后撤回/置顶时刻跳变）。
+    NSNumber *recalledAt = note.userInfo[kIMMsgOpRecalledAtKey];
+    NSNumber *editedAt   = note.userInfo[kIMMsgOpEditedAtKey];
+    NSNumber *pinnedAt   = note.userInfo[kIMMsgOpPinnedAtKey];
     for (IMMessageModel *m in self.messages) {
         if (m.convSeq != target) { continue; }
-        if ([op isEqualToString:kIMMsgOpRecall]) { m.recalledAt = nowMs; }
-        else if ([op isEqualToString:kIMMsgOpEdit]) { m.editedAt = nowMs; if (newContent) { m.content = newContent; } }
-        else if ([op isEqualToString:kIMMsgOpPin]) {
-            // 置顶/取消共用 op=pin；socket 层（applyMsgOpPayload）已按 payload[pinned] 解析成明确
-            // BOOL 下发，这里直接采用，不再各自兜一套"缺字段默认"——两端默认曾相反（socket 缺=取消 /
-            // 此处缺=置顶），一旦下发口径变动极易埋静默不同步。以 socket 的权威解析为准。
-            BOOL pinned = [note.userInfo[kIMMsgOpPinnedKey] boolValue];
-            m.pinnedAt = pinned ? nowMs : 0;
+        if (recalledAt) {
+            m.recalledAt = recalledAt.longLongValue;
+            m.recalledBy = note.userInfo[kIMMsgOpRecalledByKey];
         }
+        if (editedAt) {
+            m.editedAt = editedAt.longLongValue;
+            NSString *newContent = note.userInfo[kIMMsgOpContentKey];
+            if (newContent) { m.content = newContent; }
+        }
+        if (pinnedAt) { m.pinnedAt = pinnedAt.longLongValue; } // 0=取消置顶
         break;
     }
     [self.tableView reloadData];
-    if ([op isEqualToString:kIMMsgOpPin]) { [self reloadPinnedBanner]; } // 含别人置顶/取消的实时同步
+    if (pinnedAt) { [self reloadPinnedBanner]; } // 含别人置顶/取消的实时同步
 }
 
 /// 我方发起的操作被拒（如撤回超时）：吐司提示（不改消息）。
