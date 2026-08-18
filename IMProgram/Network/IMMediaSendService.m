@@ -475,7 +475,7 @@ NSString * const kIMMediaSendMessageKey = @"message";
 /// IMTinyThumbDataURI 由预览图生成极小模糊缩略图的 data URI（最长边 ~20px 的低质 JPEG，M4-7）。
 /// 收端未下载时可直接按此放大 + 模糊显占位（对齐 Telegram 的 stripped thumbnail），不必先下原图。
 /// 刻意做得极小（<1KB）：它随每条媒体消息常驻下发，大了会拖慢会话同步。返回 nil = 无法生成（收端回退中性占位）。
-static NSString *IMTinyThumbDataURI(UIImage *image) {
+NSString *IMTinyThumbDataURI(UIImage *image) {
     if (!image || image.size.width <= 0 || image.size.height <= 0) { return nil; }
     const CGFloat maxSide = 20.0;
     CGFloat scale = MIN(maxSide / image.size.width, maxSide / image.size.height);

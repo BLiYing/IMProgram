@@ -2,6 +2,7 @@
 #import <UIKit/UIKit.h>
 
 #import "../IMProgram/Common/IMMediaPlaceholder.h"
+#import "../IMProgram/Network/IMMediaSendService.h"
 
 /// 磨砂占位渲染器（M4-7）的解码 + 代理放大契约。
 /// 用运行时现造的一张已知 JPEG dataURI（避免内嵌魔法 blob），验证：
@@ -61,6 +62,27 @@
     }
     XCTAssertNil([IMMediaPlaceholder cachedFrostedForThumb:nil], @"nil 入参同步取缓存应为 nil");
     XCTAssertNil([IMMediaPlaceholder cachedFrostedForThumb:@""], @"空串同步取缓存应为 nil");
+}
+
+/// 相机与粘贴发送会直接调用此生成器，而不经过常驻媒体队列。锁住其输出必须是可解码、
+/// 尺寸受控的 data URI，避免上行省略 thumb 后接收端退回空灰底。
+- (void)testTinyThumbDataURIIsDecodableAndBounded {
+    UIGraphicsImageRendererFormat *fmt = [UIGraphicsImageRendererFormat preferredFormat];
+    fmt.scale = 1; fmt.opaque = YES;
+    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(400, 200) format:fmt];
+    UIImage *source = [renderer imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
+        [UIColor.systemBlueColor setFill];
+        [ctx fillRect:CGRectMake(0, 0, 400, 200)];
+    }];
+    NSString *uri = IMTinyThumbDataURI(source);
+    XCTAssertTrue([uri hasPrefix:@"data:image/jpeg;base64,"], @"发送端必须产出 JPEG data URI");
+    if (uri.length == 0) { return; }
+    NSString *base64 = [uri substringFromIndex:[uri rangeOfString:@","].location + 1];
+    UIImage *decoded = [UIImage imageWithData:[[NSData alloc] initWithBase64EncodedString:base64 options:0]];
+    XCTAssertNotNil(decoded, @"接收端必须能够解码发送端生成的 thumb");
+    XCTAssertLessThanOrEqual(MAX(decoded.size.width, decoded.size.height), 20.0,
+                             @"thumb 最长边必须不超过 20px，不能膨胀同步负载");
+    XCTAssertLessThan(uri.length, 4096u, @"thumb 必须满足服务端 4096 rune 硬上限");
 }
 
 @end

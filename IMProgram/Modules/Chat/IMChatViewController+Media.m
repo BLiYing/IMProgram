@@ -675,6 +675,10 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     attrs.pixelWidth = (NSInteger)round(image.size.width * scale);
     attrs.pixelHeight = (NSInteger)round(image.size.height * scale);
     attrs.fileSize = bytes;
+    // 相机/粘贴图绕过 IMMediaSendService 的常驻媒体队列，过去因此漏掉了其生成 thumb 的步骤：
+    // sendMedia 最终只在 attrs.thumb 非空时写入 payload，接收方就只能退回中性灰底。
+    // 复用同一生成器，保证所有图片发送入口遵守 M4-7 的 ~20px data URI 契约。
+    attrs.thumb = IMTinyThumbDataURI(image);
     return attrs;
 }
 
@@ -728,6 +732,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     m.mediaW = mediaAttributes.pixelWidth;
     m.mediaH = mediaAttributes.pixelHeight;
     m.duration = mediaAttributes.durationMillis;
+    m.thumb = mediaAttributes.thumb; // 回填本地 model，否则转发自发图片时 forwardAttributes 读到空 thumb→收端只剩空磨砂
     m.groupID = mediaAttributes.groupID; // 粘贴多图：本端也按宫格聚簇渲染
     m.timestamp = sentAt;
     [self performDatabaseOperation:^(IMDatabase *database) {

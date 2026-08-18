@@ -5,6 +5,9 @@
 
 ## 当前焦点
 
+**相机拍照收端缺少 `thumb` 磨砂占位 ✅（2026-08-18，clean build 绿，待手测）** — 根因是相机/粘贴单图路径直接 `uploadData → sendMedia`，只填写 `media_w/media_h/file_size`，绕过 `IMMediaSendService` 内部的 `IMTinyThumbDataURI`，故 socket payload 不含 `thumb`；服务端透传与收端解析/磨砂渲染均正常。现将生成器导出为共享函数，在 `mediaAttributesForImage:bytes:` 统一写入 `attrs.thumb`，相机和粘贴路径同时覆盖；`IMMediaPlaceholderTests` 补 data URI 可解码、20px 尺寸和协议长度上限测试。
+- **两处修正（2026-08-18 编译/追链发现）**：① 导出声明 `IMTinyThumbDataURI` 误用裸 `nullable`（Obj-C 方法/属性专用上下文关键字），C 函数须用 `NSString * _Nullable`——否则 `unknown type name 'nullable'` 直接编译失败。② `sendMediaURL:...mediaAttributes:` 构造本地 `IMMessageModel` 时漏回填 `m.thumb`，导致**转发自己刚拍/粘贴的图**时 `forwardAttributesForMessage` 读到空 thumb、收端仍只有空磨砂；已补 `m.thumb = mediaAttributes.thumb`（表已有 thumb 列，可落库→重进会话再转发亦生效）。**build 绿；单测/手测未跑。**
+
 **IMChatViewController 巨类拆分 ✅ 代码完成（2026-08-15，clean build 绿，待手测，纯 iOS 端）** — 应《整洁代码》拆 4718 行的 Massive VC。
 - **真·SRP 抽取（独立对象/纯函数，零～低运行时风险）**：`IMChatMessageLogic`（@提及 token/未读口径/引用占位，测试从前置声明改引头）、`IMPasteImageTextField`、`IMPendingMediaThumbnail`、`IMChatBannerStack`（G0/G1/G3 三横幅栈视图+布局+收起持久化，点击导航经 `IMChatBannerStackDelegate` 回本页）。
 - **分文件 category（同一个类、方法平移到多 TU，零运行时风险；剩余子系统全回耦 messages/tableView/nav/socket，强抽独立对象只会把耦合塞进宽 delegate 还添风险）**：`+Selection`（多选/转发）、`+Menu`（长按菜单+iOS26 光栅化预览）、`+DataSource`（cellForRow+相册聚簇+连续分组+行高）、`+Media`（附件面板/选择器/上传/查看器/粘贴）、`+MediaFlow`（转发/长文本/下载编排）、`+Mention`、`+Socket`、`+Scroll`（↓N/键盘）、`+Compose`（引用/收藏/编辑）。私有属性/协议/跨 TU 私有方法登记在 **`IMChatViewController+Private.h`**。

@@ -15,6 +15,10 @@ NS_ASSUME_NONNULL_BEGIN
 
 @class IMPickedMediaHandle, IMMessageModel, IMUploadProgress, IMDatabaseAccountContext;
 
+/// 把图片缩成可随媒体消息下发的极小 JPEG data URI（最长边约 20px）。
+/// 返回 nil 表示无法生成或编码超过协议的极小预览预算；调用方应让收端回退中性占位。
+FOUNDATION_EXPORT NSString * _Nullable IMTinyThumbDataURI(UIImage *image);
+
 /// 进度/阶段变化（转码百分比、上传字节、暂停态翻转）。userInfo: conv_id, client_msg_id。
 extern NSNotificationName const IMMediaSendProgressDidChangeNotification;
 /// 媒体元数据就绪（宽高/时长/字节数已量出、消息已按 im-pending:// 落库）。
