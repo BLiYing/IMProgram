@@ -23,6 +23,7 @@
 #import "IMGroupInfo.h"
 #import "IMBubbleCell.h"
 #import "IMImageCell.h"
+#import "IMBubbleHitTesting.h" // 表级点击命中收窄到气泡（各 cell 实现 pointInsideBubble:）
 #import "IMAlbumCell.h"
 #import "UIViewController+IMToast.h"
 
@@ -188,6 +189,13 @@
     [self.inputField resignFirstResponder]; // 点消息区任意处收起键盘（微信式；拖拽收起仍由 Interactive 模式负责）
     if (!ip || ip.row >= (NSInteger)self.messages.count) { return; }
     IMMessageModel *m = self.messages[(NSUInteger)ip.row];
+    // 命中气泡外（气泡旁的整行空白）→ 只收键盘、不打开/跳转/展开。indexPathForRowAtPoint 命中整行，
+    // 气泡通常窄于行宽，故须再按 cell 的 pointInsideBubble: 收窄到气泡本体（修「点文件/引用消息空白也响应」）。
+    UITableViewCell *hitForBubble = [self.tableView cellForRowAtIndexPath:ip];
+    if ([hitForBubble respondsToSelector:@selector(pointInsideBubble:)] &&
+        ![(id<IMBubbleHitTesting>)hitForBubble pointInsideBubble:[self.tableView convertPoint:p toView:hitForBubble]]) {
+        return;
+    }
     // 长文本（Q1）**先于**引用跳转判定：Long/Huge 文本气泡的展开/阅读器是整条点击触发，若被引用跳转抢先，
     // 作为引用发出的长文/超长文就永远点不开（内部已滤掉非文本/URL/撤回，短文本与媒体/文件引用照走下面的跳转）。
     if ([self handleLongTextTapForMessage:m atIndexPath:ip]) { return; }

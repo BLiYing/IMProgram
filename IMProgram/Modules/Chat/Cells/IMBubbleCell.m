@@ -875,6 +875,11 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     if (self.onFileControlTap) { self.onFileControlTap(); }
 }
 
+/// 表级点击命中判断（IMBubbleHitTesting）：仅气泡本体，气泡旁整行空白不算——修「点文件/引用消息横向空白也响应」。
+- (BOOL)pointInsideBubble:(CGPoint)pointInCell {
+    return _bubble && !_bubble.hidden && CGRectContainsPoint([_bubble convertRect:_bubble.bounds toView:self], pointInCell);
+}
+
 - (void)handleAvatarTap {
     if (self.onAvatarTap) { self.onAvatarTap(); }
 }

@@ -595,6 +595,11 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName) {
     if (_onTap) { _onTap(_thumb.image); }
 }
 
+/// 表级点击命中判断（IMBubbleHitTesting）：仅缩略图本体，旁边空白不触发引用跳转。
+- (BOOL)pointInsideBubble:(CGPoint)pointInCell {
+    return _thumb && !_thumb.hidden && CGRectContainsPoint([_thumb convertRect:_thumb.bounds toView:self], pointInCell);
+}
+
 // onAvatarTap 的手势、handleAvatarTap、applyUnreadDivider: 均由 IMMessageCell 基类提供。
 
 - (void)applyGroupAvatarURL:(NSString *)url seed:(NSString *)seed name:(NSString *)name

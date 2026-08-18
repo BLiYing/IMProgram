@@ -388,6 +388,11 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
     _containerTopUnderName.priority = showName ? on : off;
 }
 
+/// 表级点击命中判断（IMBubbleHitTesting）：仅相册宫格本体，旁边空白不触发引用跳转。
+- (BOOL)pointInsideBubble:(CGPoint)pointInCell {
+    return _container && !_container.hidden && CGRectContainsPoint([_container convertRect:_container.bounds toView:self], pointInCell);
+}
+
 - (void)configureWithMembers:(NSArray<IMMessageModel *> *)members mine:(BOOL)mine host:(NSString *)host
                     previews:(NSDictionary<NSString *, UIImage *> *)previews
                     progress:(NSDictionary<NSString *, IMUploadProgress *> *)progress

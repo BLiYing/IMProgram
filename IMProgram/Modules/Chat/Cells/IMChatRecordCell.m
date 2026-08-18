@@ -163,6 +163,11 @@
     }
 }
 - (void)tapped { if (_onTap) { _onTap(); } }
+
+/// 表级点击命中判断（IMBubbleHitTesting）：仅聊天记录卡本体，旁边空白不触发打开/跳转。
+- (BOOL)pointInsideBubble:(CGPoint)pointInCell {
+    return _card && !_card.hidden && CGRectContainsPoint([_card convertRect:_card.bounds toView:self], pointInCell);
+}
 // avatarTapped/handleAvatarTap、applyUnreadDivider: 由 IMMessageCell 基类提供。
 
 - (void)prepareForReuse {

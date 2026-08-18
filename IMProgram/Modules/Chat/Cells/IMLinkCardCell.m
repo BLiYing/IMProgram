@@ -232,6 +232,11 @@
 }
 - (void)tapped { if (_onTap && _url) { _onTap(_url); } }
 
+/// 表级点击命中判断（IMBubbleHitTesting）：仅气泡本体（含引用/链接/OG 卡），旁边空白不触发。
+- (BOOL)pointInsideBubble:(CGPoint)pointInCell {
+    return _bubble && !_bubble.hidden && CGRectContainsPoint([_bubble convertRect:_bubble.bounds toView:self], pointInCell);
+}
+
 // onAvatarTap 的手势、handleAvatarTap、applyUnreadDivider: 均由 IMMessageCell 基类提供。
 
 - (void)applyGroupAvatarURL:(NSString *)url seed:(NSString *)seed name:(NSString *)name
