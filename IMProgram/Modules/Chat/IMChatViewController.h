@@ -65,16 +65,18 @@ extern NSNotificationName const IMChatConversationClearedNotification;
 
 @end
 
-// 以下公开方法实现在分文件 category（非主 @implementation）。声明放在对应 category 接口而非主 @interface，
+// 以下公开方法实现在分文件 category（非主 @implementation）。声明放在 category 接口而非主 @interface，
 // 主实现 TU 才不会报「方法未实现 / category 抢实现主类方法」——外部调用方 import 本头即可见，行为不变。
+// 注：**刻意不标注定义文件**（方法会在 category 间搬家，硬写文件名会随之失真，同 +Private.h 约定）；
+// 找实现按 selector「跳转到定义」即可。
 
-/// 统一自定义导航栏读取的展示能力（实现在 +Socket.m）：群聊判定 + 副标题（在线态/连接态/成员数/输入中）。
+/// 统一自定义导航栏读取的展示能力：群聊判定 + 副标题（在线态/连接态/成员数/输入中）。
 @interface IMChatViewController (NavigationBar)
 - (BOOL)im_isGroupChat;
 - (nullable NSString *)im_navigationSubtitle;
 @end
 
-/// 消息路由入口（实现在 +MediaFlow.m），详情页/媒体库复用：
+/// 消息路由入口，详情页/媒体库复用：
 @interface IMChatViewController (Routing)
 /// 转发一条消息：present 转发选择页并把选中的会话逐一回声。**presenter** 是实际弹出选择页的 VC
 /// （详情页文件列表复用本逻辑时传自己，保证呈现上下文正确、toast 落在可见页）。

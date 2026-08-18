@@ -75,6 +75,8 @@ static NSUInteger IMImageCost(UIImage *image) {
 
 + (UIImage *)downsampledImageAtFileURL:(NSURL *)fileURL maxPixelSize:(CGFloat)maxPixelSize {
     if (!fileURL) { return nil; }
+    // ShouldCache:@NO 与 NSData 路径统一（源只用来出一张缩略图后即释放，不缓整图）；仅省内存，
+    // 缩略图输出与旧内联实现（曾传 NULL）逐像素一致——ShouldCache 管整图缓存、不影响缩略图生成。
     CGImageSourceRef src = CGImageSourceCreateWithURL((__bridge CFURLRef)fileURL,
         (__bridge CFDictionaryRef)@{ (id)kCGImageSourceShouldCache: @NO });
     UIImage *image = IMImageDownsampleFromSource(src, maxPixelSize);
