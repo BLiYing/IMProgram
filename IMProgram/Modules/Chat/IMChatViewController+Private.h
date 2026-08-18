@@ -27,7 +27,7 @@ NS_ASSUME_NONNULL_BEGIN
 // UIContextMenuInteractionDelegate）的 conformance 不放这里，而是挂到**真正实现其必需方法的那个 category**
 // 上（见文末），否则主实现 @implementation 所在 TU 看不到那些方法体、会报 -Wprotocol「does not conform」。
 // 这里只留**纯可选方法**协议（无必需方法，不触发该告警）。
-@interface IMChatViewController () <IMSocketManagerDelegate, UITableViewDelegate, UITextFieldDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIDocumentPickerDelegate, IMChatBannerStackDelegate>
+@interface IMChatViewController () <IMSocketManagerDelegate, UITableViewDelegate, UITextFieldDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIDocumentPickerDelegate>
 
 // 指定初始化器收进类扩展（原在 .h）：外部只能走 +openInNavigationController: 统一入口，
 // 无法直接 alloc+push，从结构上杜绝绕过导航去重/折叠的回归（曾靠头注释约束、无强制）。
@@ -258,6 +258,22 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
                   fileName:(nullable NSString *)fileName fileSize:(int64_t)fileSize
                 attributes:(nullable IMMediaAttributes *)attributes toConv:(NSString *)convID toUser:(NSString *)toUser;
 
+// 常驻发送服务通知（IMMediaSendService 发件箱对账 / msg_op 应用 / 徽标节流，+SendService.m）：
+// 主实现 viewDidLoad 用 @selector 接线故需在此可见；refreshBackUnreadBadge 另被 viewWillAppear 直接调。
+- (void)onMediaSendCancelled:(NSNotification *)note;
+- (void)onMediaSendProgress:(NSNotification *)note;
+- (void)onMediaSendMetaChanged:(NSNotification *)note;
+- (void)onMediaSendDispatched:(NSNotification *)note;
+- (void)onMediaSendFailed:(NSNotification *)note;
+- (void)onMediaSendAck:(NSNotification *)note;
+- (void)onConversationCleared:(NSNotification *)note;
+- (void)appearanceChanged;
+- (void)onMsgOpApplied:(NSNotification *)note;
+- (void)onMsgOpRejected:(NSNotification *)note;
+- (void)onMessageRemoved:(NSNotification *)note;
+- (void)scheduleBackUnreadBadgeRefresh;
+- (void)refreshBackUnreadBadge;
+
 // target-action 选择器：主实现 setupUI 用 @selector(...) 接线，方法体在各 category（+Media/+Scroll/+MediaFlow），
 // 在此登记让主 TU 见到声明（否则 -Wundeclared-selector）：
 - (void)handleReplyJumpTap:(UITapGestureRecognizer *)gr;
@@ -277,6 +293,10 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 @end
 /// UIContextMenuInteractionDelegate 必需的 configurationForMenuAtLocation 与 initWithDelegate:self 都在 +Menu.m。
 @interface IMChatViewController (Menu) <UIContextMenuInteractionDelegate>
+@end
+/// IMChatBannerStackDelegate 的 5 个方法均为**必需**（无 @optional），实现全在 +PinnedBanner.m，故 conformance
+/// 挂这里而非类扩展（否则主 @implementation 所在 TU 看不到方法体，报 -Wprotocol「does not conform」）。
+@interface IMChatViewController (PinnedBanner) <IMChatBannerStackDelegate>
 @end
 
 NS_ASSUME_NONNULL_END
