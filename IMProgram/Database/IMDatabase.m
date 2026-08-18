@@ -457,6 +457,43 @@
     [self saveIncomingMessage:message advancingSyncedConvSeq:0];
 }
 
+/// INSERT 用的 列名→值 映射，键与 +messageColumns 逐一对应（差一列即 NSAssert 现形）。
+/// **新增字段：messageColumns 加一行 + 这里加一行**，建表/迁移/INSERT 三处即全部就位。
+- (NSDictionary<NSString *, id> *)insertRowForMessage:(IMMessageModel *)message owner:(NSString *)owner {
+    return @{
+        @"owner_uid":         owner,
+        @"client_msg_id":     message.clientMsgID ?: @"",
+        @"server_msg_id":     message.serverMsgID ?: @"",
+        @"conv_id":           message.convID,
+        @"sender":            message.from ?: @"",
+        @"recipient":         message.to ?: @"",
+        @"content_type":      message.contentType ?: @"text",
+        @"content":           message.content ?: @"",
+        @"file_name":         message.fileName ?: @"",
+        @"file_size":         @(message.fileSize),
+        @"conv_seq":          @(message.convSeq),
+        @"timestamp":         @(message.timestamp),
+        @"status":            @(message.status),
+        @"note":              message.note ?: @"",
+        @"from_nickname":     message.fromNickname ?: @"",
+        @"from_role":         message.fromRole ?: @"",
+        @"recalled_at":       @(message.recalledAt),
+        @"recalled_by":       message.recalledBy ?: @"",
+        @"edited_at":         @(message.editedAt),
+        @"pinned_at":         @(message.pinnedAt),
+        @"reply_to_conv_seq": @(message.replyToConvSeq),
+        @"reply_snapshot":    message.replySnapshot ?: @"",
+        @"reply_to_from":     message.replyToFrom ?: @"",
+        @"forward_from":      message.forwardFrom ?: @"",
+        @"group_id":          message.groupID ?: @"",
+        @"poster":            message.poster ?: @"",
+        @"media_w":           @(message.mediaW),
+        @"media_h":           @(message.mediaH),
+        @"duration":          @(message.duration),
+        @"thumb":             message.thumb ?: @"",
+    };
+}
+
 - (BOOL)saveIncomingMessage:(IMMessageModel *)message advancingSyncedConvSeq:(int64_t)syncedConvSeq {
     if (message.convID.length == 0) { return NO; }
     NSString *owner = [self ownerUserID];
@@ -466,6 +503,9 @@
         BOOL inserted = rowID == nil;
         BOOL ok = NO;
         if (rowID) {
+            // UPDATE 保留手写：CASE WHEN 是**每列不同的业务保值策略**（本地量出的 file_name/thumb/
+            // 尺寸/时长优先于服务端回声的空值），不是可从列清单生成的样板；硬表驱动需发明策略 DSL，
+            // 反而难读难查。列名本身由建表/迁移同源保证存在，这里只依赖列名不定义列清单。
             ok = [db executeUpdate:
                 @"UPDATE im_message_local SET server_msg_id=?,sender=?,recipient=?,content_type=?,content=?,"
                  "file_name=CASE WHEN LENGTH(?)>0 THEN ? ELSE file_name END,"
@@ -488,16 +528,24 @@
                 message.fromNickname ?: @"", message.fromRole ?: @"", @(message.recalledAt), message.recalledBy ?: @"",
                 @(message.editedAt), @(message.pinnedAt), @(message.replyToConvSeq), message.replySnapshot ?: @"", message.replyToFrom ?: @"", message.forwardFrom ?: @"", message.groupID ?: @"", message.poster ?: @"", rowID];
         } else {
-            ok = [db executeUpdate:
-                @"INSERT INTO im_message_local (owner_uid,client_msg_id,server_msg_id,conv_id,sender,recipient,content_type,content,file_name,file_size,conv_seq,timestamp,status,note,from_nickname,from_role,recalled_at,recalled_by,edited_at,pinned_at,reply_to_conv_seq,reply_snapshot,reply_to_from,forward_from,group_id,poster,media_w,media_h,duration,thumb) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                owner, message.clientMsgID ?: @"", message.serverMsgID ?: @"", message.convID,
-                message.from ?: @"", message.to ?: @"", message.contentType ?: @"text",
-                message.content ?: @"", message.fileName ?: @"", @(message.fileSize),
-                @(message.convSeq), @(message.timestamp), @(message.status),
-                message.note ?: @"", message.fromNickname ?: @"", message.fromRole ?: @"", @(message.recalledAt),
-                message.recalledBy ?: @"", @(message.editedAt), @(message.pinnedAt),
-                @(message.replyToConvSeq), message.replySnapshot ?: @"", message.replyToFrom ?: @"", message.forwardFrom ?: @"", message.groupID ?: @"", message.poster ?: @"",
-                @(message.mediaW), @(message.mediaH), @(message.duration), message.thumb ?: @""];
+            // INSERT 列名串 + 值序列均由 +messageColumns × insertRowForMessage 同源生成：
+            // 新增字段只改"列清单一行 + 值映射一行"，列串漂移（当年 file_name 事故）结构上不可能。
+            NSArray<NSArray<NSString *> *> *schema = [IMDatabase messageColumns];
+            NSMutableArray<NSString *> *names = [NSMutableArray arrayWithCapacity:schema.count];
+            NSMutableArray *values = [NSMutableArray arrayWithCapacity:schema.count];
+            NSMutableArray<NSString *> *marks = [NSMutableArray arrayWithCapacity:schema.count];
+            NSDictionary<NSString *, id> *row = [self insertRowForMessage:message owner:owner];
+            for (NSArray<NSString *> *c in schema) {
+                id v = row[c[0]];
+                NSAssert(v, @"messageColumns 与 insertRowForMessage 漂移：缺列 %@ 的值", c[0]);
+                if (!v) { continue; } // release 兜底：跳过该列走建表默认值，不让整条 INSERT 失败
+                [names addObject:c[0]];
+                [values addObject:v];
+                [marks addObject:@"?"];
+            }
+            ok = [db executeUpdate:[NSString stringWithFormat:@"INSERT INTO im_message_local (%@) VALUES (%@)",
+                                    [names componentsJoinedByString:@","], [marks componentsJoinedByString:@","]]
+              withArgumentsInArray:values];
         }
         if (!ok) {
             IMLogDatabase(@"保存消息失败 owner=%@ conv=%@: %@", owner, message.convID, db.lastErrorMessage);
