@@ -334,6 +334,13 @@ BOOL IMIsAuthErrorCode(NSInteger code);
                                convID:(NSString *)convID
                            completion:(void (^)(NSDictionary *_Nullable data, NSError *_Nullable error))completion;
 
+/// 设置会话备注（G1，仅本人可见、多端同步）：PUT /api/v1/conversations/{id}/remark。留空即清除。
+/// 与设置三开关解耦（各走各的端点，互不覆盖）。completion 主线程回调。
+- (void)setConversationRemarkWithToken:(NSString *)token
+                                convID:(NSString *)convID
+                                remark:(NSString *)remark
+                            completion:(void (^)(NSError *_Nullable error))completion;
+
 /// 更新会话级设置（置顶/免打扰/标未读，整体替换）：PUT /api/v1/conversations/{id}/settings。completion 主线程回调。
 - (void)updateConversationSettingsWithToken:(NSString *)token
                                      convID:(NSString *)convID

@@ -29,6 +29,7 @@ NSString * const IMSocketDidReceiveReadNotification = @"IMSocketDidReceiveReadNo
 NSString * const IMSocketDidChangeStateNotification = @"IMSocketDidChangeStateNotification";
 NSString * const IMSocketDidRevokeSessionNotification = @"IMSocketDidRevokeSessionNotification";
 NSString * const kIMConvIDKey = @"convID";
+NSString * const kIMConvRemarkKey = @"convRemark";
 NSString * const IMSocketDidReceivePresenceNotification = @"IMSocketDidReceivePresenceNotification";
 NSString * const IMSocketDidReceiveCapabilitiesUpdateNotification = @"IMSocketDidReceiveCapabilitiesUpdateNotification";
 NSString * const kIMPresenceUserKey = @"presenceUser";
@@ -830,6 +831,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
 - (void)handleConvUpdate:(NSDictionary *)data {
     NSString *convID = [data[@"conv_id"] isKindOfClass:[NSString class]] ? data[@"conv_id"] : @"";
     NSString *action = [data[@"action"] isKindOfClass:[NSString class]] ? data[@"action"] : @"";
+    NSString *remark = [data[@"remark"] isKindOfClass:[NSString class]] ? data[@"remark"] : nil;
     BOOL contextIsCurrent = YES;
     if ([action isEqualToString:@"settings"]) {
         contextIsCurrent = [self performDatabaseOperation:^(IMDatabase *database) {
@@ -837,6 +839,8 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
                                                  pinnedAt:[data[@"pinned_at"] longLongValue]
                                                     muted:[data[@"muted"] boolValue]
                                              markedUnread:[data[@"marked_unread"] boolValue]];
+            // 备注随 settings 帧同步（多端）：payload 恒带 remark 全值，落缓存，避免本地刷新闪回真实群名。
+            [database applyCachedRemarkForConversation:convID remark:remark];
         }];
     } else if ([action isEqualToString:@"delete"]) {
         contextIsCurrent = [self performDatabaseOperation:^(IMDatabase *database) {
@@ -845,9 +849,12 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     }
     if (!contextIsCurrent) { return; }
     dispatch_async(dispatch_get_main_queue(), ^{
+        // 带上 remark：聊天页据此就地刷新标题（免再拉一次设置）。convID 恒有，remark 可空。
+        NSMutableDictionary *info = [@{ kIMConvIDKey: convID } mutableCopy];
+        if (remark) { info[kIMConvRemarkKey] = remark; }
         [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidUpdateConversationNotification
                                                           object:self
-                                                        userInfo:@{ kIMConvIDKey: convID }];
+                                                        userInfo:info];
     });
 }
 

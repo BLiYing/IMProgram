@@ -44,9 +44,11 @@ extern NSString * const IMSocketDidRejectMsgOpNotification;
 /// 某条消息被物理移除（任务2：为所有人删除 op=delete / 仅为我删除 msg_hidden）时广播（主线程）：
 /// 聊天页/详情文件列表据此移除该条（区别于撤回的"改状态显墓碑"）。userInfo：kIMConvIDKey、kIMMsgOpTargetSeqKey(NSNumber)。
 extern NSString * const IMSocketDidRemoveMessageNotification;
-/// 会话级设置变更（置顶/免打扰/标未读/删除会话，M4.5）时广播（主线程）：会话列表据此刷新（多端同步）。
-/// userInfo[kIMConvIDKey]=会话 id。收端直接重拉会话列表取权威状态即可。
+/// 会话级设置变更（置顶/免打扰/标未读/删除会话/会话备注，M4.5+G1）时广播（主线程）：会话列表据此刷新（多端同步）。
+/// userInfo[kIMConvIDKey]=会话 id；action=settings 时 userInfo[kIMConvRemarkKey]=会话备注全值（可空=无备注）。
+/// 收端可重拉会话列表取权威状态，或直接读 kIMConvRemarkKey 就地刷新标题。
 extern NSString * const IMSocketDidUpdateConversationNotification;
+extern NSString * const kIMConvRemarkKey;
 /// 连接状态变化时广播（主线程）：非 delegate 页（如会话列表）据此显示 连接中/未连接。userInfo[@"state"]=IMSocketState。
 extern NSString * const IMSocketDidChangeStateNotification;
 /// 会话被服务端吊销（多设备管理踢下线：WS 握手回 401=本机 sid 已被踢 / token 失效）时广播（主线程）。

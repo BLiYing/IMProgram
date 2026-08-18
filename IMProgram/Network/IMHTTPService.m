@@ -606,6 +606,14 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     [self runDataRequest:req fallback:@"拉取会话设置失败" completion:completion];
 }
 
+- (void)setConversationRemarkWithToken:(NSString *)token convID:(NSString *)convID remark:(NSString *)remark
+                            completion:(void (^)(NSError *))completion {
+    NSString *path = [NSString stringWithFormat:@"/api/v1/conversations/%@/remark", [self pathEscape:convID]];
+    NSMutableURLRequest *req = [self authedRequestForPath:path method:@"PUT" token:token
+        body:@{ @"remark": remark ?: @"" }];
+    [self runOKRequest:req fallback:@"保存备注失败" completion:completion];
+}
+
 - (void)updateConversationSettingsWithToken:(NSString *)token convID:(NSString *)convID
                                    pinnedAt:(int64_t)pinnedAt muted:(BOOL)muted markedUnread:(BOOL)markedUnread
                                  completion:(void (^)(NSError *))completion {

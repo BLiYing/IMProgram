@@ -34,6 +34,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) int64_t pinnedAt;        // 置顶时间（0=未置顶；服务端已按置顶优先排序）
 @property (nonatomic, assign) BOOL muted;              // 免打扰（弱提示）
 @property (nonatomic, assign) BOOL markedUnread;       // 手动标为未读（红点，不计数）
+@property (nonatomic, copy, nullable) NSString *remark; // 会话备注（G1，仅本人可见、多端同步）：非空即替代 name/群名显示
 /// 未读区间内有人 @我（含 @所有人），仅群聊（M4-8）。列表显「[有人@我]」红字前缀，
 /// 且**穿透免打扰**：免打扰群命中时未读数仍显红底、照常计入角标。读过那条 @ 后服务端自动转 NO。
 @property (nonatomic, assign) BOOL mentionUnread;

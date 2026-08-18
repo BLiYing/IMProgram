@@ -196,10 +196,9 @@
 
 /// 群备注本地键（仅本人可见；沿用单聊备注的本地存储范式，keyed by convID）。
 /// 说明：后端已有会话级 remark 字段（随 conv_update 多端同步），iOS 现用本地存储，多端同步为后续项。
-- (NSString *)groupRemarkKey { return [NSString stringWithFormat:@"im_grpremark_%@_%@", self.userID, self.convID]; }
-- (NSString *)currentConvRemark {
-    return [NSUserDefaults.standardUserDefaults stringForKey:[self groupRemarkKey]] ?: @"";
-}
+/// 群备注（G1，仅本人可见）：改为服务端多端同步（旧版本地 NSUserDefaults 已弃用）。值由 loadConversationSettings
+/// 从 GET …/settings 读入 self.convRemark，编辑走 PUT …/remark，变更经 conv_update 同步全端。
+- (NSString *)currentConvRemark { return self.convRemark ?: @""; }
 
 /// 我在本群的昵称（G1，任意成员）：走后端 → 成功后刷新群资料（气泡回退名随之更新）。
 - (void)editMyGroupNickname {
@@ -228,10 +227,11 @@
     [self presentViewController:alert animated:YES completion:nil];
 }
 
-/// 群备注（G1，仅本人可见）：改我看到的群名，本地存储。
+/// 群备注（G1，仅本人可见）：改我看到的群名，**服务端多端同步**（PUT …/remark）。
+/// 成功后本端乐观刷新 + 落缓存；conv_update 会把变更同步到本人其它端与本机的会话列表/聊天页标题。
 - (void)editGroupRemark {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"群备注"
-        message:@"仅自己可见，将替代群名显示。" preferredStyle:UIAlertControllerStyleAlert];
+        message:@"仅自己可见，将替代群名显示，多端同步。" preferredStyle:UIAlertControllerStyleAlert];
     NSString *current = [self currentConvRemark];
     [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) { tf.text = current; tf.placeholder = self.group.name; }];
     __weak typeof(self) ws = self;
@@ -239,13 +239,24 @@
     [alert addAction:[UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
         NSString *v = [alert.textFields.firstObject.text
                        stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] ?: @"";
-        __strong typeof(ws) self = ws;
-        if (!self) { return; }
-        if (v.length) { [NSUserDefaults.standardUserDefaults setObject:v forKey:[self groupRemarkKey]]; }
-        else { [NSUserDefaults.standardUserDefaults removeObjectForKey:[self groupRemarkKey]]; }
-        [self refreshHeaderTexts];
-        [self.tableView reloadData];
-        [self im_showToast:@"备注已更新"];
+        if ([v isEqualToString:current]) { return; }
+        NSString *token = IMHTTPService.sharedService.currentToken;
+        if (token.length == 0) { [ws im_showToast:@"未登录"]; return; }
+        [IMHTTPService.sharedService setConversationRemarkWithToken:token convID:ws.convID remark:v
+                                                        completion:^(NSError *error) {
+            __strong typeof(ws) self = ws;
+            if (!self) { return; }
+            if (error) { [self im_showToast:error.localizedDescription ?: @"保存失败"]; return; }
+            IMLog(@"群备注已更新 conv=%@ len=%lu", self.convID, (unsigned long)v.length);
+            self.convRemark = v.length ? v : nil;
+            // 乐观落缓存：本机会话列表下次刷新（含 conv_update 前）即显新备注，不必等 HTTP 重拉。
+            [self performDatabaseOperation:^(IMDatabase *database) {
+                [database applyCachedRemarkForConversation:self.convID remark:self.convRemark];
+            }];
+            [self refreshHeaderTexts];
+            [self.tableView reloadData];
+            [self im_showToast:v.length ? @"备注已更新" : @"备注已清除"];
+        }];
     }]];
     [self presentViewController:alert animated:YES completion:nil];
 }

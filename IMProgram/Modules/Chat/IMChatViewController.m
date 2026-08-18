@@ -343,9 +343,13 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     [self refreshDisplayIdentity];
     if (self.isGroupChat) {
         [self reloadGroupInfo];
+        [self loadConvRemark]; // 群备注（G1）：进页拉一次，标题优先显备注
         // 群变更（邀请/移除/退群/转让/改名）→ 刷新标题/群资料；被移出 → 提示并退出本页。
         [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onGroupEvent:)
                                                    name:IMSocketDidReceiveGroupEventNotification object:nil];
+        // 会话备注多端同步：本人在别处（本机详情页 / 其它端）改备注 → conv_update → 就地刷新标题。
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onConvUpdatedForRemark:)
+                                                   name:IMSocketDidUpdateConversationNotification object:nil];
     }
     [self setupUI];
     [self reloadPinnedBanner]; // 置顶横幅（G0）：进会话拉一次，之后靠 msg_op 帧增量维护，不轮询
@@ -621,6 +625,29 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
         [self refreshComposerMuteState]; // G2：被禁言则锁输入栏
         [self.tableView reloadData]; // 昵称回退可能变化（老消息无 from_nickname 时用成员表）
     }];
+}
+
+/// 群备注（G1，仅本人可见、多端同步）：进页拉一次单会话设置取 remark，标题优先显备注。
+- (void)loadConvRemark {
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0) { return; }
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService conversationSettingsWithToken:token convID:self.convID
+                                                    completion:^(NSDictionary *data, NSError *error) {
+        __strong typeof(ws) self = ws;
+        if (!self || error) { return; }
+        NSString *rmk = [data[@"remark"] isKindOfClass:[NSString class]] ? data[@"remark"] : nil;
+        self.convRemark = rmk.length > 0 ? rmk : nil;
+        [self updateTitle];
+    }];
+}
+
+/// conv_update（本人其它端 / 本机详情页改备注）→ 就地刷新标题；remark 全值随帧带来，免再拉。
+- (void)onConvUpdatedForRemark:(NSNotification *)note {
+    if (![note.userInfo[kIMConvIDKey] isEqualToString:self.convID]) { return; }
+    NSString *rmk = note.userInfo[kIMConvRemarkKey];
+    self.convRemark = rmk.length > 0 ? rmk : nil; // 键缺失（非 settings 帧）视作无备注
+    [self updateTitle];
 }
 
 #pragma mark - 置顶消息横幅（G0）

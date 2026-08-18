@@ -161,7 +161,7 @@
              "last_recalled INTEGER, last_content_type TEXT, latest_conv_seq INTEGER,"
              "read_seq INTEGER, peer_read_seq INTEGER, timestamp INTEGER, unread INTEGER,"
              "pinned_at INTEGER, muted INTEGER, marked_unread INTEGER,server_snapshot_seq INTEGER NOT NULL DEFAULT 0,"
-             "synced_conv_seq INTEGER NOT NULL DEFAULT 0,"
+             "synced_conv_seq INTEGER NOT NULL DEFAULT 0, remark TEXT NOT NULL DEFAULT '',"
              "PRIMARY KEY(owner_uid,conv_id))"];
         if (!ok) { IMLogDatabase(@"会话缓存建表失败: %@", db.lastErrorMessage); }
         if (![self column:@"server_snapshot_seq" existsInTable:@"im_conversation_local" db:db]) {
@@ -170,6 +170,12 @@
         // 连续同步位置是独立状态；0 表示尚未证明任何连续区间，必须从头确认，不能由本地 MAX(conv_seq) 推断。
         if (![self column:@"synced_conv_seq" existsInTable:@"im_conversation_local" db:db]) {
             [db executeUpdate:@"ALTER TABLE im_conversation_local ADD COLUMN synced_conv_seq INTEGER NOT NULL DEFAULT 0"];
+        }
+        // 会话备注（G1，仅本人可见、多端同步）；缓存持久化，避免消息风暴触发的本地刷新把备注名闪成真实群名。
+        if (![self column:@"remark" existsInTable:@"im_conversation_local" db:db]) {
+            if (![db executeUpdate:@"ALTER TABLE im_conversation_local ADD COLUMN remark TEXT NOT NULL DEFAULT ''"]) {
+                IMLogDatabase(@"迁移失败：im_conversation_local 补列 remark 未成功: %@", db.lastErrorMessage);
+            }
         }
 
         // 任务5：好友/群组本地快照（断网离线首屏）。仅缓存列表渲染所需字段，按 owner_uid 隔离。
@@ -311,6 +317,8 @@
             c.pinnedAt = [rs longLongIntForColumn:@"pinned_at"];
             c.muted = [rs boolForColumn:@"muted"];
             c.markedUnread = [rs boolForColumn:@"marked_unread"];
+            NSString *rmk = [rs stringForColumn:@"remark"];
+            c.remark = rmk.length > 0 ? rmk : nil; // 空串视作无备注
             if (c.convID.length > 0) { [out addObject:c]; }
         }
         [rs close];
@@ -344,13 +352,13 @@
         [conversations enumerateObjectsUsingBlock:^(IMConversation *c, NSUInteger idx, BOOL *stop) {
             if (c.convID.length == 0) { return; }
             BOOL ok = [db executeUpdate:
-                @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,peer,peer_nickname,peer_avatar_url,last_content,last_from,last_from_nickname,last_recalled,last_content_type,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq,synced_conv_seq) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,peer,peer_nickname,peer_avatar_url,last_content,last_from,last_from_nickname,last_recalled,last_content_type,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq,synced_conv_seq,remark) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 owner, c.convID, @(idx), @(c.isGroup), c.name ?: @"", c.avatarURL ?: @"",
                 @(c.memberCount), c.peer ?: @"", c.peerNickname ?: @"", c.peerAvatarURL ?: @"",
                 c.lastContent ?: @"", c.lastFrom ?: @"", c.lastFromNickname ?: @"", @(c.lastRecalled),
                 c.lastContentType ?: @"", @(c.latestConvSeq), @(c.readSeq), @(c.peerReadSeq),
                 @(c.timestamp), @(c.unread), @(c.pinnedAt), @(c.muted), @(c.markedUnread), @(c.latestConvSeq),
-                syncCursors[c.convID] ?: @0];
+                syncCursors[c.convID] ?: @0, c.remark ?: @""];
             if (!ok) {
                 IMLogDatabase(@"写入会话缓存失败 owner=%@ conv=%@: %@", owner, c.convID, db.lastErrorMessage);
                 *rollback = YES;
@@ -738,6 +746,19 @@
               @"UPDATE im_conversation_local SET pinned_at=?,muted=?,marked_unread=? WHERE owner_uid=? AND conv_id=?",
               @(pinnedAt), @(muted), @(markedUnread), owner, convID]) {
             IMLogDatabase(@"更新本地会话设置失败 owner=%@ conv=%@: %@", owner, convID, db.lastErrorMessage);
+        }
+    }];
+}
+
+/// 单独把会话备注写进本地缓存（conv_update remark 到达 / 本端改备注乐观更新用）。
+/// 与 applyCachedSettings 分开：备注变更不动三开关，反之亦然。
+- (void)applyCachedRemarkForConversation:(NSString *)convID remark:(nullable NSString *)remark {
+    if (convID.length == 0) { return; }
+    NSString *owner = [self ownerUserID];
+    [_queue inDatabase:^(FMDatabase *db) {
+        if (![db executeUpdate:@"UPDATE im_conversation_local SET remark=? WHERE owner_uid=? AND conv_id=?",
+              remark ?: @"", owner, convID]) {
+            IMLogDatabase(@"更新本地会话备注失败 owner=%@ conv=%@: %@", owner, convID, db.lastErrorMessage);
         }
     }];
 }

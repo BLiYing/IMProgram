@@ -220,7 +220,10 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
         self.pinnedAt = [data[@"pinned_at"] longLongValue];
         self.muted = [data[@"muted"] boolValue];
         self.markedUnread = [data[@"marked_unread"] boolValue]; // PUT 整体替换，提交时须回传
+        NSString *rmk = [data[@"remark"] isKindOfClass:[NSString class]] ? data[@"remark"] : nil;
+        self.convRemark = rmk.length > 0 ? rmk : nil; // 群备注（G1）：替代群名显示
         [self reloadSettingsAndPills];
+        [self refreshHeaderTexts]; // 备注变化 → 头部标题即时跟随
     }];
 }
 
@@ -235,7 +238,9 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
                 self.pinnedAt = c.pinnedAt;
                 self.muted = c.muted;
                 self.markedUnread = c.markedUnread;
+                self.convRemark = c.remark.length > 0 ? c.remark : nil;
                 [self reloadSettingsAndPills];
+                [self refreshHeaderTexts];
                 break;
             }
         }

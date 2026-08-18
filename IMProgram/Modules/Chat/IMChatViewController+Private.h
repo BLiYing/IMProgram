@@ -117,6 +117,7 @@ NS_ASSUME_NONNULL_BEGIN
 // 正在后台解码缩略图的待发件，避免同一行反复触发解码。
 @property (nonatomic, strong) NSMutableSet<NSString *> *pendingPreviewLoading;
 @property (nonatomic, assign) BOOL backBadgeRefreshPending; ///< 返回徽标合并刷新的在途标记（0.12s 窗口内只跑一次）
+@property (nonatomic, copy, nullable) NSString *convRemark; ///< 群会话备注（G1，仅本人可见、多端同步）：非空替代群名作标题
 
 @end
 

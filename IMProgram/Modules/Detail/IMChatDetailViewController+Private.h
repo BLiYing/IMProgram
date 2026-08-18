@@ -67,6 +67,7 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 @property (nonatomic, assign) int64_t pinnedAt;
 @property (nonatomic, assign) BOOL muted;
 @property (nonatomic, assign) BOOL markedUnread; ///< 手动标未读态：PUT 是整体替换，提交时必须回传，否则会清掉列表页设的红点
+@property (nonatomic, copy, nullable) NSString *convRemark; ///< 会话备注（G1，仅本人可见、多端同步）：从服务端读，非空替代群名显示
 // UI
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) IMDetailHeaderContainer *headerContainer; ///< 静态坐标容器：承载头像 + 灵动岛遮罩/覆盖层

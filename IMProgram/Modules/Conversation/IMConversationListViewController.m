@@ -233,7 +233,8 @@ static CGFloat const kIMRowLeading = 16;
     }
     if (c.isGroup) {
         // 群项：群名/群头像；预览"昵称: 内容"；不显示 presence/✓✓（群无对端已读位点）。
-        NSString *display = c.name.length > 0 ? c.name : @"群聊";
+        // 群备注（G1，仅本人可见、多端同步）非空即替代群名显示；头像取色按 convID 稳定，首字母随显示名。
+        NSString *display = c.remark.length > 0 ? c.remark : (c.name.length > 0 ? c.name : @"群聊");
         // 群头像可能是 /uploads 相对路径 → 补 host 成绝对 URL，否则 IMImageLoader 加载不了、只显首字母。
         [_avatar im_setAvatarURL:IMMediaFullURL(c.avatarURL, host) seed:c.convID displayName:display];
         _name.text = display;
