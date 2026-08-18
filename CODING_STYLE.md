@@ -50,6 +50,24 @@
 - 新增或修改 UI 前必须读取 `docs/UI_COLOR.md`；使用 `IMTheme` 语义令牌与
   `IMAppearance` 外观设置，禁止业务页面散落固定 RGB/Hex。
 
+### 7. 防巨类（类 / 文件不膨胀）
+`IMChatViewController` 曾长到 4718 行、60+ 编译告警才被发现（2026-08 拆分）。**分文件 category 只缩小
+「文件」、不缩小「类」**——类还是一个类、`+Private.h` 里仍挂着一堆共享可变属性，是耦合与复胖的根源。
+新代码往哪放，按此决策树，别默认往 VC 堆：
+
+- **① 有自己状态 + 视图 / 独立生命周期的功能 → 造独立协作对象**（参考 `IMChatBannerStack`：自带视图+
+  布局+持久化，VC 只持一个属性 + 一个 delegate）。判据：需要 **≥2 个新属性**、或有自己的一组视图、
+  或有定时器/订阅/缓存。**语音消息等新功能一律走这条**，别做成 VC 上又一批 `@property` + 十几个方法。
+- **② VC 上一组内聚方法 → 放对应分文件 category**（`+Media`/`+Menu`/`+DataSource`/…），跨 TU 私有方法
+  在 `IMChatViewController+Private.h` 登记；**别新开「杂项」category**。
+- **③ 纯逻辑（无 self）→ `*Logic`/`*Util` 自由函数 + 配单测**（参考 `IMChatMessageLogic`、`IMMediaUtil`）。
+
+**红线（机械护栏，别靠自觉）**：`./scripts/check-file-size.sh`——单 `.m` > 1500 行、或 `*+Private.h`
+> 72 个 `@property` 即非零退出。**新增属性到共享类扩展 = 警报**，先问「这状态能不能归给某个协作对象自持」。
+超标的正确处理是**拆分**（按上面三档），**不是放宽阈值**。历史欠账（`IMChatDetailViewController.m`
+2439 行等）在脚本里登记「只准降不准升」，逐步拆到 1500 以下。同样的病别的大页也有（详情页/会话列表/
+资料页），红线覆盖整个 `Modules/`，一处触发就顺手治，别等长成第二个 4700 行。
+
 ---
 
 ## 二、Swift 规范（混编/新模块）
