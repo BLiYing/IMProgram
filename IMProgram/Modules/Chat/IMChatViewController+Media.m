@@ -748,8 +748,13 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
 
 #pragma mark - 复制 / 粘贴图片（#2）
 
-/// 复制消息：图片→复制真实图片字节（可粘贴回输入框直接发图）；其余→复制文本/链接。
+/// 复制消息：图说消息（带 caption）**仅复制文本**（caption）；纯图片→复制真实图片字节；其余→复制文本/链接。
 - (void)copyMessageToPasteboard:(IMMessageModel *)message {
+    if (message.caption.length > 0) { // 图说：复制文本（约定「这类消息文本操作作用于文本」）
+        UIPasteboard.generalPasteboard.string = message.caption;
+        [self im_showToast:@"已复制"];
+        return;
+    }
     if ([message.contentType isEqualToString:@"image"]) {
         __weak typeof(self) ws = self;
         [[IMImageLoader shared] loadImageURL:[self fullMediaURL:message.content] completion:^(UIImage *img) {
