@@ -10,6 +10,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 // 颜色
 @property (class, nonatomic, readonly) UIColor *accent;        // 主色
+@property (class, nonatomic, readonly) UIColor *accentSoft;    // 主色淡底（accent @ 12% alpha）：彩色圆角图标淡底（收藏文本/链接图标等），Web 对应 --accent-soft
 @property (class, nonatomic, readonly) UIColor *bubbleMe;      // 自己气泡底（Telegram 绿主题：浅绿）
 @property (class, nonatomic, readonly) UIColor *bubbleMeText;  // 自己气泡字
 @property (class, nonatomic, readonly) UIColor *bubbleThem;    // 对方气泡底（白/深灰）

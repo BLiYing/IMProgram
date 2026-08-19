@@ -29,7 +29,12 @@
 ## 下一步
 1. **手测（优先）**：拆分后聊天页全交互回归（见上「待手测」清单）+ 相机/粘贴单图收端磨砂占位 + 转发自拍图有磨砂。
 2. 无问题 → 接下一里程碑（后端排队 **语音消息 P0 → 收藏改造**，见 `../IMServer/current_task.md` 与 `docs/ROADMAP.md`）。
-3. **收藏页改造设计稿已出（2026-08-19，未动代码）**：`../IMServer/docs/FAVORITES_DESIGN.md` + `FAVORITES_UX_SKETCH.html`。要点=一个 `IMFavoritesViewController` 双模（Browse/Pick）复用；分类「全部+动态」仿详情页 tab（口径复用 `IMChatDetailTabs`）；Pick=卡片式 sheet（仿 `IMFilePickerViewController`）+ 取消/多选/发送全用 `IMLiquidNavigationBar` 玻璃钮；转发复用 `IMForwardPickerViewController`+`forwardEchoContent:`；左侧图标列所有类型恒在（文本=引号色块/链接=链接色块，不留空占位）；点文本进阅读器；后端 `im_favorite` **本次要补 `file_name`/`file_size`**（DDL+老库迁移+service+HTTP+iOS 上报，不降级）。逐功能状态待落地时进 `CLIENT_PARITY.md`。
+3. **收藏页改造已实现（2026-08-19，clean build 绿 + `IMFavoritesCategoriesTests` 6 例过，待手测）**：设计见 `../IMServer/docs/FAVORITES_DESIGN.md`（落地差异 §13）。
+   - **Browse 全量**（`IMFavoritesViewController.m` 重写）：分类分段（全部+动态，`IMFavoritesCategories` 纯逻辑+单测，口径对齐 `IMChatDetailTabs`）；范围搜索（内嵌 `UISearchBar` + `UISearchToken` 跟随分段，非 navigationItem——液态栏不兼容）；统一左图标列（媒体缩略/文件折角图标/文本引号色块/链接色块 on `IMTheme.accentSoft`，无空占位）；长按菜单（转发/复制/删除）+ 左滑删除；点媒体→查看器、链接/文件→`SFSafariViewController`、文本→只读阅读器；转发复用 `IMForwardPickerViewController` + `IMSocketManager forwardContent:`+本地落库；空/错/载入态 + 下拉刷新；删除失败保留旧数据。
+   - `IMTheme.accentSoft`（accent@12%）；`IMHTTPService addFavoriteWithToken:` + `favoriteMessage:` 补 `fileName/fileSize`。
+   - **未做**：Pick/「从收藏发送」（聊天入口仍屏蔽，见下）；文件完整下载（P1）；副行来源显示名（P1）；媒体保存复用查看器（未进菜单）。
+   - **待手测**（编译只保符号）：分类切换、范围搜索 token 增删、四类 cell 渲染与左缘对齐、长按菜单、左滑删除、点各类型跳转、阅读器、转发到会话后进该会话可见、空/错态、深浅色。
+   - 后端（`../IMServer`）+ Web（`../im-web`）同批已实现并各自跑绿（见 `../IMServer/current_task.md`）。
 
 ## 已知坑 / 限制
 - **`runAfterKeyboardHidden:` 兜底待测（2026-08-05 记）**：依赖 `resignFirstResponder` 后必然收到 `UIKeyboardDidHideNotification`——软键盘正常成立；若实测硬件/外接键盘场景引用跳转不触发，加 `dispatch_after` 超时兜底。

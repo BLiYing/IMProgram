@@ -365,10 +365,13 @@ BOOL IMIsAuthErrorCode(NSInteger code);
              completion:(void (^)(NSError *_Nullable error))completion;
 
 /// 收藏（M4-4）：POST /api/v1/favorites（内容快照）。completion 主线程回调。
+/// fileName/fileSize 仅文件收藏有意义（供收藏页展示与转发保真），非文件传 nil/0。
 - (void)addFavoriteWithToken:(NSString *)token
                  contentType:(NSString *)contentType
                      content:(NSString *)content
                      caption:(nullable NSString *)caption
+                    fileName:(nullable NSString *)fileName
+                    fileSize:(int64_t)fileSize
                 sourceConvID:(nullable NSString *)sourceConvID
                sourceConvSeq:(int64_t)sourceConvSeq
                   sourceFrom:(nullable NSString *)sourceFrom

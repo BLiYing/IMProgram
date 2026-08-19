@@ -303,6 +303,7 @@
     if (token.length == 0) { return; }
     [IMHTTPService.sharedService addFavoriteWithToken:token contentType:(message.contentType ?: @"text")
                                               content:message.content caption:message.caption
+                                             fileName:message.fileName fileSize:message.fileSize
                                          sourceConvID:message.convID
                                         sourceConvSeq:message.convSeq sourceFrom:(message.from ?: @"")
                                            completion:^(NSError *error) {

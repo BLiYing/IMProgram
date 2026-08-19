@@ -26,6 +26,8 @@
 }
 
 + (UIColor *)accent { return IMAppearance.shared.accentColor; }
+// 主色淡底：主题主色 @ 12% alpha（随外观页 accent 联动；彩色圆角图标淡底，如收藏文本/链接图标）。Web 对应 --accent-soft。
++ (UIColor *)accentSoft { return [IMAppearance.shared.accentColor colorWithAlphaComponent:0.12]; }
 // Telegram 绿主题：自己气泡浅绿（深色为暗绿），对方气泡白（深色为暗灰），字均用主文本色（深色模式自动转白）。
 + (UIColor *)bubbleMe { return IMAppearance.shared.bubbleMeColor; }
 + (UIColor *)bubbleMeText { return UIColor.labelColor; }
