@@ -29,6 +29,7 @@
 ## 下一步
 1. **手测（优先）**：拆分后聊天页全交互回归（见上「待手测」清单）+ 相机/粘贴单图收端磨砂占位 + 转发自拍图有磨砂。
 2. 无问题 → 接下一里程碑（后端排队 **语音消息 P0 → 收藏改造**，见 `../IMServer/current_task.md` 与 `docs/ROADMAP.md`）。
+3. **收藏页改造设计稿已出（2026-08-19，未动代码）**：`../IMServer/docs/FAVORITES_DESIGN.md` + `FAVORITES_UX_SKETCH.html`。要点=一个 `IMFavoritesViewController` 双模（Browse/Pick）复用；分类「全部+动态」仿详情页 tab（口径复用 `IMChatDetailTabs`）；Pick=卡片式 sheet（仿 `IMFilePickerViewController`）+ 取消/多选/发送全用 `IMLiquidNavigationBar` 玻璃钮；转发复用 `IMForwardPickerViewController`+`forwardEchoContent:`；左侧图标列所有类型恒在（文本=引号色块/链接=链接色块，不留空占位）；点文本进阅读器；后端 `im_favorite` **本次要补 `file_name`/`file_size`**（DDL+老库迁移+service+HTTP+iOS 上报，不降级）。逐功能状态待落地时进 `CLIENT_PARITY.md`。
 
 ## 已知坑 / 限制
 - **`runAfterKeyboardHidden:` 兜底待测（2026-08-05 记）**：依赖 `resignFirstResponder` 后必然收到 `UIKeyboardDidHideNotification`——软键盘正常成立；若实测硬件/外接键盘场景引用跳转不触发，加 `dispatch_after` 超时兜底。
@@ -39,6 +40,7 @@
 - **系统按钮文案本地化（2026-08-12 修，未编译验证）**：`Info.plist` 补 `CFBundleLocalizations=[zh-Hans,en]` 让 QLPreview「Done」/UISearchBar「Cancel」等系统文案落中文；自有 UI 硬编码中文，将来做真·多语言再建 `.lproj`。
 - **原图路径 JPEG 字节戴 `.heic` 帽子（2026-08-12 记，暂不改）**：`IMMediaPicker buildImageItem` 原图分支按 `UTTypeImage` 取字节（iOS 可能把 HEIC 转 JPEG 交付）但扩展名靠 `hasItemConformingToTypeIdentifier:UTTypeHEIC` 猜 → JPEG 内容 + `.heic` 名错配。Web 靠字节嗅探已能各自正确显示故非阻塞；计划换第三方相册选择器（任务4）后此坑自消。
 - 测试只跑 `-only-testing:IMProgramTests`；改后端协议后需重启后端再测。
+- **聊天页「从收藏发送」入口暂屏蔽/暂不支持（2026-08-19）**：`IMChatViewController` `attachItemTapped:` 的 `favorite` 分支仍走 `im_showComingSoon`（等效屏蔽），**本次不改代码**、仅记录。设计已保留（`../IMServer/docs/FAVORITES_DESIGN.md` §5.5 标 ⏸），待收藏改造统一放开并接卡片式收藏选择器。
 
 ## 关联工程 / 常用命令
 - 后端 `/Users/liying/IOSProject/IMServer`；Web `/Users/liying/IOSProject/im-web`。
