@@ -941,9 +941,13 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
 
 /// 物理移除的落地实现（仅在 _queue 调用）：DB 删行（可选推进同步位点）+ 主线程发 IMSocketDidRemoveMessageNotification。
 - (void)removeLocalMessageOnQueueInConv:(NSString *)convID targetConvSeq:(int64_t)targetConvSeq advancingSyncedConvSeq:(int64_t)syncedConvSeq {
+    __block BOOL changed = NO;
     [self performDatabaseOperation:^(IMDatabase *database) {
-        [database deleteLocalMessageForConv:convID convSeq:targetConvSeq advancingSyncedConvSeq:syncedConvSeq];
+        changed = [database deleteLocalMessageForConv:convID convSeq:targetConvSeq advancingSyncedConvSeq:syncedConvSeq];
     }];
+    // 只有真的删掉了行（或推进了连续位点）才广播刷新——否则登录 catch-up 每轮重删早已不存在的
+    // 隐藏项都会触发列表 reload，reload 尾部又重跑 catch-up，形成自激刷新回路（会话行持续闪烁的根因）。
+    if (!changed) { return; }
     dispatch_async(dispatch_get_main_queue(), ^{
         [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidRemoveMessageNotification object:self
             userInfo:@{ kIMConvIDKey: convID, kIMMsgOpTargetSeqKey: @(targetConvSeq) }];

@@ -593,6 +593,51 @@
     [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
 }
 
+// 群「@我」未读必须随会话快照持久化：否则本地快路（cachedConversations）恒 NO，与带 mention_unread
+// 的 HTTP 权威列表对「[有人@我]」前缀渲染相反，刷新/消息风暴下同一行来回闪烁（2026-08-19 复盘根因）。
+- (void)testMentionUnreadPersistsAcrossSnapshotAndClearsWhenFullyRead {
+    NSURL *url = [self temporaryDatabaseURL];
+    IMDatabase *writer = [[IMDatabase alloc] initWithFileURL:url];
+    [writer useOwnerUserID:@"alice"];
+    IMConversation *group = [self conversationWithID:@"g_mention" peer:@"" content:@"@alice 看一下"];
+    group.isGroup = YES;
+    group.mentionUnread = YES;
+    [writer replaceCachedConversations:@[group]];
+
+    IMDatabase *reader = [[IMDatabase alloc] initWithFileURL:url];
+    [reader useOwnerUserID:@"alice"];
+    XCTAssertTrue(reader.cachedConversations.firstObject.mentionUnread, @"mention_unread 必须跨实例持久化，本地快路才不闪前缀");
+
+    // 读到底即清「@我」未读，避免本地快路残留「[有人@我]」直到下次 HTTP 覆盖。
+    [reader markConversationFullyRead:@"g_mention" upToConvSeq:7];
+    XCTAssertFalse(reader.cachedConversations.firstObject.mentionUnread);
+    [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
+}
+
+// 删除本地消息只在真的删掉行时返回 YES：目标行早已不存在时返回 NO，调用方据此不再广播刷新，
+// 掐断「列表 remove 通知 → reload → catch-up 重删已不存在的隐藏项 → 又发 remove 通知」的自激刷新回路。
+- (void)testDeleteAbsentLocalMessageReportsNoChange {
+    NSURL *url = [self temporaryDatabaseURL];
+    IMDatabase *database = [[IMDatabase alloc] initWithFileURL:url];
+    [database useOwnerUserID:@"alice"];
+
+    IMMessageModel *message = [IMMessageModel new];
+    message.convID = @"g_x";
+    message.from = @"bob";
+    message.contentType = @"text";
+    message.content = @"待删";
+    message.convSeq = 5;
+    message.timestamp = 5;
+    message.status = IMMessageStatusReceived;
+    [database saveMessage:message];
+
+    // 首删命中行 → YES；再删同一行（已不存在）→ NO；删从未存在的 seq → NO。
+    XCTAssertTrue([database deleteLocalMessageForConv:@"g_x" convSeq:5 advancingSyncedConvSeq:0]);
+    XCTAssertFalse([database deleteLocalMessageForConv:@"g_x" convSeq:5 advancingSyncedConvSeq:0]);
+    XCTAssertFalse([database deleteLocalMessageForConv:@"g_x" convSeq:999 advancingSyncedConvSeq:0]);
+    [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
+}
+
 - (void)testAccountContextCannotBeUsedWithAnotherDatabaseInstance {
     NSURL *firstURL = [self temporaryDatabaseURL];
     NSURL *secondURL = [self temporaryDatabaseURL];

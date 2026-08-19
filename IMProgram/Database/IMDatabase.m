@@ -165,6 +165,7 @@
              "read_seq INTEGER, peer_read_seq INTEGER, timestamp INTEGER, unread INTEGER,"
              "pinned_at INTEGER, muted INTEGER, marked_unread INTEGER,server_snapshot_seq INTEGER NOT NULL DEFAULT 0,"
              "synced_conv_seq INTEGER NOT NULL DEFAULT 0, remark TEXT NOT NULL DEFAULT '',"
+             "mention_unread INTEGER NOT NULL DEFAULT 0,"
              "PRIMARY KEY(owner_uid,conv_id))"];
         if (!ok) { IMLogDatabase(@"会话缓存建表失败: %@", db.lastErrorMessage); }
         if (![self column:@"server_snapshot_seq" existsInTable:@"im_conversation_local" db:db]) {
@@ -184,6 +185,13 @@
         if (![self column:@"last_caption" existsInTable:@"im_conversation_local" db:db]) {
             if (![db executeUpdate:@"ALTER TABLE im_conversation_local ADD COLUMN last_caption TEXT NOT NULL DEFAULT ''"]) {
                 IMLogDatabase(@"迁移失败：im_conversation_local 补列 last_caption 未成功: %@", db.lastErrorMessage);
+            }
+        }
+        // 群「@我」未读（M4-8）：必须持久化，否则 HTTP 权威列表（带 mention_unread）与本地快路
+        // （cachedConversations 恒 NO）对同一行的「[有人@我]」前缀渲染相反，消息/刷新风暴下肉眼即闪。
+        if (![self column:@"mention_unread" existsInTable:@"im_conversation_local" db:db]) {
+            if (![db executeUpdate:@"ALTER TABLE im_conversation_local ADD COLUMN mention_unread INTEGER NOT NULL DEFAULT 0"]) {
+                IMLogDatabase(@"迁移失败：im_conversation_local 补列 mention_unread 未成功: %@", db.lastErrorMessage);
             }
         }
 
@@ -327,6 +335,7 @@
             c.pinnedAt = [rs longLongIntForColumn:@"pinned_at"];
             c.muted = [rs boolForColumn:@"muted"];
             c.markedUnread = [rs boolForColumn:@"marked_unread"];
+            c.mentionUnread = [rs boolForColumn:@"mention_unread"];
             NSString *rmk = [rs stringForColumn:@"remark"];
             c.remark = rmk.length > 0 ? rmk : nil; // 空串视作无备注
             if (c.convID.length > 0) { [out addObject:c]; }
@@ -362,13 +371,13 @@
         [conversations enumerateObjectsUsingBlock:^(IMConversation *c, NSUInteger idx, BOOL *stop) {
             if (c.convID.length == 0) { return; }
             BOOL ok = [db executeUpdate:
-                @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,peer,peer_nickname,peer_avatar_url,last_content,last_from,last_from_nickname,last_recalled,last_content_type,last_caption,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq,synced_conv_seq,remark) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,peer,peer_nickname,peer_avatar_url,last_content,last_from,last_from_nickname,last_recalled,last_content_type,last_caption,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq,synced_conv_seq,remark,mention_unread) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 owner, c.convID, @(idx), @(c.isGroup), c.name ?: @"", c.avatarURL ?: @"",
                 @(c.memberCount), c.peer ?: @"", c.peerNickname ?: @"", c.peerAvatarURL ?: @"",
                 c.lastContent ?: @"", c.lastFrom ?: @"", c.lastFromNickname ?: @"", @(c.lastRecalled),
                 c.lastContentType ?: @"", c.lastCaption ?: @"", @(c.latestConvSeq), @(c.readSeq), @(c.peerReadSeq),
                 @(c.timestamp), @(c.unread), @(c.pinnedAt), @(c.muted), @(c.markedUnread), @(c.latestConvSeq),
-                syncCursors[c.convID] ?: @0, c.remark ?: @""];
+                syncCursors[c.convID] ?: @0, c.remark ?: @"", @(c.mentionUnread)];
             if (!ok) {
                 IMLogDatabase(@"写入会话缓存失败 owner=%@ conv=%@: %@", owner, c.convID, db.lastErrorMessage);
                 *rollback = YES;
@@ -762,8 +771,9 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
     if (convID.length == 0 || convSeq <= 0) { return; }
     NSString *owner = [self ownerUserID];
     [_queue inDatabase:^(FMDatabase *db) {
+        // 读到底即清「@我」未读：与服务端 mention_unread 收敛同口径，避免本地快路残留「[有人@我]」前缀。
         if (![db executeUpdate:
-              @"UPDATE im_conversation_local SET read_seq=MAX(read_seq,?),unread=0 WHERE owner_uid=? AND conv_id=?",
+              @"UPDATE im_conversation_local SET read_seq=MAX(read_seq,?),unread=0,mention_unread=0 WHERE owner_uid=? AND conv_id=?",
               @(convSeq), owner, convID]) {
             IMLogDatabase(@"清零本地会话未读失败 owner=%@ conv=%@: %@", owner, convID, db.lastErrorMessage);
         }
@@ -1051,6 +1061,10 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
            advancingSyncedConvSeq:(int64_t)syncedConvSeq {
     if (convID.length == 0 || convSeq <= 0) { return NO; }
     NSString *owner = [self ownerUserID];
+    // applied 表示「本次是否真的改动了持久状态」（删掉了 ≥1 条消息行，或推进了连续位点）。
+    // 返回值用于让调用方决定是否广播刷新通知：目标行早已不存在时不发通知，避免
+    //「列表 remove 通知 → onSocketMessage → reload → fetchHiddenCatchUp 重删已不存在的隐藏项 →
+    // 又发 remove 通知」的自激刷新回路（会话列表 ~0.47s 空转刷新的根因）。
     __block BOOL applied = NO;
     [_queue inTransaction:^(FMDatabase *db, BOOL *rollback) {
         if (![db executeUpdate:@"DELETE FROM im_message_local WHERE owner_uid=? AND conv_id=? AND conv_seq=?",
@@ -1059,6 +1073,7 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
             *rollback = YES;
             return;
         }
+        BOOL deletedRow = (db.changes > 0);
         if (syncedConvSeq > 0 && ![db executeUpdate:
             @"UPDATE im_conversation_local SET synced_conv_seq=MAX(synced_conv_seq,?) WHERE owner_uid=? AND conv_id=?",
             @(syncedConvSeq), owner, convID]) {
@@ -1066,7 +1081,7 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
             *rollback = YES;
             return;
         }
-        applied = YES;
+        applied = deletedRow || (syncedConvSeq > 0 && db.changes > 0);
     }];
     return applied;
 }

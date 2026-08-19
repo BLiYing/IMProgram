@@ -5,6 +5,8 @@
 
 ## 当前焦点
 
+**会话行「[有人@我]↔普通预览」来回闪烁 ✅ 根因修复（2026-08-19，clean build + test build 绿，待手测）** — 读 iOS 落盘日志定位：① `fetchHiddenCatchUp` 每次 `reload` 尾部无条件重删隐藏项，`removeLocalMessageOnQueue` 又**无条件**发 `IMSocketDidRemoveMessageNotification`，列表把它当消息事件再 `reload` → 自激刷新回路（列表 ~0.47s 空转拉全量，日志实测 507 次）；② 本地缓存表 `im_conversation_local` **无 `mention_unread` 列**，`cachedConversations` 恒 NO，与带 `mention_unread` 的 HTTP 权威列表对同一行「[有人@我]」前缀渲染相反 → 两路在回路里对闪。修：`deleteLocalMessageForConv` 用 `db.changes` 只在真删了行/推进位点时返回 YES，`removeLocalMessageOnQueue` 据此**只在真变更时才广播**（掐断回路）；`im_conversation_local` 补 `mention_unread` 列（建表+幂等迁移+读+写），`markConversationFullyRead` 一并清零。补 `IMConversationCacheTests` 两例（mention 持久化+读到底清零、删不存在行返回 NO）。**未跑单测/手测。**
+
 **IMChatViewController 续拆收官：主文件 1496→725 行（6 轮平移，2026-08-19，逐 commit clean build 绿，纯平移未改行为，待手测）**
 - 六个内聚子系统整块平移到分文件 category（逐轮编译过→提交）：
   ① `+PinnedBanner.m`（G0 置顶/BannerStackDelegate/G2 禁言锁，11 法）② `+SendService.m`（IMMediaSendService 发件箱对账/msg_op/徽标节流，15 法）
