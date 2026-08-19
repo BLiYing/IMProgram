@@ -22,10 +22,12 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
 @property (nonatomic, copy, nullable) NSString *avatarURL;
 @property (nonatomic, assign) NSInteger memberCount;
 @property (nonatomic, assign) BOOL canReset;
+@property (nonatomic, assign) BOOL asLink; ///< 群码页按「群邀请链接」呈现（仅改标题/文案，码一致）
 
 @property (nonatomic, strong) IMQRCardView *cardView;
 @property (nonatomic, strong) UIButton *saveButton;
 @property (nonatomic, strong) UIButton *shareButton;
+@property (nonatomic, strong) UIButton *linkCopyButton;
 @property (nonatomic, strong) UIButton *resetButton;
 
 @property (nonatomic, copy, nullable) NSString *codeString;  ///< 码内容串（服务端下发）
@@ -54,7 +56,7 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
 
 - (instancetype)initGroupCardWithHost:(NSString *)host userID:(NSString *)userID convID:(NSString *)convID
                             groupName:(NSString *)groupName avatarURL:(NSString *)avatarURL
-                          memberCount:(NSInteger)memberCount canReset:(BOOL)canReset {
+                          memberCount:(NSInteger)memberCount canReset:(BOOL)canReset asLink:(BOOL)asLink {
     self = [super initWithNibName:nil bundle:nil];
     if (self) {
         _mode = IMQRCardModeGroup;
@@ -65,6 +67,7 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
         _avatarURL = [avatarURL copy];
         _memberCount = memberCount;
         _canReset = canReset;
+        _asLink = asLink;
     }
     return self;
 }
@@ -73,7 +76,7 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = (self.mode == IMQRCardModeGroup) ? @"群二维码" : @"我的二维码";
+    self.title = (self.mode == IMQRCardModeGroup) ? (self.asLink ? @"群邀请链接" : @"群二维码") : @"我的二维码";
     self.view.backgroundColor = IMTheme.groupedBackground;
     [self setupUI];
     [self reloadCode];
@@ -122,6 +125,15 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
     row.spacing = IMTheme.space3;
     [self.view addSubview:row];
 
+    // 复制链接：码内容串本身就是邀请/名片链接（/q/g|u/<token>），二级文字按钮，不挤主行两键布局。
+    self.linkCopyButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    self.linkCopyButton.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.linkCopyButton setTitle:(self.mode == IMQRCardModeGroup ? @"复制群邀请链接" : @"复制链接") forState:UIControlStateNormal];
+    [self.linkCopyButton setTitleColor:IMTheme.accent forState:UIControlStateNormal];
+    self.linkCopyButton.titleLabel.font = [UIFont systemFontOfSize:15];
+    [self.linkCopyButton addTarget:self action:@selector(shareLinkCopy) forControlEvents:UIControlEventTouchUpInside];
+    [self.view addSubview:self.linkCopyButton];
+
     self.resetButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.resetButton.translatesAutoresizingMaskIntoConstraints = NO;
     [self.resetButton setTitle:(self.mode == IMQRCardModeGroup ? @"重置群二维码" : @"重置二维码")
@@ -145,7 +157,10 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
         [row.trailingAnchor constraintEqualToAnchor:self.cardView.trailingAnchor],
         [row.heightAnchor constraintEqualToConstant:44],
 
-        [self.resetButton.topAnchor constraintEqualToAnchor:row.bottomAnchor constant:IMTheme.space3],
+        [self.linkCopyButton.topAnchor constraintEqualToAnchor:row.bottomAnchor constant:IMTheme.space3],
+        [self.linkCopyButton.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
+
+        [self.resetButton.topAnchor constraintEqualToAnchor:self.linkCopyButton.bottomAnchor constant:IMTheme.space2],
         [self.resetButton.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
     ]];
     [self renderCard];
@@ -183,6 +198,7 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
     BOOL hasCode = self.codeString.length > 0;
     self.saveButton.enabled = hasCode;
     self.shareButton.enabled = hasCode;
+    self.linkCopyButton.enabled = hasCode;
 }
 
 - (NSString *)dateStringFromMillis:(int64_t)ms {
@@ -277,6 +293,13 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
     share.popoverPresentationController.sourceView = self.shareButton;      // iPad 必须给锚点，否则崩
     share.popoverPresentationController.sourceRect = self.shareButton.bounds;
     [self presentViewController:share animated:YES completion:nil];
+}
+
+/// 复制链接：把码内容串（即 /q/g|u/<token> 邀请/名片链接）拷进剪贴板。
+- (void)shareLinkCopy {
+    if (self.codeString.length == 0) { [self im_showToast:@"链接还没准备好"]; return; }
+    UIPasteboard.generalPasteboard.string = self.codeString;
+    [self im_showToast:(self.mode == IMQRCardModeGroup ? @"已复制群邀请链接" : @"已复制链接")];
 }
 
 @end

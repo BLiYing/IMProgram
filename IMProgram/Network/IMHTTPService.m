@@ -77,6 +77,7 @@ static NSString *IMFriendlyMessageForCode(NSInteger code) {
         case 300207: return @"你已被移出该群，暂时或永久不可加入";  // banned from group（G2）
         case 300208: return @"你已被管理员禁言";                    // member muted（G2）
         // 300210 不映射：入群申请已提交，UI 走"待审批"分支而非错误提示。
+        case 300211: return @"你的入群申请刚被拒绝，请稍后再试";    // join cooldown（拒后再扫码，语义单一可安全映射）
         case 300212: return @"该群已改为仅管理员可邀请，此邀请已失效"; // invite revoked（perm_invite，竞态兜底）
         default: return nil;
     }

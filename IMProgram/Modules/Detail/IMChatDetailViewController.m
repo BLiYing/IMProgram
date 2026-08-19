@@ -563,7 +563,7 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
     if (self.tabs.count == 0) { return 0; }
     IMChatDetailTab *t = self.tabs[self.selectedTab];
     switch (t.kind) {
-        case IMDetailTabKindMembers: return 1 + (NSInteger)self.group.members.count; // 添加成员 + 成员
+        case IMDetailTabKindMembers: return [self memberRowOffset] + (NSInteger)self.group.members.count; // [添加成员] + 成员
         case IMDetailTabKindMedia:   return 1;                                        // 1 个宫格 cell（空态也占位）
         default:                     return MAX(1, (NSInteger)self.tabRows.count);    // 至少 1（空态提示）
     }
@@ -706,7 +706,8 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     IMDetailSettingsRowMute,        ///< 消息免打扰
     IMDetailSettingsRowMyNickname,  ///< 我在本群的昵称（群聊，任意成员，G1）
     IMDetailSettingsRowRemark,      ///< 群备注（群聊，仅本人可见，G1）
-    IMDetailSettingsRowGroupQR,     ///< 群二维码（群聊，任意成员，QRCODE P0）
+    IMDetailSettingsRowGroupQR,     ///< 群二维码（群聊，QRCODE P0；perm_invite=1 时对非管理员隐藏）
+    IMDetailSettingsRowGroupInviteLink, ///< 群邀请链接（群聊；与二维码同源同权限，展示在二维码下方）
     IMDetailSettingsRowManage,      ///< 群管理（群主/管理员）
 };
 
@@ -716,7 +717,11 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     if (self.isGroup) {
         [rows addObject:@(IMDetailSettingsRowMyNickname)]; // 任意成员可改自己的群昵称
         [rows addObject:@(IMDetailSettingsRowRemark)];     // 群备注（仅本人可见）
-        [rows addObject:@(IMDetailSettingsRowGroupQR)];    // 群二维码（任意成员可出示；perm_invite=1 时服务端拦普通成员）
+        // 群二维码 + 群邀请链接：perm_invite=1 时对非管理员隐藏（无邀请权者不给死胡同入口，对齐微信）。
+        if ([self inviteEntriesVisible]) {
+            [rows addObject:@(IMDetailSettingsRowGroupQR)];
+            [rows addObject:@(IMDetailSettingsRowGroupInviteLink)];
+        }
         if ([self canManageGroup]) { [rows addObject:@(IMDetailSettingsRowManage)]; }
     }
     return rows;
@@ -755,6 +760,10 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
             cell.textLabel.text = @"群二维码";
             cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
             break;
+        case IMDetailSettingsRowGroupInviteLink:
+            cell.textLabel.text = @"群邀请链接";
+            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            break;
         case IMDetailSettingsRowManage:
             cell.textLabel.text = @"群管理";
             // 有待审入群申请时把红点带到「群管理」行（不必进管理页才发现，G3 修）。
@@ -773,14 +782,15 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
 - (UITableViewCell *)tabCell:(UITableView *)tv row:(NSInteger)row {
     IMChatDetailTab *t = self.tabs[self.selectedTab];
     if (t.kind == IMDetailTabKindMembers) {
-        if (row == 0) {
+        NSInteger offset = [self memberRowOffset];
+        if (offset > 0 && row == 0) {
             UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleDefault reuseID:@"dDef" inTable:tv];
             cell.textLabel.text = @"添加成员"; cell.textLabel.textColor = IMTheme.accent;
             cell.imageView.image = [UIImage systemImageNamed:@"person.badge.plus"];
             return cell;
         }
         IMDetailMemberCell *cell = [tv dequeueReusableCellWithIdentifier:@"member"];
-        IMGroupMember *m = self.group.members[row - 1];
+        IMGroupMember *m = self.group.members[row - offset];
         [cell configureWithMember:m isMe:[m.userID isEqualToString:self.userID]];
         cell.selectionStyle = UITableViewCellSelectionStyleDefault;
         return cell;
@@ -881,6 +891,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
             case IMDetailSettingsRowMyNickname: [self editMyGroupNickname]; break;
             case IMDetailSettingsRowRemark:     [self editGroupRemark]; break;
             case IMDetailSettingsRowGroupQR:    [self openGroupQR]; break;
+            case IMDetailSettingsRowGroupInviteLink: [self openGroupInviteLink]; break;
             case IMDetailSettingsRowManage:     [self openGroupManage]; break;
             default: break; // 置顶/免打扰走开关，不响应行点击
         }
@@ -889,8 +900,9 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     if (kind == IMDetailSectionTabs && self.tabs.count > 0) {
         IMChatDetailTab *t = self.tabs[self.selectedTab];
         if (t.kind == IMDetailTabKindMembers) {
-            if (indexPath.row == 0) { [self inviteMembers]; }
-            else { [self openPeerDetail:self.group.members[indexPath.row - 1]]; } // tap→对方资料页
+            NSInteger offset = [self memberRowOffset];
+            if (offset > 0 && indexPath.row == 0) { [self inviteMembers]; }
+            else { [self openPeerDetail:self.group.members[indexPath.row - offset]]; } // tap→对方资料页
         } else if (t.kind == IMDetailTabKindFiles) {
             if (indexPath.row >= (NSInteger)self.tabRows.count) { return; }
             IMMessageModel *m = self.tabRows[indexPath.row];
@@ -913,8 +925,10 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
 /// 成员行取对应成员（row>0；否则 nil）。
 - (nullable IMGroupMember *)memberAtIndexPath:(NSIndexPath *)ip {
     if ([self sectionKindAt:ip.section] != IMDetailSectionTabs || self.tabs.count == 0) { return nil; }
-    if (self.tabs[self.selectedTab].kind != IMDetailTabKindMembers || ip.row == 0) { return nil; }
-    NSInteger i = ip.row - 1;
+    if (self.tabs[self.selectedTab].kind != IMDetailTabKindMembers) { return nil; }
+    NSInteger offset = [self memberRowOffset];
+    if (offset > 0 && ip.row == 0) { return nil; } // 「添加成员」行不是成员
+    NSInteger i = ip.row - offset;
     return (i >= 0 && i < (NSInteger)self.group.members.count) ? self.group.members[i] : nil;
 }
 
@@ -1022,6 +1036,11 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
 #pragma mark - 动作：群成员管理（成员页签）
 
 - (void)inviteMembers {
+    // 二次拦（入口通常已隐藏；防竞态/异常路径点到）：无邀请权直接中文吐司，不进好友选择器。
+    if (self.group.permInvite && ![self canManageGroup]) {
+        [self im_showToast:@"群主已开启「仅管理员可邀请」，你无法邀请成员"];
+        return;
+    }
     NSMutableSet<NSString *> *inGroup = [NSMutableSet set];
     for (IMGroupMember *m in self.group.members) { [inGroup addObject:m.userID]; }
     __weak typeof(self) ws = self;
@@ -1037,6 +1056,9 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
             if (error) {
                 // 300207 = 被邀请者已被移出/冷却期：用邀请场景第三人称文案（区别于自加群映射的第二人称）。
                 if (error.code == 300207) { [self im_showToast:@"该成员已被移出本群，暂时无法再次邀请"]; }
+                // 300204 = 无邀请权（竞态：进选择器后群主刚开启「仅管理员可邀请」）。后端此码下发英文默认文案，
+                // 且 300204 被多场景复用不宜在 IMFriendlyMessageForCode 一刀切映射，故在此邀请场景就地给中文。
+                else if (error.code == 300204) { [self im_showToast:@"群主已开启「仅管理员可邀请」，你无法邀请成员"]; }
                 else { [self im_showToast:error.localizedDescription]; }
                 return;
             }
@@ -1072,6 +1094,17 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     return self.group && (self.group.myRole == IMGroupRoleOwner || self.group.myRole == IMGroupRoleAdmin);
 }
 
+/// perm_invite 开启且我非群主/管理员时，隐藏所有「邀请」类入口（群二维码 / 群邀请链接 / 添加成员）。
+/// 对齐微信：无邀请权者不给死胡同入口；服务端仍是权威闸门（点到也会被 300204/300212 拦）。
+- (BOOL)inviteEntriesVisible {
+    return !(self.isGroup && self.group.permInvite && ![self canManageGroup]);
+}
+
+/// 成员 Tab 首行是否为「添加成员」：随 inviteEntriesVisible 显隐；隐藏时成员从第 0 行起（消 off-by-one）。
+- (NSInteger)memberRowOffset {
+    return [self inviteEntriesVisible] ? 1 : 0;
+}
+
 - (void)openGroupManage {
     if (![self canManageGroup]) { return; }
     __weak typeof(self) ws = self;
@@ -1083,16 +1116,24 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
 
 /// 群二维码（QRCODE P0，任意成员可出示；perm_invite=1 时仅群主/管理员可出码——码即邀请链接）。
 /// 无权限时不进入卡片页，直接中文吐司（对齐 Web：Web 亦不打开模态、只吐司）。
-- (void)openGroupQR {
+- (void)openGroupQR { [self pushGroupCardAsLink:NO]; }
+
+/// 群邀请链接（点 1）：与群二维码同源（`/q/g/<token>`）同权限，复用二维码卡片页（asLink=YES 只改标题/文案）——
+/// 卡片页含「复制链接 / 分享」，链接即码。perm_invite=1 时对非管理员隐藏，点到也在此二次拦（中文吐司）。
+- (void)openGroupInviteLink { [self pushGroupCardAsLink:YES]; }
+
+/// 群二维码 / 群邀请链接同源同权限，仅呈现文案不同——收口为一处（asLink 决定标题与拦截文案）。
+- (void)pushGroupCardAsLink:(BOOL)asLink {
     if (self.group.permInvite && ![self canManageGroup]) {
-        [self im_showToast:@"群主已开启「仅管理员可邀请」，你无法出示群二维码"];
+        [self im_showToast:(asLink ? @"群主已开启「仅管理员可邀请」，你无法获取群邀请链接"
+                                   : @"群主已开启「仅管理员可邀请」，你无法出示群二维码")];
         return;
     }
     IMQRCardViewController *vc = [[IMQRCardViewController alloc] initGroupCardWithHost:self.host userID:self.userID
                                                                               convID:self.convID groupName:self.group.name
                                                                            avatarURL:self.group.avatarURL
                                                                          memberCount:self.group.memberCount
-                                                                            canReset:[self canManageGroup]];
+                                                                            canReset:[self canManageGroup] asLink:asLink];
     [self.navigationController pushViewController:vc animated:YES];
 }
 
