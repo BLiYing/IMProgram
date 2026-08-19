@@ -18,6 +18,8 @@
     p.fromNickname = nick.length > 0 ? nick : nil;
     p.contentType = [json[@"content_type"] isKindOfClass:[NSString class]] ? json[@"content_type"] : @"text";
     p.content = [json[@"content"] isKindOfClass:[NSString class]] ? json[@"content"] : @"";
+    NSString *cap = [json[@"caption"] isKindOfClass:[NSString class]] ? json[@"caption"] : nil;
+    p.caption = cap.length > 0 ? cap : nil;
     id ts = json[@"timestamp"];
     p.timestamp = [ts respondsToSelector:@selector(longLongValue)] ? [ts longLongValue] : 0;
     id pinnedAt = json[@"pinned_at"];
@@ -26,6 +28,10 @@
 }
 
 - (NSString *)previewText {
+    // 图说「有字显字」：媒体/文件带 caption 时横幅显 caption 文字，否则回退类型词。
+    if (self.caption.length > 0 && ([self.contentType isEqualToString:@"image"] || [self.contentType isEqualToString:@"video"] || [self.contentType isEqualToString:@"file"])) {
+        return [self oneLine:self.caption];
+    }
     if ([self.contentType isEqualToString:@"image"]) { return @"[图片]"; }
     if ([self.contentType isEqualToString:@"video"]) { return @"[视频]"; }
     if ([self.contentType isEqualToString:@"audio"]) { return @"[语音]"; }

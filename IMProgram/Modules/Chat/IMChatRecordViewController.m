@@ -14,12 +14,13 @@
 
 @interface IMRecordItemCell : UITableViewCell
 - (void)configureWithName:(NSString *)name type:(NSString *)type content:(NSString *)content fullURL:(NSString *)fullURL
-                 fileName:(NSString *)fileName fileSize:(int64_t)fileSize;
+                 fileName:(NSString *)fileName fileSize:(int64_t)fileSize caption:(nullable NSString *)caption;
 @end
 
 @implementation IMRecordItemCell {
     UILabel *_name;
     UILabel *_text;
+    UILabel *_caption;      // 图说条目「有字显字」：媒体/文件下方随附文本
     UIImageView *_thumb;
     UIImageView *_playBadge;
     NSString *_thumbURL;
@@ -39,6 +40,12 @@
         _text.font = [UIFont systemFontOfSize:16];
         _text.textColor = UIColor.labelColor;
         _text.numberOfLines = 0;
+
+        _caption = [UILabel new];
+        _caption.font = [UIFont systemFontOfSize:15];
+        _caption.textColor = UIColor.labelColor;
+        _caption.numberOfLines = 0;
+        _caption.hidden = YES;
 
         _thumb = [UIImageView new];
         _thumb.contentMode = UIViewContentModeScaleAspectFill;
@@ -107,7 +114,7 @@
             [recFoot.bottomAnchor constraintEqualToAnchor:_recCard.bottomAnchor constant:-8],
         ]];
 
-        UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[_name, _text, _thumb, _recCard]];
+        UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[_name, _text, _thumb, _caption, _recCard]];
         stack.axis = UILayoutConstraintAxisVertical;
         stack.alignment = UIStackViewAlignmentLeading;
         stack.spacing = 6;
@@ -123,12 +130,16 @@
     return self;
 }
 - (void)configureWithName:(NSString *)name type:(NSString *)type content:(NSString *)content fullURL:(NSString *)fullURL
-                 fileName:(NSString *)fileName fileSize:(int64_t)fileSize {
+                 fileName:(NSString *)fileName fileSize:(int64_t)fileSize caption:(NSString *)caption {
     _name.text = name;
     BOOL isRecord = [type isEqualToString:@"chat_record"];
     BOOL isImage = [type isEqualToString:@"image"];
     BOOL isVideo = [type isEqualToString:@"video"];
     BOOL isMedia = isImage || isVideo;
+    // 图说条目「有字显字」：媒体/文件下方随附文本（在各分支 early-return 之前统一设置）。
+    BOOL hasCaption = caption.length > 0 && (isMedia || [type isEqualToString:@"file"]);
+    _caption.text = hasCaption ? caption : nil;
+    _caption.hidden = !hasCaption;
     _recCard.hidden = !isRecord;
     _text.hidden = isMedia || isRecord;
     _thumb.hidden = !isMedia;
@@ -249,7 +260,8 @@
     NSString *c = [it[@"c"] isKindOfClass:NSString.class] ? it[@"c"] : @"";
     NSString *fn = [it[@"fn"] isKindOfClass:NSString.class] ? it[@"fn"] : @"";
     int64_t fs = [it[@"fs"] respondsToSelector:@selector(longLongValue)] ? [it[@"fs"] longLongValue] : 0;
-    [cell configureWithName:n type:ct content:c fullURL:[self fullURLFor:c] fileName:fn fileSize:fs];
+    NSString *cap = [it[@"cap"] isKindOfClass:NSString.class] ? it[@"cap"] : nil;
+    [cell configureWithName:n type:ct content:c fullURL:[self fullURLFor:c] fileName:fn fileSize:fs caption:cap];
     return cell;
 }
 

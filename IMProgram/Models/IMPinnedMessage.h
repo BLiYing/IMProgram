@@ -15,6 +15,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) NSString *fromNickname; ///< 仅群聊下发（空则回退 uid）
 @property (nonatomic, copy) NSString *contentType;
 @property (nonatomic, copy) NSString *content;
+@property (nonatomic, copy, nullable) NSString *caption; ///< 图说随附文本：横幅/列表「有字显字」（媒体带 caption 时显文字）
 @property (nonatomic, assign) int64_t timestamp;
 @property (nonatomic, assign) int64_t pinnedAt;
 

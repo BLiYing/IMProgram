@@ -374,6 +374,7 @@
             if (fname.length > 0) { item[@"fn"] = fname; }
             if (m.fileSize > 0) { item[@"fs"] = @(m.fileSize); }
         }
+        if (m.caption.length > 0) { item[@"cap"] = m.caption; } // 图说条目携带 caption（cap，与 Web 同 key）→ 记录卡「有字显字」
         [items addObject:item];
     }
     // 多选态下 self.title 已被替换为"已选择 N 条"，用 savedTitle 取真实会话名。

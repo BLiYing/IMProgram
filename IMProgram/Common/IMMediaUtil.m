@@ -56,6 +56,11 @@ NSString *IMRecordItemPreview(NSDictionary *it) {
     if (![it isKindOfClass:NSDictionary.class]) { return @""; }
     NSString *ct = [it[@"ct"] isKindOfClass:NSString.class] ? it[@"ct"] : @"text";
     NSString *c  = [it[@"c"]  isKindOfClass:NSString.class] ? it[@"c"]  : @"";
+    // 图说条目「有字显字」：媒体/文件带 cap（caption）时优先显文字，否则回退 [图片]/[视频]/[文件名]。
+    NSString *cap = [it[@"cap"] isKindOfClass:NSString.class] ? it[@"cap"] : nil;
+    if (cap.length > 0 && ([ct isEqualToString:@"image"] || [ct isEqualToString:@"video"] || [ct isEqualToString:@"file"])) {
+        return cap.length > 60 ? [[cap substringToIndex:60] stringByAppendingString:@"…"] : cap;
+    }
     if ([ct isEqualToString:@"image"]) { return @"[图片]"; }
     if ([ct isEqualToString:@"video"]) { return @"[视频]"; }
     if ([ct isEqualToString:@"file"]) {
