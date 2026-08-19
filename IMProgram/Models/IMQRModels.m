@@ -153,6 +153,7 @@ NSString *IMQRGroupActionNote(IMQRGroupCard *card) {
     if (!card.joinable) {
         if ([card.reason isEqualToString:@"full"]) { return @"群成员已达上限，暂时无法加入"; }
         if ([card.reason isEqualToString:@"banned"]) { return @"你已被移出该群，暂时或永久不可加入"; }
+        if ([card.reason isEqualToString:@"invite_revoked"]) { return @"该群已改为仅管理员可邀请，此邀请已失效"; }
         return nil;
     }
     if ([card.reason isEqualToString:@"approval"]) { return @"该群需管理员审批"; }

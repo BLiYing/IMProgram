@@ -71,9 +71,11 @@
     XCTAssertEqual(IMQRGroupActionForCard([self groupCardJoined:NO joinable:YES reason:@"approval"]), IMQRGroupActionApply);
     XCTAssertEqual(IMQRGroupActionForCard([self groupCardJoined:NO joinable:NO reason:@"full"]), IMQRGroupActionDisabled);
     XCTAssertEqual(IMQRGroupActionForCard([self groupCardJoined:NO joinable:NO reason:@"banned"]), IMQRGroupActionDisabled);
+    XCTAssertEqual(IMQRGroupActionForCard([self groupCardJoined:NO joinable:NO reason:@"invite_revoked"]), IMQRGroupActionDisabled);
     XCTAssertEqual(IMQRGroupActionForCard(nil), IMQRGroupActionDisabled);
     XCTAssertEqualObjects(IMQRGroupActionLabel(IMQRGroupActionApply), @"申请加入");
     XCTAssertNotNil(IMQRGroupActionNote([self groupCardJoined:NO joinable:NO reason:@"full"]));
+    XCTAssertNotNil(IMQRGroupActionNote([self groupCardJoined:NO joinable:NO reason:@"invite_revoked"]));
     XCTAssertNotNil(IMQRGroupActionNote([self groupCardJoined:NO joinable:YES reason:@"approval"]));
     XCTAssertNil(IMQRGroupActionNote([self groupCardJoined:NO joinable:YES reason:@""]));
 }

@@ -33,7 +33,7 @@ typedef NS_ENUM(NSInteger, IMQRKind) {
 @property (nonatomic, copy) NSString *inviterNickname;
 @property (nonatomic, assign) BOOL joined;
 @property (nonatomic, assign) BOOL joinable;
-@property (nonatomic, copy) NSString *reason;     ///< "" 可加入 | approval 需审批 | joined | full | banned
+@property (nonatomic, copy) NSString *reason;     ///< "" 可加入 | approval 需审批 | joined | full | banned | invite_revoked（改为仅管理员可邀请，此码失效）
 + (nullable instancetype)fromDictionary:(nullable NSDictionary *)dict;
 @end
 
