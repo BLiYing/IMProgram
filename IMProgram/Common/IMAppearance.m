@@ -15,6 +15,52 @@ static BOOL IMContainsString(NSArray<NSString *> *values, NSString *value) {
     return value.length > 0 && [values containsObject:value];
 }
 
+static UIColor *IMColorFromHex(uint32_t hex) {
+    return [UIColor colorWithRed:((hex >> 16) & 0xFF) / 255.0
+                           green:((hex >> 8) & 0xFF) / 255.0
+                            blue:(hex & 0xFF) / 255.0 alpha:1];
+}
+
+// 把 color 按比例 f 混向 target（f=0 原色、f=1 目标色）；用于从主题色派生气泡/壁纸配色。
+static UIColor *IMBlendColor(UIColor *color, UIColor *target, CGFloat f) {
+    CGFloat r1 = 0, g1 = 0, b1 = 0, a1 = 1, r2 = 0, g2 = 0, b2 = 0, a2 = 1;
+    [color getRed:&r1 green:&g1 blue:&b1 alpha:&a1];
+    [target getRed:&r2 green:&g2 blue:&b2 alpha:&a2];
+    return [UIColor colorWithRed:r1 + (r2 - r1) * f
+                           green:g1 + (g2 - g1) * f
+                            blue:b1 + (b2 - b1) * f alpha:1];
+}
+
+// 内置主题合法 ID 的唯一来源：init / setThemeID / wallpaperColorsForThemeID 校验共用，避免多处漂移。
+static NSArray<NSString *> *IMValidThemeIDs(void) {
+    return @[@"classic", @"ocean", @"violet", @"midnight",
+             @"lime", @"titian", @"mars-green", @"klein-blue", @"burgundy",
+             @"schonbrunn", @"tiffany", @"china-red", @"hermes-orange", @"prussian-blue"];
+}
+
+// 新增色系主题：只给「主题色（accent）」，气泡与壁纸由 accent 按可读性派生
+// （浅色 → 淡彩底配深字；深色 → 暗彩底配白字，与 IMTheme.bubbleMeText=labelColor 契约一致）。
+// 经典/海洋/紫晶/深海 4 个老主题仍走各自手调分支，不进此表。
+static NSDictionary<NSString *, UIColor *> *IMCustomThemeAccents(void) {
+    static NSDictionary *map;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        map = @{
+            @"lime": IMColorFromHex(0x6ECC54),          // 莱姆绿
+            @"titian": IMColorFromHex(0xD34947),        // 提香红
+            @"mars-green": IMColorFromHex(0x018B8D),    // 马尔斯绿
+            @"klein-blue": IMColorFromHex(0x002FA7),    // 克莱因蓝
+            @"burgundy": IMColorFromHex(0x470125),      // 勃垦第红
+            @"schonbrunn": IMColorFromHex(0xF9D46C),    // 申布伦黄
+            @"tiffany": IMColorFromHex(0x71E2D1),       // 蒂芙尼蓝
+            @"china-red": IMColorFromHex(0xC8161D),     // 中国红
+            @"hermes-orange": IMColorFromHex(0xEB5C20), // 爱马仕橙
+            @"prussian-blue": IMColorFromHex(0x0D3A69), // 普鲁士蓝
+        };
+    });
+    return map;
+}
+
 @implementation IMAppearance
 
 + (instancetype)shared {
@@ -31,7 +77,7 @@ static BOOL IMContainsString(NSArray<NSString *> *values, NSString *value) {
         NSInteger storedMode = [d objectForKey:kIMAppearanceModeKey] ? [d integerForKey:kIMAppearanceModeKey] : IMAppearanceModeSystem;
         _mode = MIN(IMAppearanceModeDark, MAX(IMAppearanceModeSystem, storedMode));
         NSString *storedTheme = [d stringForKey:kIMAppearanceThemeKey];
-        _themeID = IMContainsString(@[@"classic", @"ocean", @"violet", @"midnight"], storedTheme) ? storedTheme : @"classic";
+        _themeID = IMContainsString(IMValidThemeIDs(), storedTheme) ? storedTheme : @"classic";
         NSString *storedWallpaper = [d stringForKey:kIMAppearanceWallpaperKey];
         _wallpaperID = IMContainsString(@[@"doodle", @"gradient", @"plain"], storedWallpaper) ? storedWallpaper : @"doodle";
         CGFloat storedFont = [d objectForKey:kIMAppearanceFontKey] ? [d doubleForKey:kIMAppearanceFontKey] : 17;
@@ -51,7 +97,7 @@ static BOOL IMContainsString(NSArray<NSString *> *values, NSString *value) {
 }
 
 - (void)setThemeID:(NSString *)themeID {
-    _themeID = IMContainsString(@[@"classic", @"ocean", @"violet", @"midnight"], themeID) ? [themeID copy] : @"classic";
+    _themeID = IMContainsString(IMValidThemeIDs(), themeID) ? [themeID copy] : @"classic";
     [NSUserDefaults.standardUserDefaults setObject:_themeID forKey:kIMAppearanceThemeKey];
     [self notifyChange];
 }
@@ -108,6 +154,8 @@ static BOOL IMContainsString(NSArray<NSString *> *values, NSString *value) {
     if ([themeID isEqualToString:@"ocean"]) { return UIColor.systemBlueColor; }
     if ([themeID isEqualToString:@"violet"]) { return UIColor.systemPurpleColor; }
     if ([themeID isEqualToString:@"midnight"]) { return [UIColor colorWithRed:0.24 green:0.62 blue:0.88 alpha:1]; }
+    UIColor *custom = IMCustomThemeAccents()[themeID];
+    if (custom) { return custom; }
     return UIColor.systemGreenColor;
 }
 
@@ -117,8 +165,14 @@ static BOOL IMContainsString(NSArray<NSString *> *values, NSString *value) {
 
 - (UIColor *)bubbleMeColorForThemeID:(NSString *)themeID {
     NSString *theme = [themeID copy];
+    UIColor *custom = IMCustomThemeAccents()[theme];
     return [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *trait) {
         BOOL dark = trait.userInterfaceStyle == UIUserInterfaceStyleDark;
+        if (custom) {
+            // 气泡保留较多本色（浅色 42%、深色 50%），与下方极淡壁纸拉开对比；文字用 labelColor 仍达标。
+            return dark ? IMBlendColor(custom, UIColor.blackColor, 0.50)
+                        : IMBlendColor(custom, UIColor.whiteColor, 0.58);
+        }
         if ([theme isEqualToString:@"ocean"]) {
             return dark ? [UIColor colorWithRed:0.08 green:0.27 blue:0.43 alpha:1]
                         : [UIColor colorWithRed:0.78 green:0.92 blue:1 alpha:1];
@@ -137,6 +191,12 @@ static BOOL IMContainsString(NSArray<NSString *> *values, NSString *value) {
 }
 
 - (NSArray<UIColor *> *)wallpaperPairForThemeID:(NSString *)themeID dark:(BOOL)dark {
+    UIColor *custom = IMCustomThemeAccents()[themeID];
+    if (custom) {
+        // 壁纸压到极淡（浅色近白微染、深色近黑微染），只作背景，与更饱和的气泡拉开区分度。
+        return dark ? @[IMBlendColor(custom, UIColor.blackColor, 0.92), IMBlendColor(custom, UIColor.blackColor, 0.84)]
+                    : @[IMBlendColor(custom, UIColor.whiteColor, 0.91), IMBlendColor(custom, UIColor.whiteColor, 0.84)];
+    }
     if ([themeID isEqualToString:@"ocean"]) {
         return dark ? @[[UIColor colorWithRed:0.04 green:0.12 blue:0.20 alpha:1], [UIColor colorWithRed:0.07 green:0.24 blue:0.32 alpha:1]]
                     : @[[UIColor colorWithRed:0.72 green:0.91 blue:0.98 alpha:1], [UIColor colorWithRed:0.58 green:0.78 blue:0.94 alpha:1]];
@@ -162,7 +222,7 @@ static BOOL IMContainsString(NSArray<NSString *> *values, NSString *value) {
 }
 
 - (NSArray<UIColor *> *)wallpaperColorsForThemeID:(NSString *)themeID {
-    NSString *resolvedTheme = IMContainsString(@[@"classic", @"ocean", @"violet", @"midnight"], themeID)
+    NSString *resolvedTheme = IMContainsString(IMValidThemeIDs(), themeID)
         ? [themeID copy] : @"classic";
     UIColor *top = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *trait) {
         return [self wallpaperPairForThemeID:resolvedTheme

@@ -8,11 +8,15 @@
 #import "UIViewController+IMToast.h"
 
 static NSArray<NSString *> *IMThemeIDs(void) {
-    return @[@"classic", @"ocean", @"violet", @"midnight"];
+    return @[@"classic", @"ocean", @"violet", @"midnight",
+             @"lime", @"titian", @"mars-green", @"klein-blue", @"burgundy",
+             @"schonbrunn", @"tiffany", @"china-red", @"hermes-orange", @"prussian-blue"];
 }
 
 static NSArray<NSString *> *IMThemeNames(void) {
-    return @[@"经典", @"海洋", @"紫晶", @"深海"];
+    return @[@"经典", @"海洋", @"紫晶", @"深海",
+             @"莱姆绿", @"提香红", @"马尔斯绿", @"克莱因蓝", @"勃垦第红",
+             @"申布伦黄", @"蒂芙尼蓝", @"中国红", @"爱马仕橙", @"普鲁士蓝"];
 }
 
 static NSArray<NSString *> *IMWallpaperIDs(void) {
@@ -736,23 +740,33 @@ typedef NS_ENUM(NSInteger, IMAppearanceSliderKind) {
 
     UIView *stripHost = [UIView new];
     [stripHost.heightAnchor constraintEqualToConstant:112].active = YES;
+    // 14 个主题横向铺不下，改成可横向滚动的定宽小卡（Telegram 式快捷选主题条）。
+    UIScrollView *stripScroll = [UIScrollView new];
+    stripScroll.translatesAutoresizingMaskIntoConstraints = NO;
+    stripScroll.showsHorizontalScrollIndicator = NO;
+    [stripHost addSubview:stripScroll];
     _themeStrip = [UIStackView new];
     _themeStrip.translatesAutoresizingMaskIntoConstraints = NO;
     _themeStrip.axis = UILayoutConstraintAxisHorizontal;
     _themeStrip.spacing = 10;
-    _themeStrip.distribution = UIStackViewDistributionFillEqually;
-    [stripHost addSubview:_themeStrip];
+    [stripScroll addSubview:_themeStrip];
     for (NSUInteger index = 0; index < IMThemeIDs().count; index++) {
         IMThemeMiniButton *button = [IMThemeMiniButton new];
         button.tag = index;
         [button addTarget:self action:@selector(themeMiniTapped:) forControlEvents:UIControlEventTouchUpInside];
+        [button.widthAnchor constraintEqualToConstant:92].active = YES;
         [_themeStrip addArrangedSubview:button];
     }
     [NSLayoutConstraint activateConstraints:@[
-        [_themeStrip.topAnchor constraintEqualToAnchor:stripHost.topAnchor constant:12],
-        [_themeStrip.bottomAnchor constraintEqualToAnchor:stripHost.bottomAnchor constant:-12],
-        [_themeStrip.leadingAnchor constraintEqualToAnchor:stripHost.leadingAnchor constant:12],
-        [_themeStrip.trailingAnchor constraintEqualToAnchor:stripHost.trailingAnchor constant:-12],
+        [stripScroll.topAnchor constraintEqualToAnchor:stripHost.topAnchor],
+        [stripScroll.bottomAnchor constraintEqualToAnchor:stripHost.bottomAnchor],
+        [stripScroll.leadingAnchor constraintEqualToAnchor:stripHost.leadingAnchor],
+        [stripScroll.trailingAnchor constraintEqualToAnchor:stripHost.trailingAnchor],
+        [_themeStrip.topAnchor constraintEqualToAnchor:stripScroll.contentLayoutGuide.topAnchor constant:12],
+        [_themeStrip.bottomAnchor constraintEqualToAnchor:stripScroll.contentLayoutGuide.bottomAnchor constant:-12],
+        [_themeStrip.leadingAnchor constraintEqualToAnchor:stripScroll.contentLayoutGuide.leadingAnchor constant:12],
+        [_themeStrip.trailingAnchor constraintEqualToAnchor:stripScroll.contentLayoutGuide.trailingAnchor constant:-12],
+        [_themeStrip.heightAnchor constraintEqualToAnchor:stripScroll.frameLayoutGuide.heightAnchor constant:-24],
     ]];
     [stack addArrangedSubview:stripHost];
     [stack addArrangedSubview:IMSeparator()];

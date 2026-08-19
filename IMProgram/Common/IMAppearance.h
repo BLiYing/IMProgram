@@ -17,7 +17,7 @@ typedef NS_ENUM(NSInteger, IMAppearanceMode) {
 
 @property (class, nonatomic, readonly) IMAppearance *shared;
 @property (nonatomic, assign) IMAppearanceMode mode;
-@property (nonatomic, copy) NSString *themeID;       // classic / ocean / violet / midnight
+@property (nonatomic, copy) NSString *themeID;       // classic/ocean/violet/midnight 及 lime…prussian-blue 等色系主题
 @property (nonatomic, copy) NSString *wallpaperID;   // doodle / gradient / plain
 @property (nonatomic, assign) CGFloat chatFontSize;  // 14...22
 @property (nonatomic, assign) CGFloat bubbleRadius;  // 6...24
