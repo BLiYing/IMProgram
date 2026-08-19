@@ -775,11 +775,21 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
 
 /// 粘贴图片 → 预览条攒批（#2 重设计，Telegram 式）：不直接发，缩略图 chip 出现在输入栏上方，
 /// 可继续粘贴/打字，逐张 ✕ 移除；发送键统一发出（≥2 张共享 group_id 成宫格，文字随后补发）。
-/// 图说上传失败的配文回填：只在输入框仍为空时还原（用户已开始打新内容就不清覆），并刷新发送键可见性。
-- (void)restoreCaptionToComposer:(NSString *)caption {
-    if (caption.length == 0 || self.inputField.text.length > 0) { return; }
-    self.inputField.text = caption;
-    [self updateSendButtonVisibility];
+/// 图说上传失败 → 上屏一条 failed 图说气泡（本地预览 + caption + 红❗），与其它发送失败消息一致。
+/// content 为空的失败件不落库（重进会话消失，与 Web 的内存态 pendingFilesRef 同取舍）；点击重发后续加。
+- (void)showFailedPastedImage:(UIImage *)image caption:(NSString *)caption {
+    NSString *localId = [@"outbox-" stringByAppendingString:NSUUID.UUID.UUIDString];
+    if (image) { self.outboxPreviews[localId] = image; } // 本地预览：cellForRow 经 pendingPreviewForMessage 读回
+    IMMessageModel *m = [IMMessageModel new];
+    m.clientMsgID = localId;
+    m.convID = self.convID; m.to = self.peerID; m.from = self.userID;
+    m.contentType = @"image"; m.content = @""; // 无 URL：本地态，显红❗，不落库
+    m.status = IMMessageStatusFailed;
+    m.caption = caption.length > 0 ? caption : nil;
+    m.timestamp = IMNowMillis();
+    [self.messages addObject:m];
+    [self appendReloadAndScroll];
+    [self im_showToast:@"图片发送失败"];
 }
 
 - (void)appendPastedImage:(UIImage *)image {
@@ -852,15 +862,14 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
 }
 
 /// 图说变体（Telegram 模型）：单张粘贴图 + 配文合并成一条 caption 消息；配文 @ 随媒体上行。
-/// 失败时**必须把配文还回输入框**：sendTapped 在发起上传时已清空输入，此前失败只 toast 会把用户打的字
-/// 连图一起弄丢（旧「图/文各发」路径文字必达；code-review 2026-08-19）。@token 还原成文字后重发会重新解析。
+/// 失败时**上屏一条 failed 图说气泡**（本地预览 + caption + 红❗，与其它消息一致；点击重发后续加），
+/// 不回填输入框（用户已明确不需要，2026-08-19）。
 - (void)uploadAndSendPastedImage:(UIImage *)image groupID:(NSString *)groupID
                          caption:(NSString *)caption mentions:(NSArray<NSString *> *)mentions mentionAll:(BOOL)mentionAll {
     NSData *jpeg = UIImageJPEGRepresentation(image, 0.8);
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (jpeg.length == 0 || token.length == 0) {
-        [self im_showToast:@"图片处理失败"];
-        [self restoreCaptionToComposer:caption];
+        [self showFailedPastedImage:image caption:caption];
         return;
     }
     __weak typeof(self) ws = self;
@@ -869,8 +878,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
         __strong typeof(ws) self = ws;
         if (!self) { return; }
         if (error || url.length == 0) {
-            [self im_showToast:@"图片上传失败"];
-            [self restoreCaptionToComposer:caption];
+            [self showFailedPastedImage:image caption:caption];
             return;
         }
         IMMediaAttributes *attrs = [self mediaAttributesForImage:image bytes:(int64_t)jpeg.length];
