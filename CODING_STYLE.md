@@ -94,6 +94,25 @@ clone 一次，超预算即拦提交；应急 `git commit --no-verify`）。**�
 - **单一来源的 schema / 列清单，配套回环测试必须断言「每一个」字段。** 只断言部分字段时，读路径
   （`SELECT *` 逐列映射）漏改某列，测试照样全绿（`IMDatabaseSchemaTests` 曾漏 `editedAt` 等四列）。
 
+### 9. 交付前自审清单（编译≠正确，逐条过再交付）
+默认只编译、不跑模拟器（模拟器实测仅在用户点名时做）。既然不实测，**编译能过但运行时才炸/才错**的这几类就必须
+靠交付前逐条自审兜住——它们清一色 `tsc`/`clang` 无警告，跑起来才现原形：
+
+- **[崩溃] 方法名撞 property 合成 setter → 自递归爆栈。** 给某个 `@property foo` 手写一个名字等于其合成 setter
+  （`setFoo:`）的方法，方法体内又赋值 `self.foo = ...`，即无限自递归崩溃。改 property 的存取语义时，自定义存取器
+  别与合成名重名（或改用不同属性名 + 显式 backing ivar）。
+- **[下移三连] push 页别用 `UITableViewController`。** 注入的液态标题栏会被系统下移一截（同一坑已踩第三次）。
+  push 出去的页面用普通 `UIViewController` + 手放 `UITableView`，标题栏才不错位。
+- **[dev 静默失败] 未签名模拟器构建上 Keychain 写入必失败**（`CODE_SIGNING_ALLOWED=NO`）。开发期需要持久化的
+  轻量状态用 `NSUserDefaults` 兜底，别指望 Keychain 在 dev 跑通。
+- **[编不过或跨行残留] category 拆分的跨 TU 私有方法必须在 `+Private.h` 登记**（详见 §7②）；cell 出池重置要覆盖
+  每个 builder 会写的属性（详见 §8）。
+- **[语义悄悄变] 整体替换写接口回传所有字段、内存态字段整表重建前迁移**（详见 §8 两条红线）——改会话/列表相关一律核。
+- **[错误码丢失] 按码分支读 `error.code`，共享 HTTP helper 用 `errorWithCode:`**（详见 §5），别 parse `localizedDescription`。
+- **[点击语义] 点成员/好友先进资料页、不直接进聊天**（三端统一，微信式）；改点击目标时核一遍。
+
+> 这份是「快速扫」入口，展开的为什么与做法在 §5 / §7 / §8。命中任一条 = 停下来核，别默认交付。
+
 ---
 
 ## 二、Swift 规范（混编/新模块）
