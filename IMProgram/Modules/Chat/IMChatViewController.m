@@ -442,6 +442,10 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
 
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
+    // 退出前同步落一次已读：可见即读的上报是 0.3s 节流的（scheduleReadFlush 用 weak 捕获，页面 pop 后
+    // dealloc 会让待发窗口静默丢弃），若刚滚到新消息就退出，未到窗口的最终位点会漏报（DB 未推进、对端无回执）。
+    // 这里同步补发（flushReadPosition 单调幂等，无新进展即 no-op）。
+    [self flushReadPosition];
     [self dismissMentionPanel]; // 离开/推子页前收起内联 @面板，避免残留
     [self stopPresenceTick]; // 页面不可见就没必要重算；也避免 timer 拖住 VC 不释放
     if (self.isMovingFromParentViewController) {

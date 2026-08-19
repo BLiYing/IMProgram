@@ -117,6 +117,7 @@ NS_ASSUME_NONNULL_BEGIN
 // 正在后台解码缩略图的待发件，避免同一行反复触发解码。
 @property (nonatomic, strong) NSMutableSet<NSString *> *pendingPreviewLoading;
 @property (nonatomic, assign) BOOL backBadgeRefreshPending; ///< 返回徽标合并刷新的在途标记（0.12s 窗口内只跑一次）
+@property (nonatomic, assign) BOOL readFlushPending;        ///< 已读位点上报的在途标记（0.3s 窗口内只发一次，§8 范式）
 @property (nonatomic, copy, nullable) NSString *convRemark; ///< 群会话备注（G1，仅本人可见、多端同步）：非空替代群名作标题
 
 @end
@@ -225,6 +226,7 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (void)runAfterKeyboardHidden:(void (^)(void))block;
 - (void)scrollToBottomAnimated:(BOOL)animated;
 - (void)markVisibleRowsRead;
+- (void)flushReadPosition;               // +Position.m；主实现 viewWillDisappear 退出前同步落已读（节流窗口未到也保证不丢）
 - (void)positionInitialIfNeeded;
 - (void)anchorRowToTop:(NSInteger)row;   // +Position.m；主实现 viewDidAppear 落定校正也调
 - (void)refreshPeerPresence;

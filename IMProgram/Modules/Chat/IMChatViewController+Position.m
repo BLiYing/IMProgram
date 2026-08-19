@@ -73,11 +73,26 @@
     }
     if (maxSeq > self.pendingReadSeq) {
         self.pendingReadSeq = maxSeq;
-        // 节流：滚动停 0.3s 后才真正发，避免每像素一条 receipt。
-        [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(flushReadPosition) object:nil];
-        [self performSelector:@selector(flushReadPosition) withObject:nil afterDelay:0.3];
+        [self scheduleReadFlush]; // 节流：0.3s 窗口内至多发一条 receipt，避免每像素一条
     }
     [self updateJumpButton]; // 位点推进/新消息后刷新 ↓N 计数
+}
+
+/// 已读位点节流上报（CODING_STYLE §8 范式，对齐 scheduleBackUnreadBadgeRefresh）：leading-window——从首个
+/// 新位点起 0.3s 内至多发一次；`dispatch_after` 挂 main queue（含 common modes，**滚动追踪期照样触发**——
+/// 不像旧的 performSelector:afterDelay: 只在 NSDefaultRunLoopMode 生效而被滚动饿死、又靠 cancelPrevious 重排
+/// 成 trailing-edge 迟迟不发）；weak 捕获，页面 pop 后触发即 no-op、不 retain 续命 VC。位点单调，窗口内继续
+/// 滚动只抬高 pendingReadSeq，flush 时取当时终值；仍有新位点则下一窗口再发，故滚停后的最终位点必被上报。
+- (void)scheduleReadFlush {
+    if (self.readFlushPending) { return; }
+    self.readFlushPending = YES;
+    __weak typeof(self) ws = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        self.readFlushPending = NO;
+        [self flushReadPosition];
+    });
 }
 
 /// 把节流累积的已读位点上报（仅在超过上次上报值时发）。
