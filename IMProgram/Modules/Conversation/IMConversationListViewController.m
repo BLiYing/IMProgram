@@ -229,7 +229,13 @@ static CGFloat const kIMRowLeading = 16;
                             @"chat_record": @"[聊天记录]",
                             @"audio": @"[语音]", @"location": @"[位置]" };
         });
-        recalledPreview = mediaNames[c.lastContentType ?: @""];
+        // 图说 caption「有字显字」（Telegram 模型）：图文/视频文/文件文带 caption 时列表预览显 caption，否则回退 [图片] 等。
+        if (c.lastCaption.length > 0 &&
+            ([c.lastContentType isEqualToString:@"image"] || [c.lastContentType isEqualToString:@"video"] || [c.lastContentType isEqualToString:@"file"])) {
+            recalledPreview = c.lastCaption;
+        } else {
+            recalledPreview = mediaNames[c.lastContentType ?: @""];
+        }
     }
     if (c.isGroup) {
         // 群项：群名/群头像；预览"昵称: 内容"；不显示 presence/✓✓（群无对端已读位点）。

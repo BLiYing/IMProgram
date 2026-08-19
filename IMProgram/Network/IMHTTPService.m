@@ -308,14 +308,16 @@ BOOL IMIsTransientNetworkError(NSError *error) {
 - (void)addFavoriteWithToken:(NSString *)token
                  contentType:(NSString *)contentType
                      content:(NSString *)content
+                     caption:(NSString *)caption
                 sourceConvID:(NSString *)sourceConvID
                sourceConvSeq:(int64_t)sourceConvSeq
                   sourceFrom:(NSString *)sourceFrom
                   completion:(void (^)(NSError *))completion {
-    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/favorites" method:@"POST" token:token
-        body:@{ @"content_type": contentType ?: @"text", @"content": content ?: @"",
-                @"source_conv_id": sourceConvID ?: @"", @"source_conv_seq": @(sourceConvSeq),
-                @"source_from": sourceFrom ?: @"" }];
+    NSMutableDictionary *body = [@{ @"content_type": contentType ?: @"text", @"content": content ?: @"",
+                                    @"source_conv_id": sourceConvID ?: @"", @"source_conv_seq": @(sourceConvSeq),
+                                    @"source_from": sourceFrom ?: @"" } mutableCopy];
+    if (caption.length > 0) { body[@"caption"] = caption; } // 图说：连文字一起收藏（整体，2026-08-19）
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/favorites" method:@"POST" token:token body:body];
     [self runOKRequest:req fallback:@"收藏失败" completion:completion];
 }
 

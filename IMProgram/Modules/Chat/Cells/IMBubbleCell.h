@@ -52,6 +52,13 @@ typedef NS_ENUM(NSInteger, IMBubbleTextTier) {
 /// @所有人 以空串 uid 存入（高亮但不可点）。
 @property (nonatomic, copy, nullable) NSDictionary<NSString *, NSString *> *mentionMap;
 
+/// 文件文 caption 的 `@昵称`→uid 高亮映射（宿主按 caption 文本+群成员推导，configure 前设置；nil=不高亮）。
+@property (nonatomic, copy, nullable) NSDictionary<NSString *, NSString *> *captionMentionMap;
+
+/// 通用 TextKit 反查：命中点（label 坐标系）落在挂了 IMMentionUIDAttributeName 的 `@昵称` token 上
+/// 时返回 uid，否则 nil。供本 cell 正文/文件文 caption 与 IMImageCell 图说 caption 共用。
++ (nullable NSString *)mentionUIDInLabel:(UILabel *)label atPoint:(CGPoint)pointInLabel;
+
 /// 命中点（cell 坐标系）落在某个 `@昵称` token 上时返回其成员 uid，否则 nil。TextKit 反查 `_text` 富文本属性。
 - (nullable NSString *)mentionUIDAtPoint:(CGPoint)pointInCell;
 

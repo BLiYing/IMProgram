@@ -19,6 +19,9 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) int64_t durationMillis;    ///< 视频时长，毫秒（0=未知/非视频）
 @property (nonatomic, assign) int64_t fileSize;          ///< 原始字节数（0=未知）
 @property (nonatomic, copy, nullable) NSString *thumb;   ///< 极小模糊预览（~20px 缩略 JPEG 的 data URI，M4-7）：收端未下载时放大+模糊显占位，免先下原图
+@property (nonatomic, copy, nullable) NSString *caption; ///< 图说随附文本（Telegram 模型）：与媒体同发一条消息；仅 image/video/file 生效
+@property (nonatomic, copy, nullable) NSArray<NSString *> *mentions; ///< 配文 @提及成员 uid（仅群聊）：随媒体上行，服务端做被@强提醒
+@property (nonatomic, assign) BOOL mentionAll;          ///< 配文 @所有人（仅群聊、群主/管理员）
 
 /// 便捷构造：仅带相册分组与封面（老调用路径）。
 + (instancetype)attributesWithGroupID:(nullable NSString *)groupID poster:(nullable NSString *)poster;

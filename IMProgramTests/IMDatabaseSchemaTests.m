@@ -47,6 +47,9 @@
     m.mediaH       = 1920;
     m.duration     = 15000;
     m.thumb        = @"data:image/jpeg;base64,AAAA";
+    m.caption      = @"周末爬山拍的";      // 图说随附文本（2026-08-19）
+    m.mentions     = @[@"bob", @"carol"]; // 配文 @（JSON TEXT 列，转发重发用）
+    m.mentionAll   = YES;
     return m;
 }
 
@@ -93,6 +96,9 @@
     XCTAssertEqual(m.mediaH, 1920);
     XCTAssertEqual(m.duration, 15000);
     XCTAssertEqualObjects(m.thumb, @"data:image/jpeg;base64,AAAA");
+    XCTAssertEqualObjects(m.caption, @"周末爬山拍的");
+    XCTAssertEqualObjects(m.mentions, (@[@"bob", @"carol"]));
+    XCTAssertTrue(m.mentionAll);
 }
 
 /// 全新库：建表由 +messageColumns 生成，每个字段都能写入并读回 → 证明列清单完整、无漏列。

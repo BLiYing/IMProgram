@@ -216,6 +216,7 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (void)presentMediaViewerForMessage:(IMMessageModel *)m preloaded:(nullable UIImage *)image;
 - (BOOL)isTextExpandedForMessage:(IMMessageModel *)m;
 - (NSDictionary<NSString *, NSString *> *)mentionMapForMessage:(IMMessageModel *)m;
+- (NSDictionary<NSString *, NSString *> *)mentionMapForCaption:(IMMessageModel *)m; // 图说 caption 的 @高亮映射
 - (NSString *)replyFromNameForUID:(NSString *)uid;
 - (IMMessageModel *)messageForClientMsgID:(NSString *)clientMsgID;
 - (BOOL)isAlbumFollowerAtRow:(NSInteger)row;
@@ -247,6 +248,8 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (void)refreshVisibleCellForMessage:(IMMessageModel *)m;
 - (void)updateUploadProgressForMessage:(IMMessageModel *)m;
 - (void)uploadAndSendPastedImage:(UIImage *)image groupID:(NSString *)groupID;
+- (void)uploadAndSendPastedImage:(UIImage *)image groupID:(nullable NSString *)groupID
+                         caption:(nullable NSString *)caption mentions:(nullable NSArray<NSString *> *)mentions mentionAll:(BOOL)mentionAll; // 图说合并发送
 
 // 标题 / 排序（socket 回调广泛调用）：
 - (void)updateTitle;

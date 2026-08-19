@@ -11,6 +11,11 @@ NSString *IMMediaFullURL(NSString *content, NSString *host) {
 }
 
 NSString *IMReplySnippet(IMMessageModel *m) {
+    // 图说 caption「有字显字」（Telegram 模型）：图文/视频文/文件文带 caption 时引用条显 caption 文字。
+    if (m.caption.length > 0 &&
+        ([m.contentType isEqualToString:@"image"] || [m.contentType isEqualToString:@"video"] || [m.contentType isEqualToString:@"file"])) {
+        return m.caption.length > 60 ? [[m.caption substringToIndex:60] stringByAppendingString:@"…"] : m.caption;
+    }
     if ([m.contentType isEqualToString:@"image"]) { return @"[图片]"; }
     if ([m.contentType isEqualToString:@"video"]) { return @"[视频]"; }
     if ([m.contentType isEqualToString:@"file"]) {

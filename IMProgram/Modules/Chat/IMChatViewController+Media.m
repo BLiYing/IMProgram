@@ -735,6 +735,9 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     m.duration = mediaAttributes.durationMillis;
     m.thumb = mediaAttributes.thumb; // 回填本地 model，否则转发自发图片时 forwardAttributes 读到空 thumb→收端只剩空磨砂
     m.groupID = mediaAttributes.groupID; // 粘贴多图：本端也按宫格聚簇渲染
+    m.caption = mediaAttributes.caption; // 图说：本端气泡即时显文字（重进会话仍在）
+    m.mentions = mediaAttributes.mentions; // 配文 @：本端落库，转发自发消息时可重发（强提醒）
+    m.mentionAll = mediaAttributes.mentionAll;
     m.timestamp = sentAt;
     [self performDatabaseOperation:^(IMDatabase *database) {
         [database saveMessage:m];
@@ -767,10 +770,22 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
 
 /// 粘贴图片 → 预览条攒批（#2 重设计，Telegram 式）：不直接发，缩略图 chip 出现在输入栏上方，
 /// 可继续粘贴/打字，逐张 ✕ 移除；发送键统一发出（≥2 张共享 group_id 成宫格，文字随后补发）。
+/// 图说上传失败的配文回填：只在输入框仍为空时还原（用户已开始打新内容就不清覆），并刷新发送键可见性。
+- (void)restoreCaptionToComposer:(NSString *)caption {
+    if (caption.length == 0 || self.inputField.text.length > 0) { return; }
+    self.inputField.text = caption;
+    [self updateSendButtonVisibility];
+}
+
 - (void)appendPastedImage:(UIImage *)image {
     if (!image) { return; }
     if (!self.pendingPasteImages) { self.pendingPasteImages = [NSMutableArray array]; }
-    if (self.pendingPasteImages.count >= 9) { [self im_showToast:@"一次最多发送 9 张图片"]; return; }
+    // 粘贴限单件（2026-08-19 拍板，与 Web 对齐）：一次只留一张，后粘的替换先前的——
+    // 图说 caption 只对单件消息定义；多选发图仍走媒体选择器（相册宫格），不受此限。
+    if (self.pendingPasteImages.count > 0) {
+        [self.pendingPasteImages removeAllObjects];
+        [self im_showToast:@"一次只能粘贴一张图片，已保留最新的"];
+    }
     [self.pendingPasteImages addObject:image];
     [self refreshPasteBar];
     [self updateSendButtonVisibility];
@@ -828,17 +843,36 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
 }
 
 - (void)uploadAndSendPastedImage:(UIImage *)image groupID:(NSString *)groupID {
+    [self uploadAndSendPastedImage:image groupID:groupID caption:nil mentions:nil mentionAll:NO];
+}
+
+/// 图说变体（Telegram 模型）：单张粘贴图 + 配文合并成一条 caption 消息；配文 @ 随媒体上行。
+/// 失败时**必须把配文还回输入框**：sendTapped 在发起上传时已清空输入，此前失败只 toast 会把用户打的字
+/// 连图一起弄丢（旧「图/文各发」路径文字必达；code-review 2026-08-19）。@token 还原成文字后重发会重新解析。
+- (void)uploadAndSendPastedImage:(UIImage *)image groupID:(NSString *)groupID
+                         caption:(NSString *)caption mentions:(NSArray<NSString *> *)mentions mentionAll:(BOOL)mentionAll {
     NSData *jpeg = UIImageJPEGRepresentation(image, 0.8);
     NSString *token = IMHTTPService.sharedService.currentToken;
-    if (jpeg.length == 0 || token.length == 0) { [self im_showToast:@"图片处理失败"]; return; }
+    if (jpeg.length == 0 || token.length == 0) {
+        [self im_showToast:@"图片处理失败"];
+        [self restoreCaptionToComposer:caption];
+        return;
+    }
     __weak typeof(self) ws = self;
     [IMHTTPService.sharedService uploadData:jpeg fileName:@"pasted.jpg" mimeType:@"image/jpeg" token:token
                                  completion:^(NSString *url, NSString *contentType, NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
-        if (error || url.length == 0) { [self im_showToast:@"图片上传失败"]; return; }
+        if (error || url.length == 0) {
+            [self im_showToast:@"图片上传失败"];
+            [self restoreCaptionToComposer:caption];
+            return;
+        }
         IMMediaAttributes *attrs = [self mediaAttributesForImage:image bytes:(int64_t)jpeg.length];
         attrs.groupID = groupID; // ≥2 张：同批共享 group_id → 两端聚簇渲染宫格
+        attrs.caption = caption.length > 0 ? caption : nil;
+        attrs.mentions = mentions.count > 0 ? mentions : nil;
+        attrs.mentionAll = mentionAll;
         [self sendMediaURL:url contentType:(contentType ?: @"image") fileName:nil fileSize:0
            mediaAttributes:attrs];
     }];

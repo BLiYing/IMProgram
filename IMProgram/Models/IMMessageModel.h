@@ -29,6 +29,11 @@ typedef NS_ENUM(NSInteger, IMMessageStatus) {
 @property (nonatomic, copy)   NSString *content;     ///< 文本内容
 @property (nonatomic, copy, nullable) NSString *fileName; ///< file 消息原始文件名
 @property (nonatomic, assign) int64_t fileSize; ///< file 消息原始字节数；界面只格式化，不重新读取文件
+@property (nonatomic, copy, nullable) NSString *caption; ///< 图文/视频文/文件文随附文本（Telegram 图说模型）：仅 image/video/file 有，渲染在媒体/文件卡下方
+/// M4-8 被 @ 的成员 uid（仅群聊，服务端已按当时成员集过滤）。落库以便**转发时重发 mentions**（触发被@强提醒）；
+/// 高亮渲染仍按「文本+群成员」派生（mentionMapFor*），不依赖此字段。
+@property (nonatomic, copy, nullable) NSArray<NSString *> *mentions;
+@property (nonatomic, assign) BOOL mentionAll; ///< @所有人（发送时服务端已校验角色）。转发**不**重发（目标群无权会整条拒发）
 @property (nonatomic, assign) int64_t  convSeq;      ///< 会话内单调序号，ack/new_msg 后填充
 @property (nonatomic, assign) int64_t  timestamp;    ///< 服务端时间（毫秒）
 @property (nonatomic, assign) IMMessageStatus status;

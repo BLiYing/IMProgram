@@ -11,7 +11,7 @@
 #pragma mark - 收藏 Cell（文本/链接直显；图片/视频缩略图；文件名）
 
 @interface IMFavoriteCell : UITableViewCell
-- (void)configureWithContentType:(NSString *)ct fullURL:(NSString *)fullURL text:(NSString *)text;
+- (void)configureWithContentType:(NSString *)ct fullURL:(NSString *)fullURL text:(NSString *)text caption:(NSString *)caption;
 @end
 
 @implementation IMFavoriteCell {
@@ -58,7 +58,7 @@
     }
     return self;
 }
-- (void)configureWithContentType:(NSString *)ct fullURL:(NSString *)fullURL text:(NSString *)text {
+- (void)configureWithContentType:(NSString *)ct fullURL:(NSString *)fullURL text:(NSString *)text caption:(NSString *)caption {
     BOOL isImage = [ct isEqualToString:@"image"];
     BOOL isVideo = [ct isEqualToString:@"video"];
     BOOL isMedia = isImage || isVideo;
@@ -66,7 +66,7 @@
     _playBadge.hidden = !isVideo;
     _thumb.image = nil;
     if ([ct isEqualToString:@"file"]) {
-        // 文件：复用文件选择/聊天/详情同一套原色折角图标。
+        // 文件：复用文件选择/聊天/详情同一套原色折角图标。图说整体收藏：文件名下追加 caption（次要色）。
         NSString *fname = IMMediaFileName(text);
         NSTextAttachment *att = [NSTextAttachment new];
         att.image = IMFileTypeIconForName(fname, 22);
@@ -75,7 +75,13 @@
             [NSAttributedString attributedStringWithAttachment:att]];
         [s appendAttributedString:[[NSAttributedString alloc] initWithString:[@"  " stringByAppendingString:fname]
             attributes:@{ NSFontAttributeName: _text.font, NSForegroundColorAttributeName: IMTheme.accent }]];
+        if (caption.length > 0) {
+            [s appendAttributedString:[[NSAttributedString alloc] initWithString:[@"\n" stringByAppendingString:caption]
+                attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:13], NSForegroundColorAttributeName: UIColor.secondaryLabelColor }]];
+        }
         _text.attributedText = s;
+    } else if (isMedia && caption.length > 0) {
+        _text.text = caption; // 图说整体收藏：缩略图旁显随附文字（替代裸 URL）
     } else {
         _text.text = text;
     }
@@ -153,7 +159,8 @@
     NSDictionary *f = _items[(NSUInteger)indexPath.row];
     NSString *content = [f[@"content"] isKindOfClass:[NSString class]] ? f[@"content"] : @"";
     NSString *ct = [f[@"content_type"] isKindOfClass:[NSString class]] ? f[@"content_type"] : @"text";
-    [cell configureWithContentType:ct fullURL:IMMediaFullURL(content, IMHTTPService.sharedService.host) text:content];
+    NSString *cap = [f[@"caption"] isKindOfClass:[NSString class]] ? f[@"caption"] : @"";
+    [cell configureWithContentType:ct fullURL:IMMediaFullURL(content, IMHTTPService.sharedService.host) text:content caption:cap];
     cell.selectionStyle = UITableViewCellSelectionStyleNone;
     return cell;
 }

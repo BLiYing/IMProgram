@@ -15,6 +15,7 @@
     m.content     = [self stringForKey:@"content" in:data] ?: @"";
     m.fileName    = [self stringForKey:@"file_name" in:data];
     m.fileSize    = [data[@"file_size"] longLongValue];
+    m.caption     = [self stringForKey:@"caption" in:data]; // 图文/视频文/文件文随附文本
     m.convSeq     = [data[@"conv_seq"] longLongValue];
     m.timestamp   = [data[@"timestamp"] longLongValue];
     m.status      = IMMessageStatusReceived;
@@ -34,6 +35,8 @@
     m.mediaH         = [data[@"media_h"] integerValue];
     m.duration       = [data[@"duration"] longLongValue];
     m.thumb          = [self stringForKey:@"thumb" in:data];
+    m.mentions       = [self stringArrayForKey:@"mentions" in:data]; // M4-8：落库供转发重发（强提醒）
+    m.mentionAll     = [data[@"mention_all"] boolValue];
     return m;
 }
 
@@ -50,6 +53,7 @@
     d[@"content"] = self.content ?: @"";
     if (self.fileName) { d[@"file_name"] = self.fileName; }
     if (self.fileSize > 0) { d[@"file_size"] = @(self.fileSize); }
+    if (self.caption) { d[@"caption"] = self.caption; }
     d[@"conv_seq"] = @(self.convSeq);
     d[@"timestamp"] = @(self.timestamp);
     d[@"status"] = @(self.status);
@@ -67,6 +71,8 @@
     if (self.mediaH > 0) { d[@"media_h"] = @(self.mediaH); }
     if (self.duration > 0) { d[@"duration"] = @(self.duration); }
     if (self.thumb) { d[@"thumb"] = self.thumb; }
+    if (self.mentions.count > 0) { d[@"mentions"] = self.mentions; }
+    if (self.mentionAll) { d[@"mention_all"] = @YES; }
     return d;
 }
 
@@ -83,6 +89,7 @@
     m.content     = [self stringForKey:@"content" in:dict] ?: @"";
     m.fileName    = [self stringForKey:@"file_name" in:dict];
     m.fileSize    = [dict[@"file_size"] longLongValue];
+    m.caption     = [self stringForKey:@"caption" in:dict]; // 图文/视频文/文件文随附文本
     m.convSeq     = [dict[@"conv_seq"] longLongValue];
     m.timestamp   = [dict[@"timestamp"] longLongValue];
     m.status      = (IMMessageStatus)[dict[@"status"] integerValue];
@@ -100,6 +107,8 @@
     m.mediaH         = [dict[@"media_h"] integerValue];
     m.duration       = [dict[@"duration"] longLongValue];
     m.thumb          = [self stringForKey:@"thumb" in:dict];
+    m.mentions       = [self stringArrayForKey:@"mentions" in:dict];
+    m.mentionAll     = [dict[@"mention_all"] boolValue];
     return m;
 }
 
@@ -107,6 +116,17 @@
 + (nullable NSString *)stringForKey:(NSString *)key in:(NSDictionary *)dict {
     id value = dict[key];
     return [value isKindOfClass:[NSString class]] ? value : nil;
+}
+
+/// 安全取字符串数组：只收 NSArray<NSString>，掺杂非字符串元素时逐个过滤（脏数据按"未 @ 任何人"降级）。
++ (nullable NSArray<NSString *> *)stringArrayForKey:(NSString *)key in:(NSDictionary *)dict {
+    id value = dict[key];
+    if (![value isKindOfClass:[NSArray class]]) { return nil; }
+    NSMutableArray<NSString *> *out = [NSMutableArray array];
+    for (id v in (NSArray *)value) {
+        if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) { [out addObject:v]; }
+    }
+    return out.count > 0 ? out : nil;
 }
 
 @end

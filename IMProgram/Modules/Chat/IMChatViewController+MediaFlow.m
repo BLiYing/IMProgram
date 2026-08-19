@@ -106,13 +106,24 @@
 /// 普通成员字面「@所有人」不误高亮），且 uid 存空串＝仅高亮不可点。非群聊/非文本/无 `@` 直接返回 nil。
 - (NSDictionary<NSString *, NSString *> *)mentionMapForMessage:(IMMessageModel *)m {
     if (!self.isGroupChat || ![m.contentType isEqualToString:@"text"]) { return nil; }
-    NSString *text = m.content;
+    return [self mentionMapForText:m.content from:m.from];
+}
+
+/// 图说 caption 的 @高亮映射（Telegram 模型）：与文本气泡同规则，但扫的是 m.caption、适用 image/video/file。
+- (NSDictionary<NSString *, NSString *> *)mentionMapForCaption:(IMMessageModel *)m {
+    if (!self.isGroupChat || m.caption.length == 0) { return nil; }
+    if (![m.contentType isEqualToString:@"image"] && ![m.contentType isEqualToString:@"video"] && ![m.contentType isEqualToString:@"file"]) { return nil; }
+    return [self mentionMapForText:m.caption from:m.from];
+}
+
+/// 由「一段文本 + 发送者」推导 @昵称→uid 高亮映射（文本气泡与图说 caption 共用）。
+- (NSDictionary<NSString *, NSString *> *)mentionMapForText:(NSString *)text from:(NSString *)from {
     if (text.length == 0 || [text rangeOfString:@"@"].location == NSNotFound) { return nil; }
     NSArray<IMGroupMember *> *members = self.groupInfo.members;
     if (members.count == 0) { return nil; }
     NSMutableDictionary<NSString *, NSString *> *map = [NSMutableDictionary dictionary];
     for (IMGroupMember *mem in members) {
-        if ([mem.userID isEqualToString:m.from]
+        if ([mem.userID isEqualToString:from]
             && (mem.role == IMGroupRoleOwner || mem.role == IMGroupRoleAdmin)
             && IMChatTextContainsMentionToken(text, @"所有人")) {
             map[@"所有人"] = @""; // 高亮但不可点
@@ -180,8 +191,9 @@
     // 命中某个挂了 uid 的 token → 跳该成员资料页（先于长文展开/引用跳转）。
     if (ip && ip.row < (NSInteger)self.messages.count) {
         UITableViewCell *hitCell = [self.tableView cellForRowAtIndexPath:ip];
-        if ([hitCell isKindOfClass:IMBubbleCell.class]) {
-            NSString *muid = [(IMBubbleCell *)hitCell mentionUIDAtPoint:[self.tableView convertPoint:p toView:hitCell]];
+        // 文本气泡正文/文件文 caption（IMBubbleCell）与图文/视文 caption（IMImageCell）统一走 mentionUIDAtPoint:。
+        if ([hitCell respondsToSelector:@selector(mentionUIDAtPoint:)]) {
+            NSString *muid = [(id)hitCell mentionUIDAtPoint:[self.tableView convertPoint:p toView:hitCell]];
             if (muid.length > 0) { [self.inputField resignFirstResponder]; [self openMemberProfileForUID:muid]; return; }
         }
     }
@@ -327,8 +339,11 @@ const NSInteger kIMFlashOverlayTag = 0x1F1A5; // 跨 +Menu：光栅化预览时�
 - (void)flashRowAtIndexPath:(NSIndexPath *)ip {
     UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:ip];
     if (!cell) { return; }
-    UIView *target = [cell respondsToSelector:@selector(previewTargetView)]
-        ? [(id)cell previewTargetView] : cell.contentView;
+    // 图说整体化：图/视文有 caption 时闪**整卡**（menuPreviewTargetView），否则只闪缩略图会把
+    // 卡片劈成两半（长按预览已统一，定位闪烁此前漏改——code-review 2026-08-19）。
+    UIView *target = [cell respondsToSelector:@selector(menuPreviewTargetView)]
+        ? [(id)cell menuPreviewTargetView]
+        : ([cell respondsToSelector:@selector(previewTargetView)] ? [(id)cell previewTargetView] : cell.contentView);
     if (!target) { return; }
     UIView *flash = [[UIView alloc] initWithFrame:target.bounds];
     flash.tag = kIMFlashOverlayTag; // 长按预览光栅化时按此 tag 临时隐藏，避免高亮蒙层被烘进静态预览

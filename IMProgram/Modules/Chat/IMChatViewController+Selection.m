@@ -191,14 +191,22 @@
 /// 从源消息取出转发要一并带走的媒体元数据（封面/尺寸/时长）；非媒体消息返回 nil。
 - (IMMediaAttributes *)forwardAttributesForMessage:(IMMessageModel *)message {
     BOOL isMedia = [message.contentType isEqualToString:@"image"] || [message.contentType isEqualToString:@"video"];
-    if (!isMedia) { return nil; }
+    BOOL hasCaption = message.caption.length > 0; // 图说：文件文也可能带 caption，需建 attrs 承载
+    if (!isMedia && !hasCaption) { return nil; }
     IMMediaAttributes *attrs = [IMMediaAttributes new];
-    attrs.poster = message.poster;          // 视频封面（不带的话 Web 收端解不了 HEVC 就只剩空白）
-    attrs.thumb = message.thumb;            // 极小模糊预览：不带的话收端未下载态只有空磨砂、没内容轮廓
-    attrs.pixelWidth = message.mediaW;
-    attrs.pixelHeight = message.mediaH;
-    attrs.durationMillis = message.duration;
-    attrs.fileSize = message.fileSize;
+    if (isMedia) {
+        attrs.poster = message.poster;          // 视频封面（不带的话 Web 收端解不了 HEVC 就只剩空白）
+        attrs.thumb = message.thumb;            // 极小模糊预览：不带的话收端未下载态只有空磨砂、没内容轮廓
+        attrs.pixelWidth = message.mediaW;
+        attrs.pixelHeight = message.mediaH;
+        attrs.durationMillis = message.duration;
+        attrs.fileSize = message.fileSize;
+    }
+    // 图说整体转发（Telegram 模型）：caption + mentions 随转发跟随——收端 @ 高亮可点、被@者强提醒
+    // （服务端按目标群成员再过滤，非成员自动落普通文字）。**不带 mentionAll**：@所有人 需目标群
+    // 群主/管理员权限，无权会整条拒发 300204，且转发不该再次全员强提醒（与 Web 同取舍）。
+    attrs.caption = message.caption;
+    attrs.mentions = message.mentions;
     return attrs;
 }
 
@@ -244,6 +252,8 @@
     m.mediaW = attributes.pixelWidth;
     m.mediaH = attributes.pixelHeight;
     m.duration = attributes.durationMillis;
+    m.caption = attributes.caption.length > 0 ? attributes.caption : nil; // 图说随转发跟随（本端气泡即时显）
+    m.mentions = attributes.mentions; // 配文 @ 落到本端回显行：再次转发这条时才能继续重发 mentions（强提醒链不断）
     m.forwardFrom = origin.length > 0 ? origin : nil;
     m.status = IMMessageStatusSending;
     m.timestamp = sentAt;

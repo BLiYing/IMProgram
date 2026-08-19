@@ -1,4 +1,5 @@
 #import "IMImageCell.h"
+#import "IMBubbleCell.h" // +attributedContent:base:mentionColor:mentions:（图说 caption @高亮复用）
 #import "IMRejectNoteView.h"
 #import "IMImageLoader.h"
 #import "IMVideoThumbnailLoader.h"
@@ -43,9 +44,15 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     UILabel *_failBadge;                     // 发送失败：缩略图左侧红❗（仅自己；与 IMBubbleCell 同款）
     NSLayoutConstraint *_failBadgeTrailing;   // 仅失败时激活，避免恒占位挤压缩略图
     IMRejectNoteView *_sysNote;              // 被拒收系统行（缩略图下方居中，可恢复时带「发送好友申请」）
-    NSLayoutConstraint *_thumbBottom;        // 无系统行时：thumb 贴 cell 底
+    NSLayoutConstraint *_thumbBottom;        // 无系统行/无 caption 时：thumb 贴 cell 底
     NSLayoutConstraint *_noteTop;            // 有系统行时：系统行接 thumb 底
     NSLayoutConstraint *_noteBottom;         // 有系统行时：系统行贴 cell 底
+    UILabel *_captionLabel;                  // 图说 caption（图文/视频文下方随附文本，Telegram 模型，iOS 只显示）
+    NSLayoutConstraint *_captionTop;         // 有 caption：caption 接 thumb 底
+    NSLayoutConstraint *_captionBottom;      // 有 caption 无系统行：caption 贴 cell 底
+    NSLayoutConstraint *_noteTopUnderCaption;// caption + 系统行：系统行接 caption 底
+    UIView *_captionBG;                      // ④ 图说整体化：有 caption 时套一层气泡底（媒体圆上角 + caption 落此底 + 圆下角，成一整块）
+    NSArray<NSLayoutConstraint *> *_captionBGConstraints; // 仅有 caption 时激活：气泡底裹住 thumb 顶→caption 底
     CAShapeLayer *_ringBG;     // 下载进度环底（仅门控·下载中显示）
     CAShapeLayer *_ring;       // 下载进度环
     UIView *_ringWrap;         // 进度环容器：固定 kIMDownloadRingSide 见方、Auto Layout 居中锚 _thumb（免手动摆位错位）
@@ -125,6 +132,23 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
         _sysNote.onActionTap = ^{ if (wsNote.onNoteActionTap) { wsNote.onNoteActionTap(); } };
         [self.contentView addSubview:_sysNote];
 
+        // ④ 图说整体化：有 caption 时在 thumb+caption 背后垫一层气泡底，媒体只圆上角、贴进 caption 区，成 Telegram 式一整块。
+        _captionBG = [UIView new];
+        _captionBG.translatesAutoresizingMaskIntoConstraints = NO;
+        _captionBG.layer.cornerRadius = IMTheme.radiusBubble;
+        _captionBG.hidden = YES;
+        [self.contentView insertSubview:_captionBG belowSubview:_thumb]; // 在 thumb 之下（caption label 之后加=在 bg 之上，可读）
+
+        // 图说 caption（Telegram 模型）：缩略图下方随附文本，落在 _captionBG 气泡底上（对齐媒体左右、留内边距）；
+        // 多行自适应，行高由 Auto Layout 自撑（self-sizing cell）。
+        _captionLabel = [UILabel new];
+        _captionLabel.translatesAutoresizingMaskIntoConstraints = NO;
+        _captionLabel.numberOfLines = 0;
+        _captionLabel.font = [UIFont systemFontOfSize:IMTheme.chatFontSize];
+        _captionLabel.textColor = IMTheme.bubbleMeText;
+        _captionLabel.hidden = YES;
+        [self.contentView addSubview:_captionLabel];
+
         // _unreadDivider 由 IMMessageCell 基类创建并自锚（顶/左/右 + 高 0）；本类把顶部内容改锚它的 bottom。
 
         // 与 IMAlbumCell 同策略：左右/上下两组约束恒定激活、**靠优先级切换**，杜绝
@@ -141,6 +165,19 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
         _thumbBottom = [_thumb.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3];
         _noteTop = [_sysNote.topAnchor constraintEqualToAnchor:_thumb.bottomAnchor constant:4];
         _noteBottom = [_sysNote.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-6];
+        // 图说 caption 底部链（按 hasCaption × hasNote 在 configure 里切换，杜绝两条 required 同底冲突）。
+        _captionTop = [_captionLabel.topAnchor constraintEqualToAnchor:_thumb.bottomAnchor constant:6];
+        _captionBottom = [_captionLabel.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-10];
+        // 14 = 气泡底向下延伸 10（_captionBGConstraints 尾项）+ 4 间距：系统行必须落在气泡底**之外**，
+        // 用 4 会被不透明的 _captionBG 盖住顶部 6pt（code-review 2026-08-19）。
+        _noteTopUnderCaption = [_sysNote.topAnchor constraintEqualToAnchor:_captionLabel.bottomAnchor constant:14];
+        // ④ 气泡底裹住 thumb 顶 → caption 底（仅有 caption 时激活）。
+        _captionBGConstraints = @[
+            [_captionBG.topAnchor constraintEqualToAnchor:_thumb.topAnchor],
+            [_captionBG.leadingAnchor constraintEqualToAnchor:_thumb.leadingAnchor],
+            [_captionBG.trailingAnchor constraintEqualToAnchor:_thumb.trailingAnchor],
+            [_captionBG.bottomAnchor constraintEqualToAnchor:_captionLabel.bottomAnchor constant:10],
+        ];
         _failBadgeTrailing = [_failBadge.trailingAnchor constraintEqualToAnchor:_thumb.leadingAnchor constant:-6];
         [NSLayoutConstraint activateConstraints:@[
             // 恒定边界（required）：无论贴左还是贴右，都不许超出内容区。
@@ -162,6 +199,9 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
             [_failBadge.centerYAnchor constraintEqualToAnchor:_thumb.centerYAnchor],
             [_sysNote.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:24],
             [_sysNote.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-24],
+            // caption 恒定左右边（对齐缩略图边、内缩 10 作气泡内边距）；顶/底链在 configure 里按需激活。
+            [_captionLabel.leadingAnchor constraintEqualToAnchor:_thumb.leadingAnchor constant:10],
+            [_captionLabel.trailingAnchor constraintEqualToAnchor:_thumb.trailingAnchor constant:-10],
             [_playBadge.centerXAnchor constraintEqualToAnchor:_thumb.centerXAnchor],
             [_playBadge.centerYAnchor constraintEqualToAnchor:_thumb.centerYAnchor],
             // 进度环容器：与中心按钮同心锚 _thumb、定宽定高（环 path 在其局部坐标内居中，无需再算 frame）。
@@ -273,8 +313,37 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     // 被拒收系统行（如非好友 200103）：媒体消息此前无处承载 note，被拒后既无文案也无恢复入口。
     [_sysNote configureWithNote:message.note code:message.noteCode];
     BOOL hasNote = _sysNote.hasContent;
-    _thumbBottom.active = !hasNote;
-    _noteTop.active = hasNote;
+    // 图说 caption（Telegram 模型）：图文/视频文的随附文本，缩略图下方。iOS 只显示（不发送）。
+    NSString *caption = message.caption.length > 0 ? message.caption : nil;
+    BOOL hasCaption = caption != nil;
+    // ④ 图说整体化：有 caption 时套气泡底（我方绿 / 对方白），媒体只圆上角、caption 落此底成一整块；
+    // caption 字色随气泡（可读）——须先定字色再烘 attributedText，否则 @高亮那段会用到旧色。
+    UIColor *capColor = mine ? IMTheme.bubbleMeText : UIColor.labelColor;
+    if (hasCaption) {
+        // 配文 @高亮（Telegram 模型，仅群聊）：复用文本气泡的 attributedContent，命中的 @昵称/@所有人 上强调色。
+        _captionLabel.textColor = capColor;
+        NSDictionary *capBase = @{ NSFontAttributeName: _captionLabel.font, NSForegroundColorAttributeName: capColor };
+        _captionLabel.attributedText = [IMBubbleCell attributedContent:caption base:capBase mentionColor:IMTheme.accent mentions:self.captionMentionMap];
+    } else {
+        _captionLabel.attributedText = nil;
+        _captionLabel.text = nil;
+    }
+    _captionLabel.hidden = !hasCaption;
+    _captionBG.hidden = !hasCaption;
+    if (hasCaption) {
+        _captionBG.backgroundColor = mine ? IMTheme.bubbleMe : IMTheme.bubbleThem;
+        _thumb.layer.maskedCorners = kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner; // 只圆上两角，下边贴进 caption 区
+        [NSLayoutConstraint activateConstraints:_captionBGConstraints];
+    } else {
+        _thumb.layer.maskedCorners = kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner | kCALayerMinXMaxYCorner | kCALayerMaxXMaxYCorner; // 四角圆（纯媒体）
+        [NSLayoutConstraint deactivateConstraints:_captionBGConstraints];
+    }
+    // 底部链按 (hasCaption × hasNote) 组合切换：thumb →[caption]→[note]→ cell 底，且恒有唯一一条“贴底”。
+    _thumbBottom.active = !hasCaption && !hasNote;
+    _captionTop.active = hasCaption;
+    _captionBottom.active = hasCaption && !hasNote;
+    _noteTop.active = hasNote && !hasCaption;
+    _noteTopUnderCaption.active = hasNote && hasCaption;
     _noteBottom.active = hasNote;
 
     [self hideExpiredOverlay]; // 复用防残留：先清掉上一条的失效层
@@ -595,9 +664,11 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName) {
     if (_onTap) { _onTap(_thumb.image); }
 }
 
-/// 表级点击命中判断（IMBubbleHitTesting）：仅缩略图本体，旁边空白不触发引用跳转。
+/// 表级点击命中判断（IMBubbleHitTesting）：缩略图本体 + 图说气泡（有 caption 时整卡都算气泡，
+/// 否则点 caption 文字区被当"气泡外"直接吞掉，引用跳转等表级交互失效——code-review 2026-08-19）。
 - (BOOL)pointInsideBubble:(CGPoint)pointInCell {
-    return _thumb && !_thumb.hidden && CGRectContainsPoint([_thumb convertRect:_thumb.bounds toView:self], pointInCell);
+    if (_thumb && !_thumb.hidden && CGRectContainsPoint([_thumb convertRect:_thumb.bounds toView:self], pointInCell)) { return YES; }
+    return _captionBG && !_captionBG.hidden && CGRectContainsPoint([_captionBG convertRect:_captionBG.bounds toView:self], pointInCell);
 }
 
 // onAvatarTap 的手势、handleAvatarTap、applyUnreadDivider: 均由 IMMessageCell 基类提供。
@@ -633,6 +704,18 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName) {
 }
 
 - (UIView *)previewTargetView { return _thumb; }
+
+/// 图说整体化：caption 区（气泡底）也要能长按弹菜单——缩略图区由 previewTargetView(_thumb) 承载，
+/// 文字区由这层 _captionBG 承载（无 caption 时它 hidden，不接触摸、不弹菜单）。
+- (UIView *)secondaryMenuTargetView { return _captionBG; }
+
+/// 长按预览统一到整卡：有 caption（_captionBG 可见）→ 预览整张卡片；否则预览缩略图本体。
+- (UIView *)menuPreviewTargetView { return (_captionBG && !_captionBG.hidden) ? _captionBG : _thumb; }
+
+/// 图说 caption 的 @昵称 点击命中（cell 坐标系）：复用 IMBubbleCell 的 TextKit 反查。命中返回 uid。
+- (NSString *)mentionUIDAtPoint:(CGPoint)pointInCell {
+    return [IMBubbleCell mentionUIDInLabel:_captionLabel atPoint:[self convertPoint:pointInCell toView:_captionLabel]];
+}
 
 + (CGFloat)displayHeightForPixelWidth:(CGFloat)pixelW pixelHeight:(CGFloat)pixelH {
     if (pixelW <= 0 || pixelH <= 0) { return kIMMediaFallbackSide; }

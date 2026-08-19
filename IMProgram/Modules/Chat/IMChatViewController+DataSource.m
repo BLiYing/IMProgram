@@ -208,6 +208,7 @@
         IMDownloadProgress *gate = pendingLocal ? nil : [self.downloads stateForMessage:m];
         img.gated = gate != nil;
         img.downloadProgress = gate;
+        img.captionMentionMap = [self mentionMapForCaption:m]; // 图说 caption 的 @高亮（configure 前置）
         [img configureWithMessage:m
                           fullURL:imgFullURL
                         posterURL:(m.poster.length > 0 ? [self fullMediaURL:m.poster] : nil)
@@ -283,7 +284,9 @@
     BOOL replyThumbIsVideo = NO;
     if (m.replyToConvSeq > 0) {
         IMMessageModel *target = [self messageWithConvSeq:m.replyToConvSeq];
-        if (target && ([target.contentType isEqualToString:@"image"] || [target.contentType isEqualToString:@"video"])
+        // 图说消息（带 caption）：引用**只显文本**（快照即 caption），不挂媒体缩略图——与 Web 一致，简化少出错。
+        if (target && target.caption.length == 0
+            && ([target.contentType isEqualToString:@"image"] || [target.contentType isEqualToString:@"video"])
             && target.recalledAt == 0 && target.content.length > 0) {
             replyThumbIsVideo = [target.contentType isEqualToString:@"video"];
             replyThumbURL = [self fullMediaURL:target.content];
@@ -332,6 +335,7 @@
         ? [self replyFromNameForUID:m.replyToFrom] : nil;
     cell.textExpanded = [self isTextExpandedForMessage:m]; // 中长文本"展开全文"记忆（configure 前置）
     cell.mentionMap = [self mentionMapForMessage:m];       // 气泡内 @昵称 高亮+跳资料映射（configure 前置）
+    cell.captionMentionMap = [self mentionMapForCaption:m]; // 文件文 caption 的 @高亮（configure 前置）
     [cell configureWithMessage:m mine:mine peerReadSeq:self.peerReadSeq
                      dayHeader:[self dayHeaderForRow:indexPath.row]
             showsUnreadDivider:showsDivider
@@ -402,9 +406,10 @@
     if ([self isAlbumMember:m]) { return 240; } // 宫格 leader：整格粗估
     if ([m.contentType isEqualToString:@"image"] || [m.contentType isEqualToString:@"video"]) {
         // 已知 media_w/h → 与 cell 同一套缩放规则精确估；未知 → 方形占位边长（cell 首帧同款）。
-        return [IMImageCell displayHeightForPixelWidth:m.mediaW pixelHeight:m.mediaH] + 8;
+        // 图说 caption 粗估加一行（self-sizing 会自撑到实际多行高，估准只为减少上滑 offset 修正）。
+        return [IMImageCell displayHeightForPixelWidth:m.mediaW pixelHeight:m.mediaH] + 8 + (m.caption.length > 0 ? 26 : 0);
     }
-    if ([m.contentType isEqualToString:@"file"]) { return 84; }
+    if ([m.contentType isEqualToString:@"file"]) { return m.caption.length > 0 ? 110 : 84; }
     if ([m.contentType isEqualToString:@"chat_record"]) {
         // 群聊对方连续段首条多一行发送者昵称（~22pt），估高相应加高，减少上滑实体化时的 offset 修正。
         BOOL grpNameRec = self.isGroupChat && ![m.from isEqualToString:self.userID]

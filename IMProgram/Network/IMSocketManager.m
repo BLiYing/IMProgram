@@ -474,6 +474,11 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     if (attributes.durationMillis > 0) { payload[@"duration"] = @(attributes.durationMillis); }
     if (attributes.fileSize > 0 && !payload[@"file_size"]) { payload[@"file_size"] = @(attributes.fileSize); }
     if (attributes.thumb.length > 0) { payload[@"thumb"] = attributes.thumb; } // 极小模糊预览（M4-7），收端未下载时显模糊占位
+    // 图说 caption + 配文 @（Telegram 模型）：仅 image/video/file 生效（服务端也只对这三类收 caption）。
+    // 本函数是发送/转发共用出口 → caption 与 @ 随转发一并带走。
+    if (attributes.caption.length > 0) { payload[@"caption"] = attributes.caption; }
+    if (attributes.mentions.count > 0) { payload[@"mentions"] = attributes.mentions; }
+    if (attributes.mentionAll) { payload[@"mention_all"] = @YES; }
 
     NSString *ct = payload[@"content_type"] ?: @"";
     BOOL isMedia = [ct isEqualToString:@"image"] || [ct isEqualToString:@"video"];

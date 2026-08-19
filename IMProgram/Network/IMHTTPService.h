@@ -368,6 +368,7 @@ BOOL IMIsAuthErrorCode(NSInteger code);
 - (void)addFavoriteWithToken:(NSString *)token
                  contentType:(NSString *)contentType
                      content:(NSString *)content
+                     caption:(nullable NSString *)caption
                 sourceConvID:(nullable NSString *)sourceConvID
                sourceConvSeq:(int64_t)sourceConvSeq
                   sourceFrom:(nullable NSString *)sourceFrom

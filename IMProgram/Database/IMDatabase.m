@@ -96,6 +96,9 @@
         @[@"content",          @"TEXT"],
         @[@"file_name",        @"TEXT"],                    // 文件消息原始文件名（曾漏迁移，见上）
         @[@"file_size",        @"INTEGER NOT NULL DEFAULT 0"], // 文件/媒体原始字节数
+        @[@"caption",          @"TEXT"],                    // 图文/视频文/文件文随附文本（Telegram 图说模型）
+        @[@"mentions",         @"TEXT"],                    // M4-8 被 @ 成员 uid（JSON 数组）：转发重发 mentions 用（强提醒）
+        @[@"mention_all",      @"INTEGER NOT NULL DEFAULT 0"], // M4-8 @所有人
         @[@"conv_seq",         @"INTEGER"],
         @[@"timestamp",        @"INTEGER"],
         @[@"status",           @"INTEGER"],
@@ -158,7 +161,7 @@
              "is_group INTEGER, name TEXT, avatar_url TEXT, member_count INTEGER,"
              "peer TEXT, peer_nickname TEXT, peer_avatar_url TEXT,"
              "last_content TEXT, last_from TEXT, last_from_nickname TEXT,"
-             "last_recalled INTEGER, last_content_type TEXT, latest_conv_seq INTEGER,"
+             "last_recalled INTEGER, last_content_type TEXT, last_caption TEXT NOT NULL DEFAULT '', latest_conv_seq INTEGER,"
              "read_seq INTEGER, peer_read_seq INTEGER, timestamp INTEGER, unread INTEGER,"
              "pinned_at INTEGER, muted INTEGER, marked_unread INTEGER,server_snapshot_seq INTEGER NOT NULL DEFAULT 0,"
              "synced_conv_seq INTEGER NOT NULL DEFAULT 0, remark TEXT NOT NULL DEFAULT '',"
@@ -175,6 +178,12 @@
         if (![self column:@"remark" existsInTable:@"im_conversation_local" db:db]) {
             if (![db executeUpdate:@"ALTER TABLE im_conversation_local ADD COLUMN remark TEXT NOT NULL DEFAULT ''"]) {
                 IMLogDatabase(@"迁移失败：im_conversation_local 补列 remark 未成功: %@", db.lastErrorMessage);
+            }
+        }
+        // 图说 caption（Telegram 模型）：会话列表预览「有字显字」；老库补列，缺则回退 [图片] 等。
+        if (![self column:@"last_caption" existsInTable:@"im_conversation_local" db:db]) {
+            if (![db executeUpdate:@"ALTER TABLE im_conversation_local ADD COLUMN last_caption TEXT NOT NULL DEFAULT ''"]) {
+                IMLogDatabase(@"迁移失败：im_conversation_local 补列 last_caption 未成功: %@", db.lastErrorMessage);
             }
         }
 
@@ -309,6 +318,7 @@
             c.lastFromNickname = [rs stringForColumn:@"last_from_nickname"];
             c.lastRecalled = [rs boolForColumn:@"last_recalled"];
             c.lastContentType = [rs stringForColumn:@"last_content_type"];
+            c.lastCaption = [rs stringForColumn:@"last_caption"];
             c.latestConvSeq = [rs longLongIntForColumn:@"latest_conv_seq"];
             c.readSeq = [rs longLongIntForColumn:@"read_seq"];
             c.peerReadSeq = [rs longLongIntForColumn:@"peer_read_seq"];
@@ -352,11 +362,11 @@
         [conversations enumerateObjectsUsingBlock:^(IMConversation *c, NSUInteger idx, BOOL *stop) {
             if (c.convID.length == 0) { return; }
             BOOL ok = [db executeUpdate:
-                @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,peer,peer_nickname,peer_avatar_url,last_content,last_from,last_from_nickname,last_recalled,last_content_type,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq,synced_conv_seq,remark) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,peer,peer_nickname,peer_avatar_url,last_content,last_from,last_from_nickname,last_recalled,last_content_type,last_caption,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq,synced_conv_seq,remark) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 owner, c.convID, @(idx), @(c.isGroup), c.name ?: @"", c.avatarURL ?: @"",
                 @(c.memberCount), c.peer ?: @"", c.peerNickname ?: @"", c.peerAvatarURL ?: @"",
                 c.lastContent ?: @"", c.lastFrom ?: @"", c.lastFromNickname ?: @"", @(c.lastRecalled),
-                c.lastContentType ?: @"", @(c.latestConvSeq), @(c.readSeq), @(c.peerReadSeq),
+                c.lastContentType ?: @"", c.lastCaption ?: @"", @(c.latestConvSeq), @(c.readSeq), @(c.peerReadSeq),
                 @(c.timestamp), @(c.unread), @(c.pinnedAt), @(c.muted), @(c.markedUnread), @(c.latestConvSeq),
                 syncCursors[c.convID] ?: @0, c.remark ?: @""];
             if (!ok) {
@@ -488,6 +498,7 @@
         @"content":           message.content ?: @"",
         @"file_name":         message.fileName ?: @"",
         @"file_size":         @(message.fileSize),
+        @"caption":           message.caption ?: @"",
         @"conv_seq":          @(message.convSeq),
         @"timestamp":         @(message.timestamp),
         @"status":            @(message.status),
@@ -508,7 +519,29 @@
         @"media_h":           @(message.mediaH),
         @"duration":          @(message.duration),
         @"thumb":             message.thumb ?: @"",
+        @"mentions":          IMEncodeMentions(message.mentions),
+        @"mention_all":       @(message.mentionAll),
     };
+}
+
+/// mentions []NSString ↔ TEXT 列（JSON 数组；空存空串）。解析失败按「未 @ 任何人」降级——
+/// @ 只影响转发重发的提醒强度，绝不能让脏数据阻断消息读取（与后端 decodeMentions 同取舍）。
+static NSString *IMEncodeMentions(NSArray<NSString *> *mentions) {
+    if (mentions.count == 0) { return @""; }
+    NSData *d = [NSJSONSerialization dataWithJSONObject:mentions options:0 error:NULL];
+    return d ? [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding] : @"";
+}
+
+static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
+    if (raw.length == 0) { return nil; }
+    NSData *d = [raw dataUsingEncoding:NSUTF8StringEncoding];
+    id arr = d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:NULL] : nil;
+    if (![arr isKindOfClass:[NSArray class]]) { return nil; }
+    NSMutableArray<NSString *> *out = [NSMutableArray array];
+    for (id v in (NSArray *)arr) {
+        if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) { [out addObject:v]; }
+    }
+    return out.count > 0 ? out : nil;
 }
 
 - (BOOL)saveIncomingMessage:(IMMessageModel *)message advancingSyncedConvSeq:(int64_t)syncedConvSeq {
@@ -640,11 +673,11 @@
     NSInteger unreadDelta = inserted && isIncoming && isUnread && !representedByServerSnapshot && !isSystem ? 1 : 0;
     if (!exists) {
         BOOL ok = [db executeUpdate:
-            @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,peer,peer_nickname,peer_avatar_url,last_content,last_from,last_from_nickname,last_recalled,last_content_type,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq) VALUES (?,?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,0,0)",
+            @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,peer,peer_nickname,peer_avatar_url,last_content,last_from,last_from_nickname,last_recalled,last_content_type,last_caption,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq) VALUES (?,?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,0,0)",
             owner, message.convID, @(isGroup), isGroup ? @"群聊" : @"", @"", @0,
             isGroup ? @"" : (peer ?: @""), isGroup ? @"" : (peer ?: @""), @"",
             message.content ?: @"", message.from ?: @"", message.fromNickname ?: @"",
-            @(message.recalledAt > 0), message.contentType ?: @"text", @(message.convSeq), @0, @0,
+            @(message.recalledAt > 0), message.contentType ?: @"text", message.caption ?: @"", @(message.convSeq), @0, @0,
             @(message.timestamp), @(unreadDelta)];
         if (!ok) {
             IMLogDatabase(@"由消息创建会话缓存失败 owner=%@ conv=%@: %@", owner, message.convID, db.lastErrorMessage);
@@ -652,9 +685,11 @@
         }
     } else if (isLatest) {
         BOOL ok = [db executeUpdate:
-            @"UPDATE im_conversation_local SET last_content=?,last_from=?,last_from_nickname=?,last_recalled=?,last_content_type=?,latest_conv_seq=MAX(latest_conv_seq,?),timestamp=MAX(timestamp,?),unread=MIN(999,unread+?) WHERE owner_uid=? AND conv_id=?",
+            // last_caption 必须随每条新消息**覆写**（含无 caption 的空串）：漏写会把上一条的图说文字
+            // 串到新消息的预览上（code-review 2026-08-19——快照写入路径有它、实时路径漏了）。
+            @"UPDATE im_conversation_local SET last_content=?,last_from=?,last_from_nickname=?,last_recalled=?,last_content_type=?,last_caption=?,latest_conv_seq=MAX(latest_conv_seq,?),timestamp=MAX(timestamp,?),unread=MIN(999,unread+?) WHERE owner_uid=? AND conv_id=?",
             message.content ?: @"", message.from ?: @"", message.fromNickname ?: @"",
-            @(message.recalledAt > 0), message.contentType ?: @"text", @(message.convSeq),
+            @(message.recalledAt > 0), message.contentType ?: @"text", message.caption ?: @"", @(message.convSeq),
             @(message.timestamp), @(unreadDelta), owner, message.convID];
         if (!ok) {
             IMLogDatabase(@"更新会话摘要失败 owner=%@ conv=%@: %@", owner, message.convID, db.lastErrorMessage);
@@ -836,6 +871,10 @@
             NSString *fileName = [rs stringForColumn:@"file_name"];
             m.fileName    = fileName.length > 0 ? fileName : nil;
             m.fileSize    = [rs longLongIntForColumn:@"file_size"];
+            NSString *caption = [rs stringForColumn:@"caption"];
+            m.caption     = caption.length > 0 ? caption : nil;
+            m.mentions    = IMDecodeMentions([rs stringForColumn:@"mentions"]);
+            m.mentionAll  = [rs boolForColumn:@"mention_all"];
             m.convSeq     = [rs longLongIntForColumn:@"conv_seq"];
             m.timestamp   = [rs longLongIntForColumn:@"timestamp"];
             m.status      = (IMMessageStatus)[rs longForColumn:@"status"];
@@ -980,8 +1019,9 @@
             return;
         }
         if (recalledAt > 0) {
+            // 撤回连 last_caption 一起脱敏（与服务端 conversation 预览同口径）：撤回的图说文字不得残留在会话摘要里。
             if (![db executeUpdate:
-                  @"UPDATE im_conversation_local SET last_recalled=1 WHERE owner_uid=? AND conv_id=? AND latest_conv_seq=?",
+                  @"UPDATE im_conversation_local SET last_recalled=1,last_caption='' WHERE owner_uid=? AND conv_id=? AND latest_conv_seq=?",
                   owner, convID, @(targetConvSeq)]) {
                 *rollback = YES;
             }

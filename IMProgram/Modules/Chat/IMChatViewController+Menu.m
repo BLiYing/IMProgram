@@ -62,10 +62,21 @@
     if (![cell respondsToSelector:@selector(previewTargetView)]) { return; }
     UIView *target = [(id)cell previewTargetView];
     if (!target) { return; }
-    for (id<UIInteraction> it in target.interactions) {
+    [self attachContextMenuInteractionToView:target];
+    // 图说整体化：图/视频 cell 的 caption 文字区不在 previewTargetView(_thumb) 内 → 单独再挂一层交互，
+    // 否则长按文字区无反应（缩略图区有反应）。无 caption 时该 view hidden，不接触摸、不弹菜单。
+    if ([cell respondsToSelector:@selector(secondaryMenuTargetView)]) {
+        UIView *secondary = [(id)cell secondaryMenuTargetView];
+        if (secondary) { [self attachContextMenuInteractionToView:secondary]; }
+    }
+}
+
+/// 幂等挂 UIContextMenuInteraction：同一 view 只挂一次（cell 复用子视图实例不变，不越挂越多）。
+- (void)attachContextMenuInteractionToView:(UIView *)view {
+    for (id<UIInteraction> it in view.interactions) {
         if ([it isKindOfClass:UIContextMenuInteraction.class]) { return; }
     }
-    [target addInteraction:[[UIContextMenuInteraction alloc] initWithDelegate:self]];
+    [view addInteraction:[[UIContextMenuInteraction alloc] initWithDelegate:self]];
 }
 
 #pragma mark UIContextMenuInteractionDelegate（消息气泡长按菜单）
@@ -169,6 +180,17 @@ static UIBezierPath *IMBubbleOutlinePath(CGRect rect, CGFloat radius, CACornerMa
 - (nullable UITargetedPreview *)targetedPreviewForInteraction:(UIContextMenuInteraction *)interaction
                                                    useCached:(BOOL)useCached {
     UIView *target = interaction.view;
+    // 图说整体化：图/视文 cell 有 caption 时，无论长按缩略图区还是文字区，都统一预览**整张卡片**
+    // （否则长按图只掀起图、长按字只掀起字，像两种交互）。从 interaction.view 上溯到 cell 取统一预览视图。
+    for (UIView *v = interaction.view; v; v = v.superview) {
+        if ([v isKindOfClass:UITableViewCell.class]) {
+            if ([v respondsToSelector:@selector(menuPreviewTargetView)]) {
+                UIView *unified = [(id)v menuPreviewTargetView];
+                if (unified) { target = unified; }
+            }
+            break;
+        }
+    }
     if (!target || !target.window || CGRectIsEmpty(target.bounds)) { return nil; }
     UIImage *snapshot = useCached ? self.cachedMenuSnapshot : nil;
     if (!snapshot) {

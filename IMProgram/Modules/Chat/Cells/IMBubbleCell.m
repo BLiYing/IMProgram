@@ -184,9 +184,11 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     UILabel *_fileMetaLabel;               // 右下角：时间 + ✓/✓✓
     int64_t _fileSizeBytes;                // 记住文件字节数：进度就地更新时未下载/就绪态拼"尺寸 · …"用
     UITapGestureRecognizer *_fileTap;
-    NSLayoutConstraint *_fileRowBottom;    // 文件消息：文件行贴气泡底
+    NSLayoutConstraint *_fileRowBottom;    // 文件消息：文件行贴气泡底（无 caption 时）
     NSLayoutConstraint *_fileMinWidth;     // 文件消息：行定宽=气泡上限宽（仅文件模式激活，勿撑大文本气泡）
     NSArray<NSLayoutConstraint *> *_fileConstraints; // 文件行全部结构约束（仅文件模式激活，见 init 注释）
+    UILabel *_fileCaption;                 // 文件文 caption（Telegram 模型）：文件卡下方随附文本，同气泡内，iOS 只显示
+    NSArray<NSLayoutConstraint *> *_fileCaptionConstraints; // 有 caption 时整组激活：文件行→caption→气泡底 + 左右对齐
 }
 
 + (IMBubbleTextTier)textTierForContent:(NSString *)content {
@@ -265,22 +267,28 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
 
 /// TextKit 反查：命中点（cell 坐标系）是否落在某个挂了 IMMentionUIDAttributeName 的 `@昵称` token 上。
 - (NSString *)mentionUIDAtPoint:(CGPoint)pointInCell {
-    NSAttributedString *as = _text.attributedText;
-    if (as.length == 0 || _text.hidden) { return nil; }
-    CGPoint p = [self convertPoint:pointInCell toView:_text];
-    if (!CGRectContainsPoint(_text.bounds, p)) { return nil; }
+    // 正文命中优先；未中再查文件文 caption（图说 @ 可点，2026-08-19）。
+    NSString *uid = [IMBubbleCell mentionUIDInLabel:_text atPoint:[self convertPoint:pointInCell toView:_text]];
+    if (uid) { return uid; }
+    return [IMBubbleCell mentionUIDInLabel:_fileCaption atPoint:[self convertPoint:pointInCell toView:_fileCaption]];
+}
+
++ (nullable NSString *)mentionUIDInLabel:(UILabel *)label atPoint:(CGPoint)p {
+    NSAttributedString *as = label.attributedText;
+    if (as.length == 0 || label.hidden || label.window == nil) { return nil; }
+    if (!CGRectContainsPoint(label.bounds, p)) { return nil; }
     NSTextStorage *storage = [[NSTextStorage alloc] initWithAttributedString:as];
     NSLayoutManager *lm = [NSLayoutManager new];
     [storage addLayoutManager:lm];
-    NSTextContainer *container = [[NSTextContainer alloc] initWithSize:_text.bounds.size];
+    NSTextContainer *container = [[NSTextContainer alloc] initWithSize:label.bounds.size];
     container.lineFragmentPadding = 0;
-    container.maximumNumberOfLines = _text.numberOfLines;
-    container.lineBreakMode = _text.lineBreakMode;
+    container.maximumNumberOfLines = label.numberOfLines;
+    container.lineBreakMode = label.lineBreakMode;
     [lm addTextContainer:container];
     [lm ensureLayoutForTextContainer:container];
     // UILabel 内容比 bounds 矮时会垂直居中，TextKit 从顶部排版——按实际高度差把点上移对齐。
     CGFloat used = [lm usedRectForTextContainer:container].size.height;
-    CGFloat dy = MAX(0, (_text.bounds.size.height - used) / 2.0);
+    CGFloat dy = MAX(0, (label.bounds.size.height - used) / 2.0);
     p.y -= dy;
     NSUInteger glyphIdx = [lm glyphIndexForPoint:p inTextContainer:container];
     CGRect glyphRect = [lm boundingRectForGlyphRange:NSMakeRange(glyphIdx, 1) inTextContainer:container];
@@ -405,6 +413,15 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         _fileMetaLabel.translatesAutoresizingMaskIntoConstraints = NO;
         [_fileRow addSubview:_fileMetaLabel];
 
+        // 文件文 caption（Telegram 模型）：文件卡下方随附文本，与文件卡同气泡内（IMBubbleCell 有气泡背景）。
+        _fileCaption = [UILabel new];
+        _fileCaption.translatesAutoresizingMaskIntoConstraints = NO;
+        _fileCaption.numberOfLines = 0;
+        _fileCaption.font = [UIFont systemFontOfSize:IMTheme.chatFontSize];
+        _fileCaption.textColor = IMTheme.textPrimary;
+        _fileCaption.hidden = YES;
+        [_bubble addSubview:_fileCaption];
+
         // 群聊对方头像（Telegram 式）：贴气泡底、位于左侧头像列；仅连续段末条显示。
         _avatar = [UILabel new];
         _avatar.translatesAutoresizingMaskIntoConstraints = NO;
@@ -490,6 +507,13 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         _textBottom = [_text.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:-6];
         _fileRowBottom = [_fileRow.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:-8];
         _textBottom.active = YES;
+        // 文件文 caption 整组（仅当文件消息带 caption 时激活）：文件行 → caption → 气泡底，替下 _fileRowBottom。
+        _fileCaptionConstraints = @[
+            [_fileCaption.topAnchor constraintEqualToAnchor:_fileRow.bottomAnchor constant:6],
+            [_fileCaption.leadingAnchor constraintEqualToAnchor:_bubble.leadingAnchor constant:12],
+            [_fileCaption.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor constant:-12],
+            [_fileCaption.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:-8],
+        ];
         // 文件行的**全部结构约束只在文件模式激活**：hidden 的视图仍参与布局，若常开，
         // 每个文本气泡都会被固定 44pt 图标位撑出最小宽，复用自文件气泡的 cell 还会被残留文件名
         // 撑得更宽——正是"连续发文本宽度各种变化"的根因。文本模式整组停用，气泡宽度回归纯文本驱动。
@@ -700,16 +724,32 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     _bodyText = body;
     _text.attributedText = body;
     _fileRow.hidden = !fileMode;
+    // 文件文 caption（Telegram 模型）：文件卡下方随附文本，同气泡内。iOS 只显示（不发送）。
+    NSString *fileCaption = (fileMode && message.caption.length > 0) ? message.caption : nil;
+    BOOL hasFileCaption = fileCaption != nil;
+    if (hasFileCaption) {
+        // 配文 @高亮（Telegram 模型，仅群聊）：命中的 @昵称/@所有人 上强调色。
+        NSDictionary *capBase = @{ NSFontAttributeName: _fileCaption.font, NSForegroundColorAttributeName: _fileCaption.textColor };
+        _fileCaption.attributedText = [IMBubbleCell attributedContent:fileCaption base:capBase mentionColor:IMTheme.accent mentions:self.captionMentionMap];
+    } else {
+        _fileCaption.attributedText = nil;
+        _fileCaption.text = nil;
+    }
+    _fileCaption.hidden = !hasFileCaption;
     if (fileMode) {
         _textBottom.active = NO;
         [NSLayoutConstraint activateConstraints:_fileConstraints];
-        _fileRowBottom.active = YES;
+        // 有 caption：气泡底由 caption 撑（文件行→caption→底）；无 caption：文件行直接贴底。
+        _fileRowBottom.active = !hasFileCaption;
+        if (hasFileCaption) { [NSLayoutConstraint activateConstraints:_fileCaptionConstraints]; }
+        else { [NSLayoutConstraint deactivateConstraints:_fileCaptionConstraints]; }
         _fileMinWidth.active = YES;
         [self configureFileRowWithMessage:message mine:mine peerReadSeq:peerReadSeq];
     } else {
         _fileRowBottom.active = NO;
         _fileMinWidth.active = NO;
         [NSLayoutConstraint deactivateConstraints:_fileConstraints];
+        [NSLayoutConstraint deactivateConstraints:_fileCaptionConstraints];
         _textBottom.active = YES;
         _fileTap.enabled = NO;
         // 清残留内容防御：复用自文件气泡的 cell 若留着文件名/状态文案，一旦约束误开又会撑宽气泡。

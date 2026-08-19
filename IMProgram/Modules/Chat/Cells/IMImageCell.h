@@ -17,6 +17,20 @@ NS_ASSUME_NONNULL_BEGIN
 /// 长按菜单高亮/收起动画的目标视图（=缩略图本体）。
 @property (nonatomic, strong, readonly) UIView *previewTargetView;
 
+/// 次要长按菜单区（图说整体化）：有 caption 时=气泡底 `_captionBG`（缩略图之外的 caption 区），
+/// 让长按**文字区**也能弹菜单（缩略图区由 previewTargetView 承载）。无 caption 返回 nil。
+- (nullable UIView *)secondaryMenuTargetView;
+
+/// 长按预览的**统一目标视图**：有 caption 时=整卡 `_captionBG`（缩略图区/文字区长按都预览同一张整卡，
+/// 而非只预览图），无 caption 时=缩略图本体。让图文/视文长按体验是「一个整体」。
+- (UIView *)menuPreviewTargetView;
+
+/// 图说 caption 的 @昵称 点击命中（cell 坐标系）：命中挂 uid 的 token 返回该成员 uid，否则 nil。
+- (nullable NSString *)mentionUIDAtPoint:(CGPoint)pointInCell;
+
+/// 图说 caption 的 @高亮映射（昵称→uid；@所有人 uid 空串）。由 VC 在 configure **前**设置；nil=不高亮。
+@property (nonatomic, copy, nullable) NSDictionary<NSString *, NSString *> *captionMentionMap;
+
 /// 已知像素尺寸的媒体在气泡里的显示高度（与 cell 内部同一套缩放规则）；
 /// 尺寸未知（<=0）返回方形占位边长。供聊天页 estimatedHeightForRow 精确估高，消除上滑行高跳变。
 + (CGFloat)displayHeightForPixelWidth:(CGFloat)pixelW pixelHeight:(CGFloat)pixelH;

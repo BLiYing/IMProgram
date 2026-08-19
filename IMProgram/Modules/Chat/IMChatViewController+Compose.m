@@ -21,11 +21,25 @@
 - (void)sendTapped {
     NSString *text = [self.inputField.text stringByTrimmingCharactersInSet:
                       NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    // 先发预览条里攒的粘贴图（≥2 张共享 group_id 成宫格），文字随后补发一条文本（Telegram 式）。
+    // 先发预览条里攒的粘贴图（≥2 张共享 group_id 成宫格）。
     if (self.pendingPasteImages.count > 0) {
         NSArray<UIImage *> *images = [self.pendingPasteImages copy];
         [self.pendingPasteImages removeAllObjects];
         [self refreshPasteBar];
+        BOOL editing = self.editingMessage && self.editingMessage.convSeq > 0;
+        BOOL replying = self.replyingTo.convSeq > 0;
+        // 图说合并（Telegram 模型）：**恰好单张 + 有文字 + 非编辑/非引用** → 文字作为 caption 与图**同发一条**，
+        // 配文 @ 一并解析随媒体上行；不再补发独立文本。多张（宫格）/编辑/引用走原有「图+文各发」路径
+        //（宫格不带 caption；iOS 媒体发送不带 replyTo，引用态保持文本单发以免丢引用）。
+        if (images.count == 1 && text.length > 0 && !editing && !replying) {
+            NSArray<NSString *> *mentions = self.isGroupChat ? [self resolvedMentionsInText:text] : @[];
+            BOOL mentionAll = self.isGroupChat && [self resolvedMentionAllInText:text];
+            [self uploadAndSendPastedImage:images.firstObject groupID:nil caption:text mentions:mentions mentionAll:mentionAll];
+            self.inputField.text = @"";
+            [self clearPendingMentions];
+            [self updateSendButtonVisibility];
+            return; // 文字已作为 caption 随图发出，不再走下面的独立文本发送
+        }
         NSString *gid = images.count > 1 ? [@"alb-" stringByAppendingString:NSUUID.UUID.UUIDString] : nil;
         for (UIImage *img in images) { [self uploadAndSendPastedImage:img groupID:gid]; }
         [self updateSendButtonVisibility];
@@ -177,6 +191,13 @@
     NSString *ct = message.contentType ?: @"text";
     BOOL isImage = [ct isEqualToString:@"image"];
     BOOL isVideo = [ct isEqualToString:@"video"];
+    // 图说消息（带 caption）：引用预览**只显文本**（=caption，IMReplySnippet），不挂缩略图/图标——与 Web 一致，简化少出错。
+    if (message.caption.length > 0 && (isImage || isVideo || [ct isEqualToString:@"file"])) {
+        self.replySnippetLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+        self.replySnippetLabel.text = IMReplySnippet(message);
+        [self showReplyIconSymbol:nil];
+        return;
+    }
     if ([ct isEqualToString:@"file"]) {
         NSString *fn = message.fileName.length > 0 ? message.fileName : IMMediaFileName(message.content);
         self.replySnippetLabel.text = fn.length > 0 ? fn : @"[文件]";
@@ -281,7 +302,8 @@
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0) { return; }
     [IMHTTPService.sharedService addFavoriteWithToken:token contentType:(message.contentType ?: @"text")
-                                              content:message.content sourceConvID:message.convID
+                                              content:message.content caption:message.caption
+                                         sourceConvID:message.convID
                                         sourceConvSeq:message.convSeq sourceFrom:(message.from ?: @"")
                                            completion:^(NSError *error) {
         // toast 吐在当前可见页（从全屏媒体库的查看器收藏时，本页不可见，吐在自己身上等于没提示）。
