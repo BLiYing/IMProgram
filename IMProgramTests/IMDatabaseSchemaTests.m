@@ -148,4 +148,70 @@
     [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
 }
 
+#pragma mark - 会话内 / 全局本地搜索（searchMessagesMatching:inConv:limit:）
+
+- (IMMessageModel *)textMessage:(NSString *)content conv:(NSString *)conv seq:(int64_t)seq ts:(int64_t)ts {
+    IMMessageModel *m = [IMMessageModel new];
+    m.clientMsgID = [NSString stringWithFormat:@"c-%@-%lld", conv, seq];
+    m.convID = conv; m.from = @"alice"; m.to = @"bob";
+    m.contentType = @"text"; m.content = content;
+    m.convSeq = seq; m.timestamp = ts; m.status = 1;
+    return m;
+}
+
+/// 命中口径：text 的 content 或任意消息的 caption 子串（大小写不敏感）；排除撤回；媒体 URL 不匹配。
+- (void)testSearchMatchesTextAndCaptionExcludesRecalledAndMediaURL {
+    NSURL *url = [self temporaryDatabaseURL];
+    IMDatabase *db = [[IMDatabase alloc] initWithFileURL:url];
+    [db useOwnerUserID:@"alice"];
+    [self seedConversation:@"conv-s" inDatabase:db];
+
+    [db saveMessage:[self textMessage:@"Q3 预算终稿已发你邮箱" conv:@"conv-s" seq:1 ts:1000]];
+    IMMessageModel *img = [self textMessage:@"/uploads/yusuan-report.jpg" conv:@"conv-s" seq:2 ts:2000];
+    img.contentType = @"image"; img.caption = @"本月预算表整理好了";   // caption 命中
+    [db saveMessage:img];
+    [db saveMessage:[self textMessage:@"今天天气不错" conv:@"conv-s" seq:3 ts:3000]];
+    IMMessageModel *recalled = [self textMessage:@"预算复盘会取消" conv:@"conv-s" seq:4 ts:4000];
+    recalled.recalledAt = 4500;                                       // 撤回 → 排除
+    [db saveMessage:recalled];
+
+    NSArray<IMMessageModel *> *hits = [db searchMessagesMatching:@"预算" inConv:@"conv-s" limit:0];
+    XCTAssertEqual(hits.count, 2, @"应命中 text 正文 + 媒体 caption，排除撤回与媒体 URL");
+    // 时间倒序：新在前（caption 那条 ts=2000 在 text ts=1000 之前？text ts=1000 更旧 → caption 在前）
+    XCTAssertEqual(hits[0].convSeq, 2);
+    XCTAssertEqual(hits[1].convSeq, 1);
+    XCTAssertEqualObjects(hits[0].caption, @"本月预算表整理好了");
+
+    // 大小写不敏感
+    XCTAssertEqual([db searchMessagesMatching:@"q3" inConv:@"conv-s" limit:0].count, 1);
+    // 空关键词 → 空
+    XCTAssertEqual([db searchMessagesMatching:@"   " inConv:@"conv-s" limit:0].count, 0);
+
+    [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
+}
+
+/// convID=nil 跨全部会话；LIKE 通配符 % 被转义为字面量。
+- (void)testSearchGlobalScopeAndLikeWildcardEscaped {
+    NSURL *url = [self temporaryDatabaseURL];
+    IMDatabase *db = [[IMDatabase alloc] initWithFileURL:url];
+    [db useOwnerUserID:@"alice"];
+    [self seedConversation:@"conv-a" inDatabase:db];
+    [self seedConversation:@"conv-b" inDatabase:db];
+
+    [db saveMessage:[self textMessage:@"季度增长 50% 达标" conv:@"conv-a" seq:1 ts:1000]];
+    [db saveMessage:[self textMessage:@"预算在 conv-b" conv:@"conv-b" seq:1 ts:2000]];
+    [db saveMessage:[self textMessage:@"利润率 5 成" conv:@"conv-b" seq:2 ts:3000]];   // 不含字面 "50%"
+
+    // 全局：两会话都搜
+    XCTAssertEqual([db searchMessagesMatching:@"预算" inConv:nil limit:0].count, 1);
+    // 会话内限定
+    XCTAssertEqual([db searchMessagesMatching:@"预算" inConv:@"conv-a" limit:0].count, 0);
+    // % 当字面量：仅精确含 "50%" 的那条命中，"利润率 5 成" 不命中
+    NSArray<IMMessageModel *> *pct = [db searchMessagesMatching:@"50%" inConv:nil limit:0];
+    XCTAssertEqual(pct.count, 1);
+    XCTAssertEqual(pct[0].convSeq, 1);
+
+    [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
+}
+
 @end

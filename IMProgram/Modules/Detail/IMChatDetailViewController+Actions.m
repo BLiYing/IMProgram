@@ -31,7 +31,19 @@
 
 - (void)pillTapped:(UIButton *)b {
     NSString *a = b.accessibilityLabel;
-    if ([a isEqualToString:@"search"]) { [self im_showToast:@"聊天内搜索即将上线"]; }
+    if ([a isEqualToString:@"search"]) {
+        // 会话内搜索：pop 回本会话的聊天页，转场落定后进入搜索态（设计见 SEARCH_DESIGN §4）。
+        IMChatViewController *chat = [IMChatViewController existingChatForConvID:self.convID
+                                                          inNavigationController:self.navigationController];
+        if (!chat) { [self im_showToast:@"请返回聊天页后再搜索"]; return; }
+        [self.navigationController popToViewController:chat animated:YES];
+        id<UIViewControllerTransitionCoordinator> tc = self.navigationController.transitionCoordinator;
+        if (tc) {
+            [tc animateAlongsideTransition:nil completion:^(id<UIViewControllerTransitionCoordinatorContext> ctx) { [chat beginInChatSearch]; }];
+        } else {
+            [chat beginInChatSearch];
+        }
+    }
     else if ([a isEqualToString:@"call"]) { [self im_showToast:@"语音通话即将上线"]; }
     else if ([a isEqualToString:@"video"]) { [self im_showToast:@"视频通话即将上线"]; }
     else if ([a isEqualToString:@"message"]) { [self openChatWithPeerID:self.peerID nickname:self.peerNickname avatarURL:self.peerAvatarURL]; }

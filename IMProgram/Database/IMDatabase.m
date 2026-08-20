@@ -17,6 +17,8 @@
                             inserted:(BOOL)inserted
                                 inDB:(FMDatabase *)db;
 - (void)writeCachedConversations:(NSArray<IMConversation *> *)conversations;
++ (IMMessageModel *)messageFromResultSet:(FMResultSet *)rs;   // 行→模型唯一映射（列清单第③处）
++ (NSString *)escapeLikePattern:(NSString *)raw;              // LIKE 通配符转义（镜像后端 escapeLike）
 
 @end
 
@@ -870,56 +872,98 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
              "row_id ASC",
             owner, convID];
         while ([rs next]) {
-            IMMessageModel *m = [IMMessageModel new];
-            m.clientMsgID = [rs stringForColumn:@"client_msg_id"];
-            m.serverMsgID = [rs stringForColumn:@"server_msg_id"];
-            m.convID      = [rs stringForColumn:@"conv_id"];
-            m.from        = [rs stringForColumn:@"sender"];
-            m.to          = [rs stringForColumn:@"recipient"];
-            m.contentType = [rs stringForColumn:@"content_type"];
-            m.content     = [rs stringForColumn:@"content"];
-            NSString *fileName = [rs stringForColumn:@"file_name"];
-            m.fileName    = fileName.length > 0 ? fileName : nil;
-            m.fileSize    = [rs longLongIntForColumn:@"file_size"];
-            NSString *caption = [rs stringForColumn:@"caption"];
-            m.caption     = caption.length > 0 ? caption : nil;
-            m.mentions    = IMDecodeMentions([rs stringForColumn:@"mentions"]);
-            m.mentionAll  = [rs boolForColumn:@"mention_all"];
-            m.convSeq     = [rs longLongIntForColumn:@"conv_seq"];
-            m.timestamp   = [rs longLongIntForColumn:@"timestamp"];
-            m.status      = (IMMessageStatus)[rs longForColumn:@"status"];
-            NSString *note = [rs stringForColumn:@"note"];
-            m.note        = note.length > 0 ? note : nil; // 空串视作无系统提示
-            NSString *nick = [rs stringForColumn:@"from_nickname"];
-            m.fromNickname = nick.length > 0 ? nick : nil; // 空串视作无昵称（回退 uid）
-            NSString *frole = [rs stringForColumn:@"from_role"];
-            m.fromRole = frole.length > 0 ? frole : nil;   // 空串视作无（普通成员/单聊）
-            m.recalledAt  = [rs longLongIntForColumn:@"recalled_at"];
-            NSString *rby = [rs stringForColumn:@"recalled_by"];
-            m.recalledBy  = rby.length > 0 ? rby : nil;
-            m.editedAt    = [rs longLongIntForColumn:@"edited_at"];
-            m.pinnedAt    = [rs longLongIntForColumn:@"pinned_at"];
-            m.replyToConvSeq = [rs longLongIntForColumn:@"reply_to_conv_seq"];
-            NSString *snap = [rs stringForColumn:@"reply_snapshot"];
-            m.replySnapshot = snap.length > 0 ? snap : nil;
-            NSString *rf = [rs stringForColumn:@"reply_to_from"];
-            m.replyToFrom = rf.length > 0 ? rf : nil;
-            NSString *ff = [rs stringForColumn:@"forward_from"];
-            m.forwardFrom = ff.length > 0 ? ff : nil;
-            NSString *gid = [rs stringForColumn:@"group_id"];
-            m.groupID = gid.length > 0 ? gid : nil;
-            NSString *poster = [rs stringForColumn:@"poster"];
-            m.poster = poster.length > 0 ? poster : nil;
-            m.mediaW   = [rs longForColumn:@"media_w"];
-            m.mediaH   = [rs longForColumn:@"media_h"];
-            m.duration = [rs longLongIntForColumn:@"duration"];
-            NSString *thumb = [rs stringForColumn:@"thumb"];
-            m.thumb = thumb.length > 0 ? thumb : nil; // 空串视作无模糊预览（回退中性占位）
-            [out addObject:m];
+            [out addObject:[IMDatabase messageFromResultSet:rs]];
         }
         [rs close];
     }];
     return out;
+}
+
+/// im_message_local 行 → IMMessageModel 的**唯一映射**（列清单第③处，见 +messageColumns 注释）。
+/// messagesForConv / searchMessagesMatching 共用，杜绝两处映射漂移。SELECT * 名字取列，不受列序影响。
++ (IMMessageModel *)messageFromResultSet:(FMResultSet *)rs {
+    IMMessageModel *m = [IMMessageModel new];
+    m.clientMsgID = [rs stringForColumn:@"client_msg_id"];
+    m.serverMsgID = [rs stringForColumn:@"server_msg_id"];
+    m.convID      = [rs stringForColumn:@"conv_id"];
+    m.from        = [rs stringForColumn:@"sender"];
+    m.to          = [rs stringForColumn:@"recipient"];
+    m.contentType = [rs stringForColumn:@"content_type"];
+    m.content     = [rs stringForColumn:@"content"];
+    NSString *fileName = [rs stringForColumn:@"file_name"];
+    m.fileName    = fileName.length > 0 ? fileName : nil;
+    m.fileSize    = [rs longLongIntForColumn:@"file_size"];
+    NSString *caption = [rs stringForColumn:@"caption"];
+    m.caption     = caption.length > 0 ? caption : nil;
+    m.mentions    = IMDecodeMentions([rs stringForColumn:@"mentions"]);
+    m.mentionAll  = [rs boolForColumn:@"mention_all"];
+    m.convSeq     = [rs longLongIntForColumn:@"conv_seq"];
+    m.timestamp   = [rs longLongIntForColumn:@"timestamp"];
+    m.status      = (IMMessageStatus)[rs longForColumn:@"status"];
+    NSString *note = [rs stringForColumn:@"note"];
+    m.note        = note.length > 0 ? note : nil; // 空串视作无系统提示
+    NSString *nick = [rs stringForColumn:@"from_nickname"];
+    m.fromNickname = nick.length > 0 ? nick : nil; // 空串视作无昵称（回退 uid）
+    NSString *frole = [rs stringForColumn:@"from_role"];
+    m.fromRole = frole.length > 0 ? frole : nil;   // 空串视作无（普通成员/单聊）
+    m.recalledAt  = [rs longLongIntForColumn:@"recalled_at"];
+    NSString *rby = [rs stringForColumn:@"recalled_by"];
+    m.recalledBy  = rby.length > 0 ? rby : nil;
+    m.editedAt    = [rs longLongIntForColumn:@"edited_at"];
+    m.pinnedAt    = [rs longLongIntForColumn:@"pinned_at"];
+    m.replyToConvSeq = [rs longLongIntForColumn:@"reply_to_conv_seq"];
+    NSString *snap = [rs stringForColumn:@"reply_snapshot"];
+    m.replySnapshot = snap.length > 0 ? snap : nil;
+    NSString *rf = [rs stringForColumn:@"reply_to_from"];
+    m.replyToFrom = rf.length > 0 ? rf : nil;
+    NSString *ff = [rs stringForColumn:@"forward_from"];
+    m.forwardFrom = ff.length > 0 ? ff : nil;
+    NSString *gid = [rs stringForColumn:@"group_id"];
+    m.groupID = gid.length > 0 ? gid : nil;
+    NSString *poster = [rs stringForColumn:@"poster"];
+    m.poster = poster.length > 0 ? poster : nil;
+    m.mediaW   = [rs longForColumn:@"media_w"];
+    m.mediaH   = [rs longForColumn:@"media_h"];
+    m.duration = [rs longLongIntForColumn:@"duration"];
+    NSString *thumb = [rs stringForColumn:@"thumb"];
+    m.thumb = thumb.length > 0 ? thumb : nil; // 空串视作无模糊预览（回退中性占位）
+    return m;
+}
+
+/// 本地全文搜索（搜索功能 P0，纯本地）。convID 传 nil = 跨全部会话（首页全局搜索）；否则限该会话（会话内搜索）。
+/// 命中口径与后端 G4 一致：`content_type='text' 的 content` 或任意消息的 `caption` 子串（大小写不敏感，`escapeLikePattern:` 转义 %_\）。
+/// 排除撤回（recalled_at>0）；本地删除是物理删行故天然不含。按 timestamp 倒序（新在前），limit<=0 用默认上限。
+- (NSArray<IMMessageModel *> *)searchMessagesMatching:(NSString *)keyword
+                                               inConv:(nullable NSString *)convID
+                                                limit:(NSInteger)limit {
+    NSString *trimmed = [keyword stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (trimmed.length == 0) { return @[]; }
+    NSString *owner = [self ownerUserID];
+    NSString *like = [NSString stringWithFormat:@"%%%@%%", [IMDatabase escapeLikePattern:trimmed]];
+    NSInteger cap = (limit > 0) ? limit : 500;
+    NSMutableArray<IMMessageModel *> *out = [NSMutableArray array];
+    [_queue inDatabase:^(FMDatabase *db) {
+        NSMutableString *sql = [NSMutableString stringWithString:
+            @"SELECT * FROM im_message_local WHERE owner_uid=? AND recalled_at=0 "
+             "AND ((content_type='text' AND content LIKE ? ESCAPE '\\') "
+             "OR (caption IS NOT NULL AND caption<>'' AND caption LIKE ? ESCAPE '\\')) "];
+        NSMutableArray *args = [NSMutableArray arrayWithObjects:owner, like, like, nil];
+        if (convID.length > 0) { [sql appendString:@"AND conv_id=? "]; [args addObject:convID]; }
+        [sql appendString:@"ORDER BY timestamp DESC, conv_seq DESC, row_id DESC LIMIT ?"];
+        [args addObject:@(cap)];
+        FMResultSet *rs = [db executeQuery:sql withArgumentsInArray:args];
+        while ([rs next]) { [out addObject:[IMDatabase messageFromResultSet:rs]]; }
+        [rs close];
+    }];
+    return out;
+}
+
+/// SQLite LIKE 通配符转义（镜像后端 store.escapeLike）：`\`→`\\`、`%`→`\%`、`_`→`\_`，配合 `ESCAPE '\'`。
++ (NSString *)escapeLikePattern:(NSString *)raw {
+    NSString *s = [raw stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"];
+    s = [s stringByReplacingOccurrencesOfString:@"%" withString:@"\\%"];
+    s = [s stringByReplacingOccurrencesOfString:@"_" withString:@"\\_"];
+    return s;
 }
 
 - (void)deleteMessage:(IMMessageModel *)message {

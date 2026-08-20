@@ -14,6 +14,7 @@
 #import "IMAnimator.h"
 #import "UIViewController+IMToast.h"
 #import "IMTheme.h"
+#import "IMGlass.h"
 #import "IMTimeUtil.h"
 #import "UILabel+IMAvatar.h"
 #import "IMPresence.h"
@@ -21,6 +22,7 @@
 #import "IMPopoverCard.h"
 #import "IMLog.h"
 #import "IMUserSearchViewController.h"
+#import "IMGlobalSearchViewController.h"
 #import "IMGroupMemberPickerViewController.h"
 #import "IMGroupInfo.h"
 #import "IMNavigationButton.h"
@@ -396,6 +398,14 @@ static CGFloat const kIMRowLeading = 16;
     // 分隔线左缩进对齐文字（不压头像下方），Telegram/微信式。
     self.tableView.separatorInset = UIEdgeInsetsMake(0, kIMRowLeading + kIMAvatarSize + 12, 0, 0);
     [self.tableView registerClass:IMConversationCell.class forCellReuseIdentifier:@"conv"];
+    // 顶部搜索栏（首页全局搜索入口）：点它 push 三分组结果页（自定义液态栏架构下不用 UISearchController）。
+    UISearchBar *searchBar = [UISearchBar new];
+    searchBar.placeholder = @"搜索";
+    searchBar.searchBarStyle = UISearchBarStyleMinimal;
+    searchBar.delegate = (id<UISearchBarDelegate>)self;
+    [searchBar sizeToFit];
+    IMApplyUnifiedSearchFieldStyle(searchBar); // 统一搜索框圆角（24）
+    self.tableView.tableHeaderView = searchBar;
     [self.view addSubview:self.tableView];
 
     self.emptyLabel = [UILabel new];
@@ -779,6 +789,15 @@ static CGFloat const kIMRowLeading = 16;
                                               peerID:c.peer readSeq:c.readSeq unread:c.unread
                                          peerReadSeq:c.peerReadSeq
                                         peerNickname:c.peerNickname peerAvatarURL:c.peerAvatarURL];
+}
+
+#pragma mark - 搜索入口
+
+// 点顶部搜索栏 → push 三分组全局搜索页（不真正在此栏内编辑）。
+- (BOOL)searchBarShouldBeginEditing:(UISearchBar *)searchBar {
+    IMGlobalSearchViewController *vc = [[IMGlobalSearchViewController alloc] initWithHost:self.host userID:self.userID];
+    [self.navigationController pushViewController:vc animated:YES];
+    return NO;
 }
 
 #pragma mark - UITableView

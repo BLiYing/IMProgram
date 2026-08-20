@@ -15,6 +15,7 @@
 #import "IMGroupInfo.h"          // IMGroupInfo / IMGroupRole（senderRoleForMessage: 返回枚举）
 
 @class IMMediaDownloadCoordinator;
+@class IMChatSearchState;
 @class IMDatabaseAccountContext;
 @class IMMentionPickerViewController;
 @class IMMessageModel;
@@ -119,6 +120,10 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) BOOL backBadgeRefreshPending; ///< 返回徽标合并刷新的在途标记（0.12s 窗口内只跑一次）
 @property (nonatomic, assign) BOOL readFlushPending;        ///< 已读位点上报的在途标记（0.3s 窗口内只发一次，§8 范式）
 @property (nonatomic, copy, nullable) NSString *convRemark; ///< 群会话备注（G1，仅本人可见、多端同步）：非空替代群名作标题
+
+// 会话内搜索（+Search.m）：20 项搜索状态收进协作对象 IMChatSearchState（共享头属性数预算，CODING_STYLE §7）。
+// 进入搜索创建、退出置 nil 整体释放；searchState.searching 经 nil 消息天然为 NO。
+@property (nonatomic, strong, nullable) IMChatSearchState *searchState;
 
 @end
 

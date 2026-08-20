@@ -6,6 +6,7 @@
 #import "IMHTTPService.h"
 #import "IMUserCard.h"
 #import "IMTheme.h"
+#import "IMGlass.h"
 #import "IMLog.h"
 
 @interface IMUserSearchViewController () <UITableViewDataSource, UITableViewDelegate, UISearchBarDelegate>
@@ -43,6 +44,7 @@
     self.searchBar.delegate = self;
     self.searchBar.returnKeyType = UIReturnKeySearch;
     [self.searchBar sizeToFit];
+    IMApplyUnifiedSearchFieldStyle(self.searchBar); // 统一搜索框圆角（24）
 
     self.tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStylePlain];
     self.tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;

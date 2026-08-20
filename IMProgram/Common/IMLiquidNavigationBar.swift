@@ -196,6 +196,17 @@ public final class IMLiquidNavigationBar: UIView {
         }
     }
 
+    // MARK: - 搜索模式（把中间标题区整行换成 Liquid Glass 搜索框，复用 titleGlass 得 24 圆角+玻璃）
+    /// 搜索输入框（UISearchTextField，支持 UISearchToken——「来自:」token 即用它）。宿主设 delegate/tokens/becomeFirstResponder。
+    public let searchTextField = UISearchTextField()
+    /// 搜索模式开关：YES=中间换成搜索框整行（复用 titleGlass 玻璃底 + 24 圆角），右侧「取消」透明文字钮，隐藏标题/副标题/返回键。
+    public var searchModeActive: Bool = false {
+        didSet { guard oldValue != searchModeActive else { return }; updateSearchMode() }
+    }
+    public var searchPlaceholder: String = "" {
+        didSet { searchTextField.placeholder = searchPlaceholder }
+    }
+
     // 按钮本体即原生玻璃（iOS 26 用 UIButton.Configuration.glass()，旧系统降级 .gray() + 描边）：
     // 这样点击时能拿到系统 Liquid Glass 的按压放大/聚合动画，而不是手写缩放。此前用「普通按钮 +
     // 独立玻璃视图」分离结构，玻璃不参与交互、只能做 scale 0.94 的缩小，缺原生放大观感。
@@ -296,8 +307,37 @@ public final class IMLiquidNavigationBar: UIView {
                               for: [.touchUpInside, .touchUpOutside, .touchCancel, .touchDragExit])
         addSubview(titleButton)
 
+        // 搜索输入框：背景透明（玻璃底由 titleGlass 提供）；默认隐藏，仅搜索模式显示。
+        searchTextField.backgroundColor = .clear
+        searchTextField.borderStyle = .none
+        searchTextField.font = .systemFont(ofSize: 17)
+        searchTextField.returnKeyType = .search
+        searchTextField.clearButtonMode = .whileEditing
+        searchTextField.isHidden = true
+        addSubview(searchTextField)
+
         refreshColors()          // 内部会 applyBackConfig / applyActionConfig
         updateCompactContentVisibility()
+    }
+
+    /// 搜索模式切换：中间换搜索框整行、隐藏标题/副标题/返回键（「取消」保持标准玻璃胶囊钮）。
+    private func updateSearchMode() {
+        searchTextField.isHidden = !searchModeActive
+        if searchModeActive {
+            titleGlass.isHidden = false
+            titleGlass.alpha = 1
+            titleLabel.isHidden = true
+            subtitleLabel.isHidden = true
+            titleButton.isUserInteractionEnabled = false
+            backButton.isHidden = true
+        } else {
+            titleLabel.isHidden = false
+            subtitleLabel.isHidden = false
+            applyBackConfig()
+            updateCompactContentVisibility()
+        }
+        applyActionConfig()
+        setNeedsLayout()
     }
 
     /// 原生玻璃按钮配置：iOS 26 用 `.glass()`（自带按压放大）；旧系统 `.gray()` 填充 + 0.5pt 描边，
@@ -525,6 +565,16 @@ public final class IMLiquidNavigationBar: UIView {
         let titleY = hasSubtitle ? buttonY + 2 : buttonY + 11
         titleLabel.frame = CGRect(x: centerX + 12, y: titleY, width: centerWidth - 24, height: 20)
         subtitleLabel.frame = CGRect(x: centerX + 12, y: buttonY + 24, width: centerWidth - 24, height: 16)
+
+        // 搜索模式：玻璃底（titleGlass）撑成「返回位起 → 取消钮前」的整行，搜索框嵌在其中。
+        if searchModeActive {
+            let gap: CGFloat = 8
+            let leftX = side
+            let rightX = actionButton.isHidden ? bounds.width - side : actionButton.frame.minX - gap
+            let w = max(40, rightX - leftX)
+            titleGlass.frame = CGRect(x: leftX, y: buttonY, width: w, height: buttonSize)
+            searchTextField.frame = titleGlass.frame.insetBy(dx: 12, dy: 6)
+        }
     }
 
     @objc private func backTapped() {

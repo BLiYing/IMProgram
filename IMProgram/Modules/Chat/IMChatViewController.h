@@ -85,4 +85,11 @@ extern NSNotificationName const IMChatConversationClearedNotification;
 - (void)jumpToConvSeq:(int64_t)convSeq;
 @end
 
+/// 会话内搜索（+Search.m）：详情页搜索 pill pop 回本页后调 -beginInChatSearch 进入搜索态。
+@interface IMChatViewController (Search)
+- (void)beginInChatSearch;
+/// 带初始关键词进入搜索态（首页全局搜索「聊天记录」下钻到本会话时预填同词）。
+- (void)beginInChatSearchWithKeyword:(nullable NSString *)keyword;
+@end
+
 NS_ASSUME_NONNULL_END

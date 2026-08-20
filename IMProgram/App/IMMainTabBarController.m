@@ -7,6 +7,7 @@
 #import "IMUserSearchViewController.h"
 #import "IMProgram-Swift.h"
 #import "IMChatDetailViewController.h"
+#import "IMGlobalSearchViewController.h"
 #import "IMChatViewController.h"
 #import "IMDatabase.h"
 #import <objc/runtime.h>
@@ -85,7 +86,8 @@ static void * const kIMInjectedBarKey = (void *)&kIMInjectedBarKey;
 /// Detail / Settings 自绘沉浸式标题栏（栏已挂在它们自己的 view 里）；导航容器不再替它们管栏。
 - (BOOL)controllerOwnsBar:(UIViewController *)vc {
     return [vc isKindOfClass:IMChatDetailViewController.class]
-        || [vc isKindOfClass:IMSettingsViewController.class];
+        || [vc isKindOfClass:IMSettingsViewController.class]
+        || [vc isKindOfClass:IMGlobalSearchViewController.class]; // 自持 searchMode 液态栏（搜索框在标题行）
 }
 
 /// 取（首次调用则创建）某页**自己 view 内**的标题栏。放进页面自己的 view 是关键：这样侧滑返回时栏随整页

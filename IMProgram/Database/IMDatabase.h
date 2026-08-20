@@ -100,6 +100,13 @@ NS_ASSUME_NONNULL_BEGIN
 /// 取某会话的全部消息（按存入顺序，约等于时间顺序）。
 - (NSArray<IMMessageModel *> *)messagesForConv:(NSString *)convID;
 
+/// 本地全文搜索（搜索功能 P0，纯本地）。convID 传 nil = 跨全部会话（首页全局搜索）；否则限该会话（会话内搜索）。
+/// 命中口径同后端 G4：text 消息 content 或任意消息 caption 子串（大小写不敏感）；排除撤回。
+/// 按 timestamp 倒序（新在前），limit<=0 用默认上限。
+- (NSArray<IMMessageModel *> *)searchMessagesMatching:(NSString *)keyword
+                                               inConv:(nullable NSString *)convID
+                                                limit:(NSInteger)limit;
+
 /// 本地删除一条消息（出站按 client_msg_id 匹配，入站按 conv_seq 匹配）。仅本端，不影响对端。
 - (void)deleteMessage:(IMMessageModel *)message;
 

@@ -3,6 +3,7 @@
 #import "IMMentionPickerViewController.h"
 #import "IMGroupInfo.h"
 #import "IMTheme.h"
+#import "IMGlass.h"
 #import "IMMediaUtil.h"           // IMMediaFullURL
 #import "UILabel+IMAvatar.h"
 #import "IMMainTabBarController.h" // kIMLiquidBarHeight
@@ -249,6 +250,7 @@ static const NSInteger kIMMentionInlineMaxVisibleRows = 4;
     _searchBar.delegate = self;
     _searchBar.searchBarStyle = UISearchBarStyleMinimal;
     _searchBar.text = _query;
+    IMApplyUnifiedSearchFieldStyle(_searchBar); // 统一搜索框圆角（24）
     [self.view addSubview:_searchBar];
 
     _tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStyleInsetGrouped];
@@ -297,6 +299,7 @@ static const NSInteger kIMMentionInlineMaxVisibleRows = 4;
     // 于是第一次点只是让搜索框成为 first responder（按钮高亮），第二次才真正触发 cancel——表现为「点两下才关」。
     _searchBar.showsCancelButton = NO;
     _searchBar.backgroundColor = UIColor.clearColor;
+    IMApplyUnifiedSearchFieldStyle(_searchBar); // 统一搜索框圆角（24）
     [self.view addSubview:_searchBar];
 
     // 单击即收面板、焦点回聊天输入框（走 onInlineCancel，与原 cancel 语义一致）。
