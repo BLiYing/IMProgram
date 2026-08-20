@@ -31,6 +31,9 @@ NS_ASSUME_NONNULL_BEGIN
 /// 图说 caption 的 @高亮映射（昵称→uid；@所有人 uid 空串）。由 VC 在 configure **前**设置；nil=不高亮。
 @property (nonatomic, copy, nullable) NSDictionary<NSString *, NSString *> *captionMentionMap;
 
+/// 会话内搜索命中词（搜索态由宿主 configure **前**设置；nil/空=不高亮）。图说 caption 命中段染色，与 IMBubbleCell 同语义。
+@property (nonatomic, copy, nullable) NSString *searchHighlightKeyword;
+
 /// 已知像素尺寸的媒体在气泡里的显示高度（与 cell 内部同一套缩放规则）；
 /// 尺寸未知（<=0）返回方形占位边长。供聊天页 estimatedHeightForRow 精确估高，消除上滑行高跳变。
 + (CGFloat)displayHeightForPixelWidth:(CGFloat)pixelW pixelHeight:(CGFloat)pixelH;

@@ -3,6 +3,7 @@
 //  + 相册聚簇（同 group_id 宫格）+ 行高/估高/日期分隔。从 IMChatViewController.m 平移，未改行为。
 
 #import "IMChatViewController+Private.h"
+#import "IMChatSearchState.h"   // 搜索态命中词（cell 高亮）
 #import "IMMediaDownloadCoordinator.h"
 #import "IMMediaSendService.h"
 #import "IMMessageModel.h"
@@ -209,6 +210,7 @@
         img.gated = gate != nil;
         img.downloadProgress = gate;
         img.captionMentionMap = [self mentionMapForCaption:m]; // 图说 caption 的 @高亮（configure 前置）
+        img.searchHighlightKeyword = self.searchState.searchKeyword; // 搜索态命中词高亮（非搜索态为 nil）
         [img configureWithMessage:m
                           fullURL:imgFullURL
                         posterURL:(m.poster.length > 0 ? [self fullMediaURL:m.poster] : nil)
@@ -336,6 +338,7 @@
     cell.textExpanded = [self isTextExpandedForMessage:m]; // 中长文本"展开全文"记忆（configure 前置）
     cell.mentionMap = [self mentionMapForMessage:m];       // 气泡内 @昵称 高亮+跳资料映射（configure 前置）
     cell.captionMentionMap = [self mentionMapForCaption:m]; // 文件文 caption 的 @高亮（configure 前置）
+    cell.searchHighlightKeyword = self.searchState.searchKeyword; // 搜索态命中词高亮（非搜索态为 nil）
     [cell configureWithMessage:m mine:mine peerReadSeq:self.peerReadSeq
                      dayHeader:[self dayHeaderForRow:indexPath.row]
             showsUnreadDivider:showsDivider

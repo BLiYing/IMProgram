@@ -265,6 +265,27 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     return out;
 }
 
+/// 搜索命中词高亮：att 内 keyword 的所有大小写不敏感命中段染 accent 前景 + accentSoft 底
+///（与全局搜索页 IMSearchHighlighted / Web `<mark class="search-hit">` 同语义）。就地改写 mutable 版。
++ (void)applySearchHighlight:(NSString *)keyword toMutable:(NSMutableAttributedString *)att {
+    if (keyword.length == 0 || att.length == 0) { return; }
+    NSRange search = NSMakeRange(0, att.length);
+    while (search.location < att.length) {
+        NSRange r = [att.string rangeOfString:keyword options:NSCaseInsensitiveSearch range:search];
+        if (r.location == NSNotFound) { break; }
+        [att addAttributes:@{ NSBackgroundColorAttributeName: IMTheme.accentSoft,
+                              NSForegroundColorAttributeName: IMTheme.accent } range:r];
+        search = NSMakeRange(NSMaxRange(r), att.length - NSMaxRange(r));
+    }
+}
+
++ (NSAttributedString *)attributed:(NSAttributedString *)att highlighting:(nullable NSString *)keyword {
+    if (keyword.length == 0 || att.length == 0) { return att; }
+    NSMutableAttributedString *m = [att mutableCopy];
+    [IMBubbleCell applySearchHighlight:keyword toMutable:m];
+    return m;
+}
+
 /// TextKit 反查：命中点（cell 坐标系）是否落在某个挂了 IMMentionUIDAttributeName 的 `@昵称` token 上。
 - (NSString *)mentionUIDAtPoint:(CGPoint)pointInCell {
     // 正文命中优先；未中再查文件文 caption（图说 @ 可点，2026-08-19）。
@@ -721,6 +742,11 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     if (fileMode && body.length > 0 && [body.string hasSuffix:@"\n"]) {
         [body deleteCharactersInRange:NSMakeRange(body.length - 1, 1)];
     }
+    // 会话内搜索命中词高亮（搜索态才有 keyword）：直接染在 body 上——_bodyText 的各重渲路径（如引用
+    // 缩略图异步回填后重赋值）都携带高亮，不会滚一下就丢。
+    if (self.searchHighlightKeyword.length > 0) {
+        [IMBubbleCell applySearchHighlight:self.searchHighlightKeyword toMutable:body];
+    }
     _bodyText = body;
     _text.attributedText = body;
     _fileRow.hidden = !fileMode;
@@ -730,7 +756,8 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     if (hasFileCaption) {
         // 配文 @高亮（Telegram 模型，仅群聊）：命中的 @昵称/@所有人 上强调色。
         NSDictionary *capBase = @{ NSFontAttributeName: _fileCaption.font, NSForegroundColorAttributeName: _fileCaption.textColor };
-        _fileCaption.attributedText = [IMBubbleCell attributedContent:fileCaption base:capBase mentionColor:IMTheme.accent mentions:self.captionMentionMap];
+        _fileCaption.attributedText = [IMBubbleCell attributed:[IMBubbleCell attributedContent:fileCaption base:capBase mentionColor:IMTheme.accent mentions:self.captionMentionMap]
+                                                  highlighting:self.searchHighlightKeyword];
     } else {
         _fileCaption.attributedText = nil;
         _fileCaption.text = nil;

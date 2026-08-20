@@ -40,11 +40,18 @@ static const CGFloat kIMSearchFromRowH = 52;
     self.inputBar.hidden = YES;
     if (self.jumpButton) { self.jumpButton.hidden = YES; }
     self.tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeOnDrag;
+    // 点列表空白收起键盘（cancelsTouchesInView=NO：不吞消息点击/长按，只顺带收键盘）。
+    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(searchBlankTapped)];
+    tap.cancelsTouchesInView = NO;
+    [self.tableView addGestureRecognizer:tap];
+    self.searchState.tapToDismiss = tap;
     [self observeSearchKeyboard];
     if (keyword.length > 0) { self.searchState.searchField.text = keyword; }
     [self.searchState.searchField becomeFirstResponder];
     [self recomputeSearchHitsAndJump:YES];
 }
+
+- (void)searchBlankTapped { [self.searchState.searchField resignFirstResponder]; }
 
 - (void)endInChatSearch {
     if (!self.searchState.searching) { return; }
@@ -61,8 +68,10 @@ static const CGFloat kIMSearchFromRowH = 52;
     self.tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeNone;
     self.inputBar.hidden = NO;
     self.searchState.hiddenInjectedBar.hidden = NO; self.searchState.hiddenInjectedBar = nil;   // 恢复注入标题栏
+    if (self.searchState.tapToDismiss) { [self.tableView removeGestureRecognizer:self.searchState.tapToDismiss]; }
     [self restoreTableBottom];
     self.searchState = nil;   // 整袋释放
+    [self.tableView reloadData];   // 清掉气泡内命中词高亮
 }
 
 /// 搜索期间把消息表底边从「replyBar 顶」换成「屏幕底」：表的 backgroundView（聊天壁纸）随表铺到底，
@@ -79,7 +88,8 @@ static const CGFloat kIMSearchFromRowH = 52;
     self.searchState.searchTableBottom = [self.tableView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor];
     self.searchState.searchTableBottom.active = YES;
     UIEdgeInsets ci = self.tableView.contentInset;
-    ci.bottom += kIMSearchNavBarH + 8;   // 给底部命中导航条让位
+    self.searchState.savedBottomInset = ci.bottom;   // 记原始底，键盘观察者在此基础上叠导航条+键盘让位
+    ci.bottom = self.searchState.savedBottomInset + kIMSearchNavBarH + 8;
     self.tableView.contentInset = ci;
 }
 
@@ -88,8 +98,11 @@ static const CGFloat kIMSearchFromRowH = 52;
     self.searchState.searchTableBottom.active = NO; self.searchState.searchTableBottom = nil;
     self.searchState.searchSavedTableBottom.active = YES; self.searchState.searchSavedTableBottom = nil;
     UIEdgeInsets ci = self.tableView.contentInset;
-    ci.bottom -= kIMSearchNavBarH + 8;
+    ci.bottom = self.searchState.savedBottomInset;   // 恢复进搜索前的原始底（键盘让位一并清除）
     self.tableView.contentInset = ci;
+    UIEdgeInsets si = self.tableView.verticalScrollIndicatorInsets;
+    si.bottom = self.searchState.savedBottomInset;
+    self.tableView.verticalScrollIndicatorInsets = si;
 }
 
 /// 隐藏注入的聊天标题栏（IMLiquidNavigationBar，非本搜索栏）：磨砂搜索栏后面才不会透出会话名/返回/信息钮。
@@ -231,14 +244,34 @@ static const CGFloat kIMSearchFromRowH = 52;
         CGFloat overlap = MAX(0, CGRectGetMaxY(self.view.bounds) - kbTop);
         CGFloat safeBottom = self.view.safeAreaInsets.bottom;
         self.searchState.searchNavBottom.constant = overlap > safeBottom ? -(overlap - safeBottom) : 0;
+        // 键盘让位：表格底部 contentInset = 原始底 + 导航条 + 键盘遮挡量——内容整体在键盘之上，
+        // 命中/最新消息不被键盘挡（scrollToRow Middle 会按 inset 后的可视区取中）。
+        UIEdgeInsets ci = self.tableView.contentInset;
+        ci.bottom = self.searchState.savedBottomInset + kIMSearchNavBarH + 8 + overlap;
+        self.tableView.contentInset = ci;
+        UIEdgeInsets si = self.tableView.verticalScrollIndicatorInsets;
+        si.bottom = ci.bottom;
+        self.tableView.verticalScrollIndicatorInsets = si;
         NSTimeInterval dur = [note.userInfo[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
         [UIView animateWithDuration:dur animations:^{ [self.view layoutIfNeeded]; }];
+        // 让位后校正可见性（有命中→命中居中不闪；无关键词→贴底浮在键盘上）——**必须等键盘动画结束后**：
+        // scrollToAbsoluteBottom 是多轮 layoutIfNeeded+setContentOffset 的重同步滚动，在 willChangeFrame
+        // 里同步执行会打断键盘呈现（OnDrag 把它当拖拽收起），实测键盘直接不弹出（2026-08-21 修）。
+        __weak typeof(self) wself = self;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)((dur + 0.05) * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            __strong typeof(wself) self = wself;
+            if (!self || !self.searchState.searching) { return; }
+            if (self.searchState.searchHits.count > 0) { [self scrollCurrentSearchHitVisible]; }
+            else if (self.searchState.searchKeyword.length == 0) { [self scrollToAbsoluteBottom]; }
+        });
     }];
 }
 
 #pragma mark - 文本输入
 
 - (void)searchTextChanged {
+    // 拼音等输入法**组合中**（markedText 未上屏）不重算：否则每敲一个字母列表就跳一次（2026-08-21 修）。
+    if (self.searchState.searchField.markedTextRange) { return; }
     // token 被删（字段 ✕ / 退格）→ 取消「来自」过滤、👤 重现。
     if (self.isGroupChat && self.searchState.searchFromButton.hidden && self.searchState.searchField.tokens.count == 0) {
         [self clearFromFilterUI];
@@ -276,8 +309,24 @@ static const CGFloat kIMSearchFromRowH = 52;
     self.searchState.searchHits = hits;                 // 升序（self.messages 本就旧→新）
     self.searchState.searchHitIndex = (NSInteger)hits.count - 1; // 默认最新命中
     [self updateSearchNavState];
+    [self.tableView reloadData];   // 刷新气泡内命中词高亮（cell 经 searchHighlightKeyword 染色）
     if (jumpToNewest && hits.count > 0) {
         [self jumpToConvSeq:hits.lastObject.longLongValue];
+    }
+}
+
+/// 把当前命中滚到可视区居中（**不闪烁**）：键盘让位后校正可见性用；显式 ▲▼/默认跳仍走 jumpToConvSeq:（带闪烁）。
+- (void)scrollCurrentSearchHitVisible {
+    if (self.searchState.searchHits.count == 0) { return; }
+    int64_t seq = self.searchState.searchHits[(NSUInteger)MAX(0, self.searchState.searchHitIndex)].longLongValue;
+    for (IMMessageModel *m in self.messages) {
+        if (m.convSeq == seq) {
+            NSUInteger row = [self visibleRowForMessage:m];
+            if (row == NSNotFound) { return; }
+            [self.tableView scrollToRowAtIndexPath:[NSIndexPath indexPathForRow:(NSInteger)row inSection:0]
+                                  atScrollPosition:UITableViewScrollPositionMiddle animated:NO];
+            return;
+        }
     }
 }
 
@@ -458,19 +507,22 @@ static const CGFloat kIMSearchFromRowH = 52;
     NSArray<NSDictionary *> *candidates = [self searchFromCandidates];
     if (candidates.count == 0) { [self im_showToast:@"暂无可筛选的发件人"]; return; }
 
-    UIScrollView *panel = [UIScrollView new];
+    // 磨砂透明圆角卡（材质与搜索标题栏协调）：玻璃容器 + 14pt continuous 圆角裁切 + 左右留边浮在聊天上。
+    UIVisualEffectView *panel = IMGlassEffectView(NO);
     panel.translatesAutoresizingMaskIntoConstraints = NO;
-    panel.backgroundColor = IMTheme.cardBackground;
-    panel.showsVerticalScrollIndicator = YES;
-    panel.layer.shadowColor = UIColor.blackColor.CGColor;
-    panel.layer.shadowOpacity = 0.14;
-    panel.layer.shadowRadius = 12;
-    panel.layer.shadowOffset = CGSizeMake(0, 8);
+    panel.layer.cornerRadius = 14;
+    panel.layer.cornerCurve = kCACornerCurveContinuous;
+    panel.clipsToBounds = YES;
+
+    UIScrollView *scroll = [UIScrollView new];
+    scroll.translatesAutoresizingMaskIntoConstraints = NO;
+    scroll.showsVerticalScrollIndicator = YES;
+    [panel.contentView addSubview:scroll];
 
     UIStackView *stack = [UIStackView new];
     stack.axis = UILayoutConstraintAxisVertical;
     stack.translatesAutoresizingMaskIntoConstraints = NO;
-    [panel addSubview:stack];
+    [scroll addSubview:stack];
 
     for (NSDictionary *cand in candidates) {
         [stack addArrangedSubview:[self searchFromRowForUID:cand[@"uid"] name:cand[@"name"] avatarURL:cand[@"avatar"]]];
@@ -481,15 +533,19 @@ static const CGFloat kIMSearchFromRowH = 52;
 
     CGFloat rowsH = kIMSearchFromRowH * (CGFloat)MIN((NSInteger)candidates.count, 5);
     [NSLayoutConstraint activateConstraints:@[
-        [panel.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
-        [panel.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-        [panel.topAnchor constraintEqualToAnchor:self.searchState.searchTopBar.bottomAnchor],
+        [panel.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:12],
+        [panel.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-12],
+        [panel.topAnchor constraintEqualToAnchor:self.searchState.searchTopBar.bottomAnchor constant:6],
         [panel.heightAnchor constraintEqualToConstant:rowsH],
-        [stack.topAnchor constraintEqualToAnchor:panel.topAnchor],
-        [stack.bottomAnchor constraintEqualToAnchor:panel.bottomAnchor],
-        [stack.leadingAnchor constraintEqualToAnchor:panel.leadingAnchor],
-        [stack.trailingAnchor constraintEqualToAnchor:panel.trailingAnchor],
-        [stack.widthAnchor constraintEqualToAnchor:panel.widthAnchor],
+        [scroll.topAnchor constraintEqualToAnchor:panel.contentView.topAnchor],
+        [scroll.bottomAnchor constraintEqualToAnchor:panel.contentView.bottomAnchor],
+        [scroll.leadingAnchor constraintEqualToAnchor:panel.contentView.leadingAnchor],
+        [scroll.trailingAnchor constraintEqualToAnchor:panel.contentView.trailingAnchor],
+        [stack.topAnchor constraintEqualToAnchor:scroll.topAnchor],
+        [stack.bottomAnchor constraintEqualToAnchor:scroll.bottomAnchor],
+        [stack.leadingAnchor constraintEqualToAnchor:scroll.leadingAnchor],
+        [stack.trailingAnchor constraintEqualToAnchor:scroll.trailingAnchor],
+        [stack.widthAnchor constraintEqualToAnchor:scroll.widthAnchor],
     ]];
 }
 
@@ -506,8 +562,12 @@ static const CGFloat kIMSearchFromRowH = 52;
     [row addTarget:self action:@selector(searchFromRowTapped:) forControlEvents:UIControlEventTouchUpInside];
 
     // 头像**复用真实头像逻辑**（UILabel+IMAvatar：先首字母取色底、再异步加载真实头像图，@面板同款）。
+    // 首字母居中/字体是宿主 label 的职责（category 只管字符与取色底）——@面板同款配置，漏设会左对齐跑偏。
     UILabel *av = [UILabel new];
     av.translatesAutoresizingMaskIntoConstraints = NO;
+    av.textAlignment = NSTextAlignmentCenter;
+    av.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
+    av.textColor = UIColor.whiteColor;
     av.layer.cornerRadius = 18; av.clipsToBounds = YES;
     [av im_setAvatarURL:(avatarURL.length > 0 ? avatarURL : nil) seed:uid displayName:name];
 

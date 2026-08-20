@@ -55,6 +55,14 @@ typedef NS_ENUM(NSInteger, IMBubbleTextTier) {
 /// 文件文 caption 的 `@昵称`→uid 高亮映射（宿主按 caption 文本+群成员推导，configure 前设置；nil=不高亮）。
 @property (nonatomic, copy, nullable) NSDictionary<NSString *, NSString *> *captionMentionMap;
 
+/// 会话内搜索命中词（搜索态由宿主传入，configure 前设置；nil/空=不高亮）。正文与文件文 caption 的所有
+/// 大小写不敏感命中段染 accent 前景 + accentSoft 底（与全局搜索页/Web `<mark>` 同语义）。
+@property (nonatomic, copy, nullable) NSString *searchHighlightKeyword;
+
+/// 把 att 中 keyword 的所有大小写不敏感命中段染色（accent+accentSoft），返回新串；keyword 空原样返回。
+/// IMImageCell 图说 caption 复用。
++ (NSAttributedString *)attributed:(NSAttributedString *)att highlighting:(nullable NSString *)keyword;
+
 /// 通用 TextKit 反查：命中点（label 坐标系）落在挂了 IMMentionUIDAttributeName 的 `@昵称` token 上
 /// 时返回 uid，否则 nil。供本 cell 正文/文件文 caption 与 IMImageCell 图说 caption 共用。
 + (nullable NSString *)mentionUIDInLabel:(UILabel *)label atPoint:(CGPoint)pointInLabel;

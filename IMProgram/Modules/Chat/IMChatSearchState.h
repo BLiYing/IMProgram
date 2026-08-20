@@ -30,6 +30,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, weak, nullable) UIView *hiddenInjectedBar;    ///< 搜索期间被隐藏的注入液态栏（退出恢复）
 @property (nonatomic, strong, nullable) NSLayoutConstraint *searchSavedTableBottom; ///< 原「表底=replyBar 顶」约束
 @property (nonatomic, strong, nullable) NSLayoutConstraint *searchTableBottom;      ///< 搜索期间「表底=屏幕底」
+@property (nonatomic, assign) CGFloat savedBottomInset;   ///< 进搜索前表格原 contentInset.bottom（退出恢复；键盘让位在其上叠加）
+@property (nonatomic, strong, nullable) UITapGestureRecognizer *tapToDismiss; ///< 点列表空白收起键盘（不吞点击）
 
 @end
 
