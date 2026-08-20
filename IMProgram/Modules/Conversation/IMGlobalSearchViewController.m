@@ -9,6 +9,7 @@
 #import "IMTheme.h"
 #import "IMMainTabBarController.h" // kIMLiquidBarHeight
 #import "IMProgram-Swift.h"        // IMLiquidNavigationBar（searchMode）
+#import "UILabel+IMAvatar.h"       // im_setAvatarURL:（真实头像 + 首字母兜底，全 app 统一头像逻辑）
 
 typedef NS_ENUM(NSInteger, IMSearchGroup) {
     IMSearchGroupConversation = 0,
@@ -18,11 +19,14 @@ typedef NS_ENUM(NSInteger, IMSearchGroup) {
 
 #pragma mark - 结果行 cell（自持，不复用会话列表私有 cell）
 
+static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword, UIFont *font, UIColor *color);
+
 @interface IMSearchResultCell : UITableViewCell
 @property (nonatomic, strong) UILabel *avatarLabel;
 @property (nonatomic, strong) UILabel *titleLabel;
 @property (nonatomic, strong) UILabel *subtitleLabel;
-- (void)configureSeed:(NSString *)seed initial:(NSString *)initial title:(NSString *)title subtitle:(nullable NSString *)subtitle;
+- (void)configureAvatarURL:(nullable NSString *)avatarURL seed:(NSString *)seed displayName:(NSString *)name
+                     title:(NSString *)title subtitle:(nullable NSString *)subtitle keyword:(nullable NSString *)keyword;
 @end
 
 @implementation IMSearchResultCell
@@ -67,15 +71,34 @@ typedef NS_ENUM(NSInteger, IMSearchGroup) {
     return self;
 }
 
-- (void)configureSeed:(NSString *)seed initial:(NSString *)initial title:(NSString *)title subtitle:(nullable NSString *)subtitle {
-    self.avatarLabel.backgroundColor = [IMTheme avatarColorForSeed:seed];
-    self.avatarLabel.text = initial.length > 0 ? [[initial substringToIndex:1] uppercaseString] : @"?";
-    self.titleLabel.text = title;
-    self.subtitleLabel.text = subtitle;
+- (void)configureAvatarURL:(nullable NSString *)avatarURL seed:(NSString *)seed displayName:(NSString *)name
+                     title:(NSString *)title subtitle:(nullable NSString *)subtitle keyword:(nullable NSString *)keyword {
+    // 头像复用全 app 统一逻辑（UILabel+IMAvatar）：先首字母取色底立即显示，异步加载真实头像覆盖；cell 复用安全。
+    [self.avatarLabel im_setAvatarURL:avatarURL seed:seed displayName:name];
+    self.titleLabel.attributedText = IMSearchHighlighted(title, keyword, self.titleLabel.font, IMTheme.textPrimary);
+    self.subtitleLabel.attributedText = subtitle.length > 0
+        ? IMSearchHighlighted(subtitle, keyword, self.subtitleLabel.font, IMTheme.textSecondary) : nil;
     self.subtitleLabel.hidden = (subtitle.length == 0);
 }
 
 @end
+
+/// 命中词高亮（与 Web `<mark class="search-hit">` 对齐）：所有大小写不敏感命中段染 accent 前景 + accentSoft 底。
+static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword, UIFont *font, UIColor *color) {
+    NSMutableAttributedString *att = [[NSMutableAttributedString alloc]
+        initWithString:(text ?: @"")
+            attributes:@{ NSFontAttributeName: font, NSForegroundColorAttributeName: color }];
+    if (keyword.length == 0 || att.length == 0) { return att; }
+    NSRange search = NSMakeRange(0, att.length);
+    while (search.location < att.length) {
+        NSRange r = [att.string rangeOfString:keyword options:NSCaseInsensitiveSearch range:search];
+        if (r.location == NSNotFound) { break; }
+        [att addAttributes:@{ NSBackgroundColorAttributeName: IMTheme.accentSoft,
+                              NSForegroundColorAttributeName: IMTheme.accent } range:r];
+        search = NSMakeRange(NSMaxRange(r), att.length - NSMaxRange(r));
+    }
+    return att;
+}
 
 #pragma mark - 全局搜索 VC
 
@@ -94,7 +117,7 @@ typedef NS_ENUM(NSInteger, IMSearchGroup) {
     NSString *_keyword;
     NSArray<IMConversation *> *_convHits;
     NSArray<IMUserCard *> *_friendHits;
-    NSArray<NSDictionary *> *_recordGroups;  // {@"convID",@"title",@"count",@"snippet",@"conv"?}
+    NSArray<NSDictionary *> *_recordGroups;  // 聊天记录命中（**不聚合**，一条命中一行）：{convID,conv,title,snippet,seq}
     NSArray<NSNumber *> *_sections;            // 非空分组，按 会话/联系人/聊天记录 顺序
 }
 
@@ -121,6 +144,10 @@ typedef NS_ENUM(NSInteger, IMSearchGroup) {
     // 栏高改为显式「真实安全区 + 56」（bottom = safeArea.top + 56），内容行自然落在标准标题行位置。
     IMLiquidNavigationBar *bar = [[IMLiquidNavigationBar alloc] initWithTitle:@"" subtitle:@"" actionTitle:@"取消"];
     bar.delegate = self;
+    // 关掉栏的磨砂底带（仿 IMFilePickerViewController）：本页自带纯色 groupedBackground，磨砂带叠上去
+    // 在 iOS 26 呈现为「搜索框所在条带比页面白一截」（26 的 ultraThin 材质更透白；18 差异不可见）。
+    // 页面静态无滚动穿透，无需磨砂——去掉后栏区与页面同色，玻璃只留搜索胶囊/取消钮本体。
+    bar.backgroundEffectProgress = 0;
     bar.tintColor = IMTheme.accent;
     bar.searchPlaceholder = @"搜索会话、联系人、聊天记录";
     bar.searchModeActive = YES;
@@ -137,6 +164,11 @@ typedef NS_ENUM(NSInteger, IMSearchGroup) {
     _tableView.delegate = self;
     _tableView.rowHeight = 64;
     _tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeOnDrag;
+    // 单一背景面：表格铺满全屏（含状态栏/搜索栏区），内容用 contentInset 给栏让位。
+    // 曾把表顶钉在栏下方——栏区显裸 view 的 groupedBackground、表区显 grouped 表格自己渲染的背景，
+    // iOS 26 两者有肉眼可见的色差（浅色明显、深色同黑不可见）；整页统一由表格渲染后由构造保证同色。
+    _tableView.contentInset = UIEdgeInsetsMake(kIMLiquidBarHeight + 4, 0, 0, 0);
+    _tableView.verticalScrollIndicatorInsets = UIEdgeInsetsMake(kIMLiquidBarHeight + 4, 0, 0, 0);
     [_tableView registerClass:IMSearchResultCell.class forCellReuseIdentifier:@"r"];
     [self.view addSubview:_tableView];
 
@@ -148,6 +180,7 @@ typedef NS_ENUM(NSInteger, IMSearchGroup) {
     _emptyLabel.numberOfLines = 0;
     _emptyLabel.hidden = YES;
     [self.view addSubview:_emptyLabel];
+    [self.view bringSubviewToFront:bar]; // 表格铺满全屏后与栏区重叠：栏（搜索框/取消）必须浮在表格之上
 
     [NSLayoutConstraint activateConstraints:@[
         [bar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
@@ -157,7 +190,7 @@ typedef NS_ENUM(NSInteger, IMSearchGroup) {
         [bar.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:kIMLiquidBarHeight],
         [_tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [_tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-        [_tableView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:kIMLiquidBarHeight + 4],
+        [_tableView.topAnchor constraintEqualToAnchor:self.view.topAnchor],   // 铺满全屏（单一背景面，见上）
         [_tableView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
         [_emptyLabel.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
         [_emptyLabel.centerYAnchor constraintEqualToAnchor:self.view.centerYAnchor],
@@ -209,31 +242,25 @@ typedef NS_ENUM(NSInteger, IMSearchGroup) {
     }
     _friendHits = friends;
 
-    // 聊天记录：本地 DB 全局搜索，按会话聚合
+    // 聊天记录：本地 DB 全局搜索。**不聚合**：一条命中一行（同会话可出现多行，预期内；2026-08-21 拍板，
+    // Web 同口径）。仅保留当前会话列表里存在的会话——本地库可能残留已退群/已删会话的历史消息
+    // （删会话只删摘要、消息保留），它们没有可打开的落点。时间倒序（新在前）。
     NSArray<IMMessageModel *> *msgs = [IMDatabase.sharedDatabase searchMessagesMatching:_keyword inConv:nil limit:500];
-    NSMutableArray<NSString *> *order = [NSMutableArray array];
-    NSMutableDictionary<NSString *, NSMutableDictionary *> *byConv = [NSMutableDictionary dictionary];
+    NSMutableArray<NSDictionary *> *hits = [NSMutableArray array];
+    NSMutableDictionary<NSString *, IMConversation *> *convCache = [NSMutableDictionary dictionary];
     for (IMMessageModel *m in msgs) {
         NSString *cid = m.convID ?: @"";
         if (cid.length == 0) { continue; }
-        NSMutableDictionary *g = byConv[cid];
-        if (!g) {
-            g = [@{ @"convID": cid, @"count": @0 } mutableCopy];
-            NSString *snippet = m.caption.length > 0 ? m.caption : (m.content ?: @"");
-            g[@"snippet"] = snippet;  // msgs 已按时间倒序 → 首条=最新命中
-            byConv[cid] = g; [order addObject:cid];
-        }
-        g[@"count"] = @([g[@"count"] integerValue] + 1);
+        IMConversation *conv = convCache[cid] ?: [self conversationForID:cid];
+        if (!conv) { continue; }  // 残留会话：跳过
+        convCache[cid] = conv;
+        NSString *snippet = m.caption.length > 0 ? m.caption : (m.content ?: @"");
+        [hits addObject:@{ @"convID": cid, @"conv": conv,
+                           @"title": [self titleForConversation:conv],
+                           @"snippet": snippet,
+                           @"seq": @(m.convSeq) }];
     }
-    NSMutableArray<NSDictionary *> *groups = [NSMutableArray array];
-    for (NSString *cid in order) {
-        NSMutableDictionary *g = byConv[cid];
-        IMConversation *conv = [self conversationForID:cid];
-        g[@"title"] = conv ? [self titleForConversation:conv] : cid;
-        if (conv) { g[@"conv"] = conv; }
-        [groups addObject:g];
-    }
-    _recordGroups = groups;
+    _recordGroups = hits;
 
     [self reloadSectionsAndTable];
 }
@@ -286,21 +313,28 @@ typedef NS_ENUM(NSInteger, IMSearchGroup) {
         case IMSearchGroupConversation: {
             IMConversation *c = _convHits[(NSUInteger)ip.row];
             NSString *title = [self titleForConversation:c];
-            [cell configureSeed:c.convID initial:title title:title
-                       subtitle:c.isGroup ? [NSString stringWithFormat:@"%ld 人", (long)c.memberCount] : nil];
+            [cell configureAvatarURL:(c.isGroup ? c.avatarURL : c.peerAvatarURL)
+                                seed:(c.isGroup ? c.convID : (c.peer ?: c.convID))
+                         displayName:title title:title
+                            subtitle:c.isGroup ? [NSString stringWithFormat:@"%ld 人", (long)c.memberCount] : nil
+                             keyword:_keyword];
             break;
         }
         case IMSearchGroupContact: {
             IMUserCard *f = _friendHits[(NSUInteger)ip.row];
-            [cell configureSeed:f.userID initial:f.displayName title:f.displayName subtitle:@"联系人"];
+            [cell configureAvatarURL:f.avatarURL seed:f.userID displayName:f.displayName
+                               title:f.displayName subtitle:@"联系人" keyword:_keyword];
             break;
         }
         case IMSearchGroupRecord: {
             NSDictionary *g = _recordGroups[(NSUInteger)ip.row];
+            IMConversation *c = g[@"conv"];
             NSString *title = g[@"title"];
-            NSInteger count = [g[@"count"] integerValue];
-            NSString *sub = [NSString stringWithFormat:@"%ld 条相关消息 · %@", (long)count, g[@"snippet"] ?: @""];
-            [cell configureSeed:g[@"convID"] initial:title title:title subtitle:sub];
+            // 不聚合：副行 = 该条命中的内容摘要（命中词高亮）。
+            [cell configureAvatarURL:(c.isGroup ? c.avatarURL : c.peerAvatarURL)
+                                seed:(c.isGroup ? c.convID : (c.peer ?: c.convID))
+                         displayName:title title:title
+                            subtitle:(g[@"snippet"] ?: @"") keyword:_keyword];
             break;
         }
     }
@@ -310,7 +344,7 @@ typedef NS_ENUM(NSInteger, IMSearchGroup) {
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)ip {
     [tableView deselectRowAtIndexPath:ip animated:YES];
     switch ([self groupForSection:ip.section]) {
-        case IMSearchGroupConversation: [self openConversation:_convHits[(NSUInteger)ip.row] withSearch:nil]; break;
+        case IMSearchGroupConversation: [self openConversation:_convHits[(NSUInteger)ip.row] jumpToSeq:0]; break;
         case IMSearchGroupContact: {
             IMUserCard *f = _friendHits[(NSUInteger)ip.row];
             if (f.userID.length == 0 || [f.userID isEqualToString:_userID]) { return; }
@@ -322,14 +356,15 @@ typedef NS_ENUM(NSInteger, IMSearchGroup) {
         case IMSearchGroupRecord: {
             NSDictionary *g = _recordGroups[(NSUInteger)ip.row];
             IMConversation *conv = g[@"conv"];
-            if (conv) { [self openConversation:conv withSearch:_keyword]; }
+            // 直接定位到最近命中那条（不开聊天页的搜索模式，2026-08-20 拍板；Web 同口径）。
+            if (conv) { [self openConversation:conv jumpToSeq:[g[@"seq"] longLongValue]]; }
             break;
         }
     }
 }
 
-/// 打开会话（单聊/群聊）；withSearch 非空则打开后进「会话内搜索」预填同词。
-- (void)openConversation:(IMConversation *)c withSearch:(nullable NSString *)kw {
+/// 打开会话（单聊/群聊）；jumpSeq>0 则打开后直接定位到该 conv_seq（居中高亮，不进搜索模式）。
+- (void)openConversation:(IMConversation *)c jumpToSeq:(int64_t)jumpSeq {
     IMChatViewController *chat;
     if (c.isGroup) {
         chat = [IMChatViewController openInNavigationController:self.navigationController host:_host userID:_userID
@@ -343,11 +378,21 @@ typedef NS_ENUM(NSInteger, IMSearchGroup) {
                                                    peerReadSeq:c.peerReadSeq
                                                   peerNickname:c.peerNickname peerAvatarURL:c.peerAvatarURL];
     }
-    if (kw.length > 0 && chat) {
-        // 等消息从本地库载入后再进搜索态（预填同词、跳最新命中）。
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            [chat beginInChatSearchWithKeyword:kw];
-        });
+    if (jumpSeq > 0 && chat) {
+        // 定位必须**晚于聊天页的全部进场定位**（positionInitialIfNeeded 钉底/未读位 + viewDidAppear 落定校正），
+        // 否则跳完被拉回底部——固定 0.45s 曾与之撞车（时序随设备浮动）。改挂 push 转场完成块（晚于目标页
+        // viewDidAppear）再延 0.35s 让开落定校正与首次 sync 合并，然后 jumpToConvSeq:（居中+闪烁高亮）。
+        void (^jump)(void) = ^{
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                [chat jumpToConvSeq:jumpSeq];
+            });
+        };
+        id<UIViewControllerTransitionCoordinator> tc = self.navigationController.transitionCoordinator;
+        if (tc) {
+            [tc animateAlongsideTransition:nil completion:^(id<UIViewControllerTransitionCoordinatorContext> ctx) { jump(); }];
+        } else {
+            jump();
+        }
     }
 }
 
