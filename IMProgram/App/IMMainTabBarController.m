@@ -289,7 +289,9 @@ static void * const kIMInjectedBarKey = (void *)&kIMInjectedBarKey;
                                                                image:[UIImage systemImageNamed:@"person.crop.circle"]
                                                                  tag:2];
 
-        IMUserSearchViewController *search = [[IMUserSearchViewController alloc] initWithHost:host userID:userID];
+        // 底部「搜索」tab = 全局搜索（会话/联系人/聊天记录 + 搜索用户，与首页搜索一致，SEARCH_DESIGN §3.0）。
+        // 原「找人」页降为其中的「搜索用户「x」」次要入口（IMGlobalSearchViewController 内下钻）。
+        IMGlobalSearchViewController *search = [[IMGlobalSearchViewController alloc] initWithHost:host userID:userID];
         UINavigationController *searchNav = [[IMMainNavigationController alloc] initWithRootViewController:search];
         searchNav.tabBarItem = [[UITabBarItem alloc] initWithTabBarSystemItem:UITabBarSystemItemSearch tag:3];
 

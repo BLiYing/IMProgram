@@ -303,6 +303,9 @@ static const CGFloat kIMSearchFromRowH = 52;
             if (!hit && m.caption.length > 0) {
                 hit = [m.caption.lowercaseString containsString:needle];
             }
+            if (!hit && m.fileName.length > 0) {  // P2：文件名命中（Q3预算.xlsx）
+                hit = [m.fileName.lowercaseString containsString:needle];
+            }
             if (hit) { [hits addObject:@(m.convSeq)]; }
         }
     }

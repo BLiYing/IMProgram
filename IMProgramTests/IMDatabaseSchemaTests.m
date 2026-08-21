@@ -187,6 +187,14 @@
     // 空关键词 → 空
     XCTAssertEqual([db searchMessagesMatching:@"   " inConv:@"conv-s" limit:0].count, 0);
 
+    // 文件名命中（P2）：file 消息按 file_name 命中，其 content(URL) 仍不参与。
+    // 关键词用只在文件名里的 "xlsx"（正文/图说都不含），隔离验证；"deadbeef" 只在 URL 里。
+    IMMessageModel *file = [self textMessage:@"/uploads/deadbeef.bin" conv:@"conv-s" seq:5 ts:5000];
+    file.contentType = @"file"; file.fileName = @"季度汇报.xlsx"; file.fileSize = 2048;
+    [db saveMessage:file];
+    XCTAssertEqual([db searchMessagesMatching:@"xlsx" inConv:@"conv-s" limit:0].count, 1, @"文件名命中");
+    XCTAssertEqual([db searchMessagesMatching:@"deadbeef" inConv:@"conv-s" limit:0].count, 0, @"文件 content(URL) 不参与");
+
     [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
 }
 

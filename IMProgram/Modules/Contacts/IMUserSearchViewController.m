@@ -19,19 +19,34 @@
 @property (nonatomic, strong) UISearchBar *searchBar;
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) UILabel *hintLabel;
+@property (nonatomic, copy, nullable) NSString *initialQuery; // 预填词（下钻时；viewDidAppear 消费一次）
 @end
 
 @implementation IMUserSearchViewController
 
 - (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID {
+    return [self initWithHost:host userID:userID initialQuery:nil];
+}
+
+- (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID initialQuery:(nullable NSString *)query {
     self = [super initWithNibName:nil bundle:nil];
     if (self) {
         _host = [host copy];
         _userID = [userID copy];
+        _initialQuery = [query copy];
         _results = @[];
         _statusByUser = [NSMutableDictionary dictionary];
     }
     return self;
+}
+
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    if (self.initialQuery.length > 0) {
+        self.searchBar.text = self.initialQuery;
+        [self runSearch:self.initialQuery];
+        self.initialQuery = nil; // 只预填一次
+    }
 }
 
 - (void)viewDidLoad {

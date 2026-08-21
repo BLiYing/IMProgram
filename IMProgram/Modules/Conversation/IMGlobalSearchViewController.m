@@ -6,6 +6,7 @@
 #import "IMUserCard.h"
 #import "IMMessageModel.h"
 #import "IMChatViewController.h"
+#import "IMUserSearchViewController.h"   // 「搜索用户「x」」下钻在线找人（加好友）
 #import "IMTheme.h"
 #import "IMMainTabBarController.h" // kIMLiquidBarHeight
 #import "IMProgram-Swift.h"        // IMLiquidNavigationBar（searchMode）
@@ -15,6 +16,7 @@ typedef NS_ENUM(NSInteger, IMSearchGroup) {
     IMSearchGroupConversation = 0,
     IMSearchGroupContact,
     IMSearchGroupRecord,
+    IMSearchGroupUser,   // 「搜索用户「x」」：下钻在线找人（uid/手机号精确、加好友）——把原找人页收成一个次要入口
 };
 
 #pragma mark - 结果行 cell（自持，不复用会话列表私有 cell）
@@ -199,6 +201,14 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
     ]];
 }
 
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    // 每次出现重读会话/好友快照（作底部搜索 tab 根页长驻，切走再回来数据要最新；也顺带解决快照陈旧）。
+    _allConversations = [IMDatabase.sharedDatabase cachedConversations] ?: @[];
+    _allFriends = [IMDatabase.sharedDatabase cachedFriends] ?: @[];
+    if (_keyword.length > 0) { [self recomputeForKeyword:_keyword]; }
+}
+
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
     [_searchField becomeFirstResponder];
@@ -207,9 +217,20 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
 #pragma mark - IMLiquidNavigationBarDelegate
 
 - (void)searchFieldChanged { [self recomputeForKeyword:(_searchField.text ?: @"")]; }
-- (void)liquidNavigationBarDidTapAction:(IMLiquidNavigationBar *)bar { [self.navigationController popViewControllerAnimated:YES]; }
-- (void)liquidNavigationBarDidTapLeft:(IMLiquidNavigationBar *)bar { [self.navigationController popViewControllerAnimated:YES]; }
-- (void)liquidNavigationBarDidTapBack:(IMLiquidNavigationBar *)bar { [self.navigationController popViewControllerAnimated:YES]; }
+// 「取消」：作为**独立页**（会话列表下钻）→ pop 返回；作为**底部搜索 tab 根页**（无处可退）→ 清空+收键盘。
+- (void)liquidNavigationBarDidTapAction:(IMLiquidNavigationBar *)bar { [self cancelTapped]; }
+- (void)liquidNavigationBarDidTapLeft:(IMLiquidNavigationBar *)bar { [self cancelTapped]; }
+- (void)liquidNavigationBarDidTapBack:(IMLiquidNavigationBar *)bar { [self cancelTapped]; }
+
+- (void)cancelTapped {
+    if (self.navigationController.viewControllers.firstObject != self) {
+        [self.navigationController popViewControllerAnimated:YES];
+    } else {
+        _searchField.text = @"";
+        [_searchField resignFirstResponder];
+        [self recomputeForKeyword:@""];
+    }
+}
 
 #pragma mark - 搜索
 
@@ -254,7 +275,8 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
         IMConversation *conv = convCache[cid] ?: [self conversationForID:cid];
         if (!conv) { continue; }  // 残留会话：跳过
         convCache[cid] = conv;
-        NSString *snippet = m.caption.length > 0 ? m.caption : (m.content ?: @"");
+        // 摘要：caption > 文件名 > content（文件命中显文件名，不显 URL）。
+        NSString *snippet = m.caption.length > 0 ? m.caption : (m.fileName.length > 0 ? m.fileName : (m.content ?: @""));
         [hits addObject:@{ @"convID": cid, @"conv": conv,
                            @"title": [self titleForConversation:conv],
                            @"snippet": snippet,
@@ -275,10 +297,10 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
     if (_convHits.count > 0) { [secs addObject:@(IMSearchGroupConversation)]; }
     if (_friendHits.count > 0) { [secs addObject:@(IMSearchGroupContact)]; }
     if (_recordGroups.count > 0) { [secs addObject:@(IMSearchGroupRecord)]; }
+    // 有关键词就恒显「搜索用户「x」」入口（在线找人/加好友）——本地无匹配时它就是唯一结果，替代原找人页。
+    if (_keyword.length > 0) { [secs addObject:@(IMSearchGroupUser)]; }
     _sections = secs;
-    BOOL empty = (_keyword.length > 0 && secs.count == 0);
-    _emptyLabel.hidden = !empty;
-    _emptyLabel.text = empty ? @"未找到相关内容" : nil;
+    _emptyLabel.hidden = YES;  // 用户入口恒在，不再有「未找到相关内容」空态
     [_tableView reloadData];
 }
 
@@ -294,6 +316,7 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
         case IMSearchGroupConversation: return (NSInteger)_convHits.count;
         case IMSearchGroupContact:      return (NSInteger)_friendHits.count;
         case IMSearchGroupRecord:       return (NSInteger)_recordGroups.count;
+        case IMSearchGroupUser:         return 1;
     }
     return 0;
 }
@@ -303,6 +326,7 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
         case IMSearchGroupConversation: return @"会话";
         case IMSearchGroupContact:      return @"联系人";
         case IMSearchGroupRecord:       return @"聊天记录";
+        case IMSearchGroupUser:         return @"用户";
     }
     return nil;
 }
@@ -337,6 +361,12 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
                             subtitle:(g[@"snippet"] ?: @"") keyword:_keyword];
             break;
         }
+        case IMSearchGroupUser: {
+            [cell configureAvatarURL:nil seed:@"__user_search__" displayName:@"搜"
+                               title:[NSString stringWithFormat:@"搜索用户「%@」", _keyword]
+                            subtitle:@"按 uid / 手机号精确查找、加好友" keyword:nil];
+            break;
+        }
     }
     return cell;
 }
@@ -358,6 +388,11 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
             IMConversation *conv = g[@"conv"];
             // 直接定位到最近命中那条（不开聊天页的搜索模式，2026-08-20 拍板；Web 同口径）。
             if (conv) { [self openConversation:conv jumpToSeq:[g[@"seq"] longLongValue]]; }
+            break;
+        }
+        case IMSearchGroupUser: {
+            [self.navigationController pushViewController:
+                [[IMUserSearchViewController alloc] initWithHost:_host userID:_userID initialQuery:_keyword] animated:YES];
             break;
         }
     }

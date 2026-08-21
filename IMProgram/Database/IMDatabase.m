@@ -943,11 +943,14 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
     NSInteger cap = (limit > 0) ? limit : 500;
     NSMutableArray<IMMessageModel *> *out = [NSMutableArray array];
     [_queue inDatabase:^(FMDatabase *db) {
+        // 命中：text 消息 content / 任意消息 caption / 文件消息 file_name（P2：找「Q3预算.xlsx」这类文件名）。
+        // 媒体/文件的 content 是 URL，仍不参与（撞 URL 片段会命中看不见文字的消息）。
         NSMutableString *sql = [NSMutableString stringWithString:
             @"SELECT * FROM im_message_local WHERE owner_uid=? AND recalled_at=0 "
              "AND ((content_type='text' AND content LIKE ? ESCAPE '\\') "
-             "OR (caption IS NOT NULL AND caption<>'' AND caption LIKE ? ESCAPE '\\')) "];
-        NSMutableArray *args = [NSMutableArray arrayWithObjects:owner, like, like, nil];
+             "OR (caption IS NOT NULL AND caption<>'' AND caption LIKE ? ESCAPE '\\') "
+             "OR (file_name IS NOT NULL AND file_name<>'' AND file_name LIKE ? ESCAPE '\\')) "];
+        NSMutableArray *args = [NSMutableArray arrayWithObjects:owner, like, like, like, nil];
         if (convID.length > 0) { [sql appendString:@"AND conv_id=? "]; [args addObject:convID]; }
         [sql appendString:@"ORDER BY timestamp DESC, conv_seq DESC, row_id DESC LIMIT ?"];
         [args addObject:@(cap)];

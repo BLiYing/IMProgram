@@ -9,6 +9,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID;
 
+/// 带初始词进入（全局搜索页「搜索用户「x」」下钻时预填并自动搜一次）。
+- (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID initialQuery:(nullable NSString *)query;
+
 @end
 
 NS_ASSUME_NONNULL_END
