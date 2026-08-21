@@ -16,15 +16,19 @@
 #import "IMVideoThumbnailLoader.h"
 #import "IMMediaViewerViewController.h"
 #import "IMForwardPickerViewController.h"
+#import "IMChatRecordViewController.h"
 #import "IMSocketManager.h"
 #import "IMDatabase.h"
 #import "IMConversation.h"
 #import "IMMessageModel.h"
+#import "IMMediaDownloadCoordinator.h"
+#import "IMDownloadProgress.h"
 #import "IMLiquidSegmentedControl.h"
 #import "IMTheme.h"
 #import "IMTimeUtil.h"
 #import "UIViewController+IMToast.h"
 #import <SafariServices/SafariServices.h>
+#import <QuickLook/QuickLook.h>
 
 #pragma mark - 收藏阅读器（点文本 → 全文只读详情页，FAVORITES_DESIGN §5.6）
 
@@ -67,6 +71,8 @@
 
 @interface IMFavoriteCell : UITableViewCell
 - (void)configureWithFavorite:(NSDictionary *)fav host:(NSString *)host;
+/// 文件下载中：把副行就地替换为进度文案（不 reload；下载完成由 VC reload 该行恢复大小）。
+- (void)applyDownloadMeta:(NSString *)text;
 @end
 
 @implementation IMFavoriteCell {
@@ -163,7 +169,8 @@
     BOOL isVideo = [ct isEqualToString:@"video"];
     BOOL isMedia = isImage || isVideo;
     BOOL isFile = [ct isEqualToString:@"file"];
-    BOOL isLink = [ct isEqualToString:@"link"] || ([ct isEqualToString:@"text"] && IMMediaLooksLikeURL(content));
+    BOOL isRecord = [ct isEqualToString:@"chat_record"] || IMLooksLikeChatRecordJSON(content);
+    BOOL isLink = !isRecord && ([ct isEqualToString:@"link"] || ([ct isEqualToString:@"text"] && IMMediaLooksLikeURL(content)));
 
     // 复位
     _thumb.hidden = YES; _thumb.image = nil;
@@ -197,6 +204,17 @@
         _title.numberOfLines = 1;
         _title.lineBreakMode = NSLineBreakByTruncatingMiddle; // 文件名尾部是扩展名，中间截断更可读
         _title.text = fname;
+    } else if (isRecord) {
+        // 合并转发「聊天记录」卡：图标 + 摘要（IMChatRecordSnippet），点击进 IMChatRecordViewController。不显 JSON。
+        _tile.backgroundColor = IMTheme.accentSoft;
+        _glyph.hidden = NO;
+        _glyph.image = [[UIImage systemImageNamed:@"bubble.left.and.bubble.right"
+            withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:20 weight:UIImageSymbolWeightSemibold]]
+            imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+        _glyph.tintColor = IMTheme.accent;
+        _title.numberOfLines = 2;
+        NSString *snippet = IMChatRecordSnippet(content);
+        _title.text = snippet.length > 0 ? snippet : @"聊天记录";
     } else if (isLink) {
         _tile.backgroundColor = IMTheme.accentSoft; // §12.1 文本·链接图标底
         _glyph.hidden = NO;
@@ -228,6 +246,10 @@
     }
     _meta.text = [parts componentsJoinedByString:@" · "];
 }
+
+- (void)applyDownloadMeta:(NSString *)text {
+    if (text.length > 0) { _meta.text = text; }
+}
 @end
 
 #pragma mark - 收藏页
@@ -235,7 +257,7 @@
 // ⚠️ 必须普通 UIViewController + 内嵌 UITableView（非 UITableViewController）：导航容器注入的液态标题栏
 // 若挂在滚动 tableView 的 topAnchor 会随负 contentOffset 下移（血泪三次）。顶部搜索/分段做成静止 headerBar
 // 挂在 self.view，tableView 在其下。
-@interface IMFavoritesViewController () <UITableViewDataSource, UITableViewDelegate, UISearchBarDelegate>
+@interface IMFavoritesViewController () <UITableViewDataSource, UITableViewDelegate, UISearchBarDelegate, QLPreviewControllerDataSource>
 @end
 
 @implementation IMFavoritesViewController {
@@ -258,6 +280,11 @@
 
     IMDatabaseAccountContext *_databaseContext;
     NSString *_selfUID;
+
+    // 文件下载：复用聊天页同款 IMMediaDownloadCoordinator（下载→QuickLook，与聊天页文件点击一致）。
+    IMMediaDownloadCoordinator *_downloads;
+    NSMutableDictionary<NSString *, IMMessageModel *> *_fileModels; // favId(string) → 文件消息模型（供编排器跟踪同一实例）
+    NSURL *_quickLookURL;
 }
 
 - (instancetype)init {
@@ -278,6 +305,20 @@
     IMDatabaseAccountContext *ctx = IMDatabase.sharedDatabase.currentAccountContext;
     _databaseContext = ctx;
     _selfUID = ctx.ownerUserID ?: @"";
+
+    // 下载编排器：myUserID 传哨兵值（收藏文件不分"我发/收到"，一律走下载→QuickLook，与聊天页收到文件一致）；
+    // autoPrefetch 关闭（浏览收藏不该顺手把文件全拉下来，一律用户点触发）。
+    _fileModels = [NSMutableDictionary dictionary];
+    _downloads = [[IMMediaDownloadCoordinator alloc] initWithHost:(IMHTTPService.sharedService.host ?: @"")
+                                                         myUserID:@"__im_fav_no_owner__" isGroup:NO];
+    _downloads.autoPrefetchEnabled = NO;
+    __weak typeof(self) ws = self;
+    _downloads.onProgress = ^(IMMessageModel *message, IMDownloadProgress *state) {
+        [ws updateDownloadMetaForModel:message state:state];
+    };
+    _downloads.onStateChanged = ^(IMMessageModel *message) {
+        [ws reloadRowForModel:message]; // 下载完成→就绪：整行重配（副行恢复大小）。不自动打开（编排器铁律）。
+    };
 
     [self buildHeaderBar];
     [self buildTableView];
@@ -556,9 +597,24 @@
         [self presentViewController:viewer animated:YES completion:nil];
         return;
     }
-    BOOL isFile = [ct isEqualToString:@"file"];
+    // 合并转发「聊天记录」→ 复用聊天页记录查看器（与 openChatRecord: 同款），不显 JSON。
+    if ([ct isEqualToString:@"chat_record"] || IMLooksLikeChatRecordJSON(content)) {
+        IMChatRecordViewController *vc = [[IMChatRecordViewController alloc]
+            initWithHost:IMHTTPService.sharedService.host recordJSON:content];
+        [self.navigationController pushViewController:vc animated:YES];
+        return;
+    }
+    // 文件 → 与聊天页收到文件一致：已下载=本地 QuickLook 预览；未下载=触发下载（副行显进度），完成后再点开。
+    if ([ct isEqualToString:@"file"]) {
+        IMMessageModel *m = [self fileModelForFavorite:f];
+        NSURL *local = [_downloads localFileForMessage:m];
+        if (local) { [self openQuickLook:local]; }
+        else { [_downloads handleTapForMessage:m]; }
+        return;
+    }
+    // 链接 → 站内浏览器
     BOOL isLink = [ct isEqualToString:@"link"] || ([ct isEqualToString:@"text"] && IMMediaLooksLikeURL(content));
-    if (isFile || isLink) {
+    if (isLink) {
         NSURL *url = [NSURL URLWithString:IMMediaFullURL(content, IMHTTPService.sharedService.host)];
         if (url && ([url.scheme isEqualToString:@"http"] || [url.scheme isEqualToString:@"https"])) {
             SFSafariViewController *sf = [[SFSafariViewController alloc] initWithURL:url];
@@ -692,6 +748,76 @@
     m.status = IMMessageStatusSending;
     m.timestamp = sentAt;
     [self performDatabaseOperation:^(IMDatabase *database) { [database saveMessage:m]; }];
+}
+
+#pragma mark 文件下载（与聊天页同源：IMMediaDownloadCoordinator + QuickLook）
+
+/// 收藏字典 → 文件消息模型（按 favId 缓存同一实例，供下载编排器跟踪进度/门控）。
+- (IMMessageModel *)fileModelForFavorite:(NSDictionary *)f {
+    int64_t fid = [f[@"id"] respondsToSelector:@selector(longLongValue)] ? [f[@"id"] longLongValue] : 0;
+    NSString *key = [NSString stringWithFormat:@"%lld", fid];
+    IMMessageModel *m = _fileModels[key];
+    if (m) { return m; }
+    m = [IMMessageModel new];
+    m.clientMsgID = [@"fav-file-" stringByAppendingString:key];
+    m.contentType = @"file";
+    m.content = [f[@"content"] isKindOfClass:NSString.class] ? f[@"content"] : @"";
+    m.fileName = [f[@"file_name"] isKindOfClass:NSString.class] ? f[@"file_name"] : nil;
+    m.fileSize = [f[@"file_size"] respondsToSelector:@selector(longLongValue)] ? [f[@"file_size"] longLongValue] : 0;
+    m.from = [f[@"source_from"] isKindOfClass:NSString.class] ? f[@"source_from"] : @""; // myUserID 为哨兵，恒不判为"我发"
+    if (fid > 0) { _fileModels[key] = m; }
+    return m;
+}
+
+- (NSInteger)rowForFavId:(int64_t)favId {
+    for (NSInteger i = 0; i < (NSInteger)_displayItems.count; i++) {
+        NSDictionary *f = _displayItems[(NSUInteger)i];
+        if ([f[@"id"] respondsToSelector:@selector(longLongValue)] && [f[@"id"] longLongValue] == favId) { return i; }
+    }
+    return NSNotFound;
+}
+
+/// 高频进度：就地改可见行副行文案（不 reload）。
+- (void)updateDownloadMetaForModel:(IMMessageModel *)message state:(IMDownloadProgress *)state {
+    __block int64_t favId = 0;
+    [_fileModels enumerateKeysAndObjectsUsingBlock:^(NSString *k, IMMessageModel *v, BOOL *stop) {
+        if (v == message) { favId = k.longLongValue; *stop = YES; }
+    }];
+    if (favId == 0) { return; }
+    NSInteger row = [self rowForFavId:favId];
+    if (row == NSNotFound) { return; }
+    UITableViewCell *cell = [_tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:row inSection:0]];
+    if ([cell isKindOfClass:IMFavoriteCell.class]) { [(IMFavoriteCell *)cell applyDownloadMeta:[state accessibilityText]]; }
+}
+
+/// 低频状态切换（下载完成→就绪）：整行重配，副行恢复大小。
+- (void)reloadRowForModel:(IMMessageModel *)message {
+    __block int64_t favId = 0;
+    [_fileModels enumerateKeysAndObjectsUsingBlock:^(NSString *k, IMMessageModel *v, BOOL *stop) {
+        if (v == message) { favId = k.longLongValue; *stop = YES; }
+    }];
+    if (favId == 0) { return; }
+    NSInteger row = [self rowForFavId:favId];
+    if (row == NSNotFound || row >= [_tableView numberOfRowsInSection:0]) { return; }
+    [_tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:row inSection:0]]
+                     withRowAnimation:UITableViewRowAnimationNone];
+}
+
+/// 已下载文件 → 本地 QuickLook 预览（站内、离线、原生文档预览，与聊天页 openCachedFile: 一致）。
+- (void)openQuickLook:(NSURL *)local {
+    if (!local) { return; }
+    _quickLookURL = local;
+    QLPreviewController *ql = [QLPreviewController new];
+    ql.dataSource = self;
+    [self presentViewController:ql animated:YES completion:nil];
+}
+
+- (NSInteger)numberOfPreviewItemsInPreviewController:(QLPreviewController *)controller {
+    return _quickLookURL ? 1 : 0;
+}
+
+- (id<QLPreviewItem>)previewController:(QLPreviewController *)controller previewItemAtIndex:(NSInteger)index {
+    return _quickLookURL;
 }
 
 @end
