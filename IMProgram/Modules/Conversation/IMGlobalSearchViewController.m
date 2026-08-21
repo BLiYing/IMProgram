@@ -275,8 +275,9 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
         IMConversation *conv = convCache[cid] ?: [self conversationForID:cid];
         if (!conv) { continue; }  // 残留会话：跳过
         convCache[cid] = conv;
-        // 摘要：caption > 文件名 > content（文件命中显文件名，不显 URL）。
-        NSString *snippet = m.caption.length > 0 ? m.caption : (m.fileName.length > 0 ? m.fileName : (m.content ?: @""));
+        // 摘要：优先展示**真正命中 needle 的字段**（否则文件名命中却显 caption → 副行无高亮、像误命中，
+        // 2026-08-21 /code-review #3）。口径同 searchMessagesMatching：text 的 content / 任意 caption / file_name。
+        NSString *snippet = [self snippetForMessage:m needle:needle];
         [hits addObject:@{ @"convID": cid, @"conv": conv,
                            @"title": [self titleForConversation:conv],
                            @"snippet": snippet,
@@ -285,6 +286,18 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
     _recordGroups = hits;
 
     [self reloadSectionsAndTable];
+}
+
+/// 命中摘要 = 真正含 needle 的字段（needle 已 lowercased）。口径同 searchMessagesMatching:：
+/// text 的 content / 任意 caption / file_name；都不含（理论不该发生）时回退 caption>文件名>content。
+- (NSString *)snippetForMessage:(IMMessageModel *)m needle:(NSString *)needle {
+    BOOL isText = [m.contentType isEqualToString:@"text"];
+    if (needle.length > 0) {
+        if (m.caption.length > 0 && [m.caption.lowercaseString containsString:needle]) { return m.caption; }
+        if (isText && m.content.length > 0 && [m.content.lowercaseString containsString:needle]) { return m.content; }
+        if (m.fileName.length > 0 && [m.fileName.lowercaseString containsString:needle]) { return m.fileName; }
+    }
+    return m.caption.length > 0 ? m.caption : (m.fileName.length > 0 ? m.fileName : (m.content ?: @""));
 }
 
 - (nullable IMConversation *)conversationForID:(NSString *)cid {
