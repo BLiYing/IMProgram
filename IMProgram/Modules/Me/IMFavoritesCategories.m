@@ -27,6 +27,7 @@ static NSString *favContent(NSDictionary *f) {
         case IMFavoriteCategoryLinks: return @"链接";
         case IMFavoriteCategoryVoice: return @"语音";
         case IMFavoriteCategoryText:  return @"文本";
+        case IMFavoriteCategoryRecord: return @"聊天记录";
     }
     return @"";
 }
@@ -37,7 +38,10 @@ static NSString *favContent(NSDictionary *f) {
     if (content.length == 0) { return NO; } // 空内容不计入任何类别
     if (kind == IMFavoriteCategoryAll) { return YES; }
     NSString *ct = favContentType(favorite);
+    BOOL isRecord = [ct isEqualToString:@"chat_record"] || IMLooksLikeChatRecordJSON(content);
     switch (kind) {
+        case IMFavoriteCategoryRecord:
+            return isRecord;
         case IMFavoriteCategoryMedia:
             return [ct isEqualToString:@"image"] || [ct isEqualToString:@"video"];
         case IMFavoriteCategoryFiles:
@@ -48,7 +52,7 @@ static NSString *favContent(NSDictionary *f) {
         case IMFavoriteCategoryVoice:
             return [ct isEqualToString:@"audio"] || [ct isEqualToString:@"voice"];
         case IMFavoriteCategoryText:
-            return [ct isEqualToString:@"text"] && !IMMediaLooksLikeURL(content);
+            return [ct isEqualToString:@"text"] && !isRecord && !IMMediaLooksLikeURL(content);
         case IMFavoriteCategoryAll:
             return YES;
     }
@@ -56,16 +60,22 @@ static NSString *favContent(NSDictionary *f) {
 }
 
 + (NSArray<IMFavoriteCategoryTab *> *)categoriesForFavorites:(NSArray<NSDictionary *> *)favorites {
-    // 「全部」恒第一；其余按固定顺序仅存在者。
+    return [self categoriesForFavorites:favorites includeAll:YES];
+}
+
++ (NSArray<IMFavoriteCategoryTab *> *)categoriesForFavorites:(NSArray<NSDictionary *> *)favorites includeAll:(BOOL)includeAll {
+    // 「全部」（可选）恒第一；其余按固定顺序仅存在者。
     IMFavoriteCategoryTab *(^tab)(IMFavoriteCategory) = ^(IMFavoriteCategory k) {
         IMFavoriteCategoryTab *t = [IMFavoriteCategoryTab new];
         t.kind = k;
         t.title = [self titleForCategory:k];
         return t;
     };
-    NSMutableArray<IMFavoriteCategoryTab *> *out = [NSMutableArray arrayWithObject:tab(IMFavoriteCategoryAll)];
+    NSMutableArray<IMFavoriteCategoryTab *> *out = [NSMutableArray array];
+    if (includeAll) { [out addObject:tab(IMFavoriteCategoryAll)]; }
     NSArray<NSNumber *> *ordered = @[ @(IMFavoriteCategoryMedia), @(IMFavoriteCategoryFiles),
-                                      @(IMFavoriteCategoryLinks), @(IMFavoriteCategoryVoice), @(IMFavoriteCategoryText) ];
+                                      @(IMFavoriteCategoryLinks), @(IMFavoriteCategoryVoice),
+                                      @(IMFavoriteCategoryText), @(IMFavoriteCategoryRecord) ];
     for (NSNumber *n in ordered) {
         IMFavoriteCategory k = (IMFavoriteCategory)n.integerValue;
         BOOL exists = NO;

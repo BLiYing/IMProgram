@@ -72,6 +72,18 @@ static NSArray<NSNumber *> *kinds(NSArray<IMFavoriteCategoryTab *> *tabs) {
     XCTAssertFalse([IMFavoritesCategories favorite:fav(@"image", @"") matchesCategory:IMFavoriteCategoryMedia]);
 }
 
+- (void)testRecordCategoryAndNoAllVariant {
+    // 聊天记录归「聊天记录」签、不归「文本」；B 方案 includeAll:NO 时无「全部」，顺序 …文本→聊天记录。
+    NSDictionary *rec = fav(@"chat_record", @"{\"t\":\"设计组 的聊天记录\",\"items\":[]}");
+    XCTAssertTrue([IMFavoritesCategories favorite:rec matchesCategory:IMFavoriteCategoryRecord]);
+    XCTAssertFalse([IMFavoritesCategories favorite:rec matchesCategory:IMFavoriteCategoryText]);
+    NSArray *favs = @[ fav(@"text", @"纯文本"), rec, fav(@"image", @"/a.jpg") ];
+    NSArray<NSNumber *> *k = kinds([IMFavoritesCategories categoriesForFavorites:favs includeAll:NO]);
+    XCTAssertEqualObjects(k, (@[ @(IMFavoriteCategoryMedia), @(IMFavoriteCategoryText), @(IMFavoriteCategoryRecord) ]));
+    // 全空 + includeAll:NO → 空数组（调用方隐藏页签区）。
+    XCTAssertEqualObjects([IMFavoritesCategories categoriesForFavorites:@[] includeAll:NO], @[]);
+}
+
 - (void)testVoiceMatchesAudioAndVoice {
     XCTAssertTrue([IMFavoritesCategories favorite:fav(@"audio", @"/a.m4a") matchesCategory:IMFavoriteCategoryVoice]);
     XCTAssertTrue([IMFavoritesCategories favorite:fav(@"voice", @"/a.m4a") matchesCategory:IMFavoriteCategoryVoice]);

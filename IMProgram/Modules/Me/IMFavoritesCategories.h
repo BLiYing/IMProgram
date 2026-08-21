@@ -15,7 +15,8 @@ typedef NS_ENUM(NSInteger, IMFavoriteCategory) {
     IMFavoriteCategoryFiles,   ///< 文件（file）
     IMFavoriteCategoryLinks,   ///< 链接（link 类型，或 text 且形如 URL）
     IMFavoriteCategoryVoice,   ///< 语音（audio / voice）
-    IMFavoriteCategoryText,    ///< 文本（text 且非链接）
+    IMFavoriteCategoryText,    ///< 文本（text 且非链接、非聊天记录）
+    IMFavoriteCategoryRecord,  ///< 聊天记录（合并转发 chat_record）
 };
 
 /// 分类描述：类别 + 展示标题。
@@ -29,6 +30,11 @@ typedef NS_ENUM(NSInteger, IMFavoriteCategory) {
 /// 由收藏列表（原始字典数组，含 content_type / content 键）推导有序分类：
 /// 「全部」恒第一；其余按 媒体→文件→链接→语音→文本 顺序，仅当该类别存在收藏时才出现。
 + (NSArray<IMFavoriteCategoryTab *> *)categoriesForFavorites:(nullable NSArray<NSDictionary *> *)favorites;
+
+/// 同上，但可选是否含「全部」。B 方案（复用详情页逐签浏览）不含「全部」：
+/// 页签 = 按 媒体→文件→链接→语音→文本→聊天记录 顺序仅存在者；全无可归类收藏时返回空数组。
++ (NSArray<IMFavoriteCategoryTab *> *)categoriesForFavorites:(nullable NSArray<NSDictionary *> *)favorites
+                                                  includeAll:(BOOL)includeAll;
 
 /// 某条收藏是否属于某分类。`All` 对任意非空收藏恒 YES。用于分类/范围搜索过滤，避免与推导逻辑重复。
 + (BOOL)favorite:(nullable NSDictionary *)favorite matchesCategory:(IMFavoriteCategory)kind;

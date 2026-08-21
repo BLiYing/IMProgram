@@ -29,7 +29,8 @@
 ## 下一步
 1. **手测（优先）**：拆分后聊天页全交互回归（见上「待手测」清单）+ 相机/粘贴单图收端磨砂占位 + 转发自拍图有磨砂。
 2. 无问题 → 接下一里程碑（后端排队 **语音消息 P0 → 收藏改造**，见 `../IMServer/current_task.md` 与 `docs/ROADMAP.md`）。
-3. **收藏页改造已实现（2026-08-19，clean build 绿 + `IMFavoritesCategoriesTests` 6 例过，待手测）**：设计见 `../IMServer/docs/FAVORITES_DESIGN.md`（落地差异 §13）。
+3. **收藏页 B 方案已实现（2026-08-19，clean build 绿 + `IMFavoritesCategoriesTests` 7 例，待手测）**：设计 `../IMServer/docs/FAVORITES_DESIGN.md` **§14** + `FAVORITES_B_UX_SKETCH.html`。`IMFavoritesViewController.m` 整体重写为 B：**去「全部」逐签**（媒体/文件/链接/语音/文本/聊天记录，默认媒体）；**媒体=复用详情页 `IMDetailMediaContainerCell` 宫格逐格门控、文件=复用 `IMDetailFileCell` 三态行**（修"未下载文件与详情页不一致"）；右上 ⋯ 玻璃钮→`IMPopoverCard`「以消息/聊天模式查看」（`NSUserDefaults` 持久化，副标题显模式）；**聊天模式=按 `source_conv_id` 分组来源列表（自己发→「我的」）→ 点进按来源过滤子页**；搜索 token 恒=当前签。清缓存联动维持现状（不加通知）。**待手测**：六签切换与空态、宫格门控/进度/就绪点开翻页、文件 ↓→环→QuickLook、⋯ 菜单切换与记忆、来源列表名/头像/计数与下钻、来源子页标题副标题、长按菜单（宫格格+行）、左滑删除、深浅色。
+   - （v1 记录，已被 B 覆盖）原实现：
    - **Browse 全量**（`IMFavoritesViewController.m` 重写）：分类分段（全部+动态，`IMFavoritesCategories` 纯逻辑+单测，口径对齐 `IMChatDetailTabs`）；范围搜索（内嵌 `UISearchBar` + `UISearchToken` 跟随分段，非 navigationItem——液态栏不兼容）；统一左图标列（媒体缩略/文件折角图标/文本引号色块/链接色块 on `IMTheme.accentSoft`，无空占位）；长按菜单（转发/复制/删除）+ 左滑删除；点媒体→查看器、链接/文件→`SFSafariViewController`、文本→只读阅读器；转发复用 `IMForwardPickerViewController` + `IMSocketManager forwardContent:`+本地落库；空/错/载入态 + 下拉刷新；删除失败保留旧数据。
    - `IMTheme.accentSoft`（accent@12%）；`IMHTTPService addFavoriteWithToken:` + `favoriteMessage:` 补 `fileName/fileSize`。
    - **Q1/Q2 + 3 项打磨（2026-08-19 后续，clean build 绿）**：①**文件点击对齐聊天页**——改用 `IMMediaDownloadCoordinator`+`QLPreviewController`（已缓存 QuickLook/未缓存下载副行显进度/完成不自动打开），不再 SFSafari；②**聊天记录 `chat_record`** 渲染成卡片（`IMChatRecordSnippet` 摘要+bubble 图标）、点击进 `IMChatRecordViewController`，不再显/点 JSON；③**邀请链接**点收藏链接先走 `IMQRResultRouter routeInviteLinkIfOwn:`（`/q/u`·`/q/g` 原生加群/名片）再 SFSafari，与 `openLink:` 一致；④**搜索框圆角**改 `IMApplyUnifiedSearchFieldStyle`（24 continuous，同首页）；⑤**列表贴近分段**（`contentInset.top=-14` + 分段底距 8→6）。
