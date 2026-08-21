@@ -32,8 +32,9 @@
 3. **收藏页改造已实现（2026-08-19，clean build 绿 + `IMFavoritesCategoriesTests` 6 例过，待手测）**：设计见 `../IMServer/docs/FAVORITES_DESIGN.md`（落地差异 §13）。
    - **Browse 全量**（`IMFavoritesViewController.m` 重写）：分类分段（全部+动态，`IMFavoritesCategories` 纯逻辑+单测，口径对齐 `IMChatDetailTabs`）；范围搜索（内嵌 `UISearchBar` + `UISearchToken` 跟随分段，非 navigationItem——液态栏不兼容）；统一左图标列（媒体缩略/文件折角图标/文本引号色块/链接色块 on `IMTheme.accentSoft`，无空占位）；长按菜单（转发/复制/删除）+ 左滑删除；点媒体→查看器、链接/文件→`SFSafariViewController`、文本→只读阅读器；转发复用 `IMForwardPickerViewController` + `IMSocketManager forwardContent:`+本地落库；空/错/载入态 + 下拉刷新；删除失败保留旧数据。
    - `IMTheme.accentSoft`（accent@12%）；`IMHTTPService addFavoriteWithToken:` + `favoriteMessage:` 补 `fileName/fileSize`。
-   - **未做**：Pick/「从收藏发送」（聊天入口仍屏蔽，见下）；文件完整下载（P1）；副行来源显示名（P1）；媒体保存复用查看器（未进菜单）。
-   - **待手测**（编译只保符号）：分类切换、范围搜索 token 增删、四类 cell 渲染与左缘对齐、长按菜单、左滑删除、点各类型跳转、阅读器、转发到会话后进该会话可见、空/错态、深浅色。
+   - **Q1/Q2 + 3 项打磨（2026-08-19 后续，clean build 绿）**：①**文件点击对齐聊天页**——改用 `IMMediaDownloadCoordinator`+`QLPreviewController`（已缓存 QuickLook/未缓存下载副行显进度/完成不自动打开），不再 SFSafari；②**聊天记录 `chat_record`** 渲染成卡片（`IMChatRecordSnippet` 摘要+bubble 图标）、点击进 `IMChatRecordViewController`，不再显/点 JSON；③**邀请链接**点收藏链接先走 `IMQRResultRouter routeInviteLinkIfOwn:`（`/q/u`·`/q/g` 原生加群/名片）再 SFSafari，与 `openLink:` 一致；④**搜索框圆角**改 `IMApplyUnifiedSearchFieldStyle`（24 continuous，同首页）；⑤**列表贴近分段**（`contentInset.top=-14` + 分段底距 8→6）。
+   - **未做**：Pick/「从收藏发送」（聊天入口仍屏蔽，见下）；文件"下载环"UI（收藏用副行文案显进度，非气泡环）；副行来源显示名（P1）；媒体保存复用查看器（未进菜单）。
+   - **待手测**（编译只保符号）：分类切换、范围搜索 token 增删、四类+聊天记录 cell 渲染与左缘对齐、长按菜单、左滑删除、点各类型跳转（文件下载→QuickLook、聊天记录进详情、邀请链接进加群、普通链接进浏览器）、阅读器、转发后进会话可见、空/错态、深浅色、**搜索框圆角是否同首页 + 列表与分段间距**。
    - 后端（`../IMServer`）+ Web（`../im-web`）同批已实现并各自跑绿（见 `../IMServer/current_task.md`）。
 
 ## 已知坑 / 限制

@@ -24,6 +24,8 @@
 #import "IMMediaDownloadCoordinator.h"
 #import "IMDownloadProgress.h"
 #import "IMLiquidSegmentedControl.h"
+#import "IMGlass.h" // IMApplyUnifiedSearchFieldStyle（搜索框圆角与首页/搜索页统一 24 continuous）
+#import "IMQRResultRouter.h" // 群邀请/名片链接 → 原生加群/名片流程（与聊天页 openLink: 一致）
 #import "IMTheme.h"
 #import "IMTimeUtil.h"
 #import "UIViewController+IMToast.h"
@@ -341,6 +343,7 @@
     _searchBar.placeholder = @"搜索收藏";
     _searchBar.searchBarStyle = UISearchBarStyleMinimal;
     _searchBar.tintColor = IMTheme.accent; // 范围 token 着色
+    IMApplyUnifiedSearchFieldStyle(_searchBar); // 圆角与首页/搜索页统一（24 continuous），修圆角不一致
     [_headerBar addSubview:_searchBar];
 
     _segmented = [IMLiquidSegmentedControl new];
@@ -362,8 +365,13 @@
         [_segmented.leadingAnchor constraintEqualToAnchor:_headerBar.leadingAnchor constant:16],
         [_segmented.trailingAnchor constraintEqualToAnchor:_headerBar.trailingAnchor constant:-16],
         [_segmented.heightAnchor constraintEqualToConstant:40], // §12.3 分段本体 40
-        [_segmented.bottomAnchor constraintEqualToAnchor:_headerBar.bottomAnchor constant:-8],
+        [_segmented.bottomAnchor constraintEqualToAnchor:_headerBar.bottomAnchor constant:-6],
     ]];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    IMApplyUnifiedSearchFieldStyle(_searchBar); // UISearchBar 重新布局后可能重置字段圆角，幂等复用
 }
 
 - (void)buildTableView {
@@ -374,6 +382,9 @@
     _tableView.dataSource = self;
     _tableView.delegate = self;
     _tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeOnDrag;
+    // 收紧 inset-grouped 顶部默认留白（约 20pt）：负 contentInset 把列表整体上移贴近上方分段 tab（确定性，
+    // 不依赖 tableHeaderView 折叠在各 iOS 版本的差异）。下拉刷新阈值随之上移少许，可接受。
+    _tableView.contentInset = UIEdgeInsetsMake(-14, 0, 0, 0);
     [_tableView registerClass:IMFavoriteCell.class forCellReuseIdentifier:@"fav"];
     UIRefreshControl *rc = [UIRefreshControl new];
     [rc addTarget:self action:@selector(pullToRefresh:) forControlEvents:UIControlEventValueChanged];
@@ -612,10 +623,14 @@
         else { [_downloads handleTapForMessage:m]; }
         return;
     }
-    // 链接 → 站内浏览器
+    // 链接 → 与聊天页 openLink: 一致：先判本站邀请链接（/q/u 名片、/q/g 群码）走原生加群/名片流程（不出 App），
+    // 否则站内浏览器打开。
     BOOL isLink = [ct isEqualToString:@"link"] || ([ct isEqualToString:@"text"] && IMMediaLooksLikeURL(content));
     if (isLink) {
-        NSURL *url = [NSURL URLWithString:IMMediaFullURL(content, IMHTTPService.sharedService.host)];
+        NSString *host = IMHTTPService.sharedService.host;
+        NSString *urlStr = IMMediaFullURL(content, host); // link content 通常已是 http(s) 全 URL
+        if ([IMQRResultRouter routeInviteLinkIfOwn:urlStr host:host userID:_selfUID fromController:self]) { return; }
+        NSURL *url = [NSURL URLWithString:urlStr];
         if (url && ([url.scheme isEqualToString:@"http"] || [url.scheme isEqualToString:@"https"])) {
             SFSafariViewController *sf = [[SFSafariViewController alloc] initWithURL:url];
             [self presentViewController:sf animated:YES completion:nil];
