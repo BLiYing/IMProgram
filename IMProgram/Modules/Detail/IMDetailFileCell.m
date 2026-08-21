@@ -9,7 +9,7 @@
 @implementation IMDetailFileCell {
     UIImageView *_icon; UIImageView *_glyph; CAShapeLayer *_ringBG; CAShapeLayer *_ring;
     CAShapeLayer *_disc;       // 未下载态：与圆环同心同径的 accent 实心圆底（与聊天页文件气泡同款）
-    UILabel *_title; UILabel *_sub;
+    UILabel *_title; UILabel *_sub; UILabel *_meta;
     NSString *_fileName;       // configure 时记住，进度就地更新复用（免重传 message）
     int64_t _fileSizeBytes;
 }
@@ -56,6 +56,12 @@
         _sub.translatesAutoresizingMaskIntoConstraints = NO;
         [self.contentView addSubview:_sub];
 
+        _meta = [UILabel new]; // 静态元信息行：[来自X · ]年月日时分（详情页只显时间，收藏页含来源）
+        _meta.font = [UIFont systemFontOfSize:12];
+        _meta.textColor = IMTheme.textTertiary;
+        _meta.translatesAutoresizingMaskIntoConstraints = NO;
+        [self.contentView addSubview:_meta];
+
         // 无右侧配件：文件名/副行直接贴内容区右缘（留 16 边距）。
         [NSLayoutConstraint activateConstraints:@[
             [_icon.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:16],
@@ -70,7 +76,10 @@
             [_sub.leadingAnchor constraintEqualToAnchor:_title.leadingAnchor],
             [_sub.topAnchor constraintEqualToAnchor:_title.bottomAnchor constant:2],
             [_sub.trailingAnchor constraintLessThanOrEqualToAnchor:self.contentView.trailingAnchor constant:-16],
-            [_sub.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-9],
+            [_meta.leadingAnchor constraintEqualToAnchor:_title.leadingAnchor],
+            [_meta.topAnchor constraintEqualToAnchor:_sub.bottomAnchor constant:2],
+            [_meta.trailingAnchor constraintLessThanOrEqualToAnchor:self.contentView.trailingAnchor constant:-16],
+            [_meta.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-9],
         ]];
     }
     return self;
@@ -99,6 +108,10 @@
     _fileName = m.fileName.length > 0 ? m.fileName : @"文件";
     _fileSizeBytes = m.fileSize;
     _title.text = _fileName;
+    NSString *when = m.timestamp > 0 ? IMFormatFileDateTime(m.timestamp) : @"";
+    _meta.text = self.sourceName.length > 0
+        ? [NSString stringWithFormat:@"来自%@%@", self.sourceName, when.length ? [@" · " stringByAppendingString:when] : @""]
+        : when;
     [self renderDownload:dp];
 }
 
@@ -192,5 +205,6 @@
     _ring.hidden = YES; _ringBG.hidden = YES; _disc.hidden = YES; _ring.strokeEnd = 0;
     _glyph.hidden = YES; _icon.image = nil; _icon.backgroundColor = UIColor.clearColor;
     _sub.attributedText = nil;
+    _meta.text = nil; self.sourceName = nil;
 }
 @end

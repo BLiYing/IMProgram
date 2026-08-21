@@ -10,6 +10,8 @@
 NS_ASSUME_NONNULL_BEGIN
 
 @interface IMDetailFileCell : UITableViewCell
+/// 收藏页复用时设来源名（非空 → 副行下再加一行「来自X · 时间」；详情页留 nil=只显时间）。**须在 configure 前设。**
+@property (nonatomic, copy, nullable) NSString *sourceName;
 - (void)configureWithMessage:(IMMessageModel *)m download:(nullable IMDownloadProgress *)dp;
 /// 进度**就地更新**（不 reload）：只改图标位环/字形 + 副行文案；文件名不变。
 - (void)updateDownload:(nullable IMDownloadProgress *)dp;

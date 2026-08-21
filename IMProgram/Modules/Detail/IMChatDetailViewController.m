@@ -605,6 +605,7 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
             CGFloat h = [IMDetailMediaContainerCell heightForCount:self.tabMedia.count width:w];
             return h > 0 ? h : 60;
         }
+        if (t.kind == IMDetailTabKindFiles) { return 74; } // 文件行 3 行：文件名 + 状态 + 时间（#2b）
         return 60;
     }
     return 52;
@@ -848,12 +849,12 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     if (t.kind == IMDetailTabKindVoice) {
         cell.textLabel.text = @"语音消息";
         cell.imageView.image = [UIImage systemImageNamed:@"waveform"];
-        cell.detailTextLabel.text = [IMTheme timeStringFromMillis:m.timestamp];
+        cell.detailTextLabel.text = IMFormatFileDateTime(m.timestamp);
     } else {
         cell.textLabel.text = m.content;
         cell.textLabel.textColor = IMTheme.accent;
         cell.imageView.image = [UIImage systemImageNamed:@"link"];
-        cell.detailTextLabel.text = [IMTheme timeStringFromMillis:m.timestamp];
+        cell.detailTextLabel.text = IMFormatFileDateTime(m.timestamp);
     }
     return cell;
 }

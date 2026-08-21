@@ -25,6 +25,8 @@
 #import "IMSocketManager.h"
 #import "IMDatabase.h"
 #import "IMConversation.h"
+#import "IMUserCard.h"
+#import "IMGroupInfo.h"
 #import "IMMessageModel.h"
 #import "IMMediaDownloadCoordinator.h"
 #import "IMDownloadProgress.h"
@@ -262,6 +264,8 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     IMDatabaseAccountContext *_databaseContext;
     NSString *_selfUID;
     NSDictionary<NSString *, IMConversation *> *_convByID; // 来源会话名/头像查表
+    NSDictionary<NSString *, IMUserCard *> *_friendByID;   // 好友：source_from→显示名（含备注）
+    NSDictionary<NSString *, IMGroupInfo *> *_groupByID;   // 群：source_conv_id→成员（取群昵称）
 }
 
 - (instancetype)init {
@@ -475,10 +479,22 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
 
 - (void)loadConversationIndex {
     __block NSArray<IMConversation *> *convs = @[];
-    [self performDatabaseOperation:^(IMDatabase *database) { convs = database.cachedConversations ?: @[]; }];
+    __block NSArray<IMUserCard *> *friends = @[];
+    __block NSArray<IMGroupInfo *> *groups = @[];
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        convs = database.cachedConversations ?: @[];
+        friends = database.cachedFriends ?: @[];
+        groups = database.cachedGroups ?: @[];
+    }];
     NSMutableDictionary *d = [NSMutableDictionary dictionary];
     for (IMConversation *c in convs) { if (c.convID.length) { d[c.convID] = c; } }
     _convByID = d;
+    NSMutableDictionary *fd = [NSMutableDictionary dictionary];
+    for (IMUserCard *u in friends) { if (u.userID.length) { fd[u.userID] = u; } }
+    _friendByID = fd;
+    NSMutableDictionary *gd = [NSMutableDictionary dictionary];
+    for (IMGroupInfo *g in groups) { if (g.convID.length) { gd[g.convID] = g; } }
+    _groupByID = gd;
 }
 
 - (void)pullToRefresh:(UIRefreshControl *)rc { [self reload]; }
@@ -585,11 +601,19 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     return key; // 会话不在本地缓存：显 id 兜底
 }
 
-/// 非媒体行副行「来自X」：按 source_conv_id 归组后取组名（自己发/无来源=「我」）。
+/// 非媒体行副行「来自X」= **发送者**显示名（对齐 Web favSourceLabel：我 / 好友备注·昵称 / 群昵称 / uid）。
+/// 数据全走本地缓存（会话/好友/群成员），与 Web 同口径、零额外请求。
 - (NSString *)sourceNameForFavorite:(NSDictionary *)f {
-    NSString *key = [self groupKeyOf:f];
-    IMConversation *c = [key isEqualToString:kIMFavoritesMeBucket] ? nil : _convByID[key];
-    return [self displayNameForGroupKey:key conversation:c];
+    NSString *from = [f[@"source_from"] isKindOfClass:NSString.class] ? f[@"source_from"] : @"";
+    if (from.length == 0) { return @""; }
+    if ([from isEqualToString:_selfUID]) { return @"我"; }
+    NSString *convID = [f[@"source_conv_id"] isKindOfClass:NSString.class] ? f[@"source_conv_id"] : @"";
+    IMConversation *c = _convByID[convID];
+    if (c && !c.isGroup && [c.peer isEqualToString:from]) { return c.peerNickname.length ? c.peerNickname : from; } // 单聊：含备注
+    for (IMGroupMember *mem in _groupByID[convID].members) { if ([mem.userID isEqualToString:from]) { return mem.displayName; } } // 群昵称→全局→uid
+    IMUserCard *fr = _friendByID[from];
+    if (fr) { return fr.displayName; } // 好友兜底
+    return from;
 }
 
 - (NSString *)previewOf:(NSDictionary *)f {
@@ -745,7 +769,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
         CGFloat h = [IMDetailMediaContainerCell heightForCount:(NSInteger)_mediaItems.count width:w];
         return h > 0 ? h : 60;
     }
-    if (_selectedKind == IMFavoriteCategoryFiles) { return 60; } // 同详情页文件行
+    if (_selectedKind == IMFavoriteCategoryFiles) { return 74; } // 文件行 3 行：文件名+状态+来自·时间（#2/#2b）
     return 76;
 }
 
@@ -790,6 +814,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     if (_selectedKind == IMFavoriteCategoryFiles) {
         IMDetailFileCell *fc = [tableView dequeueReusableCellWithIdentifier:@"detailfile" forIndexPath:indexPath];
         IMMessageModel *m = [self modelForFavorite:f];
+        fc.sourceName = [self sourceNameForFavorite:f]; // 收藏页文件行显「来自X」（#2；须在 configure 前设）
         [fc configureWithMessage:m download:[_downloads stateForMessage:m]];
         return fc;
     }
