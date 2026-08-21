@@ -17,4 +17,10 @@ FOUNDATION_EXPORT NSString *IMHTTPLogBody(NSData * _Nullable data,
                                           NSString * _Nullable contentType,
                                           BOOL includeBusinessContent);
 
+/// 高频轮询接口（会话列表 /conversations、隐藏消息 /messages/hidden）的响应摘要：
+/// 只留 data 下数组的条数与字节数，**不记整份 body**。这两个接口约每 16s 一轮、内容高度重复，
+/// 整份 body 会把 dev 汇聚日志撑到几百 MB 而排查价值极低；条数足以发现"会话数突变/隐藏漏同步"类异常。
+/// 其余接口仍走 IMHTTPLogBody 完整记录（favorites/messages/groups/sync 等排查靠它们，不受影响）。
+FOUNDATION_EXPORT NSString *IMHTTPPollResponseSummary(NSData * _Nullable data);
+
 NS_ASSUME_NONNULL_END

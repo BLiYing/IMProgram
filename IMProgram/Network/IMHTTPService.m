@@ -1195,7 +1195,15 @@ BOOL IMIsTransientNetworkError(NSError *error) {
         }
         NSInteger status = httpResponse.statusCode;
         NSString *responseType = [httpResponse valueForHTTPHeaderField:@"Content-Type"];
-        NSString *responseBody = IMHTTPLogBody(data, responseType, IMHTTPLogIncludesBusinessContent());
+        // 高频轮询接口（会话列表 /conversations、隐藏消息 /messages/hidden）成功响应只记条数摘要，
+        // 不记整份 body——它们约每 16s 一轮、内容高度重复，是 dev 汇聚日志膨胀的主因（占 ~90% 体积），
+        // 摘要保留状态/条数/耗时足够排查。非 200（错误响应）仍记完整 body 便于定位。子路径
+        //（/conversations/{id}/pinned 等）不以此后缀结尾，照常完整记录。
+        BOOL pollSummary = status == 200 &&
+            ([path hasSuffix:@"/conversations"] || [path hasSuffix:@"/messages/hidden"]);
+        NSString *responseBody = pollSummary
+            ? IMHTTPPollResponseSummary(data)
+            : IMHTTPLogBody(data, responseType, IMHTTPLogIncludesBusinessContent());
         IMLogHTTP(@"[req=%@][RESPONSE] status=%ld duration_ms=%.1f bytes=%lu body=%@",
                   correlationID, (long)status, durationMs, (unsigned long)data.length, responseBody);
 

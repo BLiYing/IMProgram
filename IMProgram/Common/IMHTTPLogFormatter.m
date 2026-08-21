@@ -122,3 +122,20 @@ NSString *IMHTTPLogBody(NSData *data, NSString *contentType, BOOL includeBusines
     return text ? IMHTTPTruncatedString(text) :
         [NSString stringWithFormat:@"<binary %lu bytes>", (unsigned long)data.length];
 }
+
+NSString *IMHTTPPollResponseSummary(NSData *data) {
+    if (data.length == 0) { return @"<empty>"; }
+    NSUInteger bytes = data.length;
+    id object = [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+    NSDictionary *root = [object isKindOfClass:NSDictionary.class] ? (NSDictionary *)object : nil;
+    NSDictionary *payload = [root[@"data"] isKindOfClass:NSDictionary.class] ? root[@"data"] : nil;
+    // 只取 data 下的数组条数（conversations / items）；轮询快照高度重复，条数足够定位异常。
+    for (NSString *key in @[@"conversations", @"items"]) {
+        id value = payload[key];
+        if ([value isKindOfClass:NSArray.class]) {
+            return [NSString stringWithFormat:@"<poll %@=%lu bytes=%lu>",
+                    key, (unsigned long)[(NSArray *)value count], (unsigned long)bytes];
+        }
+    }
+    return [NSString stringWithFormat:@"<poll bytes=%lu>", (unsigned long)bytes]; // 非预期结构：只记字节
+}

@@ -99,4 +99,23 @@
     XCTAssertFalse([logged containsString:@"private"]);
 }
 
+// 高频轮询摘要：只留 data 下数组条数与字节数，不含具体条目内容（dev 日志减量）。
+- (void)testPollSummaryReportsCountNotBody {
+    NSDictionary *body = @{ @"code": @0, @"data": @{ @"conversations": @[
+        @{ @"conv_id": @"u_a_b", @"name": @"张三" }, @{ @"conv_id": @"g_x", @"name": @"群一" } ] } };
+    NSData *data = [NSJSONSerialization dataWithJSONObject:body options:0 error:NULL];
+    NSString *logged = IMHTTPPollResponseSummary(data);
+    XCTAssertTrue([logged hasPrefix:@"<poll conversations=2 bytes="], @"应报会话条数=2，实际：%@", logged);
+    XCTAssertFalse([logged containsString:@"张三"], @"摘要不得包含具体条目内容");
+    XCTAssertFalse([logged containsString:@"conv_id"], @"摘要不得展开 body");
+}
+
+// messages/hidden 的键是 items；空数组也应给出 items=0 摘要。
+- (void)testPollSummaryHandlesItemsKeyAndEmpty {
+    NSDictionary *body = @{ @"code": @0, @"data": @{ @"items": @[] } };
+    NSData *data = [NSJSONSerialization dataWithJSONObject:body options:0 error:NULL];
+    XCTAssertTrue([IMHTTPPollResponseSummary(data) hasPrefix:@"<poll items=0 bytes="]);
+    XCTAssertEqualObjects(IMHTTPPollResponseSummary([NSData data]), @"<empty>");
+}
+
 @end
