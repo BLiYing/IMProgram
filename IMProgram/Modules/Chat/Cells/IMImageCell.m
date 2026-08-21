@@ -480,7 +480,7 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
         : (_gatedSizeBytes > 0 ? [NSString stringWithFormat:@"下载，%@", IMFormatFileSize(_gatedSizeBytes)] : @"下载");
 
     // 左上角单块角标（防溢出：进度与时长不再各占一块）：
-    //   未下载 = 「时长 · 大小」（时长在前）；下载中/暂停 = 只显进度（**藏时长**，腾出空间）；失败 = 失败文案。
+    //   未下载 = 「大小 · 时长」（大小在前，与宫格/Web 统一）；下载中/暂停 = 只显进度（**藏时长**，腾出空间）；失败 = 失败文案。
     NSString *sizeText = _gatedSizeBytes > 0 ? IMFormatFileSize(_gatedSizeBytes) : nil;
     BOOL active = dp && dp.phase != IMDownloadPhaseNotStarted; // 下载中/暂停/失败
     NSMutableArray<NSString *> *parts = [NSMutableArray array];
@@ -488,8 +488,8 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
         NSString *st = [dp displayText];
         if (st.length > 0) { [parts addObject:st]; } // 下载中/暂停/失败：只状态，不并时长
     } else {
-        if (_gatedDurationText.length > 0) { [parts addObject:_gatedDurationText]; } // 未下载：时长在前
-        if (sizeText.length > 0) { [parts addObject:sizeText]; }
+        if (sizeText.length > 0) { [parts addObject:sizeText]; } // 未下载：大小在前
+        if (_gatedDurationText.length > 0) { [parts addObject:_gatedDurationText]; }
     }
     _progressLabel.text = [parts componentsJoinedByString:@" · "];
     _progressWrap.hidden = parts.count == 0;

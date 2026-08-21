@@ -23,6 +23,7 @@
 #import "IMForwardPickerViewController.h"
 #import "IMChatRecordViewController.h"
 #import "IMSocketManager.h"
+#import "IMMediaAttributes.h"
 #import "IMDatabase.h"
 #import "IMConversation.h"
 #import "IMUserCard.h"
@@ -717,6 +718,9 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     m.fileSize = [f[@"file_size"] respondsToSelector:@selector(longLongValue)] ? [f[@"file_size"] longLongValue] : 0;
     m.duration = [f[@"duration"] respondsToSelector:@selector(longLongValue)] ? [f[@"duration"] longLongValue] : 0;
     m.thumb = [f[@"thumb"] isKindOfClass:NSString.class] && [f[@"thumb"] length] ? f[@"thumb"] : nil;
+    m.poster = [f[@"poster"] isKindOfClass:NSString.class] && [f[@"poster"] length] ? f[@"poster"] : nil;
+    m.mediaW = [f[@"media_w"] respondsToSelector:@selector(integerValue)] ? [f[@"media_w"] integerValue] : 0;
+    m.mediaH = [f[@"media_h"] respondsToSelector:@selector(integerValue)] ? [f[@"media_h"] integerValue] : 0;
     m.from = [f[@"source_from"] isKindOfClass:NSString.class] ? f[@"source_from"] : @"";
     m.timestamp = [f[@"created_at"] respondsToSelector:@selector(longLongValue)] ? [f[@"created_at"] longLongValue] : 0;
     _models[key] = m;
@@ -954,6 +958,9 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     NSString *fileName = [f[@"file_name"] isKindOfClass:NSString.class] ? f[@"file_name"] : nil;
     int64_t fileSize = [f[@"file_size"] respondsToSelector:@selector(longLongValue)] ? [f[@"file_size"] longLongValue] : 0;
     NSString *origin = [f[@"source_from"] isKindOfClass:NSString.class] ? f[@"source_from"] : @"";
+    // 媒体元数据随转发一并带走（磨砂缩略/封面首帧/时长/图说）——不带就等于把这些丢了：收端只能按未知
+    // 渲染、事后补不回（曾漏建 attrs 致收藏转发视频收端无 thumb/封面，与聊天内转发同口径修复）。
+    IMMediaAttributes *attrs = [self forwardAttributesFromFavorite:f contentType:ct fileSize:fileSize];
     __weak typeof(self) ws = self;
     IMForwardPickerViewController *picker = [[IMForwardPickerViewController alloc]
         initWithHost:IMHTTPService.sharedService.host token:token onDone:^(NSArray<IMConversation *> *selected) {
@@ -961,21 +968,39 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
         if (!self || selected.count == 0) { return; }
         for (IMConversation *c in selected) {
             [self sendFavoriteContent:content contentType:ct fileName:fileName fileSize:fileSize forwardFrom:origin
-                               toConv:c.convID toUser:(c.isGroup ? @"" : (c.peer ?: @""))];
+                           attributes:attrs toConv:c.convID toUser:(c.isGroup ? @"" : (c.peer ?: @""))];
         }
         [self im_showToast:selected.count == 1 ? @"已转发" : [NSString stringWithFormat:@"已转发到 %lu 个会话", (unsigned long)selected.count]];
     }];
     [self presentViewController:[[UINavigationController alloc] initWithRootViewController:picker] animated:YES completion:nil];
 }
 
+/// 从收藏项取出转发要一并带走的媒体元数据（磨砂缩略/封面首帧/时长/像素尺寸/图说）；非媒体且无图说时返回 nil。
+- (IMMediaAttributes *)forwardAttributesFromFavorite:(NSDictionary *)f contentType:(NSString *)ct fileSize:(int64_t)fileSize {
+    BOOL isMedia = [ct isEqualToString:@"image"] || [ct isEqualToString:@"video"];
+    NSString *caption = [f[@"caption"] isKindOfClass:NSString.class] ? f[@"caption"] : nil;
+    if (!isMedia && caption.length == 0) { return nil; }
+    IMMediaAttributes *attrs = [IMMediaAttributes new];
+    if (isMedia) {
+        attrs.thumb = [f[@"thumb"] isKindOfClass:NSString.class] ? f[@"thumb"] : nil;   // 未下载态磨砂占位
+        attrs.poster = [f[@"poster"] isKindOfClass:NSString.class] ? f[@"poster"] : nil; // 视频封面首帧（Web 解不了 HEVC 时靠它出封面）
+        attrs.durationMillis = [f[@"duration"] respondsToSelector:@selector(longLongValue)] ? [f[@"duration"] longLongValue] : 0;
+        attrs.pixelWidth = [f[@"media_w"] respondsToSelector:@selector(integerValue)] ? [f[@"media_w"] integerValue] : 0;   // 收端按原比例定框，免加载后重排/裁方块
+        attrs.pixelHeight = [f[@"media_h"] respondsToSelector:@selector(integerValue)] ? [f[@"media_h"] integerValue] : 0;
+        attrs.fileSize = fileSize;
+    }
+    attrs.caption = caption; // 图说随转发跟随（Telegram 模型）；仅 image/video/file 生效
+    return attrs;
+}
+
 /// 发一条转发消息并本地落库（无聊天上下文不做即时回显；打开该会话即从 DB 见到）。
 - (void)sendFavoriteContent:(NSString *)content contentType:(NSString *)ct fileName:(NSString *)fileName fileSize:(int64_t)fileSize
-                forwardFrom:(NSString *)origin toConv:(NSString *)convID toUser:(NSString *)toUser {
+                forwardFrom:(NSString *)origin attributes:(IMMediaAttributes *)attributes toConv:(NSString *)convID toUser:(NSString *)toUser {
     IMMessageModel *m = [IMMessageModel new];
     int64_t sentAt = IMNowMillis();
     __weak typeof(self) ws = self;
     NSString *cmid = [IMSocketManager.sharedManager forwardContent:content contentType:ct toConv:convID toUser:toUser forwardFrom:origin
-                                                          fileName:fileName fileSize:fileSize
+                                                          fileName:fileName fileSize:fileSize attributes:attributes
                                                         completion:^(BOOL success, NSError *error, int64_t convSeq) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
@@ -987,6 +1012,13 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     m.content = content; m.contentType = ct;
     m.fileName = fileName.length ? fileName : nil; m.fileSize = fileSize;
     m.forwardFrom = origin.length ? origin : nil;
+    // 本地回显/落库也带上媒体元数据：重进会话从 DB 自愈时，缩略/封面/时长/尺寸/图说不丢。
+    m.thumb = attributes.thumb.length ? attributes.thumb : nil;
+    m.poster = attributes.poster.length ? attributes.poster : nil;
+    if (attributes.durationMillis > 0) { m.duration = attributes.durationMillis; }
+    m.mediaW = attributes.pixelWidth;
+    m.mediaH = attributes.pixelHeight;
+    m.caption = attributes.caption.length ? attributes.caption : nil;
     m.status = IMMessageStatusSending; m.timestamp = sentAt;
     [self performDatabaseOperation:^(IMDatabase *database) { [database saveMessage:m]; }];
 }
