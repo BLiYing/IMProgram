@@ -134,8 +134,8 @@
         if (self && [self->_url isEqualToString:want]) { self->_thumb.image = img; }
     };
     [self applyGate:gated ? dp : nil isVideo:item.isVideo];
-    // 就绪视频格右下角时长角标（有 duration 时；门控/失效态不显）。
-    NSString *durText = (item.isVideo && !gated && item.durationMillis > 0) ? IMFormatMediaDuration(item.durationMillis) : nil;
+    // 视频格右下角时长角标：**未下载也预显**（时长是发送时元数据，与下载态无关，Telegram 同）；失效态由上面 return 提前跳过。
+    NSString *durText = (item.isVideo && item.durationMillis > 0) ? IMFormatMediaDuration(item.durationMillis) : nil;
     _durChip.text = durText; _durChip.hidden = durText.length == 0; [self setNeedsLayout];
     if (gated) {
         // 门控格不拉原图/封面（方案 A·纯净门控）：只把内嵌 thumb 过高斯磨砂显示，与聊天气泡同款；无 thumb 留灰底。

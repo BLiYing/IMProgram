@@ -658,7 +658,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
                 [models addObject:m];
                 [items addObject:[IMMediaItem itemWithURL:IMMediaFullURL(m.content, host)
                                                   isVideo:[m.contentType isEqualToString:@"video"]
-                                                timestamp:m.timestamp thumb:nil durationMillis:m.duration]];
+                                                timestamp:m.timestamp thumb:m.thumb durationMillis:m.duration]];
             }
             _mediaFavs = out; _mediaModels = models; _mediaItems = items; _rows = @[];
         } else {
@@ -716,6 +716,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     m.fileName = [f[@"file_name"] isKindOfClass:NSString.class] && [f[@"file_name"] length] ? f[@"file_name"] : nil;
     m.fileSize = [f[@"file_size"] respondsToSelector:@selector(longLongValue)] ? [f[@"file_size"] longLongValue] : 0;
     m.duration = [f[@"duration"] respondsToSelector:@selector(longLongValue)] ? [f[@"duration"] longLongValue] : 0;
+    m.thumb = [f[@"thumb"] isKindOfClass:NSString.class] && [f[@"thumb"] length] ? f[@"thumb"] : nil;
     m.from = [f[@"source_from"] isKindOfClass:NSString.class] ? f[@"source_from"] : @"";
     m.timestamp = [f[@"created_at"] respondsToSelector:@selector(longLongValue)] ? [f[@"created_at"] longLongValue] : 0;
     _models[key] = m;
@@ -790,7 +791,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
             __strong typeof(ws) self = ws; IMMessageModel *mm = [self mediaModelAtIndex:i];
             return (self && mm) ? [self->_downloads stateForMessage:mm] : nil;
         };
-        cell.thumbForItemIndex = ^NSString *(NSInteger i) { return nil; }; // 收藏不存 thumb
+        cell.thumbForItemIndex = ^NSString *(NSInteger i) { __strong typeof(ws) self = ws; return [self mediaModelAtIndex:i].thumb; }; // 收藏现存 thumb（磨砂占位）
         cell.onDownloadItemIndex = ^(NSInteger i) {
             __strong typeof(ws) self = ws; IMMessageModel *mm = [self mediaModelAtIndex:i];
             if (self && mm) { [self->_downloads handleTapForMessage:mm]; }

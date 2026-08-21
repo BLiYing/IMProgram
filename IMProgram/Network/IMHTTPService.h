@@ -373,6 +373,7 @@ BOOL IMIsAuthErrorCode(NSInteger code);
                     fileName:(nullable NSString *)fileName
                     fileSize:(int64_t)fileSize
                     duration:(int64_t)duration
+                       thumb:(nullable NSString *)thumb
                 sourceConvID:(nullable NSString *)sourceConvID
                sourceConvSeq:(int64_t)sourceConvSeq
                   sourceFrom:(nullable NSString *)sourceFrom

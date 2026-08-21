@@ -314,6 +314,7 @@ BOOL IMIsTransientNetworkError(NSError *error) {
                     fileName:(NSString *)fileName
                     fileSize:(int64_t)fileSize
                     duration:(int64_t)duration
+                       thumb:(NSString *)thumb
                 sourceConvID:(NSString *)sourceConvID
                sourceConvSeq:(int64_t)sourceConvSeq
                   sourceFrom:(NSString *)sourceFrom
@@ -325,6 +326,7 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     if (fileName.length > 0) { body[@"file_name"] = fileName; } // 文件收藏保真（转发/展示）
     if (fileSize > 0) { body[@"file_size"] = @(fileSize); }
     if (duration > 0) { body[@"duration"] = @(duration); } // 视频/语音时长（媒体宫格角标）
+    if (thumb.length > 0) { body[@"thumb"] = thumb; } // 磨砂占位缩略（图片/视频未下载态）
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/favorites" method:@"POST" token:token body:body];
     [self runOKRequest:req fallback:@"收藏失败" completion:completion];
 }

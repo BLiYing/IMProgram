@@ -215,6 +215,7 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
             [_progressWrap.trailingAnchor constraintLessThanOrEqualToAnchor:_thumb.trailingAnchor constant:-kIMBadgeInset],
             [_durationWrap.leadingAnchor constraintEqualToAnchor:_thumb.leadingAnchor constant:kIMBadgeInset],
             [_durationWrap.topAnchor constraintEqualToAnchor:_thumb.topAnchor constant:kIMBadgeInset],
+            [_durationWrap.trailingAnchor constraintLessThanOrEqualToAnchor:_thumb.trailingAnchor constant:-kIMBadgeInset],
             [_metaWrap.trailingAnchor constraintEqualToAnchor:_thumb.trailingAnchor constant:-kIMBadgeInset],
             [_metaWrap.bottomAnchor constraintEqualToAnchor:_thumb.bottomAnchor constant:-kIMBadgeInset],
             [_metaWrap.leadingAnchor constraintGreaterThanOrEqualToAnchor:_thumb.leadingAnchor constant:kIMBadgeInset],
@@ -265,6 +266,7 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     label.translatesAutoresizingMaskIntoConstraints = NO;
     label.font = [UIFont monospacedDigitSystemFontOfSize:11 weight:UIFontWeightMedium];
     label.textColor = IMTheme.mediaBadgeText;
+    label.lineBreakMode = NSLineBreakByTruncatingTail; // 极端宽高比：裁剪而非溢出气泡
     [wrap addSubview:label];
     [NSLayoutConstraint activateConstraints:@[
         [wrap.heightAnchor constraintEqualToConstant:kIMBadgeHeight],
@@ -477,12 +479,18 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     _thumb.accessibilityLabel = dp ? [dp accessibilityText]
         : (_gatedSizeBytes > 0 ? [NSString stringWithFormat:@"下载，%@", IMFormatFileSize(_gatedSizeBytes)] : @"下载");
 
-    // 左上角：未下载=尺寸（+时长）；下载中/暂停=已下/总；失败=下载失败。
+    // 左上角单块角标（防溢出：进度与时长不再各占一块）：
+    //   未下载 = 「时长 · 大小」（时长在前）；下载中/暂停 = 只显进度（**藏时长**，腾出空间）；失败 = 失败文案。
     NSString *sizeText = _gatedSizeBytes > 0 ? IMFormatFileSize(_gatedSizeBytes) : nil;
-    NSString *stateText = (dp && dp.phase != IMDownloadPhaseNotStarted) ? [dp displayText] : sizeText;
+    BOOL active = dp && dp.phase != IMDownloadPhaseNotStarted; // 下载中/暂停/失败
     NSMutableArray<NSString *> *parts = [NSMutableArray array];
-    if (stateText.length > 0) { [parts addObject:stateText]; }
-    if (_gatedDurationText.length > 0) { [parts addObject:_gatedDurationText]; }
+    if (active) {
+        NSString *st = [dp displayText];
+        if (st.length > 0) { [parts addObject:st]; } // 下载中/暂停/失败：只状态，不并时长
+    } else {
+        if (_gatedDurationText.length > 0) { [parts addObject:_gatedDurationText]; } // 未下载：时长在前
+        if (sizeText.length > 0) { [parts addObject:sizeText]; }
+    }
     _progressLabel.text = [parts componentsJoinedByString:@" · "];
     _progressWrap.hidden = parts.count == 0;
     _progressWrap.backgroundColor = (dp.phase == IMDownloadPhaseFailed) ? IMTheme.danger : IMTheme.mediaBadgeBackground;
