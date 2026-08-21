@@ -21,6 +21,12 @@
     it.url = url; it.isVideo = isVideo; it.timestamp = timestamp; it.thumb = thumb;
     return it;
 }
++ (instancetype)itemWithURL:(NSString *)url isVideo:(BOOL)isVideo timestamp:(int64_t)timestamp
+                      thumb:(NSString *)thumb durationMillis:(int64_t)durationMillis {
+    IMMediaItem *it = [self itemWithURL:url isVideo:isVideo timestamp:timestamp thumb:thumb];
+    it.durationMillis = durationMillis;
+    return it;
+}
 @end
 
 #pragma mark - 媒体库

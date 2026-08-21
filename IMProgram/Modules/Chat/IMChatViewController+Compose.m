@@ -304,6 +304,7 @@
     [IMHTTPService.sharedService addFavoriteWithToken:token contentType:(message.contentType ?: @"text")
                                               content:message.content caption:message.caption
                                              fileName:message.fileName fileSize:message.fileSize
+                                             duration:message.duration
                                          sourceConvID:message.convID
                                         sourceConvSeq:message.convSeq sourceFrom:(message.from ?: @"")
                                            completion:^(NSError *error) {

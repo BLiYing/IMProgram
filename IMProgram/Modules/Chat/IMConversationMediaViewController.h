@@ -15,9 +15,12 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) BOOL      isVideo;
 @property (nonatomic, assign) int64_t   timestamp; ///< 毫秒
 @property (nonatomic, copy, nullable) NSString *thumb; ///< 内嵌极小模糊缩略 dataURI（M4-7 门控占位；无则退灰底）
+@property (nonatomic, assign) int64_t durationMillis; ///< 视频时长（毫秒；0=未知）：就绪视频格右下角时长角标
 + (instancetype)itemWithURL:(NSString *)url isVideo:(BOOL)isVideo timestamp:(int64_t)timestamp;
 + (instancetype)itemWithURL:(NSString *)url isVideo:(BOOL)isVideo timestamp:(int64_t)timestamp
                       thumb:(nullable NSString *)thumb;
++ (instancetype)itemWithURL:(NSString *)url isVideo:(BOOL)isVideo timestamp:(int64_t)timestamp
+                      thumb:(nullable NSString *)thumb durationMillis:(int64_t)durationMillis;
 @end
 
 @interface IMConversationMediaViewController : UIViewController

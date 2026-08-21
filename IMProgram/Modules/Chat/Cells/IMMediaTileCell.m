@@ -1,6 +1,7 @@
 //  IMMediaTileCell.m
 
 #import "IMMediaTileCell.h"
+#import "IMMediaFormat.h" // IMFormatMediaDuration
 #import "IMDownloadProgress.h"
 #import "IMImageLoader.h"
 #import "IMVideoThumbnailLoader.h"
@@ -10,7 +11,7 @@
 
 @implementation IMMediaTileCell {
     UIImageView *_thumb; UIImageView *_play; NSString *_url;
-    UIView *_dim; CAShapeLayer *_ringBG; CAShapeLayer *_ring; UILabel *_sizeChip;
+    UIView *_dim; CAShapeLayer *_ringBG; CAShapeLayer *_ring; UILabel *_sizeChip; UILabel *_durChip;
     UIImageView *_expiredBadge; // 中心 ⊘（曾可用、被服务端清理）
 }
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -49,6 +50,14 @@
         _sizeChip.layer.cornerRadius = 7; _sizeChip.clipsToBounds = YES;
         _sizeChip.hidden = YES;
         [self.contentView addSubview:_sizeChip];
+        _durChip = [UILabel new];
+        _durChip.font = [UIFont monospacedDigitSystemFontOfSize:9 weight:UIFontWeightMedium];
+        _durChip.textColor = UIColor.whiteColor;
+        _durChip.backgroundColor = [UIColor colorWithWhite:0 alpha:0.5];
+        _durChip.textAlignment = NSTextAlignmentCenter;
+        _durChip.layer.cornerRadius = 7; _durChip.clipsToBounds = YES;
+        _durChip.hidden = YES;
+        [self.contentView addSubview:_durChip]; // 就绪视频格右下角时长角标
 
         _expiredBadge = [[UIImageView alloc] initWithImage:[IMMediaPlaceholder expiredGlyphImage]];
         _expiredBadge.translatesAutoresizingMaskIntoConstraints = NO;
@@ -76,6 +85,11 @@
     [super layoutSubviews];
     CGSize s = [_sizeChip sizeThatFits:CGSizeMake(CGFLOAT_MAX, 14)];
     _sizeChip.frame = CGRectMake(3, 3, s.width + 8, 14);
+    if (!_durChip.hidden) {
+        CGSize ds = [_durChip sizeThatFits:CGSizeMake(CGFLOAT_MAX, 14)];
+        CGFloat dw = ds.width + 8;
+        _durChip.frame = CGRectMake(self.bounds.size.width - dw - 3, self.bounds.size.height - 14 - 3, dw, 14);
+    }
     if (_ring.hidden && _ringBG.hidden) { return; }
     CGRect f = CGRectMake((self.bounds.size.width - 34) / 2, (self.bounds.size.height - 34) / 2, 34, 34);
     [CATransaction begin]; [CATransaction setDisableActions:YES];
@@ -106,6 +120,7 @@
         [self applyGate:nil isVideo:NO]; // 清掉门控层（环/尺寸/播放键）
         _play.hidden = YES;
         _expiredBadge.hidden = NO;
+        _durChip.hidden = YES;
         _thumb.alpha = 0.5;
         applyFrost(thumb);
         return;
@@ -119,6 +134,9 @@
         if (self && [self->_url isEqualToString:want]) { self->_thumb.image = img; }
     };
     [self applyGate:gated ? dp : nil isVideo:item.isVideo];
+    // 就绪视频格右下角时长角标（有 duration 时；门控/失效态不显）。
+    NSString *durText = (item.isVideo && !gated && item.durationMillis > 0) ? IMFormatMediaDuration(item.durationMillis) : nil;
+    _durChip.text = durText; _durChip.hidden = durText.length == 0; [self setNeedsLayout];
     if (gated) {
         // 门控格不拉原图/封面（方案 A·纯净门控）：只把内嵌 thumb 过高斯磨砂显示，与聊天气泡同款；无 thumb 留灰底。
         applyFrost(thumb);

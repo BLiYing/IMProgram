@@ -510,7 +510,7 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
             [items addObject:[IMMediaItem itemWithURL:IMMediaFullURL(m.content, self.host)
                                               isVideo:[m.contentType isEqualToString:@"video"]
                                             timestamp:m.timestamp
-                                                thumb:m.thumb]];
+                                                thumb:m.thumb durationMillis:m.duration]];
         }
         self.tabMediaMessages = sorted;
         self.tabMedia = items;

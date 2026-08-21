@@ -84,7 +84,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
 #pragma mark - 行 Cell（链接 / 文本 / 聊天记录 / 语音：统一 52pt 图标列，§4.1 / §12）
 
 @interface IMFavoriteRowCell : UITableViewCell
-- (void)configureWithFavorite:(NSDictionary *)fav kind:(IMFavoriteCategory)kind;
+- (void)configureWithFavorite:(NSDictionary *)fav kind:(IMFavoriteCategory)kind source:(nullable NSString *)source;
 @end
 @implementation IMFavoriteRowCell { UIView *_tile; UIImageView *_glyph; UILabel *_title; UILabel *_meta; }
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
@@ -127,12 +127,12 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     }
     return self;
 }
-- (void)configureWithFavorite:(NSDictionary *)fav kind:(IMFavoriteCategory)kind {
+- (void)configureWithFavorite:(NSDictionary *)fav kind:(IMFavoriteCategory)kind source:(NSString *)source {
     NSString *content = [fav[@"content"] isKindOfClass:NSString.class] ? fav[@"content"] : @"";
     int64_t createdAt = [fav[@"created_at"] respondsToSelector:@selector(longLongValue)] ? [fav[@"created_at"] longLongValue] : 0;
     UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:20 weight:UIImageSymbolWeightSemibold];
     _title.textColor = IMTheme.textPrimary;
-    _title.numberOfLines = 3;
+    _title.numberOfLines = 2; // 文本封顶 2 行，给副行「来自X · 时间」留位（#1）
     NSString *symbol = @"text.quote";
     switch (kind) {
         case IMFavoriteCategoryLinks:
@@ -148,7 +148,11 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
             _title.text = content; break;
     }
     _glyph.image = [[UIImage systemImageNamed:symbol withConfiguration:cfg] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
-    _meta.text = createdAt > 0 ? [IMTheme dayHeaderStringFromMillis:createdAt] : @"";
+    NSString *when = createdAt > 0 ? IMFormatFileDateTime(createdAt) : @"";
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    if (source.length > 0) { [parts addObject:[@"来自" stringByAppendingString:source]]; }
+    if (when.length > 0) { [parts addObject:when]; }
+    _meta.text = [parts componentsJoinedByString:@" · "];
 }
 @end
 
@@ -163,7 +167,11 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     if (self) {
         _avatar = [UILabel new];
         _avatar.translatesAutoresizingMaskIntoConstraints = NO;
-        _avatar.layer.cornerRadius = 23; _avatar.clipsToBounds = YES;
+        // 复用会话列表 cell 的头像视觉：im_setAvatarURL: 只设首字母文本+底色，字号/白字/居中/圆裁剪须调用方给（否则首字母黑字小号左对齐）。
+        _avatar.textColor = UIColor.whiteColor;
+        _avatar.textAlignment = NSTextAlignmentCenter;
+        _avatar.font = [UIFont systemFontOfSize:18 weight:UIFontWeightSemibold];
+        _avatar.layer.cornerRadius = 23; _avatar.layer.masksToBounds = YES;
         [self.contentView addSubview:_avatar];
         _name = [UILabel new]; _name.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold]; _name.textColor = IMTheme.textPrimary;
         _preview = [UILabel new]; _preview.font = [UIFont systemFontOfSize:13]; _preview.textColor = IMTheme.textSecondary; _preview.lineBreakMode = NSLineBreakByTruncatingTail;
@@ -553,20 +561,12 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
         if (!g) {
             g = [IMFavoriteSourceGroup new];
             g.key = key;
-            if ([key isEqualToString:kIMFavoritesMeBucket]) {
-                g.name = @"我的"; g.seed = _selfUID ?: @"me"; g.avatarURL = nil;
-            } else {
-                IMConversation *c = _convByID[key];
-                if (c.isGroup) {
-                    g.name = c.remark.length ? c.remark : (c.name.length ? c.name : @"群聊");
-                    g.avatarURL = IMMediaFullURL(c.avatarURL, IMHTTPService.sharedService.host); g.seed = c.convID;
-                } else if (c) {
-                    g.name = c.remark.length ? c.remark : (c.peerNickname.length ? c.peerNickname : (c.peer ?: key));
-                    g.avatarURL = IMMediaFullURL(c.peerAvatarURL, IMHTTPService.sharedService.host); g.seed = c.peer ?: key;
-                } else {
-                    g.name = key; g.seed = key; g.avatarURL = nil; // 来源会话已不存在：显 id 兜底、不隐藏（已拍板③）
-                }
-            }
+            IMConversation *c = [key isEqualToString:kIMFavoritesMeBucket] ? nil : _convByID[key];
+            g.name = [self displayNameForGroupKey:key conversation:c];
+            if ([key isEqualToString:kIMFavoritesMeBucket]) { g.seed = _selfUID ?: @"me"; g.avatarURL = nil; }
+            else if (c.isGroup) { g.avatarURL = IMMediaFullURL(c.avatarURL, IMHTTPService.sharedService.host); g.seed = c.convID; }
+            else if (c) { g.avatarURL = IMMediaFullURL(c.peerAvatarURL, IMHTTPService.sharedService.host); g.seed = c.peer ?: key; }
+            else { g.seed = key; g.avatarURL = nil; } // 来源会话已不存在：显 id 兜底、不隐藏（已拍板③）
             map[key] = g;
         }
         g.count += 1;
@@ -575,6 +575,21 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     _groups = [map.allValues sortedArrayUsingComparator:^NSComparisonResult(IMFavoriteSourceGroup *a, IMFavoriteSourceGroup *b) {
         return a.latest > b.latest ? NSOrderedAscending : (a.latest < b.latest ? NSOrderedDescending : NSOrderedSame);
     }];
+}
+
+/// 来源分组显示名（会话备注>群名/对端昵称>id；「我的」桶=「我」）——rebuildGroups 与非媒体行「来自X」共用。
+- (NSString *)displayNameForGroupKey:(NSString *)key conversation:(IMConversation *)c {
+    if ([key isEqualToString:kIMFavoritesMeBucket]) { return @"我"; }
+    if (c.isGroup) { return c.remark.length ? c.remark : (c.name.length ? c.name : @"群聊"); }
+    if (c) { return c.remark.length ? c.remark : (c.peerNickname.length ? c.peerNickname : (c.peer ?: key)); }
+    return key; // 会话不在本地缓存：显 id 兜底
+}
+
+/// 非媒体行副行「来自X」：按 source_conv_id 归组后取组名（自己发/无来源=「我」）。
+- (NSString *)sourceNameForFavorite:(NSDictionary *)f {
+    NSString *key = [self groupKeyOf:f];
+    IMConversation *c = [key isEqualToString:kIMFavoritesMeBucket] ? nil : _convByID[key];
+    return [self displayNameForGroupKey:key conversation:c];
 }
 
 - (NSString *)previewOf:(NSDictionary *)f {
@@ -619,7 +634,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
                 [models addObject:m];
                 [items addObject:[IMMediaItem itemWithURL:IMMediaFullURL(m.content, host)
                                                   isVideo:[m.contentType isEqualToString:@"video"]
-                                                timestamp:m.timestamp thumb:nil]];
+                                                timestamp:m.timestamp thumb:nil durationMillis:m.duration]];
             }
             _mediaFavs = out; _mediaModels = models; _mediaItems = items; _rows = @[];
         } else {
@@ -676,6 +691,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     m.caption = [f[@"caption"] isKindOfClass:NSString.class] && [f[@"caption"] length] ? f[@"caption"] : nil;
     m.fileName = [f[@"file_name"] isKindOfClass:NSString.class] && [f[@"file_name"] length] ? f[@"file_name"] : nil;
     m.fileSize = [f[@"file_size"] respondsToSelector:@selector(longLongValue)] ? [f[@"file_size"] longLongValue] : 0;
+    m.duration = [f[@"duration"] respondsToSelector:@selector(longLongValue)] ? [f[@"duration"] longLongValue] : 0;
     m.from = [f[@"source_from"] isKindOfClass:NSString.class] ? f[@"source_from"] : @"";
     m.timestamp = [f[@"created_at"] respondsToSelector:@selector(longLongValue)] ? [f[@"created_at"] longLongValue] : 0;
     _models[key] = m;
@@ -778,7 +794,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
         return fc;
     }
     IMFavoriteRowCell *cell = [tableView dequeueReusableCellWithIdentifier:@"row" forIndexPath:indexPath];
-    [cell configureWithFavorite:f kind:_selectedKind];
+    [cell configureWithFavorite:f kind:_selectedKind source:[self sourceNameForFavorite:f]];
     cell.selectionStyle = UITableViewCellSelectionStyleNone;
     return cell;
 }
