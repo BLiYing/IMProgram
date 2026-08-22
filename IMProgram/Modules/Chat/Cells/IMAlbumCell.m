@@ -204,20 +204,22 @@
 - (void)setSelecting:(BOOL)selecting selected:(BOOL)selected {
     _checkbox.hidden = !selecting;
     if (!selecting) { return; }
-    UIImageSymbolConfiguration *size = [UIImageSymbolConfiguration configurationWithPointSize:22 weight:UIImageSymbolWeightRegular];
+    // 手工合成（不用 SF Symbol 双层 palette——checkmark.circle.fill 实为单层/knockout，palette 与
+    // AlwaysOriginal+tintColor 都不吃 accent，之前恒蓝根因在此）：imageView 自身 backgroundColor 当圆底、
+    // image 当对勾，**颜色完全受控、随 IMTheme.accent 主题色走，与左侧系统圈一致**。
+    _checkbox.layer.cornerRadius = 11; // 22/2 → 正圆
+    _checkbox.clipsToBounds = YES;
     if (selected) {
-        // 选中：与左侧系统多选圈同款——accent 实心圆 + 白色对勾，**跟随 app 主题色**。
-        // 用 palette（对勾=白、圆=accent）而非 tintColor：checkmark.circle.fill 是双层符号，
-        // 单一 tint（template）会让对勾与圆同色而看不见；此前用 AlwaysOriginal+tintColor 则 tint 被忽略、恒蓝（bug）。
-        UIImageSymbolConfiguration *palette = [UIImageSymbolConfiguration configurationWithPaletteColors:@[UIColor.whiteColor, IMTheme.accent]];
-        UIImageSymbolConfiguration *cfg = [size configurationByApplyingConfiguration:palette];
-        _checkbox.image = [[UIImage systemImageNamed:@"checkmark.circle.fill" withConfiguration:cfg]
-                           imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal]; // palette 颜色已烘焙，用 Original 保留
+        _checkbox.backgroundColor = IMTheme.accent;   // accent 实心圆（跟随主题）
+        _checkbox.layer.borderWidth = 0;
+        UIImageSymbolConfiguration *checkCfg = [UIImageSymbolConfiguration configurationWithPointSize:13 weight:UIImageSymbolWeightBold];
+        _checkbox.image = [[UIImage systemImageNamed:@"checkmark" withConfiguration:checkCfg] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+        _checkbox.tintColor = UIColor.whiteColor;      // 白色对勾
     } else {
-        // 未选：空心白圈（半透明底衬避免压在亮图上看不清）。
-        _checkbox.image = [[UIImage systemImageNamed:@"circle" withConfiguration:size]
-                           imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
-        _checkbox.tintColor = [UIColor colorWithWhite:1 alpha:0.95];
+        _checkbox.backgroundColor = [UIColor colorWithWhite:0 alpha:0.28]; // 半透明底衬（压在亮图上仍可辨）
+        _checkbox.layer.borderWidth = 1.5;
+        _checkbox.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.95].CGColor;
+        _checkbox.image = nil;
     }
     [self bringSubviewToFront:_checkbox];
 }
