@@ -4,6 +4,7 @@
 
 #import "IMChatViewController+Private.h"
 #import "IMChatSearchState.h"   // 搜索态命中词（cell 高亮）
+#import "IMChatSelectionState.h" // 多选态逐格勾选集（selectedMediaSeqs）
 #import "IMMediaDownloadCoordinator.h"
 #import "IMMediaSendService.h"
 #import "IMMessageModel.h"
@@ -149,6 +150,16 @@
         alb.onDownloadItem = ^(IMMessageModel *mm) {
             __strong typeof(wsAlbDl) self = wsAlbDl;
             if (self) { [self.downloads handleTapForMessage:mm]; }
+        };
+        // 多选态逐格勾选（2a）：查询/切换单格选中；整组全选态由 didSelect/didDeselect 与 toggle 同步到左侧系统圈。
+        __weak typeof(self) wsAlbSel = self;
+        alb.isMemberSelected = ^BOOL(IMMessageModel *mm) {
+            __strong typeof(wsAlbSel) self = wsAlbSel;
+            return self && mm.convSeq > 0 && [self.selectionState.selectedMediaSeqs containsObject:@(mm.convSeq)];
+        };
+        alb.onToggleMember = ^(IMMessageModel *mm) {
+            __strong typeof(wsAlbSel) self = wsAlbSel;
+            if (self) { [self toggleAlbumMemberSelection:mm]; }
         };
         [alb configureWithMembers:members mine:mineAlb host:self.host
                          previews:self.outboxPreviews progress:self.outboxProgress senderName:senderNameAlb
@@ -303,8 +314,9 @@
         fileProgress = [IMUploadProgress failedProgress]; // 重进会话：内存进度已空，按落库状态补
     }
     cell.uploadProgress = fileProgress;
-    // 收到的文件：下载态（M4-7）。自己发的走上传态、二者互斥；有上传态时不叠加下载态。
-    cell.downloadProgress = (!mine && !fileProgress && [m.contentType isEqualToString:@"file"])
+    // 文件下载态（M4-7 / 1d）：自己发的与收到的同款——本机有原件即无门控（点开 QuickLook），
+    // 清缓存后回落 ↓/下载。上传态优先、二者互斥（有上传态时不叠加下载态）。
+    cell.downloadProgress = (!fileProgress && [m.contentType isEqualToString:@"file"])
         ? [self.downloads stateForMessage:m] : nil;
     // 图标位点击：上传态=发送状态机（⏸/↑/↻/✕）；下载态=下载状态机（↓/⏸/↻）；就绪/完成态不挂（点整条气泡打开）。
     if (fileProgress && [m.contentType isEqualToString:@"file"]) {
@@ -356,9 +368,10 @@
 
 #pragma mark - 相册聚簇（M4+：同 group_id 的多图/视频渲染为一个宫格）
 
-/// 相册成员判定：有 group_id 的图片/视频且未撤回。**多选态不聚簇**（展开成独立行以便逐条勾选/转发）。
+/// 相册成员判定：有 group_id 的图片/视频且未撤回。**多选态同样聚簇**（整组作为一个勾选单位，不再拆成
+/// 独立行——勾选宫格 leader 行即选中整组，见 Selection 的 selectedMessages 展开）。
 - (BOOL)isAlbumMember:(IMMessageModel *)m {
-    return !self.selecting && m.groupID.length > 0 && m.recalledAt == 0
+    return m.groupID.length > 0 && m.recalledAt == 0
         && ([m.contentType isEqualToString:@"image"] || [m.contentType isEqualToString:@"video"]);
 }
 

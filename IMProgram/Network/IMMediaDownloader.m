@@ -100,6 +100,20 @@ static const void *kIMDownloadHandleAssocKey = &kIMDownloadHandleAssocKey;
     return url && [NSFileManager.defaultManager fileExistsAtPath:url.path];
 }
 
++ (BOOL)adoptFileAtPath:(NSString *)path forContent:(NSString *)content {
+    if (path.length == 0 || content.length == 0) { return NO; }
+    NSFileManager *fm = NSFileManager.defaultManager;
+    if (![fm fileExistsAtPath:path]) { return NO; }
+    NSURL *dest = [self cachedFileURLForContent:content];
+    if (!dest) { return NO; }
+    if ([fm fileExistsAtPath:dest.path]) { return YES; } // 已有（如二次），视作成功
+    [fm createDirectoryAtURL:dest.URLByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:NULL];
+    NSURL *src = [NSURL fileURLWithPath:path];
+    // 优先 move（近乎瞬时、不占额外空间）；跨卷失败回退 copy。
+    if ([fm moveItemAtURL:src toURL:dest error:NULL]) { return YES; }
+    return [fm copyItemAtURL:src toURL:dest error:NULL];
+}
+
 - (IMMediaDownloadTask *)taskForKey:(NSString *)key {
     return key.length > 0 ? _tasks[key] : nil;
 }

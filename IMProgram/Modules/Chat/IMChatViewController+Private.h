@@ -16,6 +16,7 @@
 
 @class IMMediaDownloadCoordinator;
 @class IMChatSearchState;
+@class IMChatSelectionState;
 @class IMDatabaseAccountContext;
 @class IMMentionPickerViewController;
 @class IMMessageModel;
@@ -91,7 +92,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, strong, nullable) IMMessageModel *replyingTo; // 正在引用回复的目标（M4-2）
 @property (nonatomic, strong, nullable) IMMessageModel *editingMessage; // 正在编辑的目标（M4-5）
 @property (nonatomic, assign) BOOL selecting;                 // 多选态（#2）
-@property (nonatomic, strong, nullable) UIView *selectionBar; // 多选底部工具栏（转发/收藏/删除）
+@property (nonatomic, strong, nullable) UIView *selectionBar; // 多选底部工具栏（转发/收藏/删除；缓存复用，跨进出）
+@property (nonatomic, strong, nullable) IMChatSelectionState *selectionState; // 多选态状态袋（逐格勾选集/表底约束/选择栏底边，进入创建退出置 nil，见 IMChatSelectionState.h）
 @property (nonatomic, strong, nullable) UIBarButtonItem *savedRightItem; // 多选前的右上按钮，退出恢复
 @property (nonatomic, copy, nullable) NSString *savedTitle;   // 多选前标题
 @property (nonatomic, strong, nullable) UIView *attachPanel; // 附件面板（M4-6，加号弹出，展开时顶起输入栏、显示在其下方）
@@ -226,6 +228,7 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (IMMessageModel *)messageForClientMsgID:(NSString *)clientMsgID;
 - (BOOL)isAlbumFollowerAtRow:(NSInteger)row;
 - (NSUInteger)visibleRowForMessage:(IMMessageModel *)m;
+- (NSArray<IMMessageModel *> *)albumMembersForGroupID:(NSString *)gid; // 多选态整组勾选展开用（Selection 调）
 
 // 滚动 / 键盘 / 进会话定位 / 已读上报 / 在线态：
 - (void)updateInputBottomAnimated:(BOOL)animated;
@@ -272,6 +275,9 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 
 // 多选 / 转发：
 - (void)enterSelectionWithMessage:(IMMessageModel *)message;
+- (void)toggleAlbumMemberSelection:(IMMessageModel *)member; // 相册逐格勾选切换（2a，DataSource 的格点击块调）
+- (void)extendTableBottomForSelection; // 多选期间壁纸铺到底（Search 退出时若仍在多选需接管调用）
+- (void)updateSelectionBarBottomAnchor; // 选择栏底边随搜索态重定位（Search 进/出时若在多选需重排堆叠）
 - (void)updateSelectionUI;
 - (IMMediaAttributes *)forwardAttributesForMessage:(IMMessageModel *)message;
 - (void)forwardEchoContent:(NSString *)content contentType:(NSString *)ct forwardFrom:(NSString *)origin

@@ -13,33 +13,49 @@
 #import "IMMediaExpiryRegistry.h"
 #import "IMTheme.h"
 #import "IMTimeUtil.h"
+#import "IMGlass.h"
+#import "IMAlbumCell.h"
+#import "IMChatSearchState.h"
+#import "IMChatSelectionState.h"
 #import "UIViewController+IMToast.h"
+
+static const CGFloat kIMSelectionBarH = 60; // 底部选择栏高度（与搜索导航同构：透明贴底、定高、玻璃钮居中）
 
 @implementation IMChatViewController (Selection)
 
 #pragma mark - 多选态（#2：转发/收藏/删除）
 
 /// 进入多选：表格进入编辑多选态，隐藏输入栏、显示底部工具栏，并默认选中触发的那条。
-/// 列表**锚定长按的那条消息不动**：宫格展开为独立行会让行结构/总高度剧变，不锚定就会跳到别处。
+/// 列表**锚定长按的那条消息不动**（相册成员锚到其宫格 leader 行），避免进出多选时视口漂移。
 - (void)enterSelectionWithMessage:(IMMessageModel *)message {
     if (self.selecting) { return; }
     self.selecting = YES;
+    self.selectionState = [IMChatSelectionState new];          // 多选态状态袋：进入创建、退出置 nil 整体释放
+    self.selectionState.selectedMediaSeqs = [NSMutableSet set]; // 相册逐格勾选集（2a），每次进多选清空
     [self showAttachPanel:NO];
     [self cancelReply];
     [self.inputField resignFirstResponder];
 
-    NSUInteger row = [self.messages indexOfObject:message];
+    // 长按某相册格 → 只预选该格（左侧全选圈不主动打勾）；非相册消息 → 预选其整行。锚定用宫格 leader 行防漂移。
+    BOOL triggeredAlbum = [self isAlbumMember:message] && message.convSeq > 0;
+    if (triggeredAlbum) { [self.selectionState.selectedMediaSeqs addObject:@(message.convSeq)]; }
+    NSUInteger row = [self visibleRowForMessage:message];
+    if (row == NSNotFound) { row = [self.messages indexOfObject:message]; }
     [self preserveScreenPositionOfRow:row during:^{
         self.tableView.allowsMultipleSelectionDuringEditing = YES;
         [self.tableView setEditing:YES animated:NO];
-        [self.tableView reloadData]; // 相册宫格展开为独立行（逐条可勾选）；isAlbumMember 在多选态恒 NO
+        [self.tableView reloadData]; // 相册宫格保持聚簇（整组一个勾选单位），仅切换到编辑态显左侧勾选圈
         // 已在屏上的 cell 不会再走 willDisplay，就地改 selectionStyle 让勾选态可见（#5）。
         for (UITableViewCell *c in self.tableView.visibleCells) { [self applySelectionStyleForCell:c]; }
     }];
 
+    [self extendTableBottomForSelection]; // 壁纸铺到底：透明选择栏后的玻璃钮浮在壁纸上、无背景
     [self buildSelectionBarIfNeeded];
+    [self.view bringSubviewToFront:self.selectionBar];
     self.selectionBar.hidden = NO;
     self.inputBar.hidden = YES;
+    // 与搜索共存：不隐藏搜索底部导航——选择栏堆叠在其**上方**（updateSelectionBarBottomAnchor 已按搜索态定位）。
+    [self updateSelectionBarBottomAnchor];
 
     self.savedTitle = self.title;
     self.savedRightItem = self.navigationItem.rightBarButtonItem;
@@ -50,7 +66,11 @@
         [[UIBarButtonItem alloc] initWithTitle:@"取消" style:UIBarButtonItemStylePlain
                                         target:self action:@selector(exitSelection)];
 
-    if (row != NSNotFound) {
+    // 相册格：勾选态在逐格 checkbox（selectedMediaSeqs），只在整组恰好只有这一格时才让左圈打勾；
+    // 非相册消息：预选其整行。
+    if (triggeredAlbum) {
+        [self syncAlbumRowSelectionForGroupID:message.groupID];
+    } else if (row != NSNotFound) {
         [self.tableView selectRowAtIndexPath:[NSIndexPath indexPathForRow:(NSInteger)row inSection:0]
                                     animated:NO scrollPosition:UITableViewScrollPositionNone];
     }
@@ -64,11 +84,15 @@
     NSIndexPath *anchor = self.tableView.indexPathsForVisibleRows.firstObject;
     [self preserveScreenPositionOfRow:(anchor ? (NSUInteger)anchor.row : NSNotFound) during:^{
         [self.tableView setEditing:NO animated:NO];
-        [self.tableView reloadData]; // 相册宫格恢复聚簇渲染
+        [self.tableView reloadData]; // 退出编辑态；相册宫格始终聚簇渲染（进出多选不再重排行结构）
         for (UITableViewCell *c in self.tableView.visibleCells) { [self applySelectionStyleForCell:c]; }
     }];
     self.selectionBar.hidden = YES;
-    self.inputBar.hidden = NO;
+    self.selectionState.barBottom.active = NO;          // 复位选择栏底边约束
+    [self restoreTableBottomForSelection];              // 还原表底（若搜索态在，则表底由搜索维持、此处是 no-op）
+    self.selectionState = nil;                          // 整袋释放（逐格勾选集 / 表底约束 / 选择栏底边）
+    // 与搜索共存：仍在搜索态则搜索栏本就一直显示、输入栏保持隐藏；否则恢复输入栏。
+    self.inputBar.hidden = self.searchState.searching ? YES : NO;
     self.title = self.savedTitle;
     self.navigationItem.leftBarButtonItem = nil; // 恢复默认返回
     self.navigationItem.rightBarButtonItem = self.savedRightItem;
@@ -95,58 +119,159 @@
 
 - (void)buildSelectionBarIfNeeded {
     if (self.selectionBar) { return; }
+    // 与会话内搜索底部导航同构：**透明**容器贴底部安全区、定高，三个独立圆形 Liquid Glass 按钮浮在（铺到底的）壁纸上，
+    // 无任何工具栏背景。壁纸铺到底由 extendTableBottomForSelection 负责（否则钮后会露 self.view 纯色底）。
     UIView *bar = [UIView new];
     bar.translatesAutoresizingMaskIntoConstraints = NO;
-    bar.backgroundColor = UIColor.secondarySystemBackgroundColor;
+    bar.backgroundColor = UIColor.clearColor;
     [self.view addSubview:bar];
     self.selectionBar = bar;
+
+    // 删除钮：点击不直接删，而是**在按钮上方弹出「仅为我删除」菜单**（UIMenu 作主操作，系统自动锚到钮上方），
+    // 点「仅为我删除」才执行——与用户要求一致；菜单项标红（destructive）。
+    UIButton *del = [self selectionBarButton:@"删除" image:@"trash" action:NULL];
+    __weak typeof(self) wsDel = self;
+    UIAction *delAction = [UIAction actionWithTitle:@"仅为我删除"
+                                              image:[UIImage systemImageNamed:@"trash"]
+                                         identifier:nil
+                                            handler:^(__kindof UIAction *a) { [wsDel performDeleteSelected]; }];
+    delAction.attributes = UIMenuElementAttributesDestructive;
+    del.menu = [UIMenu menuWithTitle:@"" children:@[delAction]];
+    del.showsMenuAsPrimaryAction = YES;
 
     UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:@[
         [self selectionBarButton:@"转发" image:@"arrowshape.turn.up.right" action:@selector(forwardSelected)],
         [self selectionBarButton:@"收藏" image:@"bookmark" action:@selector(favoriteSelected)],
-        [self selectionBarButton:@"删除" image:@"trash" action:@selector(deleteSelected)],
+        del,
     ]];
     row.axis = UILayoutConstraintAxisHorizontal;
-    row.distribution = UIStackViewDistributionFillEqually;
+    row.distribution = UIStackViewDistributionEqualCentering; // 独立圆形按钮：等中心距分布，不拉伸
+    row.alignment = UIStackViewAlignmentCenter;
     row.translatesAutoresizingMaskIntoConstraints = NO;
     [bar addSubview:row];
     [NSLayoutConstraint activateConstraints:@[
         [bar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [bar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-        [bar.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
-        [bar.topAnchor constraintEqualToAnchor:self.inputBar.topAnchor],
-        [row.leadingAnchor constraintEqualToAnchor:bar.leadingAnchor],
-        [row.trailingAnchor constraintEqualToAnchor:bar.trailingAnchor],
-        [row.topAnchor constraintEqualToAnchor:bar.topAnchor],
-        [row.heightAnchor constraintEqualToConstant:56],
+        [bar.heightAnchor constraintEqualToConstant:kIMSelectionBarH],
+        [row.leadingAnchor constraintEqualToAnchor:bar.leadingAnchor constant:48],
+        [row.trailingAnchor constraintEqualToAnchor:bar.trailingAnchor constant:-48],
+        [row.centerYAnchor constraintEqualToAnchor:bar.centerYAnchor],
     ]];
+    [self updateSelectionBarBottomAnchor]; // 底边：搜索开着=贴搜索栏顶（上下堆叠）/否则=安全区底
 }
 
+/// 选择栏底边定位：搜索底部导航开着时,选择栏钉在其**上方**（两排按钮堆叠、互不重叠）；否则钉安全区底。
+/// 搜索进/出（endInChatSearch）与进多选时各调用一次。
+- (void)updateSelectionBarBottomAnchor {
+    if (!self.selectionBar) { return; }
+    self.selectionState.barBottom.active = NO;
+    UIView *searchNav = self.searchState.searching ? self.searchState.searchNavBar : nil;
+    if (searchNav && !searchNav.hidden) {
+        self.selectionState.barBottom = [self.selectionBar.bottomAnchor constraintEqualToAnchor:searchNav.topAnchor];
+    } else {
+        self.selectionState.barBottom = [self.selectionBar.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor];
+    }
+    self.selectionState.barBottom.active = YES;
+}
+
+/// 多选期间把消息表底从「replyBar 顶」改到「屏幕底」：壁纸铺到底，透明选择栏后的玻璃钮浮在壁纸上而非 self.view 纯色底。
+/// 搜索态已自行铺到底（extendTableToScreenBottom），此处不重复改，退出各自还原。
+- (void)extendTableBottomForSelection {
+    if (self.searchState.searching) { return; }
+    if (self.selectionState.tableBottom) { return; }
+    NSLayoutConstraint *orig = nil;
+    for (NSLayoutConstraint *c in self.view.constraints) {
+        if (c.firstItem == self.tableView && c.firstAttribute == NSLayoutAttributeBottom) { orig = c; break; }
+    }
+    if (!orig) { return; }
+    self.selectionState.savedTableBottom = orig;
+    orig.active = NO;
+    self.selectionState.tableBottom = [self.tableView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor];
+    self.selectionState.tableBottom.active = YES;
+    UIEdgeInsets ci = self.tableView.contentInset;
+    self.selectionState.savedBottomInset = ci.bottom;
+    ci.bottom = self.selectionState.savedBottomInset + kIMSelectionBarH + 8; // 底部内容不被玻璃钮盖住
+    self.tableView.contentInset = ci;
+}
+
+- (void)restoreTableBottomForSelection {
+    if (!self.selectionState.tableBottom) { return; }
+    self.selectionState.tableBottom.active = NO; self.selectionState.tableBottom = nil;
+    self.selectionState.savedTableBottom.active = YES; self.selectionState.savedTableBottom = nil;
+    UIEdgeInsets ci = self.tableView.contentInset;
+    ci.bottom = self.selectionState.savedBottomInset;
+    self.tableView.contentInset = ci;
+}
+
+/// 独立圆形 Liquid Glass 按钮（复用全站配方 IMGlassButtonConfiguration + Capsule 圆角 + 定尺 52 → 正圆）。
+/// 图标承载语义（辅助功能读 title）；删除用系统红以突出破坏性。
 - (UIButton *)selectionBarButton:(NSString *)title image:(NSString *)image action:(SEL)action {
     UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
-    UIButtonConfiguration *cfg = [UIButtonConfiguration plainButtonConfiguration];
+    UIButtonConfiguration *cfg = IMGlassButtonConfiguration();
     cfg.image = [UIImage systemImageNamed:image];
-    cfg.title = title;
-    cfg.imagePlacement = NSDirectionalRectEdgeTop;
-    cfg.imagePadding = 3;
-    cfg.baseForegroundColor = IMTheme.textPrimary;
+    cfg.cornerStyle = UIButtonConfigurationCornerStyleCapsule;
+    cfg.contentInsets = NSDirectionalEdgeInsetsMake(14, 14, 14, 14);
+    cfg.baseForegroundColor = [title isEqualToString:@"删除"] ? UIColor.systemRedColor : IMTheme.textPrimary;
     b.configuration = cfg;
-    [b addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
+    b.accessibilityLabel = title;
+    b.translatesAutoresizingMaskIntoConstraints = NO;
+    [NSLayoutConstraint activateConstraints:@[
+        [b.widthAnchor constraintEqualToConstant:52],
+        [b.heightAnchor constraintEqualToConstant:52],
+    ]];
+    if (action) { [b addTarget:self action:action forControlEvents:UIControlEventTouchUpInside]; } // 删除钮 action=NULL：改用 UIMenu 主操作
     return b;
 }
 
-/// 已选消息（按行序）。
+/// 已选消息（按行序）。相册**逐格勾选**（2a）：成员按 selectedMediaSeqs（conv_seq 集合）判定；
+/// 非相册消息仍按表格行选中判定。整组"全选"只是左侧系统圈的显示态，不作为选中来源（避免重复）。
 - (NSArray<IMMessageModel *> *)selectedMessages {
-    NSArray<NSIndexPath *> *ips = [self.tableView.indexPathsForSelectedRows sortedArrayUsingSelector:@selector(compare:)];
+    NSMutableSet<NSNumber *> *selRows = [NSMutableSet set];
+    for (NSIndexPath *ip in self.tableView.indexPathsForSelectedRows) { [selRows addObject:@(ip.row)]; }
     NSMutableArray<IMMessageModel *> *out = [NSMutableArray array];
-    for (NSIndexPath *ip in ips) {
-        if (ip.row < (NSInteger)self.messages.count) { [out addObject:self.messages[(NSUInteger)ip.row]]; }
+    for (NSUInteger i = 0; i < self.messages.count; i++) {
+        IMMessageModel *m = self.messages[i];
+        BOOL selected;
+        if ([self isAlbumMember:m]) {
+            selected = m.convSeq > 0 && [self.selectionState.selectedMediaSeqs containsObject:@(m.convSeq)];
+        } else {
+            selected = [selRows containsObject:@(i)];
+        }
+        if (selected) { [out addObject:m]; }
     }
     return out;
 }
 
+/// 相册逐格勾选切换（2a）：翻转该成员在 selectedMediaSeqs 的选中，同步左侧系统圈（整组全选态），刷新计数。
+- (void)toggleAlbumMemberSelection:(IMMessageModel *)member {
+    if (member.convSeq <= 0) { return; }
+    if (!self.selectionState.selectedMediaSeqs) { self.selectionState.selectedMediaSeqs = [NSMutableSet set]; }
+    NSNumber *seq = @(member.convSeq);
+    if ([self.selectionState.selectedMediaSeqs containsObject:seq]) { [self.selectionState.selectedMediaSeqs removeObject:seq]; }
+    else { [self.selectionState.selectedMediaSeqs addObject:seq]; }
+    [self syncAlbumRowSelectionForGroupID:member.groupID];
+    [self updateSelectionUI];
+}
+
+/// 把某相册组的左侧系统圈同步为「全部成员已勾选」：全选→选中 leader 行（圈打勾），否则取消。
+/// 程序化 select/deselect 不触发 didSelect/didDeselect（无递归）。仅改左圈显示，不改逐格状态。
+- (void)syncAlbumRowSelectionForGroupID:(NSString *)gid {
+    if (gid.length == 0) { return; }
+    NSArray<IMMessageModel *> *members = [self albumMembersForGroupID:gid];
+    NSMutableArray<IMMessageModel *> *selectable = [NSMutableArray array];
+    for (IMMessageModel *m in members) { if (m.convSeq > 0) { [selectable addObject:m]; } }
+    BOOL allSelected = selectable.count > 0;
+    for (IMMessageModel *m in selectable) { if (![self.selectionState.selectedMediaSeqs containsObject:@(m.convSeq)]) { allSelected = NO; break; } }
+    NSUInteger leaderRow = members.count > 0 ? [self visibleRowForMessage:members.firstObject] : NSNotFound;
+    if (leaderRow == NSNotFound || leaderRow >= self.messages.count) { return; }
+    NSIndexPath *ip = [NSIndexPath indexPathForRow:(NSInteger)leaderRow inSection:0];
+    if (allSelected) { [self.tableView selectRowAtIndexPath:ip animated:NO scrollPosition:UITableViewScrollPositionNone]; }
+    else { [self.tableView deselectRowAtIndexPath:ip animated:NO]; }
+}
+
 - (void)updateSelectionUI {
-    NSUInteger n = self.tableView.indexPathsForSelectedRows.count;
+    // 用展开后的真实条数（相册整组算 N 条）——与转发/删除的作用条数一致，不再按"行数"少算。
+    NSUInteger n = [self selectedMessages].count;
     self.title = n > 0 ? [NSString stringWithFormat:@"已选择 %lu 条", (unsigned long)n] : @"选择消息";
     [self refreshUnifiedNavigationBar]; // 标题与「取消」左钮由统一 Liquid 栏渲染，改完必须刷一次
 }
@@ -254,6 +379,7 @@
     m.duration = attributes.durationMillis;
     m.caption = attributes.caption.length > 0 ? attributes.caption : nil; // 图说随转发跟随（本端气泡即时显）
     m.mentions = attributes.mentions; // 配文 @ 落到本端回显行：再次转发这条时才能继续重发 mentions（强提醒链不断）
+    m.groupID = attributes.groupID.length > 0 ? attributes.groupID : nil; // 整体转发相册：本端回显也聚簇成宫格
     m.forwardFrom = origin.length > 0 ? origin : nil;
     m.status = IMMessageStatusSending;
     m.timestamp = sentAt;
@@ -277,20 +403,41 @@
     [self presentViewController:nav animated:YES completion:nil];
 }
 
+/// 该消息是否可被转发（撤回/空内容/系统/发送中·失败本地件/失效媒体一律不可）。
+- (BOOL)isForwardableMessage:(IMMessageModel *)m {
+    if (m.recalledAt > 0 || m.content.length == 0 || [m.contentType isEqualToString:@"system"]) { return NO; }
+    if (m.convSeq <= 0) { return NO; }
+    if ([self isMediaExpiredForForward:m]) { return NO; }
+    return YES;
+}
+
 - (void)forwardMessages:(NSArray<IMMessageModel *> *)msgs perMessageToConversations:(NSArray<IMConversation *> *)convs {
     // 失效媒体跳过（转出去对端必 404）：先数一次，避免在会话外层循环里重复计数。
     NSUInteger expiredCount = 0;
     for (IMMessageModel *m in msgs) { if ([self isMediaExpiredForForward:m]) { expiredCount++; } }
+    // 整体转发相册（用户要求）：同一原相册被选 ≥2 张 → 用**一个新的共享 group_id** 一起转发，收端重新聚成宫格；
+    // 只选 1 张或非相册 → 单发。逐个目标会话独立生成新 group_id（不同会话的转发相册互不串）。
+    NSCountedSet<NSString *> *albumCount = [NSCountedSet set];
+    for (IMMessageModel *m in msgs) {
+        if (![self isForwardableMessage:m]) { continue; }
+        if (m.groupID.length > 0 && [self isAlbumMember:m]) { [albumCount addObject:m.groupID]; }
+    }
     for (IMConversation *c in convs) {
         NSString *toUser = c.isGroup ? @"" : (c.peer ?: @"");
+        NSMutableDictionary<NSString *, NSString *> *newGidForOld = [NSMutableDictionary dictionary]; // 原 group_id → 本会话新 group_id
         for (IMMessageModel *m in msgs) {
-            if (m.recalledAt > 0 || m.content.length == 0 || [m.contentType isEqualToString:@"system"]) { continue; }
-            if (m.convSeq <= 0) { continue; } // 防御：发送中/失败的本地件（多选已拦，此处兜底）
-            if ([self isMediaExpiredForForward:m]) { continue; } // 失效媒体跳过
+            if (![self isForwardableMessage:m]) { continue; } // 撤回/空/系统/发送中失败/失效 一律跳过
             NSString *origin = m.forwardFrom.length > 0 ? m.forwardFrom
                 : (m.fromNickname.length > 0 ? m.fromNickname : (m.from ?: @""));
+            IMMediaAttributes *attrs = [self forwardAttributesForMessage:m];
+            if (m.groupID.length > 0 && [self isAlbumMember:m] && [albumCount countForObject:m.groupID] >= 2) {
+                NSString *newGid = newGidForOld[m.groupID];
+                if (!newGid) { newGid = [@"alb-" stringByAppendingString:NSUUID.UUID.UUIDString]; newGidForOld[m.groupID] = newGid; }
+                if (!attrs) { attrs = [IMMediaAttributes new]; }
+                attrs.groupID = newGid; // 整体转发：同册共享新 group_id，收端聚簇
+            }
             [self forwardEchoContent:m.content contentType:(m.contentType ?: @"text") forwardFrom:origin fileName:m.fileName fileSize:m.fileSize
-                          attributes:[self forwardAttributesForMessage:m] toConv:c.convID toUser:toUser];
+                          attributes:attrs toConv:c.convID toUser:toUser];
         }
     }
     [self exitSelection];
@@ -325,28 +472,19 @@
     [self exitSelection];
 }
 
-- (void)deleteSelected {
+/// 直接执行删除（确认已由删除钮上方的「仅为我删除」菜单完成，此处不再二次确认）。仅删本端。
+- (void)performDeleteSelected {
     NSArray<IMMessageModel *> *msgs = [self selectedMessages];
     if (msgs.count == 0) { [self im_showToast:@"请先选择消息"]; return; }
-    __weak typeof(self) ws = self;
-    UIAlertController *ac = [UIAlertController alertControllerWithTitle:nil
-        message:[NSString stringWithFormat:@"删除所选 %lu 条消息？", (unsigned long)msgs.count]
-        preferredStyle:UIAlertControllerStyleActionSheet];
-    [ac addAction:[UIAlertAction actionWithTitle:@"删除" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
-        __strong typeof(ws) self = ws;
-        for (IMMessageModel *m in msgs) {
-            [self performDatabaseOperation:^(IMDatabase *database) {
-                [database deleteMessage:m];
-            }];
-            [self.messages removeObject:m];
-            if (m.convSeq > 0) { [self.seenConvSeqs removeObject:@(m.convSeq)]; }
-        }
-        [self.tableView reloadData];
-        [self exitSelection];
-    }]];
-    [ac addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    ac.popoverPresentationController.sourceView = self.selectionBar ?: self.view;
-    [self presentViewController:ac animated:YES completion:nil];
+    for (IMMessageModel *m in msgs) {
+        [self performDatabaseOperation:^(IMDatabase *database) {
+            [database deleteMessage:m];
+        }];
+        [self.messages removeObject:m];
+        if (m.convSeq > 0) { [self.seenConvSeqs removeObject:@(m.convSeq)]; }
+    }
+    [self.tableView reloadData];
+    [self exitSelection];
 }
 
 #pragma mark 合并转发数据
@@ -417,13 +555,37 @@
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (self.selecting) { [self updateSelectionUI]; return; }
+    if (self.selecting) {
+        // 相册 leader 行的左侧系统圈 = 整组全选（点圈落到这里；逐格点选走 toggleAlbumMemberSelection: 程序化改圈、不触发本回调）。
+        [self applyAlbumSelectAll:YES atRow:indexPath.row];
+        [self updateSelectionUI];
+        return;
+    }
     // 上传中/失败的文件气泡不再响应整条点击：暂停/继续/重试/取消收敛到左侧图标位的圆环状态机
     //（cell.onFileControlTap → handlePendingMediaTap:），气泡其余区域仅在发送完成后点击打开文件。
 }
 
 - (void)tableView:(UITableView *)tableView didDeselectRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (self.selecting) { [self updateSelectionUI]; }
+    if (self.selecting) {
+        [self applyAlbumSelectAll:NO atRow:indexPath.row]; // 相册 leader 行取消 = 整组全不选
+        [self updateSelectionUI];
+    }
+}
+
+/// 相册 leader 行左侧系统圈全选/全不选：把整组成员 conv_seq 批量加入/移出 selectedMediaSeqs，并就地刷新该 cell 的逐格勾选框。
+/// 非相册行不处理（其选中已由系统行选中表达）。
+- (void)applyAlbumSelectAll:(BOOL)selectAll atRow:(NSInteger)row {
+    if (row < 0 || row >= (NSInteger)self.messages.count) { return; }
+    IMMessageModel *m = self.messages[(NSUInteger)row];
+    if (![self isAlbumMember:m] || m.groupID.length == 0) { return; }
+    if (!self.selectionState.selectedMediaSeqs) { self.selectionState.selectedMediaSeqs = [NSMutableSet set]; }
+    for (IMMessageModel *mm in [self albumMembersForGroupID:m.groupID]) {
+        if (mm.convSeq <= 0) { continue; }
+        if (selectAll) { [self.selectionState.selectedMediaSeqs addObject:@(mm.convSeq)]; }
+        else { [self.selectionState.selectedMediaSeqs removeObject:@(mm.convSeq)]; }
+    }
+    UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:row inSection:0]];
+    if ([cell isKindOfClass:IMAlbumCell.class]) { [(IMAlbumCell *)cell refreshTileSelectionStates]; }
 }
 
 @end

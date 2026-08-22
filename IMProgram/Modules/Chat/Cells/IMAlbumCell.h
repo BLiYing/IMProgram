@@ -26,6 +26,13 @@ NS_ASSUME_NONNULL_BEGIN
 /// 点拒收系统行的恢复入口（当前仅 200103 非好友 → 「发送好友申请」）。
 /// 仅当成员 noteCode 命中可恢复码时该行才可点，否则系统行是纯文案。
 @property (nonatomic, copy, nullable) void (^onNoteActionTap)(void);
+
+/// 多选态逐格勾选（2a）：编辑态每格右上角显勾选框；查询该格是否已选 / 点格切换该格选中。
+/// selecting 由 cell 的编辑态驱动；VC 提供这两个块。左侧系统圈仍表示「整组全选」（见 VC Selection）。
+@property (nonatomic, copy, nullable) BOOL (^isMemberSelected)(IMMessageModel *message);
+@property (nonatomic, copy, nullable) void (^onToggleMember)(IMMessageModel *message);
+/// 按最新 isMemberSelected 就地重刷各格勾选框（左侧系统圈全选/全不选后、VC 调用）。
+- (void)refreshTileSelectionStates;
 - (void)configureWithMembers:(NSArray<IMMessageModel *> *)members
                         mine:(BOOL)mine
                         host:(NSString *)host

@@ -221,7 +221,8 @@ static CGFloat const kIMRowLeading = 16;
         NSString *who = mine ? @"你" : (c.isGroup ? (c.lastFromNickname.length > 0 ? c.lastFromNickname : (c.lastFrom ?: @"")) : @"对方");
         recalledPreview = [NSString stringWithFormat:@"%@撤回了一条消息", who];
     }
-    // 富媒体预览（M4-6）：图片/视频/文件显示占位标签而非 URL（微信式，不加昵称前缀）。
+    // 富媒体预览（M4-6）：图片/视频/文件显示占位标签而非 URL。群聊里与文本一样带"昵称:"前缀（见下方群分支）。
+    NSString *mediaPreview = nil;
     if (!recalledPreview) {
         // 静态占位表（每 cell 都取，不必每次重建）；语音/位置等类型落地后自动生效。
         static NSDictionary *mediaNames;
@@ -234,9 +235,9 @@ static CGFloat const kIMRowLeading = 16;
         // 图说 caption「有字显字」（Telegram 模型）：图文/视频文/文件文带 caption 时列表预览显 caption，否则回退 [图片] 等。
         if (c.lastCaption.length > 0 &&
             ([c.lastContentType isEqualToString:@"image"] || [c.lastContentType isEqualToString:@"video"] || [c.lastContentType isEqualToString:@"file"])) {
-            recalledPreview = c.lastCaption;
+            mediaPreview = c.lastCaption;
         } else {
-            recalledPreview = mediaNames[c.lastContentType ?: @""];
+            mediaPreview = mediaNames[c.lastContentType ?: @""];
         }
     }
     if (c.isGroup) {
@@ -247,10 +248,12 @@ static CGFloat const kIMRowLeading = 16;
         [_avatar im_setAvatarURL:IMMediaFullURL(c.avatarURL, host) seed:c.convID displayName:display];
         _name.text = display;
         if (recalledPreview) {
-            _last.text = recalledPreview;
-        } else if (c.lastContent.length > 0) {
+            _last.text = recalledPreview;   // 撤回：文案已含"谁"，不再加前缀
+        } else if (mediaPreview.length > 0 || c.lastContent.length > 0) {
+            // 群聊：文本**与媒体/文件**都带"昵称: "前缀（与 Web 一致）——媒体正文用占位/caption，文本用原文。
             NSString *who = mine ? @"我" : (c.lastFromNickname.length > 0 ? c.lastFromNickname : (c.lastFrom ?: @""));
-            _last.text = who.length > 0 ? [NSString stringWithFormat:@"%@: %@", who, c.lastContent] : c.lastContent;
+            NSString *body = mediaPreview.length > 0 ? mediaPreview : c.lastContent;
+            _last.text = who.length > 0 ? [NSString stringWithFormat:@"%@: %@", who, body] : body;
         } else {
             _last.text = @"（无消息）";
         }
@@ -259,7 +262,7 @@ static CGFloat const kIMRowLeading = 16;
         // 对端头像同理补 host（data:/http 原样返回，相对路径补全）。
         [_avatar im_setAvatarURL:IMMediaFullURL(c.peerAvatarURL, host) seed:c.peer displayName:display]; // 有头像渲图，否则首字母圈
         _name.text = display;
-        _last.text = recalledPreview ?: (c.lastContent.length > 0 ? c.lastContent : @"（无消息）");
+        _last.text = recalledPreview ?: (mediaPreview.length > 0 ? mediaPreview : (c.lastContent.length > 0 ? c.lastContent : @"（无消息）"));
     }
     // 群「@我」红字前缀（M4-8）：未读区间内被 @（含 @所有人）时，预览行前挂 [有人@我]。
     // 用富文本只染前缀、正文保持次要色；不再另加右侧红 @ 角标（左侧红字已足够醒目，见 GROUP_READ_UX_SKETCH §02）。

@@ -219,12 +219,10 @@
         return;
     }
     if (m.recalledAt > 0) { return; }
-    // 文件消息（M4-7）：自己发的保持应用内浏览器打开；收到的——已下载则本地 QuickLook 预览、未下载则点整条=触发下载。
+    // 文件消息（M4-7 / 1d）：自己发的与收到的走同一套——本机有原件则 QuickLook 本地预览，否则点整条=触发下载。
+    // （自己发的文件发送时已收编进下载缓存，故一般点开即 QuickLook；清缓存后回落到下载,与接收端一致。不再走应用内浏览器。）
     if ([m.contentType isEqualToString:@"file"]) {
-        BOOL fileMine = [m.from isEqualToString:self.userID];
-        if (fileMine) {
-            [self openLink:[self fullMediaURL:m.content]];
-        } else if ([self.downloads localFileForMessage:m]) {
+        if ([self.downloads localFileForMessage:m]) {
             [self openCachedFile:m];
         } else {
             [self.downloads handleTapForMessage:m]; // 未下载/暂停/失败：点整条 = 点 ↓ 同效

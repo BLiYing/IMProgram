@@ -619,13 +619,8 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     _senderLabel.hidden = !showSender;
     _bubbleTopPlain.active = !showSender;
     _bubbleTopUnderName.active = showSender;
-    // 转发溯源（M4-3）：气泡顶部一行"转发自 X"小灰字。
-    if (message.forwardFrom.length > 0) {
-        [body appendAttributedString:[[NSAttributedString alloc]
-            initWithString:[NSString stringWithFormat:@"转发自 %@\n", message.forwardFrom]
-                attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:12],
-                              NSForegroundColorAttributeName: IMTheme.textSecondary }]];
-    }
+    // 转发消息按普通消息收发显示（隐私保护）：不再渲染"转发自 X"溯源行。forwardFrom 仍保留在模型/DB，
+    // 供再次转发时保留最初作者链路，但界面不外显（与 Web 拉齐）。
     // 引用回复（M4-2）：气泡顶部一条引用预览（竖条 + 灰字快照），点击整条气泡跳转原消息。
     // 引用的是图片/视频时优先内嵌"真缩略图"（异步加载，#4）；拿不到或文件类型则退回小图标。
     _quoteThumbAtt = nil;

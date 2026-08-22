@@ -23,6 +23,16 @@ static UIColor *IMReadReceiptBaseGroupedBackgroundColor(void) {
     }];
 }
 
+/// 名单 cell 卡片色：同样恒按 base 外观解析 secondary 分组色。cell 默认背景在 sheet 抬升层级解析，
+/// 与上面恒 base 的表背景层级不一致 → 偶现个别 cell 卡片色与其他不一致（root cause）。这里统一钉 base。
+static UIColor *IMReadReceiptCardBackgroundColor(void) {
+    return [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *tc) {
+        UITraitCollection *base = [UITraitCollection traitCollectionWithUserInterfaceLevel:UIUserInterfaceLevelBase];
+        UITraitCollection *merged = [UITraitCollection traitCollectionWithTraitsFromCollections:@[tc, base]];
+        return [UIColor.secondarySystemGroupedBackgroundColor resolvedColorWithTraitCollection:merged];
+    }];
+}
+
 #pragma mark - 成员行
 
 @interface IMReadReceiptRowCell : UITableViewCell
@@ -36,6 +46,12 @@ static UIColor *IMReadReceiptBaseGroupedBackgroundColor(void) {
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
     if ((self = [super initWithStyle:style reuseIdentifier:reuseIdentifier])) {
+        // 只读名单行：关掉选中高亮（避免点按残留灰底/复用串色）；卡片色恒按 base 层级解析，
+        // 与表背景同一层级口径，杜绝"偶现个别 cell 背景色不一致"。
+        self.selectionStyle = UITableViewCellSelectionStyleNone;
+        self.backgroundColor = IMReadReceiptCardBackgroundColor();
+        self.contentView.backgroundColor = UIColor.clearColor;
+
         _avatar = [UILabel new];
         _avatar.translatesAutoresizingMaskIntoConstraints = NO;
         _avatar.textAlignment = NSTextAlignmentCenter;

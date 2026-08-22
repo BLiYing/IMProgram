@@ -68,9 +68,13 @@ static NSString *const IMMediaDownloadCoordinatorStateBroadcast = @"IMMediaDownl
 /// 这条消息是否**根本不进入**下载体系（自己发的 / 本地待发 / 撤回 / 非媒体类型 / 无地址）。
 - (BOOL)isOutOfScope:(IMMessageModel *)m {
     if (!m || m.content.length == 0 || m.recalledAt > 0) { return YES; }
-    if (_myUserID.length > 0 && [m.from isEqualToString:_myUserID]) { return YES; } // 自己发的：本地就有原件
     if ([IMPendingMediaStore isLocalRef:m.content]) { return YES; }                 // 本地待发引用，不是网络地址
     NSString *t = m.contentType;
+    // 自己发的**图片/视频**：本地已有缓存（IMImageLoader / IMOriginalVideoCache），无需下载门控。
+    // 自己发的**文件**纳入门控体系（1d）：发送时已收编进下载缓存 → isCached=YES、不显 ↓、点开即 QuickLook；
+    // 清缓存后 isCached=NO → 自动回落 ↓/下载（与接收端一致）。
+    if (_myUserID.length > 0 && [m.from isEqualToString:_myUserID]
+        && ([t isEqualToString:@"image"] || [t isEqualToString:@"video"])) { return YES; }
     return !([t isEqualToString:@"image"] || [t isEqualToString:@"video"] || [t isEqualToString:@"file"]);
 }
 

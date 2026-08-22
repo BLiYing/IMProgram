@@ -25,6 +25,8 @@
 - (void)setDownloadState:(nullable IMDownloadProgress *)dp sizeBytes:(int64_t)sizeBytes;
 /// 被动展示失效（曾可用图/视频被服务端清理，404）：YES=dim 底 + 中心 ⊘、不重试；NO=清除。格子小，只显 ⊘ 不带文案。
 - (void)setExpired:(BOOL)expired;
+/// 多选态逐格勾选框（2a）：右上角圆勾选框，selecting 时显示、selected 反映选中。
+- (void)setSelecting:(BOOL)selecting selected:(BOOL)selected;
 @end
 
 @implementation IMAlbumTileView {
@@ -34,6 +36,7 @@
     UILabel      *_failBadge;
     UIImageView  *_stateBadge; // 环中心小图标：⏸ 可暂停 / ↑ 已暂停(点击续传) / ✕ 排队压缩(点击取消)
     UIImageView  *_expiredBadge; // 中心 ⊘（被动展示 404 失效）
+    UIImageView  *_checkbox;   // 多选态右上角勾选框（2a）
 }
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
@@ -111,6 +114,12 @@
         _durationChip.clipsToBounds = YES;
         _durationChip.hidden = YES;
         [self addSubview:_durationChip];
+
+        // 多选态右上角勾选框（2a）：未选=空心圈、已选=实心对勾（accent）。恒在最上层、上传/门控态也可见。
+        _checkbox = [UIImageView new];
+        _checkbox.contentMode = UIViewContentModeCenter;
+        _checkbox.hidden = YES;
+        [self addSubview:_checkbox];
     }
     return self;
 }
@@ -126,6 +135,8 @@
     _expiredBadge.center = c;
     CGSize d = [_durationChip sizeThatFits:CGSizeMake(CGFLOAT_MAX, 16)];
     _durationChip.frame = CGRectMake(4, 4, d.width + 10, 16);
+    _checkbox.frame = CGRectMake(self.bounds.size.width - 26, 4, 22, 22); // 右上角
+    [self bringSubviewToFront:_checkbox];
     CGRect ringFrame = CGRectMake(c.x - 18, c.y - 18, 36, 36);
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
@@ -188,6 +199,27 @@
     } else {
         _expiredBadge.hidden = YES;       // dim 由 setDownloadState:/setProgress: 各自决定，这里不强关
     }
+}
+
+- (void)setSelecting:(BOOL)selecting selected:(BOOL)selected {
+    _checkbox.hidden = !selecting;
+    if (!selecting) { return; }
+    UIImageSymbolConfiguration *size = [UIImageSymbolConfiguration configurationWithPointSize:22 weight:UIImageSymbolWeightRegular];
+    if (selected) {
+        // 选中：与左侧系统多选圈同款——accent 实心圆 + 白色对勾，**跟随 app 主题色**。
+        // 用 palette（对勾=白、圆=accent）而非 tintColor：checkmark.circle.fill 是双层符号，
+        // 单一 tint（template）会让对勾与圆同色而看不见；此前用 AlwaysOriginal+tintColor 则 tint 被忽略、恒蓝（bug）。
+        UIImageSymbolConfiguration *palette = [UIImageSymbolConfiguration configurationWithPaletteColors:@[UIColor.whiteColor, IMTheme.accent]];
+        UIImageSymbolConfiguration *cfg = [size configurationByApplyingConfiguration:palette];
+        _checkbox.image = [[UIImage systemImageNamed:@"checkmark.circle.fill" withConfiguration:cfg]
+                           imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal]; // palette 颜色已烘焙，用 Original 保留
+    } else {
+        // 未选：空心白圈（半透明底衬避免压在亮图上看不清）。
+        _checkbox.image = [[UIImage systemImageNamed:@"circle" withConfiguration:size]
+                           imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+        _checkbox.tintColor = [UIColor colorWithWhite:1 alpha:0.95];
+    }
+    [self bringSubviewToFront:_checkbox];
 }
 
 - (void)setProgress:(IMUploadProgress *)p {
@@ -460,6 +492,8 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
         previews:(NSDictionary<NSString *, UIImage *> *)previews
         progress:(NSDictionary<NSString *, IMUploadProgress *> *)progress {
     tile.member = m;
+    // 多选态逐格勾选框（2a）：编辑态显示、按 VC 的 isMemberSelected 反映选中。
+    [tile setSelecting:self.isEditing selected:(self.isEditing && self.isMemberSelected ? self.isMemberSelected(m) : NO)];
     BOOL isVideo = [m.contentType isEqualToString:@"video"];
     tile.playBadge.hidden = !isVideo;
     // 左上角时长角标（与单张气泡一致）；上传态由 setProgress 按覆盖层互斥隐藏/恢复。
@@ -585,9 +619,30 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
     }
 }
 
+/// 多选（编辑）态：每格右上角显勾选框、点格=切换该格选中（2a）。**保持 _container 可交互**——单格 tap 手势
+/// 会消费点击、不触发表格整行勾选（左侧系统圈仍由点圈本身/didSelect 表示"整组全选"）。退出自动恢复。
+- (void)setEditing:(BOOL)editing animated:(BOOL)animated {
+    [super setEditing:editing animated:animated];
+    [self refreshTileSelectionStates]; // 进出编辑态刷新逐格勾选框显隐/选中
+}
+
+/// 按 VC 的 isMemberSelected 重刷各格勾选框（点某格切换后调用，就地更新、不 reload）。
+- (void)refreshTileSelectionStates {
+    for (IMAlbumTileView *tile in _tiles) {
+        if (tile.hidden || !tile.member) { [tile setSelecting:NO selected:NO]; continue; }
+        [tile setSelecting:self.isEditing selected:(self.isEditing && self.isMemberSelected ? self.isMemberSelected(tile.member) : NO)];
+    }
+}
+
 - (void)tileTapped:(UITapGestureRecognizer *)gr {
     IMAlbumTileView *tile = (IMAlbumTileView *)gr.view;
     if (![tile isKindOfClass:IMAlbumTileView.class] || !tile.member) { return; }
+    // 多选态：点格=切换该格选中（逐格勾选，2a）——VC 更新集合+左框+计数，本 cell 就地刷新各格勾选框。
+    if (self.isEditing) {
+        if (_onToggleMember) { _onToggleMember(tile.member); }
+        [self refreshTileSelectionStates];
+        return;
+    }
     // 门控格：点击=下载/暂停/继续/重试（就地，不进查看器）；就绪格才走查看器（铁律②：完成不自动打开）。
     if (tile.gated) { if (_onDownloadItem) { _onDownloadItem(tile.member); } return; }
     if (_onTapItem) { _onTapItem(tile.member); }
@@ -623,6 +678,7 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
         [tile setDownloadState:nil sizeBytes:0]; // 先清门控，否则 setProgress: 会被门控守卫挡住
         tile.member = nil; tile.loadKey = nil; tile.imageView.image = nil;
         [tile setProgress:nil];
+        [tile setSelecting:NO selected:NO];
     }
     _avatar.hidden = YES;
     _leading.constant = 12;
@@ -630,6 +686,8 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
     _menuForItem = nil;
     _downloadStateForItem = nil;
     _onDownloadItem = nil;
+    _isMemberSelected = nil;
+    _onToggleMember = nil;
     // onAvatarTap / 头像与分割线的复位由 IMMessageCell 基类 prepareForReuse 统一处理。
 }
 @end

@@ -66,10 +66,15 @@ static const CGFloat kIMSearchFromRowH = 52;
     self.searchState.searchCalButton = nil; self.searchState.searchFromButton = nil; self.searchState.searchNavBottom = nil;
     self.searchState.searchHits = nil; self.searchState.searchHitIndex = 0; self.searchState.searchKeyword = nil; self.searchState.searchFromUID = nil;
     self.tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeNone;
-    self.inputBar.hidden = NO;
+    // 多选态下退出搜索：输入栏保持隐藏（选择栏独占底部），否则才恢复——修复"取消搜索后输入框与选择钮重叠"。
+    if (!self.selecting) { self.inputBar.hidden = NO; }
     self.searchState.hiddenInjectedBar.hidden = NO; self.searchState.hiddenInjectedBar = nil;   // 恢复注入标题栏
     if (self.searchState.tapToDismiss) { [self.tableView removeGestureRecognizer:self.searchState.tapToDismiss]; }
     [self restoreTableBottom];
+    if (self.selecting) {
+        [self extendTableBottomForSelection];   // 选择态仍需壁纸铺到底（接管搜索让出的表底）
+        [self updateSelectionBarBottomAnchor];  // 搜索栏已移除 → 选择栏落回安全区底（不再堆叠）
+    }
     self.searchState = nil;   // 整袋释放
     [self.tableView reloadData];   // 清掉气泡内命中词高亮
 }

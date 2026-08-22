@@ -37,6 +37,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// 该文件是否已下载到本机（落地文件存在）。清缓存后回退未下载态即靠它判定。
 + (BOOL)isContentCached:(nullable NSString *)content;
 
+/// 发送成功后把本地原件**收编**进下载缓存（自己发的文件点开即 QuickLook、免重下；仿视频 IMOriginalVideoCache）。
+/// 优先 move（同沙盒近乎瞬时、与大小无关、不占额外空间），跨卷失败回退 copy。已存在则跳过。返回是否落地成功。
++ (BOOL)adoptFileAtPath:(nullable NSString *)path forContent:(nullable NSString *)content;
+
 /// 取仍在进行中的任务（含暂停态）；无则 nil。用于界面重建后重新接管。
 - (nullable IMMediaDownloadTask *)taskForKey:(NSString *)key;
 

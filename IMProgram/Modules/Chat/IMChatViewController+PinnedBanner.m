@@ -88,6 +88,9 @@ NS_ASSUME_NONNULL_END
     // 仅在本页可见且无其他弹层时弹（被详情页盖住/已有 sheet 时先不弹，下次可见再弹）。
     if (self.navigationController.topViewController != self || self.presentedViewController != nil) { return; }
     [NSUserDefaults.standardUserDefaults setDouble:(double)at forKey:key];
+    // 自己就是本版公告的发布者（管理员/群主刚编辑）→ 不弹窗（内容自己写的、已知），仅记版本供其他版本仍能弹。
+    // 与 Web 拉齐（App.tsx 同 announcement_by === uid 守卫）。
+    if (self.groupInfo.announcementBy.length > 0 && [self.groupInfo.announcementBy isEqualToString:self.userID]) { return; }
     NSString *sub = [IMGroupTextViewController announceSubtitleForMillis:at];
     [IMGroupTextViewController presentFrom:self title:@"群公告" subtitle:sub body:text];
 }

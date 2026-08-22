@@ -3,6 +3,7 @@
 #import "IMMediaSendService.h"
 #import "IMMediaPicker.h"
 #import "IMPendingMediaStore.h"
+#import "IMMediaDownloader.h"
 #import "IMChunkedUploader.h"
 #import "IMHTTPService.h"
 #import "IMSocketManager.h"
@@ -585,6 +586,11 @@ NSString *IMTinyThumbDataURI(UIImage *image) {
     NSString *pendingPath = [[IMPendingMediaStore shared] filePathForLocalRef:pendingRef];
     if ([ct isEqualToString:@"video"] && pendingPath) {
         [IMOriginalVideoCache adoptFileAtPath:pendingPath forFullURL:IMMediaFullURL(url, host)];
+    }
+    // 文件：把本地原件收编进下载缓存 → 自己发的文件点开即 QuickLook、免重下、不出现下载态（1d）。
+    // 清缓存后副本没了则自动回落到下载态（与接收端一致）。move 语义,removeLocalRef 随后即 no-op。
+    if ([ct isEqualToString:@"file"] && pendingPath) {
+        [IMMediaDownloader adoptFileAtPath:pendingPath forContent:url];
     }
     [[IMPendingMediaStore shared] removeLocalRef:pendingRef]; // 已成功发出（文件已被收编时只清旁挂记录）
     [_jobs removeObjectForKey:oldKey];
