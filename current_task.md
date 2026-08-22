@@ -5,38 +5,15 @@
 
 ## 当前焦点
 
-**会话行「[有人@我]↔普通预览」来回闪烁 ✅ 根因修复（2026-08-19，clean build 绿 + `IMConversationCacheTests` 22/22 实跑绿（iPhone 17 Pro Max），UI 观感待手测）** — 读 iOS 落盘日志定位：① `fetchHiddenCatchUp` 每次 `reload` 尾部无条件重删隐藏项，`removeLocalMessageOnQueue` 又**无条件**发 `IMSocketDidRemoveMessageNotification`，列表把它当消息事件再 `reload` → 自激刷新回路（列表 ~0.47s 空转拉全量，日志实测 507 次；回路最后一环 08-18 `12af5e2` 接上才闭合，属最近改出来的）；② 本地缓存表 `im_conversation_local` **无 `mention_unread` 列**（08-11 起潜在旧账），`cachedConversations` 恒 NO，与带 `mention_unread` 的 HTTP 权威列表对同一行「[有人@我]」前缀渲染相反 → 两路在回路里对闪。修：`deleteLocalMessageForConv` 用 `db.changes` 只在真删了行/推进位点时返回 YES，`removeLocalMessageOnQueue` 据此**只在真变更时才广播**（掐断回路）；`im_conversation_local` 补 `mention_unread` 列（建表+幂等迁移+读+写），`markConversationFullyRead` 一并清零。补 `IMConversationCacheTests` 两例（mention 持久化+读到底清零、删不存在行返回 NO）。已提交 `95020a6`。
-
-**IMChatViewController 续拆收官：主文件 1496→725 行（6 轮平移，2026-08-19，逐 commit clean build 绿，纯平移未改行为，待手测）**
-- 六个内聚子系统整块平移到分文件 category（逐轮编译过→提交）：
-  ① `+PinnedBanner.m`（G0 置顶/BannerStackDelegate/G2 禁言锁，11 法）② `+SendService.m`（IMMediaSendService 发件箱对账/msg_op/徽标节流，15 法）
-  ③ `+Nav.m`（标题栏头像钮+资料页入口，7 法含 static 头像绘制）④ `+Group.m`（群资料/备注/群事件/发送者身份，8 法）
-  ⑤ `+Presence.m`（对端在线态定时重算/watch/快照，4 法）⑥ `+Position.m`（进会话定位+可见即读节流上报，5 法）
-  另：编辑/选择 tableView delegate 6 法并入既有 `+Selection.m`、举报 2 法并入 `+Menu.m`。
-- 跨 TU 可见性均按 `+Private.h` 约定收口（被主实现/别的 TU 调或 @selector 接线的方法登记；纯 TU 内自用的不登记）。
-  **修 Round① 埋下的 -Wprotocol**：`IMChatBannerStackDelegate` 5 方法均 @required，conformance 从类扩展移到 `(PinnedBanner)` category（对齐 DataSource/MediaFlow/Menu 约定）。共删 8 个搬空后冗余 import。
-- **剩余主文件 = 不可再分骨架**：init×2 / 统一进会话入口(工厂法) / 生命周期 / **setupUI(~215 行)** / dealloc（ivar 直接访问 + 构造/视图搭建，category 不可见 ivar，故留主实现）。
-  **setupUI 是下一个真正的体量点**：单方法 215 行，§7-正解是抽 `IMComposerBar` 协作对象（自持输入栏/附件面板/粘贴条视图+约束），**非再平移**——留待专门做。
-- **待手测**（编译只保符号，交互需模拟器实测）：三横幅顶开表/跳转/置顶 sheet、公告卡、入群申请、禁言锁、发件箱进度回填、外观切换、右上头像进资料页、群成员资料页、在线态副标题、进会话定位到首条未读、可见即读双勾、多选勾选态、举报。
-
-**IMChatViewController 巨类拆分 + /code-review 全修 ✅ 代码完成（2026-08-15～18，clean build 绿，待手测，纯 iOS 端）**
-- 4718 行 Massive VC 按《整洁代码》拆分：真·SRP 抽独立对象/纯函数（`IMChatMessageLogic`、`IMPasteImageTextField`、`IMPendingMediaThumbnail`、`IMChatBannerStack` 三横幅栈+delegate）；其余强耦合子系统（全回耦 messages/tableView/nav/socket）按**分文件 category** 平移到多 TU：`+Selection/+Menu/+DataSource/+Media/+MediaFlow/+Mention/+Socket/+Scroll/+Compose`。私有属性/协议/跨 TU 私有方法登记在 `IMChatViewController+Private.h`。主文件 4718→约 1470 行，未改一行行为，逐 commit build 绿。
-- **/code-review（high，8 finder）8 项全修**：① `sendTapped` 核心发送路径从 +Mention 挪到 +Compose；② `IMChatBannerStack` delegate 收进 init 参数（杜绝首帧 inset 回调因 delegate 未绑定被吞的顺序坑）；③ `IMReplySnippet` 移到 `IMMediaUtil`（与 `IMRecordItemPreview`/`IMLocalizeReplySnippet` 同族）；④⑤ 本地待发缩略图收口到 `IMVideoThumbnailLoader`/`IMImageLoader` 共享抽帧/降采样口径（消除 600↔720、options 分叉）；⑥ 删 3 处 `IMLooksLikeURL` 宏拷贝、直接调 `IMMediaLooksLikeURL`；⑦ `+Private.h` 分组注释改按业务概念、不再标注定义文件（防搬家失真）；⑧ 本快照就地覆盖。审查结论：**无正确性回归**（跨 TU 无重复方法定义、通知/定时器/socket delegate 拆除配平、横幅重写行为等价）。
-- **待手测**：编译只保证符号，**布局/交互需模拟器实测**——键盘顶起输入栏、附件面板、长按菜单光栅化预览、多选态、↓N 跳转、@内联面板、三横幅顶开 tableView。
-
-**相机/粘贴单图收端缺 thumb 磨砂占位 ✅（2026-08-18，clean build 绿，待手测）** — 相机/粘贴单图路径直接 `uploadData→sendMedia`，绕过 `IMMediaSendService` 的 `IMTinyThumbDataURI`，socket payload 无 `thumb`。已把生成器导出为共享函数，在 `mediaAttributesForImage:bytes:` 统一写 `attrs.thumb`（相机+粘贴同覆盖），并回填本地 `m.thumb`（修转发自拍/粘贴图丢磨砂）；`IMMediaPlaceholderTests` 补 data URI 解码 / 20px 尺寸 / 协议长度上限。**单测/手测未跑。**
+> **无待手测活跃项**：会话行闪烁根因修复 / IMChatViewController 续拆收官（1496→725 行）/ 巨类拆分+code-review / 相机·粘贴单图磨砂占位 / 收藏页 B 方案 均已手测通过，细节转入 `current_task.archive.md`（归档于 2026-08-22）。
+>
+> **下一里程碑 = 语音消息 P0**（设计定稿于 `../IMServer/docs/VOICE_MESSAGE_DESIGN.md` v2，后端未动代码）。iOS 侧承载：录制 UI 单行收纳（B+B 拍板，Telegram 式按住/锁定/播放三态）+ 波形气泡 + 收方长按端上转文字。等后端 `send_msg` 协议/`waveform` 列落定后开工。
+> **顺带欠账**：`setupUI(~215 行)` 抽 `IMComposerBar` 协作对象（体量正解，非再平移，专门做）。
 
 ## 下一步
-1. **手测（优先）**：拆分后聊天页全交互回归（见上「待手测」清单）+ 相机/粘贴单图收端磨砂占位 + 转发自拍图有磨砂。
-2. 无问题 → 接下一里程碑（后端排队 **语音消息 P0 → 收藏改造**，见 `../IMServer/current_task.md` 与 `docs/ROADMAP.md`）。
-3. **收藏页 B 方案已实现（2026-08-19，clean build 绿 + `IMFavoritesCategoriesTests` 7 例，待手测）**：设计 `../IMServer/docs/FAVORITES_DESIGN.md` **§14** + `FAVORITES_B_UX_SKETCH.html`。`IMFavoritesViewController.m` 整体重写为 B：**去「全部」逐签**（媒体/文件/链接/语音/文本/聊天记录，默认媒体）；**媒体=复用详情页 `IMDetailMediaContainerCell` 宫格逐格门控、文件=复用 `IMDetailFileCell` 三态行**（修"未下载文件与详情页不一致"）；右上 ⋯ 玻璃钮→`IMPopoverCard`「以消息/聊天模式查看」（`NSUserDefaults` 持久化，副标题显模式）；**聊天模式=按 `source_conv_id` 分组来源列表（自己发→「我的」）→ 点进按来源过滤子页**；搜索 token 恒=当前签。清缓存联动维持现状（不加通知）。**待手测**：六签切换与空态、宫格门控/进度/就绪点开翻页、文件 ↓→环→QuickLook、⋯ 菜单切换与记忆、来源列表名/头像/计数与下钻、来源子页标题副标题、长按菜单（宫格格+行）、左滑删除、深浅色。
-   - （v1 记录，已被 B 覆盖）原实现：
-   - **Browse 全量**（`IMFavoritesViewController.m` 重写）：分类分段（全部+动态，`IMFavoritesCategories` 纯逻辑+单测，口径对齐 `IMChatDetailTabs`）；范围搜索（内嵌 `UISearchBar` + `UISearchToken` 跟随分段，非 navigationItem——液态栏不兼容）；统一左图标列（媒体缩略/文件折角图标/文本引号色块/链接色块 on `IMTheme.accentSoft`，无空占位）；长按菜单（转发/复制/删除）+ 左滑删除；点媒体→查看器、链接/文件→`SFSafariViewController`、文本→只读阅读器；转发复用 `IMForwardPickerViewController` + `IMSocketManager forwardContent:`+本地落库；空/错/载入态 + 下拉刷新；删除失败保留旧数据。
-   - `IMTheme.accentSoft`（accent@12%）；`IMHTTPService addFavoriteWithToken:` + `favoriteMessage:` 补 `fileName/fileSize`。
-   - **Q1/Q2 + 3 项打磨（2026-08-19 后续，clean build 绿）**：①**文件点击对齐聊天页**——改用 `IMMediaDownloadCoordinator`+`QLPreviewController`（已缓存 QuickLook/未缓存下载副行显进度/完成不自动打开），不再 SFSafari；②**聊天记录 `chat_record`** 渲染成卡片（`IMChatRecordSnippet` 摘要+bubble 图标）、点击进 `IMChatRecordViewController`，不再显/点 JSON；③**邀请链接**点收藏链接先走 `IMQRResultRouter routeInviteLinkIfOwn:`（`/q/u`·`/q/g` 原生加群/名片）再 SFSafari，与 `openLink:` 一致；④**搜索框圆角**改 `IMApplyUnifiedSearchFieldStyle`（24 continuous，同首页）；⑤**列表贴近分段**（`contentInset.top=-14` + 分段底距 8→6）。
-   - **未做**：Pick/「从收藏发送」（聊天入口仍屏蔽，见下）；文件"下载环"UI（收藏用副行文案显进度，非气泡环）；副行来源显示名（P1）；媒体保存复用查看器（未进菜单）。
-   - **待手测**（编译只保符号）：分类切换、范围搜索 token 增删、四类+聊天记录 cell 渲染与左缘对齐、长按菜单、左滑删除、点各类型跳转（文件下载→QuickLook、聊天记录进详情、邀请链接进加群、普通链接进浏览器）、阅读器、转发后进会话可见、空/错态、深浅色、**搜索框圆角是否同首页 + 列表与分段间距**。
-   - 后端（`../IMServer`）+ Web（`../im-web`）同批已实现并各自跑绿（见 `../IMServer/current_task.md`）。
+1. **接下一里程碑：语音消息 P0**（后端排队最前，见 `../IMServer/current_task.md` 与 `docs/ROADMAP.md`）——等后端协议/DB 列落定后做 iOS 录制 UI + 波形气泡。
+2. 语音落地后，收藏页 `content_type` 分类把 `voice` 一起做进去（B 方案已留位）。
+3. 欠账：`setupUI` 抽 `IMComposerBar`；「从收藏发送」入口随收藏改造统一放开（见「已知坑」）。
 
 ## 已知坑 / 限制
 - **`runAfterKeyboardHidden:` 兜底待测（2026-08-05 记）**：依赖 `resignFirstResponder` 后必然收到 `UIKeyboardDidHideNotification`——软键盘正常成立；若实测硬件/外接键盘场景引用跳转不触发，加 `dispatch_after` 超时兜底。
@@ -47,7 +24,7 @@
 - **系统按钮文案本地化（2026-08-12 修，未编译验证）**：`Info.plist` 补 `CFBundleLocalizations=[zh-Hans,en]` 让 QLPreview「Done」/UISearchBar「Cancel」等系统文案落中文；自有 UI 硬编码中文，将来做真·多语言再建 `.lproj`。
 - **原图路径 JPEG 字节戴 `.heic` 帽子（2026-08-12 记，暂不改）**：`IMMediaPicker buildImageItem` 原图分支按 `UTTypeImage` 取字节（iOS 可能把 HEIC 转 JPEG 交付）但扩展名靠 `hasItemConformingToTypeIdentifier:UTTypeHEIC` 猜 → JPEG 内容 + `.heic` 名错配。Web 靠字节嗅探已能各自正确显示故非阻塞；计划换第三方相册选择器（任务4）后此坑自消。
 - 测试只跑 `-only-testing:IMProgramTests`；改后端协议后需重启后端再测。
-- **聊天页「从收藏发送」入口暂屏蔽/暂不支持（2026-08-19）**：`IMChatViewController` `attachItemTapped:` 的 `favorite` 分支仍走 `im_showComingSoon`（等效屏蔽），**本次不改代码**、仅记录。设计已保留（`../IMServer/docs/FAVORITES_DESIGN.md` §5.5 标 ⏸），待收藏改造统一放开并接卡片式收藏选择器。
+- **聊天页「从收藏发送」入口暂屏蔽/暂不支持（2026-08-19）**：`IMChatViewController` `attachItemTapped:` 的 `favorite` 分支仍走 `im_showComingSoon`（等效屏蔽）。设计已保留（`../IMServer/docs/FAVORITES_DESIGN.md` §5.5 标 ⏸），待收藏改造统一放开并接卡片式收藏选择器。
 
 ## 关联工程 / 常用命令
 - 后端 `/Users/liying/IOSProject/IMServer`；Web `/Users/liying/IOSProject/im-web`。
