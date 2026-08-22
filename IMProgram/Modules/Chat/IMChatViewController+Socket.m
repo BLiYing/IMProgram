@@ -43,6 +43,7 @@
 - (BOOL)im_isGroupChat { return self.isGroupChat; }
 
 - (NSString *)im_navigationSubtitle {
+    if (self.selecting) { return @""; } // 多选态隐藏副标题（成员数/在线/正在输入），标题保留「已选择 N 条」+ 可点进详情（a6）
     if (self.peerTyping) {
         return @"正在输入";
     }

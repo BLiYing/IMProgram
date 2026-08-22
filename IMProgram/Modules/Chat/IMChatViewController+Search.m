@@ -39,19 +39,17 @@ static const CGFloat kIMSearchFromRowH = 52;
     [self buildSearchNavBar];
     self.inputBar.hidden = YES;
     if (self.jumpButton) { self.jumpButton.hidden = YES; }
-    self.tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeOnDrag;
-    // 点列表空白收起键盘（cancelsTouchesInView=NO：不吞消息点击/长按，只顺带收键盘）。
-    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(searchBlankTapped)];
-    tap.cancelsTouchesInView = NO;
-    [self.tableView addGestureRecognizer:tap];
-    self.searchState.tapToDismiss = tap;
+    // 先多选再搜索：选择栏此刻已在场（原贴安全区底），须重锚到新建的搜索栏**上方**（否则两排重叠——用户反馈的 bug）。
+    if (self.selecting) { [self updateSelectionBarBottomAnchor]; }
+    [self updateJumpButtonBottomAnchor]; // 向下钮改贴选择栏/搜索栏顶（出现时不重叠；b）
+    // c：搜索态键盘**不因点空白/上下滑而收起**——只有点「取消」才收（endInChatSearch）。
+    // 故不再设 keyboardDismissMode=OnDrag、也不再挂点空白 resignFirstResponder 的手势。
+    self.tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeNone;
     [self observeSearchKeyboard];
     if (keyword.length > 0) { self.searchState.searchField.text = keyword; }
     [self.searchState.searchField becomeFirstResponder];
     [self recomputeSearchHitsAndJump:YES];
 }
-
-- (void)searchBlankTapped { [self.searchState.searchField resignFirstResponder]; }
 
 - (void)endInChatSearch {
     if (!self.searchState.searching) { return; }
@@ -75,6 +73,7 @@ static const CGFloat kIMSearchFromRowH = 52;
         [self extendTableBottomForSelection];   // 选择态仍需壁纸铺到底（接管搜索让出的表底）
         [self updateSelectionBarBottomAnchor];  // 搜索栏已移除 → 选择栏落回安全区底（不再堆叠）
     }
+    [self updateJumpButtonBottomAnchor];        // 向下钮落回 选择栏/replyBar 顶（搜索栏已移除）
     self.searchState = nil;   // 整袋释放
     [self.tableView reloadData];   // 清掉气泡内命中词高亮
 }
@@ -101,7 +100,13 @@ static const CGFloat kIMSearchFromRowH = 52;
 - (void)restoreTableBottom {
     if (!self.searchState.searchTableBottom) { return; }
     self.searchState.searchTableBottom.active = NO; self.searchState.searchTableBottom = nil;
-    self.searchState.searchSavedTableBottom.active = YES; self.searchState.searchSavedTableBottom = nil;
+    // 无脑重激活「搜索前活着的那根 table.bottom」——它在两条路径下都自动对：
+    //   ① 未多选：就是原「表底=replyBar 顶」，激活它=还原默认；
+    //   ② 已多选：就是 selectionState.tableBottom（=表底→屏幕底），激活它=接管到多选自己的表底约束。
+    // 上一版曾在 selecting 时跳过激活以为要交给 extendTableBottomForSelection 接管，但那函数开头
+    // `if (selectionState.tableBottom) return;` 早退，导致表底"全无激活约束→列表被挤没高度不见了"(regression)。
+    self.searchState.searchSavedTableBottom.active = YES;
+    self.searchState.searchSavedTableBottom = nil;
     UIEdgeInsets ci = self.tableView.contentInset;
     ci.bottom = self.searchState.savedBottomInset;   // 恢复进搜索前的原始底（键盘让位一并清除）
     self.tableView.contentInset = ci;

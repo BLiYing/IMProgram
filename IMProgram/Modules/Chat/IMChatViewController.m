@@ -661,14 +661,16 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
         [sendButton.heightAnchor constraintEqualToConstant:36],
 
         [self.jumpButton.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-16],
-        [self.jumpButton.bottomAnchor constraintEqualToAnchor:self.replyBar.topAnchor constant:-12],
-        [self.jumpButton.widthAnchor constraintEqualToConstant:40],
-        [self.jumpButton.heightAnchor constraintEqualToConstant:40],
+        [self.jumpButton.widthAnchor constraintEqualToConstant:36],  // 与搜索/多选玻璃钮一致 36pt
+        [self.jumpButton.heightAnchor constraintEqualToConstant:36],
         [self.jumpBadge.centerXAnchor constraintEqualToAnchor:self.jumpButton.trailingAnchor constant:-5],
         [self.jumpBadge.centerYAnchor constraintEqualToAnchor:self.jumpButton.topAnchor constant:5],
         [self.jumpBadge.heightAnchor constraintEqualToConstant:18],
         [self.jumpBadge.widthAnchor constraintGreaterThanOrEqualToConstant:18],
     ]];
+    // 向下钮底边=动态：默认贴 replyBar 顶；多选/搜索态改贴选择栏/搜索栏顶（堆叠不重叠，见 updateJumpButtonBottomAnchor）。
+    self.jumpButtonBottom = [self.jumpButton.bottomAnchor constraintEqualToAnchor:self.replyBar.topAnchor constant:-12];
+    self.jumpButtonBottom.active = YES;
 
     // 输入框右缘随内容切换：无内容贴表情、有内容贴发送（#4）。
     self.inputTrailToEmoji = [self.inputField.trailingAnchor constraintEqualToAnchor:emojiButton.leadingAnchor constant:-4];

@@ -17,9 +17,10 @@
 #import "IMAlbumCell.h"
 #import "IMChatSearchState.h"
 #import "IMChatSelectionState.h"
+#import "IMPopoverCard.h"
 #import "UIViewController+IMToast.h"
 
-static const CGFloat kIMSelectionBarH = 60; // 底部选择栏高度（与搜索导航同构：透明贴底、定高、玻璃钮居中）
+static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索导航 kIMSearchNavBarH，堆叠时按钮间距一致）
 
 @implementation IMChatViewController (Selection)
 
@@ -56,10 +57,11 @@ static const CGFloat kIMSelectionBarH = 60; // 底部选择栏高度（与搜索
     self.inputBar.hidden = YES;
     // 与搜索共存：不隐藏搜索底部导航——选择栏堆叠在其**上方**（updateSelectionBarBottomAnchor 已按搜索态定位）。
     [self updateSelectionBarBottomAnchor];
+    [self updateJumpButtonBottomAnchor]; // 向下钮改贴选择栏顶（若可见，堆在删除钮上方不重叠）
 
     self.savedTitle = self.title;
-    self.savedRightItem = self.navigationItem.rightBarButtonItem;
-    self.navigationItem.rightBarButtonItem = nil;
+    self.savedRightItem = self.navigationItem.rightBarButtonItem; // 存下右项，退出多选原样恢复（保留头像项，不置 nil）
+    // a(6)-A：多选态**保留右上头像项**（不再置 nil）——标题「已选择 N 条」点击复用 titleButton→右项 action 路由进详情。
     // 必须用**带标题**的 item：统一 Liquid 标题栏按 leftTitle 渲染左位文字并把点击路由到本 item；
     // 系统 Cancel item 无标题 → 被回落成返回箭头、点击直接 pop 出聊天页（"没有取消按钮"的根因）。
     self.navigationItem.leftBarButtonItem =
@@ -91,6 +93,7 @@ static const CGFloat kIMSelectionBarH = 60; // 底部选择栏高度（与搜索
     self.selectionState.barBottom.active = NO;          // 复位选择栏底边约束
     [self restoreTableBottomForSelection];              // 还原表底（若搜索态在，则表底由搜索维持、此处是 no-op）
     self.selectionState = nil;                          // 整袋释放（逐格勾选集 / 表底约束 / 选择栏底边）
+    [self updateJumpButtonBottomAnchor];               // 向下钮落回 replyBar/搜索栏顶
     // 与搜索共存：仍在搜索态则搜索栏本就一直显示、输入栏保持隐藏；否则恢复输入栏。
     self.inputBar.hidden = self.searchState.searching ? YES : NO;
     self.title = self.savedTitle;
@@ -119,45 +122,43 @@ static const CGFloat kIMSelectionBarH = 60; // 底部选择栏高度（与搜索
 
 - (void)buildSelectionBarIfNeeded {
     if (self.selectionBar) { return; }
-    // 与会话内搜索底部导航同构：**透明**容器贴底部安全区、定高，三个独立圆形 Liquid Glass 按钮浮在（铺到底的）壁纸上，
-    // 无任何工具栏背景。壁纸铺到底由 extendTableBottomForSelection 负责（否则钮后会露 self.view 纯色底）。
+    // 与会话内搜索底部导航**同构且对齐**：透明容器定高 kIMSelectionBarH(=搜索栏高)，三个 36pt 玻璃钮——
+    // 转发左对齐 📅(leading+16)、删除右对齐 ▼(trailing-16)、收藏居中；壁纸铺到底后钮浮其上、无背景。
     UIView *bar = [UIView new];
     bar.translatesAutoresizingMaskIntoConstraints = NO;
     bar.backgroundColor = UIColor.clearColor;
     [self.view addSubview:bar];
     self.selectionBar = bar;
 
-    // 删除钮：点击不直接删，而是**在按钮上方弹出「仅为我删除」菜单**（UIMenu 作主操作，系统自动锚到钮上方），
-    // 点「仅为我删除」才执行——与用户要求一致；菜单项标红（destructive）。
-    UIButton *del = [self selectionBarButton:@"删除" image:@"trash" action:NULL];
-    __weak typeof(self) wsDel = self;
-    UIAction *delAction = [UIAction actionWithTitle:@"仅为我删除"
-                                              image:[UIImage systemImageNamed:@"trash"]
-                                         identifier:nil
-                                            handler:^(__kindof UIAction *a) { [wsDel performDeleteSelected]; }];
-    delAction.attributes = UIMenuElementAttributesDestructive;
-    del.menu = [UIMenu menuWithTitle:@"" children:@[delAction]];
-    del.showsMenuAsPrimaryAction = YES;
-
-    UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:@[
-        [self selectionBarButton:@"转发" image:@"arrowshape.turn.up.right" action:@selector(forwardSelected)],
-        [self selectionBarButton:@"收藏" image:@"bookmark" action:@selector(favoriteSelected)],
-        del,
-    ]];
-    row.axis = UILayoutConstraintAxisHorizontal;
-    row.distribution = UIStackViewDistributionEqualCentering; // 独立圆形按钮：等中心距分布，不拉伸
-    row.alignment = UIStackViewAlignmentCenter;
-    row.translatesAutoresizingMaskIntoConstraints = NO;
-    [bar addSubview:row];
+    UIButton *fwd = [self selectionBarButton:@"转发" image:@"arrowshape.turn.up.right" action:@selector(forwardSelected)];
+    fwd.tag = 1;
+    UIButton *fav = [self selectionBarButton:@"收藏" image:@"bookmark" action:@selector(favoriteSelected)];
+    fav.tag = 2;
+    // 删除：点击弹「仅为我删除」自定义气泡（复用 IMPopoverCard、锚删除钮上方，不与按钮重叠）。
+    UIButton *del = [self selectionBarButton:@"删除" image:@"trash" action:@selector(deleteButtonTapped:)];
+    del.tag = 3;
+    [bar addSubview:fwd]; [bar addSubview:fav]; [bar addSubview:del];
     [NSLayoutConstraint activateConstraints:@[
         [bar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [bar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
         [bar.heightAnchor constraintEqualToConstant:kIMSelectionBarH],
-        [row.leadingAnchor constraintEqualToAnchor:bar.leadingAnchor constant:48],
-        [row.trailingAnchor constraintEqualToAnchor:bar.trailingAnchor constant:-48],
-        [row.centerYAnchor constraintEqualToAnchor:bar.centerYAnchor],
+        [fwd.leadingAnchor constraintEqualToAnchor:bar.leadingAnchor constant:16],
+        [fwd.centerYAnchor constraintEqualToAnchor:bar.centerYAnchor],
+        [del.trailingAnchor constraintEqualToAnchor:bar.trailingAnchor constant:-16],
+        [del.centerYAnchor constraintEqualToAnchor:bar.centerYAnchor],
+        [fav.centerXAnchor constraintEqualToAnchor:bar.centerXAnchor],
+        [fav.centerYAnchor constraintEqualToAnchor:bar.centerYAnchor],
     ]];
     [self updateSelectionBarBottomAnchor]; // 底边：搜索开着=贴搜索栏顶（上下堆叠）/否则=安全区底
+}
+
+/// 删除钮点击 → 在钮**上方**弹「仅为我删除」确认气泡（复用详情页「更多」同款 IMPopoverCard，不与按钮重叠）。
+- (void)deleteButtonTapped:(UIButton *)sender {
+    if ([self selectedMessages].count == 0) { return; } // 兜底：此时按钮本应已禁用
+    __weak typeof(self) ws = self;
+    IMPopoverCardItem *item = [IMPopoverCardItem itemWithTitle:@"仅为我删除" symbol:@"trash" destructive:YES
+                                                       handler:^{ [ws performDeleteSelected]; }];
+    [IMPopoverCard presentFromAnchor:sender inHostView:self.view items:@[item]];
 }
 
 /// 选择栏底边定位：搜索底部导航开着时,选择栏钉在其**上方**（两排按钮堆叠、互不重叠）；否则钉安全区底。
@@ -203,24 +204,36 @@ static const CGFloat kIMSelectionBarH = 60; // 底部选择栏高度（与搜索
     self.tableView.contentInset = ci;
 }
 
-/// 独立圆形 Liquid Glass 按钮（复用全站配方 IMGlassButtonConfiguration + Capsule 圆角 + 定尺 52 → 正圆）。
+/// 独立圆形 Liquid Glass 按钮（复用全站配方 + Capsule；定尺 **36pt**，与搜索底栏 searchGlassButtonSymbol 一致）。
 /// 图标承载语义（辅助功能读 title）；删除用系统红以突出破坏性。
 - (UIButton *)selectionBarButton:(NSString *)title image:(NSString *)image action:(SEL)action {
     UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
     UIButtonConfiguration *cfg = IMGlassButtonConfiguration();
     cfg.image = [UIImage systemImageNamed:image];
     cfg.cornerStyle = UIButtonConfigurationCornerStyleCapsule;
-    cfg.contentInsets = NSDirectionalEdgeInsetsMake(14, 14, 14, 14);
     cfg.baseForegroundColor = [title isEqualToString:@"删除"] ? UIColor.systemRedColor : IMTheme.textPrimary;
     b.configuration = cfg;
     b.accessibilityLabel = title;
     b.translatesAutoresizingMaskIntoConstraints = NO;
     [NSLayoutConstraint activateConstraints:@[
-        [b.widthAnchor constraintEqualToConstant:52],
-        [b.heightAnchor constraintEqualToConstant:52],
+        [b.widthAnchor constraintEqualToConstant:36],
+        [b.heightAnchor constraintEqualToConstant:36],
     ]];
-    if (action) { [b addTarget:self action:action forControlEvents:UIControlEventTouchUpInside]; } // 删除钮 action=NULL：改用 UIMenu 主操作
+    if (action) { [b addTarget:self action:action forControlEvents:UIControlEventTouchUpInside]; }
     return b;
+}
+
+/// 向下钮底边随「多选/搜索」态重定位：多选态贴选择栏顶、搜索态贴搜索栏顶、否则贴 replyBar 顶——
+/// 保证「向下钮 / 多选行 / 搜索行」自上而下堆叠、间距一致、不重叠（b：某些机型会与删除钮重叠）。
+- (void)updateJumpButtonBottomAnchor {
+    if (!self.jumpButtonBottom) { return; }
+    self.jumpButtonBottom.active = NO;
+    NSLayoutYAxisAnchor *topAnchor; CGFloat gap;
+    if (self.selecting && self.selectionBar) { topAnchor = self.selectionBar.topAnchor; gap = 6; }
+    else if (self.searchState.searching && self.searchState.searchNavBar) { topAnchor = self.searchState.searchNavBar.topAnchor; gap = 6; }
+    else { topAnchor = self.replyBar.topAnchor; gap = 12; }
+    self.jumpButtonBottom = [self.jumpButton.bottomAnchor constraintEqualToAnchor:topAnchor constant:-gap];
+    self.jumpButtonBottom.active = YES;
 }
 
 /// 已选消息（按行序）。相册**逐格勾选**（2a）：成员按 selectedMediaSeqs（conv_seq 集合）判定；
@@ -273,6 +286,11 @@ static const CGFloat kIMSelectionBarH = 60; // 底部选择栏高度（与搜索
     // 用展开后的真实条数（相册整组算 N 条）——与转发/删除的作用条数一致，不再按"行数"少算。
     NSUInteger n = [self selectedMessages].count;
     self.title = n > 0 ? [NSString stringWithFormat:@"已选择 %lu 条", (unsigned long)n] : @"选择消息";
+    // a(4)：0 选中时三钮置灰禁用（系统按钮自动变淡、不可点）→ 去掉「请先选择消息」吐司。
+    BOOL has = n > 0;
+    ((UIButton *)[self.selectionBar viewWithTag:1]).enabled = has; // 转发
+    ((UIButton *)[self.selectionBar viewWithTag:2]).enabled = has; // 收藏
+    ((UIButton *)[self.selectionBar viewWithTag:3]).enabled = has; // 删除
     [self refreshUnifiedNavigationBar]; // 标题与「取消」左钮由统一 Liquid 栏渲染，改完必须刷一次
 }
 
@@ -280,7 +298,7 @@ static const CGFloat kIMSelectionBarH = 60; // 底部选择栏高度（与搜索
 
 - (void)forwardSelected {
     NSArray<IMMessageModel *> *msgs = [self selectedMessages];
-    if (msgs.count == 0) { [self im_showToast:@"请先选择消息"]; return; }
+    if (msgs.count == 0) { return; } // 按钮禁用兜底：0 选中不弹吐司（a4）
     __weak typeof(self) ws = self;
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:nil message:nil preferredStyle:UIAlertControllerStyleActionSheet];
     [sheet addAction:[UIAlertAction actionWithTitle:@"逐条转发" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
@@ -464,7 +482,7 @@ static const CGFloat kIMSelectionBarH = 60; // 底部选择栏高度（与搜索
 
 - (void)favoriteSelected {
     NSArray<IMMessageModel *> *msgs = [self selectedMessages];
-    if (msgs.count == 0) { [self im_showToast:@"请先选择消息"]; return; }
+    if (msgs.count == 0) { return; } // 按钮禁用兜底：0 选中不弹吐司（a4）
     for (IMMessageModel *m in msgs) {
         if (m.recalledAt > 0 || m.content.length == 0 || [m.contentType isEqualToString:@"system"]) { continue; }
         [self favoriteMessage:m];
@@ -475,7 +493,7 @@ static const CGFloat kIMSelectionBarH = 60; // 底部选择栏高度（与搜索
 /// 直接执行删除（确认已由删除钮上方的「仅为我删除」菜单完成，此处不再二次确认）。仅删本端。
 - (void)performDeleteSelected {
     NSArray<IMMessageModel *> *msgs = [self selectedMessages];
-    if (msgs.count == 0) { [self im_showToast:@"请先选择消息"]; return; }
+    if (msgs.count == 0) { return; } // 按钮禁用兜底：0 选中不弹吐司（a4）
     for (IMMessageModel *m in msgs) {
         [self performDatabaseOperation:^(IMDatabase *database) {
             [database deleteMessage:m];
