@@ -8,7 +8,8 @@
 #import "IMTheme.h"
 
 @implementation IMLinkRowView {
-    UILabel *_favicon; // 36×36 圆角 8，首字母（host 首字母大写），品牌色底
+    UIView *_faviconBox; // 36×36 圆角 8，accentSoft 底 + 居中 accent 色 link 系统图标（统一 logo，非按 host 生成的首字母）
+    UIImageView *_faviconGlyph;
     UILabel *_t1;      // og:title 或 host（16pt Regular, textPrimary），1 行截断
     UILabel *_t2;      // host+path（12pt mono, textSecondary），1 行截断，省略 scheme
     UILabel *_t3;      // 时间（12pt Regular, textTertiary）
@@ -17,15 +18,21 @@
 
 - (instancetype)initWithFrame:(CGRect)frame {
     if ((self = [super initWithFrame:frame])) {
-        _favicon = [UILabel new];
-        _favicon.translatesAutoresizingMaskIntoConstraints = NO;
-        _favicon.textAlignment = NSTextAlignmentCenter;
-        _favicon.textColor = IMTheme.accent;
-        _favicon.backgroundColor = IMTheme.accentSoft;
-        _favicon.font = [UIFont systemFontOfSize:15 weight:UIFontWeightBold];
-        _favicon.layer.cornerRadius = 8;
-        _favicon.clipsToBounds = YES;
-        [self addSubview:_favicon];
+        _faviconBox = [UIView new];
+        _faviconBox.translatesAutoresizingMaskIntoConstraints = NO;
+        _faviconBox.backgroundColor = IMTheme.accentSoft;
+        _faviconBox.layer.cornerRadius = 8;
+        _faviconBox.clipsToBounds = YES;
+        [self addSubview:_faviconBox];
+
+        _faviconGlyph = [UIImageView new];
+        _faviconGlyph.translatesAutoresizingMaskIntoConstraints = NO;
+        _faviconGlyph.contentMode = UIViewContentModeCenter;
+        _faviconGlyph.tintColor = IMTheme.accent;
+        _faviconGlyph.image = [[UIImage systemImageNamed:@"link"
+                                       withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:18 weight:UIImageSymbolWeightSemibold]]
+                                imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+        [_faviconBox addSubview:_faviconGlyph];
 
         _t1 = [UILabel new];
         _t1.translatesAutoresizingMaskIntoConstraints = NO;
@@ -50,12 +57,14 @@
         // 与 IMDetailFileCell 一致：图标 36×36 · 图标到文字 12 · t1→t2 = t2→t3 = 2pt
         // 外沿留白由宿主 cell 自选（详情/收藏页各有不同边距诉求），View 自身不设 padding。
         [NSLayoutConstraint activateConstraints:@[
-            [_favicon.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
-            [_favicon.topAnchor constraintEqualToAnchor:self.topAnchor constant:1],
-            [_favicon.widthAnchor constraintEqualToConstant:36],
-            [_favicon.heightAnchor constraintEqualToConstant:36],
+            [_faviconBox.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
+            [_faviconBox.topAnchor constraintEqualToAnchor:self.topAnchor constant:1],
+            [_faviconBox.widthAnchor constraintEqualToConstant:36],
+            [_faviconBox.heightAnchor constraintEqualToConstant:36],
+            [_faviconGlyph.centerXAnchor constraintEqualToAnchor:_faviconBox.centerXAnchor],
+            [_faviconGlyph.centerYAnchor constraintEqualToAnchor:_faviconBox.centerYAnchor],
 
-            [_t1.leadingAnchor constraintEqualToAnchor:_favicon.trailingAnchor constant:12],
+            [_t1.leadingAnchor constraintEqualToAnchor:_faviconBox.trailingAnchor constant:12],
             [_t1.topAnchor constraintEqualToAnchor:self.topAnchor],
             [_t1.trailingAnchor constraintLessThanOrEqualToAnchor:self.trailingAnchor],
 
@@ -80,9 +89,7 @@
         ? [NSString stringWithFormat:@"%@%@", host, parsed.path]
         : host;
 
-    NSString *letter = @"?";
-    if (host.length > 0) { letter = [[host substringToIndex:1] uppercaseString]; }
-    _favicon.text = letter;
+    // favicon 底 + link 图标固定，无需按 host 变化（用户明确否决按首字母生成的伪 favicon 方案）。
     _t2.text = hostAndPath;
     _t3.text = timeText ?: @"";
 

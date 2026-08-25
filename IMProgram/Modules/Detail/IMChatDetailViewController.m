@@ -608,6 +608,9 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
             return h > 0 ? h : 60;
         }
         if (t.kind == IMDetailTabKindFiles) { return 74; } // 文件行 3 行：文件名 + 状态 + 时间（#2b）
+        // 链接行 3 行：og:title/host + host+path + 时间（草图 §C，IMDetailLinkCell 内嵌 IMLinkRowView）——
+        // 内部 t1(16)+2+t2(14)+2+t3(14)=48pt + cell 上下 padding 9+9=66pt；旧的 60pt 会截掉时间行（用户反馈）。
+        if (t.kind == IMDetailTabKindLinks) { return 74; }
         return 60;
     }
     return 52;

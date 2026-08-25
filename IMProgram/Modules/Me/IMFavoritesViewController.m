@@ -139,10 +139,8 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     _title.numberOfLines = 2; // 文本封顶 2 行，给副行「来自X · 时间」留位（#1）
     NSString *symbol = @"text.quote";
     switch (kind) {
-        // Links 分支已迁走：走独立 IMFavoriteLinkCell（草图 §D，36×36 favicon + 三行 + quote + source），
-        // cellForRow 里已按 kind 分流。此处的老 case 保留兜底：万一新 cell 未 register 走到这里，仍能显 URL。
-        case IMFavoriteCategoryLinks:
-            symbol = @"link"; _title.numberOfLines = 2; _title.textColor = IMTheme.accent; _title.text = content; break;
+        // Links 分类走独立 IMFavoriteLinkCell（草图 §D），cellForRow 已 kind 分流后不会到这里；
+        // 老兜底分支已删（死代码——若 register 失误应立刻构建期暴露，不该在此偷偷渲染个错样式）。
         case IMFavoriteCategoryRecord: {
             symbol = @"bubble.left.and.bubble.right"; _title.numberOfLines = 2;
             NSString *snippet = IMChatRecordSnippet(content);
@@ -1051,6 +1049,8 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
 #pragma mark 长按 / 左滑
 
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
+    // pick 模式（从聊天页调出选发）：禁用左滑删除——语义混淆（本意是选发，误滑删了原始收藏且无确认）。
+    if (_pickMode) { return nil; }
     if (_mode == IMFavoritesViewModeChats || _selectedKind == IMFavoriteCategoryMedia) { return nil; }
     __weak typeof(self) ws = self;
     UIContextualAction *del = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive title:@"删除"
@@ -1063,6 +1063,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
 }
 
 - (UIContextMenuConfiguration *)tableView:(UITableView *)tableView contextMenuConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath point:(CGPoint)point {
+    if (_pickMode) { return nil; } // pick 模式禁上下文菜单（转发/删除/复制在 pick 场景无意义）
     if (_mode == IMFavoritesViewModeChats || _selectedKind == IMFavoriteCategoryMedia) { return nil; }
     if (indexPath.row >= (NSInteger)_rows.count) { return nil; }
     return [self contextMenuForFavorite:_rows[(NSUInteger)indexPath.row]];

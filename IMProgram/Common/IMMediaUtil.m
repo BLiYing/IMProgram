@@ -146,11 +146,12 @@ BOOL IMMediaLooksLikeURL(NSString *s) {
 
 /// 文本内 http(s) URL 的正则（与 Web src/messageContent.ts 的 URL_REGEX 同款）：
 /// - 只识别显式 http(s)，不猜裸域（避 example.com 误识 + 后端 SSRF 面）
-/// - 末尾常见标点回吐 [^\s<>()"'.,;:!?)\]}] —— 避免"看 https://foo.com。"把句号吃进 URL
+/// - 末尾常见标点回吐——ASCII 标点 + 中文全角标点（，。！？；：、）】》」』""''…），
+///   避免"看 https://foo.com/，好文"→ 抓成"https://foo.com/，好文"→ preview 404
 static NSRegularExpression *IMURLRegexShared(void) {
     static NSRegularExpression *r; static dispatch_once_t once;
     dispatch_once(&once, ^{
-        r = [NSRegularExpression regularExpressionWithPattern:@"https?://[^\\s<>()\"']+[^\\s<>()\"'.,;:!?)\\]}]"
+        r = [NSRegularExpression regularExpressionWithPattern:@"https?://[^\\s<>()\"'（【《「『“‘]+[^\\s<>()\"'.,;:!?)\\]}，。！？；：、）】》」』“”‘’…]"
                                                       options:0 error:NULL];
     });
     return r;

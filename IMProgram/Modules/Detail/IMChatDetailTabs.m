@@ -28,9 +28,10 @@
         case IMDetailTabKindVoice:
             return [ct isEqualToString:@"audio"];
         case IMDetailTabKindLinks:
-            // 独立 link 类型，或普通文本但形如 URL（仿 Telegram 的「链接」聚合）。
+            // 独立 link 类型，或普通文本**含 URL**（草图 §D 与收藏页 IMFavoritesCategories 同款口径——
+            // 混排文本"看看 https://xxx"也进链接聚合；旧的 IMMediaLooksLikeURL 只认整段 = URL，会漏掉混排）。
             if ([ct isEqualToString:@"link"]) { return YES; }
-            return [ct isEqualToString:@"text"] && IMMediaLooksLikeURL(m.content);
+            return [ct isEqualToString:@"text"] && IMFirstURLInText(m.content) != nil;
         case IMDetailTabKindMembers:
             return NO; // 成员非消息类型
     }
