@@ -270,6 +270,15 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     NSDictionary<NSString *, IMConversation *> *_convByID; // 来源会话名/头像查表
     NSDictionary<NSString *, IMUserCard *> *_friendByID;   // 好友：source_from→显示名（含备注）
     NSDictionary<NSString *, IMGroupInfo *> *_groupByID;   // 群：source_conv_id→成员（取群昵称）
+
+    // pick 模式（Batch 2）：从聊天页加号 → 收藏调出。多选 + 底部"发送(N)"→ onPickDone(selected fav 数组)。
+    // browse 模式下这些字段全默认（_pickMode=NO），不影响原有行为；模式一经初始化不再切换。
+    BOOL _pickMode;
+    void (^_onPickDone)(NSArray<NSDictionary *> *);
+    NSMutableSet<NSNumber *> *_pickedFavIds;         // 选中集，按 favorite.id
+    UIView *_pickBar;                                 // 底部工具栏容器
+    UIButton *_pickCancelBtn;
+    UIButton *_pickSendBtn;
 }
 
 - (instancetype)init {
@@ -291,6 +300,20 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
         _sourceFilterName = [name copy];
         _allItems = items ?: @[];
         self.title = [NSString stringWithFormat:@"来自 %@", name ?: @""];
+    }
+    return self;
+}
+
+/// pick 模式：多选 + 底部"发送(N)"→ onDone 回调携带选中项数组（用户"取消"回调 @[]）。
+/// 聊天页加号面板 → 收藏 走这条入口；宿主拿到数组后按 forwardEchoContent: 逐条发到当前会话。
+- (instancetype)initInPickModeWithDone:(void (^)(NSArray<NSDictionary *> *))onDone {
+    self = [self init];
+    if (self) {
+        _pickMode = YES;
+        _onPickDone = [onDone copy];
+        _pickedFavIds = [NSMutableSet new];
+        _mode = IMFavoritesViewModeMessages; // pick 模式恒消息模式（聊天模式的分组下钻在 pick 场景无意义）
+        self.title = @"从收藏发送";
     }
     return self;
 }
@@ -327,6 +350,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     [self buildTableView];
     [self buildEmptyView];
     [self installModeButton];
+    if (_pickMode) { [self buildPickBar]; [self installPickCancelButton]; } // Batch 2：pick 模式补装底部发送栏 + 右上取消
 
     if (_sourceFilterKey) { [self rebuildAll]; } else { [self reload]; }
 }
@@ -446,13 +470,107 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
 }
 
 /// 右上玻璃 ⋯（注入栏把 navigationItem.rightBarButtonItem 渲染成圆形玻璃钮）。来源子页不显。
+/// pick 模式下改为"取消"（installPickCancelButton 后覆盖），本方法先行装 ⋯ 再由后者替换。
 - (void)installModeButton {
-    if (_sourceFilterKey) { return; }
+    if (_sourceFilterKey || _pickMode) { return; } // 来源子页/pick 模式不显模式菜单
     UIBarButtonItem *item = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"ellipsis"]
                                                               style:UIBarButtonItemStylePlain target:self action:@selector(modeTapped:)];
     item.accessibilityLabel = @"查看模式";
     self.navigationItem.rightBarButtonItem = item;
     [self im_refreshNavigationBar];
+}
+
+#pragma mark pick 模式：底部发送栏 + 右上取消 + 选中态维护
+
+/// pick 模式右上"取消"按钮：与聊天页 attach 面板一致语义——放弃发送，onDone 回调 @[]，宿主 dismiss 本页。
+- (void)installPickCancelButton {
+    UIBarButtonItem *item = [[UIBarButtonItem alloc] initWithTitle:@"取消"
+                                                             style:UIBarButtonItemStylePlain
+                                                            target:self action:@selector(handlePickCancel)];
+    self.navigationItem.rightBarButtonItem = item;
+    [self im_refreshNavigationBar];
+}
+
+/// 底部"发送(N)"工具栏：黏在 safeArea 底，tableView contentInset.bottom 让最后一行可完整可见。
+- (void)buildPickBar {
+    _pickBar = [UIView new];
+    _pickBar.translatesAutoresizingMaskIntoConstraints = NO;
+    _pickBar.backgroundColor = IMTheme.surface;
+    _pickBar.layer.borderColor = IMTheme.separator.CGColor;
+    _pickBar.layer.borderWidth = 0.5; // 与 tableView 分隔
+    [self.view addSubview:_pickBar];
+
+    _pickSendBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    _pickSendBtn.translatesAutoresizingMaskIntoConstraints = NO;
+    _pickSendBtn.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
+    [_pickSendBtn setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    [_pickSendBtn setTitleColor:[UIColor.whiteColor colorWithAlphaComponent:0.5] forState:UIControlStateDisabled];
+    _pickSendBtn.backgroundColor = IMTheme.accent;
+    _pickSendBtn.layer.cornerRadius = 18;
+    _pickSendBtn.clipsToBounds = YES;
+    _pickSendBtn.enabled = NO;
+    [_pickSendBtn setTitle:@"发送" forState:UIControlStateNormal];
+    [_pickSendBtn addTarget:self action:@selector(handlePickSend) forControlEvents:UIControlEventTouchUpInside];
+    [_pickBar addSubview:_pickSendBtn];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [_pickBar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [_pickBar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [_pickBar.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
+        [_pickBar.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor constant:-52], // 52pt 内容区 + safeArea
+        [_pickSendBtn.trailingAnchor constraintEqualToAnchor:_pickBar.trailingAnchor constant:-16],
+        [_pickSendBtn.centerYAnchor constraintEqualToAnchor:_pickBar.safeAreaLayoutGuide.bottomAnchor constant:-26],
+        [_pickSendBtn.heightAnchor constraintEqualToConstant:36],
+        [_pickSendBtn.widthAnchor constraintGreaterThanOrEqualToConstant:88],
+    ]];
+    // tableView 底部让位给 pickBar 内容区（52pt），最后一行不被遮住。
+    _tableView.contentInset = UIEdgeInsetsMake(_tableView.contentInset.top, 0, 52, 0);
+    _tableView.verticalScrollIndicatorInsets = UIEdgeInsetsMake(0, 0, 52, 0);
+}
+
+/// 更新"发送"按钮：无选中→disabled 灰态；有选中→"发送 (N)"。
+- (void)updatePickSendButton {
+    NSUInteger n = _pickedFavIds.count;
+    _pickSendBtn.enabled = n > 0;
+    NSString *title = n > 0 ? [NSString stringWithFormat:@"发送 (%lu)", (unsigned long)n] : @"发送";
+    [_pickSendBtn setTitle:title forState:UIControlStateNormal];
+}
+
+- (void)handlePickCancel {
+    if (_onPickDone) { _onPickDone(@[]); }
+}
+
+- (void)handlePickSend {
+    if (_pickedFavIds.count == 0 || !_onPickDone) { return; }
+    // 按选中顺序不保序（NSSet 无序），改按 _allItems 里的原顺序过滤，收端出现顺序与收藏时间线一致。
+    NSMutableArray<NSDictionary *> *picked = [NSMutableArray new];
+    for (NSDictionary *f in _allItems) {
+        NSNumber *fid = [f[@"id"] isKindOfClass:NSNumber.class] ? f[@"id"]
+                     : ([f[@"id"] respondsToSelector:@selector(longLongValue)] ? @([f[@"id"] longLongValue]) : nil);
+        if (fid && [_pickedFavIds containsObject:fid]) { [picked addObject:f]; }
+    }
+    _onPickDone(picked);
+}
+
+/// pick 模式行点击 → 切换选中；返回 YES 表示已消化（宿主 didSelectRow 早退）。
+- (BOOL)handlePickTapForFavorite:(NSDictionary *)f {
+    if (!_pickMode) { return NO; }
+    NSNumber *fid = [f[@"id"] isKindOfClass:NSNumber.class] ? f[@"id"]
+                 : ([f[@"id"] respondsToSelector:@selector(longLongValue)] ? @([f[@"id"] longLongValue]) : nil);
+    if (!fid) { return YES; }
+    if ([_pickedFavIds containsObject:fid]) { [_pickedFavIds removeObject:fid]; }
+    else { [_pickedFavIds addObject:fid]; }
+    [self updatePickSendButton];
+    [_tableView reloadData]; // 直接整表刷新（selection 影响多个 cell 的 accessory，逐格 reload 反而复杂）
+    return YES;
+}
+
+/// pick 模式下按 favorite.id 判定该 cell 是否选中（accessory checkmark 用）。
+- (BOOL)isPickedFavorite:(NSDictionary *)f {
+    if (!_pickMode) { return NO; }
+    NSNumber *fid = [f[@"id"] isKindOfClass:NSNumber.class] ? f[@"id"]
+                 : ([f[@"id"] respondsToSelector:@selector(longLongValue)] ? @([f[@"id"] longLongValue]) : nil);
+    return fid && [_pickedFavIds containsObject:fid];
 }
 
 - (void)modeTapped:(UIBarButtonItem *)item {
@@ -797,7 +915,19 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
         IMDetailMediaContainerCell *cell = [tableView dequeueReusableCellWithIdentifier:@"mediagrid" forIndexPath:indexPath];
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
         __weak typeof(self) ws = self;
-        cell.onPick = ^(IMMediaItem *item) { [ws openMediaItem:item]; };
+        cell.onPick = ^(IMMediaItem *item) {
+            __strong typeof(ws) self = ws;
+            if (!self) { return; }
+            if (self->_pickMode) {
+                // pick 模式点媒体格 → 从 item 反查 favorite，切换选中；不打开查看器。
+                NSUInteger idx = [self->_mediaItems indexOfObject:item];
+                if (idx != NSNotFound && idx < self->_mediaFavs.count) {
+                    [self handlePickTapForFavorite:self->_mediaFavs[idx]];
+                }
+                return;
+            }
+            [self openMediaItem:item];
+        };
         // 逐格门控：必须在 setItems: 前挂好（reloadData 会立刻回调查询每格状态）。
         cell.stateForItemIndex = ^IMDownloadProgress *(NSInteger i) {
             __strong typeof(ws) self = ws; IMMessageModel *mm = [self mediaModelAtIndex:i];
@@ -829,6 +959,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
         IMMessageModel *m = [self modelForFavorite:f];
         fc.sourceName = [self sourceNameForFavorite:f]; // 收藏页文件行显「来自X」（#2；须在 configure 前设）
         [fc configureWithMessage:m download:[_downloads stateForMessage:m]];
+        [self applyPickAccessoryForCell:fc favorite:f];
         return fc;
     }
     // Links 分类走独立 cell（草图 §D）：36×36 favicon + og:title/host+path/时间 + 混排文本原文引用 + 来源行。
@@ -844,12 +975,25 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
         int64_t createdAt = [f[@"created_at"] respondsToSelector:@selector(longLongValue)] ? [f[@"created_at"] longLongValue] : 0;
         NSString *time = createdAt > 0 ? IMFormatFileDateTime(createdAt) : @"";
         [lc configureWithURL:firstURL quoteText:quote sourceText:[self sourceNameForFavorite:f] timeText:time];
+        [self applyPickAccessoryForCell:lc favorite:f];
         return lc;
     }
     IMFavoriteRowCell *cell = [tableView dequeueReusableCellWithIdentifier:@"row" forIndexPath:indexPath];
     [cell configureWithFavorite:f kind:_selectedKind source:[self sourceNameForFavorite:f]];
     cell.selectionStyle = UITableViewCellSelectionStyleNone;
+    [self applyPickAccessoryForCell:cell favorite:f];
     return cell;
+}
+
+/// pick 模式给任意 cell 挂勾选圈 accessory：选中态="✓"（accent），未选中=空圈（tertiary）；非 pick 模式清 accessory。
+- (void)applyPickAccessoryForCell:(UITableViewCell *)cell favorite:(NSDictionary *)f {
+    if (!_pickMode) { cell.accessoryView = nil; cell.accessoryType = UITableViewCellAccessoryNone; return; }
+    BOOL on = [self isPickedFavorite:f];
+    UIImage *img = [UIImage systemImageNamed:(on ? @"checkmark.circle.fill" : @"circle")
+                            withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:22 weight:UIImageSymbolWeightRegular]];
+    UIImageView *iv = [[UIImageView alloc] initWithImage:[img imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate]];
+    iv.tintColor = on ? IMTheme.accent : IMTheme.textTertiary;
+    cell.accessoryView = iv;
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -860,6 +1004,11 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
         IMFavoritesViewController *sub = [[IMFavoritesViewController alloc] initWithSourceFilterKey:g.key name:g.name items:_allItems];
         [self.navigationController pushViewController:sub animated:YES];
         return;
+    }
+    // pick 模式：非媒体行 → 直接切换选中并早退（不打开阅读器/QuickLook/Safari）；
+    // 媒体分类点击落在容器 cell 里逐格勾选走 IMDetailMediaContainerCell.onPick，本方法不接管。
+    if (_pickMode && _selectedKind != IMFavoriteCategoryMedia && indexPath.row < (NSInteger)_rows.count) {
+        if ([self handlePickTapForFavorite:_rows[(NSUInteger)indexPath.row]]) { return; }
     }
     if (_selectedKind == IMFavoriteCategoryMedia || indexPath.row >= (NSInteger)_rows.count) { return; }
     NSDictionary *f = _rows[(NSUInteger)indexPath.row];
@@ -1000,19 +1149,30 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
 
 /// 从收藏项取出转发要一并带走的媒体元数据（磨砂缩略/封面首帧/时长/像素尺寸/图说）；非媒体且无图说时返回 nil。
 - (IMMediaAttributes *)forwardAttributesFromFavorite:(NSDictionary *)f contentType:(NSString *)ct fileSize:(int64_t)fileSize {
+    IMMediaAttributes *attrs = [IMFavoritesViewController mediaAttributesFromFavorite:f];
+    // 老路径的 fileSize 是从字典外单独传入的（收藏 forward 分支已在上面读了 file_size 到 fileSize 变量），
+    // 类方法内部按 f[@"file_size"] 自读，两条口径可能微差；此处显式覆盖 file_size 以保持旧行为不变。
+    if (attrs && ([ct isEqualToString:@"image"] || [ct isEqualToString:@"video"])) { attrs.fileSize = fileSize; }
+    return attrs;
+}
+
+/// 类方法版本（供聊天页"从收藏发送"直接调用）：口径与实例方法 forwardAttributesFromFavorite: 一致，
+/// fileSize 从 f[@"file_size"] 自读。收藏字典结构见 M4-4 API 契约。
++ (IMMediaAttributes *)mediaAttributesFromFavorite:(NSDictionary *)f {
+    NSString *ct = [f[@"content_type"] isKindOfClass:NSString.class] ? f[@"content_type"] : @"text";
     BOOL isMedia = [ct isEqualToString:@"image"] || [ct isEqualToString:@"video"];
     NSString *caption = [f[@"caption"] isKindOfClass:NSString.class] ? f[@"caption"] : nil;
     if (!isMedia && caption.length == 0) { return nil; }
     IMMediaAttributes *attrs = [IMMediaAttributes new];
     if (isMedia) {
-        attrs.thumb = [f[@"thumb"] isKindOfClass:NSString.class] ? f[@"thumb"] : nil;   // 未下载态磨砂占位
-        attrs.poster = [f[@"poster"] isKindOfClass:NSString.class] ? f[@"poster"] : nil; // 视频封面首帧（Web 解不了 HEVC 时靠它出封面）
+        attrs.thumb = [f[@"thumb"] isKindOfClass:NSString.class] ? f[@"thumb"] : nil;
+        attrs.poster = [f[@"poster"] isKindOfClass:NSString.class] ? f[@"poster"] : nil;
         attrs.durationMillis = [f[@"duration"] respondsToSelector:@selector(longLongValue)] ? [f[@"duration"] longLongValue] : 0;
-        attrs.pixelWidth = [f[@"media_w"] respondsToSelector:@selector(integerValue)] ? [f[@"media_w"] integerValue] : 0;   // 收端按原比例定框，免加载后重排/裁方块
+        attrs.pixelWidth = [f[@"media_w"] respondsToSelector:@selector(integerValue)] ? [f[@"media_w"] integerValue] : 0;
         attrs.pixelHeight = [f[@"media_h"] respondsToSelector:@selector(integerValue)] ? [f[@"media_h"] integerValue] : 0;
-        attrs.fileSize = fileSize;
+        attrs.fileSize = [f[@"file_size"] respondsToSelector:@selector(longLongValue)] ? [f[@"file_size"] longLongValue] : 0;
     }
-    attrs.caption = caption; // 图说随转发跟随（Telegram 模型）；仅 image/video/file 生效
+    attrs.caption = caption;
     return attrs;
 }
 

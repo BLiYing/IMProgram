@@ -17,6 +17,8 @@
 #import "IMMediaPagerViewController.h"
 #import "IMConversationMediaViewController.h"
 #import "IMChatRecordViewController.h"
+#import "IMFavoritesViewController.h"    // Batch 2：加号面板 → 收藏 pick 模式
+#import "IMMediaAttributes.h"            // sendPickedFavorite: 透传媒体元数据
 #import "IMChunkedUploader.h"
 #import "IMFilePickerViewController.h"
 #import "IMMediaPicker.h"
@@ -155,9 +157,49 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
         [self openFilePanel];
         return;
     }
-    NSDictionary *names = @{ @"av": @"音视频",
-                            @"favorite": @"从收藏发送", @"card": @"个人名片" };
+    if ([itemId isEqualToString:@"favorite"]) {
+        [self openFavoritesPicker];
+        return;
+    }
+    NSDictionary *names = @{ @"av": @"音视频", @"card": @"个人名片" };
     [self im_showComingSoon:names[itemId] ?: @"该功能"]; // 其余占位，后续按需接真实功能
+}
+
+/// 从收藏发送（Batch 2）：模态呈现 IMFavoritesViewController 的 pick 模式；
+/// onDone 拿到选中数组后，对每条 fav 走 forwardEchoContent:（走同款 socket 转发 + 乐观本地回显路径，
+/// 与选择转发目标为本会话时的效果一致）。空数组=用户取消。
+- (void)openFavoritesPicker {
+    __weak typeof(self) ws = self;
+    IMFavoritesViewController *picker = [[IMFavoritesViewController alloc] initInPickModeWithDone:^(NSArray<NSDictionary *> *picked) {
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        [self dismissViewControllerAnimated:YES completion:^{
+            if (picked.count == 0) { return; } // 取消
+            for (NSDictionary *f in picked) {
+                [self sendPickedFavorite:f];
+            }
+            [self im_showToast:picked.count == 1 ? @"已发送" : [NSString stringWithFormat:@"已发送 %lu 条", (unsigned long)picked.count]];
+        }];
+    }];
+    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:picker];
+    nav.modalPresentationStyle = UIModalPresentationPageSheet;
+    [self presentViewController:nav animated:YES completion:nil];
+}
+
+/// 把一条收藏 fav 发到**当前会话**：口径与 IMFavoritesViewController 内 sendFavoriteContent: 一致，
+/// 复用聊天页已有的 forwardEchoContent:...attributes:toConv:toUser:（乐观回显 + ACK upsert + 发送后 files 缓存），
+/// 无需在收藏页里重写整套发送流程；attributes 走 IMFavoritesViewController.mediaAttributesFromFavorite: 类方法。
+- (void)sendPickedFavorite:(NSDictionary *)f {
+    NSString *content = [f[@"content"] isKindOfClass:NSString.class] ? f[@"content"] : @"";
+    if (content.length == 0) { return; }
+    NSString *ct = [f[@"content_type"] isKindOfClass:NSString.class] ? f[@"content_type"] : @"text";
+    NSString *fileName = [f[@"file_name"] isKindOfClass:NSString.class] ? f[@"file_name"] : nil;
+    int64_t fileSize = [f[@"file_size"] respondsToSelector:@selector(longLongValue)] ? [f[@"file_size"] longLongValue] : 0;
+    NSString *origin = [f[@"source_from"] isKindOfClass:NSString.class] ? f[@"source_from"] : @"";
+    IMMediaAttributes *attrs = [IMFavoritesViewController mediaAttributesFromFavorite:f];
+    [self forwardEchoContent:content contentType:ct forwardFrom:origin
+                    fileName:fileName fileSize:fileSize attributes:attrs
+                      toConv:self.convID toUser:(self.isGroupChat ? @"" : (self.peerID ?: @""))];
 }
 
 /// 把消息里的相对 URL（/uploads/xxx）补成绝对地址（含 host）；已是 http/data 的原样返回。
