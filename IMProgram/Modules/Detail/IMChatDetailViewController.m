@@ -13,6 +13,7 @@
 #import "IMSocketManager.h"
 #import "IMProtocol.h"
 #import "IMDatabase.h"
+#import "IMTimeUtil.h" // IMNowMillis()：成员禁言状态判定与时长换算
 #import "IMMessageModel.h"
 #import "IMConversation.h"
 #import "IMGroupInfo.h"
@@ -950,7 +951,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     __weak typeof(self) ws = self;
     UIContextualAction *remove = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive
         title:@"移除" handler:^(UIContextualAction *a, UIView *v, void (^done)(BOOL)) {
-        [ws removeMember:m]; done(YES);
+        [ws removeMember:m ban:@"cooldown"]; done(YES);
     }];
     remove.image = [UIImage systemImageNamed:@"trash"];
     return [UISwipeActionsConfiguration configurationWithActions:@[ remove ]];
@@ -990,11 +991,33 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
             [items addObject:[UIAction actionWithTitle:@"转让群主" image:[UIImage systemImageNamed:@"crown"]
                                             identifier:nil handler:^(UIAction *a) { [ws confirmTransfer:m]; }]];
         }
+        // G2 禁言/解禁：权限同移除（严格高于对方）。已被禁言显「解除禁言」，否则「禁言…」（弹时长）。
         if ([ws canRemoveMember:m]) {
-            UIAction *rm = [UIAction actionWithTitle:@"移除" image:[UIImage systemImageNamed:@"trash"]
-                                          identifier:nil handler:^(UIAction *a) { [ws removeMember:m]; }];
+            BOOL muted = m.muteUntil > IMNowMillis();
+            if (muted) {
+                [items addObject:[UIAction actionWithTitle:@"解除禁言" image:[UIImage systemImageNamed:@"speaker.wave.2"]
+                                                identifier:nil handler:^(UIAction *a) {
+                    [ws muteMember:m.userID until:0];
+                }]];
+            } else {
+                [items addObject:[UIAction actionWithTitle:@"禁言…" image:[UIImage systemImageNamed:@"speaker.slash"]
+                                                identifier:nil handler:^(UIAction *a) {
+                    [ws pickMuteDurationForMember:m];
+                }]];
+            }
+        }
+        if ([ws canRemoveMember:m]) {
+            // 「移出群聊」= cooldown（24h 内不能再加），与旧详情页对齐；服务端 ban=cooldown 归一为 24h。
+            UIAction *rm = [UIAction actionWithTitle:@"移出群聊" image:[UIImage systemImageNamed:@"trash"]
+                                          identifier:nil handler:^(UIAction *a) { [ws removeMember:m ban:@"cooldown"]; }];
             rm.attributes = UIMenuElementAttributesDestructive;
             [items addObject:rm];
+            // 「移出并不再允许加入」= forever，与 Web MemberMenu 对齐。
+            UIAction *rmBan = [UIAction actionWithTitle:@"移出并不再允许加入"
+                                                 image:[UIImage systemImageNamed:@"nosign"]
+                                            identifier:nil handler:^(UIAction *a) { [ws removeMember:m ban:@"forever"]; }];
+            rmBan.attributes = UIMenuElementAttributesDestructive;
+            [items addObject:rmBan];
         }
         return [UIMenu menuWithTitle:m.displayName children:items];
     }];
@@ -1020,19 +1043,61 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
                                         peerNickname:m.displayName peerAvatarURL:m.avatarURL];
 }
 
-/// 移除成员（带二次确认）。
-- (void)removeMember:(IMGroupMember *)m {
+/// 移除成员（带二次确认）。ban=cooldown（24h 冷却）/forever（永久拉黑，不再允许加入）。
+- (void)removeMember:(IMGroupMember *)m ban:(NSString *)ban {
     if (![self canRemoveMember:m]) { return; }
-    [self confirmDestructive:[NSString stringWithFormat:@"移出「%@」？", m.displayName]
-                     message:@"该成员将被移出群聊。" action:@"移除" handler:^{
+    BOOL forever = [ban isEqualToString:@"forever"];
+    NSString *title = forever
+        ? [NSString stringWithFormat:@"移出「%@」并不再允许加入？", m.displayName]
+        : [NSString stringWithFormat:@"移出「%@」？", m.displayName];
+    NSString *message = forever
+        ? @"该成员将被移出群聊并永久拉黑，无法再次通过邀请或扫码加入本群。"
+        : @"该成员将被移出群聊。";
+    [self confirmDestructive:title message:message action:@"移除" handler:^{
         NSString *token = IMHTTPService.sharedService.currentToken; if (token.length == 0) { return; }
         __weak typeof(self) ws = self;
         [IMHTTPService.sharedService removeGroupMemberWithToken:token convID:self.convID userID:m.userID
+                                                            ban:ban
                                                     completion:^(NSError *error) {
             if (error) { [ws im_showToast:error.localizedDescription]; return; }
             [ws loadGroupInfo];
         }];
     }];
+}
+
+/// 成员级禁言：until=0 解禁 / -1 永久 / 其余到期毫秒。
+- (void)muteMember:(NSString *)userID until:(int64_t)until {
+    NSString *token = IMHTTPService.sharedService.currentToken; if (token.length == 0) { return; }
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService muteGroupMemberWithToken:token convID:self.convID userID:userID until:until
+                                                completion:^(NSError *error) {
+        if (error) { [ws im_showToast:error.localizedDescription]; return; }
+        [ws loadGroupInfo];
+    }];
+}
+
+/// 禁言时长弹窗：10 分钟 / 1 小时 / 1 天 / 永久（与旧 IMGroupInfoViewController 完全对齐）。
+- (void)pickMuteDurationForMember:(IMGroupMember *)m {
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"禁言时长"
+                                                                   message:m.displayName
+                                                            preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak typeof(self) ws = self;
+    NSString *target = m.userID;
+    void (^add)(NSString *, int64_t) = ^(NSString *title, int64_t untilMs) {
+        [sheet addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault
+                                                handler:^(UIAlertAction *a) { [ws muteMember:target until:untilMs]; }]];
+    };
+    int64_t now = IMNowMillis();
+    add(@"10 分钟", now + 10 * 60 * 1000);
+    add(@"1 小时",  now + 60 * 60 * 1000);
+    add(@"1 天",    now + 24 * 60 * 60 * 1000);
+    add(@"永久", -1); // 服务端把 <0 归一为永久
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    // iPad 兜底锚点
+    sheet.popoverPresentationController.sourceView = self.view;
+    sheet.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(self.view.bounds),
+                                                                CGRectGetMidY(self.view.bounds), 1, 1);
+    [self presentViewController:sheet animated:YES completion:nil];
 }
 
 #pragma mark - 动作：群成员管理（成员页签）

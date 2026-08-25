@@ -127,6 +127,12 @@ NS_ASSUME_NONNULL_END
     self.composerMuteLocked = locked;
     self.inputField.enabled = !locked;
     self.inputField.placeholder = locked ? reason : @"输入消息…";
+    // 2026-08-25：附件面板入口也一起锁——否则被禁言时输入栏禁了但 + 键仍能点开
+    // 相册/相机/文件，一路走到 upload 才被 300208 拒，且此时 iOS 不会像文本一样给可读回执。
+    // 表情键不锁（发不出去，占屏而已，但保留浏览表情的能力）。若面板开着，直接收起（键盘也收）。
+    self.plusButton.enabled = !locked;
+    self.plusButton.alpha = locked ? 0.4 : 1.0;
+    if (locked && self.attachPanelVisible) { [self showAttachPanel:NO]; }
     if (locked) { [self.inputField resignFirstResponder]; }
 }
 

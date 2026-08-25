@@ -3,10 +3,12 @@
 #import "IMDetailMemberCell.h"
 #import "IMGroupInfo.h"       // IMGroupMember / IMGroupRole
 #import "IMTheme.h"
+#import "IMTimeUtil.h"        // IMNowMillis()：判定成员级禁言是否仍在期
 #import "UILabel+IMAvatar.h"
 
 @implementation IMDetailMemberCell {
     UILabel *_avatar; UILabel *_name; UILabel *_sub; UILabel *_role;
+    UILabel *_muteBadge; ///< G2「禁言中」胶囊：muteUntil>now 时显示；与 role 徽标同一行、居右紧挨（role 左侧）
 }
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)rid {
     if ((self = [super initWithStyle:style reuseIdentifier:rid])) {
@@ -27,6 +29,17 @@
         [self.contentView addSubview:_role];
         [_role setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
         [_role setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+        // 禁言胶囊：与 role 同款样式，橙红色调；hidden 时不占宽（左边距对齐到 role.leading）。
+        _muteBadge = [UILabel new]; _muteBadge.translatesAutoresizingMaskIntoConstraints = NO;
+        _muteBadge.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
+        _muteBadge.textAlignment = NSTextAlignmentCenter;
+        _muteBadge.textColor = UIColor.systemOrangeColor;
+        _muteBadge.backgroundColor = [UIColor.systemOrangeColor colorWithAlphaComponent:0.15];
+        _muteBadge.layer.cornerRadius = 8; _muteBadge.layer.masksToBounds = YES;
+        _muteBadge.text = @"禁言中";
+        [self.contentView addSubview:_muteBadge];
+        [_muteBadge setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+        [_muteBadge setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
         UILayoutGuide *g = self.contentView.layoutMarginsGuide;
         [NSLayoutConstraint activateConstraints:@[
             [_avatar.leadingAnchor constraintEqualToAnchor:g.leadingAnchor],
@@ -34,9 +47,13 @@
             [_avatar.widthAnchor constraintEqualToConstant:40], [_avatar.heightAnchor constraintEqualToConstant:40],
             [_name.leadingAnchor constraintEqualToAnchor:_avatar.trailingAnchor constant:12],
             [_name.topAnchor constraintEqualToAnchor:_avatar.topAnchor],
-            [_name.trailingAnchor constraintLessThanOrEqualToAnchor:_role.leadingAnchor constant:-8],
+            [_name.trailingAnchor constraintLessThanOrEqualToAnchor:_muteBadge.leadingAnchor constant:-8],
             [_sub.leadingAnchor constraintEqualToAnchor:_name.leadingAnchor],
             [_sub.topAnchor constraintEqualToAnchor:_name.bottomAnchor constant:2],
+            [_muteBadge.trailingAnchor constraintEqualToAnchor:_role.leadingAnchor constant:-6],
+            [_muteBadge.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
+            [_muteBadge.heightAnchor constraintEqualToConstant:20],
+            [_muteBadge.widthAnchor constraintGreaterThanOrEqualToConstant:44],
             [_role.trailingAnchor constraintEqualToAnchor:g.trailingAnchor],
             [_role.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
             [_role.heightAnchor constraintEqualToConstant:20],
@@ -58,5 +75,7 @@
     } else {
         _role.hidden = YES; _role.text = @"";
     }
+    // G2 禁言中标签：服务端把「永久」归一为 MutePermanent(1<<62) 这样的大正数，直接 >now 判定即可。
+    _muteBadge.hidden = !(m.muteUntil > IMNowMillis());
 }
 @end

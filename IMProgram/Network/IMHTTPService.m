@@ -55,13 +55,17 @@ BOOL IMIsAuthErrorCode(NSInteger code) {
 
 /// 业务错误码 → 友好中文（对齐 errcode）。未收录返回 nil，回退服务端原文。
 /// 隐私：被拉黑/密码错误等用模糊文案，不暴露"你被对方拉黑了"。
-static NSString *IMFriendlyMessageForCode(NSInteger code) {
+/// 2026-08-25：从 static 提升为文件外可见，供 WS 拒收路径（IMSocketManager.handleSendRejected）复用，
+/// 让被禁言/全员禁言等 send_msg 拒收错误也走同一中文映射（否则 error.localizedDescription = 英文原文）。
+NSString *IMFriendlyMessageForCode(NSInteger code) {
     switch (code) {
         case 100101: case 100102: return @"登录已失效，请重新登录"; // invalid / expired token
         case 200001: return @"用户不存在";                          // user not found
         case 200002: return @"密码错误";                            // wrong password
         case 200003: return @"账号已被封禁";                        // account banned
         case 200004: return @"用户名已被注册";                      // user already exists
+        case 300004: return @"账号已被禁言";                        // account muted（全局禁言）
+        case 300206: return @"本群已开启全员禁言";                  // group all-muted（G2）
         case 200101: return @"你们已经是好友了";                    // already friends
         case 200102: return @"暂时无法添加对方为好友";              // blocked by peer（不暴露拉黑）
         case 200103: return @"对方不是你的好友";                    // not friend

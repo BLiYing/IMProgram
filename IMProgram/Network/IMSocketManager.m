@@ -657,15 +657,20 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     [self finishSend:p.completion success:YES error:nil convSeq:convSeq];
 }
 
-/// 服务端拒收某条 send_msg（被拉黑 200102 / 被禁言 300004 等）：取消重发计时、判该条失败（不重试）。
-/// 透传服务端真实 code，供 UI 区分提示（含被拒文案）。仅在 _queue 调用。
+/// 服务端拒收某条 send_msg（被拉黑 200102 / 被禁言 300004/300208 / 全员禁言 300206 等）：
+/// 取消重发计时、判该条失败（不重试）。透传服务端真实 code，供 UI 区分提示（含被拒文案）。
+/// 中文化：服务端 message 默认是英文（如 "member muted in group"），过一次 IMFriendlyMessageForCode
+/// 换成中文；未收录码回退服务端原文，避免"发送失败"空吐字。仅在 _queue 调用。
 - (void)handleSendRejected:(NSString *)clientMsgID code:(NSInteger)code message:(NSString *)message {
     IMPendingSend *p = _pending[clientMsgID];
     if (!p) { return; }
     [self cancelAckTimer:p];
     [_pending removeObjectForKey:clientMsgID];
-    NSString *msg = ([message isKindOfClass:[NSString class]] && message.length > 0) ? message : @"发送失败";
     if (code == 0) { code = 200102; } // 兜底：缺 code 按拒收处理
+    NSString *friendly = IMFriendlyMessageForCode(code);
+    NSString *msg = friendly.length > 0
+        ? friendly
+        : (([message isKindOfClass:[NSString class]] && message.length > 0) ? message : @"发送失败");
     [self finishSend:p.completion success:NO error:[self errorWithCode:code msg:msg] convSeq:0];
 }
 

@@ -15,6 +15,11 @@ NS_ASSUME_NONNULL_BEGIN
 /// 失败 NSError 的 code 即业务错误码（登录接口已带）；网络/未知为 -1。
 BOOL IMIsAuthErrorCode(NSInteger code);
 
+/// 业务错误码 → 友好中文（对齐 internal/errcode）。未收录返回 nil，回退服务端原文。
+/// HTTP 路径已在服务内部调用；WS `send_msg` 拒收路径（IMSocketManager handleSendRejected）
+/// 也需同一映射，把 300004/300206/300208 等英文默认文案改成中文，让气泡系统行/toast 有可读文本。
+NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
+
 @interface IMHTTPService : NSObject
 
 + (instancetype)sharedService;
