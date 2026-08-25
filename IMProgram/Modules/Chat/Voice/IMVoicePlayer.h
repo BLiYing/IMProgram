@@ -9,6 +9,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 extern NSNotificationName const IMVoicePlayerDidChangeStateNotification;
 extern NSNotificationName const IMVoicePlayerDidMarkPlayedNotification;
+/// 一条语音**自然播完**（≠ 主动 stop）时广播。接力连播据此触发下一条。
+/// userInfo: @"messageID"（刚播完的那条）, @"convID"
+extern NSNotificationName const IMVoicePlayerDidFinishNotification;
 /// userInfo:
 ///   @"messageID"     — 触发变更的消息 clientMsgID/serverMsgID（IMVoicePlayerPlayableIDForMessage）
 ///   @"convID"        — 所在会话

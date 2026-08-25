@@ -15,6 +15,9 @@ NS_ASSUME_NONNULL_BEGIN
 /// 装录音按住手势。IMChatViewController 主实现 configureCompose 完成后自动调用一次。
 - (void)im_installVoicePressGesture;
 
+/// 装接力连播的观察者（一并在装手势时调用即可，幂等）。
+- (void)im_installVoiceRelayObserver;
+
 /// 播放某条语音消息（DataSource 的 onPlayTap 回调调用）。fullURL = self fullMediaURL:message.content。
 - (void)im_playVoiceMessage:(IMMessageModel *)message fullURL:(NSString *)fullURL;
 

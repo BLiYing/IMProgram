@@ -8,6 +8,7 @@
 
 NSNotificationName const IMVoicePlayerDidChangeStateNotification = @"IMVoicePlayerDidChangeStateNotification";
 NSNotificationName const IMVoicePlayerDidMarkPlayedNotification = @"IMVoicePlayerDidMarkPlayedNotification";
+NSNotificationName const IMVoicePlayerDidFinishNotification = @"IMVoicePlayerDidFinishNotification";
 
 NSString *_Nullable IMVoicePlayerPlayableIDForMessage(IMMessageModel *m) {
     if (m.serverMsgID.length > 0) { return m.serverMsgID; }
@@ -184,7 +185,12 @@ static NSString *_Nonnull IMVoicePlayerPlayedKey(NSString *ownerUID, NSString *c
     // 归还 audio session 给其他 app（正在听音乐的场景，不还就"发完语音音乐没了"）。
     NSError *e = nil;
     [[AVAudioSession sharedInstance] setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:&e];
-    if (oldID) { [self broadcastStateForID:oldID convID:oldConv state:IMVoicePlayerStateIdle]; }
+    if (oldID) {
+        [self broadcastStateForID:oldID convID:oldConv state:IMVoicePlayerStateIdle];
+        // 自然播完（≠ 主动 stop）→ 广播 Finish，接力连播据此触发下一条。
+        [[NSNotificationCenter defaultCenter] postNotificationName:IMVoicePlayerDidFinishNotification object:self
+            userInfo:@{@"messageID": oldID, @"convID": oldConv ?: @""}];
+    }
 }
 
 #pragma mark - Scrub + Rate (P1)

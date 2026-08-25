@@ -708,6 +708,8 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
 
     // voice P0：把"按住语音钮 → 录音 → 松手发送 / 左滑取消"接线到 recorder + HUD（+Voice.m）。
     [self im_installVoicePressGesture];
+    // voice P1：接力连播——一条语音自然播完后，自动播下一条未播的对方语音（同会话，遇非 voice 停）。
+    [self im_installVoiceRelayObserver];
 }
 
 /// 输入框有内容（文字或待发粘贴图）→ 显示发送、隐藏表情/加号；否则显示表情/加号、隐藏发送（#4）。

@@ -58,6 +58,17 @@ typedef NS_ENUM(NSInteger, IMVoiceRecorderStopReason) {
 /// 用户左滑取消：删临时文件、waveform 置空。
 - (void)cancel;
 
+/// 锁定态暂停/继续（P1）：AVAudioRecorder.pause / .record 复用同一文件；
+/// paused 时不再累计 elapsed。
+- (void)pause;
+- (void)resume;
+
+/// 当前是否处于暂停态（recorder 存在但 !isRecording）。
+@property (nonatomic, readonly) BOOL paused;
+
+/// 供锁定态 UI 查询：当前波形指纹（0~1 归一化，最长 60 帧）。用于锁定行的迷你波形展示。
+@property (nonatomic, readonly, copy) NSArray<NSNumber *> *currentAmplitudes;
+
 @end
 
 NS_ASSUME_NONNULL_END

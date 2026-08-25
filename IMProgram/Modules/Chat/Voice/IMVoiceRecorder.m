@@ -23,7 +23,9 @@ static const NSTimeInterval IMVoiceSampleInterval = 0.1;
 /// 振幅采样累积（每字节 0~100 百分比）；停录时截取或上/下采到 IMVoiceWaveformMaxSamples。
 @property (nonatomic, strong) NSMutableData *samples;
 @property (nonatomic, assign, readwrite) BOOL recording;
+@property (nonatomic, assign, readwrite) BOOL paused;
 @property (nonatomic, assign) BOOL sessionActive;
+@property (nonatomic, assign) int64_t pausedAtMillis; ///< 暂停时刻（用于 resume 时把停止的时长补回 startedAtMillis）
 @end
 
 @implementation IMVoiceRecorder
@@ -110,10 +112,11 @@ static const NSTimeInterval IMVoiceSampleInterval = 0.1;
 }
 
 - (void)stopAndSend {
-    if (!self.recording) { return; }
+    if (!self.recording && !self.paused) { return; }
     int64_t dur = [self elapsedMillis];
     [self.recorder stop];
     self.recording = NO;
+    self.paused = NO;
     [self.sampleTimer invalidate];
     self.sampleTimer = nil;
     if (dur < IMVoiceShortRecordThresholdMillis) {
@@ -125,13 +128,59 @@ static const NSTimeInterval IMVoiceSampleInterval = 0.1;
 }
 
 - (void)cancel {
-    if (!self.recording) { return; }
+    if (!self.recording && !self.paused) { return; }
     [self.recorder stop];
     self.recording = NO;
+    self.paused = NO;
     [self.sampleTimer invalidate];
     self.sampleTimer = nil;
     [self deleteTempFile];
     [self finishWithReason:IMVoiceRecorderStopReasonUserCancel durationMillis:0];
+}
+
+#pragma mark - Pause / Resume（锁定态 P1）
+
+- (void)pause {
+    if (!self.recording || self.paused) { return; }
+    [self.recorder pause];
+    self.paused = YES;
+    self.pausedAtMillis = (int64_t)([[NSDate date] timeIntervalSince1970] * 1000);
+    [self.sampleTimer invalidate];
+    self.sampleTimer = nil;
+}
+
+- (void)resume {
+    if (!self.paused) { return; }
+    // AVAudioRecorder.record 继续追加同一文件。startedAtMillis 补回暂停期间的差值——
+    // 这样 elapsedMillis 计算仍是"已录音的实际时长"（跳过暂停）。
+    int64_t nowMs = (int64_t)([[NSDate date] timeIntervalSince1970] * 1000);
+    int64_t pauseDur = MAX((int64_t)0, nowMs - self.pausedAtMillis);
+    self.startedAtMillis += pauseDur;
+    self.paused = NO;
+    if (![self.recorder record]) {
+        // 恢复失败 → 直接以已录时长发送/丢弃（走 finish 分支）。
+        int64_t dur = [self elapsedMillis];
+        [self finishWithReason:(dur >= IMVoiceShortRecordThresholdMillis)
+                                 ? IMVoiceRecorderStopReasonUserSend
+                                 : IMVoiceRecorderStopReasonTooShort
+              durationMillis:dur];
+        return;
+    }
+    // 恢复采样定时器
+    __weak typeof(self) weakSelf = self;
+    self.sampleTimer = [NSTimer scheduledTimerWithTimeInterval:IMVoiceSampleInterval repeats:YES block:^(NSTimer *_) {
+        [weakSelf onSample];
+    }];
+    [[NSRunLoop mainRunLoop] addTimer:self.sampleTimer forMode:NSRunLoopCommonModes];
+}
+
+- (NSArray<NSNumber *> *)currentAmplitudes {
+    NSMutableArray *out = [NSMutableArray arrayWithCapacity:self.samples.length];
+    const uint8_t *bytes = self.samples.bytes;
+    for (NSUInteger i = 0; i < self.samples.length; i++) {
+        [out addObject:@((float)MIN((uint8_t)100, bytes[i]) / 100.f)];
+    }
+    return out;
 }
 
 #pragma mark - Sampling

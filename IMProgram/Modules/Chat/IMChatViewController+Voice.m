@@ -24,6 +24,7 @@
 #import "UIViewController+IMToast.h"
 #import "Voice/IMVoiceRecorder.h"
 #import "Voice/IMVoiceRecordingHUD.h"
+#import "Voice/IMVoiceLockedBar.h"
 #import "Voice/IMVoicePlayer.h"
 #import "Voice/IMVoiceTranscriber.h"
 #import "Voice/IMVoiceBubbleCell.h"
@@ -31,6 +32,8 @@
 
 /// 按住条 pan 触发取消的距离阈值（占输入栏宽度的比例）。
 static const CGFloat kIMVoiceCancelThresholdRatio = 0.40;
+/// 上滑锁定的位移阈值（点）。超过即锁定，手指可离开屏幕继续录音。
+static const CGFloat kIMVoiceLockThresholdPoints = 80.0;
 
 @interface IMChatViewController (VoicePrivate)
 @property (nonatomic, strong, nullable) IMVoiceRecorder *im_voiceRecorder;
@@ -43,9 +46,11 @@ static const CGFloat kIMVoiceCancelThresholdRatio = 0.40;
 // 关联对象 keys（防冲突用地址常量）
 static const void *kIMVoiceRecorderKey = &kIMVoiceRecorderKey;
 static const void *kIMVoiceHUDKey = &kIMVoiceHUDKey;
+static const void *kIMVoiceLockedBarKey = &kIMVoiceLockedBarKey;
 static const void *kIMVoicePressKey = &kIMVoicePressKey;
 static const void *kIMVoicePressStartKey = &kIMVoicePressStartKey;
 static const void *kIMVoiceCancelReadyKey = &kIMVoiceCancelReadyKey;
+static const void *kIMVoiceLockedKey = &kIMVoiceLockedKey;
 
 @implementation IMChatViewController (Voice)
 
@@ -78,6 +83,36 @@ static const void *kIMVoiceCancelReadyKey = &kIMVoiceCancelReadyKey;
     return hud;
 }
 
+- (IMVoiceLockedBar *)im_voiceLockedBar {
+    IMVoiceLockedBar *bar = objc_getAssociatedObject(self, kIMVoiceLockedBarKey);
+    if (!bar) {
+        bar = [IMVoiceLockedBar new];
+        bar.translatesAutoresizingMaskIntoConstraints = NO;
+        UIView *inputBar = self.inputField.superview;
+        if (!inputBar) { return bar; }
+        [inputBar addSubview:bar];
+        [NSLayoutConstraint activateConstraints:@[
+            [bar.leadingAnchor constraintEqualToAnchor:inputBar.leadingAnchor],
+            [bar.trailingAnchor constraintEqualToAnchor:inputBar.trailingAnchor],
+            [bar.topAnchor constraintEqualToAnchor:inputBar.topAnchor],
+            [bar.bottomAnchor constraintEqualToAnchor:inputBar.bottomAnchor],
+        ]];
+        __weak typeof(self) ws = self;
+        bar.onDelete = ^{ [ws.im_voiceRecorder cancel]; };
+        bar.onPauseResume = ^(BOOL toPause) {
+            if (toPause) { [ws.im_voiceRecorder pause]; }
+            else { [ws.im_voiceRecorder resume]; }
+            [ws.im_voiceLockedBar setPausedIcon:toPause];
+        };
+        bar.onSend = ^{ [ws.im_voiceRecorder stopAndSend]; };
+        objc_setAssociatedObject(self, kIMVoiceLockedBarKey, bar, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    return bar;
+}
+
+- (BOOL)im_voiceLocked { return [objc_getAssociatedObject(self, kIMVoiceLockedKey) boolValue]; }
+- (void)setIm_voiceLocked:(BOOL)v { objc_setAssociatedObject(self, kIMVoiceLockedKey, @(v), OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
+
 - (void)setIm_voicePressRecognizer:(UILongPressGestureRecognizer *)r { objc_setAssociatedObject(self, kIMVoicePressKey, r, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
 - (UILongPressGestureRecognizer *)im_voicePressRecognizer { return objc_getAssociatedObject(self, kIMVoicePressKey); }
 
@@ -91,6 +126,45 @@ static const void *kIMVoiceCancelReadyKey = &kIMVoiceCancelReadyKey;
 
 /// 把"按住 = 录音，左滑 = 取消"的长按手势装到输入栏语音钮上。
 /// 手势路径由本 category 独占；不影响其他 UI。
+- (void)im_installVoiceRelayObserver {
+    // 幂等：同一 VC 只装一次。observer 生命周期跟随 VC，dealloc 时 NotificationCenter 自动清理。
+    static const void *k = &k;
+    if (objc_getAssociatedObject(self, k)) { return; }
+    objc_setAssociatedObject(self, k, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    __weak typeof(self) ws = self;
+    [[NSNotificationCenter defaultCenter] addObserverForName:IMVoicePlayerDidFinishNotification
+        object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
+        [ws im_relayAfterMessageID:n.userInfo[@"messageID"] convID:n.userInfo[@"convID"]];
+    }];
+}
+
+/// 找到 currentMid 在当前会话消息列表中的位置 + 之后**同会话**的第一条**未播放的 voice**（跨发送者也连）；
+/// 遇到非 voice 消息即 break——遵设计文档 §6.4 的"话题边界即停"。
+- (void)im_relayAfterMessageID:(NSString *)currentMid convID:(NSString *)convID {
+    if (![convID isEqualToString:self.convID]) { return; } // 只对本页会话生效
+    NSInteger startIdx = -1;
+    for (NSInteger i = 0; i < (NSInteger)self.messages.count; i++) {
+        NSString *mid = IMVoicePlayerPlayableIDForMessage(self.messages[i]);
+        if ([mid isEqualToString:currentMid]) { startIdx = i; break; }
+    }
+    if (startIdx < 0) { return; }
+    for (NSInteger i = startIdx + 1; i < (NSInteger)self.messages.count; i++) {
+        IMMessageModel *m = self.messages[i];
+        // 遇到非 voice（含 msg_op 等系统事件）即停——话题边界。
+        if (![m.contentType isEqualToString:@"voice"]) { return; }
+        if (m.recalledAt > 0 || m.deletedAt > 0) { continue; } // 撤回/删的跳过
+        NSString *nextMid = IMVoicePlayerPlayableIDForMessage(m);
+        BOOL mine = [m.from isEqualToString:self.userID];
+        // 自己发的语音不进接力（自己听自己没意义，符合直觉）；对方消息按已播集合过滤。
+        if (mine) { continue; }
+        if ([[IMVoicePlayer sharedPlayer] hasPlayed:nextMid inConv:m.convID owner:self.userID]) { continue; }
+        // 找到下一条候选 → 触发播放（复用 im_playVoiceMessage 路径，含下载兜底）。
+        NSString *fullURL = [self fullMediaURL:m.content];
+        [self im_playVoiceMessage:m fullURL:fullURL];
+        return;
+    }
+}
+
 - (void)im_installVoicePressGesture {
     UIButton *voiceBtn = [self im_findVoiceButton];
     if (!voiceBtn || self.im_voicePressRecognizer) { return; }
@@ -134,7 +208,19 @@ static const void *kIMVoiceCancelReadyKey = &kIMVoiceCancelReadyKey;
             [self im_startVoiceRecording];
             break;
         case UIGestureRecognizerStateChanged: {
+            if (self.im_voiceLocked) { return; } // 已锁定，忽略后续手势
             CGFloat dx = pt.x - self.im_voicePressStart.x;
+            CGFloat dy = pt.y - self.im_voicePressStart.y;
+            // 上滑达阈值 → 锁定：HUD 淡出、LockedBar 淡入、gesture 释放（手可离开）
+            if (-dy >= kIMVoiceLockThresholdPoints) {
+                self.im_voiceLocked = YES;
+                g.enabled = NO; // 取消手势 = 触发 Cancelled，但状态机会在下面识别 locked 走"不结束录制"分支
+                [self.im_voiceHUD setVisible:NO animated:YES];
+                [self.im_voiceLockedBar setPausedIcon:NO];
+                [self.im_voiceLockedBar setVisible:YES animated:YES];
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ g.enabled = YES; });
+                return;
+            }
             [self.im_voiceHUD setSlideOffset:MIN(0, dx)];
             CGFloat threshold = bar.bounds.size.width * kIMVoiceCancelThresholdRatio;
             BOOL nowReady = (-dx) >= threshold;
@@ -147,6 +233,8 @@ static const void *kIMVoiceCancelReadyKey = &kIMVoiceCancelReadyKey;
         case UIGestureRecognizerStateEnded:
         case UIGestureRecognizerStateCancelled:
         case UIGestureRecognizerStateFailed: {
+            // 若刚被 lock 逻辑主动取消了手势 → 保留录制（recorder 继续跑，LockedBar 接管）。
+            if (self.im_voiceLocked) { self.im_voiceCancelReady = NO; return; }
             if (self.im_voiceCancelReady) {
                 [self.im_voiceRecorder cancel];
             } else {
@@ -205,7 +293,11 @@ static const void *kIMVoiceCancelReadyKey = &kIMVoiceCancelReadyKey;
 - (void)voiceRecorderDidStart:(IMVoiceRecorder *)recorder { /* HUD 已提前显示 */ }
 
 - (void)voiceRecorder:(IMVoiceRecorder *)recorder didSampleAmplitude:(float)amplitude elapsedMillis:(int64_t)elapsedMillis {
-    [self.im_voiceHUD updateAmplitude:amplitude elapsedMillis:elapsedMillis];
+    if (self.im_voiceLocked) {
+        [self.im_voiceLockedBar updateAmplitude:amplitude elapsedMillis:elapsedMillis];
+    } else {
+        [self.im_voiceHUD updateAmplitude:amplitude elapsedMillis:elapsedMillis];
+    }
 }
 
 - (void)voiceRecorder:(IMVoiceRecorder *)recorder
@@ -214,6 +306,8 @@ static const void *kIMVoiceCancelReadyKey = &kIMVoiceCancelReadyKey;
             waveform:(NSString *)waveformBase64
              duration:(int64_t)durationMillis {
     [self.im_voiceHUD setVisible:NO animated:YES];
+    [self.im_voiceLockedBar setVisible:NO animated:YES];
+    self.im_voiceLocked = NO;
     switch (reason) {
         case IMVoiceRecorderStopReasonUserCancel:
             return;
