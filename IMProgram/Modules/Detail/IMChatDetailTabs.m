@@ -12,7 +12,13 @@
 + (BOOL)message:(IMMessageModel *)m matchesKind:(IMDetailTabKind)kind {
     if (!m) { return NO; }
     if (m.recalledAt > 0) { return NO; }        // 撤回墓碑不计入任何类别
+    if (m.deletedAt > 0) { return NO; }         // 「为所有人删除」/「仅我删除」墓碑不计（2026-08-25）
     if (m.content.length == 0) { return NO; }   // 空内容（占位/异常）不计
+    // 本地未确认态（sending / ack 超时 failed）——convSeq==0 意味着没有 serverMsgID，长按菜单也会因
+    // convSeq<=0 早退（IMChatDetailViewController contentMenuConfigForMessage:1227）→ 视觉有格却
+    // 长按无反应。资料页三 tab 是"归档索引"视角，未成功的消息不应展示；主消息流的失败气泡仍在。
+    if (m.convSeq <= 0) { return NO; }
+    if (m.status == IMMessageStatusSending || m.status == IMMessageStatusFailed) { return NO; }
     NSString *ct = m.contentType ?: @"text";
     switch (kind) {
         case IMDetailTabKindMedia:

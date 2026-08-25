@@ -332,9 +332,10 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
 }
 
 /// 从源消息取出转发要一并带走的媒体元数据（封面/尺寸/时长）；非媒体消息返回 nil。
-- (IMMediaAttributes *)forwardAttributesForMessage:(IMMessageModel *)message {
+- (IMMediaAttributes *)forwardAttributesForMessage:(IMMessageModel *)message stripCaption:(BOOL)stripCaption {
     BOOL isMedia = [message.contentType isEqualToString:@"image"] || [message.contentType isEqualToString:@"video"];
-    BOOL hasCaption = message.caption.length > 0; // 图说：文件文也可能带 caption，需建 attrs 承载
+    // 图说：文件也可能带 caption，需建 attrs 承载；stripCaption=YES 时视 caption 为不存在。
+    BOOL hasCaption = !stripCaption && message.caption.length > 0;
     if (!isMedia && !hasCaption) { return nil; }
     IMMediaAttributes *attrs = [IMMediaAttributes new];
     if (isMedia) {
@@ -348,8 +349,12 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
     // 图说整体转发（Telegram 模型）：caption + mentions 随转发跟随——收端 @ 高亮可点、被@者强提醒
     // （服务端按目标群成员再过滤，非成员自动落普通文字）。**不带 mentionAll**：@所有人 需目标群
     // 群主/管理员权限，无权会整条拒发 300204，且转发不该再次全员强提醒（与 Web 同取舍）。
-    attrs.caption = message.caption;
-    attrs.mentions = message.mentions;
+    // stripCaption=YES（资料页文件 tab 转发入口）：视角看不到 caption/mentions，一并清空，避免把
+    // 原发件人当时的「@xxx 附言」意外带到目标会话。其余入口（长按/查看器/多选/收藏）保留。
+    if (!stripCaption) {
+        attrs.caption = message.caption;
+        attrs.mentions = message.mentions;
+    }
     return attrs;
 }
 
@@ -447,7 +452,8 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
             if (![self isForwardableMessage:m]) { continue; } // 撤回/空/系统/发送中失败/失效 一律跳过
             NSString *origin = m.forwardFrom.length > 0 ? m.forwardFrom
                 : (m.fromNickname.length > 0 ? m.fromNickname : (m.from ?: @""));
-            IMMediaAttributes *attrs = [self forwardAttributesForMessage:m];
+            // 主消息流多选批量转发：用户在气泡上勾选，看得到 caption，按 Telegram 语义保留一起转过去。
+            IMMediaAttributes *attrs = [self forwardAttributesForMessage:m stripCaption:NO];
             if (m.groupID.length > 0 && [self isAlbumMember:m] && [albumCount countForObject:m.groupID] >= 2) {
                 NSString *newGid = newGidForOld[m.groupID];
                 if (!newGid) { newGid = [@"alb-" stringByAppendingString:NSUUID.UUID.UUIDString]; newGidForOld[m.groupID] = newGid; }

@@ -232,7 +232,8 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
         }]];
     }
     if (m.recalledAt == 0 && m.convSeq > 0) {
-        [acts addObject:[IMPopoverCardItem itemWithTitle:@"转发" symbol:@"arrowshape.turn.up.right" destructive:NO handler:^{ [ws forwardMessage:m]; }]];
+        // 相册查看器"更多"：看不到 caption/附言，转发时不带（对齐 forwardFileMessage: 语义）。
+        [acts addObject:[IMPopoverCardItem itemWithTitle:@"转发" symbol:@"arrowshape.turn.up.right" destructive:NO handler:^{ [ws forwardMediaFromViewerMessage:m]; }]];
     }
     // 删除（与 Web 查看器「更多」对齐）：可为所有人删则弹两档 sheet，否则=仅删除自己 / 本地删。
     [acts addObject:[IMPopoverCardItem itemWithTitle:@"删除" symbol:@"trash" destructive:YES handler:^{ [ws confirmDeleteMediaMessage:m]; }]];
@@ -257,8 +258,9 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
 - (NSArray<IMMenuAction *> *)mediaContextActionsForMessage:(IMMessageModel *)m {
     __weak typeof(self) ws = self;
     NSMutableArray<IMMenuAction *> *acts = [NSMutableArray array];
+    // 全屏媒体库长按：同为相册视角看不到 caption，转发不带（对齐单张查看器"更多"入口）。
     [acts addObject:[IMMenuAction actionWithId:@"forward" title:@"转发" image:@"arrowshape.turn.up.right"
-                                       handler:^{ [ws forwardMessage:m]; }]];
+                                       handler:^{ [ws forwardMediaFromViewerMessage:m]; }]];
     [acts addObject:[IMMenuAction actionWithId:@"locate" title:@"定位到聊天" image:@"text.bubble"
                                        handler:^{ [ws jumpToConvSeq:m.convSeq]; }]];
     [acts addObject:[self deleteMenuActionForMessage:m]]; // actionId=@"delete"（媒体库据此在其前插「取消下载」）

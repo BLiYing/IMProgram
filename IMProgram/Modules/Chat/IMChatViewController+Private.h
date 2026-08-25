@@ -172,6 +172,10 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (void)translateMessage:(IMMessageModel *)message;
 - (void)copyMessageToPasteboard:(IMMessageModel *)message;
 - (void)forwardMessage:(IMMessageModel *)message;
+/// 相册查看器/媒体库视角的转发：与气泡长按 forwardMessage: 语义相同，但**不带**源消息的 caption/mentions。
+/// 全屏媒体视角下用户看不到 caption（气泡下方那段附言不在视野内），透传反而把原发件人当时的
+/// 「@xxx 附言」意外带到目标会话（对齐资料页文件 tab forwardFileMessage: 的取舍）。
+- (void)forwardMediaFromViewerMessage:(IMMessageModel *)message;
 - (void)cancelPendingMessage:(IMMessageModel *)m;
 - (BOOL)canPinMessages;
 - (BOOL)isAlbumMember:(IMMessageModel *)m;
@@ -281,7 +285,7 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (void)updateSelectionBarBottomAnchor; // 选择栏底边随搜索态重定位（Search 进/出时若在多选需重排堆叠）
 - (void)updateJumpButtonBottomAnchor;   // 向下钮底边随 多选/搜索 态重定位（堆叠不重叠、间距一致）
 - (void)updateSelectionUI;
-- (IMMediaAttributes *)forwardAttributesForMessage:(IMMessageModel *)message;
+- (IMMediaAttributes *)forwardAttributesForMessage:(IMMessageModel *)message stripCaption:(BOOL)stripCaption;
 - (void)forwardEchoContent:(NSString *)content contentType:(NSString *)ct forwardFrom:(NSString *)origin
                   fileName:(nullable NSString *)fileName fileSize:(int64_t)fileSize
                     toConv:(NSString *)convID toUser:(NSString *)toUser;

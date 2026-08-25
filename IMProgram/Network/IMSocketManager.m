@@ -671,7 +671,9 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
 
 /// 处理 new_msg：走统一的「收到一条消息」流程（仅在 _queue 调用）。
 - (void)handleNewMsg:(NSDictionary *)data {
-    [self processIncomingMessage:[IMMessageModel receivedMessageWithNewMsgData:data] fromSync:NO];
+    [self processIncomingMessage:[IMMessageModel receivedMessageWithNewMsgData:data]
+                        fromSync:NO
+                  syncAdvanceSeq:0];
 }
 
 /// 处理 sync_resp：按会话投递增量消息，并据服务端权威 covered_conv_seq 推进游标；has_more 时以新位点继续拉。
@@ -679,9 +681,17 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
 ///
 /// 死循环修复（2026-08-13）：服务端为做**按用户可见性过滤**（G2 history_visible 抬入群下界、「仅为我删除」
 /// 隐藏项）会在 conv_seq 序列里留下客户端永远拿不到的空洞。老逻辑只按「连续」推进，游标会永久卡在空洞前一位，
-/// 每 10s 空转重拉同一页（真机曾连刷一天多）。新逻辑：本页消息全部落库成功后，把游标直接推进到服务端断言
-/// 的 covered_conv_seq——它保证 (since, covered] 内每个序号要么已下发、要么对本人不可见。落库若中途失败，
-/// 只推进到首个失败序号之前，其余靠退避重拉收敛（防落库热循环的护栏保留）。
+/// 每 10s 空转重拉同一页（真机曾连刷一天多）。中间态：本页消息全部落库成功后，把游标直接推进到服务端断言
+/// 的 covered_conv_seq——它保证 (since, covered] 内每个序号要么已下发、要么对本人不可见。
+///
+/// 丢消息事务原子性修复（2026-08-25）：老逻辑「消息事务」与「游标事务」分成**两次**提交——中间进程被杀
+/// （sync burst 期间用户杀 App、系统 OOM、切账号），会出现「消息 A 事务已 commit 但 WAL 未 checkpoint
+/// 就丢，而游标事务后写入并保住」→ 游标越过 A，A 永久漏（真机 seq=416 案例复现）。改为**逐条**原子提交
+/// 游标：`saveIncomingMessage:advancingSyncedConvSeq:` 把消息行与游标推进合到同一 `inTransaction:` 里，
+/// 一条消息事务失败 → 游标绝不越过它。页尾若 `covered > 最后一条 seq`（服务端可见性空洞），再补一次
+/// `advanceSyncedConvSeqForConv:covered` 单事务，把空洞跨过——首条失败后 syncAdvanceSeq 传 0，
+/// 后续消息事务照落但不再动游标，游标停在最后成功一条上，靠 backoff 重拉。事务数不变（仍是每条一事务），
+/// 只是每事务多一次 im_conversation_local 主键 UPDATE，纳秒级。
 - (void)handleSyncResp:(NSDictionary *)data {
     NSArray *convs = [data[@"conversations"] isKindOfClass:[NSArray class]] ? data[@"conversations"] : @[];
     for (NSDictionary *conv in convs) {
@@ -695,23 +705,28 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
         for (NSDictionary *md in messages) {
             if (![md isKindOfClass:[NSDictionary class]]) { continue; }
             IMMessageModel *m = [IMMessageModel receivedMessageWithNewMsgData:md];
-            BOOL durable = [self processIncomingMessage:m fromSync:YES];
+            // 首条失败后：后续消息仍照落库（利于本地缓存尽量满），但传 syncAdvanceSeq=0 → 不再原子推游标，
+            // 游标永远停在最后成功那一条 seq，保证「消息未落 → 游标绝不越过」的核心约束。
+            int64_t advSeq = (firstFailureSeq == 0 && m.convSeq > 0) ? m.convSeq : 0;
+            BOOL durable = [self processIncomingMessage:m fromSync:YES syncAdvanceSeq:advSeq];
             if (!durable && firstFailureSeq == 0 && m.convSeq > 0) { firstFailureSeq = m.convSeq; }
         }
-        // 权威覆盖位点：全部落库成功→游标推到 covered（跨过不可见空洞）；有失败→只推到首个失败序号之前。
+        // 权威覆盖位点：全部成功 → 若 covered > 已推进位点（存在可见性空洞未被消息事务带到位），补一次单事务
+        // 把游标推到 covered；有失败 → 不补，靠 backoff 重拉，游标停在最后成功一条上。
         int64_t covered = [conv[@"covered_conv_seq"] longLongValue];
         BOOL fullyDurable = (firstFailureSeq == 0);
-        int64_t advanceTo = fullyDurable ? covered : (firstFailureSeq - 1);
-        if (advanceTo > pageStart) {
-            [self updateSyncedSeqForConv:convID seq:advanceTo];
+        int64_t currentSynced = [self syncedSeqForConv:convID];
+        if (fullyDurable && covered > currentSynced) {
+            [self updateSyncedSeqForConv:convID seq:covered];
             [self performDatabaseOperation:^(IMDatabase *database) {
-                [database advanceSyncedConvSeqForConv:convID toConvSeq:advanceTo]; // 消息行已先落库，再持久化游标
+                [database advanceSyncedConvSeqForConv:convID toConvSeq:covered]; // 跨过服务端可见性空洞
             }];
+            currentSynced = covered;
         }
         if (fullyDurable) {
             [_syncStalledUntil removeObjectForKey:convID];
             // 只有真推进了才继续翻页；否则是空页/已追平，停手（避免 has_more 误设时空转）。
-            if (advanceTo > pageStart && [conv[@"has_more"] boolValue]) {
+            if (currentSynced > pageStart && [conv[@"has_more"] boolValue]) {
                 [self sendSyncReqForConvs:@[convID]];
             }
             continue;
@@ -732,20 +747,25 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
 /// 统一处理收到的一条消息：落库、回执、投递 delegate。返回该消息是否**已持久化/已处理**
 /// （sync 路径据此判断能否安全把游标推过它）。仅在 _queue 调用。
 ///
-/// fromSync=YES（来自 sync_resp 补拉）：**不**在此推进游标、**不**触发空洞自愈——游标由 handleSyncResp
-/// 按服务端权威 covered_conv_seq 在整页处理完后统一推进（空洞是服务端刻意的可见性过滤，自愈会误触发）。
-/// fromSync=NO（实时 new_msg）：保持原行为——连续则推进游标，跳号则空洞自愈补拉。
-- (BOOL)processIncomingMessage:(IMMessageModel *)msg fromSync:(BOOL)fromSync {
+/// fromSync=YES（来自 sync_resp 补拉）：**不**触发空洞自愈（那里的跳号是服务端刻意的可见性过滤）。
+/// 游标推进由调用方 handleSyncResp 通过 `syncAdvanceSeq` 参数传入：
+///   - `syncAdvanceSeq > 0`：把该 seq 与消息行放到**同一 SQLite 事务**里原子落盘——消息事务失败则游标绝不越过，
+///     进程被杀最多丢"最后一条未 commit"，永不出现"消息丢、游标越过"的永久洞（2026-08-25 seq=416 事故根治）；
+///   - `syncAdvanceSeq == 0`：调用方判定本页在此之前已有失败或不希望推进（如 stall 恢复中），仅落库不动游标。
+/// fromSync=NO（实时 new_msg）：`syncAdvanceSeq` 忽略；仍走「连续则推、跳号则自愈」的原行为。
+- (BOOL)processIncomingMessage:(IMMessageModel *)msg fromSync:(BOOL)fromSync syncAdvanceSeq:(int64_t)syncAdvanceSeq {
     int64_t prevSynced = [self syncedSeqForConv:msg.convID];
     BOOL isNextContiguous = msg.convSeq > 0 && msg.convSeq == prevSynced + 1;
-    BOOL advanceHere = isNextContiguous && !fromSync; // sync 路径由 handleSyncResp 统一推进游标
+    BOOL realtimeAdvance = isNextContiguous && !fromSync; // 实时路径按连续推进
+    // effectiveAdvance：sync 路径听调用方（handleSyncResp 传的 seq）；实时路径按连续判定。
+    // 两条路都统一走 saveIncomingMessage:advancingSyncedConvSeq: 的**同事务**推进，消息与游标共命运。
+    int64_t effectiveAdvance = realtimeAdvance ? msg.convSeq : (fromSync ? syncAdvanceSeq : 0);
     // msg_op 事件行（撤回/编辑/置顶，来自 sync 补拉）：应用其效果、不作气泡渲染、不入库为消息。
     if ([msg.contentType isEqualToString:kIMTypeMsgOp]) {
         NSDictionary *op = [self jsonObjectFromString:msg.content];
-        BOOL applied = op && [self applyMsgOpPayload:op
-                             advancingSyncedConvSeq:advanceHere ? msg.convSeq : 0];
-        if (advanceHere && applied) {
-            [self updateSyncedSeqForConv:msg.convID seq:msg.convSeq];
+        BOOL applied = op && [self applyMsgOpPayload:op advancingSyncedConvSeq:effectiveAdvance];
+        if (applied && effectiveAdvance > 0) {
+            [self updateSyncedSeqForConv:msg.convID seq:effectiveAdvance];
         }
         return applied; // sync：效果已应用即可推过；未应用（负载异常）则留待重拉
     }
@@ -753,8 +773,8 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     // 对齐 recalled_at 的直渲染：不再仅依赖单独的 msg_op 事件行（拿到目标行却漏事件行时会误显已删文件）。
     if (msg.deletedAt > 0 && msg.convID.length > 0 && msg.convSeq > 0) {
         [self removeLocalMessageOnQueueInConv:msg.convID targetConvSeq:msg.convSeq
-                       advancingSyncedConvSeq:advanceHere ? msg.convSeq : 0];
-        if (advanceHere) { [self updateSyncedSeqForConv:msg.convID seq:msg.convSeq]; }
+                       advancingSyncedConvSeq:effectiveAdvance];
+        if (effectiveAdvance > 0) { [self updateSyncedSeqForConv:msg.convID seq:effectiveAdvance]; }
         return YES; // 移除幂等，视为已处理
     }
     // 空洞自愈（仅实时路径）：conv_seq 由服务端连续分配，若实时收到的序号跳过了已同步位点之后的中间段，
@@ -771,8 +791,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     // 避免「在列表收到、未入库、之后开聊天页因 synced 已前进而漏拉」。按 conv_seq 幂等 upsert。
     __block BOOL saved = NO;
     BOOL contextIsCurrent = [self performDatabaseOperation:^(IMDatabase *database) {
-        saved = [database saveIncomingMessage:msg
-                       advancingSyncedConvSeq:advanceHere ? msg.convSeq : 0];
+        saved = [database saveIncomingMessage:msg advancingSyncedConvSeq:effectiveAdvance];
     }];
     if (!contextIsCurrent) { return NO; } // 账号已切换：不推进、不投递
     if ([msg.contentType isEqualToString:@"file"]) {
@@ -787,8 +806,8 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
                    (unsigned long)msg.thumb.length, msg.poster.length > 0,
                    (long)msg.mediaW, (long)msg.mediaH, msg.fileSize);
     }
-    if (advanceHere && saved) {
-        [self updateSyncedSeqForConv:msg.convID seq:msg.convSeq];
+    if (saved && effectiveAdvance > 0) {
+        [self updateSyncedSeqForConv:msg.convID seq:effectiveAdvance];
     } else if (!saved && !fromSync) {
         IMLogSocket(@"incoming message not durable; cursor held conv=%@ seq=%lld", msg.convID, msg.convSeq);
     }

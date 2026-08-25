@@ -1268,9 +1268,12 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
 }
 
 /// 转发：复用聊天页 IMChatViewController 的转发选择+回声逻辑（present 由本页发起，呈现上下文正确）。
+/// stripCaption=YES：资料页文件 tab 只显示文件名，看不到源消息的 caption/mentions；若透传会把当年
+/// 原发件人贴在同一条文件上的「@xxx 附言」意外带到目标会话（曾出现「转发 pdf 却带 @4501 附言」）。
+/// 主流长按转发/查看器转发/多选批量/收藏等看得见附言的入口不受影响，仍走 Telegram 式保留。
 - (void)forwardFileMessage:(IMMessageModel *)m {
     IMChatViewController *chat = [self originChatInStack];
-    if (chat) { [chat presentForwardPickerForMessage:m fromViewController:self]; }
+    if (chat) { [chat presentForwardPickerForMessage:m fromViewController:self stripCaption:YES]; }
     else { [self im_showToast:@"请回到聊天页转发"]; } // 详情页非从聊天进入（如通讯录），无聊天上下文
 }
 

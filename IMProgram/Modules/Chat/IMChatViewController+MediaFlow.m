@@ -50,12 +50,23 @@
 /// 转发一条消息（#6）：整页会话选择器（单/多选，最多 9）→ 逐条转发，保留 content_type（图片/视频不退化成文本）。
 - (void)forwardMessage:(IMMessageModel *)message {
     // 从谁可见就从谁弹（查看器「更多」先关查看器再执行，栈顶可能是全屏媒体库而非本页）。
+    // 主消息流气泡的长按转发：用户看得见 caption/附言，按 Telegram 语义保留一起转过去。
     [self presentForwardPickerForMessage:message
-                      fromViewController:([UIViewController im_topVisibleViewController] ?: self)];
+                      fromViewController:([UIViewController im_topVisibleViewController] ?: self)
+                            stripCaption:NO];
+}
+
+/// 相册查看器/媒体库视角的转发：与 forwardMessage: 同链路，但 stripCaption=YES（详见 +Private.h）。
+- (void)forwardMediaFromViewerMessage:(IMMessageModel *)message {
+    [self presentForwardPickerForMessage:message
+                      fromViewController:([UIViewController im_topVisibleViewController] ?: self)
+                            stripCaption:YES];
 }
 
 /// 转发选择页由 `presenter` 弹出（详情页文件列表复用时传自己），回声逻辑与 toast 都收敛在这里。
-- (void)presentForwardPickerForMessage:(IMMessageModel *)message fromViewController:(UIViewController *)presenter {
+- (void)presentForwardPickerForMessage:(IMMessageModel *)message
+                     fromViewController:(UIViewController *)presenter
+                           stripCaption:(BOOL)stripCaption {
     if (message.content.length == 0 || message.recalledAt > 0) { return; }
     // 失效守卫：曾可用媒体被服务端清理(404) → 转出去对端必 404，不给转发入口。一处拦住卡片菜单/长按菜单/详情页文件列表复用三入口。
     if ([self isMediaExpiredForForward:message]) {
@@ -70,7 +81,7 @@
     NSString *contentType = message.contentType ?: @"text";
     NSString *fileName = message.fileName;
     int64_t fileSize = message.fileSize;
-    IMMediaAttributes *attrs = [self forwardAttributesForMessage:message];
+    IMMediaAttributes *attrs = [self forwardAttributesForMessage:message stripCaption:stripCaption];
     __weak typeof(self) ws = self;
     __weak UIViewController *wp = presenter;
     IMForwardPickerViewController *picker = [[IMForwardPickerViewController alloc]

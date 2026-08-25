@@ -80,7 +80,12 @@ extern NSNotificationName const IMChatConversationClearedNotification;
 @interface IMChatViewController (Routing)
 /// 转发一条消息：present 转发选择页并把选中的会话逐一回声。**presenter** 是实际弹出选择页的 VC
 /// （详情页文件列表复用本逻辑时传自己，保证呈现上下文正确、toast 落在可见页）。
-- (void)presentForwardPickerForMessage:(IMMessageModel *)message fromViewController:(UIViewController *)presenter;
+/// **stripCaption**：YES 时不把源消息的 caption/mentions 一起转过去。资料页文件 tab 视角看不到 caption
+/// 也无法确认要不要带附言（列表只是文件名），直接透传会把「@xxx 前一段话」意外带到目标会话；
+/// 主消息流长按 / 相册查看器 / 收藏 转发这些入口用户看得到 caption，按 Telegram 语义保留（NO）。
+- (void)presentForwardPickerForMessage:(IMMessageModel *)message
+                     fromViewController:(UIViewController *)presenter
+                           stripCaption:(BOOL)stripCaption;
 /// 定位到本会话某条消息：滚到该 conv_seq 行并高亮一闪。详情页「定位到聊天」pop 回本页后调用。
 - (void)jumpToConvSeq:(int64_t)convSeq;
 @end
