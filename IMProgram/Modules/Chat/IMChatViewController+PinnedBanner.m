@@ -105,7 +105,13 @@ NS_ASSUME_NONNULL_END
 
 /// G2 输入栏禁言锁：成员级禁言(myMuteUntil)或全员禁言(且我是普通成员)时禁用输入并改占位文案。
 /// 服务端仍是权威（发上来照样拒 300208/300206），这里只是提前告知、不给试错。
+/// 系统通知会话（peerID=system）：走同一锁机制，reason="此会话不支持回复"——
+/// 见 docs/SYSTEM_NOTICE_SESSION_DESIGN.md §5.2；服务端也会拒收（护栏 §2.2）。
 - (void)refreshComposerMuteState {
+    if (!self.isGroupChat && [self.peerID isEqualToString:@"system"]) {
+        [self setComposerLocked:YES reason:@"此会话不支持回复"];
+        return;
+    }
     if (!self.isGroupChat || !self.groupInfo) {
         if (self.composerMuteLocked) { [self setComposerLocked:NO reason:nil]; }
         return;

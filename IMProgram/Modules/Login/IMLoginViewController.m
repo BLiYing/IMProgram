@@ -23,11 +23,14 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
     [self setupUI];
 }
 
-/// 默认 host：模拟器恒用 localhost（与 Mac 共享网络，不受 DHCP 变 IP 影响）；
+/// 默认 host：模拟器恒用 127.0.0.1（避免 localhost DNS 解析在 iOS 模拟器偶发失败——
+/// Go WS/HTTP 与 IMRemoteLogSink 都会静默挂掉。见 current_task.md 已知坑 / memory 记录）。
 /// 真机优先用上次成功填过的地址，否则给个占位让用户改成 Mac 当前局域网 IP。
 - (NSString *)defaultHost {
 #if TARGET_OS_SIMULATOR
-    return @"localhost:8080";
+    // 优先用上次成功填过的地址（切网/切端口时无需每次改），未填过回退 127.0.0.1:8080。
+    NSString *last = [NSUserDefaults.standardUserDefaults stringForKey:kIMLastHostKey];
+    return last.length > 0 ? last : @"127.0.0.1:8080";
 #else
     NSString *last = [NSUserDefaults.standardUserDefaults stringForKey:kIMLastHostKey];
     return last.length > 0 ? last : @"192.168.1.x:8080";

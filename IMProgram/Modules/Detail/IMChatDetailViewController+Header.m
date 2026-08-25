@@ -59,6 +59,12 @@
 /// 非好友发消息会被服务端 200103 拒收，故不给发消息入口，主入口是加好友。
 - (NSArray<NSDictionary *> *)actionPillSpecs {
     NSMutableArray *specs = [NSMutableArray array];
+    // 系统通知会话：只留「更多」（免打扰/清空聊天）——加好友/消息/呼叫/视频/搜索都不适用。
+    // 见 docs/SYSTEM_NOTICE_SESSION_DESIGN.md §5.3 / §7 权限矩阵。
+    if (!self.isGroup && [self.peerID isEqualToString:@"system"]) {
+        [specs addObject:@{@"t": @"更多", @"s": @"ellipsis", @"a": @"more"}];
+        return specs;
+    }
     if (!self.isGroup) {
         if (!self.peerIsFriend) {
             [specs addObject:@{@"t": @"加好友", @"s": @"person.badge.plus", @"a": @"addfriend"}];

@@ -93,6 +93,9 @@
         if (self.group && self.group.myRole == IMGroupRoleOwner) {
             [items addObject:[IMPopoverCardItem itemWithTitle:@"删除群组" symbol:@"trash.fill" destructive:YES handler:^{ [ws confirmDissolve]; }]];
         }
+    } else if ([self.peerID isEqualToString:@"system"]) {
+        // 系统通知会话：只保留清空聊天记录（拉黑/举报 不适用；护栏也会拒）。
+        [items addObject:[IMPopoverCardItem itemWithTitle:@"清空聊天记录" symbol:@"trash" destructive:NO handler:^{ [ws confirmClearHistory]; }]];
     } else {
         [items addObject:[IMPopoverCardItem itemWithTitle:(self.peerBlocked ? @"取消拉黑" : @"拉黑") symbol:@"hand.raised"
                                              destructive:!self.peerBlocked handler:^{ [ws toggleBlock]; }]];

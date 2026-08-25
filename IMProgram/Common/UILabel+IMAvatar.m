@@ -17,6 +17,35 @@ NSString *IMAvatarInitials(NSString *_Nullable name) {
 @implementation UILabel (IMAvatar)
 
 - (void)im_setAvatarURL:(nullable NSString *)url seed:(NSString *)seed displayName:(nullable NSString *)displayName {
+    // 系统通知会话（seed=system）：头像走应用 logo（LaunchLogo）——服务端 avatar_url 恒空。
+    // 见 docs/SYSTEM_NOTICE_SESSION_DESIGN.md §2.1。
+    if ([seed isEqualToString:@"system"]) {
+        self.text = @"";
+        self.backgroundColor = UIColor.systemBackgroundColor;
+        UIImageView *iv = objc_getAssociatedObject(self, kIMAvatarImageViewKey);
+        if (!iv) {
+            iv = [UIImageView new];
+            iv.translatesAutoresizingMaskIntoConstraints = NO;
+            iv.contentMode = UIViewContentModeScaleAspectFill;
+            iv.clipsToBounds = YES;
+            [self addSubview:iv];
+            [NSLayoutConstraint activateConstraints:@[
+                [iv.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
+                [iv.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
+                [iv.topAnchor constraintEqualToAnchor:self.topAnchor],
+                [iv.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
+            ]];
+            objc_setAssociatedObject(self, kIMAvatarImageViewKey, iv, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        iv.layer.cornerRadius = self.layer.cornerRadius;
+        iv.image = [UIImage imageNamed:@"LaunchLogo"];
+        iv.hidden = NO;
+        // token 前进，避免旧异步回调（若之前是普通头像）覆盖上来。
+        NSUInteger token = [objc_getAssociatedObject(self, kIMAvatarTokenKey) unsignedIntegerValue] + 1;
+        objc_setAssociatedObject(self, kIMAvatarTokenKey, @(token), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        return;
+    }
+
     // 1) 立即渲染首字母 + 稳定取色底（回退态，无空白闪烁）。
     NSString *name = displayName.length ? displayName : seed;
     self.text = IMAvatarInitials(name);
