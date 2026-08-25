@@ -25,6 +25,8 @@
 #import "Voice/IMVoiceRecorder.h"
 #import "Voice/IMVoiceRecordingHUD.h"
 #import "Voice/IMVoicePlayer.h"
+#import "Voice/IMVoiceTranscriber.h"
+#import "Voice/IMVoiceBubbleCell.h"
 #import <objc/runtime.h>
 
 /// 按住条 pan 触发取消的距离阈值（占输入栏宽度的比例）。
@@ -308,6 +310,80 @@ static const void *kIMVoiceCancelReadyKey = &kIMVoiceCancelReadyKey;
         [[IMVoicePlayer sharedPlayer] markPlayed:mid inConv:message.convID owner:self.userID];
     }
     [[IMVoicePlayer sharedPlayer] togglePlayback:message localFileURL:localURL];
+}
+
+#pragma mark - 转文字（P1）
+
+- (void)im_transcribeVoiceMessage:(IMMessageModel *)message {
+    NSString *mid = IMVoicePlayerPlayableIDForMessage(message);
+    if (!mid) { return; }
+    // 缓存命中直接展开；未命中先确保音频在本地，再启动识别。
+    NSString *cached = [[IMVoiceTranscriber sharedTranscriber] cachedTextForMessageID:mid convID:message.convID owner:self.userID];
+    if (cached) {
+        [self im_applyTranscriptText:cached loading:NO forMessageID:mid];
+        return;
+    }
+    // 先订阅识别状态推送——一次性 observer，收到 final 或 unavailable 就摘掉。
+    __block id token = [[NSNotificationCenter defaultCenter]
+        addObserverForName:IMVoiceTranscriberDidChangeNotification object:nil queue:NSOperationQueue.mainQueue
+        usingBlock:^(NSNotification *note) {
+            NSString *notedID = note.userInfo[@"messageID"];
+            if (![notedID isEqualToString:mid]) { return; }
+            IMVoiceTranscribeStatus st = (IMVoiceTranscribeStatus)[note.userInfo[@"status"] integerValue];
+            NSString *text = note.userInfo[@"text"];
+            if (st == IMVoiceTranscribeStatusUnavailable) {
+                [self im_applyTranscriptText:@"转文字暂不可用（请在系统设置中开启语音识别权限）" loading:NO forMessageID:mid];
+                [[NSNotificationCenter defaultCenter] removeObserver:token];
+                token = nil;
+                return;
+            }
+            [self im_applyTranscriptText:text loading:(st == IMVoiceTranscribeStatusRecognizing) forMessageID:mid];
+            if (st == IMVoiceTranscribeStatusDone) {
+                [[NSNotificationCenter defaultCenter] removeObserver:token];
+                token = nil;
+            }
+        }];
+
+    // 保底 UI：立刻展 "识别中…"（避免用户等待期间没反馈）。
+    [self im_applyTranscriptText:nil loading:YES forMessageID:mid];
+
+    // 拿本地音频 → 有则直接识别，无则先下再识别。voice 恒自动下载，一般已在缓存。
+    NSURL *cachedURL = [IMMediaDownloader cachedFileURLForContent:message.content];
+    if (cachedURL && [[NSFileManager defaultManager] fileExistsAtPath:cachedURL.path]) {
+        [[IMVoiceTranscriber sharedTranscriber] transcribeMessageID:mid convID:message.convID owner:self.userID audioURL:cachedURL];
+        return;
+    }
+    NSURL *remote = [NSURL URLWithString:[self fullMediaURL:message.content]];
+    if (!remote || !cachedURL) {
+        [self im_applyTranscriptText:@"转文字失败：音频不可用" loading:NO forMessageID:mid];
+        return;
+    }
+    IMMediaDownloadTask *task = [[IMMediaDownloader shared] downloadURL:remote toDestination:cachedURL key:message.content];
+    __weak typeof(self) ws = self;
+    task.completionHandler = ^(NSURL *location, NSError *err) {
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        if (err || !location) {
+            [self im_applyTranscriptText:@"转文字失败：语音下载失败" loading:NO forMessageID:mid];
+            return;
+        }
+        [[IMVoiceTranscriber sharedTranscriber] transcribeMessageID:mid convID:message.convID owner:self.userID audioURL:location];
+    };
+}
+
+/// 在可见 cell 上应用转写文本。cell 已被复用/滚出视口则忽略——下次再触发时会重新展开缓存。
+- (void)im_applyTranscriptText:(nullable NSString *)text loading:(BOOL)loading forMessageID:(NSString *)mid {
+    for (UITableViewCell *cell in self.tableView.visibleCells) {
+        if (![cell isKindOfClass:[IMVoiceBubbleCell class]]) { continue; }
+        NSIndexPath *ip = [self.tableView indexPathForCell:cell];
+        if (ip.row >= (NSInteger)self.messages.count) { continue; }
+        IMMessageModel *m = self.messages[ip.row];
+        NSString *cellID = IMVoicePlayerPlayableIDForMessage(m);
+        if ([cellID isEqualToString:mid]) {
+            [(IMVoiceBubbleCell *)cell applyTranscriptText:text loading:loading];
+            break;
+        }
+    }
 }
 
 - (void)im_persistLocalVoiceEcho:(NSString *)url waveform:(NSString *)waveform duration:(int64_t)dur fileSize:(int64_t)size clientMsgID:(NSString *)cid {

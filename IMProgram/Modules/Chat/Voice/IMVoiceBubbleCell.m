@@ -9,7 +9,7 @@
 #import "IMTheme.h"
 #import "UILabel+IMAvatar.h"
 
-@interface IMVoiceBubbleCell ()
+@interface IMVoiceBubbleCell () <UIGestureRecognizerDelegate>
 @property (nonatomic, strong) UIView *bubble;
 @property (nonatomic, strong) UIButton *playButton;
 @property (nonatomic, strong) IMWaveformView *waveform;
@@ -17,8 +17,16 @@
 @property (nonatomic, strong) UIView *unplayedDot;
 @property (nonatomic, strong) UILabel *senderLabel;
 @property (nonatomic, strong) UILabel *dayHeader;
+@property (nonatomic, strong) UILabel *scrubTip;   ///< scrub 拖拽时的时间气泡（"0:07 / 0:12"）
+@property (nonatomic, strong) UIButton *speedPill; ///< 播放中显：1x / 1.5x / 2x（会话级记忆）
+@property (nonatomic, strong) UIView *transcriptPanel;    ///< 转写面板（贴气泡下方，收起=hidden）
+@property (nonatomic, strong) UIView *transcriptRule;     ///< 面板左侧蓝色引用线（与引用条视觉语系一致）
+@property (nonatomic, strong) UILabel *transcriptLabel;
+@property (nonatomic, strong) UILabel *transcriptFooter;  ///< "📝 本机识别 · 仅本地保存"
+@property (nonatomic, strong) NSLayoutConstraint *transcriptTopSpacing;
 
 @property (nonatomic, copy, nullable) NSString *currentID;
+@property (nonatomic, copy, nullable) NSString *currentConvID;
 @property (nonatomic, assign) int64_t totalDurationMillis;
 @property (nonatomic, assign) BOOL mine;
 
@@ -27,6 +35,12 @@
 @property (nonatomic, strong) NSLayoutConstraint *bubbleWidth;         ///< 按 duration 线性长；每次 configure 只改 constant，不再追加约束
 @property (nonatomic, strong) NSLayoutConstraint *bubbleMaxTrailing;   ///< 对方气泡右侧最小留白（防长语音贴屏边）
 @property (nonatomic, strong) NSLayoutConstraint *bubbleMinLeading;    ///< 自己气泡左侧最小留白
+@property (nonatomic, strong) NSLayoutConstraint *scrubTipCenterX;
+@property (nonatomic, assign) BOOL scrubbing;
+@property (nonatomic, strong) NSLayoutConstraint *panelLeadingMine;
+@property (nonatomic, strong) NSLayoutConstraint *panelTrailingMine;
+@property (nonatomic, strong) NSLayoutConstraint *panelLeadingPeer;
+@property (nonatomic, strong) NSLayoutConstraint *panelTrailingPeer;
 @property (nonatomic, strong) NSLayoutConstraint *dayHeaderHeight;
 @property (nonatomic, strong) NSLayoutConstraint *senderTopSpacing;
 @end
@@ -95,6 +109,53 @@
     _unplayedDot.hidden = YES;
     [_bubble addSubview:_unplayedDot];
 
+    // 倍速胶囊（P1）：仅播放中出现（默认 alpha 0）。会话级记忆，从 IMVoicePlayer 取当前 rate。
+    _speedPill = [UIButton buttonWithType:UIButtonTypeSystem];
+    _speedPill.translatesAutoresizingMaskIntoConstraints = NO;
+    _speedPill.titleLabel.font = [UIFont monospacedDigitSystemFontOfSize:10 weight:UIFontWeightBold];
+    _speedPill.layer.cornerRadius = 8;
+    _speedPill.layer.masksToBounds = YES;
+    _speedPill.contentEdgeInsets = UIEdgeInsetsMake(2, 6, 2, 6);
+    _speedPill.alpha = 0;
+    _speedPill.userInteractionEnabled = NO;
+    [_speedPill addTarget:self action:@selector(speedTapped) forControlEvents:UIControlEventTouchUpInside];
+    [_bubble addSubview:_speedPill];
+
+    // scrub tip（P1）：拖拽波形时浮出的 "0:07 / 0:12" 时间气泡（深底白字）。
+    _scrubTip = [UILabel new];
+    _scrubTip.translatesAutoresizingMaskIntoConstraints = NO;
+    _scrubTip.font = [UIFont monospacedDigitSystemFontOfSize:10 weight:UIFontWeightSemibold];
+    _scrubTip.textColor = UIColor.whiteColor;
+    _scrubTip.backgroundColor = [UIColor colorWithWhite:0.05 alpha:0.9];
+    _scrubTip.layer.cornerRadius = 6;
+    _scrubTip.layer.masksToBounds = YES;
+    _scrubTip.textAlignment = NSTextAlignmentCenter;
+    _scrubTip.alpha = 0;
+    [_bubble addSubview:_scrubTip];
+
+    // 转写面板（P1）：贴气泡下方，收起=hidden。左侧蓝色引用线 + 文本 + 尾行小字。
+    _transcriptPanel = [UIView new];
+    _transcriptPanel.translatesAutoresizingMaskIntoConstraints = NO;
+    _transcriptPanel.hidden = YES;
+    [cv addSubview:_transcriptPanel];
+    _transcriptRule = [UIView new];
+    _transcriptRule.translatesAutoresizingMaskIntoConstraints = NO;
+    _transcriptRule.backgroundColor = IMTheme.accent;
+    _transcriptRule.layer.cornerRadius = 1.25;
+    [_transcriptPanel addSubview:_transcriptRule];
+    _transcriptLabel = [UILabel new];
+    _transcriptLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    _transcriptLabel.font = [UIFont systemFontOfSize:14];
+    _transcriptLabel.textColor = IMTheme.textPrimary;
+    _transcriptLabel.numberOfLines = 0;
+    [_transcriptPanel addSubview:_transcriptLabel];
+    _transcriptFooter = [UILabel new];
+    _transcriptFooter.translatesAutoresizingMaskIntoConstraints = NO;
+    _transcriptFooter.font = [UIFont systemFontOfSize:10];
+    _transcriptFooter.textColor = IMTheme.textSecondary;
+    _transcriptFooter.text = @"📝 本机识别 · 仅本地保存";
+    [_transcriptPanel addSubview:_transcriptFooter];
+
     // 群头由基类 _avatar 承载：leading/bottom 由本 cell 补约束。
     _avatar.translatesAutoresizingMaskIntoConstraints = NO;
     [cv addSubview:_avatar];
@@ -140,8 +201,21 @@
         [_avatar.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor],
         // 气泡定位（左右锚随 mine 切换，见 configure）
         [_bubble.topAnchor constraintEqualToAnchor:_senderLabel.bottomAnchor constant:2],
-        [_bubble.bottomAnchor constraintEqualToAnchor:cv.bottomAnchor constant:-4],
         [_bubble.heightAnchor constraintEqualToConstant:52],
+        // 转写面板（默认 hidden 且 top spacing=0，不占额外高度）。show 时 spacing=8。
+        [_transcriptPanel.bottomAnchor constraintEqualToAnchor:cv.bottomAnchor constant:-4],
+        // 与气泡同侧对齐（configure 时按 mine 切）
+        [_transcriptRule.leadingAnchor constraintEqualToAnchor:_transcriptPanel.leadingAnchor],
+        [_transcriptRule.topAnchor constraintEqualToAnchor:_transcriptPanel.topAnchor constant:2],
+        [_transcriptRule.bottomAnchor constraintEqualToAnchor:_transcriptPanel.bottomAnchor constant:-2],
+        [_transcriptRule.widthAnchor constraintEqualToConstant:2.5],
+        [_transcriptLabel.leadingAnchor constraintEqualToAnchor:_transcriptRule.trailingAnchor constant:9],
+        [_transcriptLabel.trailingAnchor constraintEqualToAnchor:_transcriptPanel.trailingAnchor],
+        [_transcriptLabel.topAnchor constraintEqualToAnchor:_transcriptPanel.topAnchor],
+        [_transcriptFooter.leadingAnchor constraintEqualToAnchor:_transcriptLabel.leadingAnchor],
+        [_transcriptFooter.trailingAnchor constraintEqualToAnchor:_transcriptLabel.trailingAnchor],
+        [_transcriptFooter.topAnchor constraintEqualToAnchor:_transcriptLabel.bottomAnchor constant:5],
+        [_transcriptFooter.bottomAnchor constraintEqualToAnchor:_transcriptPanel.bottomAnchor],
         // 气泡内元素
         [_playButton.leadingAnchor constraintEqualToAnchor:_bubble.leadingAnchor constant:6],
         [_playButton.centerYAnchor constraintEqualToAnchor:_bubble.centerYAnchor],
@@ -157,7 +231,32 @@
         [_unplayedDot.topAnchor constraintEqualToAnchor:_bubble.topAnchor constant:6],
         [_unplayedDot.widthAnchor constraintEqualToConstant:7],
         [_unplayedDot.heightAnchor constraintEqualToConstant:7],
+        // 倍速胶囊：波形右上方；播放中淡入（默认贴 durationLabel 上方 3pt）
+        [_speedPill.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor constant:-8],
+        [_speedPill.topAnchor constraintEqualToAnchor:_bubble.topAnchor constant:4],
+        [_speedPill.heightAnchor constraintEqualToConstant:18],
+        // scrub tip：波形正上方 4pt；水平 centerX 由拖拽时动态更新
+        [_scrubTip.centerYAnchor constraintEqualToAnchor:_waveform.topAnchor constant:-10],
+        [_scrubTip.heightAnchor constraintEqualToConstant:16],
+        [_scrubTip.widthAnchor constraintGreaterThanOrEqualToConstant:60],
     ]];
+    // scrub tip 的 centerX：以 waveform 左缘为起点、动态 offset。默认放中间（避免约束缺失）。
+    _scrubTipCenterX = [_scrubTip.centerXAnchor constraintEqualToAnchor:_waveform.leadingAnchor constant:0];
+    _scrubTipCenterX.active = YES;
+    _transcriptTopSpacing = [_transcriptPanel.topAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:0];
+    _transcriptTopSpacing.active = YES;
+    // 转写面板与气泡同侧对齐——两对约束按 mine toggle。
+    _panelTrailingMine = [_transcriptPanel.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor];
+    _panelLeadingMine = [_transcriptPanel.leadingAnchor constraintGreaterThanOrEqualToAnchor:cv.leadingAnchor constant:60];
+    _panelLeadingPeer = [_transcriptPanel.leadingAnchor constraintEqualToAnchor:_bubble.leadingAnchor];
+    _panelTrailingPeer = [_transcriptPanel.trailingAnchor constraintLessThanOrEqualToAnchor:cv.trailingAnchor constant:-60];
+
+    // 波形拖拽 scrub（P1）：pan 手势。>=4pt 阈值避免与列表滚动打架。
+    UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(scrubPan:)];
+    pan.maximumNumberOfTouches = 1;
+    pan.delegate = self;
+    [_waveform addGestureRecognizer:pan];
+    _waveform.userInteractionEnabled = YES;
 }
 
 - (UIView *)previewTargetView { return self.bubble; }
@@ -171,7 +270,9 @@
                     hasPlayed:(BOOL)hasPlayed {
     self.mine = mine;
     self.currentID = IMVoicePlayerPlayableIDForMessage(message);
+    self.currentConvID = message.convID;
     self.totalDurationMillis = message.duration > 0 ? message.duration : 0;
+    [self applySpeedLabel:[[IMVoicePlayer sharedPlayer] rateForConvID:message.convID]];
 
     [self applyUnreadDivider:showsDivider];
     if (dayHeader.length > 0) {
@@ -195,6 +296,14 @@
     self.bubbleTrailingRight.active = mine;
     self.bubbleMaxTrailing.active = !mine;
     self.bubbleMinLeading.active = mine;
+
+    // 转写面板与气泡同侧对齐——toggle 已建约束，永不累加。
+    self.panelLeadingMine.active = mine;
+    self.panelTrailingMine.active = mine;
+    self.panelLeadingPeer.active = !mine;
+    self.panelTrailingPeer.active = !mine;
+    // 复用 cell 时把转写面板收起（宿主会按需重新展开）。
+    [self applyTranscriptText:nil loading:NO];
 
     // 波形数据
     self.waveform.amplitudes = [IMWaveformView amplitudesFromBase64:message.waveform];
@@ -236,6 +345,102 @@
 
 - (void)playTapped { if (self.onPlayTap) { self.onPlayTap(); } }
 
+- (void)applyTranscriptText:(NSString *)text loading:(BOOL)loading {
+    BOOL shows = loading || (text.length > 0);
+    self.transcriptPanel.hidden = !shows;
+    self.transcriptTopSpacing.constant = shows ? 8 : 0;
+    if (shows) {
+        self.transcriptLabel.text = loading ? @"识别中…" : text;
+        self.transcriptFooter.hidden = loading; // 识别中不显尾行
+    }
+    // 通知 tableView 重算行高（cell 内容变化，UITableViewAutomaticDimension 自适应）。
+    UITableView *tv = [self findTableView];
+    if (tv) {
+        [tv beginUpdates];
+        [tv endUpdates];
+    }
+}
+
+- (nullable UITableView *)findTableView {
+    UIView *v = self.superview;
+    while (v && ![v isKindOfClass:[UITableView class]]) { v = v.superview; }
+    return (UITableView *)v;
+}
+
+#pragma mark - Scrub + Speed (P1)
+
+// pan 与 UIScrollView 冲突：只有起始位移横向占优、且是"正在播/暂停"这条消息时才拿下手势
+// （否则让 tableView 正常滚动）。同时用 4pt 阈值避免误触。
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)r shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)other {
+    return NO; // scrub 独占
+}
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)r {
+    if (![r isKindOfClass:[UIPanGestureRecognizer class]]) { return YES; }
+    if (!self.currentID) { return NO; }
+    IMVoicePlayerState st = [[IMVoicePlayer sharedPlayer] stateForMessageID:self.currentID];
+    // 未加载/未播过的语音也允许拖拽——但需 duration>0 才有意义
+    if (st == IMVoicePlayerStateIdle) { return NO; }
+    CGPoint v = [(UIPanGestureRecognizer *)r velocityInView:self.waveform];
+    return fabs(v.x) >= fabs(v.y); // 横向占优才接管
+}
+
+- (void)scrubPan:(UIPanGestureRecognizer *)g {
+    if (!self.currentID) { return; }
+    CGPoint pt = [g locationInView:self.waveform];
+    CGFloat w = CGRectGetWidth(self.waveform.bounds);
+    if (w <= 0) { return; }
+    double p = MAX(0.0, MIN(1.0, pt.x / w));
+    switch (g.state) {
+        case UIGestureRecognizerStateBegan:
+        case UIGestureRecognizerStateChanged: {
+            if (!self.scrubbing) {
+                self.scrubbing = YES;
+                self.scrubTip.alpha = 0;
+                [UIView animateWithDuration:0.14 animations:^{ self.scrubTip.alpha = 1.0; }];
+            }
+            self.waveform.progress = p;
+            self.scrubTipCenterX.constant = pt.x;
+            int64_t cur = (int64_t)(p * self.totalDurationMillis);
+            self.scrubTip.text = [NSString stringWithFormat:@"  %@ / %@  ", [self formatDur:cur], [self formatDur:self.totalDurationMillis]];
+            [[IMVoicePlayer sharedPlayer] seek:p forMessageID:self.currentID];
+            break;
+        }
+        case UIGestureRecognizerStateEnded:
+        case UIGestureRecognizerStateCancelled:
+        case UIGestureRecognizerStateFailed: {
+            self.scrubbing = NO;
+            [UIView animateWithDuration:0.18 animations:^{ self.scrubTip.alpha = 0; }];
+            break;
+        }
+        default: break;
+    }
+}
+
+- (void)speedTapped {
+    // 1x → 1.5x → 2x → 1x 循环。
+    float cur = [[IMVoicePlayer sharedPlayer] rateForConvID:self.currentConvID];
+    float next = (cur == 1.0f) ? 1.5f : ((cur == 1.5f) ? 2.0f : 1.0f);
+    [[IMVoicePlayer sharedPlayer] setRate:next forConvID:self.currentConvID];
+    [self applySpeedLabel:next];
+    // rotateX 翻页 160ms（与设计文档 §6.1 tokens 一致）
+    CATransform3D t = CATransform3DMakeRotation(M_PI_2, 1, 0, 0);
+    self.speedPill.titleLabel.layer.transform = t;
+    [UIView animateWithDuration:0.16 delay:0 options:UIViewAnimationOptionCurveEaseOut animations:^{
+        self.speedPill.titleLabel.layer.transform = CATransform3DIdentity;
+    } completion:nil];
+}
+
+- (void)applySpeedLabel:(float)rate {
+    NSString *t = (rate == 1.5f) ? @"1.5x" : ((rate == 2.0f) ? @"2x" : @"1x");
+    [self.speedPill setTitle:t forState:UIControlStateNormal];
+    UIColor *tint = self.mine ? [UIColor colorWithRed:0.08 green:0.38 blue:0.12 alpha:1.0] : IMTheme.accent;
+    [self.speedPill setTitleColor:tint forState:UIControlStateNormal];
+    self.speedPill.backgroundColor = self.mine
+        ? [UIColor colorWithRed:0.08 green:0.38 blue:0.12 alpha:0.14]
+        : [IMTheme.accent colorWithAlphaComponent:0.14];
+}
+
+
 - (void)onPlayerChanged:(NSNotification *)n {
     NSString *mid = n.userInfo[@"messageID"];
     if (!mid || ![mid isEqualToString:self.currentID]) { return; }
@@ -249,13 +454,21 @@
     UIImageSymbolConfiguration *pcfg = [UIImageSymbolConfiguration configurationWithPointSize:14 weight:UIImageSymbolWeightBold];
     NSString *sym = (state == IMVoicePlayerStatePlaying) ? @"pause.fill" : @"play.fill";
     [self.playButton setImage:[UIImage systemImageNamed:sym withConfiguration:pcfg] forState:UIControlStateNormal];
-    self.waveform.progress = progress;
+    if (!self.scrubbing) { self.waveform.progress = progress; }
     if (state == IMVoicePlayerStatePlaying || state == IMVoicePlayerStatePaused) {
         int64_t remaining = MAX(0, self.totalDurationMillis - (int64_t)(progress * self.totalDurationMillis));
         self.durationLabel.text = [self formatDur:remaining];
     } else {
         self.durationLabel.text = [self formatDur:self.totalDurationMillis];
-        self.waveform.progress = 0;
+        if (!self.scrubbing) { self.waveform.progress = 0; }
+    }
+    // 倍速胶囊：仅播放/暂停中可见可点。
+    BOOL playing = (state == IMVoicePlayerStatePlaying || state == IMVoicePlayerStatePaused);
+    if (playing != self.speedPill.userInteractionEnabled) {
+        self.speedPill.userInteractionEnabled = playing;
+        [UIView animateWithDuration:0.2 delay:0 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
+            self.speedPill.alpha = playing ? 1.0 : 0.0;
+        } completion:nil];
     }
 }
 

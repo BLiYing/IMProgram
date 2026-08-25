@@ -18,6 +18,9 @@ NS_ASSUME_NONNULL_BEGIN
 /// 播放某条语音消息（DataSource 的 onPlayTap 回调调用）。fullURL = self fullMediaURL:message.content。
 - (void)im_playVoiceMessage:(IMMessageModel *)message fullURL:(NSString *)fullURL;
 
+/// 长按菜单「转文字」触发（+Menu.m 调用）。缓存命中 → 直接展开；否则先下音频再走 SFSpeechRecognizer。
+- (void)im_transcribeVoiceMessage:(IMMessageModel *)message;
+
 @end
 
 NS_ASSUME_NONNULL_END

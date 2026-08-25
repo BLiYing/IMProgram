@@ -27,6 +27,11 @@ NS_ASSUME_NONNULL_BEGIN
 /// 用户点播放/暂停触发（本地 URL 已由宿主自动下载好；voice 恒自动下载）。
 @property (nonatomic, copy, nullable) void (^onPlayTap)(void);
 
+/// 显示转写文本（P1）：宿主收到长按菜单「转文字」→ 触发识别 →
+/// 通过 IMVoiceTranscriberDidChangeNotification 回来后调本方法把当前文本展开在气泡下方。
+/// text 空 → 收起面板；status=Recognizing 时可传 nil 与 loading=YES 组合显"识别中…"。
+- (void)applyTranscriptText:(nullable NSString *)text loading:(BOOL)loading;
+
 /// 长按气泡的目标（IMChatVC contextMenu 依赖）。
 @property (nonatomic, strong, readonly) UIView *previewTargetView;
 

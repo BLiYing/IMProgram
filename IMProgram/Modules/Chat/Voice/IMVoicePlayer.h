@@ -47,6 +47,13 @@ extern NSString *_Nullable IMVoicePlayerPlayableIDForMessage(IMMessageModel *m);
 /// 手动标记为已播（P0：进入播放态即调用；也可由 UI 长按标记）。
 - (void)markPlayed:(NSString *)messageID inConv:(NSString *)convID owner:(NSString *)ownerUID;
 
+/// 拖拽 scrub：把当前播放位点跳到 progress（0..1）。仅在该 messageID 正在播/暂停时生效。
+- (void)seek:(double)progress forMessageID:(NSString *)messageID;
+
+/// 会话级倍速（1.0 / 1.5 / 2.0；per convID）。设置立刻应用到当前播放器。
+- (float)rateForConvID:(nullable NSString *)convID;
+- (void)setRate:(float)rate forConvID:(nullable NSString *)convID;
+
 @end
 
 NS_ASSUME_NONNULL_END

@@ -3,6 +3,7 @@
 //  从 IMChatViewController.m 平移，未改行为；私有属性经 IMChatViewController+Private.h 共享。
 
 #import "IMChatViewController+Private.h"
+#import "IMChatViewController+Voice.h"
 #import "IMMessageModel.h"
 #import "IMMenuAction.h"
 #import "IMReadReceiptViewController.h"
@@ -267,9 +268,19 @@ static UIBezierPath *IMBubbleOutlinePath(CGRect rect, CGFloat radius, CACornerMa
     __weak typeof(self) ws = self;
     NSMutableArray<IMMenuAction *> *actions = [NSMutableArray array];
 
+    // 语音消息「转文字」（P1，收端本地）：只对已发出的 voice 消息可用；识别在本机跑，
+    // 结果只存本地缓存（NSUserDefaults per uid+conv+mid），不上行/不落服务端/不跨端。
+    // 见 IMServer docs/VOICE_MESSAGE_DESIGN.md §6.3。
+    if ([message.contentType isEqualToString:@"voice"] && message.convSeq > 0 && message.recalledAt == 0) {
+        [actions addObject:[IMMenuAction actionWithId:@"transcribe" title:@"转文字" image:@"text.bubble" handler:^{
+            [ws im_transcribeVoiceMessage:message];
+        }]];
+    }
+
     // 复制：仅文本（随时可复制）与已发出的图片（复制图片字节）。文件/聊天记录卡片无复制语义
     //（后者会把整段 JSON 拷进剪贴板）；发送中的图片 content 还是本地引用，复制无意义。与 Web 对齐。
     // 图说消息（image/video/file 带 caption）也可复制——复制的是**文本**（caption），故三类都放开。
+    // voice 不可复制（没有可复制文本，音频用「转文字」独立入口）。
     BOOL copyable = ([message.contentType isEqualToString:@"text"] && message.content.length > 0 && message.recalledAt == 0)
                  || ([message.contentType isEqualToString:@"image"] && message.convSeq > 0 && message.recalledAt == 0)
                  || (message.caption.length > 0 && message.convSeq > 0 && message.recalledAt == 0);

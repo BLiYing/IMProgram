@@ -67,12 +67,15 @@ static NSString *_Nonnull IMVoicePlayerPlayedKey(NSString *ownerUID, NSString *c
     self.player = [[AVAudioPlayer alloc] initWithContentsOfURL:localFileURL error:&err];
     if (!self.player || err) { return; }
     self.player.delegate = self;
+    self.player.enableRate = YES; // 允许 rate 变速（AVAudioPlayer 默认关闭）
     [self.player prepareToPlay];
 
     self.currentID = mid;
     self.currentConvID = message.convID;
     self.currentOwner = nil; // 由 markPlayed 传入
     self.currentState = IMVoicePlayerStatePlaying;
+    // 应用会话级倍速偏好（默认 1.0）。
+    self.player.rate = [self rateForConvID:message.convID];
 
     [self activateSessionForPlayback];
     [self.player play];
@@ -182,6 +185,40 @@ static NSString *_Nonnull IMVoicePlayerPlayedKey(NSString *ownerUID, NSString *c
     NSError *e = nil;
     [[AVAudioSession sharedInstance] setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:&e];
     if (oldID) { [self broadcastStateForID:oldID convID:oldConv state:IMVoicePlayerStateIdle]; }
+}
+
+#pragma mark - Scrub + Rate (P1)
+
+- (void)seek:(double)progress forMessageID:(NSString *)messageID {
+    if (!messageID || ![messageID isEqualToString:self.currentID] || !self.player) { return; }
+    NSTimeInterval total = self.player.duration;
+    if (total <= 0) { return; }
+    self.player.currentTime = MAX(0, MIN(total, progress * total));
+    [self broadcastStateForID:self.currentID convID:self.currentConvID state:self.currentState];
+}
+
+/// 会话级倍速偏好 key：per uid（避免账号切换污染）+ per conv。
+static NSString *IMVoicePlayerRateKey(NSString *convID) {
+    return [NSString stringWithFormat:@"im.voice.rate.%@", convID ?: @"na"];
+}
+
+- (float)rateForConvID:(NSString *)convID {
+    NSNumber *v = [[NSUserDefaults standardUserDefaults] objectForKey:IMVoicePlayerRateKey(convID)];
+    if (![v isKindOfClass:[NSNumber class]]) { return 1.0f; }
+    float r = v.floatValue;
+    if (r <= 0.5f || r > 3.0f) { return 1.0f; }
+    return r;
+}
+
+- (void)setRate:(float)rate forConvID:(NSString *)convID {
+    // 规范化到 {1.0, 1.5, 2.0} 三档——收端 UI 只提供这三档，其他值属程序化脏数据，兜底成 1.0。
+    if (fabsf(rate - 1.5f) < 0.05f) rate = 1.5f;
+    else if (fabsf(rate - 2.0f) < 0.05f) rate = 2.0f;
+    else rate = 1.0f;
+    [[NSUserDefaults standardUserDefaults] setObject:@(rate) forKey:IMVoicePlayerRateKey(convID)];
+    if (self.player && [convID isEqualToString:self.currentConvID]) {
+        self.player.rate = rate;
+    }
 }
 
 @end
