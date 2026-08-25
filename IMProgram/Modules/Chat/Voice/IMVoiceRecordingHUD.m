@@ -20,7 +20,8 @@
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
     if (self) {
-        self.backgroundColor = UIColor.clearColor;
+        // 不透明底（2026-08-26 修）：曾 clearColor → 盖在输入栏上时底下的 ＋/输入框/🎙 全部透出重叠。
+        self.backgroundColor = IMTheme.surface;
         self.hidden = YES;
         self.alpha = 0;
         [self buildUI];
@@ -31,10 +32,10 @@
 - (void)buildUI {
     _pill = [UIView new];
     _pill.translatesAutoresizingMaskIntoConstraints = NO;
-    _pill.backgroundColor = [UIColor colorWithRed:0.98 green:0.92 blue:0.92 alpha:1.0];
+    _pill.backgroundColor = IMTheme.pageBackground; // 主题 token（曾硬编码粉底，深色模式刺眼）
     _pill.layer.cornerRadius = 18;
     _pill.layer.borderWidth = 1.0;
-    _pill.layer.borderColor = [UIColor colorWithRed:0.9 green:0.5 blue:0.5 alpha:0.7].CGColor;
+    _pill.layer.borderColor = IMTheme.separator.CGColor;
     [self addSubview:_pill];
 
     _redDot = [UIView new];
@@ -117,8 +118,8 @@
             self.slideHint.textColor = UIColor.whiteColor;
             self.timerLabel.textColor = UIColor.whiteColor;
         } else {
-            self.pill.backgroundColor = [UIColor colorWithRed:0.98 green:0.92 blue:0.92 alpha:1.0];
-            self.pill.layer.borderColor = [UIColor colorWithRed:0.9 green:0.5 blue:0.5 alpha:0.7].CGColor;
+            self.pill.backgroundColor = IMTheme.pageBackground;
+            self.pill.layer.borderColor = IMTheme.separator.CGColor;
             self.slideHint.text = @"‹ 向左滑动取消";
             self.slideHint.textColor = IMTheme.textSecondary;
             self.timerLabel.textColor = IMTheme.textPrimary;

@@ -378,6 +378,7 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
                     fileName:(nullable NSString *)fileName
                     fileSize:(int64_t)fileSize
                     duration:(int64_t)duration
+                    waveform:(nullable NSString *)waveform
                        thumb:(nullable NSString *)thumb
                       poster:(nullable NSString *)poster
                       mediaW:(NSInteger)mediaW

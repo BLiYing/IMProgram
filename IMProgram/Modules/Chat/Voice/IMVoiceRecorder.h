@@ -36,6 +36,9 @@ typedef NS_ENUM(NSInteger, IMVoiceRecorderStopReason) {
               fileURL:(nullable NSURL *)fileURL
             waveform:(nullable NSString *)waveformBase64
              duration:(int64_t)durationMillis;
+/// 系统中断（来电/切后台）且已录 ≥0.6s：recorder 已自动 pause（文件保留）。
+/// 上层应转入锁定暂停态（设计 §5.4：回到会话时锁定行还在，可 发送/删除/继续）。<0.6s 的中断仍走 didStop tooShort。
+- (void)voiceRecorderWasInterrupted:(IMVoiceRecorder *)recorder;
 @end
 
 @interface IMVoiceRecorder : NSObject
@@ -45,6 +48,8 @@ typedef NS_ENUM(NSInteger, IMVoiceRecorderStopReason) {
 @property (nonatomic, readonly) BOOL recording;
 /// 是否已达最大时长（4:50 起 UI 应显倒数）。
 @property (nonatomic, readonly) int64_t maxDurationMillis;
+/// 已录音时长（ms，不含暂停区间）。供锁定行「删除 >10s 二次确认」等 UI 判定。
+@property (nonatomic, readonly) int64_t elapsedMillis;
 
 /// 检查/请求麦克风权限；未授权时立即回调 NO，UI 应引导用户去设置。
 + (void)requestMicrophonePermission:(void (^)(BOOL granted))completion;

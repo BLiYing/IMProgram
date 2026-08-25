@@ -186,8 +186,11 @@ static const NSTimeInterval IMVoiceSampleInterval = 0.1;
 #pragma mark - Sampling
 
 - (int64_t)elapsedMillis {
-    int64_t nowMs = (int64_t)([[NSDate date] timeIntervalSince1970] * 1000);
-    return MAX(0, nowMs - self.startedAtMillis);
+    // 暂停期间以 pausedAtMillis 为基准——否则暂停中的 stopAndSend/删除判定会把暂停时长算进 duration
+    //（表现为：暂停 1 分钟再发送，气泡时长凭空多 1 分钟，2026-08-26 修）。
+    int64_t ref = self.paused ? self.pausedAtMillis
+                              : (int64_t)([[NSDate date] timeIntervalSince1970] * 1000);
+    return MAX(0, ref - self.startedAtMillis);
 }
 
 - (void)onSample {
@@ -236,18 +239,22 @@ static const NSTimeInterval IMVoiceSampleInterval = 0.1;
 - (void)handleInterruption:(NSNotification *)note {
     NSNumber *type = note.userInfo[AVAudioSessionInterruptionTypeKey];
     if (type.unsignedIntegerValue != AVAudioSessionInterruptionTypeBegan) { return; }
-    if (!self.recording) { return; }
+    if (!self.recording || self.paused) { return; }
     int64_t dur = [self elapsedMillis];
-    [self.recorder stop];
-    self.recording = NO;
-    [self.sampleTimer invalidate];
-    self.sampleTimer = nil;
-    // 中断保留文件——上层可选择「发送/删除」（P0 简化为直接自动发送短语音、超短的按 tooShort 丢弃）。
-    if (dur >= IMVoiceShortRecordThresholdMillis) {
-        [self finishWithReason:IMVoiceRecorderStopReasonInterrupted durationMillis:dur];
-    } else {
+    if (dur < IMVoiceShortRecordThresholdMillis) {
+        [self.recorder stop];
+        self.recording = NO;
+        [self.sampleTimer invalidate];
+        self.sampleTimer = nil;
         [self deleteTempFile];
         [self finishWithReason:IMVoiceRecorderStopReasonTooShort durationMillis:dur];
+        return;
+    }
+    // 设计 §5.4（2026-08-26 补齐）：中断自动转**锁定暂停态**——录音暂停、文件保留，
+    // 上层把 UI 切到锁定行（发送/删除/继续），不再是 P0 的"直接自动发送"。
+    [self pause];
+    if ([self.delegate respondsToSelector:@selector(voiceRecorderWasInterrupted:)]) {
+        [self.delegate voiceRecorderWasInterrupted:self];
     }
 }
 

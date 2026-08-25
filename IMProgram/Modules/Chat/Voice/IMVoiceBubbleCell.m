@@ -308,13 +308,15 @@
     // 波形数据
     self.waveform.amplitudes = [IMWaveformView amplitudesFromBase64:message.waveform];
     self.waveform.progress = 0;
+    // 波形配色（2026-08-26 修）：己方浅绿气泡上"深绿 active + 深灰半透明 inactive"几乎无对比度，
+    // 播放扫过等于看不见；改用 bubbleMeText（主题保证它与 bubbleMe 底色的对比度，深浅色模式都成立）。
     if (mine) {
-        self.waveform.activeColor = [UIColor colorWithRed:0.08 green:0.38 blue:0.12 alpha:1.0];
-        self.waveform.inactiveColor = [UIColor colorWithWhite:0.15 alpha:0.28];
+        self.waveform.activeColor = IMTheme.bubbleMeText;
+        self.waveform.inactiveColor = [IMTheme.bubbleMeText colorWithAlphaComponent:0.32];
         self.playButton.backgroundColor = [UIColor colorWithRed:0.12 green:0.48 blue:0.18 alpha:1.0];
     } else {
         self.waveform.activeColor = IMTheme.accent;
-        self.waveform.inactiveColor = [UIColor colorWithWhite:0.7 alpha:1.0];
+        self.waveform.inactiveColor = [IMTheme.textSecondary colorWithAlphaComponent:0.45];
         self.playButton.backgroundColor = IMTheme.accent;
     }
     // 气泡宽度按 duration 线性长（最少 130pt，最多 240pt——tokens 见 §6.1）。
@@ -433,11 +435,9 @@
 - (void)applySpeedLabel:(float)rate {
     NSString *t = (rate == 1.5f) ? @"1.5x" : ((rate == 2.0f) ? @"2x" : @"1x");
     [self.speedPill setTitle:t forState:UIControlStateNormal];
-    UIColor *tint = self.mine ? [UIColor colorWithRed:0.08 green:0.38 blue:0.12 alpha:1.0] : IMTheme.accent;
+    UIColor *tint = self.mine ? IMTheme.bubbleMeText : IMTheme.accent; // 与波形同一取色逻辑（深浅色模式自适应）
     [self.speedPill setTitleColor:tint forState:UIControlStateNormal];
-    self.speedPill.backgroundColor = self.mine
-        ? [UIColor colorWithRed:0.08 green:0.38 blue:0.12 alpha:0.14]
-        : [IMTheme.accent colorWithAlphaComponent:0.14];
+    self.speedPill.backgroundColor = [tint colorWithAlphaComponent:0.14];
 }
 
 

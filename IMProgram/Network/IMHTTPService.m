@@ -318,6 +318,7 @@ BOOL IMIsTransientNetworkError(NSError *error) {
                     fileName:(NSString *)fileName
                     fileSize:(int64_t)fileSize
                     duration:(int64_t)duration
+                    waveform:(NSString *)waveform
                        thumb:(NSString *)thumb
                       poster:(NSString *)poster
                       mediaW:(NSInteger)mediaW
@@ -333,6 +334,7 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     if (fileName.length > 0) { body[@"file_name"] = fileName; } // 文件收藏保真（转发/展示）
     if (fileSize > 0) { body[@"file_size"] = @(fileSize); }
     if (duration > 0) { body[@"duration"] = @(duration); } // 视频/语音时长（媒体宫格角标）
+    if (waveform.length > 0) { body[@"waveform"] = waveform; } // 语音振幅指纹（收藏迷你播放器画波形）
     if (thumb.length > 0) { body[@"thumb"] = thumb; } // 磨砂占位缩略（图片/视频未下载态）
     if (poster.length > 0) { body[@"poster"] = poster; } // 视频封面首帧 URL（收端直显免解码）
     if (mediaW > 0) { body[@"media_w"] = @(mediaW); } // 媒体像素宽（收端按原比例定框，转发不丢宽高）

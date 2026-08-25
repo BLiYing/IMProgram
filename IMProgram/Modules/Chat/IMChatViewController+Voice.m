@@ -3,14 +3,13 @@
 //  语音消息 P0：把「按住输入栏语音钮 → 录音 → 松手发送 / 左滑取消」接线到 recorder + HUD + 上传/发送。
 //  设计：VOICE_MESSAGE_DESIGN.md §5（两向手势，Telegram B 案）。
 //
-//  P0 覆盖：
-//    - 按住输入栏「waveform.circle」钮开始录制 → HUD 遮盖输入栏
-//    - 左滑距离 ≥ 40% 阈值 → 松手取消
-//    - 原地松手 → 上传 ?as=voice → sendMedia 带 waveform + duration
+//  覆盖（P0+P1，2026-08-26 全量补齐）：
+//    - 按住语音钮 → 大圆钮跟手 + 振幅呼吸环 + 磁吸小锁（IMVoicePressOverlay）+ HUD 录制行
+//    - 左滑距离 ≥ 40% 阈值 → 松手取消；上滑进小锁 34pt 磁吸圈 → 锁定行（免提，删/停/发）
+//    - 原地松手 → 上传 ?as=voice → sendMedia（带 waveform+duration）+ 本地落库回显 + ack 回写 convSeq
 //    - <0.6s 提示"说话时间太短"；达 5min 自动停并发送
-//    - 中断（来电/切后台）→ P0 简化为自动发送（P1 再做锁定行）
-//
-//  P1（未做，见设计文档 §10）：上滑锁定态 / 大圆钮跟手 / 磁吸小锁 / 波形拖拽 scrub。
+//    - 中断（来电/切后台）→ 自动转锁定暂停态（§5.4）；锁定态删除 >10s 二次确认
+//    - 转文字（收端本地 SFSpeech）/ 接力连播 / 倍速与 scrub（cell 侧）
 //
 
 #import "IMChatViewController+Private.h"
@@ -18,12 +17,14 @@
 #import "IMMessageModel.h"
 #import "IMMediaAttributes.h"
 #import "IMHTTPService.h"
+#import "IMDatabase.h"
 #import "IMMediaDownloader.h"
 #import "IMSocketManager.h"
 #import "IMTheme.h"
 #import "UIViewController+IMToast.h"
 #import "Voice/IMVoiceRecorder.h"
 #import "Voice/IMVoiceRecordingHUD.h"
+#import "Voice/IMVoicePressOverlay.h"
 #import "Voice/IMVoiceLockedBar.h"
 #import "Voice/IMVoicePlayer.h"
 #import "Voice/IMVoiceTranscriber.h"
@@ -31,9 +32,8 @@
 #import <objc/runtime.h>
 
 /// 按住条 pan 触发取消的距离阈值（占输入栏宽度的比例）。
+/// 上滑锁定不再用固定位移阈值——改为 IMVoicePressOverlay 的磁吸小锁（70pt 高亮 / 34pt 到位即锁，设计 §5.2）。
 static const CGFloat kIMVoiceCancelThresholdRatio = 0.40;
-/// 上滑锁定的位移阈值（点）。超过即锁定，手指可离开屏幕继续录音。
-static const CGFloat kIMVoiceLockThresholdPoints = 80.0;
 
 @interface IMChatViewController (VoicePrivate)
 @property (nonatomic, strong, nullable) IMVoiceRecorder *im_voiceRecorder;
@@ -51,6 +51,7 @@ static const void *kIMVoicePressKey = &kIMVoicePressKey;
 static const void *kIMVoicePressStartKey = &kIMVoicePressStartKey;
 static const void *kIMVoiceCancelReadyKey = &kIMVoiceCancelReadyKey;
 static const void *kIMVoiceLockedKey = &kIMVoiceLockedKey;
+static const void *kIMVoiceOverlayKey = &kIMVoiceOverlayKey;
 
 @implementation IMChatViewController (Voice)
 
@@ -98,7 +99,21 @@ static const void *kIMVoiceLockedKey = &kIMVoiceLockedKey;
             [bar.bottomAnchor constraintEqualToAnchor:inputBar.bottomAnchor],
         ]];
         __weak typeof(self) ws = self;
-        bar.onDelete = ^{ [ws.im_voiceRecorder cancel]; };
+        bar.onDelete = ^{
+            __strong typeof(ws) self = ws;
+            if (!self) { return; }
+            // 设计 §5.3：已录 >10s 才二次确认——短的直接删，不为几秒钟打断用户。
+            if (self.im_voiceRecorder.elapsedMillis > 10000) {
+                UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"删除这段录音？"
+                                                                            message:nil preferredStyle:UIAlertControllerStyleAlert];
+                [ac addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+                [ac addAction:[UIAlertAction actionWithTitle:@"删除" style:UIAlertActionStyleDestructive
+                                                     handler:^(UIAlertAction *a) { [self.im_voiceRecorder cancel]; }]];
+                [self presentViewController:ac animated:YES completion:nil];
+            } else {
+                [self.im_voiceRecorder cancel];
+            }
+        };
         bar.onPauseResume = ^(BOOL toPause) {
             if (toPause) { [ws.im_voiceRecorder pause]; }
             else { [ws.im_voiceRecorder resume]; }
@@ -108,6 +123,19 @@ static const void *kIMVoiceLockedKey = &kIMVoiceLockedKey;
         objc_setAssociatedObject(self, kIMVoiceLockedBarKey, bar, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
     return bar;
+}
+
+/// 大圆钮 + 磁吸小锁浮层（设计 §5.2）：懒建并加到 self.view（不进输入栏，避免被裁剪/遮挡）。
+- (IMVoicePressOverlay *)im_voiceOverlay {
+    IMVoicePressOverlay *ov = objc_getAssociatedObject(self, kIMVoiceOverlayKey);
+    if (!ov) {
+        ov = [[IMVoicePressOverlay alloc] initWithFrame:self.view.bounds];
+        ov.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        [self.view addSubview:ov];
+        objc_setAssociatedObject(self, kIMVoiceOverlayKey, ov, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    [self.view bringSubviewToFront:ov]; // 输入栏/键盘布局变动后仍浮在最上
+    return ov;
 }
 
 - (BOOL)im_voiceLocked { return [objc_getAssociatedObject(self, kIMVoiceLockedKey) boolValue]; }
@@ -195,33 +223,40 @@ static const void *kIMVoiceLockedKey = &kIMVoiceLockedKey;
 
 - (void)im_onVoicePress:(UILongPressGestureRecognizer *)g {
     UIView *bar = self.inputField.superview;
-    CGPoint pt = [g locationInView:bar];
+    CGPoint ptBar = [g locationInView:bar];
+    CGPoint ptView = [g locationInView:self.view];
     switch (g.state) {
-        case UIGestureRecognizerStateBegan:
-            self.im_voicePressStart = pt;
+        case UIGestureRecognizerStateBegan: {
+            self.im_voicePressStart = ptBar;
             self.im_voiceCancelReady = NO;
             [self im_startVoiceRecording];
+            // 大圆钮 + 磁吸小锁浮层（设计 §5.2）：锚点 = 语音钮中心（self.view 坐标）。
+            CGPoint anchor = [self.voiceButton.superview convertPoint:self.voiceButton.center toView:self.view];
+            [self.im_voiceOverlay presentAtAnchor:anchor fingerPoint:ptView];
             break;
+        }
         case UIGestureRecognizerStateChanged: {
             if (self.im_voiceLocked) { return; } // 已锁定，忽略后续手势
-            CGFloat dx = pt.x - self.im_voicePressStart.x;
-            CGFloat dy = pt.y - self.im_voicePressStart.y;
-            // 上滑达阈值 → 锁定：HUD 淡出、LockedBar 淡入、gesture 释放（手可离开）
-            if (-dy >= kIMVoiceLockThresholdPoints) {
+            // 磁吸小锁：手指进入锁钮 70pt 高亮、34pt 内到位即锁（无需松手；替代旧的固定 80pt 位移阈值）。
+            IMVoiceLockPhase phase = [self.im_voiceOverlay updateFingerPoint:ptView];
+            if (phase == IMVoiceLockPhaseLocked) {
                 self.im_voiceLocked = YES;
-                g.enabled = NO; // 取消手势 = 触发 Cancelled，但状态机会在下面识别 locked 走"不结束录制"分支
+                g.enabled = NO; // 取消手势 = 触发 Cancelled，但状态机会识别 locked 走"不结束录制"分支
+                [self.im_voiceOverlay dismissLocked];
                 [self.im_voiceHUD setVisible:NO animated:YES];
                 [self.im_voiceLockedBar setPausedIcon:NO];
                 [self.im_voiceLockedBar setVisible:YES animated:YES];
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ g.enabled = YES; });
                 return;
             }
+            CGFloat dx = ptBar.x - self.im_voicePressStart.x;
             [self.im_voiceHUD setSlideOffset:MIN(0, dx)];
             CGFloat threshold = bar.bounds.size.width * kIMVoiceCancelThresholdRatio;
             BOOL nowReady = (-dx) >= threshold;
             if (nowReady != self.im_voiceCancelReady) {
                 self.im_voiceCancelReady = nowReady;
                 [self.im_voiceHUD setCancelReady:nowReady];
+                [self.im_voiceOverlay setCancelHint:nowReady]; // 过阈值大圆钮转红（松手=取消）
             }
             break;
         }
@@ -230,6 +265,7 @@ static const void *kIMVoiceLockedKey = &kIMVoiceLockedKey;
         case UIGestureRecognizerStateFailed: {
             // 若刚被 lock 逻辑主动取消了手势 → 保留录制（recorder 继续跑，LockedBar 接管）。
             if (self.im_voiceLocked) { self.im_voiceCancelReady = NO; return; }
+            [self.im_voiceOverlay dismiss];
             if (self.im_voiceCancelReady) {
                 [self.im_voiceRecorder cancel];
             } else {
@@ -287,11 +323,20 @@ static const void *kIMVoiceLockedKey = &kIMVoiceLockedKey;
 
 - (void)voiceRecorderDidStart:(IMVoiceRecorder *)recorder { /* HUD 已提前显示 */ }
 
+/// 中断（来电/切后台）→ 自动转锁定暂停态（设计 §5.4）：录制条还在，回来可 发送/删除/继续。
+- (void)voiceRecorderWasInterrupted:(IMVoiceRecorder *)recorder {
+    self.im_voiceLocked = YES;
+    [self.im_voiceHUD setVisible:NO animated:YES];
+    [self.im_voiceLockedBar setPausedIcon:YES];
+    [self.im_voiceLockedBar setVisible:YES animated:YES];
+}
+
 - (void)voiceRecorder:(IMVoiceRecorder *)recorder didSampleAmplitude:(float)amplitude elapsedMillis:(int64_t)elapsedMillis {
     if (self.im_voiceLocked) {
         [self.im_voiceLockedBar updateAmplitude:amplitude elapsedMillis:elapsedMillis];
     } else {
         [self.im_voiceHUD updateAmplitude:amplitude elapsedMillis:elapsedMillis];
+        [self.im_voiceOverlay updateAmplitude:amplitude]; // 大圆钮呼吸环
     }
 }
 
@@ -302,6 +347,7 @@ static const void *kIMVoiceLockedKey = &kIMVoiceLockedKey;
              duration:(int64_t)durationMillis {
     [self.im_voiceHUD setVisible:NO animated:YES];
     [self.im_voiceLockedBar setVisible:NO animated:YES];
+    [self.im_voiceOverlay dismiss]; // 错误/太短等分支也要收浮层（正常路径已在手势 Ended 收过，幂等）
     self.im_voiceLocked = NO;
     switch (reason) {
         case IMVoiceRecorderStopReasonUserCancel:
@@ -351,12 +397,34 @@ static const void *kIMVoiceLockedKey = &kIMVoiceLockedKey;
         attrs.fileSize = fileSize;
         attrs.waveform = waveform;
         NSString *toUser = self.isGroupChat ? nil : self.peerID;
+        // ack 回写（2026-08-26 修）：曾 completion:nil → 本地行 convSeq 永远 0——长按菜单所有项都被
+        // convSeq>0 过滤（"长按无反应"）、详情页语音 tab 不收录、DB 行永远 Sending。
+        // DB 更新不依赖 self（页面可能已退出）：捕获账号上下文直写库；UI 刷新才走 weak self。
+        IMDatabaseAccountContext *dbCtx = [IMDatabase.sharedDatabase currentAccountContext];
+        __weak typeof(self) wsAck = self;
+        __block IMMessageModel *echo = nil; // 主线程先赋值、completion 异步回主队列后读——无竞态
         NSString *cid = [[IMSocketManager sharedManager] sendMedia:url contentType:@"voice"
                                                             toConv:self.convID toUser:toUser attributes:attrs
-                                                        completion:nil];
-        // 本地立刻回显（气泡出现——不等 ack），waveform 保留在本地行；上传后 tmp 文件即可清理，
-        // 若播放需要，气泡按 URL 播（远程 URL 会自动下载缓存）。
-        [self im_persistLocalVoiceEcho:url waveform:waveform duration:durationMillis fileSize:fileSize clientMsgID:cid];
+                                                        completion:^(BOOL success, NSError *error, int64_t convSeq) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                IMMessageModel *m = echo;
+                if (!m) { return; }
+                m.status = success ? IMMessageStatusSent : IMMessageStatusFailed;
+                m.convSeq = convSeq;
+                if (dbCtx) {
+                    [IMDatabase.sharedDatabase performWithAccountContext:dbCtx block:^(IMDatabase *db) {
+                        [db saveMessage:m]; // 按 clientMsgID upsert：sending → sent/failed 覆盖
+                    }];
+                }
+                __strong typeof(wsAck) self = wsAck;
+                if (!self) { return; }
+                if (convSeq > 0) { [self.seenConvSeqs addObject:@(convSeq)]; } // 防 sync 重复回显
+                [self.tableView reloadData];
+            });
+        }];
+        // 本地立刻回显 + 落库（气泡出现——不等 ack）；上传后 tmp 文件即可清理，
+        // 播放走 URL（远程会自动下载缓存）。
+        echo = [self im_persistLocalVoiceEcho:url waveform:waveform duration:durationMillis fileSize:fileSize clientMsgID:cid];
         [[NSFileManager defaultManager] removeItemAtURL:fileURL error:NULL];
     }];
 }
@@ -475,12 +543,11 @@ static const void *kIMVoiceLockedKey = &kIMVoiceLockedKey;
     }
 }
 
-- (void)im_persistLocalVoiceEcho:(NSString *)url waveform:(NSString *)waveform duration:(int64_t)dur fileSize:(int64_t)size clientMsgID:(NSString *)cid {
-    if (!cid) { return; }
-    // 同已有媒体路径：本地立刻回显一条 sending 状态的消息（ack 到达后 socket 层 upsert 换 serverMsgID）。
-    // 若同 cid 已存在（socket 层预置了模型），跳过重复插入。
+- (IMMessageModel *)im_persistLocalVoiceEcho:(NSString *)url waveform:(NSString *)waveform duration:(int64_t)dur fileSize:(int64_t)size clientMsgID:(NSString *)cid {
+    if (!cid) { return nil; }
+    // 若同 cid 已存在（理论不至于），返回既有行防重复插入。
     for (IMMessageModel *x in self.messages) {
-        if ([x.clientMsgID isEqualToString:cid]) { return; }
+        if ([x.clientMsgID isEqualToString:cid]) { return x; }
     }
     IMMessageModel *m = [IMMessageModel new];
     m.clientMsgID = cid;
@@ -494,8 +561,12 @@ static const void *kIMVoiceLockedKey = &kIMVoiceLockedKey;
     m.waveform = waveform;
     m.timestamp = (int64_t)([[NSDate date] timeIntervalSince1970] * 1000);
     m.status = IMMessageStatusSending;
+    // 落库（2026-08-26 修）：曾只进内存数组——任何一次"从 DB 重载消息列表"都会让这条气泡消失，
+    // 随后 sync 又插回带 serverMsgID 的副本 → 气泡忽隐忽现/成对出现（"发送后展示错乱"根因）。
+    [self performDatabaseOperation:^(IMDatabase *db) { [db saveMessage:m]; }];
     [self.messages addObject:m];
     [self appendReloadAndScroll];
+    return m;
 }
 
 @end

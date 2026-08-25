@@ -26,7 +26,9 @@
         case IMDetailTabKindFiles:
             return [ct isEqualToString:@"file"];
         case IMDetailTabKindVoice:
-            return [ct isEqualToString:@"audio"];
+            // voice = 录制的语音条（P0 落地的正式类型）；audio 为 voice 落地前的旧命名兼容。
+            // 曾只匹配 audio → 语音 tab 永不出现（2026-08-26 修）。
+            return [ct isEqualToString:@"voice"] || [ct isEqualToString:@"audio"];
         case IMDetailTabKindLinks:
             // 独立 link 类型，或普通文本**含 URL**（草图 §D 与收藏页 IMFavoritesCategories 同款口径——
             // 混排文本"看看 https://xxx"也进链接聚合；旧的 IMMediaLooksLikeURL 只认整段 = URL，会漏掉混排）。

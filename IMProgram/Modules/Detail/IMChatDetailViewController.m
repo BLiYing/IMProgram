@@ -857,8 +857,9 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
         return lc;
     }
     UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleSubtitle reuseID:@"dSub" inTable:tv];
-    // 语音（IMDetailTabKindVoice）：暂沿用原双行系统 cell（草图未定，等语音消息里程碑再统一）。
-    cell.textLabel.text = @"语音消息";
+    // 语音（IMDetailTabKindVoice）：双行 cell——主行"语音 m:ss"，副行时间；点行=就地播放/暂停（didSelect）。
+    NSInteger voiceSecs = (NSInteger)MAX((int64_t)0, m.duration / 1000);
+    cell.textLabel.text = [NSString stringWithFormat:@"语音 %ld:%02ld", (long)(voiceSecs / 60), (long)(voiceSecs % 60)];
     cell.imageView.image = [UIImage systemImageNamed:@"waveform"];
     cell.detailTextLabel.text = IMFormatFileDateTime(m.timestamp);
     return cell;
@@ -922,6 +923,9 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
             // 未下载/失败 → 就地下载（不跳页）；下载中 ↔ 暂停/继续；已下载 → 本地 QuickLook 打开（用户主动点）。
             if (dp) { [self.downloads handleTapForMessage:m]; }
             else { [self openCachedFileForMessage:m]; }
+        } else if (t.kind == IMDetailTabKindVoice) {
+            if (indexPath.row >= (NSInteger)self.tabRows.count) { return; }
+            [self playVoiceRow:self.tabRows[indexPath.row]];
         } else if (t.kind == IMDetailTabKindLinks) {
             if (self.tabRows.count > 0) { [self openLink:IMMediaFullURL(self.tabRows[indexPath.row].content, self.host)]; }
         }

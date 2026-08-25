@@ -14,6 +14,7 @@
 @property (nonatomic, strong) NSMutableArray<UIView *> *waveBars;
 @property (nonatomic, strong) UIButton *pauseBtn;
 @property (nonatomic, strong) UIButton *sendBtn;
+@property (nonatomic, assign) BOOL pausedState; ///< 显式状态位（曾用 image.description 猜图标名——私有字符串依赖，随系统版本可能失效）
 @end
 
 @implementation IMVoiceLockedBar
@@ -21,7 +22,8 @@
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
     if (self) {
-        self.backgroundColor = UIColor.clearColor;
+        // 不透明底（2026-08-26 修）：曾 clearColor → 锁定行与底下输入栏重叠显示。
+        self.backgroundColor = IMTheme.surface;
         self.hidden = YES;
         self.alpha = 0;
         [self buildUI];
@@ -65,9 +67,9 @@
 
     _pill = [UIView new];
     _pill.translatesAutoresizingMaskIntoConstraints = NO;
-    _pill.backgroundColor = [UIColor colorWithWhite:0.96 alpha:1.0];
+    _pill.backgroundColor = IMTheme.pageBackground; // 主题 token（曾硬编码浅灰，深色模式刺眼）
     _pill.layer.cornerRadius = 17;
-    _pill.layer.borderColor = [UIColor colorWithWhite:0.85 alpha:1.0].CGColor;
+    _pill.layer.borderColor = IMTheme.separator.CGColor;
     _pill.layer.borderWidth = 1;
     [self addSubview:_pill];
 
@@ -175,6 +177,7 @@
 }
 
 - (void)setPausedIcon:(BOOL)paused {
+    self.pausedState = paused;
     UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:14 weight:UIImageSymbolWeightSemibold];
     NSString *sym = paused ? @"play.fill" : @"pause.fill";
     [self.pauseBtn setImage:[UIImage systemImageNamed:sym withConfiguration:cfg] forState:UIControlStateNormal];
@@ -193,10 +196,8 @@
 
 - (void)deleteTapped { if (self.onDelete) self.onDelete(); }
 - (void)pauseTapped {
-    // 由外部翻转 icon（外部知道 recorder 状态）
-    UIImage *cur = [self.pauseBtn imageForState:UIControlStateNormal];
-    NSString *sysName = [cur.description containsString:@"pause"] ? @"pause" : @"play";
-    BOOL toPause = [sysName isEqualToString:@"pause"];
+    // 显式状态位判定（icon 由外部经 setPausedIcon: 翻转，同时写 pausedState）。
+    BOOL toPause = !self.pausedState;
     if (self.onPauseResume) self.onPauseResume(toPause);
 }
 - (void)sendTapped { if (self.onSend) self.onSend(); }

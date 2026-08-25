@@ -304,7 +304,7 @@
     [IMHTTPService.sharedService addFavoriteWithToken:token contentType:(message.contentType ?: @"text")
                                               content:message.content caption:message.caption
                                              fileName:message.fileName fileSize:message.fileSize
-                                             duration:message.duration thumb:message.thumb poster:message.poster
+                                             duration:message.duration waveform:message.waveform thumb:message.thumb poster:message.poster
                                                mediaW:message.mediaW mediaH:message.mediaH
                                          sourceConvID:message.convID
                                         sourceConvSeq:message.convSeq sourceFrom:(message.from ?: @"")

@@ -157,6 +157,7 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 - (void)stickySegChanged:(IMLiquidSegmentedControl *)seg;
 - (void)swipeToNextTab:(UISwipeGestureRecognizer *)g;
 - (void)swipeToPrevTab:(UISwipeGestureRecognizer *)g;
+- (void)playVoiceRow:(IMMessageModel *)m; // 语音 tab 点行播放（+Actions.m，2026-08-26）
 @end
 
 NS_ASSUME_NONNULL_END

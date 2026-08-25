@@ -21,6 +21,9 @@
 #import "IMDetailMediaContainerCell.h"
 #import "IMDetailFileCell.h"
 #import "IMFavoriteLinkCell.h"
+#import "IMFavoriteVoiceCell.h"   // 语音迷你播放器行（2026-08-26）
+#import "IMVoicePlayer.h"         // 收藏语音就地播放（与聊天页共用单例）
+#import "IMMediaDownloader.h"     // 未缓存语音直连下载后播
 #import "IMForwardPickerViewController.h"
 #import "IMChatRecordViewController.h"
 #import "IMSocketManager.h"
@@ -414,6 +417,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     _tableView.contentInset = UIEdgeInsetsMake(-14, 0, 0, 0); // 收紧 inset-grouped 顶部留白，贴近分段
     [_tableView registerClass:IMFavoriteRowCell.class forCellReuseIdentifier:@"row"];
     [_tableView registerClass:IMFavoriteLinkCell.class forCellReuseIdentifier:@"favlink"];
+    [_tableView registerClass:IMFavoriteVoiceCell.class forCellReuseIdentifier:@"favvoice"]; // 语音迷你播放器行（2026-08-26）
     _tableView.estimatedRowHeight = 90; // Links 走 auto dimension（含/无 quote 差 ~40pt），需估高避免首帧跳
     [_tableView registerClass:IMFavoriteSourceCell.class forCellReuseIdentifier:@"src"];
     [_tableView registerClass:IMDetailFileCell.class forCellReuseIdentifier:@"detailfile"];
@@ -838,6 +842,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     m.fileName = [f[@"file_name"] isKindOfClass:NSString.class] && [f[@"file_name"] length] ? f[@"file_name"] : nil;
     m.fileSize = [f[@"file_size"] respondsToSelector:@selector(longLongValue)] ? [f[@"file_size"] longLongValue] : 0;
     m.duration = [f[@"duration"] respondsToSelector:@selector(longLongValue)] ? [f[@"duration"] longLongValue] : 0;
+    m.waveform = [f[@"waveform"] isKindOfClass:NSString.class] && [f[@"waveform"] length] ? f[@"waveform"] : nil; // 语音收藏波形
     m.thumb = [f[@"thumb"] isKindOfClass:NSString.class] && [f[@"thumb"] length] ? f[@"thumb"] : nil;
     m.poster = [f[@"poster"] isKindOfClass:NSString.class] && [f[@"poster"] length] ? f[@"poster"] : nil;
     m.mediaW = [f[@"media_w"] respondsToSelector:@selector(integerValue)] ? [f[@"media_w"] integerValue] : 0;
@@ -899,6 +904,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     // Links 走 auto dimension：混排文本时多一行原文引用（~40pt），行高差异不小，固定值任一侧都会撑
     // 出空白或截断。已在 buildTableView 里设 estimatedRowHeight，自适应布局能收敛。
     if (_selectedKind == IMFavoriteCategoryLinks) { return UITableViewAutomaticDimension; }
+    if (_selectedKind == IMFavoriteCategoryVoice) { return 92; } // 迷你播放器 + 来源行（2026-08-26）
     return 76;
 }
 
@@ -976,6 +982,24 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
         [self applyPickAccessoryForCell:lc favorite:f];
         return lc;
     }
+    // 语音分类：迷你波形播放器行（2026-08-26 拍板）——点播放键/点行都走 playFavoriteVoice:。
+    if (_selectedKind == IMFavoriteCategoryVoice) {
+        IMFavoriteVoiceCell *vc = [tableView dequeueReusableCellWithIdentifier:@"favvoice" forIndexPath:indexPath];
+        IMMessageModel *m = [self modelForFavorite:f];
+        int64_t createdAt = [f[@"created_at"] respondsToSelector:@selector(longLongValue)] ? [f[@"created_at"] longLongValue] : 0;
+        [vc configureWithMessage:m sourceText:[self sourceNameForFavorite:f]
+                        timeText:(createdAt > 0 ? IMFormatFileDateTime(createdAt) : @"")];
+        __weak typeof(self) ws = self;
+        NSDictionary *fav = f;
+        vc.onPlayTap = ^{
+            __strong typeof(ws) self = ws;
+            if (!self) { return; }
+            if (self->_pickMode) { [self handlePickTapForFavorite:fav]; return; } // pick 模式点播放键=选中
+            [self playFavoriteVoice:fav];
+        };
+        [self applyPickAccessoryForCell:vc favorite:f];
+        return vc;
+    }
     IMFavoriteRowCell *cell = [tableView dequeueReusableCellWithIdentifier:@"row" forIndexPath:indexPath];
     [cell configureWithFavorite:f kind:_selectedKind source:[self sourceNameForFavorite:f]];
     cell.selectionStyle = UITableViewCellSelectionStyleNone;
@@ -1035,15 +1059,35 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
             }
             break;
         }
-        case IMFavoriteCategoryVoice: {
-            NSURL *url = [NSURL URLWithString:IMMediaFullURL(content, IMHTTPService.sharedService.host)];
-            if (url) { [self presentViewController:[[SFSafariViewController alloc] initWithURL:url] animated:YES completion:nil]; }
+        case IMFavoriteCategoryVoice:
+            // 迷你播放器（2026-08-26）：行内就地播放/暂停——曾用 SFSafari 打开裸音频文件，完全不像 IM。
+            [self playFavoriteVoice:f];
             break;
-        }
         default:
             [self.navigationController pushViewController:[[IMFavoriteReaderViewController alloc] initWithText:content] animated:YES];
             break;
     }
+}
+
+/// 播放收藏语音（2026-08-26）：缓存命中直接 toggle；未缓存先直连下载（voice <1MB）。
+/// 播放状态经 IMVoicePlayer 通知广播回 IMFavoriteVoiceCell（波形进度 + ▶/⏸ 图标）。
+- (void)playFavoriteVoice:(NSDictionary *)f {
+    IMMessageModel *m = [self modelForFavorite:f];
+    if (m.content.length == 0) { return; }
+    NSURL *cached = [IMMediaDownloader cachedFileURLForContent:m.content];
+    if (cached && [[NSFileManager defaultManager] fileExistsAtPath:cached.path]) {
+        [[IMVoicePlayer sharedPlayer] togglePlayback:m localFileURL:cached];
+        return;
+    }
+    NSURL *remote = [NSURL URLWithString:IMMediaFullURL(m.content, IMHTTPService.sharedService.host)];
+    if (!remote || !cached) { return; }
+    __weak typeof(self) ws = self;
+    IMMediaDownloadTask *task = [[IMMediaDownloader shared] downloadURL:remote toDestination:cached key:m.content];
+    task.completionHandler = ^(NSURL *location, NSError *err) {
+        __strong typeof(ws) self = ws;
+        if (!self || err || !location) { return; }
+        [[IMVoicePlayer sharedPlayer] togglePlayback:m localFileURL:location];
+    };
 }
 
 #pragma mark 长按 / 左滑
@@ -1162,9 +1206,16 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
 + (IMMediaAttributes *)mediaAttributesFromFavorite:(NSDictionary *)f {
     NSString *ct = [f[@"content_type"] isKindOfClass:NSString.class] ? f[@"content_type"] : @"text";
     BOOL isMedia = [ct isEqualToString:@"image"] || [ct isEqualToString:@"video"];
+    BOOL isVoice = [ct isEqualToString:@"voice"] || [ct isEqualToString:@"audio"];
     NSString *caption = [f[@"caption"] isKindOfClass:NSString.class] ? f[@"caption"] : nil;
-    if (!isMedia && caption.length == 0) { return nil; }
+    if (!isMedia && !isVoice && caption.length == 0) { return nil; }
     IMMediaAttributes *attrs = [IMMediaAttributes new];
+    if (isVoice) {
+        // 语音：duration 服务端强校验 >0（缺则整条拒发 100001）；waveform 波形保真（老收藏无此字段则收端退化条纹）。
+        attrs.durationMillis = [f[@"duration"] respondsToSelector:@selector(longLongValue)] ? [f[@"duration"] longLongValue] : 0;
+        attrs.waveform = [f[@"waveform"] isKindOfClass:NSString.class] && [f[@"waveform"] length] ? f[@"waveform"] : nil;
+        attrs.fileSize = [f[@"file_size"] respondsToSelector:@selector(longLongValue)] ? [f[@"file_size"] longLongValue] : 0;
+    }
     if (isMedia) {
         attrs.thumb = [f[@"thumb"] isKindOfClass:NSString.class] ? f[@"thumb"] : nil;
         attrs.poster = [f[@"poster"] isKindOfClass:NSString.class] ? f[@"poster"] : nil;
@@ -1200,6 +1251,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     m.thumb = attributes.thumb.length ? attributes.thumb : nil;
     m.poster = attributes.poster.length ? attributes.poster : nil;
     if (attributes.durationMillis > 0) { m.duration = attributes.durationMillis; }
+    m.waveform = attributes.waveform.length ? attributes.waveform : nil; // 语音：回显/落库带波形
     m.mediaW = attributes.pixelWidth;
     m.mediaH = attributes.pixelHeight;
     m.caption = attributes.caption.length ? attributes.caption : nil;

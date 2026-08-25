@@ -334,10 +334,18 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
 /// 从源消息取出转发要一并带走的媒体元数据（封面/尺寸/时长）；非媒体消息返回 nil。
 - (IMMediaAttributes *)forwardAttributesForMessage:(IMMessageModel *)message stripCaption:(BOOL)stripCaption {
     BOOL isMedia = [message.contentType isEqualToString:@"image"] || [message.contentType isEqualToString:@"video"];
+    BOOL isVoice = [message.contentType isEqualToString:@"voice"];
     // 图说：文件也可能带 caption，需建 attrs 承载；stripCaption=YES 时视 caption 为不存在。
     BOOL hasCaption = !stripCaption && message.caption.length > 0;
-    if (!isMedia && !hasCaption) { return nil; }
+    if (!isMedia && !isVoice && !hasCaption) { return nil; }
     IMMediaAttributes *attrs = [IMMediaAttributes new];
+    if (isVoice) {
+        // 语音转发必带 duration——服务端对 voice 强校验 >0，缺了整条拒发 100001（曾返回 nil attrs
+        // 致语音转发必失败但 UI 报"已转发"，2026-08-26 修）；waveform 一并带走，收端波形不退化。
+        attrs.durationMillis = message.duration;
+        attrs.waveform = message.waveform;
+        attrs.fileSize = message.fileSize;
+    }
     if (isMedia) {
         attrs.poster = message.poster;          // 视频封面（不带的话 Web 收端解不了 HEVC 就只剩空白）
         attrs.thumb = message.thumb;            // 极小模糊预览：不带的话收端未下载态只有空磨砂、没内容轮廓
@@ -400,6 +408,7 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
     m.mediaW = attributes.pixelWidth;
     m.mediaH = attributes.pixelHeight;
     m.duration = attributes.durationMillis;
+    m.waveform = attributes.waveform.length > 0 ? attributes.waveform : nil; // 语音转发：本端回显波形不丢
     m.caption = attributes.caption.length > 0 ? attributes.caption : nil; // 图说随转发跟随（本端气泡即时显）
     m.mentions = attributes.mentions; // 配文 @ 落到本端回显行：再次转发这条时才能继续重发 mentions（强提醒链不断）
     m.groupID = attributes.groupID.length > 0 ? attributes.groupID : nil; // 整体转发相册：本端回显也聚簇成宫格

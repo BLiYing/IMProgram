@@ -5,15 +5,19 @@
 
 ## 当前焦点
 
-> **语音消息 P0 + P1 全端落地（2026-08-25）**：iOS 录音/波形气泡/播放/未播红点 → scrub/倍速/收端本地转文字/接力连播 → 锁定态 + 磁吸小锁 + 大圆钮跟手 全通；输入栏三端对齐 Telegram 布局（v2.3）：＋（左）| 输入框(内嵌 😀 rightView) | 🎙/➤（右缘同槽互斥）。
-> Web P1 同步：AAC 探测 + 输入栏 morph 录制 + 波形拖拽 + 倍速；转文字受 SpeechRecognition 只吃 mic 输入的限制暂搁 P2（考虑 Whisper 集成）。
->
-> **无待手测项**：iOS/Web 全 build 绿，`./scripts/test.sh`（后端）+ vitest 519 项（Web）通过；实机手测按需回测（麦克风权限流已在 P0 修过一次）。
+> **语音 P1 全量 + P0 自查修复（2026-08-26，build 绿、待真机手测）**：用户实测报 8 问全部定位修复——
+> ① 发送链重做：落库 + ack 回写 convSeq/status（曾 completion:nil → 长按菜单空「无反应」+ 气泡忽隐忽现「错乱」）；
+> ② 转发语音修通（曾 attrs=nil 不带 duration 被服务端拒但 UI 报已转发）；三处 attrs 构造放行 voice 带 duration+waveform；
+> ③ 大圆钮跟手 + 呼吸环 + 磁吸小锁 `IMVoicePressOverlay`（70pt 高亮/34pt 即锁，此前只有不可见 80pt 阈值＝设计稿缺件）；
+> ④ HUD/锁定条不透明主题底（曾 clear 透底重叠 + 硬编码粉色）；⑤ 己方波形 bubbleMeText 配色（曾绿 on 绿看不见进度）；
+> ⑥ 中断转锁定暂停（§5.4）+ 删除 >10s 确认 + 暂停时长不再算进 duration；⑦ 详情页语音 tab（曾匹配 audio 恒空）点行播放；
+> ⑧ 收藏语音 `IMFavoriteVoiceCell` 迷你波形播放器（曾 SFSafari 打开裸音频）；从收藏发送带 duration+waveform（后端收藏快照加 waveform 列）。
+> 拍板：语音支持转发（Telegram 式）；收藏=内嵌迷你播放器。
 
 ## 下一步
-1. **手测回归**：录制/播放/scrub/倍速/接力/转文字/锁定态各项在真机跑一遍（能录能播能滑能锁能自动续），任何异常记回本文件。
-2. Web P2 转文字方案调研：Whisper.wasm on-device vs OpenAI/服务端 API（要权衡隐私 + 成本 + 首屏包）。
-3. `setupUI` 抽 `IMComposerBar`（老欠账，Telegram 布局改动后代码本身没变小，再拖）；「从收藏发送」入口开放（见「已知坑」）。
+1. **真机手测回归（重启后端后）**：按住大圆钮跟手→上滑磁吸锁定→锁定行删/停/发；来电中断→回来停在锁定暂停；发送后长按有菜单、气泡稳定；转发语音真的送达；详情页语音 tab；收藏语音播放 + 从收藏发送；scrub/倍速/转文字/接力。异常记回本文件。
+2. 遗留 P2：听筒切换（贴耳切 route）；接力连播顶部「停止」控制条；Web 转文字（Whisper 调研）。
+3. `setupUI` 抽 `IMComposerBar`（老欠账）；「从收藏发送」入口开放（见「已知坑」）。
 
 ## 已知坑 / 限制
 - **`runAfterKeyboardHidden:` 兜底待测（2026-08-05 记）**：依赖 `resignFirstResponder` 后必然收到 `UIKeyboardDidHideNotification`——软键盘正常成立；若实测硬件/外接键盘场景引用跳转不触发，加 `dispatch_after` 超时兜底。
