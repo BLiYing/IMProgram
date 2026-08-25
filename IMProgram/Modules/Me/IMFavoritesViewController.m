@@ -20,6 +20,7 @@
 #import "IMConversationMediaViewController.h" // IMMediaItem
 #import "IMDetailMediaContainerCell.h"
 #import "IMDetailFileCell.h"
+#import "IMFavoriteLinkCell.h"
 #import "IMForwardPickerViewController.h"
 #import "IMChatRecordViewController.h"
 #import "IMSocketManager.h"
@@ -138,6 +139,8 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     _title.numberOfLines = 2; // 文本封顶 2 行，给副行「来自X · 时间」留位（#1）
     NSString *symbol = @"text.quote";
     switch (kind) {
+        // Links 分支已迁走：走独立 IMFavoriteLinkCell（草图 §D，36×36 favicon + 三行 + quote + source），
+        // cellForRow 里已按 kind 分流。此处的老 case 保留兜底：万一新 cell 未 register 走到这里，仍能显 URL。
         case IMFavoriteCategoryLinks:
             symbol = @"link"; _title.numberOfLines = 2; _title.textColor = IMTheme.accent; _title.text = content; break;
         case IMFavoriteCategoryRecord: {
@@ -388,6 +391,8 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     _tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeOnDrag;
     _tableView.contentInset = UIEdgeInsetsMake(-14, 0, 0, 0); // 收紧 inset-grouped 顶部留白，贴近分段
     [_tableView registerClass:IMFavoriteRowCell.class forCellReuseIdentifier:@"row"];
+    [_tableView registerClass:IMFavoriteLinkCell.class forCellReuseIdentifier:@"favlink"];
+    _tableView.estimatedRowHeight = 90; // Links 走 auto dimension（含/无 quote 差 ~40pt），需估高避免首帧跳
     [_tableView registerClass:IMFavoriteSourceCell.class forCellReuseIdentifier:@"src"];
     [_tableView registerClass:IMDetailFileCell.class forCellReuseIdentifier:@"detailfile"];
     [_tableView registerClass:IMDetailMediaContainerCell.class forCellReuseIdentifier:@"mediagrid"];
@@ -775,6 +780,9 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
         return h > 0 ? h : 60;
     }
     if (_selectedKind == IMFavoriteCategoryFiles) { return 74; } // 文件行 3 行：文件名+状态+来自·时间（#2/#2b）
+    // Links 走 auto dimension：混排文本时多一行原文引用（~40pt），行高差异不小，固定值任一侧都会撑
+    // 出空白或截断。已在 buildTableView 里设 estimatedRowHeight，自适应布局能收敛。
+    if (_selectedKind == IMFavoriteCategoryLinks) { return UITableViewAutomaticDimension; }
     return 76;
 }
 
@@ -822,6 +830,21 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
         fc.sourceName = [self sourceNameForFavorite:f]; // 收藏页文件行显「来自X」（#2；须在 configure 前设）
         [fc configureWithMessage:m download:[_downloads stateForMessage:m]];
         return fc;
+    }
+    // Links 分类走独立 cell（草图 §D）：36×36 favicon + og:title/host+path/时间 + 混排文本原文引用 + 来源行。
+    // 与详情页 IMDetailLinkCell 共享 IMLinkRowView，视觉基底一致；此处仅多出 quote/source 两条。
+    if (_selectedKind == IMFavoriteCategoryLinks) {
+        IMFavoriteLinkCell *lc = [tableView dequeueReusableCellWithIdentifier:@"favlink" forIndexPath:indexPath];
+        NSString *content = [f[@"content"] isKindOfClass:NSString.class] ? f[@"content"] : @"";
+        NSString *ct = [f[@"content_type"] isKindOfClass:NSString.class] ? f[@"content_type"] : @"text";
+        // 抽取首个 URL：显式 link 类型时整段=URL；text 类型时可能是混排（"看看 https://xxx"），此时 content ≠ url。
+        NSString *firstURL = [ct isEqualToString:@"link"] ? content : (IMFirstURLInText(content) ?: content);
+        // 原文引用：仅当 URL 与原文不相等时（即混排文本）才显——纯 URL 消息展示原文就是重复 URL，冗余。
+        NSString *quote = ![firstURL isEqualToString:content] ? content : nil;
+        int64_t createdAt = [f[@"created_at"] respondsToSelector:@selector(longLongValue)] ? [f[@"created_at"] longLongValue] : 0;
+        NSString *time = createdAt > 0 ? IMFormatFileDateTime(createdAt) : @"";
+        [lc configureWithURL:firstURL quoteText:quote sourceText:[self sourceNameForFavorite:f] timeText:time];
+        return lc;
     }
     IMFavoriteRowCell *cell = [tableView dequeueReusableCellWithIdentifier:@"row" forIndexPath:indexPath];
     [cell configureWithFavorite:f kind:_selectedKind source:[self sourceNameForFavorite:f]];
