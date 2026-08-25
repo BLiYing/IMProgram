@@ -146,12 +146,14 @@ BOOL IMMediaLooksLikeURL(NSString *s) {
 
 /// 文本内 http(s) URL 的正则（与 Web src/messageContent.ts 的 URL_REGEX 同款）：
 /// - 只识别显式 http(s)，不猜裸域（避 example.com 误识 + 后端 SSRF 面）
-/// - 末尾常见标点回吐——ASCII 标点 + 中文全角标点（，。！？；：、）】》」』""''…），
-///   避免"看 https://foo.com/，好文"→ 抓成"https://foo.com/，好文"→ preview 404
+/// - 中部只允许 URL 合法字符（RFC 3986 unreserved+reserved+pct-encoded 的 ASCII 子集），
+///   遇非 URL 字符（空白/中文汉字/中文标点/<>"' 等）自然作为边界；末尾再回吐句末标点 .,;:!?)]}"'。
+/// 修 bug：老正则用反向排除 `[^\s<>()"'【...]`，中文汉字都通过 → "分身乏术，https://foo.com，好文"
+/// 被吸成整段（中文都在中部集合内），preview API 拿到含中文的 URL 直接 404。
 static NSRegularExpression *IMURLRegexShared(void) {
     static NSRegularExpression *r; static dispatch_once_t once;
     dispatch_once(&once, ^{
-        r = [NSRegularExpression regularExpressionWithPattern:@"https?://[^\\s<>()\"'（【《「『“‘]+[^\\s<>()\"'.,;:!?)\\]}，。！？；：、）】》」』“”‘’…]"
+        r = [NSRegularExpression regularExpressionWithPattern:@"https?://[-A-Za-z0-9._~:/?#\\[\\]@!$&'()*+,;=%]+[-A-Za-z0-9_~/#\\[\\]@!$&'*+=%]"
                                                       options:0 error:NULL];
     });
     return r;
