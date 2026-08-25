@@ -120,6 +120,7 @@
         @[@"media_h",          @"INTEGER NOT NULL DEFAULT 0"], // M4+ 媒体像素高
         @[@"duration",         @"INTEGER NOT NULL DEFAULT 0"], // M4+ 视频时长（毫秒，封面左上角角标）
         @[@"thumb",            @"TEXT"],                    // M4-7 极小模糊预览（~20px JPEG 的 data URI）
+        @[@"waveform",         @"TEXT"],                    // voice 振幅指纹（base64≤160 rune，P0）：收端画气泡波形免下载音频
         @[@"from_role",        @"TEXT"],                    // 群主/管理员气泡徽标兜底（owner/admin 冗余下发）
     ];
 }
@@ -530,6 +531,7 @@
         @"media_h":           @(message.mediaH),
         @"duration":          @(message.duration),
         @"thumb":             message.thumb ?: @"",
+        @"waveform":          message.waveform ?: @"",
         @"mentions":          IMEncodeMentions(message.mentions),
         @"mention_all":       @(message.mentionAll),
     };
@@ -578,6 +580,8 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
                  // thumb 同 file_name：本地发送端生成的模糊预览优先保留，服务端回声若为空不覆盖
                  // （否则重进会话拿不到 thumb，未下载卡片退回中性占位）。
                  "thumb=CASE WHEN LENGTH(?)>0 THEN ? ELSE thumb END,"
+                 // waveform 同 thumb：本地录制端生成的振幅指纹优先保留（voice P0）。
+                 "waveform=CASE WHEN LENGTH(?)>0 THEN ? ELSE waveform END,"
                  "conv_seq=?,timestamp=?,status=?,note=?,from_nickname=?,from_role=?,recalled_at=?,recalled_by=?,edited_at=?,pinned_at=?,reply_to_conv_seq=?,reply_snapshot=?,reply_to_from=?,forward_from=?,group_id=?,poster=? WHERE row_id=?",
                 message.serverMsgID ?: @"", message.from ?: @"", message.to ?: @"",
                 message.contentType ?: @"text", message.content ?: @"",
@@ -585,6 +589,7 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
                 @(message.mediaW), @(message.mediaW), @(message.mediaH), @(message.mediaH),
                 @(message.duration), @(message.duration),
                 message.thumb ?: @"", message.thumb ?: @"",
+                message.waveform ?: @"", message.waveform ?: @"",
                 @(message.convSeq), @(message.timestamp), @(message.status), message.note ?: @"",
                 message.fromNickname ?: @"", message.fromRole ?: @"", @(message.recalledAt), message.recalledBy ?: @"",
                 @(message.editedAt), @(message.pinnedAt), @(message.replyToConvSeq), message.replySnapshot ?: @"", message.replyToFrom ?: @"", message.forwardFrom ?: @"", message.groupID ?: @"", message.poster ?: @"", rowID];
@@ -927,6 +932,8 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
     m.duration = [rs longLongIntForColumn:@"duration"];
     NSString *thumb = [rs stringForColumn:@"thumb"];
     m.thumb = thumb.length > 0 ? thumb : nil; // 空串视作无模糊预览（回退中性占位）
+    NSString *waveform = [rs stringForColumn:@"waveform"];
+    m.waveform = waveform.length > 0 ? waveform : nil; // 空=退化等高条纹（voice P0）
     return m;
 }
 

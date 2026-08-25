@@ -956,7 +956,30 @@ BOOL IMIsTransientNetworkError(NSError *error) {
              token:(NSString *)token
           progress:(void (^)(double))progress
         completion:(void (^)(NSString *, NSString *, NSError *))completion {
-    NSURL *url = [self urlForPath:@"/api/v1/upload"];
+    [self uploadData:data fileName:fileName mimeType:mimeType token:token path:@"/api/v1/upload" progress:progress completion:completion];
+}
+
+/// voice P0：/api/v1/upload?as=voice——切用 voice 白名单 + 16MB 上限（服务端 handlers_upload.go 分派）。
+/// mimeType 传 audio/mp4（AAC-LC 单声道 16kHz），fileName 需带 .m4a 才能过白名单。
+- (void)uploadVoiceData:(NSData *)data
+               fileName:(NSString *)fileName
+               mimeType:(NSString *)mimeType
+                  token:(NSString *)token
+               progress:(nullable void (^)(double))progress
+             completion:(void (^)(NSString *_Nullable url, NSError *_Nullable error))completion {
+    [self uploadData:data fileName:fileName mimeType:mimeType token:token path:@"/api/v1/upload?as=voice" progress:progress completion:^(NSString *u, NSString *ct, NSError *e) {
+        completion(u, e);
+    }];
+}
+
+- (void)uploadData:(NSData *)data
+          fileName:(NSString *)fileName
+          mimeType:(NSString *)mimeType
+             token:(NSString *)token
+              path:(NSString *)path
+          progress:(void (^)(double))progress
+        completion:(void (^)(NSString *, NSString *, NSError *))completion {
+    NSURL *url = [self urlForPath:path];
     if (!url || data.length == 0) { [self callOnMain:^{ completion(nil, nil, [self errorWithMessage:@"无效的上传"]); }]; return; }
     // multipart 信封落磁盘再流式上传：原先把 74MB 视频再拷进 NSMutableData，峰值内存翻倍且拼装本身就慢。
     NSString *boundary = [@"----IMBoundary" stringByAppendingString:NSUUID.UUID.UUIDString];

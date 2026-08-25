@@ -23,6 +23,9 @@
 #import "IMAlbumCell.h"
 #import "IMLinkCardCell.h"
 #import "IMChatRecordCell.h"
+#import "Voice/IMVoiceBubbleCell.h" // voice P0
+#import "Voice/IMVoicePlayer.h"
+#import "IMChatViewController+Voice.h"
 
 @implementation IMChatViewController (DataSource)
 
@@ -195,6 +198,40 @@
                                                                            mine:[mm.from isEqualToString:self.userID]]];
         };
         return alb;
+    }
+    // 语音消息（voice P0）：波形气泡 + 播放键 + 未播红点；长按走通用菜单（禁复制/编辑）。
+    if ([m.contentType isEqualToString:@"voice"]) {
+        IMVoiceBubbleCell *vc = [tableView dequeueReusableCellWithIdentifier:@"voice" forIndexPath:indexPath];
+        BOOL mineV = [m.from isEqualToString:self.userID];
+        BOOL grpV = self.isGroupChat && !mineV;
+        BOOL firstV = grpV && [self isFirstInSenderRun:indexPath.row];
+        BOOL lastV = grpV && [self isLastInSenderRun:indexPath.row];
+        NSString *midV = IMVoicePlayerPlayableIDForMessage(m);
+        BOOL played = mineV || [[IMVoicePlayer sharedPlayer] hasPlayed:midV inConv:m.convID owner:self.userID];
+        [vc configureWithMessage:m mine:mineV
+                       dayHeader:[self dayHeaderForRow:indexPath.row]
+              showsUnreadDivider:rowIsFirstUnread
+                      senderName:(firstV ? [self senderNameForMessage:m] : nil)
+                      senderRole:(firstV ? [self senderRoleForMessage:m] : IMGroupRoleMember)
+                       hasPlayed:played];
+        [vc applyGroupAvatarURL:(grpV ? [self senderAvatarURLForMessage:m] : nil)
+                           seed:(m.from ?: @"")
+                           name:(grpV ? [self senderNameForMessage:m] : nil)
+                     showAvatar:lastV gutter:grpV];
+        NSString *fullURL = [self fullMediaURL:m.content];
+        __weak typeof(self) ws = self;
+        __weak IMMessageModel *wm = m;
+        vc.onPlayTap = ^{
+            __strong typeof(ws) self = ws; IMMessageModel *sm = wm;
+            if (!self || !sm) { return; }
+            [self im_playVoiceMessage:sm fullURL:fullURL];
+        };
+        if (grpV) {
+            NSString *memberUID = m.from;
+            __weak typeof(self) wsAvatar = self;
+            vc.onAvatarTap = ^{ [wsAvatar openMemberProfileForUID:memberUID]; };
+        }
+        return vc;
     }
     // 图片/视频消息（M4-6）：独立媒体 cell。图片显缩略图、视频显首帧+播放角标（不自动播放）；点击进全屏查看器。
     // 上传中的乐观气泡：content 为空 → 显本地预览 + 居中进度（批量发送 UX）。

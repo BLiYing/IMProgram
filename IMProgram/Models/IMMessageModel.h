@@ -68,6 +68,9 @@ typedef NS_ENUM(NSInteger, IMMessageStatus) {
 @property (nonatomic, assign) int64_t duration;
 /// M4-7 图片/视频极小模糊预览（~20px 缩略 JPEG 的 data URI，随消息回带）；未下载/门控时放大+模糊显占位（空=回退中性占位）。
 @property (nonatomic, copy, nullable) NSString *thumb;
+/// 语音振幅指纹（voice, P0）：base64（原始字节 ≤120，每字节 0~100 振幅百分比），随消息回带。
+/// 收端不下载音频即可画气泡波形；空=退化等高条纹（服务端已把非法/超长字段静默丢弃）。
+@property (nonatomic, copy, nullable) NSString *waveform;
 /// M4-5 翻译：译文（**内存临时态，不落库**；翻译后挂气泡下方）。
 @property (nonatomic, copy, nullable) NSString *translation;
 

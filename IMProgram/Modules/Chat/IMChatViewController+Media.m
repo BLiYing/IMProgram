@@ -36,7 +36,7 @@
 
 #pragma mark - 附件面板 / 富媒体（M4-6）
 
-- (void)voiceTapped { [self im_showComingSoon:@"语音"]; }
+- (void)voiceTapped { [self im_showToast:@"按住 语音 按钮说话"]; }
 - (void)emojiTapped { [self im_showComingSoon:@"表情"]; }
 
 /// 面板项（数据驱动，M4-6）：加入口 = 数组加一条。照片接真实上传，其余占位。

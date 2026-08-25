@@ -420,6 +420,16 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
           progress:(nullable void (^)(double fraction))progress
         completion:(void (^)(NSString *_Nullable url, NSString *_Nullable contentType, NSError *_Nullable error))completion;
 
+/// 语音专用上传（voice P0）：multipart POST /api/v1/upload?as=voice。
+/// 服务端按 voice 白名单校验（.m4a/.aac/.caf/.opus/.ogg/.webm/.mp4）+ 16MB 上限；
+/// 用普通 /upload 传 .mp3 仍映射 file（音乐 ≠ 语音条，语义严格分开）。回调返回 /uploads/<id>.m4a（主线程）。
+- (void)uploadVoiceData:(NSData *)data
+               fileName:(NSString *)fileName
+               mimeType:(NSString *)mimeType
+                  token:(NSString *)token
+               progress:(nullable void (^)(double fraction))progress
+             completion:(void (^)(NSString *_Nullable url, NSError *_Nullable error))completion;
+
 /// 头像专用上传（方案 C）：multipart POST /api/v1/avatar（独立目录、内容寻址、永不清理）。
 /// data 应为裁切并缩到 256×256 的 JPEG。回调返回 /avatars/<hash>.jpg 相对 URL（主线程）。
 - (void)uploadAvatarData:(NSData *)data

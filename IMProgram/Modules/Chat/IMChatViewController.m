@@ -12,6 +12,8 @@
 #import "IMImageCell.h"
 #import "IMLinkCardCell.h"
 #import "IMSystemCell.h"
+#import "Voice/IMVoiceBubbleCell.h" // P0 voice
+#import "IMChatViewController+Voice.h"
 #import "IMSocketManager.h"
 #import "IMHTTPService.h"
 #import "IMConversation.h"
@@ -510,6 +512,7 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     [self.tableView registerClass:UITableViewCell.class forCellReuseIdentifier:@"albumPad"]; // 相册从行（零高占位）
     [self.tableView registerClass:IMChatRecordCell.class forCellReuseIdentifier:@"record"];
     [self.tableView registerClass:IMLinkCardCell.class forCellReuseIdentifier:@"link"];
+    [self.tableView registerClass:IMVoiceBubbleCell.class forCellReuseIdentifier:@"voice"]; // P0 voice
     [self.view addSubview:self.tableView];
 
     [self buildReplyBar]; // 引用/编辑预览条（两行版）——构造收在 +Compose（与其行为同处，兼顾主文件行数预算）
@@ -702,6 +705,9 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     self.inputTrailToEmoji = [self.inputField.trailingAnchor constraintEqualToAnchor:emojiButton.leadingAnchor constant:-4];
     self.inputTrailToSend = [self.inputField.trailingAnchor constraintEqualToAnchor:sendButton.leadingAnchor constant:-4];
     [self updateSendButtonVisibility]; // 初始（空）：显示表情/加号，隐藏发送
+
+    // voice P0：把"按住语音钮 → 录音 → 松手发送 / 左滑取消"接线到 recorder + HUD（+Voice.m）。
+    [self im_installVoicePressGesture];
 }
 
 /// 输入框有内容（文字或待发粘贴图）→ 显示发送、隐藏表情/加号；否则显示表情/加号、隐藏发送（#4）。

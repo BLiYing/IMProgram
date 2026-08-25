@@ -19,6 +19,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) int64_t durationMillis;    ///< 视频时长，毫秒（0=未知/非视频）
 @property (nonatomic, assign) int64_t fileSize;          ///< 原始字节数（0=未知）
 @property (nonatomic, copy, nullable) NSString *thumb;   ///< 极小模糊预览（~20px 缩略 JPEG 的 data URI，M4-7）：收端未下载时放大+模糊显占位，免先下原图
+@property (nonatomic, copy, nullable) NSString *waveform;///< voice 振幅指纹（base64≤120B，每字节 0~100 振幅百分比）：收端不下载音频即可画气泡波形
 @property (nonatomic, copy, nullable) NSString *caption; ///< 图说随附文本（Telegram 模型）：与媒体同发一条消息；仅 image/video/file 生效
 @property (nonatomic, copy, nullable) NSArray<NSString *> *mentions; ///< 配文 @提及成员 uid（仅群聊）：随媒体上行，服务端做被@强提醒
 @property (nonatomic, assign) BOOL mentionAll;          ///< 配文 @所有人（仅群聊、群主/管理员）

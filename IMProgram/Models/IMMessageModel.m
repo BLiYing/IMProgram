@@ -35,6 +35,7 @@
     m.mediaH         = [data[@"media_h"] integerValue];
     m.duration       = [data[@"duration"] longLongValue];
     m.thumb          = [self stringForKey:@"thumb" in:data];
+    m.waveform       = [self stringForKey:@"waveform" in:data]; // voice 振幅指纹（base64≤160 rune）
     m.mentions       = [self stringArrayForKey:@"mentions" in:data]; // M4-8：落库供转发重发（强提醒）
     m.mentionAll     = [data[@"mention_all"] boolValue];
     return m;
@@ -71,6 +72,7 @@
     if (self.mediaH > 0) { d[@"media_h"] = @(self.mediaH); }
     if (self.duration > 0) { d[@"duration"] = @(self.duration); }
     if (self.thumb) { d[@"thumb"] = self.thumb; }
+    if (self.waveform.length > 0) { d[@"waveform"] = self.waveform; }
     if (self.mentions.count > 0) { d[@"mentions"] = self.mentions; }
     if (self.mentionAll) { d[@"mention_all"] = @YES; }
     return d;
