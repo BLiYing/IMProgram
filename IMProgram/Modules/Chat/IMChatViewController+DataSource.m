@@ -345,6 +345,20 @@
     // 拒收系统行的恢复入口（非好友 200103 → 发好友申请）。cell 内部据 noteCode 判定是否可点。
     __weak typeof(self) wsNote = self;
     cell.onNoteActionTap = ^{ [wsNote sendFriendRequestFromRejectedNote]; };
+    // 文本气泡里首个 URL 的 og 预览卡片：卡片被点→打开链接；卡片异步展开→按 IMLinkCardCell 同款守卫刷行高。
+    __weak typeof(self) wsLink = self;
+    cell.onLinkTap = ^(NSString *url) { [wsLink openLink:url]; };
+    cell.onLinkPreviewResolved = ^{
+        __strong typeof(wsLink) self = wsLink;
+        if (!self) { return; }
+        if (self.tableView.isDragging || self.tableView.isDecelerating) {
+            self.needsRowHeightSettle = YES;
+            return;
+        }
+        BOOL wasNearBottom = [self isNearBottom];
+        [self refreshRowHeightsWithoutAnimation];
+        if (wasNearBottom) { [self scrollToAbsoluteBottom]; }
+    };
     NSString *replyFromName = (self.isGroupChat && m.replyToConvSeq > 0 && m.replyToFrom.length > 0)
         ? [self replyFromNameForUID:m.replyToFrom] : nil;
     cell.textExpanded = [self isTextExpandedForMessage:m]; // 中长文本"展开全文"记忆（configure 前置）

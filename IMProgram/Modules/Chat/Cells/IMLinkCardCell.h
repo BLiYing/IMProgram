@@ -6,6 +6,10 @@
 NS_ASSUME_NONNULL_BEGIN
 
 @interface IMLinkCardCell : IMMessageCell
+/// 进程内 OG 预览缓存（NSString url → NSDictionary 预览负载）。**跨 cell 共享**：
+/// 文本气泡里首个 URL 的 IMLinkPreviewView 也从这里取，同一 URL 全站只抓一次。
++ (NSCache<NSString *, NSDictionary *> *)previewCache;
+
 /// 长按菜单高亮/收起、引用跳转闪烁的目标视图（=网址文本+OG 卡片整体，与 Web 一致一起高亮）。
 @property (nonatomic, strong, readonly) UIView *previewTargetView;
 @property (nonatomic, copy, nullable) void (^onTap)(NSString *url);

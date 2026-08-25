@@ -82,6 +82,13 @@ typedef NS_ENUM(NSInteger, IMBubbleTextTier) {
 /// 点拒收系统行的恢复入口（当前仅 200103 非好友 → 「发送好友申请」）。
 /// 仅当 message.noteCode 命中可操作码时该行才可点，否则系统行是纯文案。
 @property (nonatomic, copy, nullable) void (^onNoteActionTap)(void);
+
+/// 文本气泡里的**首个 URL** 富预览卡片被点：宿主打开链接（与 IMLinkCardCell.onTap 同款）。
+/// 卡片仅在 og 抓到 title/image 时可见；抓不到时保持隐藏、正文里的高亮 URL 仍可点（另一路 onTextURLTap）。
+@property (nonatomic, copy, nullable) void (^onLinkTap)(NSString *url);
+
+/// 文本气泡里的 preview 卡片从"未拉到"变"已渲染"→ 宿主刷行高（与 IMLinkCardCell.onContentSizeResolved 同款守卫）。
+@property (nonatomic, copy, nullable) void (^onLinkPreviewResolved)(void);
 - (void)configureWithMessage:(IMMessageModel *)message
                         mine:(BOOL)mine
                  peerReadSeq:(int64_t)peerReadSeq

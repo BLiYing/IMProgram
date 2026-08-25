@@ -47,6 +47,7 @@
 #import "IMDetailMemberCell.h"
 #import "IMDetailMediaContainerCell.h"
 #import "IMDetailFileCell.h"
+#import "IMDetailLinkCell.h"
 #import "IMChatDetailViewController+Private.h" // 私有类扩展（属性/协议/常量/enum）——与分文件 category 共享
 
 #pragma mark - 详情页
@@ -845,17 +846,17 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
         [fc configureWithMessage:m download:[self.downloads stateForMessage:m]];
         return fc;
     }
-    UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleSubtitle reuseID:@"dSub" inTable:tv];
-    if (t.kind == IMDetailTabKindVoice) {
-        cell.textLabel.text = @"语音消息";
-        cell.imageView.image = [UIImage systemImageNamed:@"waveform"];
-        cell.detailTextLabel.text = IMFormatFileDateTime(m.timestamp);
-    } else {
-        cell.textLabel.text = m.content;
-        cell.textLabel.textColor = IMTheme.accent;
-        cell.imageView.image = [UIImage systemImageNamed:@"link"];
-        cell.detailTextLabel.text = IMFormatFileDateTime(m.timestamp);
+    if (t.kind == IMDetailTabKindLinks) {
+        // 草图 §C：36×36 favicon + t1 og:title(host 兜底) + t2 host+path(mono) + t3 时间；点行=打开链接、无来源、无原文预览。
+        IMDetailLinkCell *lc = [tv dequeueReusableCellWithIdentifier:@"detaillink"];
+        [lc configureWithMessage:m];
+        return lc;
     }
+    UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleSubtitle reuseID:@"dSub" inTable:tv];
+    // 语音（IMDetailTabKindVoice）：暂沿用原双行系统 cell（草图未定，等语音消息里程碑再统一）。
+    cell.textLabel.text = @"语音消息";
+    cell.imageView.image = [UIImage systemImageNamed:@"waveform"];
+    cell.detailTextLabel.text = IMFormatFileDateTime(m.timestamp);
     return cell;
 }
 

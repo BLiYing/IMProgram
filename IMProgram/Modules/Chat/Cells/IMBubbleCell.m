@@ -11,6 +11,7 @@
 #import "IMAppearance.h"
 #import "IMTheme.h"
 #import "IMMessageCell.h"  // +clampSenderName:（发送者昵称截断规则，各类气泡共用）
+#import "IMLinkPreviewView.h" // 文本气泡里首个 URL 的 og 预览卡片子视图
 
 // 引用快照本地化统一走 IMMediaUtil 的 IMLocalizeReplySnippet（与 IMLinkCardCell 共用，防两份 static 分叉）。
 
@@ -189,6 +190,11 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     NSArray<NSLayoutConstraint *> *_fileConstraints; // 文件行全部结构约束（仅文件模式激活，见 init 注释）
     UILabel *_fileCaption;                 // 文件文 caption（Telegram 模型）：文件卡下方随附文本，同气泡内，iOS 只显示
     NSArray<NSLayoutConstraint *> *_fileCaptionConstraints; // 有 caption 时整组激活：文件行→caption→气泡底 + 左右对齐
+    // URL 富预览子视图（文本气泡里首个 URL 的 og 卡片，与 IMLinkCardCell 视觉一致）：仅当抓到 og 且非文件模式时挂；
+    // 整组结构约束（_linkPreviewConstraints）只在**卡片可见**时激活，与 _textBottom 互斥。
+    IMLinkPreviewView *_linkPreview;
+    NSArray<NSLayoutConstraint *> *_linkPreviewConstraints;
+    NSString *_linkPreviewURL;             // 当前正在配置的 URL（onContentSizeResolved 回调时用于比对防串图）
 }
 
 + (IMBubbleTextTier)textTierForContent:(NSString *)content {
@@ -284,6 +290,19 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     NSMutableAttributedString *m = [att mutableCopy];
     [IMBubbleCell applySearchHighlight:keyword toMutable:m];
     return m;
+}
+
+/// 把 srcText 中检测到的 http(s) URL 范围染成 linkAttrs（蓝色下划线），
+/// 应用到 body 上的相对偏移（startOffset = 追加 srcText 之前的 body.length）。
+/// 用于文本气泡混排 URL 的高亮（整段是 URL 时上层直接给全串染 urlAttr，不走此路径）。
++ (void)applyURLHighlight:(NSString *)srcText toBody:(NSMutableAttributedString *)body
+              startOffset:(NSUInteger)startOffset linkAttrs:(NSDictionary *)linkAttrs {
+    if (srcText.length == 0 || body.length == 0) { return; }
+    for (NSValue *v in IMURLRangesInText(srcText)) {
+        NSRange r = v.rangeValue;
+        NSRange target = NSMakeRange(startOffset + r.location, r.length);
+        if (NSMaxRange(target) <= body.length) { [body addAttributes:linkAttrs range:target]; }
+    }
 }
 
 /// TextKit 反查：命中点（cell 坐标系）是否落在某个挂了 IMMentionUIDAttributeName 的 `@昵称` token 上。
@@ -569,8 +588,44 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         _fileMinWidth = [_fileRow.widthAnchor constraintEqualToAnchor:self.contentView.widthAnchor
                                                            multiplier:0.75 constant:-24];
         _fileMinWidth.priority = UILayoutPriorityRequired - 1; // 与「气泡≤0.75」上限恰好相等，999 防御万一
+
+        // URL 富预览子视图（默认不挂约束，仅当 og 抓到 title/image 且非文件模式时激活整组）。
+        // 视觉与 IMLinkCardCell 卡片一致，260pt 定宽（同款 stack.width），左右各 10 内边距。
+        _linkPreview = [IMLinkPreviewView new];
+        _linkPreview.translatesAutoresizingMaskIntoConstraints = NO;
+        [_bubble addSubview:_linkPreview];
+        __weak typeof(self) wsPrev = self;
+        _linkPreview.onTap = ^(NSString *url) { if (wsPrev.onLinkTap && url.length) { wsPrev.onLinkTap(url); } };
+        _linkPreview.onContentSizeResolved = ^{
+            __strong typeof(wsPrev) self = wsPrev;
+            if (!self) { return; }
+            // 卡片从"隐藏"变"展开"：激活整组约束（挤开 _textBottom），并回调宿主刷行高。
+            [self applyLinkPreviewVisibleConstraints:YES];
+            if (self.onLinkPreviewResolved) { self.onLinkPreviewResolved(); }
+        };
+        _linkPreviewConstraints = @[
+            [_linkPreview.topAnchor constraintEqualToAnchor:_text.bottomAnchor constant:6],
+            [_linkPreview.leadingAnchor constraintEqualToAnchor:_bubble.leadingAnchor constant:10],
+            [_linkPreview.widthAnchor constraintEqualToConstant:260],
+            [_linkPreview.trailingAnchor constraintLessThanOrEqualToAnchor:_bubble.trailingAnchor constant:-10],
+            [_linkPreview.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:-8],
+        ];
     }
     return self;
+}
+
+/// preview 卡片可见/隐藏时的约束切换（互斥于 _textBottom）：
+/// - visible=YES：激活 _linkPreviewConstraints、停用 _textBottom；卡片挤在正文下方、气泡底由卡片撑。
+/// - visible=NO：停用 _linkPreviewConstraints、激活 _textBottom；恢复"正文直接贴气泡底"。
+/// 文件模式（_fileRowBottom 撑气泡底）由 configure 里独立处理，不走此方法。
+- (void)applyLinkPreviewVisibleConstraints:(BOOL)visible {
+    if (visible) {
+        _textBottom.active = NO;
+        for (NSLayoutConstraint *c in _linkPreviewConstraints) { c.active = YES; }
+    } else {
+        for (NSLayoutConstraint *c in _linkPreviewConstraints) { c.active = NO; }
+        _textBottom.active = YES;
+    }
 }
 
 - (void)configureWithMessage:(IMMessageModel *)message
@@ -709,11 +764,16 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
             // 中长折叠：前若干行（并按字数硬顶）+ 省略号 + 「展开全文」
             collapsed = YES;
             NSString *shown = IMTruncateText(contentText, IMTextCollapsedLines, IMTextCollapsedChars);
+            NSUInteger contentStart = body.length;
             [body appendAttributedString:[IMBubbleCell attributedContent:shown base:(isURL ? urlAttr : contentAttr) mentionColor:IMTheme.accent mentions:mMap]];
+            // 混排文本里的 URL 高亮：整段是 URL 时上面 urlAttr 已全染；否则按检测出的 URL 范围逐段补染。
+            if (!isURL) { [IMBubbleCell applyURLHighlight:shown toBody:body startOffset:contentStart linkAttrs:urlAttr]; }
             [body appendAttributedString:[[NSAttributedString alloc] initWithString:@"…\n展开全文 ∨" attributes:affordanceAttr]];
         } else {
             // 短文本，或中长已展开：全显。展开态末尾加「收起」。
+            NSUInteger contentStart = body.length;
             [body appendAttributedString:[IMBubbleCell attributedContent:contentText base:(isURL ? urlAttr : contentAttr) mentionColor:IMTheme.accent mentions:mMap]];
+            if (!isURL) { [IMBubbleCell applyURLHighlight:contentText toBody:body startOffset:contentStart linkAttrs:urlAttr]; }
             if (tier == IMBubbleTextTierLong) {
                 [body appendAttributedString:[[NSAttributedString alloc] initWithString:@"\n收起 ∧" attributes:affordanceAttr]];
             }
@@ -758,7 +818,18 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         _fileCaption.text = nil;
     }
     _fileCaption.hidden = !hasFileCaption;
+    // 文本气泡里首个 URL 的 preview 卡片：仅非文件、非"整段就是 URL"（那由 IMLinkCardCell 路径处理）时挂。
+    // configureWithURL: 命中缓存同步展开→ hasContent=YES；未命中先隐藏，异步回来触发 onContentSizeResolved
+    // 里翻转约束 + 通知宿主刷行高（applyLinkPreviewVisibleConstraints: 承担二次布局）。
+    NSString *firstURL = nil;
+    if (!fileMode) {
+        NSString *ct = message.content ?: @"";
+        if (!IMMediaLooksLikeURL(ct)) { firstURL = IMFirstURLInText(ct); }
+    }
+    _linkPreviewURL = firstURL;
+    [_linkPreview configureWithURL:firstURL];
     if (fileMode) {
+        [self applyLinkPreviewVisibleConstraints:NO]; // 文件消息底部由 file 行/caption 撑，preview 一律隐藏
         _textBottom.active = NO;
         [NSLayoutConstraint activateConstraints:_fileConstraints];
         // 有 caption：气泡底由 caption 撑（文件行→caption→底）；无 caption：文件行直接贴底。
@@ -772,7 +843,8 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         _fileMinWidth.active = NO;
         [NSLayoutConstraint deactivateConstraints:_fileConstraints];
         [NSLayoutConstraint deactivateConstraints:_fileCaptionConstraints];
-        _textBottom.active = YES;
+        // 气泡底：命中缓存的 preview（hasContent=YES）直接激活整组、挤开 _textBottom；否则回到"正文贴底"。
+        [self applyLinkPreviewVisibleConstraints:_linkPreview.hasContent];
         _fileTap.enabled = NO;
         // 清残留内容防御：复用自文件气泡的 cell 若留着文件名/状态文案，一旦约束误开又会撑宽气泡。
         _fileNameLabel.text = nil;

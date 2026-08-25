@@ -5,6 +5,7 @@
 #import "IMChatDetailViewController+Private.h"
 #import "IMDetailMemberCell.h"
 #import "IMDetailFileCell.h"
+#import "IMDetailLinkCell.h"
 #import "IMDetailMediaContainerCell.h"
 #import "IMMediaUtil.h"
 #import "IMMainTabBarController.h"    // im_refreshNavigationBar / kIMLiquidBarHeight
@@ -38,6 +39,7 @@
     [self.tableView registerClass:IMDetailMemberCell.class forCellReuseIdentifier:@"member"];
     [self.tableView registerClass:IMDetailMediaContainerCell.class forCellReuseIdentifier:@"mediagrid"];
     [self.tableView registerClass:IMDetailFileCell.class forCellReuseIdentifier:@"detailfile"];
+    [self.tableView registerClass:IMDetailLinkCell.class forCellReuseIdentifier:@"detaillink"];
     UIView *spacer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 300)];
     spacer.backgroundColor = UIColor.clearColor;
     self.pillsView = [self buildPillsView];

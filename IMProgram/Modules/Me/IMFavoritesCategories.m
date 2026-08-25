@@ -1,7 +1,7 @@
 //  IMFavoritesCategories.m
 
 #import "IMFavoritesCategories.h"
-#import "IMMediaUtil.h" // IMMediaLooksLikeURL（与详情页/聊天页同一 URL 口径）
+#import "IMMediaUtil.h" // IMMediaLooksLikeURL / IMFirstURLInText（与详情页/聊天页同一 URL 口径）
 
 @implementation IMFavoriteCategoryTab
 @end
@@ -48,11 +48,13 @@ static NSString *favContent(NSDictionary *f) {
             return [ct isEqualToString:@"file"];
         case IMFavoriteCategoryLinks:
             if ([ct isEqualToString:@"link"]) { return YES; }
-            return [ct isEqualToString:@"text"] && IMMediaLooksLikeURL(content);
+            // 草图 §D：text 只要**含 URL** 就归"链接"分类（与聊天页/详情页 §C 视图口径一致）；
+            // 一条混排文本"看看 https://xxx"也进这里，正文里其余 URL 保留在气泡渲染，不重复计入。
+            return [ct isEqualToString:@"text"] && IMFirstURLInText(content) != nil;
         case IMFavoriteCategoryVoice:
             return [ct isEqualToString:@"audio"] || [ct isEqualToString:@"voice"];
         case IMFavoriteCategoryText:
-            return [ct isEqualToString:@"text"] && !isRecord && !IMMediaLooksLikeURL(content);
+            return [ct isEqualToString:@"text"] && !isRecord && IMFirstURLInText(content) == nil;
         case IMFavoriteCategoryAll:
             return YES;
     }

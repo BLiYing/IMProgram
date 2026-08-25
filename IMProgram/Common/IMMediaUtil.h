@@ -27,6 +27,14 @@ FOUNDATION_EXPORT NSString *IMFormatFileDateTime(int64_t timestampMillis);
 /// 整条内容是否就是一个 http(s) 链接（无空白）→ 用于 URL 消息渲染判定。
 FOUNDATION_EXPORT BOOL IMMediaLooksLikeURL(NSString *_Nullable s);
 
+/// 文本里第一个 http(s) URL（用于文本气泡挂 preview 卡）；无 → nil。与 Web `firstURLInText` 同款。
+/// 末尾常见标点 .,;:!?)]}' 不吃进 URL，避免"看这个 https://foo.com。"把句号带上。
+FOUNDATION_EXPORT NSString *_Nullable IMFirstURLInText(NSString *_Nullable text);
+
+/// 文本内所有 http(s) URL 的字符范围（NSValue<NSRange>）→ 供 attributedString 逐段染色。
+/// 与 IMFirstURLInText 同一正则，返回顺序 = 出现顺序。空/nil 文本 → 空数组。
+FOUNDATION_EXPORT NSArray<NSValue *> *IMURLRangesInText(NSString *_Nullable text);
+
 /// 合并转发卡片（chat_record JSON）的引用/预览快照：`[聊天记录] <标题>`。
 /// 兼容存量截断快照（旧引用把 JSON 截 60 字入库，解析不出时正则抠 "t":"…" 标题）；全失败回落 `[聊天记录]`。
 FOUNDATION_EXPORT NSString *IMChatRecordSnippet(NSString *_Nullable recordJSON);

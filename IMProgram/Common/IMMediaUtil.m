@@ -144,6 +144,35 @@ BOOL IMMediaLooksLikeURL(NSString *s) {
     return [NSURL URLWithString:s] != nil;
 }
 
+/// 文本内 http(s) URL 的正则（与 Web src/messageContent.ts 的 URL_REGEX 同款）：
+/// - 只识别显式 http(s)，不猜裸域（避 example.com 误识 + 后端 SSRF 面）
+/// - 末尾常见标点回吐 [^\s<>()"'.,;:!?)\]}] —— 避免"看 https://foo.com。"把句号吃进 URL
+static NSRegularExpression *IMURLRegexShared(void) {
+    static NSRegularExpression *r; static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        r = [NSRegularExpression regularExpressionWithPattern:@"https?://[^\\s<>()\"']+[^\\s<>()\"'.,;:!?)\\]}]"
+                                                      options:0 error:NULL];
+    });
+    return r;
+}
+
+NSString *IMFirstURLInText(NSString *text) {
+    if (text.length == 0) { return nil; }
+    NSTextCheckingResult *m = [IMURLRegexShared() firstMatchInString:text options:0
+                                                                range:NSMakeRange(0, text.length)];
+    return m ? [text substringWithRange:m.range] : nil;
+}
+
+NSArray<NSValue *> *IMURLRangesInText(NSString *text) {
+    if (text.length == 0) { return @[]; }
+    NSMutableArray<NSValue *> *out = [NSMutableArray new];
+    [IMURLRegexShared() enumerateMatchesInString:text options:0 range:NSMakeRange(0, text.length)
+                                      usingBlock:^(NSTextCheckingResult *m, NSMatchingFlags flags, BOOL *stop) {
+        if (m) { [out addObject:[NSValue valueWithRange:m.range]]; }
+    }];
+    return out;
+}
+
 static BOOL IMExtensionIn(NSString *ext, NSArray<NSString *> *extensions) {
     return [extensions containsObject:ext];
 }
