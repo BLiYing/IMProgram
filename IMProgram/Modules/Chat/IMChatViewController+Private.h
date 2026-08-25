@@ -101,8 +101,9 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, strong, nullable) UIView *attachPanel; // 附件面板（M4-6，加号弹出，展开时顶起输入栏、显示在其下方）
 @property (nonatomic, assign) BOOL attachPanelVisible;       // 面板是否展开（与键盘互斥，共同决定 inputBottom）
 @property (nonatomic, assign) CGFloat kbInset;              // 键盘遮挡输入栏的高度（已减 safeArea），随 keyboardWillChange 更新
-@property (nonatomic, strong) UIButton *emojiButton;  // 表情（占位）
-@property (nonatomic, strong) UIButton *plusButton;   // 加号（附件面板）
+// emojiButton 不提为 property（内嵌 inputField.rightView 后无跨 TU 访问，2026-08-25 语音 P1 时去掉）。
+@property (nonatomic, strong) UIButton *plusButton;   // 加号（附件面板，左）—— PinnedBanner 会禁用/半透明
+@property (nonatomic, strong) UIButton *voiceButton;  // 语音（右，与 sendButton 同槽互斥）
 @property (nonatomic, strong) UIButton *sendButton;   // 发送
 @property (nonatomic, strong) NSLayoutConstraint *inputTrailToEmoji; // 无内容：输入框贴表情按钮
 @property (nonatomic, strong) NSLayoutConstraint *inputTrailToSend;  // 有内容：输入框贴发送按钮

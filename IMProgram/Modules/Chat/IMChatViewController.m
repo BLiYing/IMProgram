@@ -571,22 +571,26 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     [self.inputField addTarget:self action:@selector(inputChanged) forControlEvents:UIControlEventEditingChanged];
     [inputBar addSubview:self.inputField];
 
-    // 微信式输入栏（M4-6）：语音（左）| 输入框 | 表情 | 加号 | 发送。语音/表情当前占位。
+    // Telegram 布局（v2.3 拍板）：＋（左）| 输入框（内嵌 😀 表情，rightView）| 🎙 / ➤（右缘，同槽互斥）。
+    // 外部三键 ＋|框|🎙/➤ 覆盖"新增内容·打字·发出"，表情内嵌到输入框（输入方式切换）。
     UIImageSymbolConfiguration *barCfg = [UIImageSymbolConfiguration configurationWithPointSize:24 weight:UIImageSymbolWeightRegular];
     UIButton *voiceButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    self.voiceButton = voiceButton;
     voiceButton.translatesAutoresizingMaskIntoConstraints = NO;
     [voiceButton setImage:[UIImage systemImageNamed:@"waveform.circle" withConfiguration:barCfg] forState:UIControlStateNormal];
     voiceButton.tintColor = IMTheme.textSecondary;
     [voiceButton addTarget:self action:@selector(voiceTapped) forControlEvents:UIControlEventTouchUpInside];
     [inputBar addSubview:voiceButton];
 
+    // 表情内嵌到输入框内右缘（UITextField.rightView）：24×24 面积，点击翻转 face↔keyboard 图标（无移位）。
+    UIImageSymbolConfiguration *emojiCfg = [UIImageSymbolConfiguration configurationWithPointSize:20 weight:UIImageSymbolWeightRegular];
     UIButton *emojiButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    self.emojiButton = emojiButton;
-    emojiButton.translatesAutoresizingMaskIntoConstraints = NO;
-    [emojiButton setImage:[UIImage systemImageNamed:@"face.smiling" withConfiguration:barCfg] forState:UIControlStateNormal];
+    emojiButton.frame = CGRectMake(0, 0, 32, 32); // rightView 大小；rightView 不参与 AutoLayout，须显式 frame
+    [emojiButton setImage:[UIImage systemImageNamed:@"face.smiling" withConfiguration:emojiCfg] forState:UIControlStateNormal];
     emojiButton.tintColor = IMTheme.textSecondary;
     [emojiButton addTarget:self action:@selector(emojiTapped) forControlEvents:UIControlEventTouchUpInside];
-    [inputBar addSubview:emojiButton];
+    self.inputField.rightView = emojiButton;
+    self.inputField.rightViewMode = UITextFieldViewModeAlways;
 
     UIButton *plusButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.plusButton = plusButton;
@@ -667,23 +671,19 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
         self.inputBottom,
         [inputBar.heightAnchor constraintEqualToConstant:56],
 
-        // 语音（左）| 输入框 | 表情 | 加号 | 发送（M4-6 微信式）。
-        [voiceButton.leadingAnchor constraintEqualToAnchor:inputBar.leadingAnchor constant:8],
-        [voiceButton.centerYAnchor constraintEqualToAnchor:inputBar.centerYAnchor],
-        [voiceButton.widthAnchor constraintEqualToConstant:34],
-        [voiceButton.heightAnchor constraintEqualToConstant:36],
-        [self.inputField.leadingAnchor constraintEqualToAnchor:voiceButton.trailingAnchor constant:4],
-        [self.inputField.centerYAnchor constraintEqualToAnchor:inputBar.centerYAnchor],
-        [self.inputField.heightAnchor constraintEqualToConstant:36],
-        // 表情/加号靠右并列；发送按钮与加号同槽位（互斥显示，#4）。
-        [emojiButton.trailingAnchor constraintEqualToAnchor:plusButton.leadingAnchor constant:-2],
-        [emojiButton.centerYAnchor constraintEqualToAnchor:inputBar.centerYAnchor],
-        [emojiButton.widthAnchor constraintEqualToConstant:34],
-        [emojiButton.heightAnchor constraintEqualToConstant:36],
-        [plusButton.trailingAnchor constraintEqualToAnchor:inputBar.trailingAnchor constant:-8],
+        // Telegram 布局（v2.3）：＋（最左）| 输入框（内嵌 😀，rightView）| 🎙 语音 / ➤ 发送（右缘，同槽互斥）。
+        [plusButton.leadingAnchor constraintEqualToAnchor:inputBar.leadingAnchor constant:8],
         [plusButton.centerYAnchor constraintEqualToAnchor:inputBar.centerYAnchor],
         [plusButton.widthAnchor constraintEqualToConstant:34],
         [plusButton.heightAnchor constraintEqualToConstant:36],
+        [self.inputField.leadingAnchor constraintEqualToAnchor:plusButton.trailingAnchor constant:6],
+        [self.inputField.centerYAnchor constraintEqualToAnchor:inputBar.centerYAnchor],
+        [self.inputField.heightAnchor constraintEqualToConstant:36],
+        // 右缘：voice / send 同槽位（updateSendButtonVisibility 互斥切换 hidden）。
+        [voiceButton.trailingAnchor constraintEqualToAnchor:inputBar.trailingAnchor constant:-8],
+        [voiceButton.centerYAnchor constraintEqualToAnchor:inputBar.centerYAnchor],
+        [voiceButton.widthAnchor constraintEqualToConstant:36],
+        [voiceButton.heightAnchor constraintEqualToConstant:36],
         [sendButton.trailingAnchor constraintEqualToAnchor:inputBar.trailingAnchor constant:-8],
         [sendButton.centerYAnchor constraintEqualToAnchor:inputBar.centerYAnchor],
         [sendButton.widthAnchor constraintEqualToConstant:36],
@@ -701,10 +701,11 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     self.jumpButtonBottom = [self.jumpButton.bottomAnchor constraintEqualToAnchor:self.replyBar.topAnchor constant:-12];
     self.jumpButtonBottom.active = YES;
 
-    // 输入框右缘随内容切换：无内容贴表情、有内容贴发送（#4）。
-    self.inputTrailToEmoji = [self.inputField.trailingAnchor constraintEqualToAnchor:emojiButton.leadingAnchor constant:-4];
+    // Telegram 布局（v2.3）：输入框右缘恒贴右侧动作键（voice/send 同槽位），随空/非空切换。
+    // 老的 inputTrailToEmoji（输入框贴外部 emoji）已废弃——emoji 内嵌为 rightView，不再是外部按钮。
+    self.inputTrailToEmoji = [self.inputField.trailingAnchor constraintEqualToAnchor:voiceButton.leadingAnchor constant:-4];
     self.inputTrailToSend = [self.inputField.trailingAnchor constraintEqualToAnchor:sendButton.leadingAnchor constant:-4];
-    [self updateSendButtonVisibility]; // 初始（空）：显示表情/加号，隐藏发送
+    [self updateSendButtonVisibility]; // 初始（空）：显示 voice，隐藏 send
 
     // voice P0：把"按住语音钮 → 录音 → 松手发送 / 左滑取消"接线到 recorder + HUD（+Voice.m）。
     [self im_installVoicePressGesture];
@@ -712,14 +713,13 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     [self im_installVoiceRelayObserver];
 }
 
-/// 输入框有内容（文字或待发粘贴图）→ 显示发送、隐藏表情/加号；否则显示表情/加号、隐藏发送（#4）。
-/// 注意：程序化改 text（回填/清空）不触发 EditingChanged，需在改后手动调用本方法。
+/// Telegram 布局（v2.3）：输入框有内容 → 显示发送、隐藏语音；否则显示语音、隐藏发送。
+/// ＋ 与 内嵌 😀 恒显（Telegram 一致）。注意：程序化改 text（回填/清空）不触发 EditingChanged，需在改后手动调用本方法。
 - (void)updateSendButtonVisibility {
     BOOL hasContent = self.inputField.text.length > 0 || self.pendingPasteImages.count > 0;
     self.sendButton.hidden = !hasContent;
-    self.emojiButton.hidden = hasContent;
-    self.plusButton.hidden = hasContent;
-    self.inputTrailToEmoji.active = !hasContent;
+    self.voiceButton.hidden = hasContent; // voice/send 同槽位互斥
+    self.inputTrailToEmoji.active = !hasContent; // 名字沿用（其实是 voice.leading），改名会牵动 +Private.h + 多处引用
     self.inputTrailToSend.active = hasContent;
 }
 

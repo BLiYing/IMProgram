@@ -176,24 +176,19 @@ static const void *kIMVoiceLockedKey = &kIMVoiceLockedKey;
     self.im_voicePressRecognizer = lp;
 }
 
-/// 在输入栏子视图里定位语音按钮。宿主没把它提为 property，用**位置兜底**：
-/// 输入栏里 x 最小、绑定了 voiceTapped 的按钮就是它（IMChatViewController.m 布局：语音钮在最左）。
-/// UIImage 没有公开的 symbolName getter，走 debugDescription 抠 name 是私有依赖会随系统更新失效，
-/// 位置 + action 组合鉴别在实操中已足够可靠。
+/// 定位语音按钮：Telegram 布局（v2.3）后宿主已把它提为 self.voiceButton；
+/// 兜底扫描（用 voiceTapped action 鉴别）保留，避免 property 未装配时 nil 崩。
 - (UIButton *)im_findVoiceButton {
+    if (self.voiceButton) { return self.voiceButton; }
     UIView *inputBar = self.inputField.superview;
     if (!inputBar) { return nil; }
-    UIButton *best = nil;
-    CGFloat bestX = CGFLOAT_MAX;
     for (UIView *v in inputBar.subviews) {
         if (![v isKindOfClass:[UIButton class]]) { continue; }
         UIButton *b = (UIButton *)v;
-        // 通过 action 鉴别：只有 voiceButton 绑定了 voiceTapped（其他按钮：emoji/plus/send/attachButton 都不是）。
         NSArray<NSString *> *actions = [b actionsForTarget:self forControlEvent:UIControlEventTouchUpInside];
-        if (![actions containsObject:@"voiceTapped"]) { continue; }
-        if (b.frame.origin.x < bestX) { best = b; bestX = b.frame.origin.x; }
+        if ([actions containsObject:@"voiceTapped"]) { return b; }
     }
-    return best;
+    return nil;
 }
 
 #pragma mark - 手势事件

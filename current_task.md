@@ -5,15 +5,15 @@
 
 ## 当前焦点
 
-> **无待手测活跃项**：会话行闪烁根因修复 / IMChatViewController 续拆收官（1496→725 行）/ 巨类拆分+code-review / 相机·粘贴单图磨砂占位 / 收藏页 B 方案 均已手测通过，细节转入 `current_task.archive.md`（归档于 2026-08-22）。
+> **语音消息 P0 + P1 全端落地（2026-08-25）**：iOS 录音/波形气泡/播放/未播红点 → scrub/倍速/收端本地转文字/接力连播 → 锁定态 + 磁吸小锁 + 大圆钮跟手 全通；输入栏三端对齐 Telegram 布局（v2.3）：＋（左）| 输入框(内嵌 😀 rightView) | 🎙/➤（右缘同槽互斥）。
+> Web P1 同步：AAC 探测 + 输入栏 morph 录制 + 波形拖拽 + 倍速；转文字受 SpeechRecognition 只吃 mic 输入的限制暂搁 P2（考虑 Whisper 集成）。
 >
-> **下一里程碑 = 语音消息 P0**（设计定稿于 `../IMServer/docs/VOICE_MESSAGE_DESIGN.md` v2，后端未动代码）。iOS 侧承载：录制 UI 单行收纳（B+B 拍板，Telegram 式按住/锁定/播放三态）+ 波形气泡 + 收方长按端上转文字。等后端 `send_msg` 协议/`waveform` 列落定后开工。
-> **顺带欠账**：`setupUI(~215 行)` 抽 `IMComposerBar` 协作对象（体量正解，非再平移，专门做）。
+> **无待手测项**：iOS/Web 全 build 绿，`./scripts/test.sh`（后端）+ vitest 519 项（Web）通过；实机手测按需回测（麦克风权限流已在 P0 修过一次）。
 
 ## 下一步
-1. **接下一里程碑：语音消息 P0**（后端排队最前，见 `../IMServer/current_task.md` 与 `docs/ROADMAP.md`）——等后端协议/DB 列落定后做 iOS 录制 UI + 波形气泡。
-2. 语音落地后，收藏页 `content_type` 分类把 `voice` 一起做进去（B 方案已留位）。
-3. 欠账：`setupUI` 抽 `IMComposerBar`；「从收藏发送」入口随收藏改造统一放开（见「已知坑」）。
+1. **手测回归**：录制/播放/scrub/倍速/接力/转文字/锁定态各项在真机跑一遍（能录能播能滑能锁能自动续），任何异常记回本文件。
+2. Web P2 转文字方案调研：Whisper.wasm on-device vs OpenAI/服务端 API（要权衡隐私 + 成本 + 首屏包）。
+3. `setupUI` 抽 `IMComposerBar`（老欠账，Telegram 布局改动后代码本身没变小，再拖）；「从收藏发送」入口开放（见「已知坑」）。
 
 ## 已知坑 / 限制
 - **`runAfterKeyboardHidden:` 兜底待测（2026-08-05 记）**：依赖 `resignFirstResponder` 后必然收到 `UIKeyboardDidHideNotification`——软键盘正常成立；若实测硬件/外接键盘场景引用跳转不触发，加 `dispatch_after` 超时兜底。
