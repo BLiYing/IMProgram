@@ -24,6 +24,9 @@
 
 @property (nonatomic, strong) NSLayoutConstraint *bubbleLeadingLeft;   ///< 对方消息：左对齐（头像右）
 @property (nonatomic, strong) NSLayoutConstraint *bubbleTrailingRight; ///< 自己消息：右对齐
+@property (nonatomic, strong) NSLayoutConstraint *bubbleWidth;         ///< 按 duration 线性长；每次 configure 只改 constant，不再追加约束
+@property (nonatomic, strong) NSLayoutConstraint *bubbleMaxTrailing;   ///< 对方气泡右侧最小留白（防长语音贴屏边）
+@property (nonatomic, strong) NSLayoutConstraint *bubbleMinLeading;    ///< 自己气泡左侧最小留白
 @property (nonatomic, strong) NSLayoutConstraint *dayHeaderHeight;
 @property (nonatomic, strong) NSLayoutConstraint *senderTopSpacing;
 @end
@@ -112,6 +115,10 @@
 
     _bubbleLeadingLeft = [_bubble.leadingAnchor constraintEqualToAnchor:_avatar.trailingAnchor constant:8];
     _bubbleTrailingRight = [_bubble.trailingAnchor constraintEqualToAnchor:cv.trailingAnchor constant:-10];
+    _bubbleWidth = [_bubble.widthAnchor constraintEqualToConstant:180];
+    _bubbleWidth.active = YES;
+    _bubbleMaxTrailing = [_bubble.trailingAnchor constraintLessThanOrEqualToAnchor:cv.trailingAnchor constant:-60];
+    _bubbleMinLeading = [_bubble.leadingAnchor constraintGreaterThanOrEqualToAnchor:cv.leadingAnchor constant:60];
 
     [NSLayoutConstraint activateConstraints:@[
         // 未读分割线（基类）：顶到 contentView 顶。
@@ -134,7 +141,7 @@
         // 气泡定位（左右锚随 mine 切换，见 configure）
         [_bubble.topAnchor constraintEqualToAnchor:_senderLabel.bottomAnchor constant:2],
         [_bubble.bottomAnchor constraintEqualToAnchor:cv.bottomAnchor constant:-4],
-        [_bubble.heightAnchor constraintEqualToConstant:44],
+        [_bubble.heightAnchor constraintEqualToConstant:52],
         // 气泡内元素
         [_playButton.leadingAnchor constraintEqualToAnchor:_bubble.leadingAnchor constant:6],
         [_playButton.centerYAnchor constraintEqualToAnchor:_bubble.centerYAnchor],
@@ -183,13 +190,11 @@
 
     [IMTheme applyBubbleDirectionStyle:self.bubble mine:mine];
     // 气泡对齐：mine → 右；对方 → 左（贴头像右）。
+    // 右侧/左侧的最小留白约束在 setupConstraints 建好，此处只 toggle active——避免复用 cell 时约束越加越多。
     self.bubbleLeadingLeft.active = !mine;
     self.bubbleTrailingRight.active = mine;
-    if (!mine) {
-        [self.bubble.trailingAnchor constraintLessThanOrEqualToAnchor:self.contentView.trailingAnchor constant:-60].active = YES;
-    } else {
-        [self.bubble.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.contentView.leadingAnchor constant:60].active = YES;
-    }
+    self.bubbleMaxTrailing.active = !mine;
+    self.bubbleMinLeading.active = mine;
 
     // 波形数据
     self.waveform.amplitudes = [IMWaveformView amplitudesFromBase64:message.waveform];
@@ -204,14 +209,12 @@
         self.playButton.backgroundColor = IMTheme.accent;
     }
     // 气泡宽度按 duration 线性长（最少 130pt，最多 240pt——tokens 见 §6.1）。
+    // 直接改 bubbleWidth.constant，不再动态追加约束（复用 cell 时会重复叠加）。
     CGFloat dur = MAX(1.0, message.duration / 1000.0);
-    CGFloat targetW = MIN(240.0, 96.0 + dur * 3.6);
-    for (NSLayoutConstraint *c in self.bubble.constraints) {
-        if (c.firstAttribute == NSLayoutAttributeWidth && c.firstItem == self.bubble) { c.constant = targetW; return; }
-    }
-    [self.bubble.widthAnchor constraintEqualToConstant:targetW].active = YES;
+    self.bubbleWidth.constant = MIN(240.0, MAX(130.0, 96.0 + dur * 3.6));
 
     self.durationLabel.text = [self formatDur:self.totalDurationMillis];
+    // 未播红点仅对方消息 + 本机未播过时显；hasPlayed 由宿主传入（已 mine || 查询 IMVoicePlayer 已播集合）。
     self.unplayedDot.hidden = mine || hasPlayed;
 
     // 同步当前播放器状态（切页/复用时保持进度）。

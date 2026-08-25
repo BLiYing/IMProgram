@@ -230,12 +230,16 @@ static CGFloat const kIMRowLeading = 16;
         dispatch_once(&once, ^{
             mediaNames = @{ @"image": @"[图片]", @"video": @"[视频]", @"file": @"[文件]",
                             @"chat_record": @"[聊天记录]",
-                            @"audio": @"[语音]", @"location": @"[位置]" };
+                            @"location": @"[位置]" };
         });
         // 图说 caption「有字显字」（Telegram 模型）：图文/视频文/文件文带 caption 时列表预览显 caption，否则回退 [图片] 等。
         if (c.lastCaption.length > 0 &&
             ([c.lastContentType isEqualToString:@"image"] || [c.lastContentType isEqualToString:@"video"] || [c.lastContentType isEqualToString:@"file"])) {
             mediaPreview = c.lastCaption;
+        } else if ([c.lastContentType isEqualToString:@"voice"]) {
+            // voice P0：预览 [语音] m:ss（时长来自 MessageView.duration）。与 iOS 的 IMVoiceBubbleCell 格式一致。
+            int64_t sec = MAX((int64_t)0, c.lastDuration / 1000);
+            mediaPreview = [NSString stringWithFormat:@"[语音] %lld:%02lld", sec / 60, sec % 60];
         } else {
             mediaPreview = mediaNames[c.lastContentType ?: @""];
         }

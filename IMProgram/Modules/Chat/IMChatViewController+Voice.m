@@ -14,6 +14,7 @@
 //
 
 #import "IMChatViewController+Private.h"
+#import <AVFoundation/AVFoundation.h>
 #import "IMMessageModel.h"
 #import "IMMediaAttributes.h"
 #import "IMHTTPService.h"
@@ -99,29 +100,24 @@ static const void *kIMVoiceCancelReadyKey = &kIMVoiceCancelReadyKey;
     self.im_voicePressRecognizer = lp;
 }
 
-/// 在输入栏子视图里定位那个"waveform.circle"按钮——宿主没暴露 property，用图片名匹配。
-/// 未来 IMChatViewController 若把 voiceButton 提为 property，改成直接读即可。
+/// 在输入栏子视图里定位语音按钮。宿主没把它提为 property，用**位置兜底**：
+/// 输入栏里 x 最小、绑定了 voiceTapped 的按钮就是它（IMChatViewController.m 布局：语音钮在最左）。
+/// UIImage 没有公开的 symbolName getter，走 debugDescription 抠 name 是私有依赖会随系统更新失效，
+/// 位置 + action 组合鉴别在实操中已足够可靠。
 - (UIButton *)im_findVoiceButton {
     UIView *inputBar = self.inputField.superview;
     if (!inputBar) { return nil; }
+    UIButton *best = nil;
+    CGFloat bestX = CGFLOAT_MAX;
     for (UIView *v in inputBar.subviews) {
         if (![v isKindOfClass:[UIButton class]]) { continue; }
         UIButton *b = (UIButton *)v;
-        UIImage *img = [b imageForState:UIControlStateNormal];
-        // waveform.circle 是宿主 IMChatViewController.m 里 voiceButton 的唯一 image。
-        // 若失配（皮肤替换/资源改名），退化：宿主 voiceTapped 走既有 comingSoon 分支，功能可控。
-        NSString *name = img.symbolConfiguration ? [self im_imageSymbolName:img] : nil;
-        if ([name isEqualToString:@"waveform.circle"]) { return b; }
+        // 通过 action 鉴别：只有 voiceButton 绑定了 voiceTapped（其他按钮：emoji/plus/send/attachButton 都不是）。
+        NSArray<NSString *> *actions = [b actionsForTarget:self forControlEvent:UIControlEventTouchUpInside];
+        if (![actions containsObject:@"voiceTapped"]) { continue; }
+        if (b.frame.origin.x < bestX) { best = b; bestX = b.frame.origin.x; }
     }
-    return nil;
-}
-
-/// UIImage 上没有公开的 symbolName getter；用 accessibilityIdentifier 也不合适，
-/// 走 CGImageSource 是过度设计。回退：直接对 subviews 中 rect.origin.x 最小的按钮认作 voice。
-- (nullable NSString *)im_imageSymbolName:(UIImage *)img {
-    // 从 image.debugDescription 抠 name 是私有依赖，会随系统更新失效——不做。
-    // 直接返 nil 走位置兜底（inputBar 里 x 最小的按钮 = 语音钮）。
-    return nil;
+    return best;
 }
 
 #pragma mark - 手势事件
@@ -162,22 +158,44 @@ static const void *kIMVoiceCancelReadyKey = &kIMVoiceCancelReadyKey;
 }
 
 - (void)im_startVoiceRecording {
-    __weak typeof(self) weakSelf = self;
-    [IMVoiceRecorder requestMicrophonePermission:^(BOOL granted) {
-        __strong typeof(weakSelf) self = weakSelf;
-        if (!self) { return; }
-        if (!granted) {
-            [self im_showToast:@"需要麦克风权限：在系统设置中开启后重试"];
-            [self.im_voicePressRecognizer setEnabled:NO];
-            [self.im_voicePressRecognizer setEnabled:YES];
-            return;
-        }
-        [self.im_voiceHUD setSlideOffset:0];
-        [self.im_voiceHUD setCancelReady:NO];
-        [self.im_voiceHUD updateAmplitude:0 elapsedMillis:0];
-        [self.im_voiceHUD setVisible:YES animated:YES];
-        [self.im_voiceRecorder start];
-    }];
+    // 权限**同步查询**：只有 granted 才立刻开录；undetermined 触发系统请求但**不启动本次录音**——
+    // 否则用户第一次按住松手后，permission 回调才 fire，会在没有按住的情况下无声开始录音（无止境）。
+    // 请求返回后弹提示："已授权，再次按住说话"；下次按住时权限已 granted → 立即开录。
+    AVAudioSession *session = [AVAudioSession sharedInstance];
+    AVAudioSessionRecordPermission perm = session.recordPermission;
+    if (perm == AVAudioSessionRecordPermissionDenied) {
+        [self im_showToast:@"需要麦克风权限：在系统设置中开启后重试"];
+        return;
+    }
+    if (perm == AVAudioSessionRecordPermissionUndetermined) {
+        __weak typeof(self) weakSelf = self;
+        [IMVoiceRecorder requestMicrophonePermission:^(BOOL granted) {
+            __strong typeof(weakSelf) self = weakSelf;
+            if (!self) { return; }
+            if (!granted) {
+                [self im_showToast:@"未授权：在系统设置中开启麦克风"];
+                return;
+            }
+            // granted 后如果用户仍按住语音钮，直接开录；否则提示"再次按住"。
+            UIGestureRecognizerState st = self.im_voicePressRecognizer.state;
+            BOOL stillPressing = (st == UIGestureRecognizerStateBegan || st == UIGestureRecognizerStateChanged);
+            if (stillPressing) {
+                [self.im_voiceHUD setSlideOffset:0];
+                [self.im_voiceHUD setCancelReady:NO];
+                [self.im_voiceHUD updateAmplitude:0 elapsedMillis:0];
+                [self.im_voiceHUD setVisible:YES animated:YES];
+                [self.im_voiceRecorder start];
+            } else {
+                [self im_showToast:@"已授权，再次按住说话"];
+            }
+        }];
+        return;
+    }
+    [self.im_voiceHUD setSlideOffset:0];
+    [self.im_voiceHUD setCancelReady:NO];
+    [self.im_voiceHUD updateAmplitude:0 elapsedMillis:0];
+    [self.im_voiceHUD setVisible:YES animated:YES];
+    [self.im_voiceRecorder start];
 }
 
 #pragma mark - IMVoiceRecorderDelegate
