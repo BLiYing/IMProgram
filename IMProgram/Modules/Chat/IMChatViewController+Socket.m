@@ -44,8 +44,15 @@
 
 - (NSString *)im_navigationSubtitle {
     if (self.selecting) { return @""; } // 多选态隐藏副标题（成员数/在线/正在输入），标题保留「已选择 N 条」+ 可点进详情（a6）
-    if (self.peerTyping) {
-        return @"正在输入";
+    if (self.peerTypingUid.length > 0) {
+        if (self.isGroupChat) {
+            // 群 typing 简化设计：覆盖式记最新一位打字者，副标题固定「{昵称} 正在输入」（不管几人同时打字）。
+            // 昵称三级 fallback：群成员表 → uid（协议未下发昵称，页内不做全局用户表反查）。
+            NSString *nick = [self.groupInfo nicknameOfMember:self.peerTypingUid];
+            NSString *display = nick.length > 0 ? nick : self.peerTypingUid;
+            return [NSString stringWithFormat:@"%@ 正在输入", display];
+        }
+        return @"正在输入"; // 单聊对端只有一人，不带名字
     }
     // 连接态优先：断开 / 连接中时副标题显示连接状态（同「在线」位置，无括号），
     // 覆盖单聊在线态与群聊成员数——此时本地在线快照无法再更新，显示连接态才是可验证的状态。
@@ -147,17 +154,18 @@
     }
 }
 
-/// 对端正在输入 → 标题栏副标题暂显「正在输入」，3s 后恢复在线态/成员数。
+/// 对端正在输入 → 标题栏副标题暂显「{昵称} 正在输入」（群）或「正在输入」（单聊），3s 后恢复。
+/// 群里多人同时打字：覆盖式（最新一位覆盖前一位），刻意不做多人聚合——信息含量够、实现零复杂度。
 - (void)socketManager:(IMSocketManager *)manager didTypingInConv:(NSString *)convID by:(NSString *)from {
     if (![convID isEqualToString:self.convID] || [from isEqualToString:self.userID]) { return; }
-    self.peerTyping = YES;
+    self.peerTypingUid = from;
     [self updateTitle];
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(hideTyping) object:nil];
     [self performSelector:@selector(hideTyping) withObject:nil afterDelay:3.0];
 }
 
 - (void)hideTyping {
-    self.peerTyping = NO;
+    self.peerTypingUid = nil;
     [self updateTitle];
 }
 

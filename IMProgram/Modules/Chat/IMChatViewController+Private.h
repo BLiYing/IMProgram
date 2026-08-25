@@ -80,9 +80,10 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) IMSocketState connState; // 连接态（与在线点共同决定标题）
 @property (nonatomic, assign) BOOL didInitialPosition; // 已做进会话定位（只定位一次）
 @property (nonatomic, assign) BOOL didInitialSettle;   // 进场动画后已做过一次落定校正（防从子页返回时被强拉贴底）
+@property (nonatomic, assign) NSTimeInterval selfSendScrollGuardUntil; ///< 自己发消息触发的贴底动作在此时刻前抑制"↓N"箭头显示（防插入→贴底过渡窗口里 isNearBottom 短暂 false 使箭头闪一下）
 @property (nonatomic, assign) BOOL needsRowHeightSettle; // 滚动中媒体尺寸落定 → 延迟到滚动停止再重排行高
 @property (nonatomic, assign) NSTimeInterval lastTypingSent; // typing 节流
-@property (nonatomic, assign) BOOL peerTyping; // 对端 typing 短暂覆盖聊天页副标题
+@property (nonatomic, copy, nullable) NSString *peerTypingUid; // 对端 typing 发送方 uid（覆盖式，最新一位）；空=无人打字。副标题渲染时群聊拼「{昵称} 正在输入」，单聊拼「正在输入」
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) UITextField *inputField;
 @property (nonatomic, strong) NSLayoutConstraint *inputBottom;

@@ -156,6 +156,10 @@
     NSNumber *recalledAt = note.userInfo[kIMMsgOpRecalledAtKey];
     NSNumber *editedAt   = note.userInfo[kIMMsgOpEditedAtKey];
     NSNumber *pinnedAt   = note.userInfo[kIMMsgOpPinnedAtKey];
+    // 撤回会把气泡替换为墓碑行（高度骤减，最后一条为图片/视频时缩水几百 pt）——需在 reload 前
+    // 记住是否贴底，reload 后强制精确贴底，否则 contentOffset 会被 UIKit clamp 向上跳一段
+    // （露出白底 + 一次视觉抖动）。仅撤回路径需要，编辑/置顶行高变化可忽略。
+    BOOL wasNearBottomForRecall = (recalledAt != nil) && [self isNearBottom];
     for (IMMessageModel *m in self.messages) {
         if (m.convSeq != target) { continue; }
         if (recalledAt) {
@@ -171,6 +175,7 @@
         break;
     }
     [self.tableView reloadData];
+    if (wasNearBottomForRecall) { [self scrollToAbsoluteBottom]; } // animated:NO，无闪
     // 横幅刷新：pin/unpin 必刷；撤回/编辑若命中横幅里的置顶项也要刷——服务端置顶列表已剔除
     // 撤回消息、编辑改文案，不刷会留一条指向墓碑/旧文案的横幅（delete 路径同理已无条件刷）。
     BOOL touchesPinnedBanner = NO;
