@@ -63,7 +63,12 @@ NSNotificationName const IMChatConversationClearedNotification = @"IMChatConvers
 // 私有类扩展（属性/协议/指定初始化器）已移至 IMChatViewController+Private.h，
 // 供本主实现文件与各分文件 category（+Media / +Menu / +Selection …）共享。
 
-@implementation IMChatViewController
+@implementation IMChatViewController {
+    // push 到子页（如资料页）前保存输入框焦点态：回到本页时按需恢复，避免 iOS 在 push/pop
+    // 交叠时段的 UIKeyboardWillChangeFrame 通知与自动 first-responder 恢复出现竞态，
+    // 导致回来后键盘弹起但 inputBottom 停在 0（输入栏被键盘遮住）——该 bug 偶现于点头像去资料页再返回。
+    BOOL _pushedWithKeyboardUp;
+}
 
 - (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID peerID:(NSString *)peerID
                      readSeq:(int64_t)readSeq unread:(NSInteger)unread peerReadSeq:(int64_t)peerReadSeq {
@@ -443,6 +448,14 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     }
     // 可见即读：把定位后当前可见的消息标为已读（不滚动也算看到）。
     dispatch_async(dispatch_get_main_queue(), ^{ [self markVisibleRowsRead]; });
+    // 从子页返回：如果离开前键盘是弹起态，回来后重新聚焦输入框——becomeFirstResponder 会触发
+    // UIKeyboardWillChangeFrame 让 keyboardWillChange: 重新算 kbInset 并更新 inputBottom，
+    // 保证输入栏跟着键盘一同抬起（而不是被键盘遮住）。放 viewDidAppear 而非 viewWillAppear：
+    // 转场动画结束、self.view 已稳定在窗口坐标里，convertRect:fromView:nil 才能算对。
+    if (_pushedWithKeyboardUp) {
+        _pushedWithKeyboardUp = NO;
+        [self.inputField becomeFirstResponder];
+    }
 }
 
 - (void)viewWillDisappear:(BOOL)animated {
@@ -453,6 +466,14 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     [self flushReadPosition];
     [self dismissMentionPanel]; // 离开/推子页前收起内联 @面板，避免残留
     [self stopPresenceTick]; // 页面不可见就没必要重算；也避免 timer 拖住 VC 不释放
+    // 推子页（资料页等）前先主动收键盘、离开时同步一次 inputBottom：iOS 在 push/pop 过渡期
+    // 会自动 resign 又 restore first-responder，其间的 UIKeyboardWillChangeFrame 通知与本页
+    // convertRect:fromView:nil 计算存在竞态——曾偶发「返回后键盘弹起但 inputBottom 停在 0，
+    // 输入栏被键盘遮住」。这里强制清零，并按需在回来时恢复焦点，把行为收敛到确定路径。
+    if (!self.isMovingFromParentViewController && self.inputField.isFirstResponder) {
+        _pushedWithKeyboardUp = YES;
+        [self.inputField resignFirstResponder];
+    }
     if (self.isMovingFromParentViewController) {
         // 真正离开聊天页（非推子页）：退订对端在线态，服务端不再向本连接推它的 presence。
         // 推子页（资料页等）不退订——回来时 viewWillAppear 会幂等重发，中途保持关注更自然。
@@ -721,6 +742,11 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
 /// 用精确贴底而非 scrollToRow…Bottom：估高（56）下后者会停在真底部之上，
 /// 发媒体/文件（真实行高远超估高）时表现为"没滚到最新消息"。
 - (void)appendReloadAndScroll {
+    // 自己发媒体/文件时，先插入乐观气泡（行高从估高 56 → 真实图/视频高，contentSize 骤增），
+    // scrollToAbsoluteBottom 迭代收敛期间 scrollViewDidScroll 会以中间态偏移调用 updateJumpButton，
+    // isNearBottom 短暂 false → ↓N 箭头闪一下、贴底后又消失。语义上"我自己发的消息"从不该触发"跳到底部"
+    // 提示，这里给一个 0.5s 抑制窗口，让 updateJumpButton 在此期间保持隐藏。
+    self.selfSendScrollGuardUntil = [NSDate timeIntervalSinceReferenceDate] + 0.5;
     [self.tableView reloadData];
     [self scrollToAbsoluteBottom];
     [self markVisibleRowsRead];
