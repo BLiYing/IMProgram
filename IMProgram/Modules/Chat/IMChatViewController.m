@@ -710,6 +710,7 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     [self im_installVoicePressGesture];
     // voice P1：接力连播——一条语音自然播完后，自动播下一条未播的对方语音（同会话，遇非 voice 停）。
     [self im_installVoiceRelayObserver];
+    [self im_installVoiceTranscriptObserver]; // 服务端转文字结果经 WS 回来（幂等）
 }
 
 /// Telegram 布局（v2.3）：输入框有内容 → 显示发送、隐藏语音；否则显示语音、隐藏发送。

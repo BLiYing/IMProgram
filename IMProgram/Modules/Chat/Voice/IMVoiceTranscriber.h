@@ -1,10 +1,12 @@
 //
 //  IMVoiceTranscriber.h
-//  语音转文字（P1，收端本地按需，见 IMServer docs/VOICE_MESSAGE_DESIGN.md §6.3）：
-//    - 收方长按气泡 →「转文字」→ 本机 SFSpeechRecognizer 端上识别
-//    - 结果只存本地 NSUserDefaults per uid+conv+mid（不上行、不落服务端、不跨端）
-//    - 再次展开零延迟；识别不可用时降级"转文字暂不可用"
-//    - 权限：NSSpeechRecognitionUsageDescription（Info.plist）+ 首次 SFSpeechRecognizer.requestAuthorization
+//  语音转文字（**服务端识别**，见 IMServer docs/VOICE_TRANSCRIBE_DESIGN.md）：
+//    - 收方长按气泡 →「转文字」→ POST /api/v1/voice/transcripts（只传消息坐标）
+//    - 命中服务端缓存 → 立即回文本；未命中 → 回 pending，结果经 WS voice_transcript 帧到达
+//    - 本地按**音频路径**缓存一份（与服务端同口径），避免重复请求；再次展开零延迟
+//
+//  2026-08-26 从端上 SFSpeechRecognizer 改为服务端识别：iOS 本地语言包长期不可控，
+//  Web 端原理上做不到（浏览器 SpeechRecognition 只吃实时麦克风流），端上方案已证伪。
 //
 
 #import <Foundation/Foundation.h>
@@ -13,9 +15,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 typedef NS_ENUM(NSInteger, IMVoiceTranscribeStatus) {
     IMVoiceTranscribeStatusIdle = 0,
-    IMVoiceTranscribeStatusRecognizing,
+    IMVoiceTranscribeStatusRecognizing, ///< 已入队，等服务端推结果
     IMVoiceTranscribeStatusDone,
-    IMVoiceTranscribeStatusUnavailable, ///< 无权限 / recognizer 不支持当前 locale / 引擎错误
+    IMVoiceTranscribeStatusUnavailable, ///< 未启用 / 识别失败 / 队列满 / 限流（文案由 errorText 给）
 };
 
 extern NSNotificationName const IMVoiceTranscriberDidChangeNotification;
@@ -23,37 +25,41 @@ extern NSNotificationName const IMVoiceTranscriberDidChangeNotification;
 
 @interface IMVoiceTranscriber : NSObject
 
-/// 语音识别授权是否被拒/受限（供上层判定文案是"去设置开启"还是"识别不可用"）。
-+ (BOOL)isAuthorizationDeniedOrRestricted;
-
-/// Unavailable 时的详细原因描述——权限已给但识别器不可用时，指出可能是网络断/语言不支持/需要下载语言包。
-+ (NSString *)unavailableReasonDescription;
-
-/// 内存缓存查询（滚动列表 configure 热路径专用，不走 NSUserDefaults 读盘）。miss 返回 nil，
-/// 首次落盘时按需从 NSUserDefaults 懒加载并回填 mem cache。
-
 + (instancetype)sharedTranscriber;
 
-/// 本地是否已有缓存的转写文本。缓存 key = per-uid + per-conv + per-mid。
-- (nullable NSString *)cachedTextForMessageID:(NSString *)mid
-                                       convID:(nullable NSString *)convID
-                                        owner:(nullable NSString *)ownerUID;
+/// 把服务端业务错误码映射成给用户看的文案（CONVENTIONS §2.3：端按 code 做映射，不展示服务端原文）。
++ (NSString *)messageForErrorCode:(NSInteger)code fallback:(nullable NSString *)fallback;
 
-/// 启动一次识别；本地已有缓存 → 直接回 status Done。识别过程通过通知推 status/text。
-/// audioURL 需为已下载到本地的音频（voice 恒自动下载策略见设计文档 §7）。
-- (void)transcribeMessageID:(NSString *)mid
-                     convID:(nullable NSString *)convID
-                      owner:(nullable NSString *)ownerUID
-                   audioURL:(NSURL *)audioURL;
+/// 本地是否已有缓存的转写文本。缓存 key = **音频路径**（与服务端按 content 去重同口径：
+/// 同一条语音转发多次、被收藏，指向同一个音频对象，只该有一份文本）。
+- (nullable NSString *)cachedTextForContent:(NSString *)content;
 
-/// 查询当前状态（用于 cell 复用时决定是否显 loading）。
+/// 发起转写。命中本地缓存直接回 Done；否则走 REST，结果经通知推送。
+/// convID/convSeq 是消息坐标；content 仅用于本地缓存 key，**不发给服务端**。
+- (void)transcribeConvID:(NSString *)convID
+                 convSeq:(int64_t)convSeq
+                 content:(NSString *)content
+              messageID:(NSString *)messageID
+                   token:(NSString *)token;
+
+/// 收到 WS voice_transcript 帧时由 socket 观察者转交，落本地缓存并广播。
+- (void)applyRemoteStatus:(NSString *)status
+                     text:(nullable NSString *)text
+                  content:(NSString *)content
+                   convID:(NSString *)convID
+                messageID:(NSString *)messageID;
+
+/// 查询当前状态（cell 复用时决定是否显 loading）。
 - (IMVoiceTranscribeStatus)statusForMessageID:(NSString *)mid;
 
-/// 清掉一条的转写结果（长按菜单「取消转文字」）：删缓存 + 删落盘 + 复位状态；
-/// 若该条正在识别中，一并取消在跑的 SFSpeechRecognitionTask。key 口径同 cachedTextForMessageID:。
-- (void)clearTranscriptForMessageID:(NSString *)mid
-                             convID:(nullable NSString *)convID
-                              owner:(nullable NSString *)ownerUID;
+/// 折叠某条的转写面板（长按菜单「取消转文字」）。
+///
+/// **只清本地展开状态，不删服务端结果**——服务端缓存是会话共享的，
+/// 一个人"取消"不该把别人也能看到的结果删掉。下次再点「转文字」会秒出（命中缓存）。
+- (void)collapseMessageID:(NSString *)mid;
+
+/// 该条是否被本地折叠过（+Menu.m 据此决定菜单显「转文字」还是「取消转文字」）。
+- (BOOL)isCollapsedMessageID:(NSString *)mid;
 
 @end
 

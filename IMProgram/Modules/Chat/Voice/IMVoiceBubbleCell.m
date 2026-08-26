@@ -9,7 +9,6 @@
 #import "IMTheme.h"
 #import "IMTimeUtil.h"
 #import "IMVoiceTranscriber.h" // 复用缓存自动展开转写面板（cell 复用后不丢文字，2026-08-27 修）
-#import "IMSessionStore.h"     // 转写缓存 key 的 owner = 当前登录账号（与写入侧同口径）
 #import "UILabel+IMAvatar.h"
 
 @interface IMVoiceBubbleCell () <UIGestureRecognizerDelegate>
@@ -26,7 +25,7 @@
 @property (nonatomic, strong) UIView *transcriptPanel;    ///< 转写面板（贴气泡下方，收起=hidden）
 @property (nonatomic, strong) UIView *transcriptRule;     ///< 面板左侧蓝色引用线（与引用条视觉语系一致）
 @property (nonatomic, strong) UILabel *transcriptLabel;
-@property (nonatomic, strong) UILabel *transcriptFooter;  ///< "📝 本机识别 · 仅本地保存"
+@property (nonatomic, strong) UILabel *transcriptFooter;  ///< 隐私边界说明（直接写在界面上）
 @property (nonatomic, strong) NSLayoutConstraint *transcriptTopSpacing;
 
 @property (nonatomic, copy, nullable) NSString *currentID;
@@ -168,7 +167,9 @@
     _transcriptFooter.translatesAutoresizingMaskIntoConstraints = NO;
     _transcriptFooter.font = [UIFont systemFontOfSize:10];
     _transcriptFooter.textColor = IMTheme.textSecondary;
-    _transcriptFooter.text = @"📝 本机识别 · 仅本地保存";
+    // 识别已从端上改到服务端（VOICE_TRANSCRIBE_DESIGN）：文案必须跟着改，
+    // 否则界面上写着"仅本地保存"而实际结果存在服务端，是**错误的隐私承诺**。
+    _transcriptFooter.text = @"📝 由服务器识别，结果可能不完全准确";
     [_transcriptPanel addSubview:_transcriptFooter];
 
     // 发送失败红 !（§5.5）：气泡左侧外（mine 气泡右对齐），点击=重试。默认隐藏。
@@ -348,12 +349,12 @@
     self.panelTrailingPeer.active = !mine;
     // 复用 cell 时先收起转写面板，再查缓存自动展开——**cell 复用不再丢转写文字**（2026-08-27 修：
     // 曾靠宿主重新触发才展开，滚出屏再回来就消失；缓存本机永久，configure 里同步查询即可）。
-    // owner **必须是当前登录账号**，与写入侧（+Voice.m im_transcribeVoiceMessage: 用 self.userID）同口径。
-    // 曾用 `message.to ?: message.from`：单聊收到的消息 to==我 恰好蒙对，但**群聊 to 为 nil → 回落成
-    // 发送者 uid**，key 对不上 → 滚出屏再回来转写文字消失、只剩撑开的空白（用户 2026-08-27 群里实测复现）。
-    NSString *cachedText = [[IMVoiceTranscriber sharedTranscriber] cachedTextForMessageID:self.currentID
-                                                                                   convID:message.convID
-                                                                                    owner:IMSessionStore.userID];
+    // 缓存 key = **音频路径**，与服务端 im_voice_transcript 主键同口径（转写按音频内容去重）。
+    // 这替换掉了 2026-08-26 那版 per-uid+conv+mid 的 key —— 它的读写两侧 owner 取法不一致，
+    // 群聊里必然对不上（写入用登录 uid，读取用 message.to，而群聊 to 为 nil）。
+    // 本地折叠过（长按「取消转文字」）的条目不自动展开。
+    IMVoiceTranscriber *tr = [IMVoiceTranscriber sharedTranscriber];
+    NSString *cachedText = [tr isCollapsedMessageID:self.currentID] ? nil : [tr cachedTextForContent:message.content];
     [self layoutTranscriptText:cachedText loading:NO]; // 复用路径不触发整表重算（见方法注释）
     // scrub 残留清理：上一次未走 Ended 的 scrubTip 若还在 alpha=1，reuse 到别的 cell 会看到"幽灵时间条"。
     self.scrubTip.alpha = 0; self.scrubbing = NO;

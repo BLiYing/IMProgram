@@ -79,6 +79,15 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
                      convSeq:(int64_t)convSeq
                   completion:(void (^)(NSError *_Nullable error))completion;
 
+/// 语音转文字（服务端识别）：POST /api/v1/voice/transcripts {conv_id, conv_seq}。
+/// **只传消息坐标不传音频路径**（服务端自己反查 content 并过路径白名单）。
+/// status = pending（已入队，等 WS voice_transcript 帧）/ done（带 text）/ failed。
+/// 失败时 error.code 为业务码：500101 未启用 / 500102 识别失败 / 500103 队列满 / 100002 限流。
+- (void)transcribeVoiceWithToken:(NSString *)token
+                          convID:(NSString *)convID
+                         convSeq:(int64_t)convSeq
+                      completion:(void (^)(NSString *_Nullable status, NSString *_Nullable text, NSError *_Nullable error))completion;
+
 /// 登录 catch-up（任务2）：GET /api/v1/messages/hidden → 隐藏消息全集 `[{conv_id, conv_seq}]`。completion 主线程回调。
 - (void)fetchHiddenWithToken:(NSString *)token
                   completion:(void (^)(NSArray<NSDictionary *> *_Nullable items, NSError *_Nullable error))completion;

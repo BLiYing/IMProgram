@@ -66,6 +66,10 @@ extern NSString * const kIMPresenceKey;
 /// 收到 capabilities_update（账号级自动下载策略变更，M4-7）：IMDownloadSettingsStore 据此重拉 /download-settings 做多端同步。
 extern NSString * const IMSocketDidReceiveCapabilitiesUpdateNotification;
 
+/// 语音转文字结果到达（服务端识别完成）。userInfo: @"convID"(NSString), @"convSeq"(NSNumber),
+/// @"status"(NSString: done/failed/pending), @"text"(NSString, 可空)。
+extern NSString * const IMSocketDidReceiveVoiceTranscriptNotification;
+
 /// 连接状态。
 typedef NS_ENUM(NSInteger, IMSocketState) {
     IMSocketStateDisconnected = 0, ///< 未连接 / 已断开

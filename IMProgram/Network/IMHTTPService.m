@@ -914,6 +914,22 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     [self runOKRequest:req fallback:@"删除失败" completion:completion];
 }
 
+- (void)transcribeVoiceWithToken:(NSString *)token
+                          convID:(NSString *)convID
+                         convSeq:(int64_t)convSeq
+                      completion:(void (^)(NSString *, NSString *, NSError *))completion {
+    NSDictionary *bodyDict = @{ @"conv_id": convID ?: @"", @"conv_seq": @(convSeq) };
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/voice/transcripts" method:@"POST" token:token body:bodyDict];
+    // 走 runDataRequest 而非 runOKRequest：需要按业务码分支（未启用/队列满/限流文案各不同），
+    // runOKRequest 会把 code 丢掉只留文案。
+    [self runDataRequest:req fallback:@"转文字失败" completion:^(NSDictionary *data, NSError *error) {
+        if (error) { completion(nil, nil, error); return; }
+        NSString *status = [data[@"status"] isKindOfClass:NSString.class] ? data[@"status"] : @"";
+        NSString *text = [data[@"text"] isKindOfClass:NSString.class] ? data[@"text"] : nil;
+        completion(status, text, nil);
+    }];
+}
+
 - (void)fetchHiddenWithToken:(NSString *)token
                   completion:(void (^)(NSArray<NSDictionary *> *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/messages/hidden" method:@"GET" token:token body:nil];

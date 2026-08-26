@@ -322,6 +322,8 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 // 声明放在共享私有头，让赋值点（如主实现 setupUI 的 tableView.dataSource=self）也看得到 conformance。
 /// UITableViewDataSource 必需的 numberOfRowsInSection / cellForRowAtIndexPath 都在 +DataSource.m。
 @interface IMChatViewController (DataSource) <UITableViewDataSource>
+/// 按 conv_seq 找已加载的消息（+Voice.m 的转写结果落位要用；跨 TU 私有方法在此登记）。
+- (nullable IMMessageModel *)messageWithConvSeq:(int64_t)convSeq;
 @end
 /// UIContextMenuInteractionDelegate 必需的 configurationForMenuAtLocation 与 initWithDelegate:self 都在 +Menu.m。
 @interface IMChatViewController (Menu) <UIContextMenuInteractionDelegate>

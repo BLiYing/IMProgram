@@ -18,6 +18,9 @@ NS_ASSUME_NONNULL_BEGIN
 /// 装接力连播的观察者（一并在装手势时调用即可，幂等）。
 - (void)im_installVoiceRelayObserver;
 
+/// 装「服务端转文字结果」的 WS 观察者（幂等，随宿主 VC）。
+- (void)im_installVoiceTranscriptObserver;
+
 /// 播放某条语音消息（DataSource 的 onPlayTap 回调调用）。fullURL = self fullMediaURL:message.content。
 - (void)im_playVoiceMessage:(IMMessageModel *)message fullURL:(NSString *)fullURL;
 

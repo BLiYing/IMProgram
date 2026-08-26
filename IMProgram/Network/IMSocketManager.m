@@ -32,6 +32,7 @@ NSString * const kIMConvIDKey = @"convID";
 NSString * const kIMConvRemarkKey = @"convRemark";
 NSString * const IMSocketDidReceivePresenceNotification = @"IMSocketDidReceivePresenceNotification";
 NSString * const IMSocketDidReceiveCapabilitiesUpdateNotification = @"IMSocketDidReceiveCapabilitiesUpdateNotification";
+NSString * const IMSocketDidReceiveVoiceTranscriptNotification = @"IMSocketDidReceiveVoiceTranscriptNotification";
 NSString * const kIMPresenceUserKey = @"presenceUser";
 NSString * const kIMPresenceKey = @"presence";
 NSString * const IMSocketDidApplyMsgOpNotification = @"IMSocketDidApplyMsgOpNotification";
@@ -354,6 +355,19 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
         int64_t convSeq = [payload[@"conv_seq"] longLongValue];
         if (convID.length > 0 && convSeq > 0) {
             [self removeLocalMessageOnQueueInConv:convID targetConvSeq:convSeq advancingSyncedConvSeq:0];
+        }
+    } else if ([type isEqualToString:kIMTypeVoiceTranscript]) {
+        // 语音转文字结果（服务端识别）：只广播，由聊天页的转写面板消费。
+        NSString *convID = [payload[@"conv_id"] isKindOfClass:NSString.class] ? payload[@"conv_id"] : @"";
+        int64_t convSeq = [payload[@"conv_seq"] longLongValue];
+        NSString *status = [payload[@"status"] isKindOfClass:NSString.class] ? payload[@"status"] : @"";
+        NSString *text = [payload[@"text"] isKindOfClass:NSString.class] ? payload[@"text"] : @"";
+        if (convID.length > 0 && convSeq > 0) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidReceiveVoiceTranscriptNotification
+                    object:self userInfo:@{ @"convID": convID, @"convSeq": @(convSeq),
+                                            @"status": status, @"text": text }];
+            });
         }
     } else if ([type isEqualToString:kIMTypeConvUpdate]) {
         [self handleConvUpdate:payload];

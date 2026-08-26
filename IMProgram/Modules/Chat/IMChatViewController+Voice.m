@@ -624,37 +624,44 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
     }];
 }
 
-#pragma mark - 转文字（P1）
+#pragma mark - 转文字（服务端识别，见 IMServer docs/VOICE_TRANSCRIBE_DESIGN.md）
 
 - (BOOL)im_hasVoiceTranscript:(IMMessageModel *)message {
     NSString *mid = IMVoicePlayerPlayableIDForMessage(message);
     if (!mid) { return NO; }
-    return [[IMVoiceTranscriber sharedTranscriber] cachedTextForMessageID:mid
-                                                                   convID:message.convID
-                                                                    owner:self.userID] != nil;
+    IMVoiceTranscriber *tr = [IMVoiceTranscriber sharedTranscriber];
+    // 被本地折叠过 → 菜单应回到「转文字」，即便服务端仍有缓存。
+    if ([tr isCollapsedMessageID:mid]) { return NO; }
+    return [tr cachedTextForContent:message.content] != nil;
 }
 
+/// 「取消转文字」：**只收起本地面板，不删服务端结果**。
+/// 服务端缓存按音频内容存、会话内共享，一个人"取消"不该把别人也能看到的结果删掉；
+/// 下次再点「转文字」会命中缓存秒出。
 - (void)im_clearVoiceTranscript:(IMMessageModel *)message {
     NSString *mid = IMVoicePlayerPlayableIDForMessage(message);
     if (!mid) { return; }
-    [[IMVoiceTranscriber sharedTranscriber] clearTranscriptForMessageID:mid
-                                                                 convID:message.convID
-                                                                  owner:self.userID];
-    // 收起面板并让 tableView 重算行高（否则留下撑开的空白）。
+    [[IMVoiceTranscriber sharedTranscriber] collapseMessageID:mid];
     [self im_applyTranscriptText:nil loading:NO forMessageID:mid];
 }
 
 - (void)im_transcribeVoiceMessage:(IMMessageModel *)message {
     NSString *mid = IMVoicePlayerPlayableIDForMessage(message);
-    if (!mid) { return; }
-    // 缓存命中直接展开；未命中先确保音频在本地，再启动识别。
-    NSString *cached = [[IMVoiceTranscriber sharedTranscriber] cachedTextForMessageID:mid convID:message.convID owner:self.userID];
+    if (!mid || message.convSeq <= 0) { return; }
+
+    // 缓存命中直接展开（本地缓存 key = 音频路径，与服务端按 content 去重同口径）。
+    NSString *cached = [[IMVoiceTranscriber sharedTranscriber] cachedTextForContent:message.content];
     if (cached) {
+        [[IMVoiceTranscriber sharedTranscriber] transcribeConvID:message.convID convSeq:message.convSeq
+                                                         content:message.content messageID:mid token:@""];
         [self im_applyTranscriptText:cached loading:NO forMessageID:mid];
         return;
     }
-    // 先订阅识别状态推送——一次性 observer，收到 final 或 unavailable 就摘掉。
-    __block id token = [[NSNotificationCenter defaultCenter]
+
+    // 订阅状态推送——一次性 observer，收到终态（Done/Unavailable）即摘。
+    // 结果可能来自两条路：REST 直接回 done，或服务端识别完后经 WS voice_transcript 帧到达。
+    __block id token = nil;
+    token = [[NSNotificationCenter defaultCenter]
         addObserverForName:IMVoiceTranscriberDidChangeNotification object:nil queue:NSOperationQueue.mainQueue
         usingBlock:^(NSNotification *note) {
             NSString *notedID = note.userInfo[@"messageID"];
@@ -662,48 +669,53 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
             IMVoiceTranscribeStatus st = (IMVoiceTranscribeStatus)[note.userInfo[@"status"] integerValue];
             NSString *text = note.userInfo[@"text"];
             if (st == IMVoiceTranscribeStatusUnavailable) {
-                // 权限被拒/受限 → 引导设置；其余走 unavailableReasonDescription 分辨（无网 / 语言包未就绪等）——
-                // 用户 2026-08-27 报"给了权限仍暂不可用"，此前通用文案让人以为还要开权限，误导。
-                NSString *tip = [IMVoiceTranscriber isAuthorizationDeniedOrRestricted]
-                    ? @"转文字需要语音识别权限（请在「设置 → 隐私 → 语音识别」中打开）"
-                    : [IMVoiceTranscriber unavailableReasonDescription];
-                [self im_applyTranscriptText:tip loading:NO forMessageID:mid];
-                [[NSNotificationCenter defaultCenter] removeObserver:token];
-                token = nil;
-                return;
+                // 文案已由 IMVoiceTranscriber 按业务码映射好（未启用 / 识别失败 / 繁忙 / 限流）。
+                [self im_applyTranscriptText:(text.length > 0 ? text : @"转文字失败，请稍后重试")
+                                     loading:NO forMessageID:mid];
+            } else {
+                [self im_applyTranscriptText:text loading:(st == IMVoiceTranscribeStatusRecognizing) forMessageID:mid];
             }
-            [self im_applyTranscriptText:text loading:(st == IMVoiceTranscribeStatusRecognizing) forMessageID:mid];
-            if (st == IMVoiceTranscribeStatusDone) {
-                [[NSNotificationCenter defaultCenter] removeObserver:token];
-                token = nil;
+            if (st == IMVoiceTranscribeStatusDone || st == IMVoiceTranscribeStatusUnavailable) {
+                if (token) { [[NSNotificationCenter defaultCenter] removeObserver:token]; token = nil; }
             }
         }];
 
-    // 保底 UI：立刻展 "识别中…"（避免用户等待期间没反馈）。
+    // 保底 UI：立刻展「识别中…」，避免等待期间没反馈。
     [self im_applyTranscriptText:nil loading:YES forMessageID:mid];
 
-    // 拿本地音频 → 有则直接识别，无则先下再识别。voice 恒自动下载，一般已在缓存。
-    NSURL *cachedURL = [IMMediaDownloader cachedFileURLForContent:message.content];
-    if (cachedURL && [[NSFileManager defaultManager] fileExistsAtPath:cachedURL.path]) {
-        [[IMVoiceTranscriber sharedTranscriber] transcribeMessageID:mid convID:message.convID owner:self.userID audioURL:cachedURL];
-        return;
-    }
-    NSURL *remote = [NSURL URLWithString:[self fullMediaURL:message.content]];
-    if (!remote || !cachedURL) {
-        [self im_applyTranscriptText:@"转文字失败：音频不可用" loading:NO forMessageID:mid];
-        return;
-    }
-    IMMediaDownloadTask *task = [[IMMediaDownloader shared] downloadURL:remote toDestination:cachedURL key:message.content];
+    // **只传消息坐标，不传音频路径**——服务端自己反查 content 并过路径白名单。
+    // 音频也不必先下载到本地：识别在服务端跑，音频本来就在服务端。
+    [[IMVoiceTranscriber sharedTranscriber] transcribeConvID:message.convID
+                                                     convSeq:message.convSeq
+                                                     content:message.content
+                                                   messageID:mid
+                                                       token:(IMHTTPService.sharedService.currentToken ?: @"")];
+}
+
+/// 装 WS voice_transcript 帧的观察者：服务端识别完成后把结果交给 transcriber 落缓存并广播。
+/// 幂等，随宿主 VC 生命周期。
+- (void)im_installVoiceTranscriptObserver {
+    static const void *k = &k;
+    if (objc_getAssociatedObject(self, k)) { return; }
+    objc_setAssociatedObject(self, k, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     __weak typeof(self) ws = self;
-    task.completionHandler = ^(NSURL *location, NSError *err) {
+    [[NSNotificationCenter defaultCenter] addObserverForName:IMSocketDidReceiveVoiceTranscriptNotification
+        object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
-        if (err || !location) {
-            [self im_applyTranscriptText:@"转文字失败：语音下载失败" loading:NO forMessageID:mid];
-            return;
-        }
-        [[IMVoiceTranscriber sharedTranscriber] transcribeMessageID:mid convID:message.convID owner:self.userID audioURL:location];
-    };
+        NSString *convID = n.userInfo[@"convID"];
+        if (![convID isEqualToString:self.convID]) { return; }
+        int64_t convSeq = [n.userInfo[@"convSeq"] longLongValue];
+        IMMessageModel *m = [self messageWithConvSeq:convSeq];
+        if (!m) { return; }
+        NSString *mid = IMVoicePlayerPlayableIDForMessage(m);
+        if (!mid) { return; }
+        [[IMVoiceTranscriber sharedTranscriber] applyRemoteStatus:n.userInfo[@"status"]
+                                                             text:n.userInfo[@"text"]
+                                                          content:m.content
+                                                           convID:convID
+                                                        messageID:mid];
+    }];
 }
 
 /// 在可见 cell 上应用转写文本。cell 已被复用/滚出视口则忽略——下次再触发时会重新展开缓存。
