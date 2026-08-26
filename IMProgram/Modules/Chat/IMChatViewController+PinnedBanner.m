@@ -6,6 +6,8 @@
 #import "IMChatViewController+Private.h" // 含 IMChatBannerStack / IMSocketManager / IMGroupInfo
 #import "IMHTTPService.h"
 #import "IMPinnedMessage.h"
+#import "IMMessageModel.h"            // 跳转前判目标是否已撤回（recalledAt）
+#import "UIViewController+IMToast.h"  // im_showToast:
 #import "IMJoinRequestsViewController.h"
 #import "IMGroupTextViewController.h"
 #import "IMTimeUtil.h"                    // IMNowMillis
@@ -16,6 +18,7 @@ NS_ASSUME_NONNULL_BEGIN
 /// 不进 +Private.h（跨 TU 不可见即可）。
 @interface IMChatViewController (PinnedBannerInternal)
 - (void)setComposerLocked:(BOOL)locked reason:(nullable NSString *)reason;
+- (void)jumpToPinnedConvSeq:(int64_t)convSeq;
 @end
 
 NS_ASSUME_NONNULL_END
@@ -63,6 +66,31 @@ NS_ASSUME_NONNULL_END
 
 /// 点置顶横幅主体：跳到当前那条（轮转已在横幅栈内部处理）。
 - (void)bannerStack:(IMChatBannerStack *)stack didRequestJumpToConvSeq:(int64_t)convSeq {
+    [self jumpToPinnedConvSeq:convSeq];
+}
+
+/// 置顶跳转前的「原消息还在吗」判定（纯函数，便于回归：IMProgramTests/IMPinnedJumpTests.m）。
+/// YES = 本地这条已是撤回墓碑，应提示而非跳转；NO = 正常跳（含"本地压根没有这条"，
+/// 那种由 jumpToConvSeq: 自己分辨"不在本地/已被删除"）。
+BOOL IMPinnedTargetRecalled(NSArray<IMMessageModel *> *messages, int64_t convSeq) {
+    if (convSeq <= 0) { return NO; }
+    for (IMMessageModel *m in messages) {
+        if (m.convSeq == convSeq) { return m.recalledAt > 0; }
+    }
+    return NO;
+}
+
+/// 置顶项跳转（横幅主体 / 置顶列表行共用）：先判目标是不是**已被撤回**。
+/// 服务端置顶列表本就剔除撤回消息（store.PinnedMessages 带 recalled_at = 0），但横幅是快照——
+/// reloadPinnedBanner 是 best-effort（拉失败就留旧集合）、msg_op 帧还没到、半屏列表开着时对方撤回，
+/// 都可能停在旧集合上。此时直接 jumpToConvSeq: 会滚到一条「撤回了一条消息」的系统行并高亮一闪，
+/// 用户看不出原消息已经没了。故显式提示 + 顺手重拉一次让横幅收敛（与 Web jumpToPinned 同口径）。
+- (void)jumpToPinnedConvSeq:(int64_t)convSeq {
+    if (IMPinnedTargetRecalled(self.messages, convSeq)) {
+        [self im_showToast:@"原消息已被撤回"];
+        [self reloadPinnedBanner];
+        return;
+    }
     [self jumpToConvSeq:convSeq];
 }
 
@@ -157,7 +185,7 @@ NS_ASSUME_NONNULL_END
             : item.previewText;
         [sheet addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault
                                                handler:^(UIAlertAction *action) {
-            [ws jumpToConvSeq:item.convSeq];
+            [ws jumpToPinnedConvSeq:item.convSeq];
         }]];
     }
     IMPinnedMessage *shown = stack.currentPinnedItem;
