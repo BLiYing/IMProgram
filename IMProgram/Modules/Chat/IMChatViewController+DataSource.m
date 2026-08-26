@@ -213,7 +213,9 @@
               showsUnreadDivider:rowIsFirstUnread
                       senderName:(firstV ? [self senderNameForMessage:m] : nil)
                       senderRole:(firstV ? [self senderRoleForMessage:m] : IMGroupRoleMember)
-                       hasPlayed:played];
+                       hasPlayed:played
+                     peerReadSeq:self.peerReadSeq
+                  isGroupContext:self.isGroupChat];
         [vc applyGroupAvatarURL:(grpV ? [self senderAvatarURLForMessage:m] : nil)
                            seed:(m.from ?: @"")
                            name:(grpV ? [self senderNameForMessage:m] : nil)

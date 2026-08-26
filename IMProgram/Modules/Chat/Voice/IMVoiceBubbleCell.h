@@ -16,13 +16,16 @@ NS_ASSUME_NONNULL_BEGIN
 @interface IMVoiceBubbleCell : IMMessageCell
 
 /// 用消息数据配置气泡。senderName/senderRole 与其他 cell 同套群头逻辑。
+/// peerReadSeq：单聊对端已读位点（群聊上层传 0 即可，语音气泡群聊只显 ✓ 不显 ✓✓，与文本/图片一致）。
 - (void)configureWithMessage:(IMMessageModel *)message
                         mine:(BOOL)mine
                    dayHeader:(nullable NSString *)dayHeader
           showsUnreadDivider:(BOOL)showsDivider
                   senderName:(nullable NSString *)senderName
                   senderRole:(IMGroupRole)senderRole
-                    hasPlayed:(BOOL)hasPlayed;
+                    hasPlayed:(BOOL)hasPlayed
+                 peerReadSeq:(int64_t)peerReadSeq
+              isGroupContext:(BOOL)isGroupContext;
 
 /// 用户点播放/暂停触发（本地 URL 已由宿主自动下载好；voice 恒自动下载）。
 @property (nonatomic, copy, nullable) void (^onPlayTap)(void);

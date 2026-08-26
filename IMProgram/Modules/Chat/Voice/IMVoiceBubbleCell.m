@@ -8,6 +8,7 @@
 #import "IMMessageModel.h"
 #import "IMTheme.h"
 #import "IMTimeUtil.h"
+#import "IMVoiceTranscriber.h" // 复用缓存自动展开转写面板（cell 复用后不丢文字，2026-08-27 修）
 #import "UILabel+IMAvatar.h"
 
 @interface IMVoiceBubbleCell () <UIGestureRecognizerDelegate>
@@ -39,6 +40,7 @@
 @property (nonatomic, strong) NSLayoutConstraint *scrubTipCenterX;
 @property (nonatomic, assign) BOOL scrubbing;
 @property (nonatomic, strong) UIButton *statusBadge;   ///< 发送失败红 !（§5.5：failed → 红标+点击重试；仅 mine）
+@property (nonatomic, strong) UILabel *readMark;       ///< 气泡右下 ✓/✓✓（mine 已发出后显；单聊按 peerReadSeq 变色，群聊只显 ✓）
 @property (nonatomic, assign) BOOL showsPauseIcon;     ///< 播放键当前图标缓存：30fps 进度 tick 只在状态切换时才 setImage
 @property (nonatomic, strong) NSLayoutConstraint *panelLeadingMine;
 @property (nonatomic, strong) NSLayoutConstraint *panelTrailingMine;
@@ -159,6 +161,14 @@
     _transcriptFooter.text = @"📝 本机识别 · 仅本地保存";
     [_transcriptPanel addSubview:_transcriptFooter];
 
+    // 气泡内右下角 ✓/✓✓（mine 已发出后显；2026-08-27 补，语音气泡与文本气泡的已读语义对齐）。
+    _readMark = [UILabel new];
+    _readMark.translatesAutoresizingMaskIntoConstraints = NO;
+    _readMark.font = [UIFont systemFontOfSize:10 weight:UIFontWeightSemibold];
+    _readMark.textColor = IMTheme.textSecondary;
+    _readMark.hidden = YES;
+    [_bubble addSubview:_readMark];
+
     // 发送失败红 !（§5.5）：气泡左侧外（mine 气泡右对齐），点击=重试。默认隐藏。
     _statusBadge = [UIButton buttonWithType:UIButtonTypeSystem];
     _statusBadge.translatesAutoresizingMaskIntoConstraints = NO;
@@ -261,6 +271,9 @@
         [_statusBadge.centerYAnchor constraintEqualToAnchor:_bubble.centerYAnchor],
         [_statusBadge.widthAnchor constraintEqualToConstant:28],
         [_statusBadge.heightAnchor constraintEqualToConstant:28],
+        // readMark：气泡内右下角，durationLabel 右侧同 baseline（durationLabel 已 centerY+5，等价"下方"）。
+        [_readMark.leadingAnchor constraintEqualToAnchor:_durationLabel.trailingAnchor constant:4],
+        [_readMark.firstBaselineAnchor constraintEqualToAnchor:_durationLabel.firstBaselineAnchor],
     ]];
     _transcriptTopSpacing = [_transcriptPanel.topAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:0];
     _transcriptTopSpacing.active = YES;
@@ -286,7 +299,9 @@
           showsUnreadDivider:(BOOL)showsDivider
                   senderName:(NSString *)senderName
                   senderRole:(IMGroupRole)senderRole
-                    hasPlayed:(BOOL)hasPlayed {
+                    hasPlayed:(BOOL)hasPlayed
+                 peerReadSeq:(int64_t)peerReadSeq
+              isGroupContext:(BOOL)isGroupContext {
     self.mine = mine;
     self.currentID = IMVoicePlayerPlayableIDForMessage(message);
     self.currentConvID = message.convID;
@@ -321,21 +336,30 @@
     self.panelTrailingMine.active = mine;
     self.panelLeadingPeer.active = !mine;
     self.panelTrailingPeer.active = !mine;
-    // 复用 cell 时把转写面板收起（宿主会按需重新展开）。
-    [self applyTranscriptText:nil loading:NO];
+    // 复用 cell 时先收起转写面板，再查缓存自动展开——**cell 复用不再丢转写文字**（2026-08-27 修：
+    // 曾靠宿主重新触发才展开，滚出屏再回来就消失；缓存本机永久，configure 里同步查询即可）。
+    NSString *cachedText = [[IMVoiceTranscriber sharedTranscriber] cachedTextForMessageID:self.currentID
+                                                                                  convID:message.convID
+                                                                                   owner:message.to /*收方 uid*/ ?: message.from];
+    [self applyTranscriptText:cachedText loading:NO];
+    // scrub 残留清理：上一次未走 Ended 的 scrubTip 若还在 alpha=1，reuse 到别的 cell 会看到"幽灵时间条"。
+    self.scrubTip.alpha = 0; self.scrubbing = NO;
+    // 倍速胶囊 alpha 由 applyPlayerState 应用；复用先隐藏，避免闪一下上一条的胶囊。
+    self.speedPill.alpha = 0; self.speedPill.userInteractionEnabled = NO;
 
     // 波形数据
     self.waveform.amplitudes = [IMWaveformView amplitudesFromBase64:message.waveform];
     self.waveform.progress = 0;
-    // 波形配色（2026-08-26 修）：己方浅绿气泡上"深绿 active + 深灰半透明 inactive"几乎无对比度，
-    // 播放扫过等于看不见；改用 bubbleMeText（主题保证它与 bubbleMe 底色的对比度，深浅色模式都成立）。
+    // 波形配色：己方在浅绿气泡上用 bubbleMeText 高对比；对方在白/深灰气泡上用 accent 描 active、
+    // inactive 用 textSecondary alpha 0.28（曾 0.45 偏深，画完后 active/inactive 都是灰蓝一片
+    // 看不出扫过；2026-08-27 修 #6）。
     if (mine) {
         self.waveform.activeColor = IMTheme.bubbleMeText;
         self.waveform.inactiveColor = [IMTheme.bubbleMeText colorWithAlphaComponent:0.32];
         self.playButton.backgroundColor = [UIColor colorWithRed:0.12 green:0.48 blue:0.18 alpha:1.0];
     } else {
         self.waveform.activeColor = IMTheme.accent;
-        self.waveform.inactiveColor = [IMTheme.textSecondary colorWithAlphaComponent:0.45];
+        self.waveform.inactiveColor = [IMTheme.textSecondary colorWithAlphaComponent:0.28];
         self.playButton.backgroundColor = IMTheme.accent;
     }
     // 气泡宽度按 duration 线性长（最少 130pt，最多 240pt——tokens 见 §6.1）。
@@ -348,6 +372,16 @@
     self.unplayedDot.hidden = mine || hasPlayed;
     // 发送失败红 !（§5.5「不静默失败」）：曾 ack 失败置 Failed 落库但气泡外观与成功完全一致（2026-08-26 修）。
     self.statusBadge.hidden = !(mine && message.status == IMMessageStatusFailed);
+    // ✓/✓✓ 已读勾（2026-08-27 补 #7）：mine + convSeq>0（拿到 ack）才显；群聊单一 peerReadSeq
+    // 无法表达"谁读到哪"（与 IMBubbleCell 已读勾同口径，见 +Socket.m:148），恒 ✓。
+    BOOL showsRead = mine && message.convSeq > 0
+        && message.status != IMMessageStatusFailed && message.status != IMMessageStatusSending;
+    self.readMark.hidden = !showsRead;
+    if (showsRead) {
+        BOOL doubleTick = !isGroupContext && message.convSeq <= peerReadSeq;
+        self.readMark.text = doubleTick ? @"✓✓" : @"✓";
+        self.readMark.textColor = doubleTick ? IMTheme.checkRead : IMTheme.textSecondary;
+    }
 
     // 同步当前播放器状态（切页/复用时保持进度）。
     IMVoicePlayerState st = [[IMVoicePlayer sharedPlayer] stateForMessageID:self.currentID];

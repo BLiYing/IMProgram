@@ -23,6 +23,9 @@ extern NSNotificationName const IMVoiceTranscriberDidChangeNotification;
 
 @interface IMVoiceTranscriber : NSObject
 
+/// 语音识别授权是否被拒/受限（供上层判定文案是"去设置开启"还是"识别不可用"）。
++ (BOOL)isAuthorizationDeniedOrRestricted;
+
 + (instancetype)sharedTranscriber;
 
 /// 本地是否已有缓存的转写文本。缓存 key = per-uid + per-conv + per-mid。

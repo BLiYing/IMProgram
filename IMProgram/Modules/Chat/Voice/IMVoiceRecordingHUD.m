@@ -60,7 +60,9 @@
     _slideHint.textAlignment = NSTextAlignmentCenter;
     [_pill addSubview:_slideHint];
 
-    _slideOffsetConstraint = [_slideHint.centerXAnchor constraintEqualToAnchor:_pill.centerXAnchor constant:0];
+    // slideHint 从 timer 右缘 +16 起（曾 centerXAnchor=pill.centerX，"松开 取消"变宽后与 timer 重叠，2026-08-27 修）。
+    // pill 右缘留 12pt；命中取消态时 pill 变红覆盖整条，此时 timer 白字仍在原位、hint 白字左对齐"松开 取消"。
+    _slideOffsetConstraint = [_slideHint.leadingAnchor constraintEqualToAnchor:_timerLabel.trailingAnchor constant:16];
 
     [NSLayoutConstraint activateConstraints:@[
         [_pill.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:8],
@@ -74,6 +76,7 @@
         [_timerLabel.leadingAnchor constraintEqualToAnchor:_redDot.trailingAnchor constant:8],
         [_timerLabel.centerYAnchor constraintEqualToAnchor:_pill.centerYAnchor],
         _slideOffsetConstraint,
+        [_slideHint.trailingAnchor constraintLessThanOrEqualToAnchor:_pill.trailingAnchor constant:-12],
         [_slideHint.centerYAnchor constraintEqualToAnchor:_pill.centerYAnchor],
     ]];
 
@@ -130,8 +133,9 @@
 - (void)setSlideOffset:(CGFloat)offsetX {
     if (offsetX == _lastOffset) { return; }
     _lastOffset = offsetX;
-    self.slideOffsetConstraint.constant = MAX(-140, MIN(0, offsetX));
-    // 未过阈值时按位移比例渐隐提示文本（进度条效果）。
+    // constant base = timer 右 +16；跟指左移最大 -140，但不小于 4（不再挤进 timer 区间）。
+    CGFloat delta = MAX(-140, MIN(0, offsetX));
+    self.slideOffsetConstraint.constant = 16 + delta;
     if (!self.cancelReady) {
         CGFloat alpha = 1.0 + offsetX / 140.0;
         self.slideHint.alpha = MAX(0.2, MIN(1.0, alpha));

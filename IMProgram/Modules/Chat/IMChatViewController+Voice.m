@@ -489,7 +489,11 @@ static const void *kIMVoiceOverlayKey = &kIMVoiceOverlayKey;
             IMVoiceTranscribeStatus st = (IMVoiceTranscribeStatus)[note.userInfo[@"status"] integerValue];
             NSString *text = note.userInfo[@"text"];
             if (st == IMVoiceTranscribeStatusUnavailable) {
-                [self im_applyTranscriptText:@"转文字暂不可用（请在系统设置中开启语音识别权限）" loading:NO forMessageID:mid];
+                // 权限被拒/受限 → 引导设置；其余不可用（识别器无法启动/系统语言不支持）→ 通用文案。
+                NSString *tip = [IMVoiceTranscriber isAuthorizationDeniedOrRestricted]
+                    ? @"转文字需要语音识别权限（请在「设置 → 隐私 → 语音识别」中打开）"
+                    : @"转文字暂不可用（本机语音识别未就绪）";
+                [self im_applyTranscriptText:tip loading:NO forMessageID:mid];
                 [[NSNotificationCenter defaultCenter] removeObserver:token];
                 token = nil;
                 return;
@@ -561,11 +565,15 @@ static const void *kIMVoiceOverlayKey = &kIMVoiceOverlayKey;
     m.waveform = waveform;
     m.timestamp = (int64_t)([[NSDate date] timeIntervalSince1970] * 1000);
     m.status = IMMessageStatusSending;
-    // 落库（2026-08-26 修）：曾只进内存数组——任何一次"从 DB 重载消息列表"都会让这条气泡消失，
-    // 随后 sync 又插回带 serverMsgID 的副本 → 气泡忽隐忽现/成对出现（"发送后展示错乱"根因）。
-    [self performDatabaseOperation:^(IMDatabase *db) { [db saveMessage:m]; }];
+    // 顺序（2026-08-27 修 #5「发送后必须退出会话再进入才显示」加固）：
+    // ① 先 addObject 内存数组 + appendReloadAndScroll（用户即时看到气泡）；
+    // ② 再落库（同 clientMsgID upsert，ack 到达后覆盖 sending→sent；也让"重进会话从 DB 自愈"生效）。
+    // 之前"先落库再 addObject"存在窄窗口：saveMessage 之后如果 sync/new_msg fan-back 恰好触发内存
+    // messages 重建（socket 层 processIncoming 走 addObject 而非 upsert 到已有引用），会与后续
+    // addObject 生成两个数组分支，视觉上就是"发出去的气泡没了、直到重进会话才从 DB 拿回"。
     [self.messages addObject:m];
     [self appendReloadAndScroll];
+    [self performDatabaseOperation:^(IMDatabase *db) { [db saveMessage:m]; }];
     return m;
 }
 
