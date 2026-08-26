@@ -15,6 +15,7 @@
 #import "IMMediaExpiryRegistry.h"
 #import "IMMediaDownloadCoordinator.h"
 #import "IMDownloadProgress.h"
+#import "IMFilePreviewPresenter.h"
 #import "IMForwardPickerViewController.h"
 #import "IMConversation.h"
 #import "IMConversationMediaViewController.h"
@@ -280,22 +281,9 @@
                           withRowAnimation:UITableViewRowAnimationNone];
 }
 
-/// 已下载的文件 → 本地 QuickLook 预览（不再丢给应用内浏览器）。
+/// 已下载的文件 → 本地 QuickLook 预览（走三处共用的 IMFilePreviewPresenter）。
 - (void)openCachedFile:(IMMessageModel *)m {
-    NSURL *local = [self.downloads localFileForMessage:m];
-    if (!local) { return; }
-    self.quickLookURL = local;
-    QLPreviewController *ql = [QLPreviewController new];
-    ql.dataSource = self;
-    [self presentViewController:ql animated:YES completion:nil];
-}
-
-- (NSInteger)numberOfPreviewItemsInPreviewController:(QLPreviewController *)controller {
-    return self.quickLookURL ? 1 : 0;
-}
-
-- (id<QLPreviewItem>)previewController:(QLPreviewController *)controller previewItemAtIndex:(NSInteger)index {
-    return self.quickLookURL;
+    [IMFilePreviewPresenter presentURL:[self.downloads localFileForMessage:m] fromViewController:self];
 }
 
 /// 跳转到被引用的原消息：滚到该 conv_seq 行并高亮一闪（与 Web quoteflash 同节奏，1.2s）。

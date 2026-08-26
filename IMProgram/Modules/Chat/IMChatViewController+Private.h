@@ -7,7 +7,6 @@
 //  dealloc）只在主实现文件里，category 一律走 self.property 访问器。
 
 #import <UIKit/UIKit.h>
-#import <QuickLook/QuickLook.h>
 #import "IMChatViewController.h"
 #import "IMSocketManager.h"      // IMSocketManagerDelegate / IMSocketState
 #import "IMChatBannerStack.h"    // IMChatBannerStackDelegate
@@ -45,7 +44,6 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// 收到的图片/视频/文件的下载编排（门控态 + 点击路由 + 自动预取，M4-7）。与会话详情页共用同一实现。
 @property (nonatomic, strong) IMMediaDownloadCoordinator *downloads;
-@property (nonatomic, strong, nullable) NSURL *quickLookURL; // QuickLook 预览中的本地文件
 // 长按菜单预览快照：highlight 时光栅化一次并缓存，dismissal 复用同一张（避免菜单存续期间整表 reload
 // 后 cell 复用换绑、收起动画截到错误消息/空白）。willEnd 收起动画完成后清空。
 @property (nonatomic, strong, nullable) UIImage *cachedMenuSnapshot;
@@ -324,9 +322,6 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 // 声明放在共享私有头，让赋值点（如主实现 setupUI 的 tableView.dataSource=self）也看得到 conformance。
 /// UITableViewDataSource 必需的 numberOfRowsInSection / cellForRowAtIndexPath 都在 +DataSource.m。
 @interface IMChatViewController (DataSource) <UITableViewDataSource>
-@end
-/// QLPreviewControllerDataSource 必需的两个方法与 ql.dataSource=self 赋值都在 +MediaFlow.m。
-@interface IMChatViewController (MediaFlow) <QLPreviewControllerDataSource>
 @end
 /// UIContextMenuInteractionDelegate 必需的 configurationForMenuAtLocation 与 initWithDelegate:self 都在 +Menu.m。
 @interface IMChatViewController (Menu) <UIContextMenuInteractionDelegate>

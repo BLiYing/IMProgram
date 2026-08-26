@@ -4,7 +4,6 @@
 //  的约定：跨 category 互调的私有方法在文末 (Private) 分类登记；ivar 直接访问只在主实现文件。
 
 #import <UIKit/UIKit.h>
-#import <QuickLook/QuickLook.h>
 #import "IMChatDetailViewController.h"
 #import "IMProgram-Swift.h"   // IMLiquidNavigationBar / IMLiquidNavigationBarDelegate（Swift 桥接）
 
@@ -42,7 +41,7 @@ FOUNDATION_EXPORT CGFloat const kIMDetailTabBarH;          ///< 页签栏高度�
 FOUNDATION_EXPORT CGFloat const kIMDetailTabSegH;          ///< 分段控件本体高度（点击面积）
 FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「变实」上限（头部收拢完成时的不透明度）
 
-@interface IMChatDetailViewController () <UITableViewDataSource, UITableViewDelegate, UIScrollViewDelegate, UIGestureRecognizerDelegate, IMLiquidNavigationBarDelegate, QLPreviewControllerDataSource>
+@interface IMChatDetailViewController () <UITableViewDataSource, UITableViewDelegate, UIScrollViewDelegate, UIGestureRecognizerDelegate, IMLiquidNavigationBarDelegate>
 // 身份
 @property (nonatomic, copy) NSString *host;
 @property (nonatomic, copy) NSString *userID;
@@ -95,7 +94,6 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 @property (nonatomic, strong) IMMediaDownloadCoordinator *downloads;
 @property (nonatomic, weak, nullable) IMDetailMediaContainerCell *mediaContainerCell; ///< 只刷单格用（避免整行重建）
 @property (nonatomic, assign) CGFloat mediaGridWidth;   ///< 宫格 cell 的真实内容宽（0=未知，由 cell 上报）
-@property (nonatomic, strong, nullable) NSURL *quickLookURL;  ///< QuickLook 当前预览的本地文件
 // 布局
 @property (nonatomic, assign) BOOL hasPhoto;
 @property (nonatomic, assign) CGFloat topInset;

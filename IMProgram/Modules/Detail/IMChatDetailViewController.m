@@ -31,7 +31,7 @@
 #import "IMMediaUtil.h"
 #import "IMMediaDownloadCoordinator.h" // 媒体/文件下载编排（与聊天页共用）
 #import "IMDownloadProgress.h"
-#import <QuickLook/QuickLook.h>
+#import "IMFilePreviewPresenter.h"
 #import <SafariServices/SafariServices.h>
 #import "IMPopoverCard.h"
 #import "IMGlass.h"
@@ -915,16 +915,11 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
         } else if (t.kind == IMDetailTabKindFiles) {
             if (indexPath.row >= (NSInteger)self.tabRows.count) { return; }
             IMMessageModel *m = self.tabRows[indexPath.row];
-            // 自己发的文件：原件从不进下载缓存（isOutOfScope），stateForMessage 恒为 nil，
-            // 若走 openCachedFile 会因本地无缓存静默无反应（.mov 等一律打不开）。与聊天页一致，改走远端 URL 打开。
-            if ([m.from isEqualToString:self.userID]) {
-                [self openLink:IMMediaFullURL(m.content, self.host)];
-                return;
-            }
-            IMDownloadProgress *dp = [self.downloads stateForMessage:m];
-            // 未下载/失败 → 就地下载（不跳页）；下载中 ↔ 暂停/继续；已下载 → 本地 QuickLook 打开（用户主动点）。
-            if (dp) { [self.downloads handleTapForMessage:m]; }
-            else { [self openCachedFileForMessage:m]; }
+            // 与聊天页气泡口径完全一致（发送方 = 收到方）：本机有原件 → QuickLook；否则点整条 = 触发下载。
+            // 自己发的文件发送时已收编进下载缓存（IMMediaSendService+adoptFileAtPath），故一般点开即 QuickLook；
+            // 清缓存后 localFileForMessage 返回 nil，自然回落到 handleTapForMessage 触发下载。
+            if ([self.downloads localFileForMessage:m]) { [self openCachedFileForMessage:m]; }
+            else { [self.downloads handleTapForMessage:m]; }
         } else if (t.kind == IMDetailTabKindVoice) {
             // 三行 cell 的 ▶/波形自己处理播放（IMVoiceMiniPlayerView.onPlayTap）；行整体点击不动作，避免与内部键冲突。
         } else if (t.kind == IMDetailTabKindLinks) {
@@ -1273,14 +1268,9 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
                           withRowAnimation:UITableViewRowAnimationNone];
 }
 
-/// 已下载的文件 → 本地 QuickLook 预览（与聊天页一致，绝不自动打开，由用户点触发）。
+/// 已下载的文件 → 本地 QuickLook 预览（走三处共用的 IMFilePreviewPresenter；由用户点触发，绝不自动打开）。
 - (void)openCachedFileForMessage:(IMMessageModel *)m {
-    NSURL *local = [self.downloads localFileForMessage:m];
-    if (!local) { return; }
-    self.quickLookURL = local;
-    QLPreviewController *ql = [QLPreviewController new];
-    ql.dataSource = self;
-    [self presentViewController:ql animated:YES completion:nil];
+    [IMFilePreviewPresenter presentURL:[self.downloads localFileForMessage:m] fromViewController:self];
 }
 
 #pragma mark - 文件行长按菜单：转发 / 删除 / 定位到聊天
@@ -1396,14 +1386,6 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
                                             completion:^(NSError *error) {
         if (error) { [ws im_showToast:error.localizedDescription ?: @"删除失败"]; }
     }];
-}
-
-- (NSInteger)numberOfPreviewItemsInPreviewController:(QLPreviewController *)controller {
-    return self.quickLookURL ? 1 : 0;
-}
-
-- (id<QLPreviewItem>)previewController:(QLPreviewController *)controller previewItemAtIndex:(NSInteger)index {
-    return self.quickLookURL;
 }
 
 /// 点媒体格（已就绪项，门控项由 onDownloadItemIndex 拦下先下载）：进分页查看器，翻页范围=本 tab 全部媒体，

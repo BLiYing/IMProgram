@@ -44,7 +44,7 @@
 #import "IMTimeUtil.h"
 #import "UIViewController+IMToast.h"
 #import <SafariServices/SafariServices.h>
-#import <QuickLook/QuickLook.h>
+#import "IMFilePreviewPresenter.h"
 
 static NSString *const kIMFavoritesViewModeKey = @"im.favorites.viewMode"; // 0=消息模式 1=聊天模式
 static NSString *const kIMFavoritesMeBucket = @"__im_fav_me__";            // 聊天模式「我的」分组键
@@ -230,7 +230,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
 
 // ⚠️ 普通 UIViewController + 内嵌 UITableView（非 UITableViewController）：导航容器注入的液态栏若挂在滚动视图上会随负
 // contentOffset 下移（已踩坑三次）。顶部搜索/分段做静止 headerBar 挂 self.view。
-@interface IMFavoritesViewController () <UITableViewDataSource, UITableViewDelegate, UISearchBarDelegate, QLPreviewControllerDataSource>
+@interface IMFavoritesViewController () <UITableViewDataSource, UITableViewDelegate, UISearchBarDelegate>
 - (NSString *)im_navigationSubtitle; // 注入栏副标题（IMMainNavigationController 经 respondsToSelector 探测）
 @end
 
@@ -267,7 +267,6 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
 
     NSMutableDictionary<NSString *, IMMessageModel *> *_models; // favId → 合成消息模型（供编排器跟踪同一实例）
     IMMediaDownloadCoordinator *_downloads;
-    NSURL *_quickLookURL;
     IMDatabaseAccountContext *_databaseContext;
     NSString *_selfUID;
     NSDictionary<NSString *, IMConversation *> *_convByID; // 来源会话名/头像查表
@@ -1080,11 +1079,12 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     if (content.length == 0) { return; }
     switch (_selectedKind) {
         case IMFavoriteCategoryFiles: {
-            // 与聊天页收到文件一致：已缓存→QuickLook；门控中→下载/暂停/继续（不跳页、不自动打开）。
+            // 与聊天页气泡口径一致：本机有原件 → QuickLook；否则点整条 = 触发下载（handleTapForMessage
+            // 覆盖未下载/下载中/暂停/失败全部分支）。曾按 stateForMessage 分支导致"无 dp 又无缓存"静默无反应。
             IMMessageModel *m = [self modelForFavorite:f];
-            IMDownloadProgress *dp = [_downloads stateForMessage:m];
-            if (dp) { [_downloads handleTapForMessage:m]; }
-            else { NSURL *local = [_downloads localFileForMessage:m]; if (local) { [self openQuickLook:local]; } }
+            NSURL *local = [_downloads localFileForMessage:m];
+            if (local) { [IMFilePreviewPresenter presentURL:local fromViewController:self]; }
+            else { [_downloads handleTapForMessage:m]; }
             break;
         }
         case IMFavoriteCategoryRecord:
@@ -1291,7 +1291,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     [self performDatabaseOperation:^(IMDatabase *database) { [database saveMessage:m]; }];
 }
 
-#pragma mark 媒体查看 / 下载回调 / QuickLook
+#pragma mark 媒体查看 / 下载回调
 
 /// 点就绪格 → 分页查看器（翻页范围=本签全部媒体，无「媒体库」按钮）。
 - (void)openMediaItem:(IMMediaItem *)item {
@@ -1345,15 +1345,5 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     if (row == NSNotFound || row >= [_tableView numberOfRowsInSection:0]) { return; }
     [_tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:row inSection:0]] withRowAnimation:UITableViewRowAnimationNone];
 }
-
-- (void)openQuickLook:(NSURL *)local {
-    if (!local) { return; }
-    _quickLookURL = local;
-    QLPreviewController *ql = [QLPreviewController new];
-    ql.dataSource = self;
-    [self presentViewController:ql animated:YES completion:nil];
-}
-- (NSInteger)numberOfPreviewItemsInPreviewController:(QLPreviewController *)controller { return _quickLookURL ? 1 : 0; }
-- (id<QLPreviewItem>)previewController:(QLPreviewController *)controller previewItemAtIndex:(NSInteger)index { return _quickLookURL; }
 
 @end
