@@ -47,18 +47,6 @@ static const NSUInteger kIMVoiceTranscriptCollapsedMax = 500;
     return self;
 }
 
-+ (NSString *)messageForErrorCode:(NSInteger)code fallback:(NSString *)fallback {
-    // 与 IMServer internal/errcode 的 5001xx 段对齐（CONVENTIONS §2.2）。
-    switch (code) {
-        case 500101: return @"转文字暂未开启（服务端未配置识别引擎）";
-        case 500102: return @"识别失败，请稍后重试";
-        case 500103: return @"转文字服务繁忙，请稍后再试";
-        case 100002: return @"操作过于频繁，请稍后再试";
-        default: break;
-    }
-    return fallback.length > 0 ? fallback : @"转文字失败，请稍后重试";
-}
-
 - (nullable NSString *)cachedTextForContent:(NSString *)content {
     if (content.length == 0) { return nil; }
     // 内存缓存优先——滚动列表 configure 每 cell 都会来查一次，直接读 NSUserDefaults
@@ -75,19 +63,20 @@ static const NSUInteger kIMVoiceTranscriptCollapsedMax = 500;
 - (void)transcribeConvID:(NSString *)convID
                  convSeq:(int64_t)convSeq
                  content:(NSString *)content
-              messageID:(NSString *)messageID
-                   token:(NSString *)token {
+               messageID:(NSString *)messageID {
     if (messageID.length == 0 || convID.length == 0 || convSeq <= 0) { return; }
-    if ([self.collapsed containsObject:messageID]) { // 重新展开：折叠名单要同步落盘
-        [self.collapsed removeObject:messageID];
-        [self persistCollapsed];
-    }
+    [self expandMessageID:messageID];
 
     NSString *cached = [self cachedTextForContent:content];
     if (cached.length > 0) {
         [self setStatus:IMVoiceTranscribeStatusDone forID:messageID text:cached convID:convID];
         return;
     }
+    // 已入队就别再发一遍：pending 期间没有本地缓存，菜单仍显「转文字」，用户等不及会连点，
+    // 每点一次就是一个 POST（各占服务端一次限流额度）+ 结果到达时一轮整表行高重算。
+    // 逃生门是「取消转文字」——collapseMessageID: 会清掉状态位。
+    if ([self statusForMessageID:messageID] == IMVoiceTranscribeStatusRecognizing) { return; }
+    NSString *token = IMHTTPService.sharedService.currentToken ?: @"";
     if (token.length == 0) {
         [self setStatus:IMVoiceTranscribeStatusUnavailable forID:messageID text:@"未登录，无法转文字" convID:convID];
         return;
@@ -100,7 +89,8 @@ static const NSUInteger kIMVoiceTranscriptCollapsedMax = 500;
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) { return; }
         if (error) {
-            NSString *tip = [IMVoiceTranscriber messageForErrorCode:error.code fallback:error.localizedDescription];
+            // 文案已由 IMHTTPService 按业务码映射（IMFriendlyMessageForCode，含 5001xx/100002）。
+            NSString *tip = error.localizedDescription.length > 0 ? error.localizedDescription : @"转文字失败，请稍后重试";
             [self setStatus:IMVoiceTranscribeStatusUnavailable forID:messageID text:tip convID:convID];
             return;
         }
@@ -128,7 +118,7 @@ static const NSUInteger kIMVoiceTranscriptCollapsedMax = 500;
     if (collapsed) { return; }
     if ([status isEqualToString:@"failed"]) {
         [self setStatus:IMVoiceTranscribeStatusUnavailable forID:messageID
-                   text:[IMVoiceTranscriber messageForErrorCode:500102 fallback:nil] convID:convID];
+                   text:IMFriendlyMessageForCode(500102) convID:convID]; // TranscribeFailed
         return;
     }
     // pending 或空 status：维持识别中。
@@ -139,6 +129,17 @@ static const NSUInteger kIMVoiceTranscriptCollapsedMax = 500;
     if (mid.length == 0) { return IMVoiceTranscribeStatusIdle; }
     NSNumber *n = self.statusByID[mid];
     return n ? (IMVoiceTranscribeStatus)n.integerValue : IMVoiceTranscribeStatusIdle;
+}
+
+- (nullable NSString *)visibleTextForMessageID:(NSString *)mid content:(NSString *)content {
+    if ([self isCollapsedMessageID:mid]) { return nil; }
+    return [self cachedTextForContent:content];
+}
+
+- (void)expandMessageID:(NSString *)mid {
+    if (![self.collapsed containsObject:mid]) { return; }
+    [self.collapsed removeObject:mid];
+    [self persistCollapsed]; // 折叠名单落盘，跨启动一致
 }
 
 - (void)collapseMessageID:(NSString *)mid {

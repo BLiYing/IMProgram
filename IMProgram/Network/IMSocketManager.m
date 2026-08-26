@@ -365,7 +365,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
         if (convID.length > 0 && convSeq > 0) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidReceiveVoiceTranscriptNotification
-                    object:self userInfo:@{ @"convID": convID, @"convSeq": @(convSeq),
+                    object:self userInfo:@{ kIMConvIDKey: convID, @"convSeq": @(convSeq),
                                             @"status": status, @"text": text }];
             });
         }

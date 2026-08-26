@@ -3,6 +3,7 @@
 //
 
 #import "IMVoiceLockedBar.h"
+#import "UIView+IMFade.h"
 #import "IMTheme.h"
 #import "IMTimeUtil.h"
 #import "IMWaveformView.h" // §14 试听态：胶囊内显完整已录波形（可点即播）
@@ -21,7 +22,6 @@
 @property (nonatomic, strong) UITapGestureRecognizer *pillTap; ///< 点胶囊触发试听（仅 previewMode 下有效）
 @property (nonatomic, assign) BOOL pausedState; ///< 显式状态位（曾用 image.description 猜图标名——私有字符串依赖，随系统版本可能失效）
 @property (nonatomic, assign) BOOL previewMode; ///< §14：中间胶囊是"跑马灯"还是"试听播放器"
-@property (nonatomic, assign) BOOL wantsVisible; ///< setVisible: 的最新意图，供过期动画回调自查
 @end
 
 @implementation IMVoiceLockedBar
@@ -256,18 +256,9 @@
 
 - (void)pillTapped { if (self.previewMode && self.onPreviewToggle) { self.onPreviewToggle(); } }
 
-/// 淡入/淡出。**wantsVisible 记住最新意图**：淡出动画未完时又被要求显示（松手后立刻再次按住录音），
-/// 旧动画的完成回调仍会带着 visible=NO 触发，无条件 hidden=YES 就会把刚显示的条子隐掉。
+/// 淡入/淡出（意图自查见 UIView+IMFade：松手后立刻再次按住录音时，旧动画的过期回调不得隐掉新条子）。
 - (void)setVisible:(BOOL)visible animated:(BOOL)animated {
-    self.wantsVisible = visible;
-    if (visible) { self.hidden = NO; }
-    void (^apply)(void) = ^{ self.alpha = visible ? 1.0 : 0.0; };
-    if (animated) {
-        [UIView animateWithDuration:0.2 delay:0 usingSpringWithDamping:0.86 initialSpringVelocity:0.5
-                            options:UIViewAnimationOptionAllowUserInteraction animations:apply completion:^(BOOL _) {
-            if (!visible && !self.wantsVisible) { self.hidden = YES; }
-        }];
-    } else { apply(); if (!visible) { self.hidden = YES; } }
+    [self im_setVisible:visible animated:animated duration:0.2 damping:0.86];
 }
 
 - (void)deleteTapped { if (self.onDelete) self.onDelete(); }

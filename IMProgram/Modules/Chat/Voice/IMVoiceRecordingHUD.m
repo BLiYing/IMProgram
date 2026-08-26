@@ -3,6 +3,7 @@
 //
 
 #import "IMVoiceRecordingHUD.h"
+#import "UIView+IMFade.h"
 #import "IMTheme.h"
 #import "IMTimeUtil.h"
 
@@ -14,7 +15,6 @@
 @property (nonatomic, strong) NSLayoutConstraint *slideOffsetConstraint;
 @property (nonatomic, assign) BOOL cancelReady;
 @property (nonatomic, assign) CGFloat lastOffset;
-@property (nonatomic, assign) BOOL wantsVisible; ///< setVisible: 的最新意图，供过期动画回调自查
 @end
 
 @implementation IMVoiceRecordingHUD
@@ -90,20 +90,9 @@
     [_redDot.layer addAnimation:pulse forKey:@"pulse"];
 }
 
-/// 淡入/淡出。**wantsVisible 记住最新意图**：淡出动画未完时又被要求显示（松手后立刻再次按住录音），
-/// 旧动画的完成回调仍会带着 visible=NO 触发，无条件 hidden=YES 就会把刚显示的条子隐掉。
+/// 淡入/淡出（意图自查见 UIView+IMFade：松手后立刻再次按住录音时，旧动画的过期回调不得隐掉新 HUD）。
 - (void)setVisible:(BOOL)visible animated:(BOOL)animated {
-    self.wantsVisible = visible;
-    if (visible) { self.hidden = NO; }
-    void (^apply)(void) = ^{ self.alpha = visible ? 1.0 : 0.0; };
-    if (animated) {
-        [UIView animateWithDuration:0.18 delay:0 options:UIViewAnimationOptionAllowUserInteraction animations:apply completion:^(BOOL _) {
-            if (!visible && !self.wantsVisible) { self.hidden = YES; }
-        }];
-    } else {
-        apply();
-        if (!visible) { self.hidden = YES; }
-    }
+    [self im_setVisible:visible animated:animated duration:0.18 damping:0];
 }
 
 - (void)updateAmplitude:(float)amplitude elapsedMillis:(int64_t)elapsedMillis {

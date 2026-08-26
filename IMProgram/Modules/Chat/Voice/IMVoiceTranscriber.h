@@ -27,20 +27,22 @@ extern NSNotificationName const IMVoiceTranscriberDidChangeNotification;
 
 + (instancetype)sharedTranscriber;
 
-/// 把服务端业务错误码映射成给用户看的文案（CONVENTIONS §2.3：端按 code 做映射，不展示服务端原文）。
-+ (NSString *)messageForErrorCode:(NSInteger)code fallback:(nullable NSString *)fallback;
-
 /// 本地是否已有缓存的转写文本。缓存 key = **音频路径**（与服务端按 content 去重同口径：
 /// 同一条语音转发多次、被收藏，指向同一个音频对象，只该有一份文本）。
 - (nullable NSString *)cachedTextForContent:(NSString *)content;
 
+/// 这条**现在该显示什么**：折叠优先于缓存，返回 nil = 面板收起。
+/// 「折叠 ? nil : 缓存」这条规则的唯一实现——cell 复用、长按菜单标题两处都从这里取，
+/// 各自手拼过一次就会漂移成"取消过的又冒出来"（2026-08-26 实测过的那个 bug）。
+- (nullable NSString *)visibleTextForMessageID:(NSString *)mid content:(NSString *)content;
+
 /// 发起转写。命中本地缓存直接回 Done；否则走 REST，结果经通知推送。
 /// convID/convSeq 是消息坐标；content 仅用于本地缓存 key，**不发给服务端**。
+/// token 内部取（IMHTTPService.currentToken），不由调用方传——它只有"未登录"一种分支。
 - (void)transcribeConvID:(NSString *)convID
                  convSeq:(int64_t)convSeq
                  content:(NSString *)content
-              messageID:(NSString *)messageID
-                   token:(NSString *)token;
+               messageID:(NSString *)messageID;
 
 /// 收到 WS voice_transcript 帧时由 socket 观察者转交，落本地缓存并广播。
 - (void)applyRemoteStatus:(NSString *)status
@@ -49,7 +51,7 @@ extern NSNotificationName const IMVoiceTranscriberDidChangeNotification;
                    convID:(NSString *)convID
                 messageID:(NSString *)messageID;
 
-/// 查询当前状态（cell 复用时决定是否显 loading）。
+/// 查询当前状态（内部用于「已入队就别再发一遍」的去重；测试据此断言缓存命中即 Done）。
 - (IMVoiceTranscribeStatus)statusForMessageID:(NSString *)mid;
 
 /// 折叠某条的转写面板（长按菜单「取消转文字」）。
@@ -61,7 +63,11 @@ extern NSNotificationName const IMVoiceTranscriberDidChangeNotification;
 /// 杀 App 重进会话就会被缓存重新展开（2026-08-26 实测）。
 - (void)collapseMessageID:(NSString *)mid;
 
-/// 该条是否被本地折叠过（+Menu.m 据此决定菜单显「转文字」还是「取消转文字」）。
+/// 取消折叠（缓存命中时点「转文字」= 只需重新展开，不必再跑一遍整套 transcribe）。
+- (void)expandMessageID:(NSString *)mid;
+
+/// 该条是否被本地折叠过。**展示逻辑请用 visibleTextForMessageID:content:**，别自己拼
+/// 「折叠 ? nil : 缓存」；这里公开只为回归测试能直接断言折叠名单的跨启动持久化。
 - (BOOL)isCollapsedMessageID:(NSString *)mid;
 
 @end

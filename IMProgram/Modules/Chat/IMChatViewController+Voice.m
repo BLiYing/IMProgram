@@ -9,7 +9,7 @@
 //    - 原地松手 → 上传 ?as=voice → sendMedia（带 waveform+duration）+ 本地落库回显 + ack 回写 convSeq
 //    - <0.6s 提示"说话时间太短"；达 5min 自动停并发送
 //    - 中断（来电/切后台）→ 自动转锁定暂停态（§5.4）；锁定态删除 >10s 二次确认
-//    - 转文字（收端本地 SFSpeech）/ 接力连播 / 倍速与 scrub（cell 侧）
+//    - 转文字（服务端识别，见 IMServer docs/VOICE_TRANSCRIBE_DESIGN.md）/ 接力连播 / 倍速与 scrub（cell 侧）
 //
 
 #import "IMChatViewController+Private.h"
@@ -17,8 +17,8 @@
 #import "IMMessageModel.h"
 #import "IMMediaAttributes.h"
 #import "IMHTTPService.h"
+#import "IMPendingMediaStore.h"
 #import "IMDatabase.h"
-#import "IMMediaDownloader.h"
 #import "IMSocketManager.h"
 #import "IMTheme.h"
 #import "UIViewController+IMToast.h"
@@ -176,16 +176,36 @@ static const void *kIMVoiceOverlayKey = &kIMVoiceOverlayKey;
 
 /// 把"按住 = 录音，左滑 = 取消"的长按手势装到输入栏语音钮上。
 /// 手势路径由本 category 独占；不影响其他 UI。
+/// 块式观察者的 token 收集处：`removeObserver:self` **摘不掉 addObserverForName:usingBlock:**
+/// 注册的观察者（它挂在返回的不透明 token 上，不是 self）——不收着就是每进一次聊天页多一条
+/// 永久注册，VC 释放后仍留在通知中心空跑。宿主 dealloc 调 im_teardownVoiceObservers 统一摘。
+static const void *kIMVoiceObserverTokensKey = &kIMVoiceObserverTokensKey;
+
+static void IMVoiceKeepObserverToken(id host, id token) {
+    NSMutableArray *tokens = objc_getAssociatedObject(host, kIMVoiceObserverTokensKey);
+    if (!tokens) {
+        tokens = [NSMutableArray array];
+        objc_setAssociatedObject(host, kIMVoiceObserverTokensKey, tokens, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    [tokens addObject:token];
+}
+
+- (void)im_teardownVoiceObservers {
+    NSArray *tokens = objc_getAssociatedObject(self, kIMVoiceObserverTokensKey);
+    for (id t in tokens) { [[NSNotificationCenter defaultCenter] removeObserver:t]; }
+    objc_setAssociatedObject(self, kIMVoiceObserverTokensKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
 - (void)im_installVoiceRelayObserver {
-    // 幂等：同一 VC 只装一次。observer 生命周期跟随 VC，dealloc 时 NotificationCenter 自动清理。
+    // 幂等：同一 VC 只装一次。
     static const void *k = &k;
     if (objc_getAssociatedObject(self, k)) { return; }
     objc_setAssociatedObject(self, k, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     __weak typeof(self) ws = self;
-    [[NSNotificationCenter defaultCenter] addObserverForName:IMVoicePlayerDidFinishNotification
+    IMVoiceKeepObserverToken(self, [[NSNotificationCenter defaultCenter] addObserverForName:IMVoicePlayerDidFinishNotification
         object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
         [ws im_relayAfterMessageID:n.userInfo[@"messageID"] convID:n.userInfo[@"convID"]];
-    }];
+    }]);
     // 注：preview 状态观察者不在这里装——它只在进入锁定试听态时按需装（code-review 2026-08-27 efficiency）；
     // 否则聊天页任何语音每 tick 30 次都会走一次 im_previewStateChanged 空判断，属净增热路径。
 }
@@ -528,9 +548,16 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
                 // 占位就地转失败（红❗气泡点击 im_resendVoiceMessage 重传）。
                 placeholder.status = IMMessageStatusFailed;
                 placeholder.note = err.localizedDescription ?: @"语音上传失败";
-                // 存**本地录音路径**：上传失败时服务端还没有这段音频，重传必须重新上传本地文件。
-                // 因此这里也**不能删 tmp 文件**（曾删掉，重试只能发一个指向已消失文件的 file:// 地址）。
-                placeholder.content = fileURL.absoluteString;
+                // 待发字节落 IMPendingMediaStore（Application Support，系统不清），content 记
+                // `im-pending://…` —— 与图片/视频的失败件同一种方言。曾直接存 tmp 的 file:// 绝对路径：
+                //   ① tmp 被系统回收后重试只能提示"原始录音已丢失"；
+                //   ② 全仓按 +isLocalRef: 拦"别拿它当媒体地址"的护栏（DataSource/相册/收藏菜单）只认
+                //      im-pending://，file:// 对它们完全隐形。
+                // 落盘失败（磁盘满等）才回退 tmp 路径，至少本次进程内还能重试。
+                NSString *pendingRef = [[IMPendingMediaStore shared] storeByMovingFileAtURL:fileURL
+                                                                             forClientMsgID:placeholderCID
+                                                                                  extension:@"m4a"];
+                placeholder.content = pendingRef ?: fileURL.absoluteString;
                 if (dbCtx) {
                     [IMDatabase.sharedDatabase performWithAccountContext:dbCtx block:^(IMDatabase *db) { [db saveMessage:placeholder]; }];
                 }
@@ -545,7 +572,8 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
                 [IMDatabase.sharedDatabase performWithAccountContext:dbCtx block:^(IMDatabase *db) { [db deleteMessage:placeholder]; }];
             }
             [self im_sendVoiceURL:url waveform:waveform durationMillis:durationMillis fileSize:fileSize];
-            [[NSFileManager defaultManager] removeItemAtURL:fileURL error:NULL]; // tmp 清理；播放走 URL（自动下载缓存）
+            // 本地副本清理（tmp 录音，或重试时来自 IMPendingMediaStore 的那份）；播放走 URL（自动下载缓存）。
+            [[NSFileManager defaultManager] removeItemAtURL:fileURL error:NULL];
         });
     }];
 }
@@ -589,8 +617,8 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
 
 /// 发送失败重试（§5.5）。两种失败**不能同一条路**：
 ///   - send_msg 失败：音频已在服务器 → 按原 URL 重新 send_msg，**不重录也不重传**；
-///   - upload 失败：服务器上根本没有这段音频，content 存的是本地 file:// 路径
-///     → 必须**重新上传**再发。曾统一走 send_msg，把 `file:///var/...m4a` 当媒体地址发出去，
+///   - upload 失败：服务器上根本没有这段音频，content 是 `im-pending://` 本地待发标识
+///     → 必须**重新上传**再发。曾统一走 send_msg，把本地路径当媒体地址发出去，
 ///     对端收到一条永远打不开的语音（2026-08-26 修）。
 /// 两条路都先删旧 failed 行（内存+DB），再按新 clientMsgID 重走回显+ack 链。
 - (void)im_resendVoiceMessage:(IMMessageModel *)m {
@@ -599,11 +627,22 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
     NSString *wave = m.waveform;
     int64_t dur = m.duration;
     int64_t size = m.fileSize;
-    NSURL *localURL = [url hasPrefix:@"file://"] ? [NSURL URLWithString:url] : nil;
-    if (localURL && ![[NSFileManager defaultManager] fileExistsAtPath:localURL.path]) {
-        // tmp 已被系统回收：留着 failed 行让用户知道这条没发出去，别静默删。
-        [self im_showToast:@"原始录音已丢失，请重新录制"];
-        return;
+    NSURL *localURL = nil;
+    if ([IMPendingMediaStore isLocalRef:url]) {
+        NSString *path = [[IMPendingMediaStore shared] filePathForLocalRef:url];
+        if (path.length == 0) {
+            // 本地副本已不在：留着 failed 行让用户知道这条没发出去，别静默删。
+            [self im_showToast:@"原始录音已丢失，请重新录制"];
+            return;
+        }
+        localURL = [NSURL fileURLWithPath:path];
+    } else if ([url hasPrefix:@"file://"]) {
+        // 兼容旧版本落库的 tmp 绝对路径（2026-08-27 前的失败件）。
+        localURL = [NSURL URLWithString:url];
+        if (![[NSFileManager defaultManager] fileExistsAtPath:localURL.path]) {
+            [self im_showToast:@"原始录音已丢失，请重新录制"];
+            return;
+        }
     }
     [self performDatabaseOperation:^(IMDatabase *db) { [db deleteMessage:m]; }];
     NSUInteger idx = [self.messages indexOfObjectIdenticalTo:m];
@@ -640,10 +679,8 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
 - (BOOL)im_hasVoiceTranscript:(IMMessageModel *)message {
     NSString *mid = IMVoicePlayerPlayableIDForMessage(message);
     if (!mid) { return NO; }
-    IMVoiceTranscriber *tr = [IMVoiceTranscriber sharedTranscriber];
-    // 被本地折叠过 → 菜单应回到「转文字」，即便服务端仍有缓存。
-    if ([tr isCollapsedMessageID:mid]) { return NO; }
-    return [tr cachedTextForContent:message.content] != nil;
+    // 被本地折叠过 → 菜单应回到「转文字」，即便服务端仍有缓存（判定由 transcriber 单点给出）。
+    return [[IMVoiceTranscriber sharedTranscriber] visibleTextForMessageID:mid content:message.content] != nil;
 }
 
 /// 「取消转文字」：**只收起本地面板，不删服务端结果**。
@@ -660,38 +697,18 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
     NSString *mid = IMVoicePlayerPlayableIDForMessage(message);
     if (!mid || message.convSeq <= 0) { return; }
 
-    // 缓存命中直接展开（本地缓存 key = 音频路径，与服务端按 content 去重同口径）。
+    // 缓存命中只需取消折叠 + 就地展开（本地缓存 key = 音频路径，与服务端按 content 去重同口径）；
+    // 不必再跑一遍 transcribeConvID:（它会重查缓存、再广播一次 Done）。
     NSString *cached = [[IMVoiceTranscriber sharedTranscriber] cachedTextForContent:message.content];
     if (cached) {
-        [[IMVoiceTranscriber sharedTranscriber] transcribeConvID:message.convID convSeq:message.convSeq
-                                                         content:message.content messageID:mid token:@""];
+        [[IMVoiceTranscriber sharedTranscriber] expandMessageID:mid];
         [self im_applyTranscriptText:cached loading:NO forMessageID:mid];
         return;
     }
 
-    // 订阅状态推送——一次性 observer，收到终态（Done/Unavailable）即摘。
-    // 结果可能来自两条路：REST 直接回 done，或服务端识别完后经 WS voice_transcript 帧到达。
-    __block id token = nil;
-    token = [[NSNotificationCenter defaultCenter]
-        addObserverForName:IMVoiceTranscriberDidChangeNotification object:nil queue:NSOperationQueue.mainQueue
-        usingBlock:^(NSNotification *note) {
-            NSString *notedID = note.userInfo[@"messageID"];
-            if (![notedID isEqualToString:mid]) { return; }
-            IMVoiceTranscribeStatus st = (IMVoiceTranscribeStatus)[note.userInfo[@"status"] integerValue];
-            NSString *text = note.userInfo[@"text"];
-            if (st == IMVoiceTranscribeStatusUnavailable) {
-                // 文案已由 IMVoiceTranscriber 按业务码映射好（未启用 / 识别失败 / 繁忙 / 限流）。
-                [self im_applyTranscriptText:(text.length > 0 ? text : @"转文字失败，请稍后重试")
-                                     loading:NO forMessageID:mid];
-            } else {
-                [self im_applyTranscriptText:text loading:(st == IMVoiceTranscribeStatusRecognizing) forMessageID:mid];
-            }
-            if (st == IMVoiceTranscribeStatusDone || st == IMVoiceTranscribeStatusUnavailable) {
-                if (token) { [[NSNotificationCenter defaultCenter] removeObserver:token]; token = nil; }
-            }
-        }];
-
     // 保底 UI：立刻展「识别中…」，避免等待期间没反馈。
+    // 结果（REST 直接回 done，或服务端识别完后经 WS voice_transcript 帧到达）由本页常驻的
+    // IMVoiceTranscriberDidChangeNotification 观察者接（im_installVoiceTranscriptObserver）。
     [self im_applyTranscriptText:nil loading:YES forMessageID:mid];
 
     // **只传消息坐标，不传音频路径**——服务端自己反查 content 并过路径白名单。
@@ -699,22 +716,25 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
     [[IMVoiceTranscriber sharedTranscriber] transcribeConvID:message.convID
                                                      convSeq:message.convSeq
                                                      content:message.content
-                                                   messageID:mid
-                                                       token:(IMHTTPService.sharedService.currentToken ?: @"")];
+                                                   messageID:mid];
 }
 
-/// 装 WS voice_transcript 帧的观察者：服务端识别完成后把结果交给 transcriber 落缓存并广播。
-/// 幂等，随宿主 VC 生命周期。
+/// 装转文字的两个观察者，**每 VC 一次**（幂等）：
+///   ① WS voice_transcript 帧 → 交给 transcriber 落缓存并广播；
+///   ② transcriber 状态推送 → 应用到可见 cell。
+/// ② 原本是"每点一次转文字装一个一次性 observer，收到终态再自摘"，有两处代价：块里强持有 self，
+/// 而**服务端识别的常态终点是 pending**（等 WS 帧），用户切后台/掉线/任务被丢弃就永远等不到终态 →
+/// observer 不摘、整个聊天页跟着不释放；且连点几次就叠几个 observer，结果到达时整表行高重算几遍。
 - (void)im_installVoiceTranscriptObserver {
     static const void *k = &k;
     if (objc_getAssociatedObject(self, k)) { return; }
     objc_setAssociatedObject(self, k, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     __weak typeof(self) ws = self;
-    [[NSNotificationCenter defaultCenter] addObserverForName:IMSocketDidReceiveVoiceTranscriptNotification
+    IMVoiceKeepObserverToken(self, [[NSNotificationCenter defaultCenter] addObserverForName:IMSocketDidReceiveVoiceTranscriptNotification
         object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
-        NSString *convID = n.userInfo[@"convID"];
+        NSString *convID = n.userInfo[kIMConvIDKey];
         if (![convID isEqualToString:self.convID]) { return; }
         int64_t convSeq = [n.userInfo[@"convSeq"] longLongValue];
         IMMessageModel *m = [self messageWithConvSeq:convSeq];
@@ -726,7 +746,24 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
                                                           content:m.content
                                                            convID:convID
                                                         messageID:mid];
-    }];
+    }]);
+    IMVoiceKeepObserverToken(self, [[NSNotificationCenter defaultCenter] addObserverForName:IMVoiceTranscriberDidChangeNotification
+        object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        NSString *mid = note.userInfo[@"messageID"];
+        if (mid.length == 0) { return; }
+        IMVoiceTranscribeStatus st = (IMVoiceTranscribeStatus)[note.userInfo[@"status"] integerValue];
+        NSString *text = note.userInfo[@"text"];
+        if (st == IMVoiceTranscribeStatusUnavailable) {
+            // 文案已由 IMHTTPService 按业务码映射好（未启用 / 识别失败 / 繁忙 / 限流）。
+            [self im_applyTranscriptText:(text.length > 0 ? text : @"转文字失败，请稍后重试")
+                                 loading:NO forMessageID:mid];
+            return;
+        }
+        // 非本页的消息 mid 天然是 no-op：im_applyTranscriptText: 只落在可见 cell 上按 mid 匹配。
+        [self im_applyTranscriptText:text loading:(st == IMVoiceTranscribeStatusRecognizing) forMessageID:mid];
+    }]);
 }
 
 /// 在可见 cell 上应用转写文本。cell 已被复用/滚出视口则忽略——下次再触发时会重新展开缓存。

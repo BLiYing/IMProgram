@@ -18,13 +18,17 @@ NS_ASSUME_NONNULL_BEGIN
 /// 装接力连播的观察者（一并在装手势时调用即可，幂等）。
 - (void)im_installVoiceRelayObserver;
 
-/// 装「服务端转文字结果」的 WS 观察者（幂等，随宿主 VC）。
+/// 装转文字的观察者（WS 结果帧 + 状态推送，幂等，随宿主 VC）。
 - (void)im_installVoiceTranscriptObserver;
+
+/// 摘掉本 category 装的所有块式观察者。**宿主 dealloc 必须调**：
+/// `removeObserver:self` 对 addObserverForName:usingBlock: 注册的观察者无效。
+- (void)im_teardownVoiceObservers;
 
 /// 播放某条语音消息（DataSource 的 onPlayTap 回调调用）。fullURL = self fullMediaURL:message.content。
 - (void)im_playVoiceMessage:(IMMessageModel *)message fullURL:(NSString *)fullURL;
 
-/// 长按菜单「转文字」触发（+Menu.m 调用）。缓存命中 → 直接展开；否则先下音频再走 SFSpeechRecognizer。
+/// 长按菜单「转文字」触发（+Menu.m 调用）。缓存命中 → 直接展开；否则走服务端识别。
 - (void)im_transcribeVoiceMessage:(IMMessageModel *)message;
 
 /// 该条本地是否已有转写文本（+Menu.m 据此把菜单项在「转文字 / 取消转文字」间切换）。

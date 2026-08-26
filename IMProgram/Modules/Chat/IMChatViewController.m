@@ -763,6 +763,7 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
 
 - (void)dealloc {
     [NSNotificationCenter.defaultCenter removeObserver:self];
+    [self im_teardownVoiceObservers]; // 块式观察者 removeObserver:self 摘不掉，须按 token 摘
     [NSObject cancelPreviousPerformRequestsWithTarget:self];
     [_presenceTickTimer invalidate]; // 兜底：正常路径已在 viewWillDisappear 停掉
 }

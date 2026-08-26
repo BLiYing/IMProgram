@@ -268,9 +268,9 @@ static UIBezierPath *IMBubbleOutlinePath(CGRect rect, CGFloat radius, CACornerMa
     __weak typeof(self) ws = self;
     NSMutableArray<IMMenuAction *> *actions = [NSMutableArray array];
 
-    // 语音消息「转文字」（P1，收端本地）：只对已发出的 voice 消息可用；识别在本机跑，
-    // 结果只存本地缓存（NSUserDefaults per uid+conv+mid），不上行/不落服务端/不跨端。
-    // 见 IMServer docs/VOICE_MESSAGE_DESIGN.md §6.3。
+    // 语音消息「转文字」：只对已发出的 voice 消息可用。识别在**服务端**跑（2026-08-26 起），
+    // 结果按音频内容在服务端与本机各缓存一份；本地"折叠名单"决定面板展开与否。
+    // 见 IMServer docs/VOICE_TRANSCRIBE_DESIGN.md。
     if ([message.contentType isEqualToString:@"voice"] && message.convSeq > 0 && message.recalledAt == 0) {
         // 已转过 → 菜单项变「取消转文字」（清缓存 + 收起面板）；否则「转文字」。
         BOOL hasTranscript = [self im_hasVoiceTranscript:message];

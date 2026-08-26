@@ -361,8 +361,8 @@
     // 这替换掉了 2026-08-26 那版 per-uid+conv+mid 的 key —— 它的读写两侧 owner 取法不一致，
     // 群聊里必然对不上（写入用登录 uid，读取用 message.to，而群聊 to 为 nil）。
     // 本地折叠过（长按「取消转文字」）的条目不自动展开。
-    IMVoiceTranscriber *tr = [IMVoiceTranscriber sharedTranscriber];
-    NSString *cachedText = [tr isCollapsedMessageID:self.currentID] ? nil : [tr cachedTextForContent:message.content];
+    NSString *cachedText = [[IMVoiceTranscriber sharedTranscriber] visibleTextForMessageID:self.currentID
+                                                                                   content:message.content];
     [self layoutTranscriptText:cachedText loading:NO]; // 复用路径不触发整表重算（见方法注释）
     // scrub 残留清理：上一次未走 Ended 的 scrubTip 若还在 alpha=1，reuse 到别的 cell 会看到"幽灵时间条"。
     self.scrubTip.alpha = 0; self.scrubbing = NO;
@@ -463,12 +463,12 @@
     self.transcriptTopSpacing.constant = shows ? 8 : 0;
     // 行高底边跟着切：收起时吊在气泡底，面板残留的文本高度不再撑出空白占位。
     // 先关后开——两条同时 active 会被约束引擎判为冲突并打日志。
-    if (shows) { self.cvBottomToBubble.active = NO; self.cvBottomToPanel.active = YES; }
-    else { self.cvBottomToPanel.active = NO; self.cvBottomToBubble.active = YES; }
     if (shows) {
+        self.cvBottomToBubble.active = NO; self.cvBottomToPanel.active = YES;
         self.transcriptLabel.text = loading ? @"识别中…" : text;
         self.transcriptFooter.hidden = loading; // 识别中不显尾行
     } else {
+        self.cvBottomToPanel.active = NO; self.cvBottomToBubble.active = YES;
         self.transcriptLabel.text = nil; // 清空，避免下次展开前先闪一帧上一条的文本
     }
 }

@@ -62,9 +62,11 @@ static NSString *const kTextKeyPrefix = @"im.voice.transcript.v2.";
     [self seedTranscriptCacheForContent:@"/uploads/a.m4a" text:@"你好"];
     IMVoiceTranscriber *t = [IMVoiceTranscriber new];
     [t collapseMessageID:@"srv_2"];
-    [t transcribeConvID:@"c1" convSeq:7 content:@"/uploads/a.m4a" messageID:@"srv_2" token:@""];
+    [t transcribeConvID:@"c1" convSeq:7 content:@"/uploads/a.m4a" messageID:@"srv_2"];
     XCTAssertFalse([t isCollapsedMessageID:@"srv_2"]);
     XCTAssertEqual([t statusForMessageID:@"srv_2"], IMVoiceTranscribeStatusDone, @"命中缓存应直接完成");
+    XCTAssertEqualObjects([t visibleTextForMessageID:@"srv_2" content:@"/uploads/a.m4a"], @"你好",
+                          @"展开后该显示缓存文本（折叠优先于缓存的唯一判定入口）");
 
     XCTAssertFalse([[self relaunched] isCollapsedMessageID:@"srv_2"]);
 }

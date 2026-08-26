@@ -438,20 +438,18 @@ static const NSTimeInterval IMVoiceSampleInterval = 0.1;
     NSURL *out = [self newSegmentURL];
     NSArray *segs = [self.segmentURLs copy];
     [self exportMergedURL:segs toURL:out completion:^(NSError *err) {
+        // 两条路都不再需要源段与 preview 缓存（deliver 只清数组，不删文件）：
+        // 成功时 final 已是新的完整合并文件，失败时整轮作废。
+        for (NSURL *u in segs) { [[NSFileManager defaultManager] removeItemAtURL:u error:NULL]; }
+        if (self.previewCacheURL) { [[NSFileManager defaultManager] removeItemAtURL:self.previewCacheURL error:NULL]; self.previewCacheURL = nil; }
         if (err) {
             // 合并失败 → 报错让 UI toast 提示用户重试。之前用 segs.lastObject 兜底 = 只发最后一段音频
             // 但 duration/waveform 是全段——播放条满格却只听得到 1/N，且前段音频永久丢失且用户无知。
             // code-review 2026-08-27 确认改硬失败：finalURL=nil 触发 didStop error toast，用户可重录/重发。
-            // 源段与半成品 out 一并清（deliver 只清数组，不删文件）。
-            for (NSURL *u in segs) { [[NSFileManager defaultManager] removeItemAtURL:u error:NULL]; }
-            [[NSFileManager defaultManager] removeItemAtURL:out error:NULL];
+            [[NSFileManager defaultManager] removeItemAtURL:out error:NULL]; // 半成品
             deliver(nil);
             return;
         }
-        // 清掉源段文件（final URL 已经是新的完整合并文件）。
-        for (NSURL *u in segs) { [[NSFileManager defaultManager] removeItemAtURL:u error:NULL]; }
-        // preview 缓存已被 final 取代，一并清（final 是新 URL，与 previewCacheURL 不同）。
-        if (self.previewCacheURL) { [[NSFileManager defaultManager] removeItemAtURL:self.previewCacheURL error:NULL]; self.previewCacheURL = nil; }
         deliver(out);
     }];
 }

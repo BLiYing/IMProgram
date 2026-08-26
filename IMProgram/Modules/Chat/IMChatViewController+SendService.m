@@ -184,6 +184,16 @@
             if (p.convSeq == target) { touchesPinnedBanner = YES; break; }
         }
     }
+    // 撤回命中横幅：**先本地剔除再重拉**。reloadPinnedBanner 是 best-effort（拉失败保留旧集合），
+    // 只靠它收敛的话弱网下横幅会继续挂着一条已撤回消息的预览文案——显示态本身就该在这里收敛，
+    // 网络重拉退回成"与服务端对齐"的补充。（jumpToPinnedConvSeq: 的提示是兜底，不是主路径。）
+    if (recalledAt && touchesPinnedBanner) {
+        NSMutableArray<IMPinnedMessage *> *kept = [NSMutableArray arrayWithCapacity:self.bannerStack.pinnedItems.count];
+        for (IMPinnedMessage *p in self.bannerStack.pinnedItems) {
+            if (p.convSeq != target) { [kept addObject:p]; }
+        }
+        self.bannerStack.pinnedItems = kept; // setter 内部夹紧轮转索引 + 重新应用横幅
+    }
     if (pinnedAt || touchesPinnedBanner) { [self reloadPinnedBanner]; }
 }
 

@@ -83,6 +83,10 @@ NSString *IMFriendlyMessageForCode(NSInteger code) {
         // 300210 不映射：入群申请已提交，UI 走"待审批"分支而非错误提示。
         case 300211: return @"你的入群申请刚被拒绝，请稍后再试";    // join cooldown（拒后再扫码，语义单一可安全映射）
         case 300212: return @"该群已改为仅管理员可邀请，此邀请已失效"; // invite revoked（perm_invite，竞态兜底）
+        case 100002: return @"操作过于频繁，请稍后再试";              // rate limited（全站通用码）
+        case 500101: return @"转文字暂未开启（服务端未配置识别引擎）"; // transcribe disabled
+        case 500102: return @"识别失败，请稍后重试";                  // transcribe failed
+        case 500103: return @"转文字服务繁忙，请稍后再试";            // transcribe busy（队列满）
         default: return nil;
     }
 }
