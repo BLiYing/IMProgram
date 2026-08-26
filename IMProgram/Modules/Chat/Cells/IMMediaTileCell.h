@@ -15,6 +15,10 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)configureWithItem:(IMMediaItem *)item download:(nullable IMDownloadProgress *)download thumb:(nullable NSString *)thumb;
 /// 进度**就地更新**（不 reload）：只改该格的环/中心图标/尺寸角标，不动缩略图。
 - (void)updateDownload:(nullable IMDownloadProgress *)dp;
+
+/// pick 模式勾选框（收藏 pick）：右上角圆形，点击独立触发 onCheckboxTap，不冒泡给格子选中。
+/// pickMode=NO 时清空覆盖层；默认 NO，不影响其它调用方（详情/媒体库）。
+- (void)setPickMode:(BOOL)pickMode selected:(BOOL)selected onCheckboxTap:(nullable void (^)(void))onTap;
 @end
 
 NS_ASSUME_NONNULL_END

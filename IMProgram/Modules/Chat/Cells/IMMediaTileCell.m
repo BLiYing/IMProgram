@@ -13,6 +13,8 @@
     UIImageView *_thumb; UIImageView *_play; NSString *_url;
     UIView *_dim; CAShapeLayer *_ringBG; CAShapeLayer *_ring; UILabel *_sizeChip; UILabel *_durChip;
     UIImageView *_expiredBadge; // 中心 ⊘（曾可用、被服务端清理）
+    UIButton *_checkbox;        // 收藏 pick 模式勾选框（右上角）；平时 hidden
+    void (^_checkboxTap)(void); // 勾选框点击回调（每次 configure 覆盖）
 }
 - (instancetype)initWithFrame:(CGRect)frame {
     if ((self = [super initWithFrame:frame])) {
@@ -67,8 +69,43 @@
             [_expiredBadge.centerXAnchor constraintEqualToAnchor:self.contentView.centerXAnchor],
             [_expiredBadge.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
         ]];
+
+        // 右上角勾选框：UIButton 自吃 touch 事件（不冒泡到 collectionView didSelectItem），
+        // 图形用 SF Symbol；36×36 命中区（视觉 22pt），带白色描边环让选中/未选中在深色缩略图上都清晰。
+        _checkbox = [UIButton buttonWithType:UIButtonTypeCustom];
+        _checkbox.translatesAutoresizingMaskIntoConstraints = NO;
+        _checkbox.hidden = YES;
+        _checkbox.adjustsImageWhenHighlighted = NO;
+        [_checkbox addTarget:self action:@selector(handleCheckboxTap) forControlEvents:UIControlEventTouchUpInside];
+        [self.contentView addSubview:_checkbox];
+        [NSLayoutConstraint activateConstraints:@[
+            [_checkbox.topAnchor constraintEqualToAnchor:self.contentView.topAnchor],
+            [_checkbox.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor],
+            [_checkbox.widthAnchor constraintEqualToConstant:36],
+            [_checkbox.heightAnchor constraintEqualToConstant:36],
+        ]];
     }
     return self;
+}
+
+- (void)handleCheckboxTap { if (_checkboxTap) { _checkboxTap(); } }
+
+- (void)setPickMode:(BOOL)pickMode selected:(BOOL)selected onCheckboxTap:(void (^)(void))onTap {
+    _checkboxTap = [onTap copy];
+    _checkbox.hidden = !pickMode;
+    if (!pickMode) { return; }
+    // 选中=蓝底白 ✓；未选中=半透明黑底白圈（保证在纯白/纯黑缩略图上都可见）。
+    UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:22 weight:UIImageSymbolWeightSemibold];
+    NSString *name = selected ? @"checkmark.circle.fill" : @"circle";
+    UIImage *img = [[UIImage systemImageNamed:name withConfiguration:cfg] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+    [_checkbox setImage:img forState:UIControlStateNormal];
+    _checkbox.tintColor = selected ? [UIColor systemBlueColor] : UIColor.whiteColor;
+    // 白圈内部若透明会让底图透出模糊边——加半透明黑色圆底衬托，双状态一致。
+    _checkbox.backgroundColor = UIColor.clearColor;
+    _checkbox.layer.shadowColor = UIColor.blackColor.CGColor;
+    _checkbox.layer.shadowOpacity = 0.35;
+    _checkbox.layer.shadowRadius = 2;
+    _checkbox.layer.shadowOffset = CGSizeMake(0, 0.5);
 }
 
 + (CAShapeLayer *)ringLayerWithColor:(UIColor *)color rounded:(BOOL)rounded {
@@ -187,6 +224,8 @@
     _thumb.image = nil;
     _thumb.alpha = 1.0;
     _expiredBadge.hidden = YES;
+    _checkbox.hidden = YES;
+    _checkboxTap = nil;
     [self applyGate:nil isVideo:NO];
 }
 @end

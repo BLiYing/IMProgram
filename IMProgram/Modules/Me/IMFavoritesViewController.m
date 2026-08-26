@@ -49,6 +49,9 @@
 static NSString *const kIMFavoritesViewModeKey = @"im.favorites.viewMode"; // 0=消息模式 1=聊天模式
 static NSString *const kIMFavoritesMeBucket = @"__im_fav_me__";            // 聊天模式「我的」分组键
 static CGFloat const kIMFavSegH = 40;                                        // 分段本体（同详情页 kIMDetailTabSegH）
+/// pick 模式（从收藏发送）最多可选条数——独立常量，随时可调；超限点勾选框吐司提示。
+/// 与 Web `FAV_PICK_MAX` 拉齐；不区分类型（媒体/文件/语音/文本/链接/记录同池）。
+static NSInteger const kIMFavoritesPickMaxSelection = 9;
 
 typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     IMFavoritesViewModeMessages = 0, ///< 以消息模式查看：分签
@@ -279,6 +282,9 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     UIView *_pickBar;                                 // 底部工具栏容器
     UIButton *_pickCancelBtn;
     UIButton *_pickSendBtn;
+    CFAbsoluteTime _suppressRowSelectionUntil;        // 勾选框刚点过的短时窗内（0.3s）压制行 didSelect
+                                                       // ——保底防个别 UIKit 版本对 accessoryView UIButton
+                                                       // 触发 didSelect 的历史行为把播放/预览也跟着触发。
 }
 
 - (instancetype)init {
@@ -553,14 +559,23 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     _onPickDone(picked);
 }
 
-/// pick 模式行点击 → 切换选中；返回 YES 表示已消化（宿主 didSelectRow 早退）。
+/// pick 模式勾选框点击 → 切换选中；超限吐司拒绝。**只**由勾选框调用（accessoryView UIButton /
+/// 媒体格右上按钮 / 语音行勾选框），行点击/播放键/媒体格自身不再走这条路径——用户可以在选中的同时
+/// 预览/播放/打开链接。返回 YES 表示已消化（保留用于外部调用签名兼容）。
 - (BOOL)handlePickTapForFavorite:(NSDictionary *)f {
     if (!_pickMode) { return NO; }
     NSNumber *fid = [f[@"id"] isKindOfClass:NSNumber.class] ? f[@"id"]
                  : ([f[@"id"] respondsToSelector:@selector(longLongValue)] ? @([f[@"id"] longLongValue]) : nil);
     if (!fid) { return YES; }
-    if ([_pickedFavIds containsObject:fid]) { [_pickedFavIds removeObject:fid]; }
-    else { [_pickedFavIds addObject:fid]; }
+    if ([_pickedFavIds containsObject:fid]) {
+        [_pickedFavIds removeObject:fid];
+    } else {
+        if ((NSInteger)_pickedFavIds.count >= kIMFavoritesPickMaxSelection) {
+            [self im_showToast:[NSString stringWithFormat:@"最多选择 %ld 项", (long)kIMFavoritesPickMaxSelection]];
+            return YES;
+        }
+        [_pickedFavIds addObject:fid];
+    }
     [self updatePickSendButton];
     [_tableView reloadData]; // 直接整表刷新（selection 影响多个 cell 的 accessory，逐格 reload 反而复杂）
     return YES;
@@ -918,18 +933,24 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
         IMDetailMediaContainerCell *cell = [tableView dequeueReusableCellWithIdentifier:@"mediagrid" forIndexPath:indexPath];
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
         __weak typeof(self) ws = self;
+        // 铁律（收藏 pick）：点媒体格恒开预览（图片=查看器 / 视频=播放器）——即使 pick 模式；选中只走
+        // 右上角勾选框覆盖层（IMMediaTileCell.setPickMode:selected:onCheckboxTap:）。曾把 pick 模式下的
+        // onPick 复用为"切换选中"，导致用户看不到预览、还以为要长按才能选。
         cell.onPick = ^(IMMediaItem *item) {
             __strong typeof(ws) self = ws;
-            if (!self) { return; }
-            if (self->_pickMode) {
-                // pick 模式点媒体格 → 从 item 反查 favorite，切换选中；不打开查看器。
-                NSUInteger idx = [self->_mediaItems indexOfObject:item];
-                if (idx != NSNotFound && idx < self->_mediaFavs.count) {
-                    [self handlePickTapForFavorite:self->_mediaFavs[idx]];
-                }
-                return;
-            }
-            [self openMediaItem:item];
+            if (self) { [self openMediaItem:item]; }
+        };
+        // pick 模式勾选框：透传 pickMode / 选中查询 / 切换回调。
+        cell.pickMode = _pickMode;
+        cell.isItemSelectedAtIndex = ^BOOL(NSInteger i) {
+            __strong typeof(ws) self = ws;
+            if (!self || i < 0 || i >= (NSInteger)self->_mediaFavs.count) { return NO; }
+            return [self isPickedFavorite:self->_mediaFavs[(NSUInteger)i]];
+        };
+        cell.onToggleSelectionAtIndex = ^(NSInteger i) {
+            __strong typeof(ws) self = ws;
+            if (!self || i < 0 || i >= (NSInteger)self->_mediaFavs.count) { return; }
+            [self handlePickTapForFavorite:self->_mediaFavs[(NSUInteger)i]];
         };
         // 逐格门控：必须在 setItems: 前挂好（reloadData 会立刻回调查询每格状态）。
         cell.stateForItemIndex = ^IMDownloadProgress *(NSInteger i) {
@@ -990,11 +1011,11 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
                         timeText:(createdAt > 0 ? IMFormatFileDateTime(createdAt) : @"")];
         __weak typeof(self) ws = self;
         NSDictionary *fav = f;
+        // 铁律（收藏 pick）：▶/⏸ 键恒播放/暂停——即使 pick 模式；选中只走行右侧勾选框（accessoryView）。
+        // 曾把播放键复用为"切换选中"，导致用户听不到语音、且和"点击其他位置=打开"的语义不一致。
         vc.onPlayTap = ^{
             __strong typeof(ws) self = ws;
-            if (!self) { return; }
-            if (self->_pickMode) { [self handlePickTapForFavorite:fav]; return; } // pick 模式点播放键=选中
-            [self playFavoriteVoice:fav];
+            if (self) { [self playFavoriteVoice:fav]; }
         };
         [self applyPickAccessoryForCell:vc favorite:f];
         return vc;
@@ -1006,19 +1027,43 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     return cell;
 }
 
-/// pick 模式给任意 cell 挂勾选圈 accessory：选中态="✓"（accent），未选中=空圈（tertiary）；非 pick 模式清 accessory。
+/// pick 模式给任意 cell 挂勾选框 accessory：**UIButton** 独立触发切换（accessoryView 作为 UIControl 自吃
+/// touch，行 didSelect 不会随之触发）。选中态=✓（accent），未选中=空圈（tertiary）；非 pick 模式清 accessory。
+/// tag = favorite.id（int64_t）；action 里用 tag 反查再走 handlePickTapForFavorite: 走上限校验。
 - (void)applyPickAccessoryForCell:(UITableViewCell *)cell favorite:(NSDictionary *)f {
     if (!_pickMode) { cell.accessoryView = nil; cell.accessoryType = UITableViewCellAccessoryNone; return; }
     BOOL on = [self isPickedFavorite:f];
+    int64_t fid = [f[@"id"] respondsToSelector:@selector(longLongValue)] ? [f[@"id"] longLongValue] : 0;
+    UIButton *btn = [UIButton buttonWithType:UIButtonTypeCustom];
     UIImage *img = [UIImage systemImageNamed:(on ? @"checkmark.circle.fill" : @"circle")
                             withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:22 weight:UIImageSymbolWeightRegular]];
-    UIImageView *iv = [[UIImageView alloc] initWithImage:[img imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate]];
-    iv.tintColor = on ? IMTheme.accent : IMTheme.textTertiary;
-    cell.accessoryView = iv;
+    [btn setImage:[img imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] forState:UIControlStateNormal];
+    btn.tintColor = on ? IMTheme.accent : IMTheme.textTertiary;
+    btn.frame = CGRectMake(0, 0, 36, 36);
+    btn.tag = (NSInteger)fid; // int64_t 全部落 NSInteger（iOS 64-bit 无损）
+    [btn addTarget:self action:@selector(handlePickAccessoryTap:) forControlEvents:UIControlEventTouchUpInside];
+    cell.accessoryView = btn;
+}
+
+/// UIButton accessoryView action：按 tag（=favorite.id）在 _allItems 中反查并走 handlePickTapForFavorite:
+/// （统一走上限校验、reloadData、更新发送按钮）。
+- (void)handlePickAccessoryTap:(UIButton *)sender {
+    _suppressRowSelectionUntil = CFAbsoluteTimeGetCurrent() + 0.3;
+    int64_t fid = (int64_t)sender.tag;
+    if (fid == 0) { return; }
+    for (NSDictionary *f in _allItems) {
+        if ([f[@"id"] respondsToSelector:@selector(longLongValue)] && [f[@"id"] longLongValue] == fid) {
+            [self handlePickTapForFavorite:f];
+            return;
+        }
+    }
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    // 勾选框刚触发过（0.3s 内）→ 保底压制行 didSelect，避免个别 UIKit 版本 accessoryView UIButton
+    // 触发 didSelect 时把预览/播放也一并触发。
+    if (_pickMode && CFAbsoluteTimeGetCurrent() < _suppressRowSelectionUntil) { return; }
     if (_mode == IMFavoritesViewModeChats) {
         if (indexPath.row >= (NSInteger)_shownGroups.count) { return; }
         IMFavoriteSourceGroup *g = _shownGroups[(NSUInteger)indexPath.row];
@@ -1026,11 +1071,9 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
         [self.navigationController pushViewController:sub animated:YES];
         return;
     }
-    // pick 模式：非媒体行 → 直接切换选中并早退（不打开阅读器/QuickLook/Safari）；
-    // 媒体分类点击落在容器 cell 里逐格勾选走 IMDetailMediaContainerCell.onPick，本方法不接管。
-    if (_pickMode && _selectedKind != IMFavoriteCategoryMedia && indexPath.row < (NSInteger)_rows.count) {
-        if ([self handlePickTapForFavorite:_rows[(NSUInteger)indexPath.row]]) { return; }
-    }
+    // pick 模式行点击 = **打开该项**（预览/播放/QuickLook/Safari）——与 browse 一致；选中只走
+    // accessoryView 勾选框（applyPickAccessoryForCell:）。曾在 pick 模式下把行点击=切换选中，导致
+    // 用户没法预览就要盲发。媒体分类点击落在宫格里，本方法不接管。
     if (_selectedKind == IMFavoriteCategoryMedia || indexPath.row >= (NSInteger)_rows.count) { return; }
     NSDictionary *f = _rows[(NSUInteger)indexPath.row];
     NSString *content = [f[@"content"] isKindOfClass:NSString.class] ? f[@"content"] : @"";

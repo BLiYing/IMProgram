@@ -21,6 +21,12 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) void (^onContentWidthChanged)(CGFloat width);
 /// 逐格长按菜单（任务2：转发/定位到聊天/[取消下载]/删除两档，与文件行一致）——由 VC 提供，返回 nil=不显示。
 @property (nonatomic, copy, nullable) UIContextMenuConfiguration *_Nullable (^contextMenuForItemIndex)(NSInteger index);
+/// pick 模式（收藏"从收藏发送"）：YES 时每格右上角显勾选框。默认 NO，其它调用方（详情/媒体库）无影响。
+@property (nonatomic, assign) BOOL pickMode;
+/// pick 选中查询：由 VC 按 favorite.id 判定。返回 YES=✓、NO=空圈。pickMode=NO 时不调用。
+@property (nonatomic, copy, nullable) BOOL (^isItemSelectedAtIndex)(NSInteger index);
+/// pick 勾选框点击：VC 侧翻转选中集并 reload。与 onPick（打开预览）路径完全分离。
+@property (nonatomic, copy, nullable) void (^onToggleSelectionAtIndex)(NSInteger index);
 - (void)setItems:(NSArray<IMMediaItem *> *)items;
 /// 重配一格（用于「下载完成/解除门控」——需要重新拉原图）。
 - (void)refreshItemAtIndex:(NSInteger)index;

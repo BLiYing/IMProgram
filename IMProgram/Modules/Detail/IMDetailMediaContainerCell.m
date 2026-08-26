@@ -60,6 +60,18 @@
     IMDownloadProgress *dp = self.stateForItemIndex ? self.stateForItemIndex(ip.item) : nil;
     NSString *thumb = (dp && self.thumbForItemIndex) ? self.thumbForItemIndex(ip.item) : nil;
     [c configureWithItem:_items[ip.item] download:dp thumb:thumb];
+    // pick 模式勾选框（收藏「从收藏发送」）：configure 之后覆盖设置，避免被 prepareForReuse 清掉。
+    if (self.pickMode) {
+        BOOL on = self.isItemSelectedAtIndex ? self.isItemSelectedAtIndex(ip.item) : NO;
+        NSInteger idx = ip.item;
+        __weak typeof(self) ws = self;
+        [c setPickMode:YES selected:on onCheckboxTap:^{
+            __strong typeof(ws) ss = ws;
+            if (ss && ss.onToggleSelectionAtIndex) { ss.onToggleSelectionAtIndex(idx); }
+        }];
+    } else {
+        [c setPickMode:NO selected:NO onCheckboxTap:nil];
+    }
     return c;
 }
 - (CGSize)collectionView:(UICollectionView *)cv layout:(UICollectionViewLayout *)l sizeForItemAtIndexPath:(NSIndexPath *)ip {
