@@ -26,6 +26,9 @@ extern NSNotificationName const IMVoiceTranscriberDidChangeNotification;
 /// 语音识别授权是否被拒/受限（供上层判定文案是"去设置开启"还是"识别不可用"）。
 + (BOOL)isAuthorizationDeniedOrRestricted;
 
+/// Unavailable 时的详细原因描述——权限已给但识别器不可用时，指出可能是网络断/语言不支持/需要下载语言包。
++ (NSString *)unavailableReasonDescription;
+
 /// 内存缓存查询（滚动列表 configure 热路径专用，不走 NSUserDefaults 读盘）。miss 返回 nil，
 /// 首次落盘时按需从 NSUserDefaults 懒加载并回填 mem cache。
 

@@ -15,7 +15,8 @@
 @property (nonatomic, strong) UIView *bubble;
 @property (nonatomic, strong) UIButton *playButton;
 @property (nonatomic, strong) IMWaveformView *waveform;
-@property (nonatomic, strong) UILabel *durationLabel;
+@property (nonatomic, strong) UILabel *durationLabel;  ///< 底行左：仅时长 "0:12"（播放中显剩余）
+@property (nonatomic, strong) UILabel *timeLabel;      ///< 底行右：消息时间 "HH:mm ✓/✓✓"（对齐 IMBubbleCell 口径）
 @property (nonatomic, strong) UIView *unplayedDot;
 @property (nonatomic, strong) UILabel *senderLabel;
 @property (nonatomic, strong) UILabel *dayHeader;
@@ -106,6 +107,14 @@
     _durationLabel.font = [UIFont monospacedDigitSystemFontOfSize:11 weight:UIFontWeightRegular];
     _durationLabel.textColor = IMTheme.textSecondary;
     [_bubble addSubview:_durationLabel];
+
+    // 右下时间 + 勾（2026-08-27 修：与 IMBubbleCell 口径统一——语音气泡右下角必须显消息 HH:mm）。
+    _timeLabel = [UILabel new];
+    _timeLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    _timeLabel.font = [UIFont systemFontOfSize:11];
+    _timeLabel.textColor = IMTheme.textSecondary;
+    _timeLabel.textAlignment = NSTextAlignmentRight;
+    [_bubble addSubview:_timeLabel];
 
     _unplayedDot = [UIView new];
     _unplayedDot.translatesAutoresizingMaskIntoConstraints = NO;
@@ -214,9 +223,11 @@
         [_avatar.widthAnchor constraintEqualToConstant:32],
         [_avatar.heightAnchor constraintEqualToConstant:32],
         [_avatar.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor],
-        // 气泡定位（左右锚随 mine 切换，见 configure）
+        // 气泡定位（左右锚随 mine 切换，见 configure）。高度 75pt = 8(上) + 24(波形) + 4 + 14(时长行)
+        // + 3 + 14(时间行) + 8(下)。播放键**居中于「波形+时长行」这一组**（不含独立时间行），
+        // 2026-08-27 用户拍板：波形与时长要与左侧 ▶ 视觉居中。
         [_bubble.topAnchor constraintEqualToAnchor:_senderLabel.bottomAnchor constant:2],
-        [_bubble.heightAnchor constraintEqualToConstant:52],
+        [_bubble.heightAnchor constraintEqualToConstant:75],
         // 转写面板（默认 hidden 且 top spacing=0，不占额外高度）。show 时 spacing=8。
         [_transcriptPanel.bottomAnchor constraintEqualToAnchor:cv.bottomAnchor constant:-4],
         // 与气泡同侧对齐（configure 时按 mine 切）
@@ -231,25 +242,34 @@
         [_transcriptFooter.trailingAnchor constraintEqualToAnchor:_transcriptLabel.trailingAnchor],
         [_transcriptFooter.topAnchor constraintEqualToAnchor:_transcriptLabel.bottomAnchor constant:5],
         [_transcriptFooter.bottomAnchor constraintEqualToAnchor:_transcriptPanel.bottomAnchor],
-        // 气泡内元素
+        // 气泡内元素（用户 2026-08-27 新布局：▶ 居左垂直居中 · 中间 vertical stack 波形/时长·时间行）
         [_playButton.leadingAnchor constraintEqualToAnchor:_bubble.leadingAnchor constant:6],
-        [_playButton.centerYAnchor constraintEqualToAnchor:_bubble.centerYAnchor],
+        // ▶ 居中于「波形 + 时长行」组：组高 = 24(波形) + 4(gap) + 14(时长) = 42 → 半高 21。
+        // 用固定常量而非 centerY 对齐 bubble：时间行是独立第三行，不该把居中轴往下拽。
+        [_playButton.centerYAnchor constraintEqualToAnchor:_waveform.topAnchor constant:21],
         [_playButton.widthAnchor constraintEqualToConstant:34],
         [_playButton.heightAnchor constraintEqualToConstant:34],
         [_waveform.leadingAnchor constraintEqualToAnchor:_playButton.trailingAnchor constant:9],
-        [_waveform.centerYAnchor constraintEqualToAnchor:_bubble.centerYAnchor],
-        [_waveform.heightAnchor constraintEqualToConstant:28],
-        [_waveform.trailingAnchor constraintEqualToAnchor:_durationLabel.leadingAnchor constant:-8],
-        [_durationLabel.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor constant:-10],
-        [_durationLabel.centerYAnchor constraintEqualToAnchor:_bubble.centerYAnchor constant:5],
+        [_waveform.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor constant:-10],
+        [_waveform.topAnchor constraintEqualToAnchor:_bubble.topAnchor constant:8],
+        [_waveform.heightAnchor constraintEqualToConstant:24],
+        // 时长行：左=时长（播放中显剩余），右端=倍速胶囊（播放中淡入）。高度固定以锁死 ▶ 的居中轴。
+        [_durationLabel.leadingAnchor constraintEqualToAnchor:_waveform.leadingAnchor],
+        [_durationLabel.topAnchor constraintEqualToAnchor:_waveform.bottomAnchor constant:4],
+        [_durationLabel.heightAnchor constraintEqualToConstant:14],
+        [_durationLabel.trailingAnchor constraintLessThanOrEqualToAnchor:_speedPill.leadingAnchor constant:-4],
+        // 时间行（2026-08-27 用户拍板独立一行，iOS/Web 拉齐）：右对齐 "HH:mm ✓/✓✓"。
+        [_timeLabel.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor constant:-10],
+        [_timeLabel.topAnchor constraintEqualToAnchor:_durationLabel.bottomAnchor constant:3],
+        [_timeLabel.heightAnchor constraintEqualToConstant:14],
         [_unplayedDot.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor constant:-10],
         [_unplayedDot.topAnchor constraintEqualToAnchor:_bubble.topAnchor constant:6],
         [_unplayedDot.widthAnchor constraintEqualToConstant:7],
         [_unplayedDot.heightAnchor constraintEqualToConstant:7],
-        // 倍速胶囊：波形右上方；播放中淡入（默认贴 durationLabel 上方 3pt）
+        // 倍速胶囊：时长行右端（原右上位置与波形横向重叠——2026-08-27 修 #1）。16pt 高避免贴到时间行。
         [_speedPill.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor constant:-8],
-        [_speedPill.topAnchor constraintEqualToAnchor:_bubble.topAnchor constant:4],
-        [_speedPill.heightAnchor constraintEqualToConstant:18],
+        [_speedPill.centerYAnchor constraintEqualToAnchor:_durationLabel.centerYAnchor],
+        [_speedPill.heightAnchor constraintEqualToConstant:16],
         // scrub tip：波形正上方 4pt；水平 centerX 由拖拽时动态更新
         [_scrubTip.centerYAnchor constraintEqualToAnchor:_waveform.topAnchor constant:-10],
         [_scrubTip.heightAnchor constraintEqualToConstant:16],
@@ -330,7 +350,7 @@
     NSString *cachedText = [[IMVoiceTranscriber sharedTranscriber] cachedTextForMessageID:self.currentID
                                                                                   convID:message.convID
                                                                                    owner:message.to /*收方 uid*/ ?: message.from];
-    [self applyTranscriptText:cachedText loading:NO];
+    [self layoutTranscriptText:cachedText loading:NO]; // 复用路径不触发整表重算（见方法注释）
     // scrub 残留清理：上一次未走 Ended 的 scrubTip 若还在 alpha=1，reuse 到别的 cell 会看到"幽灵时间条"。
     self.scrubTip.alpha = 0; self.scrubbing = NO;
     // 倍速胶囊 alpha 由 applyPlayerState 应用；复用先隐藏，避免闪一下上一条的胶囊。
@@ -355,11 +375,12 @@
     CGFloat dur = MAX(1.0, message.duration / 1000.0);
     self.bubbleWidth.constant = MIN(240.0, MAX(160.0, 96.0 + dur * 3.6));
 
-    // 综合 meta：时长 · 时间 · ✓/✓✓（durationLabel 单 label 承载全部；2026-08-27 修 #4——
-    // 曾独立 readMark 与 durationLabel 并列，把 durationLabel 挤出气泡外只剩半个 ✓）。
-    self.durationLabel.attributedText = [self metaAttributedForMessage:message mine:mine
-                                                            peerReadSeq:peerReadSeq
-                                                         isGroupContext:isGroupContext];
+    // 底行拆两半：durationLabel（左）= 时长；timeLabel（右）= 消息时间 + 状态勾。
+    // 2026-08-27 修 #1：时间必须在右下角对齐 IMBubbleCell。
+    self.durationLabel.text = IMFormatVoiceDuration(self.totalDurationMillis);
+    self.timeLabel.attributedText = [self rightMetaAttributedForMessage:message mine:mine
+                                                             peerReadSeq:peerReadSeq
+                                                          isGroupContext:isGroupContext];
     // 未播红点仅对方消息 + 本机未播过时显；hasPlayed 由宿主传入（已 mine || 查询 IMVoicePlayer 已播集合）。
     self.unplayedDot.hidden = mine || hasPlayed;
     // 发送失败红 !（§5.5「不静默失败」）：曾 ack 失败置 Failed 落库但气泡外观与成功完全一致（2026-08-26 修）。
@@ -372,29 +393,42 @@
 
 - (NSString *)formatDur:(int64_t)ms { return IMFormatVoiceDuration(ms); }
 
-/// 综合 meta 富文本："0:12"（对方/发送中）/ "0:12 · 14:32 ✓" / "0:12 · 14:32 ✓✓"（✓✓ 绿色）。
-/// mine 且拿到 ack 才显时间+勾（发送中/失败由 durationLabel 只显时长，失败在气泡外由 statusBadge 表达）。
-- (NSAttributedString *)metaAttributedForMessage:(IMMessageModel *)message mine:(BOOL)mine
-                                     peerReadSeq:(int64_t)peerReadSeq isGroupContext:(BOOL)isGroupContext {
-    UIFont *font = [UIFont monospacedDigitSystemFontOfSize:11 weight:UIFontWeightRegular];
-    NSString *durStr = IMFormatVoiceDuration(self.totalDurationMillis);
+/// 右下 meta（timeLabel 富文本）：与 IMBubbleCell.attributedMetaForMessage 完全同口径——
+/// 对方 = "HH:mm"；己方发送中 = "发送中…"；己方失败 = "未发送 ✗"（红，被拒收 note 存在时只显时间）；
+/// 己方已 ack = "HH:mm ✓" 或 "HH:mm ✓✓"（✓✓ 绿）。语音时长由左侧 durationLabel 独立承载。
+- (NSAttributedString *)rightMetaAttributedForMessage:(IMMessageModel *)message mine:(BOOL)mine
+                                          peerReadSeq:(int64_t)peerReadSeq isGroupContext:(BOOL)isGroupContext {
+    UIFont *font = [UIFont systemFontOfSize:11];
     UIColor *secondary = IMTheme.textSecondary;
     NSDictionary *base = @{ NSFontAttributeName: font, NSForegroundColorAttributeName: secondary };
-    if (!mine || message.convSeq <= 0
-        || message.status == IMMessageStatusSending || message.status == IMMessageStatusFailed) {
-        // 对方消息 / 发送中 / 失败：只显时长（时间对对方语音无强需求；失败由外部红 ! 表达）。
-        return [[NSAttributedString alloc] initWithString:durStr attributes:base];
-    }
     NSString *timeStr = [IMTheme timeStringFromMillis:message.timestamp]; // HH:mm
-    BOOL doubleTick = !isGroupContext && message.convSeq <= peerReadSeq;
-    NSString *checks = doubleTick ? @"✓✓" : @"✓";
-    NSString *plain = [NSString stringWithFormat:@"%@ · %@ %@", durStr, timeStr, checks];
-    NSMutableAttributedString *s = [[NSMutableAttributedString alloc] initWithString:plain attributes:base];
-    NSRange r = [plain rangeOfString:checks options:NSBackwardsSearch];
-    if (r.location != NSNotFound) {
-        [s addAttribute:NSForegroundColorAttributeName value:(doubleTick ? IMTheme.checkRead : secondary) range:r];
+
+    if (!mine) {
+        return [[NSAttributedString alloc] initWithString:(timeStr ?: @"") attributes:base];
     }
-    return s;
+    if (message.status == IMMessageStatusSending) {
+        return [[NSAttributedString alloc] initWithString:@"发送中…" attributes:base];
+    }
+    if (message.status == IMMessageStatusFailed) {
+        if (message.note.length > 0) {
+            return [[NSAttributedString alloc] initWithString:(timeStr ?: @"") attributes:base];
+        }
+        return [[NSAttributedString alloc] initWithString:@"未发送 ✗"
+                                              attributes:@{ NSFontAttributeName: font,
+                                                            NSForegroundColorAttributeName: UIColor.systemRedColor }];
+    }
+    if (message.convSeq > 0) {
+        BOOL doubleTick = !isGroupContext && message.convSeq <= peerReadSeq;
+        NSString *checks = doubleTick ? @"✓✓" : @"✓";
+        NSString *plain = timeStr.length > 0 ? [NSString stringWithFormat:@"%@ %@", timeStr, checks] : checks;
+        NSMutableAttributedString *s = [[NSMutableAttributedString alloc] initWithString:plain attributes:base];
+        NSRange r = [plain rangeOfString:checks options:NSBackwardsSearch];
+        if (r.location != NSNotFound) {
+            [s addAttribute:NSForegroundColorAttributeName value:(doubleTick ? IMTheme.checkRead : secondary) range:r];
+        }
+        return s;
+    }
+    return [[NSAttributedString alloc] initWithString:(timeStr ?: @"") attributes:base];
 }
 
 - (void)applyGroupAvatarURL:(NSString *)url seed:(NSString *)seed name:(NSString *)name showAvatar:(BOOL)showAvatar gutter:(BOOL)gutter {
@@ -407,7 +441,10 @@
 - (void)playTapped { if (self.onPlayTap) { self.onPlayTap(); } }
 - (void)retryTapped { if (self.onRetryTap) { self.onRetryTap(); } }
 
-- (void)applyTranscriptText:(NSString *)text loading:(BOOL)loading {
+/// 纯布局应用，**不通知 tableView**——`configure` 复用路径专用。
+/// 2026-08-27 性能修：configure 原先直接调 applyTranscriptText:，而它内部 beginUpdates/endUpdates；
+/// 即每个语音 cell 出队都在 cellForRow 内部强制整表重算行高 —— 语音消息一多，滑动肉眼卡顿。
+- (void)layoutTranscriptText:(nullable NSString *)text loading:(BOOL)loading {
     BOOL shows = loading || (text.length > 0);
     self.transcriptPanel.hidden = !shows;
     self.transcriptTopSpacing.constant = shows ? 8 : 0;
@@ -415,7 +452,11 @@
         self.transcriptLabel.text = loading ? @"识别中…" : text;
         self.transcriptFooter.hidden = loading; // 识别中不显尾行
     }
-    // 通知 tableView 重算行高（cell 内容变化，UITableViewAutomaticDimension 自适应）。
+}
+
+/// 宿主主动触发（长按「转文字」→ 识别中/完成）：改布局后才需通知 tableView 重算行高。
+- (void)applyTranscriptText:(NSString *)text loading:(BOOL)loading {
+    [self layoutTranscriptText:text loading:loading];
     UITableView *tv = [self findTableView];
     if (tv) {
         [tv beginUpdates];

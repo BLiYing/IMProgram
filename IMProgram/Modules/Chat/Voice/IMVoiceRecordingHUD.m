@@ -60,9 +60,9 @@
     _slideHint.textAlignment = NSTextAlignmentCenter;
     [_pill addSubview:_slideHint];
 
-    // slideHint 从 timer 右缘 +16 起（曾 centerXAnchor=pill.centerX，"松开 取消"变宽后与 timer 重叠，2026-08-27 修）。
-    // pill 右缘留 12pt；命中取消态时 pill 变红覆盖整条，此时 timer 白字仍在原位、hint 白字左对齐"松开 取消"。
-    _slideOffsetConstraint = [_slideHint.leadingAnchor constraintEqualToAnchor:_timerLabel.trailingAnchor constant:16];
+    // 设计 §5.2：hint 居 pill 中心，跟指位移 ×0.4 阻尼渐隐；命中取消阈值后仍居中显"松开 取消"+ 整条转红。
+    // 用户 2026-08-27 复议：hint 必须居中（曾改为 timer.trailing+16 挂靠导致"松开 取消"不居中）。
+    _slideOffsetConstraint = [_slideHint.centerXAnchor constraintEqualToAnchor:_pill.centerXAnchor constant:0];
 
     [NSLayoutConstraint activateConstraints:@[
         [_pill.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:8],
@@ -76,7 +76,6 @@
         [_timerLabel.leadingAnchor constraintEqualToAnchor:_redDot.trailingAnchor constant:8],
         [_timerLabel.centerYAnchor constraintEqualToAnchor:_pill.centerYAnchor],
         _slideOffsetConstraint,
-        [_slideHint.trailingAnchor constraintLessThanOrEqualToAnchor:_pill.trailingAnchor constant:-12],
         [_slideHint.centerYAnchor constraintEqualToAnchor:_pill.centerYAnchor],
     ]];
 
@@ -113,6 +112,9 @@
 - (void)setCancelReady:(BOOL)cancelReady {
     if (_cancelReady == cancelReady) { return; }
     _cancelReady = cancelReady;
+    // 命中阈值必须把 hint 拉回 pill 正中（此前 slideOffset 已把 constant 设成负数偏左，仅靠切文案不会自动居中，
+    // 2026-08-27 修：用户报"松开 取消"仍偏左）。回退到非红态时保留最后一次 offset，由 setSlideOffset 继续驱动。
+    if (cancelReady) { self.slideOffsetConstraint.constant = 0; }
     [UIView animateWithDuration:0.22 delay:0 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
         if (cancelReady) {
             self.pill.backgroundColor = UIColor.systemRedColor;
@@ -120,6 +122,8 @@
             self.slideHint.text = @"松开 取消";
             self.slideHint.textColor = UIColor.whiteColor;
             self.timerLabel.textColor = UIColor.whiteColor;
+            self.slideHint.alpha = 1.0;
+            [self layoutIfNeeded]; // 让 constant=0 的位移随动画一起呈现（否则会跳变）
         } else {
             self.pill.backgroundColor = IMTheme.pageBackground;
             self.pill.layer.borderColor = IMTheme.separator.CGColor;
@@ -133,15 +137,17 @@
 - (void)setSlideOffset:(CGFloat)offsetX {
     if (offsetX == _lastOffset) { return; }
     _lastOffset = offsetX;
-    // constant base = timer 右 +16；跟指左移最大 -140，但不小于 4（不再挤进 timer 区间）。
-    CGFloat delta = MAX(-140, MIN(0, offsetX));
-    self.slideOffsetConstraint.constant = 16 + delta;
-    if (!self.cancelReady) {
-        CGFloat alpha = 1.0 + offsetX / 140.0;
-        self.slideHint.alpha = MAX(0.2, MIN(1.0, alpha));
-    } else {
+    // 设计 §5.2：hint 跟指位移 ×0.4 阻尼；进度条式渐隐（alpha 随左移线性降到 0.2 兜底），
+    // 未过阈值时保持可读；命中取消阈值后 hint 严格居中（constant=0），不再随 pan 抖动。
+    if (self.cancelReady) {
+        self.slideOffsetConstraint.constant = 0;
         self.slideHint.alpha = 1.0;
+        return;
     }
+    CGFloat clamped = MAX(-140, MIN(0, offsetX));
+    self.slideOffsetConstraint.constant = clamped * 0.4;
+    CGFloat alpha = 1.0 + clamped / 140.0; // 0→1, -140→0
+    self.slideHint.alpha = MAX(0.2, MIN(1.0, alpha));
 }
 
 @end

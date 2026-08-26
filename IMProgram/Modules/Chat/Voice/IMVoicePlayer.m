@@ -31,6 +31,10 @@ static NSString *_Nonnull IMVoicePlayerPlayedKey(NSString *ownerUID, NSString *c
 @property (nonatomic, copy, nullable) NSString *currentOwner;
 @property (nonatomic, strong, nullable) CADisplayLink *progressLink;
 @property (nonatomic, assign) IMVoicePlayerState currentState;
+/// 已播集合的内存镜像：key = IMVoicePlayerPlayedKey(owner, conv)，value = NSMutableSet<messageID>。
+/// 滚动时每个语音 cell 都要查一次"是否已播"，直接读 NSUserDefaults 是「磁盘 IO + 最多 5000 元素
+/// 线性 containsObject」——语音消息一多列表就卡（2026-08-27 修，与 IMVoiceTranscriber 同一类问题）。
+@property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableSet<NSString *> *> *playedCache;
 @end
 
 @implementation IMVoicePlayer
@@ -145,22 +149,39 @@ static NSString *_Nonnull IMVoicePlayerPlayedKey(NSString *ownerUID, NSString *c
     return MAX(0, MIN(1, self.player.currentTime / total));
 }
 
+/// 已播集合（内存镜像，懒加载自 NSUserDefaults）——滚动热路径只碰内存 NSSet。
+- (NSMutableSet<NSString *> *)playedSetForKey:(NSString *)key {
+    if (!self.playedCache) { self.playedCache = [NSMutableDictionary dictionary]; }
+    NSMutableSet<NSString *> *s = self.playedCache[key];
+    if (!s) {
+        NSArray *arr = [[NSUserDefaults standardUserDefaults] arrayForKey:key];
+        s = [arr isKindOfClass:[NSArray class]] ? [NSMutableSet setWithArray:arr] : [NSMutableSet set];
+        self.playedCache[key] = s;
+    }
+    return s;
+}
+
 - (BOOL)hasPlayed:(NSString *)messageID inConv:(NSString *)convID owner:(NSString *)ownerUID {
     if (!messageID) { return NO; }
-    NSArray *arr = [[NSUserDefaults standardUserDefaults] arrayForKey:IMVoicePlayerPlayedKey(ownerUID, convID)];
-    return [arr isKindOfClass:[NSArray class]] && [arr containsObject:messageID];
+    return [[self playedSetForKey:IMVoicePlayerPlayedKey(ownerUID, convID)] containsObject:messageID];
 }
 
 - (void)markPlayed:(NSString *)messageID inConv:(NSString *)convID owner:(NSString *)ownerUID {
     if (!messageID) { return; }
     NSString *key = IMVoicePlayerPlayedKey(ownerUID, convID);
-    NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
-    NSArray *arr = [ud arrayForKey:key];
-    NSMutableArray *set = [arr isKindOfClass:[NSArray class]] ? [arr mutableCopy] : [NSMutableArray array];
-    if (![set containsObject:messageID]) {
-        [set addObject:messageID];
+    NSMutableSet<NSString *> *cached = [self playedSetForKey:key];
+    if (![cached containsObject:messageID]) {
+        [cached addObject:messageID];
+        NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
+        NSArray *arr = [ud arrayForKey:key];
+        NSMutableArray *set = [arr isKindOfClass:[NSArray class]] ? [arr mutableCopy] : [NSMutableArray array];
+        [set addObject:messageID]; // 落盘保序（FIFO 剔除依赖顺序），内存侧用 NSSet 只为查得快
         // 保守封顶 5000 条防 defaults 膨胀；对语音密集会话足够，超出按 FIFO 剔除。
-        if (set.count > 5000) { [set removeObjectsInRange:NSMakeRange(0, set.count - 5000)]; }
+        if (set.count > 5000) {
+            NSArray *dropped = [set subarrayWithRange:NSMakeRange(0, set.count - 5000)];
+            [set removeObjectsInRange:NSMakeRange(0, set.count - 5000)];
+            [cached minusSet:[NSSet setWithArray:dropped]]; // 内存镜像同步剔除，别和磁盘漂移
+        }
         [ud setObject:set forKey:key];
     }
     self.currentOwner = ownerUID;

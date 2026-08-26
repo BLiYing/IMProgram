@@ -484,6 +484,14 @@
         return [IMImageCell displayHeightForPixelWidth:m.mediaW pixelHeight:m.mediaH] + 8 + (m.caption.length > 0 ? 26 : 0);
     }
     if ([m.contentType isEqualToString:@"file"]) { return m.caption.length > 0 ? 110 : 84; }
+    // 语音：气泡固定 75pt + 上下间距 ≈ 81；群聊对方连续段首条多一行昵称。
+    // 2026-08-27 修：此前落到兜底 56，与真实高度差 25pt+，语音密集会话上滑时系统反复修正
+    // contentOffset —— 是"滑动不流畅"的另一半（另一半是 configure 里的 beginUpdates/endUpdates）。
+    if ([m.contentType isEqualToString:@"voice"]) {
+        BOOL grpNameVoice = self.isGroupChat && ![m.from isEqualToString:self.userID]
+            && [self isFirstInSenderRun:indexPath.row];
+        return grpNameVoice ? 103 : 81;
+    }
     if ([m.contentType isEqualToString:@"chat_record"]) {
         // 群聊对方连续段首条多一行发送者昵称（~22pt），估高相应加高，减少上滑实体化时的 offset 修正。
         BOOL grpNameRec = self.isGroupChat && ![m.from isEqualToString:self.userID]

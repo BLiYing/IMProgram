@@ -608,8 +608,8 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
             return h > 0 ? h : 60;
         }
         if (t.kind == IMDetailTabKindFiles) { return 74; } // 文件行 3 行：文件名 + 状态 + 时间（#2b）
-        // 语音行 3 行：发送者(15pt) + 语音·m:ss(13pt) + 年月日时分(11pt) ≈ 18+16+14=48pt + 上下 padding 24pt。
-        if (t.kind == IMDetailTabKindVoice) { return 76; }
+        // 语音行 3 行（sketch §10 + 新布局）：sender 18 + mini(44=波形+meta) + time 13 + spacing 6×2 + padding 20 ≈ 100pt；106 留冗余。
+        if (t.kind == IMDetailTabKindVoice) { return 106; }
         // 链接行 3 行：og:title/host + host+path + 时间（草图 §C，IMDetailLinkCell 内嵌 IMLinkRowView）——
         // 内部 t1(16)+2+t2(14)+2+t3(14)=48pt + cell 上下 padding 9+9=66pt；旧的 60pt 会截掉时间行（用户反馈）。
         if (t.kind == IMDetailTabKindLinks) { return 74; }
@@ -859,8 +859,10 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
         [lc configureWithMessage:m];
         return lc;
     }
-    // 语音三行 cell（2026-08-27）：装配抽到 +Actions.m 守 1500 行体量红线。
-    UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleDefault reuseID:@"dVoice3" inTable:tv];
+    // 语音三行 cell（2026-08-27 sketch §10）：发送者 / IMVoiceMiniPlayerView / 年月日时:分。
+    // 用固定 reuseID 让 +Actions.m 的装配只在首次挂 stack，复用只更新内容。
+    UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleDefault reuseID:@"dVoice3mini" inTable:tv];
+    cell.selectionStyle = UITableViewCellSelectionStyleNone; // 三行 cell 有内部播放键，行整体选中反而误导
     [self decorateVoiceRow3Cell:cell message:m];
     return cell;
 }
@@ -924,8 +926,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
             if (dp) { [self.downloads handleTapForMessage:m]; }
             else { [self openCachedFileForMessage:m]; }
         } else if (t.kind == IMDetailTabKindVoice) {
-            if (indexPath.row >= (NSInteger)self.tabRows.count) { return; }
-            [self playVoiceRow:self.tabRows[indexPath.row]];
+            // 三行 cell 的 ▶/波形自己处理播放（IMVoiceMiniPlayerView.onPlayTap）；行整体点击不动作，避免与内部键冲突。
         } else if (t.kind == IMDetailTabKindLinks) {
             if (self.tabRows.count > 0) { [self openLink:IMMediaFullURL(self.tabRows[indexPath.row].content, self.host)]; }
         }

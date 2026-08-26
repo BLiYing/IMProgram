@@ -5,17 +5,22 @@
 #import "IMVoiceLockedBar.h"
 #import "IMTheme.h"
 #import "IMTimeUtil.h"
+#import "IMWaveformView.h" // §14 试听态：胶囊内显完整已录波形（可点即播）
 
 @interface IMVoiceLockedBar ()
 @property (nonatomic, strong) UIButton *deleteBtn;
-@property (nonatomic, strong) UIView *pill;             ///< 中间胶囊：红点 + 计时 + 迷你波形
+@property (nonatomic, strong) UIView *pill;             ///< 中间胶囊：录制态=红点+计时+跑马灯；试听态=▶+计时+完整波形
 @property (nonatomic, strong) UIView *redDot;
 @property (nonatomic, strong) UILabel *timer;
-@property (nonatomic, strong) UIView *waveBox;
+@property (nonatomic, strong) UIView *waveBox;          ///< 录制态用（跑马灯 bars）
 @property (nonatomic, strong) NSMutableArray<UIView *> *waveBars;
+@property (nonatomic, strong) IMWaveformView *previewWave; ///< §14 试听态用：完整波形+进度扫过
+@property (nonatomic, strong) UIImageView *previewPlayIcon; ///< §14 试听态左侧 ▶/❚❚（红点位置）
 @property (nonatomic, strong) UIButton *pauseBtn;
 @property (nonatomic, strong) UIButton *sendBtn;
+@property (nonatomic, strong) UITapGestureRecognizer *pillTap; ///< 点胶囊触发试听（仅 previewMode 下有效）
 @property (nonatomic, assign) BOOL pausedState; ///< 显式状态位（曾用 image.description 猜图标名——私有字符串依赖，随系统版本可能失效）
+@property (nonatomic, assign) BOOL previewMode; ///< §14：中间胶囊是"跑马灯"还是"试听播放器"
 @end
 
 @implementation IMVoiceLockedBar
@@ -102,6 +107,29 @@
         [self.waveBars addObject:b];
     }
 
+    // §14 试听态：完整波形（默认隐；setPreviewMode:YES 时切显）+ ▶/❚❚ 图标（取代红点位置）。
+    _previewWave = [IMWaveformView new];
+    _previewWave.translatesAutoresizingMaskIntoConstraints = NO;
+    _previewWave.activeColor = IMTheme.accent;
+    _previewWave.inactiveColor = [IMTheme.textSecondary colorWithAlphaComponent:0.28];
+    _previewWave.hidden = YES;
+    [_pill addSubview:_previewWave];
+
+    UIImageSymbolConfiguration *piCfg = [UIImageSymbolConfiguration configurationWithPointSize:11 weight:UIImageSymbolWeightBold];
+    _previewPlayIcon = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"play.fill" withConfiguration:piCfg]];
+    _previewPlayIcon.translatesAutoresizingMaskIntoConstraints = NO;
+    _previewPlayIcon.tintColor = UIColor.whiteColor;
+    _previewPlayIcon.backgroundColor = IMTheme.accent;
+    _previewPlayIcon.layer.cornerRadius = 10;
+    _previewPlayIcon.layer.masksToBounds = YES;
+    _previewPlayIcon.contentMode = UIViewContentModeCenter;
+    _previewPlayIcon.hidden = YES;
+    [_pill addSubview:_previewPlayIcon];
+
+    // 点胶囊触发试听（仅 previewMode 有效；录制中的点击会被过滤）。
+    _pillTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(pillTapped)];
+    [_pill addGestureRecognizer:_pillTap];
+
     [NSLayoutConstraint activateConstraints:@[
         [_deleteBtn.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:8],
         [_deleteBtn.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
@@ -129,6 +157,15 @@
         [_waveBox.trailingAnchor constraintEqualToAnchor:_pill.trailingAnchor constant:-10],
         [_waveBox.topAnchor constraintEqualToAnchor:_pill.topAnchor constant:6],
         [_waveBox.bottomAnchor constraintEqualToAnchor:_pill.bottomAnchor constant:-6],
+        // 试听态覆盖：previewWave 同 waveBox 区域（同时占位，show/hide 切换）；previewPlayIcon 与 redDot 同位。
+        [_previewWave.leadingAnchor constraintEqualToAnchor:_timer.trailingAnchor constant:8],
+        [_previewWave.trailingAnchor constraintEqualToAnchor:_pill.trailingAnchor constant:-10],
+        [_previewWave.topAnchor constraintEqualToAnchor:_pill.topAnchor constant:6],
+        [_previewWave.bottomAnchor constraintEqualToAnchor:_pill.bottomAnchor constant:-6],
+        [_previewPlayIcon.centerXAnchor constraintEqualToAnchor:_redDot.centerXAnchor],
+        [_previewPlayIcon.centerYAnchor constraintEqualToAnchor:_redDot.centerYAnchor],
+        [_previewPlayIcon.widthAnchor constraintEqualToConstant:20],
+        [_previewPlayIcon.heightAnchor constraintEqualToConstant:20],
     ]];
 
     // 红点脉冲（同 IMVoiceRecordingHUD）
@@ -163,6 +200,7 @@
 
 - (void)updateAmplitude:(float)amplitude elapsedMillis:(int64_t)elapsedMillis {
     self.timer.text = IMFormatVoiceDuration(elapsedMillis);
+    if (self.previewMode) { return; } // 试听态不由此更新（波形/计时由 applyPreviewPlaying: 驱动）
     // 从右向左流动：把左侧的高度往下移一格，最右新加当前采样高度。
     CGFloat h = CGRectGetHeight(self.waveBox.bounds);
     if (h < 4) { return; }
@@ -179,9 +217,43 @@
 - (void)setPausedIcon:(BOOL)paused {
     self.pausedState = paused;
     UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:14 weight:UIImageSymbolWeightSemibold];
-    NSString *sym = paused ? @"play.fill" : @"pause.fill";
+    // 试听态右侧键 = ⏵（forward.fill 更符合"继续录制"语义）；录制态 = ⏸（pause.fill）。
+    NSString *sym = paused ? (self.previewMode ? @"record.circle" : @"play.fill") : @"pause.fill";
     [self.pauseBtn setImage:[UIImage systemImageNamed:sym withConfiguration:cfg] forState:UIControlStateNormal];
+    self.pauseBtn.tintColor = (paused && self.previewMode) ? UIColor.systemRedColor : IMTheme.textPrimary;
 }
+
+- (void)setPreviewMode:(BOOL)previewMode amplitudes:(NSArray<NSNumber *> *)amplitudes {
+    self.previewMode = previewMode;
+    self.redDot.hidden = previewMode;         // 录制指示消失
+    self.waveBox.hidden = previewMode;        // 跑马灯隐
+    self.previewWave.hidden = !previewMode;   // 完整波形显
+    self.previewPlayIcon.hidden = !previewMode;
+    self.previewWave.amplitudes = amplitudes;
+    self.previewWave.progress = 0;
+    [self applyPreviewPlaying:NO progress:0 totalMillis:0]; // 复位图标
+    // 切态时同步刷右侧键 tint/图标（复用 setPausedIcon: 逻辑）
+    [self setPausedIcon:self.pausedState];
+    // 视觉提示：试听态胶囊底色微染 accent，让"这不是死条"更明显。
+    self.pill.backgroundColor = previewMode
+        ? [IMTheme.accent colorWithAlphaComponent:0.08]
+        : IMTheme.pageBackground;
+}
+
+- (void)applyPreviewPlaying:(BOOL)playing progress:(double)progress totalMillis:(int64_t)totalMillis {
+    if (!self.previewMode) { return; }
+    UIImageSymbolConfiguration *piCfg = [UIImageSymbolConfiguration configurationWithPointSize:11 weight:UIImageSymbolWeightBold];
+    self.previewPlayIcon.image = [UIImage systemImageNamed:(playing ? @"pause.fill" : @"play.fill") withConfiguration:piCfg];
+    self.previewWave.progress = MAX(0.0, MIN(1.0, progress));
+    if (totalMillis > 0 && playing) {
+        int64_t remaining = MAX((int64_t)0, totalMillis - (int64_t)(progress * totalMillis));
+        self.timer.text = IMFormatVoiceDuration(remaining);
+    } else if (totalMillis > 0 && !playing) {
+        self.timer.text = IMFormatVoiceDuration(totalMillis);
+    }
+}
+
+- (void)pillTapped { if (self.previewMode && self.onPreviewToggle) { self.onPreviewToggle(); } }
 
 - (void)setVisible:(BOOL)visible animated:(BOOL)animated {
     if (visible) { self.hidden = NO; }
@@ -196,7 +268,9 @@
 
 - (void)deleteTapped { if (self.onDelete) self.onDelete(); }
 - (void)pauseTapped {
-    // 显式状态位判定（icon 由外部经 setPausedIcon: 翻转，同时写 pausedState）。
+    // 三态切换（§14）：
+    //   录制态点 ⏸ → toPause=YES：上层 recorder.pause + setPreviewMode:YES amplitudes:...（进入试听）
+    //   试听态点 ⏵ → toPause=NO：上层停试听 + recorder.resume + setPreviewMode:NO（继续录制）
     BOOL toPause = !self.pausedState;
     if (self.onPauseResume) self.onPauseResume(toPause);
 }

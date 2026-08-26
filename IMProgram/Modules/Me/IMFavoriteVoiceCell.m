@@ -1,22 +1,18 @@
 //
 //  IMFavoriteVoiceCell.m
+//  重构（2026-08-27）：复用 IMVoiceMiniPlayerView，不再平行实现 playButton+waveform+durationLabel
+//  三件套（code-review reuse #10）。整个 cell 只剩"上面装 mini 播放器 + 下方 meta 行"两块。
 //
 
 #import "IMFavoriteVoiceCell.h"
 #import "IMMessageModel.h"
 #import "IMTheme.h"
 #import "IMTimeUtil.h"
-#import "IMWaveformView.h"
-#import "IMVoicePlayer.h"
+#import "IMVoiceMiniPlayerView.h"
 
 @interface IMFavoriteVoiceCell ()
-@property (nonatomic, strong) UIButton *playButton;
-@property (nonatomic, strong) IMWaveformView *waveform;
-@property (nonatomic, strong) UILabel *durationLabel;
-@property (nonatomic, strong) UILabel *metaLabel;
-@property (nonatomic, copy, nullable) NSString *messageID;
-@property (nonatomic, assign) int64_t totalDurationMillis;
-@property (nonatomic, assign) BOOL showsPauseIcon; ///< 图标缓存：30fps tick 只在状态切换时 setImage
+@property (nonatomic, strong) IMVoiceMiniPlayerView *mini; ///< ▶+波形+时长/时间——与详情页语音 tab 共用组件
+@property (nonatomic, strong) UILabel *metaLabel;         ///< "来自 X · 收藏时间"
 @end
 
 @implementation IMFavoriteVoiceCell
@@ -26,8 +22,6 @@
     if (self) {
         self.selectionStyle = UITableViewCellSelectionStyleNone;
         [self buildUI];
-        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(onPlayerChanged:)
-                                                     name:IMVoicePlayerDidChangeStateNotification object:nil];
     }
     return self;
 }
@@ -35,28 +29,9 @@
 - (void)buildUI {
     UIView *cv = self.contentView;
 
-    _playButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    _playButton.translatesAutoresizingMaskIntoConstraints = NO;
-    _playButton.backgroundColor = IMTheme.accent;
-    _playButton.tintColor = UIColor.whiteColor;
-    _playButton.layer.cornerRadius = 18;
-    UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:14 weight:UIImageSymbolWeightBold];
-    [_playButton setImage:[UIImage systemImageNamed:@"play.fill" withConfiguration:cfg] forState:UIControlStateNormal];
-    [_playButton addTarget:self action:@selector(playTapped) forControlEvents:UIControlEventTouchUpInside];
-    [cv addSubview:_playButton];
-
-    _waveform = [IMWaveformView new];
-    _waveform.translatesAutoresizingMaskIntoConstraints = NO;
-    _waveform.activeColor = IMTheme.accent;
-    _waveform.inactiveColor = [IMTheme.textSecondary colorWithAlphaComponent:0.45];
-    [cv addSubview:_waveform];
-
-    _durationLabel = [UILabel new];
-    _durationLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    _durationLabel.font = [UIFont monospacedDigitSystemFontOfSize:12 weight:UIFontWeightMedium];
-    _durationLabel.textColor = IMTheme.textSecondary;
-    [_durationLabel setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
-    [cv addSubview:_durationLabel];
+    _mini = [IMVoiceMiniPlayerView new];
+    _mini.translatesAutoresizingMaskIntoConstraints = NO;
+    [cv addSubview:_mini];
 
     _metaLabel = [UILabel new];
     _metaLabel.translatesAutoresizingMaskIntoConstraints = NO;
@@ -65,67 +40,26 @@
     [cv addSubview:_metaLabel];
 
     [NSLayoutConstraint activateConstraints:@[
-        [_playButton.leadingAnchor constraintEqualToAnchor:cv.leadingAnchor constant:16],
-        [_playButton.topAnchor constraintEqualToAnchor:cv.topAnchor constant:14],
-        [_playButton.widthAnchor constraintEqualToConstant:36],
-        [_playButton.heightAnchor constraintEqualToConstant:36],
-        [_waveform.leadingAnchor constraintEqualToAnchor:_playButton.trailingAnchor constant:10],
-        [_waveform.centerYAnchor constraintEqualToAnchor:_playButton.centerYAnchor],
-        [_waveform.heightAnchor constraintEqualToConstant:26],
-        [_waveform.trailingAnchor constraintEqualToAnchor:_durationLabel.leadingAnchor constant:-10],
-        [_durationLabel.trailingAnchor constraintEqualToAnchor:cv.trailingAnchor constant:-16],
-        [_durationLabel.centerYAnchor constraintEqualToAnchor:_playButton.centerYAnchor],
+        [_mini.leadingAnchor constraintEqualToAnchor:cv.leadingAnchor constant:16],
+        [_mini.trailingAnchor constraintEqualToAnchor:cv.trailingAnchor constant:-16],
+        [_mini.topAnchor constraintEqualToAnchor:cv.topAnchor constant:12],
+        [_mini.heightAnchor constraintGreaterThanOrEqualToConstant:44],
         [_metaLabel.leadingAnchor constraintEqualToAnchor:cv.leadingAnchor constant:16],
         [_metaLabel.trailingAnchor constraintLessThanOrEqualToAnchor:cv.trailingAnchor constant:-16],
-        [_metaLabel.topAnchor constraintEqualToAnchor:_playButton.bottomAnchor constant:9],
+        [_metaLabel.topAnchor constraintEqualToAnchor:_mini.bottomAnchor constant:6],
+        [_metaLabel.bottomAnchor constraintEqualToAnchor:cv.bottomAnchor constant:-10],
     ]];
 }
 
 - (void)configureWithMessage:(IMMessageModel *)message sourceText:(NSString *)sourceText timeText:(NSString *)timeText {
-    self.messageID = IMVoicePlayerPlayableIDForMessage(message);
-    self.totalDurationMillis = MAX((int64_t)0, message.duration);
-    self.waveform.amplitudes = [IMWaveformView amplitudesFromBase64:message.waveform];
-    self.waveform.progress = 0;
-    self.durationLabel.text = [self formatDur:self.totalDurationMillis];
+    // 收藏 = 对方视角展示（mine=NO 不显勾）；peerReadSeq/isGroup 无关。
+    [self.mini configureWithMessage:message mine:NO peerReadSeq:0 isGroupContext:NO];
     NSMutableArray<NSString *> *parts = [NSMutableArray array];
     if (sourceText.length > 0) { [parts addObject:[@"来自" stringByAppendingString:sourceText]]; }
     if (timeText.length > 0) { [parts addObject:timeText]; }
     self.metaLabel.text = [parts componentsJoinedByString:@" · "];
-    // 同步当前播放器状态（列表滚动复用时保持进度/图标）。
-    IMVoicePlayerState st = [[IMVoicePlayer sharedPlayer] stateForMessageID:self.messageID];
-    [self applyState:st progress:[[IMVoicePlayer sharedPlayer] progressForMessageID:self.messageID]];
-}
-
-- (NSString *)formatDur:(int64_t)ms { return IMFormatVoiceDuration(ms); }
-
-- (void)playTapped { if (self.onPlayTap) { self.onPlayTap(); } }
-
-- (void)onPlayerChanged:(NSNotification *)n {
-    NSString *mid = n.userInfo[@"messageID"];
-    if (!mid || ![mid isEqualToString:self.messageID]) { return; }
-    [self applyState:(IMVoicePlayerState)[n.userInfo[@"state"] integerValue]
-            progress:[n.userInfo[@"progress"] doubleValue]];
-}
-
-- (void)applyState:(IMVoicePlayerState)state progress:(double)progress {
-    // 图标只在状态切换时 setImage（本方法被 30fps 进度 tick 驱动）。
-    BOOL wantPause = (state == IMVoicePlayerStatePlaying);
-    if (wantPause != self.showsPauseIcon || !self.playButton.currentImage) {
-        self.showsPauseIcon = wantPause;
-        UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:14 weight:UIImageSymbolWeightBold];
-        NSString *sym = wantPause ? @"pause.fill" : @"play.fill";
-        [self.playButton setImage:[UIImage systemImageNamed:sym withConfiguration:cfg] forState:UIControlStateNormal];
-    }
-    BOOL active = (state == IMVoicePlayerStatePlaying || state == IMVoicePlayerStatePaused);
-    self.waveform.progress = active ? progress : 0;
-    int64_t shown = active
-        ? MAX((int64_t)0, self.totalDurationMillis - (int64_t)(progress * self.totalDurationMillis))
-        : self.totalDurationMillis;
-    self.durationLabel.text = [self formatDur:shown];
-}
-
-- (void)dealloc {
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
+    __weak typeof(self) ws = self;
+    self.mini.onPlayTap = ^{ __strong typeof(ws) sself = ws; if (sself && sself->_onPlayTap) { sself->_onPlayTap(); } };
 }
 
 @end

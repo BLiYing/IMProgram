@@ -29,6 +29,7 @@
 #import "Voice/IMVoicePlayer.h"
 #import "Voice/IMVoiceTranscriber.h"
 #import "Voice/IMVoiceBubbleCell.h"
+#import "IMLog.h"
 #import <objc/runtime.h>
 
 /// 按住条 pan 触发取消的距离阈值（占输入栏宽度的比例）。
@@ -115,11 +116,32 @@ static const void *kIMVoiceOverlayKey = &kIMVoiceOverlayKey;
             }
         };
         bar.onPauseResume = ^(BOOL toPause) {
-            if (toPause) { [ws.im_voiceRecorder pause]; }
-            else { [ws.im_voiceRecorder resume]; }
-            [ws.im_voiceLockedBar setPausedIcon:toPause];
+            __strong typeof(ws) self = ws;
+            if (!self) { return; }
+            if (toPause) {
+                // 录制中 → 试听态：pause 收尾当前段，锁定条切"迷你播放器"，波形展当前 amplitudes；
+                // 提前 setPausedIcon 让 setPreviewMode 内部拿到正确 pausedState，避免图标一帧闪跳
+                //（曾先渲染 pause.fill 再改红色 record.circle，code-review 2026-08-27）。
+                [self.im_voiceRecorder pause];
+                [self.im_voiceLockedBar setPausedIcon:YES]; // 先写 pausedState=YES
+                [self.im_voiceLockedBar setPreviewMode:YES amplitudes:self.im_voiceRecorder.currentAmplitudes];
+                [self im_installPreviewObserverIfNeeded]; // 按需装观察者
+            } else {
+                // 试听态 → 继续录制：只停 preview 播放（不打断同页别的语音）；然后 resume 新段。
+                [self im_stopPreviewPlaybackIfNeeded];
+                [self.im_voiceRecorder resume];
+                [self.im_voiceLockedBar setPausedIcon:NO];
+                [self.im_voiceLockedBar setPreviewMode:NO amplitudes:nil];
+            }
         };
-        bar.onSend = ^{ [ws.im_voiceRecorder stopAndSend]; };
+        bar.onPreviewToggle = ^{ [ws im_toggleLockedPreview]; };
+        bar.onSend = ^{
+            __strong typeof(ws) self = ws;
+            if (!self) { return; }
+            // 若在试听，只停 preview（不 stop 别人的接力播放）——曾无条件 [IMVoicePlayer stop]（code-review 2026-08-27）。
+            [self im_stopPreviewPlaybackIfNeeded];
+            [self.im_voiceRecorder stopAndSend];
+        };
         objc_setAssociatedObject(self, kIMVoiceLockedBarKey, bar, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
     return bar;
@@ -164,6 +186,39 @@ static const void *kIMVoiceOverlayKey = &kIMVoiceOverlayKey;
         object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
         [ws im_relayAfterMessageID:n.userInfo[@"messageID"] convID:n.userInfo[@"convID"]];
     }];
+    // 注：preview 状态观察者不在这里装——它只在进入锁定试听态时按需装（code-review 2026-08-27 efficiency）；
+    // 否则聊天页任何语音每 tick 30 次都会走一次 im_previewStateChanged 空判断，属净增热路径。
+}
+
+static NSString *const kIMLockedPreviewID = @"__voice_preview__";
+
+/// preview 观察者按需装/拆——只在锁定试听态期间挂 IMVoicePlayerDidChangeStateNotification。
+- (void)im_installPreviewObserverIfNeeded {
+    static const void *k = &k;
+    if (objc_getAssociatedObject(self, k)) { return; }
+    __weak typeof(self) ws = self;
+    id token = [[NSNotificationCenter defaultCenter] addObserverForName:IMVoicePlayerDidChangeStateNotification
+        object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
+        [ws im_previewStateChanged:n];
+    }];
+    objc_setAssociatedObject(self, k, token, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+- (void)im_uninstallPreviewObserverIfNeeded {
+    static const void *k = &k;
+    id token = objc_getAssociatedObject(self, k);
+    if (!token) { return; }
+    [[NSNotificationCenter defaultCenter] removeObserver:token];
+    objc_setAssociatedObject(self, k, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+/// 只停 preview 播放（不打断同页别的接力/普通语音）；同时拆观察者，回到"零净增热路径"。
+- (void)im_stopPreviewPlaybackIfNeeded {
+    IMVoicePlayerState st = [[IMVoicePlayer sharedPlayer] stateForMessageID:kIMLockedPreviewID];
+    if (st == IMVoicePlayerStatePlaying || st == IMVoicePlayerStatePaused) {
+        [[IMVoicePlayer sharedPlayer] stop];
+    }
+    [self im_uninstallPreviewObserverIfNeeded];
 }
 
 /// 找到 currentMid 在当前会话消息列表中的位置 + 之后**同会话**的第一条**未播放的 voice**（跨发送者也连）；
@@ -326,8 +381,67 @@ static const void *kIMVoiceOverlayKey = &kIMVoiceOverlayKey;
     // 中断可发生在按住态：浮层必须在这里收——随后系统取消手势时 Cancelled 分支因 locked 早退，不会再收。
     [self.im_voiceOverlay dismiss];
     [self.im_voiceHUD setVisible:NO animated:YES];
+    // 中断=已 pause+finalize 当前段，直接进试听态（recorder.currentAmplitudes 有值）。
+    [self.im_voiceLockedBar setPreviewMode:YES amplitudes:recorder.currentAmplitudes];
     [self.im_voiceLockedBar setPausedIcon:YES];
     [self.im_voiceLockedBar setVisible:YES animated:YES];
+}
+
+/// §12 达 5min 上限硬闸：锁定态自动发送；按住态转磁吸锁定 + pause（等用户决定发/删/续）。
+/// 不再靠 AVAudioRecorder.recordForDuration 系统闸（实测容差到 5:21，2026-08-27 用户报）。
+- (void)voiceRecorderDidReachMaxDuration:(IMVoiceRecorder *)recorder {
+    if (self.im_voiceLocked) {
+        [self.im_voiceRecorder stopAndSend];
+        return;
+    }
+    // 按住态：模拟磁吸锁定 → LockedBar 显 + overlay 收 + HUD 隐 + recorder.pause 进试听。
+    self.im_voiceLocked = YES;
+    [self.im_voiceOverlay dismissLocked];
+    [self.im_voiceHUD setVisible:NO animated:YES];
+    [self.im_voiceRecorder pause];
+    [self.im_voiceLockedBar setPreviewMode:YES amplitudes:recorder.currentAmplitudes];
+    [self.im_voiceLockedBar setPausedIcon:YES];
+    [self.im_voiceLockedBar setVisible:YES animated:YES];
+    // gesture 释放（下一 runloop 让 press 结束但 locked 分支不走 stopAndSend）
+    if (self.im_voicePressRecognizer.isEnabled) {
+        self.im_voicePressRecognizer.enabled = NO;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+            self.im_voicePressRecognizer.enabled = YES;
+        });
+    }
+}
+
+/// §14 点锁定条中间胶囊 → 播/暂试听。走 IMVoicePlayer 共享单例（同页只播一条自动生效）。
+- (void)im_toggleLockedPreview {
+    IMVoicePlayerState st = [[IMVoicePlayer sharedPlayer] stateForMessageID:kIMLockedPreviewID];
+    if (st == IMVoicePlayerStatePlaying) {
+        [[IMVoicePlayer sharedPlayer] stop];
+        [self.im_voiceLockedBar applyPreviewPlaying:NO progress:0
+                                       totalMillis:self.im_voiceRecorder.elapsedMillis];
+        return;
+    }
+    __weak typeof(self) ws = self;
+    [self.im_voiceRecorder providePreviewURL:^(NSURL *url, NSError *err) {
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        if (err || !url) { [self im_showToast:@"试听准备失败"]; return; }
+        [self im_installPreviewObserverIfNeeded]; // 播放开始前装观察者
+        // 造一条最小消息模型驱动 IMVoicePlayer（IMVoicePlayer 语义按消息，preview 复用同一 hack；
+        // TODO: 加 IMVoicePlayer.playURL: 独立 API 让此 fake message 消失，见 code-review simplification）。
+        IMMessageModel *fake = [IMMessageModel new];
+        fake.serverMsgID = kIMLockedPreviewID; // 让 IMVoicePlayerPlayableIDForMessage 拿到稳定 key
+        [[IMVoicePlayer sharedPlayer] togglePlayback:fake localFileURL:url];
+    }];
+}
+
+/// 试听中 IMVoicePlayer 每 tick 广播 → 刷锁定条波形进度。观察者按需装（im_installPreviewObserverIfNeeded）。
+- (void)im_previewStateChanged:(NSNotification *)n {
+    if (![n.userInfo[@"messageID"] isEqualToString:kIMLockedPreviewID]) { return; }
+    IMVoicePlayerState st = (IMVoicePlayerState)[n.userInfo[@"state"] integerValue];
+    double progress = [n.userInfo[@"progress"] doubleValue];
+    BOOL playing = (st == IMVoicePlayerStatePlaying);
+    [self.im_voiceLockedBar applyPreviewPlaying:playing progress:progress
+                                   totalMillis:self.im_voiceRecorder.elapsedMillis];
 }
 
 - (void)voiceRecorder:(IMVoiceRecorder *)recorder didSampleAmplitude:(float)amplitude elapsedMillis:(int64_t)elapsedMillis {
@@ -346,8 +460,14 @@ static const void *kIMVoiceOverlayKey = &kIMVoiceOverlayKey;
              duration:(int64_t)durationMillis {
     [self.im_voiceHUD setVisible:NO animated:YES];
     [self.im_voiceLockedBar setVisible:NO animated:YES];
+    // 复位 LockedBar 内部状态（previewMode/pausedIcon/amplitudes）——曾遗漏，下次录音复用 cell 时会以旧
+    // previewMode=YES 状态出现（code-review 2026-08-27 CONFIRMED）。
+    [self.im_voiceLockedBar setPreviewMode:NO amplitudes:nil];
+    [self.im_voiceLockedBar setPausedIcon:NO];
     [self.im_voiceOverlay dismiss]; // 错误/太短等分支也要收浮层（正常路径已在手势 Ended 收过，幂等）
     self.im_voiceLocked = NO;
+    // 停 preview 播放（如在播）+ 拆 preview 观察者——只在 preview 期间需要（efficiency 优化，避免全局 30fps 广播净增热路径）。
+    [self im_stopPreviewPlaybackIfNeeded];
     switch (reason) {
         case IMVoiceRecorderStopReasonUserCancel:
             return;
@@ -362,7 +482,13 @@ static const void *kIMVoiceOverlayKey = &kIMVoiceOverlayKey;
         case IMVoiceRecorderStopReasonInterrupted:
             break;
     }
-    if (!fileURL) { return; }
+    if (!fileURL) {
+        // 合并失败等（durationMillis 有值但 fileURL nil）——不能装作发出去，让用户重试。
+        if (reason == IMVoiceRecorderStopReasonUserSend || reason == IMVoiceRecorderStopReasonReachedMax) {
+            [self im_showToast:@"语音处理失败，请重试"];
+        }
+        return;
+    }
     [self im_uploadAndSendVoice:fileURL waveform:waveformBase64 durationMillis:durationMillis];
 }
 
@@ -377,8 +503,17 @@ static const void *kIMVoiceOverlayKey = &kIMVoiceOverlayKey;
     NSString *token = IMHTTPService.sharedService.currentToken ?: @"";
     if (token.length == 0) { [self im_showToast:@"未登录，无法发送"]; return; }
 
+    // 2026-08-27 修 #1「发送语音有不显示的 bug」——原实现要等 upload 完成后才 im_sendVoiceURL→回显，
+    // 网络稍慢即感知为"发出去没了"。改为松手立即插入 Sending 占位气泡（临时 cid），upload 成功后
+    // 摘掉占位、走 sendMedia 拿真实 cid 再回显；失败则占位就地转 Failed（红❗+ 点击 im_resendVoiceMessage）。
+    NSString *placeholderCID = [NSString stringWithFormat:@"cli_voice_pending_%@", [[NSUUID UUID] UUIDString]];
+    IMMessageModel *placeholder = [self im_persistLocalVoiceEcho:@"" waveform:waveform duration:durationMillis fileSize:fileSize clientMsgID:placeholderCID];
+    IMLogUI(@"voice_upload_begin cid=%@ bytes=%lld dur_ms=%lld placeholder=%d", placeholderCID, fileSize, durationMillis, placeholder != nil);
+    IMDatabaseAccountContext *dbCtx = [IMDatabase.sharedDatabase currentAccountContext];
+
     // 强持有 self（刻意，非泄漏）：录完松手立即退出聊天页时，上传→发送→落库链条仍须完成，
     // 否则消息无声丢失；上传结束块释放即断引用。完整方案=接入 IMMediaSendService 常驻队列（记 P2）。
+    __weak typeof(self) ws = self;
     [[IMHTTPService sharedService] uploadVoiceData:data
                                           fileName:fileName
                                           mimeType:@"audio/mp4"
@@ -389,9 +524,28 @@ static const void *kIMVoiceOverlayKey = &kIMVoiceOverlayKey;
         // echo 赋值"的竞态窗口。
         dispatch_async(dispatch_get_main_queue(), ^{
             if (err || url.length == 0) {
-                [self im_showToast:err.localizedDescription ?: @"语音上传失败"];
+                // 占位就地转失败（红❗气泡长按/点击可 im_resendVoiceMessage 重传）。
+                placeholder.status = IMMessageStatusFailed;
+                placeholder.note = err.localizedDescription ?: @"语音上传失败";
+                placeholder.content = fileURL.absoluteString; // 保留本地路径供重录复用（虽然目前重传走 URL 路径）
+                if (dbCtx) {
+                    [IMDatabase.sharedDatabase performWithAccountContext:dbCtx block:^(IMDatabase *db) { [db saveMessage:placeholder]; }];
+                }
+                __strong typeof(ws) self = ws;
+                if (self) {
+                    [self.tableView reloadData];
+                    [self im_showToast:placeholder.note];
+                }
                 [[NSFileManager defaultManager] removeItemAtURL:fileURL error:NULL];
                 return;
+            }
+            __strong typeof(ws) self = ws;
+            if (!self) { return; }
+            // 摘掉占位（内存 + DB），走既有 sendMedia + 新 echo 路径（拿到真实 cid 后 upsert 落库）。
+            NSUInteger idx = [self.messages indexOfObjectIdenticalTo:placeholder];
+            if (idx != NSNotFound) { [self.messages removeObjectAtIndex:idx]; }
+            if (dbCtx) {
+                [IMDatabase.sharedDatabase performWithAccountContext:dbCtx block:^(IMDatabase *db) { [db deleteMessage:placeholder]; }];
             }
             [self im_sendVoiceURL:url waveform:waveform durationMillis:durationMillis fileSize:fileSize];
             [[NSFileManager defaultManager] removeItemAtURL:fileURL error:NULL]; // tmp 清理；播放走 URL（自动下载缓存）
@@ -417,6 +571,7 @@ static const void *kIMVoiceOverlayKey = &kIMVoiceOverlayKey;
                                                     completion:^(BOOL success, NSError *error, int64_t convSeq) {
         dispatch_async(dispatch_get_main_queue(), ^{
             IMMessageModel *m = echo;
+            IMLogUI(@"voice_send_ack cid=%@ ok=%d conv_seq=%lld echo=%d", m.clientMsgID ?: @"-", success, convSeq, m != nil);
             if (!m) { return; }
             m.status = success ? IMMessageStatusSent : IMMessageStatusFailed;
             m.convSeq = convSeq;
@@ -489,10 +644,11 @@ static const void *kIMVoiceOverlayKey = &kIMVoiceOverlayKey;
             IMVoiceTranscribeStatus st = (IMVoiceTranscribeStatus)[note.userInfo[@"status"] integerValue];
             NSString *text = note.userInfo[@"text"];
             if (st == IMVoiceTranscribeStatusUnavailable) {
-                // 权限被拒/受限 → 引导设置；其余不可用（识别器无法启动/系统语言不支持）→ 通用文案。
+                // 权限被拒/受限 → 引导设置；其余走 unavailableReasonDescription 分辨（无网 / 语言包未就绪等）——
+                // 用户 2026-08-27 报"给了权限仍暂不可用"，此前通用文案让人以为还要开权限，误导。
                 NSString *tip = [IMVoiceTranscriber isAuthorizationDeniedOrRestricted]
                     ? @"转文字需要语音识别权限（请在「设置 → 隐私 → 语音识别」中打开）"
-                    : @"转文字暂不可用（本机语音识别未就绪）";
+                    : [IMVoiceTranscriber unavailableReasonDescription];
                 [self im_applyTranscriptText:tip loading:NO forMessageID:mid];
                 [[NSNotificationCenter defaultCenter] removeObserver:token];
                 token = nil;
@@ -574,6 +730,13 @@ static const void *kIMVoiceOverlayKey = &kIMVoiceOverlayKey;
     [self.messages addObject:m];
     [self appendReloadAndScroll];
     [self performDatabaseOperation:^(IMDatabase *db) { [db saveMessage:m]; }];
+    // 诊断（2026-08-27，用户三报"发送后气泡不显示、滑动/重进才出现"，代码审读未定位）：
+    // 打齐插入后的表状态——rows/offset/contentH/贴底与否。若下轮复现，此行 + ack 行可对账出
+    // 是"没插入"“插入了没滚到位"还是"插入即被外力顶掉"。
+    IMLogUI(@"voice_echo_inserted cid=%@ rows=%lu tv_rows=%ld offset_y=%.1f content_h=%.1f bounds_h=%.1f near_bottom=%d",
+            cid, (unsigned long)self.messages.count, (long)[self.tableView numberOfRowsInSection:0],
+            self.tableView.contentOffset.y, self.tableView.contentSize.height,
+            self.tableView.bounds.size.height, [self isNearBottom]);
     return m;
 }
 

@@ -101,24 +101,58 @@ static NSString *IMVoiceTranscriptKey(NSString *ownerUID, NSString *convID, NSSt
     return st == SFSpeechRecognizerAuthorizationStatusDenied || st == SFSpeechRecognizerAuthorizationStatusRestricted;
 }
 
+/// 权限已给但识别器 available=NO 时的可操作提示（用户 2026-08-27 报"给了权限还失败"）。
++ (NSString *)unavailableReasonDescription {
+    // 探测系统偏好语言是否支持本地识别，给出更具体的原因。
+    BOOL anyLocalSupported = NO;
+    if (@available(iOS 13.0, *)) {
+        for (NSString *code in [NSLocale preferredLanguages]) {
+            SFSpeechRecognizer *r = [[SFSpeechRecognizer alloc] initWithLocale:[NSLocale localeWithLocaleIdentifier:code]];
+            if (r && r.supportsOnDeviceRecognition) { anyLocalSupported = YES; break; }
+        }
+    }
+    if (anyLocalSupported) {
+        // 本地识别支持但 recognizer.available=NO——语言资源包未就绪。iOS 首次使用需联网让系统在后台下载，
+        // 完成后杀掉重开也仍旧不会自动"就位"；触发下载的最稳做法是打开系统听写并联网一次。
+        // 2026-08-27 更新：用户反馈"杀掉 App 长按转文字仍是这条提示"——就是因为本地包未下载，
+        // 光重启 App 帮不了。补上明确操作步骤，避免用户反复重试。
+        return @"转文字暂不可用：本机语音识别语言包未就绪。\n"
+               @"解决方式（任选其一，需联网一次）：\n"
+               @"1）打开「设置 → 通用 → 键盘 → 启用听写」并联网等几分钟，iOS 会在后台下载中文识别包；\n"
+               @"2）保持联网状态再点一次「转文字」触发首次识别；\n"
+               @"下载完成后即可长期离线使用，无需重复操作。";
+    }
+    // 无本地支持 = 依赖云端 → 大概率无网。
+    return @"转文字需要网络：当前语言不支持本机离线识别。请连网后再试。";
+}
+
 - (void)runRecognitionForID:(NSString *)mid convID:(NSString *)convID owner:(NSString *)ownerUID audioURL:(NSURL *)audioURL {
-    // 语言：跟随系统首选（zh-Hans/en/etc）；不可用退降到默认。
+    // 挑最靠谱的 recognizer：先看系统偏好里第一个可用（且优先本地识别支持）的；否则退到 default en_US。
+    // 用户 2026-08-27 报"给了权限但仍暂不可用"——多半是 recognizer.available=NO（无网 + 中文无本地引擎）。
     SFSpeechRecognizer *recognizer = nil;
     for (NSString *code in [NSLocale preferredLanguages]) {
         SFSpeechRecognizer *r = [[SFSpeechRecognizer alloc] initWithLocale:[NSLocale localeWithLocaleIdentifier:code]];
-        if (r.isAvailable) { recognizer = r; break; }
+        if (r.isAvailable) {
+            // 优先支持本地识别的 recognizer——即使系统偏好语言不同，中文机型上如果 zh-CN 不本地支持
+            // 但 en-US 本地支持，宁可用 en-US 至少能离线跑；否则再用系统偏好第一可用。
+            if (@available(iOS 13.0, *)) {
+                if (r.supportsOnDeviceRecognition) { recognizer = r; break; }
+            }
+            if (!recognizer) { recognizer = r; } // 记住第一个 available 作为兜底
+        }
     }
     if (!recognizer) { recognizer = [SFSpeechRecognizer new]; }
     if (!recognizer.isAvailable) {
+        // 权限已给（能走到这），但识别器不可用——极大概率是网络断（云端识别需在线）+ 语言不支持本地。
+        // 详情由 IMVoiceTranscriber.unavailableReasonDescription 给出可操作提示。
         [self setStatus:IMVoiceTranscribeStatusUnavailable forID:mid text:nil convID:convID];
         return;
     }
 
     SFSpeechURLRecognitionRequest *req = [[SFSpeechURLRecognitionRequest alloc] initWithURL:audioURL];
-    req.shouldReportPartialResults = YES; // 逐词流出，让 UI 有渐进感（VOICE_MESSAGE_DESIGN §5.5 保留的动效）
-    // 音频不出设备：强制本地识别（iOS 13+ 中英文机型基本都支持）；不支持则回退默认（云端）——
-    // 用户 2026-08-27 反馈"为什么需要权限"，本地识别至少让审计层面音频不上传 Apple 服务器，
-    // 匹配 Info.plist 文案「识别结果只保存在你的设备上」。
+    req.shouldReportPartialResults = YES;
+    // 只在既支持本地又 available 时才强制本地识别——**否则让系统走云端**，避免 supportsOnDeviceRecognition
+    // 返回 YES 但本地包未下载/语言不匹配的场景下 requiresOnDeviceRecognition=YES 立即失败（Apple 曾有该组合）。
     if (@available(iOS 13.0, *)) {
         if (recognizer.supportsOnDeviceRecognition) { req.requiresOnDeviceRecognition = YES; }
     }

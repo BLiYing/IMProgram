@@ -22,6 +22,14 @@
 
 + (nullable NSArray<NSNumber *> *)amplitudesFromBase64:(NSString *)base64 {
     if (base64.length == 0) { return nil; }
+    // 解码结果缓存（2026-08-27 性能修）：滚动时同一条语音反复 configure，
+    // 每次都 base64 解码 + 建 60 个 NSNumber。波形是不可变数据，按串缓存即可。
+    static NSCache<NSString *, NSArray<NSNumber *> *> *cache;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ cache = [NSCache new]; cache.countLimit = 512; });
+    NSArray<NSNumber *> *hit = [cache objectForKey:base64];
+    if (hit) { return hit; }
+
     NSData *data = [[NSData alloc] initWithBase64EncodedString:base64 options:NSDataBase64DecodingIgnoreUnknownCharacters];
     if (data.length == 0) { return nil; }
     const uint8_t *bytes = data.bytes;
@@ -30,7 +38,9 @@
         float v = MIN(100.f, (float)bytes[i]) / 100.f;
         [out addObject:@(v)];
     }
-    return out;
+    NSArray<NSNumber *> *result = [out copy];
+    [cache setObject:result forKey:base64];
+    return result;
 }
 
 - (void)setAmplitudes:(NSArray<NSNumber *> *)amplitudes { _amplitudes = [amplitudes copy]; [self setNeedsDisplay]; }

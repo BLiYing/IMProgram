@@ -39,6 +39,9 @@ typedef NS_ENUM(NSInteger, IMVoiceRecorderStopReason) {
 /// 系统中断（来电/切后台）且已录 ≥0.6s：recorder 已自动 pause（文件保留）。
 /// 上层应转入锁定暂停态（设计 §5.4：回到会话时锁定行还在，可 发送/删除/继续）。<0.6s 的中断仍走 didStop tooShort。
 - (void)voiceRecorderWasInterrupted:(IMVoiceRecorder *)recorder;
+/// 达 5min 上限（§12 UI 硬闸；不 stop 录音，让上层决定：锁定态自动 stopAndSend；按住态转锁定+pause）。
+/// 曾只靠 AVAudioRecorder.recordForDuration: 系统闸，实测存在几百 ms~秒级容差（用户 2026-08-27 录到 5:21）。
+- (void)voiceRecorderDidReachMaxDuration:(IMVoiceRecorder *)recorder;
 @end
 
 @interface IMVoiceRecorder : NSObject
@@ -73,6 +76,11 @@ typedef NS_ENUM(NSInteger, IMVoiceRecorderStopReason) {
 
 /// 供锁定态 UI 查询：当前波形指纹（0~1 归一化，最长 60 帧）。用于锁定行的迷你波形展示。
 @property (nonatomic, readonly, copy) NSArray<NSNumber *> *currentAmplitudes;
+
+/// 试听（§14）：把已录的所有段合并成一个可播的完整临时文件，回调 preview URL 给 IMVoicePlayer。
+/// 单段直接返回；多段异步 AVAssetExportSession 合并（AAC-passthrough，几百 ms 内完成）。
+/// 只应在 paused=YES 时调用；录制中调直接 completion(nil, error)。
+- (void)providePreviewURL:(void (^)(NSURL *_Nullable url, NSError *_Nullable error))completion;
 
 @end
 
