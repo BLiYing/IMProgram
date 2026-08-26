@@ -9,6 +9,7 @@
 #import "IMTheme.h"
 #import "IMTimeUtil.h"
 #import "IMVoiceTranscriber.h" // 复用缓存自动展开转写面板（cell 复用后不丢文字，2026-08-27 修）
+#import "IMSessionStore.h"     // 转写缓存 key 的 owner = 当前登录账号（与写入侧同口径）
 #import "UILabel+IMAvatar.h"
 
 @interface IMVoiceBubbleCell () <UIGestureRecognizerDelegate>
@@ -347,9 +348,12 @@
     self.panelTrailingPeer.active = !mine;
     // 复用 cell 时先收起转写面板，再查缓存自动展开——**cell 复用不再丢转写文字**（2026-08-27 修：
     // 曾靠宿主重新触发才展开，滚出屏再回来就消失；缓存本机永久，configure 里同步查询即可）。
+    // owner **必须是当前登录账号**，与写入侧（+Voice.m im_transcribeVoiceMessage: 用 self.userID）同口径。
+    // 曾用 `message.to ?: message.from`：单聊收到的消息 to==我 恰好蒙对，但**群聊 to 为 nil → 回落成
+    // 发送者 uid**，key 对不上 → 滚出屏再回来转写文字消失、只剩撑开的空白（用户 2026-08-27 群里实测复现）。
     NSString *cachedText = [[IMVoiceTranscriber sharedTranscriber] cachedTextForMessageID:self.currentID
-                                                                                  convID:message.convID
-                                                                                   owner:message.to /*收方 uid*/ ?: message.from];
+                                                                                   convID:message.convID
+                                                                                    owner:IMSessionStore.userID];
     [self layoutTranscriptText:cachedText loading:NO]; // 复用路径不触发整表重算（见方法注释）
     // scrub 残留清理：上一次未走 Ended 的 scrubTip 若还在 alpha=1，reuse 到别的 cell 会看到"幽灵时间条"。
     self.scrubTip.alpha = 0; self.scrubbing = NO;

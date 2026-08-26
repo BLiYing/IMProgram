@@ -58,6 +58,22 @@ static NSString *IMVoiceTranscriptKey(NSString *ownerUID, NSString *convID, NSSt
     return n ? (IMVoiceTranscribeStatus)n.integerValue : IMVoiceTranscribeStatusIdle;
 }
 
+- (void)clearTranscriptForMessageID:(NSString *)mid convID:(NSString *)convID owner:(NSString *)ownerUID {
+    if (!mid) { return; }
+    // 正在识别这条 → 先取消在跑的 task，否则结果回来又把刚清掉的文本写回去。
+    if (self.currentID && [self.currentID isEqualToString:mid]) {
+        [self.currentTask cancel];
+        self.currentTask = nil;
+        self.currentID = nil;
+    }
+    NSString *key = IMVoiceTranscriptKey(ownerUID, convID, mid);
+    [[NSUserDefaults standardUserDefaults] removeObjectForKey:key];
+    // 内存镜像写 NSNull 而非移除：NSNull = "已查过、没有"，避免下次 configure 再去读一次盘。
+    self.textCache[key] = NSNull.null;
+    [self.statusByID removeObjectForKey:mid];
+    [self setStatus:IMVoiceTranscribeStatusIdle forID:mid text:nil convID:convID];
+}
+
 - (void)transcribeMessageID:(NSString *)mid convID:(NSString *)convID owner:(NSString *)ownerUID audioURL:(NSURL *)audioURL {
     if (!mid || !audioURL) { return; }
 

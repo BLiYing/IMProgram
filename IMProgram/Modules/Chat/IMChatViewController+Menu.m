@@ -272,8 +272,13 @@ static UIBezierPath *IMBubbleOutlinePath(CGRect rect, CGFloat radius, CACornerMa
     // 结果只存本地缓存（NSUserDefaults per uid+conv+mid），不上行/不落服务端/不跨端。
     // 见 IMServer docs/VOICE_MESSAGE_DESIGN.md §6.3。
     if ([message.contentType isEqualToString:@"voice"] && message.convSeq > 0 && message.recalledAt == 0) {
-        [actions addObject:[IMMenuAction actionWithId:@"transcribe" title:@"转文字" image:@"text.bubble" handler:^{
-            [ws im_transcribeVoiceMessage:message];
+        // 已转过 → 菜单项变「取消转文字」（清缓存 + 收起面板）；否则「转文字」。
+        BOOL hasTranscript = [self im_hasVoiceTranscript:message];
+        NSString *title = hasTranscript ? @"取消转文字" : @"转文字";
+        NSString *icon = hasTranscript ? @"text.badge.xmark" : @"text.bubble";
+        [actions addObject:[IMMenuAction actionWithId:@"transcribe" title:title image:icon handler:^{
+            if (hasTranscript) { [ws im_clearVoiceTranscript:message]; }
+            else { [ws im_transcribeVoiceMessage:message]; }
         }]];
     }
 

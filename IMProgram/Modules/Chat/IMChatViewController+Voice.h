@@ -24,6 +24,12 @@ NS_ASSUME_NONNULL_BEGIN
 /// 长按菜单「转文字」触发（+Menu.m 调用）。缓存命中 → 直接展开；否则先下音频再走 SFSpeechRecognizer。
 - (void)im_transcribeVoiceMessage:(IMMessageModel *)message;
 
+/// 该条本地是否已有转写文本（+Menu.m 据此把菜单项在「转文字 / 取消转文字」间切换）。
+- (BOOL)im_hasVoiceTranscript:(IMMessageModel *)message;
+
+/// 长按菜单「取消转文字」：清本地转写缓存 + 收起该条的转写面板（识别中则一并取消）。
+- (void)im_clearVoiceTranscript:(IMMessageModel *)message;
+
 /// 发送失败重试（气泡红 ! 点击，DataSource 接线）：不重录，按原 URL 重新 send_msg。
 - (void)im_resendVoiceMessage:(IMMessageModel *)message;
 

@@ -49,6 +49,12 @@ extern NSNotificationName const IMVoiceTranscriberDidChangeNotification;
 /// 查询当前状态（用于 cell 复用时决定是否显 loading）。
 - (IMVoiceTranscribeStatus)statusForMessageID:(NSString *)mid;
 
+/// 清掉一条的转写结果（长按菜单「取消转文字」）：删缓存 + 删落盘 + 复位状态；
+/// 若该条正在识别中，一并取消在跑的 SFSpeechRecognitionTask。key 口径同 cachedTextForMessageID:。
+- (void)clearTranscriptForMessageID:(NSString *)mid
+                             convID:(nullable NSString *)convID
+                              owner:(nullable NSString *)ownerUID;
+
 @end
 
 NS_ASSUME_NONNULL_END

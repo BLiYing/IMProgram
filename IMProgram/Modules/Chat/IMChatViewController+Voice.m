@@ -626,6 +626,24 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
 
 #pragma mark - 转文字（P1）
 
+- (BOOL)im_hasVoiceTranscript:(IMMessageModel *)message {
+    NSString *mid = IMVoicePlayerPlayableIDForMessage(message);
+    if (!mid) { return NO; }
+    return [[IMVoiceTranscriber sharedTranscriber] cachedTextForMessageID:mid
+                                                                   convID:message.convID
+                                                                    owner:self.userID] != nil;
+}
+
+- (void)im_clearVoiceTranscript:(IMMessageModel *)message {
+    NSString *mid = IMVoicePlayerPlayableIDForMessage(message);
+    if (!mid) { return; }
+    [[IMVoiceTranscriber sharedTranscriber] clearTranscriptForMessageID:mid
+                                                                 convID:message.convID
+                                                                  owner:self.userID];
+    // 收起面板并让 tableView 重算行高（否则留下撑开的空白）。
+    [self im_applyTranscriptText:nil loading:NO forMessageID:mid];
+}
+
 - (void)im_transcribeVoiceMessage:(IMMessageModel *)message {
     NSString *mid = IMVoicePlayerPlayableIDForMessage(message);
     if (!mid) { return; }
