@@ -177,7 +177,11 @@ static const CGFloat kLockSnapRadius = 34.0;
                      completion:^(BOOL fin) { [self resetHidden]; }];
 }
 
+/// 收场动画完成回调。**必须判 dismissing**：松手后 0.18~0.34s 内再次按住录音时
+/// presentAtAnchor 已把浮层重新点亮（dismissing 置回 NO），这条迟到的完成回调若无条件
+/// hidden=YES，正在录的这次就没有大圆钮和小锁了。
 - (void)resetHidden {
+    if (!self.dismissing) { return; } // 已被新的 present 接管，过期回调直接丢
     self.hidden = YES;
     self.dismissing = NO;
     self.ring.transform = CGAffineTransformIdentity;

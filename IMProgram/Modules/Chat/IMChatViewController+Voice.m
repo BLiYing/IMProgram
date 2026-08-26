@@ -511,9 +511,10 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
     IMLogUI(@"voice_upload_begin cid=%@ bytes=%lld dur_ms=%lld placeholder=%d", placeholderCID, fileSize, durationMillis, placeholder != nil);
     IMDatabaseAccountContext *dbCtx = [IMDatabase.sharedDatabase currentAccountContext];
 
-    // 强持有 self（刻意，非泄漏）：录完松手立即退出聊天页时，上传→发送→落库链条仍须完成，
-    // 否则消息无声丢失；上传结束块释放即断引用。完整方案=接入 IMMediaSendService 常驻队列（记 P2）。
-    __weak typeof(self) ws = self;
+    // **强持有 self（刻意，非泄漏）**：录完松手立即退出聊天页时，上传→发送→落库链条仍须完成，
+    // 否则消息无声丢失（DB 里只剩一条永远 Sending 的空占位，回会话就是个坏气泡）。
+    // 2026-08-26 修：这里原本写的是 `__weak ws` + `if (!self) return;`，与上面这段注释的承诺正好相反。
+    // block 随上传结束释放，不构成循环引用。完整方案=接入 IMMediaSendService 常驻队列（记 P2）。
     [[IMHTTPService sharedService] uploadVoiceData:data
                                           fileName:fileName
                                           mimeType:@"audio/mp4"
@@ -524,23 +525,19 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
         // echo 赋值"的竞态窗口。
         dispatch_async(dispatch_get_main_queue(), ^{
             if (err || url.length == 0) {
-                // 占位就地转失败（红❗气泡长按/点击可 im_resendVoiceMessage 重传）。
+                // 占位就地转失败（红❗气泡点击 im_resendVoiceMessage 重传）。
                 placeholder.status = IMMessageStatusFailed;
                 placeholder.note = err.localizedDescription ?: @"语音上传失败";
-                placeholder.content = fileURL.absoluteString; // 保留本地路径供重录复用（虽然目前重传走 URL 路径）
+                // 存**本地录音路径**：上传失败时服务端还没有这段音频，重传必须重新上传本地文件。
+                // 因此这里也**不能删 tmp 文件**（曾删掉，重试只能发一个指向已消失文件的 file:// 地址）。
+                placeholder.content = fileURL.absoluteString;
                 if (dbCtx) {
                     [IMDatabase.sharedDatabase performWithAccountContext:dbCtx block:^(IMDatabase *db) { [db saveMessage:placeholder]; }];
                 }
-                __strong typeof(ws) self = ws;
-                if (self) {
-                    [self.tableView reloadData];
-                    [self im_showToast:placeholder.note];
-                }
-                [[NSFileManager defaultManager] removeItemAtURL:fileURL error:NULL];
+                [self.tableView reloadData];
+                [self im_showToast:placeholder.note];
                 return;
             }
-            __strong typeof(ws) self = ws;
-            if (!self) { return; }
             // 摘掉占位（内存 + DB），走既有 sendMedia + 新 echo 路径（拿到真实 cid 后 upsert 落库）。
             NSUInteger idx = [self.messages indexOfObjectIdenticalTo:placeholder];
             if (idx != NSNotFound) { [self.messages removeObjectAtIndex:idx]; }
@@ -590,17 +587,31 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
     echo = [self im_persistLocalVoiceEcho:url waveform:waveform duration:durationMillis fileSize:fileSize clientMsgID:cid];
 }
 
-/// 发送失败重试（§5.5：**不重录**——音频已在服务器，按原 URL 重新 send_msg）。
-/// 旧 failed 行删除（内存+DB），按新 clientMsgID 重新走回显+ack 链。
+/// 发送失败重试（§5.5）。两种失败**不能同一条路**：
+///   - send_msg 失败：音频已在服务器 → 按原 URL 重新 send_msg，**不重录也不重传**；
+///   - upload 失败：服务器上根本没有这段音频，content 存的是本地 file:// 路径
+///     → 必须**重新上传**再发。曾统一走 send_msg，把 `file:///var/...m4a` 当媒体地址发出去，
+///     对端收到一条永远打不开的语音（2026-08-26 修）。
+/// 两条路都先删旧 failed 行（内存+DB），再按新 clientMsgID 重走回显+ack 链。
 - (void)im_resendVoiceMessage:(IMMessageModel *)m {
     if (m.status != IMMessageStatusFailed || m.content.length == 0) { return; }
     NSString *url = m.content;
     NSString *wave = m.waveform;
     int64_t dur = m.duration;
     int64_t size = m.fileSize;
+    NSURL *localURL = [url hasPrefix:@"file://"] ? [NSURL URLWithString:url] : nil;
+    if (localURL && ![[NSFileManager defaultManager] fileExistsAtPath:localURL.path]) {
+        // tmp 已被系统回收：留着 failed 行让用户知道这条没发出去，别静默删。
+        [self im_showToast:@"原始录音已丢失，请重新录制"];
+        return;
+    }
     [self performDatabaseOperation:^(IMDatabase *db) { [db deleteMessage:m]; }];
     NSUInteger idx = [self.messages indexOfObjectIdenticalTo:m];
     if (idx != NSNotFound) { [self.messages removeObjectAtIndex:idx]; }
+    if (localURL) {
+        [self im_uploadAndSendVoice:localURL waveform:wave durationMillis:dur];
+        return;
+    }
     [self im_sendVoiceURL:url waveform:wave durationMillis:dur fileSize:size];
 }
 

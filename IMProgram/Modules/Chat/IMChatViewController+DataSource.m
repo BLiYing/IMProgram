@@ -228,7 +228,7 @@
             if (!self || !sm) { return; }
             [self im_playVoiceMessage:sm fullURL:fullURL];
         };
-        vc.onRetryTap = ^{ // 发送失败红 !（§5.5）：不重录，按原 URL 重新 send_msg
+        vc.onRetryTap = ^{ // 发送失败红 !（§5.5）：不重录——已上传的按原 URL 重发，上传就失败的重新上传本地文件
             __strong typeof(ws) self = ws; IMMessageModel *sm = wm;
             if (!self || !sm) { return; }
             [self im_resendVoiceMessage:sm];

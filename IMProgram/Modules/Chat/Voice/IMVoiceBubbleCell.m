@@ -43,6 +43,8 @@
 @property (nonatomic, strong) UIButton *statusBadge;   ///< 发送失败红 !（§5.5：failed → 红标+点击重试；仅 mine）
 @property (nonatomic, strong) UILabel *readMark;       ///< 气泡右下 ✓/✓✓（mine 已发出后显；单聊按 peerReadSeq 变色，群聊只显 ✓）
 @property (nonatomic, assign) BOOL showsPauseIcon;     ///< 播放键当前图标缓存：30fps 进度 tick 只在状态切换时才 setImage
+@property (nonatomic, strong) NSLayoutConstraint *cvBottomToBubble; ///< 面板收起：行高只算到气泡（面板 hidden 但仍占 AutoLayout）
+@property (nonatomic, strong) NSLayoutConstraint *cvBottomToPanel;  ///< 面板展开：行高算到面板底
 @property (nonatomic, strong) NSLayoutConstraint *panelLeadingMine;
 @property (nonatomic, strong) NSLayoutConstraint *panelTrailingMine;
 @property (nonatomic, strong) NSLayoutConstraint *panelLeadingPeer;
@@ -230,8 +232,10 @@
         // 2026-08-27 用户拍板：波形与时长要与左侧 ▶ 视觉居中。
         [_bubble.topAnchor constraintEqualToAnchor:_senderLabel.bottomAnchor constant:2],
         [_bubble.heightAnchor constraintEqualToConstant:75],
-        // 转写面板（默认 hidden 且 top spacing=0，不占额外高度）。show 时 spacing=8。
-        [_transcriptPanel.bottomAnchor constraintEqualToAnchor:cv.bottomAnchor constant:-4],
+        // 转写面板（默认收起）。**hidden 的视图照样参与 AutoLayout**——若把 cv.bottom 永远吊在
+        // 面板底上，收起后行高仍含上一次的文本高度，就会在气泡下留一块空白占位
+        // （2026-08-26 用户实测：「取消转文字」后留白）。所以底边锚点按展开/收起切换，
+        // 收起时行高只算到气泡，面板高度多少都与行高无关。
         // 与气泡同侧对齐（configure 时按 mine 切）
         [_transcriptRule.leadingAnchor constraintEqualToAnchor:_transcriptPanel.leadingAnchor],
         [_transcriptRule.topAnchor constraintEqualToAnchor:_transcriptPanel.topAnchor constant:2],
@@ -288,6 +292,10 @@
     ]];
     _transcriptTopSpacing = [_transcriptPanel.topAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:0];
     _transcriptTopSpacing.active = YES;
+    _cvBottomToBubble = [cv.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:4];
+    _cvBottomToPanel = [cv.bottomAnchor constraintEqualToAnchor:_transcriptPanel.bottomAnchor constant:4];
+    _cvBottomToBubble.active = YES;  // 初始收起
+    _cvBottomToPanel.active = NO;
     // 转写面板与气泡同侧对齐——两对约束按 mine toggle。
     _panelTrailingMine = [_transcriptPanel.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor];
     _panelLeadingMine = [_transcriptPanel.leadingAnchor constraintGreaterThanOrEqualToAnchor:cv.leadingAnchor constant:60];
@@ -453,9 +461,15 @@
     BOOL shows = loading || (text.length > 0);
     self.transcriptPanel.hidden = !shows;
     self.transcriptTopSpacing.constant = shows ? 8 : 0;
+    // 行高底边跟着切：收起时吊在气泡底，面板残留的文本高度不再撑出空白占位。
+    // 先关后开——两条同时 active 会被约束引擎判为冲突并打日志。
+    if (shows) { self.cvBottomToBubble.active = NO; self.cvBottomToPanel.active = YES; }
+    else { self.cvBottomToPanel.active = NO; self.cvBottomToBubble.active = YES; }
     if (shows) {
         self.transcriptLabel.text = loading ? @"识别中…" : text;
         self.transcriptFooter.hidden = loading; // 识别中不显尾行
+    } else {
+        self.transcriptLabel.text = nil; // 清空，避免下次展开前先闪一帧上一条的文本
     }
 }
 

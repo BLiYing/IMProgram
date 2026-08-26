@@ -56,6 +56,9 @@ extern NSNotificationName const IMVoiceTranscriberDidChangeNotification;
 ///
 /// **只清本地展开状态，不删服务端结果**——服务端缓存是会话共享的，
 /// 一个人"取消"不该把别人也能看到的结果删掉。下次再点「转文字」会秒出（命中缓存）。
+///
+/// 折叠名单**落 NSUserDefaults**：转写文本是永久缓存，折叠状态若只在内存，
+/// 杀 App 重进会话就会被缓存重新展开（2026-08-26 实测）。
 - (void)collapseMessageID:(NSString *)mid;
 
 /// 该条是否被本地折叠过（+Menu.m 据此决定菜单显「转文字」还是「取消转文字」）。

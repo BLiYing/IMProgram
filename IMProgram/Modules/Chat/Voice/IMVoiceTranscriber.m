@@ -14,10 +14,17 @@ static NSString *IMVoiceTranscriptKey(NSString *content) {
     return [@"im.voice.transcript.v2." stringByAppendingString:content ?: @""];
 }
 
+/// 「取消转文字」的折叠名单也要落盘：转写文本本身是永久缓存（NSUserDefaults），
+/// 折叠状态若只在内存里，杀掉 App 再进会话就会被缓存重新展开——用户取消过的又冒出来
+/// （2026-08-26 实测）。名单只存 messageID（收到的消息用 serverMsgID，跨启动稳定）。
+static NSString *const kIMVoiceTranscriptCollapsedKey = @"im.voice.transcript.collapsed.v1";
+/// 名单上限：折叠是"这条我不想看"的一次性偏好，无限增长没意义；超限按加入顺序淘汰最旧的。
+static const NSUInteger kIMVoiceTranscriptCollapsedMax = 500;
+
 @interface IMVoiceTranscriber ()
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *statusByID; ///< mid -> IMVoiceTranscribeStatus
 @property (nonatomic, strong) NSMutableDictionary<NSString *, id> *textCache;          ///< key -> NSString 或 NSNull（已查过无值）
-@property (nonatomic, strong) NSMutableSet<NSString *> *collapsed;                     ///< 本地折叠的 mid（「取消转文字」）
+@property (nonatomic, strong) NSMutableOrderedSet<NSString *> *collapsed;              ///< 本地折叠的 mid（「取消转文字」），落盘、按加入顺序淘汰
 @end
 
 @implementation IMVoiceTranscriber
@@ -34,7 +41,8 @@ static NSString *IMVoiceTranscriptKey(NSString *content) {
     if (self) {
         _statusByID = [NSMutableDictionary dictionary];
         _textCache = [NSMutableDictionary dictionary];
-        _collapsed = [NSMutableSet set];
+        NSArray *saved = [[NSUserDefaults standardUserDefaults] stringArrayForKey:kIMVoiceTranscriptCollapsedKey];
+        _collapsed = saved.count > 0 ? [NSMutableOrderedSet orderedSetWithArray:saved] : [NSMutableOrderedSet orderedSet];
     }
     return self;
 }
@@ -70,7 +78,10 @@ static NSString *IMVoiceTranscriptKey(NSString *content) {
               messageID:(NSString *)messageID
                    token:(NSString *)token {
     if (messageID.length == 0 || convID.length == 0 || convSeq <= 0) { return; }
-    [self.collapsed removeObject:messageID]; // 重新展开
+    if ([self.collapsed containsObject:messageID]) { // 重新展开：折叠名单要同步落盘
+        [self.collapsed removeObject:messageID];
+        [self persistCollapsed];
+    }
 
     NSString *cached = [self cachedTextForContent:content];
     if (cached.length > 0) {
@@ -104,13 +115,17 @@ static NSString *IMVoiceTranscriptKey(NSString *content) {
                    convID:(NSString *)convID
                 messageID:(NSString *)messageID {
     if (messageID.length == 0) { return; }
+    BOOL collapsed = [self isCollapsedMessageID:messageID]; ///< 等结果期间用户点了「取消转文字」
     if ([status isEqualToString:@"done"] && text.length > 0) {
         NSString *key = IMVoiceTranscriptKey(content);
         self.textCache[key] = text;
         if (content.length > 0) { [[NSUserDefaults standardUserDefaults] setObject:text forKey:key]; }
+        // 结果照落缓存（下次点开秒出），但**不广播**——否则识别中途取消的那条会被结果重新撑开。
+        if (collapsed) { return; }
         [self setStatus:IMVoiceTranscribeStatusDone forID:messageID text:text convID:convID];
         return;
     }
+    if (collapsed) { return; }
     if ([status isEqualToString:@"failed"]) {
         [self setStatus:IMVoiceTranscribeStatusUnavailable forID:messageID
                    text:[IMVoiceTranscriber messageForErrorCode:500102 fallback:nil] convID:convID];
@@ -128,8 +143,17 @@ static NSString *IMVoiceTranscriptKey(NSString *content) {
 
 - (void)collapseMessageID:(NSString *)mid {
     if (mid.length == 0) { return; }
+    [self.collapsed removeObject:mid]; // 先移再加，保证重复折叠时刷新到队尾（淘汰按最久未折叠）
     [self.collapsed addObject:mid];
+    while (self.collapsed.count > kIMVoiceTranscriptCollapsedMax) {
+        [self.collapsed removeObjectAtIndex:0];
+    }
     [self.statusByID removeObjectForKey:mid];
+    [self persistCollapsed];
+}
+
+- (void)persistCollapsed {
+    [[NSUserDefaults standardUserDefaults] setObject:self.collapsed.array forKey:kIMVoiceTranscriptCollapsedKey];
 }
 
 - (BOOL)isCollapsedMessageID:(NSString *)mid {

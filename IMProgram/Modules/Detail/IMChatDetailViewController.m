@@ -845,7 +845,6 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
         return [self emptyCell:tv text:empty];
     }
     IMMessageModel *m = self.tabRows[row];
-    // heightForRow 已按语音行调 84 高（下方 heightForRowAtIndexPath 分支同步）。
     // 文件行：三态专用 cell（未下载 ↓ / 下载中 环形+⏸ / 已下载 类型图标）。无右侧配件——
     // 点行=下载/暂停/继续/打开；取消下载走长按菜单（仅进行中文件才有该项）。草图 §04。
     if (t.kind == IMDetailTabKindFiles) {

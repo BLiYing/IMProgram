@@ -8,7 +8,9 @@
 
 /// waveform 采样数：60（每 100ms 一次 tick × 平均 6s 语音 = 60 帧），与设计文档 §1 的
 /// 服务端上限 120 字节留一半余量（同一批语音条振幅指纹再上采/下采都不会突破 max）。
-static const NSInteger IMVoiceWaveformMaxSamples = 60;
+/// 用 enum 而非 static const NSInteger：下采缓冲区 `uint8_t out[IMVoiceWaveformMaxSamples]` 需要
+/// **编译期常量**，static const 在 C 里是变长数组（-Wgnu-folding-constant 警告，工程要求零告警）。
+enum { IMVoiceWaveformMaxSamples = 60 };
 /// 短录阈值 0.6s（<0.6s 提示"说话时间太短"并丢弃，见设计文档 §5.1）。
 static const int64_t IMVoiceShortRecordThresholdMillis = 600;
 /// 最大时长 5min（超上限自动停录进入待发送态）。
@@ -78,6 +80,9 @@ static const NSTimeInterval IMVoiceSampleInterval = 0.1;
         AVEncoderBitRateKey: @24000,
     };
     NSError *err = nil;
+    // 起新录音器前清"主动 stop"标记：上一段 stop 后若 delegate 回调没来（recorder 已置 nil 被释放），
+    // 标记会一直粘着 YES，把下一段真正的到点自动 stop 也当成主动 stop 吞掉（录满 5min 却什么都没发出）。
+    self.manualStopForPause = NO;
     AVAudioRecorder *r = [[AVAudioRecorder alloc] initWithURL:url settings:settings error:&err];
     if (!r || err) { return NO; }
     r.delegate = self;
@@ -92,7 +97,9 @@ static const NSTimeInterval IMVoiceSampleInterval = 0.1;
 - (void)start {
     if (self.recording) { return; }
     [self.samples setLength:0];
-    [self.segmentURLs removeAllObjects];
+    // 用 deleteAllSegments 而非 removeAllObjects：上一轮若在暂停态被丢弃（或合并失败提前退出），
+    // 光清数组会把 tmp/voice 下的 m4a 永久留在磁盘上（没人再持有其路径）。
+    [self deleteAllSegments];
     self.maxNotified = NO;
     NSError *sessionErr = nil;
     AVAudioSession *session = [AVAudioSession sharedInstance];
@@ -435,6 +442,9 @@ static const NSTimeInterval IMVoiceSampleInterval = 0.1;
             // 合并失败 → 报错让 UI toast 提示用户重试。之前用 segs.lastObject 兜底 = 只发最后一段音频
             // 但 duration/waveform 是全段——播放条满格却只听得到 1/N，且前段音频永久丢失且用户无知。
             // code-review 2026-08-27 确认改硬失败：finalURL=nil 触发 didStop error toast，用户可重录/重发。
+            // 源段与半成品 out 一并清（deliver 只清数组，不删文件）。
+            for (NSURL *u in segs) { [[NSFileManager defaultManager] removeItemAtURL:u error:NULL]; }
+            [[NSFileManager defaultManager] removeItemAtURL:out error:NULL];
             deliver(nil);
             return;
         }
