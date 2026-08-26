@@ -16,6 +16,7 @@ static NSString *IMVoiceTranscriptKey(NSString *ownerUID, NSString *convID, NSSt
 
 @interface IMVoiceTranscriber ()
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *statusByID; ///< 内存状态表（NSNumber = IMVoiceTranscribeStatus）
+@property (nonatomic, strong) NSMutableDictionary<NSString *, id> *textCache;         ///< 内存转写缓存：key=IMVoiceTranscriptKey；值=NSString 或 NSNull（表示已查过 NSUserDefaults 无值）
 @property (nonatomic, strong, nullable) SFSpeechRecognitionTask *currentTask;
 @property (nonatomic, copy, nullable) NSString *currentID;
 @end
@@ -31,13 +32,23 @@ static NSString *IMVoiceTranscriptKey(NSString *ownerUID, NSString *convID, NSSt
 
 - (instancetype)init {
     self = [super init];
-    if (self) { _statusByID = [NSMutableDictionary dictionary]; }
+    if (self) {
+        _statusByID = [NSMutableDictionary dictionary];
+        _textCache = [NSMutableDictionary dictionary];
+    }
     return self;
 }
 
 - (nullable NSString *)cachedTextForMessageID:(NSString *)mid convID:(NSString *)convID owner:(NSString *)ownerUID {
     if (!mid) { return nil; }
-    NSString *t = [[NSUserDefaults standardUserDefaults] stringForKey:IMVoiceTranscriptKey(ownerUID, convID, mid)];
+    // 内存缓存优先——滚动列表 configure 每 cell 都会来查一次，
+    // 曾直接读 NSUserDefaults stringForKey 每次触发磁盘同步 IO → 大量语音消息时列表滑动明显卡顿（2026-08-27 修 #3）。
+    NSString *key = IMVoiceTranscriptKey(ownerUID, convID, mid);
+    id v = self.textCache[key];
+    if (v == NSNull.null) { return nil; }      // 已查过：NSUserDefaults 里没有
+    if ([v isKindOfClass:NSString.class]) { return [(NSString *)v length] > 0 ? v : nil; }
+    NSString *t = [[NSUserDefaults standardUserDefaults] stringForKey:key];
+    self.textCache[key] = t.length > 0 ? (id)t : (id)NSNull.null;
     return t.length > 0 ? t : nil;
 }
 
@@ -105,6 +116,12 @@ static NSString *IMVoiceTranscriptKey(NSString *ownerUID, NSString *convID, NSSt
 
     SFSpeechURLRecognitionRequest *req = [[SFSpeechURLRecognitionRequest alloc] initWithURL:audioURL];
     req.shouldReportPartialResults = YES; // 逐词流出，让 UI 有渐进感（VOICE_MESSAGE_DESIGN §5.5 保留的动效）
+    // 音频不出设备：强制本地识别（iOS 13+ 中英文机型基本都支持）；不支持则回退默认（云端）——
+    // 用户 2026-08-27 反馈"为什么需要权限"，本地识别至少让审计层面音频不上传 Apple 服务器，
+    // 匹配 Info.plist 文案「识别结果只保存在你的设备上」。
+    if (@available(iOS 13.0, *)) {
+        if (recognizer.supportsOnDeviceRecognition) { req.requiresOnDeviceRecognition = YES; }
+    }
     // 只跑一次识别——不接受同一 mid 并发。上次没结束就 cancel 换新的（其实上层 UI 应防重复触发）。
     [self.currentTask cancel];
     self.currentID = mid;
@@ -124,7 +141,9 @@ static NSString *IMVoiceTranscriptKey(NSString *ownerUID, NSString *convID, NSSt
             if (result.isFinal) {
                 // 只在识别完成时持久化，避免每次 partial 都写盘。
                 if (text.length > 0) {
-                    [[NSUserDefaults standardUserDefaults] setObject:text forKey:IMVoiceTranscriptKey(ownerUID, convID, mid)];
+                    NSString *k = IMVoiceTranscriptKey(ownerUID, convID, mid);
+                    [[NSUserDefaults standardUserDefaults] setObject:text forKey:k];
+                    self.textCache[k] = text; // 回填内存缓存，避免下次 configure 再触 NSUserDefaults
                 }
                 self.currentTask = nil;
             }

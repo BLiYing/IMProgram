@@ -608,6 +608,8 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
             return h > 0 ? h : 60;
         }
         if (t.kind == IMDetailTabKindFiles) { return 74; } // 文件行 3 行：文件名 + 状态 + 时间（#2b）
+        // 语音行 3 行：发送者(15pt) + 语音·m:ss(13pt) + 年月日时分(11pt) ≈ 18+16+14=48pt + 上下 padding 24pt。
+        if (t.kind == IMDetailTabKindVoice) { return 76; }
         // 链接行 3 行：og:title/host + host+path + 时间（草图 §C，IMDetailLinkCell 内嵌 IMLinkRowView）——
         // 内部 t1(16)+2+t2(14)+2+t3(14)=48pt + cell 上下 padding 9+9=66pt；旧的 60pt 会截掉时间行（用户反馈）。
         if (t.kind == IMDetailTabKindLinks) { return 74; }
@@ -843,6 +845,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
         return [self emptyCell:tv text:empty];
     }
     IMMessageModel *m = self.tabRows[row];
+    // heightForRow 已按语音行调 84 高（下方 heightForRowAtIndexPath 分支同步）。
     // 文件行：三态专用 cell（未下载 ↓ / 下载中 环形+⏸ / 已下载 类型图标）。无右侧配件——
     // 点行=下载/暂停/继续/打开；取消下载走长按菜单（仅进行中文件才有该项）。草图 §04。
     if (t.kind == IMDetailTabKindFiles) {
@@ -856,11 +859,9 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
         [lc configureWithMessage:m];
         return lc;
     }
-    UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleSubtitle reuseID:@"dSub" inTable:tv];
-    // 语音（IMDetailTabKindVoice）：双行 cell——主行"语音 m:ss"，副行时间；点行=就地播放/暂停（didSelect）。
-    cell.textLabel.text = [@"语音 " stringByAppendingString:IMFormatVoiceDuration(m.duration)];
-    cell.imageView.image = [UIImage systemImageNamed:@"waveform"];
-    cell.detailTextLabel.text = IMFormatFileDateTime(m.timestamp);
+    // 语音三行 cell（2026-08-27）：装配抽到 +Actions.m 守 1500 行体量红线。
+    UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleDefault reuseID:@"dVoice3" inTable:tv];
+    [self decorateVoiceRow3Cell:cell message:m];
     return cell;
 }
 

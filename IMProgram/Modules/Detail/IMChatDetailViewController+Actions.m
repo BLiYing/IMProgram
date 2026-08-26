@@ -26,10 +26,40 @@
 #import "IMLog.h"
 #import "IMMessageModel.h"    // playVoiceRow: 读 content（Private.h 只有 @class 前向声明）
 #import "IMVoicePlayer.h"     // 语音 tab：点行就地播放/暂停（toggleEnsuringLocal 共享入口）
+#import "IMTimeUtil.h"        // decorateVoiceRow3Cell: IMFormatVoiceDuration
+#import "IMGroupInfo.h"       // decorateVoiceRow3Cell: 群成员昵称
 
 @implementation IMChatDetailViewController (Actions)
 
-#pragma mark - 语音 tab：点行播放
+#pragma mark - 语音 tab：三行 cell 装配 + 点行播放
+
+/// 三行内容：发送者(15pt Medium) / 语音·m:ss(13pt) / 年月日时:分(11pt secondary)。
+/// 单 attributedText 承载三行，textLabel.numberOfLines=3；heightForRow 已按 76pt 分配（主 .m）。
+- (void)decorateVoiceRow3Cell:(UITableViewCell *)cell message:(IMMessageModel *)m {
+    cell.imageView.image = [UIImage systemImageNamed:@"waveform"];
+    cell.textLabel.numberOfLines = 3;
+    NSString *senderUID = m.from ?: @"";
+    NSString *senderText;
+    if ([senderUID isEqualToString:self.userID]) {
+        senderText = @"你自己";
+    } else if (self.isGroup) {
+        senderText = [self.group nicknameOfMember:senderUID] ?: senderUID;
+    } else {
+        // 单聊：Private.h 上的 peerNickname 兜底 uid。
+        senderText = self.peerNickname.length ? self.peerNickname : senderUID;
+    }
+    UIFont *titleFont = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
+    UIFont *subFont = [UIFont systemFontOfSize:13];
+    NSMutableAttributedString *s = [NSMutableAttributedString new];
+    [s appendAttributedString:[[NSAttributedString alloc] initWithString:senderText
+        attributes:@{ NSFontAttributeName: titleFont, NSForegroundColorAttributeName: IMTheme.textPrimary }]];
+    [s appendAttributedString:[[NSAttributedString alloc] initWithString:[NSString stringWithFormat:@"\n语音 %@", IMFormatVoiceDuration(m.duration)]
+        attributes:@{ NSFontAttributeName: subFont, NSForegroundColorAttributeName: IMTheme.textPrimary }]];
+    [s appendAttributedString:[[NSAttributedString alloc] initWithString:[@"\n" stringByAppendingString:IMFormatFileDateTime(m.timestamp)]
+        attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:11], NSForegroundColorAttributeName: IMTheme.textSecondary }]];
+    cell.textLabel.attributedText = s;
+}
+
 
 /// 语音行点击（2026-08-26）：走 IMVoicePlayer 共享入口就地播放/暂停。
 /// 主文件 didSelect 调用；放本 category 是体量门禁拆分（主文件曾 1508 行超 1500 红线）。

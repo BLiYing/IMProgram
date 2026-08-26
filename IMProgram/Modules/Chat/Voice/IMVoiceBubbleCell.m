@@ -161,14 +161,6 @@
     _transcriptFooter.text = @"📝 本机识别 · 仅本地保存";
     [_transcriptPanel addSubview:_transcriptFooter];
 
-    // 气泡内右下角 ✓/✓✓（mine 已发出后显；2026-08-27 补，语音气泡与文本气泡的已读语义对齐）。
-    _readMark = [UILabel new];
-    _readMark.translatesAutoresizingMaskIntoConstraints = NO;
-    _readMark.font = [UIFont systemFontOfSize:10 weight:UIFontWeightSemibold];
-    _readMark.textColor = IMTheme.textSecondary;
-    _readMark.hidden = YES;
-    [_bubble addSubview:_readMark];
-
     // 发送失败红 !（§5.5）：气泡左侧外（mine 气泡右对齐），点击=重试。默认隐藏。
     _statusBadge = [UIButton buttonWithType:UIButtonTypeSystem];
     _statusBadge.translatesAutoresizingMaskIntoConstraints = NO;
@@ -271,9 +263,6 @@
         [_statusBadge.centerYAnchor constraintEqualToAnchor:_bubble.centerYAnchor],
         [_statusBadge.widthAnchor constraintEqualToConstant:28],
         [_statusBadge.heightAnchor constraintEqualToConstant:28],
-        // readMark：气泡内右下角，durationLabel 右侧同 baseline（durationLabel 已 centerY+5，等价"下方"）。
-        [_readMark.leadingAnchor constraintEqualToAnchor:_durationLabel.trailingAnchor constant:4],
-        [_readMark.firstBaselineAnchor constraintEqualToAnchor:_durationLabel.firstBaselineAnchor],
     ]];
     _transcriptTopSpacing = [_transcriptPanel.topAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:0];
     _transcriptTopSpacing.active = YES;
@@ -362,26 +351,19 @@
         self.waveform.inactiveColor = [IMTheme.textSecondary colorWithAlphaComponent:0.28];
         self.playButton.backgroundColor = IMTheme.accent;
     }
-    // 气泡宽度按 duration 线性长（最少 130pt，最多 240pt——tokens 见 §6.1）。
-    // 直接改 bubbleWidth.constant，不再动态追加约束（复用 cell 时会重复叠加）。
+    // 气泡宽度按 duration 线性长（最少 160pt，最多 240pt——metaLabel 现要装"0:12·14:32 ✓✓"更宽，下限提高防挤，2026-08-27 修 #4）。
     CGFloat dur = MAX(1.0, message.duration / 1000.0);
-    self.bubbleWidth.constant = MIN(240.0, MAX(130.0, 96.0 + dur * 3.6));
+    self.bubbleWidth.constant = MIN(240.0, MAX(160.0, 96.0 + dur * 3.6));
 
-    self.durationLabel.text = [self formatDur:self.totalDurationMillis];
+    // 综合 meta：时长 · 时间 · ✓/✓✓（durationLabel 单 label 承载全部；2026-08-27 修 #4——
+    // 曾独立 readMark 与 durationLabel 并列，把 durationLabel 挤出气泡外只剩半个 ✓）。
+    self.durationLabel.attributedText = [self metaAttributedForMessage:message mine:mine
+                                                            peerReadSeq:peerReadSeq
+                                                         isGroupContext:isGroupContext];
     // 未播红点仅对方消息 + 本机未播过时显；hasPlayed 由宿主传入（已 mine || 查询 IMVoicePlayer 已播集合）。
     self.unplayedDot.hidden = mine || hasPlayed;
     // 发送失败红 !（§5.5「不静默失败」）：曾 ack 失败置 Failed 落库但气泡外观与成功完全一致（2026-08-26 修）。
     self.statusBadge.hidden = !(mine && message.status == IMMessageStatusFailed);
-    // ✓/✓✓ 已读勾（2026-08-27 补 #7）：mine + convSeq>0（拿到 ack）才显；群聊单一 peerReadSeq
-    // 无法表达"谁读到哪"（与 IMBubbleCell 已读勾同口径，见 +Socket.m:148），恒 ✓。
-    BOOL showsRead = mine && message.convSeq > 0
-        && message.status != IMMessageStatusFailed && message.status != IMMessageStatusSending;
-    self.readMark.hidden = !showsRead;
-    if (showsRead) {
-        BOOL doubleTick = !isGroupContext && message.convSeq <= peerReadSeq;
-        self.readMark.text = doubleTick ? @"✓✓" : @"✓";
-        self.readMark.textColor = doubleTick ? IMTheme.checkRead : IMTheme.textSecondary;
-    }
 
     // 同步当前播放器状态（切页/复用时保持进度）。
     IMVoicePlayerState st = [[IMVoicePlayer sharedPlayer] stateForMessageID:self.currentID];
@@ -389,6 +371,31 @@
 }
 
 - (NSString *)formatDur:(int64_t)ms { return IMFormatVoiceDuration(ms); }
+
+/// 综合 meta 富文本："0:12"（对方/发送中）/ "0:12 · 14:32 ✓" / "0:12 · 14:32 ✓✓"（✓✓ 绿色）。
+/// mine 且拿到 ack 才显时间+勾（发送中/失败由 durationLabel 只显时长，失败在气泡外由 statusBadge 表达）。
+- (NSAttributedString *)metaAttributedForMessage:(IMMessageModel *)message mine:(BOOL)mine
+                                     peerReadSeq:(int64_t)peerReadSeq isGroupContext:(BOOL)isGroupContext {
+    UIFont *font = [UIFont monospacedDigitSystemFontOfSize:11 weight:UIFontWeightRegular];
+    NSString *durStr = IMFormatVoiceDuration(self.totalDurationMillis);
+    UIColor *secondary = IMTheme.textSecondary;
+    NSDictionary *base = @{ NSFontAttributeName: font, NSForegroundColorAttributeName: secondary };
+    if (!mine || message.convSeq <= 0
+        || message.status == IMMessageStatusSending || message.status == IMMessageStatusFailed) {
+        // 对方消息 / 发送中 / 失败：只显时长（时间对对方语音无强需求；失败由外部红 ! 表达）。
+        return [[NSAttributedString alloc] initWithString:durStr attributes:base];
+    }
+    NSString *timeStr = [IMTheme timeStringFromMillis:message.timestamp]; // HH:mm
+    BOOL doubleTick = !isGroupContext && message.convSeq <= peerReadSeq;
+    NSString *checks = doubleTick ? @"✓✓" : @"✓";
+    NSString *plain = [NSString stringWithFormat:@"%@ · %@ %@", durStr, timeStr, checks];
+    NSMutableAttributedString *s = [[NSMutableAttributedString alloc] initWithString:plain attributes:base];
+    NSRange r = [plain rangeOfString:checks options:NSBackwardsSearch];
+    if (r.location != NSNotFound) {
+        [s addAttribute:NSForegroundColorAttributeName value:(doubleTick ? IMTheme.checkRead : secondary) range:r];
+    }
+    return s;
+}
 
 - (void)applyGroupAvatarURL:(NSString *)url seed:(NSString *)seed name:(NSString *)name showAvatar:(BOOL)showAvatar gutter:(BOOL)gutter {
     _avatar.hidden = !showAvatar;
@@ -514,9 +521,12 @@
     }
     if (!self.scrubbing) { self.waveform.progress = progress; }
     if (state == IMVoicePlayerStatePlaying || state == IMVoicePlayerStatePaused) {
+        // 播放中/暂停显剩余时间（覆盖 attributed meta——播放态就不需要 ✓✓，专注剩余）。
         int64_t remaining = MAX(0, self.totalDurationMillis - (int64_t)(progress * self.totalDurationMillis));
         self.durationLabel.text = [self formatDur:remaining];
     } else {
+        // 播完/复位：恢复综合 meta（时长 · 时间 ✓✓）——由 configure 生成的 attributed 无法在 tick 中重建
+        // 因为缺 message 引用；这里只显时长兜底（重进会话或下一次 configure 会重新生成完整 meta）。
         self.durationLabel.text = [self formatDur:self.totalDurationMillis];
         if (!self.scrubbing) { self.waveform.progress = 0; }
     }

@@ -158,6 +158,9 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 - (void)swipeToNextTab:(UISwipeGestureRecognizer *)g;
 - (void)swipeToPrevTab:(UISwipeGestureRecognizer *)g;
 - (void)playVoiceRow:(IMMessageModel *)m; // 语音 tab 点行播放（+Actions.m，2026-08-26）
+/// 装配语音 tab 三行 cell 内容（发送者/语音·m:ss/年月日时分）。放 +Actions.m 是体量门禁拆分——
+/// 主 VC 曾一路涨到 1508>1500 红线（2026-08-27 拆）。
+- (void)decorateVoiceRow3Cell:(UITableViewCell *)cell message:(IMMessageModel *)m;
 @end
 
 NS_ASSUME_NONNULL_END

@@ -26,6 +26,9 @@ extern NSNotificationName const IMVoiceTranscriberDidChangeNotification;
 /// 语音识别授权是否被拒/受限（供上层判定文案是"去设置开启"还是"识别不可用"）。
 + (BOOL)isAuthorizationDeniedOrRestricted;
 
+/// 内存缓存查询（滚动列表 configure 热路径专用，不走 NSUserDefaults 读盘）。miss 返回 nil，
+/// 首次落盘时按需从 NSUserDefaults 懒加载并回填 mem cache。
+
 + (instancetype)sharedTranscriber;
 
 /// 本地是否已有缓存的转写文本。缓存 key = per-uid + per-conv + per-mid。
