@@ -4,6 +4,7 @@
 
 #import "IMVoiceLockedBar.h"
 #import "IMTheme.h"
+#import "IMTimeUtil.h"
 
 @interface IMVoiceLockedBar ()
 @property (nonatomic, strong) UIButton *deleteBtn;
@@ -161,8 +162,7 @@
 }
 
 - (void)updateAmplitude:(float)amplitude elapsedMillis:(int64_t)elapsedMillis {
-    NSInteger s = MAX((NSInteger)0, (NSInteger)(elapsedMillis / 1000));
-    self.timer.text = [NSString stringWithFormat:@"%ld:%02ld", (long)(s / 60), (long)(s % 60)];
+    self.timer.text = IMFormatVoiceDuration(elapsedMillis);
     // 从右向左流动：把左侧的高度往下移一格，最右新加当前采样高度。
     CGFloat h = CGRectGetHeight(self.waveBox.bounds);
     if (h < 4) { return; }

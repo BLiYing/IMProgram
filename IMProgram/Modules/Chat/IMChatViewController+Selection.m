@@ -334,7 +334,7 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
 /// 从源消息取出转发要一并带走的媒体元数据（封面/尺寸/时长）；非媒体消息返回 nil。
 - (IMMediaAttributes *)forwardAttributesForMessage:(IMMessageModel *)message stripCaption:(BOOL)stripCaption {
     BOOL isMedia = [message.contentType isEqualToString:@"image"] || [message.contentType isEqualToString:@"video"];
-    BOOL isVoice = [message.contentType isEqualToString:@"voice"];
+    BOOL isVoice = [message.contentType isEqualToString:@"voice"] || [message.contentType isEqualToString:@"audio"]; // audio=旧命名兼容（详情语音 tab 同口径）
     // 图说：文件也可能带 caption，需建 attrs 承载；stripCaption=YES 时视 caption 为不存在。
     BOOL hasCaption = !stripCaption && message.caption.length > 0;
     if (!isMedia && !isVoice && !hasCaption) { return nil; }

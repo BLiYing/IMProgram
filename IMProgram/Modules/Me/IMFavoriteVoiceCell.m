@@ -5,6 +5,7 @@
 #import "IMFavoriteVoiceCell.h"
 #import "IMMessageModel.h"
 #import "IMTheme.h"
+#import "IMTimeUtil.h"
 #import "IMWaveformView.h"
 #import "IMVoicePlayer.h"
 
@@ -15,6 +16,7 @@
 @property (nonatomic, strong) UILabel *metaLabel;
 @property (nonatomic, copy, nullable) NSString *messageID;
 @property (nonatomic, assign) int64_t totalDurationMillis;
+@property (nonatomic, assign) BOOL showsPauseIcon; ///< 图标缓存：30fps tick 只在状态切换时 setImage
 @end
 
 @implementation IMFavoriteVoiceCell
@@ -94,10 +96,7 @@
     [self applyState:st progress:[[IMVoicePlayer sharedPlayer] progressForMessageID:self.messageID]];
 }
 
-- (NSString *)formatDur:(int64_t)ms {
-    NSInteger s = MAX(0, (NSInteger)(ms / 1000));
-    return [NSString stringWithFormat:@"%ld:%02ld", (long)(s / 60), (long)(s % 60)];
-}
+- (NSString *)formatDur:(int64_t)ms { return IMFormatVoiceDuration(ms); }
 
 - (void)playTapped { if (self.onPlayTap) { self.onPlayTap(); } }
 
@@ -109,9 +108,14 @@
 }
 
 - (void)applyState:(IMVoicePlayerState)state progress:(double)progress {
-    UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:14 weight:UIImageSymbolWeightBold];
-    NSString *sym = (state == IMVoicePlayerStatePlaying) ? @"pause.fill" : @"play.fill";
-    [self.playButton setImage:[UIImage systemImageNamed:sym withConfiguration:cfg] forState:UIControlStateNormal];
+    // 图标只在状态切换时 setImage（本方法被 30fps 进度 tick 驱动）。
+    BOOL wantPause = (state == IMVoicePlayerStatePlaying);
+    if (wantPause != self.showsPauseIcon || !self.playButton.currentImage) {
+        self.showsPauseIcon = wantPause;
+        UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:14 weight:UIImageSymbolWeightBold];
+        NSString *sym = wantPause ? @"pause.fill" : @"play.fill";
+        [self.playButton setImage:[UIImage systemImageNamed:sym withConfiguration:cfg] forState:UIControlStateNormal];
+    }
     BOOL active = (state == IMVoicePlayerStatePlaying || state == IMVoicePlayerStatePaused);
     self.waveform.progress = active ? progress : 0;
     int64_t shown = active

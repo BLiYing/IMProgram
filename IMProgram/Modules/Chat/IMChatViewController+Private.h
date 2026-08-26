@@ -105,7 +105,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, strong) UIButton *plusButton;   // 加号（附件面板，左）—— PinnedBanner 会禁用/半透明
 @property (nonatomic, strong) UIButton *voiceButton;  // 语音（右，与 sendButton 同槽互斥）
 @property (nonatomic, strong) UIButton *sendButton;   // 发送
-@property (nonatomic, strong) NSLayoutConstraint *inputTrailToEmoji; // 无内容：输入框贴表情按钮
+@property (nonatomic, strong) NSLayoutConstraint *inputTrailToVoice; // 无内容：输入框贴语音钮（v2.3 前叫 inputTrailToEmoji）
 @property (nonatomic, strong) NSLayoutConstraint *inputTrailToSend;  // 有内容：输入框贴发送按钮
 @property (nonatomic, strong) UIView *replyBar;       // 引用预览条（输入栏上方）
 @property (nonatomic, strong) UILabel *replyTitleLabel;   // 上行「回复X」/「编辑消息」（accent 色）

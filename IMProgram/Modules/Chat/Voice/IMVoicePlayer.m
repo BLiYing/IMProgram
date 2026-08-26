@@ -4,6 +4,8 @@
 
 #import "IMVoicePlayer.h"
 #import "IMMessageModel.h"
+#import "IMMediaDownloader.h" // toggleEnsuringLocal: 未缓存时直连下载
+#import "IMMediaUtil.h"       // IMMediaFullURL
 #import <AVFoundation/AVFoundation.h>
 
 NSNotificationName const IMVoicePlayerDidChangeStateNotification = @"IMVoicePlayerDidChangeStateNotification";
@@ -82,6 +84,40 @@ static NSString *_Nonnull IMVoicePlayerPlayedKey(NSString *ownerUID, NSString *c
     [self.player play];
     [self startProgressLink];
     [self broadcastStateForID:mid convID:self.currentConvID state:IMVoicePlayerStatePlaying];
+}
+
+- (void)toggleEnsuringLocal:(IMMessageModel *)message host:(NSString *)host completion:(void (^)(NSError *))completion {
+    if (message.content.length == 0) {
+        if (completion) { completion([NSError errorWithDomain:@"IMVoicePlayer" code:-1
+                                                     userInfo:@{NSLocalizedDescriptionKey: @"语音内容为空"}]); }
+        return;
+    }
+    NSURL *cached = [IMMediaDownloader cachedFileURLForContent:message.content];
+    if (cached && [[NSFileManager defaultManager] fileExistsAtPath:cached.path]) {
+        [self togglePlayback:message localFileURL:cached];
+        if (completion) { completion(nil); }
+        return;
+    }
+    NSURL *remote = [NSURL URLWithString:IMMediaFullURL(message.content, host)];
+    if (!remote || !cached) {
+        if (completion) { completion([NSError errorWithDomain:@"IMVoicePlayer" code:-2
+                                                     userInfo:@{NSLocalizedDescriptionKey: @"语音地址无效"}]); }
+        return;
+    }
+    __weak typeof(self) ws = self;
+    IMMediaDownloadTask *task = [[IMMediaDownloader shared] downloadURL:remote toDestination:cached key:message.content];
+    // message 强持有（刻意）：下载期间列表重建导致外部模型释放时，完成后仍能播放（曾 __weak 静默 no-op）。
+    task.completionHandler = ^(NSURL *location, NSError *err) {
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        if (err || !location) {
+            if (completion) { completion(err ?: [NSError errorWithDomain:@"IMVoicePlayer" code:-3
+                                                                userInfo:@{NSLocalizedDescriptionKey: @"语音下载失败"}]); }
+            return;
+        }
+        [self togglePlayback:message localFileURL:location];
+        if (completion) { completion(nil); }
+    };
 }
 
 - (void)stop {

@@ -157,13 +157,17 @@ static const NSTimeInterval IMVoiceSampleInterval = 0.1;
     int64_t pauseDur = MAX((int64_t)0, nowMs - self.pausedAtMillis);
     self.startedAtMillis += pauseDur;
     self.paused = NO;
+    // 中断（来电）会让系统停用我们的 session——record 前重新激活，否则中断后的「继续」必失败。
+    AVAudioSession *session = [AVAudioSession sharedInstance];
+    AVAudioSessionCategoryOptions opts = AVAudioSessionCategoryOptionDefaultToSpeaker;
+    if (@available(iOS 8.0, *)) { opts |= AVAudioSessionCategoryOptionAllowBluetoothHFP; }
+    [session setCategory:AVAudioSessionCategoryPlayAndRecord mode:AVAudioSessionModeSpokenAudio options:opts error:NULL];
+    [session setActive:YES error:NULL];
+    self.sessionActive = YES;
     if (![self.recorder record]) {
-        // 恢复失败 → 直接以已录时长发送/丢弃（走 finish 分支）。
-        int64_t dur = [self elapsedMillis];
-        [self finishWithReason:(dur >= IMVoiceShortRecordThresholdMillis)
-                                 ? IMVoiceRecorderStopReasonUserSend
-                                 : IMVoiceRecorderStopReasonTooShort
-              durationMillis:dur];
+        // 恢复失败 → 回到暂停态（曾直接 finish UserSend 自动发送——用户想续说的半句话被强制发出，
+        // 违背 §5.4「由用户决定 发/删/续」）。文件仍在：用户可点发送（stopAndSend 支持 paused）或删除。
+        self.paused = YES;
         return;
     }
     // 恢复采样定时器
@@ -237,6 +241,12 @@ static const NSTimeInterval IMVoiceSampleInterval = 0.1;
 }
 
 - (void)handleInterruption:(NSNotification *)note {
+    // AVAudioSession 通知由系统内部线程投递（observer 未指定 queue）；本方法会 invalidate 主 runloop
+    // 定时器并经 delegate 驱动 UIKit（HUD/LockedBar/toast），必须回主线程执行。
+    if (!NSThread.isMainThread) {
+        dispatch_async(dispatch_get_main_queue(), ^{ [self handleInterruption:note]; });
+        return;
+    }
     NSNumber *type = note.userInfo[AVAudioSessionInterruptionTypeKey];
     if (type.unsignedIntegerValue != AVAudioSessionInterruptionTypeBegan) { return; }
     if (!self.recording || self.paused) { return; }

@@ -22,8 +22,7 @@
 #import "IMDetailFileCell.h"
 #import "IMFavoriteLinkCell.h"
 #import "IMFavoriteVoiceCell.h"   // 语音迷你播放器行（2026-08-26）
-#import "IMVoicePlayer.h"         // 收藏语音就地播放（与聊天页共用单例）
-#import "IMMediaDownloader.h"     // 未缓存语音直连下载后播
+#import "IMVoicePlayer.h"         // 收藏语音就地播放（toggleEnsuringLocal 共享入口）
 #import "IMForwardPickerViewController.h"
 #import "IMChatRecordViewController.h"
 #import "IMSocketManager.h"
@@ -1069,25 +1068,15 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     }
 }
 
-/// 播放收藏语音（2026-08-26）：缓存命中直接 toggle；未缓存先直连下载（voice <1MB）。
+/// 播放收藏语音（2026-08-26）：走 IMVoicePlayer 共享入口就地播放/暂停。
 /// 播放状态经 IMVoicePlayer 通知广播回 IMFavoriteVoiceCell（波形进度 + ▶/⏸ 图标）。
 - (void)playFavoriteVoice:(NSDictionary *)f {
     IMMessageModel *m = [self modelForFavorite:f];
-    if (m.content.length == 0) { return; }
-    NSURL *cached = [IMMediaDownloader cachedFileURLForContent:m.content];
-    if (cached && [[NSFileManager defaultManager] fileExistsAtPath:cached.path]) {
-        [[IMVoicePlayer sharedPlayer] togglePlayback:m localFileURL:cached];
-        return;
-    }
-    NSURL *remote = [NSURL URLWithString:IMMediaFullURL(m.content, IMHTTPService.sharedService.host)];
-    if (!remote || !cached) { return; }
     __weak typeof(self) ws = self;
-    IMMediaDownloadTask *task = [[IMMediaDownloader shared] downloadURL:remote toDestination:cached key:m.content];
-    task.completionHandler = ^(NSURL *location, NSError *err) {
+    [[IMVoicePlayer sharedPlayer] toggleEnsuringLocal:m host:IMHTTPService.sharedService.host completion:^(NSError *err) {
         __strong typeof(ws) self = ws;
-        if (!self || err || !location) { return; }
-        [[IMVoicePlayer sharedPlayer] togglePlayback:m localFileURL:location];
-    };
+        if (self && err) { [self im_showToast:@"语音下载失败"]; } // IO 错误不吞（CODING_STYLE §5）
+    }];
 }
 
 #pragma mark 长按 / 左滑

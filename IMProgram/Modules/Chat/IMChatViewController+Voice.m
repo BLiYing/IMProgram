@@ -194,7 +194,7 @@ static const void *kIMVoiceOverlayKey = &kIMVoiceOverlayKey;
 }
 
 - (void)im_installVoicePressGesture {
-    UIButton *voiceBtn = [self im_findVoiceButton];
+    UIButton *voiceBtn = self.voiceButton; // v2.3 起宿主直接持有；旧的 action 扫描 fallback 属死代码已删
     if (!voiceBtn || self.im_voicePressRecognizer) { return; }
     UILongPressGestureRecognizer *lp = [[UILongPressGestureRecognizer alloc]
                                         initWithTarget:self action:@selector(im_onVoicePress:)];
@@ -202,21 +202,6 @@ static const void *kIMVoiceOverlayKey = &kIMVoiceOverlayKey;
     lp.cancelsTouchesInView = YES;
     [voiceBtn addGestureRecognizer:lp];
     self.im_voicePressRecognizer = lp;
-}
-
-/// 定位语音按钮：Telegram 布局（v2.3）后宿主已把它提为 self.voiceButton；
-/// 兜底扫描（用 voiceTapped action 鉴别）保留，避免 property 未装配时 nil 崩。
-- (UIButton *)im_findVoiceButton {
-    if (self.voiceButton) { return self.voiceButton; }
-    UIView *inputBar = self.inputField.superview;
-    if (!inputBar) { return nil; }
-    for (UIView *v in inputBar.subviews) {
-        if (![v isKindOfClass:[UIButton class]]) { continue; }
-        UIButton *b = (UIButton *)v;
-        NSArray<NSString *> *actions = [b actionsForTarget:self forControlEvent:UIControlEventTouchUpInside];
-        if ([actions containsObject:@"voiceTapped"]) { return b; }
-    }
-    return nil;
 }
 
 #pragma mark - 手势事件
@@ -227,16 +212,22 @@ static const void *kIMVoiceOverlayKey = &kIMVoiceOverlayKey;
     CGPoint ptView = [g locationInView:self.view];
     switch (g.state) {
         case UIGestureRecognizerStateBegan: {
+            if (!self.voiceButton.enabled) { return; } // 禁言等 composer 锁定态：入口即拦（disabled 不拦手势识别，需显式早退）
             self.im_voicePressStart = ptBar;
             self.im_voiceCancelReady = NO;
             [self im_startVoiceRecording];
-            // 大圆钮 + 磁吸小锁浮层（设计 §5.2）：锚点 = 语音钮中心（self.view 坐标）。
-            CGPoint anchor = [self.voiceButton.superview convertPoint:self.voiceButton.center toView:self.view];
-            [self.im_voiceOverlay presentAtAnchor:anchor fingerPoint:ptView];
+            // 大圆钮 + 磁吸小锁浮层（设计 §5.2）：**仅录音真正启动时弹**——权限被拒/请求中 recorder 未开录，
+            // 此时弹浮层会引导用户"锁定"一个不存在的录音（LockedBar 三键全 no-op 且无 didStop 复位 → 永久卡死）。
+            if (self.im_voiceRecorder.recording) {
+                CGPoint anchor = [self.voiceButton.superview convertPoint:self.voiceButton.center toView:self.view];
+                [self.im_voiceOverlay presentAtAnchor:anchor fingerPoint:ptView];
+            }
             break;
         }
         case UIGestureRecognizerStateChanged: {
             if (self.im_voiceLocked) { return; } // 已锁定，忽略后续手势
+            // 未真正开录（权限请求中/被拒）→ 不做磁吸/取消判定（同上：防锁定不存在的录音）。
+            if (!self.im_voiceRecorder.recording && !self.im_voiceRecorder.paused) { return; }
             // 磁吸小锁：手指进入锁钮 70pt 高亮、34pt 内到位即锁（无需松手；替代旧的固定 80pt 位移阈值）。
             IMVoiceLockPhase phase = [self.im_voiceOverlay updateFingerPoint:ptView];
             if (phase == IMVoiceLockPhaseLocked) {
@@ -264,7 +255,8 @@ static const void *kIMVoiceOverlayKey = &kIMVoiceOverlayKey;
         case UIGestureRecognizerStateCancelled:
         case UIGestureRecognizerStateFailed: {
             // 若刚被 lock 逻辑主动取消了手势 → 保留录制（recorder 继续跑，LockedBar 接管）。
-            if (self.im_voiceLocked) { self.im_voiceCancelReady = NO; return; }
+            // dismiss 幂等（磁吸路径已走 dismissLocked、此调用 no-op）；兜底中断置锁等旁路进入的锁定态。
+            if (self.im_voiceLocked) { self.im_voiceCancelReady = NO; [self.im_voiceOverlay dismiss]; return; }
             [self.im_voiceOverlay dismiss];
             if (self.im_voiceCancelReady) {
                 [self.im_voiceRecorder cancel];
@@ -306,6 +298,11 @@ static const void *kIMVoiceOverlayKey = &kIMVoiceOverlayKey;
                 [self.im_voiceHUD updateAmplitude:0 elapsedMillis:0];
                 [self.im_voiceHUD setVisible:YES animated:YES];
                 [self.im_voiceRecorder start];
+                if (self.im_voiceRecorder.recording) { // 授权后仍按住：浮层此刻补弹（Began 时因未授权没弹）
+                    CGPoint anchor = [self.voiceButton.superview convertPoint:self.voiceButton.center toView:self.view];
+                    CGPoint finger = [self.im_voicePressRecognizer locationInView:self.view];
+                    [self.im_voiceOverlay presentAtAnchor:anchor fingerPoint:finger];
+                }
             } else {
                 [self im_showToast:@"已授权，再次按住说话"];
             }
@@ -326,6 +323,8 @@ static const void *kIMVoiceOverlayKey = &kIMVoiceOverlayKey;
 /// 中断（来电/切后台）→ 自动转锁定暂停态（设计 §5.4）：录制条还在，回来可 发送/删除/继续。
 - (void)voiceRecorderWasInterrupted:(IMVoiceRecorder *)recorder {
     self.im_voiceLocked = YES;
+    // 中断可发生在按住态：浮层必须在这里收——随后系统取消手势时 Cancelled 分支因 locked 早退，不会再收。
+    [self.im_voiceOverlay dismiss];
     [self.im_voiceHUD setVisible:NO animated:YES];
     [self.im_voiceLockedBar setPausedIcon:YES];
     [self.im_voiceLockedBar setVisible:YES animated:YES];
@@ -378,95 +377,96 @@ static const void *kIMVoiceOverlayKey = &kIMVoiceOverlayKey;
     NSString *token = IMHTTPService.sharedService.currentToken ?: @"";
     if (token.length == 0) { [self im_showToast:@"未登录，无法发送"]; return; }
 
-    __weak typeof(self) weakSelf = self;
+    // 强持有 self（刻意，非泄漏）：录完松手立即退出聊天页时，上传→发送→落库链条仍须完成，
+    // 否则消息无声丢失；上传结束块释放即断引用。完整方案=接入 IMMediaSendService 常驻队列（记 P2）。
     [[IMHTTPService sharedService] uploadVoiceData:data
                                           fileName:fileName
                                           mimeType:@"audio/mp4"
                                              token:token
                                           progress:nil
                                         completion:^(NSString *_Nullable url, NSError *_Nullable err) {
-        __strong typeof(weakSelf) self = weakSelf;
-        if (!self) { return; }
-        if (err || url.length == 0) {
-            [self im_showToast:err.localizedDescription ?: @"语音上传失败"];
-            [[NSFileManager defaultManager] removeItemAtURL:fileURL error:NULL];
-            return;
-        }
-        IMMediaAttributes *attrs = [IMMediaAttributes new];
-        attrs.durationMillis = durationMillis;
-        attrs.fileSize = fileSize;
-        attrs.waveform = waveform;
-        NSString *toUser = self.isGroupChat ? nil : self.peerID;
-        // ack 回写（2026-08-26 修）：曾 completion:nil → 本地行 convSeq 永远 0——长按菜单所有项都被
-        // convSeq>0 过滤（"长按无反应"）、详情页语音 tab 不收录、DB 行永远 Sending。
-        // DB 更新不依赖 self（页面可能已退出）：捕获账号上下文直写库；UI 刷新才走 weak self。
-        IMDatabaseAccountContext *dbCtx = [IMDatabase.sharedDatabase currentAccountContext];
-        __weak typeof(self) wsAck = self;
-        __block IMMessageModel *echo = nil; // 主线程先赋值、completion 异步回主队列后读——无竞态
-        NSString *cid = [[IMSocketManager sharedManager] sendMedia:url contentType:@"voice"
-                                                            toConv:self.convID toUser:toUser attributes:attrs
-                                                        completion:^(BOOL success, NSError *error, int64_t convSeq) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                IMMessageModel *m = echo;
-                if (!m) { return; }
-                m.status = success ? IMMessageStatusSent : IMMessageStatusFailed;
-                m.convSeq = convSeq;
-                if (dbCtx) {
-                    [IMDatabase.sharedDatabase performWithAccountContext:dbCtx block:^(IMDatabase *db) {
-                        [db saveMessage:m]; // 按 clientMsgID upsert：sending → sent/failed 覆盖
-                    }];
-                }
-                __strong typeof(wsAck) self = wsAck;
-                if (!self) { return; }
-                if (convSeq > 0) { [self.seenConvSeqs addObject:@(convSeq)]; } // 防 sync 重复回显
-                [self.tableView reloadData];
-            });
-        }];
-        // 本地立刻回显 + 落库（气泡出现——不等 ack）；上传后 tmp 文件即可清理，
-        // 播放走 URL（远程会自动下载缓存）。
-        echo = [self im_persistLocalVoiceEcho:url waveform:waveform duration:durationMillis fileSize:fileSize clientMsgID:cid];
-        [[NSFileManager defaultManager] removeItemAtURL:fileURL error:NULL];
+        // 回主线程：上传回调线程无保证；echo 赋值与 ack 回调统一在 main 串行，消除"极快 ack 先于
+        // echo 赋值"的竞态窗口。
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (err || url.length == 0) {
+                [self im_showToast:err.localizedDescription ?: @"语音上传失败"];
+                [[NSFileManager defaultManager] removeItemAtURL:fileURL error:NULL];
+                return;
+            }
+            [self im_sendVoiceURL:url waveform:waveform durationMillis:durationMillis fileSize:fileSize];
+            [[NSFileManager defaultManager] removeItemAtURL:fileURL error:NULL]; // tmp 清理；播放走 URL（自动下载缓存）
+        });
     }];
+}
+
+/// 按已上传的 URL 发送语音（上传完成与失败重试共用）：sendMedia + 本地落库回显 + ack 回写。主线程调用。
+- (void)im_sendVoiceURL:(NSString *)url waveform:(NSString *)waveform durationMillis:(int64_t)durationMillis fileSize:(int64_t)fileSize {
+    IMMediaAttributes *attrs = [IMMediaAttributes new];
+    attrs.durationMillis = durationMillis;
+    attrs.fileSize = fileSize;
+    attrs.waveform = waveform;
+    NSString *toUser = self.isGroupChat ? nil : self.peerID;
+    // ack 回写（2026-08-26 修）：曾 completion:nil → 本地行 convSeq 永远 0——长按菜单所有项都被
+    // convSeq>0 过滤（"长按无反应"）、详情页语音 tab 不收录、DB 行永远 Sending。
+    // DB 更新不依赖 self（页面可能已退出）：捕获账号上下文直写库；UI 刷新才走 weak self。
+    IMDatabaseAccountContext *dbCtx = [IMDatabase.sharedDatabase currentAccountContext];
+    __weak typeof(self) wsAck = self;
+    __block IMMessageModel *echo = nil; // 主线程先赋值、completion 异步回主队列后读——无竞态
+    NSString *cid = [[IMSocketManager sharedManager] sendMedia:url contentType:@"voice"
+                                                        toConv:self.convID toUser:toUser attributes:attrs
+                                                    completion:^(BOOL success, NSError *error, int64_t convSeq) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            IMMessageModel *m = echo;
+            if (!m) { return; }
+            m.status = success ? IMMessageStatusSent : IMMessageStatusFailed;
+            m.convSeq = convSeq;
+            if (dbCtx) {
+                [IMDatabase.sharedDatabase performWithAccountContext:dbCtx block:^(IMDatabase *db) {
+                    [db saveMessage:m]; // 按 clientMsgID upsert：sending → sent/failed 覆盖
+                }];
+            }
+            __strong typeof(wsAck) self = wsAck;
+            if (!self) { return; }
+            if (convSeq > 0) { [self.seenConvSeqs addObject:@(convSeq)]; } // 防 sync 重复回显
+            [self.tableView reloadData]; // failed 时气泡红 ! 标识随 reload 出现
+        });
+    }];
+    // 本地立刻回显 + 落库（气泡出现——不等 ack）。
+    echo = [self im_persistLocalVoiceEcho:url waveform:waveform duration:durationMillis fileSize:fileSize clientMsgID:cid];
+}
+
+/// 发送失败重试（§5.5：**不重录**——音频已在服务器，按原 URL 重新 send_msg）。
+/// 旧 failed 行删除（内存+DB），按新 clientMsgID 重新走回显+ack 链。
+- (void)im_resendVoiceMessage:(IMMessageModel *)m {
+    if (m.status != IMMessageStatusFailed || m.content.length == 0) { return; }
+    NSString *url = m.content;
+    NSString *wave = m.waveform;
+    int64_t dur = m.duration;
+    int64_t size = m.fileSize;
+    [self performDatabaseOperation:^(IMDatabase *db) { [db deleteMessage:m]; }];
+    NSUInteger idx = [self.messages indexOfObjectIdenticalTo:m];
+    if (idx != NSNotFound) { [self.messages removeObjectAtIndex:idx]; }
+    [self im_sendVoiceURL:url waveform:wave durationMillis:dur fileSize:size];
 }
 
 /// 立即在本地库回显一条 voice 消息——与已有媒体路径同套（防"松手到 ack 之间气泡不见"）。
 /// clientMsgID 已由 sendMedia 生成并塞进出网包；此处按同 cid 写库，ack 到达时按 cid 更新 serverMsgID。
 #pragma mark - 播放（DataSource dispatch onPlayTap 用）
 
-/// 播放语音消息：本地已缓存直接播；否则先下载再播（voice 恒自动下载策略见设计文档 §7）。
-/// mine 的消息若 content 是相对 /uploads/... 用 fullURL 拼绝对路径下载。
+/// 播放语音消息：走 IMVoicePlayer 共享入口（缓存命中直接 toggle / 未缓存先下载；voice 恒自动下载见 §7）。
+/// fullURL 参数保留签名兼容（共享入口内部按 host 拼 URL）。
 - (void)im_playVoiceMessage:(IMMessageModel *)message fullURL:(NSString *)fullURL {
-    if (message.content.length == 0) { return; }
-    NSURL *cached = [IMMediaDownloader cachedFileURLForContent:message.content];
-    if (cached && [[NSFileManager defaultManager] fileExistsAtPath:cached.path]) {
-        [self im_startPlaybackForMessage:message localURL:cached];
-        return;
-    }
-    // 未下载 → 拉一次；voice 文件极小（<1MB），直连下载即可。
-    NSURL *remote = fullURL.length > 0 ? [NSURL URLWithString:fullURL] : nil;
-    if (!remote) { return; }
-    NSURL *dest = [IMMediaDownloader cachedFileURLForContent:message.content];
-    if (!dest) { return; }
     __weak typeof(self) ws = self;
-    __weak IMMessageModel *wm = message;
-    IMMediaDownloadTask *task = [[IMMediaDownloader shared] downloadURL:remote toDestination:dest key:message.content];
-    task.completionHandler = ^(NSURL *_Nullable location, NSError *_Nullable err) {
-        __strong typeof(ws) self = ws; IMMessageModel *sm = wm;
-        if (!self || !sm) { return; }
-        if (err || !location) {
-            [self im_showToast:@"语音下载失败"];
-            return;
+    [[IMVoicePlayer sharedPlayer] toggleEnsuringLocal:message host:self.host completion:^(NSError *err) {
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        if (err) { [self im_showToast:@"语音下载失败"]; return; }
+        // 对方语音进入播放即消未播红点（本机语义，见 §7）。
+        NSString *mid = IMVoicePlayerPlayableIDForMessage(message);
+        if (mid && ![message.from isEqualToString:self.userID]) {
+            [[IMVoicePlayer sharedPlayer] markPlayed:mid inConv:message.convID owner:self.userID];
         }
-        [self im_startPlaybackForMessage:sm localURL:location];
-    };
-}
-
-- (void)im_startPlaybackForMessage:(IMMessageModel *)message localURL:(NSURL *)localURL {
-    NSString *mid = IMVoicePlayerPlayableIDForMessage(message);
-    if (mid && ![message.from isEqualToString:self.userID]) {
-        [[IMVoicePlayer sharedPlayer] markPlayed:mid inConv:message.convID owner:self.userID];
-    }
-    [[IMVoicePlayer sharedPlayer] togglePlayback:message localFileURL:localURL];
+    }];
 }
 
 #pragma mark - 转文字（P1）

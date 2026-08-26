@@ -25,32 +25,20 @@
 #import "IMTimeUtil.h"
 #import "IMLog.h"
 #import "IMMessageModel.h"    // playVoiceRow: 读 content（Private.h 只有 @class 前向声明）
-#import "IMVoicePlayer.h"     // 语音 tab：点行就地播放/暂停（与聊天页共用单例播放器）
-#import "IMMediaDownloader.h" // 语音 tab：未缓存时直连下载后播（voice <1MB）
+#import "IMVoicePlayer.h"     // 语音 tab：点行就地播放/暂停（toggleEnsuringLocal 共享入口）
 
 @implementation IMChatDetailViewController (Actions)
 
 #pragma mark - 语音 tab：点行播放
 
-/// 语音行点击（2026-08-26）：就地播放/暂停——缓存命中直接 toggle，未缓存先直连下载（voice <1MB）。
+/// 语音行点击（2026-08-26）：走 IMVoicePlayer 共享入口就地播放/暂停。
 /// 主文件 didSelect 调用；放本 category 是体量门禁拆分（主文件曾 1508 行超 1500 红线）。
 - (void)playVoiceRow:(IMMessageModel *)m {
-    if (m.content.length == 0) { return; }
-    NSURL *cached = [IMMediaDownloader cachedFileURLForContent:m.content];
-    if (cached && [[NSFileManager defaultManager] fileExistsAtPath:cached.path]) {
-        [[IMVoicePlayer sharedPlayer] togglePlayback:m localFileURL:cached];
-        return;
-    }
-    NSURL *remote = [NSURL URLWithString:IMMediaFullURL(m.content, self.host)];
-    if (!remote || !cached) { return; }
     __weak typeof(self) ws = self;
-    __weak IMMessageModel *wm = m;
-    IMMediaDownloadTask *task = [[IMMediaDownloader shared] downloadURL:remote toDestination:cached key:m.content];
-    task.completionHandler = ^(NSURL *location, NSError *err) {
-        __strong typeof(ws) self = ws; IMMessageModel *sm = wm;
-        if (!self || !sm || err || !location) { return; }
-        [[IMVoicePlayer sharedPlayer] togglePlayback:sm localFileURL:location];
-    };
+    [[IMVoicePlayer sharedPlayer] toggleEnsuringLocal:m host:self.host completion:^(NSError *err) {
+        __strong typeof(ws) self = ws;
+        if (self && err) { [self im_showToast:@"语音下载失败"]; } // IO 错误不吞（CODING_STYLE §5）
+    }];
 }
 
 #pragma mark - 动作：操作排 / 更多菜单

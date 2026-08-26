@@ -226,6 +226,11 @@
             if (!self || !sm) { return; }
             [self im_playVoiceMessage:sm fullURL:fullURL];
         };
+        vc.onRetryTap = ^{ // 发送失败红 !（§5.5）：不重录，按原 URL 重新 send_msg
+            __strong typeof(ws) self = ws; IMMessageModel *sm = wm;
+            if (!self || !sm) { return; }
+            [self im_resendVoiceMessage:sm];
+        };
         if (grpV) {
             NSString *memberUID = m.from;
             __weak typeof(self) wsAvatar = self;

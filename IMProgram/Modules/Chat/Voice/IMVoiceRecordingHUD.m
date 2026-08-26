@@ -4,6 +4,7 @@
 
 #import "IMVoiceRecordingHUD.h"
 #import "IMTheme.h"
+#import "IMTimeUtil.h"
 
 @interface IMVoiceRecordingHUD ()
 @property (nonatomic, strong) UIView *pill;
@@ -100,8 +101,7 @@
 }
 
 - (void)updateAmplitude:(float)amplitude elapsedMillis:(int64_t)elapsedMillis {
-    NSInteger s = MAX(0, (NSInteger)(elapsedMillis / 1000));
-    self.timerLabel.text = [NSString stringWithFormat:@"%ld:%02ld", (long)(s / 60), (long)(s % 60)];
+    self.timerLabel.text = IMFormatVoiceDuration(elapsedMillis);
     // 振幅微驱动红点缩放，给用户即时反馈。
     CGFloat scale = 1.0 + MIN(0.6, MAX(0, amplitude) * 0.9);
     self.redDot.transform = CGAffineTransformMakeScale(scale, scale);

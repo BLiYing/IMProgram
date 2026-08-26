@@ -858,8 +858,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     }
     UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleSubtitle reuseID:@"dSub" inTable:tv];
     // 语音（IMDetailTabKindVoice）：双行 cell——主行"语音 m:ss"，副行时间；点行=就地播放/暂停（didSelect）。
-    NSInteger voiceSecs = (NSInteger)MAX((int64_t)0, m.duration / 1000);
-    cell.textLabel.text = [NSString stringWithFormat:@"语音 %ld:%02ld", (long)(voiceSecs / 60), (long)(voiceSecs % 60)];
+    cell.textLabel.text = [@"语音 " stringByAppendingString:IMFormatVoiceDuration(m.duration)];
     cell.imageView.image = [UIImage systemImageNamed:@"waveform"];
     cell.detailTextLabel.text = IMFormatFileDateTime(m.timestamp);
     return cell;

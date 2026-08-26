@@ -21,6 +21,7 @@ static const CGFloat kLockSnapRadius = 34.0;
 @property (nonatomic, strong) UIImageView *lockArrow;
 @property (nonatomic, assign) CGPoint anchor;
 @property (nonatomic, assign) IMVoiceLockPhase phase;
+@property (nonatomic, assign) BOOL dismissing; ///< 收场动画进行中：dismiss/dismissLocked 幂等互斥
 @end
 
 @implementation IMVoicePressOverlay
@@ -81,13 +82,17 @@ static const CGFloat kLockSnapRadius = 34.0;
     [_lockPill addSubview:_lockArrow];
     _lockArrow.center = CGPointMake(kLockWidth / 2.0, kLockHeight - 16);
 
-    // 上箭头呼吸（引导上滑）：上下 4pt 往复。
+    [self restartArrowBreathe];
+}
+
+/// 上箭头呼吸（引导上滑）：上下 4pt 往复。dismissLocked 会 removeAnimation，重新 present 前需重挂。
+- (void)restartArrowBreathe {
     CABasicAnimation *breathe = [CABasicAnimation animationWithKeyPath:@"position.y"];
     breathe.byValue = @(-4);
     breathe.duration = 0.7;
     breathe.autoreverses = YES;
     breathe.repeatCount = HUGE_VALF;
-    [_lockArrow.layer addAnimation:breathe forKey:@"breathe"];
+    [self.lockArrow.layer addAnimation:breathe forKey:@"breathe"];
 }
 
 - (CGPoint)lockCenter { return CGPointMake(self.anchor.x, self.anchor.y - kLockOffsetY); }
@@ -95,6 +100,7 @@ static const CGFloat kLockSnapRadius = 34.0;
 - (void)presentAtAnchor:(CGPoint)anchor fingerPoint:(CGPoint)finger {
     self.anchor = anchor;
     self.phase = IMVoiceLockPhaseNone;
+    self.dismissing = NO;
     self.hidden = NO;
     self.alpha = 1.0;
     self.bigCircle.center = anchor;
@@ -119,7 +125,10 @@ static const CGFloat kLockSnapRadius = 34.0;
     self.ring.center = finger;
     CGPoint lc = [self lockCenter];
     CGFloat dist = hypot(finger.x - lc.x, finger.y - lc.y);
-    IMVoiceLockPhase next = dist <= kLockSnapRadius ? IMVoiceLockPhaseLocked
+    // 越过兜底：快速上滑时两次触摸采样间位移可远超 70pt，手指从锁下方直接跳到上方、永不入 34pt 圈
+    // （旧 80pt 半平面阈值无此问题）。只要越过锁中心高度且横向仍在 70pt 走廊内，视同命中——滑过即锁。
+    BOOL flewPast = finger.y < lc.y && fabs(finger.x - lc.x) <= kLockNearRadius;
+    IMVoiceLockPhase next = (dist <= kLockSnapRadius || flewPast) ? IMVoiceLockPhaseLocked
                           : dist <= kLockNearRadius ? IMVoiceLockPhaseNear
                           : IMVoiceLockPhaseNone;
     if (next != self.phase) {
@@ -150,6 +159,8 @@ static const CGFloat kLockSnapRadius = 34.0;
 }
 
 - (void)dismissLocked {
+    if (self.dismissing) { return; }
+    self.dismissing = YES;
     // 锁定确认：锁图标定格 accent、上箭头停呼吸，随后整体淡出。
     [self.lockArrow.layer removeAnimationForKey:@"breathe"];
     UIImageSymbolConfiguration *lockCfg = [UIImageSymbolConfiguration configurationWithPointSize:13 weight:UIImageSymbolWeightSemibold];
@@ -160,22 +171,19 @@ static const CGFloat kLockSnapRadius = 34.0;
 }
 
 - (void)dismiss {
+    if (self.hidden || self.dismissing) { return; } // 幂等：锁定路径的 dismissLocked 动画进行中不被打断
+    self.dismissing = YES;
     [UIView animateWithDuration:0.18 animations:^{ self.alpha = 0; }
                      completion:^(BOOL fin) { [self resetHidden]; }];
 }
 
 - (void)resetHidden {
     self.hidden = YES;
+    self.dismissing = NO;
     self.ring.transform = CGAffineTransformIdentity;
     UIImageSymbolConfiguration *lockCfg = [UIImageSymbolConfiguration configurationWithPointSize:13 weight:UIImageSymbolWeightSemibold];
     self.lockIcon.image = [UIImage systemImageNamed:@"lock" withConfiguration:lockCfg];
-    // 呼吸箭头下次 present 前重挂（removeAnimation 后不自动恢复）。
-    CABasicAnimation *breathe = [CABasicAnimation animationWithKeyPath:@"position.y"];
-    breathe.byValue = @(-4);
-    breathe.duration = 0.7;
-    breathe.autoreverses = YES;
-    breathe.repeatCount = HUGE_VALF;
-    [self.lockArrow.layer addAnimation:breathe forKey:@"breathe"];
+    [self restartArrowBreathe]; // removeAnimation 后不自动恢复
 }
 
 @end

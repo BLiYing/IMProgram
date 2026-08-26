@@ -24,6 +24,9 @@ NS_ASSUME_NONNULL_BEGIN
 /// 长按菜单「转文字」触发（+Menu.m 调用）。缓存命中 → 直接展开；否则先下音频再走 SFSpeechRecognizer。
 - (void)im_transcribeVoiceMessage:(IMMessageModel *)message;
 
+/// 发送失败重试（气泡红 ! 点击，DataSource 接线）：不重录，按原 URL 重新 send_msg。
+- (void)im_resendVoiceMessage:(IMMessageModel *)message;
+
 @end
 
 NS_ASSUME_NONNULL_END

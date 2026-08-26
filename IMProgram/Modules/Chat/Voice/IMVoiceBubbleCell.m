@@ -7,6 +7,7 @@
 #import "IMVoicePlayer.h"
 #import "IMMessageModel.h"
 #import "IMTheme.h"
+#import "IMTimeUtil.h"
 #import "UILabel+IMAvatar.h"
 
 @interface IMVoiceBubbleCell () <UIGestureRecognizerDelegate>
@@ -37,6 +38,8 @@
 @property (nonatomic, strong) NSLayoutConstraint *bubbleMinLeading;    ///< 自己气泡左侧最小留白
 @property (nonatomic, strong) NSLayoutConstraint *scrubTipCenterX;
 @property (nonatomic, assign) BOOL scrubbing;
+@property (nonatomic, strong) UIButton *statusBadge;   ///< 发送失败红 !（§5.5：failed → 红标+点击重试；仅 mine）
+@property (nonatomic, assign) BOOL showsPauseIcon;     ///< 播放键当前图标缓存：30fps 进度 tick 只在状态切换时才 setImage
 @property (nonatomic, strong) NSLayoutConstraint *panelLeadingMine;
 @property (nonatomic, strong) NSLayoutConstraint *panelTrailingMine;
 @property (nonatomic, strong) NSLayoutConstraint *panelLeadingPeer;
@@ -156,6 +159,16 @@
     _transcriptFooter.text = @"📝 本机识别 · 仅本地保存";
     [_transcriptPanel addSubview:_transcriptFooter];
 
+    // 发送失败红 !（§5.5）：气泡左侧外（mine 气泡右对齐），点击=重试。默认隐藏。
+    _statusBadge = [UIButton buttonWithType:UIButtonTypeSystem];
+    _statusBadge.translatesAutoresizingMaskIntoConstraints = NO;
+    UIImageSymbolConfiguration *failCfg = [UIImageSymbolConfiguration configurationWithPointSize:20 weight:UIImageSymbolWeightSemibold];
+    [_statusBadge setImage:[UIImage systemImageNamed:@"exclamationmark.circle.fill" withConfiguration:failCfg] forState:UIControlStateNormal];
+    _statusBadge.tintColor = UIColor.systemRedColor;
+    _statusBadge.hidden = YES;
+    [_statusBadge addTarget:self action:@selector(retryTapped) forControlEvents:UIControlEventTouchUpInside];
+    [cv addSubview:_statusBadge];
+
     // 群头由基类 _avatar 承载：leading/bottom 由本 cell 补约束。
     _avatar.translatesAutoresizingMaskIntoConstraints = NO;
     [cv addSubview:_avatar];
@@ -243,6 +256,12 @@
     // scrub tip 的 centerX：以 waveform 左缘为起点、动态 offset。默认放中间（避免约束缺失）。
     _scrubTipCenterX = [_scrubTip.centerXAnchor constraintEqualToAnchor:_waveform.leadingAnchor constant:0];
     _scrubTipCenterX.active = YES;
+    [NSLayoutConstraint activateConstraints:@[
+        [_statusBadge.trailingAnchor constraintEqualToAnchor:_bubble.leadingAnchor constant:-6],
+        [_statusBadge.centerYAnchor constraintEqualToAnchor:_bubble.centerYAnchor],
+        [_statusBadge.widthAnchor constraintEqualToConstant:28],
+        [_statusBadge.heightAnchor constraintEqualToConstant:28],
+    ]];
     _transcriptTopSpacing = [_transcriptPanel.topAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:0];
     _transcriptTopSpacing.active = YES;
     // 转写面板与气泡同侧对齐——两对约束按 mine toggle。
@@ -327,16 +346,15 @@
     self.durationLabel.text = [self formatDur:self.totalDurationMillis];
     // 未播红点仅对方消息 + 本机未播过时显；hasPlayed 由宿主传入（已 mine || 查询 IMVoicePlayer 已播集合）。
     self.unplayedDot.hidden = mine || hasPlayed;
+    // 发送失败红 !（§5.5「不静默失败」）：曾 ack 失败置 Failed 落库但气泡外观与成功完全一致（2026-08-26 修）。
+    self.statusBadge.hidden = !(mine && message.status == IMMessageStatusFailed);
 
     // 同步当前播放器状态（切页/复用时保持进度）。
     IMVoicePlayerState st = [[IMVoicePlayer sharedPlayer] stateForMessageID:self.currentID];
     [self applyPlayerState:st progress:[[IMVoicePlayer sharedPlayer] progressForMessageID:self.currentID]];
 }
 
-- (NSString *)formatDur:(int64_t)ms {
-    NSInteger s = MAX(0, (NSInteger)(ms / 1000));
-    return [NSString stringWithFormat:@"%ld:%02ld", (long)(s / 60), (long)(s % 60)];
-}
+- (NSString *)formatDur:(int64_t)ms { return IMFormatVoiceDuration(ms); }
 
 - (void)applyGroupAvatarURL:(NSString *)url seed:(NSString *)seed name:(NSString *)name showAvatar:(BOOL)showAvatar gutter:(BOOL)gutter {
     _avatar.hidden = !showAvatar;
@@ -346,6 +364,7 @@
 }
 
 - (void)playTapped { if (self.onPlayTap) { self.onPlayTap(); } }
+- (void)retryTapped { if (self.onRetryTap) { self.onRetryTap(); } }
 
 - (void)applyTranscriptText:(NSString *)text loading:(BOOL)loading {
     BOOL shows = loading || (text.length > 0);
@@ -451,9 +470,14 @@
 }
 
 - (void)applyPlayerState:(IMVoicePlayerState)state progress:(double)progress {
-    UIImageSymbolConfiguration *pcfg = [UIImageSymbolConfiguration configurationWithPointSize:14 weight:UIImageSymbolWeightBold];
-    NSString *sym = (state == IMVoicePlayerStatePlaying) ? @"pause.fill" : @"play.fill";
-    [self.playButton setImage:[UIImage systemImageNamed:sym withConfiguration:pcfg] forState:UIControlStateNormal];
+    // 图标只在状态切换时 setImage：本方法由 30fps 进度 tick 驱动，每帧重建符号+触发按钮布局纯属浪费。
+    BOOL wantPause = (state == IMVoicePlayerStatePlaying);
+    if (wantPause != self.showsPauseIcon || !self.playButton.currentImage) {
+        self.showsPauseIcon = wantPause;
+        UIImageSymbolConfiguration *pcfg = [UIImageSymbolConfiguration configurationWithPointSize:14 weight:UIImageSymbolWeightBold];
+        NSString *sym = wantPause ? @"pause.fill" : @"play.fill";
+        [self.playButton setImage:[UIImage systemImageNamed:sym withConfiguration:pcfg] forState:UIControlStateNormal];
+    }
     if (!self.scrubbing) { self.waveform.progress = progress; }
     if (state == IMVoicePlayerStatePlaying || state == IMVoicePlayerStatePaused) {
         int64_t remaining = MAX(0, self.totalDurationMillis - (int64_t)(progress * self.totalDurationMillis));

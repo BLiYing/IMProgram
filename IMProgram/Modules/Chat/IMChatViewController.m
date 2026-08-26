@@ -702,8 +702,7 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     self.jumpButtonBottom.active = YES;
 
     // Telegram 布局（v2.3）：输入框右缘恒贴右侧动作键（voice/send 同槽位），随空/非空切换。
-    // 老的 inputTrailToEmoji（输入框贴外部 emoji）已废弃——emoji 内嵌为 rightView，不再是外部按钮。
-    self.inputTrailToEmoji = [self.inputField.trailingAnchor constraintEqualToAnchor:voiceButton.leadingAnchor constant:-4];
+    self.inputTrailToVoice = [self.inputField.trailingAnchor constraintEqualToAnchor:voiceButton.leadingAnchor constant:-4];
     self.inputTrailToSend = [self.inputField.trailingAnchor constraintEqualToAnchor:sendButton.leadingAnchor constant:-4];
     [self updateSendButtonVisibility]; // 初始（空）：显示 voice，隐藏 send
 
@@ -719,7 +718,7 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     BOOL hasContent = self.inputField.text.length > 0 || self.pendingPasteImages.count > 0;
     self.sendButton.hidden = !hasContent;
     self.voiceButton.hidden = hasContent; // voice/send 同槽位互斥
-    self.inputTrailToEmoji.active = !hasContent; // 名字沿用（其实是 voice.leading），改名会牵动 +Private.h + 多处引用
+    self.inputTrailToVoice.active = !hasContent;
     self.inputTrailToSend.active = hasContent;
 }
 

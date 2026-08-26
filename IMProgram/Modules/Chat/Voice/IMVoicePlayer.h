@@ -35,6 +35,13 @@ extern NSString *_Nullable IMVoicePlayerPlayableIDForMessage(IMMessageModel *m);
 /// 播放/暂停切换。fileURL 为本地已下载音频；缺失时先下再播（P0 简化：语音恒自动下载，caller 传远程 URL 由 caller 先下）。
 - (void)togglePlayback:(IMMessageModel *)message localFileURL:(NSURL *)localFileURL;
 
+/// 确保音频在本地后再播放/暂停切换：缓存命中直接 toggle；未缓存先直连下载（voice <1MB）。
+/// completion 主线程回调：nil=已切换；非 nil=失败（caller 负责提示，勿吞错——CODING_STYLE §5）。
+/// 聊天页/详情页/收藏页共用入口（曾三处逐字重复且语义分叉：吞错/丢红点/weak-model 竞态，2026-08-26 收口）。
+- (void)toggleEnsuringLocal:(IMMessageModel *)message
+                       host:(nullable NSString *)host
+                 completion:(void (^_Nullable)(NSError *_Nullable error))completion;
+
 /// 显式暂停/停止。
 - (void)stop;
 

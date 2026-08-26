@@ -132,6 +132,11 @@ NS_ASSUME_NONNULL_END
     // 表情键不锁（发不出去，占屏而已，但保留浏览表情的能力）。若面板开着，直接收起（键盘也收）。
     self.plusButton.enabled = !locked;
     self.plusButton.alpha = locked ? 0.4 : 1.0;
+    // 语音钮同锁（2026-08-26）：Telegram 布局后 🎙 是一等发送入口（长按即录即传），不锁则被禁言成员
+    // 仍能录音上传、到 send_msg 才被 300208 拒且无可读回执——入口即拦与文本/附件一致
+    //（+Voice.m 长按手势 Began 亦按 voiceButton.enabled 早退，双保险：disabled 不拦手势识别）。
+    self.voiceButton.enabled = !locked;
+    self.voiceButton.alpha = locked ? 0.4 : 1.0;
     if (locked && self.attachPanelVisible) { [self showAttachPanel:NO]; }
     if (locked) { [self.inputField resignFirstResponder]; }
 }
