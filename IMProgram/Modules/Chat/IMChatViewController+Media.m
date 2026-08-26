@@ -646,6 +646,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
         }
     }
     NSString *toUser = self.isGroupChat ? @"" : self.peerID;
+    // im-pending:// 本地件（图片/视频/文件）：续传或降级 Failed。
     for (IMMessageModel *m in self.messages) {
         if (m.status != IMMessageStatusSending || m.convSeq > 0) { continue; }
         if (![IMPendingMediaStore isLocalRef:m.content]) { continue; }
@@ -655,6 +656,22 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
             [self persistOutboxMessage:m];
         }
         changed = YES;
+    }
+    // 语音陈旧 Sending 清扫：语音上传不走 IMMediaSendService（VC 内手工链，见 +Voice.m 注释），
+    // 进程在上传中途被杀时 DB 会留一条 content="" 的永久 Sending 空气泡——没有任何路径能唤醒它，
+    // im-pending://（含 file://）走上面那段已覆盖，剩下的就是 content 空这一种。
+    // **只清一次**：本 VC 生命周期内新起的上传占位也是 content=""，反复 push/pop 时不能误伤。
+    if (!self.didReclaimStaleVoiceSending) {
+        self.didReclaimStaleVoiceSending = YES;
+        for (IMMessageModel *m in self.messages) {
+            if (m.status != IMMessageStatusSending || m.convSeq > 0) { continue; }
+            if (![m.contentType isEqualToString:@"voice"]) { continue; }
+            if (m.content.length > 0) { continue; } // 有 im-pending:// 走上面那段
+            m.status = IMMessageStatusFailed;
+            m.note = @"发送中断，请重新录制";
+            [self persistOutboxMessage:m];
+            changed = YES;
+        }
     }
     if (changed) { [self.tableView reloadData]; }
 }

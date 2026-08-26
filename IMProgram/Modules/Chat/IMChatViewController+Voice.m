@@ -754,14 +754,17 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
         NSString *mid = note.userInfo[@"messageID"];
         if (mid.length == 0) { return; }
         IMVoiceTranscribeStatus st = (IMVoiceTranscribeStatus)[note.userInfo[@"status"] integerValue];
-        NSString *text = note.userInfo[@"text"];
         if (st == IMVoiceTranscribeStatusUnavailable) {
-            // 文案已由 IMHTTPService 按业务码映射好（未启用 / 识别失败 / 繁忙 / 限流）。
-            [self im_applyTranscriptText:(text.length > 0 ? text : @"转文字失败，请稍后重试")
-                                 loading:NO forMessageID:mid];
+            // 错误走 toast，不撑开面板——文案已由 IMHTTPService 按业务码映射好
+            // （未启用 / 识别失败 / 繁忙 / 限流）；同时把"识别中…"收起来。曾把错误塞进
+            // 转写面板 + 下面还挂"结果可能不完全准确"的尾行，一眼自相矛盾。
+            NSString *err = note.userInfo[@"errorMessage"];
+            [self im_showToast:(err.length > 0 ? err : @"转文字失败，请稍后重试")];
+            [self im_applyTranscriptText:nil loading:NO forMessageID:mid];
             return;
         }
         // 非本页的消息 mid 天然是 no-op：im_applyTranscriptText: 只落在可见 cell 上按 mid 匹配。
+        NSString *text = note.userInfo[@"text"];
         [self im_applyTranscriptText:text loading:(st == IMVoiceTranscribeStatusRecognizing) forMessageID:mid];
     }]);
 }

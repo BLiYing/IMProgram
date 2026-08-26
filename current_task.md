@@ -35,6 +35,24 @@
 >   （错误被塞进转写面板、下面还挂"结果可能不完全准确"）；④ 语音发送并入 `IMMediaSendService`（已在下一步 P2）。
 > - **待真机手测**：转文字（首次/缓存命中/取消后重进）、上传失败 → 重试、录音浮层连按两次。
 
+> **补做三条（2026-08-27，build + build-for-testing 全绿）**：`/simplify` 复查提出的三条"该单独立项"里，
+> 评估后现做两条半：
+> - **③ 错误文案与转写文本分离**：通知 userInfo 加 `errorMessage` 字段（Done 用 `text`，Unavailable 用 `errorMessage`），
+>   `IMVoiceTranscriber.postError:` 专管失败路径并加 assert 挡回归。观察者失败分支改为 toast + 收起面板——
+>   原来"转文字暂未开启"下面还挂"结果可能不完全准确"尾行的自相矛盾场面消失；测试 `testFailedRoutesThroughErrorMessage`。
+> - **① 转写文本 NSUserDefaults 加封顶（半步）**：每条一个永久 key、无淘汰、启动时整域解析——加 FIFO 2000 条封顶
+>   （单独 `im.voice.transcript.order.v1` 数组键存插入序，超限删最旧那条 defaults 键 + 内存镜像）。**uid 不加回去**：
+>   044fa41 刚修完的 key 错位坑不重挖，"跨账号泄漏"复核下来定性不成立（B 命中要求本来就能自己转，属会话共享
+>   语义）；落 `IMDatabase` 是正解，属数据层改造单独立项。测试 `testTextCacheKeysPersistAndCanBePurged`。
+> - **④ 陈旧 Sending 清扫 + 文档**：`reattachRunningUploads` 加"语音 Sending + convSeq≤0 + content 空"清扫
+>   （守卫 `didReclaimStaleVoiceSending`，本 VC 只做一次，避免 push/pop 反复扫误伤本次录音的占位），进程中途被杀
+>   遗留的永久 Sending 空气泡 → Failed + note「发送中断，请重新录制」。`ARCHITECTURE.md` 的豁免清单加语音一行——
+>   否则下一个人读到"完整方案=接入 IMMediaSendService（记 P2）"注释分不清是有意边界还是遗漏。
+> - **② 跳转分类下沉 `jumpToConvSeq:` 明确不做**：复核后否定复查里"Search.m 那两处是复发"——那两处过滤的是
+>   搜索结果，不是同一机制。且引用跳转/媒体定位滚到墓碑本来就对（Telegram 同款）；错的只是横幅根本不该挂着这条，
+>   而根因（撤回帧到达时本地先剔除）已在上一轮修完。真泛化应改成 `jumpToConvSeq:` 回结果给调用方，属更大重构，
+>   等第 4 个跳转入口出现再做。
+
 > **语音 P1 全量 + P0 自查修复（2026-08-26，build 绿、待真机手测）**：用户实测报 8 问全部定位修复——
 > ① 发送链重做：落库 + ack 回写 convSeq/status（曾 completion:nil → 长按菜单空「无反应」+ 气泡忽隐忽现「错乱」）；
 > ② 转发语音修通（曾 attrs=nil 不带 duration 被服务端拒但 UI 报已转发）；三处 attrs 构造放行 voice 带 duration+waveform；

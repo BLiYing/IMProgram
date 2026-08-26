@@ -21,10 +21,19 @@ static NSString *const kIMVoiceTranscriptCollapsedKey = @"im.voice.transcript.co
 /// 名单上限：折叠是"这条我不想看"的一次性偏好，无限增长没意义；超限按加入顺序淘汰最旧的。
 static const NSUInteger kIMVoiceTranscriptCollapsedMax = 500;
 
+/// 转写文本每条一个永久 defaults 键（`im.voice.transcript.v2.<audio path>`），
+/// 单条 ~150–350B，重度使用一年可累到几千条 = 几百 KB～1MB，且 standardUserDefaults 冷启动
+/// 会整域解析——不封顶就是"随使用量线性变慢的启动成本 + 永不回收"。
+/// 单独一个数组键存"插入顺序"，超限时删最旧那条对应的 defaults 键。上限 2000：
+/// 语音本身在会话里就相对稀疏，2000 条足够覆盖数月的活跃转写。正解是落 IMDatabase（单独立项）。
+static NSString *const kIMVoiceTranscriptOrderKey = @"im.voice.transcript.order.v1";
+static const NSUInteger kIMVoiceTranscriptCacheMax = 2000;
+
 @interface IMVoiceTranscriber ()
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *statusByID; ///< mid -> IMVoiceTranscribeStatus
 @property (nonatomic, strong) NSMutableDictionary<NSString *, id> *textCache;          ///< key -> NSString 或 NSNull（已查过无值）
 @property (nonatomic, strong) NSMutableOrderedSet<NSString *> *collapsed;              ///< 本地折叠的 mid（「取消转文字」），落盘、按加入顺序淘汰
+@property (nonatomic, strong) NSMutableOrderedSet<NSString *> *cacheKeyOrder;          ///< 转写文本 defaults 键的插入序，供 FIFO 淘汰
 @end
 
 @implementation IMVoiceTranscriber
@@ -43,6 +52,8 @@ static const NSUInteger kIMVoiceTranscriptCollapsedMax = 500;
         _textCache = [NSMutableDictionary dictionary];
         NSArray *saved = [[NSUserDefaults standardUserDefaults] stringArrayForKey:kIMVoiceTranscriptCollapsedKey];
         _collapsed = saved.count > 0 ? [NSMutableOrderedSet orderedSetWithArray:saved] : [NSMutableOrderedSet orderedSet];
+        NSArray *order = [[NSUserDefaults standardUserDefaults] stringArrayForKey:kIMVoiceTranscriptOrderKey];
+        _cacheKeyOrder = order.count > 0 ? [NSMutableOrderedSet orderedSetWithArray:order] : [NSMutableOrderedSet orderedSet];
     }
     return self;
 }
@@ -78,7 +89,7 @@ static const NSUInteger kIMVoiceTranscriptCollapsedMax = 500;
     if ([self statusForMessageID:messageID] == IMVoiceTranscribeStatusRecognizing) { return; }
     NSString *token = IMHTTPService.sharedService.currentToken ?: @"";
     if (token.length == 0) {
-        [self setStatus:IMVoiceTranscribeStatusUnavailable forID:messageID text:@"未登录，无法转文字" convID:convID];
+        [self postError:@"未登录，无法转文字" forID:messageID convID:convID];
         return;
     }
     [self setStatus:IMVoiceTranscribeStatusRecognizing forID:messageID text:nil convID:convID];
@@ -91,7 +102,7 @@ static const NSUInteger kIMVoiceTranscriptCollapsedMax = 500;
         if (error) {
             // 文案已由 IMHTTPService 按业务码映射（IMFriendlyMessageForCode，含 5001xx/100002）。
             NSString *tip = error.localizedDescription.length > 0 ? error.localizedDescription : @"转文字失败，请稍后重试";
-            [self setStatus:IMVoiceTranscribeStatusUnavailable forID:messageID text:tip convID:convID];
+            [self postError:tip forID:messageID convID:convID];
             return;
         }
         // pending：服务端已入队，保持"识别中…"，等 WS voice_transcript 帧。
@@ -109,7 +120,7 @@ static const NSUInteger kIMVoiceTranscriptCollapsedMax = 500;
     if ([status isEqualToString:@"done"] && text.length > 0) {
         NSString *key = IMVoiceTranscriptKey(content);
         self.textCache[key] = text;
-        if (content.length > 0) { [[NSUserDefaults standardUserDefaults] setObject:text forKey:key]; }
+        if (content.length > 0) { [self persistText:text forKey:key]; }
         // 结果照落缓存（下次点开秒出），但**不广播**——否则识别中途取消的那条会被结果重新撑开。
         if (collapsed) { return; }
         [self setStatus:IMVoiceTranscribeStatusDone forID:messageID text:text convID:convID];
@@ -117,8 +128,7 @@ static const NSUInteger kIMVoiceTranscriptCollapsedMax = 500;
     }
     if (collapsed) { return; }
     if ([status isEqualToString:@"failed"]) {
-        [self setStatus:IMVoiceTranscribeStatusUnavailable forID:messageID
-                   text:IMFriendlyMessageForCode(500102) convID:convID]; // TranscribeFailed
+        [self postError:IMFriendlyMessageForCode(500102) forID:messageID convID:convID]; // TranscribeFailed
         return;
     }
     // pending 或空 status：维持识别中。
@@ -157,11 +167,41 @@ static const NSUInteger kIMVoiceTranscriptCollapsedMax = 500;
     [[NSUserDefaults standardUserDefaults] setObject:self.collapsed.array forKey:kIMVoiceTranscriptCollapsedKey];
 }
 
+/// 写转写文本并维护"插入序"以支持 FIFO 淘汰。key 已在插入序里 → 顺序不变；
+/// 新 key → 追加，超限则删掉最旧那条 defaults 键与内存副本（真正的 O(超出量)）。
+- (void)persistText:(NSString *)text forKey:(NSString *)key {
+    NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
+    [ud setObject:text forKey:key];
+    if ([self.cacheKeyOrder containsObject:key]) { return; }
+    [self.cacheKeyOrder addObject:key];
+    while (self.cacheKeyOrder.count > kIMVoiceTranscriptCacheMax) {
+        NSString *oldest = [self.cacheKeyOrder objectAtIndex:0];
+        [self.cacheKeyOrder removeObjectAtIndex:0];
+        [ud removeObjectForKey:oldest];
+        [self.textCache removeObjectForKey:oldest];
+    }
+    [ud setObject:self.cacheKeyOrder.array forKey:kIMVoiceTranscriptOrderKey];
+}
+
 - (BOOL)isCollapsedMessageID:(NSString *)mid {
     return mid.length > 0 && [self.collapsed containsObject:mid];
 }
 
+/// 错误专用广播：错误文案走 userInfo[@"errorMessage"]，不占 @"text"。
+/// 观察者的 Unavailable 分支应走 toast + 收起「识别中…」面板，而不是把错误塞进转写面板。
+- (void)postError:(nullable NSString *)message forID:(NSString *)mid convID:(nullable NSString *)convID {
+    if (mid.length == 0) { return; }
+    self.statusByID[mid] = @(IMVoiceTranscribeStatusUnavailable);
+    NSMutableDictionary *info = [NSMutableDictionary dictionary];
+    info[@"messageID"] = mid;
+    if (convID) { info[@"convID"] = convID; }
+    info[@"status"] = @(IMVoiceTranscribeStatusUnavailable);
+    if (message.length > 0) { info[@"errorMessage"] = message; }
+    [[NSNotificationCenter defaultCenter] postNotificationName:IMVoiceTranscriberDidChangeNotification object:self userInfo:info];
+}
+
 - (void)setStatus:(IMVoiceTranscribeStatus)status forID:(NSString *)mid text:(nullable NSString *)text convID:(nullable NSString *)convID {
+    NSAssert(status != IMVoiceTranscribeStatusUnavailable, @"错误路径请走 postError:forID:convID:（text 只承载转写内容）");
     if (mid.length == 0) { return; }
     self.statusByID[mid] = @(status);
     NSMutableDictionary *info = [NSMutableDictionary dictionary];

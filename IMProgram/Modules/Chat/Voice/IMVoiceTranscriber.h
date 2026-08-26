@@ -21,7 +21,10 @@ typedef NS_ENUM(NSInteger, IMVoiceTranscribeStatus) {
 };
 
 extern NSNotificationName const IMVoiceTranscriberDidChangeNotification;
-/// userInfo: @"messageID", @"convID", @"status" @(IMVoiceTranscribeStatus), @"text" (可空)
+/// userInfo: @"messageID", @"convID", @"status" @(IMVoiceTranscribeStatus),
+///   Done → @"text"（转写内容）；Unavailable → @"errorMessage"（给用户看的中文）。
+///   两个字段刻意分开——共用一个 text 曾把「转文字暂未开启」塞进转写面板，下面还挂着
+///   「结果可能不完全准确」的尾行；且将来「复制转写文本」菜单会把错误文案一起复制走。
 
 @interface IMVoiceTranscriber : NSObject
 

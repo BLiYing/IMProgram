@@ -67,6 +67,10 @@
 - **配套**：`IMChunkedUploader`（≥8MB 分片、暂停/续传、旁挂 `upload_id` 支持杀进程续传）；`IMPendingMediaStore`
   （字节落 Application Support，失败件可见/可重试）；重 IO（写盘/poster 编码）走服务的串行 IO 队列，不占主线程。
 - **未并入**：相机拍摄、粘贴图、<8MB Files 路径仍为 VC 锚定的一次性上传（小而快，风险低）。
+  **语音**同为 VC 锚定（`IMChatViewController+Voice.m im_uploadAndSendVoice:`）——上传块强持有 self
+  保住"松手立即退出会话，链条仍能发出"，失败字节落 `IMPendingMediaStore`（`im-pending://`，跨进程可重试）；
+  进程在上传中途被杀会遗留 `content=""` 的永久 Sending 空气泡，`reattachRunningUploads` 在冷启动首次
+  进会话时把它扫成 Failed（`didReclaimStaleVoiceSending` 守卫每 VC 只做一次）。完整并入 IMMediaSendService 记 P2。
 
 ## 消息收发数据流
 ```

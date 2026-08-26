@@ -258,6 +258,8 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (void)appendPastedImage:(UIImage *)image;
 - (void)refreshPasteBar;
 - (void)reattachRunningUploads;
+/// reattachRunningUploads 里"语音陈旧 Sending 清扫"只做一次的守卫，避免 push/pop 反复扫误伤本 VC 新起的占位。
+@property (nonatomic, assign) BOOL didReclaimStaleVoiceSending;
 - (void)refreshVisibleCellForMessage:(IMMessageModel *)m;
 - (void)updateUploadProgressForMessage:(IMMessageModel *)m;
 - (void)uploadAndSendPastedImage:(UIImage *)image groupID:(NSString *)groupID;

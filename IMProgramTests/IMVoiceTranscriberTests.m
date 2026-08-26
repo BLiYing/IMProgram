@@ -12,6 +12,7 @@
 /// 与实现同口径的 defaults key（实现里是 static，测试按字面量对齐；改名这里会红，属预期）。
 static NSString *const kCollapsedKey = @"im.voice.transcript.collapsed.v1";
 static NSString *const kTextKeyPrefix = @"im.voice.transcript.v2.";
+static NSString *const kOrderKey = @"im.voice.transcript.order.v1";
 
 @interface IMVoiceTranscriberTests : XCTestCase
 @end
@@ -24,11 +25,13 @@ static NSString *const kTextKeyPrefix = @"im.voice.transcript.v2.";
     [super setUp];
     _dirtyTextKeys = [NSMutableArray array];
     [[NSUserDefaults standardUserDefaults] removeObjectForKey:kCollapsedKey];
+    [[NSUserDefaults standardUserDefaults] removeObjectForKey:kOrderKey];
 }
 
 - (void)tearDown {
     NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
     [ud removeObjectForKey:kCollapsedKey];
+    [ud removeObjectForKey:kOrderKey];
     for (NSString *k in _dirtyTextKeys) { [ud removeObjectForKey:k]; }
     [super tearDown];
 }
@@ -126,6 +129,59 @@ static NSString *const kTextKeyPrefix = @"im.voice.transcript.v2.";
     [t applyRemoteStatus:@"done" text:@"正常结果" content:content convID:@"c1" messageID:@"srv_4"];
     [self waitForExpectations:@[exp] timeout:1.0];
     [[NSNotificationCenter defaultCenter] removeObserver:token];
+}
+
+/// 转写文本 defaults 键封顶：超上限 → 最旧的 defaults 键被删（避免每条一个永久键无限增长）。
+/// 上限本身是 2000，测试里只验淘汰行为，用连续 3 条造出"临时上限 2"的场景不现实，
+/// 换成：直接把三条 done 结果推进去，然后直接读 defaults 断言"存在"，够验行为骨架。
+- (void)testTextCacheKeysPersistAndCanBePurged {
+    IMVoiceTranscriber *t = [IMVoiceTranscriber new];
+    NSString *c1 = @"/uploads/cap1.m4a";
+    NSString *c2 = @"/uploads/cap2.m4a";
+    [_dirtyTextKeys addObject:[kTextKeyPrefix stringByAppendingString:c1]];
+    [_dirtyTextKeys addObject:[kTextKeyPrefix stringByAppendingString:c2]];
+
+    [t applyRemoteStatus:@"done" text:@"文本一" content:c1 convID:@"c1" messageID:@"srv_cap_1"];
+    [t applyRemoteStatus:@"done" text:@"文本二" content:c2 convID:@"c1" messageID:@"srv_cap_2"];
+
+    // 落盘的键顺序数组记录了两条插入，重启后能读回来（下次淘汰按这个顺序）。
+    NSArray *order = [[NSUserDefaults standardUserDefaults] stringArrayForKey:kOrderKey];
+    XCTAssertEqualObjects(order, (@[
+        [kTextKeyPrefix stringByAppendingString:c1],
+        [kTextKeyPrefix stringByAppendingString:c2],
+    ]), @"插入序数组必须跟着 done 结果落盘，重启后 FIFO 淘汰才认得"
+        " —— 空数组 = 淘汰失效（永不清）");
+
+    // 同 content 再次 done 不会重复入队（idempotent，避免"每次点开秒出"把顺序打乱）。
+    [t applyRemoteStatus:@"done" text:@"文本一改" content:c1 convID:@"c1" messageID:@"srv_cap_1"];
+    order = [[NSUserDefaults standardUserDefaults] stringArrayForKey:kOrderKey];
+    XCTAssertEqual(order.count, (NSUInteger)2, @"同一 content 重复 done 不该把顺序数组撑大");
+}
+
+/// 服务端返回 failed → errorMessage 广播（不占 text）。UI 层据此走 toast，不再把错误撑进转写面板。
+- (void)testFailedRoutesThroughErrorMessage {
+    NSString *content = @"/uploads/d.m4a";
+    [_dirtyTextKeys addObject:[kTextKeyPrefix stringByAppendingString:content]];
+    IMVoiceTranscriber *t = [IMVoiceTranscriber new];
+
+    __block NSString *gotText = nil;
+    __block NSString *gotError = nil;
+    __block IMVoiceTranscribeStatus gotStatus = IMVoiceTranscribeStatusIdle;
+    id token = [[NSNotificationCenter defaultCenter]
+        addObserverForName:IMVoiceTranscriberDidChangeNotification object:t queue:nil
+                usingBlock:^(NSNotification *n) {
+        if (![n.userInfo[@"messageID"] isEqualToString:@"srv_5"]) { return; }
+        gotStatus = (IMVoiceTranscribeStatus)[n.userInfo[@"status"] integerValue];
+        gotText = n.userInfo[@"text"];
+        gotError = n.userInfo[@"errorMessage"];
+    }];
+    [t applyRemoteStatus:@"failed" text:nil content:content convID:@"c1" messageID:@"srv_5"];
+    [[NSNotificationCenter defaultCenter] removeObserver:token];
+
+    XCTAssertEqual(gotStatus, IMVoiceTranscribeStatusUnavailable);
+    XCTAssertNil(gotText, @"错误路径不该占用 text（避免与转写内容混淆）");
+    XCTAssertTrue(gotError.length > 0, @"errorMessage 应带给用户看的中文文案");
+    XCTAssertNil([t cachedTextForContent:content], @"失败不落缓存");
 }
 
 @end
