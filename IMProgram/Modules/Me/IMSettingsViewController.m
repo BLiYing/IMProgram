@@ -9,6 +9,7 @@
 #import "IMAppearanceViewController.h"
 #import "IMDataStorageViewController.h"
 #import "IMBlockedListViewController.h"
+#import "IMPrivacySecurityViewController.h"
 #import "IMDeviceListViewController.h"
 #import "IMFavoritesViewController.h"
 #import "IMLoginViewController.h"
@@ -528,8 +529,10 @@
 }
 
 - (void)openBlocked {
-    IMBlockedListViewController *blocked = [[IMBlockedListViewController alloc] initWithHost:self.host userID:self.userID];
-    [self.navigationController pushViewController:blocked animated:YES];
+    // 「隐私与安全」入口改为容器页——不再直接跳黑名单。
+    // 容器内首行「已屏蔽的用户」再 push IMBlockedListViewController，保留旧路径。
+    IMPrivacySecurityViewController *vc = [[IMPrivacySecurityViewController alloc] initWithHost:self.host userID:self.userID];
+    [self.navigationController pushViewController:vc animated:YES];
 }
 
 - (void)openDevices {

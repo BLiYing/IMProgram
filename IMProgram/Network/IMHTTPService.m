@@ -883,6 +883,15 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     [self runUserCardRequest:req fallback:@"保存资料失败" completion:completion];
 }
 
+- (void)changePasswordWithToken:(NSString *)token
+                    oldPassword:(NSString *)oldPassword
+                    newPassword:(NSString *)newPassword
+                     completion:(void (^)(NSError *))completion {
+    NSDictionary *body = @{ @"old_password": oldPassword ?: @"", @"new_password": newPassword ?: @"" };
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/user/password" method:@"POST" token:token body:body];
+    [self runOKRequest:req fallback:@"修改密码失败" completion:completion];
+}
+
 - (void)sentFilesWithToken:(NSString *)token
                      cursor:(NSString *)cursor
                  completion:(void (^)(NSArray<NSDictionary *> *, NSString *, BOOL, NSError *))completion {

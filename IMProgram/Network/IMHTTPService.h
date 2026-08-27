@@ -143,6 +143,13 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
                           tags:(NSArray<NSString *> *)tags
                     completion:(void (^)(IMUserCard *_Nullable profile, NSError *_Nullable error))completion;
 
+/// 修改密码（POST /api/v1/user/password）。旧密错回 200002 WrongPassword，
+/// 新密 <6 位回 100002 ParamInvalid，账号被封回 200003 AccountBanned。completion 在主线程回调。
+- (void)changePasswordWithToken:(NSString *)token
+                    oldPassword:(NSString *)oldPassword
+                    newPassword:(NSString *)newPassword
+                     completion:(void (^)(NSError *_Nullable error))completion;
+
 #pragma mark - 群聊（M3）
 
 /// 建群：owner=自己（token 决定），memberIDs=初始成员。completion 回新建群资料（含成员），主线程。
