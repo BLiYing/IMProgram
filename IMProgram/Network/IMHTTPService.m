@@ -888,7 +888,7 @@ BOOL IMIsTransientNetworkError(NSError *error) {
                     newPassword:(NSString *)newPassword
                      completion:(void (^)(NSError *))completion {
     NSDictionary *body = @{ @"old_password": oldPassword ?: @"", @"new_password": newPassword ?: @"" };
-    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/user/password" method:@"POST" token:token body:body];
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/users/me/password" method:@"POST" token:token body:body];
     [self runOKRequest:req fallback:@"修改密码失败" completion:completion];
 }
 
