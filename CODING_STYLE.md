@@ -25,6 +25,12 @@
 - 全程 **ARC**。
 - 对象默认 `strong`，delegate/block 回调持有方用 `weak`，基本类型用 `assign`，字符串/可变拷贝语义用 `copy`。
 - block 内引用 self 用 `__weak typeof(self) weakSelf = self;`，必要时再 `__strong` 强引用，防循环引用。
+- **存储属性一律进类扩展 `()`，别写进 category `(Xxx)`。** category 里的 `@property` 只声明 getter/setter、
+  **不合成 ivar 也不合成实现**（category 设计上不能加 ivar），于是 `self.foo = ...` **编译能过**、运行到那行才
+  `unrecognized selector` 崩。当一个 `+Private.h` 里同时有类扩展 `@interface Foo ()` 和分类 `@interface Foo (Xxx)`
+  时尤其易放错——两者只差括号里有没有名字。要存值就放 `()`；`(Xxx)` 段只放方法声明。确需给 category 加存储的
+  极少数场景才用 `objc_setAssociatedObject` 手写存取器兜底（日常存 BOOL/标志别用它）。
+  （2026-08-27：`didReclaimStaleVoiceSending` 误放进 `(Private)` 段，进会话触发陈旧语音清扫时崩，即此坑。）
 
 ### 4. 代码风格
 - 缩进 4 空格，不用 Tab。大括号 `{` 不换行（K&R）。
@@ -101,6 +107,9 @@ clone 一次，超预算即拦提交；应急 `git commit --no-verify`）。**�
 - **[崩溃] 方法名撞 property 合成 setter → 自递归爆栈。** 给某个 `@property foo` 手写一个名字等于其合成 setter
   （`setFoo:`）的方法，方法体内又赋值 `self.foo = ...`，即无限自递归崩溃。改 property 的存取语义时，自定义存取器
   别与合成名重名（或改用不同属性名 + 显式 backing ivar）。
+- **[崩溃] 存储 `@property` 误放进 category `(Xxx)` → 运行时 `unrecognized selector`。** category 里的属性只声明
+  访问器、不合成实现，`self.foo=...` 编译过、跑到才炸。要存值的属性一律进类扩展 `()`（详见 §3）。
+  自查：`+Private.h` 里任何带存储语义的 `@property` 都必须落在 `@interface Foo ()` 段，不是 `@interface Foo (Xxx)` 段。
 - **[下移三连] push 页别用 `UITableViewController`。** 注入的液态标题栏会被系统下移一截（同一坑已踩第三次）。
   push 出去的页面用普通 `UIViewController` + 手放 `UITableView`，标题栏才不错位。
 - **[dev 静默失败] 未签名模拟器构建上 Keychain 写入必失败**（`CODE_SIGNING_ALLOWED=NO`）。开发期需要持久化的

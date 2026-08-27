@@ -100,11 +100,16 @@ static CGFloat const kSideInset  = 8;
         [_tapButton addTarget:self action:@selector(mainTapped) forControlEvents:UIControlEventTouchUpInside];
         [_card addSubview:_tapButton];
 
+        // 收起态把整条 height 压到 0（见 IMChatBannerStack）；card 的 top(kTopGap)+bottom 是要求约束时会与
+        // height==0 直接冲突刷 "Unable to satisfy"。把 bottom 降到 999，收起时它被静默让开，展开时（height=bannerHeight）
+        // 仍严格贴底，无副作用。
+        NSLayoutConstraint *cardBottom = [_card.bottomAnchor constraintEqualToAnchor:self.bottomAnchor];
+        cardBottom.priority = UILayoutPriorityRequired - 1;
         [NSLayoutConstraint activateConstraints:@[
             [_card.topAnchor constraintEqualToAnchor:self.topAnchor constant:kTopGap],
             [_card.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:kSideInset],
             [_card.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-kSideInset],
-            [_card.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
+            cardBottom,
 
             [_bar.leadingAnchor constraintEqualToAnchor:_card.leadingAnchor constant:10],
             [_bar.centerYAnchor constraintEqualToAnchor:_card.centerYAnchor],

@@ -151,11 +151,15 @@
     [replyCancel setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
     [replyCancel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
     [self.replyBar addSubview:replyCancel];
+    // 引用条收起时 height 压到 0（replyBarHeight），竖条 top(8)+bottom(-8) 若都是要求约束会与之冲突刷
+    // "Unable to satisfy"。bottom 降到 999：收起时静默让开，展开时（默认高度）仍严格贴底。
+    NSLayoutConstraint *stripeBottom = [replyStripe.bottomAnchor constraintEqualToAnchor:self.replyBar.bottomAnchor constant:-8];
+    stripeBottom.priority = UILayoutPriorityRequired - 1;
     [NSLayoutConstraint activateConstraints:@[
         [replyStripe.leadingAnchor constraintEqualToAnchor:self.replyBar.leadingAnchor constant:12],
         [replyStripe.widthAnchor constraintEqualToConstant:3],
         [replyStripe.topAnchor constraintEqualToAnchor:self.replyBar.topAnchor constant:8],
-        [replyStripe.bottomAnchor constraintEqualToAnchor:self.replyBar.bottomAnchor constant:-8],
+        stripeBottom,
         [self.replyThumb.leadingAnchor constraintEqualToAnchor:replyStripe.trailingAnchor constant:8],
         [self.replyThumb.centerYAnchor constraintEqualToAnchor:self.replyBar.centerYAnchor],
         [self.replyThumb.widthAnchor constraintEqualToConstant:36],

@@ -58,6 +58,8 @@ NS_ASSUME_NONNULL_BEGIN
 // 点击导航经 IMChatBannerStackDelegate 回本页处理。进会话拉一次置顶，之后靠 msg_op 帧重拉。
 @property (nonatomic, strong, nullable) IMChatBannerStack *bannerStack;
 @property (nonatomic, assign) BOOL composerMuteLocked; ///< G2：被禁言（成员级或全员）时锁输入栏
+/// reattachRunningUploads 里"语音陈旧 Sending 清扫"只做一次的守卫，避免 push/pop 反复扫误伤本 VC 新起的占位。
+@property (nonatomic, assign) BOOL didReclaimStaleVoiceSending;
 // @提及（M4-8，仅群聊）：候选表 uid→显示名，发送时按输入框里是否还留着 `@显示名` 复核。
 @property (nonatomic, strong, nullable) NSMutableDictionary<NSString *, NSString *> *mentionCandidates;
 @property (nonatomic, assign) BOOL mentionAllPending; // 已选过 @所有人（仍需文本里留着 token 才生效）
@@ -258,8 +260,6 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (void)appendPastedImage:(UIImage *)image;
 - (void)refreshPasteBar;
 - (void)reattachRunningUploads;
-/// reattachRunningUploads 里"语音陈旧 Sending 清扫"只做一次的守卫，避免 push/pop 反复扫误伤本 VC 新起的占位。
-@property (nonatomic, assign) BOOL didReclaimStaleVoiceSending;
 - (void)refreshVisibleCellForMessage:(IMMessageModel *)m;
 - (void)updateUploadProgressForMessage:(IMMessageModel *)m;
 - (void)uploadAndSendPastedImage:(UIImage *)image groupID:(NSString *)groupID;
