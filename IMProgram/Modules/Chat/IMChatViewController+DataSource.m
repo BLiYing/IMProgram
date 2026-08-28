@@ -19,6 +19,7 @@
 #import "IMDownloadProgress.h"
 #import "IMBubbleCell.h"
 #import "IMSystemCell.h"
+#import "IMRemarkStore.h"
 #import "IMImageCell.h"
 #import "IMAlbumCell.h"
 #import "IMLinkCardCell.h"
@@ -48,7 +49,17 @@
     // 系统消息（群邀请/移除/转让/禁言等留痕）：独立居中灰字行，无气泡/头像/时间勾。
     if ([m.contentType isEqualToString:@"system"]) {
         IMSystemCell *sys = [tableView dequeueReusableCellWithIdentifier:@"system" forIndexPath:indexPath];
-        [sys configureWithText:m.content];
+        __weak typeof(self) wsSys = self;
+        [sys configureWithSegments:m.sysSegments
+                      fallbackText:m.content
+                 displayNameForUID:^NSString *(NSString *uid, NSString *fallbackName) {
+            // 本机显示名：我给他起的备注 > 他在本群的昵称 > 服务端生成时的字面（公开昵称）。
+            __strong typeof(wsSys) self = wsSys;
+            NSString *groupNick = [self.groupInfo nicknameOfMember:uid];
+            return [IMRemarkStore.sharedStore displayNameForUser:uid
+                                                        fallback:(groupNick.length > 0 ? groupNick : fallbackName)];
+        }
+                          onTapUID:^(NSString *uid) { [wsSys openMemberProfileForUID:uid]; }];
         return sys;
     }
     // 撤回消息（M4-1）：居中系统行"你/对方撤回了一条消息"，隐藏原气泡；本人文本可"重新编辑"回填输入框。

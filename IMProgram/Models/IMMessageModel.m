@@ -2,6 +2,34 @@
 
 #import "IMMessageModel.h"
 
+@implementation IMSysSegment
+
++ (NSArray<IMSysSegment *> *)segmentsFromArray:(NSArray *)array {
+    if (![array isKindOfClass:NSArray.class] || array.count == 0) { return nil; }
+    NSMutableArray<IMSysSegment *> *out = [NSMutableArray arrayWithCapacity:array.count];
+    for (id item in array) {
+        if (![item isKindOfClass:NSDictionary.class]) { continue; }
+        id text = item[@"text"], uid = item[@"uid"];
+        if (![text isKindOfClass:NSString.class] || [(NSString *)text length] == 0) { continue; }
+        IMSysSegment *seg = [IMSysSegment new];
+        seg.text = text;
+        seg.uid = [uid isKindOfClass:NSString.class] && [(NSString *)uid length] > 0 ? uid : nil;
+        [out addObject:seg];
+    }
+    return out.count > 0 ? out : nil; // 一段都解析不出 → 按"无分段"处理，收端回退整句
+}
+
++ (NSArray<NSDictionary *> *)arrayFromSegments:(NSArray<IMSysSegment *> *)segments {
+    NSMutableArray<NSDictionary *> *out = [NSMutableArray arrayWithCapacity:segments.count];
+    for (IMSysSegment *seg in segments) {
+        if (seg.text.length == 0) { continue; }
+        [out addObject:(seg.uid.length > 0 ? @{ @"uid": seg.uid, @"text": seg.text } : @{ @"text": seg.text })];
+    }
+    return out;
+}
+
+@end
+
 @implementation IMMessageModel
 
 + (instancetype)receivedMessageWithNewMsgData:(NSDictionary *)data {
@@ -38,6 +66,7 @@
     m.waveform       = [self stringForKey:@"waveform" in:data]; // voice 振幅指纹（base64≤160 rune）
     m.mentions       = [self stringArrayForKey:@"mentions" in:data]; // M4-8：落库供转发重发（强提醒）
     m.mentionAll     = [data[@"mention_all"] boolValue];
+    m.sysSegments    = [IMSysSegment segmentsFromArray:data[@"sys_segments"]]; // 系统消息可点名字（仅 system）
     return m;
 }
 
@@ -111,6 +140,7 @@
     m.thumb          = [self stringForKey:@"thumb" in:dict];
     m.mentions       = [self stringArrayForKey:@"mentions" in:dict];
     m.mentionAll     = [dict[@"mention_all"] boolValue];
+    m.sysSegments    = [IMSysSegment segmentsFromArray:dict[@"sys_segments"]];
     return m;
 }
 

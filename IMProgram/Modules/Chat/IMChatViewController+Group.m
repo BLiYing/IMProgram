@@ -3,7 +3,8 @@
 //  多端同步）拉取与 conv_update 就地刷新、群变更事件（被移出/解散退页）、以及气泡发送者身份解析
 //  （昵称/角色/引用显示名/头像 URL）。从 IMChatViewController.m 平移，未改行为。
 
-#import "IMChatViewController+Private.h"  // 含 IMGroupInfo / IMSocketManager（kIMConvID/Group* 键、IMGroupRole）
+#import "IMChatViewController+Private.h"
+#import "IMRemarkStore.h"  // 含 IMGroupInfo / IMSocketManager（kIMConvID/Group* 键、IMGroupRole）
 #import "IMHTTPService.h"
 #import "IMMessageModel.h"
 #import "UIViewController+IMToast.h"
@@ -78,10 +79,18 @@
 }
 
 /// 群聊气泡发送者昵称：优先消息自带 from_nickname，其次群成员表，最后 uid。
-- (NSString *)senderNameForMessage:(IMMessageModel *)m {
+/// 群内**公开名**：群昵称 / 全局昵称 / uid。会被写进要发出去的内容时用它（当前：合并转发条目名）。
+/// 刻意不含好友备注——备注仅本人可见，进了消息内容就发给收件人了（见 docs/UI.md 隐私红线）。
+- (NSString *)senderPublicNameForMessage:(IMMessageModel *)m {
     if (m.fromNickname.length > 0) { return m.fromNickname; }
     NSString *nick = [self.groupInfo nicknameOfMember:m.from];
     return nick.length > 0 ? nick : (m.from ?: @"");
+}
+
+/// 群内**本机显示名**：我给他起的备注 > 公开名。气泡上方昵称、头像首字母、系统消息里的名字都走它。
+/// 只影响本机渲染，不改任何要发出去的字节。
+- (NSString *)senderNameForMessage:(IMMessageModel *)m {
+    return [IMRemarkStore.sharedStore displayNameForUser:m.from fallback:[self senderPublicNameForMessage:m]];
 }
 
 /// 群聊发送者在本群的角色（气泡群主/管理员徽标用）：**优先本群成员表的当前角色**（晋升/降级后老消息随之

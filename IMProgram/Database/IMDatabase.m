@@ -102,6 +102,7 @@
         @[@"caption",          @"TEXT"],                    // 图文/视频文/文件文随附文本（Telegram 图说模型）
         @[@"mentions",         @"TEXT"],                    // M4-8 被 @ 成员 uid（JSON 数组）：转发重发 mentions 用（强提醒）
         @[@"mention_all",      @"INTEGER NOT NULL DEFAULT 0"], // M4-8 @所有人
+        @[@"sys_segments",     @"TEXT"],                    // 系统消息结构化分段（JSON）：名字换本地显示名 + 可点
         @[@"conv_seq",         @"INTEGER"],
         @[@"timestamp",        @"INTEGER"],
         @[@"status",           @"INTEGER"],
@@ -555,7 +556,25 @@
         @"waveform":          message.waveform ?: @"",
         @"mentions":          IMEncodeMentions(message.mentions),
         @"mention_all":       @(message.mentionAll),
+        @"sys_segments":      IMEncodeSysSegments(message.sysSegments),
     };
+}
+
+/// 系统消息分段 ↔ TEXT 列（JSON 数组；空存空串）。必须落库：否则重进会话/冷启动读本地库时
+/// 分段丢失，系统消息会退回"显真实昵称、名字不可点"，与刚收到时不一致。
+/// 解析失败按「无分段」降级（回退整句），不阻断消息读取（与 mentions 同取舍）。
+static NSString *IMEncodeSysSegments(NSArray<IMSysSegment *> *segments) {
+    if (segments.count == 0) { return @""; }
+    NSArray *raw = [IMSysSegment arrayFromSegments:segments];
+    NSData *d = raw.count > 0 ? [NSJSONSerialization dataWithJSONObject:raw options:0 error:NULL] : nil;
+    return d ? [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding] : @"";
+}
+
+static NSArray<IMSysSegment *> *IMDecodeSysSegments(NSString *raw) {
+    if (raw.length == 0) { return nil; }
+    NSData *d = [raw dataUsingEncoding:NSUTF8StringEncoding];
+    id arr = d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:NULL] : nil;
+    return [IMSysSegment segmentsFromArray:arr];
 }
 
 /// mentions []NSString ↔ TEXT 列（JSON 数组；空存空串）。解析失败按「未 @ 任何人」降级——
@@ -942,6 +961,7 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
     m.caption     = caption.length > 0 ? caption : nil;
     m.mentions    = IMDecodeMentions([rs stringForColumn:@"mentions"]);
     m.mentionAll  = [rs boolForColumn:@"mention_all"];
+    m.sysSegments = IMDecodeSysSegments([rs stringForColumn:@"sys_segments"]);
     m.convSeq     = [rs longLongIntForColumn:@"conv_seq"];
     m.timestamp   = [rs longLongIntForColumn:@"timestamp"];
     m.status      = (IMMessageStatus)[rs longForColumn:@"status"];

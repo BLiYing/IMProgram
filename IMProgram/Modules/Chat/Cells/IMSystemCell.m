@@ -1,4 +1,7 @@
 #import "IMSystemCell.h"
+
+#import "IMBubbleCell.h"   // IMMentionUIDAttributeName + TextKit 反查（与 @昵称 点击同一套）
+#import "IMMessageModel.h" // IMSysSegment
 #import "IMTheme.h"
 
 @implementation IMSystemCell {
@@ -6,6 +9,8 @@
     UILabel *_label;
     UIButton *_reeditButton;
     void (^_reeditHandler)(void);
+    void (^_tapUIDHandler)(NSString *uid);
+    UITapGestureRecognizer *_nameTap;
 }
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
     self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
@@ -54,9 +59,56 @@
     [self configureWithText:text reeditHandler:nil];
 }
 - (void)configureWithText:(NSString *)text reeditHandler:(void (^)(void))reeditHandler {
+    _label.attributedText = nil;
     _label.text = text.length > 0 ? text : @"";
     _reeditHandler = [reeditHandler copy];
     _reeditButton.hidden = (reeditHandler == nil);
+    _tapUIDHandler = nil;
+}
+
+- (void)configureWithSegments:(NSArray<IMSysSegment *> *)segments
+                 fallbackText:(NSString *)fallbackText
+            displayNameForUID:(NSString *(^)(NSString *, NSString *))displayNameForUID
+                     onTapUID:(void (^)(NSString *))onTapUID {
+    // 历史系统消息没有分段（服务端当时没存）→ 走整句老路：名字仍是当时的昵称、不可点。
+    if (segments.count == 0) {
+        [self configureWithText:fallbackText reeditHandler:nil];
+        return;
+    }
+    NSDictionary *base = @{ NSForegroundColorAttributeName: IMTheme.datePillText,
+                            NSFontAttributeName: [UIFont systemFontOfSize:12] };
+    NSMutableAttributedString *out = [NSMutableAttributedString new];
+    for (IMSysSegment *seg in segments) {
+        NSString *text = seg.text ?: @"";
+        if (seg.uid.length == 0) { // 固定文案：原样
+            [out appendAttributedString:[[NSAttributedString alloc] initWithString:text attributes:base]];
+            continue;
+        }
+        // 名字段：换成本地显示名（我给他设了备注就显备注——仅本机渲染，不改消息内容）。
+        NSString *shown = displayNameForUID ? displayNameForUID(seg.uid, text) : text;
+        NSMutableDictionary *attrs = [base mutableCopy];
+        attrs[NSForegroundColorAttributeName] = IMTheme.accent;
+        if (onTapUID) { attrs[IMMentionUIDAttributeName] = seg.uid; } // 无点击回调就只染色不挂 uid
+        [out appendAttributedString:[[NSAttributedString alloc] initWithString:(shown.length > 0 ? shown : text)
+                                                                   attributes:attrs]];
+    }
+    _label.attributedText = out;
+    _reeditHandler = nil;
+    _reeditButton.hidden = YES;
+    _tapUIDHandler = [onTapUID copy];
+    if (!_nameTap) {
+        _nameTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(onLabelTap:)];
+        _label.userInteractionEnabled = YES;
+        [_label addGestureRecognizer:_nameTap];
+    }
+}
+
+/// 点在名字上才响应（TextKit 反查落点字符的 uid 属性），点在固定文案上不动作。
+/// 复用 IMBubbleCell 那套 @昵称 命中判定，避免再写一份坐标换算。
+- (void)onLabelTap:(UITapGestureRecognizer *)g {
+    if (!_tapUIDHandler) { return; }
+    NSString *uid = [IMBubbleCell mentionUIDInLabel:_label atPoint:[g locationInView:_label]];
+    if (uid.length > 0) { _tapUIDHandler(uid); }
 }
 - (void)onReedit {
     if (_reeditHandler) { _reeditHandler(); }
@@ -64,6 +116,10 @@
 - (void)prepareForReuse {
     [super prepareForReuse];
     _reeditHandler = nil;
+    _tapUIDHandler = nil;
     _reeditButton.hidden = YES;
+    // 富文本残留会让下一条纯文本系统行继承上一条的强调色名字段（复用池的经典坑）。
+    _label.attributedText = nil;
+    _label.text = @"";
 }
 @end

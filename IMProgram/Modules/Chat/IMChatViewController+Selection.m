@@ -529,7 +529,7 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
 /// 我给对方起的私房名写进消息内容发给收件人。对外一律走 IMConversationPublicName。
 - (NSString *)displayNameForMessage:(IMMessageModel *)m {
     if ([m.from isEqualToString:self.userID]) { return self.userID ?: @"我"; }
-    if (self.isGroupChat) { return [self senderNameForMessage:m]; }
+    if (self.isGroupChat) { return [self senderPublicNameForMessage:m]; } // 公开名：这段会随消息发出去
     return IMConversationPublicName(NO, nil, self.peerNickname, self.peerID);
 }
 

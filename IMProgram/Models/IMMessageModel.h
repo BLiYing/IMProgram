@@ -13,6 +13,18 @@ typedef NS_ENUM(NSInteger, IMMessageStatus) {
     IMMessageStatusReceived,     ///< 对方发来的消息（new_msg）
 };
 
+/// 系统消息的一个可渲染片段（对应后端 protocol.SysSegment）。
+@interface IMSysSegment : NSObject
+/// 非空 = 这段是某人的名字：按本地显示名重渲染 + 可点进资料页。空 = 固定文案，原样显示。
+@property (nonatomic, copy, nullable) NSString *uid;
+/// 服务端生成时的字面（公开昵称 / 固定文案）。**不含任何人的私有备注**——这条消息全群可见。
+@property (nonatomic, copy) NSString *text;
+/// 从 sys_segments 数组解析（脏数据安全）；无有效段返回 nil。
++ (nullable NSArray<IMSysSegment *> *)segmentsFromArray:(nullable NSArray *)array;
+/// 序列化回数组（落 SQLite 用）。
++ (NSArray<NSDictionary *> *)arrayFromSegments:(nullable NSArray<IMSysSegment *> *)segments;
+@end
+
 @interface IMMessageModel : NSObject
 
 @property (nonatomic, copy)   NSString *clientMsgID;   ///< 客户端 UUID，幂等去重锚点
@@ -34,6 +46,11 @@ typedef NS_ENUM(NSInteger, IMMessageStatus) {
 /// 高亮渲染仍按「文本+群成员」派生（mentionMapFor*），不依赖此字段。
 @property (nonatomic, copy, nullable) NSArray<NSString *> *mentions;
 @property (nonatomic, assign) BOOL mentionAll; ///< @所有人（发送时服务端已校验角色）。转发**不**重发（目标群无权会整条拒发）
+
+/// 系统消息（content_type=system）的结构化分段：把整句拆成「固定文案 / 某人的名字」若干段。
+/// 服务端在生成时只能填公开昵称，故拿到 uid 后**本端**才能把名字换成我的备注、并挂点击跳资料页。
+/// 空 = 历史系统消息（服务端当时没存分段）或非系统消息 → 回退按 content 整句渲染。
+@property (nonatomic, copy, nullable) NSArray<IMSysSegment *> *sysSegments;
 @property (nonatomic, assign) int64_t  convSeq;      ///< 会话内单调序号，ack/new_msg 后填充
 @property (nonatomic, assign) int64_t  timestamp;    ///< 服务端时间（毫秒）
 @property (nonatomic, assign) IMMessageStatus status;

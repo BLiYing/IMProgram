@@ -287,8 +287,14 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
                                                 fallback:(self.peerNickname.length ? self.peerNickname : self.peerID)];
 }
 
-/// 备注名变更（本端改 / 其它设备改）：只关心本会话对端，其余忽略。批量刷新（无 peerID 键）一律刷。
+/// 备注名变更（本端改 / 其它设备改）。
+/// 单聊只关心本会话对端；群聊里**任何一个成员**的备注变了都要重绘可见气泡与系统消息
+/// （发送者名/头像首字母/系统消息里的名字都按备注渲染）。批量刷新（无 peerID 键）一律刷。
 - (void)onFriendRemarkChanged:(NSNotification *)note {
+    if (self.isGroupChat) {
+        [self.tableView reloadData]; // 纯本地重绘，不回服务端
+        return;
+    }
     NSString *peerID = note.userInfo[kIMRemarkPeerIDKey];
     if (peerID.length > 0 && ![peerID isEqualToString:self.peerID]) { return; }
     [self refreshDisplayIdentity];
@@ -361,11 +367,11 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
         // 会话备注多端同步：本人在别处（本机详情页 / 其它端）改备注 → conv_update → 就地刷新标题。
         [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onConvUpdatedForRemark:)
                                                    name:IMSocketDidUpdateConversationNotification object:nil];
-    } else {
-        // 好友备注多端同步：本人在别处（本机详情页 / 其它端）改对端备注 → 就地刷新标题与头像首字母。
-        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onFriendRemarkChanged:)
-                                                   name:IMRemarkStoreDidChangeNotification object:nil];
     }
+    // 好友备注变更（本机详情页改 / 其它设备改）→ 就地刷新。
+    // 单聊：标题与右上头像首字母；群聊：气泡上方的发送者名、头像首字母、系统消息里的名字。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onFriendRemarkChanged:)
+                                               name:IMRemarkStoreDidChangeNotification object:nil];
     [self setupUI];
     // 系统通知会话（peerID=system）：进页即锁定输入栏（无群资料触发路径）。
     // 见 docs/SYSTEM_NOTICE_SESSION_DESIGN.md §5.2 / +PinnedBanner.m refreshComposerMuteState。
