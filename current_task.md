@@ -5,6 +5,25 @@
 
 ## 当前焦点
 
+> **登录页自证后端可达 + 本地网络授权（2026-08-28，`xcodebuild -workspace` build 绿）**：
+> 真机连 `192.168.1.12:8080` 密码登录失败、免密"成功"，排查发现是**手机压根没连上 Mac**
+> （`imserver.log` 里当天 04:36 后再无任何来自 `192.168.1.x` 的请求，连 `http_request_started` 都没有），
+> 而不是密码问题。两处根治：
+> - **免密登录改成真发一次 `POST /api/v1/login`**（`IMLoginViewController` `devLoginTapped`）：原来它零网络调用、
+>   直接 `enterAppWithHost:`，后端连不上也照样进主界面，把"连不通"推迟到主界面里静默失败 → 误判成密码问题。
+>   密码登录/免密登录收敛到共用的 `loginWithHost:userID:password:fallback:`（password 空串即走 dev-login 直签）。
+> - **`prepareServiceWithHost:` 加 `invalidateToken`**：`loginWithUserID` 有 10 分钟 token TTL 缓存，命中就直接回调成功、
+>   根本不发请求——登录页因此可能"输错密码也进得去"，也看不出后端是否真可达。换 host / 换账号 / 改密码后作废旧 token 本就正确。
+> - **`Info.plist` 补 `NSLocalNetworkUsageDescription`**：iOS 14+ App 访问 192.168/10/172.16 私有网段要本地网络授权，
+>   缺文案时弹窗没有理由说明、极易被顺手拒绝，此后所有到局域网 IP 的连接静默失败；**重装 App 会重置该授权**，
+>   而模拟器走 127.0.0.1 不受限 → 只在真机复现。拒绝后在 设置 → 隐私与安全性 → 本地网络 重新打开。
+> - **登录页请求在途转菊花**（同批追加）：三个入口（登录 / 注册并登录 / 免密登录）提成属性，新 `setBusy:activeButton:`
+>   ——被点的那个用 `UIButtonConfiguration.showsActivityIndicator`（iOS 15+，不自己塞 `UIActivityIndicatorView`），
+>   三个一起 `enabled=NO` 防重复提交。原来点了完全没有进行中反馈，连不上后端时像"点了没反应"。
+>   注意 `configuration` 改完要整份回写按钮才生效。Web 端 `LoginView` 同批做了等价改动。
+> - **未做**：没加自动化测试（改动是 VC 交互 + plist，测它要 mock `IMHTTPService` 单例；Web 侧那半有 vitest 覆盖）；
+>   未做模拟器/真机实测——真机连通性已在 2026-08-28 13:49 验证通过（login/ws/conversations 全 200/101）。
+
 > **`/simplify` iOS 代码质量清理（2026-08-27，build + build-for-testing 全绿）**：四路复查（复用/简化/效率/层次）
 > 对准 `HEAD~2..` 那批（转文字改服务端 + 当日自审修复 + 置顶横幅），去重后落地：
 > - **错误码映射单一来源**：删 `IMVoiceTranscriber.messageForErrorCode:`（第二张 code→中文表），
@@ -53,23 +72,16 @@
 >   而根因（撤回帧到达时本地先剔除）已在上一轮修完。真泛化应改成 `jumpToConvSeq:` 回结果给调用方，属更大重构，
 >   等第 4 个跳转入口出现再做。
 
-> **语音 P1 全量 + P0 自查修复（2026-08-26，build 绿、待真机手测）**：用户实测报 8 问全部定位修复——
-> ① 发送链重做：落库 + ack 回写 convSeq/status（曾 completion:nil → 长按菜单空「无反应」+ 气泡忽隐忽现「错乱」）；
-> ② 转发语音修通（曾 attrs=nil 不带 duration 被服务端拒但 UI 报已转发）；三处 attrs 构造放行 voice 带 duration+waveform；
-> ③ 大圆钮跟手 + 呼吸环 + 磁吸小锁 `IMVoicePressOverlay`（70pt 高亮/34pt 即锁，此前只有不可见 80pt 阈值＝设计稿缺件）；
-> ④ HUD/锁定条不透明主题底（曾 clear 透底重叠 + 硬编码粉色）；⑤ 己方波形 bubbleMeText 配色（曾绿 on 绿看不见进度）；
-> ⑥ 中断转锁定暂停（§5.4）+ 删除 >10s 确认 + 暂停时长不再算进 duration；⑦ 详情页语音 tab（曾匹配 audio 恒空）点行播放；
-> ⑧ 收藏语音 `IMFavoriteVoiceCell` 迷你波形播放器（曾 SFSafari 打开裸音频）；从收藏发送带 duration+waveform（后端收藏快照加 waveform 列）。
-> 拍板：语音支持转发（Telegram 式）；收藏=内嵌迷你播放器。
-
 ## 下一步
-1. **真机手测回归（重启后端后）**：按住大圆钮跟手→上滑磁吸锁定→锁定行删/停/发；来电中断→回来停在锁定暂停；发送后长按有菜单、气泡稳定；转发语音真的送达；详情页语音 tab；收藏语音播放 + 从收藏发送；scrub/倍速/转文字/接力。异常记回本文件。
-2. 遗留 P2：听筒切换（贴耳切 route）；接力连播顶部「停止」控制条；Web 转文字（Whisper 调研）；
+1. **先验真机能否连通后端**：重装 App → 弹「允许查找并连接本地网络设备」点允许 → 登录页填 Mac 当前 LAN IP，
+   免密/密码登录现在都会真发请求，失败会直接显示「无法连接服务器…」；Mac 侧核对 `grep -a '"remote_ip":"192.168' ../IMServer/imserver.log | tail`。
+2. **真机手测回归（重启后端后）**：按住大圆钮跟手→上滑磁吸锁定→锁定行删/停/发；来电中断→回来停在锁定暂停；发送后长按有菜单、气泡稳定；转发语音真的送达；详情页语音 tab；收藏语音播放 + 从收藏发送；scrub/倍速/转文字/接力。异常记回本文件。
+3. 遗留 P2：听筒切换（贴耳切 route）；接力连播顶部「停止」控制条；Web 转文字（Whisper 调研）；
    **语音发送接入 IMMediaSendService 常驻队列**（现为 VC 内手工链：已强持有 self 保住"退出页不丢消息"，
    但仍无上传进度/取消，上传失败即删录音无 failed 行）；Web 语音上传期无回显（对齐 useMediaSend 先回显后上传）；
    Web 收藏/气泡语音 404 失效占位（复用 MEDIA_EXPIRY）。中断 vs 手势取消的系统投递顺序仍是赌注
    （多数机型触摸先取消→行为=自动发送，通知先到→锁定暂停；根治需 recorder interrupting 窗口标志）。
-3. `setupUI` 抽 `IMComposerBar`（老欠账）；「从收藏发送」入口开放（见「已知坑」）。
+4. `setupUI` 抽 `IMComposerBar`（老欠账）；「从收藏发送」入口开放（见「已知坑」）。
 
 ## 已知坑 / 限制
 - **`runAfterKeyboardHidden:` 兜底待测（2026-08-05 记）**：依赖 `resignFirstResponder` 后必然收到 `UIKeyboardDidHideNotification`——软键盘正常成立；若实测硬件/外接键盘场景引用跳转不触发，加 `dispatch_after` 超时兜底。

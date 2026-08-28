@@ -17,6 +17,12 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<!-- 真机连局域网内自建后端（如 192.168.1.12:8080）需要本地网络授权：iOS 14+ 对 App 访问
+	     192.168/10/172.16 等私有网段会弹窗确认。缺这条文案时弹窗没有理由说明、极易被顺手拒绝，
+	     此后所有到局域网 IP 的连接静默失败（模拟器走 127.0.0.1 不受限，故只在真机复现；
+	     重装 App 会重置该授权）。拒绝后可在 设置 → 隐私与安全性 → 本地网络 里重新打开。 -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>用于连接你在局域网内自建的 IM 服务器（开发调试）。</string>
 	<!-- 相册/相机/保存权限（M4 富媒体：选图、拍摄、下载媒体到相册）。iOS 要求先声明用途文案再运行时申请。 -->
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>用于选择照片或视频发送给聊天对象。</string>

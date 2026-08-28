@@ -592,3 +592,16 @@
 1. **手测（优先）**：照 `docs/DOWNLOAD_TEST_SCENARIOS.md` 跑——门控四类（图片/视频/文件/相册宫格）+ 详情页两 Tab + 设置三层
    + 磨砂占位（气泡 / 引用缩略 / 媒体库）+ 清缓存回退。
 2. 待手测暴露问题 → 修；无问题 → 接 `../IMServer/docs/ROADMAP.md` 下一里程碑（caption / 网络恢复秒连 等）。
+
+---
+
+## 归档：语音 P1 全量 + P0 自查修复（自 current_task.md 迁出，2026-08-28）
+
+> **语音 P1 全量 + P0 自查修复（2026-08-26，build 绿、待真机手测）**：用户实测报 8 问全部定位修复——
+> ① 发送链重做：落库 + ack 回写 convSeq/status（曾 completion:nil → 长按菜单空「无反应」+ 气泡忽隐忽现「错乱」）；
+> ② 转发语音修通（曾 attrs=nil 不带 duration 被服务端拒但 UI 报已转发）；三处 attrs 构造放行 voice 带 duration+waveform；
+> ③ 大圆钮跟手 + 呼吸环 + 磁吸小锁 `IMVoicePressOverlay`（70pt 高亮/34pt 即锁，此前只有不可见 80pt 阈值＝设计稿缺件）；
+> ④ HUD/锁定条不透明主题底（曾 clear 透底重叠 + 硬编码粉色）；⑤ 己方波形 bubbleMeText 配色（曾绿 on 绿看不见进度）；
+> ⑥ 中断转锁定暂停（§5.4）+ 删除 >10s 确认 + 暂停时长不再算进 duration；⑦ 详情页语音 tab（曾匹配 audio 恒空）点行播放；
+> ⑧ 收藏语音 `IMFavoriteVoiceCell` 迷你波形播放器（曾 SFSafari 打开裸音频）；从收藏发送带 duration+waveform（后端收藏快照加 waveform 列）。
+> 拍板：语音支持转发（Telegram 式）；收藏=内嵌迷你播放器。
