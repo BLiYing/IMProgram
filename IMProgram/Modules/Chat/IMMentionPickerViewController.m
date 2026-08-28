@@ -2,6 +2,7 @@
 
 #import "IMMentionPickerViewController.h"
 #import "IMGroupInfo.h"
+#import "IMListSearch.h"
 #import "IMRemarkStore.h"
 #import "IMTheme.h"
 #import "IMGlass.h"
@@ -406,16 +407,12 @@ static const NSInteger kIMMentionInlineMaxVisibleRows = 4;
 /// 备注参与**匹配**但不参与**插入**：选中后填进消息的 token 仍是群内公开名（见 configureWithMember:），
 /// 备注仅本人可见，写进消息就发给全群了。
 - (NSArray<IMGroupMember *> *)membersMatching:(NSString *)query {
-    NSString *q = [query stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+    NSString *q = IMListSearchNormalizedQuery(query);
     if (q.length == 0) { return _all; }
     NSMutableArray<IMGroupMember *> *out = [NSMutableArray array];
     for (IMGroupMember *m in _all) {
-        NSString *remark = [IMRemarkStore.sharedStore remarkForUser:m.userID];
-        if ([m.displayName rangeOfString:q options:NSCaseInsensitiveSearch].location != NSNotFound ||
-            (remark.length > 0 && [remark rangeOfString:q options:NSCaseInsensitiveSearch].location != NSNotFound) ||
-            [m.userID rangeOfString:q options:NSCaseInsensitiveSearch].location != NSNotFound) {
-            [out addObject:m];
-        }
+        NSString *remark = [IMRemarkStore.sharedStore remarkForUser:m.userID] ?: @"";
+        if (IMListSearchMatches(q, @[m.displayName, remark, m.userID])) { [out addObject:m]; }
     }
     return out;
 }

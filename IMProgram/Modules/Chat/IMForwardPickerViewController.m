@@ -3,6 +3,7 @@
 #import "IMForwardPickerViewController.h"
 #import "IMHTTPService.h"
 #import "IMConversation.h"
+#import "IMListSearch.h"
 #import "UIViewController+IMToast.h"
 #import "UILabel+IMAvatar.h"
 #import "IMTheme.h"
@@ -124,13 +125,10 @@ static const NSUInteger kIMForwardMaxSelection = 9;
     _tableView.delegate = self;
     [_tableView registerClass:IMForwardPickerCell.class forCellReuseIdentifier:@"conv"];
 
-    // 搜索框（会话多了以后必需）：按会话显示名（含好友备注）与 uid 子串匹配。
+    // 搜索框（会话多了以后必需）：外观与匹配口径走 IMListSearch，与选好友页/@面板同一套。
     // 放 tableHeaderView 而非 UISearchController：本页是 modal + 自带导航栏，
     // UISearchController 会再叠一层导航态，交互与「取消/多选」两个 bar button 打架。
-    _searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 56)];
-    _searchBar.placeholder = @"搜索会话";
-    _searchBar.delegate = self;
-    _searchBar.searchBarStyle = UISearchBarStyleMinimal;
+    _searchBar = IMListSearchBarMake(self.view.bounds.size.width, @"搜索会话", self);
     _tableView.tableHeaderView = _searchBar;
     [self.view addSubview:_tableView];
 
@@ -156,16 +154,13 @@ static const NSUInteger kIMForwardMaxSelection = 9;
 /// 重算可见行。匹配会话显示名（会话备注 > 好友备注 > 昵称 > 群名）与单聊对端 uid，大小写不敏感。
 /// 备注参与匹配是安全的：转发选择页只在本机显示，选中后发出去的是消息本身，不含任何名字。
 - (void)applyFilter {
-    NSString *q = [(_searchBar.text ?: @"") stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    NSString *q = IMListSearchNormalizedQuery(_searchBar.text);
     if (q.length == 0) {
         _filtered = _convs;
     } else {
         NSMutableArray<IMConversation *> *out = [NSMutableArray array];
         for (IMConversation *c in _convs) {
-            if ([[self displayNameFor:c] rangeOfString:q options:NSCaseInsensitiveSearch].location != NSNotFound ||
-                (c.peer.length > 0 && [c.peer rangeOfString:q options:NSCaseInsensitiveSearch].location != NSNotFound)) {
-                [out addObject:c];
-            }
+            if (IMListSearchMatches(q, @[[self displayNameFor:c], c.peer ?: @""])) { [out addObject:c]; }
         }
         _filtered = out;
     }

@@ -4,20 +4,23 @@
 #import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
 #import "IMContactCells.h"
 #import "IMContactSectionIndex.h"
+#import "IMListSearch.h"
 #import "IMHTTPService.h"
 #import "IMUserCard.h"
 #import "IMTheme.h"
 #import "IMLog.h"
 
-@interface IMGroupMemberPickerViewController () <UITableViewDataSource, UITableViewDelegate>
+@interface IMGroupMemberPickerViewController () <UITableViewDataSource, UITableViewDelegate, UISearchBarDelegate>
 @property (nonatomic, copy) NSString *host;
 @property (nonatomic, copy) NSString *userID;
 @property (nonatomic, strong, nullable) NSSet<NSString *> *excludedIDs;
 @property (nonatomic, copy) NSString *confirmTitle;
 @property (nonatomic, copy) void (^onDone)(NSArray<NSString *> *selectedIDs);
-@property (nonatomic, strong) IMContactSectionIndex *friendIndex;     // 可选好友（已排除 excludedIDs）的 A–Z 分组索引，兼作表格数据源
+@property (nonatomic, strong) NSArray<IMUserCard *> *usable;           // 可选好友全集（已排除 excludedIDs），搜索的输入
+@property (nonatomic, strong) IMContactSectionIndex *friendIndex;     // **当前搜索词下**可见好友的 A–Z 分组索引，兼作表格数据源
 @property (nonatomic, strong) NSMutableOrderedSet<NSString *> *picked; // 选中的 uid（保持点选顺序）
 @property (nonatomic, strong) UITableView *tableView;
+@property (nonatomic, strong) UISearchBar *searchBar;
 @property (nonatomic, strong) UILabel *emptyLabel;
 @end
 
@@ -56,6 +59,9 @@
     self.tableView.delegate = self;
     self.tableView.rowHeight = 60;
     [self.tableView registerClass:IMContactCell.class forCellReuseIdentifier:@"pick"];
+    // 搜索框：好友一多就得搜。外观与匹配口径走 IMListSearch，与转发选择页/@面板同一套。
+    self.searchBar = IMListSearchBarMake(self.view.bounds.size.width, @"搜索好友", self);
+    self.tableView.tableHeaderView = self.searchBar;
     [self.view addSubview:self.tableView];
 
     self.emptyLabel = [UILabel new];
@@ -96,12 +102,35 @@
             for (IMUserCard *c in friends) {
                 if (![self.excludedIDs containsObject:c.userID]) { [usable addObject:c]; }
             }
-            self.friendIndex = [[IMContactSectionIndex alloc] initWithCards:usable]; // A–Z 分组，兼作数据源
-            self.emptyLabel.hidden = usable.count > 0;
-            [self.tableView reloadData];
+            self.usable = usable;
+            [self applyFilter];
         }];
     }];
 }
+
+#pragma mark - 搜索
+
+/// 重算可见行：按显示名（备注 > 昵称 > uid）与 uid 子串匹配，再交给 A–Z 索引重新分组。
+/// 选中集 `picked` 存的是 uid、与过滤无关——先勾选再搜索把人过滤掉，确认时仍会带上他。
+- (void)applyFilter {
+    NSString *q = IMListSearchNormalizedQuery(self.searchBar.text);
+    NSArray<IMUserCard *> *visible = self.usable ?: @[];
+    if (q.length > 0) {
+        NSMutableArray<IMUserCard *> *out = [NSMutableArray array];
+        for (IMUserCard *c in visible) {
+            if (IMListSearchMatches(q, @[c.displayName, c.userID])) { [out addObject:c]; }
+        }
+        visible = out;
+    }
+    self.friendIndex = [[IMContactSectionIndex alloc] initWithCards:visible]; // A–Z 分组，兼作数据源
+    self.emptyLabel.text = (q.length > 0 && self.usable.count > 0) ? @"没有匹配的好友" : @"没有可选的好友";
+    self.emptyLabel.hidden = visible.count > 0;
+    [self.tableView reloadData];
+}
+
+- (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText { [self applyFilter]; }
+
+- (void)searchBarSearchButtonClicked:(UISearchBar *)searchBar { [searchBar resignFirstResponder]; }
 
 - (void)confirmTapped {
     if (self.picked.count == 0) { return; }
@@ -156,6 +185,7 @@
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    [self.searchBar resignFirstResponder];
     IMUserCard *c = [self.friendIndex cardAtSection:indexPath.section row:indexPath.row];
     NSString *uid = c.userID;
     if (uid.length == 0) { return; }
