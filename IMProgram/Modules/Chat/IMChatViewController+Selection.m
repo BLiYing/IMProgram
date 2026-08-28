@@ -4,6 +4,7 @@
 
 #import "IMChatViewController+Private.h"
 #import "IMMessageModel.h"
+#import "IMChatMessageLogic.h"
 #import "IMConversation.h"
 #import "IMForwardPickerViewController.h"
 #import "IMHTTPService.h"
@@ -522,11 +523,14 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
 
 #pragma mark 合并转发数据
 
-/// 发送方显示名：自己→uid，群聊→成员昵称，单聊→标题（对端显示名）。
+/// 合并转发条目里的发送方名：自己→uid，群聊→成员昵称（群昵称/全局昵称，公开），单聊→对端**昵称**。
+///
+/// 单聊分支刻意**不取聊天页标题**：标题是"备注优先"的，而备注仅本人可见——取标题就等于把
+/// 我给对方起的私房名写进消息内容发给收件人。对外一律走 IMConversationPublicName。
 - (NSString *)displayNameForMessage:(IMMessageModel *)m {
     if ([m.from isEqualToString:self.userID]) { return self.userID ?: @"我"; }
     if (self.isGroupChat) { return [self senderNameForMessage:m]; }
-    return (self.savedTitle.length ? self.savedTitle : (self.title.length ? self.title : (self.peerID ?: @"")));
+    return IMConversationPublicName(NO, nil, self.peerNickname, self.peerID);
 }
 
 /// 合并转发内容：JSON（t=标题，items=[{n:发送者, ct:类型, c:内容/URL, 文件另带 fn:文件名/fs:字节数}]），
@@ -548,8 +552,9 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
         if (m.caption.length > 0) { item[@"cap"] = m.caption; } // 图说条目携带 caption（cap，与 Web 同 key）→ 记录卡「有字显字」
         [items addObject:item];
     }
-    // 多选态下 self.title 已被替换为"已选择 N 条"，用 savedTitle 取真实会话名。
-    NSString *base = self.savedTitle.length ? self.savedTitle : (self.title.length ? self.title : (self.peerID ?: @"聊天"));
+    // 记录卡标题用**对外可见名**（群=真实群名 / 单聊=对端昵称），不能用 savedTitle——
+    // 那是聊天页标题，群备注(G1)与好友备注都会顶上去，而两者都仅本人可见（见 IMConversationPublicName）。
+    NSString *base = IMConversationPublicName(self.isGroupChat, self.groupName, self.peerNickname, self.peerID);
     NSDictionary *dict = @{ @"t": [NSString stringWithFormat:@"%@ 的聊天记录", base], @"items": items };
     NSData *data = [NSJSONSerialization dataWithJSONObject:dict options:0 error:NULL];
     return data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"";

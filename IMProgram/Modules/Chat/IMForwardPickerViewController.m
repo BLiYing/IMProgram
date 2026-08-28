@@ -84,7 +84,7 @@ static const NSUInteger kIMForwardMaxSelection = 9;
 
 @end
 
-@interface IMForwardPickerViewController () <UITableViewDataSource, UITableViewDelegate>
+@interface IMForwardPickerViewController () <UITableViewDataSource, UITableViewDelegate, UISearchBarDelegate>
 @end
 
 @implementation IMForwardPickerViewController {
@@ -92,9 +92,11 @@ static const NSUInteger kIMForwardMaxSelection = 9;
     NSString *_token;
     void (^_onDone)(NSArray<IMConversation *> *);
     NSArray<IMConversation *> *_convs;
-    NSMutableArray<IMConversation *> *_selected; // 多选顺序集
+    NSArray<IMConversation *> *_filtered;        // 当前搜索词下的可见行；**所有按 row 取会话的地方都读它**
+    NSMutableArray<IMConversation *> *_selected; // 多选顺序集（存的是会话对象，与过滤无关：搜完再搜也不丢已选）
     BOOL _multiSelect;
     UITableView *_tableView;
+    UISearchBar *_searchBar;
 }
 
 - (instancetype)initWithHost:(NSString *)host token:(NSString *)token onDone:(void (^)(NSArray<IMConversation *> *))onDone {
@@ -121,6 +123,15 @@ static const NSUInteger kIMForwardMaxSelection = 9;
     _tableView.dataSource = self;
     _tableView.delegate = self;
     [_tableView registerClass:IMForwardPickerCell.class forCellReuseIdentifier:@"conv"];
+
+    // 搜索框（会话多了以后必需）：按会话显示名（含好友备注）与 uid 子串匹配。
+    // 放 tableHeaderView 而非 UISearchController：本页是 modal + 自带导航栏，
+    // UISearchController 会再叠一层导航态，交互与「取消/多选」两个 bar button 打架。
+    _searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 56)];
+    _searchBar.placeholder = @"搜索会话";
+    _searchBar.delegate = self;
+    _searchBar.searchBarStyle = UISearchBarStyleMinimal;
+    _tableView.tableHeaderView = _searchBar;
     [self.view addSubview:_tableView];
 
     [self loadConversations];
@@ -136,9 +147,34 @@ static const NSUInteger kIMForwardMaxSelection = 9;
             return;
         }
         self->_convs = convs;
-        [self->_tableView reloadData];
+        [self applyFilter];
     }];
 }
+
+#pragma mark - 搜索
+
+/// 重算可见行。匹配会话显示名（会话备注 > 好友备注 > 昵称 > 群名）与单聊对端 uid，大小写不敏感。
+/// 备注参与匹配是安全的：转发选择页只在本机显示，选中后发出去的是消息本身，不含任何名字。
+- (void)applyFilter {
+    NSString *q = [(_searchBar.text ?: @"") stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (q.length == 0) {
+        _filtered = _convs;
+    } else {
+        NSMutableArray<IMConversation *> *out = [NSMutableArray array];
+        for (IMConversation *c in _convs) {
+            if ([[self displayNameFor:c] rangeOfString:q options:NSCaseInsensitiveSearch].location != NSNotFound ||
+                (c.peer.length > 0 && [c.peer rangeOfString:q options:NSCaseInsensitiveSearch].location != NSNotFound)) {
+                [out addObject:c];
+            }
+        }
+        _filtered = out;
+    }
+    [_tableView reloadData];
+}
+
+- (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText { [self applyFilter]; }
+
+- (void)searchBarSearchButtonClicked:(UISearchBar *)searchBar { [searchBar resignFirstResponder]; }
 
 #pragma mark - 单选 / 多选切换
 
@@ -173,11 +209,11 @@ static const NSUInteger kIMForwardMaxSelection = 9;
 
 - (NSString *)displayNameFor:(IMConversation *)c { return c.displayName; }
 
-- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return _convs.count; }
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return _filtered.count; }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)ip {
     IMForwardPickerCell *cell = [tableView dequeueReusableCellWithIdentifier:@"conv" forIndexPath:ip];
-    IMConversation *c = _convs[ip.row];
+    IMConversation *c = _filtered[ip.row];
     BOOL selected = [_selected containsObject:c];
     [cell configureWithConversation:c multiSelect:_multiSelect selected:selected];
     // 多选态：选中态由行首圆圈承载，不再挂尾部系统 ✓；单选态保留 disclosure「>」。
@@ -187,7 +223,8 @@ static const NSUInteger kIMForwardMaxSelection = 9;
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)ip {
     [tableView deselectRowAtIndexPath:ip animated:YES];
-    IMConversation *c = _convs[ip.row];
+    [_searchBar resignFirstResponder];
+    IMConversation *c = _filtered[ip.row];
     if (!_multiSelect) { // 单选：确认后立即回调
         __weak typeof(self) ws = self;
         UIAlertController *a = [UIAlertController alertControllerWithTitle:@"转发"

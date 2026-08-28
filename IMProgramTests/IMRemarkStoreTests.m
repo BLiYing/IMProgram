@@ -1,5 +1,6 @@
 #import <XCTest/XCTest.h>
 
+#import "IMChatMessageLogic.h"
 #import "IMConversation.h"
 #import "IMDatabase.h"
 #import "IMRemarkStore.h"
@@ -171,6 +172,29 @@
     // 备注在别处被清空，手里的卡片对象还留着旧 remark 快照——显示名必须以 store 为准。
     [store applyRemark:@"" forUser:@"bob"];
     XCTAssertEqualObjects(card.displayName, @"鲍勃", @"卡片快照过期时不能显示旧备注");
+}
+
+#pragma mark - 隐私：备注绝不能出现在「发出去的内容」里
+
+/// 合并转发（chat_record）的标题/条目名会**随消息发给收件人**，故必须用对外可见名，
+/// 不能用聊天页标题——标题是备注优先的，而好友备注与会话备注(G1)都仅本人可见。
+/// 这条曾真的被写错过：把聊天页标题塞进 JSON，收件人拿到的卡片写着「老王 的聊天记录」。
+- (void)testConversationPublicNameNeverCarriesRemark {
+    IMRemarkStore *store = IMRemarkStore.sharedStore;
+    [store applyRemark:@"老王" forUser:@"bob"];
+
+    // 单聊：对外恒为对端真实昵称，与备注无关。
+    XCTAssertEqualObjects(IMConversationPublicName(NO, nil, @"鲍勃", @"bob"), @"鲍勃");
+    // 群聊：对外恒为真实群名（哪怕我给这个群设了会话备注，那也只有我看得见）。
+    XCTAssertEqualObjects(IMConversationPublicName(YES, @"技术群", nil, nil), @"技术群");
+
+    // 昵称缺失时回落 uid / 通用词，仍然不碰备注。
+    XCTAssertEqualObjects(IMConversationPublicName(NO, nil, @"", @"bob"), @"bob");
+    XCTAssertEqualObjects(IMConversationPublicName(NO, nil, nil, nil), @"聊天");
+    XCTAssertEqualObjects(IMConversationPublicName(YES, @"  ", nil, nil), @"群聊");
+
+    // 对照组：同一个人，本机显示名确实是备注——两个口径必须给出不同答案，否则说明又串了。
+    XCTAssertEqualObjects([store displayNameForUser:@"bob" fallback:@"鲍勃"], @"老王");
 }
 
 #pragma mark - 本地缓存落地（冷启动首屏）

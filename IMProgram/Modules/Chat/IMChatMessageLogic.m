@@ -24,3 +24,12 @@ BOOL IMContentTypeCountsAsUnread(NSString *_Nullable contentType) {
     NSString *ct = contentType ?: @"";
     return !([ct isEqualToString:@"system"] || [ct isEqualToString:@"msg_op"]);
 }
+
+NSString *IMConversationPublicName(BOOL isGroup, NSString *groupName, NSString *peerNickname, NSString *peerID) {
+    NSCharacterSet *ws = NSCharacterSet.whitespaceAndNewlineCharacterSet;
+    NSString *name = [(isGroup ? groupName : peerNickname) stringByTrimmingCharactersInSet:ws];
+    if (name.length > 0) { return name; }
+    NSString *uid = [peerID stringByTrimmingCharactersInSet:ws];
+    if (!isGroup && uid.length > 0) { return uid; }
+    return isGroup ? @"群聊" : @"聊天";
+}

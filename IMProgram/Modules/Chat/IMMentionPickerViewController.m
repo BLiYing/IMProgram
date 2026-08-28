@@ -2,6 +2,7 @@
 
 #import "IMMentionPickerViewController.h"
 #import "IMGroupInfo.h"
+#import "IMRemarkStore.h"
 #import "IMTheme.h"
 #import "IMGlass.h"
 #import "IMMediaUtil.h"           // IMMediaFullURL
@@ -82,6 +83,11 @@ static UIColor *IMMentionBaseGroupedBackgroundColor(void) {
 }
 
 /// 成员行。query 非空时把命中段染成主题色（草图 §03-② 的「高亮命中」）。
+///
+/// **主名恒为群内公开名**（群昵称>全局昵称>uid），因为选中后插进消息的 token 就是它——
+/// 主名若显示成我的私有备注，用户会以为发出去的是备注，而群里其他人根本看不到那个名字。
+/// 备注只作为**副标记**「备注: 老王」挂在后面（纯本地，仅我可见），让"搜备注也能搜到"这件事
+/// 有可见的解释——否则搜「老王」蹦出一行叫「王小二」的人，看着像匹配错了。
 - (void)configureWithMember:(IMGroupMember *)m query:(NSString *)query host:(NSString *)host {
     // 不要在这之后动 backgroundColor：im_setAvatarURL 会**立即铺好播种底色 + 首字母**，
     // 再清成 clear 就等于把无头像成员的首字母圈抹掉——白字落在透明底上，那一行看起来是空的
@@ -92,12 +98,19 @@ static UIColor *IMMentionBaseGroupedBackgroundColor(void) {
     NSMutableAttributedString *s = [[NSMutableAttributedString alloc]
         initWithString:name attributes:@{ NSForegroundColorAttributeName: IMTheme.textPrimary,
                                           NSFontAttributeName: [UIFont systemFontOfSize:16] }];
+    NSString *remark = [IMRemarkStore.sharedStore remarkForUser:m.userID];
+    if (remark.length > 0 && ![remark isEqualToString:name]) {
+        NSString *tail = [NSString stringWithFormat:@"  备注: %@", remark];
+        NSAttributedString *sub = [[NSAttributedString alloc] initWithString:tail
+            attributes:@{ NSForegroundColorAttributeName: IMTheme.textSecondary,
+                          NSFontAttributeName: [UIFont systemFontOfSize:12] }];
+        [s appendAttributedString:sub];
+    }
     if (query.length > 0) {
-        NSRange hit = [name rangeOfString:query options:NSCaseInsensitiveSearch];
+        // 在整行（含备注副标记）里找命中段：命中备注时也要染色，否则用户看不出这行为何被匹配上。
+        NSRange hit = [s.string rangeOfString:query options:NSCaseInsensitiveSearch];
         if (hit.location != NSNotFound) {
-            [s addAttributes:@{ NSForegroundColorAttributeName: IMTheme.accent,
-                                NSFontAttributeName: [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold] }
-                       range:hit];
+            [s addAttribute:NSForegroundColorAttributeName value:IMTheme.accent range:hit];
         }
     }
     _name.attributedText = s;
@@ -387,14 +400,19 @@ static const NSInteger kIMMentionInlineMaxVisibleRows = 4;
 
 #pragma mark - 过滤
 
-/// 按昵称/uid 子串匹配（大小写不敏感）。空 query 返回全部。
+/// 按昵称/**我给他起的备注**/uid 子串匹配（大小写不敏感）。空 query 返回全部。
 /// 说明：拼音首字母匹配需额外索引，本期先做子串——中文昵称直接键入汉字即可命中。
+///
+/// 备注参与**匹配**但不参与**插入**：选中后填进消息的 token 仍是群内公开名（见 configureWithMember:），
+/// 备注仅本人可见，写进消息就发给全群了。
 - (NSArray<IMGroupMember *> *)membersMatching:(NSString *)query {
     NSString *q = [query stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
     if (q.length == 0) { return _all; }
     NSMutableArray<IMGroupMember *> *out = [NSMutableArray array];
     for (IMGroupMember *m in _all) {
+        NSString *remark = [IMRemarkStore.sharedStore remarkForUser:m.userID];
         if ([m.displayName rangeOfString:q options:NSCaseInsensitiveSearch].location != NSNotFound ||
+            (remark.length > 0 && [remark rangeOfString:q options:NSCaseInsensitiveSearch].location != NSNotFound) ||
             [m.userID rangeOfString:q options:NSCaseInsensitiveSearch].location != NSNotFound) {
             [out addObject:m];
         }

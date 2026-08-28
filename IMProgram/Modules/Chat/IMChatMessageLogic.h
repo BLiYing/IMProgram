@@ -19,4 +19,16 @@ FOUNDATION_EXPORT BOOL IMChatTextContainsMentionToken(NSString *_Nullable text, 
 /// 否则分割线会落在不计数的行上、与角标数字对不上。
 FOUNDATION_EXPORT BOOL IMContentTypeCountsAsUnread(NSString *_Nullable contentType);
 
+/// 会话的**对外可见名**——会被写进发出去的消息内容（当前：合并转发 chat_record 的标题 `t` 与
+/// 单聊条目名 `n`）的场合必须用它，**绝不能用聊天页标题**。
+///
+/// 为什么单列一个口径：聊天页标题走的是"备注优先"（好友备注 / 会话备注 G1），而这两种备注都
+/// **仅本人可见**。把标题塞进合并转发 JSON，等于把"我给他起的私房名"随消息发给了收件人——
+/// 收件人看到的卡片会写着「老王 的聊天记录」。故对外一律回落到双方都认的公开名：
+/// 群聊=真实群名，单聊=对端昵称；都缺则 uid / 「聊天」。
+FOUNDATION_EXPORT NSString *IMConversationPublicName(BOOL isGroup,
+                                                     NSString *_Nullable groupName,
+                                                     NSString *_Nullable peerNickname,
+                                                     NSString *_Nullable peerID);
+
 NS_ASSUME_NONNULL_END
