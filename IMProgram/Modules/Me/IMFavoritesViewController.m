@@ -735,8 +735,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
 /// 来源分组显示名（会话备注>群名/对端昵称>id；「我的」桶=「我」）——rebuildGroups 与非媒体行「来自X」共用。
 - (NSString *)displayNameForGroupKey:(NSString *)key conversation:(IMConversation *)c {
     if ([key isEqualToString:kIMFavoritesMeBucket]) { return @"我"; }
-    if (c.isGroup) { return c.remark.length ? c.remark : (c.name.length ? c.name : @"群聊"); }
-    if (c) { return c.remark.length ? c.remark : (c.peerNickname.length ? c.peerNickname : (c.peer ?: key)); }
+    if (c) { return c.displayName; } // 会话备注 > 群名 / 好友备注 > 昵称 > uid
     return key; // 会话不在本地缓存：显 id 兜底
 }
 
@@ -748,7 +747,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     if ([from isEqualToString:_selfUID]) { return @"我"; }
     NSString *convID = [f[@"source_conv_id"] isKindOfClass:NSString.class] ? f[@"source_conv_id"] : @"";
     IMConversation *c = _convByID[convID];
-    if (c && !c.isGroup && [c.peer isEqualToString:from]) { return c.peerNickname.length ? c.peerNickname : from; } // 单聊：含备注
+    if (c && !c.isGroup && [c.peer isEqualToString:from]) { return c.displayName; } // 单聊：备注 > 昵称 > uid
     for (IMGroupMember *mem in _groupByID[convID].members) { if ([mem.userID isEqualToString:from]) { return mem.displayName; } } // 群昵称→全局→uid
     IMUserCard *fr = _friendByID[from];
     if (fr) { return fr.displayName; } // 好友兜底

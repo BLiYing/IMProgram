@@ -35,7 +35,7 @@
         self.title = self.convRemark.length > 0 ? self.convRemark
                    : (self.groupName.length > 0 ? self.groupName : @"群聊");
     } else {
-        self.title = self.peerNickname.length ? self.peerNickname : self.peerID;
+        self.title = [self peerDisplayName]; // 好友备注 > 昵称 > uid
     }
     [self refreshUnifiedNavigationBar];
 }

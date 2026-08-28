@@ -118,6 +118,14 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
                        peerID:(NSString *)peerID
                    completion:(void (^)(NSError *_Nullable error))completion;
 
+/// 设置好友备注名（POST /api/v1/friends/remark，仅本人可见、多端同步）。留空即清除。
+/// 服务端上限 32 字（超出回 100001）、非好友回 200103；error 保留业务码（读 error.code 分支）。
+/// 成功后服务端会给**本人其它在线设备**推 friend(event=remark) 帧，本端自己做乐观更新。
+- (void)setFriendRemarkWithToken:(NSString *)token
+                          peerID:(NSString *)peerID
+                          remark:(NSString *)remark
+                      completion:(void (^)(NSError *_Nullable error))completion;
+
 /// 删除好友（DELETE /api/v1/friends/{peerID}）。completion 在主线程回调。
 - (void)removeFriendWithToken:(NSString *)token
                        peerID:(NSString *)peerID

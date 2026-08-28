@@ -9,6 +9,7 @@
 #import "IMDeviceIdentity.h"
 #import "IMHTTPLogFormatter.h"
 #import "IMLog.h"
+#import "IMRemarkStore.h"
 
 static NSString * const kIMHTTPErrorDomain = @"IMHTTPService";
 static NSString * const kIMRequestIDHeader = @"X-Request-ID";
@@ -247,7 +248,13 @@ BOOL IMIsTransientNetworkError(NSError *error) {
                     completion:(void (^)(NSArray<IMConversation *> *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/conversations" method:@"GET" token:token body:nil];
     [self runDataRequest:req fallback:@"拉取会话失败" completion:^(NSDictionary *data, NSError *error) {
-        completion(error ? nil : [IMConversation conversationsFromArray:data[@"conversations"]], error);
+        if (error) { completion(nil, error); return; }
+        NSArray<IMConversation *> *convs = [IMConversation conversationsFromArray:data[@"conversations"]];
+        // 备注名喂进全局缓存放在这一层（而非各调用方）：会话列表/转发选择/详情页都走这个方法，
+        // 逐个 VC 去 ingest 早晚漏一个，漏了那页就显真实昵称、与别处不一致。
+        // peer_remark 只覆盖出现过的对端（会话列表不是好友全集），故非权威全集。
+        [IMRemarkStore.sharedStore ingestConversations:convs];
+        completion(convs, nil);
     }];
 }
 
@@ -297,9 +304,15 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     if (status.length > 0) {
         path = [path stringByAppendingFormat:@"?status=%@", status];
     }
+    // 不带 status（全部）/ accepted 才是"能有备注的关系"的全集，可用于清扫本地已被清空的备注；
+    // blocked/pending 等是子集，只补不清（否则会把其他好友的备注误清空）。
+    BOOL authoritative = (status.length == 0 || [status isEqualToString:@"accepted"]);
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
     [self runDataRequest:req fallback:@"拉取好友失败" completion:^(NSDictionary *data, NSError *error) {
-        completion(error ? nil : [IMUserCard cardsFromArray:data[@"friends"]], error);
+        if (error) { completion(nil, error); return; }
+        NSArray<IMUserCard *> *friends = [IMUserCard cardsFromArray:data[@"friends"]];
+        [IMRemarkStore.sharedStore ingestFriends:friends authoritative:authoritative];
+        completion(friends, nil);
     }];
 }
 
@@ -632,6 +645,13 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     NSString *path = [NSString stringWithFormat:@"/api/v1/conversations/%@/settings", [self pathEscape:convID]];
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
     [self runDataRequest:req fallback:@"拉取会话设置失败" completion:completion];
+}
+
+- (void)setFriendRemarkWithToken:(NSString *)token peerID:(NSString *)peerID remark:(NSString *)remark
+                      completion:(void (^)(NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/friends/remark" method:@"POST" token:token
+        body:@{ @"user_id": peerID ?: @"", @"remark": remark ?: @"" }];
+    [self runOKRequest:req fallback:@"保存备注失败" completion:completion];
 }
 
 - (void)setConversationRemarkWithToken:(NSString *)token convID:(NSString *)convID remark:(NSString *)remark

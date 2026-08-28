@@ -1,7 +1,9 @@
 //  IMConversation.m
 
 #import "IMConversation.h"
+
 #import "IMPresence.h"
+#import "IMRemarkStore.h"
 
 /// JSON 布尔的严格解析：**只认 NSNumber**（JSON 的 true/false/1/0 都落成 NSNumber）。
 ///
@@ -35,6 +37,7 @@ static BOOL IMBoolFromJSON(id value) {
     c.peer = [self stringForKey:@"peer" in:dict];
     c.peerNickname = [self stringForKey:@"peer_nickname" in:dict];
     c.peerAvatarURL = [self stringForKey:@"peer_avatar_url" in:dict];
+    c.peerRemark = [self stringForKey:@"peer_remark" in:dict]; // 好友备注（仅本人可见）；非空替代对端昵称
     // 单聊对端在线态快照（peer_presence/peer_online_until/peer_last_seen）；群聊/老响应无这些键 → nil，不显绿点。
     if (!c.isGroup && dict[@"peer_presence"]) {
         c.peerPresence = [IMPresence presenceFromConversationDictionary:dict];
@@ -62,6 +65,21 @@ static BOOL IMBoolFromJSON(id value) {
         c.timestamp = [last[@"timestamp"] respondsToSelector:@selector(longLongValue)] ? [last[@"timestamp"] longLongValue] : 0;
     }
     return c;
+}
+
+- (NSString *)displayName {
+    NSCharacterSet *ws = NSCharacterSet.whitespaceAndNewlineCharacterSet;
+    NSString *convRemark = [self.remark stringByTrimmingCharactersInSet:ws];
+    if (convRemark.length > 0) { return convRemark; } // 会话备注（G1）最"就近"，群/单聊通用
+    if (self.isGroup) {
+        NSString *name = [self.name stringByTrimmingCharactersInSet:ws];
+        return name.length > 0 ? name : @"群聊";
+    }
+    // 好友备注取 IMRemarkStore 的实时值而非本对象快照：列表对象常比"刚改完的备注"旧一拍，
+    // 读快照会闪回旧名。store 未被喂过该 uid 时回退昵称（宁可显真名，不显过期备注）。
+    NSString *nick = [self.peerNickname stringByTrimmingCharactersInSet:ws];
+    return [IMRemarkStore.sharedStore displayNameForUser:self.peer
+                                                fallback:(nick.length > 0 ? nick : self.peer)];
 }
 
 + (NSString *)stringForKey:(NSString *)key in:(NSDictionary *)dict {

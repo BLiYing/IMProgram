@@ -10,6 +10,7 @@
 #import "IMSocketManager.h"
 #import "IMDatabase.h"
 #import "IMConversation.h"
+#import "IMRemarkStore.h"
 #import "IMMenuAction.h"
 #import "IMAnimator.h"
 #import "UIViewController+IMToast.h"
@@ -262,7 +263,7 @@ static CGFloat const kIMRowLeading = 16;
             _last.text = @"（无消息）";
         }
     } else {
-        NSString *display = c.peerNickname.length ? c.peerNickname : c.peer; // 显示名/首字母与通讯录一致
+        NSString *display = c.displayName; // 备注名 > 昵称 > uid（与通讯录/聊天页标题同一口径）
         // 对端头像同理补 host（data:/http 原样返回，相对路径补全）。
         [_avatar im_setAvatarURL:IMMediaFullURL(c.peerAvatarURL, host) seed:c.peer displayName:display]; // 有头像渲图，否则首字母圈
         _name.text = display;
@@ -477,6 +478,9 @@ static CGFloat const kIMRowLeading = 16;
     // 连接状态变化 → 标题显示 连接中/未连接（取代"任何失败都弹框"）。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketState:)
                                                name:IMSocketDidChangeStateNotification object:nil];
+    // 好友备注名变更（本机详情页改 / 其它设备改）→ 单聊行显示名就地刷新。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onRemarkChanged)
+                                               name:IMRemarkStoreDidChangeNotification object:nil];
     // presence 帧 → 就地点亮/更新对应单聊行的在线绿点（对端上线即时可见，不必等重拉 /conversations）。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onPresenceChanged:)
                                                name:IMSocketDidReceivePresenceNotification object:nil];
@@ -501,6 +505,7 @@ static CGFloat const kIMRowLeading = 16;
                                    IMSocketDidReceiveGroupEventNotification, IMSocketDidUpdateConversationNotification,
                                    IMSocketDidApplyMsgOpNotification, IMSocketDidRemoveMessageNotification,
                                    IMSocketDidChangeStateNotification, IMSocketDidReceivePresenceNotification,
+                                   IMRemarkStoreDidChangeNotification,
                                    IMMediaSendProgressDidChangeNotification, IMMediaSendMetaDidChangeNotification,
                                    IMMediaSendDidDispatchNotification, IMMediaSendDidFailNotification,
                                    IMMediaSendDidCancelNotification]) {
@@ -562,6 +567,12 @@ static CGFloat const kIMRowLeading = 16;
 }
 
 /// 收到新消息（任意会话）→ 节流刷新列表（合并连发的多条，避免每条都拉一次）。
+/// 备注名变更 → 只重绘（displayName 读 IMRemarkStore，本地数据已最新；排序不按名字，无需重排）。
+/// 刻意不走 onSocketMessage: 的读库 + 0.4s 网络 reload：备注是纯本地显示变更，不该触发拉列表。
+- (void)onRemarkChanged {
+    [self.tableView reloadData];
+}
+
 - (void)onSocketMessage:(NSNotification *)note {
     // 消息已在 SQLite 事务内同步了会话摘要。此前每来一条都**同步读库 + 全量 reloadData**——群消息/
     // 批量接收时会反复阻塞主线程做磁盘 SELECT 并整表重建，肉眼可见卡顿。改为节流：一次消息风暴只做

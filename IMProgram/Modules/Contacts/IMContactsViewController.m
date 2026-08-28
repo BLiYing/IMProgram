@@ -10,6 +10,7 @@
 #import "IMSocketManager.h"
 #import "IMReconnectReloader.h"
 #import "IMUserCard.h"
+#import "IMRemarkStore.h"
 #import "IMDatabase.h"
 #import "IMMenuAction.h"
 #import "IMAnimator.h"
@@ -109,6 +110,10 @@
         // 实时好友事件：即使没在通讯录页，也据此刷新（Tab 角标随之亮/灭，无需切页）。
         [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onFriendEvent)
                                                    name:IMSocketDidReceiveFriendEventNotification object:nil];
+        // 备注名变更（本机详情页改 / 其它设备改）：显示名与首字母分组都会变，就地重排即可，
+        // 不必回服务端——displayName 读的是 IMRemarkStore，本地数据已是最新。
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onRemarkChanged)
+                                                   name:IMRemarkStoreDidChangeNotification object:nil];
         // 重连即取权威资料（断网期间看的是缓存种子）。仅可见时刷新，避免离屏空跑登录+HTTP。
         __weak typeof(self) ws = self;
         _reconnectReloader = [[IMReconnectReloader alloc] initWithReloadBlock:^{ [ws reload]; }];
@@ -133,6 +138,12 @@
 }
 
 /// 收到好友事件 → 节流刷新（合并连发，避免每帧一次登录+拉取）。
+/// 备注名变更 → 按新显示名重排分桶并刷新（纯本地，零请求）。
+- (void)onRemarkChanged {
+    self.friendIndex = [[IMContactSectionIndex alloc] initWithCards:self.accepted];
+    [self.tableView reloadData];
+}
+
 - (void)onFriendEvent {
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(reload) object:nil];
     [self performSelector:@selector(reload) withObject:nil afterDelay:0.3];
@@ -265,7 +276,7 @@
     IMChatDetailViewController *detail =
         [[IMChatDetailViewController alloc] initSingleWithHost:self.host userID:self.userID
                                                         peerID:card.userID
-                                                  peerNickname:card.displayName
+                                                  peerNickname:card.nickname // 真实昵称；备注由 IMRemarkStore 供给
                                                  peerAvatarURL:card.avatarURL];
     detail.showsMessagePill = YES; // 通讯录进资料页：提供「消息」入口发起单聊
     [self.navigationController pushViewController:detail animated:YES];

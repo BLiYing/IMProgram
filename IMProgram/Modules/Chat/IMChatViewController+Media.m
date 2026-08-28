@@ -309,10 +309,10 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     return acts;
 }
 
-/// 媒体查看器/媒体库顶部标题（会话名）：单聊=对方昵称/uid，群聊=群名。
+/// 媒体查看器/媒体库顶部标题（会话名）：单聊=备注名/昵称/uid，群聊=群名。
 - (NSString *)conversationDisplayTitle {
     if (self.isGroupChat) { return self.groupName.length > 0 ? self.groupName : @"群聊"; }
-    return self.peerNickname.length > 0 ? self.peerNickname : self.peerID;
+    return [self peerDisplayName];
 }
 
 /// 会话媒体库：汇总当前会话所有图片/视频消息，按时间序展示，点击复用同一查看器。

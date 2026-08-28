@@ -15,6 +15,7 @@
 #import "IMConversation.h"
 #import "IMGroupInfo.h"
 #import "IMUserCard.h"
+#import "IMRemarkStore.h"
 #import "IMGroupManageViewController.h"
 #import "IMGroupTextViewController.h"
 #import "IMQRCardViewController.h"
@@ -262,35 +263,75 @@
     }];
 }
 
+/// 好友备注名长度上限（Unicode 码点），与服务端 friend.MaxRemarkRunes 对齐。
+static NSInteger const kIMFriendRemarkMaxRunes = 32;
+
+/// 按 Unicode 码点数长度（与 Go 的 len([]rune(s)) 同口径）：NSString 是 UTF-16 存储，
+/// 一个增补平面字符（emoji 等）占两个单元，跳过低代理项即得码点数。
+static NSInteger IMRuneCount(NSString *s) {
+    NSInteger n = 0;
+    for (NSUInteger i = 0; i < s.length; i++) {
+        if (!CFStringIsSurrogateLowCharacter([s characterAtIndex:i])) { n++; }
+    }
+    return n;
+}
+
+/// 好友备注名（仅本人可见）：**服务端多端同步**（POST /friends/remark，存 im_friend.remark）。
+/// 2026-08-28 从本地 NSUserDefaults 改到服务端——旧实现只有本页读得到，会话列表/通讯录/选人页
+/// 全都还显真实昵称，换台设备更是完全看不到。成功后本端乐观刷新 + 落缓存，服务端把
+/// friend(event=remark) 帧推给本人其它设备；本机各页由 IMRemarkStore 的变更通知刷新。
 - (void)editRemark {
-    // 单聊备注名：本地私有（NSUserDefaults，未签名装机 Keychain 不可用），仅自己可见，替代显示名。
+    if (self.peerID.length == 0) { return; }
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"设置备注名"
-        message:@"备注名仅自己可见，将替代对方昵称显示。" preferredStyle:UIAlertControllerStyleAlert];
-    NSString *current = self.displayTitle;
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) { tf.text = current; }];
+        message:@"备注名仅自己可见，将替代对方昵称显示，多端同步。" preferredStyle:UIAlertControllerStyleAlert];
+    NSString *current = self.peerRemark ?: @"";
+    NSString *placeholder = self.peerNickname.length ? self.peerNickname : (self.peerID ?: @"");
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) { tf.text = current; tf.placeholder = placeholder; }];
     __weak typeof(self) ws = self;
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [alert addAction:[UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
-        NSString *v = [alert.textFields.firstObject.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        NSString *v = [alert.textFields.firstObject.text
+                       stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] ?: @"";
+        if ([v isEqualToString:current]) { return; } // 没改就别打服务端（清空也走这里：""=="" 直接返回）
         __strong typeof(ws) self = ws;
-        if (!self || v.length == 0) { return; }
-        [NSUserDefaults.standardUserDefaults setObject:v forKey:[self remarkKey]];
-        self.peerNickname = v;
-        [self.avatarView setAvatarURL:[self headerAvatarURL] seed:(self.peerID ?: @"") name:v];
-        [self refreshHeaderTexts];
-        [self.tableView reloadData];
-        [self im_showToast:@"备注已更新"];
+        if (!self) { return; }
+        // 与服务端 friend.MaxRemarkRunes（32）对齐：本地先拦，省一次注定 100001 的往返。
+        // 按 Unicode 码点数，与服务端 len([]rune(..)) 同口径——NSString.length 是 UTF-16 单元数，
+        // 一个 emoji 占 2，用它会把「32 字」提前拦成 16 个 emoji。
+        if (IMRuneCount(v) > kIMFriendRemarkMaxRunes) {
+            [self im_showToast:[NSString stringWithFormat:@"备注名最多 %ld 字", (long)kIMFriendRemarkMaxRunes]];
+            return;
+        }
+        NSString *token = IMHTTPService.sharedService.currentToken;
+        if (token.length == 0) { [self im_showToast:@"未登录"]; return; }
+        NSString *peerID = self.peerID;
+        [IMHTTPService.sharedService setFriendRemarkWithToken:token peerID:peerID remark:v
+                                                  completion:^(NSError *error) {
+            __strong typeof(ws) self = ws;
+            if (!self) { return; }
+            // 业务码文案已在 IMHTTPService 按码映射（如 200103 →「对方不是你的好友」），直接透出。
+            if (error) { [self im_showToast:error.localizedDescription ?: @"保存失败"]; return; }
+            IMLog(@"好友备注已更新 peer=%@ len=%lu", peerID, (unsigned long)v.length);
+            self.peerRemark = v.length ? v : nil;
+            // 乐观落缓存 + 更新全局显示名：本机各页当场跟着变。服务端那帧也会回到本端，
+            // 但那是一个网络往返之后的事，等它标题会明显滞后一拍。
+            [self performDatabaseOperation:^(IMDatabase *database) {
+                [database applyCachedRemark:v forPeer:peerID];
+            }];
+            [IMRemarkStore.sharedStore applyRemark:v forUser:peerID];
+            [self refreshHeaderTexts];
+            [self.tableView reloadData];
+            [self im_showToast:v.length ? @"备注已更新" : @"备注已清除"];
+        }];
     }]];
     [self presentViewController:alert animated:YES completion:nil];
 }
-- (NSString *)remarkKey { return [NSString stringWithFormat:@"im_remark_%@_%@", self.userID, self.peerID]; }
 
 #pragma mark - 群昵称 / 群备注（G1）
 
-/// 群备注本地键（仅本人可见；沿用单聊备注的本地存储范式，keyed by convID）。
-/// 说明：后端已有会话级 remark 字段（随 conv_update 多端同步），iOS 现用本地存储，多端同步为后续项。
-/// 群备注（G1，仅本人可见）：改为服务端多端同步（旧版本地 NSUserDefaults 已弃用）。值由 loadConversationSettings
-/// 从 GET …/settings 读入 self.convRemark，编辑走 PUT …/remark，变更经 conv_update 同步全端。
+/// 会话备注（G1，仅本人可见、多端同步）：值由 loadConversationSettings 从 GET …/settings 读入
+/// self.convRemark，编辑走 PUT …/remark，变更经 conv_update 同步全端。
+/// 与上面的**好友备注**（POST /friends/remark，跟人走、通讯录也变）是两件事，别混。
 - (NSString *)currentConvRemark { return self.convRemark ?: @""; }
 
 /// 我在本群的昵称（G1，任意成员）：走后端 → 成功后刷新群资料（气泡回退名随之更新）。

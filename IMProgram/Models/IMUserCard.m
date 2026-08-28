@@ -2,6 +2,8 @@
 
 #import "IMUserCard.h"
 
+#import "IMRemarkStore.h"
+
 IMFriendStatus IMFriendStatusFromString(NSString *s) {
     if ([s isEqualToString:@"requested"]) { return IMFriendStatusRequested; }
     if ([s isEqualToString:@"pending"])   { return IMFriendStatusPending; }
@@ -26,6 +28,7 @@ IMFriendStatus IMFriendStatusFromString(NSString *s) {
     IMUserCard *c = [IMUserCard new];
     c.userID = [self stringForKey:@"user_id" in:dict];
     c.nickname = [self stringForKey:@"nickname" in:dict];
+    c.remark = [self stringForKey:@"remark" in:dict]; // 好友列表 / 资料卡带；找人结果无此键 → 空串
     c.avatarURL = [self stringForKey:@"avatar_url" in:dict];
     c.phone = [self stringForKey:@"phone" in:dict];
     c.status = IMFriendStatusFromString([self stringForKey:@"status" in:dict]);
@@ -45,8 +48,12 @@ IMFriendStatus IMFriendStatusFromString(NSString *s) {
 }
 
 - (NSString *)displayName {
+    // 备注取 IMRemarkStore 的实时值而非本对象的 remark 快照：列表里的卡片常比"刚改完的备注"旧
+    // 一拍，读快照会闪回旧名；store 没见过该 uid（如陌生人搜索结果）时回退昵称。
+    // self.remark 的职责是把服务端值**喂进** store（见 IMRemarkStore.ingestFriends:）。
     NSString *nick = [self.nickname stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    return nick.length > 0 ? nick : self.userID;
+    return [IMRemarkStore.sharedStore displayNameForUser:self.userID
+                                                fallback:(nick.length > 0 ? nick : self.userID)];
 }
 
 + (NSString *)stringForKey:(NSString *)key in:(NSDictionary *)dict {

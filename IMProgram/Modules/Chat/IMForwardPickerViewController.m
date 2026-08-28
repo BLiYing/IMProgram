@@ -70,8 +70,7 @@ static const NSUInteger kIMForwardMaxSelection = 9;
 /// im_setAvatarURL 内部自动解析相对 URL 并做 cell 复用防错，故直接传原始 avatar_url。
 /// 多选态在行首显圆形勾选框（选中 checkmark.circle.fill / 未选 circle）；单选态收起为 0 宽，avatar 顶到行首。
 - (void)configureWithConversation:(IMConversation *)c multiSelect:(BOOL)multiSelect selected:(BOOL)selected {
-    NSString *name = c.isGroup ? (c.name.length ? c.name : @"群聊")
-                               : (c.peerNickname.length ? c.peerNickname : (c.peer ?: @""));
+    NSString *name = c.displayName; // 群名/会话备注、单聊备注名 > 昵称 > uid（全端统一口径）
     NSString *url = c.isGroup ? c.avatarURL : c.peerAvatarURL;
     NSString *seed = c.isGroup ? (c.convID ?: name) : (c.peer ?: name);
     [_avatar im_setAvatarURL:url seed:seed displayName:name];
@@ -172,10 +171,7 @@ static const NSUInteger kIMForwardMaxSelection = 9;
 
 #pragma mark - 展示
 
-- (NSString *)displayNameFor:(IMConversation *)c {
-    if (c.isGroup) { return c.name.length > 0 ? c.name : @"群聊"; }
-    return c.peerNickname.length > 0 ? c.peerNickname : (c.peer ?: @"");
-}
+- (NSString *)displayNameFor:(IMConversation *)c { return c.displayName; }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return _convs.count; }
 

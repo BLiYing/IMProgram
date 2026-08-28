@@ -7,6 +7,7 @@
 #import "IMDatabase.h"
 #import "IMHTTPService.h"
 #import "IMLog.h"
+#import "IMRemarkStore.h"
 #import "IMTimeUtil.h"
 
 #pragma mark - 调参常量
@@ -344,7 +345,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     } else if ([type isEqualToString:kIMTypePresence]) {
         [self handlePresence:payload];
     } else if ([type isEqualToString:kIMTypeFriend]) {
-        [self handleFriendEvent];
+        [self handleFriendEvent:payload];
     } else if ([type isEqualToString:kIMTypeGroup]) {
         [self handleGroupEvent:payload];
     } else if ([type isEqualToString:kIMTypeMsgOp]) {
@@ -848,7 +849,24 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
 }
 
 /// 收到好友关系变更帧：主线程广播，通讯录刷新（无需切页）。负载仅作语义，收到即刷。
-- (void)handleFriendEvent {
+///
+/// 例外是 event=remark（备注名，服务端只推给**本人其它设备**）：它带 target/remark 全值，
+/// 直接落缓存 + 更新 IMRemarkStore 即可，不必重拉好友列表（重拉也拿不到别人的备注）。
+- (void)handleFriendEvent:(NSDictionary *)data {
+    NSString *event = [data[@"event"] isKindOfClass:[NSString class]] ? data[@"event"] : @"";
+    if ([event isEqualToString:@"remark"]) {
+        NSString *target = [data[@"target"] isKindOfClass:[NSString class]] ? data[@"target"] : @"";
+        // 空串是合法值（=清除备注），故不能用"非空才取"，否则别的设备清备注在本端永远不生效。
+        NSString *remark = [data[@"remark"] isKindOfClass:[NSString class]] ? data[@"remark"] : @"";
+        if (target.length == 0) { return; }
+        [self performDatabaseOperation:^(IMDatabase *database) {
+            [database applyCachedRemark:remark forPeer:target];
+        }];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [IMRemarkStore.sharedStore applyRemark:remark forUser:target]; // 变了才发通知，各页据此刷新
+        });
+        return;
+    }
     dispatch_async(dispatch_get_main_queue(), ^{
         [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidReceiveFriendEventNotification object:self];
     });

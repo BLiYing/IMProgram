@@ -292,6 +292,8 @@
         if (remark.length) { return remark; }
         return self.group.name.length ? self.group.name : (self.groupName.length ? self.groupName : @"群聊");
     }
+    // 单聊：好友备注（仅本人可见）优先于对端昵称——与会话列表/聊天页标题同一口径。
+    if (self.peerRemark.length) { return self.peerRemark; }
     return self.peerNickname.length ? self.peerNickname : (self.peerID ?: @"");
 }
 - (NSString *)displaySubtitle {

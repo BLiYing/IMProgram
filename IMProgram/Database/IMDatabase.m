@@ -7,6 +7,7 @@
 #import "IMUserCard.h"
 #import "IMGroupInfo.h"
 #import "IMLog.h"
+#import "IMRemarkStore.h"
 
 #import <FMDB/FMDB.h>
 
@@ -162,7 +163,7 @@
             @"CREATE TABLE IF NOT EXISTS im_conversation_local ("
              "owner_uid TEXT NOT NULL, conv_id TEXT NOT NULL, sort_order INTEGER NOT NULL,"
              "is_group INTEGER, name TEXT, avatar_url TEXT, member_count INTEGER,"
-             "peer TEXT, peer_nickname TEXT, peer_avatar_url TEXT,"
+             "peer TEXT, peer_nickname TEXT, peer_avatar_url TEXT, peer_remark TEXT NOT NULL DEFAULT '',"
              "last_content TEXT, last_from TEXT, last_from_nickname TEXT,"
              "last_recalled INTEGER, last_content_type TEXT, last_caption TEXT NOT NULL DEFAULT '', latest_conv_seq INTEGER,"
              "read_seq INTEGER, peer_read_seq INTEGER, timestamp INTEGER, unread INTEGER,"
@@ -184,6 +185,13 @@
                 IMLogDatabase(@"迁移失败：im_conversation_local 补列 remark 未成功: %@", db.lastErrorMessage);
             }
         }
+        // 好友备注名（仅本人可见、多端同步）：单聊显示名靠它，必须持久化——否则冷启动首屏
+        // （本地快路）先显真实昵称、等 HTTP 权威列表回来才跳成备注，肉眼可见闪一下。
+        if (![self column:@"peer_remark" existsInTable:@"im_conversation_local" db:db]) {
+            if (![db executeUpdate:@"ALTER TABLE im_conversation_local ADD COLUMN peer_remark TEXT NOT NULL DEFAULT ''"]) {
+                IMLogDatabase(@"迁移失败：im_conversation_local 补列 peer_remark 未成功: %@", db.lastErrorMessage);
+            }
+        }
         // 图说 caption（Telegram 模型）：会话列表预览「有字显字」；老库补列，缺则回退 [图片] 等。
         if (![self column:@"last_caption" existsInTable:@"im_conversation_local" db:db]) {
             if (![db executeUpdate:@"ALTER TABLE im_conversation_local ADD COLUMN last_caption TEXT NOT NULL DEFAULT ''"]) {
@@ -203,8 +211,15 @@
             @"CREATE TABLE IF NOT EXISTS im_friend_local ("
              "owner_uid TEXT NOT NULL, user_id TEXT NOT NULL, sort_order INTEGER NOT NULL,"
              "nickname TEXT, avatar_url TEXT, status INTEGER, blocked INTEGER, updated_at INTEGER,"
+             "remark TEXT NOT NULL DEFAULT '',"
              "PRIMARY KEY(owner_uid,user_id))"];
         if (!ok) { IMLogDatabase(@"好友缓存建表失败: %@", db.lastErrorMessage); }
+        // 好友备注名：通讯录离线首屏也要按备注排/显，故随好友快照一起落地（老库补列）。
+        if (![self column:@"remark" existsInTable:@"im_friend_local" db:db]) {
+            if (![db executeUpdate:@"ALTER TABLE im_friend_local ADD COLUMN remark TEXT NOT NULL DEFAULT ''"]) {
+                IMLogDatabase(@"迁移失败：im_friend_local 补列 remark 未成功: %@", db.lastErrorMessage);
+            }
+        }
         ok = [db executeUpdate:
             @"CREATE TABLE IF NOT EXISTS im_group_local ("
              "owner_uid TEXT NOT NULL, conv_id TEXT NOT NULL, sort_order INTEGER NOT NULL,"
@@ -323,6 +338,7 @@
             c.memberCount = [rs longForColumn:@"member_count"];
             c.peer = [rs stringForColumn:@"peer"] ?: @"";
             c.peerNickname = [rs stringForColumn:@"peer_nickname"];
+            c.peerRemark = [rs stringForColumn:@"peer_remark"];
             c.peerAvatarURL = [rs stringForColumn:@"peer_avatar_url"];
             c.lastContent = [rs stringForColumn:@"last_content"];
             c.lastFrom = [rs stringForColumn:@"last_from"];
@@ -345,6 +361,8 @@
         }
         [rs close];
     }];
+    // 冷启动/离线首屏的显示名也走全局缓存（同 HTTP 路径）；会话行只覆盖有会话的对端，非全集。
+    [IMRemarkStore.sharedStore ingestConversations:out];
     return out;
 }
 
@@ -374,9 +392,9 @@
         [conversations enumerateObjectsUsingBlock:^(IMConversation *c, NSUInteger idx, BOOL *stop) {
             if (c.convID.length == 0) { return; }
             BOOL ok = [db executeUpdate:
-                @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,peer,peer_nickname,peer_avatar_url,last_content,last_from,last_from_nickname,last_recalled,last_content_type,last_caption,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq,synced_conv_seq,remark,mention_unread) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,peer,peer_nickname,peer_avatar_url,peer_remark,last_content,last_from,last_from_nickname,last_recalled,last_content_type,last_caption,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq,synced_conv_seq,remark,mention_unread) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 owner, c.convID, @(idx), @(c.isGroup), c.name ?: @"", c.avatarURL ?: @"",
-                @(c.memberCount), c.peer ?: @"", c.peerNickname ?: @"", c.peerAvatarURL ?: @"",
+                @(c.memberCount), c.peer ?: @"", c.peerNickname ?: @"", c.peerAvatarURL ?: @"", c.peerRemark ?: @"",
                 c.lastContent ?: @"", c.lastFrom ?: @"", c.lastFromNickname ?: @"", @(c.lastRecalled),
                 c.lastContentType ?: @"", c.lastCaption ?: @"", @(c.latestConvSeq), @(c.readSeq), @(c.peerReadSeq),
                 @(c.timestamp), @(c.unread), @(c.pinnedAt), @(c.muted), @(c.markedUnread), @(c.latestConvSeq),
@@ -403,6 +421,7 @@
             IMUserCard *c = [IMUserCard new];
             c.userID = [rs stringForColumn:@"user_id"] ?: @"";
             c.nickname = [rs stringForColumn:@"nickname"] ?: @"";
+            c.remark = [rs stringForColumn:@"remark"] ?: @"";
             c.avatarURL = [rs stringForColumn:@"avatar_url"] ?: @"";
             c.status = (IMFriendStatus)[rs longForColumn:@"status"];
             c.blocked = [rs boolForColumn:@"blocked"];
@@ -411,6 +430,8 @@
         }
         [rs close];
     }];
+    // 冷启动/离线首屏也要有备注名：本地好友快照是全集，直接喂给全局显示名缓存。
+    [IMRemarkStore.sharedStore ingestFriends:out authoritative:YES];
     return out;
 }
 
@@ -424,9 +445,9 @@
         [friends enumerateObjectsUsingBlock:^(IMUserCard *c, NSUInteger idx, BOOL *stop) {
             if (c.userID.length == 0) { return; }
             BOOL ok = [db executeUpdate:
-                @"INSERT INTO im_friend_local (owner_uid,user_id,sort_order,nickname,avatar_url,status,blocked,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+                @"INSERT INTO im_friend_local (owner_uid,user_id,sort_order,nickname,avatar_url,status,blocked,updated_at,remark) VALUES (?,?,?,?,?,?,?,?,?)",
                 owner, c.userID, @(idx), c.nickname ?: @"", c.avatarURL ?: @"",
-                @(c.status), @(c.blocked), @(c.updatedAt)];
+                @(c.status), @(c.blocked), @(c.updatedAt), c.remark ?: @""];
             if (!ok) {
                 IMLogDatabase(@"写入好友缓存失败 owner=%@ uid=%@: %@", owner, c.userID, db.lastErrorMessage);
                 *rollback = YES; *stop = YES;
@@ -811,6 +832,25 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
         if (![db executeUpdate:@"UPDATE im_conversation_local SET remark=? WHERE owner_uid=? AND conv_id=?",
               remark ?: @"", owner, convID]) {
             IMLogDatabase(@"更新本地会话备注失败 owner=%@ conv=%@: %@", owner, convID, db.lastErrorMessage);
+        }
+    }];
+}
+
+/// 好友备注名落缓存：单聊会话行（列表显示名）与好友快照行（通讯录显示名）是两张表，
+/// 同一份备注得同时写，否则两处冷启动会显示不一致的名字。会话行按 peer 定位——
+/// 单聊 conv_id 由双方 uid 拼成，但拼法归 IMConversationID 管，这里不重复该规则。
+- (void)applyCachedRemark:(nullable NSString *)remark forPeer:(NSString *)peerID {
+    if (peerID.length == 0) { return; }
+    NSString *owner = [self ownerUserID];
+    NSString *value = remark ?: @"";
+    [_queue inDatabase:^(FMDatabase *db) {
+        if (![db executeUpdate:@"UPDATE im_conversation_local SET peer_remark=? WHERE owner_uid=? AND peer=?",
+              value, owner, peerID]) {
+            IMLogDatabase(@"更新本地好友备注（会话行）失败 owner=%@ peer=%@: %@", owner, peerID, db.lastErrorMessage);
+        }
+        if (![db executeUpdate:@"UPDATE im_friend_local SET remark=? WHERE owner_uid=? AND user_id=?",
+              value, owner, peerID]) {
+            IMLogDatabase(@"更新本地好友备注（好友行）失败 owner=%@ peer=%@: %@", owner, peerID, db.lastErrorMessage);
         }
     }];
 }

@@ -268,6 +268,8 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 
 // 标题 / 排序（socket 回调广泛调用）：
 - (void)updateTitle;
+/// 单聊显示名：好友备注（仅本人可见）> 对端昵称 > uid。跨 category 共用，勿各自再拼一遍。
+- (NSString *)peerDisplayName;
 - (void)sortMessagesInPlace;
 
 // @提及：面板与发送前的 token 解析（sendTapped 在 +Compose，发送时回调这些解析本条 mentions）：

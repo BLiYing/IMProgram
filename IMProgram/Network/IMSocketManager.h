@@ -16,6 +16,8 @@ NS_ASSUME_NONNULL_BEGIN
 /// 不占用单一 delegate 槽。userInfo[kIMConvIDKey] 为该消息的会话 id。
 extern NSString * const IMSocketDidReceiveMessageNotification;
 /// 收到好友关系变更帧（friend）时广播（主线程）：通讯录据此实时刷新"新的朋友"/好友列表，无需切页。
+/// **不含 event=remark**（备注名多端同步）——那一类不重拉列表，直接更新 IMRemarkStore
+/// 并由 IMRemarkStoreDidChangeNotification 通知各页，见 IMRemarkStore.h。
 extern NSString * const IMSocketDidReceiveFriendEventNotification;
 /// 收到群变更帧（group）时广播（主线程）：会话列表/群资料页据此刷新。
 /// userInfo：kIMConvIDKey=群 conv_id、kIMGroupEventKey=事件、kIMGroupTargetKey=受影响方 uid（可空串）。

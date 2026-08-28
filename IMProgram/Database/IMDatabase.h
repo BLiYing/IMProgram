@@ -94,6 +94,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// 单独把会话备注（G1，仅本人可见）写进本地缓存；与三开关解耦。
 - (void)applyCachedRemarkForConversation:(NSString *)convID remark:(nullable NSString *)remark;
 
+/// 把好友备注名（仅本人可见）写进本地缓存：同时更新该好友的单聊会话行与好友快照行，
+/// 使冷启动首屏（本地快路）直接显备注、不闪真实昵称。remark 传 nil/空串=清除。
+- (void)applyCachedRemark:(nullable NSString *)remark forPeer:(NSString *)peerID;
+
 /// 删除当前账号的一条本地会话摘要（消息记录仍按服务端“仅清会话”语义保留）。
 - (void)deleteCachedConversation:(NSString *)convID;
 

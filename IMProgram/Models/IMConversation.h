@@ -18,6 +18,9 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy) NSString *peer;            // 单聊对端 uid（群聊为空）
 @property (nonatomic, copy, nullable) NSString *peerNickname;  // 对端昵称（显示名/首字母，空回退 uid）
 @property (nonatomic, copy, nullable) NSString *peerAvatarURL; // 对端头像（data:/http，空回退首字母圈）
+/// 我给对端起的好友备注名（仅单聊；仅自己可见，显示优先级高于 peerNickname）。对应后端 peer_remark。
+/// 权威值同时进 IMRemarkStore（跨页统一取显示名的地方），这里保留一份是为了列表能直接渲染。
+@property (nonatomic, copy, nullable) NSString *peerRemark;
 @property (nonatomic, strong, nullable) IMPresence *peerPresence; // 单聊对端在线态快照（列表绿点；群聊为 nil，在线与否按 onlineUntil 实时判）
 @property (nonatomic, copy, nullable) NSString *lastContent;
 @property (nonatomic, copy, nullable) NSString *lastFrom;
@@ -40,6 +43,12 @@ NS_ASSUME_NONNULL_BEGIN
 /// 未读区间内有人 @我（含 @所有人），仅群聊（M4-8）。列表显「[有人@我]」红字前缀，
 /// 且**穿透免打扰**：免打扰群命中时未读数仍显红底、照常计入角标。读过那条 @ 后服务端自动转 NO。
 @property (nonatomic, assign) BOOL mentionUnread;
+
+/// 列表/转发页/搜索页统一显示名：
+/// 群聊 = 会话备注 > 群名 > 「群聊」；单聊 = 会话备注 > 好友备注 > 对端昵称 > 对端 uid。
+/// 会话备注（G1，PUT …/remark）与好友备注（POST /friends/remark）是两件事：前者只改"这个会话"
+/// 的标题（群聊也能用），后者跟人走（通讯录/选人页也变）。同时存在时按会话备注为准——它更"就近"。
+@property (nonatomic, readonly) NSString *displayName;
 
 /// 从 data.conversations 数组解析（脏数据安全）。
 + (NSArray<IMConversation *> *)conversationsFromArray:(nullable NSArray *)array;

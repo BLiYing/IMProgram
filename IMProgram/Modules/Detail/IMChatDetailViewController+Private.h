@@ -50,7 +50,10 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 @property (nonatomic, strong) IMDatabaseAccountContext *databaseContext;
 // 单聊对端
 @property (nonatomic, copy, nullable) NSString *peerID;
-@property (nonatomic, copy, nullable) NSString *peerNickname;
+@property (nonatomic, copy, nullable) NSString *peerNickname; ///< 对端真实昵称（不含备注，备注在 peerRemark）
+/// 我给对端起的备注名（仅本人可见、多端同步）：非空即替代昵称作标题/头像首字母。
+/// 权威值在服务端 im_friend.remark；本页值由 IMRemarkStore 供给（loadPeerBlockState 顺路刷新）。
+@property (nonatomic, copy, nullable) NSString *peerRemark;
 @property (nonatomic, copy, nullable) NSString *peerAvatarURL;
 @property (nonatomic, assign) BOOL peerBlocked;
 // 好友准入（微信式，任务一 P0）：非好友不显示「消息/呼叫/视频」，改显「加好友」。

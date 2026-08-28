@@ -23,6 +23,8 @@ IMFriendStatus IMFriendStatusFromString(NSString *_Nullable s);
 
 @property (nonatomic, copy) NSString *userID;
 @property (nonatomic, copy) NSString *nickname;
+/// 我给他起的备注名（仅自己可见，显示优先级高于 nickname）。好友列表 / 资料卡下发；找人结果为空。
+@property (nonatomic, copy, nullable) NSString *remark;
 @property (nonatomic, copy) NSString *avatarURL;
 @property (nonatomic, copy) NSString *phone;               // 仅本人资料(GET /users/me)有；他人/搜索结果为空
 @property (nonatomic, strong) NSArray<NSString *> *tags;   // 找人结果/本人资料有；好友项为空
@@ -31,7 +33,8 @@ IMFriendStatus IMFriendStatusFromString(NSString *_Nullable s);
 @property (nonatomic, assign) int64_t updatedAt;           // 好友关系更新时间（毫秒）；找人结果 0
 @property (nonatomic, strong) IMPresence *presence;        // 在线态快照；仅 GET /users/{id} 与 /users/me 有，找人/好友列表为空态
 
-/// 展示名：有昵称用昵称，否则回退 uid。
+/// 展示名：备注名 > 昵称 > uid（全端统一口径）。备注取 IMRemarkStore 实时值，不读本对象的
+/// remark 快照——后者只负责把服务端值喂进 store，见 IMRemarkStore.h。
 @property (nonatomic, readonly) NSString *displayName;
 
 /// 从 data.users / data.friends 数组解析（脏数据安全）。

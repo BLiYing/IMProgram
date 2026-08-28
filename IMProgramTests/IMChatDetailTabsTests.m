@@ -13,11 +13,15 @@
 
 @implementation IMChatDetailTabsTests
 
-/// 造一条消息（默认非撤回、有内容）。
+/// 造一条**已上号**的消息（默认非撤回、有内容、convSeq>0 且已送达）。
+/// convSeq/status 必须显式给：2026-08-25 起未确认消息（convSeq<=0 或 sending/failed）不计入
+/// 任何页签（资料页是"归档索引"视角），默认零值的 fixture 会被整体过滤掉、所有断言落空。
 static IMMessageModel *msg(NSString *type, NSString *content) {
     IMMessageModel *m = [IMMessageModel new];
     m.contentType = type;
     m.content = content;
+    m.convSeq = 1;
+    m.status = IMMessageStatusSent;
     return m;
 }
 

@@ -236,7 +236,7 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
 
 - (NSString *)titleForConversation:(IMConversation *)c {
     if (c.isGroup) { return c.name.length > 0 ? c.name : @"群聊"; }
-    return c.peerNickname.length > 0 ? c.peerNickname : (c.peer ?: @"");
+    return c.displayName;
 }
 
 - (void)recomputeForKeyword:(NSString *)kw {
@@ -393,7 +393,7 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
             if (f.userID.length == 0 || [f.userID isEqualToString:_userID]) { return; }
             [IMChatViewController openInNavigationController:self.navigationController host:_host userID:_userID
                                                      peerID:f.userID readSeq:0 unread:0 peerReadSeq:0
-                                               peerNickname:f.displayName peerAvatarURL:f.avatarURL];
+                                               peerNickname:f.nickname peerAvatarURL:f.avatarURL]; // 昵称原值，备注走 IMRemarkStore
             break;
         }
         case IMSearchGroupRecord: {

@@ -18,6 +18,7 @@
 #import "IMConversation.h"
 #import "IMGroupInfo.h"
 #import "IMUserCard.h"
+#import "IMRemarkStore.h"
 
 #import "IMChatViewController.h"
 #import "IMGroupMemberPickerViewController.h"
@@ -69,10 +70,9 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
     self = [super initWithNibName:nil bundle:nil];
     if (self) {
         _host = [host copy]; _userID = [userID copy]; _peerID = [peerID copy];
-        // 本地备注名优先（仅自己可见，替代对端昵称显示）。
-        NSString *remark = [NSUserDefaults.standardUserDefaults stringForKey:
-                            [NSString stringWithFormat:@"im_remark_%@_%@", userID, peerID]];
-        _peerNickname = remark.length ? [remark copy] : [peerNickname copy];
+        _peerNickname = [peerNickname copy];
+        // 备注名（仅自己可见，替代对端昵称显示）：先用全局缓存的值秒显，loadPeerBlockState 再取权威值校正。
+        _peerRemark = [IMRemarkStore.sharedStore remarkForUser:peerID];
         _peerAvatarURL = [peerAvatarURL copy];
         _convID = IMConversationID(userID, peerID);
         IMDatabaseAccountContext *context = IMDatabase.sharedDatabase.currentAccountContext;
@@ -130,12 +130,24 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
                                                    name:IMSocketDidReceiveGroupEventNotification object:nil];
     } else {
         [self loadPeerBlockState];
+        // 备注名多端同步：其它设备改了对这位好友的备注 → 就地刷新标题与「备注名」行。
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onPeerRemarkChanged:)
+                                                   name:IMRemarkStoreDidChangeNotification object:nil];
     }
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onConvUpdate:)
                                                name:IMSocketDidUpdateConversationNotification object:nil];
     // 任务2：消息被物理移除（为所有人删除 / 仅为我删除）→ 重建页签内容（文件列表随之更新）。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onMessageRemoved:)
                                                name:IMSocketDidRemoveMessageNotification object:nil];
+}
+
+/// 备注名变更：只认本页对端（批量刷新无 peerID 键，一律接受）。值以 IMRemarkStore 为准。
+- (void)onPeerRemarkChanged:(NSNotification *)note {
+    NSString *peerID = note.userInfo[kIMRemarkPeerIDKey];
+    if (peerID.length > 0 && ![peerID isEqualToString:self.peerID]) { return; }
+    self.peerRemark = [IMRemarkStore.sharedStore remarkForUser:self.peerID];
+    [self refreshHeaderTexts];
+    [self.tableView reloadData];
 }
 
 - (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
@@ -296,11 +308,13 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
         for (IMUserCard *c in friends) {
             if ([c.userID isEqualToString:self.peerID]) {
                 self.peerBlocked = c.blocked;
+                self.peerRemark = c.remark;
                 isFriend = (c.status == IMFriendStatusAccepted); // 拉黑的好友 status 仍 accepted，故仍算好友
                 break;
             }
         }
         self.peerIsFriend = isFriend;
+        [self refreshHeaderTexts]; // 备注可能变了 → 标题/头像首字母跟着刷
         [self.tableView reloadData]; // 刷新「更多」菜单的 拉黑/取消拉黑 文案 + actions cell 操作排
         if (wasFriend != isFriend) { [self rebuildPillsView]; } // 好友态变化 → 重建 header 悬浮操作排
     }];
@@ -653,7 +667,11 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
 - (UITableViewCell *)infoCell:(UITableView *)tv row:(NSInteger)row {
     UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleSubtitle reuseID:@"dSub" inTable:tv];
     if (row == 0) {
-        cell.textLabel.text = self.displayTitle;
+        // 只显**备注本身**（不是 displayTitle）：这一行是"备注名"的编辑入口，没设过就该显"未设置"，
+        // 否则会把对方昵称显示成"我给他起的备注"，用户点进去还以为已经设过了。
+        BOOL hasRemark = self.peerRemark.length > 0;
+        cell.textLabel.text = hasRemark ? self.peerRemark : @"未设置";
+        cell.textLabel.textColor = hasRemark ? IMTheme.textPrimary : IMTheme.textSecondary;
         cell.textLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightMedium];
         cell.detailTextLabel.text = @"备注名 · 点击修改";
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;

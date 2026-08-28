@@ -17,6 +17,7 @@
 #import "IMSocketManager.h"
 #import "IMHTTPService.h"
 #import "IMConversation.h"
+#import "IMRemarkStore.h"
 #import "IMVideoThumbnailLoader.h"
 #import "IMMediaPlaceholder.h"   // 引用缩略 / 媒体库统一门控取图（真帧>thumb磨砂>图标）
 #import "IMMediaViewerViewController.h"
@@ -280,13 +281,26 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     self.entryUnread = 0;
 }
 
+/// 单聊显示名：好友备注（仅本人可见）> 对端昵称 > uid。与会话列表/通讯录同一口径。
+- (NSString *)peerDisplayName {
+    return [IMRemarkStore.sharedStore displayNameForUser:self.peerID
+                                                fallback:(self.peerNickname.length ? self.peerNickname : self.peerID)];
+}
+
+/// 备注名变更（本端改 / 其它设备改）：只关心本会话对端，其余忽略。批量刷新（无 peerID 键）一律刷。
+- (void)onFriendRemarkChanged:(NSNotification *)note {
+    NSString *peerID = note.userInfo[kIMRemarkPeerIDKey];
+    if (peerID.length > 0 && ![peerID isEqualToString:self.peerID]) { return; }
+    [self refreshDisplayIdentity];
+}
+
 /// 按当前 peer*/group* 值重装标题与右上头像按钮（viewDidLoad 与复用刷新共用同一口径，避免漂移）。
 - (void)refreshDisplayIdentity {
     [self updateTitle];
     if (self.isGroupChat) {
         [self installInfoAvatarButtonWithURL:self.groupAvatarURL seed:self.convID name:self.groupName action:@selector(groupInfoTapped)];
     } else {
-        NSString *name = self.peerNickname.length ? self.peerNickname : self.peerID;
+        NSString *name = [self peerDisplayName];
         [self installInfoAvatarButtonWithURL:self.peerAvatarURL seed:self.peerID name:name action:@selector(singleInfoTapped)];
     }
 }
@@ -347,6 +361,10 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
         // 会话备注多端同步：本人在别处（本机详情页 / 其它端）改备注 → conv_update → 就地刷新标题。
         [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onConvUpdatedForRemark:)
                                                    name:IMSocketDidUpdateConversationNotification object:nil];
+    } else {
+        // 好友备注多端同步：本人在别处（本机详情页 / 其它端）改对端备注 → 就地刷新标题与头像首字母。
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onFriendRemarkChanged:)
+                                                   name:IMRemarkStoreDidChangeNotification object:nil];
     }
     [self setupUI];
     // 系统通知会话（peerID=system）：进页即锁定输入栏（无群资料触发路径）。
