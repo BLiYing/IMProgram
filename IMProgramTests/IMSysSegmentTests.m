@@ -1,6 +1,8 @@
 #import <XCTest/XCTest.h>
 
+#import "IMConversation.h"
 #import "IMDatabase.h"
+#import "IMGroupInfo.h"
 #import "IMMessageModel.h"
 #import "IMRemarkStore.h"
 
@@ -91,6 +93,45 @@
     // 本机渲染时才换成备注（IMSystemCell 用 uid 走 IMRemarkStore 这一步）。
     XCTAssertEqualObjects([IMRemarkStore.sharedStore displayNameForUser:segs[0].uid fallback:segs[0].text], @"老王");
     [IMRemarkStore.sharedStore applyRemark:@"" forUser:@"1002"];
+}
+
+/// 会话列表预览也要按本机显示名渲染系统消息里的名字——否则列表显真名、点进会话显备注，
+/// 同一句话两副面孔（用户实测反馈的正是这条）。
+- (void)testConversationPreviewLocalizesSystemMessageNames {
+    [IMRemarkStore.sharedStore applyRemark:@"二两肉" forUser:@"1002"];
+
+    IMConversation *c = [IMConversation new];
+    c.convID = @"g_1"; c.isGroup = YES; c.name = @"技术群";
+    c.lastContentType = @"system";
+    c.lastContent = @"张三 将 李四 取消管理员身份"; // 服务端拼好的整句（公开昵称）
+    c.lastSysSegments = [IMSysSegment segmentsFromArray:@[
+        @{ @"uid": @"1001", @"text": @"张三" }, @{ @"text": @" 将 " },
+        @{ @"uid": @"1002", @"text": @"李四" }, @{ @"text": @" 取消管理员身份" },
+    ]];
+    XCTAssertEqualObjects(c.lastPreviewText, @"张三 将 二两肉 取消管理员身份");
+
+    // 历史系统消息（无分段）→ 回退整句，名字保持服务端当时的昵称。
+    c.lastSysSegments = nil;
+    XCTAssertEqualObjects(c.lastPreviewText, @"张三 将 李四 取消管理员身份");
+
+    [IMRemarkStore.sharedStore applyRemark:@"" forUser:@"1002"];
+}
+
+/// 群成员的两个名字必须泾渭分明：displayName=群内公开名（会进 @token 等发出去的内容），
+/// localDisplayName=本机显示名（备注优先）。写反就是把私房名发出去。
+- (void)testGroupMemberPublicVsLocalName {
+    IMGroupMember *m = [IMGroupMember new];
+    m.userID = @"1002";
+    m.nickname = @"李四";
+    m.groupNickname = @"群里的李四";
+    XCTAssertEqualObjects(m.displayName, @"群里的李四", @"公开名：群昵称优先，与备注无关");
+    XCTAssertEqualObjects(m.localDisplayName, @"群里的李四", @"没设备注时两者一致");
+
+    [IMRemarkStore.sharedStore applyRemark:@"二两肉" forUser:@"1002"];
+    XCTAssertEqualObjects(m.displayName, @"群里的李四", @"设了备注**也不能**影响公开名");
+    XCTAssertEqualObjects(m.localDisplayName, @"二两肉", @"本机显示名走备注");
+    [IMRemarkStore.sharedStore applyRemark:@"" forUser:@"1002"];
+    XCTAssertEqualObjects(m.localDisplayName, @"群里的李四", @"清除备注后回落公开名");
 }
 
 @end

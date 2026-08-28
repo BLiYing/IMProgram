@@ -2,6 +2,8 @@
 
 #import "IMGroupInfo.h"
 
+#import "IMRemarkStore.h"
+
 IMGroupRole IMGroupRoleFromString(NSString *s) {
     if ([s isEqualToString:@"owner"]) { return IMGroupRoleOwner; }
     if ([s isEqualToString:@"admin"]) { return IMGroupRoleAdmin; }
@@ -36,6 +38,10 @@ static BOOL IMGroupBool(NSDictionary *dict, NSString *key) {
 - (NSString *)displayName {
     if (self.groupNickname.length > 0) { return self.groupNickname; } // 群昵称优先（G1）
     return self.nickname.length > 0 ? self.nickname : self.userID;
+}
+
+- (NSString *)localDisplayName {
+    return [IMRemarkStore.sharedStore displayNameForUser:self.userID fallback:self.displayName];
 }
 
 + (nullable instancetype)memberFromDictionary:(NSDictionary *)dict {

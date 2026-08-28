@@ -4,6 +4,7 @@
 #import <Foundation/Foundation.h>
 
 @class IMPresence;
+@class IMSysSegment;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -24,7 +25,10 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, strong, nullable) IMPresence *peerPresence; // 单聊对端在线态快照（列表绿点；群聊为 nil，在线与否按 onlineUntil 实时判）
 @property (nonatomic, copy, nullable) NSString *lastContent;
 @property (nonatomic, copy, nullable) NSString *lastFrom;
-@property (nonatomic, copy, nullable) NSString *lastFromNickname; // 最后发送者昵称（仅群聊：列表预览"昵称: 内容"）
+@property (nonatomic, copy, nullable) NSString *lastFromNickname; // 最后发送者**公开**昵称（仅群聊：列表预览"昵称: 内容"；显示时经 IMRemarkStore 换成备注）
+/// 最后一条若是系统消息，其结构化分段（同消息流的 sys_segments）。列表预览据此把名字换成本地显示名——
+/// 否则「张三 被取消管理员身份」在列表显真实昵称、点进会话却显备注，同一句话两副面孔。预览不挂点击。
+@property (nonatomic, copy, nullable) NSArray<IMSysSegment *> *lastSysSegments;
 @property (nonatomic, assign) BOOL lastRecalled;      // 最后一条是撤回消息（预览显示"撤回了一条消息"，M4-1）
 @property (nonatomic, copy, nullable) NSString *lastContentType; // 最后一条内容类型（image/video/file → 预览[图片]等，M4-6）
 @property (nonatomic, copy, nullable) NSString *lastCaption;     // 最后一条的图说 caption（Telegram 模型）：列表预览「有字显字」，空则回退 [图片] 等
@@ -49,6 +53,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// 会话备注（G1，PUT …/remark）与好友备注（POST /friends/remark）是两件事：前者只改"这个会话"
 /// 的标题（群聊也能用），后者跟人走（通讯录/选人页也变）。同时存在时按会话备注为准——它更"就近"。
 @property (nonatomic, readonly) NSString *displayName;
+
+/// 最后一条消息在列表里的预览正文。系统消息按 lastSysSegments 逐段拼接、名字换成**本机显示名**
+/// （备注 > 昵称），使列表与聊天页里的同一句话一致；无分段（历史消息/非系统消息）回退 lastContent。
+@property (nonatomic, readonly, nullable) NSString *lastPreviewText;
 
 /// 从 data.conversations 数组解析（脏数据安全）。
 + (NSArray<IMConversation *> *)conversationsFromArray:(nullable NSArray *)array;

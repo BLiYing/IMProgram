@@ -97,7 +97,7 @@ static UIColor *IMReadReceiptCardBackgroundColor(void) {
 
 /// member 为 nil 表示群资料里查不到该 uid（刚退群等），退化为「uid + 首字母圈」。
 - (void)configureWithUID:(NSString *)uid member:(IMGroupMember *)member host:(NSString *)host {
-    NSString *display = member.displayName.length > 0 ? member.displayName : uid;
+    NSString *display = member ? member.localDisplayName : uid; // 备注优先（本机显示）
     [_avatar im_setAvatarURL:IMMediaFullURL(member.avatarURL, host) seed:uid displayName:display];
     _name.text = display;
     NSString *roleText = member.role == IMGroupRoleOwner ? @"群主" : (member.role == IMGroupRoleAdmin ? @"管理员" : nil);

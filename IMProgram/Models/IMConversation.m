@@ -2,6 +2,7 @@
 
 #import "IMConversation.h"
 
+#import "IMMessageModel.h" // IMSysSegment
 #import "IMPresence.h"
 #import "IMRemarkStore.h"
 
@@ -58,6 +59,7 @@ static BOOL IMBoolFromJSON(id value) {
         c.lastContent = [self stringForKey:@"content" in:last];
         c.lastFrom = [self stringForKey:@"from" in:last];
         c.lastFromNickname = [self stringForKey:@"from_nickname" in:last];
+        c.lastSysSegments = [IMSysSegment segmentsFromArray:last[@"sys_segments"]];
         c.lastRecalled = [last[@"recalled_at"] respondsToSelector:@selector(longLongValue)] && [last[@"recalled_at"] longLongValue] > 0;
         c.lastContentType = [self stringForKey:@"content_type" in:last];
         c.lastCaption = [self stringForKey:@"caption" in:last]; // 图说 caption：列表预览「有字显字」
@@ -80,6 +82,16 @@ static BOOL IMBoolFromJSON(id value) {
     NSString *nick = [self.peerNickname stringByTrimmingCharactersInSet:ws];
     return [IMRemarkStore.sharedStore displayNameForUser:self.peer
                                                 fallback:(nick.length > 0 ? nick : self.peer)];
+}
+
+- (NSString *)lastPreviewText {
+    if (self.lastSysSegments.count == 0) { return self.lastContent; }
+    NSMutableString *out = [NSMutableString string];
+    for (IMSysSegment *seg in self.lastSysSegments) {
+        if (seg.uid.length == 0) { [out appendString:seg.text ?: @""]; continue; }
+        [out appendString:[IMRemarkStore.sharedStore displayNameForUser:seg.uid fallback:seg.text]];
+    }
+    return out.length > 0 ? out : self.lastContent;
 }
 
 + (NSString *)stringForKey:(NSString *)key in:(NSDictionary *)dict {

@@ -76,9 +76,11 @@
     if ([senderUID isEqualToString:self.userID]) {
         senderText = @"你自己";
     } else if (self.isGroup) {
-        senderText = [self.group nicknameOfMember:senderUID] ?: senderUID;
+        NSString *nick = [self.group nicknameOfMember:senderUID] ?: senderUID;
+        senderText = [IMRemarkStore.sharedStore displayNameForUser:senderUID fallback:nick]; // 备注优先（本机显示）
     } else {
-        senderText = self.peerNickname.length ? self.peerNickname : senderUID;
+        senderText = [IMRemarkStore.sharedStore displayNameForUser:senderUID
+                                                          fallback:(self.peerNickname.length ? self.peerNickname : senderUID)];
     }
     sender.text = senderText;
     [mini configureWithMessage:m];

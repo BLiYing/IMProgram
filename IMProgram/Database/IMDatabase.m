@@ -11,6 +11,10 @@
 
 #import <FMDB/FMDB.h>
 
+/// 系统消息分段 ↔ TEXT 列的前置声明：cachedConversations / 行→模型映射都在定义之前用到它们。
+static NSString *IMEncodeSysSegments(NSArray<IMSysSegment *> *segments);
+static NSArray<IMSysSegment *> *IMDecodeSysSegments(NSString *raw);
+
 @interface IMDatabase ()
 
 - (BOOL)updateConversationForMessage:(IMMessageModel *)message
@@ -165,7 +169,7 @@
              "owner_uid TEXT NOT NULL, conv_id TEXT NOT NULL, sort_order INTEGER NOT NULL,"
              "is_group INTEGER, name TEXT, avatar_url TEXT, member_count INTEGER,"
              "peer TEXT, peer_nickname TEXT, peer_avatar_url TEXT, peer_remark TEXT NOT NULL DEFAULT '',"
-             "last_content TEXT, last_from TEXT, last_from_nickname TEXT,"
+             "last_content TEXT, last_from TEXT, last_from_nickname TEXT, last_sys_segments TEXT NOT NULL DEFAULT '',"
              "last_recalled INTEGER, last_content_type TEXT, last_caption TEXT NOT NULL DEFAULT '', latest_conv_seq INTEGER,"
              "read_seq INTEGER, peer_read_seq INTEGER, timestamp INTEGER, unread INTEGER,"
              "pinned_at INTEGER, muted INTEGER, marked_unread INTEGER,server_snapshot_seq INTEGER NOT NULL DEFAULT 0,"
@@ -184,6 +188,13 @@
         if (![self column:@"remark" existsInTable:@"im_conversation_local" db:db]) {
             if (![db executeUpdate:@"ALTER TABLE im_conversation_local ADD COLUMN remark TEXT NOT NULL DEFAULT ''"]) {
                 IMLogDatabase(@"迁移失败：im_conversation_local 补列 remark 未成功: %@", db.lastErrorMessage);
+            }
+        }
+        // 系统消息分段（最后一条）：列表预览要按本机显示名渲染名字，冷启动首屏也得一致，否则先显
+        // 真实昵称、等 HTTP 列表回来才跳成备注。
+        if (![self column:@"last_sys_segments" existsInTable:@"im_conversation_local" db:db]) {
+            if (![db executeUpdate:@"ALTER TABLE im_conversation_local ADD COLUMN last_sys_segments TEXT NOT NULL DEFAULT ''"]) {
+                IMLogDatabase(@"迁移失败：im_conversation_local 补列 last_sys_segments 未成功: %@", db.lastErrorMessage);
             }
         }
         // 好友备注名（仅本人可见、多端同步）：单聊显示名靠它，必须持久化——否则冷启动首屏
@@ -344,6 +355,7 @@
             c.lastContent = [rs stringForColumn:@"last_content"];
             c.lastFrom = [rs stringForColumn:@"last_from"];
             c.lastFromNickname = [rs stringForColumn:@"last_from_nickname"];
+            c.lastSysSegments = IMDecodeSysSegments([rs stringForColumn:@"last_sys_segments"]);
             c.lastRecalled = [rs boolForColumn:@"last_recalled"];
             c.lastContentType = [rs stringForColumn:@"last_content_type"];
             c.lastCaption = [rs stringForColumn:@"last_caption"];
@@ -393,10 +405,11 @@
         [conversations enumerateObjectsUsingBlock:^(IMConversation *c, NSUInteger idx, BOOL *stop) {
             if (c.convID.length == 0) { return; }
             BOOL ok = [db executeUpdate:
-                @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,peer,peer_nickname,peer_avatar_url,peer_remark,last_content,last_from,last_from_nickname,last_recalled,last_content_type,last_caption,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq,synced_conv_seq,remark,mention_unread) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,peer,peer_nickname,peer_avatar_url,peer_remark,last_content,last_from,last_from_nickname,last_sys_segments,last_recalled,last_content_type,last_caption,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq,synced_conv_seq,remark,mention_unread) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 owner, c.convID, @(idx), @(c.isGroup), c.name ?: @"", c.avatarURL ?: @"",
                 @(c.memberCount), c.peer ?: @"", c.peerNickname ?: @"", c.peerAvatarURL ?: @"", c.peerRemark ?: @"",
-                c.lastContent ?: @"", c.lastFrom ?: @"", c.lastFromNickname ?: @"", @(c.lastRecalled),
+                c.lastContent ?: @"", c.lastFrom ?: @"", c.lastFromNickname ?: @"",
+                IMEncodeSysSegments(c.lastSysSegments), @(c.lastRecalled),
                 c.lastContentType ?: @"", c.lastCaption ?: @"", @(c.latestConvSeq), @(c.readSeq), @(c.peerReadSeq),
                 @(c.timestamp), @(c.unread), @(c.pinnedAt), @(c.muted), @(c.markedUnread), @(c.latestConvSeq),
                 syncCursors[c.convID] ?: @0, c.remark ?: @"", @(c.mentionUnread)];

@@ -63,8 +63,10 @@
     return self;
 }
 - (void)configureWithMember:(IMGroupMember *)m isMe:(BOOL)isMe {
-    [_avatar im_setAvatarURL:m.avatarURL seed:m.userID displayName:m.displayName];
-    _name.text = isMe ? [NSString stringWithFormat:@"%@（我）", m.displayName] : m.displayName;
+    // 本机显示名（备注优先）：这一列只给我自己看，不进任何要发出去的内容。
+    NSString *shown = m.localDisplayName;
+    [_avatar im_setAvatarURL:m.avatarURL seed:m.userID displayName:shown];
+    _name.text = isMe ? [NSString stringWithFormat:@"%@（我）", shown] : shown;
     _sub.text = m.userID;
     if (m.role == IMGroupRoleOwner) {
         _role.hidden = NO; _role.text = @"群主"; _role.textColor = IMTheme.accent;

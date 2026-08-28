@@ -219,7 +219,10 @@ static CGFloat const kIMRowLeading = 16;
     // 撤回预览（M4-1，后端已脱敏 content）：优先显示"撤回了一条消息"，不加"昵称:"前缀（微信式）。
     NSString *recalledPreview = nil;
     if (c.lastRecalled) {
-        NSString *who = mine ? @"你" : (c.isGroup ? (c.lastFromNickname.length > 0 ? c.lastFromNickname : (c.lastFrom ?: @"")) : @"对方");
+        NSString *who = mine ? @"你"
+            : (c.isGroup ? [IMRemarkStore.sharedStore displayNameForUser:c.lastFrom
+                                                                fallback:(c.lastFromNickname.length > 0 ? c.lastFromNickname : c.lastFrom)]
+                         : @"对方");
         recalledPreview = [NSString stringWithFormat:@"%@撤回了一条消息", who];
     }
     // 富媒体预览（M4-6）：图片/视频/文件显示占位标签而非 URL。群聊里与文本一样带"昵称:"前缀（见下方群分支）。
@@ -254,10 +257,13 @@ static CGFloat const kIMRowLeading = 16;
         _name.text = display;
         if (recalledPreview) {
             _last.text = recalledPreview;   // 撤回：文案已含"谁"，不再加前缀
-        } else if (mediaPreview.length > 0 || c.lastContent.length > 0) {
+        } else if (mediaPreview.length > 0 || c.lastPreviewText.length > 0) {
             // 群聊：文本**与媒体/文件**都带"昵称: "前缀（与 Web 一致）——媒体正文用占位/caption，文本用原文。
-            NSString *who = mine ? @"我" : (c.lastFromNickname.length > 0 ? c.lastFromNickname : (c.lastFrom ?: @""));
-            NSString *body = mediaPreview.length > 0 ? mediaPreview : c.lastContent;
+            // 群预览前缀也按本机显示名（备注 > 公开昵称 > uid）——否则列表显真名、点进去显备注。
+            NSString *who = mine ? @"我"
+                : [IMRemarkStore.sharedStore displayNameForUser:c.lastFrom
+                                                       fallback:(c.lastFromNickname.length > 0 ? c.lastFromNickname : c.lastFrom)];
+            NSString *body = mediaPreview.length > 0 ? mediaPreview : c.lastPreviewText;
             _last.text = who.length > 0 ? [NSString stringWithFormat:@"%@: %@", who, body] : body;
         } else {
             _last.text = @"（无消息）";

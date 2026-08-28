@@ -748,7 +748,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     NSString *convID = [f[@"source_conv_id"] isKindOfClass:NSString.class] ? f[@"source_conv_id"] : @"";
     IMConversation *c = _convByID[convID];
     if (c && !c.isGroup && [c.peer isEqualToString:from]) { return c.displayName; } // 单聊：备注 > 昵称 > uid
-    for (IMGroupMember *mem in _groupByID[convID].members) { if ([mem.userID isEqualToString:from]) { return mem.displayName; } } // 群昵称→全局→uid
+    for (IMGroupMember *mem in _groupByID[convID].members) { if ([mem.userID isEqualToString:from]) { return mem.localDisplayName; } } // 备注→群昵称→全局→uid
     IMUserCard *fr = _friendByID[from];
     if (fr) { return fr.displayName; } // 好友兜底
     return from;

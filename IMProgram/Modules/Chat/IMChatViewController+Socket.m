@@ -3,6 +3,7 @@
 //  → 更新内存模型、落库去重、驱动标题与列表。从 IMChatViewController.m 平移，未改行为。
 
 #import "IMChatViewController+Private.h"
+#import "IMRemarkStore.h"
 #import "IMMessageModel.h"
 #import "IMDatabase.h"
 #import "IMReadReceiptViewController.h"
@@ -49,7 +50,9 @@
             // 群 typing 简化设计：覆盖式记最新一位打字者，副标题固定「{昵称} 正在输入」（不管几人同时打字）。
             // 昵称三级 fallback：群成员表 → uid（协议未下发昵称，页内不做全局用户表反查）。
             NSString *nick = [self.groupInfo nicknameOfMember:self.peerTypingUid];
-            NSString *display = nick.length > 0 ? nick : self.peerTypingUid;
+            // 备注优先（本机显示）：列表/气泡都显备注了，副标题还显真名会显得是另一个人。
+            NSString *display = [IMRemarkStore.sharedStore displayNameForUser:self.peerTypingUid
+                                                                     fallback:(nick.length > 0 ? nick : self.peerTypingUid)];
             return [NSString stringWithFormat:@"%@ 正在输入", display];
         }
         return @"正在输入"; // 单聊对端只有一人，不带名字

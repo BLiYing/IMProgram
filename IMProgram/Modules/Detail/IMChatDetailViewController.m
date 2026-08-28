@@ -1039,7 +1039,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
             rmBan.attributes = UIMenuElementAttributesDestructive;
             [items addObject:rmBan];
         }
-        return [UIMenu menuWithTitle:m.displayName children:items];
+        return [UIMenu menuWithTitle:m.localDisplayName children:items];
     }];
 }
 
@@ -1068,8 +1068,8 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     if (![self canRemoveMember:m]) { return; }
     BOOL forever = [ban isEqualToString:@"forever"];
     NSString *title = forever
-        ? [NSString stringWithFormat:@"移出「%@」并不再允许加入？", m.displayName]
-        : [NSString stringWithFormat:@"移出「%@」？", m.displayName];
+        ? [NSString stringWithFormat:@"移出「%@」并不再允许加入？", m.localDisplayName]
+        : [NSString stringWithFormat:@"移出「%@」？", m.localDisplayName];
     NSString *message = forever
         ? @"该成员将被移出群聊并永久拉黑，无法再次通过邀请或扫码加入本群。"
         : @"该成员将被移出群聊。";
@@ -1099,7 +1099,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
 /// 禁言时长弹窗：10 分钟 / 1 小时 / 1 天 / 永久（与旧 IMGroupInfoViewController 完全对齐）。
 - (void)pickMuteDurationForMember:(IMGroupMember *)m {
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"禁言时长"
-                                                                   message:m.displayName
+                                                                   message:m.localDisplayName
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
     __weak typeof(self) ws = self;
     NSString *target = m.userID;
@@ -1166,7 +1166,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
 
 - (void)confirmTransfer:(IMGroupMember *)member {
     [self confirmDestructive:@"转让群主"
-                     message:[NSString stringWithFormat:@"确定把群主转让给 %@？你将变为普通成员。", member.displayName]
+                     message:[NSString stringWithFormat:@"确定把群主转让给 %@？你将变为普通成员。", member.localDisplayName]
                       action:@"转让" handler:^{
         NSString *token = IMHTTPService.sharedService.currentToken; if (token.length == 0) { return; }
         __weak typeof(self) ws = self;

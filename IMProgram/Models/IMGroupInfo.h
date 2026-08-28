@@ -25,8 +25,12 @@ IMGroupRole IMGroupRoleFromString(NSString *_Nullable s);
 @property (nonatomic, assign) IMGroupRole role;
 @property (nonatomic, assign) int64_t joinedAt;
 @property (nonatomic, assign) int64_t muteUntil;                       ///< 成员级禁言到期毫秒（G2；0=未禁言）
-/// 展示名：**群昵称优先** → 全局昵称 → uid（G1；与后端 from_nickname 下发口径一致）。
+/// **群内公开名**：群昵称优先 → 全局昵称 → uid（G1；与后端 from_nickname 下发口径一致）。
+/// 会被写进要发出去的内容时用它（@提及插入的 token、@昵称 反查、合并转发条目名）——**不含好友备注**。
 @property (nonatomic, readonly) NSString *displayName;
+/// **本机显示名**：我给他起的备注 > 公开名。凡是"给我自己看"的地方（成员列表、已读回执、
+/// 菜单标题、确认文案）都用它；绝不能用在会发出去的内容上，见 docs/UI.md「备注 · 隐私红线」。
+@property (nonatomic, readonly) NSString *localDisplayName;
 @end
 
 /// 群资料 + 成员列表。convID 即群 topic_id（g_xxx），与消息层 conv_id 同名同值。

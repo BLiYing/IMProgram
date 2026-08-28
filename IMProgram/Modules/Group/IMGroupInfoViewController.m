@@ -84,8 +84,9 @@ static CGFloat const kIMMemberAvatarSize = 40;
 }
 
 - (void)configureWithMember:(IMGroupMember *)member isMe:(BOOL)isMe {
-    [_avatar im_setAvatarURL:member.avatarURL seed:member.userID displayName:member.displayName];
-    _name.text = isMe ? [NSString stringWithFormat:@"%@（我）", member.displayName] : member.displayName;
+    NSString *shown = member.localDisplayName; // 备注优先（本机显示）
+    [_avatar im_setAvatarURL:member.avatarURL seed:member.userID displayName:shown];
+    _name.text = isMe ? [NSString stringWithFormat:@"%@（我）", shown] : shown;
     _sub.text = member.userID;
     switch (member.role) {
         case IMGroupRoleOwner:
@@ -312,7 +313,7 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
     BOOL canRemove = iAmOwner || (iAmAdmin && member.role == IMGroupRoleMember);
     if (!iAmOwner && !canRemove) { return; } // member 无任何管理项
 
-    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:member.displayName
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:member.localDisplayName
         message:nil preferredStyle:UIAlertControllerStyleActionSheet];
     __weak typeof(self) weakSelf = self;
     NSString *convID = self.convID;
@@ -399,7 +400,7 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
 
 - (void)confirmTransferTo:(IMGroupMember *)member {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"转让群主"
-        message:[NSString stringWithFormat:@"确定把群主转让给 %@？你将变为普通成员。", member.displayName]
+        message:[NSString stringWithFormat:@"确定把群主转让给 %@？你将变为普通成员。", member.localDisplayName]
         preferredStyle:UIAlertControllerStyleAlert];
     __weak typeof(self) weakSelf = self;
     NSString *convID = self.convID;
