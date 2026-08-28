@@ -221,7 +221,7 @@ static NSInteger const IMTokenInvalid      = 100101;  // token 无效/过期
                     ? self.navigationController.viewControllers[self.navigationController.viewControllers.count - 2] : nil;
                 [self.navigationController popViewControllerAnimated:YES];
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                    [back im_showToast:@"✓ 密码已修改"];
+                    [back im_showToast:@"✓ 密码已修改，其它设备已下线"];
                 });
                 return;
             }
@@ -330,7 +330,7 @@ static NSInteger const IMTokenInvalid      = 100101;  // token 无效/过期
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     if (section == 0) {
-        return @"修改后你的所有其它设备将继续保持登录。如果密码可能被泄露，请前往「已登录设备」逐台下线。";
+        return @"为保护账号安全，修改密码后你在其它设备上的登录会被自动下线，需用新密码重新登录；当前设备保持登录。";
     }
     return nil;
 }
