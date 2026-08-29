@@ -10,6 +10,7 @@
 #import "IMMessageModel.h"
 #import "IMGroupInfo.h"
 #import "IMRemarkStore.h"
+#import "IMProfileEditViewController.h"
 
 @implementation IMChatDetailViewController (Contacts)
 
@@ -48,10 +49,15 @@
 - (void)openProfileForContactMessage:(IMMessageModel *)m {
     IMContactCard *card = IMContactCardParse(m.content);
     if (!card) { return; }
-    // 名片里的人是我自己 → 仍进资料页（主按钮为「编辑资料」，由资料页自判），不特殊处理；
-    // 唯一要避的是在**自己的**资料页上再 push 一个同 uid 的页（无意义的自我嵌套）。
-    if ([card.userID isEqualToString:self.userID] && [self.peerID isEqualToString:self.userID]) { return; }
-    // 先用快照填首屏、进页后再拉 GET /users/{u} 覆盖——与 QR 路由、群成员进资料页完全同路径。
+    // §6 第四分支：名片里的人是我自己 → 进**编辑资料**。此前写成
+    // `card.userID==self.userID && self.peerID==self.userID`，第二个条件几乎恒假、guard 等于失效
+    //（/code-review 2026-08-29）。
+    if ([card.userID isEqualToString:self.userID]) {
+        [self.navigationController pushViewController:
+            [[IMProfileEditViewController alloc] initWithHost:self.host userID:self.userID] animated:YES];
+        return;
+    }
+    // 先用快照填首屏、进页后由 +Peer.m 的 loadPeerProfile 拉 GET /users/{u} 覆盖（404 → 已注销空态）。
     IMChatDetailViewController *vc =
         [[IMChatDetailViewController alloc] initSingleWithHost:self.host userID:self.userID
                                                        peerID:card.userID

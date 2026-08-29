@@ -2,13 +2,14 @@
 //  个人名片发送（加号面板「个人名片」入口 ①）与点卡片进资料页的落点。
 //  单开一个 category 而不是塞进 +Media.m（987 行，体量门禁 1500）——名片与"媒体上传"本就是两件事。
 //
-//  流程：加号面板 → **复用**通用好友多选页 IMGroupMemberPickerViewController（上限 9）
+//  流程：加号面板 → **复用**通用好友多选页 IMFriendPickerViewController（上限 9）
 //        → 卡片式二次确认 sheet（把即将发出的那张卡先给用户看）→ 逐条乐观回显发出。
 //  设计见 docs/CONTACT_CARD_DESIGN.md §4。
 
 #import "IMChatViewController+Private.h"
-#import "IMGroupMemberPickerViewController.h"
+#import "IMFriendPickerViewController.h"
 #import "IMChatDetailViewController.h"
+#import "IMProfileEditViewController.h"
 #import "IMContactCardView.h"
 #import "IMContactCard.h"
 #import "IMUserCard.h"
@@ -23,21 +24,25 @@ static const NSUInteger kIMContactMaxSelection = 9;
 
 #pragma mark - 入口 ①：加号面板「个人名片」
 
+/// **必须 push 而不是 present**：IMFriendPickerViewController「页面自身不关闭，由调用方决定后续导航」
+/// （见其头注释），既有 4 个调用点也全是 push + popToViewController: 收起。
+/// 曾写成模态 present 且 onDone 里不收起 → 随后在同一个 VC 上再 present 确认 sheet，
+/// UIKit 因「已在 presenting」直接拒绝：用户勾完人点「发送」毫无反应、一张名片也发不出去
+/// （/code-review 2026-08-29 抓到，用户实测同样撞上）。
 - (void)openFriendPickerForContactCard {
     __weak typeof(self) ws = self;
-    IMGroupMemberPickerViewController *picker =
-        [[IMGroupMemberPickerViewController alloc] initWithHost:self.host userID:self.userID
-                                                    excludedIDs:nil          // 名片不排除任何人（含自己的好友、含当前会话对端）
-                                                   confirmTitle:@"发送"
-                                                         onDone:^(NSArray<NSString *> *uids) {
+    IMFriendPickerViewController *picker =
+        [[IMFriendPickerViewController alloc] initWithHost:self.host userID:self.userID
+                                               excludedIDs:nil          // 名片不排除任何人（含自己的好友、含当前会话对端）
+                                              confirmTitle:@"发送"
+                                                    onDone:^(NSArray<NSString *> *uids) {
         __strong typeof(ws) self = ws;
         if (!self || uids.count == 0) { return; }
+        [self.navigationController popToViewController:self animated:YES]; // 先收起选人页，确认 sheet 才 present 得出来
         [self prepareContactCardsForUIDs:uids];
     }];
     picker.maxSelection = kIMContactMaxSelection;
-    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:picker];
-    nav.modalPresentationStyle = UIModalPresentationPageSheet;
-    [self presentViewController:nav animated:YES completion:nil];
+    [self.navigationController pushViewController:picker animated:YES];
 }
 
 /// 选中 uid → 拉好友资料补齐昵称/头像 → 弹确认 sheet。
@@ -211,6 +216,14 @@ static const NSUInteger kIMContactMaxSelection = 9;
 /// 名片里的人已注销时资料页显空态，**卡片本身仍显示快照**（历史记录不该凭空变空）。
 - (void)openContactProfileForUID:(NSString *)uid nickname:(NSString *)nickname avatarURL:(NSString *)avatarURL {
     if (uid.length == 0) { return; }
+    // §6 第四分支：名片里的人就是我自己 → 进**编辑资料**，而不是把自己当"对端"开一个单聊资料页
+    //（那个页面有「拉黑」「设置备注」「发消息」，对自己既无意义又危险：拉黑自己会写一条 self→self 黑名单）。
+    // 此前无此判断，/code-review 2026-08-29 抓到；Web 侧对应分支走 openProfile()。
+    if ([uid isEqualToString:self.userID]) {
+        [self.navigationController pushViewController:
+            [[IMProfileEditViewController alloc] initWithHost:self.host userID:self.userID] animated:YES];
+        return;
+    }
     IMChatDetailViewController *vc =
         [[IMChatDetailViewController alloc] initSingleWithHost:self.host userID:self.userID
                                                        peerID:uid

@@ -22,6 +22,7 @@
 #import "IMDetailFileCell.h"
 #import "IMDetailContactCell.h"
 #import "IMChatDetailViewController.h"
+#import "IMProfileEditViewController.h"
 #import "IMContactCard.h"
 #import "IMRemarkStore.h"
 #import "IMFavoriteLinkCell.h"
@@ -812,6 +813,13 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
 - (void)openContactProfileFromContent:(NSString *)content {
     IMContactCard *card = IMContactCardParse(content);
     if (!card) { return; }
+    // §6 第四分支：名片里的人是我自己 → 进编辑资料（与聊天气泡/详情页名片行同一判断）。
+    if ([card.userID isEqualToString:_selfUID]) {
+        [self.navigationController pushViewController:
+            [[IMProfileEditViewController alloc] initWithHost:IMHTTPService.sharedService.host
+                                                       userID:_selfUID] animated:YES];
+        return;
+    }
     IMChatDetailViewController *vc =
         [[IMChatDetailViewController alloc] initSingleWithHost:IMHTTPService.sharedService.host
                                                        userID:_selfUID

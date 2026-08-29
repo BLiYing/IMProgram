@@ -193,12 +193,36 @@
 }
 
 /// 入口 ②：把当前单聊对端做成名片，选会话发出去。
-/// 昵称取 `self.peerNickname`（服务端下发的真实昵称快照），**不是**页面标题——后者是 displayName、
-/// 备注优先，发出去就泄露"我给你起的外号"（设计文档 §2.4）。
+///
+/// 昵称取 `self.peerNickname` 而**不是**页面标题——后者备注优先，发出去就泄露"我给你起的外号"（§2.4）。
+/// 但 `peerNickname` 只有在 `peerProfileLoaded` 为 YES（+Peer.m 拉过权威资料）后才可信：init 传入值
+/// 依入口而异，从群成员行进来是**群昵称**、从找人搜索进来是 nil，两者冻进名片都是错的
+/// （/code-review 2026-08-29）。未加载则先拉一次再弹选会话页。
 - (void)shareThisPeerAsContactCard {
     if (self.peerID.length == 0) { return; }
-    [IMContactShare presentPickerFrom:self selfUID:self.userID userID:self.peerID
-                             nickname:self.peerNickname avatarURL:self.peerAvatarURL];
+    if (self.peerProfileLoaded) {
+        [IMContactShare presentPickerFrom:self selfUID:self.userID userID:self.peerID
+                                 nickname:self.peerNickname avatarURL:self.peerAvatarURL];
+        return;
+    }
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0) { [self im_showToast:@"请先登录"]; return; }
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService userProfileWithToken:token userID:self.peerID
+                                          completion:^(IMUserCard *card, NSError *error) {
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        if (error) {
+            // 200001 用户不存在 → 没有可分享的名片；其余（网络）也不该冻一个可能错的名字进去。
+            [self im_showToast:(error.code == 200001 ? @"该用户不存在或已注销" : @"拉取资料失败，请重试")];
+            return;
+        }
+        self.peerNickname = card.nickname.length ? card.nickname : self.peerNickname;
+        self.peerAvatarURL = card.avatarURL.length ? card.avatarURL : self.peerAvatarURL;
+        self.peerProfileLoaded = YES;
+        [IMContactShare presentPickerFrom:self selfUID:self.userID userID:self.peerID
+                                 nickname:self.peerNickname avatarURL:self.peerAvatarURL];
+    }];
 }
 
 - (void)confirmDissolve {

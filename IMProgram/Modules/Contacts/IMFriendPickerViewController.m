@@ -1,6 +1,6 @@
-//  IMGroupMemberPickerViewController.m
+//  IMFriendPickerViewController.m
 
-#import "IMGroupMemberPickerViewController.h"
+#import "IMFriendPickerViewController.h"
 #import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
 #import "IMContactCells.h"
 #import "IMContactSectionIndex.h"
@@ -10,7 +10,7 @@
 #import "IMTheme.h"
 #import "IMLog.h"
 
-@interface IMGroupMemberPickerViewController () <UITableViewDataSource, UITableViewDelegate, UISearchBarDelegate>
+@interface IMFriendPickerViewController () <UITableViewDataSource, UITableViewDelegate, UISearchBarDelegate>
 @property (nonatomic, copy) NSString *host;
 @property (nonatomic, copy) NSString *userID;
 @property (nonatomic, strong, nullable) NSSet<NSString *> *excludedIDs;
@@ -24,7 +24,7 @@
 @property (nonatomic, strong) UILabel *emptyLabel;
 @end
 
-@implementation IMGroupMemberPickerViewController
+@implementation IMFriendPickerViewController
 
 - (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID
                  excludedIDs:(NSSet<NSString *> *)excludedIDs

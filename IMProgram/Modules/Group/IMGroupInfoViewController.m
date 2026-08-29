@@ -2,7 +2,7 @@
 
 #import "IMGroupInfoViewController.h"
 #import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
-#import "IMGroupMemberPickerViewController.h"
+#import "IMFriendPickerViewController.h"
 #import "IMHTTPService.h"
 #import "IMSocketManager.h"
 #import "IMGroupInfo.h"
@@ -258,8 +258,8 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
     NSMutableSet<NSString *> *inGroup = [NSMutableSet set];
     for (IMGroupMember *m in self.group.members) { [inGroup addObject:m.userID]; }
     __weak typeof(self) weakSelf = self;
-    IMGroupMemberPickerViewController *picker =
-        [[IMGroupMemberPickerViewController alloc] initWithHost:self.host userID:self.userID
+    IMFriendPickerViewController *picker =
+        [[IMFriendPickerViewController alloc] initWithHost:self.host userID:self.userID
                                                     excludedIDs:inGroup confirmTitle:@"邀请"
                                                          onDone:^(NSArray<NSString *> *selectedIDs) {
             __strong typeof(weakSelf) self = weakSelf;

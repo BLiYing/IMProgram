@@ -25,7 +25,7 @@
 #import "IMLog.h"
 #import "IMUserSearchViewController.h"
 #import "IMGlobalSearchViewController.h"
-#import "IMGroupMemberPickerViewController.h"
+#import "IMFriendPickerViewController.h"
 #import "IMGroupInfo.h"
 #import "IMNavigationButton.h"
 #import "IMMediaSendService.h"
@@ -718,8 +718,8 @@ static CGFloat const kIMRowLeading = 16;
 /// 新建群聊：选好友 → 起群名 → 建群 → 直接进入新群会话（复用通讯录群聊页同一流程）。
 - (void)startNewGroup {
     __weak typeof(self) weakSelf = self;
-    IMGroupMemberPickerViewController *picker =
-        [[IMGroupMemberPickerViewController alloc] initWithHost:self.host userID:self.userID
+    IMFriendPickerViewController *picker =
+        [[IMFriendPickerViewController alloc] initWithHost:self.host userID:self.userID
                                                     excludedIDs:nil confirmTitle:@"创建"
                                                          onDone:^(NSArray<NSString *> *selectedIDs) {
             [weakSelf promptGroupNameForMembers:selectedIDs];

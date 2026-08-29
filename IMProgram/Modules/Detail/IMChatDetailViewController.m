@@ -21,7 +21,7 @@
 #import "IMRemarkStore.h"
 
 #import "IMChatViewController.h"
-#import "IMGroupMemberPickerViewController.h"
+#import "IMFriendPickerViewController.h"
 #import "IMConversationMediaViewController.h"
 #import "IMMediaViewerViewController.h"
 #import "IMMediaPagerViewController.h"
@@ -131,6 +131,7 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
                                                    name:IMSocketDidReceiveGroupEventNotification object:nil];
     } else {
         [self loadPeerBlockState];
+        [self loadPeerProfile]; // 拉权威资料覆盖 init 快照 / 404 → 空态（见 +Peer.m）
         // 备注名多端同步：其它设备改了对这位好友的备注 → 就地刷新标题与「备注名」行。
         [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onPeerRemarkChanged:)
                                                    name:IMRemarkStoreDidChangeNotification object:nil];
@@ -1134,8 +1135,8 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     NSMutableSet<NSString *> *inGroup = [NSMutableSet set];
     for (IMGroupMember *m in self.group.members) { [inGroup addObject:m.userID]; }
     __weak typeof(self) ws = self;
-    IMGroupMemberPickerViewController *picker =
-        [[IMGroupMemberPickerViewController alloc] initWithHost:self.host userID:self.userID
+    IMFriendPickerViewController *picker =
+        [[IMFriendPickerViewController alloc] initWithHost:self.host userID:self.userID
                                                     excludedIDs:inGroup confirmTitle:@"邀请"
                                                          onDone:^(NSArray<NSString *> *ids) {
         __strong typeof(ws) self = ws;

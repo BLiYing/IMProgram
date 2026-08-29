@@ -51,6 +51,11 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 // 单聊对端
 @property (nonatomic, copy, nullable) NSString *peerID;
 @property (nonatomic, copy, nullable) NSString *peerNickname; ///< 对端真实昵称（不含备注，备注在 peerRemark）
+/// `peerNickname` 是否已被 +Peer.m 的 loadPeerProfile 用服务端权威值覆盖过。
+/// **init 传入的那个值不可信**：各入口给的东西不一样——会话列表给真实昵称、群成员行给的是
+/// `IMGroupMember.displayName`（**群昵称优先**）、找人搜索给的是 nil。名片快照必须冻结真实昵称，
+/// 故「推荐给朋友」在此标志为 NO 时先拉一次再发（/code-review 2026-08-29）。
+@property (nonatomic, assign) BOOL peerProfileLoaded;
 /// 我给对端起的备注名（仅本人可见、多端同步）：非空即替代昵称作标题/头像首字母。
 /// 权威值在服务端 im_friend.remark；本页值由 IMRemarkStore 供给（loadPeerBlockState 顺路刷新）。
 @property (nonatomic, copy, nullable) NSString *peerRemark;
@@ -162,6 +167,12 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 /// 装配语音 tab 三行 cell 内容（发送者/语音·m:ss/年月日时分）。放 +Actions.m 是体量门禁拆分——
 /// 主 VC 曾一路涨到 1508>1500 红线（2026-08-27 拆）。
 - (void)decorateVoiceRow3Cell:(UITableViewCell *)cell message:(IMMessageModel *)m;
+
+// —— 单聊对端权威资料（IMChatDetailViewController+Peer.m）——
+/// 进页拉一次 GET /users/{id} 覆盖 init 传入的快照；404 → 空态。单聊专用。
+- (void)loadPeerProfile;
+/// 「该用户不存在或已注销」空态覆盖层（幂等）。
+- (void)showPeerNotFoundState;
 
 // —— 名片页签（IMChatDetailViewController+Contacts.m）——
 /// 名片行 cell（详情页「名片」签）。message 必须已通过 matchesKind: 的解析校验。

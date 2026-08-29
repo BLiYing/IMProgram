@@ -1,7 +1,7 @@
 //  IMGroupListViewController.m
 
 #import "IMGroupListViewController.h"
-#import "IMGroupMemberPickerViewController.h"
+#import "IMFriendPickerViewController.h"
 #import "IMChatViewController.h"
 #import "IMHTTPService.h"
 #import "IMSocketManager.h"
@@ -189,8 +189,8 @@ static CGFloat const kIMGroupAvatarSize = 44;
 
 - (void)createTapped {
     __weak typeof(self) weakSelf = self;
-    IMGroupMemberPickerViewController *picker =
-        [[IMGroupMemberPickerViewController alloc] initWithHost:self.host userID:self.userID
+    IMFriendPickerViewController *picker =
+        [[IMFriendPickerViewController alloc] initWithHost:self.host userID:self.userID
                                                     excludedIDs:nil confirmTitle:@"创建"
                                                          onDone:^(NSArray<NSString *> *selectedIDs) {
             [weakSelf promptGroupNameForMembers:selectedIDs];

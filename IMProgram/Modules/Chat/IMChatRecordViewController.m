@@ -1,6 +1,10 @@
 //  IMChatRecordViewController.m
 
 #import "IMChatRecordViewController.h"
+#import "IMContactCard.h"
+#import "IMChatDetailViewController.h"
+#import "IMProfileEditViewController.h"
+#import "IMDatabase.h"
 #import <SafariServices/SafariServices.h>
 #import "IMImageLoader.h"
 #import "IMVideoThumbnailLoader.h"
@@ -276,6 +280,26 @@
         if (c.length == 0 || !IMLooksLikeChatRecordJSON(c)) { return; }
         IMChatRecordViewController *sub = [[IMChatRecordViewController alloc] initWithHost:_host recordJSON:c];
         [self.navigationController pushViewController:sub animated:YES];
+        return;
+    }
+    // 个人名片条目 → 该人的资料页（P1 补齐；此前列为"不可点"，理由是"跨栈 push"——
+    // 实则本页本就在导航栈里，直接 push 即可。self uid 取当前账号上下文，免改 init 签名与 4 个调用点）。
+    if ([ct isEqualToString:IMContentTypeContact]) {
+        IMContactCard *card = IMContactCardParse(c);
+        NSString *me = IMDatabase.sharedDatabase.currentAccountContext.ownerUserID ?: @"";
+        if (!card || me.length == 0) { return; }  // 脏名片不可点（与列表侧口径一致）
+        if ([card.userID isEqualToString:me]) {   // §6：是我自己 → 编辑资料
+            [self.navigationController pushViewController:
+                [[IMProfileEditViewController alloc] initWithHost:_host userID:me] animated:YES];
+            return;
+        }
+        IMChatDetailViewController *vc =
+            [[IMChatDetailViewController alloc] initSingleWithHost:_host userID:me
+                                                           peerID:card.userID
+                                                     peerNickname:card.nickname
+                                                    peerAvatarURL:card.avatarURL];
+        vc.showsMessagePill = YES;
+        [self.navigationController pushViewController:vc animated:YES];
         return;
     }
     BOOL isVideo = [ct isEqualToString:@"video"];
