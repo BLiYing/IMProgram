@@ -253,6 +253,11 @@
     // tableHeader 只负责为资料头部留出滚动空间；头像/文字悬浮在 table 之上，才能像详情页一样连续形变。
     self.profileHeader = [[UIView alloc] initWithFrame:CGRectMake(0, 0, W, 230)];
     self.profileHeader.backgroundColor = UIColor.clearColor;
+    // 点头部（头像/昵称/@句柄所在区域）→ 我的资料页。手势挂在 tableHeaderView 而不是
+    // profileOverlay 上：overlay 是全屏的，设成可交互会把整张表的滚动吃掉；而 header 本身
+    // 就在表内、只占顶部 230pt，视觉上的头像/文字正好悬浮在它上方，点击区域天然吻合。
+    [self.profileHeader addGestureRecognizer:
+        [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(openProfile)]];
     self.tableView.tableHeaderView = self.profileHeader;
 
     self.navigationItem.leftBarButtonItem =
