@@ -10,6 +10,7 @@
 #import "IMQRLoginConfirmViewController.h"
 #import "IMQRModels.h"
 #import "UIViewController+IMToast.h"
+#import "IMAccountIdentity.h"
 
 /// 需管理员审批：`POST /groups/join` 用它表示"申请已提交"，不是失败。
 static const NSInteger kIMErrCodeJoinPending = 300210;
@@ -88,7 +89,7 @@ static const NSInteger kIMErrCodeQRExpired = 200110;
     }
     IMChatDetailViewController *detail =
         [[IMChatDetailViewController alloc] initSingleWithHost:host userID:userID peerID:card.userID
-                                                 peerNickname:(card.nickname.length ? card.nickname : card.userID)
+                                                 peerNickname:IMDisplayName(card.nickname, nil)
                                                 peerAvatarURL:card.avatarURL];
     detail.showsMessagePill = YES; // 从外部（扫码）进入，需要给出进单聊的入口
     [vc.navigationController pushViewController:detail animated:YES];

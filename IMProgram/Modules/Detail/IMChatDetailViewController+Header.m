@@ -18,6 +18,7 @@
 #import "IMGlass.h"
 #import "UILabel+IMAvatar.h"
 #import "IMLog.h"
+#import "IMAccountIdentity.h"
 
 @implementation IMChatDetailViewController (Header)
 
@@ -63,7 +64,7 @@
     NSMutableArray *specs = [NSMutableArray array];
     // 系统通知会话：只留「更多」（免打扰/清空聊天）——加好友/消息/呼叫/视频/搜索都不适用。
     // 见 docs/SYSTEM_NOTICE_SESSION_DESIGN.md §5.3 / §7 权限矩阵。
-    if (!self.isGroup && [self.peerID isEqualToString:@"system"]) {
+    if (!self.isGroup && IMIsSystemUserID(self.peerID)) {
         [specs addObject:@{@"t": @"更多", @"s": @"ellipsis", @"a": @"more"}];
         return specs;
     }

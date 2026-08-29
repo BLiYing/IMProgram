@@ -11,6 +11,7 @@
 #import "UIViewController+IMToast.h"
 #import "IMTheme.h"
 #import "IMLog.h"
+#import "IMSessionStore.h"
 
 @interface IMProfileEditViewController ()
 @property (nonatomic, copy) NSString *host;
@@ -19,6 +20,8 @@
 @property (nonatomic, strong) UIImageView *avatarView;   // 可点圆形头像（点→选图→裁切→上传）
 @property (nonatomic, copy, nullable) NSString *avatarURL; // 当前头像 URL（选图上传后更新，保存时提交）
 @property (nonatomic, strong) UITextField *nicknameField;
+@property (nonatomic, strong) UITextField *usernameField; ///< 公开句柄（@xxx），与昵称是两回事
+@property (nonatomic, copy, nullable) NSString *loadedUsername; ///< 载入时的原值，未改动就不发改名请求
 @property (nonatomic, strong) UITextField *phoneField;
 @property (nonatomic, strong) UITextField *tagsField;
 @end
@@ -44,6 +47,11 @@
         [[UIBarButtonItem alloc] initWithTitle:@"保存" style:UIBarButtonItemStyleDone target:self action:@selector(saveTapped)];
 
     self.nicknameField = [self fieldWithPlaceholder:@"昵称"];
+    // 用户名（公开句柄）与昵称分开：前者是别人搜索到我的凭据、也是登录名，规则严格；后者随便填。
+    self.usernameField = [self fieldWithPlaceholder:@"a-z、0-9、下划线，≥5 位"];
+    self.usernameField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    self.usernameField.autocorrectionType = UITextAutocorrectionTypeNo;
+    self.usernameField.keyboardType = UIKeyboardTypeASCIICapable;
     self.phoneField = [self fieldWithPlaceholder:@"手机号"];
     self.phoneField.keyboardType = UIKeyboardTypePhonePad;
     self.tagsField = [self fieldWithPlaceholder:@"标签（空格或逗号分隔）"];
@@ -52,6 +60,7 @@
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
         [self avatarHeader],
         [self labeledRow:@"昵称" field:self.nicknameField],
+        [self labeledRow:@"用户名" field:self.usernameField],
         [self labeledRow:@"手机号" field:self.phoneField],
         [self labeledRow:@"标签" field:self.tagsField],
     ]];
@@ -204,6 +213,8 @@
                 return;
             }
             self.nicknameField.text = profile.nickname;
+            self.usernameField.text = profile.username;
+            self.loadedUsername = profile.username;
             self.avatarURL = profile.avatarURL;
             self.phoneField.text = profile.phone;
             self.tagsField.text = [profile.tags componentsJoinedByString:@" "];
@@ -220,6 +231,11 @@
 - (void)saveTapped {
     if (self.token.length == 0) { [self showMessage:@"尚未登录，请稍候重试"]; return; }
     [self.view endEditing:YES];
+    // 昵称必填：它是全端显示名回退链的终点，清空会让各处露出 10 位数字内部 ID。后端也会拒，这里前置提示。
+    if ([self trimmed:self.nicknameField.text].length == 0) {
+        [self showMessage:@"昵称不能为空"];
+        return;
+    }
     NSArray<NSString *> *tags = [self tagsFromString:self.tagsField.text];
     self.navigationItem.rightBarButtonItem.enabled = NO;
     [self im_refreshNavigationBar]; // 标题栏按 navigationItem 渲染，改完 enabled 必须显式刷新
@@ -238,6 +254,32 @@
             [self showMessage:[NSString stringWithFormat:@"保存失败：%@", error.localizedDescription]];
             return;
         }
+        [self saveUsernameIfChangedThenPop];
+    }];
+}
+
+/// 改名是**独立接口**（POST /users/me/username），只在用户真改了才发——
+/// 每次保存都发会把「用户名已被占用」的错误抛给一个压根没动用户名的用户。
+/// 资料已保存成功，故改名失败只提示、不回滚、不挡住返回路径（用户可留在页内重试）。
+- (void)saveUsernameIfChangedThenPop {
+    NSString *newName = [self trimmed:self.usernameField.text];
+    if (newName.length == 0 || [newName isEqualToString:self.loadedUsername ?: @""]) {
+        [self.navigationController popViewControllerAnimated:YES];
+        return;
+    }
+    __weak typeof(self) weakSelf = self;
+    [IMHTTPService.sharedService updateUsername:newName token:self.token completion:^(NSError *error) {
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self) { return; }
+        if (error) {
+            [self showMessage:[NSString stringWithFormat:@"用户名未能修改：%@", error.localizedDescription]];
+            return;
+        }
+        self.loadedUsername = newName;
+        // 改名不吊销会话，但**下次冷启动要用它重登**——不写回本地会话，重启后会拿旧名登录而失败。
+        IMHTTPService.sharedService.username = newName;
+        [IMSessionStore saveHost:(IMSessionStore.host ?: @"") userID:(IMSessionStore.userID ?: @"")
+                        username:newName password:(IMSessionStore.password ?: @"")];
         [self.navigationController popViewControllerAnimated:YES];
     }];
 }

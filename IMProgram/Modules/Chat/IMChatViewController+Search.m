@@ -14,6 +14,7 @@
 #import "IMProgram-Swift.h"          // IMLiquidNavigationBar（searchMode）
 #import "UILabel+IMAvatar.h"         // im_setAvatarURL:（复用真实头像逻辑）
 #import "UIViewController+IMToast.h"
+#import "IMAccountIdentity.h"
 
 static const CGFloat kIMSearchNavBarH = 48;
 static const CGFloat kIMSearchFromRowH = 52;
@@ -503,7 +504,7 @@ static const CGFloat kIMSearchFromRowH = 52;
     for (IMMessageModel *m in self.messages) {
         if ([m.from isEqualToString:uid]) {
             NSString *n = [self senderNameForMessage:m];
-            return n.length > 0 ? n : uid;
+            return IMDisplayName(n, nil);
         }
     }
     return uid;

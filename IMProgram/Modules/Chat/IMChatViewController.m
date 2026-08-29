@@ -58,6 +58,7 @@
 #import <ImageIO/ImageIO.h>
 #import <SafariServices/SafariServices.h>
 #import "IMPopoverCard.h"
+#import "IMAccountIdentity.h"
 
 NSNotificationName const IMChatConversationClearedNotification = @"IMChatConversationClearedNotification";
 
@@ -375,7 +376,7 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     [self setupUI];
     // 系统通知会话（peerID=system）：进页即锁定输入栏（无群资料触发路径）。
     // 见 docs/SYSTEM_NOTICE_SESSION_DESIGN.md §5.2 / +PinnedBanner.m refreshComposerMuteState。
-    if (!self.isGroupChat && [self.peerID isEqualToString:@"system"]) {
+    if (!self.isGroupChat && IMIsSystemUserID(self.peerID)) {
         [self refreshComposerMuteState];
     }
     [self reloadPinnedBanner]; // 置顶横幅（G0）：进会话拉一次，之后靠 msg_op 帧增量维护，不轮询

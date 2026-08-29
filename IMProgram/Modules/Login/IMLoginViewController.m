@@ -9,7 +9,8 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
 
 @interface IMLoginViewController ()
 @property (nonatomic, strong) UITextField *hostField;
-@property (nonatomic, strong) UITextField *userIDField;
+@property (nonatomic, strong) UITextField *userIDField;   ///< 用户名（公开句柄 username）
+@property (nonatomic, strong) UITextField *nicknameField; ///< 昵称（显示名，仅注册时用；必填）
 @property (nonatomic, strong) UITextField *passwordField;
 @property (nonatomic, strong) UILabel *errorLabel;
 /// 三个登录入口提成属性：请求在途时要把被点的那个转成菊花、另外两个禁用（见 setBusy:activeButton:）。
@@ -44,7 +45,12 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
 
 - (void)setupUI {
     self.hostField     = [self fieldWithPlaceholder:@"服务器地址 host:port" text:[self defaultHost] keyboard:UIKeyboardTypeURL secure:NO];
-    self.userIDField   = [self fieldWithPlaceholder:@"用户名" text:@"" keyboard:UIKeyboardTypeDefault secure:NO];
+    // 用户名规则与服务端 ^[a-z0-9_]{5,32}$ 对齐（后端权威校验，这里只做提示与键盘优化）。
+    self.userIDField   = [self fieldWithPlaceholder:@"用户名（a-z、0-9、下划线，≥5 位）" text:@"" keyboard:UIKeyboardTypeASCIICapable secure:NO];
+    self.userIDField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    self.userIDField.autocorrectionType = UITextAutocorrectionTypeNo;
+    // 昵称是显示名（可中文/emoji），与用户名是两回事；仅"注册并登录"用得到。
+    self.nicknameField = [self fieldWithPlaceholder:@"昵称（注册用，可中文，≤32 字）" text:@"" keyboard:UIKeyboardTypeDefault secure:NO];
     self.passwordField = [self fieldWithPlaceholder:@"密码（≥ 6 位）" text:@"" keyboard:UIKeyboardTypeDefault secure:YES];
 
     self.errorLabel = [UILabel new];
@@ -59,7 +65,7 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
     self.devButton = [self buttonTitle:@"免密登录（开发）" config:[UIButtonConfiguration plainButtonConfiguration] action:@selector(devLoginTapped)];
 
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
-        self.hostField, self.userIDField, self.passwordField, self.errorLabel,
+        self.hostField, self.userIDField, self.nicknameField, self.passwordField, self.errorLabel,
         self.loginButton, self.registerButton, self.devButton
     ]];
     stack.axis = UILayoutConstraintAxisVertical;
@@ -110,31 +116,41 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
         [self showError:@"请填写服务器地址、用户名与密码"];
         return;
     }
-    [self loginWithHost:host userID:userID password:password fallback:@"登录失败" activeButton:self.loginButton];
+    [self loginWithHost:host username:userID password:password fallback:@"登录失败" activeButton:self.loginButton];
 }
 
 /// 注册并登录：先注册账号，成功后用同一密码进入。
 - (void)registerTapped {
     NSString *host = [self trimmed:self.hostField.text];
-    NSString *userID = [self trimmed:self.userIDField.text];
+    NSString *username = [self trimmed:self.userIDField.text];
+    NSString *nickname = [self trimmed:self.nicknameField.text];
     NSString *password = self.passwordField.text ?: @"";
-    if (host.length == 0 || userID.length == 0 || password.length < 6) {
+    if (host.length == 0 || username.length == 0 || password.length < 6) {
         [self showError:@"用户名必填，密码至少 6 位"];
+        return;
+    }
+    // 昵称必填：全端显示名回退链止于它，留空会让界面露出 10 位数字内部 ID。
+    // 后端也会拒，这里前置提示省一次往返。
+    if (nickname.length == 0) {
+        [self showError:@"请填写昵称（这是别人看到的名字）"];
         return;
     }
     [self showError:@""];
     [self setBusy:YES activeButton:self.registerButton];
     [self prepareServiceWithHost:host password:password];
     __weak typeof(self) weakSelf = self;
-    [IMHTTPService.sharedService registerWithUsername:userID password:password completion:^(NSError *error) {
+    [IMHTTPService.sharedService registerWithUsername:username password:password nickname:nickname
+                                          completion:^(NSError *error) {
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) { return; }
-        [self setBusy:NO activeButton:self.registerButton];
         if (error) {
+            [self setBusy:NO activeButton:self.registerButton];
             [self showError:error.localizedDescription ?: @"注册失败"];
             return;
         }
-        [self enterAppWithHost:host userID:userID]; // 注册成功 → 直接进入（密码已设入服务层）
+        // 注册接口不签发 token，也不回内部 ID 之外的东西——必须再登录一次拿 token + 内部 ID。
+        [self loginWithHost:host username:username password:password
+                   fallback:@"注册成功但登录失败" activeButton:self.registerButton];
     }];
 }
 
@@ -149,13 +165,13 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
         [self showError:@"请填写服务器地址与用户名（uid）"];
         return;
     }
-    [self loginWithHost:host userID:userID password:@"" fallback:@"免密登录失败（后端需以 -dev-login 启动）" activeButton:self.devButton];
+    [self loginWithHost:host username:userID password:@"" fallback:@"免密登录失败（后端需以 -dev-login 启动）" activeButton:self.devButton];
 }
 
 /// 登录入口共用：host/密码设入服务层 → 真发一次 POST /login → 成功才进主界面，失败把文案留在登录页。
 /// password 传空串即走后端 dev-login 免密直签；fallback 仅在错误无文案时兜底。
 - (void)loginWithHost:(NSString *)host
-               userID:(NSString *)userID
+             username:(NSString *)username
              password:(NSString *)password
              fallback:(NSString *)fallback
          activeButton:(UIButton *)activeButton {
@@ -163,15 +179,17 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
     [self setBusy:YES activeButton:activeButton];
     [self prepareServiceWithHost:host password:password];
     __weak typeof(self) weakSelf = self;
-    [IMHTTPService.sharedService loginWithUserID:userID completion:^(NSString *token, NSError *error) {
+    // 入参是 username（登录凭据），回来的 userID 才是服务端分配的**内部 ID**——
+    // App 内一切业务参数（conv_id 推导、好友接口、消息 sender）都用后者，绝不能拿 username 冒充。
+    [IMHTTPService.sharedService loginWithUsername:username completion:^(NSString *token, NSString *userID, NSError *error) {
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) { return; }
         [self setBusy:NO activeButton:activeButton];
-        if (token.length == 0) {
+        if (token.length == 0 || userID.length == 0) {
             [self showError:error.localizedDescription.length > 0 ? error.localizedDescription : fallback];
             return;
         }
-        [self enterAppWithHost:host userID:userID];
+        [self enterAppWithHost:host userID:userID username:username];
     }];
 }
 
@@ -198,9 +216,10 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
     [NSUserDefaults.standardUserDefaults setObject:host forKey:kIMLastHostKey]; // 记住，下次免重填
 }
 
-- (void)enterAppWithHost:(NSString *)host userID:(NSString *)userID {
+- (void)enterAppWithHost:(NSString *)host userID:(NSString *)userID username:(NSString *)username {
     // 持久化会话（保持登录）：password 从服务层取（免密登录为空串）。下次启动静默重登直达主界面。
-    [IMSessionStore saveHost:host userID:userID password:IMHTTPService.sharedService.password];
+    // **username 必须一起存**——冷启动重登只能用它，拿内部 ID 去登录后端按 username 查必然落空。
+    [IMSessionStore saveHost:host userID:userID username:username password:IMHTTPService.sharedService.password];
     IMMainTabBarController *main = [[IMMainTabBarController alloc] initWithHost:host userID:userID];
     self.view.window.rootViewController = main;
 }

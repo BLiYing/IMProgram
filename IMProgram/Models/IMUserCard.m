@@ -27,6 +27,7 @@ IMFriendStatus IMFriendStatusFromString(NSString *s) {
 + (instancetype)cardFromDictionary:(NSDictionary *)dict {
     IMUserCard *c = [IMUserCard new];
     c.userID = [self stringForKey:@"user_id" in:dict];
+    c.username = [self stringForKey:@"username" in:dict];
     c.nickname = [self stringForKey:@"nickname" in:dict];
     c.remark = [self stringForKey:@"remark" in:dict]; // 好友列表 / 资料卡带；找人结果无此键 → 空串
     c.avatarURL = [self stringForKey:@"avatar_url" in:dict];
@@ -52,8 +53,10 @@ IMFriendStatus IMFriendStatusFromString(NSString *s) {
     // 一拍，读快照会闪回旧名；store 没见过该 uid（如陌生人搜索结果）时回退昵称。
     // self.remark 的职责是把服务端值**喂进** store（见 IMRemarkStore.ingestFriends:）。
     NSString *nick = [self.nickname stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    return [IMRemarkStore.sharedStore displayNameForUser:self.userID
-                                                fallback:(nick.length > 0 ? nick : self.userID)];
+    // 昵称为空时不再回退到 userID（那是 10 位内部数字 ID）；退到 @username，两者都空才给占位。
+    NSString *fallback = nick.length > 0 ? nick
+                       : (self.username.length > 0 ? [@"@" stringByAppendingString:self.username] : @"未命名用户");
+    return [IMRemarkStore.sharedStore displayNameForUser:self.userID fallback:fallback];
 }
 
 + (NSString *)stringForKey:(NSString *)key in:(NSDictionary *)dict {

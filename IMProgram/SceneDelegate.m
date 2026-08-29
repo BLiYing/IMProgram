@@ -41,6 +41,8 @@
         NSString *host = IMSessionStore.host ?: @"";
         NSString *uid = IMSessionStore.userID ?: @"";
         IMHTTPService.sharedService.host = host;
+        // username 是重登凭据（登录接口不认内部 ID），不恢复它会让静默重登拿 uid 去登录、必然失败。
+        IMHTTPService.sharedService.username = IMSessionStore.username ?: @"";
         IMHTTPService.sharedService.password = IMSessionStore.password ?: @"";
         self.window.rootViewController = [[IMMainTabBarController alloc] initWithHost:host userID:uid];
     } else {

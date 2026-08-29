@@ -11,6 +11,7 @@
 #import "IMJoinRequestsViewController.h"
 #import "IMGroupTextViewController.h"
 #import "IMTimeUtil.h"                    // IMNowMillis
+#import "IMAccountIdentity.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -136,7 +137,7 @@ BOOL IMPinnedTargetRecalled(NSArray<IMMessageModel *> *messages, int64_t convSeq
 /// 系统通知会话（peerID=system）：走同一锁机制，reason="此会话不支持回复"——
 /// 见 docs/SYSTEM_NOTICE_SESSION_DESIGN.md §5.2；服务端也会拒收（护栏 §2.2）。
 - (void)refreshComposerMuteState {
-    if (!self.isGroupChat && [self.peerID isEqualToString:@"system"]) {
+    if (!self.isGroupChat && IMIsSystemUserID(self.peerID)) {
         [self setComposerLocked:YES reason:@"此会话不支持回复"];
         return;
     }

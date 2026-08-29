@@ -30,6 +30,7 @@
 #import "IMVoiceMiniPlayerView.h" // 三行 cell 第 2 行：迷你波形播放器
 #import "IMTimeUtil.h"        // decorateVoiceRow3Cell: IMFormatVoiceDuration
 #import "IMGroupInfo.h"       // decorateVoiceRow3Cell: 群成员昵称
+#import "IMAccountIdentity.h"
 
 @implementation IMChatDetailViewController (Actions)
 
@@ -174,7 +175,7 @@
         if (self.group && self.group.myRole == IMGroupRoleOwner) {
             [items addObject:[IMPopoverCardItem itemWithTitle:@"删除群组" symbol:@"trash.fill" destructive:YES handler:^{ [ws confirmDissolve]; }]];
         }
-    } else if ([self.peerID isEqualToString:@"system"]) {
+    } else if (IMIsSystemUserID(self.peerID)) {
         // 系统通知会话：只保留清空聊天记录（拉黑/举报 不适用；护栏也会拒）。
         [items addObject:[IMPopoverCardItem itemWithTitle:@"清空聊天记录" symbol:@"trash" destructive:NO handler:^{ [ws confirmClearHistory]; }]];
     } else {

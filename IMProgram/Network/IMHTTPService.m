@@ -139,6 +139,8 @@ BOOL IMIsTransientNetworkError(NSError *error) {
 @property (nonatomic, strong, nullable) NSMutableArray *pendingLoginCompletions;
 @property (nonatomic, assign) BOOL loginInFlight;
 @property (nonatomic, copy, nullable) NSString *loginInFlightUserID;
+/// 最近一次登录成功时服务端返回的**内部 ID**。登录页据此拿到自己的身份（首次登录前 App 并不知道）。
+@property (atomic, copy, nullable) NSString *lastLoginUserID;
 @end
 
 @implementation IMHTTPService
@@ -179,7 +181,10 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     }
     // 设备管理（QR P2）：随登录上报稳定 device_id + 平台/名/版本，后端按 (uid, device_id) 顶替同一台旧会话
     // （避免每次登录堆一行），并在"已登录设备"里展示、可远程踢。字段皆可选，缺省后端按 UA 兜底。
-    NSDictionary *reqBody = @{ @"username": userID ?: @"", @"password": self.password ?: @"",
+    // 发给后端的必须是 **username**（公开句柄）——登录接口不认内部 ID。
+    // userID 参数只作内存缓存键 / 在途合并键。self.username 为空时回退传入值，兼容早期调用路径。
+    NSString *loginName = self.username.length > 0 ? self.username : userID;
+    NSDictionary *reqBody = @{ @"username": loginName ?: @"", @"password": self.password ?: @"",
                                @"device_id": IMDeviceIdentity.deviceID,
                                @"platform": IMDeviceIdentity.platform,
                                @"device_name": IMDeviceIdentity.deviceName,
@@ -203,8 +208,13 @@ BOOL IMIsTransientNetworkError(NSError *error) {
                soloCompletion:completion];
             return;
         }
+        // 服务端分配的内部 ID：首次登录时 App 尚不知道自己是谁，只能从这里取。
+        NSString *serverUID = [data[@"uid"] isKindOfClass:[NSString class]] ? data[@"uid"] : nil;
+        self.lastLoginUserID = serverUID.length > 0 ? serverUID : userID;
         self.currentToken = token; // 缓存：供聊天页等无需重登即可发 HTTP（举报）
-        self.tokenUserID = userID;
+        // 缓存键用**服务端返回的内部 ID**：调用方传进来的 userID 在首次登录时是 username，
+        // 若拿它当键，随后各处以内部 ID 调用会全部 miss 缓存、每次都真发一次 /login。
+        self.tokenUserID = self.lastLoginUserID;
         self.tokenFetchedAt = CFAbsoluteTimeGetCurrent();
         [self finishLogin:owner userID:userID token:token error:nil soloCompletion:completion];
     }];
@@ -236,12 +246,36 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     self.tokenFetchedAt = 0;
 }
 
+- (void)loginWithUsername:(NSString *)username
+               completion:(void (^)(NSString *, NSString *, NSError *))completion {
+    self.username = username;
+    __weak typeof(self) weakSelf = self;
+    // 复用 loginWithUserID: 的在途合并与错误处理；userID 传 username 仅作本次的去重键，
+    // 真正的内部 ID 由响应带回（见 lastLoginUserID）。
+    [self loginWithUserID:username completion:^(NSString *token, NSError *error) {
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self) { return; }
+        completion(token, token.length > 0 ? self.lastLoginUserID : nil, error);
+    }];
+}
+
 - (void)registerWithUsername:(NSString *)username
                     password:(NSString *)password
+                    nickname:(NSString *)nickname
                   completion:(void (^)(NSError *))completion {
     NSMutableURLRequest *req = [self postRequestToPath:@"/api/v1/register"
-                                                  body:@{ @"username": username ?: @"", @"password": password ?: @"" }];
+                                                  body:@{ @"username": username ?: @"",
+                                                          @"password": password ?: @"",
+                                                          @"nickname": nickname ?: @"" }];
     [self runOKRequest:req fallback:@"注册失败" completion:completion];
+}
+
+- (void)updateUsername:(NSString *)username
+                 token:(NSString *)token
+            completion:(void (^)(NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/users/me/username" method:@"POST"
+                                                    token:token body:@{ @"username": username ?: @"" }];
+    [self runOKRequest:req fallback:@"修改用户名失败" completion:completion];
 }
 
 - (void)conversationsWithToken:(NSString *)token

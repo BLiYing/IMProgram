@@ -13,6 +13,7 @@
 #import "IMQRModels.h"
 #import "IMUserCard.h"
 #import "UIViewController+IMToast.h"
+#import "IMAccountIdentity.h"
 
 static const CGFloat kIMReticleSide = 220;
 
@@ -317,7 +318,7 @@ static const CGFloat kIMReticleSide = 220;
 
 /// 把当前已知的昵称/头像/码串灌进卡片。资料未回来时先用 uid 占位——码本身不依赖资料，先能扫要紧。
 - (void)renderMyCard {
-    NSString *display = self.myNickname.length ? self.myNickname : self.userID;
+    NSString *display = IMDisplayName(self.myNickname, nil);
     [self.cardView configureWithAvatarURL:self.myAvatarURL seed:self.userID name:display
                                  subtitle:[NSString stringWithFormat:@"ID %@", self.userID]
                                  qrString:self.myCardURL hint:@"扫描二维码，加我为朋友"];

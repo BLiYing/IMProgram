@@ -21,7 +21,10 @@ IMFriendStatus IMFriendStatusFromString(NSString *_Nullable s);
 
 @interface IMUserCard : NSObject
 
+/// 内部 ID（10 位数字，服务端分配）。是接口参数与本地键，**不展示给用户**。
 @property (nonatomic, copy) NSString *userID;
+/// 公开句柄，UI 上显示为 @xxx。仅 GET /users/{id} 与 /users/me 下发；好友/找人列表不带（刻意不加宽列表接口）。
+@property (nonatomic, copy) NSString *username;
 @property (nonatomic, copy) NSString *nickname;
 /// 我给他起的备注名（仅自己可见，显示优先级高于 nickname）。好友列表 / 资料卡下发；找人结果为空。
 @property (nonatomic, copy, nullable) NSString *remark;
@@ -33,8 +36,9 @@ IMFriendStatus IMFriendStatusFromString(NSString *_Nullable s);
 @property (nonatomic, assign) int64_t updatedAt;           // 好友关系更新时间（毫秒）；找人结果 0
 @property (nonatomic, strong) IMPresence *presence;        // 在线态快照；仅 GET /users/{id} 与 /users/me 有，找人/好友列表为空态
 
-/// 展示名：备注名 > 昵称 > uid（全端统一口径）。备注取 IMRemarkStore 实时值，不读本对象的
-/// remark 快照——后者只负责把服务端值喂进 store，见 IMRemarkStore.h。
+/// 展示名：备注名 > 昵称（全端统一口径）。**回退链止于昵称**——昵称是必填字段，
+/// 再往下回退到内部 ID 只会在界面上露出一串 10 位数字（见 ACCOUNT_IDENTITY_REDESIGN.md §5.2）。
+/// 备注取 IMRemarkStore 实时值，不读本对象的 remark 快照——后者只负责把服务端值喂进 store。
 @property (nonatomic, readonly) NSString *displayName;
 
 /// 从 data.users / data.friends 数组解析（脏数据安全）。

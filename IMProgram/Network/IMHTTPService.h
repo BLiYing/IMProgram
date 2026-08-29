@@ -27,6 +27,11 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
 /// 服务器地址 host:port（如 192.168.1.3:8080）。
 @property (nonatomic, copy) NSString *host;
 
+/// 当前登录用的**公开句柄 username**（登录页设入 / 冷启动由 IMSessionStore 恢复）。
+/// 登录接口只认 username，**不认内部 ID**——App 内各处 loginWithUserID: 传的是内部 ID（作缓存键），
+/// 真正发出去的用户名取自这里。为空时回退用传入的 userID（仅兼容早期调用路径）。
+@property (nonatomic, copy, nullable) NSString *username;
+
 /// 当前登录密码（登录成功后由登录页设入；为空=走后端开发期免密直签）。
 /// 全局共享：会话列表/通讯录等内部再登录、以及 IMSocketManager 换 token 都读它，无需逐处透传。
 @property (nonatomic, copy, nullable) NSString *password;
@@ -35,17 +40,32 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
 @property (atomic, copy, readonly, nullable) NSString *currentToken;
 
 /// 登录换取 JWT：带 password 走真账号校验，password 为空走开发期免密。completion 在主线程回调。
+/// userID 是**内存缓存键与在途合并键**（内部 ID）；真正发给后端的用户名取 self.username。
 - (void)loginWithUserID:(NSString *)userID
              completion:(void (^)(NSString *_Nullable token, NSError *_Nullable error))completion;
+
+/// 登录页专用：用 username + password 登录，回调同时给出服务端分配的**内部 ID**。
+/// 首次登录时 App 还不知道自己的内部 ID，只能从这里拿——之后一切业务参数都用它。
+- (void)loginWithUsername:(NSString *)username
+               completion:(void (^)(NSString *_Nullable token, NSString *_Nullable userID, NSError *_Nullable error))completion;
 
 /// 作废内存缓存的 token（退出登录 / 被踢下线时调用）：避免 TTL 内继续复用已失效的旧 token。
 /// 不动持久化会话（那由 IMSessionStore 负责）；下次 loginWithUserID 会强制重新 POST /login。
 - (void)invalidateToken;
 
-/// 注册账号：POST /api/v1/register {username, password}（密码 ≥ 6 位由后端校验）。completion 在主线程回调。
+/// 注册账号：POST /api/v1/register {username, password, nickname}。三者必填，规则由后端权威校验
+/// （username `^[a-z0-9_]{5,32}$` 且大小写不敏感唯一；password ≥6；nickname ≤32 字）。
+/// **nickname 必填**：全端显示名回退链止于它，留空会让界面露出 10 位数字内部 ID。
 - (void)registerWithUsername:(NSString *)username
                     password:(NSString *)password
+                    nickname:(NSString *)nickname
                   completion:(void (^)(NSError *_Nullable error))completion;
+
+/// 修改公开句柄：POST /api/v1/users/me/username {username}。成功回 nil。
+/// 不影响登录态（服务端不吊销会话），但调用方须把新 username 写回 IMSessionStore，否则下次冷启动重登会用旧名。
+- (void)updateUsername:(NSString *)username
+                 token:(NSString *)token
+            completion:(void (^)(NSError *_Nullable error))completion;
 
 /// 拉取会话列表（Bearer token）。completion 在主线程回调。
 - (void)conversationsWithToken:(NSString *)token

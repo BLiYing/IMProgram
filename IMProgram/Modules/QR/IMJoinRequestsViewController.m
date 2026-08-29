@@ -6,6 +6,7 @@
 #import "IMImageLoader.h"
 #import "IMHTTPService.h"
 #import "UIViewController+IMToast.h"
+#import "IMAccountIdentity.h"
 
 @interface IMJoinRequestsViewController () <UITableViewDataSource, UITableViewDelegate>
 @property (nonatomic, copy) NSString *token;
@@ -94,7 +95,7 @@
         cell.imageView.clipsToBounds = YES;
     }
     IMJoinRequest *r = self.requests[indexPath.row];
-    cell.textLabel.text = r.nickname.length ? r.nickname : r.userID;
+    cell.textLabel.text = IMDisplayName(r.nickname, nil);
     cell.detailTextLabel.text = r.hello.length ? r.hello : @"申请加入群聊";
     cell.detailTextLabel.textColor = IMTheme.textSecondary;
     cell.imageView.image = nil;

@@ -39,6 +39,25 @@
     XCTAssertEqual(c.status, IMFriendStatusNone);
 }
 
+#pragma mark - username / 显示名回退链
+
+/// username 是公开句柄，与内部 ID 是两个字段——解析不能串。
+- (void)testParseUsernameSeparateFromInternalID {
+    NSArray *arr = @[ @{ @"user_id": @"4820571639", @"username": @"xiaoming", @"nickname": @"小明" } ];
+    IMUserCard *c = [IMUserCard cardsFromArray:arr].firstObject;
+    XCTAssertEqualObjects(c.userID, @"4820571639");
+    XCTAssertEqualObjects(c.username, @"xiaoming");
+    XCTAssertEqualObjects(c.displayName, @"小明");
+}
+
+/// 昵称空但有 username → 退到 @username，仍然不能露内部 ID。
+- (void)testDisplayNameFallsBackToHandleNotInternalID {
+    NSArray *arr = @[ @{ @"user_id": @"4820571639", @"username": @"xiaoming", @"nickname": @"" } ];
+    IMUserCard *c = [IMUserCard cardsFromArray:arr].firstObject;
+    XCTAssertEqualObjects(c.displayName, @"@xiaoming");
+    XCTAssertNotEqualObjects(c.displayName, c.userID);
+}
+
 #pragma mark - 好友项解析（status + updated_at）
 
 - (void)testParseFriendEntry {
@@ -48,8 +67,10 @@
     XCTAssertEqualObjects(c.userID, @"1004");
     XCTAssertEqual(c.status, IMFriendStatusPending);
     XCTAssertEqual(c.updatedAt, 1781610297229);
-    // 昵称为空 → displayName 回退到 uid。
-    XCTAssertEqualObjects(c.displayName, @"1004");
+    // 昵称为空 → **不得**回退到 userID（那是 10 位内部数字 ID，露出来对用户毫无意义）；
+    // 无 username 时给出占位。见 IMServer/docs/ACCOUNT_IDENTITY_REDESIGN.md §5.2。
+    XCTAssertEqualObjects(c.displayName, @"未命名用户");
+    XCTAssertNotEqualObjects(c.displayName, c.userID);
     // 无 tags 字段 → 空数组而非 nil。
     XCTAssertNotNil(c.tags);
     XCTAssertEqual(c.tags.count, 0);

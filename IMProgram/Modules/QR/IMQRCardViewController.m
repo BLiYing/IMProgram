@@ -7,6 +7,7 @@
 #import "IMQRCardView.h"
 #import "IMTheme.h"
 #import "UIViewController+IMToast.h"
+#import "IMAccountIdentity.h"
 
 typedef NS_ENUM(NSInteger, IMQRCardMode) {
     IMQRCardModeUser = 0,  ///< 我的名片码
@@ -48,7 +49,7 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
         _mode = IMQRCardModeUser;
         _host = [host copy];
         _userID = [userID copy];
-        _displayName = [(nickname.length ? nickname : userID) copy];
+        _displayName = [IMDisplayName(nickname, nil) copy];
         _avatarURL = [avatarURL copy];
     }
     return self;

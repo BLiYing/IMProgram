@@ -8,6 +8,7 @@
 #import "IMHTTPService.h"
 #import "IMMessageModel.h"
 #import "UIViewController+IMToast.h"
+#import "IMAccountIdentity.h"
 
 @implementation IMChatViewController (Group)
 
@@ -109,7 +110,7 @@
     if ([uid isEqualToString:self.userID]) { return @"你"; }
     NSString *nick = [self.groupInfo nicknameOfMember:uid];
     // 备注优先（本机显示）。引用条只在本机渲染，不进消息内容——发送时冻结的是 reply_to_from(uid)。
-    return [IMRemarkStore.sharedStore displayNameForUser:uid fallback:(nick.length > 0 ? nick : uid)];
+    return [IMRemarkStore.sharedStore displayNameForUser:uid fallback:IMDisplayName(nick, nil)];
 }
 
 /// 群聊发送者头像绝对 URL（无则空串——头像圈回退首字母）。相对路径补 host。

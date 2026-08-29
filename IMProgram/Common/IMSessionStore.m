@@ -3,7 +3,8 @@
 #import "IMSessionStore.h"
 
 static NSString * const kIMSessionHostKey     = @"im_session_host";
-static NSString * const kIMSessionUserIDKey   = @"im_session_uid";
+static NSString * const kIMSessionUserIDKey   = @"im_session_uid";      // 内部 ID（业务用）
+static NSString * const kIMSessionUsernameKey  = @"im_session_username"; // 公开句柄（登录用）
 static NSString * const kIMSessionPasswordKey = @"im_session_pwd";
 
 // 说明：password 暂存 NSUserDefaults。理由——本工程是开发骨架（ws:// + NSAllowsArbitraryLoads），
@@ -11,11 +12,15 @@ static NSString * const kIMSessionPasswordKey = @"im_session_pwd";
 // 保持登录失效。生产签名后应改回 Keychain（SecItem*）。见 CONVENTIONS 安全约定。
 @implementation IMSessionStore
 
-+ (void)saveHost:(NSString *)host userID:(NSString *)userID password:(NSString *)password {
++ (void)saveHost:(NSString *)host
+          userID:(NSString *)userID
+        username:(NSString *)username
+        password:(NSString *)password {
     if (userID.length == 0) { return; }
     NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
     [d setObject:(host ?: @"") forKey:kIMSessionHostKey];
     [d setObject:userID forKey:kIMSessionUserIDKey];
+    [d setObject:(username ?: @"") forKey:kIMSessionUsernameKey];
     [d setObject:(password ?: @"") forKey:kIMSessionPasswordKey];
     [d synchronize];
 }
@@ -32,6 +37,10 @@ static NSString * const kIMSessionPasswordKey = @"im_session_pwd";
     return [NSUserDefaults.standardUserDefaults stringForKey:kIMSessionUserIDKey];
 }
 
++ (NSString *)username {
+    return [NSUserDefaults.standardUserDefaults stringForKey:kIMSessionUsernameKey];
+}
+
 + (NSString *)password {
     return [NSUserDefaults.standardUserDefaults stringForKey:kIMSessionPasswordKey];
 }
@@ -39,6 +48,7 @@ static NSString * const kIMSessionPasswordKey = @"im_session_pwd";
 + (void)clear {
     NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
     [d removeObjectForKey:kIMSessionUserIDKey];
+    [d removeObjectForKey:kIMSessionUsernameKey];
     [d removeObjectForKey:kIMSessionPasswordKey];
     // host 保留（下次登录默认回填方便）。
     [d synchronize];

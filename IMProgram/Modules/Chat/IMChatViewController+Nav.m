@@ -11,13 +11,14 @@
 #import "UILabel+IMAvatar.h"              // IMAvatarInitials
 #import "UIViewController+IMToast.h"
 #import "IMTheme.h"
+#import "IMAccountIdentity.h"
 
 /// 右上圆头像按钮（单聊对方 / 群聊群头像），点击进资料页。
 /// 44pt 官方 Glass 按钮直接承接点击和系统按压动画，内部 30pt 头像严格裁圆。
 static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name, CGFloat diameter) {
     // 系统通知会话（seed=system）：走应用 logo（LaunchLogo）——与会话列表 / UILabel+IMAvatar 同一契约。
     // 见 docs/SYSTEM_NOTICE_SESSION_DESIGN.md §2.1。
-    if ([seed isEqualToString:@"system"] && !photo) {
+    if (IMIsSystemUserID(seed) && !photo) {
         UIImage *logo = [UIImage imageNamed:@"LaunchLogo"];
         if (logo) {
             photo = logo;
@@ -112,7 +113,7 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     NSString *nick = [self.groupInfo nicknameOfMember:uid];
     IMChatDetailViewController *vc = [[IMChatDetailViewController alloc] initSingleWithHost:self.host userID:self.userID
                                                                                     peerID:uid
-                                                                              peerNickname:(nick.length ? nick : uid)
+                                                                              peerNickname:IMDisplayName(nick, nil)
                                                                              peerAvatarURL:[self.groupInfo avatarURLOfMember:uid]];
     vc.showsMessagePill = YES;
     [self.navigationController pushViewController:vc animated:YES];

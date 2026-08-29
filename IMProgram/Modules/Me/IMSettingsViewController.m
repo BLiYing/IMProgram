@@ -24,6 +24,7 @@
 #import "IMGlass.h"
 #import "IMDropletHeaderMorph.h"
 #import "IMProgram-Swift.h"
+#import "IMAccountIdentity.h"
 
 #pragma mark - 行模型（数据驱动单一来源）
 
@@ -182,7 +183,7 @@
     return self;
 }
 - (void)configureWithUserID:(NSString *)userID nickname:(nullable NSString *)nickname avatarURL:(nullable NSString *)avatarURL {
-    NSString *display = nickname.length ? nickname : userID;
+    NSString *display = IMDisplayName(nickname, nil);
     [_avatar im_setAvatarURL:avatarURL seed:userID displayName:display]; // 有头像图渲染图，否则首字母圈
     _name.text = display;
     _uid.text = [NSString stringWithFormat:@"uid %@", userID];
@@ -199,6 +200,7 @@
 @property (nonatomic, copy, nullable) NSString *myNickname;  // 本人资料（拉取后填头部）
 @property (nonatomic, copy, nullable) NSString *myAvatarURL;
 @property (nonatomic, copy, nullable) NSString *myPhone;
+@property (nonatomic, copy, nullable) NSString *myUsername; ///< 公开句柄，头部显示为 @xxx
 @property (nonatomic, strong) UIView *profileHeader;
 @property (nonatomic, strong) UIView *profileOverlay;
 /// 静态坐标容器：承载头像 + 灵动岛 171pt 遮罩/覆盖层，与 IMChatDetailViewController 相同——
@@ -353,10 +355,16 @@
 - (void)liquidNavigationBarDidTapAction:(IMLiquidNavigationBar *)bar { [self openProfile]; }
 
 - (void)refreshProfileHeader {
-    NSString *display = self.myNickname.length ? self.myNickname : self.userID;
+    // 回退链止于昵称：userID 是 10 位内部数字 ID，露出来对用户毫无意义（见 ACCOUNT_IDENTITY_REDESIGN.md §5.2）。
+    NSString *display = self.myNickname.length ? self.myNickname : (self.myUsername.length ? self.myUsername : @"未命名用户");
     self.profileName.text = display;
-    NSString *phone = self.myPhone.length ? self.myPhone : self.userID;
-    self.profileMeta.text = [NSString stringWithFormat:@"%@ · @%@", phone, self.userID];
+    // 副标题只放公开句柄；手机号有才补在前面。
+    // 旧实现是 "<phone ?: userID> · @<userID>"，绝大多数账号没填手机号，于是渲染成 "1001 · @1001" 的重复，
+    // 且 @ 后面跟的是内部 ID 而非真正的公开句柄。
+    NSString *handle = self.myUsername.length ? [@"@" stringByAppendingString:self.myUsername] : @"";
+    self.profileMeta.text = self.myPhone.length
+        ? [NSString stringWithFormat:@"%@ · %@", self.myPhone, handle]
+        : handle;
     [self.profileAvatar im_setAvatarURL:self.myAvatarURL seed:self.userID displayName:display];
     // topCover 必须盖在头像之上，才能把 blur/gradient/黑色 fade 应用到头像图像上。
     [self.dropletContainer bringSubviewToFront:self.dropletTopCover];
@@ -459,6 +467,7 @@
             ss.myNickname = profile.displayName;
             ss.myAvatarURL = profile.avatarURL;
             ss.myPhone = profile.phone;
+            ss.myUsername = profile.username;
             [ss refreshProfileHeader];
         });
     }];
