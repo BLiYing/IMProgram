@@ -412,7 +412,8 @@ static const NSInteger kIMMentionInlineMaxVisibleRows = 4;
     NSMutableArray<IMGroupMember *> *out = [NSMutableArray array];
     for (IMGroupMember *m in _all) {
         NSString *remark = [IMRemarkStore.sharedStore remarkForUser:m.userID] ?: @"";
-        if (IMListSearchMatches(q, @[m.displayName, remark, m.userID])) { [out addObject:m]; }
+        // 加 @句柄维度（群成员表已下发 username）；内部 ID 保留为不可见兜底。
+        if (IMListSearchMatches(q, @[m.displayName, remark, m.username ?: @"", m.userID])) { [out addObject:m]; }
     }
     return out;
 }

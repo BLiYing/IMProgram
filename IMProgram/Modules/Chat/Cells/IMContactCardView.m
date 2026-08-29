@@ -112,10 +112,9 @@ const CGFloat IMContactCardViewWidth = 240;
     _name.font = [UIFont systemFontOfSize:MAX(14, IMTheme.chatFontSize - 2) weight:UIFontWeightSemibold];
     _sub.font = [UIFont systemFontOfSize:MAX(12, IMTheme.chatFontSize - 5)];
     _name.text = shown;
-    // 不显示 ID：名片消息的 content 是 {"u","n","a"} 三键快照（见 docs/CONTACT_CARD_DESIGN.md），
-    // 协议里没有 username，而 u 是 10 位随机数字内部 ID——宁可留空也不显示它。
-    // 要显示 @句柄需先给 contact card 协议加字段，属独立改动。
-    _sub.text = @"";
+    // 副标题 = @句柄（协议 un 字段，2026-08-29 加）。**绝不显示 card.userID**——那是内部 ID。
+    // 老消息没有 un → 留空，卡片其余部分照常。
+    _sub.text = card.username.length > 0 ? [@"@" stringByAppendingString:card.username] : @"";
     // 头像：有 URL 走图片，无则首字母圈（seed=uid，取色稳定）。加载失败由 category 自行回退。
     [_avatar im_setAvatarURL:card.avatarURL seed:(card.userID ?: @"") displayName:shown];
     _meta.attributedText = metaText;

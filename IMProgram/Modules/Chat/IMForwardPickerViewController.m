@@ -160,6 +160,9 @@ static const NSUInteger kIMForwardMaxSelection = 9;
     } else {
         NSMutableArray<IMConversation *> *out = [NSMutableArray array];
         for (IMConversation *c in _convs) {
+            // 只有显示名 + 内部 ID（兜底，不展示）。**这里没有 @句柄维度**：搜索的是"会话"，
+            // 而会话列表接口刻意不下发 username（语义是"最近聊过的"，标识无意义；且它是全端最高频接口，
+            // 见 IMServer/docs/ACCOUNT_IDENTITY_REDESIGN.md §7.4）。
             if (IMListSearchMatches(q, @[[self displayNameFor:c], c.peer ?: @""])) { [out addObject:c]; }
         }
         _filtered = out;

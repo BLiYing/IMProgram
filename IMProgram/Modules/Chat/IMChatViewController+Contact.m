@@ -201,7 +201,7 @@ static const NSUInteger kIMContactMaxSelection = 9;
 /// **不出 toast**——气泡本身就是反馈，与发图/发文件一致，别重复报喜。
 - (void)sendContactCards:(NSArray<IMContactCard *> *)cards {
     for (IMContactCard *c in cards) {
-        NSString *content = IMContactCardBuild(c.userID, c.nickname, c.avatarURL);
+        NSString *content = IMContactCardBuild(c.userID, c.username, c.nickname, c.avatarURL);
         if (content.length == 0) { continue; }   // 无 uid（理论到不了）：服务端也会拒，不如本地就别发
         [self forwardEchoContent:content contentType:IMContentTypeContact forwardFrom:@""
                         fileName:nil fileSize:0

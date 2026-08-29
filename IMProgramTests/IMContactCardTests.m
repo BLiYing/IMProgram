@@ -53,7 +53,7 @@
 #pragma mark - 构造
 
 - (void)testBuildRoundTrip {
-    NSString *json = IMContactCardBuild(@"1002", @"小明", @"/a.jpg");
+    NSString *json = IMContactCardBuild(@"1002", nil, @"小明", @"/a.jpg");
     IMContactCard *c = IMContactCardParse(json);
     XCTAssertEqualObjects(c.userID, @"1002");
     XCTAssertEqualObjects(c.nickname, @"小明");
@@ -62,17 +62,17 @@
 
 /// 空昵称/头像不写进 JSON（服务端 omitempty 同款），避免下发一堆空键。
 - (void)testBuildOmitsEmpty {
-    NSString *json = IMContactCardBuild(@"1002", @"", nil);
+    NSString *json = IMContactCardBuild(@"1002", nil, @"", nil);
     XCTAssertFalse([json containsString:@"\"n\""]);
     XCTAssertFalse([json containsString:@"\"a\""]);
-    XCTAssertNil(IMContactCardBuild(@"", @"小明", nil));
-    XCTAssertNil(IMContactCardBuild(@"   ", nil, nil));
+    XCTAssertNil(IMContactCardBuild(@"", nil, @"小明", nil));
+    XCTAssertNil(IMContactCardBuild(@"   ", nil, nil, nil));
 }
 
 /// **本设计最容易写错的一行**：快照里的 n 必须是真实昵称，绝不能是备注（displayName）。
 /// 这里锁的是调用契约——build 拿到什么就写什么，故调用方传 nickname 时必须显式取 card.nickname。
 - (void)testBuildStoresWhateverNicknameGiven {
-    NSString *json = IMContactCardBuild(@"1002", @"王建国", nil);   // 真实昵称
+    NSString *json = IMContactCardBuild(@"1002", nil, @"王建国", nil);   // 真实昵称
     XCTAssertEqualObjects(IMContactCardParse(json).nickname, @"王建国");
     XCTAssertFalse([json containsString:@"老王"]);                  // 备注不该出现在快照里
 }
@@ -81,7 +81,10 @@
 
 - (void)testPreview {
     XCTAssertEqualObjects(IMContactCardPreview(@"{\"u\":\"1002\",\"n\":\"小明\"}"), @"[个人名片] 小明");
-    XCTAssertEqualObjects(IMContactCardPreview(@"{\"u\":\"1002\"}"), @"[个人名片] 1002");  // 无昵称回落 uid
+    // 无昵称 → 退 @username；**绝不回落 userID**（那是 10 位随机数字内部 ID，
+    // 这条预览会出现在会话列表/引用条上，与服务端 contactReplySnapshot 同口径）。
+    XCTAssertEqualObjects(IMContactCardPreview(@"{\"u\":\"4820571639\",\"un\":\"xiaoming\"}"), @"[个人名片] @xiaoming");
+    XCTAssertEqualObjects(IMContactCardPreview(@"{\"u\":\"4820571639\"}"), @"[个人名片]");  // 两者皆无 → 不带任何 ID
     XCTAssertEqualObjects(IMContactCardPreview(@"{\"u\":\"截断"), @"[个人名片]");            // 非法 JSON 不崩
     XCTAssertEqualObjects(IMContactCardPreview(nil), @"[个人名片]");
 }
@@ -180,6 +183,33 @@ static IMMessageModel *contactMsg(NSString *content) {
 - (void)testDirtyFavoriteContactNotCounted {
     NSDictionary *bad = @{ @"content_type": @"contact", @"content": @"{\"n\":\"小明\"}" };
     XCTAssertFalse([IMFavoritesCategories favorite:bad matchesCategory:IMFavoriteCategoryContact]);
+}
+
+@end
+
+@interface IMContactCardUsernameTests : XCTestCase
+@end
+
+@implementation IMContactCardUsernameTests
+
+/// un（username 快照）：构造带上、解析读出、老消息缺席时为 nil（副标题留空，向后兼容）。
+- (void)testUsernameRoundTripAndBackwardCompat {
+    NSString *json = IMContactCardBuild(@"4820571639", @"xiaoming", @"小明", @"/a.jpg");
+    XCTAssertNotNil(json);
+    IMContactCard *c = IMContactCardParse(json);
+    XCTAssertEqualObjects(c.userID, @"4820571639");
+    XCTAssertEqualObjects(c.username, @"xiaoming");
+    XCTAssertEqualObjects(c.nickname, @"小明");
+
+    // 老消息（没有 un）→ username 为 nil，其余照常解析，不报错不降级整张卡。
+    IMContactCard *old = IMContactCardParse(@"{\"u\":\"4820571639\",\"n\":\"小明\"}");
+    XCTAssertNotNil(old);
+    XCTAssertNil(old.username);
+    XCTAssertEqualObjects(old.nickname, @"小明");
+
+    // 空 username 不写进 JSON（omitempty 语义），避免留空键。
+    NSString *noUn = IMContactCardBuild(@"4820571639", @"", @"小明", nil);
+    XCTAssertFalse([noUn containsString:@"\"un\""]);
 }
 
 @end

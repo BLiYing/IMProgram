@@ -15,9 +15,10 @@
 + (void)presentPickerFrom:(UIViewController *)host
                    selfUID:(NSString *)selfUID
                     userID:(NSString *)userID
+                  username:(nullable NSString *)username
                   nickname:(NSString *)nickname
                  avatarURL:(NSString *)avatarURL {
-    NSString *content = IMContactCardBuild(userID, nickname, avatarURL);
+    NSString *content = IMContactCardBuild(userID, username, nickname, avatarURL);
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (content.length == 0 || token.length == 0 || !host) { return; }
     __weak UIViewController *wsHost = host;

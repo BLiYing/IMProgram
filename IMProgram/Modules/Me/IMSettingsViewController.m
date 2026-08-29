@@ -378,6 +378,7 @@
 /// 入口 ③：把自己的名片发到选中的会话。昵称用 `myNickname`（本人真实昵称，本人无"自己给自己的备注"之说）。
 - (void)shareMyContactCard {
     [IMContactShare presentPickerFrom:self selfUID:self.userID userID:self.userID
+                             username:self.myUsername
                              nickname:self.myNickname avatarURL:self.myAvatarURL];
 }
 - (void)showQRCode {

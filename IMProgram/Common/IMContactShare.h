@@ -20,6 +20,7 @@ NS_ASSUME_NONNULL_BEGIN
 + (void)presentPickerFrom:(UIViewController *)host
                    selfUID:(NSString *)selfUID
                     userID:(NSString *)userID
+                  username:(nullable NSString *)username
                   nickname:(nullable NSString *)nickname
                  avatarURL:(nullable NSString *)avatarURL;
 

@@ -201,7 +201,8 @@
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     IMContactCell *cell = [tableView dequeueReusableCellWithIdentifier:@"blocked" forIndexPath:indexPath];
     IMUserCard *c = self.blocked[indexPath.row];
-    [cell configureWithCard:c subtitle:c.userID];
+    // 同上：句柄而非内部 ID。
+    [cell configureWithCard:c subtitle:(c.username.length > 0 ? [@"@" stringByAppendingString:c.username] : @"")];
     // 行内旧的「解除」按钮改为不显——用左滑取消屏蔽（Telegram 一致）；点行进单聊资料页更自然。
     [cell setActionTitle:nil enabled:NO action:nil];
     cell.selectionStyle = UITableViewCellSelectionStyleDefault;

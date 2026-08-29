@@ -202,6 +202,7 @@
     if (self.peerID.length == 0) { return; }
     if (self.peerProfileLoaded) {
         [IMContactShare presentPickerFrom:self selfUID:self.userID userID:self.peerID
+                                 username:self.peerUsername
                                  nickname:self.peerNickname avatarURL:self.peerAvatarURL];
         return;
     }
@@ -218,9 +219,11 @@
             return;
         }
         self.peerNickname = card.nickname.length ? card.nickname : self.peerNickname;
+        self.peerUsername = card.username.length ? card.username : self.peerUsername;
         self.peerAvatarURL = card.avatarURL.length ? card.avatarURL : self.peerAvatarURL;
         self.peerProfileLoaded = YES;
         [IMContactShare presentPickerFrom:self selfUID:self.userID userID:self.peerID
+                                 username:self.peerUsername
                                  nickname:self.peerNickname avatarURL:self.peerAvatarURL];
     }];
 }

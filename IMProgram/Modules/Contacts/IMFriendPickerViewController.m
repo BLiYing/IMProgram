@@ -118,7 +118,9 @@
     if (q.length > 0) {
         NSMutableArray<IMUserCard *> *out = [NSMutableArray array];
         for (IMUserCard *c in visible) {
-            if (IMListSearchMatches(q, @[c.displayName, c.userID])) { [out addObject:c]; }
+            // 搜索维度 = 显示名 + @句柄 + 内部 ID（兜底）。内部 ID **不展示但可搜**：
+            // 排障时能粘贴 ID 精准定位，且 10 位随机数字不可能撞上昵称/备注内容。
+            if (IMListSearchMatches(q, @[c.displayName, c.username ?: @"", c.userID])) { [out addObject:c]; }
         }
         visible = out;
     }
@@ -179,7 +181,8 @@
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     IMContactCell *cell = [tableView dequeueReusableCellWithIdentifier:@"pick" forIndexPath:indexPath];
     IMUserCard *c = [self.friendIndex cardAtSection:indexPath.section row:indexPath.row];
-    [cell configureWithCard:c subtitle:c.userID];
+    // 副标题 = @句柄（无则留空），绝不显示 userID——那是 10 位随机数字内部 ID。
+    [cell configureWithCard:c subtitle:(c.username.length > 0 ? [@"@" stringByAppendingString:c.username] : @"")];
     [cell setActionTitle:nil enabled:NO action:nil];
     cell.selectionStyle = UITableViewCellSelectionStyleDefault;
     // 行首圆形勾选框（对齐 Web/微信 + 转发选择器），替代原尾部系统 ✓。
