@@ -4,6 +4,7 @@
 
 #import "IMChatViewController+Private.h"
 #import <AVFoundation/AVFoundation.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h> // 相机回调按 UTType 判照片/录像
 #import "IMMessageModel.h"
 #import "IMTheme.h"
 #import "IMTimeUtil.h"
@@ -496,7 +497,11 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     }
 }
 
-/// 拍摄（#4 先申请相机权限）→ 上传 → 发图片消息。
+/// 拍摄（#4 先申请相机权限）→ 上传 → 发图片/视频消息。
+///
+/// 相机权限通过后**顺手把麦克风权限也问掉**：不问的话系统会在用户按下录制键的那一刻才弹框，
+/// 打断录制；被拒也不阻断（照片照发），只是录出来是无声视频——那条提示放在录完回到聊天页时给
+/// （见 handleCapturedVideoAtURL:），此刻弹 toast 会被相机全屏盖住，用户根本看不见。
 - (void)openCamera {
     if (![UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypeCamera]) {
         [self im_showToast:@"当前设备不支持拍摄"];
@@ -504,12 +509,16 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     }
     __weak typeof(self) ws = self;
     [AVCaptureDevice requestAccessForMediaType:AVMediaTypeVideo completionHandler:^(BOOL granted) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            __strong typeof(ws) self = ws;
-            if (!self) { return; }
-            if (granted) { [self presentImagePickerWithSource:UIImagePickerControllerSourceTypeCamera]; }
-            else { [self im_showToast:@"请在设置中允许使用相机"]; }
-        });
+        if (!granted) {
+            dispatch_async(dispatch_get_main_queue(), ^{ [ws im_showToast:@"请在设置中允许使用相机"]; });
+            return;
+        }
+        // 已决定过（授权/拒绝）时 requestAccess 立即回调，不会二次弹框。
+        [AVCaptureDevice requestAccessForMediaType:AVMediaTypeAudio completionHandler:^(BOOL micGranted) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [ws presentImagePickerWithSource:UIImagePickerControllerSourceTypeCamera];
+            });
+        }];
     }];
 }
 
@@ -708,12 +717,21 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
 - (void)presentImagePickerWithSource:(UIImagePickerControllerSourceType)source {
     UIImagePickerController *picker = [UIImagePickerController new];
     picker.sourceType = source;
+    if (source == UIImagePickerControllerSourceTypeCamera) {
+        [IMMediaPicker configureCameraPicker:picker]; // 照片 + 录像双模式、录制时长上限
+    }
     picker.delegate = self;
     [self presentViewController:picker animated:YES completion:nil];
 }
 
 - (void)imagePickerController:(UIImagePickerController *)picker didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *)info {
     [picker dismissViewControllerAnimated:YES completion:nil];
+    NSString *mediaType = [info[UIImagePickerControllerMediaType] isKindOfClass:NSString.class]
+                        ? info[UIImagePickerControllerMediaType] : nil;
+    if (mediaType.length > 0 && [[UTType typeWithIdentifier:mediaType] conformsToType:UTTypeMovie]) {
+        [self handleCapturedVideoAtURL:info[UIImagePickerControllerMediaURL]];
+        return;
+    }
     UIImage *image = info[UIImagePickerControllerOriginalImage];
     if (!image) { return; }
     NSData *data = UIImageJPEGRepresentation(image, 0.8);
@@ -746,6 +764,20 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
 
 - (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker {
     [picker dismissViewControllerAnimated:YES completion:nil];
+}
+
+/// 相机录像产物 → 直接复用相册视频那条链路（乐观气泡 → 720p H.264 转码 → 落盘落库 →
+/// 分片上传可续传 → 补传封面 → 发 video 消息），本页不另写一套上传编排。
+/// 单条句柄 → sendMediaHandles: 不生成 groupID → 普通视频气泡（不进宫格）。
+- (void)handleCapturedVideoAtURL:(NSURL *)url {
+    IMPickedMediaHandle *handle = [IMMediaPicker handleForRecordedVideoAtURL:url];
+    if (!handle) { [self im_showToast:@"录像读取失败"]; return; }
+    [self sendMediaHandles:@[handle]];
+    // 麦克风被拒 → 录出来是**无声视频**，系统全程不吭声。这条 toast 是用户唯一的知情渠道，
+    // 且只能等回到聊天页才弹（相机全屏时 toast 被盖住看不见）。
+    if ([AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio] != AVAuthorizationStatusAuthorized) {
+        [self im_showToast:@"未开启麦克风权限，这段视频没有声音"];
+    }
 }
 
 /// 发送已上传的媒体：走 socket sendMedia，乐观上屏。

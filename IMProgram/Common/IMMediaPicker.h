@@ -11,6 +11,15 @@ NS_ASSUME_NONNULL_BEGIN
 
 extern const long long kIMMaxVideoBytes; // 视频体积上限（与服务端 2GB 一致，后续 C3 改读服务端配置）
 
+/// 「拍摄」入口**现录**视频的时长上限（秒）。注意与相册选片区分：**相册选的视频不限时长**
+/// （只受 kIMMaxVideoBytes 约束，用户拍板），这里限的只是相机当场录的那一段，因为它多出两条约束：
+///   1. 转码超时是写死的 120s（见 exportVideoAtURL:）——超时会**回落发原编码**，
+///      设备开「高效」格式时收端 Chrome/Firefox 只能看封面点不开；
+///   2. 录制原件先整份落 tmp（1080p30 ≈17Mbps → 60s ≈130MB），时长翻倍磁盘与转码耗时同步翻倍。
+/// 60s 转码后 ≈18MB，落在分片上传区间（可暂停续传）。要发更长的：走「照片」（相册，不限时长）
+/// 或「文件」（原件直传，不转码）。
+extern const NSTimeInterval kIMCameraVideoMaxSeconds;
+
 /// 一个已就绪（已按需压缩）的媒体项——loadData 的产物，可直接上传。
 @interface IMPickedMedia : NSObject
 @property (nonatomic, strong) NSData   *data;
@@ -72,6 +81,22 @@ extern const long long kIMMaxVideoBytes; // 视频体积上限（与服务端 2G
 + (void)presentFilePickerFromViewController:(UIViewController *)host
                                       limit:(NSInteger)limit
                           handlesCompletion:(void (^)(NSArray<IMPickedMediaHandle *> *handles))completion;
+
+#pragma mark 相机（系统相机，照片 + 录像双模式）
+
+/// 给系统相机 picker 套上本项目口径：照片/视频双模式、录制上限 kIMCameraVideoMaxSeconds、
+/// 画质取设备默认（High）。**不设 sourceType**——那是调用方的事，且在无相机的设备/模拟器上
+/// 设成 Camera 会直接抛异常（本方法因此可在单测里不碰相机地断言配置）。
+///
+/// videoQuality 刻意不用 IFrame1280x720：那是**全 I 帧**编码（~29Mbps），文件比设备默认还大，
+/// 只会拖慢后续转码；分辨率的活交给 AVAssetExportPreset1280x720。
++ (void)configureCameraPicker:(nullable UIImagePickerController *)picker;
+
+/// 把相机录制产物（本地 tmp 文件）包成惰性句柄，直接喂给相册那条发送链路
+/// （乐观气泡 → 720p H.264 转码 → 落盘落库 → 分片上传 → 补传封面 → 发 video 消息）。
+/// **不拷贝**：文件所有权移交句柄——转码成功后原件被删；句柄未 loadData 就释放时由 dealloc 兜底删除。
+/// url 为空或文件不存在返回 nil。
++ (nullable IMPickedMediaHandle *)handleForRecordedVideoAtURL:(nullable NSURL *)url;
 
 @end
 

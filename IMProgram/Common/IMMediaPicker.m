@@ -10,6 +10,9 @@
 // 视频不按时长限制（用户拍板），仅保留与服务端一致的 2GB 体积上限。
 const long long kIMMaxVideoBytes = 2048LL * 1024 * 1024;
 
+// 相机**现录**的例外：60s。理由见头文件（120s 转码超时 + tmp 体积）；相册选片仍不限时长。
+const NSTimeInterval kIMCameraVideoMaxSeconds = 60;
+
 static const CGFloat kIMImageMaxSide = 2048;   // 压缩：长边上限
 static const CGFloat kIMImageJPEGQuality = 0.8;
 
@@ -106,14 +109,16 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
 
 @interface IMPickedMediaHandle ()
 - (instancetype)initWithProvider:(NSItemProvider *)ip isVideo:(BOOL)isVideo original:(BOOL)original;
+- (instancetype)initWithLocalVideoURL:(NSURL *)url;
 @end
 
 @implementation IMPickedMediaHandle {
-    NSItemProvider  *_ip;
+    NSItemProvider  *_ip;          // 相册句柄的来源；**本地文件句柄（相机录制）为 nil**
     BOOL             _original;
     dispatch_queue_t _work;        // 串行：loadThumbnail 与 loadData 互斥（共享视频临时文件）
     NSURL           *_videoTmpURL; // 视频已拷贝的临时文件（缩略图先拷则 loadData 复用，避免二次拷贝）
     NSString        *_videoExt;
+    BOOL             _ownsSourceFile; // 本地文件句柄：文件所有权在本对象，未消费就释放要负责删
 }
 
 - (instancetype)initWithProvider:(NSItemProvider *)ip isVideo:(BOOL)isVideo original:(BOOL)original {
@@ -128,7 +133,36 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
     return self;
 }
 
+/// 相机录制产物：文件已经在我们自己的 tmp 里，直接坐进 _videoTmpURL——ensureVideoTmpURL 是
+/// 「已设则直接返回」，于是 buildVideoItemWithProgress 一行不改就能跑，还省掉一次整文件拷贝
+/// （60s 1080p ≈130MB，那一次拷贝是实打实的磁盘与秒数）。
+/// _ip 为 nil 是这条路径的**唯一**分叉点，凡是碰 _ip 的方法都必须有回落（见下方三处）。
+- (instancetype)initWithLocalVideoURL:(NSURL *)url {
+    self = [super init];
+    if (self) {
+        _ip = nil;
+        _isVideo = YES;
+        _original = NO; // 一律转 720p H.264：相机在「高效」格式下录的是 HEVC，收端 Web 播不了
+        _work = dispatch_queue_create("im.media.handle", DISPATCH_QUEUE_SERIAL);
+        _videoTmpURL = url;
+        _videoExt = url.pathExtension.lowercaseString.length ? url.pathExtension.lowercaseString : @"mov";
+        _ownsSourceFile = YES;
+    }
+    return self;
+}
+
+/// 句柄没走到 loadData 就被释放（用户在转码前就取消了那条乐观气泡）时，录制原件会永久留在 tmp。
+/// buildVideoItemWithProgress 移交所有权后会把 _videoTmpURL 置 nil，故这里不会误删已消费的文件。
+- (void)dealloc {
+    if (_ownsSourceFile && _videoTmpURL) {
+        [[NSFileManager defaultManager] removeItemAtURL:_videoTmpURL error:NULL];
+    }
+}
+
 - (void)loadThumbnail:(void (^)(UIImage *_Nullable))completion {
+    // 本地文件句柄没有 _ip：给 nil 发 loadPreviewImageWithOptions: 是直接返回，**completion 永远不会被调用**，
+    // 气泡缩略图就会永久空白。本地文件抽帧本来也很快（不用等相册导出），直接走慢路径。
+    if (self.isVideo && !_ip) { [self loadThumbnailByExtractingFrame:completion]; return; }
     if (self.isVideo) {
         // 快路径：系统预览图**毫秒级**返回，不需要先把整个视频从相册拷出来。
         // 走 _work 队列的抽帧路径要等 ensureVideoTmpURL 拷完 70MB（真机实测 ~28s），
@@ -201,6 +235,11 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
 }
 
 - (NSString *)suggestedFileName {
+    // 本地文件句柄：没有 _ip 可问，名字按暂存文件的扩展名来（最终产物名仍由 buildVideoItem 定）。
+    if (!_ip) {
+        NSString *ext = _videoExt.length ? _videoExt : (self.isVideo ? @"mov" : @"jpg");
+        return [@"video" stringByAppendingPathExtension:ext] ?: @"video.mov";
+    }
     NSString *typeID = [self fileTypeIdentifier];
     UTType *type = typeID.length > 0 ? [UTType typeWithIdentifier:typeID] : nil;
     NSString *ext = type.preferredFilenameExtension ?: (self.isVideo ? @"mov" : @"jpg");
@@ -213,6 +252,13 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
 - (void)loadFileURL:(void (^)(IMPickedMedia *_Nullable))completion {
     if (!completion) { return; }
     dispatch_async(_work, ^{
+        // 本地文件句柄（相机录制）：文件已在手上，直接移交，不必走相册导出。
+        // 相机路径当前不用这个方法（走 loadData 转码），但留空洞会在将来"相机录像当文件发"时静默返回 nil。
+        if (!self->_ip) {
+            IMPickedMedia *local = [self buildLocalFileItem];
+            dispatch_async(dispatch_get_main_queue(), ^{ completion(local); });
+            return;
+        }
         IMPickedMedia *item = nil;
         NSString *typeID = [self fileTypeIdentifier];
         if (typeID.length > 0) {
@@ -240,6 +286,31 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
         }
         dispatch_async(dispatch_get_main_queue(), ^{ completion(item); });
     });
+}
+
+/// 本地文件句柄的「原件直发」产物（在 _work 串行队列上执行）：不转码不压缩，
+/// 文件所有权随 fileURL 移交调用方（置空 _videoTmpURL，dealloc 不再兜底删）。
+- (IMPickedMedia *)buildLocalFileItem {
+    NSURL *url = _videoTmpURL;
+    if (!url) { return nil; }
+    int64_t size = (int64_t)[[[NSFileManager defaultManager] attributesOfItemAtPath:url.path
+                                                                             error:NULL][NSFileSize] unsignedLongLongValue];
+    if (size <= 0 || size > kIMMaxVideoBytes) { return nil; }
+    CGSize pixelSize = CGSizeZero;
+    int64_t durationMillis = 0;
+    IMPickerReadVideoMeta(url, &pixelSize, &durationMillis);
+    IMPickedMedia *m = [IMPickedMedia new];
+    m.fileURL = url;
+    m.byteCount = size;
+    m.fileName = [self suggestedFileName];
+    m.mimeType = [_videoExt isEqualToString:@"mov"] ? @"video/quicktime" : @"video/mp4";
+    m.isVideo = YES;
+    m.pixelSize = pixelSize;
+    m.durationMillis = durationMillis;
+    m.videoCodec = IMPickerVideoCodec(url);
+    _videoTmpURL = nil;
+    _ownsSourceFile = NO;
+    return m;
 }
 
 #pragma mark 图片（在 _work 串行队列上执行）
@@ -551,6 +622,27 @@ static IMMediaPicker *gActivePicker; // 会话期间自持有（PHPicker delegat
     sheet.popoverPresentationController.sourceView = host.view;
     sheet.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(host.view.bounds), CGRectGetMaxY(host.view.bounds) - 60, 1, 1);
     [host presentViewController:sheet animated:YES completion:nil];
+}
+
+#pragma mark 相机
+
++ (void)configureCameraPicker:(nullable UIImagePickerController *)picker {
+    if (!picker) { return; }
+    picker.mediaTypes = @[UTTypeImage.identifier, UTTypeMovie.identifier]; // 系统相机底部自带「照片/视频」切换
+    picker.videoMaximumDuration = kIMCameraVideoMaxSeconds;                 // 到点自动停止并进预览页
+    picker.videoQuality = UIImagePickerControllerQualityTypeHigh;           // 取设备默认；理由见头文件
+}
+
++ (nullable IMPickedMediaHandle *)handleForRecordedVideoAtURL:(nullable NSURL *)url {
+    if (![url isKindOfClass:NSURL.class] || url.path.length == 0) { return nil; }
+    NSNumber *size = [[NSFileManager defaultManager] attributesOfItemAtPath:url.path error:NULL][NSFileSize];
+    if (size.longLongValue <= 0) {
+        IMLogWarnWithTag(IMLogTagMedia, @"camera_video_missing path_ext=%@", url.pathExtension ?: @"-");
+        return nil; // 文件不存在/空件：调用方提示失败，不要造一条永远发不出去的空气泡
+    }
+    IMLogDebugWithTag(IMLogTagMedia, @"camera_video_captured bytes=%lld ext=%@",
+                      size.longLongValue, url.pathExtension ?: @"-");
+    return [[IMPickedMediaHandle alloc] initWithLocalVideoURL:url];
 }
 
 /// 秒回调：只包一层惰性句柄，不做任何解码/压缩/转码（那些在句柄 loadData 时逐项进行）。

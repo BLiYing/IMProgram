@@ -5,6 +5,36 @@
 
 ## 当前焦点
 
+> **「拍摄」入口支持录像（2026-08-29，worktree `feat/camera-video-capture`；`xcodebuild build` +
+> `IMProgramTests` 全绿，**未手测**——模拟器没有摄像头，只能真机验）**：
+> 加号面板「拍摄」此前只能拍照——`presentImagePickerWithSource:` 没设 `mediaTypes`，系统默认就是
+> `public.image` 一种。三处改动，**不新建相机**：
+> - `IMMediaPicker` 加 `+configureCameraPicker:`（照片/视频双模式 + `videoMaximumDuration`
+>   + `videoQuality=High`）。**刻意不设 sourceType**：模拟器上设成 Camera 会抛异常，配置与相机是否存在无关，
+>   分开才能单测。`videoQuality` 不用 `IFrame1280x720`——那是**全 I 帧**（~29Mbps）文件反而更大，
+>   分辨率交给已有的 `AVAssetExportPreset1280x720`。
+> - `IMPickedMediaHandle` 加**本地文件句柄** `initWithLocalVideoURL:`（工厂 `+handleForRecordedVideoAtURL:`）：
+>   录制产物直接坐进已有的 `_videoTmpURL`（`ensureVideoTmpURL` 本就是"已设则直接返回"），于是
+>   `buildVideoItemWithProgress` 一行不改就能跑，还**省掉一次整文件拷贝**（60s 1080p ≈130MB）。
+>   `_ip == nil` 是这条路径唯一分叉，三处回落：`loadThumbnail:`（**给 nil 发
+>   `loadPreviewImageWithOptions:` 会导致 completion 永不回调、缩略图永久空白**，改直接抽帧）、
+>   `suggestedFileName`、`loadFileURL:`；另加 `dealloc` 兜底删未消费的录制原件（转码后 `_videoTmpURL`
+>   已置 nil，不会误删）。
+> - 聊天页 `didFinishPickingMediaWithInfo:` 按 UTType 分流 → `handleCapturedVideoAtURL:` →
+>   **复用相册那条 `sendMediaHandles:`**（乐观气泡 → 720p H.264 转码 → 落盘落库 → 分片可续传 →
+>   补传封面 → 发 video 消息），本页不另写上传编排。`openCamera` 顺手把麦克风权限提前问掉（否则系统
+>   会在按下录制键那一刻才弹、打断录制）；被拒不阻断，提示放在**录完回到聊天页**时弹（相机全屏时 toast 看不见）。
+> - **时长上限 60s**（`kIMCameraVideoMaxSeconds`，系统默认是 600s）。**注意与相册区分：相册选片仍不限时长**。
+>   限相机是因为它多两条约束：① `exportVideoAtURL:` 的转码超时**写死 120s**，超时会回落发原编码
+>   （设备开「高效」格式 → 收端 Chrome/Firefox 只能看封面播不了）；② 录制原件整份落 tmp，时长翻倍磁盘与
+>   转码耗时同步翻倍。60s 转码后 ≈18MB，正好落在分片区间可暂停续传。要更长的走「照片」（相册）或「文件」（原件直传）。
+> - **测试** `IMCameraCaptureTests` 7 例：picker 配置口径、时长上限 ≤120s 的护栏、空/不存在文件返回 nil、
+>   AVAssetWriter 造真视频跑通 `loadData` 元数据（时长/宽高/落磁盘）、**本地句柄缩略图必回调**（防上面那个坑）、
+>   未消费句柄 dealloc 删原件。
+> - **没做**：相机**拍照**仍是老的 VC 锚定一次性直传（无发送中占位、失败不可重试）——与粘贴图同款欠账，
+>   留给「点红色按钮重发」那批一起做；未接自绘 Telegram 式（点按拍照/长按录像）相机；录像不支持 caption 与 replyTo
+>   （与相册发视频一致）。
+
 > **登录页自证后端可达 + 本地网络授权（2026-08-28，`xcodebuild -workspace` build 绿）**：
 > 真机连 `192.168.1.12:8080` 密码登录失败、免密"成功"，排查发现是**手机压根没连上 Mac**
 > （`imserver.log` 里当天 04:36 后再无任何来自 `192.168.1.x` 的请求，连 `http_request_started` 都没有），
@@ -85,7 +115,8 @@
 
 ## 已知坑 / 限制
 - **`runAfterKeyboardHidden:` 兜底待测（2026-08-05 记）**：依赖 `resignFirstResponder` 后必然收到 `UIKeyboardDidHideNotification`——软键盘正常成立；若实测硬件/外接键盘场景引用跳转不触发，加 `dispatch_after` 超时兜底。
-- 相册导出期杀 App 消息消失（PHPicker 句柄一次性，属预期，微信同）；导出失败的行点 ↻ 提示副本丢失需重选。Files 面板 <8MB 小文件、相机拍摄、粘贴图仍为 VC 锚定一次性上传（秒级；粘贴图已带预览条攒批）。
+- 相册导出期杀 App 消息消失（PHPicker 句柄一次性，属预期，微信同）；导出失败的行点 ↻ 提示副本丢失需重选。Files 面板 <8MB 小文件、相机**拍照**、粘贴图仍为 VC 锚定一次性上传（秒级；粘贴图已带预览条攒批）；
+  相机**录像**已改走 `IMMediaSendService` 常驻队列（2026-08-29）。
 - iOS 无双向分页（进会话全量载入本地 DB）；presence/typing 仅聊天页标题生效。dev-login 建的账号无法再走密码登录（测密码登录用「注册并登录」或清 `imserver.db`）。
 - **查看器"正在播放中"视频 404 未接失效占位（2026-08-11 记）**：`IMMediaViewerViewController` 有 `item.status` KVO 但失败一律走「无法播放该视频」兜底，未把 404/410 翻 ⊘。窄路径（气泡/媒体库通常先探到→进查看器即短路），兜底不黑屏故可接受。补法：失败分支走 `IMMediaExpiryRegistry verifyExpiredForURL:` 定性→失效覆盖层 + mid-play teardown。
 - **失效标记内存态不持久（刻意，2026-08-11 记）**：`IMMediaExpiryRegistry` 用进程内 Set，冷启动首帧重探一次换自愈；仅当服务端上自动 TTL 清理使失效变常态才上持久化。
