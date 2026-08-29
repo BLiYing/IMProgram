@@ -11,6 +11,7 @@
 #import "IMTheme.h"
 #import "IMTimeUtil.h"
 #import "IMLog.h"
+#import "IMAccountIdentity.h"
 
 #pragma mark - 成员行 Cell（头像 + 昵称/uid + 角色徽章）
 
@@ -87,7 +88,8 @@ static CGFloat const kIMMemberAvatarSize = 40;
     NSString *shown = member.localDisplayName; // 备注优先（本机显示）
     [_avatar im_setAvatarURL:member.avatarURL seed:member.userID displayName:shown];
     _name.text = isMe ? [NSString stringWithFormat:@"%@（我）", shown] : shown;
-    _sub.text = member.userID;
+    // 同上：句柄而非内部 ID。
+    _sub.text = member.username.length > 0 ? [@"@" stringByAppendingString:member.username] : @"";
     switch (member.role) {
         case IMGroupRoleOwner:
             _roleBadge.hidden = NO;

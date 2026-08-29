@@ -3,6 +3,7 @@
 #import "IMGroupInfo.h"
 
 #import "IMRemarkStore.h"
+#import "IMAccountIdentity.h"
 
 IMGroupRole IMGroupRoleFromString(NSString *s) {
     if ([s isEqualToString:@"owner"]) { return IMGroupRoleOwner; }
@@ -37,7 +38,8 @@ static BOOL IMGroupBool(NSDictionary *dict, NSString *key) {
 
 - (NSString *)displayName {
     if (self.groupNickname.length > 0) { return self.groupNickname; } // 群昵称优先（G1）
-    return self.nickname.length > 0 ? self.nickname : self.userID;
+    // 末级不落 userID（10 位随机内部 ID）；统一走 IMDisplayName 的兜底链。
+    return IMDisplayName(self.nickname, self.username);
 }
 
 - (NSString *)localDisplayName {
@@ -50,6 +52,8 @@ static BOOL IMGroupBool(NSDictionary *dict, NSString *key) {
     m.userID = IMGroupString(dict, @"user_id");
     if (m.userID.length == 0) { return nil; }
     m.nickname = IMGroupString(dict, @"nickname");
+    NSString *un = IMGroupString(dict, @"username");
+    m.username = un.length > 0 ? un : nil;
     NSString *gn = IMGroupString(dict, @"group_nickname");
     m.groupNickname = gn.length > 0 ? gn : nil;
     m.avatarURL = IMGroupString(dict, @"avatar_url");

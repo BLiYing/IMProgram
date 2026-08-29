@@ -5,6 +5,7 @@
 #import "IMTheme.h"
 #import "IMTimeUtil.h"        // IMNowMillis()：判定成员级禁言是否仍在期
 #import "UILabel+IMAvatar.h"
+#import "IMAccountIdentity.h"
 
 @implementation IMDetailMemberCell {
     UILabel *_avatar; UILabel *_name; UILabel *_sub; UILabel *_role;
@@ -67,7 +68,8 @@
     NSString *shown = m.localDisplayName;
     [_avatar im_setAvatarURL:m.avatarURL seed:m.userID displayName:shown];
     _name.text = isMe ? [NSString stringWithFormat:@"%@（我）", shown] : shown;
-    _sub.text = m.userID;
+    // 副标题显示公开句柄，不是 userID（10 位随机数字内部 ID）。没有句柄就留空。
+    _sub.text = m.username.length > 0 ? [@"@" stringByAppendingString:m.username] : @"";
     if (m.role == IMGroupRoleOwner) {
         _role.hidden = NO; _role.text = @"群主"; _role.textColor = IMTheme.accent;
         _role.backgroundColor = [IMTheme.accent colorWithAlphaComponent:0.15];

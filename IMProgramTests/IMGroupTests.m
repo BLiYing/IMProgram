@@ -45,9 +45,11 @@
     XCTAssertEqual(g.members.count, 3u);
     XCTAssertEqual(g.members[0].role, IMGroupRoleOwner);
     XCTAssertEqual(g.members[1].role, IMGroupRoleAdmin);
-    // displayName：有昵称用昵称，否则回退 uid。
+    // displayName：有昵称用昵称；**末级不再回退 uid**——账号重构后 user_id 是 10 位随机数字
+    // 内部 ID，露出来毫无意义（docs/UI.md「用户标识」）。无昵称无句柄 → 占位。
     XCTAssertEqualObjects(g.members[1].displayName, @"小明");
-    XCTAssertEqualObjects(g.members[2].displayName, @"1003");
+    XCTAssertEqualObjects(g.members[2].displayName, @"未命名用户");
+    XCTAssertNotEqualObjects(g.members[2].displayName, g.members[2].userID);
     // nicknameOfMember：查昵称（气泡回退）。
     XCTAssertEqualObjects([g nicknameOfMember:@"1002"], @"小明");
     XCTAssertNil([g nicknameOfMember:@"1003"], @"无昵称成员返回 nil（回退 uid 由调用方做）");
@@ -135,6 +137,43 @@
     IMMessageModel *back = [IMMessageModel messageFromDictionary:m.dictionaryRepresentation];
     XCTAssertEqualObjects(back.fromNickname, @"小明");
     XCTAssertEqualObjects(back.convID, @"g_abc");
+}
+
+@end
+
+@interface IMGroupMemberUsernameTests : XCTestCase
+@end
+
+@implementation IMGroupMemberUsernameTests
+
+/// 成员解析要带 username（成员行副标题显示 @xxx），且 displayName 的末级**不落 userID**——
+/// 账号重构后那是 10 位随机数字内部 ID（见 IMServer/docs/UI.md「用户标识」）。
+/// 成员解析入口是私有的，故经公开的 groupFromDictionary: 间接构造。
+- (void)testMemberParsesUsernameAndDisplayNameNeverFallsBackToInternalID {
+    IMGroupInfo *g = [IMGroupInfo groupFromDictionary:@{
+        @"conv_id": @"g_x", @"name": @"群", @"owner": @"1000000001", @"my_role": @"member",
+        @"members": @[
+            @{ @"user_id": @"4820571639", @"username": @"xiaoming", @"nickname": @"小明", @"role": @"member" },
+            @{ @"user_id": @"1937284650", @"username": @"nonick", @"nickname": @"", @"role": @"member" },
+            @{ @"user_id": @"5555555555", @"nickname": @"", @"role": @"member" },
+        ],
+    }];
+    XCTAssertEqual(g.members.count, 3);
+
+    IMGroupMember *full = g.members[0];
+    XCTAssertEqualObjects(full.userID, @"4820571639");
+    XCTAssertEqualObjects(full.username, @"xiaoming");
+    XCTAssertEqualObjects(full.displayName, @"小明");
+
+    // 昵称为空 → 退到 @username，**绝不退到内部 ID**。
+    IMGroupMember *noNick = g.members[1];
+    XCTAssertEqualObjects(noNick.displayName, @"@nonick");
+    XCTAssertNotEqualObjects(noNick.displayName, noNick.userID);
+
+    // 昵称与句柄都空 → 占位，仍然不是内部 ID。
+    IMGroupMember *bare = g.members[2];
+    XCTAssertEqualObjects(bare.displayName, @"未命名用户");
+    XCTAssertNotEqualObjects(bare.displayName, bare.userID);
 }
 
 @end

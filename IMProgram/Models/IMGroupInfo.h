@@ -20,6 +20,8 @@ IMGroupRole IMGroupRoleFromString(NSString *_Nullable s);
 @interface IMGroupMember : NSObject
 @property (nonatomic, copy) NSString *userID;
 @property (nonatomic, copy) NSString *nickname;                        ///< 全局昵称
+/// 公开句柄（成员行副标题显示 @xxx）。副标题此前显示 userID——那是 10 位随机数字内部 ID。
+@property (nonatomic, copy, nullable) NSString *username;
 @property (nonatomic, copy, nullable) NSString *groupNickname;         ///< 我在本群的昵称（G1，空=未设置）
 @property (nonatomic, copy) NSString *avatarURL;
 @property (nonatomic, assign) IMGroupRole role;

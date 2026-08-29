@@ -17,6 +17,7 @@
 #import "UIViewController+IMToast.h"
 #import "IMTheme.h"
 #import "IMLog.h"
+#import "IMAccountIdentity.h"
 
 #pragma mark - 顶部入口 Cell（彩色图标 + 标题 + chevron）
 
@@ -358,7 +359,9 @@
     IMContactCell *cell = [tableView dequeueReusableCellWithIdentifier:@"friend" forIndexPath:indexPath];
     IMUserCard *c = [self.friendIndex cardAtSection:[self friendLocalSection:indexPath.section] row:indexPath.row];
     // 拉黑≠解绑：被拉黑的好友仍在列表，副标题标注"已拉黑"以区分。
-    NSString *subtitle = c.blocked ? [NSString stringWithFormat:@"%@ · 已拉黑", c.userID] : c.userID;
+    // 副标题 = @句柄（没有则留空），绝不显示 userID——那是 10 位随机数字内部 ID。
+    NSString *handle = c.username.length > 0 ? [@"@" stringByAppendingString:c.username] : @"";
+    NSString *subtitle = c.blocked ? (handle.length > 0 ? [handle stringByAppendingString:@" · 已拉黑"] : @"已拉黑") : handle;
     [cell configureWithCard:c subtitle:subtitle];
     [cell setActionTitle:nil enabled:NO action:nil];
     cell.selectionStyle = UITableViewCellSelectionStyleDefault;

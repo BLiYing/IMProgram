@@ -8,6 +8,7 @@
 #import "IMTheme.h"
 #import "IMGlass.h"
 #import "IMLog.h"
+#import "IMAccountIdentity.h"
 
 @interface IMUserSearchViewController () <UITableViewDataSource, UITableViewDelegate, UISearchBarDelegate>
 @property (nonatomic, copy) NSString *host;
@@ -196,9 +197,12 @@
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     IMContactCell *cell = [tableView dequeueReusableCellWithIdentifier:@"user" forIndexPath:indexPath];
     IMUserCard *c = self.results[indexPath.row];
-    NSString *subtitle = c.userID;
+    // 副标题 = @句柄（+ 标签）。绝不显示 userID——那是 10 位随机数字内部 ID。
+    NSString *handle = c.username.length > 0 ? [@"@" stringByAppendingString:c.username] : @"";
+    NSString *subtitle = handle;
     if (c.tags.count > 0) {
-        subtitle = [NSString stringWithFormat:@"%@ · %@", c.userID, [c.tags componentsJoinedByString:@" "]];
+        NSString *tags = [c.tags componentsJoinedByString:@" "];
+        subtitle = handle.length > 0 ? [NSString stringWithFormat:@"%@ · %@", handle, tags] : tags;
     }
     [cell configureWithCard:c subtitle:subtitle];
 
