@@ -5,6 +5,7 @@
 #import "IMMediaUtil.h"        // IMFormatFileDateTime（与详情页文件/链接 tab 同一时间口径）
 #import "UILabel+IMAvatar.h"
 #import "IMTheme.h"
+#import "IMAccountIdentity.h"
 
 const CGFloat IMDetailContactCellHeight = 64;
 
@@ -86,12 +87,14 @@ const CGFloat IMDetailContactCellHeight = 64;
                sourceName:(NSString *)sourceName
           timestampMillis:(int64_t)timestampMillis {
     if (!card) { [self clearContent]; return; }
-    NSString *shown = displayName.length > 0 ? displayName
-                    : (card.nickname.length > 0 ? card.nickname : (card.userID ?: @""));
+    // 末级不落 userID（10 位随机数字内部 ID），统一走 IMDisplayName 的兜底链。
+    NSString *shown = displayName.length > 0 ? displayName : IMDisplayName(card.nickname, card.username);
     _name.text = shown;
-    NSString *sub = card.userID.length > 0 ? [@"ID " stringByAppendingString:card.userID] : @"";
+    // 副标题 = @句柄（+ 来源）。绝不显示 userID。
+    NSString *sub = card.username.length > 0 ? [@"@" stringByAppendingString:card.username] : @"";
     if (sourceName.length > 0) {
-        sub = [sub stringByAppendingFormat:@" · 由 %@ 分享", sourceName];
+        sub = sub.length > 0 ? [sub stringByAppendingFormat:@" · 由 %@ 分享", sourceName]
+                             : [NSString stringWithFormat:@"由 %@ 分享", sourceName];
     }
     _sub.text = sub;
     _time.text = timestampMillis > 0 ? IMFormatFileDateTime(timestampMillis) : @"";
