@@ -376,7 +376,7 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
                                                name:IMRemarkStoreDidChangeNotification object:nil];
     [self setupUI];
     // 系统通知会话（peerID=system）：进页即锁定输入栏（无群资料触发路径）。
-    // 见 docs/SYSTEM_NOTICE_SESSION_DESIGN.md §5.2 / +PinnedBanner.m refreshComposerMuteState。
+    // 见 docs/design/SYSTEM_NOTICE_SESSION_DESIGN.md §5.2 / +PinnedBanner.m refreshComposerMuteState。
     if (!self.isGroupChat && IMIsSystemUserID(self.peerID)) {
         [self refreshComposerMuteState];
     }

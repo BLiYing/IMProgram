@@ -51,7 +51,7 @@ NSString *IMContactCardPreview(NSString *content) {
     IMContactCard *c = IMContactCardParse(content);
     if (!c) { return @"[个人名片]"; }
     // 末级**不落 userID**：这条预览会出现在会话列表/引用条上，露出 10 位随机数字比不带名字更糟
-    // （与服务端 contactReplySnapshot 同口径，见 docs/ACCOUNT_IDENTITY_REDESIGN.md §7.5）。
+    // （与服务端 contactReplySnapshot 同口径，见 docs/design/ACCOUNT_IDENTITY_REDESIGN.md §7.5）。
     if (c.nickname.length > 0) { return [@"[个人名片] " stringByAppendingString:c.nickname]; }
     if (c.username.length > 0) { return [@"[个人名片] @" stringByAppendingString:c.username]; }
     return @"[个人名片]";

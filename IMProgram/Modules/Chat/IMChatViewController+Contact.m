@@ -4,7 +4,7 @@
 //
 //  流程：加号面板 → **复用**通用好友多选页 IMFriendPickerViewController（上限 9）
 //        → 卡片式二次确认 sheet（把即将发出的那张卡先给用户看）→ 逐条乐观回显发出。
-//  设计见 docs/CONTACT_CARD_DESIGN.md §4。
+//  设计见 docs/design/CONTACT_CARD_DESIGN.md §4。
 
 #import "IMChatViewController+Private.h"
 #import "IMFriendPickerViewController.h"

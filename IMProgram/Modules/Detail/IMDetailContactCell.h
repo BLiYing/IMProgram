@@ -1,7 +1,7 @@
 //  IMDetailContactCell.h
 //  个人名片的「列表行」——**会话详情页「名片」页签**与**收藏页「名片」分类共用同一个 cell**
 //  （即"收藏页复用资料详情页"的落地方式，与 IMDetailFileCell 被两处复用一脉相承）。
-//  规格见 docs/CONTACT_CARD_DESIGN.md §7.1：行高 64、头像 44、主行显示名、副行 `ID x[· 由 X 分享]`、右上时间。
+//  规格见 docs/design/CONTACT_CARD_DESIGN.md §7.1：行高 64、头像 44、主行显示名、副行 `ID x[· 由 X 分享]`、右上时间。
 
 #import <UIKit/UIKit.h>
 

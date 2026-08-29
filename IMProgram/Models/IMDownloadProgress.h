@@ -2,7 +2,7 @@
 //  一条媒体/文件的**下载**进度（M4-7）。与 IMUploadProgress 镜像对称：上传把 ↑ 当"续传"，
 //  下载把 ↓ 当"下载/继续"；中心圆钮状态机复用同一套 SF Symbol（✕/⏸/↓/↻）。
 //
-//  三条铁律（见 docs/DOWNLOAD_UX_SKETCH.html）：① 下载全程不跳页；② 完成即止**绝不自动打开/播放**
+//  三条铁律（见 docs/design/sketches/DOWNLOAD_UX_SKETCH.html）：① 下载全程不跳页；② 完成即止**绝不自动打开/播放**
 //  （Done 态不给中心按钮，由 cell 各自呈现清晰图/▶/文件图标，用户主动点才打开）；③ 手动点击永远优先。
 
 #import <Foundation/Foundation.h>

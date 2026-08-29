@@ -1,7 +1,7 @@
 //  IMContactCard.h
 //  个人名片消息（content_type=contact）的 content 解析 / 构造 / 预览（纯逻辑，可单测）。
 //  content 是极小的 JSON 快照 {"u","un","n","a"}——内部 ID / username / 昵称 / 头像 URL（后三者为发送时冻结的快照）。
-//  协议见 docs/PROTOCOL.md §4.1，设计见 docs/CONTACT_CARD_DESIGN.md。
+//  协议见 docs/PROTOCOL.md §4.1，设计见 docs/design/CONTACT_CARD_DESIGN.md。
 
 #import <Foundation/Foundation.h>
 

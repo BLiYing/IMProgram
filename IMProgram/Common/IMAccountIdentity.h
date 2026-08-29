@@ -1,5 +1,5 @@
 //  IMAccountIdentity.h
-//  账号身份的全端共享常量与判定（对应后端 docs/ACCOUNT_IDENTITY_REDESIGN.md）。
+//  账号身份的全端共享常量与判定（对应后端 docs/design/ACCOUNT_IDENTITY_REDESIGN.md）。
 //
 //  三个概念别混：
 //    - **内部 ID**（`user_id`）：服务端分配的 10 位随机数字，用户不可见不可改。

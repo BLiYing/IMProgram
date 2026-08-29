@@ -9,7 +9,7 @@
 //    - 原地松手 → 上传 ?as=voice → sendMedia（带 waveform+duration）+ 本地落库回显 + ack 回写 convSeq
 //    - <0.6s 提示"说话时间太短"；达 5min 自动停并发送
 //    - 中断（来电/切后台）→ 自动转锁定暂停态（§5.4）；锁定态删除 >10s 二次确认
-//    - 转文字（服务端识别，见 IMServer docs/VOICE_TRANSCRIBE_DESIGN.md）/ 接力连播 / 倍速与 scrub（cell 侧）
+//    - 转文字（服务端识别，见 IMServer docs/design/VOICE_TRANSCRIBE_DESIGN.md）/ 接力连播 / 倍速与 scrub（cell 侧）
 //
 
 #import "IMChatViewController+Private.h"
@@ -674,7 +674,7 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
     }];
 }
 
-#pragma mark - 转文字（服务端识别，见 IMServer docs/VOICE_TRANSCRIBE_DESIGN.md）
+#pragma mark - 转文字（服务端识别，见 IMServer docs/design/VOICE_TRANSCRIBE_DESIGN.md）
 
 - (BOOL)im_hasVoiceTranscript:(IMMessageModel *)message {
     NSString *mid = IMVoicePlayerPlayableIDForMessage(message);

@@ -2,7 +2,7 @@
 //  会话内「按日期跳转」日历卡片（搜索功能）。呈现形态严格仿 IMFilePickerViewController：
 //  UIModalPresentationPageSheet + 自定义 detent + grabber + 自持 IMLiquidNavigationBar（左上 Liquid Glass ✕）。
 //  点 📅 从聊天页底部弹出本卡片，选天/最早/今天即回调、dismiss，跳转落在原聊天页（不换页）。
-//  设计见 docs/SEARCH_DESIGN.md §5 / §5.1。
+//  设计见 docs/design/SEARCH_DESIGN.md §5 / §5.1。
 
 #import <UIKit/UIKit.h>
 

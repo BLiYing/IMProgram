@@ -2,7 +2,7 @@
 //  收藏页 Links 分类专用行。视觉与详情页 IMDetailLinkCell 同基（都内嵌 IMLinkRowView），
 //  再加两条收藏页特有信息：**原文引用**（混排文本"看看 https://xxx"的原句，仅混排时显）+
 //  **来源行**（"来自 X · 时间"，与 IMFavoriteRowCell 的 meta 语义一致，永远显）。
-//  草图 docs/URL_LINK_UX_SKETCH.html §D。
+//  草图 docs/design/sketches/URL_LINK_UX_SKETCH.html §D。
 
 #import <UIKit/UIKit.h>
 

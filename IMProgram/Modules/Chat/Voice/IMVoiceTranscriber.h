@@ -1,6 +1,6 @@
 //
 //  IMVoiceTranscriber.h
-//  语音转文字（**服务端识别**，见 IMServer docs/VOICE_TRANSCRIBE_DESIGN.md）：
+//  语音转文字（**服务端识别**，见 IMServer docs/design/VOICE_TRANSCRIBE_DESIGN.md）：
 //    - 收方长按气泡 →「转文字」→ POST /api/v1/voice/transcripts（只传消息坐标）
 //    - 命中服务端缓存 → 立即回文本；未命中 → 回 pending，结果经 WS voice_transcript 帧到达
 //    - 本地按**音频路径**缓存一份（与服务端同口径），避免重复请求；再次展开零延迟

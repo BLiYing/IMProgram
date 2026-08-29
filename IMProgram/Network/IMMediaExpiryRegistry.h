@@ -1,5 +1,5 @@
 //  IMMediaExpiryRegistry.h
-//  「曾可用、被服务端清理」媒体的失效登记表（对齐 Web im-web 的 expiredSet + docs/MEDIA_EXPIRED_UX_SKETCH.html）。
+//  「曾可用、被服务端清理」媒体的失效登记表（对齐 Web im-web 的 expiredSet + docs/design/sketches/MEDIA_EXPIRED_UX_SKETCH.html）。
 //
 //  三条**被动展示**路径（曾可用图/视频气泡 IMImageCell·IMAlbumCell / 会话媒体库宫格 IMConversationMediaViewController /
 //  大图查看器 IMMediaViewerViewController）此前对 404 一律留空白 —— 与"加载中"分不清。本表把命中 404/410 的 URL

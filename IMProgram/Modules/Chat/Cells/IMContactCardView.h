@@ -1,7 +1,7 @@
 //  IMContactCardView.h
 //  个人名片「卡片本体」（240pt 定宽）。独立成 view 是为了让**聊天气泡**与**发送前确认 sheet**
 //  1:1 复用同一张卡——确认 sheet 要给用户看的正是收方将看到的那张，两处各画一遍必然漂移。
-//  规格见 docs/CONTACT_CARD_DESIGN.md §5。
+//  规格见 docs/design/CONTACT_CARD_DESIGN.md §5。
 
 #import <UIKit/UIKit.h>
 

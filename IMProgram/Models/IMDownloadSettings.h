@@ -1,7 +1,7 @@
 //  IMDownloadSettings.h
 //  账号级**媒体自动下载策略**的客户端模型（M4-7），对应服务端 GET /api/v1/download-settings
 //  与 internal/downloadsettings 的 JSON。两网络（移动数据 / Wi-Fi）× 图片/视频/文件 × 单聊/群聊
-//  开关 + 大小上限。语义解释两端一致（见 docs/DOWNLOAD_DATA_STORAGE_PLAN.md）。
+//  开关 + 大小上限。语义解释两端一致（见 docs/design/DOWNLOAD_DATA_STORAGE_PLAN.md）。
 //
 //  默认值与服务端 Defaults() 逐字对齐：移动数据中档（视频 10MB / 文件 1MB）、Wi-Fi 高档
 //  （视频 15MB / 文件 3MB）、图片无上限、两网络开、单聊群聊均开。

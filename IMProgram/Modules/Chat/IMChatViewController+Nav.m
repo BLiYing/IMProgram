@@ -17,7 +17,7 @@
 /// 44pt 官方 Glass 按钮直接承接点击和系统按压动画，内部 30pt 头像严格裁圆。
 static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name, CGFloat diameter) {
     // 系统通知会话（seed=system）：走应用 logo（LaunchLogo）——与会话列表 / UILabel+IMAvatar 同一契约。
-    // 见 docs/SYSTEM_NOTICE_SESSION_DESIGN.md §2.1。
+    // 见 docs/design/SYSTEM_NOTICE_SESSION_DESIGN.md §2.1。
     if (IMIsSystemUserID(seed) && !photo) {
         UIImage *logo = [UIImage imageNamed:@"LaunchLogo"];
         if (logo) {

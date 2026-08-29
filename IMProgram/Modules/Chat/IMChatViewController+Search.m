@@ -2,7 +2,7 @@
 //  会话内搜索（搜索功能）：顶部搜索栏**在标题栏那一行**（自持 IMLiquidNavigationBar 的 searchMode，复用 titleGlass
 //  得 24 圆角 + 玻璃，搜索框/取消背景透明）；底部命中导航**无背景**（📅/来自/▲▼ 各自玻璃钮浮在聊天上，「第 N/M 条」
 //  是独立玻璃胶囊）；📅 底部卡片按日期跳转；👤 群内「来自」发件人过滤（点即插高亮 token + 字段 ✕，选人复用真实头像）。
-//  设计见 docs/SEARCH_DESIGN.md §0.1/§4/§4.1/§5；命中口径同后端 G4（content(text)+caption 子串，大小写不敏感）。
+//  设计见 docs/design/SEARCH_DESIGN.md §0.1/§4/§4.1/§5；命中口径同后端 G4（content(text)+caption 子串，大小写不敏感）。
 
 #import "IMChatViewController+Private.h"
 #import "IMChatSearchState.h"
