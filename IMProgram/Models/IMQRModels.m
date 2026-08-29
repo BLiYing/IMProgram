@@ -26,6 +26,8 @@ static BOOL IMQRBool(NSDictionary *dict, NSString *key) {
     if (![dict isKindOfClass:[NSDictionary class]]) { return nil; }
     IMQRUserCard *c = [IMQRUserCard new];
     c.userID = IMQRString(dict, @"user_id");
+    NSString *un = IMQRString(dict, @"username");
+    c.username = un.length > 0 ? un : nil;
     c.nickname = IMQRString(dict, @"nickname");
     c.avatarURL = IMQRString(dict, @"avatar_url");
     c.relation = IMQRString(dict, @"relation");

@@ -17,6 +17,8 @@ typedef NS_ENUM(NSInteger, IMQRKind) {
 /// 名片码扫后展示的对方资料。
 @interface IMQRUserCard : NSObject
 @property (nonatomic, copy) NSString *userID;
+/// 公开句柄：扫码结果卡显示 @xxx。**绝不显示 userID**（10 位随机数字内部 ID）。
+@property (nonatomic, copy, nullable) NSString *username;
 @property (nonatomic, copy) NSString *nickname;
 @property (nonatomic, copy) NSString *avatarURL;
 @property (nonatomic, copy) NSString *relation;   ///< stranger | friend | self | blocked

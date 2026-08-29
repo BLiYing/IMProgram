@@ -11,6 +11,7 @@ NS_ASSUME_NONNULL_BEGIN
 /// 我的名片码（长期有效，可重置）。
 - (instancetype)initMyCardWithHost:(NSString *)host
                             userID:(NSString *)userID
+                          username:(nullable NSString *)username
                           nickname:(nullable NSString *)nickname
                          avatarURL:(nullable NSString *)avatarURL;
 

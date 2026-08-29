@@ -82,6 +82,7 @@ static const NSInteger kIMErrCodeQRExpired = 200110;
         // 扫自己的码：不给"加好友"，直接把他送回自己的名片码页（大概率是想给别人看）。
         [vc im_showToast:@"这是你自己的名片码"];
         IMQRCardViewController *mine = [[IMQRCardViewController alloc] initMyCardWithHost:host userID:userID
+                                                                                username:card.username
                                                                                 nickname:card.nickname
                                                                                avatarURL:card.avatarURL];
         [vc.navigationController pushViewController:mine animated:YES];

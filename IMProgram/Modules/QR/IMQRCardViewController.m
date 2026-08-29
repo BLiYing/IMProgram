@@ -18,6 +18,8 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
 @property (nonatomic, assign) IMQRCardMode mode;
 @property (nonatomic, copy) NSString *host;
 @property (nonatomic, copy) NSString *userID;
+/// 公开句柄：副标题显示 @xxx。**绝不显示 userID**——那是 10 位随机数字内部 ID。
+@property (nonatomic, copy, nullable) NSString *username;
 @property (nonatomic, copy, nullable) NSString *convID;
 @property (nonatomic, copy, nullable) NSString *displayName;
 @property (nonatomic, copy, nullable) NSString *avatarURL;
@@ -43,13 +45,15 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
 #pragma mark - 初始化
 
 - (instancetype)initMyCardWithHost:(NSString *)host userID:(NSString *)userID
+                          username:(NSString *)username
                           nickname:(NSString *)nickname avatarURL:(NSString *)avatarURL {
     self = [super initWithNibName:nil bundle:nil];
     if (self) {
         _mode = IMQRCardModeUser;
         _host = [host copy];
         _userID = [userID copy];
-        _displayName = [IMDisplayName(nickname, nil) copy];
+        _username = [username copy];
+        _displayName = [IMDisplayName(nickname, username) copy];
         _avatarURL = [avatarURL copy];
     }
     return self;
@@ -190,7 +194,9 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
             ? [NSString stringWithFormat:@"扫描二维码，加入群聊\n该二维码 %@ 前有效", [self dateStringFromMillis:self.expiresAt]]
             : @"扫描二维码，加入群聊";
     } else {
-        subtitle = [NSString stringWithFormat:@"ID %@", self.userID];
+        // 副标题显示公开句柄，不是 userID（10 位随机数字内部 ID）——这张卡是给别人看的，
+        // 显示一串随机数字对方认不出是谁（docs/UI.md「用户标识」）。没有句柄就留空。
+        subtitle = self.username.length > 0 ? [@"@" stringByAppendingString:self.username] : @"";
         hint = @"扫描二维码，加我为朋友\n该码长期有效，重置后旧码立即失效";
     }
     NSString *seed = (self.mode == IMQRCardModeGroup) ? (self.convID ?: @"") : self.userID;

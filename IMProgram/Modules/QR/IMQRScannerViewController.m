@@ -31,7 +31,8 @@ static const CGFloat kIMReticleSide = 220;
 @property (nonatomic, strong) IMQRCardView *cardView;
 @property (nonatomic, assign) BOOL cardLoaded;
 @property (nonatomic, copy, nullable) NSString *myCardURL;   ///< 名片码内容串
-@property (nonatomic, copy, nullable) NSString *myNickname;  ///< 卡片展示名（拉到资料后补正，先用 uid）
+@property (nonatomic, copy, nullable) NSString *myNickname;  ///< 卡片展示名（拉到资料后补正）
+@property (nonatomic, copy, nullable) NSString *myUsername;  ///< 公开句柄：副标题显 @xxx，绝不显内部 ID
 @property (nonatomic, copy, nullable) NSString *myAvatarURL;
 @property (nonatomic, strong) UIView *deniedView;              ///< 相机权限被拒的页面内引导
 @property (nonatomic, strong) UIView *reticle;
@@ -318,9 +319,11 @@ static const CGFloat kIMReticleSide = 220;
 
 /// 把当前已知的昵称/头像/码串灌进卡片。资料未回来时先用 uid 占位——码本身不依赖资料，先能扫要紧。
 - (void)renderMyCard {
-    NSString *display = IMDisplayName(self.myNickname, nil);
+    NSString *display = IMDisplayName(self.myNickname, self.myUsername);
+    // 副标题显示公开句柄，不是 userID——这张卡是给别人扫的，一串随机数字对方认不出是谁。
+    NSString *sub = self.myUsername.length > 0 ? [@"@" stringByAppendingString:self.myUsername] : @"";
     [self.cardView configureWithAvatarURL:self.myAvatarURL seed:self.userID name:display
-                                 subtitle:[NSString stringWithFormat:@"ID %@", self.userID]
+                                 subtitle:sub
                                  qrString:self.myCardURL hint:@"扫描二维码，加我为朋友"];
 }
 
@@ -334,6 +337,7 @@ static const CGFloat kIMReticleSide = 220;
         __strong typeof(ws) self = ws;
         if (!self || error || !profile) { return; }
         self.myNickname = profile.displayName;
+        self.myUsername = profile.username;
         self.myAvatarURL = profile.avatarURL;
         [self renderMyCard];
     }];

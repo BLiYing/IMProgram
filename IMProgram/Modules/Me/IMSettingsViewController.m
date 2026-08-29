@@ -382,6 +382,7 @@
 }
 - (void)showQRCode {
     IMQRCardViewController *card = [[IMQRCardViewController alloc] initMyCardWithHost:self.host userID:self.userID
+                                                                           username:self.myUsername
                                                                            nickname:self.myNickname avatarURL:self.myAvatarURL];
     [self.navigationController pushViewController:card animated:YES];
 }
