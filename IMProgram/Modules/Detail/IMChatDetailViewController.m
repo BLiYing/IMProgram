@@ -50,6 +50,7 @@
 #import "IMDetailMediaContainerCell.h"
 #import "IMDetailFileCell.h"
 #import "IMDetailLinkCell.h"
+#import "IMDetailContactCell.h"
 #import "IMChatDetailViewController+Private.h" // 私有类扩展（属性/协议/常量/enum）——与分文件 category 共享
 
 #pragma mark - 详情页
@@ -627,6 +628,7 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
         // 链接行 3 行：og:title/host + host+path + 时间（草图 §C，IMDetailLinkCell 内嵌 IMLinkRowView）——
         // 内部 t1(16)+2+t2(14)+2+t3(14)=48pt + cell 上下 padding 9+9=66pt；旧的 60pt 会截掉时间行（用户反馈）。
         if (t.kind == IMDetailTabKindLinks) { return 74; }
+        if (t.kind == IMDetailTabKindContacts) { return IMDetailContactCellHeight; } // 名片行 64（§7.1）
         return 60;
     }
     return 52;
@@ -859,7 +861,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     }
     // 文件/语音/链接
     if (self.tabRows.count == 0) {
-        NSString *empty = t.kind == IMDetailTabKindFiles ? @"暂无文件" : (t.kind == IMDetailTabKindVoice ? @"暂无语音" : @"暂无链接");
+        NSString *empty = t.kind == IMDetailTabKindFiles ? @"暂无文件" : (t.kind == IMDetailTabKindVoice ? @"暂无语音" : (t.kind == IMDetailTabKindContacts ? @"暂无名片" : @"暂无链接"));
         return [self emptyCell:tv text:empty];
     }
     IMMessageModel *m = self.tabRows[row];
@@ -870,6 +872,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
         [fc configureWithMessage:m download:[self.downloads stateForMessage:m]];
         return fc;
     }
+    if (t.kind == IMDetailTabKindContacts) { return [self contactRowCellIn:tv message:m]; } // 见 +Contacts.m
     if (t.kind == IMDetailTabKindLinks) {
         // 草图 §C：36×36 favicon + t1 og:title(host 兜底) + t2 host+path(mono) + t3 时间；点行=打开链接、无来源、无原文预览。
         IMDetailLinkCell *lc = [tv dequeueReusableCellWithIdentifier:@"detaillink"];
@@ -941,7 +944,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
             // 三行 cell 的 ▶/波形自己处理播放（IMVoiceMiniPlayerView.onPlayTap）；行整体点击不动作，避免与内部键冲突。
         } else if (t.kind == IMDetailTabKindLinks) {
             if (self.tabRows.count > 0) { [self openLink:IMMediaFullURL(self.tabRows[indexPath.row].content, self.host)]; }
-        }
+        } else if (t.kind == IMDetailTabKindContacts) { [self openContactRowAtIndex:indexPath.row]; } // → 资料页（+Contacts.m）
     }
 }
 
@@ -1297,7 +1300,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
 - (nullable IMMessageModel *)contentRowMessageAtIndexPath:(NSIndexPath *)ip {
     if ([self sectionKindAt:ip.section] != IMDetailSectionTabs || self.tabs.count == 0) { return nil; }
     IMDetailTabKind kind = self.tabs[self.selectedTab].kind;
-    if (kind != IMDetailTabKindFiles && kind != IMDetailTabKindVoice && kind != IMDetailTabKindLinks) { return nil; }
+    if (kind != IMDetailTabKindFiles && kind != IMDetailTabKindVoice && kind != IMDetailTabKindLinks && kind != IMDetailTabKindContacts) { return nil; }
     if (ip.row < 0 || ip.row >= (NSInteger)self.tabRows.count) { return nil; }
     return self.tabRows[ip.row];
 }

@@ -16,6 +16,7 @@
 #import "IMGroupInfo.h"
 #import "IMUserCard.h"
 #import "IMRemarkStore.h"
+#import "IMContactShare.h"
 #import "IMGroupManageViewController.h"
 #import "IMGroupTextViewController.h"
 #import "IMQRCardViewController.h"
@@ -179,11 +180,25 @@
         // 系统通知会话：只保留清空聊天记录（拉黑/举报 不适用；护栏也会拒）。
         [items addObject:[IMPopoverCardItem itemWithTitle:@"清空聊天记录" symbol:@"trash" destructive:NO handler:^{ [ws confirmClearHistory]; }]];
     } else {
+        // 入口 ②「推荐给朋友」（CONTACT_CARD_DESIGN §4.3）：把**当前正在看的这个人**推给别的会话。
+        // 微信里比"聊天页发名片"更高频（我正在看这个人 → 推给谁），且零新组件：选会话复用转发选择页。
+        [items addObject:[IMPopoverCardItem itemWithTitle:@"推荐给朋友" symbol:@"person.crop.square" destructive:NO handler:^{
+            [ws shareThisPeerAsContactCard];
+        }]];
         [items addObject:[IMPopoverCardItem itemWithTitle:(self.peerBlocked ? @"取消拉黑" : @"拉黑") symbol:@"hand.raised"
                                              destructive:!self.peerBlocked handler:^{ [ws toggleBlock]; }]];
         [items addObject:[IMPopoverCardItem itemWithTitle:@"清空聊天记录" symbol:@"trash" destructive:NO handler:^{ [ws confirmClearHistory]; }]];
     }
     [IMPopoverCard presentFromAnchor:anchor inHostView:self.view items:items];
+}
+
+/// 入口 ②：把当前单聊对端做成名片，选会话发出去。
+/// 昵称取 `self.peerNickname`（服务端下发的真实昵称快照），**不是**页面标题——后者是 displayName、
+/// 备注优先，发出去就泄露"我给你起的外号"（设计文档 §2.4）。
+- (void)shareThisPeerAsContactCard {
+    if (self.peerID.length == 0) { return; }
+    [IMContactShare presentPickerFrom:self selfUID:self.userID userID:self.peerID
+                             nickname:self.peerNickname avatarURL:self.peerAvatarURL];
 }
 
 - (void)confirmDissolve {

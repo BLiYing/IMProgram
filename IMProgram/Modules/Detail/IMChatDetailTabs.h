@@ -16,6 +16,7 @@ typedef NS_ENUM(NSInteger, IMDetailTabKind) {
     IMDetailTabKindFiles,       ///< 文件（file）
     IMDetailTabKindVoice,       ///< 语音（audio）
     IMDetailTabKindLinks,       ///< 链接（文本消息且形如 URL，或 link 类型）
+    IMDetailTabKindContacts,    ///< 名片（contact，个人名片消息）——**置末**：最少见，且不打乱既有四签的肌肉记忆
 };
 
 /// 页签描述：类别 + 展示标题。
@@ -26,7 +27,7 @@ typedef NS_ENUM(NSInteger, IMDetailTabKind) {
 
 @interface IMChatDetailTabs : NSObject
 
-/// 由消息列表推导有序页签：群聊「成员」恒第一；其余按 媒体→文件→语音→链接 顺序，仅当该类别存在消息时才出现。
+/// 由消息列表推导有序页签：群聊「成员」恒第一；其余按 媒体→文件→语音→链接→名片 顺序，仅当该类别存在消息时才出现。
 /// messages 为空的群聊也会有「成员」。单聊无「成员」，若无任何可归类消息则返回空数组（调用方隐藏页签区）。
 + (NSArray<IMChatDetailTab *> *)tabsForMessages:(nullable NSArray<IMMessageModel *> *)messages
                                         isGroup:(BOOL)isGroup;

@@ -20,6 +20,7 @@
 #import "UILabel+IMAvatar.h"
 #import "IMPresence.h"
 #import "IMMediaUtil.h"
+#import "IMContactCard.h"
 #import "IMPopoverCard.h"
 #import "IMLog.h"
 #import "IMUserSearchViewController.h"
@@ -240,6 +241,9 @@ static CGFloat const kIMRowLeading = 16;
         if (c.lastCaption.length > 0 &&
             ([c.lastContentType isEqualToString:@"image"] || [c.lastContentType isEqualToString:@"video"] || [c.lastContentType isEqualToString:@"file"])) {
             mediaPreview = c.lastCaption;
+        } else if ([c.lastContentType isEqualToString:IMContentTypeContact]) {
+            // 个人名片：`[个人名片] 小明`——需要 content（快照里的昵称），故不能走上面的 ct→字符串静态表。
+            mediaPreview = IMContactCardPreview(c.lastContent);
         } else if ([c.lastContentType isEqualToString:@"voice"]) {
             // voice P0：预览 [语音] m:ss（时长来自 MessageView.duration）。与 iOS 的 IMVoiceBubbleCell 格式一致。
             int64_t sec = MAX((int64_t)0, c.lastDuration / 1000);

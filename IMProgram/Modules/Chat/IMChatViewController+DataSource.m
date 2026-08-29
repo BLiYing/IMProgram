@@ -24,6 +24,9 @@
 #import "IMAlbumCell.h"
 #import "IMLinkCardCell.h"
 #import "IMChatRecordCell.h"
+#import "IMContactCardCell.h"
+#import "IMContactCard.h"
+#import "IMRemarkStore.h"
 #import "Voice/IMVoiceBubbleCell.h" // voice P0
 #import "Voice/IMVoicePlayer.h"
 #import "IMChatViewController+Voice.h"
@@ -103,6 +106,37 @@
             rec.onAvatarTap = ^{ [wsAvatar openMemberProfileForUID:memberUID]; };
         }
         return rec;
+    }
+    // 个人名片（contact）：240pt 定宽卡片气泡，点击进名片里那个人的资料页。
+    if ([m.contentType isEqualToString:IMContentTypeContact]) {
+        IMContactCardCell *cc = [tableView dequeueReusableCellWithIdentifier:@"contact" forIndexPath:indexPath];
+        BOOL mineC = [m.from isEqualToString:self.userID];
+        BOOL grpC = self.isGroupChat && !mineC;
+        BOOL firstC = grpC && [self isFirstInSenderRun:indexPath.row];
+        BOOL lastC = grpC && [self isLastInSenderRun:indexPath.row];
+        // 卡片主标题走**收方本地**显示名（备注 > 快照昵称）：VC 解析、cell 只渲染，与其它 cell 分工一致。
+        IMContactCard *card = IMContactCardParse(m.content);
+        NSString *shown = card ? [IMRemarkStore.sharedStore displayNameForUser:card.userID fallback:card.nickname] : nil;
+        [cc configureWithMessage:m mine:mineC displayName:shown peerReadSeq:self.peerReadSeq
+                      senderName:(firstC ? [self senderNameForMessage:m] : nil)
+                      senderRole:(firstC ? [self senderRoleForMessage:m] : IMGroupRoleMember)];
+        [cc applyGroupAvatarURL:(grpC ? [self senderAvatarURLForMessage:m] : nil)
+                           seed:(m.from ?: @"") name:(grpC ? [self senderNameForMessage:m] : nil)
+                     showAvatar:lastC gutter:grpC];
+        [cc applyUnreadDivider:rowIsFirstUnread];
+        if (card) {
+            __weak typeof(self) wsCard = self;
+            NSString *cardUID = card.userID;
+            NSString *cardNick = card.nickname;
+            NSString *cardAvatar = card.avatarURL;
+            cc.onTap = ^{ [wsCard openContactProfileForUID:cardUID nickname:cardNick avatarURL:cardAvatar]; };
+        }
+        if (grpC) {
+            NSString *memberUID = m.from;
+            __weak typeof(self) wsAvatar = self;
+            cc.onAvatarTap = ^{ [wsAvatar openMemberProfileForUID:memberUID]; };
+        }
+        return cc;
     }
     // 纯 URL 文本消息：URL 文本 + 链接富预览卡片（OG），点击应用内打开（带引用时也显示引用行+卡片）。
     if ([m.contentType isEqualToString:@"text"] && m.recalledAt == 0 && m.translation.length == 0 && IMMediaLooksLikeURL(m.content)) {
@@ -502,6 +536,12 @@
         BOOL grpNameVoice = self.isGroupChat && ![m.from isEqualToString:self.userID]
             && [self isFirstInSenderRun:indexPath.row];
         return grpNameVoice ? 103 : 81;
+    }
+    // 名片卡：卡片本体 ≈93pt（10+44+8+0.5+6+~14+10）+ 上下间距 6 ≈ 99；群聊段首多一行昵称 ~22。
+    if ([m.contentType isEqualToString:IMContentTypeContact]) {
+        BOOL grpNameCard = self.isGroupChat && ![m.from isEqualToString:self.userID]
+            && [self isFirstInSenderRun:indexPath.row];
+        return grpNameCard ? 121 : 99;
     }
     if ([m.contentType isEqualToString:@"chat_record"]) {
         // 群聊对方连续段首条多一行发送者昵称（~22pt），估高相应加高，减少上滑实体化时的 offset 修正。

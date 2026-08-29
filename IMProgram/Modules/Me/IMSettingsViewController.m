@@ -6,6 +6,7 @@
 #import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
 #import "IMProfileEditViewController.h"
 #import "IMQRCardViewController.h"
+#import "IMContactShare.h"
 #import "IMAppearanceViewController.h"
 #import "IMDataStorageViewController.h"
 #import "IMBlockedListViewController.h"
@@ -371,6 +372,12 @@
     [self applyProfileHeaderMorph];
 }
 
+
+/// 入口 ③：把自己的名片发到选中的会话。昵称用 `myNickname`（本人真实昵称，本人无"自己给自己的备注"之说）。
+- (void)shareMyContactCard {
+    [IMContactShare presentPickerFrom:self selfUID:self.userID userID:self.userID
+                             nickname:self.myNickname avatarURL:self.myAvatarURL];
+}
 - (void)showQRCode {
     IMQRCardViewController *card = [[IMQRCardViewController alloc] initMyCardWithHost:self.host userID:self.userID
                                                                            nickname:self.myNickname avatarURL:self.myAvatarURL];
@@ -491,6 +498,11 @@
         [IMSettingsRow rowWithId:@"folders" title:@"聊天文件夹" image:@"folder.fill"
                           iconBg:UIColor.systemBlueColor right:nil destructive:NO
                          handler:^{ [ws comingSoon:@"聊天文件夹"]; }],
+        // 入口 ③「分享我的名片」（CONTACT_CARD_DESIGN §4.4）：与左上角的「我的二维码」并列——
+        // 二维码给**面对面**，名片消息给**线上**。
+        [IMSettingsRow rowWithId:@"shareMyCard" title:@"分享我的名片" image:@"person.crop.square"
+                          iconBg:UIColor.systemTealColor right:nil destructive:NO
+                         handler:^{ [ws shareMyContactCard]; }],
     ];
 
     NSArray<IMSettingsRow *> *groupB = @[

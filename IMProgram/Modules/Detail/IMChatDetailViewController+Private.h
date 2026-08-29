@@ -162,6 +162,14 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 /// 装配语音 tab 三行 cell 内容（发送者/语音·m:ss/年月日时分）。放 +Actions.m 是体量门禁拆分——
 /// 主 VC 曾一路涨到 1508>1500 红线（2026-08-27 拆）。
 - (void)decorateVoiceRow3Cell:(UITableViewCell *)cell message:(IMMessageModel *)m;
+
+// —— 名片页签（IMChatDetailViewController+Contacts.m）——
+/// 名片行 cell（详情页「名片」签）。message 必须已通过 matchesKind: 的解析校验。
+- (UITableViewCell *)contactRowCellIn:(UITableView *)tv message:(IMMessageModel *)m;
+/// 点名片行 → 名片里那个人的资料页（与点聊天气泡同一落点）。
+- (void)openContactRowAtIndex:(NSInteger)row;
+/// 由一条名片消息进对方资料页（气泡/详情行/收藏行三处共用的落点，见设计文档 §6）。
+- (void)openProfileForContactMessage:(IMMessageModel *)m;
 @end
 
 NS_ASSUME_NONNULL_END

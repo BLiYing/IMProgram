@@ -162,8 +162,11 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
         [self openFavoritesPicker];
         return;
     }
-    NSDictionary *names = @{ @"av": @"音视频", @"card": @"个人名片" };
-    [self im_showComingSoon:names[itemId] ?: @"该功能"]; // 其余占位，后续按需接真实功能
+    if ([itemId isEqualToString:@"card"]) {
+        [self openFriendPickerForContactCard]; // 见 +Contact.m
+        return;
+    }
+    [self im_showComingSoon:@"音视频"]; // 其余占位（当前只剩 av），后续按需接真实功能
 }
 
 /// 从收藏发送（Batch 2）：模态呈现 IMFavoritesViewController 的 pick 模式；

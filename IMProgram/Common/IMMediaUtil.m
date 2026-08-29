@@ -1,6 +1,7 @@
 //  IMMediaUtil.m
 
 #import "IMMediaUtil.h"
+#import "IMContactCard.h"
 #import "IMMessageModel.h"
 #import <math.h>
 
@@ -23,6 +24,7 @@ NSString *IMReplySnippet(IMMessageModel *m) {
         return fn.length > 0 ? [@"[文件] " stringByAppendingString:fn] : @"[文件]";
     }
     if ([m.contentType isEqualToString:@"chat_record"]) { return IMChatRecordSnippet(m.content); } // [聊天记录] 标题
+    if ([m.contentType isEqualToString:IMContentTypeContact]) { return IMContactCardPreview(m.content); } // [个人名片] 昵称
     NSString *c = m.content ?: @"";
     return c.length > 60 ? [[c substringToIndex:60] stringByAppendingString:@"…"] : c;
 }
@@ -67,6 +69,7 @@ NSString *IMRecordItemPreview(NSDictionary *it) {
         NSString *fn = [it[@"fn"] isKindOfClass:NSString.class] ? it[@"fn"] : IMMediaFileName(c);
         return fn.length > 0 ? [@"[文件] " stringByAppendingString:fn] : @"[文件]";
     }
+    if ([ct isEqualToString:IMContentTypeContact]) { return IMContactCardPreview(c); }
     if ([ct isEqualToString:@"chat_record"]) {
         // 嵌套合并转发：只取子标题（maxLines=0，不再展开子条目），显「[聊天记录] 子标题」。
         // 子 JSON 非法时标题回落「聊天记录」，此时不叠加以免「[聊天记录] 聊天记录」（与 Web 一致）。
@@ -260,6 +263,7 @@ NSString *IMLocalizeReplySnippet(NSString *snap) {
     NSString *fn = IMReplySnippetFileName(snap);
     if (fn.length > 0) { return [@"[文件] " stringByAppendingString:fn]; } // 带名文件；本地化输入幂等重组
     if ([snap isEqualToString:@"[chat_record]"]) { return @"[聊天记录]"; } // 旧服务端 token（无标题）兜底
+    if ([snap isEqualToString:@"[contact]"]) { return @"[个人名片]"; }      // 同上：老服务端下发的裸 token
     if (IMLooksLikeChatRecordJSON(snap)) { return IMChatRecordSnippet(snap); } // 存量 JSON 截段救援
     return snap;
 }

@@ -2,6 +2,7 @@
 
 #import "IMFavoritesCategories.h"
 #import "IMMediaUtil.h" // IMMediaLooksLikeURL / IMFirstURLInText（与详情页/聊天页同一 URL 口径）
+#import "IMContactCard.h"
 
 @implementation IMFavoriteCategoryTab
 @end
@@ -28,6 +29,7 @@ static NSString *favContent(NSDictionary *f) {
         case IMFavoriteCategoryVoice: return @"语音";
         case IMFavoriteCategoryText:  return @"文本";
         case IMFavoriteCategoryRecord: return @"聊天记录";
+        case IMFavoriteCategoryContact: return @"名片";
     }
     return @"";
 }
@@ -42,6 +44,9 @@ static NSString *favContent(NSDictionary *f) {
     switch (kind) {
         case IMFavoriteCategoryRecord:
             return isRecord;
+        case IMFavoriteCategoryContact:
+            // 与详情页页签同口径：解析不出的脏名片不计入（列表里不该出现点不动的空行）。
+            return [ct isEqualToString:IMContentTypeContact] && IMContactCardParse(content) != nil;
         case IMFavoriteCategoryMedia:
             return [ct isEqualToString:@"image"] || [ct isEqualToString:@"video"];
         case IMFavoriteCategoryFiles:
@@ -77,7 +82,8 @@ static NSString *favContent(NSDictionary *f) {
     if (includeAll) { [out addObject:tab(IMFavoriteCategoryAll)]; }
     NSArray<NSNumber *> *ordered = @[ @(IMFavoriteCategoryMedia), @(IMFavoriteCategoryFiles),
                                       @(IMFavoriteCategoryLinks), @(IMFavoriteCategoryVoice),
-                                      @(IMFavoriteCategoryText), @(IMFavoriteCategoryRecord) ];
+                                      @(IMFavoriteCategoryText), @(IMFavoriteCategoryRecord),
+                                      @(IMFavoriteCategoryContact) ];
     for (NSNumber *n in ordered) {
         IMFavoriteCategory k = (IMFavoriteCategory)n.integerValue;
         BOOL exists = NO;

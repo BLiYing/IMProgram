@@ -292,6 +292,16 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (void)updateJumpButtonBottomAnchor;   // 向下钮底边随 多选/搜索 态重定位（堆叠不重叠、间距一致）
 - (void)updateSelectionUI;
 - (IMMediaAttributes *)forwardAttributesForMessage:(IMMessageModel *)message stripCaption:(BOOL)stripCaption;
+// —— 个人名片（IMChatViewController+Contact.m）——
+/// 加号面板「个人名片」→ 复用通用好友多选页（上限 9）→ 二次确认 sheet → 逐条发出。
+- (void)openFriendPickerForContactCard;
+/// 点名片卡 → 名片里那个人的资料页（气泡/详情行/收藏行三处共用的落点，§6）。
+- (void)openContactProfileForUID:(NSString *)uid
+                        nickname:(nullable NSString *)nickname
+                       avatarURL:(nullable NSString *)avatarURL;
+/// 当前会话的展示标题（确认 sheet 文案「发送名片给「X」」用；实现在 +Media.m）。
+- (NSString *)conversationDisplayTitle;
+
 - (void)forwardEchoContent:(NSString *)content contentType:(NSString *)ct forwardFrom:(NSString *)origin
                   fileName:(nullable NSString *)fileName fileSize:(int64_t)fileSize
                     toConv:(NSString *)convID toUser:(NSString *)toUser;

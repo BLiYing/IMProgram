@@ -17,6 +17,7 @@ typedef NS_ENUM(NSInteger, IMFavoriteCategory) {
     IMFavoriteCategoryVoice,   ///< 语音（audio / voice）
     IMFavoriteCategoryText,    ///< 文本（text 且非链接、非聊天记录）
     IMFavoriteCategoryRecord,  ///< 聊天记录（合并转发 chat_record）
+    IMFavoriteCategoryContact, ///< 名片（contact，个人名片）——置末，与详情页「名片」签同为最后一项
 };
 
 /// 分类描述：类别 + 展示标题。

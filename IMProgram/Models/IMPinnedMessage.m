@@ -1,6 +1,7 @@
 //  IMPinnedMessage.m
 
 #import "IMPinnedMessage.h"
+#import "IMContactCard.h"
 
 @implementation IMPinnedMessage
 
@@ -36,6 +37,7 @@
     if ([self.contentType isEqualToString:@"video"]) { return @"[视频]"; }
     if ([self.contentType isEqualToString:@"audio"]) { return @"[语音]"; }
     if ([self.contentType isEqualToString:@"file"])  { return @"[文件]"; }
+    if ([self.contentType isEqualToString:IMContentTypeContact]) { return IMContactCardPreview(self.content); }
     NSString *line = [self oneLine:self.content];
     if (line.length > 0) { return line; }
     return [self.contentType isEqualToString:@"text"] ? @"（空消息）"

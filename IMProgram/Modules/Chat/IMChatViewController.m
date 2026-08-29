@@ -9,6 +9,7 @@
 #import "IMAlbumCell.h"
 #import "IMBubbleCell.h"
 #import "IMChatRecordCell.h"
+#import "IMContactCardCell.h"
 #import "IMImageCell.h"
 #import "IMLinkCardCell.h"
 #import "IMSystemCell.h"
@@ -536,6 +537,7 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     [self.tableView registerClass:IMAlbumCell.class forCellReuseIdentifier:@"album"];        // 相册宫格（leader 行）
     [self.tableView registerClass:UITableViewCell.class forCellReuseIdentifier:@"albumPad"]; // 相册从行（零高占位）
     [self.tableView registerClass:IMChatRecordCell.class forCellReuseIdentifier:@"record"];
+    [self.tableView registerClass:IMContactCardCell.class forCellReuseIdentifier:@"contact"];
     [self.tableView registerClass:IMLinkCardCell.class forCellReuseIdentifier:@"link"];
     [self.tableView registerClass:IMVoiceBubbleCell.class forCellReuseIdentifier:@"voice"]; // P0 voice
     [self.view addSubview:self.tableView];

@@ -1,4 +1,5 @@
 #import "IMMessageCell.h"
+#import "IMMessageModel.h"
 #import "IMTheme.h"
 
 @implementation IMMessageCell
@@ -126,6 +127,44 @@
     _unreadDividerHeight.constant = 0;
     _senderRoleBadge.hidden = YES;
     _senderRoleLabel.text = nil;
+}
+
+/// 气泡内右下角富文本：时间(灰)；自己消息追加状态勾——已送达 ✓(灰)/已读 ✓✓(绿)/发送中/失败。
++ (NSAttributedString *)attributedMetaForMessage:(IMMessageModel *)message
+                                            mine:(BOOL)mine
+                                     peerReadSeq:(int64_t)peerReadSeq {
+    UIFont *font = [UIFont systemFontOfSize:11];
+    NSString *time = [IMTheme timeStringFromMillis:message.timestamp];
+    if (message.editedAt > 0) { time = [@"已编辑 " stringByAppendingString:time ?: @""]; } // M4-5
+    UIColor *timeColor = IMTheme.bubbleMetaTime;
+    NSDictionary *base = @{ NSFontAttributeName: font, NSForegroundColorAttributeName: timeColor };
+
+    if (!mine) {
+        return [[NSAttributedString alloc] initWithString:time attributes:base];
+    }
+    if (message.status == IMMessageStatusSending) {
+        return [[NSAttributedString alloc] initWithString:@"发送中…" attributes:base];
+    }
+    if (message.status == IMMessageStatusFailed) {
+        // 被拒收（有系统行）→ 气泡内只显时间，失败由红❗+下方系统行表达；其余失败仍显"未发送 ✗"。
+        if (message.note.length > 0) {
+            return [[NSAttributedString alloc] initWithString:time attributes:base];
+        }
+        return [[NSAttributedString alloc] initWithString:@"未发送 ✗"
+            attributes:@{ NSFontAttributeName: font, NSForegroundColorAttributeName: UIColor.systemRedColor }];
+    }
+    // 其余（Sent，或经多端抄送/同步收到的"自己消息"——其 status 为 Received）：
+    // 只要拿到了 conv_seq 即视为已送达，按对端已读位点显示 ✓/✓✓。否则只显时间。
+    if (message.convSeq > 0) {
+        BOOL read = message.convSeq <= peerReadSeq;
+        NSString *checks = read ? @"✓✓" : @"✓";
+        NSString *plain = time.length > 0 ? [NSString stringWithFormat:@"%@ %@", time, checks] : checks;
+        NSMutableAttributedString *s = [[NSMutableAttributedString alloc] initWithString:plain attributes:base];
+        NSRange r = [plain rangeOfString:checks options:NSBackwardsSearch];
+        [s addAttribute:NSForegroundColorAttributeName value:(read ? IMTheme.checkRead : timeColor) range:r];
+        return s;
+    }
+    return [[NSAttributedString alloc] initWithString:time attributes:base];
 }
 
 @end

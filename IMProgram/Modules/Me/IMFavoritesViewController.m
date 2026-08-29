@@ -20,6 +20,10 @@
 #import "IMConversationMediaViewController.h" // IMMediaItem
 #import "IMDetailMediaContainerCell.h"
 #import "IMDetailFileCell.h"
+#import "IMDetailContactCell.h"
+#import "IMChatDetailViewController.h"
+#import "IMContactCard.h"
+#import "IMRemarkStore.h"
 #import "IMFavoriteLinkCell.h"
 #import "IMFavoriteVoiceCell.h"   // 语音迷你播放器行（2026-08-26）
 #import "IMVoicePlayer.h"         // 收藏语音就地播放（toggleEnsuringLocal 共享入口）
@@ -427,6 +431,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     _tableView.estimatedRowHeight = 90; // Links 走 auto dimension（含/无 quote 差 ~40pt），需估高避免首帧跳
     [_tableView registerClass:IMFavoriteSourceCell.class forCellReuseIdentifier:@"src"];
     [_tableView registerClass:IMDetailFileCell.class forCellReuseIdentifier:@"detailfile"];
+    [_tableView registerClass:IMDetailContactCell.class forCellReuseIdentifier:@"detailcontact"];
     [_tableView registerClass:IMDetailMediaContainerCell.class forCellReuseIdentifier:@"mediagrid"];
     UIRefreshControl *rc = [UIRefreshControl new];
     [rc addTarget:self action:@selector(pullToRefresh:) forControlEvents:UIControlEventValueChanged];
@@ -802,6 +807,21 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     return from;
 }
 
+/// 收藏页名片行 → 名片里那个人的资料页。与聊天气泡 / 详情页名片行三处同一落点（§6）：
+/// 先用快照填首屏、进页后再拉 GET /users/{u} 覆盖。
+- (void)openContactProfileFromContent:(NSString *)content {
+    IMContactCard *card = IMContactCardParse(content);
+    if (!card) { return; }
+    IMChatDetailViewController *vc =
+        [[IMChatDetailViewController alloc] initSingleWithHost:IMHTTPService.sharedService.host
+                                                       userID:_selfUID
+                                                       peerID:card.userID
+                                                 peerNickname:card.nickname
+                                                peerAvatarURL:card.avatarURL];
+    vc.showsMessagePill = YES; // 从收藏进 → 需要「消息」入口发起单聊
+    [self.navigationController pushViewController:vc animated:YES];
+}
+
 - (NSString *)previewOf:(NSDictionary *)f {
     NSString *ct = [f[@"content_type"] isKindOfClass:NSString.class] ? f[@"content_type"] : @"text";
     NSString *content = [f[@"content"] isKindOfClass:NSString.class] ? f[@"content"] : @"";
@@ -814,6 +834,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     }
     if ([ct isEqualToString:@"chat_record"] || IMLooksLikeChatRecordJSON(content)) { return IMChatRecordSnippet(content) ?: @"[聊天记录]"; }
     if ([ct isEqualToString:@"audio"] || [ct isEqualToString:@"voice"]) { return @"[语音]"; }
+    if ([ct isEqualToString:IMContentTypeContact]) { return IMContactCardPreview(content); }
     return content;
 }
 
@@ -965,6 +986,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     // 出空白或截断。已在 buildTableView 里设 estimatedRowHeight，自适应布局能收敛。
     if (_selectedKind == IMFavoriteCategoryLinks) { return UITableViewAutomaticDimension; }
     if (_selectedKind == IMFavoriteCategoryVoice) { return 92; } // 迷你播放器 + 来源行（2026-08-26）
+    if (_selectedKind == IMFavoriteCategoryContact) { return IMDetailContactCellHeight; } // 名片行 64（与详情页同一 cell）
     return 76;
 }
 
@@ -1031,6 +1053,21 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
         [fc configureWithMessage:m download:[_downloads stateForMessage:m]];
         [self applyPickAccessoryForCell:fc favorite:f];
         return fc;
+    }
+    // 名片分类：**直接复用详情页的 IMDetailContactCell**（不另建 IMFavoriteContactCell）——
+    // 这正是「收藏页复用资料详情页」的落地方式，与文件分类复用 IMDetailFileCell 一脉相承。
+    // 与详情页的差别只有一处：副行**恒显**「· 由 X 分享」（收藏页天然需要来源）。
+    if (_selectedKind == IMFavoriteCategoryContact) {
+        IMDetailContactCell *cc = [tableView dequeueReusableCellWithIdentifier:@"detailcontact" forIndexPath:indexPath];
+        NSString *content = [f[@"content"] isKindOfClass:NSString.class] ? f[@"content"] : @"";
+        IMContactCard *card = IMContactCardParse(content);
+        int64_t createdAt = [f[@"created_at"] respondsToSelector:@selector(longLongValue)] ? [f[@"created_at"] longLongValue] : 0;
+        // 脏名片走 nil 分支**显式清空**（而非跳过 configure）——cell 复用，跳过会留着上一行的内容。
+        NSString *shown = card ? [IMRemarkStore.sharedStore displayNameForUser:card.userID fallback:card.nickname] : nil;
+        [cc configureWithCard:card displayName:shown
+                   sourceName:(card ? [self sourceNameForFavorite:f] : nil) timestampMillis:(card ? createdAt : 0)];
+        [self applyPickAccessoryForCell:cc favorite:f];
+        return cc;
     }
     // Links 分类走独立 cell（草图 §D）：36×36 favicon + og:title/host+path/时间 + 混排文本原文引用 + 来源行。
     // 与详情页 IMDetailLinkCell 共享 IMLinkRowView，视觉基底一致；此处仅多出 quote/source 两条。
@@ -1151,6 +1188,10 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
         case IMFavoriteCategoryVoice:
             // 迷你播放器（2026-08-26）：行内就地播放/暂停——曾用 SFSafari 打开裸音频文件，完全不像 IM。
             [self playFavoriteVoice:f];
+            break;
+        case IMFavoriteCategoryContact:
+            // 与点聊天气泡 / 详情页名片行同一落点：名片里那个人的资料页（§6）。
+            [self openContactProfileFromContent:content];
             break;
         default:
             [self.navigationController pushViewController:[[IMFavoriteReaderViewController alloc] initWithText:content] animated:YES];

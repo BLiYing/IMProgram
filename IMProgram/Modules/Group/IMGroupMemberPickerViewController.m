@@ -139,9 +139,14 @@
 
 /// 更新标题与确认按钮态（已选 N）。
 - (void)updateSelectionUI {
-    self.title = self.picked.count > 0
-        ? [NSString stringWithFormat:@"已选 %lu 人", (unsigned long)self.picked.count]
-        : @"选择好友";
+    if (self.picked.count == 0) {
+        self.title = @"选择好友";
+    } else if (self.maxSelection > 0) {
+        self.title = [NSString stringWithFormat:@"已选 %lu/%lu 人",
+                      (unsigned long)self.picked.count, (unsigned long)self.maxSelection];
+    } else {
+        self.title = [NSString stringWithFormat:@"已选 %lu 人", (unsigned long)self.picked.count];
+    }
     self.navigationItem.rightBarButtonItem.enabled = self.picked.count > 0;
     // 标题栏按本页 navigationItem 渲染，改完必须显式请求刷新，
     // 否则「创建」按钮的 enabled 停留在初始 NO，点击被吞、无法建群。
@@ -178,8 +183,13 @@
     [cell setActionTitle:nil enabled:NO action:nil];
     cell.selectionStyle = UITableViewCellSelectionStyleDefault;
     // 行首圆形勾选框（对齐 Web/微信 + 转发选择器），替代原尾部系统 ✓。
-    [cell setChecked:[self.picked containsObject:c.userID] showCheckbox:YES];
+    BOOL checked = [self.picked containsObject:c.userID];
+    [cell setChecked:checked showCheckbox:YES];
     cell.accessoryType = UITableViewCellAccessoryNone;
+    // 达上限后**未选中**行置灰不可点（已选中的仍可点=取消选择，否则用户会卡死在满选态）。
+    BOOL atCap = self.maxSelection > 0 && self.picked.count >= self.maxSelection && !checked;
+    cell.contentView.alpha = atCap ? 0.4 : 1.0;
+    cell.userInteractionEnabled = !atCap;
     return cell;
 }
 
@@ -189,9 +199,14 @@
     IMUserCard *c = [self.friendIndex cardAtSection:indexPath.section row:indexPath.row];
     NSString *uid = c.userID;
     if (uid.length == 0) { return; }
-    if ([self.picked containsObject:uid]) { [self.picked removeObject:uid]; }
-    else { [self.picked addObject:uid]; }
-    [tableView reloadRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationNone];
+    if ([self.picked containsObject:uid]) {
+        [self.picked removeObject:uid];
+    } else {
+        if (self.maxSelection > 0 && self.picked.count >= self.maxSelection) { return; } // 满选：静默忽略（行已置灰）
+        [self.picked addObject:uid];
+    }
+    // 整表刷新而非单行：达/离开上限时**其余所有行**的置灰态都要跟着变。
+    [tableView reloadData];
     [self updateSelectionUI];
 }
 

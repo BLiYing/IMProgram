@@ -3,6 +3,7 @@
 #import "IMChatDetailTabs.h"
 #import "IMMessageModel.h"
 #import "IMMediaUtil.h"
+#import "IMContactCard.h"
 
 @implementation IMChatDetailTab
 @end
@@ -34,6 +35,10 @@
             // 混排文本"看看 https://xxx"也进链接聚合；旧的 IMMediaLooksLikeURL 只认整段 = URL，会漏掉混排）。
             if ([ct isEqualToString:@"link"]) { return YES; }
             return [ct isEqualToString:@"text"] && IMFirstURLInText(m.content) != nil;
+        case IMDetailTabKindContacts:
+            // 名片：类型对上还不够——**解析不出的脏名片不计入**，否则页签里会多出一行点不动的空白
+            //（气泡侧另有灰字降级兜底，那是历史记录该保留；列表是"归档索引"视角，脏数据不该进）。
+            return [ct isEqualToString:IMContentTypeContact] && IMContactCardParse(m.content) != nil;
         case IMDetailTabKindMembers:
             return NO; // 成员非消息类型
     }
@@ -47,6 +52,7 @@
         case IMDetailTabKindFiles:   return @"文件";
         case IMDetailTabKindVoice:   return @"语音";
         case IMDetailTabKindLinks:   return @"链接";
+        case IMDetailTabKindContacts: return @"名片";
     }
     return @"";
 }
@@ -63,18 +69,20 @@
     if (isGroup) { [tabs addObject:[self tabWithKind:IMDetailTabKindMembers]]; } // 成员恒第一
 
     // 单次遍历统计各内容类别是否存在。
-    BOOL hasMedia = NO, hasFiles = NO, hasVoice = NO, hasLinks = NO;
+    BOOL hasMedia = NO, hasFiles = NO, hasVoice = NO, hasLinks = NO, hasContacts = NO;
     for (IMMessageModel *m in messages) {
         if (!hasMedia && [self message:m matchesKind:IMDetailTabKindMedia]) { hasMedia = YES; }
         if (!hasFiles && [self message:m matchesKind:IMDetailTabKindFiles]) { hasFiles = YES; }
         if (!hasVoice && [self message:m matchesKind:IMDetailTabKindVoice]) { hasVoice = YES; }
         if (!hasLinks && [self message:m matchesKind:IMDetailTabKindLinks]) { hasLinks = YES; }
-        if (hasMedia && hasFiles && hasVoice && hasLinks) { break; } // 全齐即可提前收
+        if (!hasContacts && [self message:m matchesKind:IMDetailTabKindContacts]) { hasContacts = YES; }
+        if (hasMedia && hasFiles && hasVoice && hasLinks && hasContacts) { break; } // 全齐即可提前收
     }
     if (hasMedia) { [tabs addObject:[self tabWithKind:IMDetailTabKindMedia]]; }
     if (hasFiles) { [tabs addObject:[self tabWithKind:IMDetailTabKindFiles]]; }
     if (hasVoice) { [tabs addObject:[self tabWithKind:IMDetailTabKindVoice]]; }
     if (hasLinks) { [tabs addObject:[self tabWithKind:IMDetailTabKindLinks]]; }
+    if (hasContacts) { [tabs addObject:[self tabWithKind:IMDetailTabKindContacts]]; }
     return tabs;
 }
 

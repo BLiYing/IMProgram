@@ -1,6 +1,8 @@
 #import <UIKit/UIKit.h>
 #import "IMGroupInfo.h"
 
+@class IMMessageModel;
+
 NS_ASSUME_NONNULL_BEGIN
 
 /// 消息 cell 共享基类：收敛此前逐 cell 重复的两处机制——群头像列点击（onAvatarTap，微信式）
@@ -34,6 +36,16 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)applySenderName:(nullable NSString *)name
                    role:(IMGroupRole)role
             toNameLabel:(UILabel *)nameLabel;
+
+/// 气泡右下角「时间 + 状态勾」富文本：时间(灰)；自己的消息追加 已送达 ✓(灰) / 已读 ✓✓(绿) /
+/// 「发送中…」/「未发送 ✗」(红)。原在 IMBubbleCell 私有，个人名片卡片气泡也要同一套排法，
+/// 上提到基类的**类方法**（纯函数式，只读入参与 IMTheme，不碰实例状态）。
+/// 类方法而非实例方法，是因为 IMBubbleCell **不继承本类**（它是独立的 UITableViewCell），
+/// 但同样要用这段排法——做成类方法两边共用一份，不必为此改 IMBubbleCell 的继承。
+/// **注意**：failed 态只出文字，**没有**可点重发的红❗——那套只有语音 cell（onRetryTap）有。
++ (NSAttributedString *)attributedMetaForMessage:(IMMessageModel *)message
+                                            mine:(BOOL)mine
+                                     peerReadSeq:(int64_t)peerReadSeq;
 
 /// 发送者昵称截断规则（各类气泡共用，含文本气泡的富文本首行）：最多约 12 个中文字，
 /// 超出按「书写字符簇」计数尾部截断并加省略号。空串原样返回。
