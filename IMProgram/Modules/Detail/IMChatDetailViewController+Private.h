@@ -51,6 +51,9 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 // 单聊对端
 @property (nonatomic, copy, nullable) NSString *peerID;
 @property (nonatomic, copy, nullable) NSString *peerNickname; ///< 对端真实昵称（不含备注，备注在 peerRemark）
+/// 对端的**公开句柄**（UI 显示为 @xxx）。由 +Peer.m 从 GET /users/{id} 取得。
+/// 「用户名」行显示它——绝不能显示 peerID，那是 10 位随机数字内部 ID（见 docs/UI.md「用户标识」）。
+@property (nonatomic, copy, nullable) NSString *peerUsername;
 /// `peerNickname` 是否已被 +Peer.m 的 loadPeerProfile 用服务端权威值覆盖过。
 /// **init 传入的那个值不可信**：各入口给的东西不一样——会话列表给真实昵称、群成员行给的是
 /// `IMGroupMember.displayName`（**群昵称优先**）、找人搜索给的是 nil。名片快照必须冻结真实昵称，

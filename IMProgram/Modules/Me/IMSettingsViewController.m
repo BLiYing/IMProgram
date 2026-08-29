@@ -133,7 +133,7 @@
 #pragma mark - 头部资料 Cell（圆形头像 + 昵称/uid）
 
 @interface IMProfileHeaderCell : UITableViewCell
-- (void)configureWithUserID:(NSString *)userID nickname:(nullable NSString *)nickname avatarURL:(nullable NSString *)avatarURL;
+- (void)configureWithUserID:(NSString *)userID username:(nullable NSString *)username nickname:(nullable NSString *)nickname avatarURL:(nullable NSString *)avatarURL;
 @end
 
 @implementation IMProfileHeaderCell {
@@ -183,11 +183,13 @@
     }
     return self;
 }
-- (void)configureWithUserID:(NSString *)userID nickname:(nullable NSString *)nickname avatarURL:(nullable NSString *)avatarURL {
-    NSString *display = IMDisplayName(nickname, nil);
+- (void)configureWithUserID:(NSString *)userID username:(nullable NSString *)username nickname:(nullable NSString *)nickname avatarURL:(nullable NSString *)avatarURL {
+    NSString *display = IMDisplayName(nickname, username);
     [_avatar im_setAvatarURL:avatarURL seed:userID displayName:display]; // 有头像图渲染图，否则首字母圈
     _name.text = display;
-    _uid.text = [NSString stringWithFormat:@"uid %@", userID];
+    // 显示公开句柄而非 userID：后者是 10 位随机数字内部 ID，对用户毫无意义。
+    // 没有 username 时整行留空（不显示"uid xxx"，也不显示"未设置"）。
+    _uid.text = username.length > 0 ? [@"@" stringByAppendingString:username] : @"";
 }
 @end
 

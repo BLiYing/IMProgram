@@ -679,8 +679,12 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
         cell.detailTextLabel.text = @"备注名 · 点击修改";
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     } else {
-        cell.textLabel.text = self.peerID;
-        cell.textLabel.textColor = IMTheme.accent;
+        // 显示**公开句柄** @xxx，不是 peerID——后者是 10 位随机数字内部 ID，
+        // 标签写着"用户名"却显示一串 ID 是明显的错配（docs/UI.md「用户标识」）。
+        // 拿不到时（资料尚未拉回 / 对方无 username）显灰字占位，绝不回退到 ID。
+        BOOL hasHandle = self.peerUsername.length > 0;
+        cell.textLabel.text = hasHandle ? [@"@" stringByAppendingString:self.peerUsername] : @"未设置";
+        cell.textLabel.textColor = hasHandle ? IMTheme.accent : IMTheme.textSecondary;
         cell.detailTextLabel.text = @"用户名";
         cell.accessoryType = UITableViewCellAccessoryNone;
     }
