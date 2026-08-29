@@ -41,6 +41,7 @@ static const NSInteger kIMPeerNotFoundOverlayTag = 91001;
         }
         if (card.nickname.length > 0) { self.peerNickname = card.nickname; }   // 真实昵称，非备注
         self.peerUsername = card.username;                                     // 公开句柄，供「用户名」行显示 @xxx
+        self.peerPresence = card.presence;                                     // 头部副标题（在线/最近在线）
         self.peerProfileLoaded = YES;                                          // 此后 peerNickname 可用于名片快照
         if (card.avatarURL.length > 0) { self.peerAvatarURL = card.avatarURL; }
         // 服务端的备注是权威值，喂回全局表让各页一起收敛（本页标题随 displayTitle 自然生效）。

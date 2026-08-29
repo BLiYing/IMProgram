@@ -19,6 +19,7 @@
 #import "UILabel+IMAvatar.h"
 #import "IMLog.h"
 #import "IMAccountIdentity.h"
+#import "IMPresence.h"
 
 @implementation IMChatDetailViewController (Header)
 
@@ -302,7 +303,13 @@
         NSUInteger n = self.group.members.count;
         return n > 0 ? [NSString stringWithFormat:@"%lu 位成员", (unsigned long)n] : @"群聊";
     }
-    return self.peerID ?: @"";
+    // 单聊副标题 = **在线态**（对齐 Telegram：标题是名字、副标题是「在线 / 最近在线」）。
+    //
+    // 曾经是 peerID —— 账号体系重构后那是 10 位随机数字内部 ID，对用户毫无意义
+    //（docs/UI.md「用户标识」）。也**刻意不显示 @句柄**：下方「用户名」行已经显示了它，
+    // 头部再来一次是纯重复、没有新信息。
+    // 资料未拉回时 subtitleText 返回空串，副标题自然隐藏（不显示占位）。
+    return self.peerPresence.subtitleText ?: @"";
 }
 
 #pragma mark - 头部形变（滚动驱动）

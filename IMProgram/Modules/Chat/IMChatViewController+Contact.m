@@ -81,6 +81,7 @@ static const NSUInteger kIMContactMaxSelection = 9;
         IMUserCard *src = byID[uid];
         IMContactCard *card = [IMContactCard new];
         card.userID = uid;
+        card.username = src.username;      // 名片副标题 @xxx 的唯一来源，漏了它协议改对也看不到效果
         card.nickname = src.nickname;      // 真实昵称，非 displayName
         card.avatarURL = src.avatarURL;
         [out addObject:card];
