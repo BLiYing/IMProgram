@@ -394,13 +394,22 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     [self runOKRequest:req fallback:@"收藏失败" completion:completion];
 }
 
+const NSInteger IMFavoritesPageSize = 60;
+
 - (void)favoritesWithToken:(NSString *)token
-                completion:(void (^)(NSArray<NSDictionary *> *, NSError *))completion {
-    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/favorites" method:@"GET" token:token body:nil];
+                    offset:(NSInteger)offset
+                completion:(void (^)(NSArray<NSDictionary *> *, NSInteger, NSError *))completion {
+    NSString *path = [NSString stringWithFormat:@"/api/v1/favorites?limit=%ld&offset=%ld",
+                      (long)IMFavoritesPageSize, (long)MAX(0, offset)];
+    NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
     [self runDataRequest:req fallback:@"加载收藏失败" completion:^(NSDictionary *data, NSError *error) {
-        if (error) { completion(nil, error); return; }
+        if (error) { completion(nil, 0, error); return; }
         id list = data[@"favorites"];
-        completion([list isKindOfClass:[NSArray class]] ? list : @[], nil);
+        NSArray *items = [list isKindOfClass:[NSArray class]] ? list : @[];
+        // page.total 缺失（老服务端）→ 退化成本页条数，UI 既不会显示错的总数也不会误以为还有更多。
+        NSDictionary *page = [data[@"page"] isKindOfClass:[NSDictionary class]] ? data[@"page"] : nil;
+        NSNumber *total = [page[@"total"] isKindOfClass:NSNumber.class] ? page[@"total"] : nil;
+        completion(items, total ? total.integerValue : (NSInteger)items.count, nil);
     }];
 }
 

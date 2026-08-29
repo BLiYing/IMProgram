@@ -431,9 +431,16 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
                sourceConvSeq:(int64_t)sourceConvSeq
                   sourceFrom:(nullable NSString *)sourceFrom
                   completion:(void (^)(NSError *_Nullable error))completion;
-/// 我的收藏列表：GET /api/v1/favorites。返回 favorites 数组（原始字典，含 id/content/content_type/...）。
+/// 收藏列表每页条数（滚到底自动加载下一页）。
+FOUNDATION_EXPORT const NSInteger IMFavoritesPageSize;
+
+/// 我的收藏列表：GET /api/v1/favorites?limit&offset。返回本页 favorites 数组（原始字典）与**服务端总数**。
+///
+/// total 用于判断"还有没有下一页"与显示总条数——只按本页条数判断，会在总数恰好是页大小整数倍时
+/// 多发一次空请求才知道到底了。老服务端不返回 page 时 total 退化为本页条数（即"就这一页"）。
 - (void)favoritesWithToken:(NSString *)token
-                completion:(void (^)(NSArray<NSDictionary *> *_Nullable favorites, NSError *_Nullable error))completion;
+                    offset:(NSInteger)offset
+                completion:(void (^)(NSArray<NSDictionary *> *_Nullable favorites, NSInteger total, NSError *_Nullable error))completion;
 /// 删收藏：DELETE /api/v1/favorites/{id}。completion 主线程回调。
 - (void)deleteFavoriteWithToken:(NSString *)token
                      favoriteID:(int64_t)favoriteID

@@ -246,7 +246,9 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     NSString *_sourceFilterKey;      // nil=根页；非 nil=按来源过滤的子页（聊天模式下钻）
     NSString *_sourceFilterName;
 
-    NSArray<NSDictionary *> *_allItems;   // 服务端全量
+    NSArray<NSDictionary *> *_allItems;   // 已加载的收藏（分页累积，不一定是全量——见 _favTotal）
+    NSInteger _favTotal;                  // 服务端总条数：判断"还有没有下一页" + 标题显示
+    BOOL _loadingMoreFavs;                // 下一页在途：滚动回调高频触发，在途时不得再发一轮
     NSArray<NSDictionary *> *_scoped;     // 按来源过滤后（根页=全量）
     NSArray<IMFavoriteCategoryTab *> *_categories;
     IMFavoriteCategory _selectedKind;
@@ -638,19 +640,65 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
 
 - (void)pullToRefresh:(UIRefreshControl *)rc { [self reload]; }
 
+/// 拉第一页（下拉刷新 / 进页）：重置累积列表与总数。
 - (void)reload {
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0) { [_tableView.refreshControl endRefreshing]; return; }
     __weak typeof(self) ws = self;
-    [IMHTTPService.sharedService favoritesWithToken:token completion:^(NSArray<NSDictionary *> *favorites, NSError *error) {
+    [IMHTTPService.sharedService favoritesWithToken:token offset:0 completion:^(NSArray<NSDictionary *> *favorites, NSInteger total, NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
         [self->_tableView.refreshControl endRefreshing];
         if (error) { self->_loadFailed = YES; } // 失败保留旧数据（§7）
-        else { self->_loadFailed = NO; self->_allItems = favorites ?: @[]; }
+        else {
+            self->_loadFailed = NO;
+            self->_allItems = favorites ?: @[];
+            self->_favTotal = total;
+        }
         [self loadConversationIndex];
         [self rebuildAll];
     }];
+}
+
+/// 滚到底加载下一页：按**已加载条数**作 offset 追加。
+///
+/// 是否还有下一页按 _favTotal 判断，不看"上一页是否装满"——后者在总数恰好是页大小整数倍时
+/// 会多发一次空请求才知道到底了。追加前按 id 去重：删过收藏后 offset 会整体前移，
+/// 重新翻页可能把同一条读两次。
+- (void)loadMoreFavoritesIfNeeded {
+    if (_loadingMoreFavs || _allItems.count == 0 || (NSInteger)_allItems.count >= _favTotal) { return; }
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0) { return; }
+    _loadingMoreFavs = YES;
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService favoritesWithToken:token offset:(NSInteger)_allItems.count
+                                         completion:^(NSArray<NSDictionary *> *favorites, NSInteger total, NSError *error) {
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        self->_loadingMoreFavs = NO;
+        if (error) { return; } // 静默失败：用户还能看已加载的部分，下拉刷新可重试
+        NSMutableSet<NSString *> *seen = [NSMutableSet setWithCapacity:self->_allItems.count];
+        for (NSDictionary *f in self->_allItems) { [seen addObject:[self idKeyOf:f]]; }
+        NSMutableArray<NSDictionary *> *merged = [self->_allItems mutableCopy];
+        for (NSDictionary *f in favorites) {
+            NSString *key = [self idKeyOf:f];
+            if (![seen containsObject:key]) { [seen addObject:key]; [merged addObject:f]; }
+        }
+        self->_allItems = merged;
+        self->_favTotal = total;
+        [self rebuildAll];
+    }];
+}
+
+/// 滚到底（留 300pt 余量提前触发，让加载发生在用户真正见底之前）。
+///
+/// **只在未过滤的根页触发**：来源下钻 / 分类签 / 搜索都是对**已加载**集合做的客户端过滤，
+/// 过滤后列表变短、一进来就在底部，会立刻把剩余所有页拉光（用户没要求，还白等）。
+- (void)scrollViewDidScroll:(UIScrollView *)scrollView {
+    if (scrollView != _tableView) { return; }
+    if (_sourceFilterKey || _searchText.length > 0) { return; }
+    CGFloat remaining = scrollView.contentSize.height - scrollView.contentOffset.y - scrollView.bounds.size.height;
+    if (remaining < 300) { [self loadMoreFavoritesIfNeeded]; }
 }
 
 - (NSString *)idKeyOf:(NSDictionary *)f {
@@ -1193,6 +1241,8 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
         }];
         if (idx != NSNotFound) { [m removeObjectAtIndex:idx]; }
         self->_allItems = m;
+        // 总数跟着减：否则 _allItems.count < _favTotal 恒成立，滚到底会一直去拉一页已经不存在的数据。
+        self->_favTotal = MAX(0, self->_favTotal - 1);
         [self rebuildAll];
         if (done) { done(YES); }
     }];
