@@ -39,6 +39,10 @@ NS_ASSUME_NONNULL_BEGIN
 @property (class, nonatomic, readonly) UIColor *wallpaperDoodle;  // 涂鸦图案色（低透明白）
 @property (class, nonatomic, readonly) UIColor *datePillBg;       // 日期/未读分隔胶囊底
 @property (class, nonatomic, readonly) UIColor *datePillText;     // 日期/未读分隔胶囊字
+/// 群系统消息里**人名段**的颜色（可点）。**不能用 accent**：胶囊底就是主题绿，绿字绿底看不出
+/// 哪几个字是名字（2026-08-30 反馈）。取浅琥珀——在浅色的绿胶囊与深色的黑胶囊上都足够跳，
+/// 且与白色正文一眼可分。Web 对应 `--sys-name`，改一处两端要一起改。
+@property (class, nonatomic, readonly) UIColor *datePillNameText;
 
 // 间距 / 圆角
 @property (class, nonatomic, readonly) CGFloat space1;        // 4

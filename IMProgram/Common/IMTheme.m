@@ -57,6 +57,8 @@
 + (UIColor *)wallpaperDoodle { return IMAppearance.shared.wallpaperDoodleColor; }
 + (UIColor *)datePillBg { return [self dynamicLight:[self rgb:0x5C8A4C alpha:0.55] dark:[self rgb:0x000000 alpha:0.45]]; }
 + (UIColor *)datePillText { return UIColor.whiteColor; }
+// 浅琥珀：绿胶囊（浅色）与黑胶囊（深色）上都够跳，故两种外观取同一值。
++ (UIColor *)datePillNameText { return [self rgb:0xFFD98A]; }
 
 + (CGFloat)space1 { return 4; }
 + (CGFloat)space2 { return 8; }
