@@ -9,15 +9,18 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-/// 行高（成员行 60 / 文件行 74 之间：两行文字 + 44 头像的自然高度）。
+/// 行高（成员行 60 / 文件行 74 之间：两行文字 + 44 头像的自然高度）。无「由 X 分享」来源行时用它。
 FOUNDATION_EXPORT const CGFloat IMDetailContactCellHeight;
+/// 带来源行（「由 X 分享」独占第三行）时的行高——群聊详情页与收藏页恒有来源。
+FOUNDATION_EXPORT const CGFloat IMDetailContactCellHeightWithSource;
 
 @interface IMDetailContactCell : UITableViewCell
 
 /// card：解析后的名片。**传 nil = 清空该行**——脏名片本不该收录进列表（见 §7.2），
 /// 但 cell 是复用的：真走到这条路而只是 `return cell` 的话，屏幕上会留着**上一行**的名字和头像。
 /// displayName：收方本地显示名（备注 > 快照昵称 > uid）。
-/// sourceName：来源显示名，非空 → 副行追加「· 由 X 分享」（群聊详情页 / 收藏页用；单聊详情页传 nil）。
+/// sourceName：来源显示名，非空 → **独占第三行**「由 X 分享」（accent 色，群聊详情页 / 收藏页用；
+///             单聊详情页传 nil）。曾与 @句柄挤在同一副行，长备注名会把句柄挤没。
 /// timestampMillis：分享时间；<=0 不显示。
 - (void)configureWithCard:(nullable IMContactCard *)card
               displayName:(nullable NSString *)displayName

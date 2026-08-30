@@ -2,6 +2,7 @@
 
 #import "IMPinnedMessage.h"
 #import "IMContactCard.h"
+#import "IMMediaUtil.h"   // IMChatRecordSnippet：聊天记录卡片 → 「[聊天记录] 标题」
 
 @implementation IMPinnedMessage
 
@@ -35,9 +36,14 @@
     }
     if ([self.contentType isEqualToString:@"image"]) { return @"[图片]"; }
     if ([self.contentType isEqualToString:@"video"]) { return @"[视频]"; }
-    if ([self.contentType isEqualToString:@"audio"]) { return @"[语音]"; }
+    // voice = 录制的语音条（正式类型）；audio 是 voice 落地前的旧命名，两者都要认——
+    // 只认 audio 时置顶横幅/置顶列表会把语音的 content（一串 URL）原样铺出来。
+    if ([self.contentType isEqualToString:@"voice"] || [self.contentType isEqualToString:@"audio"]) { return @"[语音]"; }
     if ([self.contentType isEqualToString:@"file"])  { return @"[文件]"; }
     if ([self.contentType isEqualToString:IMContentTypeContact]) { return IMContactCardPreview(self.content); }
+    // 合并转发卡片：content 是整段 JSON，直接显会把 {"t":…,"items":[…]} 铺满横幅 → 统一收成「[聊天记录] 标题」
+    //（与引用快照 / 会话列表预览 / 合并转发条目同一 token 口径）。
+    if ([self.contentType isEqualToString:@"chat_record"]) { return IMChatRecordSnippet(self.content); }
     NSString *line = [self oneLine:self.content];
     if (line.length > 0) { return line; }
     return [self.contentType isEqualToString:@"text"] ? @"（空消息）"

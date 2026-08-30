@@ -11,6 +11,7 @@ static CGFloat const kSegDefaultHeight = 40;
 
 @interface IMLiquidSegmentedControl ()
 @property (nonatomic, strong) UIVisualEffectView *track;
+@property (nonatomic, strong) UIScrollView *scroll;   ///< 段容器：段总宽超出控件时横向滚动（见 layoutSubviews）
 @property (nonatomic, strong) UIView *pill;
 @property (nonatomic, strong) NSMutableArray<UIButton *> *buttons;
 @end
@@ -32,6 +33,17 @@ static CGFloat const kSegDefaultHeight = 40;
         _track = IMGlassEffectView(NO);
         [self addSubview:_track];
 
+        // 段容器：段总宽 > 控件宽时横向滚动。**必须有**——底轨 clipsToBounds=YES，没有滚动容器时
+        // 排在后面的段（详情页 6 签的「名片」/收藏页 7 签的「名片」）被直接裁掉且无从划到，
+        // 用户看到的就是"最后一个 tab 看不全 / 根本不存在"。段总宽够放时 scrollEnabled=NO，
+        // 手势不参与竞争，行为与加滚动前完全一致。
+        _scroll = [[UIScrollView alloc] initWithFrame:CGRectZero];
+        _scroll.showsHorizontalScrollIndicator = NO;
+        _scroll.showsVerticalScrollIndicator = NO;
+        _scroll.alwaysBounceVertical = NO;
+        _scroll.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+        [_track.contentView addSubview:_scroll];
+
         // 药丸：iOS 26 用可交互玻璃（跟手高光，与底部 TabBar 选中态同源）；旧系统降级为半透明填充。
         if (@available(iOS 26.0, *)) {
             _pill = IMGlassEffectView(YES);
@@ -40,7 +52,7 @@ static CGFloat const kSegDefaultHeight = 40;
             _pill.backgroundColor = UIColor.tertiarySystemFillColor;
         }
         _pill.userInteractionEnabled = NO;
-        [_track.contentView addSubview:_pill];
+        [_scroll addSubview:_pill];
     }
     return self;
 }
@@ -58,7 +70,7 @@ static CGFloat const kSegDefaultHeight = 40;
         [b setTitleColor:UIColor.labelColor forState:UIControlStateNormal];
         b.tag = (NSInteger)i;
         [b addTarget:self action:@selector(segmentTapped:) forControlEvents:UIControlEventTouchUpInside];
-        [self.track.contentView addSubview:b]; // 恒在药丸之上，文字不被玻璃盖住
+        [self.scroll addSubview:b]; // 恒在药丸之上，文字不被玻璃盖住
         [self.buttons addObject:b];
     }];
 
@@ -85,8 +97,10 @@ static CGFloat const kSegDefaultHeight = 40;
     [self applyFonts];
     if (!animated) {
         [self layoutPill];
+        [self scrollSelectedToVisibleAnimated:NO];
         return;
     }
+    [self scrollSelectedToVisibleAnimated:YES];
     // 与系统玻璃控件同调性的轻弹簧；只动药丸，文字字重直接切换（避免中途糊字）。
     [UIView animateWithDuration:0.32 delay:0
          usingSpringWithDamping:0.86 initialSpringVelocity:0
@@ -135,6 +149,7 @@ static CGFloat const kSegDefaultHeight = 40;
     self.track.frame = self.bounds;
     self.track.layer.cornerRadius = CGRectGetHeight(self.bounds) / 2;
     self.track.clipsToBounds = YES;
+    self.scroll.frame = self.bounds; // 与底轨等尺寸（contentView 的 bounds 本轮可能还没解算，别读它）
 
     NSArray<NSNumber *> *ws = [self segmentWidthsForWidth:CGRectGetWidth(self.bounds)];
     CGFloat x = 0;
@@ -143,7 +158,20 @@ static CGFloat const kSegDefaultHeight = 40;
         self.buttons[i].frame = CGRectMake(x, 0, w, CGRectGetHeight(self.bounds));
         x += w;
     }
+    // 段总宽 x：塞得下就锁死滚动（手势不参与竞争，与加滚动前完全一致）；塞不下才允许横划露出后面的签。
+    self.scroll.contentSize = CGSizeMake(MAX(x, CGRectGetWidth(self.bounds)), CGRectGetHeight(self.bounds));
+    self.scroll.scrollEnabled = x > CGRectGetWidth(self.bounds) + 0.5;
+    if (!self.scroll.scrollEnabled && self.scroll.contentOffset.x != 0) { self.scroll.contentOffset = CGPointZero; }
     [self layoutPill];
+    [self scrollSelectedToVisibleAnimated:NO];
+}
+
+/// 把当前选中段滚进可视区（程序化换签 / 首次布局都要——否则选中了却看不见药丸）。
+- (void)scrollSelectedToVisibleAnimated:(BOOL)animated {
+    if (!self.scroll.scrollEnabled) { return; }
+    if (self.selectedIndex < 0 || self.selectedIndex >= (NSInteger)self.buttons.count) { return; }
+    CGRect f = self.buttons[(NSUInteger)self.selectedIndex].frame;
+    [self.scroll scrollRectToVisible:CGRectInset(f, -self.pillInset, 0) animated:animated];
 }
 
 - (void)layoutPill {

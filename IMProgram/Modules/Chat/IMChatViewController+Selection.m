@@ -533,8 +533,9 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
     return IMConversationPublicName(NO, nil, self.peerNickname, self.peerID);
 }
 
-/// 合并转发内容：JSON（t=标题，items=[{n:发送者, ct:类型, c:内容/URL, 文件另带 fn:文件名/fs:字节数}]），
-/// content_type=chat_record。fn/fs 与 Web 同约定；老记录无 fn 时读端从 URL 反推原名兜底。
+/// 合并转发内容：JSON（t=标题，items=[{n:发送者, ct:类型, c:内容/URL, 文件另带 fn:文件名/fs:字节数，
+/// 语音另带 d:时长毫秒/w:波形 base64}]），content_type=chat_record。fn/fs/d/w 与 Web 同约定；
+/// 老记录无 fn 时读端从 URL 反推原名兜底，无 d/w 时语音播放器退化成等高条纹 + 播放中才有进度。
 - (NSString *)mergedForwardJSONForMessages:(NSArray<IMMessageModel *> *)msgs {
     NSMutableArray<NSDictionary *> *items = [NSMutableArray array];
     for (IMMessageModel *m in msgs) {
@@ -548,6 +549,12 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
             NSString *fname = m.fileName.length > 0 ? m.fileName : IMMediaFileName(m.content);
             if (fname.length > 0) { item[@"fn"] = fname; }
             if (m.fileSize > 0) { item[@"fs"] = @(m.fileSize); }
+        }
+        // 语音条目随包携带时长与波形（d/w，与 Web 同约定）——收端记录卡才能画出真正的语音气泡；
+        // 缺了就只有一条 URL，读端要么铺出裸链接、要么画一个 0:00 的空播放器。
+        if ([m.contentType isEqualToString:@"voice"] || [m.contentType isEqualToString:@"audio"]) {
+            if (m.duration > 0) { item[@"d"] = @(m.duration); }
+            if (m.waveform.length > 0) { item[@"w"] = m.waveform; }
         }
         if (m.caption.length > 0) { item[@"cap"] = m.caption; } // 图说条目携带 caption（cap，与 Web 同 key）→ 记录卡「有字显字」
         [items addObject:item];

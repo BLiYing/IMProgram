@@ -70,6 +70,13 @@ NSString *IMRecordItemPreview(NSDictionary *it) {
         return fn.length > 0 ? [@"[文件] " stringByAppendingString:fn] : @"[文件]";
     }
     if ([ct isEqualToString:IMContentTypeContact]) { return IMContactCardPreview(c); }
+    // 语音条目：显 [语音] m:ss（无 d 的老记录只显 [语音]），别把 URL 铺进套娃卡片的两行预览里。
+    if ([ct isEqualToString:@"voice"] || [ct isEqualToString:@"audio"]) {
+        int64_t ms = [it[@"d"] respondsToSelector:@selector(longLongValue)] ? [it[@"d"] longLongValue] : 0;
+        if (ms <= 0) { return @"[语音]"; }
+        long long sec = ms / 1000;
+        return [NSString stringWithFormat:@"[语音] %lld:%02lld", sec / 60, sec % 60];
+    }
     if ([ct isEqualToString:@"chat_record"]) {
         // 嵌套合并转发：只取子标题（maxLines=0，不再展开子条目），显「[聊天记录] 子标题」。
         // 子 JSON 非法时标题回落「聊天记录」，此时不叠加以免「[聊天记录] 聊天记录」（与 Web 一致）。

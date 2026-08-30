@@ -10,6 +10,13 @@
 #import "IMVideoThumbnailLoader.h"
 #import "IMMediaUtil.h"
 #import "IMMediaViewerViewController.h"
+#import "IMMessageModel.h"
+#import "IMVoiceMiniPlayerView.h"
+#import "IMVoicePlayer.h"
+#import "IMTheme.h"
+#import "UILabel+IMAvatar.h"
+#import "IMAccountIdentity.h"        // IMDisplayName：末级不落 userID
+#import "UIViewController+IMToast.h"
 
 // 记录预览/标题解析统一走 IMMediaUtil 的 IMSummarizeRecord/IMRecordItemPreview（含嵌套 chat_record→[聊天记录] 子标题），
 // 与气泡卡片 IMChatRecordCell 共用同一 token 映射，避免各持 static 分叉。
@@ -17,8 +24,12 @@
 #pragma mark - 单条记录 Cell
 
 @interface IMRecordItemCell : UITableViewCell
+/// voiceModel：ct=voice/audio 时由宿主合成并**按行缓存**的消息模型（IMVoicePlayer 靠它的 id 认这条），
+/// 其余类型传 nil。onPlayTap 由宿主接到 IMVoicePlayer.toggleEnsuringLocal:。
 - (void)configureWithName:(NSString *)name type:(NSString *)type content:(NSString *)content fullURL:(NSString *)fullURL
-                 fileName:(NSString *)fileName fileSize:(int64_t)fileSize caption:(nullable NSString *)caption;
+                 fileName:(NSString *)fileName fileSize:(int64_t)fileSize caption:(nullable NSString *)caption
+               voiceModel:(nullable IMMessageModel *)voiceModel;
+@property (nonatomic, copy, nullable) void (^onPlayTap)(void);
 @end
 
 @implementation IMRecordItemCell {
@@ -31,6 +42,11 @@
     UIView  *_recCard;      // 嵌套合并转发：套娃 mini 卡片（标题 + 2 行预览 + 「聊天记录 ›」脚注）
     UILabel *_recTitle;
     UILabel *_recPreview;
+    UIView  *_cardBox;      // 个人名片：与聊天气泡同款 mini 卡片（头像 + 名字 + @句柄 + 「个人名片」脚注）
+    UILabel *_cardAvatar;
+    UILabel *_cardName;
+    UILabel *_cardHandle;
+    IMVoiceMiniPlayerView *_voice; // 语音：与详情页/收藏页同一迷你播放器（▶ + 波形进度 + 时长）
 }
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
     self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
@@ -118,7 +134,73 @@
             [recFoot.bottomAnchor constraintEqualToAnchor:_recCard.bottomAnchor constant:-8],
         ]];
 
-        UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[_name, _text, _thumb, _caption, _recCard]];
+        // 个人名片条目 → 与聊天气泡同款 mini 卡片（此前直接 `_text.text = content`，屏幕上是一串
+        // {"u":"…","n":"…","a":"…"} 的 JSON 原文）。点整行进资料页（didSelectRow 已有分支）。
+        _cardBox = [UIView new];
+        _cardBox.translatesAutoresizingMaskIntoConstraints = NO;
+        _cardBox.backgroundColor = UIColor.secondarySystemBackgroundColor;
+        _cardBox.layer.cornerRadius = 10;
+        _cardBox.layer.borderWidth = 0.5;
+        _cardBox.layer.borderColor = UIColor.separatorColor.CGColor;
+        _cardAvatar = [UILabel new];
+        _cardAvatar.translatesAutoresizingMaskIntoConstraints = NO;
+        _cardAvatar.textAlignment = NSTextAlignmentCenter;
+        _cardAvatar.textColor = UIColor.whiteColor;
+        _cardAvatar.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
+        _cardAvatar.layer.cornerRadius = 20;
+        _cardAvatar.clipsToBounds = YES;
+        [_cardBox addSubview:_cardAvatar];
+        _cardName = [UILabel new];
+        _cardName.translatesAutoresizingMaskIntoConstraints = NO;
+        _cardName.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+        _cardName.textColor = UIColor.labelColor;
+        _cardName.lineBreakMode = NSLineBreakByTruncatingTail;
+        [_cardBox addSubview:_cardName];
+        _cardHandle = [UILabel new];   // @句柄；绝不显 userID（10 位内部数字 ID）
+        _cardHandle.translatesAutoresizingMaskIntoConstraints = NO;
+        _cardHandle.font = [UIFont systemFontOfSize:12];
+        _cardHandle.textColor = UIColor.secondaryLabelColor;
+        _cardHandle.lineBreakMode = NSLineBreakByTruncatingTail;
+        [_cardBox addSubview:_cardHandle];
+        UIView *cardSep = [UIView new];
+        cardSep.translatesAutoresizingMaskIntoConstraints = NO;
+        cardSep.backgroundColor = UIColor.separatorColor;
+        [_cardBox addSubview:cardSep];
+        UILabel *cardFoot = [UILabel new];
+        cardFoot.translatesAutoresizingMaskIntoConstraints = NO;
+        cardFoot.font = [UIFont systemFontOfSize:11];
+        cardFoot.textColor = UIColor.secondaryLabelColor;
+        cardFoot.text = @"个人名片 ›";
+        [_cardBox addSubview:cardFoot];
+        [NSLayoutConstraint activateConstraints:@[
+            [_cardBox.widthAnchor constraintEqualToConstant:240],
+            [_cardAvatar.topAnchor constraintEqualToAnchor:_cardBox.topAnchor constant:10],
+            [_cardAvatar.leadingAnchor constraintEqualToAnchor:_cardBox.leadingAnchor constant:12],
+            [_cardAvatar.widthAnchor constraintEqualToConstant:40],
+            [_cardAvatar.heightAnchor constraintEqualToConstant:40],
+            [_cardName.topAnchor constraintEqualToAnchor:_cardAvatar.topAnchor constant:1],
+            [_cardName.leadingAnchor constraintEqualToAnchor:_cardAvatar.trailingAnchor constant:10],
+            [_cardName.trailingAnchor constraintEqualToAnchor:_cardBox.trailingAnchor constant:-12],
+            [_cardHandle.topAnchor constraintEqualToAnchor:_cardName.bottomAnchor constant:2],
+            [_cardHandle.leadingAnchor constraintEqualToAnchor:_cardName.leadingAnchor],
+            [_cardHandle.trailingAnchor constraintEqualToAnchor:_cardBox.trailingAnchor constant:-12],
+            [cardSep.topAnchor constraintEqualToAnchor:_cardAvatar.bottomAnchor constant:8],
+            [cardSep.leadingAnchor constraintEqualToAnchor:_cardBox.leadingAnchor constant:12],
+            [cardSep.trailingAnchor constraintEqualToAnchor:_cardBox.trailingAnchor constant:-12],
+            [cardSep.heightAnchor constraintEqualToConstant:0.5],
+            [cardFoot.topAnchor constraintEqualToAnchor:cardSep.bottomAnchor constant:6],
+            [cardFoot.leadingAnchor constraintEqualToAnchor:_cardBox.leadingAnchor constant:12],
+            [cardFoot.bottomAnchor constraintEqualToAnchor:_cardBox.bottomAnchor constant:-8],
+        ]];
+
+        // 语音条目 → 与资料页语音 tab / 收藏页语音行同一迷你播放器（此前直接铺 URL 文本）。
+        _voice = [IMVoiceMiniPlayerView new];
+        _voice.translatesAutoresizingMaskIntoConstraints = NO;
+        [_voice.widthAnchor constraintEqualToConstant:240].active = YES;
+        __weak typeof(self) wcell = self;
+        _voice.onPlayTap = ^{ __strong typeof(wcell) sself = wcell; if (sself && sself.onPlayTap) { sself.onPlayTap(); } };
+
+        UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[_name, _text, _thumb, _caption, _recCard, _cardBox, _voice]];
         stack.axis = UILayoutConstraintAxisVertical;
         stack.alignment = UIStackViewAlignmentLeading;
         stack.spacing = 6;
@@ -134,20 +216,49 @@
     return self;
 }
 - (void)configureWithName:(NSString *)name type:(NSString *)type content:(NSString *)content fullURL:(NSString *)fullURL
-                 fileName:(NSString *)fileName fileSize:(int64_t)fileSize caption:(NSString *)caption {
+                 fileName:(NSString *)fileName fileSize:(int64_t)fileSize caption:(NSString *)caption
+               voiceModel:(IMMessageModel *)voiceModel {
     _name.text = name;
     BOOL isRecord = [type isEqualToString:@"chat_record"];
     BOOL isImage = [type isEqualToString:@"image"];
     BOOL isVideo = [type isEqualToString:@"video"];
     BOOL isMedia = isImage || isVideo;
+    BOOL isContact = [type isEqualToString:IMContentTypeContact];
+    BOOL isVoice = [type isEqualToString:@"voice"] || [type isEqualToString:@"audio"];
+    IMContactCard *card = isContact ? IMContactCardParse(content) : nil;
+    // 脏名片（解析不出）退回灰字文本行，与气泡侧同口径——历史记录该保留，但不能铺 JSON 原文。
+    BOOL showsCard = card != nil;
     // 图说条目「有字显字」：媒体/文件下方随附文本（在各分支 early-return 之前统一设置）。
     BOOL hasCaption = caption.length > 0 && (isMedia || [type isEqualToString:@"file"]);
     _caption.text = hasCaption ? caption : nil;
     _caption.hidden = !hasCaption;
     _recCard.hidden = !isRecord;
-    _text.hidden = isMedia || isRecord;
+    _cardBox.hidden = !showsCard;
+    _voice.hidden = !isVoice;
+    _text.hidden = isMedia || isRecord || showsCard || isVoice;
     _thumb.hidden = !isMedia;
     _playBadge.hidden = !isVideo;
+    if (isVoice) {
+        [_voice configureWithMessage:(voiceModel ?: [IMMessageModel new]) mine:NO peerReadSeq:0 isGroupContext:NO];
+        _thumb.image = nil; _thumbURL = nil;
+        return;
+    }
+    if (showsCard) {
+        NSString *shown = IMDisplayName(card.nickname, card.username);
+        _cardName.text = shown;
+        _cardHandle.text = card.username.length > 0 ? [@"@" stringByAppendingString:card.username] : @"";
+        [_cardAvatar im_setAvatarURL:card.avatarURL seed:(card.userID ?: @"") displayName:shown];
+        _thumb.image = nil; _thumbURL = nil;
+        return;
+    }
+    if (isContact) {
+        // 脏名片：显灰字占位而不是整段 JSON。
+        _text.text = @"[个人名片]";
+        _text.textColor = UIColor.secondaryLabelColor;
+        _thumb.image = nil; _thumbURL = nil;
+        return;
+    }
+    _text.textColor = UIColor.labelColor; // cell 复用：上一行可能是脏名片的灰字
     if (isRecord) {
         // 套娃 mini 卡片：content 即子记录 JSON（打包时嵌套保留），标题 + 前 2 行预览。
         NSString *subTitle = nil; NSArray<NSString *> *subLines = nil;
@@ -198,11 +309,27 @@
     if (isVideo) { [[IMVideoThumbnailLoader shared] loadPosterForVideoURL:fullURL completion:apply]; }
     else { [[IMImageLoader shared] loadImageURL:fullURL completion:apply]; }
 }
+/// 出池重置（§8「cell 出池重置要覆盖每个 builder 会写的属性」）：
+/// 各分支已在 early-return 前把 hidden 全设好，肉眼看不到残留；但头像是**异步**加载的——
+/// 上一行名片的图片可能晚到、落在被复用的这个 cell 上，故显式作废在途请求。
+- (void)prepareForReuse {
+    [super prepareForReuse];
+    [_cardAvatar im_clearAvatarImage];
+    _cardAvatar.text = nil;
+    _cardAvatar.backgroundColor = UIColor.clearColor;
+    _cardName.text = nil; _cardHandle.text = nil;
+    _text.attributedText = nil; _text.text = nil;
+    _text.textColor = UIColor.labelColor;
+    _thumb.image = nil; _thumbURL = nil;
+    self.onPlayTap = nil;
+}
+
 // CALayer 的 CGColor 不随明暗动态解析：外观切换时手动重刷 mini 卡片描边色（背景是动态 UIColor 会自更新）。
 - (void)traitCollectionDidChange:(UITraitCollection *)previous {
     [super traitCollectionDidChange:previous];
     if ([self.traitCollection hasDifferentColorAppearanceComparedToTraitCollection:previous]) {
         _recCard.layer.borderColor = UIColor.separatorColor.CGColor;
+        _cardBox.layer.borderColor = UIColor.separatorColor.CGColor;
     }
 }
 @end
@@ -217,6 +344,7 @@
     NSString *_title;
     NSArray<NSDictionary *> *_items;
     UITableView *_tableView;
+    NSMutableDictionary<NSString *, IMMessageModel *> *_voiceModels; // 行号→语音消息模型（播放态跟踪）
 }
 
 - (instancetype)initWithHost:(NSString *)host recordJSON:(NSString *)recordJSON {
@@ -224,6 +352,7 @@
         _host = [host copy];
         _title = @"聊天记录";
         _items = @[];
+        _voiceModels = [NSMutableDictionary dictionary];
         NSData *d = [recordJSON dataUsingEncoding:NSUTF8StringEncoding];
         NSDictionary *dict = d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:NULL] : nil;
         if ([dict isKindOfClass:NSDictionary.class]) {
@@ -265,8 +394,39 @@
     NSString *fn = [it[@"fn"] isKindOfClass:NSString.class] ? it[@"fn"] : @"";
     int64_t fs = [it[@"fs"] respondsToSelector:@selector(longLongValue)] ? [it[@"fs"] longLongValue] : 0;
     NSString *cap = [it[@"cap"] isKindOfClass:NSString.class] ? it[@"cap"] : nil;
-    [cell configureWithName:n type:ct content:c fullURL:[self fullURLFor:c] fileName:fn fileSize:fs caption:cap];
+    IMMessageModel *vm = [self voiceModelForItem:it atIndex:ip.row];
+    [cell configureWithName:n type:ct content:c fullURL:[self fullURLFor:c] fileName:fn fileSize:fs caption:cap
+                 voiceModel:vm];
+    __weak typeof(self) ws = self;
+    cell.onPlayTap = vm ? ^{ __strong typeof(ws) self = ws; if (self) { [self playVoice:vm]; } } : nil;
     return cell;
+}
+
+/// 语音条目 → 合成消息模型（按行缓存**同一实例**：IMVoicePlayer 按 id 认这条，重建实例会丢播放态）。
+/// d/w 是打包端随包带的时长与波形；老记录没有这两个字段时播放器退化成等高条纹 + 0:00，仍可播。
+- (nullable IMMessageModel *)voiceModelForItem:(NSDictionary *)it atIndex:(NSInteger)index {
+    NSString *ct = [it[@"ct"] isKindOfClass:NSString.class] ? it[@"ct"] : @"text";
+    if (![ct isEqualToString:@"voice"] && ![ct isEqualToString:@"audio"]) { return nil; }
+    NSString *key = [NSString stringWithFormat:@"%ld", (long)index];
+    IMMessageModel *m = _voiceModels[key];
+    if (m) { return m; }
+    m = [IMMessageModel new];
+    // id 里带行号：同一条语音在记录里出现多次时，两行不能共用一个播放态。
+    m.clientMsgID = [NSString stringWithFormat:@"rec-%@-%@", key, [it[@"c"] isKindOfClass:NSString.class] ? it[@"c"] : @""];
+    m.contentType = ct;
+    m.content = [it[@"c"] isKindOfClass:NSString.class] ? it[@"c"] : @"";
+    m.duration = [it[@"d"] respondsToSelector:@selector(longLongValue)] ? [it[@"d"] longLongValue] : 0;
+    m.waveform = [it[@"w"] isKindOfClass:NSString.class] && [it[@"w"] length] > 0 ? it[@"w"] : nil;
+    _voiceModels[key] = m;
+    return m;
+}
+
+- (void)playVoice:(IMMessageModel *)m {
+    __weak typeof(self) ws = self;
+    [[IMVoicePlayer sharedPlayer] toggleEnsuringLocal:m host:_host completion:^(NSError *err) {
+        __strong typeof(ws) self = ws;
+        if (self && err) { [self im_showToast:@"语音下载失败"]; } // IO 错误不吞（CODING_STYLE §5）
+    }];
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)ip {

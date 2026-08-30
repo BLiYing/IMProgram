@@ -66,6 +66,19 @@
     XCTAssertEqualObjects([[self itemWithType:@"file"  content:@"https://x/a.zip"] previewText], @"[文件]");
 }
 
+- (void)testVoicePreviewShowsTypeWordForBothTypeNames {
+    // voice 是正式类型名（audio 只是落地前的旧命名）。曾只认 audio → 语音置顶横幅铺出一串 URL。
+    XCTAssertEqualObjects([[self itemWithType:@"voice" content:@"/uploads/v/a.m4a"] previewText], @"[语音]");
+}
+
+- (void)testChatRecordPreviewShowsTitleNotRawJSON {
+    // 合并转发卡片 content 是整段 JSON，直接显会把 {"t":…,"items":[…]} 铺满横幅。
+    NSString *json = @"{\"t\":\"小刚 的聊天记录\",\"items\":[{\"n\":\"小刚\",\"ct\":\"text\",\"c\":\"在吗\"}]}";
+    XCTAssertEqualObjects([[self itemWithType:@"chat_record" content:json] previewText], @"[聊天记录] 小刚 的聊天记录");
+    XCTAssertEqualObjects([[self itemWithType:@"chat_record" content:@"garbled"] previewText], @"[聊天记录]",
+                          @"非法 JSON 回落裸 token，不铺原文");
+}
+
 - (void)testPreviewNeverReturnsEmpty {
     XCTAssertEqualObjects([[self itemWithType:@"text" content:@"   "] previewText], @"（空消息）");
     XCTAssertEqualObjects([[self itemWithType:@"sticker" content:@""] previewText], @"[sticker]");

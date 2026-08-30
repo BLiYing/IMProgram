@@ -8,11 +8,13 @@
 #import "IMAccountIdentity.h"
 
 const CGFloat IMDetailContactCellHeight = 64;
+const CGFloat IMDetailContactCellHeightWithSource = 82;
 
 @implementation IMDetailContactCell {
     UILabel *_avatar;
     UILabel *_name;
     UILabel *_sub;
+    UILabel *_source;   ///< 「由 X 分享」独占第三行（accent，与收藏页其它分类的来源行同色）
     UILabel *_time;
 }
 
@@ -41,6 +43,14 @@ const CGFloat IMDetailContactCellHeight = 64;
         _sub.lineBreakMode = NSLineBreakByTruncatingTail;
         [self.contentView addSubview:_sub];
 
+        // 来源行独占一行：曾写成副行「@句柄 · 由 X 分享」，备注名/群昵称一长就把句柄和来源一起截没。
+        _source = [UILabel new];
+        _source.translatesAutoresizingMaskIntoConstraints = NO;
+        _source.font = [UIFont systemFontOfSize:12];
+        _source.textColor = IMTheme.accent;
+        _source.lineBreakMode = NSLineBreakByTruncatingTail;
+        [self.contentView addSubview:_source];
+
         _time = [UILabel new];
         _time.translatesAutoresizingMaskIntoConstraints = NO;
         _time.font = [UIFont systemFontOfSize:13];
@@ -63,6 +73,10 @@ const CGFloat IMDetailContactCellHeight = 64;
             [_sub.leadingAnchor constraintEqualToAnchor:_name.leadingAnchor],
             [_sub.topAnchor constraintEqualToAnchor:_name.bottomAnchor constant:3],
             [_sub.trailingAnchor constraintLessThanOrEqualToAnchor:self.contentView.trailingAnchor constant:-16],
+            // 第三行不设 bottom 约束：行高由宿主表按"有无来源"固定给（64 / IMDetailContactCellHeightWithSource）。
+            [_source.leadingAnchor constraintEqualToAnchor:_name.leadingAnchor],
+            [_source.topAnchor constraintEqualToAnchor:_sub.bottomAnchor constant:2],
+            [_source.trailingAnchor constraintLessThanOrEqualToAnchor:self.contentView.trailingAnchor constant:-16],
         ]];
     }
     return self;
@@ -76,7 +90,7 @@ const CGFloat IMDetailContactCellHeight = 64;
 }
 
 - (void)clearContent {
-    _name.text = nil; _sub.text = nil; _time.text = nil;
+    _name.text = nil; _sub.text = nil; _source.text = nil; _time.text = nil;
     [_avatar im_clearAvatarImage];   // 同时作废在途异步头像加载，防上一行照片晚到覆盖
     _avatar.text = nil;
     _avatar.backgroundColor = UIColor.clearColor;
@@ -90,13 +104,9 @@ const CGFloat IMDetailContactCellHeight = 64;
     // 末级不落 userID（10 位随机数字内部 ID），统一走 IMDisplayName 的兜底链。
     NSString *shown = displayName.length > 0 ? displayName : IMDisplayName(card.nickname, card.username);
     _name.text = shown;
-    // 副标题 = @句柄（+ 来源）。绝不显示 userID。
-    NSString *sub = card.username.length > 0 ? [@"@" stringByAppendingString:card.username] : @"";
-    if (sourceName.length > 0) {
-        sub = sub.length > 0 ? [sub stringByAppendingFormat:@" · 由 %@ 分享", sourceName]
-                             : [NSString stringWithFormat:@"由 %@ 分享", sourceName];
-    }
-    _sub.text = sub;
+    // 副标题 = @句柄。绝不显示 userID。来源另起一行（见 _source）。
+    _sub.text = card.username.length > 0 ? [@"@" stringByAppendingString:card.username] : @"";
+    _source.text = sourceName.length > 0 ? [NSString stringWithFormat:@"由 %@ 分享", sourceName] : nil;
     _time.text = timestampMillis > 0 ? IMFormatFileDateTime(timestampMillis) : @"";
     [_avatar im_setAvatarURL:card.avatarURL seed:(card.userID ?: @"") displayName:shown];
 }

@@ -25,6 +25,7 @@
 #import "IMProfileEditViewController.h"
 #import "IMContactCard.h"
 #import "IMRemarkStore.h"
+#import "IMFavoriteRowViews.h"    // 阅读器 / 统一图标行 / 来源会话行（从本文件抽出，见其头注）
 #import "IMFavoriteLinkCell.h"
 #import "IMFavoriteVoiceCell.h"   // 语音迷你播放器行（2026-08-26）
 #import "IMVoicePlayer.h"         // 收藏语音就地播放（toggleEnsuringLocal 共享入口）
@@ -63,160 +64,6 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     IMFavoritesViewModeChats,        ///< 以聊天模式查看：按来源会话分组
 };
 
-#pragma mark - 收藏阅读器（点文本 → 全文只读页，§5.6）
-
-@interface IMFavoriteReaderViewController : UIViewController
-- (instancetype)initWithText:(NSString *)text;
-@end
-@implementation IMFavoriteReaderViewController { NSString *_text; }
-- (instancetype)initWithText:(NSString *)text {
-    self = [super init];
-    if (self) { _text = [text copy]; self.title = @"收藏"; }
-    return self;
-}
-- (void)viewDidLoad {
-    [super viewDidLoad];
-    self.view.backgroundColor = IMTheme.groupedBackground;
-    UITextView *tv = [UITextView new];
-    tv.translatesAutoresizingMaskIntoConstraints = NO;
-    tv.editable = NO; tv.selectable = YES;
-    tv.backgroundColor = UIColor.clearColor;
-    tv.textColor = IMTheme.textPrimary;
-    tv.font = [UIFont systemFontOfSize:IMTheme.chatFontSize];
-    tv.text = _text;
-    tv.textContainerInset = UIEdgeInsetsMake(16, 16, 16, 16);
-    [self.view addSubview:tv];
-    [NSLayoutConstraint activateConstraints:@[
-        [tv.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor],
-        [tv.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
-        [tv.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
-        [tv.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-    ]];
-}
-@end
-
-#pragma mark - 行 Cell（链接 / 文本 / 聊天记录 / 语音：统一 52pt 图标列，§4.1 / §12）
-
-@interface IMFavoriteRowCell : UITableViewCell
-- (void)configureWithFavorite:(NSDictionary *)fav kind:(IMFavoriteCategory)kind source:(nullable NSString *)source;
-@end
-@implementation IMFavoriteRowCell { UIView *_tile; UIImageView *_glyph; UILabel *_title; UILabel *_meta; }
-- (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
-    self = [super initWithStyle:UITableViewCellStyleDefault reuseIdentifier:reuseIdentifier];
-    if (self) {
-        _tile = [UIView new];
-        _tile.translatesAutoresizingMaskIntoConstraints = NO;
-        _tile.layer.cornerRadius = 10; _tile.clipsToBounds = YES;
-        _tile.backgroundColor = IMTheme.accentSoft;
-        [self.contentView addSubview:_tile];
-        _glyph = [UIImageView new];
-        _glyph.translatesAutoresizingMaskIntoConstraints = NO;
-        _glyph.contentMode = UIViewContentModeScaleAspectFit;
-        _glyph.tintColor = IMTheme.accent;
-        [_tile addSubview:_glyph];
-        _title = [UILabel new];
-        _title.font = [UIFont systemFontOfSize:15];
-        _title.textColor = IMTheme.textPrimary;
-        _title.numberOfLines = 3;
-        _meta = [UILabel new];
-        _meta.font = [UIFont systemFontOfSize:13];
-        _meta.textColor = IMTheme.textTertiary;
-        UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[_title, _meta]];
-        stack.axis = UILayoutConstraintAxisVertical; stack.spacing = 3;
-        stack.translatesAutoresizingMaskIntoConstraints = NO;
-        [self.contentView addSubview:stack];
-        [NSLayoutConstraint activateConstraints:@[
-            [_tile.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:16],
-            [_tile.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
-            [_tile.widthAnchor constraintEqualToConstant:52], [_tile.heightAnchor constraintEqualToConstant:52],
-            [_glyph.centerXAnchor constraintEqualToAnchor:_tile.centerXAnchor],
-            [_glyph.centerYAnchor constraintEqualToAnchor:_tile.centerYAnchor],
-            [_glyph.widthAnchor constraintEqualToConstant:26], [_glyph.heightAnchor constraintEqualToConstant:26],
-            [stack.leadingAnchor constraintEqualToAnchor:_tile.trailingAnchor constant:12],
-            [stack.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-16],
-            [stack.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
-            [stack.topAnchor constraintGreaterThanOrEqualToAnchor:self.contentView.topAnchor constant:8],
-            [stack.bottomAnchor constraintLessThanOrEqualToAnchor:self.contentView.bottomAnchor constant:-8],
-        ]];
-    }
-    return self;
-}
-- (void)configureWithFavorite:(NSDictionary *)fav kind:(IMFavoriteCategory)kind source:(NSString *)source {
-    NSString *content = [fav[@"content"] isKindOfClass:NSString.class] ? fav[@"content"] : @"";
-    int64_t createdAt = [fav[@"created_at"] respondsToSelector:@selector(longLongValue)] ? [fav[@"created_at"] longLongValue] : 0;
-    UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:20 weight:UIImageSymbolWeightSemibold];
-    _title.textColor = IMTheme.textPrimary;
-    _title.numberOfLines = 2; // 文本封顶 2 行，给副行「来自X · 时间」留位（#1）
-    NSString *symbol = @"text.quote";
-    switch (kind) {
-        // Links 分类走独立 IMFavoriteLinkCell（草图 §D），cellForRow 已 kind 分流后不会到这里；
-        // 老兜底分支已删（死代码——若 register 失误应立刻构建期暴露，不该在此偷偷渲染个错样式）。
-        case IMFavoriteCategoryRecord: {
-            symbol = @"bubble.left.and.bubble.right"; _title.numberOfLines = 2;
-            NSString *snippet = IMChatRecordSnippet(content);
-            _title.text = snippet.length > 0 ? snippet : @"聊天记录"; break;
-        }
-        case IMFavoriteCategoryVoice:
-            symbol = @"waveform"; _title.numberOfLines = 1; _title.text = @"语音消息"; break;
-        default:
-            _title.text = content; break;
-    }
-    _glyph.image = [[UIImage systemImageNamed:symbol withConfiguration:cfg] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
-    NSString *when = createdAt > 0 ? IMFormatFileDateTime(createdAt) : @"";
-    NSMutableArray<NSString *> *parts = [NSMutableArray array];
-    if (source.length > 0) { [parts addObject:[@"来自" stringByAppendingString:source]]; }
-    if (when.length > 0) { [parts addObject:when]; }
-    _meta.text = [parts componentsJoinedByString:@" · "];
-}
-@end
-
-#pragma mark - 来源会话行（聊天模式）
-
-@interface IMFavoriteSourceCell : UITableViewCell
-- (void)configureWithName:(NSString *)name avatarURL:(NSString *)avatarURL seed:(NSString *)seed preview:(NSString *)preview count:(NSInteger)count;
-@end
-@implementation IMFavoriteSourceCell { UILabel *_avatar; UILabel *_name; UILabel *_preview; UILabel *_count; }
-- (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
-    self = [super initWithStyle:UITableViewCellStyleDefault reuseIdentifier:reuseIdentifier];
-    if (self) {
-        _avatar = [UILabel new];
-        _avatar.translatesAutoresizingMaskIntoConstraints = NO;
-        // 复用会话列表 cell 的头像视觉：im_setAvatarURL: 只设首字母文本+底色，字号/白字/居中/圆裁剪须调用方给（否则首字母黑字小号左对齐）。
-        _avatar.textColor = UIColor.whiteColor;
-        _avatar.textAlignment = NSTextAlignmentCenter;
-        _avatar.font = [UIFont systemFontOfSize:18 weight:UIFontWeightSemibold];
-        _avatar.layer.cornerRadius = 23; _avatar.layer.masksToBounds = YES;
-        [self.contentView addSubview:_avatar];
-        _name = [UILabel new]; _name.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold]; _name.textColor = IMTheme.textPrimary;
-        _preview = [UILabel new]; _preview.font = [UIFont systemFontOfSize:13]; _preview.textColor = IMTheme.textSecondary; _preview.lineBreakMode = NSLineBreakByTruncatingTail;
-        UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[_name, _preview]];
-        stack.axis = UILayoutConstraintAxisVertical; stack.spacing = 2;
-        stack.translatesAutoresizingMaskIntoConstraints = NO;
-        [self.contentView addSubview:stack];
-        _count = [UILabel new]; _count.font = [UIFont systemFontOfSize:13]; _count.textColor = IMTheme.textTertiary;
-        _count.translatesAutoresizingMaskIntoConstraints = NO;
-        [_count setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
-        [self.contentView addSubview:_count];
-        self.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-        [NSLayoutConstraint activateConstraints:@[
-            [_avatar.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:16],
-            [_avatar.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
-            [_avatar.widthAnchor constraintEqualToConstant:46], [_avatar.heightAnchor constraintEqualToConstant:46],
-            [stack.leadingAnchor constraintEqualToAnchor:_avatar.trailingAnchor constant:12],
-            [stack.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
-            [_count.leadingAnchor constraintEqualToAnchor:stack.trailingAnchor constant:8],
-            [_count.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-8],
-            [_count.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
-        ]];
-    }
-    return self;
-}
-- (void)configureWithName:(NSString *)name avatarURL:(NSString *)avatarURL seed:(NSString *)seed preview:(NSString *)preview count:(NSInteger)count {
-    [_avatar im_setAvatarURL:avatarURL seed:seed displayName:name];
-    _name.text = name; _preview.text = preview;
-    _count.text = [NSString stringWithFormat:@"%ld", (long)count];
-}
-@end
 
 #pragma mark - 来源分组值对象
 
@@ -278,7 +125,14 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     NSString *_selfUID;
     NSDictionary<NSString *, IMConversation *> *_convByID; // 来源会话名/头像查表
     NSDictionary<NSString *, IMUserCard *> *_friendByID;   // 好友：source_from→显示名（含备注）
-    NSDictionary<NSString *, IMGroupInfo *> *_groupByID;   // 群：source_conv_id→成员（取群昵称）
+    NSMutableDictionary<NSString *, IMGroupInfo *> *_groupByID; // 群：source_conv_id→成员（取群昵称）
+    // 「来自X」解析补齐（本页内缓存，随页销毁）：本地缓存里 **群成员表恒为空**
+    //（IMDatabase.cachedGroups 明确 `g.members = @[]`，成员只在进群详情页时联网拉），
+    // 好友表又只覆盖好友——于是群里非好友发的收藏一律回退成 10 位内部 ID。
+    // 这里按需补拉：先拉群资料（拿群昵称，最贴近聊天里看到的名字），仍解析不出再拉一次个人名片。
+    NSMutableDictionary<NSString *, IMUserCard *> *_profileByID; // 补拉到的个人名片：uid→卡片
+    NSMutableSet<NSString *> *_triedGroupFetch;                  // 已发起过群资料补拉的 conv_id（成功与否都不重发）
+    NSMutableSet<NSString *> *_triedProfileFetch;                // 已发起过名片补拉的 uid
 
     // pick 模式（Batch 2）：从聊天页加号 → 收藏调出。多选 + 底部"发送(N)"→ onPickDone(selected fav 数组)。
     // browse 模式下这些字段全默认（_pickMode=NO），不影响原有行为；模式一经初始化不再切换。
@@ -343,6 +197,9 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     _selectedKind = IMFavoriteCategoryMedia;
     _searchText = @"";
     _models = [NSMutableDictionary dictionary];
+    _profileByID = [NSMutableDictionary dictionary];
+    _triedGroupFetch = [NSMutableSet set];
+    _triedProfileFetch = [NSMutableSet set];
     self.view.backgroundColor = IMTheme.groupedBackground;
 
     IMDatabaseAccountContext *ctx = IMDatabase.sharedDatabase.currentAccountContext;
@@ -641,6 +498,11 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     _friendByID = fd;
     NSMutableDictionary *gd = [NSMutableDictionary dictionary];
     for (IMGroupInfo *g in groups) { if (g.convID.length) { gd[g.convID] = g; } }
+    // 已补拉到成员的群不能被"无成员"的本地缓存覆盖回去（loadConversationIndex 每次 reload 都会跑）。
+    for (NSString *cid in _groupByID) {
+        IMGroupInfo *loaded = _groupByID[cid];
+        if (loaded.members.count > 0) { gd[cid] = loaded; }
+    }
     _groupByID = gd;
 }
 
@@ -740,6 +602,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     }
     [self applyFilter];
     if (_sourceFilterKey) { [self im_refreshNavigationBar]; }
+    [self resolveMissingSourceNames]; // 「来自X」显成内部 ID 的，按需补拉群昵称/个人名片
 }
 
 - (void)recomputeCategories {
@@ -805,7 +668,59 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     for (IMGroupMember *mem in _groupByID[convID].members) { if ([mem.userID isEqualToString:from]) { return mem.localDisplayName; } } // 备注→群昵称→全局→uid
     IMUserCard *fr = _friendByID[from];
     if (fr) { return fr.displayName; } // 好友兜底
-    return from;
+    IMUserCard *fetched = _profileByID[from];
+    if (fetched) { return fetched.displayName; } // 补拉到的名片（备注 > 昵称 > @句柄，绝不落 uid）
+    return from; // 仍解析不出：显内部 ID 占位，resolveMissingSourceNames 会去补拉并刷新
+}
+
+/// 「来自X」缺名补齐：把仍回退成 10 位内部 ID 的收藏项，按"先群资料、后个人名片"两级补拉。
+///
+/// **为什么必须联网**：本地群缓存 `IMDatabase.cachedGroups` 恒 `members = @[]`（成员只在进群详情页时拉），
+/// 本地好友表又只覆盖好友——群里非好友发的收藏在纯本地口径下无解。每个 id 只发一次（成功与否都记进
+/// `_triedGroupFetch`/`_triedProfileFetch`），失败静默：来源名不是关键信息，不该弹错打断浏览收藏。
+- (void)resolveMissingSourceNames {
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0) { return; }
+    NSMutableSet<NSString *> *groupsToFetch = [NSMutableSet set];
+    NSMutableSet<NSString *> *usersToFetch = [NSMutableSet set];
+    for (NSDictionary *f in _allItems) {
+        NSString *from = [f[@"source_from"] isKindOfClass:NSString.class] ? f[@"source_from"] : @"";
+        if (from.length == 0 || [from isEqualToString:_selfUID]) { continue; }
+        if (![[self sourceNameForFavorite:f] isEqualToString:from]) { continue; } // 已能显人名
+        NSString *convID = [f[@"source_conv_id"] isKindOfClass:NSString.class] ? f[@"source_conv_id"] : @"";
+        IMGroupInfo *g = convID.length > 0 ? _groupByID[convID] : nil;
+        // 群成员表还没补拉过 → 先拉群资料（拿到的是**群昵称**，与聊天里看到的名字一致，优于全局昵称）。
+        if (convID.length > 0 && g && g.members.count == 0 && ![_triedGroupFetch containsObject:convID]) {
+            [groupsToFetch addObject:convID];
+            continue;
+        }
+        if (![_triedProfileFetch containsObject:from]) { [usersToFetch addObject:from]; }
+    }
+    for (NSString *convID in groupsToFetch) {
+        [_triedGroupFetch addObject:convID];
+        __weak typeof(self) ws = self;
+        [IMHTTPService.sharedService groupInfoWithToken:token convID:convID completion:^(IMGroupInfo *group, NSError *error) {
+            __strong typeof(ws) self = ws;
+            if (!self || !group || group.members.count == 0) {
+                // 拉不到（已退群 300203 / 网络失败）：不重试，直接进第二级（个人名片）。
+                if (self) { [self resolveMissingSourceNames]; }
+                return;
+            }
+            self->_groupByID[convID] = group;
+            [self->_tableView reloadData];
+            [self resolveMissingSourceNames]; // 群昵称补上后仍缺的（如已退群成员）转走名片补拉
+        }];
+    }
+    for (NSString *uid in usersToFetch) {
+        [_triedProfileFetch addObject:uid];
+        __weak typeof(self) ws = self;
+        [IMHTTPService.sharedService userProfileWithToken:token userID:uid completion:^(IMUserCard *profile, NSError *error) {
+            __strong typeof(ws) self = ws;
+            if (!self || !profile) { return; } // 已注销/网络失败：保持内部 ID 占位，不弹错
+            self->_profileByID[uid] = profile;
+            [self->_tableView reloadData];
+        }];
+    }
 }
 
 /// 收藏页名片行 → 名片里那个人的资料页。与聊天气泡 / 详情页名片行三处同一落点（§6）：
@@ -989,13 +904,15 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
         CGFloat h = [IMDetailMediaContainerCell heightForCount:(NSInteger)_mediaItems.count width:w];
         return h > 0 ? h : 60;
     }
-    if (_selectedKind == IMFavoriteCategoryFiles) { return 74; } // 文件行 3 行：文件名+状态+来自·时间（#2/#2b）
+    // 文件行 4 行：文件名 + 状态 + 时间 + 来自X（时间/来自分两行，长备注名不再把时间挤没）
+    if (_selectedKind == IMFavoriteCategoryFiles) { return 92; }
     // Links 走 auto dimension：混排文本时多一行原文引用（~40pt），行高差异不小，固定值任一侧都会撑
     // 出空白或截断。已在 buildTableView 里设 estimatedRowHeight，自适应布局能收敛。
     if (_selectedKind == IMFavoriteCategoryLinks) { return UITableViewAutomaticDimension; }
-    if (_selectedKind == IMFavoriteCategoryVoice) { return 92; } // 迷你播放器 + 来源行（2026-08-26）
-    if (_selectedKind == IMFavoriteCategoryContact) { return IMDetailContactCellHeight; } // 名片行 64（与详情页同一 cell）
-    return 76;
+    if (_selectedKind == IMFavoriteCategoryVoice) { return 108; } // 迷你播放器 + 时间行 + 来自行
+    // 名片行：恒带「由 X 分享」来源行 → 用带来源的高度（与详情页群聊同一 cell、同一高度）
+    if (_selectedKind == IMFavoriteCategoryContact) { return IMDetailContactCellHeightWithSource; }
+    return 92; // 文本/聊天记录：标题 2 行 + 时间 + 来自X
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {

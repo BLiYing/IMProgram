@@ -5,31 +5,36 @@
 
 ## 当前焦点
 
-> **网络恢复秒连（2026-08-30；`build-for-testing` 绿、零新增告警；新增 `IMSocketWakeActionTests` 4 例
-> **按约定未跑模拟器**；**未手测**）**：原先断网/回前台恢复后，最坏要等完 16~30s 的指数退避档才重连。
-> - **判据抽成纯函数** `IMSocketWakeActionFor(state, manualClose)`（`IMSocketManager.h`，与 Web
->   `sdk/wake.ts#wakeActionFor` 同口径）：`None` / `Reconnect`（清零退避档立即连）/ `Probe`（已连接只发一次 ping）。
->   三条"不该做"才是全部风险，逐条有单测：**manualClose 后不得重连**（否则退出登录与被踢下线被自动撤销——
->   后者曾经就是靠 token 缓存静默重登伪自愈的）、连接中不得再连（掐掉正在握手那条更慢）、已连接不得重连
->   （白白断一次好连接；socket 真死了由 ping 写失败去发现，那时 attempts 已归零，1s 即重试）。
-> - **两路信号**：① `IMNetworkMonitor`（本就在跑，原先只服务自动下载决策）新增**不可达→可达**跃迁通知
->   `IMNetworkDidBecomeReachableNotification`，`IMSocketManager` 自己观察——Wi-Fi↔蜂窝互切**不报**
->   （那条路径没断，重连只会白掉一次线）；② `SceneDelegate.sceneWillEnterForeground:`（原本是空桩）
->   调 `reconnectNowWithReason:@"foreground"`。
-> - 顺手清掉一处既有告警：`IMGroupBanListViewController` 里 identity 重构后没删的未用变量 `uid`。
+> **收藏页 / 详情页 / 置顶 / 记录卡 五项 UI 修复（2026-08-30，两端同步；iOS `build` 绿、**按约定只编译未跑模拟器**；
+> Web `tsc -b` + `vitest 679` 绿。**两端均未手测**）**
+>
+> 1. **置顶预览**：`IMPinnedMessage.previewText` 只认 `audio` 不认 `voice`、且没有 `chat_record` 分支
+>    → 语音置顶铺一串 URL、合并转发卡片铺整段 `{"t":…,"items":[…]}` JSON。现统一收成 `[语音]` /
+>    `[聊天记录] 标题`（走既有 `IMChatRecordSnippet`，与引用快照同 token 口径）。Web `pinned.ts` 同修。
+> 2. **收藏页「来自X」不再露 10 位内部 ID**：根因是 `IMDatabase.cachedGroups` 恒 `members = @[]`
+>    （成员只在进群详情页时联网拉），好友表又只覆盖好友 → 群里非好友发的收藏全回退 uid。
+>    新增 `resolveMissingSourceNames`：按需**两级补拉**（先 `GET /groups/{id}` 拿群昵称，仍缺再
+>    `GET /users/{id}` 拿名片），每个 id 只发一次、失败静默。Web 同款 effect。
+> 3. **收藏页副行时间与「来自X」拆两行 + 颜色分开**（时间 tertiary / 来源 accent，对齐链接分类）：
+>    长备注名/群昵称原先会把时间整个挤没。改 `IMFavoriteRowCell` / `IMFavoriteVoiceCell` /
+>    `IMDetailFileCell` / `IMDetailContactCell`（名片的「由 X 分享」从副行拆成第三行，行高 64→82，
+>    新增 `IMDetailContactCellHeightWithSource`）。
+> 4. **详情页链接 tab 时间改「年月日 时:分」**（原「今日 HH:mm / 昨天 / M月d日」，同页四个 tab 两套语言、
+>    跨年看不出年份）；Web 同修，并给 Web 文件 tab 补上原本没有的时间行。
+> 5. **页签条横向可滚**：`IMLiquidSegmentedControl` 底轨 `clipsToBounds=YES` 且无滚动容器 → 段总宽超出时
+>    末尾页签（详情页 6 签的「名片」/ 收藏页 7 签的「名片」）被裁掉且划不到。内嵌 `UIScrollView`，
+>    塞得下时 `scrollEnabled=NO`（手势不参与竞争，行为同改前）。Web `.detail-tabs` 加 `overflow-x:auto`。
+> 6. **合并转发记录详情页**：名片条目原先落通用文本分支铺 JSON 原文 → 改渲染 mini 名片卡（头像+显示名+
+>    @句柄+「个人名片 ›」脚注）；语音条目原先铺裸 URL → 改用与详情页/收藏页同一个
+>    `IMVoiceMiniPlayerView`。打包端补 `d`（时长）/`w`（波形）两个 key（两端同约定），老记录无这两项时
+>    退化成等高条纹 + 0:00 仍可播。Web 语音同修（名片 Web 本就是卡片）。
+>
+> 体量门禁副产物：`IMFavoritesViewController.m` 撞 1500 行 → 抽出 `IMFavoriteRowViews.{h,m}`
+> （阅读器 / 统一图标行 / 来源会话行，逐字平移、行为零变化），现 1364 行。
 
-> **`UI_COLOR.md` 收敛为「跨端主文档 + 本端补充」（2026-08-30，纯文档）**：本端这份原是两份分叉文档里的
-> "源"（Web 那份是从它复制并适配的）。现在跨端共同规则（语义令牌总表 `IMTheme` × Web CSS 变量、
-> 文本层级、页面/卡片/输入口径、聊天个性化、深色验收清单、检查清单）搬进
-> `../IMServer/docs/UI_COLOR.md`，**本端只留 iOS 平台特有**：`IMTheme`/`IMAppearance` 入口、
-> `CGColor` 不跟随主题的坑、导航栏与 push 页不用 `UITableViewController`、
-> **Liquid Glass（iOS 26+）整节**、InsetGrouped 列表、内置主题/壁纸/Alternate App Icon。
-> 120 → 68 行。`CLAUDE.md`/`AGENTS.md`/`CODING_STYLE.md` 里「改 UI 前必读 docs/UI_COLOR.md」的
-> 指引**不用改**——本端这份开头第一句就指向主文档（与 `docs/LOGGING.md` 同一套分工）。
-
-> **无进行中的开发项。** 2026-08-30 三批（单聊资料页收口 6 条 / 群系统消息可读性 2 条 /
-> 转发选择页排除系统通知）**用户已验收通过并提交**；细节转入 `current_task.archive.md`。
-> 仍**未做**的是「下一步」里那两件老账：真机手测语音 P1 与相机录像（模拟器没有摄像头/麦克风，只能真机验）。
+> **无其它进行中的开发项。** 网络恢复秒连（2026-08-30）与 `UI_COLOR.md` 收敛已完成，细节转入
+> `current_task.archive.md`。仍**未做**的是「下一步」里那两件老账：真机手测语音 P1 与相机录像
+> （模拟器没有摄像头/麦克风，只能真机验）。
 
 ## 下一步
 1. **先验真机能否连通后端**：重装 App → 弹「允许查找并连接本地网络设备」点允许 → 登录页填 Mac 当前 LAN IP，

@@ -626,13 +626,14 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
             CGFloat h = [IMDetailMediaContainerCell heightForCount:self.tabMedia.count width:w];
             return h > 0 ? h : 60;
         }
-        if (t.kind == IMDetailTabKindFiles) { return 74; } // 文件行 3 行：文件名 + 状态 + 时间（#2b）
+        if (t.kind == IMDetailTabKindFiles) { return 74; } // 文件行 3 行：文件名 + 状态 + 时间（#2b；详情页无来源行）
         // 语音行 3 行（sketch §10 + 新布局）：sender 18 + mini(44=波形+meta) + time 13 + spacing 6×2 + padding 20 ≈ 100pt；106 留冗余。
         if (t.kind == IMDetailTabKindVoice) { return 106; }
         // 链接行 3 行：og:title/host + host+path + 时间（草图 §C，IMDetailLinkCell 内嵌 IMLinkRowView）——
         // 内部 t1(16)+2+t2(14)+2+t3(14)=48pt + cell 上下 padding 9+9=66pt；旧的 60pt 会截掉时间行（用户反馈）。
         if (t.kind == IMDetailTabKindLinks) { return 74; }
-        if (t.kind == IMDetailTabKindContacts) { return IMDetailContactCellHeight; } // 名片行 64（§7.1）
+        // 名片行：群聊恒带「由 X 分享」第三行 → 用带来源的高度；单聊无来源，仍是 64（§7.1）。
+        if (t.kind == IMDetailTabKindContacts) { return self.isGroup ? IMDetailContactCellHeightWithSource : IMDetailContactCellHeight; }
         return 60;
     }
     return 52;

@@ -5,26 +5,7 @@
 #import "IMDetailLinkCell.h"
 #import "IMMessageModel.h"
 #import "IMLinkRowView.h"
-#import "IMMediaUtil.h"           // IMFirstURLInText
-
-/// 详情页/收藏页链接行时间格式（与 Web `detailLinkTimeText` 对齐）：今日 HH:mm / 昨天 HH:mm / M月d日。
-/// 不用 `IMFormatFileDateTime`（那个是 yyyy-MM-dd HH:mm 太长，草图 §C 明确要求紧凑格式）。
-static NSString *IMDetailLinkTimeText(int64_t timestampMillis) {
-    if (timestampMillis <= 0) { return @""; }
-    NSDate *d = [NSDate dateWithTimeIntervalSince1970:(NSTimeInterval)timestampMillis / 1000.0];
-    NSCalendar *cal = [NSCalendar currentCalendar];
-    NSDate *today = [cal startOfDayForDate:[NSDate date]];
-    NSDate *dayOfD = [cal startOfDayForDate:d];
-    NSDateComponents *diff = [cal components:NSCalendarUnitDay fromDate:dayOfD toDate:today options:0];
-    static NSDateFormatter *hm = nil, *md = nil;
-    static dispatch_once_t once; dispatch_once(&once, ^{
-        hm = [NSDateFormatter new]; hm.locale = [NSLocale localeWithLocaleIdentifier:@"zh_CN"]; hm.dateFormat = @"HH:mm";
-        md = [NSDateFormatter new]; md.locale = [NSLocale localeWithLocaleIdentifier:@"zh_CN"]; md.dateFormat = @"M月d日";
-    });
-    if (diff.day == 0) { return [hm stringFromDate:d]; }
-    if (diff.day == 1) { return [NSString stringWithFormat:@"昨天 %@", [hm stringFromDate:d]]; }
-    return [md stringFromDate:d];
-}
+#import "IMMediaUtil.h"           // IMFirstURLInText / IMFormatFileDateTime
 
 @implementation IMDetailLinkCell {
     IMLinkRowView *_row;
@@ -50,7 +31,10 @@ static NSString *IMDetailLinkTimeText(int64_t timestampMillis) {
     // preview API → 404（与 Web DetailTabs.tsx 同款抽取，两端口径一致）。
     NSString *content = message.content ?: @"";
     NSString *url = IMFirstURLInText(content) ?: content;
-    [_row configureWithURL:url timeText:IMDetailLinkTimeText(message.timestamp)];
+    // 时间用「年月日 时:分」完整口径（IMFormatFileDateTime）——与本页文件/语音/名片 tab 一致。
+    // 曾用「今日 HH:mm / 昨天 HH:mm / M月d日」的紧凑格式：同一页四个 tab 两套时间语言，
+    // 且跨年记录只剩「3月2日」看不出哪一年（用户反馈）。Web `detailFullDateTime` 同步拉齐。
+    [_row configureWithURL:url timeText:(message.timestamp > 0 ? IMFormatFileDateTime(message.timestamp) : @"")];
 }
 
 @end

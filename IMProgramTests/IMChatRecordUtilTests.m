@@ -18,6 +18,15 @@
                           @"[文件] 报表.xlsx");
 }
 
+- (void)testItemPreviewVoiceShowsDurationNotURL {
+    // 打包端随包带 d（时长毫秒）；老记录没有 d 时退化成裸 token，但绝不铺 URL。
+    XCTAssertEqualObjects(IMRecordItemPreview(@{@"n": @"a", @"ct": @"voice", @"c": @"/uploads/v/x.m4a", @"d": @12400}),
+                          @"[语音] 0:12");
+    XCTAssertEqualObjects(IMRecordItemPreview(@{@"n": @"a", @"ct": @"voice", @"c": @"/uploads/v/x.m4a"}), @"[语音]");
+    XCTAssertEqualObjects(IMRecordItemPreview(@{@"n": @"a", @"ct": @"audio", @"c": @"/uploads/v/x.m4a", @"d": @187000}),
+                          @"[语音] 3:07", @"audio 是 voice 落地前的旧命名，同样要认");
+}
+
 - (void)testItemPreviewNestedRecordShowsSubtitleNotJSON {
     NSString *child = @"{\"t\":\"1002和1003的聊天记录\",\"items\":[{\"n\":\"1002\",\"ct\":\"text\",\"c\":\"在吗\"}]}";
     NSString *preview = IMRecordItemPreview(@{@"n": @"1001", @"ct": @"chat_record", @"c": child});
