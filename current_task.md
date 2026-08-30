@@ -5,6 +5,15 @@
 
 ## 当前焦点
 
+> **`UI_COLOR.md` 收敛为「跨端主文档 + 本端补充」（2026-08-30，纯文档）**：本端这份原是两份分叉文档里的
+> "源"（Web 那份是从它复制并适配的）。现在跨端共同规则（语义令牌总表 `IMTheme` × Web CSS 变量、
+> 文本层级、页面/卡片/输入口径、聊天个性化、深色验收清单、检查清单）搬进
+> `../IMServer/docs/UI_COLOR.md`，**本端只留 iOS 平台特有**：`IMTheme`/`IMAppearance` 入口、
+> `CGColor` 不跟随主题的坑、导航栏与 push 页不用 `UITableViewController`、
+> **Liquid Glass（iOS 26+）整节**、InsetGrouped 列表、内置主题/壁纸/Alternate App Icon。
+> 120 → 68 行。`CLAUDE.md`/`AGENTS.md`/`CODING_STYLE.md` 里「改 UI 前必读 docs/UI_COLOR.md」的
+> 指引**不用改**——本端这份开头第一句就指向主文档（与 `docs/LOGGING.md` 同一套分工）。
+
 > **无进行中的开发项。** 2026-08-30 三批（单聊资料页收口 6 条 / 群系统消息可读性 2 条 /
 > 转发选择页排除系统通知）**用户已验收通过并提交**；细节转入 `current_task.archive.md`。
 > 仍**未做**的是「下一步」里那两件老账：真机手测语音 P1 与相机录像（模拟器没有摄像头/麦克风，只能真机验）。
