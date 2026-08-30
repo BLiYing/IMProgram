@@ -6,7 +6,7 @@
 ## 当前焦点
 
 > **收藏页 / 详情页 / 置顶 / 记录卡 五项 UI 修复（2026-08-30，两端同步；iOS `build` 绿、**已跑 `IMProgramTests` 311 例全绿**；
-> Web `tsc -b` + `vitest 681` 绿。**两端均未手测**）**
+> Web `tsc -b` + `vitest 681` 绿。**两端已手测通过（2026-08-30，用户逐项验收）**）**
 >
 > 1. **置顶预览**：`IMPinnedMessage.previewText` 只认 `audio` 不认 `voice`、且没有 `chat_record` 分支
 >    → 语音置顶铺一串 URL、合并转发卡片铺整段 `{"t":…,"items":[…]}` JSON。现统一收成 `[语音]` /
@@ -32,7 +32,7 @@
 > 体量门禁副产物：`IMFavoritesViewController.m` 撞 1500 行 → 抽出 `IMFavoriteRowViews.{h,m}`
 > （阅读器 / 统一图标行 / 来源会话行，逐字平移、行为零变化），现 1364 行。
 
-> **记录卡补齐 + 语音四项（2026-08-30 第三批；`IMProgramTests` 312 例全绿）**
+> **记录卡补齐 + 语音四项（2026-08-30 第三批；`IMProgramTests` 312 例全绿；**已手测通过**）**
 > 1. **合并转发条目新增 `ts`/`u`/`a`**（原消息时间 / 发送者 uid / 头像相对路径，两端同 key，
 >    契约表进了 [PROTOCOL.md](../IMServer/docs/PROTOCOL.md)）。记录详情页据此：右上角显**每条**消息的时间、
 >    左侧显头像、**连续同一人只显一次头像与昵称**（判据抽成纯函数 `IMRecordSenderKey`，与 Web
@@ -50,7 +50,7 @@
 >    + `gutter ? 48 : 12`（与 IMBubbleCell/IMImageCell/IMChatRecordCell/IMContactCardCell 同口径）；
 >    顺带把头像几何 10/32 纠成 12/30（基类 cornerRadius 15 本就配 30，原来还差一点不圆）。
 >
-> **记录卡语音：崩溃 + 无时长（2026-08-30 用户实测报，已修；`IMProgramTests` 311 例全绿）**
+> **记录卡语音：崩溃 + 无时长（2026-08-30 用户实测报，已修并**复测通过**；`IMProgramTests` 311 例全绿）**
 > - **崩溃根因不在记录卡，在语音播放通道**：Chrome 录的语音是 **MP4/Opus**（`audio/mp4` 容器塞 Opus），
 >   `framesPerPacket == 0` → `AVAudioPlayer` 在 AVFAudio 内部**除零**（`EXC_ARITHMETIC`/`SIGFPE`，
 >   `@try` 拦不住、整个 App 当场退出）。崩溃栈由 `~/Library/Logs/DiagnosticReports` 的 .ips 定位：
