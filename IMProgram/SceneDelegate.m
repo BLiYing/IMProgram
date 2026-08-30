@@ -99,8 +99,10 @@
 
 
 - (void)sceneWillEnterForeground:(UIScene *)scene {
-    // Called as the scene transitions from the background to the foreground.
-    // Use this method to undo the changes made on entering the background.
+    // 回到前台立即重连/探活，不等指数退避那一档（最长 30s）。
+    // 后台期间系统会挂起 socket，多数情况下回来时连接其实已经死了但本端还不知道；
+    // 已连接时 reconnectNowWithReason: 只发一次 ping 探活，写失败才走既有断线重连路径。
+    [[IMSocketManager sharedManager] reconnectNowWithReason:@"foreground"];
 }
 
 

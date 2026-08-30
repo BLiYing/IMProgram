@@ -7,6 +7,11 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+/// 网络从**不可达变为可达**时广播（主线程）。只报这一个跃迁——「断了」不需要谁立刻做什么，
+/// 「回来了」才是要立即重连的信号（IMSocketManager 观察它跳过指数退避，见 docs/TASKS.md §3.5）。
+/// 首帧不报：启动时乐观视作可达，避免冷启动多打一次重连。
+extern NSString * const IMNetworkDidBecomeReachableNotification;
+
 @interface IMNetworkMonitor : NSObject
 
 + (instancetype)shared;

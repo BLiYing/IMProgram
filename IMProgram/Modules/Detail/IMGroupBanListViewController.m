@@ -77,7 +77,6 @@
         return cell;
     }
     NSDictionary *b = self.bans[indexPath.row];
-    NSString *uid = [b[@"user_id"] isKindOfClass:[NSString class]] ? b[@"user_id"] : @"";
     NSString *nick = [b[@"nickname"] isKindOfClass:[NSString class]] ? b[@"nickname"] : @"";
     NSString *uname = [b[@"username"] isKindOfClass:[NSString class]] ? b[@"username"] : @"";
     int64_t expires = [b[@"expires_at"] respondsToSelector:@selector(longLongValue)] ? [b[@"expires_at"] longLongValue] : 0;

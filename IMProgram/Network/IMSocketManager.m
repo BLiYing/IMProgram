@@ -7,6 +7,7 @@
 #import "IMDatabase.h"
 #import "IMHTTPService.h"
 #import "IMLog.h"
+#import "IMNetworkMonitor.h"   // IMNetworkDidBecomeReachableNotification（网络恢复即刻重连）
 #import "IMRemarkStore.h"
 #import "IMTimeUtil.h"
 
@@ -91,6 +92,16 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     NSMutableSet<NSString *> *_pendingOps;                   // 已发出、待确认的消息操作 client_msg_id（撤回/编辑/置顶），供失败回滚
 }
 
+IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) {
+    if (manualClose) { return IMSocketWakeActionNone; }
+    switch (state) {
+        case IMSocketStateConnected:    return IMSocketWakeActionProbe;
+        case IMSocketStateConnecting:   return IMSocketWakeActionNone;
+        case IMSocketStateDisconnected: return IMSocketWakeActionReconnect;
+    }
+    return IMSocketWakeActionNone;
+}
+
 + (instancetype)sharedManager {
     static IMSocketManager *instance;
     static dispatch_once_t onceToken;
@@ -109,8 +120,38 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
         _syncStalledUntil = [NSMutableDictionary dictionary];
         _pendingOps = [NSMutableSet set];
         _state = IMSocketStateDisconnected;
+        // 网络恢复即立即重连（跳过指数退避）。观察者放在这里而不是 UI 层：任何页面在前台都该生效，
+        // 且这本就是纯网络层的事。回到前台那一路由 SceneDelegate 调 reconnectNowWithReason:。
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onNetworkReachable:)
+                                                   name:IMNetworkDidBecomeReachableNotification object:nil];
     }
     return self;
+}
+
+- (void)onNetworkReachable:(NSNotification *)note {
+    [self reconnectNowWithReason:@"network_reachable"];
+}
+
+- (void)reconnectNowWithReason:(NSString *)reason {
+    dispatch_async(_queue, ^{
+        if (self.userID.length == 0 || self->_host.length == 0) { return; } // 还没登录过，没什么可连
+        IMSocketWakeAction action = IMSocketWakeActionFor(self.state, self->_manualClose);
+        switch (action) {
+            case IMSocketWakeActionNone:
+                return;
+            case IMSocketWakeActionProbe:
+                IMLogSocket(@"wake(%@)：连接尚在，发一次 ping 探活", reason);
+                [self sendEnvelopeType:kIMTypePing data:nil completion:nil];
+                return;
+            case IMSocketWakeActionReconnect:
+                // 退避档位清零：这一次是"有理由相信网络已经好了"，不该继承上次失败攒下的 30s。
+                // openSocket 内部会 ++_connectionGeneration，在途的退避定时器到点即因代次不符自行作废。
+                IMLogSocket(@"wake(%@)：跳过退避立即重连（原 attempts=%ld）", reason, (long)self->_reconnectAttempts);
+                self->_reconnectAttempts = 0;
+                [self openSocket];
+                return;
+        }
+    });
 }
 
 #pragma mark - 连接生命周期

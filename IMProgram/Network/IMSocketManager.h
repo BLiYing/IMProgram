@@ -79,6 +79,22 @@ typedef NS_ENUM(NSInteger, IMSocketState) {
     IMSocketStateConnected,        ///< 已连接
 };
 
+/// 外部唤醒信号（网络恢复 / 回到前台）到来时该做什么。
+///
+/// **抽成纯函数是为了能单测**——这件事真正的坑不在"连一下"，而在**什么时候不该连**：
+///  · 主动断开后（退出登录 / 被踢下线）不能连，否则"退出登录"会被自动重连撤销；
+///  · 正在连接中不能再连，否则会掐掉正在握手的那条，反而更慢；
+///  · 已连接时只**探活**（发一次 ping）不重连——重连等于白白断一次好连接；socket 若其实已死，
+///    ping 写失败会走既有断线路径，那时 `_reconnectAttempts` 已因上次连接成功归零，1s 后即重连。
+typedef NS_ENUM(NSInteger, IMSocketWakeAction) {
+    IMSocketWakeActionNone = 0,  ///< 什么都不做
+    IMSocketWakeActionReconnect, ///< 清零退避档并立即重连
+    IMSocketWakeActionProbe,     ///< 立即发一次心跳探活
+};
+
+/// 见 IMSocketWakeAction。manualClose=主动断开（退出登录/被踢）。
+FOUNDATION_EXPORT IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose);
+
 /// 连接态副标题文案（放标题栏副标题，同「在线」位置，无括号）：已连接返回空串。
 /// 聊天页与会话列表页共用，避免两处各写一份 switch 导致文案漂移。
 NS_INLINE NSString *IMSocketStateSubtitle(IMSocketState state) {
@@ -122,6 +138,12 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
 
 /// 主动断开，停止自动重连。
 - (void)disconnect;
+
+/// **立即重连/探活**：由外部唤醒信号调用（网络恢复 `IMNetworkDidBecomeReachableNotification` 已在内部
+/// 自动接上；回到前台由 SceneDelegate 调）。按 `IMSocketWakeActionFor` 决定动作，幂等、可随便多调。
+/// 存在的理由：指数退避最长要等 30s，断网恢复后干等一档是能被用户直接看见的"卡住"。
+/// reason 只进日志，便于排查是哪路信号触发的。
+- (void)reconnectNowWithReason:(NSString *)reason;
 
 /// 发送一条文本消息（单聊：conv_id 由双方 uid 规范排序生成）。返回本条的 client_msg_id（也用于幂等去重）。
 /// completion 在收到 ack 或最终失败时于主线程回调。

@@ -5,6 +5,19 @@
 
 ## 当前焦点
 
+> **网络恢复秒连（2026-08-30；`build-for-testing` 绿、零新增告警；新增 `IMSocketWakeActionTests` 4 例
+> **按约定未跑模拟器**；**未手测**）**：原先断网/回前台恢复后，最坏要等完 16~30s 的指数退避档才重连。
+> - **判据抽成纯函数** `IMSocketWakeActionFor(state, manualClose)`（`IMSocketManager.h`，与 Web
+>   `sdk/wake.ts#wakeActionFor` 同口径）：`None` / `Reconnect`（清零退避档立即连）/ `Probe`（已连接只发一次 ping）。
+>   三条"不该做"才是全部风险，逐条有单测：**manualClose 后不得重连**（否则退出登录与被踢下线被自动撤销——
+>   后者曾经就是靠 token 缓存静默重登伪自愈的）、连接中不得再连（掐掉正在握手那条更慢）、已连接不得重连
+>   （白白断一次好连接；socket 真死了由 ping 写失败去发现，那时 attempts 已归零，1s 即重试）。
+> - **两路信号**：① `IMNetworkMonitor`（本就在跑，原先只服务自动下载决策）新增**不可达→可达**跃迁通知
+>   `IMNetworkDidBecomeReachableNotification`，`IMSocketManager` 自己观察——Wi-Fi↔蜂窝互切**不报**
+>   （那条路径没断，重连只会白掉一次线）；② `SceneDelegate.sceneWillEnterForeground:`（原本是空桩）
+>   调 `reconnectNowWithReason:@"foreground"`。
+> - 顺手清掉一处既有告警：`IMGroupBanListViewController` 里 identity 重构后没删的未用变量 `uid`。
+
 > **`UI_COLOR.md` 收敛为「跨端主文档 + 本端补充」（2026-08-30，纯文档）**：本端这份原是两份分叉文档里的
 > "源"（Web 那份是从它复制并适配的）。现在跨端共同规则（语义令牌总表 `IMTheme` × Web CSS 变量、
 > 文本层级、页面/卡片/输入口径、聊天个性化、深色验收清单、检查清单）搬进
