@@ -5,6 +5,15 @@
 
 ## 当前焦点
 
+> **转发选择页不再列「系统通知」会话（2026-08-30；**按用户要求本次未编译、未跑模拟器**）**：
+> 与 Web 同批做，后端零改动。
+> - `IMForwardPickerViewController` 的 `loadConversations` 拿到会话后先剔除系统通知单聊
+>   （`!c.isGroup && IMIsSystemUserID(c.peer)`），再喂 `_convs`；空态判定挪到过滤之后
+>   （否则"只剩系统通知"会显成一页空列表而不是「暂无可转发的会话」）。
+> - 理由：系统通知是只读会话，服务端直接拒 `send_msg to=system`
+>   （`../IMServer/docs/design/SYSTEM_NOTICE_SESSION_DESIGN.md` §2.2），列出来点了必报错。
+> - 判定一律走 `IMAccountIdentity.h` 的 `IMIsSystemUserID()`，不写 `@"777000"` 字面量。
+
 > **发送失败重发（2026-08-30，**已合入 main**；`xcodebuild build` 零新增告警 +
 > `xcodebuild test` **288 例全绿** + `check-file-size.sh` 通过；**模拟器端到端实测通过**）**：
 > 此前**只有语音**有可点重发（`IMVoiceBubbleCell` 自造的 SF 符号红标），文本/图片/视频/文件/相册的红❗

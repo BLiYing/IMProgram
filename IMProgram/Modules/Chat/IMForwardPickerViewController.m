@@ -3,6 +3,7 @@
 #import "IMForwardPickerViewController.h"
 #import "IMHTTPService.h"
 #import "IMConversation.h"
+#import "IMAccountIdentity.h"
 #import "IMListSearch.h"
 #import "UIViewController+IMToast.h"
 #import "UILabel+IMAvatar.h"
@@ -140,11 +141,23 @@ static const NSUInteger kIMForwardMaxSelection = 9;
     [IMHTTPService.sharedService conversationsWithToken:_token completion:^(NSArray<IMConversation *> *convs, NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
-        if (error || convs.count == 0) {
-            [self im_showToast:error ? @"加载会话失败" : @"暂无可转发的会话"];
+        if (error) {
+            [self im_showToast:@"加载会话失败"];
             return;
         }
-        self->_convs = convs;
+        // 剔除「系统通知」单聊：那是只读会话，服务端直接拒 send_msg to=system（护栏见
+        // IMServer/docs/design/SYSTEM_NOTICE_SESSION_DESIGN.md §2.2），列出来只会点了报错。
+        // 群聊不看 peer（群会话的 peer 无意义），故先判 isGroup。
+        NSMutableArray<IMConversation *> *forwardable = [NSMutableArray arrayWithCapacity:convs.count];
+        for (IMConversation *c in convs) {
+            if (!c.isGroup && IMIsSystemUserID(c.peer)) { continue; }
+            [forwardable addObject:c];
+        }
+        if (forwardable.count == 0) {
+            [self im_showToast:@"暂无可转发的会话"];
+            return;
+        }
+        self->_convs = forwardable;
         [self applyFilter];
     }];
 }
