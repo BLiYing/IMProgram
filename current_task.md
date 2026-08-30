@@ -5,7 +5,7 @@
 
 ## 当前焦点
 
-> **发送失败重发（2026-08-30，worktree `feat/resend-failed-msg`；`xcodebuild build` 零新增告警 +
+> **发送失败重发（2026-08-30，**已合入 main**；`xcodebuild build` 零新增告警 +
 > `xcodebuild test` **288 例全绿** + `check-file-size.sh` 通过；**模拟器端到端实测通过**）**：
 > 此前**只有语音**有可点重发（`IMVoiceBubbleCell` 自造的 SF 符号红标），文本/图片/视频/文件/相册的红❗
 > 全是不可点的 `UILabel`，名片/链接卡/合并转发**连红❗都没有**（发失败后既看不出、也无从重发）。
@@ -76,6 +76,11 @@
 4. `setupUI` 抽 `IMComposerBar`（老欠账）；「从收藏发送」入口开放（见「已知坑」）。
 
 ## 已知坑 / 限制
+- **`IMMediaPlaceholderTests testFrostedLandscapeScalesLongestSideTo48` 在高负载下会偶发失败（2026-08-30 首次观察）**：
+  全量 `xcodebuild test`（含 UITests，`testLaunchPerformance` 跑 109s 占满机器）时，该用例作为某个
+  clone 上的**第一条**执行、耗时 9.5s（正常 2.7s）后失败；单独重跑该类、以及
+  `-only-testing:IMProgramTests` 全量（289 例）都稳定绿。判定为冷启动/负载下的抖动，**未定位**。
+  与后端 `internal/gateway` 那条间歇失败同类，先记着；再复现请抓 XCTAssert 原文。
 - **`runAfterKeyboardHidden:` 兜底待测（2026-08-05 记）**：依赖 `resignFirstResponder` 后必然收到 `UIKeyboardDidHideNotification`——软键盘正常成立；若实测硬件/外接键盘场景引用跳转不触发，加 `dispatch_after` 超时兜底。
 - 相册导出期杀 App 消息消失（PHPicker 句柄一次性，属预期，微信同）；导出失败的行点 ↻ 提示副本丢失需重选。Files 面板 <8MB 小文件、相机**拍照**、粘贴图仍为 VC 锚定一次性上传（秒级；粘贴图已带预览条攒批）；
   相机**录像**已改走 `IMMediaSendService` 常驻队列（2026-08-29）。
