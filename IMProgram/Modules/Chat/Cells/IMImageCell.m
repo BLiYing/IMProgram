@@ -41,8 +41,6 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     NSLayoutConstraint *_thumbHeight;
     NSLayoutConstraint *_thumbTopPlain;      // 无昵称：thumb 贴 cell 顶
     NSLayoutConstraint *_thumbTopUnderName;  // 有昵称：thumb 挂昵称下方
-    UILabel *_failBadge;                     // 发送失败：缩略图左侧红❗（仅自己；与 IMBubbleCell 同款）
-    NSLayoutConstraint *_failBadgeTrailing;   // 仅失败时激活，避免恒占位挤压缩略图
     IMRejectNoteView *_sysNote;              // 被拒收系统行（缩略图下方居中，可恢复时带「发送好友申请」）
     NSLayoutConstraint *_thumbBottom;        // 无系统行/无 caption 时：thumb 贴 cell 底
     NSLayoutConstraint *_noteTop;            // 有系统行时：系统行接 thumb 底
@@ -113,17 +111,7 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
 
         // _avatar 由 IMMessageCell 基类创建（视图 + 点击插桩）；本类只补它的 leading/bottom/size 约束。
 
-        _failBadge = [UILabel new];
-        _failBadge.translatesAutoresizingMaskIntoConstraints = NO;
-        _failBadge.text = @"!";
-        _failBadge.textAlignment = NSTextAlignmentCenter;
-        _failBadge.font = [UIFont boldSystemFontOfSize:13];
-        _failBadge.textColor = UIColor.whiteColor;
-        _failBadge.backgroundColor = UIColor.systemRedColor;
-        _failBadge.layer.cornerRadius = 9;
-        _failBadge.layer.masksToBounds = YES;
-        _failBadge.hidden = YES;
-        [self.contentView addSubview:_failBadge];
+        // _failBadge（发送失败红❗，点击重发）同样由基类创建；本类只登记它的定位约束。
 
         _sysNote = [IMRejectNoteView new];
         _sysNote.translatesAutoresizingMaskIntoConstraints = NO;
@@ -178,7 +166,7 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
             [_captionBG.trailingAnchor constraintEqualToAnchor:_thumb.trailingAnchor],
             [_captionBG.bottomAnchor constraintEqualToAnchor:_captionLabel.bottomAnchor constant:10],
         ];
-        _failBadgeTrailing = [_failBadge.trailingAnchor constraintEqualToAnchor:_thumb.leadingAnchor constant:-6];
+        [self installFailBadgeAnchor:[_failBadge.trailingAnchor constraintEqualToAnchor:_thumb.leadingAnchor constant:-6]];
         [NSLayoutConstraint activateConstraints:@[
             // 恒定边界（required）：无论贴左还是贴右，都不许超出内容区。
             [_thumb.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.contentView.leadingAnchor constant:12],
@@ -193,9 +181,7 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
             [_avatar.widthAnchor constraintEqualToConstant:30],
             [_avatar.heightAnchor constraintEqualToConstant:30],
             _thumbBottom, _thumbWidth, _thumbHeight,
-            // 红❗：钉在缩略图左侧、垂直居中（仅自己失败时显示，与 IMBubbleCell 同款）。
-            [_failBadge.widthAnchor constraintEqualToConstant:18],
-            [_failBadge.heightAnchor constraintEqualToConstant:18],
+            // 红❗：钉在缩略图左侧、垂直居中（宽高由 IMFailBadgeView 自持；贴左那条仅失败时激活）。
             [_failBadge.centerYAnchor constraintEqualToAnchor:_thumb.centerYAnchor],
             [_sysNote.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:24],
             [_sysNote.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-24],
@@ -308,10 +294,8 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     [self applyDisplaySizeForMessage:message preview:preview posterURL:posterURL fullURL:fullURL isVideo:isVideo];
     [self applyDurationBadge:(isVideo ? message.duration : 0)];
     [self applyMetaBadgeForMessage:message mine:mine peerReadSeq:peerReadSeq];
-    // 发送失败：缩略图左侧红❗（仅自己）。与文本气泡一致——此前媒体消息完全没有这个标记。
-    BOOL failed = mine && message.status == IMMessageStatusFailed;
-    _failBadge.hidden = !failed;
-    _failBadgeTrailing.active = failed;
+    // 发送失败：缩略图左侧红❗（仅自己，点击重发）。显隐与可点判据都在基类，别在这里自己判 status。
+    [self applyFailBadgeForMessage:message mine:mine];
     // 被拒收系统行（如非好友 200103）：媒体消息此前无处承载 note，被拒后既无文案也无恢复入口。
     [_sysNote configureWithNote:message.note code:message.noteCode];
     BOOL hasNote = _sysNote.hasContent;

@@ -11,6 +11,8 @@
 #import "IMAppearance.h"
 #import "IMTheme.h"
 #import "IMMessageCell.h"  // +clampSenderName:（发送者昵称截断规则，各类气泡共用）
+#import "IMFailBadgeView.h" // 发送失败红❗（点击重发），与继承 IMMessageCell 的各 cell 共用同一款
+#import "IMChatMessageLogic.h" // IMResendPolicyForMessage：红❗可不可点的唯一判据
 #import "IMLinkPreviewView.h" // 文本气泡里首个 URL 的 og 预览卡片子视图
 
 // 引用快照本地化统一走 IMMediaUtil 的 IMLocalizeReplySnippet（与 IMLinkCardCell 共用，防两份 static 分叉）。
@@ -160,7 +162,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     UILabel *_text;
     NSLayoutConstraint *_leading;
     NSLayoutConstraint *_trailing;
-    UILabel *_failBadge;      // 发送失败：气泡左侧红色❗（微信式）
+    IMFailBadgeView *_failBadge; // 发送失败：气泡左侧红色❗（微信式），点击重发
     IMRejectNoteView *_sysNote;  // 被拒收系统行（三类气泡共用组件；可恢复时自带「发送好友申请」入口）
     NSLayoutConstraint *_bubbleBottom;   // 无系统行时：气泡贴 cell 底
     NSLayoutConstraint *_noteTop;        // 有系统行时：系统行接气泡底
@@ -380,16 +382,9 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         _text.font = [UIFont systemFontOfSize:IMTheme.chatFontSize];
         [_bubble addSubview:_text];
 
-        _failBadge = [UILabel new];
-        _failBadge.translatesAutoresizingMaskIntoConstraints = NO;
-        _failBadge.text = @"!";
-        _failBadge.textAlignment = NSTextAlignmentCenter;
-        _failBadge.font = [UIFont boldSystemFontOfSize:13];
-        _failBadge.textColor = UIColor.whiteColor;
-        _failBadge.backgroundColor = UIColor.systemRedColor;
-        _failBadge.layer.cornerRadius = 9;
-        _failBadge.layer.masksToBounds = YES;
-        _failBadge.hidden = YES;
+        _failBadge = [IMFailBadgeView new];
+        __weak typeof(self) wsFail = self;
+        _failBadge.onTap = ^{ if (wsFail.onRetryTap) { wsFail.onRetryTap(); } };
         [self.contentView addSubview:_failBadge];
 
         _sysNote = [IMRejectNoteView new];
@@ -510,9 +505,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
             [_senderLabel.leadingAnchor constraintEqualToAnchor:_bubble.leadingAnchor constant:2],
             [_senderLabel.trailingAnchor constraintLessThanOrEqualToAnchor:self.contentView.trailingAnchor constant:-12],
 
-            // 红❗：钉在气泡左侧、垂直居中（仅自己失败时显示）。
-            [_failBadge.widthAnchor constraintEqualToConstant:18],
-            [_failBadge.heightAnchor constraintEqualToConstant:18],
+            // 红❗：钉在气泡左侧、垂直居中（宽高由 IMFailBadgeView 自持；贴左那条仅失败时激活）。
             [_failBadge.centerYAnchor constraintEqualToAnchor:_bubble.centerYAnchor],
 
             // 系统行：横跨内容区居中。
@@ -858,6 +851,8 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     // 发送失败：气泡左侧红❗（仅自己）；被拒收等→气泡下方居中系统行（微信式）。
     BOOL failed = mine && message.status == IMMessageStatusFailed;
     _failBadge.hidden = !failed;
+    // 可点 = 可重发；被拒收那批红❗照显但不吃点击（恢复入口是下方系统行，见 IMResendPolicyForMessage）。
+    _failBadge.tappable = failed && IMResendPolicyForMessage(message, mine) != IMResendPolicyNone;
     _failBadgeTrailing.active = failed;
     [_sysNote configureWithNote:message.note code:message.noteCode];
     BOOL hasNote = _sysNote.hasContent;

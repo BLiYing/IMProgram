@@ -114,7 +114,11 @@
         // 气泡顶：无昵称贴分割线底，有昵称接昵称底（群聊连续段首条）——二选一。
         _stackTop = [_bubble.topAnchor constraintEqualToAnchor:_unreadDivider.bottomAnchor constant:3];
         _stackTopUnderName = [_bubble.topAnchor constraintEqualToAnchor:_senderLabel.bottomAnchor constant:4];
+        // 发送失败红❗（基类持有视图与点击）：贴卡片左侧、垂直居中。此前本 cell 完全没有失败标记——
+        // 链接卡片发失败后既看不出失败、也无从重发。
+        [self installFailBadgeAnchor:[_failBadge.trailingAnchor constraintEqualToAnchor:_bubble.leadingAnchor constant:-6]];
         [NSLayoutConstraint activateConstraints:@[
+            [_failBadge.centerYAnchor constraintEqualToAnchor:_bubble.centerYAnchor],
             _stackTop,
             [_bubble.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3],
             // stack 嵌在气泡内：左右 10、上下 8 内边距。
@@ -169,6 +173,7 @@
     _senderLabel.hidden = !showName;
     _stackTop.active = !showName;
     _stackTopUnderName.active = showName;
+    [self applyFailBadgeForMessage:message mine:mine]; // 失败红❗（显隐+可否点重发，判据在基类）
     // 引用行（共性 #1）：URL 消息带引用时也要显示引用条 + OG 卡片。
     if (message.replyToConvSeq > 0) {
         NSString *snap = IMLocalizeReplySnippet(message.replySnapshot.length > 0 ? message.replySnapshot : @"原消息");

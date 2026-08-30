@@ -4,6 +4,8 @@
 
 #import <Foundation/Foundation.h>
 
+@class IMMessageModel;
+
 NS_ASSUME_NONNULL_BEGIN
 
 /// 文本里是否存在一个**完整的** `@名字` token（M4-8）。
@@ -30,5 +32,26 @@ FOUNDATION_EXPORT NSString *IMConversationPublicName(BOOL isGroup,
                                                      NSString *_Nullable groupName,
                                                      NSString *_Nullable peerNickname,
                                                      NSString *_Nullable peerID);
+
+/// 发送失败消息的重发路径。**红❗ 是否可点、点了走哪条路，全端唯一判据**——
+/// 各 cell 的红❗显隐与聊天页的重发分派都读它，别在 cell 里各判各的（头像列曾因此漏接两次）。
+typedef NS_ENUM(NSInteger, IMResendPolicy) {
+    /// 不可重发：非本人 / 非失败态 / 已拿到 conv_seq / 被服务端明确拒收。
+    IMResendPolicyNone = 0,
+    /// 上传失败：媒体从没到过服务器（content 仍是 `im-pending://` 本地引用，或压根没落盘）。
+    /// 从本地副本重传后再发，**换新 client_msg_id**——服务端根本没这条，不存在重复风险。
+    IMResendPolicyRetryUpload,
+    /// send_msg 失败（ack 超时 / 连接中断）：内容已就绪（正文或已上传的服务器 URL）。
+    /// 必须按**原 client_msg_id** 重发，靠服务端 `(conv_id, client_msg_id)` 唯一索引幂等去重——
+    /// 换新 ID 会在"服务端其实已存下、只是 ack 丢了"时让对端收到两条（PROTOCOL §超时重发）。
+    IMResendPolicySameID,
+};
+
+/// 判定一条消息的重发路径。mine = 是否本人发送（调用方按 `m.from == 自己 uid` 传）。
+///
+/// **被拒收判据用 `note` 而不是 `noteCode`**：noteCode 是瞬态、不落库的（见 IMMessageModel），
+/// 重进会话后被拉黑/被禁言那条的 noteCode 归 0、note 文案还在。若按 noteCode 判，
+/// 这些"重发必然再次失败"的消息在重启后会重新变成可点，点了只是白等一轮超时。
+FOUNDATION_EXPORT IMResendPolicy IMResendPolicyForMessage(IMMessageModel *_Nullable message, BOOL mine);
 
 NS_ASSUME_NONNULL_END

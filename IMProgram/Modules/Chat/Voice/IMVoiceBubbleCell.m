@@ -40,7 +40,6 @@
 @property (nonatomic, strong) NSLayoutConstraint *bubbleMinLeading;    ///< 自己气泡左侧最小留白
 @property (nonatomic, strong) NSLayoutConstraint *scrubTipCenterX;
 @property (nonatomic, assign) BOOL scrubbing;
-@property (nonatomic, strong) UIButton *statusBadge;   ///< 发送失败红 !（§5.5：failed → 红标+点击重试；仅 mine）
 @property (nonatomic, strong) UILabel *readMark;       ///< 气泡右下 ✓/✓✓（mine 已发出后显；单聊按 peerReadSeq 变色，群聊只显 ✓）
 @property (nonatomic, assign) BOOL showsPauseIcon;     ///< 播放键当前图标缓存：30fps 进度 tick 只在状态切换时才 setImage
 @property (nonatomic, strong) NSLayoutConstraint *cvBottomToBubble; ///< 面板收起：行高只算到气泡（面板 hidden 但仍占 AutoLayout）
@@ -174,15 +173,9 @@
     _transcriptFooter.text = @"📝 由服务器识别，结果可能不完全准确";
     [_transcriptPanel addSubview:_transcriptFooter];
 
-    // 发送失败红 !（§5.5）：气泡左侧外（mine 气泡右对齐），点击=重试。默认隐藏。
-    _statusBadge = [UIButton buttonWithType:UIButtonTypeSystem];
-    _statusBadge.translatesAutoresizingMaskIntoConstraints = NO;
-    UIImageSymbolConfiguration *failCfg = [UIImageSymbolConfiguration configurationWithPointSize:20 weight:UIImageSymbolWeightSemibold];
-    [_statusBadge setImage:[UIImage systemImageNamed:@"exclamationmark.circle.fill" withConfiguration:failCfg] forState:UIControlStateNormal];
-    _statusBadge.tintColor = UIColor.systemRedColor;
-    _statusBadge.hidden = YES;
-    [_statusBadge addTarget:self action:@selector(retryTapped) forControlEvents:UIControlEventTouchUpInside];
-    [cv addSubview:_statusBadge];
+    // 发送失败红❗（§5.5）：气泡左侧外，点击=重发。视图/点击/可点判据都在基类 IMMessageCell，
+    // 本 cell 只登记定位约束——此前这里是唯一一份自造的 SF 符号版红标，与其它消息 cell 长得不一样。
+    [self installFailBadgeAnchor:[_failBadge.trailingAnchor constraintEqualToAnchor:_bubble.leadingAnchor constant:-6]];
 
     // 群头由基类 _avatar 承载：leading/bottom 由本 cell 补约束。
     _avatar.translatesAutoresizingMaskIntoConstraints = NO;
@@ -285,10 +278,7 @@
     _scrubTipCenterX = [_scrubTip.centerXAnchor constraintEqualToAnchor:_waveform.leadingAnchor constant:0];
     _scrubTipCenterX.active = YES;
     [NSLayoutConstraint activateConstraints:@[
-        [_statusBadge.trailingAnchor constraintEqualToAnchor:_bubble.leadingAnchor constant:-6],
-        [_statusBadge.centerYAnchor constraintEqualToAnchor:_bubble.centerYAnchor],
-        [_statusBadge.widthAnchor constraintEqualToConstant:28],
-        [_statusBadge.heightAnchor constraintEqualToConstant:28],
+        [_failBadge.centerYAnchor constraintEqualToAnchor:_bubble.centerYAnchor],
     ]];
     _transcriptTopSpacing = [_transcriptPanel.topAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:0];
     _transcriptTopSpacing.active = YES;
@@ -397,7 +387,7 @@
     // 未播红点仅对方消息 + 本机未播过时显；hasPlayed 由宿主传入（已 mine || 查询 IMVoicePlayer 已播集合）。
     self.unplayedDot.hidden = mine || hasPlayed;
     // 发送失败红 !（§5.5「不静默失败」）：曾 ack 失败置 Failed 落库但气泡外观与成功完全一致（2026-08-26 修）。
-    self.statusBadge.hidden = !(mine && message.status == IMMessageStatusFailed);
+    [self applyFailBadgeForMessage:message mine:mine]; // 红❗显隐 + 可否点重发（判据在基类）
 
     // 同步当前播放器状态（切页/复用时保持进度）。
     IMVoicePlayerState st = [[IMVoicePlayer sharedPlayer] stateForMessageID:self.currentID];
@@ -452,7 +442,6 @@
 }
 
 - (void)playTapped { if (self.onPlayTap) { self.onPlayTap(); } }
-- (void)retryTapped { if (self.onRetryTap) { self.onRetryTap(); } }
 
 /// 纯布局应用，**不通知 tableView**——`configure` 复用路径专用。
 /// 2026-08-27 性能修：configure 原先直接调 applyTranscriptText:，而它内部 beginUpdates/endUpdates；

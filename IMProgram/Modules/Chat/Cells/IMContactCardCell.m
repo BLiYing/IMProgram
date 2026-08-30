@@ -58,7 +58,11 @@
         _cardTop = [_card.topAnchor constraintEqualToAnchor:_unreadDivider.bottomAnchor constant:3];
         _cardTopUnderName = [_card.topAnchor constraintEqualToAnchor:_senderLabel.bottomAnchor constant:4];
         _cardTop.active = YES;
+        // 发送失败红❗（基类持有视图与点击）：贴卡片左侧、垂直居中。此前本 cell 完全没有失败标记——
+        // 名片发失败后既看不出失败、也无从重发。
+        [self installFailBadgeAnchor:[_failBadge.trailingAnchor constraintEqualToAnchor:_card.leadingAnchor constant:-6]];
         [NSLayoutConstraint activateConstraints:@[
+            [_failBadge.centerYAnchor constraintEqualToAnchor:_card.centerYAnchor],
             [_card.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3],
             [_senderLabel.topAnchor constraintEqualToAnchor:_unreadDivider.bottomAnchor constant:4],
             [_senderLabel.leadingAnchor constraintEqualToAnchor:_card.leadingAnchor constant:2],
@@ -100,6 +104,7 @@
     _senderLabel.hidden = !showName;
     _cardTop.active = !showName;
     _cardTopUnderName.active = showName;
+    [self applyFailBadgeForMessage:message mine:mine]; // 失败红❗（显隐+可否点重发，判据在基类）
 }
 
 - (void)applyGroupAvatarURL:(NSString *)url seed:(NSString *)seed name:(NSString *)name

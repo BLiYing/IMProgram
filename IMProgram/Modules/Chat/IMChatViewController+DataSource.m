@@ -105,6 +105,8 @@
             __weak typeof(self) wsAvatar = self;
             rec.onAvatarTap = ^{ [wsAvatar openMemberProfileForUID:memberUID]; };
         }
+        __weak typeof(self) wsRetry_rec = self;
+        rec.onRetryTap = ^{ [wsRetry_rec im_resendMessage:m]; }; // 发送失败红❗ → 重发
         return rec;
     }
     // 个人名片（contact）：240pt 定宽卡片气泡，点击进名片里那个人的资料页。
@@ -136,6 +138,8 @@
             __weak typeof(self) wsAvatar = self;
             cc.onAvatarTap = ^{ [wsAvatar openMemberProfileForUID:memberUID]; };
         }
+        __weak typeof(self) wsRetry_cc = self;
+        cc.onRetryTap = ^{ [wsRetry_cc im_resendMessage:m]; }; // 发送失败红❗ → 重发
         return cc;
     }
     // 纯 URL 文本消息：URL 文本 + 链接富预览卡片（OG），点击应用内打开（带引用时也显示引用行+卡片）。
@@ -171,6 +175,8 @@
             [self refreshRowHeightsWithoutAnimation];
             if (wasNearBottom) { [self scrollToAbsoluteBottom]; }
         };
+        __weak typeof(self) wsRetry_link = self;
+        link.onRetryTap = ^{ [wsRetry_link im_resendMessage:m]; }; // 发送失败红❗ → 重发
         return link;
     }
     // 相册宫格（M4+）：同 group_id 的多图/视频合并为一个 cell（leader 行渲染宫格，从行零高）。
@@ -242,6 +248,8 @@
             return [IMMenuAction menuWithActions:[self messageActionsForMessage:mm
                                                                            mine:[mm.from isEqualToString:self.userID]]];
         };
+        __weak typeof(self) wsRetry_alb = self;
+        alb.onRetryTap = ^{ [wsRetry_alb im_resendMessage:m]; }; // 发送失败红❗ → 重发
         return alb;
     }
     // 语音消息（voice P0）：波形气泡 + 播放键 + 未播红点；长按走通用菜单（禁复制/编辑）。
@@ -273,10 +281,10 @@
             if (!self || !sm) { return; }
             [self im_playVoiceMessage:sm fullURL:fullURL];
         };
-        vc.onRetryTap = ^{ // 发送失败红 !（§5.5）：不重录——已上传的按原 URL 重发，上传就失败的重新上传本地文件
+        vc.onRetryTap = ^{ // 发送失败红❗：统一入口按 IMResendPolicy 分派（语音上传失败→重传；send_msg 失败→原 cid 重发）
             __strong typeof(ws) self = ws; IMMessageModel *sm = wm;
             if (!self || !sm) { return; }
-            [self im_resendVoiceMessage:sm];
+            [self im_resendMessage:sm];
         };
         if (grpV) {
             NSString *memberUID = m.from;
@@ -368,6 +376,8 @@
             [self refreshRowHeightsWithoutAnimation];
             if (wasNearBottom) { [self scrollToAbsoluteBottom]; }
         };
+        __weak typeof(self) wsRetry_img = self;
+        img.onRetryTap = ^{ [wsRetry_img im_resendMessage:m]; }; // 发送失败红❗ → 重发
         return img;
     }
     IMBubbleCell *cell = [tableView dequeueReusableCellWithIdentifier:@"bubble" forIndexPath:indexPath];
@@ -466,6 +476,8 @@
     [cell applyGroupAvatarURL:(grp ? [self senderAvatarURLForMessage:m] : nil)
                          seed:(m.from ?: @"") name:(grp ? [self senderNameForMessage:m] : nil)
                    showAvatar:lastInRun gutter:grp];
+    __weak typeof(self) wsRetryBubble = self;
+    cell.onRetryTap = ^{ [wsRetryBubble im_resendMessage:m]; }; // 发送失败红❗ → 重发
     return cell;
 }
 
