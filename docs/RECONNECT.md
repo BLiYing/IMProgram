@@ -44,9 +44,11 @@
 - **连接代次 `_connectionGeneration`**：`openSocket` 每次 `++`。在途的退避定时器、登录 HTTP 回调、
   WS 回调都捕获了自己那一代，到点发现代次不符即自行作废——所以 `reconnectNowWithReason:`
   **不需要**手动取消旧定时器，直接 `openSocket` 即可。
-- **`watch` 重发在页面层**：Web 由 SDK 自己记住订阅集在 `onopen` 重发，iOS 是
-  `IMChatViewController+Socket.m` 的 `didChangeState:` 收到 `Connected` 后重发
-  （`updatePeerWatch:`）。都满足 PROTOCOL §5.5，但改的时候别按错层找。
+- **`watch` 重发在本类，不在页面**（2026-08-30 上移）：`watchUsers:` **同步**记住全集
+  （`@synchronized` 保护的 `_watchedUsers`，故调用返回后 `watchedUserIDs` 即最新、不必猜异步时序），
+  `didOpenWithProtocol:` 里连上即重发。页面层只保留"连上后补拉一次 presence 快照"——那是本页 UI 的事。
+  账号切换与 `disconnect` 都会清空这个集合，否则新账号连上会把上个账号的关注集发出去。
+  读 `watchedUserIDs` 用叶子锁而非 `dispatch_sync(_queue)`：后者一旦从 `_queue` 上被调到就死锁。
 - **页面级的"连上就刷一次"** 另有共用件 `Network/IMReconnectReloader.h`：宿主 VC 持有它、
   在 `viewWillAppear/Disappear` 更新 `visible`，连接恢复且页面可见时取一次权威数据。
   它与本文的重连是两层——重连负责"连回来"，它负责"连回来之后把这一页的数据刷新"。
@@ -61,5 +63,7 @@
 | 唤醒信号有没有到、做了什么 | `wake(network_reachable)` / `wake(foreground)` |
 | 网络跃迁有没有被识别 | `网络恢复可达 type=` |
 | 是不是被踢了 | `disconnected: … [鉴权被拒 401 → 跳登录页]` |
+| 唤醒信号来了但**故意没动**（反例取证） | `wake(…) 忽略：已主动断开（退出登录/被踢）` / `…正在连接中`（Debug 级） |
+| 订阅有没有补回来 | `watch 重发 N 个（连接级易失态）` |
 
 手测口径（断够 40 秒再恢复，否则看不出差别）与反例（退出登录后不得自动连回）见跨端主文档 §7。

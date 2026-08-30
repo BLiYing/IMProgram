@@ -39,7 +39,8 @@
 }
 
 /// 订阅/退订对端在线态（仅单聊）。watch=YES 关注对端（服务端只推它、并回一帧快照）；NO 清空关注。
-/// 全量替换语义，重复发送幂等；连上前发送会被 writeData 静默丢弃，故须在 didChangeState 连上时重发。
+/// 全量替换语义，重复发送幂等。连上前发送会被 writeData 静默丢弃——但**不必**在页面里补发：
+/// IMSocketManager 记住最后一次集合并在连上时自动重发（PROTOCOL §5.5，2026-08-30 上移到 SDK 层）。
 - (void)updatePeerWatch:(BOOL)watch {
     if (self.isGroupChat || self.peerID.length == 0) { return; }
     [IMSocketManager.sharedManager watchUsers:(watch ? @[self.peerID] : @[])];

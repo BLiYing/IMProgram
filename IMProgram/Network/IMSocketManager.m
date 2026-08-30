@@ -90,6 +90,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     NSMutableDictionary<NSString *, NSNumber *> *_syncStalledUntil; // conv_id -> 该时刻(CFAbsoluteTime)前不再发 sync_req：
                                                              // 整页处理完位点没动（落库持续失败/页内空洞）时热重试只会烧 CPU
     NSMutableSet<NSString *> *_pendingOps;                   // 已发出、待确认的消息操作 client_msg_id（撤回/编辑/置顶），供失败回滚
+    NSArray<NSString *> *_watchedUsers;                      // 在线态关注全集：连接级易失态，重连成功后由本类自动重发（PROTOCOL §5.5）
 }
 
 IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) {
@@ -138,6 +139,11 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
         IMSocketWakeAction action = IMSocketWakeActionFor(self.state, self->_manualClose);
         switch (action) {
             case IMSocketWakeActionNone:
+                // 走 Debug 级：正常路径下它只在"已主动断开"或"正在连接中"时出现，且触发源是用户动作
+                // （回前台 / 网络跃迁），不是周期性的，不会刷屏。留这行是为了让"退出登录后不该重连"
+                // 这种**反例**能被正面证明，而不是靠日志里的缺席推断。
+                IMLogDebugWithTag(IMLogTagSocket, @"wake(%@) 忽略：%@", reason,
+                                  self->_manualClose ? @"已主动断开（退出登录/被踢）" : @"正在连接中");
                 return;
             case IMSocketWakeActionProbe:
                 IMLogSocket(@"wake(%@)：连接尚在，发一次 ping 探活", reason);
@@ -178,6 +184,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
             [self->_trackedConvs removeAllObjects];
             [self->_syncingConvs removeAllObjects];
             [self->_pendingOps removeAllObjects];
+            @synchronized (self) { self->_watchedUsers = nil; } // 否则新账号连上会把上个账号的关注集重发出去
             [self cancelAllPendingSendsWithMessage:@"账号已切换"];
         }
         self->_databaseContext = databaseContext;
@@ -215,6 +222,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
         [self->_trackedConvs removeAllObjects];
         [self->_syncingConvs removeAllObjects];
         [self->_pendingOps removeAllObjects];
+        @synchronized (self) { self->_watchedUsers = nil; } // 退出登录：下次登录由页面重新订阅，不沿用上一轮
         [self cancelAllPendingSendsWithMessage:@"连接已关闭"];
         [self updateState:IMSocketStateDisconnected];
     });
@@ -1199,8 +1207,20 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
 }
 
 /// 上报在线态关注全集（异步进 _queue）。userIDs 为 nil 视作空集（取消全部关注）。
+/// 读 `_watchedUsers` 用**叶子锁**而不是 `dispatch_sync(_queue)`：后者一旦被 `_queue` 上的代码调到就死锁。
+/// 该字段只是个不可变数组指针，锁内不做任何别的事。
+- (NSArray<NSString *> *)watchedUserIDs {
+    @synchronized (self) { return _watchedUsers ?: @[]; }
+}
+
 - (void)watchUsers:(NSArray<NSString *> *)userIDs {
-    NSArray<NSString *> *set = [userIDs isKindOfClass:[NSArray class]] ? userIDs : @[];
+    NSArray<NSString *> *set = [userIDs isKindOfClass:[NSArray class]] ? [userIDs copy] : @[];
+    // 记住全集：**订阅是连接级易失态**，断连即清，重连后必须重发（PROTOCOL §5.5）。
+    // 这件事收在本类而不是各页面：① 页面层做的话，每个用到 watch 的页面都得自己订连接态补发，
+    // 漏一个就是"重连后那个人的在线态再也不更新"的静默失效；② watch 是**全量替换**语义，
+    // 多个消费者必须有一个合并点，页面层没有能力合并（今天只有聊天页一个调用点，将来多了在这里合并）。
+    // **同步记**（不进 _queue）：调用返回后 watchedUserIDs 即为最新，读它的人不必猜异步时序。
+    @synchronized (self) { _watchedUsers = set; }
     dispatch_async(_queue, ^{
         // 诊断：在线态订阅链路的「发出」书挡，与服务端 watch_registered、下方 presence 收到对账。
         IMLogSocket(@"watch → %lu 个: [%@]", (unsigned long)set.count, [set componentsJoinedByString:@","]);
@@ -1424,6 +1444,12 @@ didOpenWithProtocol:(NSString *)protocol {
         [self updateState:IMSocketStateConnected];
         [self startHeartbeat];
         [self syncTrackedConversations]; // 按各会话 synced_conv_seq 触发增量同步，补回离线/缺失消息
+        NSArray<NSString *> *watched = self.watchedUserIDs;
+        if (watched.count > 0) {
+            // 订阅是连接级易失态，重连后必须重发，否则对端上线不再推达（PROTOCOL §5.5）。
+            IMLogSocket(@"watch 重发 %lu 个（连接级易失态）", (unsigned long)watched.count);
+            [self sendEnvelopeType:kIMTypeWatch data:@{ @"set": watched } completion:nil];
+        }
         IMLogSocket(@"connected as uid=%@", self.userID);
     });
 }

@@ -136,6 +136,11 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
 /// 当前以 ?uid= 接入（骨架），后续替换为 JWT token。
 - (void)connectToHost:(NSString *)host userID:(NSString *)userID;
 
+/// 当前在线态关注全集（`watch` 帧的本地镜像）。**订阅是连接级易失态**（PROTOCOL §5.5）：
+/// 断连即清，本类记住最后一次 `watchUsers:` 的集合并在**重连成功后自动重发**，调用方不必管重连。
+/// 只读，供测试与诊断；改订阅一律走 `watchUsers:`。
+@property (nonatomic, copy, readonly) NSArray<NSString *> *watchedUserIDs;
+
 /// 主动断开，停止自动重连。
 - (void)disconnect;
 
@@ -227,9 +232,10 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
 - (void)sendTypingForConv:(NSString *)convID;
 
 /// 上报「当前要显示在线态的用户全集」（全量替换语义，见 PROTOCOL §5.5）：服务端只把这些人的
-/// presence 变化推给本连接，并对新增者回一帧 presence 快照。空数组=取消全部关注（如退出聊天页）。
-/// 订阅是连接级易失态——**重连后须由调用方重发**（本页在 didChangeState 连上时重发）。
-- (void)watchUsers:(NSArray<NSString *> *)userIDs;
+/// presence 变化推给本连接，并对新增者回一帧 presence 快照。空数组/nil=取消全部关注（如退出聊天页）。
+/// 订阅是连接级易失态，但**调用方不必管重连**：本类记住最后一次集合，连上时自动重发
+/// （2026-08-30 从聊天页上移到这里；页面层做会漏——每个用到 watch 的页面都得自己订连接态补发）。
+- (void)watchUsers:(nullable NSArray<NSString *> *)userIDs;
 
 /// 撤回自己在 convID 会话里 conv_seq=targetConvSeq 的消息（M4-1）。发出 msg_op；
 /// 成功由服务端广播回 msg_op 帧应用（IMSocketDidApplyMsgOp 通知），失败（超窗等）发 IMSocketDidRejectMsgOp。

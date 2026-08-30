@@ -21,7 +21,8 @@
         // viewWillAppear 里那次拉取被静默跳过且无人重试；②断线期间对端状态已变，本地快照过期；
         // ③服务端重连竞态可能短暂把在线用户报成离线，重拉即纠正。
         [self refreshPeerPresence];
-        [self updatePeerWatch:YES]; // watch 是连接级易失态：重连后必须重发，否则对端上线不再推达
+        // watch 的重发**不在这里**：它是连接级不变量（PROTOCOL §5.5），已收到 IMSocketManager 里
+        // 由连上那一刻统一重发（2026-08-30 从页面层上移）。页面只管本页 UI 的补拉。
     }
     if (state == IMSocketStateConnected) {
         [self markVisibleRowsRead]; // 重连后把当前可见的补报一次已读（可见即读）

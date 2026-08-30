@@ -34,4 +34,25 @@
     XCTAssertEqual(IMSocketWakeActionFor(IMSocketStateConnected, YES), IMSocketWakeActionNone);
 }
 
+/// `watch` 订阅集的记忆：连接级易失态（PROTOCOL §5.5），重连后必须重发，故 `IMSocketManager`
+/// 记住最后一次集合。这里只钉「记住 + 归一化」这一半；**重连时真的重发**要靠手测/日志
+/// （`watch 重发 N 个（连接级易失态）`），单测起不了 WebSocket。
+- (void)testWatchSetIsRemembered {
+    IMSocketManager *m = IMSocketManager.sharedManager; // 单例：用例末尾复位，别把关注集留给别的用例
+
+    [m watchUsers:@[@"1001", @"1002"]];
+    XCTAssertEqualObjects(m.watchedUserIDs, (@[@"1001", @"1002"]), @"记住最后一次全集，供重连重发");
+
+    [m watchUsers:@[@"2001"]];
+    XCTAssertEqualObjects(m.watchedUserIDs, @[@"2001"], @"全量替换语义：后一次覆盖前一次，不做并集");
+
+    [m watchUsers:@[]];
+    XCTAssertEqualObjects(m.watchedUserIDs, @[], @"空集=取消全部关注");
+
+    [m watchUsers:nil];
+    XCTAssertEqualObjects(m.watchedUserIDs, @[], @"nil 归一化成空集，读取方不必判空");
+    // 已是空集，等于已复位；显式再写一次以表明意图（将来在上面追加断言时别忘了这一步）。
+    [m watchUsers:@[]];
+}
+
 @end
