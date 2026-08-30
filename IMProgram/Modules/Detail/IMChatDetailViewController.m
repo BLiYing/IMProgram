@@ -83,7 +83,10 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
         }
         _databaseContext = [context.ownerUserID isEqualToString:userID] ? context : nil;
         _isGroup = NO;
-        _peerIsFriend = YES; // 乐观默认，loadPeerBlockState 校正
+        // 好友态**先按本地已知关系起步**（IMFriendStateStore：上次 /friends 或本地快照）。
+        // 无从判断时才乐观 YES。原来无条件 YES，于是点非好友的名片进来会先闪一遍
+        // 「消息/呼叫/视频 + 备注·设置·页签」再变成「加好友」（用户 2026-08-30 报的 bug）。
+        _peerIsFriend = [self initialPeerIsFriendGuess:peerID];
         // URL 只决定圆形头像内容，不再触发全幅大图头部。
         _hasPhoto = NO;
         self.hidesBottomBarWhenPushed = YES;
@@ -664,30 +667,6 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
     cell.accessoryType = UITableViewCellAccessoryNone;
     cell.accessoryView = nil;
     cell.selectionStyle = UITableViewCellSelectionStyleDefault;
-    return cell;
-}
-
-- (UITableViewCell *)infoCell:(UITableView *)tv row:(NSInteger)row {
-    UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleSubtitle reuseID:@"dSub" inTable:tv];
-    if (row == 0) {
-        // 只显**备注本身**（不是 displayTitle）：这一行是"备注名"的编辑入口，没设过就该显"未设置"，
-        // 否则会把对方昵称显示成"我给他起的备注"，用户点进去还以为已经设过了。
-        BOOL hasRemark = self.peerRemark.length > 0;
-        cell.textLabel.text = hasRemark ? self.peerRemark : @"未设置";
-        cell.textLabel.textColor = hasRemark ? IMTheme.textPrimary : IMTheme.textSecondary;
-        cell.textLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightMedium];
-        cell.detailTextLabel.text = @"备注名 · 点击修改";
-        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-    } else {
-        // 显示**公开句柄** @xxx，不是 peerID——后者是 10 位随机数字内部 ID，
-        // 标签写着"用户名"却显示一串 ID 是明显的错配（docs/UI.md「用户标识」）。
-        // 拿不到时（资料尚未拉回 / 对方无 username）显灰字占位，绝不回退到 ID。
-        BOOL hasHandle = self.peerUsername.length > 0;
-        cell.textLabel.text = hasHandle ? [@"@" stringByAppendingString:self.peerUsername] : @"未设置";
-        cell.textLabel.textColor = hasHandle ? IMTheme.accent : IMTheme.textSecondary;
-        cell.detailTextLabel.text = @"用户名";
-        cell.accessoryType = UITableViewCellAccessoryNone;
-    }
     return cell;
 }
 

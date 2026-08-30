@@ -99,6 +99,7 @@ static const NSUInteger kIMForwardMaxSelection = 9;
     BOOL _multiSelect;
     UITableView *_tableView;
     UISearchBar *_searchBar;
+    UIView *_searchHeader;   // 托住 _searchBar 的表头容器（宽度随表格实时对齐）
 }
 
 - (instancetype)initWithHost:(NSString *)host token:(NSString *)token onDone:(void (^)(NSArray<IMConversation *> *))onDone {
@@ -130,10 +131,17 @@ static const NSUInteger kIMForwardMaxSelection = 9;
     // 放 tableHeaderView 而非 UISearchController：本页是 modal + 自带导航栏，
     // UISearchController 会再叠一层导航态，交互与「取消/多选」两个 bar button 打架。
     _searchBar = IMListSearchBarMake(self.view.bounds.size.width, @"搜索会话", self);
-    _tableView.tableHeaderView = _searchBar;
+    // 与选好友页同一套：搜索框进容器，宽度在 viewDidLayoutSubviews 对齐表格（详见 IMListSearch.h）。
+    _searchHeader = IMListSearchHeaderMake(_searchBar);
+    _tableView.tableHeaderView = _searchHeader;
     [self.view addSubview:_tableView];
 
     [self loadConversations];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    IMListSearchHeaderSyncWidth(_searchHeader, _tableView); // 表头宽度对齐表格（宽度没变即空转）
 }
 
 - (void)loadConversations {

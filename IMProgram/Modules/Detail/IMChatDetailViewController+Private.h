@@ -159,11 +159,14 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 - (void)requestAddPeerFriend;
 - (void)switchChanged:(UISwitch *)sw;
 - (void)toggleBlock;
+- (void)confirmRemoveFriend;  ///< 「更多」→ 删除好友（二次确认；仅单聊·好友）
 // 数据加载 / DB（主实现）：
 - (void)loadGroupInfo;
 - (void)loadFriendUIDs;
 - (void)loadPeerBlockState;
 - (BOOL)performDatabaseOperation:(void (^)(IMDatabase *database))operation;
+/// 系统样式 cell 出池并**全字段重置**（各分区 builder 只设自己的差异字段）。
+- (UITableViewCell *)dequeueStyledCell:(UITableViewCellStyle)style reuseID:(NSString *)reuseID inTable:(UITableView *)tv;
 // target-action 选择器（+Header setup 用 @selector 接线，方法体在主实现/其它 category）：
 - (void)tabBarTapped;
 - (void)avatarTapped;
@@ -180,6 +183,11 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 - (void)loadPeerProfile;
 /// 「该用户不存在或已注销」空态覆盖层（幂等）。
 - (void)showPeerNotFoundState;
+/// 进页那一刻的好友态起步值：本地已知关系（IMFriendStateStore）优先，不知道才乐观 YES。
+/// **在 init 里调用**（此时 self.databaseContext 已就位），故不依赖任何 viewDidLoad 之后才有的东西。
+- (BOOL)initialPeerIsFriendGuess:(nullable NSString *)peerID;
+/// 单聊「备注名 / 用户名」两行（row 0/1）。放 +Peer.m 是体量门禁拆分——主实现文件贴着 1500 行红线。
+- (UITableViewCell *)infoCell:(UITableView *)tv row:(NSInteger)row;
 
 // —— 名片页签（IMChatDetailViewController+Contacts.m）——
 /// 名片行 cell（详情页「名片」签）。message 必须已通过 matchesKind: 的解析校验。

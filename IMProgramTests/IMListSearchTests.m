@@ -52,4 +52,39 @@
     XCTAssertEqual(bar.autocorrectionType, UITextAutocorrectionTypeNo);
 }
 
+/// 表头容器：搜索框整体左右偏位的修法（用户 2026-08-30 报的选好友页）。
+/// 盯两点——① 容器一定要把宽度对齐**表格**，不是 view 的初始 bounds；② 宽度已一致时必须早退，
+/// 否则 viewDidLayoutSubviews 里「改 frame → 触发布局 → 再改」会自激。
+- (void)testHeaderSyncsWidthToTableAndIsIdempotent {
+    UISearchBar *bar = IMListSearchBarMake(320, @"搜索好友", nil);
+    UIView *header = IMListSearchHeaderMake(bar);
+    UITableView *table = [[UITableView alloc] initWithFrame:CGRectMake(0, 0, 402, 800)];
+    table.tableHeaderView = header;
+
+    IMListSearchHeaderSyncWidth(header, table);
+    XCTAssertEqual(CGRectGetWidth(header.frame), 402, @"表头宽度必须跟表格走，而不是建时那个 320");
+    XCTAssertEqual(CGRectGetWidth(table.tableHeaderView.frame), 402);
+
+    // 幂等：再调一次不该有任何变化（早退），也不该把 header 从表格上摘下来。
+    IMListSearchHeaderSyncWidth(header, table);
+    XCTAssertEqualObjects(table.tableHeaderView, header);
+    XCTAssertEqual(CGRectGetWidth(header.frame), 402);
+
+    // 搜索框由约束贴满容器宽度并垂直居中（居中才是「不偏」的定义）。
+    [header layoutIfNeeded];
+    XCTAssertEqual(CGRectGetWidth(bar.frame), 402);
+    XCTAssertEqualWithAccuracy(CGRectGetMidY(bar.frame), CGRectGetMidY(header.bounds), 0.5);
+}
+
+- (void)testHeaderSyncIgnoresEmptyInputs {
+    // 空参数/零宽表格（还没布局）不得崩，也不得把 header 尺寸改成 0。
+    UISearchBar *bar = IMListSearchBarMake(320, @"搜索好友", nil);
+    UIView *header = IMListSearchHeaderMake(bar);
+    UITableView *zero = [[UITableView alloc] initWithFrame:CGRectZero];
+    IMListSearchHeaderSyncWidth(header, nil);
+    IMListSearchHeaderSyncWidth(nil, zero);
+    IMListSearchHeaderSyncWidth(header, zero);
+    XCTAssertEqual(CGRectGetWidth(header.frame), 320);
+}
+
 @end

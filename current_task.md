@@ -14,6 +14,30 @@
 >   （`../IMServer/docs/design/SYSTEM_NOTICE_SESSION_DESIGN.md` §2.2），列出来点了必报错。
 > - 判定一律走 `IMAccountIdentity.h` 的 `IMIsSystemUserID()`，不写 `@"777000"` 字面量。
 
+> **单聊资料页收口 · 6 条用户反馈（2026-08-30；`xcodebuild build-for-testing` 绿、零新增告警；
+> **本次按用户要求只编译不跑模拟器**，故新增单测（`IMFriendStateStoreTests` 7 例 + `IMListSearchTests` +2 例）
+> **尚未执行**）**：与 Web 同批做，逐功能状态见 `../IMServer/docs/CLIENT_PARITY.md`「资料 · 单聊资料页收口」行。
+> - **进页先闪一遍好友界面再变「加好友」** —— 根因是 `initSingleWithHost:` 里无条件 `_peerIsFriend = YES`
+>   （乐观默认），等 `GET /friends` 回来才校正，于是点**非好友**的名片进来会先显示「消息/呼叫/视频 +
+>   备注·设置·页签三张卡」再整页翻脸。新增 **`IMFriendStateStore`**（`Common/`，uid → 是不是好友的进程内快照，
+>   **三态**：是 / 不是 / **不知道**）：喂入口只有两处且都是全集——`IMHTTPService.friendsWithToken:`
+>   （每次拉好友顺路刷新，故加/删好友后自然是新的）与 `IMDatabase.cachedFriends`（本地 `im_friend_local`
+>   全量快照，冷启动种子）。资料页 `init` 先问它（`initialPeerIsFriendGuess:`，在 +Peer.m），
+>   不知道才回落乐观 YES。**"不知道"必须是独立一态**：塌成"不是"会在冷启动把好友显示成陌生人，
+>   塌成"不知道"会在删好友后照旧显示好友界面——两个方向都有单测钉住。
+> - **非好友只显「加好友」一个 pill**（`actionPillSpecs` 早退，连「更多」都不显）；系统通知会话不受影响。
+> - **「更多」补「删除好友」**（`confirmRemoveFriend`，+Actions.m）：二次确认 → `DELETE /friends/{id}` →
+>   `loadPeerBlockState` 重拉关系。**删完不退页**，本页随即切成非好友视图。破坏性最重故置末位。
+> - **「用户名」行长按复制**裸句柄（不带 @）+ 轻触感 + 吐司。备注名行与用户名行**分开复用池**
+>   （`dRemark`/`dUsername`）——共用一个池会让长按手势跟着 cell 串到备注行上。
+> - **`IMFriendPickerViewController` 搜索框左右偏位**：直接把 `UISearchBar` 当 `tableHeaderView` 时，
+>   它的宽度停在 `viewDidLoad` 那一刻的 `view.bounds`，UIKit 不保证替你跟到表格真实宽度（本页右侧还有
+>   A–Z 索引尺）。新增 `IMListSearchHeaderMake` / `IMListSearchHeaderSyncWidth`（`Common/IMListSearch`）：
+>   容器用约束托 bar（水平贴满 + 垂直居中），宽度在 `viewDidLayoutSubviews` 对齐表格；宽度一致即早退，
+>   不自激。**转发选择页同因同修**（同一套外观，不改一处就会漂移）。
+> - **体量门禁**：`IMChatDetailViewController.m` 贴着 1500 行红线，故 `infoCell:row:` 连同新增的
+>   长按复制一并搬去 `+Peer.m`（1494 → 1473）。
+
 > **发送失败重发（2026-08-30，**已合入 main**；`xcodebuild build` 零新增告警 +
 > `xcodebuild test` **288 例全绿** + `check-file-size.sh` 通过；**模拟器端到端实测通过**）**：
 > 此前**只有语音**有可点重发（`IMVoiceBubbleCell` 自造的 SF 符号红标），文本/图片/视频/文件/相册的红❗

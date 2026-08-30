@@ -15,6 +15,33 @@ UISearchBar *IMListSearchBarMake(CGFloat width, NSString *placeholder, id<UISear
     return bar;
 }
 
+/// 搜索框本体高度：容器 56 内垂直居中，上下各留 6。
+static const CGFloat kIMListSearchFieldHeight = 44;
+
+UIView *IMListSearchHeaderMake(UISearchBar *bar) {
+    UIView *host = [[UIView alloc] initWithFrame:CGRectMake(0, 0, bar.frame.size.width, kIMListSearchBarHeight)];
+    host.backgroundColor = UIColor.clearColor;
+    bar.translatesAutoresizingMaskIntoConstraints = NO;
+    [host addSubview:bar];
+    [NSLayoutConstraint activateConstraints:@[
+        [bar.leadingAnchor constraintEqualToAnchor:host.leadingAnchor],
+        [bar.trailingAnchor constraintEqualToAnchor:host.trailingAnchor],
+        [bar.centerYAnchor constraintEqualToAnchor:host.centerYAnchor],
+        [bar.heightAnchor constraintEqualToConstant:kIMListSearchFieldHeight],
+    ]];
+    return host;
+}
+
+void IMListSearchHeaderSyncWidth(UIView *header, UITableView *table) {
+    if (!header || !table) { return; }
+    CGFloat width = table.bounds.size.width;
+    // 宽度已一致就早退：viewDidLayoutSubviews 每次布局都会调它，不早退则「改 frame → 触发布局」自激。
+    if (width <= 0 || fabs(CGRectGetWidth(header.frame) - width) < 0.5) { return; }
+    header.frame = CGRectMake(0, 0, width, kIMListSearchBarHeight);
+    [header layoutIfNeeded];
+    table.tableHeaderView = header;
+}
+
 NSString *IMListSearchNormalizedQuery(NSString *raw) {
     return [(raw ?: @"") stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
 }

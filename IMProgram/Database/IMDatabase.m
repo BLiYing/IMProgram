@@ -7,6 +7,7 @@
 #import "IMUserCard.h"
 #import "IMGroupInfo.h"
 #import "IMLog.h"
+#import "IMFriendStateStore.h"
 #import "IMRemarkStore.h"
 
 #import <FMDB/FMDB.h>
@@ -446,6 +447,8 @@ static NSArray<IMSysSegment *> *IMDecodeSysSegments(NSString *raw);
     }];
     // 冷启动/离线首屏也要有备注名：本地好友快照是全集，直接喂给全局显示名缓存。
     [IMRemarkStore.sharedStore ingestFriends:out authoritative:YES];
+    // 同理播种「谁是我的好友」：冷启动第一次进单聊资料页时，它是唯一能同步拿到的关系来源。
+    [IMFriendStateStore.sharedStore seedFromLocalSnapshot:out];
     return out;
 }
 

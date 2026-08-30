@@ -59,8 +59,10 @@
 }
 
 /// 操作排按钮规格（header 悬浮 pills 与 actions cell 共用，保证一致）。
-/// 微信式好友准入（任务一 P0）：单聊非好友只显「加好友 + 更多」，不显「消息/呼叫/视频」——
+/// 微信式好友准入（任务一 P0）：单聊非好友只显**「加好友」这一个**，不显「消息/呼叫/视频」——
 /// 非好友发消息会被服务端 200103 拒收，故不给发消息入口，主入口是加好友。
+/// 「更多」也一并不显（2026-08-30）：菜单里全是"已经是好友"才有意义的项（推荐给朋友 / 拉黑 /
+/// 清空聊天记录 / 删除好友），对一个还没建立关系的人摆一排灰操作只是噪音。
 - (NSArray<NSDictionary *> *)actionPillSpecs {
     NSMutableArray *specs = [NSMutableArray array];
     // 系统通知会话：只留「更多」（免打扰/清空聊天）——加好友/消息/呼叫/视频/搜索都不适用。
@@ -72,6 +74,7 @@
     if (!self.isGroup) {
         if (!self.peerIsFriend) {
             [specs addObject:@{@"t": @"加好友", @"s": @"person.badge.plus", @"a": @"addfriend"}];
+            return specs; // 非好友：到此为止（搜索/更多都不适用）
         } else {
             if (self.showsMessagePill) {
                 [specs addObject:@{@"t": @"消息", @"s": @"bubble.right.fill", @"a": @"message"}];

@@ -9,6 +9,7 @@
 #import "IMDeviceIdentity.h"
 #import "IMHTTPLogFormatter.h"
 #import "IMLog.h"
+#import "IMFriendStateStore.h"
 #import "IMRemarkStore.h"
 
 static NSString * const kIMHTTPErrorDomain = @"IMHTTPService";
@@ -346,6 +347,9 @@ BOOL IMIsTransientNetworkError(NSError *error) {
         if (error) { completion(nil, error); return; }
         NSArray<IMUserCard *> *friends = [IMUserCard cardsFromArray:data[@"friends"]];
         [IMRemarkStore.sharedStore ingestFriends:friends authoritative:authoritative];
+        // 同一批数据顺路刷新「谁是我的好友」进程内快照：资料页 init 那一刻据此决定显示
+        // 好友视图还是「加好友」视图，不必先猜一个再被网络结果推翻（见 IMFriendStateStore.h）。
+        [IMFriendStateStore.sharedStore ingestFriends:friends authoritative:authoritative];
         completion(friends, nil);
     }];
 }

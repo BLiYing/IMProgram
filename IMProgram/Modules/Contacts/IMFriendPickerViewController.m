@@ -24,6 +24,7 @@
 @property (nonatomic, strong) NSMutableOrderedSet<NSString *> *picked; // 选中的 uid（保持点选顺序）
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) UISearchBar *searchBar;
+@property (nonatomic, strong) UIView *searchHeader;   // 托住 searchBar 的表头容器（宽度随表格实时对齐）
 @property (nonatomic, strong) UILabel *emptyLabel;
 @end
 
@@ -80,7 +81,10 @@
     // 搜索框：好友一多就得搜。外观与匹配口径走 IMListSearch，与转发选择页/@面板同一套。
     self.searchBar = IMListSearchBarMake(self.view.bounds.size.width,
                                          self.searchPlaceholder.length ? self.searchPlaceholder : @"搜索好友", self);
-    self.tableView.tableHeaderView = self.searchBar;
+    // 搜索框挂在容器里而不是直接当 tableHeaderView：直接挂时它的宽度停在 viewDidLoad 那一刻的
+    // view.bounds，与表格真实宽度（本页右侧还有 A–Z 索引尺）对不上，整个框看起来左右都偏。
+    self.searchHeader = IMListSearchHeaderMake(self.searchBar);
+    self.tableView.tableHeaderView = self.searchHeader;
     [self.view addSubview:self.tableView];
 
     self.emptyLabel = [UILabel new];
@@ -96,6 +100,11 @@
     ]];
 
     [self reload];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    IMListSearchHeaderSyncWidth(self.searchHeader, self.tableView); // 表头宽度对齐表格（宽度没变即空转）
 }
 
 /// 拉好友列表（accepted），排除 excludedIDs。候选已注入时直接用它，不联网。

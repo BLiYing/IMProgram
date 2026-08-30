@@ -188,6 +188,13 @@
         [items addObject:[IMPopoverCardItem itemWithTitle:(self.peerBlocked ? @"取消拉黑" : @"拉黑") symbol:@"hand.raised"
                                              destructive:!self.peerBlocked handler:^{ [ws toggleBlock]; }]];
         [items addObject:[IMPopoverCardItem itemWithTitle:@"清空聊天记录" symbol:@"trash" destructive:NO handler:^{ [ws confirmClearHistory]; }]];
+        // 删除好友（2026-08-30 补齐；此前只有通讯录左滑有这个动作，资料页里找不到）。
+        // 破坏性最重 → 放末位（destructive-last，与消息/会话菜单同约定）。非好友根本看不到「更多」，
+        // 这里的判定只是兜底：好友态是异步校正的，别在旧值下摆一个必然 4xx 的按钮。
+        if (self.peerIsFriend) {
+            [items addObject:[IMPopoverCardItem itemWithTitle:@"删除好友" symbol:@"person.badge.minus"
+                                                 destructive:YES handler:^{ [ws confirmRemoveFriend]; }]];
+        }
     }
     [IMPopoverCard presentFromAnchor:anchor inHostView:self.view items:items];
 }
@@ -225,6 +232,27 @@
         [IMContactShare presentPickerFrom:self selfUID:self.userID userID:self.peerID
                                  username:self.peerUsername
                                  nickname:self.peerNickname avatarURL:self.peerAvatarURL];
+    }];
+}
+
+/// 「更多」→ 删除好友（二次确认）。删完**不退页**：重拉关系后本页自然切成非好友视图
+/// （只剩「加好友」+ 隐藏三张卡），用户当场就能看到关系已变；弹回上一页反而让人怀疑到底删没删。
+- (void)confirmRemoveFriend {
+    if (self.isGroup || self.peerID.length == 0) { return; }
+    __weak typeof(self) ws = self;
+    [self confirmDestructive:[NSString stringWithFormat:@"删除好友「%@」？", self.displayTitle]
+                     message:@"将从通讯录移除，聊天记录仍保留在本机。" action:@"删除" handler:^{
+        NSString *token = IMHTTPService.sharedService.currentToken; if (token.length == 0) { return; }
+        NSString *peer = ws.peerID; if (peer.length == 0) { return; }
+        [IMHTTPService.sharedService removeFriendWithToken:token peerID:peer completion:^(NSError *error) {
+            __strong typeof(ws) self = ws;
+            if (!self) { return; }
+            if (error) { [self im_showToast:error.localizedDescription ?: @"删除失败"]; return; }
+            [self im_showToast:@"已删除好友"];
+            // 重拉关系：校正 peerIsFriend → 重建操作排 + 隐藏备注名/设置/页签三张卡。
+            // 同一次 /friends 也会刷新 IMFriendStateStore，故下次再进本页起步值就是"非好友"。
+            [self loadPeerBlockState];
+        }];
     }];
 }
 
