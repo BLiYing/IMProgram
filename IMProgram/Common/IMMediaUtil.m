@@ -87,6 +87,14 @@ NSString *IMRecordItemPreview(NSDictionary *it) {
     return c;
 }
 
+NSString *IMRecordSenderKey(NSDictionary *it) {
+    if (![it isKindOfClass:NSDictionary.class]) { return @"n:"; }
+    NSString *u = [it[@"u"] isKindOfClass:NSString.class] ? it[@"u"] : @"";
+    if (u.length > 0) { return [@"u:" stringByAppendingString:u]; }
+    NSString *n = [it[@"n"] isKindOfClass:NSString.class] ? it[@"n"] : @"";
+    return [@"n:" stringByAppendingString:n];
+}
+
 void IMSummarizeRecord(NSString *json, NSString **outTitle, NSArray<NSString *> **outLines, NSInteger maxLines) {
     NSString *title = @"聊天记录";
     NSMutableArray<NSString *> *lines = [NSMutableArray array];

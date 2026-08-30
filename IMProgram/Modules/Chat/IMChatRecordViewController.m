@@ -22,6 +22,21 @@
 // 记录预览/标题解析统一走 IMMediaUtil 的 IMSummarizeRecord/IMRecordItemPreview（含嵌套 chat_record→[聊天记录] 子标题），
 // 与气泡卡片 IMChatRecordCell 共用同一 token 映射，避免各持 static 分叉。
 
+/// 记录条目右上角的时间（打包端 `ts` = 原消息时间毫秒；老记录没有 → 空串，整块不渲染）。
+/// 同一天只显 HH:mm，跨天带「M月d日」——记录常横跨多天，只显时分看不出是哪天。
+/// 与 Web `recordItemTime` 同口径。
+static NSString *IMRecordItemTimeText(int64_t timestampMillis) {
+    if (timestampMillis <= 0) { return @""; }
+    NSDate *d = [NSDate dateWithTimeIntervalSince1970:(NSTimeInterval)timestampMillis / 1000.0];
+    NSCalendar *cal = NSCalendar.currentCalendar;
+    static NSDateFormatter *hm = nil, *mdhm = nil;
+    static dispatch_once_t once; dispatch_once(&once, ^{
+        hm = [NSDateFormatter new]; hm.locale = [NSLocale localeWithLocaleIdentifier:@"zh_CN"]; hm.dateFormat = @"HH:mm";
+        mdhm = [NSDateFormatter new]; mdhm.locale = [NSLocale localeWithLocaleIdentifier:@"zh_CN"]; mdhm.dateFormat = @"M月d日 HH:mm";
+    });
+    return [cal isDateInToday:d] ? [hm stringFromDate:d] : [mdhm stringFromDate:d];
+}
+
 #pragma mark - 单条记录 Cell
 
 @interface IMRecordItemCell : UITableViewCell
@@ -30,6 +45,11 @@
 - (void)configureWithName:(NSString *)name type:(NSString *)type content:(NSString *)content fullURL:(NSString *)fullURL
                  fileName:(NSString *)fileName fileSize:(int64_t)fileSize caption:(nullable NSString *)caption
                voiceModel:(nullable IMMessageModel *)voiceModel;
+/// 头行：头像 + 昵称 + 右上时间。`continued`=与上一条同一发送者 → 只留时间，头像列仍占位（正文不左右跳）。
+/// avatarURL/uid/timeText 老记录可能全空（打包端 2026-08-30 才加 a/u/ts），此时头像退化成按名字生成的
+/// 首字母色块、时间整块不显——**绝不能因为缺字段就不渲染这一行**。
+- (void)configureHeadWithName:(NSString *)name avatarURL:(nullable NSString *)avatarURL
+                          uid:(nullable NSString *)uid timeText:(NSString *)timeText continued:(BOOL)continued;
 @property (nonatomic, copy, nullable) void (^onPlayTap)(void);
 @end
 
@@ -48,14 +68,38 @@
     UILabel *_cardName;
     UILabel *_cardHandle;
     IMVoiceMiniPlayerView *_voice; // 语音：与详情页/收藏页同一迷你播放器（▶ + 波形进度 + 时长）
+    UILabel *_avatar;      // 头行左：28pt 头像（连续同一人时隐藏，但列宽仍由约束占住）
+    UILabel *_time;        // 头行右：原消息时间
+    NSLayoutConstraint *_nameLeading;   // 名字/正文缩进：恒 = 头像右缘 + 8
+    NSLayoutConstraint *_avatarHeight;  // 28（首条）/ 16（连续同人：头行只剩时间，别留一格空白）
 }
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
     self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
     if (self) {
         self.selectionStyle = UITableViewCellSelectionStyleNone;
+        _avatar = [UILabel new];
+        _avatar.translatesAutoresizingMaskIntoConstraints = NO;
+        _avatar.textAlignment = NSTextAlignmentCenter;
+        _avatar.textColor = UIColor.whiteColor;
+        _avatar.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+        _avatar.layer.cornerRadius = 14;
+        _avatar.clipsToBounds = YES;
+        [self.contentView addSubview:_avatar];
+
         _name = [UILabel new];
         _name.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
         _name.textColor = UIColor.secondaryLabelColor;
+        _name.translatesAutoresizingMaskIntoConstraints = NO;
+        _name.lineBreakMode = NSLineBreakByTruncatingTail;
+        [self.contentView addSubview:_name];
+
+        _time = [UILabel new];   // 原消息时间（打包端 ts；老记录没有 → 空）
+        _time.translatesAutoresizingMaskIntoConstraints = NO;
+        _time.font = [UIFont systemFontOfSize:12];
+        _time.textColor = UIColor.tertiaryLabelColor;
+        [_time setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+        [_time setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+        [self.contentView addSubview:_time];
 
         _text = [UILabel new];
         _text.font = [UIFont systemFontOfSize:16];
@@ -201,16 +245,30 @@
         __weak typeof(self) wcell = self;
         _voice.onPlayTap = ^{ __strong typeof(wcell) sself = wcell; if (sself && sself.onPlayTap) { sself.onPlayTap(); } };
 
-        UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[_name, _text, _thumb, _caption, _recCard, _cardBox, _voice]];
+        // 正文块（不含头行）：缩进对齐头像右缘，与聊天流同一种读法。
+        UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[_text, _thumb, _caption, _recCard, _cardBox, _voice]];
         stack.axis = UILayoutConstraintAxisVertical;
         stack.alignment = UIStackViewAlignmentLeading;
         stack.spacing = 6;
         stack.translatesAutoresizingMaskIntoConstraints = NO;
         [self.contentView addSubview:stack];
+        _nameLeading = [_name.leadingAnchor constraintEqualToAnchor:_avatar.trailingAnchor constant:8];
+        _avatarHeight = [_avatar.heightAnchor constraintEqualToConstant:28];
         [NSLayoutConstraint activateConstraints:@[
-            [stack.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:10],
+            // 头行：头像（28pt）+ 昵称 + 右上时间。头像 hidden 时列宽由约束保住，正文不会左右跳。
+            [_avatar.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:16],
+            [_avatar.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:8],
+            [_avatar.widthAnchor constraintEqualToConstant:28],
+            _avatarHeight,
+            _nameLeading,
+            [_name.centerYAnchor constraintEqualToAnchor:_avatar.centerYAnchor],
+            [_time.leadingAnchor constraintGreaterThanOrEqualToAnchor:_name.trailingAnchor constant:8],
+            [_time.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-16],
+            [_time.centerYAnchor constraintEqualToAnchor:_avatar.centerYAnchor],
+            // 正文：接在头行下，左缘与昵称对齐。
+            [stack.topAnchor constraintEqualToAnchor:_avatar.bottomAnchor constant:4],
             [stack.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-10],
-            [stack.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:16],
+            [stack.leadingAnchor constraintEqualToAnchor:_name.leadingAnchor],
             [stack.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-16],
         ]];
     }
@@ -219,7 +277,6 @@
 - (void)configureWithName:(NSString *)name type:(NSString *)type content:(NSString *)content fullURL:(NSString *)fullURL
                  fileName:(NSString *)fileName fileSize:(int64_t)fileSize caption:(NSString *)caption
                voiceModel:(IMMessageModel *)voiceModel {
-    _name.text = name;
     BOOL isRecord = [type isEqualToString:@"chat_record"];
     BOOL isImage = [type isEqualToString:@"image"];
     BOOL isVideo = [type isEqualToString:@"video"];
@@ -315,6 +372,9 @@
 /// 上一行名片的图片可能晚到、落在被复用的这个 cell 上，故显式作废在途请求。
 - (void)prepareForReuse {
     [super prepareForReuse];
+    [_avatar im_clearAvatarImage];
+    _avatar.text = nil; _avatar.backgroundColor = UIColor.clearColor;
+    _name.text = nil; _time.text = nil;
     [_cardAvatar im_clearAvatarImage];
     _cardAvatar.text = nil;
     _cardAvatar.backgroundColor = UIColor.clearColor;
@@ -323,6 +383,19 @@
     _text.textColor = UIColor.labelColor;
     _thumb.image = nil; _thumbURL = nil;
     self.onPlayTap = nil;
+}
+
+- (void)configureHeadWithName:(NSString *)name avatarURL:(NSString *)avatarURL
+                          uid:(NSString *)uid timeText:(NSString *)timeText continued:(BOOL)continued {
+    _time.text = timeText ?: @"";
+    _name.hidden = continued;
+    _avatar.hidden = continued;
+    // 连续同人：头行只剩右侧时间，头像高度收到 16 —— 否则每条都白留一格 28pt（列宽仍由 width 保住）。
+    _avatarHeight.constant = continued ? 16 : 28;
+    if (continued) { [_avatar im_clearAvatarImage]; return; }  // 作废在途头像请求，防晚到的图落在别人头上
+    _name.text = name;
+    // seed 用 uid（与全局取色规则一致，两端同色）；老记录没有 u 就退回名字——总比不画好。
+    [_avatar im_setAvatarURL:avatarURL seed:(uid.length > 0 ? uid : (name ?: @"")) displayName:name];
 }
 
 // CALayer 的 CGColor 不随明暗动态解析：外观切换时手动重刷 mini 卡片描边色（背景是动态 UIColor 会自更新）。
@@ -378,6 +451,16 @@
     [self.view addSubview:_tableView];
 }
 
+/// 「与上一条同一发送者」——连续同一人只显一次头像与昵称（微信/Telegram 式）。
+/// 身份判据在 `IMRecordSenderKey`（纯函数，与 Web `recordSenderKey` 同口径、各自有单测）。
+- (BOOL)isSameSenderAsPreviousAtIndex:(NSInteger)index {
+    if (index <= 0 || index >= (NSInteger)_items.count) { return NO; }
+    NSDictionary *cur = _items[(NSUInteger)index];
+    NSDictionary *prev = _items[(NSUInteger)index - 1];
+    if (![cur isKindOfClass:NSDictionary.class] || ![prev isKindOfClass:NSDictionary.class]) { return NO; }
+    return [IMRecordSenderKey(cur) isEqualToString:IMRecordSenderKey(prev)];
+}
+
 - (NSString *)fullURLFor:(NSString *)content {
     if (content.length == 0) { return @""; }
     if ([content hasPrefix:@"http"] || [content hasPrefix:@"data:"]) { return content; }
@@ -395,6 +478,14 @@
     NSString *fn = [it[@"fn"] isKindOfClass:NSString.class] ? it[@"fn"] : @"";
     int64_t fs = [it[@"fs"] respondsToSelector:@selector(longLongValue)] ? [it[@"fs"] longLongValue] : 0;
     NSString *cap = [it[@"cap"] isKindOfClass:NSString.class] ? it[@"cap"] : nil;
+    NSString *uid = [it[@"u"] isKindOfClass:NSString.class] ? it[@"u"] : @"";
+    NSString *avatar = [it[@"a"] isKindOfClass:NSString.class] ? it[@"a"] : @"";
+    int64_t ts = [it[@"ts"] respondsToSelector:@selector(longLongValue)] ? [it[@"ts"] longLongValue] : 0;
+    [cell configureHeadWithName:n
+                      avatarURL:(avatar.length > 0 ? [self fullURLFor:avatar] : nil)
+                            uid:uid
+                       timeText:IMRecordItemTimeText(ts)
+                      continued:[self isSameSenderAsPreviousAtIndex:ip.row]];
     IMMessageModel *vm = [self voiceModelForItem:it atIndex:ip.row];
     [cell configureWithName:n type:ct content:c fullURL:[self fullURLFor:c] fileName:fn fileSize:fs caption:cap
                  voiceModel:vm];

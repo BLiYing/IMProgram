@@ -38,6 +38,19 @@
     XCTAssertEqualObjects(IMRecordItemPreview(@{@"n": @"1001", @"ct": @"chat_record", @"c": @"garbled"}), @"[聊天记录]");
 }
 
+- (void)testSenderKeyPrefersUIDAndFallsBackToName {
+    // 同名不同人必须分得开 → 有 u 就用 u。
+    XCTAssertNotEqualObjects(IMRecordSenderKey(@{@"n": @"小明", @"u": @"1001"}),
+                             IMRecordSenderKey(@{@"n": @"小明", @"u": @"1002"}));
+    XCTAssertEqualObjects(IMRecordSenderKey(@{@"n": @"改过名了", @"u": @"1001"}),
+                          IMRecordSenderKey(@{@"n": @"小明", @"u": @"1001"}), @"同 uid 即同一人，昵称变了也算连续");
+    // 老记录没有 u → 退回昵称；两个前缀保证 uid 与昵称不会互撞。
+    XCTAssertEqualObjects(IMRecordSenderKey(@{@"n": @"小明"}), IMRecordSenderKey(@{@"n": @"小明"}));
+    XCTAssertNotEqualObjects(IMRecordSenderKey(@{@"n": @"1001"}), IMRecordSenderKey(@{@"u": @"1001"}));
+    XCTAssertNoThrow(IMRecordSenderKey(nil));
+    XCTAssertNoThrow(IMRecordSenderKey((NSDictionary *)@"脏数据"));
+}
+
 - (void)testSummarizeTitleAndCappedLines {
     NSString *json = @"{\"t\":\"群聊的聊天记录\",\"items\":["
         "{\"n\":\"1002\",\"ct\":\"text\",\"c\":\"你好\"},"

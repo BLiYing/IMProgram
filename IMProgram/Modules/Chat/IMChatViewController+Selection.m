@@ -533,9 +533,16 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
     return IMConversationPublicName(NO, nil, self.peerNickname, self.peerID);
 }
 
-/// 合并转发内容：JSON（t=标题，items=[{n:发送者, ct:类型, c:内容/URL, 文件另带 fn:文件名/fs:字节数，
-/// 语音另带 d:时长毫秒/w:波形 base64}]），content_type=chat_record。fn/fs/d/w 与 Web 同约定；
-/// 老记录无 fn 时读端从 URL 反推原名兜底，无 d/w 时语音播放器退化成等高条纹 + 播放中才有进度。
+/// 合并转发内容：JSON（t=标题，items=[{n:发送者, ct:类型, c:内容/URL,
+/// ts:原消息时间毫秒, u:发送者 uid, a:发送者头像相对路径, 文件另带 fn:文件名/fs:字节数,
+/// 语音另带 d:时长毫秒/w:波形 base64}]），content_type=chat_record。全部键与 Web 同约定。
+///
+/// **老记录一定缺字段**，读端每一项都要能降级：无 fn 从 URL 反推原名；无 d/w 语音退化成等高条纹；
+/// 无 ts 不显时间；无 u/a 头像退化成按名字生成的首字母色块。**绝不能因为缺字段就不渲染**。
+///
+/// `u` 是内部 ID，只作**读端查本地头像的键**，任何时候都不上屏（显示名一律走 `n`）。
+/// `a` 存**相对路径**（与个人名片的 `a` 同款），读端自己拼 host；单聊里"我自己"那一方拿不到
+/// 头像路径（本页没有自己的资料快照），此时只发 `u`，读端按 uid 查本地缓存兜底。
 - (NSString *)mergedForwardJSONForMessages:(NSArray<IMMessageModel *> *)msgs {
     NSMutableArray<NSDictionary *> *items = [NSMutableArray array];
     for (IMMessageModel *m in msgs) {
@@ -545,6 +552,10 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
         NSMutableDictionary *item = [@{ @"n": [self displayNameForMessage:m] ?: @"",
                                         @"ct": m.contentType ?: @"text",
                                         @"c": m.content ?: @"" } mutableCopy];
+        if (m.timestamp > 0) { item[@"ts"] = @(m.timestamp); }   // 读端右上角显「原消息时间」
+        if (m.from.length > 0) { item[@"u"] = m.from; }          // 读端按 uid 查本地头像 / 判「连续同一人」
+        NSString *avatar = [self recordSenderAvatarPathForMessage:m];
+        if (avatar.length > 0) { item[@"a"] = avatar; }
         if ([m.contentType isEqualToString:@"file"]) {
             NSString *fname = m.fileName.length > 0 ? m.fileName : IMMediaFileName(m.content);
             if (fname.length > 0) { item[@"fn"] = fname; }
@@ -565,6 +576,17 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
     NSDictionary *dict = @{ @"t": [NSString stringWithFormat:@"%@ 的聊天记录", base], @"items": items };
     NSData *data = [NSJSONSerialization dataWithJSONObject:dict options:0 error:NULL];
     return data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"";
+}
+
+/// 合并转发条目里的发送者头像**相对路径**（快照语义，与个人名片的 `a` 同款；读端自己拼 host）。
+/// 群聊读群成员表（我自己也在里面）；单聊只有对端拿得到——本页没有自己的资料快照，
+/// 「我」那一方回空串，让读端按 `u` 查本地缓存兜底。
+- (NSString *)recordSenderAvatarPathForMessage:(IMMessageModel *)m {
+    NSString *from = m.from ?: @"";
+    if (from.length == 0) { return @""; }
+    if (self.isGroupChat) { return [self.groupInfo avatarURLOfMember:from] ?: @""; }
+    if ([from isEqualToString:self.peerID]) { return self.peerAvatarURL ?: @""; }
+    return @"";
 }
 
 #pragma mark - 编辑/选择 delegate（tableView）

@@ -47,6 +47,11 @@ FOUNDATION_EXPORT BOOL IMLooksLikeChatRecordJSON(NSString *_Nullable s);
 /// 共用同一 token 映射，避免各持 static 再分叉（此前 cell 与详情页已两份）。item 非法时返回空串。
 FOUNDATION_EXPORT NSString *IMRecordItemPreview(NSDictionary *_Nullable item);
 
+/// 合并转发条目的「发送者身份键」——记录详情页据此判「连续同一人」（只显一次头像与昵称）。
+/// 优先 `u`（uid，同名不同人才分得开）；老记录没有 `u` 就退回显示名 `n`。
+/// 两个前缀（`u:` / `n:`）保证 uid 与昵称不会互相误撞。与 Web `recordSenderKey` 同口径。
+FOUNDATION_EXPORT NSString *IMRecordSenderKey(NSDictionary *_Nullable item);
+
 /// 解析合并转发记录 JSON → 标题(*outTitle) + 前 maxLines 条「发送者: 预览」(*outLines)。
 /// maxLines<=0 时只取标题、outLines 置空；out 参数均可传 NULL。解析失败标题回落「聊天记录」。
 FOUNDATION_EXPORT void IMSummarizeRecord(NSString *_Nullable json,

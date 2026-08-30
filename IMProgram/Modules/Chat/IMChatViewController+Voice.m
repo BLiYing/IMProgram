@@ -670,12 +670,26 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
         if (!self) { return; }
         // 文案取播放器给的：下载失败与「该语音格式无法播放」是两回事，写死一句会把排查引偏。
         if (err) { [self im_showToast:(err.localizedDescription ?: @"语音播放失败")]; return; }
-        // 对方语音进入播放即消未播红点（本机语义，见 §7）。
-        NSString *mid = IMVoicePlayerPlayableIDForMessage(message);
-        if (mid && ![message.from isEqualToString:self.userID]) {
-            [[IMVoicePlayer sharedPlayer] markPlayed:mid inConv:message.convID owner:self.userID];
-        }
+        [self im_markVoiceConsumed:message]; // 进入播放即消未播红点（本机语义，见 §7）
     }];
+}
+
+/// 「听过了」的唯一收口：对方语音被**消费**（点开播放 / 点了转文字）即消未播红点，并刷新那一行。
+///
+/// 判据是**点了**，不是"播完"——中途暂停、只听半句也算；这与 Telegram/微信一致，
+/// 也和红点的语义一致（红点回答的是"这条我处理过没有"，不是"我听完了没有"）。
+/// 转文字同样算：用户拿到文字就等于消费了这条语音，红点还挂着只会让人以为漏了一条。
+/// 自己发的消息本就没有红点（DataSource 里 `mine || hasPlayed`），这里再挡一次，省得误标别人的键。
+- (void)im_markVoiceConsumed:(IMMessageModel *)message {
+    NSString *mid = IMVoicePlayerPlayableIDForMessage(message);
+    if (mid.length == 0 || [message.from isEqualToString:self.userID]) { return; }
+    if ([[IMVoicePlayer sharedPlayer] hasPlayed:mid inConv:message.convID owner:self.userID]) { return; }
+    [[IMVoicePlayer sharedPlayer] markPlayed:mid inConv:message.convID owner:self.userID];
+    // 红点是 cellForRow 里算的，不刷这一行就要等下次复用才消失。
+    NSUInteger row = [self.messages indexOfObjectIdenticalTo:message];
+    if (row == NSNotFound || (NSInteger)row >= [self.tableView numberOfRowsInSection:0]) { return; }
+    [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:(NSInteger)row inSection:0]]
+                          withRowAnimation:UITableViewRowAnimationNone];
 }
 
 #pragma mark - 转文字（服务端识别，见 IMServer docs/design/VOICE_TRANSCRIBE_DESIGN.md）
@@ -700,6 +714,9 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
 - (void)im_transcribeVoiceMessage:(IMMessageModel *)message {
     NSString *mid = IMVoicePlayerPlayableIDForMessage(message);
     if (!mid || message.convSeq <= 0) { return; }
+    // 转文字 = 已消费这条语音 → 与点开播放同样消未播红点（见 im_markVoiceConsumed:）。
+    // 放在最前面：无论走缓存命中还是发识别请求，红点都该立刻消，不必等识别结果。
+    [self im_markVoiceConsumed:message];
 
     // 缓存命中只需取消折叠 + 就地展开（本地缓存 key = 音频路径，与服务端按 content 去重同口径）；
     // 不必再跑一遍 transcribeConvID:（它会重查缓存、再广播一次 Done）。

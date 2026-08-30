@@ -33,7 +33,7 @@
 @property (nonatomic, assign) int64_t totalDurationMillis;
 @property (nonatomic, assign) BOOL mine;
 
-@property (nonatomic, strong) NSLayoutConstraint *bubbleLeadingLeft;   ///< 对方消息：左对齐（头像右）
+@property (nonatomic, strong) NSLayoutConstraint *bubbleLeadingLeft;   ///< 对方消息：左对齐；constant 按有无头像列切 48/12
 @property (nonatomic, strong) NSLayoutConstraint *bubbleTrailingRight; ///< 自己消息：右对齐
 @property (nonatomic, strong) NSLayoutConstraint *bubbleWidth;         ///< 按 duration 线性长；每次 configure 只改 constant，不再追加约束
 @property (nonatomic, strong) NSLayoutConstraint *bubbleMaxTrailing;   ///< 对方气泡右侧最小留白（防长语音贴屏边）
@@ -195,7 +195,10 @@
     _dayHeaderHeight = [_dayHeader.heightAnchor constraintEqualToConstant:0];
     _senderTopSpacing = [_senderLabel.topAnchor constraintEqualToAnchor:_unreadDivider.bottomAnchor constant:4];
 
-    _bubbleLeadingLeft = [_bubble.leadingAnchor constraintEqualToAnchor:_avatar.trailingAnchor constant:8];
+    // 对方气泡左缘**锚 contentView**、按有无头像列切 constant（12 / 48），与 IMBubbleCell / IMImageCell /
+    // IMChatRecordCell / IMContactCardCell 完全同口径。曾锚在 `_avatar.trailing + 8` 上：
+    // 单聊没有头像列，气泡照样被推到 50pt，比同一屏的文本/图片气泡多缩进近 40pt（用户实测报）。
+    _bubbleLeadingLeft = [_bubble.leadingAnchor constraintEqualToAnchor:cv.leadingAnchor constant:12];
     _bubbleTrailingRight = [_bubble.trailingAnchor constraintEqualToAnchor:cv.trailingAnchor constant:-10];
     _bubbleWidth = [_bubble.widthAnchor constraintEqualToConstant:180];
     _bubbleWidth.active = YES;
@@ -214,11 +217,13 @@
         _dayHeaderHeight,
         // 发送者昵称（仅群聊对端）
         _senderTopSpacing,
-        [_senderLabel.leadingAnchor constraintEqualToAnchor:_avatar.trailingAnchor constant:8],
+        [_senderLabel.leadingAnchor constraintEqualToAnchor:_bubble.leadingAnchor],
         // 头像：连续段末条显示；底与气泡底同高
-        [_avatar.leadingAnchor constraintEqualToAnchor:cv.leadingAnchor constant:10],
-        [_avatar.widthAnchor constraintEqualToConstant:32],
-        [_avatar.heightAnchor constraintEqualToConstant:32],
+        // 12 + 30 + 6 = 48 的头像列，与其它 cell 同一套几何（基类 cornerRadius 15 也正好配 30，
+        // 原来的 32 还让头像差一点不圆）。
+        [_avatar.leadingAnchor constraintEqualToAnchor:cv.leadingAnchor constant:12],
+        [_avatar.widthAnchor constraintEqualToConstant:30],
+        [_avatar.heightAnchor constraintEqualToConstant:30],
         [_avatar.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor],
         // 气泡定位（左右锚随 mine 切换，见 configure）。高度 75pt = 8(上) + 24(波形) + 4 + 14(时长行)
         // + 3 + 14(时间行) + 8(下)。播放键**居中于「波形+时长行」这一组**（不含独立时间行），
@@ -435,9 +440,13 @@
 }
 
 - (void)applyGroupAvatarURL:(NSString *)url seed:(NSString *)seed name:(NSString *)name showAvatar:(BOOL)showAvatar gutter:(BOOL)gutter {
-    _avatar.hidden = !showAvatar;
-    if (showAvatar) {
+    // gutter 此前被整个忽略 → 单聊也留着头像列，语音气泡比同屏其它气泡多缩进近 40pt。
+    self.bubbleLeadingLeft.constant = gutter ? 48 : 12;   // 对方群消息留 30 头像列（12 + 30 + 6）
+    if (gutter && showAvatar) {
+        _avatar.hidden = NO;
         [_avatar im_setAvatarURL:url seed:seed displayName:name];
+    } else {
+        _avatar.hidden = YES;
     }
 }
 
