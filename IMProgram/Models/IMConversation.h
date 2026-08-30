@@ -56,7 +56,12 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// 最后一条消息在列表里的预览正文。系统消息按 lastSysSegments 逐段拼接、名字换成**本机显示名**
 /// （备注 > 昵称），使列表与聊天页里的同一句话一致；无分段（历史消息/非系统消息）回退 lastContent。
+/// 等价于 `lastPreviewTextForSelfUID:nil`（不做「我」替换）。
 @property (nonatomic, readonly, nullable) NSString *lastPreviewText;
+
+/// 同上，但把**我自己**的名字段显示成「我」——与聊天页系统行同口径（IMSysSegment.localNameForUID:…）。
+/// 会话列表用它；模型自身不知道当前账号，故由调用方传入。
+- (nullable NSString *)lastPreviewTextForSelfUID:(nullable NSString *)selfUID;
 
 /// 从 data.conversations 数组解析（脏数据安全）。
 + (NSArray<IMConversation *> *)conversationsFromArray:(nullable NSArray *)array;

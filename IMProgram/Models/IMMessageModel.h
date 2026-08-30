@@ -23,6 +23,15 @@ typedef NS_ENUM(NSInteger, IMMessageStatus) {
 + (nullable NSArray<IMSysSegment *> *)segmentsFromArray:(nullable NSArray *)array;
 /// 序列化回数组（落 SQLite 用）。
 + (NSArray<NSDictionary *> *)arrayFromSegments:(nullable NSArray<IMSysSegment *> *)segments;
+
+/// 名字段在**本机**的显示名，两处渲染（聊天页系统行 / 会话列表预览）唯一口径：
+/// **是我自己 → 「我」**（对齐微信；否则「用户1002 将 用户3001 移出群聊」里那个 `用户1002` 就是自己，
+/// 读着像在说别人）→ 我给他起的备注 → 他在本群的昵称 → 服务端生成时的字面。
+/// selfUID 为空即跳过「我」替换（拿不到当前账号时宁可显真名）。
++ (NSString *)localNameForUID:(nullable NSString *)uid
+                      selfUID:(nullable NSString *)selfUID
+                groupNickname:(nullable NSString *)groupNickname
+                     fallback:(nullable NSString *)fallback;
 @end
 
 @interface IMMessageModel : NSObject

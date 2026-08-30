@@ -87,7 +87,11 @@
         // 名字段：换成本地显示名（我给他设了备注就显备注——仅本机渲染，不改消息内容）。
         NSString *shown = displayNameForUID ? displayNameForUID(seg.uid, text) : text;
         NSMutableDictionary *attrs = [base mutableCopy];
-        attrs[NSForegroundColorAttributeName] = IMTheme.accent;
+        // 名字段用**同色加粗**而不是主色：胶囊底是主题绿（datePillBg = 0x5C8A4C@55%），
+        // 再把名字染成同样是绿的 accent，两者色相几乎重合，看不出哪几个字是名字（用户 2026-08-30 反馈）。
+        // 白+半粗在浅色绿底与深色黑底上都稳定可读，也是 Telegram 服务消息里名字的画法。
+        attrs[NSForegroundColorAttributeName] = IMTheme.datePillText;
+        attrs[NSFontAttributeName] = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
         if (onTapUID) { attrs[IMMentionUIDAttributeName] = seg.uid; } // 无点击回调就只染色不挂 uid
         [out appendAttributedString:[[NSAttributedString alloc] initWithString:(shown.length > 0 ? shown : text)
                                                                    attributes:attrs]];

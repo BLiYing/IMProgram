@@ -56,11 +56,12 @@
         [sys configureWithSegments:m.sysSegments
                       fallbackText:m.content
                  displayNameForUID:^NSString *(NSString *uid, NSString *fallbackName) {
-            // 本机显示名：我给他起的备注 > 他在本群的昵称 > 服务端生成时的字面（公开昵称）。
+            // 本机显示名：**是我自己 → 「我」** > 我给他起的备注 > 他在本群的昵称 > 服务端字面。
+            // 口径收在 IMSysSegment，会话列表预览读同一个方法——同一句话两处必须一致。
             __strong typeof(wsSys) self = wsSys;
-            NSString *groupNick = [self.groupInfo nicknameOfMember:uid];
-            return [IMRemarkStore.sharedStore displayNameForUser:uid
-                                                        fallback:(groupNick.length > 0 ? groupNick : fallbackName)];
+            return [IMSysSegment localNameForUID:uid selfUID:self.userID
+                                   groupNickname:[self.groupInfo nicknameOfMember:uid]
+                                        fallback:fallbackName];
         }
                           onTapUID:^(NSString *uid) { [wsSys openMemberProfileForUID:uid]; }];
         return sys;

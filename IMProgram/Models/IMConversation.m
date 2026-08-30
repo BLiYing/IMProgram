@@ -84,12 +84,16 @@ static BOOL IMBoolFromJSON(id value) {
                                                 fallback:(nick.length > 0 ? nick : self.peer)];
 }
 
-- (NSString *)lastPreviewText {
+- (NSString *)lastPreviewText { return [self lastPreviewTextForSelfUID:nil]; }
+
+- (NSString *)lastPreviewTextForSelfUID:(NSString *)selfUID {
     if (self.lastSysSegments.count == 0) { return self.lastContent; }
     NSMutableString *out = [NSMutableString string];
     for (IMSysSegment *seg in self.lastSysSegments) {
         if (seg.uid.length == 0) { [out appendString:seg.text ?: @""]; continue; }
-        [out appendString:[IMRemarkStore.sharedStore displayNameForUser:seg.uid fallback:seg.text]];
+        // 群昵称传 nil：会话行手上没有群成员表（那是群资料里的东西），退一级到服务端字面即可。
+        [out appendString:[IMSysSegment localNameForUID:seg.uid selfUID:selfUID
+                                          groupNickname:nil fallback:seg.text]];
     }
     return out.length > 0 ? out : self.lastContent;
 }

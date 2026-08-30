@@ -2,6 +2,8 @@
 
 #import "IMMessageModel.h"
 
+#import "IMRemarkStore.h"   // 名字段的本机显示名（备注优先）
+
 @implementation IMSysSegment
 
 + (NSArray<IMSysSegment *> *)segmentsFromArray:(NSArray *)array {
@@ -26,6 +28,17 @@
         [out addObject:(seg.uid.length > 0 ? @{ @"uid": seg.uid, @"text": seg.text } : @{ @"text": seg.text })];
     }
     return out;
+}
+
+
++ (NSString *)localNameForUID:(NSString *)uid
+                      selfUID:(NSString *)selfUID
+                groupNickname:(NSString *)groupNickname
+                     fallback:(NSString *)fallback {
+    if (uid.length == 0) { return fallback ?: @""; }
+    if (selfUID.length > 0 && [uid isEqualToString:selfUID]) { return @"我"; }
+    NSString *base = groupNickname.length > 0 ? groupNickname : (fallback.length > 0 ? fallback : uid);
+    return [IMRemarkStore.sharedStore displayNameForUser:uid fallback:base];
 }
 
 @end

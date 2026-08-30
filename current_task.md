@@ -5,6 +5,17 @@
 
 ## 当前焦点
 
+> **群系统消息可读性两条（2026-08-30 用户反馈；`xcodebuild build-for-testing` 绿、零新增告警；
+> **按用户要求不启模拟器**，故 `IMSysSegmentTests` 新增 2 例尚未执行）**：
+> - **名字段不再用 `IMTheme.accent`**：胶囊底 `datePillBg` 是主题绿（0x5C8A4C@55%），名字再染同为绿的
+>   accent，两者色相几乎重合、看不出哪几个字是名字。改 `datePillText`（白）+ **semibold**，
+>   浅色绿底与深色黑底上都稳定可读，也是 Telegram 服务消息里名字的画法。
+> - **我自己那段显示「我」**：口径收敛到 `IMSysSegment.localNameForUID:selfUID:groupNickname:fallback:`
+>   （我 > 备注 > 群昵称 > 服务端字面），**聊天页系统行（`+DataSource.m`）与会话列表预览
+>   （`IMConversation.lastPreviewTextForSelfUID:`）共用同一个方法**——不共用就会一处「我」、一处自己的昵称。
+>   `lastPreviewText` 保留为 `…ForSelfUID:nil`（老口径，不替换）；列表 cell 的
+>   `configureWithConversation:mine:host:` 加 `selfUID:` 参数（模型不知道当前账号，由调用方传）。
+
 > **转发选择页不再列「系统通知」会话（2026-08-30；**按用户要求本次未编译、未跑模拟器**）**：
 > 与 Web 同批做，后端零改动。
 > - `IMForwardPickerViewController` 的 `loadConversations` 拿到会话后先剔除系统通知单聊

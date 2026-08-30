@@ -117,6 +117,39 @@
     [IMRemarkStore.sharedStore applyRemark:@"" forUser:@"1002"];
 }
 
+/// 「我」是这套渲染里唯一的硬规则，且**聊天页系统行与会话列表预览共用**——漂了就会一处显「我」、
+/// 一处显自己的昵称，同一句话两副面孔（用户 2026-08-30 反馈：自己被显示成「用户1002」）。
+- (void)testSelfSegmentRendersAsWo {
+    XCTAssertEqualObjects([IMSysSegment localNameForUID:@"1002" selfUID:@"1002" groupNickname:@"群里的我" fallback:@"用户1002"],
+                          @"我", @"是我自己就显「我」，群昵称/备注都不该盖过它");
+    XCTAssertEqualObjects([IMSysSegment localNameForUID:@"3001" selfUID:@"1002" groupNickname:@"小三" fallback:@"用户3001"],
+                          @"小三", @"别人：群昵称优先于服务端字面");
+    XCTAssertEqualObjects([IMSysSegment localNameForUID:@"3001" selfUID:@"1002" groupNickname:nil fallback:@"用户3001"],
+                          @"用户3001");
+    XCTAssertEqualObjects([IMSysSegment localNameForUID:@"1002" selfUID:nil groupNickname:nil fallback:@"用户1002"],
+                          @"用户1002", @"拿不到当前账号时不做替换，宁可显真名也不能把别人显示成「我」");
+
+    // 备注优先于群昵称与字面（但仍在「我」之下）。
+    [IMRemarkStore.sharedStore applyRemark:@"二两肉" forUser:@"3001"];
+    XCTAssertEqualObjects([IMSysSegment localNameForUID:@"3001" selfUID:@"1002" groupNickname:@"小三" fallback:@"用户3001"],
+                          @"二两肉");
+    [IMRemarkStore.sharedStore applyRemark:@"" forUser:@"3001"];
+}
+
+/// 会话列表预览走同一口径：我自己那段显「我」。
+- (void)testConversationPreviewRendersSelfAsWo {
+    IMConversation *c = [IMConversation new];
+    c.convID = @"g_1"; c.isGroup = YES; c.name = @"技术群";
+    c.lastContentType = @"system";
+    c.lastContent = @"用户1002 将 用户3001 移出群聊";
+    c.lastSysSegments = [IMSysSegment segmentsFromArray:@[
+        @{ @"uid": @"1002", @"text": @"用户1002" }, @{ @"text": @" 将 " },
+        @{ @"uid": @"3001", @"text": @"用户3001" }, @{ @"text": @" 移出群聊" },
+    ]];
+    XCTAssertEqualObjects([c lastPreviewTextForSelfUID:@"1002"], @"我 将 用户3001 移出群聊");
+    XCTAssertEqualObjects(c.lastPreviewText, @"用户1002 将 用户3001 移出群聊", @"不传 selfUID 即不替换（老口径）");
+}
+
 /// 群成员的两个名字必须泾渭分明：displayName=群内公开名（会进 @token 等发出去的内容），
 /// localDisplayName=本机显示名（备注优先）。写反就是把私房名发出去。
 - (void)testGroupMemberPublicVsLocalName {

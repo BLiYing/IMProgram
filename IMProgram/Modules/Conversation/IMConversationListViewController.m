@@ -36,7 +36,8 @@ static CGFloat const kIMAvatarSize = 52;
 static CGFloat const kIMRowLeading = 16;
 
 @interface IMConversationCell : UITableViewCell
-- (void)configureWithConversation:(IMConversation *)c mine:(BOOL)mine host:(NSString *)host;
+- (void)configureWithConversation:(IMConversation *)c mine:(BOOL)mine host:(NSString *)host
+                          selfUID:(NSString *)selfUID;
 /// 本地发送状态标（配置副标题**之后**调用）：sending → 副标题前缀 ↑ 圈；failed → 红色感叹号。
 - (void)applyOutboxSending:(BOOL)sending failed:(BOOL)failed;
 @end
@@ -216,7 +217,8 @@ static CGFloat const kIMRowLeading = 16;
     return self;
 }
 
-- (void)configureWithConversation:(IMConversation *)c mine:(BOOL)mine host:(NSString *)host {
+- (void)configureWithConversation:(IMConversation *)c mine:(BOOL)mine host:(NSString *)host
+                          selfUID:(NSString *)selfUID {
     // 撤回预览（M4-1，后端已脱敏 content）：优先显示"撤回了一条消息"，不加"昵称:"前缀（微信式）。
     NSString *recalledPreview = nil;
     if (c.lastRecalled) {
@@ -261,13 +263,14 @@ static CGFloat const kIMRowLeading = 16;
         _name.text = display;
         if (recalledPreview) {
             _last.text = recalledPreview;   // 撤回：文案已含"谁"，不再加前缀
-        } else if (mediaPreview.length > 0 || c.lastPreviewText.length > 0) {
+        } else if (mediaPreview.length > 0 || [c lastPreviewTextForSelfUID:selfUID].length > 0) {
             // 群聊：文本**与媒体/文件**都带"昵称: "前缀（与 Web 一致）——媒体正文用占位/caption，文本用原文。
             // 群预览前缀也按本机显示名（备注 > 公开昵称 > uid）——否则列表显真名、点进去显备注。
             NSString *who = mine ? @"我"
                 : [IMRemarkStore.sharedStore displayNameForUser:c.lastFrom
                                                        fallback:(c.lastFromNickname.length > 0 ? c.lastFromNickname : c.lastFrom)];
-            NSString *body = mediaPreview.length > 0 ? mediaPreview : c.lastPreviewText;
+            // 系统消息预览里的名字也按本机口径（我自己 → 「我」），与聊天页那句话一致。
+            NSString *body = mediaPreview.length > 0 ? mediaPreview : [c lastPreviewTextForSelfUID:selfUID];
             _last.text = who.length > 0 ? [NSString stringWithFormat:@"%@: %@", who, body] : body;
         } else {
             _last.text = @"（无消息）";
@@ -855,7 +858,8 @@ static CGFloat const kIMRowLeading = 16;
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     IMConversationCell *cell = [tableView dequeueReusableCellWithIdentifier:@"conv" forIndexPath:indexPath];
     IMConversation *c = self.conversations[indexPath.row];
-    [cell configureWithConversation:c mine:[c.lastFrom isEqualToString:self.userID] host:self.host];
+    [cell configureWithConversation:c mine:[c.lastFrom isEqualToString:self.userID] host:self.host
+                            selfUID:self.userID];
     // 本地发送状态（常驻发送服务）：发送中 ↑ / 失败红 !，随服务通知刷新（onMediaSendStateChange）。
     [cell applyOutboxSending:[IMMediaSendService.shared hasInFlightInConv:c.convID]
                       failed:[IMMediaSendService.shared hasFailedOutboxInConv:c.convID]];
