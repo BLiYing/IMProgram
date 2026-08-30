@@ -260,6 +260,7 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (void)appendPastedImage:(UIImage *)image;
 - (void)refreshPasteBar;
 - (void)reattachRunningUploads;
+- (void)retryPendingMessage:(IMMessageModel *)m; // 上传失败 ↻：交常驻服务从本地副本续传（+Media.m；+Resend.m 也调）
 - (void)refreshVisibleCellForMessage:(IMMessageModel *)m;
 - (void)updateUploadProgressForMessage:(IMMessageModel *)m;
 - (void)uploadAndSendPastedImage:(UIImage *)image groupID:(NSString *)groupID;
@@ -283,6 +284,11 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 
 // 文本发送（发送按钮 / 回车触发；主实现 setupUI 接线，textFieldShouldReturn 也调）：
 - (void)sendTapped;
+
+// —— 发送失败重发（IMChatViewController+Resend.m）——
+/// 红❗点击的唯一入口：按 `IMResendPolicyForMessage` 分派（本地重传 / 原 client_msg_id 重发 / 不可重发）。
+/// 传相册任一成员即重发整组失败成员。各 cell 的 onRetryTap 一律接这里，别各自判各自发。
+- (void)im_resendMessage:(IMMessageModel *)message;
 
 // 多选 / 转发：
 - (void)enterSelectionWithMessage:(IMMessageModel *)message;

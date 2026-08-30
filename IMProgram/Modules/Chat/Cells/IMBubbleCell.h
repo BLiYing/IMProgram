@@ -79,6 +79,10 @@ typedef NS_ENUM(NSInteger, IMBubbleTextTier) {
 @property (nonatomic, copy, nullable) void (^onFileControlTap)(void);
 /// 点群聊对方头像 → 进该成员资料页（VC 在群聊对方气泡上挂载；单聊/自己不挂）。
 @property (nonatomic, copy, nullable) void (^onAvatarTap)(void);
+
+/// 发送失败红❗点击 → 重发该条（宿主按 IMResendPolicyForMessage 分派）。与 IMMessageCell 子类同名同语义
+/// （本类不继承 IMMessageCell，故自持一份；红❗视图本身仍是共用的 IMFailBadgeView）。
+@property (nonatomic, copy, nullable) void (^onRetryTap)(void);
 /// 点拒收系统行的恢复入口（当前仅 200103 非好友 → 「发送好友申请」）。
 /// 仅当 message.noteCode 命中可操作码时该行才可点，否则系统行是纯文案。
 @property (nonatomic, copy, nullable) void (^onNoteActionTap)(void);

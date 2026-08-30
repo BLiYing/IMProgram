@@ -1,5 +1,78 @@
 > ⚠️ 历史归档（只读，勿更新）。当前活快照见同目录 current_task.md；本文件只供考古。
 
+
+---
+
+## 归档于 2026-08-30（登录页自证后端可达 · `/simplify` 代码质量清理 · 补做三条）
+
+> 从活快照转入（活快照只留当前焦点，见 current_task.md）。
+
+> **登录页自证后端可达 + 本地网络授权（2026-08-28，`xcodebuild -workspace` build 绿）**：
+> 真机连 `192.168.1.12:8080` 密码登录失败、免密"成功"，排查发现是**手机压根没连上 Mac**
+> （`imserver.log` 里当天 04:36 后再无任何来自 `192.168.1.x` 的请求，连 `http_request_started` 都没有），
+> 而不是密码问题。两处根治：
+> - **免密登录改成真发一次 `POST /api/v1/login`**（`IMLoginViewController` `devLoginTapped`）：原来它零网络调用、
+>   直接 `enterAppWithHost:`，后端连不上也照样进主界面，把"连不通"推迟到主界面里静默失败 → 误判成密码问题。
+>   密码登录/免密登录收敛到共用的 `loginWithHost:userID:password:fallback:`（password 空串即走 dev-login 直签）。
+> - **`prepareServiceWithHost:` 加 `invalidateToken`**：`loginWithUserID` 有 10 分钟 token TTL 缓存，命中就直接回调成功、
+>   根本不发请求——登录页因此可能"输错密码也进得去"，也看不出后端是否真可达。换 host / 换账号 / 改密码后作废旧 token 本就正确。
+> - **`Info.plist` 补 `NSLocalNetworkUsageDescription`**：iOS 14+ App 访问 192.168/10/172.16 私有网段要本地网络授权，
+>   缺文案时弹窗没有理由说明、极易被顺手拒绝，此后所有到局域网 IP 的连接静默失败；**重装 App 会重置该授权**，
+>   而模拟器走 127.0.0.1 不受限 → 只在真机复现。拒绝后在 设置 → 隐私与安全性 → 本地网络 重新打开。
+> - **登录页请求在途转菊花**（同批追加）：三个入口（登录 / 注册并登录 / 免密登录）提成属性，新 `setBusy:activeButton:`
+>   ——被点的那个用 `UIButtonConfiguration.showsActivityIndicator`（iOS 15+，不自己塞 `UIActivityIndicatorView`），
+>   三个一起 `enabled=NO` 防重复提交。原来点了完全没有进行中反馈，连不上后端时像"点了没反应"。
+>   注意 `configuration` 改完要整份回写按钮才生效。Web 端 `LoginView` 同批做了等价改动。
+> - **未做**：没加自动化测试（改动是 VC 交互 + plist，测它要 mock `IMHTTPService` 单例；Web 侧那半有 vitest 覆盖）；
+>   未做模拟器/真机实测——真机连通性已在 2026-08-28 13:49 验证通过（login/ws/conversations 全 200/101）。
+
+> **`/simplify` iOS 代码质量清理（2026-08-27，build + build-for-testing 全绿）**：四路复查（复用/简化/效率/层次）
+> 对准 `HEAD~2..` 那批（转文字改服务端 + 当日自审修复 + 置顶横幅），去重后落地：
+> - **错误码映射单一来源**：删 `IMVoiceTranscriber.messageForErrorCode:`（第二张 code→中文表），
+>   5001xx + 100002（全站限流码）并入 `IMFriendlyMessageForCode`；`runDataRequest` 本就把映射结果
+>   塞进 `localizedDescription`，转写只需直接用。副作用：**其它所有接口撞 100002 也终于是中文**。
+> - **转写观察者改常驻**：原来"每点一次转文字装一个一次性 observer、收到终态才自摘"，块里**强持有 self**，
+>   而服务端识别的常态终点是 pending（等 WS 帧）——切后台/掉线/任务被丢就永远不摘，整个聊天页跟着不释放。
+>   改为每 VC 一个（弱 self），连点也不再叠加。顺带：块式观察者 `removeObserver:self` **摘不掉**，
+>   token 统一收进 `im_teardownVoiceObservers`，宿主 dealloc 调（接力观察者的同款旧漏一并堵上）。
+> - **重复请求去重**：`statusByID` 原本只写不读（唯一读者是测试）；改为 `transcribeConvID:` 里
+>   「已 Recognizing 就早退」——连点 3 次不再 = 3 个 POST + 3 轮整表行高重算。逃生门是「取消转文字」。
+> - **失败语音件改走 `IMPendingMediaStore`**：原来把 tmp 的 `file://` 绝对路径写进 `content`，造出第二种
+>   "本地待发"方言——全仓按 `+isLocalRef:` 拦"别当媒体地址用"的护栏只认 `im-pending://`，且 tmp 被系统
+>   回收后重试只能提示"录音已丢失"。现与图片/视频同一套（Application Support，杀进程也能重试）。
+> - **展示规则收敛**：新 `visibleTextForMessageID:content:`（折叠优先于缓存），cell 复用与长按菜单标题
+>   两处不再各拼一遍；新 `expandMessageID:`，缓存命中不必再跑整套 transcribe（含一次假 `token:@""`）。
+>   `transcribeConvID:` 去掉 token 位参，内部取 `currentToken`。
+> - **淡入淡出抽 `UIView+IMFade`**：HUD 与锁定条的 `wantsVisible` 过期回调自查是逐字两份，收成一处。
+> - **横幅根因**：撤回命中置顶横幅时**先本地剔除再重拉**——`reloadPinnedBanner` 是 best-effort，
+>   弱网下只靠它收敛，横幅会一直挂着已撤回消息的文案（a9dd9a6 的提示退回成兜底）。
+> - 另修：合并失败/成功两分支复制的清理提到分支外、`layoutTranscriptText:` 两个 `if (shows)` 合一、
+>   死 import `IMMediaDownloader.h`、三处 SFSpeech 注释残骸（含 `+Menu.m` 那句错误隐私承诺）、
+>   `voice_transcript` 通知 userInfo 用回 `kIMConvIDKey`。
+> - **明确没做**（复查提出但判定该单独立项）：① 转写文本落 `NSUserDefaults` 无上限/无淘汰/无登出清理，
+>   且 key 不带 uid（多账号设备上 A 转出的文本 B 能看到）——正解是落 `IMDatabase`，属数据层改造；
+>   ② 「跳不到」的分类本该收敛进 `jumpToConvSeq:`（撤回判定现只在置顶一条链上，Search 另有两处手写
+>   `recalledAt` 过滤），下沉会改到 7 个调用点的行为；③ 错误文案与转写文本共用 `text` 字段，UI 无法分辨
+>   （错误被塞进转写面板、下面还挂"结果可能不完全准确"）；④ 语音发送并入 `IMMediaSendService`（已在下一步 P2）。
+> - **待真机手测**：转文字（首次/缓存命中/取消后重进）、上传失败 → 重试、录音浮层连按两次。
+
+> **补做三条（2026-08-27，build + build-for-testing 全绿）**：`/simplify` 复查提出的三条"该单独立项"里，
+> 评估后现做两条半：
+> - **③ 错误文案与转写文本分离**：通知 userInfo 加 `errorMessage` 字段（Done 用 `text`，Unavailable 用 `errorMessage`），
+>   `IMVoiceTranscriber.postError:` 专管失败路径并加 assert 挡回归。观察者失败分支改为 toast + 收起面板——
+>   原来"转文字暂未开启"下面还挂"结果可能不完全准确"尾行的自相矛盾场面消失；测试 `testFailedRoutesThroughErrorMessage`。
+> - **① 转写文本 NSUserDefaults 加封顶（半步）**：每条一个永久 key、无淘汰、启动时整域解析——加 FIFO 2000 条封顶
+>   （单独 `im.voice.transcript.order.v1` 数组键存插入序，超限删最旧那条 defaults 键 + 内存镜像）。**uid 不加回去**：
+>   044fa41 刚修完的 key 错位坑不重挖，"跨账号泄漏"复核下来定性不成立（B 命中要求本来就能自己转，属会话共享
+>   语义）；落 `IMDatabase` 是正解，属数据层改造单独立项。测试 `testTextCacheKeysPersistAndCanBePurged`。
+> - **④ 陈旧 Sending 清扫 + 文档**：`reattachRunningUploads` 加"语音 Sending + convSeq≤0 + content 空"清扫
+>   （守卫 `didReclaimStaleVoiceSending`，本 VC 只做一次，避免 push/pop 反复扫误伤本次录音的占位），进程中途被杀
+>   遗留的永久 Sending 空气泡 → Failed + note「发送中断，请重新录制」。`ARCHITECTURE.md` 的豁免清单加语音一行——
+>   否则下一个人读到"完整方案=接入 IMMediaSendService（记 P2）"注释分不清是有意边界还是遗漏。
+> - **② 跳转分类下沉 `jumpToConvSeq:` 明确不做**：复核后否定复查里"Search.m 那两处是复发"——那两处过滤的是
+>   搜索结果，不是同一机制。且引用跳转/媒体定位滚到墓碑本来就对（Telegram 同款）；错的只是横幅根本不该挂着这条，
+>   而根因（撤回帧到达时本地先剔除）已在上一轮修完。真泛化应改成 `jumpToConvSeq:` 回结果给调用方，属更大重构，
+>   等第 4 个跳转入口出现再做。
 ---
 
 ## 归档于 2026-08-22（会话行闪烁根因修复 · IMChatViewController 续拆收官 · 巨类拆分+code-review · 相机/粘贴单图磨砂占位 · 收藏页 B 方案——全部手测通过）

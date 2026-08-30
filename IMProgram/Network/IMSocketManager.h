@@ -184,6 +184,20 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
                   attributes:(nullable IMMediaAttributes *)attributes
                   completion:(nullable IMSendCompletion)completion;
 
+/// 重发一条**已落库的失败消息**（ack 超时 / 连接中断那类；内容已就绪：正文或已上传的服务器 URL）。
+/// 按原 `client_msg_id` 重建 send_msg 负载再发一次，并把模型上的引用/转发溯源/@提及/媒体元数据
+/// （尺寸·时长·封面·thumb·waveform·caption）原样带回——漏一个字段收端就少一样东西。
+///
+/// **必须沿用原 client_msg_id**：服务端按 `(conv_id, client_msg_id)` 唯一索引幂等去重
+/// （PROTOCOL §超时重发），于是"上次其实已存下、只是 ack 丢了"这种情况重发只会拿回同一条的 conv_seq；
+/// 换新 ID 则会绕开去重索引，让对端收到两条。上传失败那类（服务器上根本没有这条）走
+/// IMMediaSendService 重传，不走这里，见 `IMResendPolicyForMessage`。
+///
+/// 返回是否已入队（缺 client_msg_id / content 为空 → NO，此时 completion 不会被调用）。
+- (BOOL)resendMessage:(IMMessageModel *)message
+               toUser:(nullable NSString *)toUserID
+           completion:(nullable IMSendCompletion)completion;
+
 /// 上报「已读到 convSeq」：对端据此显示已读双勾，本人未读随之清零（仅 read 推进已读位点）。
 - (void)markReadConv:(NSString *)convID upToConvSeq:(int64_t)convSeq;
 

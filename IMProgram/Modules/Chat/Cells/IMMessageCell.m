@@ -1,4 +1,6 @@
 #import "IMMessageCell.h"
+#import "IMChatMessageLogic.h"
+#import "IMFailBadgeView.h"
 #import "IMMessageModel.h"
 #import "IMTheme.h"
 
@@ -31,6 +33,13 @@
         _unreadDivider.clipsToBounds = YES;
         _unreadDivider.hidden = YES;
         [self.contentView addSubview:_unreadDivider];
+        // 发送失败红❗：视图与点击插桩在基类（样式收敛在 IMFailBadgeView），
+        // 定位约束因锚点各异（贴各自内容区左侧）交由子类经 installFailBadgeAnchor: 登记。
+        _failBadge = [IMFailBadgeView new];
+        __weak typeof(self) ws = self;
+        _failBadge.onTap = ^{ if (ws.onRetryTap) { ws.onRetryTap(); } };
+        [self.contentView addSubview:_failBadge];
+
         _unreadDividerHeight = [_unreadDivider.heightAnchor constraintEqualToConstant:0];
         [NSLayoutConstraint activateConstraints:@[
             [_unreadDivider.topAnchor constraintEqualToAnchor:self.contentView.topAnchor],
@@ -43,6 +52,22 @@
 }
 
 - (void)handleAvatarTap { if (self.onAvatarTap) { self.onAvatarTap(); } }
+
+- (void)installFailBadgeAnchor:(NSLayoutConstraint *)anchor {
+    _failBadgeAnchor = anchor; // 仅失败时激活（见 applyFailBadgeForMessage:mine:）
+}
+
+- (void)applyFailBadgeForMessage:(IMMessageModel *)message mine:(BOOL)mine {
+    BOOL failed = mine && message.status == IMMessageStatusFailed;
+    [self applyFailBadgeShows:failed
+                     tappable:(failed && IMResendPolicyForMessage(message, mine) != IMResendPolicyNone)];
+}
+
+- (void)applyFailBadgeShows:(BOOL)shows tappable:(BOOL)tappable {
+    _failBadge.hidden = !shows;
+    _failBadge.tappable = shows && tappable;
+    _failBadgeAnchor.active = shows;
+}
 
 - (void)applyUnreadDivider:(BOOL)shows {
     _unreadDivider.hidden = !shows;
@@ -122,6 +147,10 @@
 - (void)prepareForReuse {
     [super prepareForReuse];
     self.onAvatarTap = nil;
+    self.onRetryTap = nil;
+    _failBadge.hidden = YES;
+    _failBadge.tappable = NO;
+    _failBadgeAnchor.active = NO;
     _avatar.hidden = YES;
     _unreadDivider.hidden = YES;
     _unreadDividerHeight.constant = 0;

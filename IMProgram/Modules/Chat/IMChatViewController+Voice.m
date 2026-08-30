@@ -615,18 +615,19 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
     echo = [self im_persistLocalVoiceEcho:url waveform:waveform duration:durationMillis fileSize:fileSize clientMsgID:cid];
 }
 
-/// 发送失败重试（§5.5）。两种失败**不能同一条路**：
-///   - send_msg 失败：音频已在服务器 → 按原 URL 重新 send_msg，**不重录也不重传**；
-///   - upload 失败：服务器上根本没有这段音频，content 是 `im-pending://` 本地待发标识
-///     → 必须**重新上传**再发。曾统一走 send_msg，把本地路径当媒体地址发出去，
-///     对端收到一条永远打不开的语音（2026-08-26 修）。
-/// 两条路都先删旧 failed 行（内存+DB），再按新 clientMsgID 重走回显+ack 链。
+/// 语音的**上传失败**重试（§5.5）：服务器上根本没有这段音频，content 是 `im-pending://` 本地待发标识
+/// （或 2026-08-27 前落库的 `file://` tmp 绝对路径），必须**重新上传**再发，不重录。
+/// 先删旧 failed 行（内存+DB），再按新 clientMsgID 重走回显+ack 链——服务端没这条，换 ID 不会重复。
+///
+/// **send_msg 失败那类不走这里**：音频已在服务器，按原 client_msg_id 重发即可（幂等），
+/// 由 `+Resend.m` 的统一入口 `im_resendMessage:` 分派。曾经两类统一走 send_msg，把本地路径
+/// 当媒体地址发了出去，对端收到一条永远打不开的语音（2026-08-26 修）——分流判据现收敛在
+/// `IMResendPolicyForMessage`，别再在本方法里自己判。
 - (void)im_resendVoiceMessage:(IMMessageModel *)m {
     if (m.status != IMMessageStatusFailed || m.content.length == 0) { return; }
     NSString *url = m.content;
     NSString *wave = m.waveform;
     int64_t dur = m.duration;
-    int64_t size = m.fileSize;
     NSURL *localURL = nil;
     if ([IMPendingMediaStore isLocalRef:url]) {
         NSString *path = [[IMPendingMediaStore shared] filePathForLocalRef:url];
@@ -644,14 +645,16 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
             return;
         }
     }
+    if (!localURL) {
+        // content 既不是 im-pending:// 也不是 file://（= 音频其实已在服务器）：那是 send_msg 失败，
+        // 该走 im_resendMessage: 的原 client_msg_id 重发。走到这里说明分派判据与本方法不一致了。
+        IMLogWarnWithTag(IMLogTagMedia, @"voice_retry_route_mismatch client_msg_id=%@", m.clientMsgID);
+        return;
+    }
     [self performDatabaseOperation:^(IMDatabase *db) { [db deleteMessage:m]; }];
     NSUInteger idx = [self.messages indexOfObjectIdenticalTo:m];
     if (idx != NSNotFound) { [self.messages removeObjectAtIndex:idx]; }
-    if (localURL) {
-        [self im_uploadAndSendVoice:localURL waveform:wave durationMillis:dur];
-        return;
-    }
-    [self im_sendVoiceURL:url waveform:wave durationMillis:dur fileSize:size];
+    [self im_uploadAndSendVoice:localURL waveform:wave durationMillis:dur];
 }
 
 /// 立即在本地库回显一条 voice 消息——与已有媒体路径同套（防"松手到 ack 之间气泡不见"）。

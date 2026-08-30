@@ -558,6 +558,51 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
     return clientMsgID;
 }
 
+- (BOOL)resendMessage:(IMMessageModel *)message toUser:(NSString *)toUserID completion:(IMSendCompletion)completion {
+    NSString *clientMsgID = message.clientMsgID;
+    if (clientMsgID.length == 0 || message.content.length == 0) { return NO; }
+    NSString *ct = message.contentType.length > 0 ? message.contentType : @"text";
+    NSMutableDictionary *payload = [@{
+        @"client_msg_id": clientMsgID,   // ← 原样沿用：服务端据此幂等去重，换新 ID 会造重复（见 .h）
+        @"conv_id":       message.convID ?: @"",
+        @"to":            toUserID ?: @"",
+        @"content_type":  ct,
+        @"content":       message.content,
+    } mutableCopy];
+    if (message.replyToConvSeq > 0) { payload[@"reply_to"] = @{ @"conv_seq": @(message.replyToConvSeq) }; }
+    if (message.forwardFrom.length > 0) { payload[@"forward_from"] = message.forwardFrom; }
+    if ([ct isEqualToString:@"file"]) {
+        payload[@"file_name"] = message.fileName ?: @"";
+        payload[@"file_size"] = @(message.fileSize);
+    }
+    // 媒体/语音元数据 + 图说 caption：走与首发同一个收口，别在这里另抄一份键名。
+    IMMediaAttributes *attrs = [IMMediaAttributes new];
+    attrs.groupID        = message.groupID;
+    attrs.poster         = message.poster;
+    attrs.pixelWidth     = message.mediaW;
+    attrs.pixelHeight    = message.mediaH;
+    attrs.durationMillis = message.duration;
+    attrs.fileSize       = message.fileSize;
+    attrs.thumb          = message.thumb;
+    attrs.waveform       = message.waveform;
+    attrs.caption        = message.caption;
+    [self applyMediaAttributes:attrs toPayload:payload];
+    // 文本的 @提及（媒体的配文 @ 已由 attributes 带走，此处写同一批键、值相同，无冲突）。
+    if (message.mentions.count > 0) { payload[@"mentions"] = message.mentions; }
+    if (message.mentionAll) { payload[@"mention_all"] = @YES; }
+    IMLogSocket(@"重发 %@ content_type=%@（沿用原 client_msg_id，服务端幂等）", clientMsgID, ct);
+    dispatch_async(_queue, ^{
+        // 同 cid 仍在待确认队列里（理论上不会：判失败时已摘除）——此时不能重复登记，
+        // 否则会把在途那条的定时器/completion 顶掉。原来那条的 completion 照常会回调，行不会卡住。
+        if (self->_pending[clientMsgID]) {
+            IMLogSocket(@"重发忽略：%@ 仍在待确认队列", clientMsgID);
+            return;
+        }
+        [self enqueueSendWithClientMsgID:clientMsgID payload:payload completion:completion];
+    });
+    return YES;
+}
+
 /// 共用发送路径：构造 send_msg 负载并入队（ack 超时重发等由 enqueue 统一处理）。
 - (NSString *)sendText:(NSString *)text toConv:(NSString *)convID replyToConvSeq:(int64_t)replyToConvSeq
               mentions:(NSArray<NSString *> *)mentions mentionAll:(BOOL)mentionAll completion:(IMSendCompletion)completion {

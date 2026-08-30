@@ -1,5 +1,6 @@
 #import <UIKit/UIKit.h>
 #import "IMGroupInfo.h"
+#import "IMFailBadgeView.h"  // 失败红❗（各消息 cell 共用同一款；子类要拿它的 anchor 补约束）
 
 @class IMMessageModel;
 
@@ -18,10 +19,31 @@ NS_ASSUME_NONNULL_BEGIN
     NSLayoutConstraint *_unreadDividerHeight;  ///< 0=隐藏 / 28=显示。
     UIView  *_senderRoleBadge;                 ///< 群主/管理员角色徽标（胶囊，默认隐藏），锚在发送者昵称右侧同一行。
     UILabel *_senderRoleLabel;                 ///< 徽标文字（「群主」/「管理员」）。
+    IMFailBadgeView *_failBadge;               ///< 发送失败红❗（点击重发）。子类只补两条定位约束，见下。
+    NSLayoutConstraint *_failBadgeAnchor;      ///< 子类登记的"贴到自己内容区左侧"约束：仅失败时激活，避免恒占位挤压内容。
 }
 
 /// 群聊对方头像点击 → 进该成员资料页（微信式）。头像隐藏时点击无效。
 @property (nonatomic, copy, nullable) void (^onAvatarTap)(void);
+
+/// 发送失败红❗点击 → 重发该条（宿主按 IMResendPolicyForMessage 分派）。
+/// 只有「本人发送 && 可重发」时红❗才吃点击；被拒收的消息红❗照显但不可点。
+@property (nonatomic, copy, nullable) void (^onRetryTap)(void);
+
+/// 登记红❗的定位约束（子类在 init 里造好、**不要**自己激活）：
+/// 通常是 `[_failBadge.trailingAnchor constraintEqualToAnchor:<自己内容区>.leadingAnchor constant:-6]`，
+/// 另需自行激活一条 centerY 对齐约束（红❗垂直居中于内容区，与内容高度无关，可常驻激活）。
+/// 背景：头像列与未读分割线都曾因"逐 cell 手接、漏接某一种"整体错位（踩坑两次），失败红❗此前也漏了
+/// 名片/链接卡/合并转发三种 —— 故一并收进基类，新 cell 继承即自带。
+- (void)installFailBadgeAnchor:(NSLayoutConstraint *)anchor;
+
+/// 按消息状态显示/隐藏红❗并决定它可不可点（判据单一来源：IMResendPolicyForMessage）。
+/// 各 cell 在 configure 里调一次即可，不要自己判 status。
+- (void)applyFailBadgeForMessage:(IMMessageModel *)message mine:(BOOL)mine;
+
+/// 相册宫格专用：一条"消息"是一整组成员，显隐/可点要按**整组**算（哪一格失败由格内 "!" 表达），
+/// 故由调用方算好再传进来。普通 cell 一律用上面那个按消息判的版本。
+- (void)applyFailBadgeShows:(BOOL)shows tappable:(BOOL)tappable;
 
 /// 「未读消息」分割线开关：仅首条未读那行传 YES。
 - (void)applyUnreadDivider:(BOOL)shows;
@@ -42,7 +64,8 @@ NS_ASSUME_NONNULL_BEGIN
 /// 上提到基类的**类方法**（纯函数式，只读入参与 IMTheme，不碰实例状态）。
 /// 类方法而非实例方法，是因为 IMBubbleCell **不继承本类**（它是独立的 UITableViewCell），
 /// 但同样要用这段排法——做成类方法两边共用一份，不必为此改 IMBubbleCell 的继承。
-/// **注意**：failed 态只出文字，**没有**可点重发的红❗——那套只有语音 cell（onRetryTap）有。
+/// **注意**：failed 态在气泡内只出文字（"未发送 ✗"）；可点重发的红❗是**气泡外**另一件东西，
+/// 由基类的 `_failBadge` / `applyFailBadgeForMessage:mine:` 统一承载（IMBubbleCell 自持一份同款）。
 + (NSAttributedString *)attributedMetaForMessage:(IMMessageModel *)message
                                             mine:(BOOL)mine
                                      peerReadSeq:(int64_t)peerReadSeq;

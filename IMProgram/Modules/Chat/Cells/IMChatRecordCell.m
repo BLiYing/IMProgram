@@ -95,7 +95,11 @@
         _noteTop = [_sysNote.topAnchor constraintEqualToAnchor:_card.bottomAnchor constant:4];
         _noteBottom = [_sysNote.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-6];
         _cardBottom.active = YES;
+        // 发送失败红❗（基类持有视图与点击）：贴卡片左侧、垂直居中。此前本 cell 完全没有失败标记——
+        // 合并转发卡片发失败后既看不出失败、也无从重发。
+        [self installFailBadgeAnchor:[_failBadge.trailingAnchor constraintEqualToAnchor:_card.leadingAnchor constant:-6]];
         [NSLayoutConstraint activateConstraints:@[
+            [_failBadge.centerYAnchor constraintEqualToAnchor:_card.centerYAnchor],
             [_sysNote.leadingAnchor constraintEqualToAnchor:_card.leadingAnchor],
             [_sysNote.trailingAnchor constraintEqualToAnchor:_card.trailingAnchor],
             [_card.widthAnchor constraintEqualToConstant:240],
@@ -143,6 +147,7 @@
     [self applySenderName:senderName role:senderRole toNameLabel:_senderLabel];
     _senderLabel.hidden = !showName;
     _cardTop.active = !showName;
+    [self applyFailBadgeForMessage:message mine:mine]; // 失败红❗（显隐+可否点重发，判据在基类）
     _cardTopUnderName.active = showName;
     // 被拒收系统行（如非好友 200103 / 内容过大 300001）：有 note 时卡片改接系统行、系统行贴 cell 底。
     [_sysNote configureWithNote:message.note code:message.noteCode];
