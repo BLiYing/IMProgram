@@ -13,6 +13,7 @@
 #import "IMMessageModel.h"
 #import "IMVoiceMiniPlayerView.h"
 #import "IMVoicePlayer.h"
+#import "IMMediaDownloader.h"   // 老记录补探时长：只看本地缓存，不为此发下载
 #import "IMTheme.h"
 #import "UILabel+IMAvatar.h"
 #import "IMAccountIdentity.h"        // IMDisplayName：末级不落 userID
@@ -417,16 +418,49 @@
     m.content = [it[@"c"] isKindOfClass:NSString.class] ? it[@"c"] : @"";
     m.duration = [it[@"d"] respondsToSelector:@selector(longLongValue)] ? [it[@"d"] longLongValue] : 0;
     m.waveform = [it[@"w"] isKindOfClass:NSString.class] && [it[@"w"] length] > 0 ? it[@"w"] : nil;
+    [self fillDurationFromLocalFileIfNeeded:m];
     _voiceModels[key] = m;
     return m;
+}
+
+/// 老记录（2026-08-30 之前打包的）没有 `d` 字段 → 时长只能从本地音频文件里探。
+/// **只看已缓存的文件，绝不为了显个时长去发下载**（用户只是打开一张卡片，不该顺手拉一串音频）；
+/// 聊天里播过/自动下载过的那些本就在缓存里，命中率不低。探不到就保持 0（显 0:00）。
+/// 播放触发的下载完成后会再探一次并刷新该行，见 playVoice:。
+- (void)fillDurationFromLocalFileIfNeeded:(IMMessageModel *)m {
+    if (m.duration > 0 || m.content.length == 0) { return; }
+    NSURL *cached = [IMMediaDownloader cachedFileURLForContent:m.content];
+    if (!cached || ![NSFileManager.defaultManager fileExistsAtPath:cached.path]) { return; }
+    int64_t ms = 0;
+    // 同一把 IMVoiceFileIsPlayable：坏文件（如 MP4/Opus）报的时长是天文数字，它会一并挡掉。
+    if (IMVoiceFileIsPlayable(cached, &ms) && ms > 0) { m.duration = ms; }
 }
 
 - (void)playVoice:(IMMessageModel *)m {
     __weak typeof(self) ws = self;
     [[IMVoicePlayer sharedPlayer] toggleEnsuringLocal:m host:_host completion:^(NSError *err) {
         __strong typeof(ws) self = ws;
-        if (self && err) { [self im_showToast:@"语音下载失败"]; } // IO 错误不吞（CODING_STYLE §5）
+        if (!self) { return; }
+        // IO / 格式错误不吞（CODING_STYLE §5）：直接把播放器给的文案吐出来，
+        // 「下载失败」与「该语音格式无法播放」是两回事，混成一句会把排查引偏。
+        if (err) { [self im_showToast:(err.localizedDescription ?: @"语音播放失败")]; return; }
+        // 刚下完的文件此时才有：老记录的时长在这一刻才补得上 → 刷该行。
+        if (m.duration == 0) {
+            [self fillDurationFromLocalFileIfNeeded:m];
+            if (m.duration > 0) { [self reloadRowForVoiceModel:m]; }
+        }
     }];
+}
+
+- (void)reloadRowForVoiceModel:(IMMessageModel *)m {
+    for (NSString *key in _voiceModels) {
+        if (_voiceModels[key] != m) { continue; }
+        NSInteger row = key.integerValue;
+        if (row < 0 || row >= (NSInteger)_items.count) { return; }
+        [_tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:row inSection:0]]
+                          withRowAnimation:UITableViewRowAnimationNone];
+        return;
+    }
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)ip {

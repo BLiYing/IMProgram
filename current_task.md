@@ -5,8 +5,8 @@
 
 ## 当前焦点
 
-> **收藏页 / 详情页 / 置顶 / 记录卡 五项 UI 修复（2026-08-30，两端同步；iOS `build` 绿、**按约定只编译未跑模拟器**；
-> Web `tsc -b` + `vitest 679` 绿。**两端均未手测**）**
+> **收藏页 / 详情页 / 置顶 / 记录卡 五项 UI 修复（2026-08-30，两端同步；iOS `build` 绿、**已跑 `IMProgramTests` 311 例全绿**；
+> Web `tsc -b` + `vitest 681` 绿。**两端均未手测**）**
 >
 > 1. **置顶预览**：`IMPinnedMessage.previewText` 只认 `audio` 不认 `voice`、且没有 `chat_record` 分支
 >    → 语音置顶铺一串 URL、合并转发卡片铺整段 `{"t":…,"items":[…]}` JSON。现统一收成 `[语音]` /
@@ -31,6 +31,22 @@
 >
 > 体量门禁副产物：`IMFavoritesViewController.m` 撞 1500 行 → 抽出 `IMFavoriteRowViews.{h,m}`
 > （阅读器 / 统一图标行 / 来源会话行，逐字平移、行为零变化），现 1364 行。
+
+> **记录卡语音：崩溃 + 无时长（2026-08-30 用户实测报，已修；`IMProgramTests` 311 例全绿）**
+> - **崩溃根因不在记录卡，在语音播放通道**：Chrome 录的语音是 **MP4/Opus**（`audio/mp4` 容器塞 Opus），
+>   `framesPerPacket == 0` → `AVAudioPlayer` 在 AVFAudio 内部**除零**（`EXC_ARITHMETIC`/`SIGFPE`，
+>   `@try` 拦不住、整个 App 当场退出）。崩溃栈由 `~/Library/Logs/DiagnosticReports` 的 .ips 定位：
+>   `AVFAudio ×4 → -[IMVoicePlayer togglePlayback:localFileURL:]`。**气泡/收藏/详情页语音 tab 同样会崩**，
+>   只是这次先在记录卡撞上。修法：新增 `IMVoiceFileIsPlayable(url, &durationMs)`（AudioToolbox 读
+>   `kAudioFilePropertyDataFormat`，`sampleRate<=0 / framesPerPacket==0 / channels==0` 一律拒），
+>   `togglePlayback:` 与 `toggleEnsuringLocal:` 双重把关；被拒回 `NSError`「该语音格式无法播放」，
+>   四个播放入口改吐 `err.localizedDescription`（原先写死「语音下载失败」，会把排查引偏）。
+>   护栏 `IMVoiceFileGuardTests.m`（合成 WAV 放行并报时长 / 非音频字节被拒 / 缺文件与非 file URL 被拒）。
+>   源头在 Web 侧一并修（见 im-web current_task）。
+> - **无时长**：老记录打包时没有 `d` 字段。新增 `fillDurationFromLocalFileIfNeeded:`——**只探已缓存的
+>   文件、绝不为显个时长去发下载**；播放触发的下载完成后再探一次并刷该行。
+>   **已知限制**：坏文件（MP4/Opus）报的时长是天文数字，被 `IMVoiceFileIsPlayable` 一并挡掉 → 仍显 0:00，
+>   这是对的；那条消息本身在 iOS 上就播不了。
 
 > **无其它进行中的开发项。** 网络恢复秒连（2026-08-30）与 `UI_COLOR.md` 收敛已完成，细节转入
 > `current_task.archive.md`。仍**未做**的是「下一步」里那两件老账：真机手测语音 P1 与相机录像

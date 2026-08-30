@@ -668,7 +668,8 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
     [[IMVoicePlayer sharedPlayer] toggleEnsuringLocal:message host:self.host completion:^(NSError *err) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
-        if (err) { [self im_showToast:@"语音下载失败"]; return; }
+        // 文案取播放器给的：下载失败与「该语音格式无法播放」是两回事，写死一句会把排查引偏。
+        if (err) { [self im_showToast:(err.localizedDescription ?: @"语音播放失败")]; return; }
         // 对方语音进入播放即消未播红点（本机语义，见 §7）。
         NSString *mid = IMVoicePlayerPlayableIDForMessage(message);
         if (mid && ![message.from isEqualToString:self.userID]) {

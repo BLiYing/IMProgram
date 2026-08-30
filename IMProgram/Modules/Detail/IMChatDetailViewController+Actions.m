@@ -94,7 +94,7 @@
         __strong typeof(ws) self = ws;
         if (!self) { return; }
         [[IMVoicePlayer sharedPlayer] toggleEnsuringLocal:msg host:self.host completion:^(NSError *err) {
-            if (err) { [self im_showToast:@"语音下载失败"]; } // CODING_STYLE §5 不吞错
+            if (err) { [self im_showToast:(err.localizedDescription ?: @"语音播放失败")]; } // CODING_STYLE §5 不吞错
         }];
     };
 }
@@ -106,7 +106,7 @@
     __weak typeof(self) ws = self;
     [[IMVoicePlayer sharedPlayer] toggleEnsuringLocal:m host:self.host completion:^(NSError *err) {
         __strong typeof(ws) self = ws;
-        if (self && err) { [self im_showToast:@"语音下载失败"]; } // IO 错误不吞（CODING_STYLE §5）
+        if (self && err) { [self im_showToast:(err.localizedDescription ?: @"语音播放失败")]; } // IO 错误不吞（CODING_STYLE §5）
     }];
 }
 

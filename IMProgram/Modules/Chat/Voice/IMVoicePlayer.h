@@ -28,6 +28,15 @@ typedef NS_ENUM(NSInteger, IMVoicePlayerState) {
 @class IMMessageModel;
 extern NSString *_Nullable IMVoicePlayerPlayableIDForMessage(IMMessageModel *m);
 
+/// 本地音频文件能否交给 `AVAudioPlayer` 播；顺带回一个探测到的时长（毫秒，探不到给 0，可传 NULL 不要）。
+///
+/// **这不是可选的健壮性点缀**：`AVAudioPlayer` 用「总帧数 ÷ 每包帧数」算时长与播放位点，
+/// 遇到 `framesPerPacket == 0` 的流会在 AVFAudio 内部**除零**（EXC_ARITHMETIC / SIGFPE），
+/// `@try` 拦不住、整个 App 当场没。真实案例（2026-08-30）：Chrome 录的 **MP4/Opus**
+/// （`audio/mp4` 容器里塞 Opus）三个 packet 字段全 0，iOS 也解不了 Opus，点开即崩。
+/// 所以任何"拿到本地文件就播"的路径都必须先过这一关。
+extern BOOL IMVoiceFileIsPlayable(NSURL *_Nullable fileURL, int64_t *_Nullable outDurationMillis);
+
 @interface IMVoicePlayer : NSObject
 
 + (instancetype)sharedPlayer;

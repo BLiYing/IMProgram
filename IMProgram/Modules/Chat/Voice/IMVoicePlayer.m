@@ -7,6 +7,7 @@
 #import "IMMediaDownloader.h" // toggleEnsuringLocal: 未缓存时直连下载
 #import "IMMediaUtil.h"       // IMMediaFullURL
 #import <AVFoundation/AVFoundation.h>
+#import <AudioToolbox/AudioToolbox.h>
 
 NSNotificationName const IMVoicePlayerDidChangeStateNotification = @"IMVoicePlayerDidChangeStateNotification";
 NSNotificationName const IMVoicePlayerDidMarkPlayedNotification = @"IMVoicePlayerDidMarkPlayedNotification";
@@ -16,6 +17,30 @@ NSString *_Nullable IMVoicePlayerPlayableIDForMessage(IMMessageModel *m) {
     if (m.serverMsgID.length > 0) { return m.serverMsgID; }
     if (m.clientMsgID.length > 0) { return m.clientMsgID; }
     return nil;
+}
+
+BOOL IMVoiceFileIsPlayable(NSURL *_Nullable fileURL, int64_t *_Nullable outDurationMillis) {
+    if (outDurationMillis) { *outDurationMillis = 0; }
+    if (!fileURL.isFileURL) { return NO; }
+    AudioFileID file = NULL;
+    if (AudioFileOpenURL((__bridge CFURLRef)fileURL, kAudioFileReadPermission, 0, &file) != noErr) { return NO; }
+    AudioStreamBasicDescription asbd = {0};
+    UInt32 size = sizeof(asbd);
+    OSStatus st = AudioFileGetProperty(file, kAudioFilePropertyDataFormat, &size, &asbd);
+    Float64 seconds = 0;
+    if (st == noErr) {
+        UInt32 dsize = sizeof(seconds);
+        if (AudioFileGetProperty(file, kAudioFilePropertyEstimatedDuration, &dsize, &seconds) != noErr) { seconds = 0; }
+    }
+    AudioFileClose(file);
+    if (st != noErr) { return NO; }
+    // AVAudioPlayer 用「总帧数 ÷ 每包帧数」算时长与播放位点：任一为 0 就是**除零**——
+    // 崩在 AVFAudio 内部（EXC_ARITHMETIC / SIGFPE），@try 拦不住，只能事前挡。
+    // 真实案例（2026-08-30）：Chrome 录的 **MP4/Opus**（`audio/mp4` 容器塞 Opus 编码）
+    // framesPerPacket/bytesPerPacket 全 0，iOS 也解不了 Opus → 点开即整个 App 崩。
+    if (asbd.mSampleRate <= 0 || asbd.mFramesPerPacket == 0 || asbd.mChannelsPerFrame == 0) { return NO; }
+    if (outDurationMillis && seconds > 0 && seconds < 24 * 3600) { *outDurationMillis = (int64_t)(seconds * 1000.0); }
+    return YES;
 }
 
 /// 已播集合本地键：per-uid + per-conv，键值合入一个 NSSet<messageID>。
@@ -49,6 +74,10 @@ static NSString *_Nonnull IMVoicePlayerPlayedKey(NSString *ownerUID, NSString *c
 - (void)togglePlayback:(IMMessageModel *)message localFileURL:(NSURL *)localFileURL {
     NSString *mid = IMVoicePlayerPlayableIDForMessage(message);
     if (!mid || !localFileURL) { return; }
+    // 解不了的音频**在建 AVAudioPlayer 之前**就挡掉——否则 AVFAudio 内部除零崩整个 App（见 IMVoiceFileIsPlayable）。
+    // 已在播的那条走上面的暂停/继续分支，不必重复校验（能播到现在就说明格式没问题）。
+    BOOL isCurrent = [self.currentID isEqualToString:mid] && self.player != nil;
+    if (!isCurrent && !IMVoiceFileIsPlayable(localFileURL, NULL)) { return; }
 
     // 已经在播这条 → 暂停/继续；否则先停当前的再切到新条。
     if ([self.currentID isEqualToString:mid] && self.player) {
@@ -98,6 +127,8 @@ static NSString *_Nonnull IMVoicePlayerPlayedKey(NSString *ownerUID, NSString *c
     }
     NSURL *cached = [IMMediaDownloader cachedFileURLForContent:message.content];
     if (cached && [[NSFileManager defaultManager] fileExistsAtPath:cached.path]) {
+        NSError *bad = [self unplayableErrorIfNeeded:message localFileURL:cached];
+        if (bad) { if (completion) { completion(bad); } return; }
         [self togglePlayback:message localFileURL:cached];
         if (completion) { completion(nil); }
         return;
@@ -119,9 +150,21 @@ static NSString *_Nonnull IMVoicePlayerPlayedKey(NSString *ownerUID, NSString *c
                                                                 userInfo:@{NSLocalizedDescriptionKey: @"语音下载失败"}]); }
             return;
         }
+        NSError *bad = [self unplayableErrorIfNeeded:message localFileURL:location];
+        if (bad) { if (completion) { completion(bad); } return; }
         [self togglePlayback:message localFileURL:location];
         if (completion) { completion(nil); }
     };
+}
+
+/// 本地文件能不能交给 AVAudioPlayer；不能则给调用方一个**可读的**错误（别静默 no-op，
+/// 用户点了没反应比报错更难查）。正在播的那条直接放行（能播到现在就说明格式没问题）。
+- (nullable NSError *)unplayableErrorIfNeeded:(IMMessageModel *)message localFileURL:(NSURL *)url {
+    NSString *mid = IMVoicePlayerPlayableIDForMessage(message);
+    if (mid && [self.currentID isEqualToString:mid] && self.player) { return nil; }
+    if (IMVoiceFileIsPlayable(url, NULL)) { return nil; }
+    return [NSError errorWithDomain:@"IMVoicePlayer" code:-4
+                           userInfo:@{NSLocalizedDescriptionKey: @"该语音格式无法播放"}];
 }
 
 - (void)stop {

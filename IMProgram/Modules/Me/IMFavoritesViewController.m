@@ -1131,7 +1131,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     __weak typeof(self) ws = self;
     [[IMVoicePlayer sharedPlayer] toggleEnsuringLocal:m host:IMHTTPService.sharedService.host completion:^(NSError *err) {
         __strong typeof(ws) self = ws;
-        if (self && err) { [self im_showToast:@"语音下载失败"]; } // IO 错误不吞（CODING_STYLE §5）
+        if (self && err) { [self im_showToast:(err.localizedDescription ?: @"语音播放失败")]; } // IO 错误不吞（CODING_STYLE §5）
     }];
 }
 
