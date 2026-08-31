@@ -28,7 +28,7 @@
     // 相册宫格整组共用一个红❗（哪一格失败由格内 "!" 表达）→ 点一次重发组里所有失败成员，
     // 否则用户得逐格去点、而宫格外侧压根没有逐格入口。
     if (message.groupID.length > 0) {
-        // 快照一份再遍历：重发路径会就地改 self.messages（语音那条会删旧行重建），边遍历边改要崩。
+        // 快照一份再遍历：重发路径会就地改 self.windowState.messages（语音那条会删旧行重建），边遍历边改要崩。
         for (IMMessageModel *m in [[self albumMembersForGroupID:message.groupID] copy]) {
             [self im_resendSingleMessage:m];
         }

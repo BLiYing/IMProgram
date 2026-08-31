@@ -42,7 +42,7 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
     BOOL triggeredAlbum = [self isAlbumMember:message] && message.convSeq > 0;
     if (triggeredAlbum) { [self.selectionState.selectedMediaSeqs addObject:@(message.convSeq)]; }
     NSUInteger row = [self visibleRowForMessage:message];
-    if (row == NSNotFound) { row = [self.messages indexOfObject:message]; }
+    if (row == NSNotFound) { row = [self.windowState.messages indexOfObject:message]; }
     [self preserveScreenPositionOfRow:row during:^{
         self.tableView.allowsMultipleSelectionDuringEditing = YES;
         [self.tableView setEditing:YES animated:NO];
@@ -106,7 +106,7 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
 /// 在表格 mutation（编辑态切换 + reloadData）前后保持某行的屏幕位置不变（多选进出时列表不跳）。
 /// reload 后行高全部回到估算值，先落一次布局再对齐、两轮收敛（与 anchorRowToTop: 同思路）。
 - (void)preserveScreenPositionOfRow:(NSUInteger)row during:(void (NS_NOESCAPE ^)(void))mutation {
-    if (row == NSNotFound || row >= self.messages.count) { mutation(); return; }
+    if (row == NSNotFound || row >= self.windowState.messages.count) { mutation(); return; }
     NSIndexPath *ip = [NSIndexPath indexPathForRow:(NSInteger)row inSection:0];
     CGFloat screenY = [self.tableView rectForRowAtIndexPath:ip].origin.y - self.tableView.contentOffset.y;
     mutation();
@@ -243,8 +243,8 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
     NSMutableSet<NSNumber *> *selRows = [NSMutableSet set];
     for (NSIndexPath *ip in self.tableView.indexPathsForSelectedRows) { [selRows addObject:@(ip.row)]; }
     NSMutableArray<IMMessageModel *> *out = [NSMutableArray array];
-    for (NSUInteger i = 0; i < self.messages.count; i++) {
-        IMMessageModel *m = self.messages[i];
+    for (NSUInteger i = 0; i < self.windowState.messages.count; i++) {
+        IMMessageModel *m = self.windowState.messages[i];
         BOOL selected;
         if ([self isAlbumMember:m]) {
             selected = m.convSeq > 0 && [self.selectionState.selectedMediaSeqs containsObject:@(m.convSeq)];
@@ -277,7 +277,7 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
     BOOL allSelected = selectable.count > 0;
     for (IMMessageModel *m in selectable) { if (![self.selectionState.selectedMediaSeqs containsObject:@(m.convSeq)]) { allSelected = NO; break; } }
     NSUInteger leaderRow = members.count > 0 ? [self visibleRowForMessage:members.firstObject] : NSNotFound;
-    if (leaderRow == NSNotFound || leaderRow >= self.messages.count) { return; }
+    if (leaderRow == NSNotFound || leaderRow >= self.windowState.messages.count) { return; }
     NSIndexPath *ip = [NSIndexPath indexPathForRow:(NSInteger)leaderRow inSection:0];
     if (allSelected) { [self.tableView selectRowAtIndexPath:ip animated:NO scrollPosition:UITableViewScrollPositionNone]; }
     else { [self.tableView deselectRowAtIndexPath:ip animated:NO]; }
@@ -395,7 +395,7 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
             }];
         }
         if ([convID isEqualToString:self.convID]) {
-            if (convSeq > 0) { [self.seenConvSeqs addObject:@(convSeq)]; } // 防 sync 重复回显
+            if (convSeq > 0) { [self.windowState.seenConvSeqs addObject:@(convSeq)]; } // 防 sync 重复回显
             [self.tableView reloadData];
         }
     }];
@@ -420,7 +420,7 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
         [database saveMessage:m];
     }];
     if ([convID isEqualToString:self.convID]) {
-        [self.messages addObject:m];
+        [self.windowState.messages addObject:m];
         [self appendReloadAndScroll];
     }
 }
@@ -514,8 +514,8 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
         [self performDatabaseOperation:^(IMDatabase *database) {
             [database deleteMessage:m];
         }];
-        [self.messages removeObject:m];
-        if (m.convSeq > 0) { [self.seenConvSeqs removeObject:@(m.convSeq)]; }
+        [self.windowState.messages removeObject:m];
+        if (m.convSeq > 0) { [self.windowState.seenConvSeqs removeObject:@(m.convSeq)]; }
     }
     [self.tableView reloadData];
     [self exitSelection];
@@ -622,8 +622,8 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
 - (BOOL)tableView:(UITableView *)tableView canEditRowAtIndexPath:(NSIndexPath *)indexPath {
     if (!self.selecting) { return NO; } // 仅多选态可选中
     // 不可选的行不显示勾选圈（系统编辑态对 canEdit=NO 的行自动不画圈，无需额外 UI）。
-    if (indexPath.row >= (NSInteger)self.messages.count) { return NO; }
-    return [self isSelectableMessage:self.messages[indexPath.row]];
+    if (indexPath.row >= (NSInteger)self.windowState.messages.count) { return NO; }
+    return [self isSelectableMessage:self.windowState.messages[indexPath.row]];
 }
 
 /// 多选态勾选填充（#5）：selectionStyle=None 会让编辑圈选永远不显示"已勾选"态，
@@ -665,8 +665,8 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
 /// 相册 leader 行左侧系统圈全选/全不选：把整组成员 conv_seq 批量加入/移出 selectedMediaSeqs，并就地刷新该 cell 的逐格勾选框。
 /// 非相册行不处理（其选中已由系统行选中表达）。
 - (void)applyAlbumSelectAll:(BOOL)selectAll atRow:(NSInteger)row {
-    if (row < 0 || row >= (NSInteger)self.messages.count) { return; }
-    IMMessageModel *m = self.messages[(NSUInteger)row];
+    if (row < 0 || row >= (NSInteger)self.windowState.messages.count) { return; }
+    IMMessageModel *m = self.windowState.messages[(NSUInteger)row];
     if (![self isAlbumMember:m] || m.groupID.length == 0) { return; }
     if (!self.selectionState.selectedMediaSeqs) { self.selectionState.selectedMediaSeqs = [NSMutableSet set]; }
     for (IMMessageModel *mm in [self albumMembersForGroupID:m.groupID]) {

@@ -24,7 +24,7 @@
     NSString *key = note.userInfo[kIMMediaSendClientMsgIDKey];
     IMMessageModel *mine = [self messageForClientMsgID:key];
     if (!mine) { return; }
-    [self.messages removeObjectIdenticalTo:mine];
+    [self.windowState.messages removeObjectIdenticalTo:mine];
     [self.tableView reloadData];
 }
 
@@ -37,7 +37,7 @@
 /// 从库里读出的副本）。
 - (IMMessageModel *)messageForClientMsgID:(NSString *)clientMsgID {
     if (clientMsgID.length == 0) { return nil; }
-    for (IMMessageModel *m in self.messages) {
+    for (IMMessageModel *m in self.windowState.messages) {
         if ([m.clientMsgID isEqualToString:clientMsgID]) { return m; }
     }
     return nil;
@@ -80,8 +80,8 @@
     if (!mine) { return; }
     if (mine != serviceModel) {
         // 本页持有库副本：用服务实例整体替换（后续 ack/刷新都以它为准），避免两份模型漂移。
-        NSUInteger idx = [self.messages indexOfObjectIdenticalTo:mine];
-        if (idx != NSNotFound) { [self.messages replaceObjectAtIndex:idx withObject:serviceModel]; }
+        NSUInteger idx = [self.windowState.messages indexOfObjectIdenticalTo:mine];
+        if (idx != NSNotFound) { [self.windowState.messages replaceObjectAtIndex:idx withObject:serviceModel]; }
     }
     // 上传完成瞬间气泡内容切换（文件行状态区收敛、媒体角标变化）可能微调行高：原本贴底则重新贴底。
     BOOL wasNearBottom = [self isNearBottom];
@@ -112,7 +112,7 @@
         mine.note = serviceModel.note;
         mine.noteCode = serviceModel.noteCode; // 随 note 一起拷：决定系统行给不给恢复入口（200103 → 发好友申请）
     }
-    if (mine.convSeq > 0) { [self.seenConvSeqs addObject:@(mine.convSeq)]; } // 防 sync 重复回显自己发的
+    if (mine.convSeq > 0) { [self.windowState.seenConvSeqs addObject:@(mine.convSeq)]; } // 防 sync 重复回显自己发的
     // 相册成员的 ACK 只定点刷宫格角标/状态胶囊；但**被拒收挂了系统行时行高会变**，
     // 定点刷新不重算高度（系统行会被裁掉），必须整表 reload 走下面的分支。
     if (mine.groupID.length > 0 && mine.note.length == 0) {
@@ -126,7 +126,12 @@
 /// 会话历史被清空（资料页操作）：本会话则清空内存消息 + 刷新表。
 - (void)onConversationCleared:(NSNotification *)note {
     if (![note.userInfo[kIMConvIDKey] isEqualToString:self.convID]) { return; }
-    [self.messages removeAllObjects];
+    [self.windowState.messages removeAllObjects];
+    [self.windowState.seenConvSeqs removeAllObjects];
+    // 清空后窗口回到"空的最新一窗"：不复位的话，若清空前正停在历史，windowAtTail 会一直是 NO，
+    // 之后新收的消息会被当作"用户在看历史"而不上屏。
+    self.windowState.atTail = YES;
+    self.windowState.hasMoreAbove = NO;
     [self.tableView reloadData];
 }
 
@@ -160,7 +165,7 @@
     // 记住是否贴底，reload 后强制精确贴底，否则 contentOffset 会被 UIKit clamp 向上跳一段
     // （露出白底 + 一次视觉抖动）。仅撤回路径需要，编辑/置顶行高变化可忽略。
     BOOL wasNearBottomForRecall = (recalledAt != nil) && [self isNearBottom];
-    for (IMMessageModel *m in self.messages) {
+    for (IMMessageModel *m in self.windowState.messages) {
         if (m.convSeq != target) { continue; }
         if (recalledAt) {
             m.recalledAt = recalledAt.longLongValue;
@@ -210,11 +215,11 @@
     int64_t target = [note.userInfo[kIMMsgOpTargetSeqKey] longLongValue];
     if (target <= 0) { return; }
     NSUInteger idx = NSNotFound;
-    for (NSUInteger i = 0; i < self.messages.count; i++) {
-        if (self.messages[i].convSeq == target) { idx = i; break; }
+    for (NSUInteger i = 0; i < self.windowState.messages.count; i++) {
+        if (self.windowState.messages[i].convSeq == target) { idx = i; break; }
     }
     if (idx == NSNotFound) { return; }
-    [self.messages removeObjectAtIndex:idx];
+    [self.windowState.messages removeObjectAtIndex:idx];
     [self.tableView reloadData];
     [self reloadPinnedBanner]; // 删掉的可能正是一条置顶消息，别让横幅指向已消失的消息
 }

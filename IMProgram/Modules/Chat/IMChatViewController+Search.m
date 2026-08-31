@@ -8,6 +8,7 @@
 #import "IMChatSearchState.h"
 #import "IMChatDateJumpViewController.h"
 #import "IMMessageModel.h"
+#import "IMDatabase.h"      // 搜索命中/日历打点/发件人候选一律查库（分页后内存只剩一窗）
 #import "IMTheme.h"
 #import "IMGlass.h"
 #import "IMMainTabBarController.h"   // kIMLiquidBarHeight
@@ -300,27 +301,15 @@ static const CGFloat kIMSearchFromRowH = 52;
 - (void)recomputeSearchHitsAndJump:(BOOL)jumpToNewest {
     NSString *kw = [self currentSearchKeyword];
     self.searchState.searchKeyword = kw;
-    NSMutableArray<NSNumber *> *hits = [NSMutableArray array];
     NSString *fromUID = self.searchState.searchFromUID;
-    if (kw.length > 0 || fromUID.length > 0) {
-        NSString *needle = kw.lowercaseString;
-        for (IMMessageModel *m in self.messages) {
-            if (m.recalledAt > 0 || m.convSeq <= 0) { continue; }
-            if (fromUID.length > 0 && ![m.from isEqualToString:fromUID]) { continue; }
-            BOOL hit = (kw.length == 0); // 仅按发件人过滤（无关键词）时全算命中
-            if (!hit && [m.contentType isEqualToString:@"text"] && m.content.length > 0) {
-                hit = [m.content.lowercaseString containsString:needle];
-            }
-            if (!hit && m.caption.length > 0) {
-                hit = [m.caption.lowercaseString containsString:needle];
-            }
-            if (!hit && m.fileName.length > 0) {  // P2：文件名命中（Q3预算.xlsx）
-                hit = [m.fileName.lowercaseString containsString:needle];
-            }
-            if (hit) { [hits addObject:@(m.convSeq)]; }
-        }
-    }
-    self.searchState.searchHits = hits;                 // 升序（self.messages 本就旧→新）
+    // **查本地库、不扫内存窗口**：分页后 `windowState.messages` 只有当前一窗，扫它等于把
+    // 「会话内搜索」悄悄改成「只搜看得见的这 200 条」——功能还在、结果是错的，最难发现的那种。
+    __block NSArray<NSNumber *> *hits = @[];
+    NSString *convID = self.convID;
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        hits = [database searchConvSeqsInConv:convID keyword:kw fromUID:fromUID limit:0];
+    }];
+    self.searchState.searchHits = hits;                 // 升序（DB 查询已保证）
     self.searchState.searchHitIndex = (NSInteger)hits.count - 1; // 默认最新命中
     [self updateSearchNavState];
     [self.tableView reloadData];   // 刷新气泡内命中词高亮（cell 经 searchHighlightKeyword 染色）
@@ -333,7 +322,7 @@ static const CGFloat kIMSearchFromRowH = 52;
 - (void)scrollCurrentSearchHitVisible {
     if (self.searchState.searchHits.count == 0) { return; }
     int64_t seq = self.searchState.searchHits[(NSUInteger)MAX(0, self.searchState.searchHitIndex)].longLongValue;
-    for (IMMessageModel *m in self.messages) {
+    for (IMMessageModel *m in self.windowState.messages) {
         if (m.convSeq == seq) {
             NSUInteger row = [self visibleRowForMessage:m];
             if (row == NSNotFound) { return; }
@@ -378,13 +367,19 @@ static const CGFloat kIMSearchFromRowH = 52;
 
 #pragma mark - 📅 按日期跳转
 
+/// 日历上「这天有消息」的打点集合。查库——只看当前窗口的话，日历会几乎全灰。
 - (NSSet<NSDate *> *)activeDaysFromMessages {
     NSCalendar *cal = [NSCalendar currentCalendar];
+    __block NSArray<NSNumber *> *dayStarts = @[];
+    NSString *convID = self.convID;
+    int64_t offsetMs = (int64_t)NSTimeZone.systemTimeZone.secondsFromGMT * 1000;
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        dayStarts = [database activeLocalDayStartsInConv:convID utcOffsetMs:offsetMs];
+    }];
     NSMutableSet<NSDate *> *days = [NSMutableSet set];
-    for (IMMessageModel *m in self.messages) {
-        if (m.recalledAt > 0 || m.timestamp <= 0) { continue; }
-        NSDate *d = [NSDate dateWithTimeIntervalSince1970:m.timestamp / 1000.0];
-        [days addObject:[cal startOfDayForDate:d]];
+    for (NSNumber *ms in dayStarts) {
+        // 再过一次 startOfDayForDate:：SQL 那边是按固定偏移整除分的桶，夏令时下可能差一小时。
+        [days addObject:[cal startOfDayForDate:[NSDate dateWithTimeIntervalSince1970:ms.longLongValue / 1000.0]]];
     }
     return days;
 }
@@ -400,20 +395,23 @@ static const CGFloat kIMSearchFromRowH = 52;
     [self presentViewController:vc animated:YES completion:nil];
 }
 
+/// 本会话中 timestamp ≥ epochMs 的第一条的 conv_seq（查库，理由同 recomputeSearchHitsAndJump:）。
 - (int64_t)firstConvSeqAtOrAfter:(NSTimeInterval)epochMs {
-    for (IMMessageModel *m in self.messages) {
-        if (m.recalledAt > 0 || m.convSeq <= 0) { continue; }
-        if ((NSTimeInterval)m.timestamp >= epochMs) { return m.convSeq; }
-    }
-    return 0;
+    __block int64_t seq = 0;
+    NSString *convID = self.convID;
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        seq = [database firstConvSeqInConv:convID atOrAfterTimestamp:(int64_t)epochMs];
+    }];
+    return seq;
 }
 
 - (void)handleDateJumpKind:(IMDateJumpKind)kind day:(nullable NSDate *)day {
     NSCalendar *cal = [NSCalendar currentCalendar];
     if (kind == IMDateJumpKindEarliest) {
-        for (IMMessageModel *m in self.messages) {
-            if (m.recalledAt == 0 && m.convSeq > 0) { [self jumpToConvSeq:m.convSeq]; return; }
-        }
+        // 「跳到最早」= timestamp ≥ 0 的第一条。分页前这里扫内存正好等价（内存就是全部），
+        // 分页后会变成"跳到当前窗口最早那条"，也就是原地不动。
+        int64_t earliest = [self firstConvSeqAtOrAfter:0];
+        if (earliest > 0) { [self jumpToConvSeq:earliest]; }
         return;
     }
     if (kind == IMDateJumpKindToday) {
@@ -421,8 +419,10 @@ static const CGFloat kIMSearchFromRowH = 52;
         int64_t seq = [self firstConvSeqAtOrAfter:todayMs];
         if (seq > 0) { [self jumpToConvSeq:seq]; }
         else {
-            IMMessageModel *last = self.messages.lastObject;
-            if (last.convSeq > 0) { [self jumpToConvSeq:last.convSeq]; [self im_showToast:@"今天暂无消息，已跳到最近一条"]; }
+            __block int64_t lastSeq = 0;
+            NSString *cid = self.convID;
+            [self performDatabaseOperation:^(IMDatabase *database) { lastSeq = [database maxConvSeqForConv:cid]; }];
+            if (lastSeq > 0) { [self jumpToConvSeq:lastSeq]; [self im_showToast:@"今天暂无消息，已跳到最近一条"]; }
         }
         return;
     }
@@ -431,16 +431,16 @@ static const CGFloat kIMSearchFromRowH = 52;
     int64_t seq = [self firstConvSeqAtOrAfter:dayMs];
     if (seq <= 0) { [self im_showToast:@"该日期及之后暂无消息"]; return; }
     [self jumpToConvSeq:seq];
-    for (IMMessageModel *m in self.messages) {
-        if (m.convSeq == seq) {
-            NSDate *hitDay = [cal startOfDayForDate:[NSDate dateWithTimeIntervalSince1970:m.timestamp / 1000.0]];
-            if (![cal isDate:hitDay inSameDayAsDate:day]) {
-                NSDateFormatter *fmt = [NSDateFormatter new];
-                fmt.dateFormat = @"M月d日";
-                [self im_showToast:[NSString stringWithFormat:@"该日期无消息，已跳到 %@", [fmt stringFromDate:hitDay]]];
-            }
-            break;
-        }
+    // 落点是不是用户选的那天：查库拿那一条（跳转可能要等服务端开窗，此刻它未必在内存里）。
+    __block IMMessageModel *hit = nil;
+    NSString *cid2 = self.convID;
+    [self performDatabaseOperation:^(IMDatabase *database) { hit = [database messageInConv:cid2 convSeq:seq]; }];
+    if (!hit) { return; }
+    NSDate *hitDay = [cal startOfDayForDate:[NSDate dateWithTimeIntervalSince1970:hit.timestamp / 1000.0]];
+    if (![cal isDate:hitDay inSameDayAsDate:day]) {
+        NSDateFormatter *fmt = [NSDateFormatter new];
+        fmt.dateFormat = @"M月d日";
+        [self im_showToast:[NSString stringWithFormat:@"该日期无消息，已跳到 %@", [fmt stringFromDate:hitDay]]];
     }
 }
 
@@ -479,42 +479,22 @@ static const CGFloat kIMSearchFromRowH = 52;
 
 /// 「来自」候选 = 本会话**已发过消息**的去重发件人（刻意如此：没发过言的成员过滤后必 0 命中，列出无意义；
 /// 2026-08-20 确认维持此逻辑，勿改成全量群成员）。
-- (NSArray<NSString *> *)distinctSenders {
-    NSMutableArray<NSString *> *order = [NSMutableArray array];
-    NSMutableSet<NSString *> *seen = [NSMutableSet set];
-    for (IMMessageModel *m in self.messages) {
-        if (m.from.length == 0 || m.recalledAt > 0) { continue; }
-        if (![seen containsObject:m.from]) { [seen addObject:m.from]; [order addObject:m.from]; }
-    }
-    return order;
-}
-
 /// 候选打包 {uid, name, avatar}（名字=备注→昵称→uid，头像走消息表里的发送者头像 URL）。
+/// 查库取每人的**最新一条**作代表：只看当前窗口的话，候选会缩成"最近发过言的那几个人"。
 - (NSArray<NSDictionary *> *)searchFromCandidates {
+    __block NSArray<IMMessageModel *> *samples = @[];
+    NSString *convID = self.convID;
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        samples = [database distinctSenderSamplesInConv:convID limit:0];
+    }];
     NSMutableArray<NSDictionary *> *out = [NSMutableArray array];
-    for (NSString *uid in [self distinctSenders]) {
-        [out addObject:@{ @"uid": uid,
-                          @"name": [self searchDisplayNameForUID:uid],
-                          @"avatar": [self searchAvatarURLForUID:uid] ?: @"" }];
+    for (IMMessageModel *m in samples) {
+        if (m.from.length == 0) { continue; }
+        [out addObject:@{ @"uid": m.from,
+                          @"name": IMDisplayName([self senderNameForMessage:m], nil),
+                          @"avatar": [self senderAvatarURLForMessage:m] ?: @"" }];
     }
     return out;
-}
-
-- (NSString *)searchDisplayNameForUID:(NSString *)uid {
-    for (IMMessageModel *m in self.messages) {
-        if ([m.from isEqualToString:uid]) {
-            NSString *n = [self senderNameForMessage:m];
-            return IMDisplayName(n, nil);
-        }
-    }
-    return uid;
-}
-
-- (nullable NSString *)searchAvatarURLForUID:(NSString *)uid {
-    for (IMMessageModel *m in self.messages) {
-        if ([m.from isEqualToString:uid]) { return [self senderAvatarURLForMessage:m]; }
-    }
-    return nil;
 }
 
 - (void)presentSearchFromPanel {

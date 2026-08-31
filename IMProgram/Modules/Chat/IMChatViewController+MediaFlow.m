@@ -186,8 +186,8 @@
         // 多选态：可选行交给表格勾选；点到发送中/失败的本地件（无勾选圈）直接提示原因，不静默。
         CGPoint sp = [gr locationInView:self.tableView];
         NSIndexPath *sip = [self.tableView indexPathForRowAtPoint:sp];
-        if (sip && sip.row < (NSInteger)self.messages.count) {
-            IMMessageModel *sm = self.messages[(NSUInteger)sip.row];
+        if (sip && sip.row < (NSInteger)self.windowState.messages.count) {
+            IMMessageModel *sm = self.windowState.messages[(NSUInteger)sip.row];
             if (sm.convSeq <= 0 && ![sm.contentType isEqualToString:@"system"]) {
                 [self im_showToast:@"发送中/失败的消息不可选择"];
             }
@@ -201,7 +201,7 @@
     NSIndexPath *ip = [self.tableView indexPathForRowAtPoint:p];
     // @昵称 点击（气泡内）：必须在**收键盘前**用稳定布局命中——resign 会改 inset 让 cell 位移、坐标反查失准。
     // 命中某个挂了 uid 的 token → 跳该成员资料页（先于长文展开/引用跳转）。
-    if (ip && ip.row < (NSInteger)self.messages.count) {
+    if (ip && ip.row < (NSInteger)self.windowState.messages.count) {
         UITableViewCell *hitCell = [self.tableView cellForRowAtIndexPath:ip];
         // 文本气泡正文/文件文 caption（IMBubbleCell）与图文/视文 caption（IMImageCell）统一走 mentionUIDAtPoint:。
         if ([hitCell respondsToSelector:@selector(mentionUIDAtPoint:)]) {
@@ -211,8 +211,8 @@
     }
     BOOL keyboardWasUp = self.kbInset > 0;
     [self.inputField resignFirstResponder]; // 点消息区任意处收起键盘（微信式；拖拽收起仍由 Interactive 模式负责）
-    if (!ip || ip.row >= (NSInteger)self.messages.count) { return; }
-    IMMessageModel *m = self.messages[(NSUInteger)ip.row];
+    if (!ip || ip.row >= (NSInteger)self.windowState.messages.count) { return; }
+    IMMessageModel *m = self.windowState.messages[(NSUInteger)ip.row];
     // 命中气泡外（气泡旁的整行空白）→ 只收键盘、不打开/跳转/展开。indexPathForRowAtPoint 命中整行，
     // 气泡通常窄于行宽，故须再按 cell 的 pointInsideBubble: 收窄到气泡本体（修「点文件/引用消息空白也响应」）。
     UITableViewCell *hitForBubble = [self.tableView cellForRowAtIndexPath:ip];
@@ -286,7 +286,12 @@
     [IMFilePreviewPresenter presentURL:[self.downloads localFileForMessage:m] fromViewController:self];
 }
 
-/// 跳转到被引用的原消息：滚到该 conv_seq 行并高亮一闪（与 Web quoteflash 同节奏，1.2s）。
+/// 跳转到某条消息（**全部定位入口的唯一出口**：引用 / 置顶横幅 / 置顶列表 / 会话内搜索 /
+/// 详情页各 Tab 的「定位」/ @我的消息 / 合并转发卡片内点某条 / 全局搜索结果）。
+/// 滚到该行并高亮一闪（与 Web quoteflash 同节奏，1.2s）。
+///
+/// 三层回落见 +Window.m 文件头：窗口内 → 本地库开窗 → 服务端 window_req。
+/// 前两层不打网络，所以绝大多数跳转仍是瞬时的。
 - (void)jumpToConvSeq:(int64_t)targetConvSeq {
     // 本页不在栈顶（从全屏媒体库 IMConversationMediaViewController、合并记录等 push 页里点「定位」进来，
     // 且弹层查看器已 dismiss）→ 先弹回本聊天页再滚，否则滚动发生在被覆盖的表上、用户看不到跳转（全屏库定位失效即此）。
@@ -304,28 +309,10 @@
         }
         return;
     }
-    int64_t earliest = 0; // 当前已加载最早 conv_seq(>0)，用于区分"未加载到"与"已删除"
-    for (NSUInteger i = 0; i < self.messages.count; i++) {
-        int64_t s = self.messages[i].convSeq;
-        if (s > 0 && (earliest == 0 || s < earliest)) { earliest = s; }
-        if (s == targetConvSeq) {
-            // 相册成员行本身零高（宫格整体画在 leader 行）：直接滚到成员下标会落在不可见行、高亮闪不出来。
-            // 统一经 visibleRowForMessage 映射到该相册的 leader 行（普通消息即自身行）。
-            NSUInteger visRow = [self visibleRowForMessage:self.messages[i]];
-            NSInteger targetRow = (visRow == NSNotFound) ? (NSInteger)i : (NSInteger)visRow;
-            NSIndexPath *ip = [NSIndexPath indexPathForRow:targetRow inSection:0];
-            [self.tableView scrollToRowAtIndexPath:ip atScrollPosition:UITableViewScrollPositionMiddle animated:YES];
-            // 等滚动动画到位后再闪（已在视口时 scrollToRow 也可能微调，同样适用）。
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)),
-                           dispatch_get_main_queue(), ^{ [self flashRowAtIndexPath:ip]; });
-            return;
-        }
-    }
-    // 跳不到分两种：落在窗口内却缺失 → 已被本地删除；目标比"已加载最早一条"还早（或全表无已确认消息，
-    // earliest=0 判不出窗口）→ 本地没有。iOS 无上拉分页（全量载本地库），故不提示"上拉加载"，与 Web 文案刻意有别（CHAT_UX §3.1）。
-    NSString *toast = (earliest == 0 || targetConvSeq < earliest)
-        ? @"原消息不在本地" : @"原消息已被删除";
-    [self im_showToast:toast];
+    if (targetConvSeq <= 0) { return; }
+    if ([self scrollToLoadedConvSeq:targetConvSeq]) { return; }        // ① 已在当前窗口
+    if ([self openLocalWindowAroundConvSeq:targetConvSeq]) { return; } // ② 本地库有 → 换窗
+    [self requestServerWindowAnchor:targetConvSeq isJump:YES];         // ③ 问服务端（回包再滚，含"真的删了"的判定）
 }
 
 /// 跳转高亮遮罩的 view tag（长按预览光栅化时据此临时隐藏它）。取一个不易与业务 tag 冲突的值。
@@ -359,7 +346,26 @@ const NSInteger kIMFlashOverlayTag = 0x1F1A5; // 跨 +Menu：光栅化预览时�
     // 结果到来前先记录是否贴底：被拒收会给该条挂"系统行"，cell 随之变高，
     // 不重新贴底则系统行被顶出屏幕（需手动下滚才可见）。自己发的消息贴底（CHAT_UX §9）。
     BOOL wasNearBottom = [self isNearBottom];
-    for (IMMessageModel *m in self.messages) {
+    // 目标不在当前窗口（发完立刻跳去看历史，ack 才回来）：从库里取出来照样把状态改掉并落库，
+    // 否则那条会永远停在「发送中」。这一步只改库不动 UI——它本就不在屏幕上。
+    BOOL inWindow = NO;
+    for (IMMessageModel *x in self.windowState.messages) {
+        if ([x.clientMsgID isEqualToString:clientMsgID]) { inWindow = YES; break; }
+    }
+    if (!inWindow) {
+        __block IMMessageModel *row = nil;
+        NSString *cid = self.convID;
+        [self performDatabaseOperation:^(IMDatabase *database) {
+            row = [database messageInConv:cid clientMsgID:clientMsgID];
+        }];
+        if (row) {
+            row.status = success ? IMMessageStatusSent : IMMessageStatusFailed;
+            if (convSeq > 0) { row.convSeq = convSeq; }
+            [self performDatabaseOperation:^(IMDatabase *database) { [database saveMessage:row]; }];
+        }
+        return;
+    }
+    for (IMMessageModel *m in self.windowState.messages) {
         if ([m.clientMsgID isEqualToString:clientMsgID]) {
             m.status = success ? IMMessageStatusSent : IMMessageStatusFailed;
             // 被拒收 → 把服务端友好文案挂到 note，气泡下方居中显示（微信式系统行）；其余失败（如 ack 超时）不挂 note，仍显"未发送 ✗"。
@@ -372,7 +378,7 @@ const NSInteger kIMFlashOverlayTag = 0x1F1A5; // 跨 +Menu：光栅化预览时�
             if (![self performDatabaseOperation:^(IMDatabase *database) {
                 [database saveMessage:m]; // upsert：更新状态/conv_seq/note（含被拒文案，重进会话不丢）
             }]) { return; }
-            if (convSeq > 0) { [self.seenConvSeqs addObject:@(convSeq)]; } // 防 sync 重复回显自己发的
+            if (convSeq > 0) { [self.windowState.seenConvSeqs addObject:@(convSeq)]; } // 防 sync 重复回显自己发的
             // 相册成员的 ACK 只定点刷宫格角标/状态胶囊（全表 reloadData 是批量发送闪屏的元凶之一）。
             if (m.groupID.length > 0) {
                 [self refreshVisibleCellForMessage:m];

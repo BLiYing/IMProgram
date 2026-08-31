@@ -12,8 +12,8 @@
 #pragma mark - ↓N 跳转按钮 / 自动滚动（CHAT_UX §7、§9）
 
 - (void)scrollToBottomAnimated:(BOOL)animated {
-    if (self.messages.count == 0) { return; }
-    NSIndexPath *last = [NSIndexPath indexPathForRow:self.messages.count - 1 inSection:0];
+    if (self.windowState.messages.count == 0) { return; }
+    NSIndexPath *last = [NSIndexPath indexPathForRow:self.windowState.messages.count - 1 inSection:0];
     [self.tableView scrollToRowAtIndexPath:last atScrollPosition:UITableViewScrollPositionBottom animated:animated];
 }
 
@@ -21,8 +21,8 @@
 /// 视口附近的行、离屏行仍是估算 → 一跳会停在真底部之上（进会话不贴底的根因）。
 /// 改为「滚到末行(触发底部区域真实布局)→按最新 contentSize 精确对齐→再验证」迭代至收敛（≤6 轮防御死循环）。
 - (void)scrollToAbsoluteBottom {
-    if (self.messages.count == 0) { return; }
-    NSIndexPath *last = [NSIndexPath indexPathForRow:(NSInteger)self.messages.count - 1 inSection:0];
+    if (self.windowState.messages.count == 0) { return; }
+    NSIndexPath *last = [NSIndexPath indexPathForRow:(NSInteger)self.windowState.messages.count - 1 inSection:0];
     CGFloat y = 0;
     for (int pass = 0; pass < 6; pass++) {
         [self.tableView scrollToRowAtIndexPath:last atScrollPosition:UITableViewScrollPositionBottom animated:NO];
@@ -36,7 +36,7 @@
     }
     // 6 轮仍未收敛=估高与真实行高差距过大（历史全是媒体/多行消息）。留痕定位"首进/发送后不贴底"。
     IMLogWarnWithTag(IMLogTagUI, @"chat_stick_bottom_not_converged conv_id=%@ rows=%lu offset_y=%.1f target_y=%.1f content_h=%.1f",
-                     self.convID, (unsigned long)self.messages.count, self.tableView.contentOffset.y, y,
+                     self.convID, (unsigned long)self.windowState.messages.count, self.tableView.contentOffset.y, y,
                      self.tableView.contentSize.height);
 }
 
@@ -49,8 +49,9 @@
 
 - (void)scrollViewDidScroll:(UIScrollView *)scrollView {
     if (self.tableView.contentSize.height <= 0) { return; }
-    [self markVisibleRowsRead]; // 可见即读：滚到哪、读到哪（先推进 pendingReadSeq）
-    [self updateJumpButton];    // 再据新位点刷新 ↓N 计数
+    [self markVisibleRowsRead];   // 可见即读：滚到哪、读到哪（先推进 pendingReadSeq）
+    [self updateJumpButton];      // 再据新位点刷新 ↓N 计数
+    [self maybeLoadOlderOnScroll]; // 快到顶了就往上翻一页（本地库优先，翻到头才问服务端）
 }
 
 // 滚动中媒体尺寸落定被延迟的行高重排：拖拽/惯性结束后统一补一次（滚动期间做会肉眼可见地弹跳）。
@@ -95,15 +96,14 @@
 /// 视口下方仍未读的对端消息数 = conv_seq 超过已滚入位点(pendingReadSeq)的对端消息数。
 /// 随着向下滚动 pendingReadSeq 推进 → 该数递减，滚到底为 0。
 - (NSInteger)unreadBelowReadFrontier {
-    NSInteger n = 0;
-    for (IMMessageModel *m in self.messages) {
-        if (![m.from isEqualToString:self.userID] && m.convSeq > self.pendingReadSeq) { n++; }
-    }
-    return n;
+    // 分页后内存里只有当前一窗：看历史时数不出下方还有多少，改由 +Window.m 按本地库出（同一口径）。
+    return [self windowUnreadBelowCount];
 }
 
+/// ↓ 按钮 = "我要看最新的"：正在看历史时先换回最新一窗，再贴底。
+/// 只滚不换窗的话，按钮会把用户送到**历史窗口的底部**，看起来像是没反应。
 - (void)jumpTapped {
-    [self scrollToBottomAnimated:YES];
+    [self resetWindowToTailAnimated:YES];
     [self updateJumpButton];
 }
 

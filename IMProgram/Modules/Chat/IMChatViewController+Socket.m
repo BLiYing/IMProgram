@@ -85,7 +85,7 @@
 /// 只见旧的失败消息、以为新消息没收到。第一次进会话走 DB（当时已修）看着正常，Web 一发消息触发本
 /// comparator 重排，时序又坏 —— **同一个 bug 在 DB 与内存两处各写了一遍**，故收敛到这一个方法。
 - (void)sortMessagesInPlace {
-    [self.messages sortUsingComparator:^NSComparisonResult(IMMessageModel *a, IMMessageModel *b) {
+    [self.windowState.messages sortUsingComparator:^NSComparisonResult(IMMessageModel *a, IMMessageModel *b) {
         if (a.timestamp != b.timestamp) {
             return a.timestamp < b.timestamp ? NSOrderedAscending : NSOrderedDescending;
         }
@@ -105,11 +105,11 @@
     // 同一条消息可能既被 new_msg 推送、又被 sync_resp 拉到，按 conv_seq 去重。
     if (message.convSeq > 0) {
         NSNumber *key = @(message.convSeq);
-        if ([self.seenConvSeqs containsObject:key]) {
+        if ([self.windowState.seenConvSeqs containsObject:key]) {
             // 完整历史校正会再次下发已经实时上屏的消息。不能重复插入，但要让权威元数据回填当前内存模型；
             // 否则 SQLite 已从 0 修复成真实 file_size，当前页面仍会一直显示 0 KB，直到重新进入会话。
             if ([message.contentType isEqualToString:@"file"] && message.fileSize > 0) {
-                for (IMMessageModel *existing in self.messages) {
+                for (IMMessageModel *existing in self.windowState.messages) {
                     if (existing.convSeq != message.convSeq) { continue; }
                     existing.fileSize = message.fileSize;
                     if (message.fileName.length > 0) { existing.fileName = message.fileName; }
@@ -120,14 +120,21 @@
             }
             return;
         }
-        [self.seenConvSeqs addObject:key];
+        [self.windowState.seenConvSeqs addObject:key];
+    }
+    // 窗口不在末尾（用户正在看历史）：**只落库、不上屏**。硬插到当前窗口末尾会让一条最新消息
+    // 直接接在几个月前的历史后面（时间线断裂）；回到末尾时它自然会在那里。
+    // ↓N 此时改由本地库数（windowUnreadBelowCount），用户仍看得到"下面有新消息"。
+    if (!self.windowState.atTail) {
+        [self updateJumpButton];
+        return;
     }
     // 收到新消息：贴底才自动贴底；在上方看历史则不打断，累加到"↓N"（CHAT_UX §9）。
     BOOL wasNearBottom = [self isNearBottom];
     // 绝大多数消息按序到达：直接尾插即保持有序，省掉每条都做的 O(n log n) 全量重排。
     // 仅当来的消息落在末条之前（乱序/补拉插队）才重排一次——判定口径与 sortMessagesInPlace 的
     // comparator 严格一致（timestamp 主序，同毫秒时 conv_seq=0 视为 +∞ 垫底）。
-    IMMessageModel *lastMsg = self.messages.lastObject;
+    IMMessageModel *lastMsg = self.windowState.messages.lastObject;
     BOOL needsSort = NO;
     if (lastMsg) {
         if (message.timestamp < lastMsg.timestamp) {
@@ -138,7 +145,7 @@
             needsSort = sNew < sLast;
         }
     }
-    [self.messages addObject:message];
+    [self.windowState.messages addObject:message];
     if (needsSort) { [self sortMessagesInPlace]; }
     [self.tableView reloadData];
     // 冷启动直进本页时 init 读库可能为空（账号数据库上下文未就绪），历史全靠 sync 事后补进——
@@ -151,6 +158,8 @@
     if (wasNearBottom) { [self scrollToBottomAnimated:YES]; }
     // 可见即读 + ↓N 刷新：贴底时新消息进视口即标已读；在上方看历史则不读、↓N 计数 +1（markVisibleRowsRead 内重算）。
     [self markVisibleRowsRead];
+    // 贴底连收时窗口只涨不缩（活跃大群一小时能来 7 万条）：到上限就从顶部裁掉一窗。
+    [self trimWindowIfOverlongAtTail];
 }
 
 /// 对端已读到 upToConvSeq → 记录并刷新（已送达 → 已读）。

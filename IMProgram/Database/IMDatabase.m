@@ -936,6 +936,18 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
     return rowID;
 }
 
+/// 全表唯一的显示排序（**唯一定义处**）：时间戳主排；同毫秒时 conv_seq=0（待发/失败）视为最大值垫底；
+/// row_id 兜同刻同序。下面 messagesForConv: 的注释解释了为什么是这个顺序而不是 conv_seq 主排。
+/// 窗口查询要取"最后 N 条"，把同一顺序整体反过来即可（见 kIMMessageOrderDesc）。
+static NSString * const kIMMessageOrderAsc =
+    @" ORDER BY timestamp ASC,"
+     "CASE WHEN conv_seq>0 THEN conv_seq ELSE 9223372036854775807 END ASC,"
+     "row_id ASC";
+static NSString * const kIMMessageOrderDesc =
+    @" ORDER BY timestamp DESC,"
+     "CASE WHEN conv_seq>0 THEN conv_seq ELSE 9223372036854775807 END DESC,"
+     "row_id DESC";
+
 - (NSArray<IMMessageModel *> *)messagesForConv:(NSString *)convID {
     NSString *owner = [self ownerUserID];
     NSMutableArray<IMMessageModel *> *out = [NSMutableArray array];
@@ -951,10 +963,7 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
         // ⚠️ 新增字段的第③处：下方逐列映射须同步补一行（第④处是 IMDatabaseSchemaTests 的
         // 回环断言——漏改这里由它抓出）。SELECT * 名字取列，天然不受列序影响。
         FMResultSet *rs = [db executeQuery:
-            @"SELECT * FROM im_message_local WHERE owner_uid=? AND conv_id=? "
-             "ORDER BY timestamp ASC,"
-             "CASE WHEN conv_seq>0 THEN conv_seq ELSE 9223372036854775807 END ASC,"
-             "row_id ASC",
+            [@"SELECT * FROM im_message_local WHERE owner_uid=? AND conv_id=?" stringByAppendingString:kIMMessageOrderAsc],
             owner, convID];
         while ([rs next]) {
             [out addObject:[IMDatabase messageFromResultSet:rs]];
@@ -962,6 +971,188 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
         [rs close];
     }];
     return out;
+}
+
+#pragma mark - 消息窗口（MESSAGE_WINDOW_DESIGN §4）
+
+const NSInteger kIMMessageWindowPageSize = 200;
+
+/// 跑一条窗口查询并按需反转成升序。descending=YES 表示 SQL 用倒序取"最后 N 条"，取回后反转。
+- (NSArray<IMMessageModel *> *)windowQuery:(NSString *)whereClause
+                                      args:(NSArray *)args
+                                descending:(BOOL)descending
+                                     limit:(NSInteger)limit {
+    if (limit <= 0) { return @[]; }
+    NSMutableArray<IMMessageModel *> *out = [NSMutableArray array];
+    NSString *sql = [NSString stringWithFormat:@"SELECT * FROM im_message_local WHERE %@%@ LIMIT %ld",
+                     whereClause, descending ? kIMMessageOrderDesc : kIMMessageOrderAsc, (long)limit];
+    [_queue inDatabase:^(FMDatabase *db) {
+        FMResultSet *rs = [db executeQuery:sql withArgumentsInArray:args];
+        while ([rs next]) { [out addObject:[IMDatabase messageFromResultSet:rs]]; }
+        [rs close];
+    }];
+    if (descending) {
+        return out.reverseObjectEnumerator.allObjects; // 统一成升序返回（三个窗口查询的共同契约）
+    }
+    return out;
+}
+
+- (NSArray<IMMessageModel *> *)latestMessagesForConv:(NSString *)convID limit:(NSInteger)limit {
+    // 不加 conv_seq 条件：待发/失败消息（conv_seq==0）按上面的排序天然落在末尾，属于"最新一窗"的一部分。
+    // 漏掉它们的表现是「刚发出的消息看不见」——第一版就这么错过（im-web 同一个坑）。
+    return [self windowQuery:@"owner_uid=? AND conv_id=?"
+                        args:@[[self ownerUserID], convID] descending:YES limit:limit];
+}
+
+- (NSArray<IMMessageModel *> *)messagesForConv:(NSString *)convID
+                                 beforeConvSeq:(int64_t)beforeConvSeq
+                                         limit:(NSInteger)limit {
+    if (beforeConvSeq <= 0) { return @[]; }
+    return [self windowQuery:@"owner_uid=? AND conv_id=? AND conv_seq>0 AND conv_seq<?"
+                        args:@[[self ownerUserID], convID, @(beforeConvSeq)] descending:YES limit:limit];
+}
+
+- (NSArray<IMMessageModel *> *)messagesForConv:(NSString *)convID
+                                 aroundConvSeq:(int64_t)anchorConvSeq
+                                        before:(NSInteger)before
+                                         after:(NSInteger)after {
+    NSString *owner = [self ownerUserID];
+    NSArray<IMMessageModel *> *head = [self windowQuery:@"owner_uid=? AND conv_id=? AND conv_seq>0 AND conv_seq<=?"
+                                                   args:@[owner, convID, @(anchorConvSeq)]
+                                             descending:YES limit:before];
+    NSArray<IMMessageModel *> *tail = [self windowQuery:@"owner_uid=? AND conv_id=? AND conv_seq>?"
+                                                   args:@[owner, convID, @(anchorConvSeq)]
+                                             descending:NO limit:after];
+    NSMutableArray<IMMessageModel *> *out = [head mutableCopy];
+    [out addObjectsFromArray:tail];
+    return out;
+}
+
+- (IMMessageModel *)messageInConv:(NSString *)convID convSeq:(int64_t)convSeq {
+    if (convSeq <= 0) { return nil; }
+    __block IMMessageModel *found = nil;
+    NSString *owner = [self ownerUserID];
+    [_queue inDatabase:^(FMDatabase *db) {
+        FMResultSet *rs = [db executeQuery:@"SELECT * FROM im_message_local WHERE owner_uid=? AND conv_id=? AND conv_seq=? LIMIT 1",
+                           owner, convID, @(convSeq)];
+        if ([rs next]) { found = [IMDatabase messageFromResultSet:rs]; }
+        [rs close];
+    }];
+    return found;
+}
+
+- (IMMessageModel *)messageInConv:(NSString *)convID clientMsgID:(NSString *)clientMsgID {
+    if (clientMsgID.length == 0) { return nil; }
+    __block IMMessageModel *found = nil;
+    NSString *owner = [self ownerUserID];
+    [_queue inDatabase:^(FMDatabase *db) {
+        FMResultSet *rs = [db executeQuery:@"SELECT * FROM im_message_local WHERE owner_uid=? AND conv_id=? AND client_msg_id=? LIMIT 1",
+                           owner, convID, clientMsgID];
+        if ([rs next]) { found = [IMDatabase messageFromResultSet:rs]; }
+        [rs close];
+    }];
+    return found;
+}
+
+- (NSArray<IMMessageModel *> *)mediaMessagesForConv:(NSString *)convID {
+    return [self windowQuery:@"owner_uid=? AND conv_id=? AND recalled_at=0 AND content<>'' "
+                               "AND content_type IN ('image','video')"
+                        args:@[[self ownerUserID], convID] descending:NO limit:NSIntegerMax];
+}
+
+- (NSArray<NSNumber *> *)searchConvSeqsInConv:(NSString *)convID
+                                      keyword:(nullable NSString *)keyword
+                                      fromUID:(nullable NSString *)fromUID
+                                        limit:(NSInteger)limit {
+    NSString *trimmed = [(keyword ?: @"") stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (trimmed.length == 0 && fromUID.length == 0) { return @[]; }
+    NSString *owner = [self ownerUserID];
+    NSInteger cap = (limit > 0) ? limit : 500;
+    NSMutableArray<NSNumber *> *out = [NSMutableArray array];
+    [_queue inDatabase:^(FMDatabase *db) {
+        NSMutableString *sql = [NSMutableString stringWithString:
+            @"SELECT conv_seq FROM im_message_local WHERE owner_uid=? AND conv_id=? AND recalled_at=0 AND conv_seq>0 "];
+        NSMutableArray *args = [NSMutableArray arrayWithObjects:owner, convID, nil];
+        if (trimmed.length > 0) {
+            // 命中口径与 searchMessagesMatching: 逐条对齐（媒体/文件的 content 是 URL，仍不参与）。
+            NSString *like = [NSString stringWithFormat:@"%%%@%%", [IMDatabase escapeLikePattern:trimmed]];
+            [sql appendString:@"AND ((content_type='text' AND content LIKE ? ESCAPE '\\') "
+                               "OR (caption IS NOT NULL AND caption<>'' AND caption LIKE ? ESCAPE '\\') "
+                               "OR (file_name IS NOT NULL AND file_name<>'' AND file_name LIKE ? ESCAPE '\\')) "];
+            [args addObjectsFromArray:@[like, like, like]];
+        }
+        if (fromUID.length > 0) { [sql appendString:@"AND sender=? "]; [args addObject:fromUID]; }
+        // 先按倒序取最近 cap 条（超长会话截断时该保住**最近**的命中，不是最早的），再反转成升序。
+        [sql appendString:@"ORDER BY conv_seq DESC LIMIT ?"];
+        [args addObject:@(cap)];
+        FMResultSet *rs = [db executeQuery:sql withArgumentsInArray:args];
+        while ([rs next]) { [out addObject:@([rs longLongIntForColumn:@"conv_seq"])]; }
+        [rs close];
+    }];
+    return out.reverseObjectEnumerator.allObjects;
+}
+
+- (int64_t)firstConvSeqInConv:(NSString *)convID atOrAfterTimestamp:(int64_t)ms {
+    __block int64_t seq = 0;
+    NSString *owner = [self ownerUserID];
+    [_queue inDatabase:^(FMDatabase *db) {
+        FMResultSet *rs = [db executeQuery:
+            @"SELECT conv_seq FROM im_message_local "
+             "WHERE owner_uid=? AND conv_id=? AND recalled_at=0 AND conv_seq>0 AND timestamp>=? "
+             "ORDER BY timestamp ASC, conv_seq ASC, row_id ASC LIMIT 1",
+            owner, convID, @(ms)];
+        if ([rs next]) { seq = [rs longLongIntForColumn:@"conv_seq"]; }
+        [rs close];
+    }];
+    return seq;
+}
+
+- (NSArray<NSNumber *> *)activeLocalDayStartsInConv:(NSString *)convID utcOffsetMs:(int64_t)utcOffsetMs {
+    NSMutableArray<NSNumber *> *out = [NSMutableArray array];
+    NSString *owner = [self ownerUserID];
+    [_queue inDatabase:^(FMDatabase *db) {
+        FMResultSet *rs = [db executeQuery:
+            @"SELECT DISTINCT CAST((timestamp + ?) / 86400000 AS INTEGER) AS day FROM im_message_local "
+             "WHERE owner_uid=? AND conv_id=? AND recalled_at=0 AND timestamp>0 ORDER BY day ASC",
+            @(utcOffsetMs), owner, convID];
+        while ([rs next]) {
+            int64_t day = [rs longLongIntForColumn:@"day"];
+            [out addObject:@(day * 86400000LL - utcOffsetMs)]; // 还原成"那天 0 点"的 epoch 毫秒
+        }
+        [rs close];
+    }];
+    return out;
+}
+
+- (NSArray<IMMessageModel *> *)distinctSenderSamplesInConv:(NSString *)convID limit:(NSInteger)limit {
+    NSMutableArray<IMMessageModel *> *out = [NSMutableArray array];
+    NSString *owner = [self ownerUserID];
+    NSInteger cap = (limit > 0) ? limit : 200;
+    [_queue inDatabase:^(FMDatabase *db) {
+        // SQLite 的 bare column + MAX() 语义：分组内其余列取的就是 MAX 所在那一行（故拿到的是各人最新一条）。
+        FMResultSet *rs = [db executeQuery:
+            @"SELECT *, MAX(timestamp) AS mt FROM im_message_local "
+             "WHERE owner_uid=? AND conv_id=? AND recalled_at=0 AND sender IS NOT NULL AND sender<>'' "
+             "GROUP BY sender ORDER BY mt DESC LIMIT ?",
+            owner, convID, @(cap)];
+        while ([rs next]) { [out addObject:[IMDatabase messageFromResultSet:rs]]; }
+        [rs close];
+    }];
+    return out;
+}
+
+- (NSInteger)countIncomingInConv:(NSString *)convID afterConvSeq:(int64_t)afterConvSeq {
+    __block NSInteger n = 0;
+    NSString *owner = [self ownerUserID];
+    [_queue inDatabase:^(FMDatabase *db) {
+        FMResultSet *rs = [db executeQuery:
+            @"SELECT COUNT(*) AS n FROM im_message_local "
+             "WHERE owner_uid=? AND conv_id=? AND sender<>? AND conv_seq>?",
+            owner, convID, owner, @(afterConvSeq)];
+        if ([rs next]) { n = (NSInteger)[rs longForColumn:@"n"]; }
+        [rs close];
+    }];
+    return n;
 }
 
 /// im_message_local 行 → IMMessageModel 的**唯一映射**（列清单第③处，见 +messageColumns 注释）。

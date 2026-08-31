@@ -12,6 +12,7 @@
 #import "IMChatBannerStack.h"    // IMChatBannerStackDelegate
 
 #import "IMGroupInfo.h"          // IMGroupInfo / IMGroupRole（senderRoleForMessage: 返回枚举）
+#import "IMChatWindowState.h"    // 当前这一窗（messages/seenConvSeqs/边界）——各 category 直接点出来用，故整头引入
 
 @class IMMediaDownloadCoordinator;
 @class IMChatSearchState;
@@ -67,8 +68,11 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, strong, nullable) NSLayoutConstraint *mentionPanelHeight;
 /// 中长文本"展开全文"记忆（按消息 key）：Long 档气泡点击在折叠/展开间切换。
 @property (nonatomic, strong) NSMutableSet<NSString *> *expandedTextKeys;
-@property (nonatomic, strong) NSMutableArray<IMMessageModel *> *messages;
-@property (nonatomic, strong) NSMutableSet<NSNumber *> *seenConvSeqs; // 按 conv_seq 去重，避免推送+同步重复
+// 消息窗口（+Window.m，见 IMServer/docs/design/MESSAGE_WINDOW_DESIGN.md §4）。
+// **`windowState.messages` 是当前这一窗，不是本会话全部消息**——这是分页引入的核心可变式。
+// 凡是过去默认"内存里有全部消息"的地方（新消息上屏、↓N 计数、发送后贴底、跳转找行、
+// 「这条撤回了吗」之类的判定）都必须先看 `windowState.atTail`，或直接查本地库。
+@property (nonatomic, strong) IMChatWindowState *windowState;
 @property (nonatomic, copy) NSString *convID;
 @property (nonatomic, assign) int64_t entryReadSeq;   // 进入前已读位点（定位未读分割线，进会话锁定一次）
 @property (nonatomic, assign) NSInteger entryUnread;   // 进入时未读数
@@ -192,6 +196,19 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (void)deleteMessage:(IMMessageModel *)message;
 - (void)deleteMessageForEveryone:(IMMessageModel *)message;
 - (void)hideMessageForSelf:(IMMessageModel *)message;
+
+- (void)flashRowAtIndexPath:(NSIndexPath *)ip; ///< 定位高亮一闪（+MediaFlow.m 定义，+Window.m 调用）
+
+// 消息窗口（+Window.m）：
+- (void)loadInitialWindow;
+- (void)applyWindowMessages:(NSArray<IMMessageModel *> *)msgs atTail:(BOOL)atTail;
+- (BOOL)scrollToLoadedConvSeq:(int64_t)convSeq;
+- (BOOL)openLocalWindowAroundConvSeq:(int64_t)convSeq;
+- (void)requestServerWindowAnchor:(int64_t)anchor isJump:(BOOL)isJump;
+- (void)maybeLoadOlderOnScroll;
+- (void)resetWindowToTailAnimated:(BOOL)animated;
+- (void)trimWindowIfOverlongAtTail;
+- (NSInteger)windowUnreadBelowCount;
 
 // 顶部三横幅栈（G0 置顶 / G1 公告 / G2 禁言锁 / G3 入群申请，+PinnedBanner.m）：主实现与 +Menu 互调：
 - (void)reloadPinnedBanner;

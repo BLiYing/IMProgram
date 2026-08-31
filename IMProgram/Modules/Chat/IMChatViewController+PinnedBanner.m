@@ -6,7 +6,8 @@
 #import "IMChatViewController+Private.h" // 含 IMChatBannerStack / IMSocketManager / IMGroupInfo
 #import "IMHTTPService.h"
 #import "IMPinnedMessage.h"
-#import "IMMessageModel.h"            // 跳转前判目标是否已撤回（recalledAt）
+#import "IMMessageModel.h"
+#import "IMDatabase.h"            // 跳转前判目标是否已撤回（recalledAt）
 #import "UIViewController+IMToast.h"  // im_showToast:
 #import "IMJoinRequestsViewController.h"
 #import "IMGroupTextViewController.h"
@@ -87,7 +88,21 @@ BOOL IMPinnedTargetRecalled(NSArray<IMMessageModel *> *messages, int64_t convSeq
 /// 都可能停在旧集合上。此时直接 jumpToConvSeq: 会滚到一条「撤回了一条消息」的系统行并高亮一闪，
 /// 用户看不出原消息已经没了。故显式提示 + 顺手重拉一次让横幅收敛（与 Web jumpToPinned 同口径）。
 - (void)jumpToPinnedConvSeq:(int64_t)convSeq {
-    if (IMPinnedTargetRecalled(self.messages, convSeq)) {
+    // 分页后内存里只有当前一窗，而**置顶消息天然是较早那条**——十有八九不在窗口里。
+    // 只查内存的话这个判定基本永远返回 NO，「原消息已被撤回」这条提示等于没了。
+    // 故窗口里没有就回本地库查那一条（本地也没有，才由 jumpToConvSeq: 去开窗）。
+    NSArray<IMMessageModel *> *probe = self.windowState.messages;
+    BOOL inWindow = NO;
+    for (IMMessageModel *m in probe) { if (m.convSeq == convSeq) { inWindow = YES; break; } }
+    if (!inWindow) {
+        __block IMMessageModel *row = nil;
+        NSString *convID = self.convID;
+        [self performDatabaseOperation:^(IMDatabase *database) {
+            row = [database messageInConv:convID convSeq:convSeq];
+        }];
+        probe = row ? @[row] : @[];
+    }
+    if (IMPinnedTargetRecalled(probe, convSeq)) {
         [self im_showToast:@"原消息已被撤回"];
         [self reloadPinnedBanner];
         return;

@@ -36,16 +36,16 @@
 #pragma mark - UITableViewDataSource
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    return self.messages.count;
+    return self.windowState.messages.count;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    IMMessageModel *m = self.messages[indexPath.row];
+    IMMessageModel *m = self.windowState.messages[indexPath.row];
     // 首条未读行只算一次（firstUnreadRow 是 O(k) 扫描且各 cell 分支都要用），各分支复用。
     // 相册部分已读：首条未读可能落在被折叠的 follower 行，映射到其 leader 行，保证分割线画在可见行上。
     NSInteger firstUnread = [self firstUnreadRow];
     if (firstUnread >= 0) {
-        NSUInteger vis = [self visibleRowForMessage:self.messages[firstUnread]];
+        NSUInteger vis = [self visibleRowForMessage:self.windowState.messages[firstUnread]];
         if (vis != NSNotFound) { firstUnread = (NSInteger)vis; }
     }
     BOOL rowIsFirstUnread = (indexPath.row == firstUnread);
@@ -494,10 +494,10 @@
 /// 该行是否相册"从行"：同组首个成员为主行（渲染整个宫格），其余成员行零高隐藏。
 /// 同批消息相邻发送，向前找通常 1~2 步即命中。
 - (BOOL)isAlbumFollowerAtRow:(NSInteger)row {
-    IMMessageModel *m = self.messages[(NSUInteger)row];
+    IMMessageModel *m = self.windowState.messages[(NSUInteger)row];
     if (![self isAlbumMember:m]) { return NO; }
     for (NSInteger i = row - 1; i >= 0; i--) {
-        IMMessageModel *p = self.messages[(NSUInteger)i];
+        IMMessageModel *p = self.windowState.messages[(NSUInteger)i];
         if (p.groupID.length > 0 && [p.groupID isEqualToString:m.groupID] && [self isAlbumMember:p]) { return YES; }
     }
     return NO;
@@ -506,7 +506,7 @@
 /// 同组全部成员（按消息顺序）。
 - (NSArray<IMMessageModel *> *)albumMembersForGroupID:(NSString *)gid {
     NSMutableArray<IMMessageModel *> *out = [NSMutableArray array];
-    for (IMMessageModel *m in self.messages) {
+    for (IMMessageModel *m in self.windowState.messages) {
         if (m.groupID.length > 0 && [m.groupID isEqualToString:gid] && [self isAlbumMember:m]) { [out addObject:m]; }
     }
     return out;
@@ -514,10 +514,10 @@
 
 /// 消息所属的"可见行"：相册成员 → 该组 leader 行；普通消息 → 自身行。NSNotFound=不在列表。
 - (NSUInteger)visibleRowForMessage:(IMMessageModel *)m {
-    NSUInteger own = [self.messages indexOfObjectIdenticalTo:m];
+    NSUInteger own = [self.windowState.messages indexOfObjectIdenticalTo:m];
     if (own == NSNotFound || ![self isAlbumMember:m]) { return own; }
     for (NSUInteger i = 0; i <= own; i++) {
-        IMMessageModel *p = self.messages[i];
+        IMMessageModel *p = self.windowState.messages[i];
         if (p.groupID.length > 0 && [p.groupID isEqualToString:m.groupID] && [self isAlbumMember:p]) { return i; }
     }
     return own;
@@ -525,15 +525,15 @@
 
 /// 从行零高（宫格已在 leader 行整体渲染）；其余行自适应。
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (indexPath.row < (NSInteger)self.messages.count && [self isAlbumFollowerAtRow:indexPath.row]) { return 0; }
+    if (indexPath.row < (NSInteger)self.windowState.messages.count && [self isAlbumFollowerAtRow:indexPath.row]) { return 0; }
     return UITableViewAutomaticDimension;
 }
 
 /// 按消息类型精确估高：估算与真实行高差得越远，上滑实体化行时系统的 offset 修正越猛
 ///（=「滚到某处突然卡一下/弹跳」的另一半根因；主因是媒体尺寸此前不落库，见 onMediaSizeResolved）。
 - (CGFloat)tableView:(UITableView *)tableView estimatedHeightForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (indexPath.row >= (NSInteger)self.messages.count) { return 56; }
-    IMMessageModel *m = self.messages[(NSUInteger)indexPath.row];
+    if (indexPath.row >= (NSInteger)self.windowState.messages.count) { return 56; }
+    IMMessageModel *m = self.windowState.messages[(NSUInteger)indexPath.row];
     if ([self isAlbumFollowerAtRow:indexPath.row]) { return 0; }
     if ([self isAlbumMember:m]) { return 240; } // 宫格 leader：整格粗估
     if ([m.contentType isEqualToString:@"image"] || [m.contentType isEqualToString:@"video"]) {
@@ -567,7 +567,7 @@
 
 /// 按 conv_seq 找已加载的消息（引用缩略图解析用；不在窗口内返回 nil）。
 - (IMMessageModel *)messageWithConvSeq:(int64_t)convSeq {
-    for (IMMessageModel *x in self.messages) {
+    for (IMMessageModel *x in self.windowState.messages) {
         if (x.convSeq == convSeq) { return x; }
     }
     return nil;
@@ -575,10 +575,10 @@
 
 /// 按时间分组：每自然日首条消息上方显示日期分隔胶囊（今天/昨天/M月d日）。无效时间或同日返回 nil。
 - (NSString *)dayHeaderForRow:(NSInteger)row {
-    IMMessageModel *m = self.messages[row];
+    IMMessageModel *m = self.windowState.messages[row];
     if (m.timestamp <= 0) { return nil; } // 发送中（未拿到服务端时间）不显示日期
     if (row == 0) { return [IMTheme dayHeaderStringFromMillis:m.timestamp]; }
-    IMMessageModel *prev = self.messages[row - 1];
+    IMMessageModel *prev = self.windowState.messages[row - 1];
     if ([IMTheme isMillis:m.timestamp sameDayAsMillis:prev.timestamp]) { return nil; }
     return [IMTheme dayHeaderStringFromMillis:m.timestamp];
 }
@@ -596,11 +596,11 @@
 
 /// 下一「可见行」（跳过相册零高从行）；无则 messages.count。
 - (NSInteger)nextVisibleRow:(NSInteger)row {
-    for (NSInteger j = row + 1; j < (NSInteger)self.messages.count; j++) {
+    for (NSInteger j = row + 1; j < (NSInteger)self.windowState.messages.count; j++) {
         if ([self isAlbumFollowerAtRow:j]) { continue; }
         return j;
     }
-    return (NSInteger)self.messages.count;
+    return (NSInteger)self.windowState.messages.count;
 }
 
 /// 两条消息是否属于同一「连续段」：同发送者、都是普通气泡（非系统/撤回）、同一天。
@@ -616,14 +616,14 @@
 - (BOOL)isFirstInSenderRun:(NSInteger)row {
     NSInteger p = [self prevVisibleRow:row];
     if (p < 0) { return YES; }
-    return ![self message:self.messages[(NSUInteger)p] sameSenderRunAs:self.messages[(NSUInteger)row]];
+    return ![self message:self.windowState.messages[(NSUInteger)p] sameSenderRunAs:self.windowState.messages[(NSUInteger)row]];
 }
 
 /// 该行是否为连续段末条（对方群消息用；决定是否显示头像）。
 - (BOOL)isLastInSenderRun:(NSInteger)row {
     NSInteger n = [self nextVisibleRow:row];
-    if (n >= (NSInteger)self.messages.count) { return YES; }
-    return ![self message:self.messages[(NSUInteger)n] sameSenderRunAs:self.messages[(NSUInteger)row]];
+    if (n >= (NSInteger)self.windowState.messages.count) { return YES; }
+    return ![self message:self.windowState.messages[(NSUInteger)n] sameSenderRunAs:self.windowState.messages[(NSUInteger)row]];
 }
 
 @end

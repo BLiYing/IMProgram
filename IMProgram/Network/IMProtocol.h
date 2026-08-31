@@ -19,6 +19,10 @@ extern NSString * const kIMTypePresence;
 extern NSString * const kIMTypeWatch; ///< 上报「当前要显示在线态的用户全集」（在线态订阅，见 PROTOCOL §5.5）
 extern NSString * const kIMTypeSyncReq;
 extern NSString * const kIMTypeSyncResp;
+/// 按锚点开窗（分页与「跳到第 X 条」的共同地基，见 IMServer/docs/design/MESSAGE_WINDOW_DESIGN.md）。
+/// 与 sync_req 的分工：sync 是「按游标推进、可推进本地已同步位点」；window 是「一次性快照、**不推进任何位点**」。
+extern NSString * const kIMTypeWindowReq;
+extern NSString * const kIMTypeWindowResp;
 extern NSString * const kIMTypeFriend;
 extern NSString * const kIMTypeGroup;
 extern NSString * const kIMTypeMsgOp;

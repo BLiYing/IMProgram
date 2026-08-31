@@ -95,17 +95,9 @@ NSNotificationName const IMChatConversationClearedNotification = @"IMChatConvers
         _peerReadSeq = peerReadSeq;   // 进会话即用服务端已知对端已读位点播种（实时回执再往上推进）
         _maxReadReported = readSeq;   // 已读起点=进入前位点，仅在可见消息超过它时才上报
         _pendingReadSeq = readSeq;
-        // 本地落库：进入即秒显历史。
-        __block NSArray<IMMessageModel *> *cachedMessages = @[];
-        NSString *convID = _convID; // 取局部，避免同步 block 隐式捕获 self（-Wimplicit-retain-self）
-        [IMDatabase.sharedDatabase performWithAccountContext:_databaseContext block:^(IMDatabase *database) {
-            cachedMessages = [database messagesForConv:convID];
-        }];
-        _messages = [cachedMessages mutableCopy];
-        _seenConvSeqs = [NSMutableSet set];
-        for (IMMessageModel *m in _messages) {
-            if (m.convSeq > 0) { [_seenConvSeqs addObject:@(m.convSeq)]; }
-        }
+        // 本地落库：进入即秒显历史。**只取一窗**（不再一次读全部，见 +Window.m 文件头）。
+        _windowState = [IMChatWindowState new];
+        [self loadInitialWindow];
         _pendingPreviewLoading = [NSMutableSet set];
     }
     return self;
@@ -123,16 +115,8 @@ NSNotificationName const IMChatConversationClearedNotification = @"IMChatConvers
         _isGroupChat = YES;
         _groupName = [name copy];
         _convID = [convID copy];
-        // 指定初始化器按 IMConversationID(uid,"") 预载了错误会话，这里按群 convID 重载本地历史。
-        __block NSArray<IMMessageModel *> *cachedMessages = @[];
-        [IMDatabase.sharedDatabase performWithAccountContext:_databaseContext block:^(IMDatabase *database) {
-            cachedMessages = [database messagesForConv:convID];
-        }];
-        _messages = [cachedMessages mutableCopy];
-        [_seenConvSeqs removeAllObjects];
-        for (IMMessageModel *m in _messages) {
-            if (m.convSeq > 0) { [_seenConvSeqs addObject:@(m.convSeq)]; }
-        }
+        // 指定初始化器按 IMConversationID(uid,"") 预载了错误会话，这里按群 convID 重开第一窗。
+        [self loadInitialWindow];
     }
     return self;
 }
@@ -278,6 +262,9 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     }
     self.didInitialPosition = NO;
     self.didInitialSettle = NO;
+    // 重进语义=贴底，故窗口也要回到最新一窗：上次离开时可能停在历史（点了置顶横幅去看很早那条），
+    // 不复位的话重进会停在那一段，且新消息因 atTail=NO 不上屏。
+    [self resetWindowToTailAnimated:NO];
     // 重进语义=贴底：进入时的未读快照早已消化，清零让重锚走「无未读→精确贴底」分支；
     // 不清的话 firstUnreadRow 会拿冻结的 entryReadSeq 把用户锚回早已读过的旧「首条未读」。
     self.entryUnread = 0;
@@ -315,17 +302,32 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
 
 /// 从 SQLite 合并本会话里内存尚无的消息（按 conv_seq 去重，保留未上号的乐观发件 conv_seq==0）。
 /// 仅在检测到落后时调用，避免每次 appear 全量重排。返回是否有新增。
+///
+/// 分页后只补**当前窗口末尾之后**的那一段（原先是整会话全量读，那正是要消灭的东西）；
+/// 且窗口不在末尾（用户正在看历史）时**什么都不合并**——那些消息已经落库，回到末尾时自然带回来，
+/// 此刻插进来只会把历史窗口的末尾接上一段不连续的新消息。
 - (BOOL)mergeMissedMessagesFromStore {
+    if (!self.windowState.atTail) { [self updateJumpButton]; return NO; }
+    // 窗口是空的（冷启动直进本页时账号库上下文尚未就绪，init 那次读到 0 条）：重开第一窗而不是
+    // 从位点 0 往后取——后者取到的是**最早**的 200 条，用户会停在几年前的消息上。
+    if (self.windowState.messages.count == 0) {
+        [self loadInitialWindow];
+        if (self.windowState.messages.count == 0) { return NO; }
+        [self.tableView reloadData];
+        [self markVisibleRowsRead];
+        return YES;
+    }
     NSString *convID = self.convID;
+    int64_t from = [self maxInMemoryConvSeq];
     __block NSArray<IMMessageModel *> *dbMessages = @[];
     if (![self performDatabaseOperation:^(IMDatabase *database) {
-        dbMessages = [database messagesForConv:convID];
+        dbMessages = [database messagesForConv:convID aroundConvSeq:from before:0 after:kIMMessageWindowPageSize];
     }]) { return NO; }
     BOOL added = NO;
     for (IMMessageModel *m in dbMessages) {
-        if (m.convSeq <= 0 || [self.seenConvSeqs containsObject:@(m.convSeq)]) { continue; }
-        [self.seenConvSeqs addObject:@(m.convSeq)];
-        [self.messages addObject:m];
+        if (m.convSeq <= 0 || [self.windowState.seenConvSeqs containsObject:@(m.convSeq)]) { continue; }
+        [self.windowState.seenConvSeqs addObject:@(m.convSeq)];
+        [self.windowState.messages addObject:m];
         added = YES;
     }
     if (!added) { return NO; }
@@ -340,7 +342,7 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
 /// 内存里已上号消息的最大 conv_seq（乐观发件 conv_seq==0 不计）。用于与 DB synced 游标比对判断是否落后。
 - (int64_t)maxInMemoryConvSeq {
     int64_t maxSeq = 0;
-    for (IMMessageModel *m in self.messages) {
+    for (IMMessageModel *m in self.windowState.messages) {
         if (m.convSeq > maxSeq) { maxSeq = m.convSeq; }
     }
     return maxSeq;
@@ -422,7 +424,7 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     [super viewWillAppear:animated];
     // 回前台抢回下载回调：一份共享下载任务只记一个回调对象，从详情页（看过同一文件）返回时回调可能被它接管，
     // 本页可见的下载进度条会停在旧值——这里让本页重新接管并就地刷新。
-    if (_downloads) { [_downloads reattachActiveTasksForMessages:self.messages]; }
+    if (_downloads) { [_downloads reattachActiveTasksForMessages:self.windowState.messages]; }
     IMSocketManager.sharedManager.delegate = self;
     // 同步当前真实连接态：socket 通常在会话列表页就已连上，进本页不会再触发 didChangeState，
     // 若不主动拉一次，connState 会停在默认值 → 标题误显「未连接」。
@@ -457,7 +459,7 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
     // 在出现动画前、首次布局完成时即定位，避免"先显历史第一条→再滑到最新"的闪动。
-    if (!self.didInitialPosition && self.messages.count > 0 && self.tableView.frame.size.height > 0) {
+    if (!self.didInitialPosition && self.windowState.messages.count > 0 && self.tableView.frame.size.height > 0) {
         [self positionInitialIfNeeded];
     }
 }
@@ -782,6 +784,9 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     // isNearBottom 短暂 false → ↓N 箭头闪一下、贴底后又消失。语义上"我自己发的消息"从不该触发"跳到底部"
     // 提示，这里给一个 0.5s 抑制窗口，让 updateJumpButton 在此期间保持隐藏。
     self.selfSendScrollGuardUntil = [NSDate timeIntervalSinceReferenceDate] + 0.5;
+    // 正在看历史时自己发了一条：那条落在最新处、不在当前窗口里，不回到末尾就等于"发出去了但看不见"。
+    // 微信/Telegram 同样是发送即回到最新。resetWindow 内含 reload + 精确贴底 + 可见即读。
+    if (!self.windowState.atTail) { [self resetWindowToTailAnimated:NO]; return; }
     [self.tableView reloadData];
     [self scrollToAbsoluteBottom];
     [self markVisibleRowsRead];

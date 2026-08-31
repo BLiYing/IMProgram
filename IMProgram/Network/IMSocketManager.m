@@ -387,6 +387,8 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
         [self handleNewMsg:payload];
     } else if ([type isEqualToString:kIMTypeSyncResp]) {
         [self handleSyncResp:payload];
+    } else if ([type isEqualToString:kIMTypeWindowResp]) {
+        [self handleWindowResp:payload];
     } else if ([type isEqualToString:kIMTypeReceipt]) {
         [self handleReceipt:payload];
     } else if ([type isEqualToString:kIMTypeTyping]) {
@@ -1344,6 +1346,68 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
     if (seq > [self syncedSeqForConv:convID]) {
         _syncedSeq[convID] = @(seq);
     }
+}
+
+#pragma mark - 按锚点开窗（window_req / window_resp，PROTOCOL §6.11）
+
+/// 发一个 window_req（异步进 _queue）。锚点 0=取最新。
+- (void)requestWindowForConv:(NSString *)convID anchor:(int64_t)anchor
+                      before:(NSInteger)before after:(NSInteger)after {
+    if (convID.length == 0) { return; }
+    dispatch_async(_queue, ^{
+        [self sendEnvelopeType:kIMTypeWindowReq
+                          data:@{ @"conv_id": convID, @"anchor": @(anchor),
+                                  @"before": @(MAX(0, before)), @"after": @(MAX(0, after)) }
+                    completion:nil];
+    });
+}
+
+/// 处理 window_resp（仅在 _queue 调用）：把这一窗**落库**，然后一次性回调页面。
+///
+/// 与 handleSyncResp 的三处刻意不同——三处都是"窗口是一次性快照"这一条推出来的：
+/// ① **不推进同步位点**。窗口可以落在游标前方很远处且中间全是空洞，推进它等于宣称
+///    中间那段已经拿到了，离线补拉会永久跳过——这正是 sync 里靠 covered_conv_seq 严防的事故。
+/// ② **不发送达回执**。用户翻历史不等于刚收到这些消息。
+/// ③ **不逐条投递 delegate**。逐条投递会被页面当作新消息尾插到当前窗口末尾（历史消息瞬间"变成最新"）。
+///    落完统一回调，页面按本地库重开窗——那时消息已经在库里。
+///
+/// 但 msg_op 事件行与「为所有人删除」的墓碑仍要照常处理：它们是**状态**不是消息，
+/// 窗口里带回来了就该生效，否则翻到那一段会看到早已撤回的原文。
+- (void)handleWindowResp:(NSDictionary *)data {
+    NSString *convID = [data[@"conv_id"] isKindOfClass:NSString.class] ? data[@"conv_id"] : @"";
+    int64_t anchor = [data[@"anchor"] longLongValue];
+    BOOL anchorFound = [data[@"anchor_found"] boolValue];
+    BOOL hasBefore = [data[@"has_before"] boolValue];
+    BOOL hasAfter = [data[@"has_after"] boolValue];
+    NSArray *messages = [data[@"messages"] isKindOfClass:NSArray.class] ? data[@"messages"] : @[];
+    NSUInteger saved = 0;
+    for (NSDictionary *md in messages) {
+        if (![md isKindOfClass:NSDictionary.class]) { continue; }
+        IMMessageModel *m = [IMMessageModel receivedMessageWithNewMsgData:md];
+        if ([m.contentType isEqualToString:kIMTypeMsgOp]) {
+            NSDictionary *op = [self jsonObjectFromString:m.content];
+            if (op) { [self applyMsgOpPayload:op advancingSyncedConvSeq:0]; }
+            continue; // 事件行不作气泡，也不入库为消息
+        }
+        if (m.deletedAt > 0 && m.convID.length > 0 && m.convSeq > 0) {
+            [self removeLocalMessageOnQueueInConv:m.convID targetConvSeq:m.convSeq advancingSyncedConvSeq:0];
+            continue;
+        }
+        [self performDatabaseOperation:^(IMDatabase *database) { [database saveMessage:m]; }];
+        saved++;
+    }
+    IMLogSocket(@"window_resp conv=%@ anchor=%lld found=%d rows=%lu saved=%lu before=%d after=%d",
+                convID, anchor, anchorFound, (unsigned long)messages.count, (unsigned long)saved,
+                hasBefore, hasAfter);
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        __strong typeof(weakSelf) self = weakSelf;
+        id<IMSocketManagerDelegate> d = self.delegate;
+        if ([d respondsToSelector:@selector(socketManager:didReceiveWindowForConv:anchor:anchorFound:hasBefore:hasAfter:)]) {
+            [d socketManager:self didReceiveWindowForConv:convID anchor:anchor
+                 anchorFound:anchorFound hasBefore:hasBefore hasAfter:hasAfter];
+        }
+    });
 }
 
 /// 为指定会话从各自已同步位点发一个 sync_req（仅在 _queue 调用）。

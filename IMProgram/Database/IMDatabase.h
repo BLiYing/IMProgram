@@ -102,7 +102,78 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)deleteCachedConversation:(NSString *)convID;
 
 /// 取某会话的全部消息（按存入顺序，约等于时间顺序）。
+///
+/// ⚠️ **聊天页不再用它**（改走下面的窗口查询，见 MESSAGE_WINDOW_DESIGN §1.1）：一次读全部在
+/// 聊了很久的会话里会把几十万行全构造成对象。仍留给「一次就要全量」的调用方（会话详情页按类型
+/// 归档媒体/文件/链接、单测）。新代码要分页请用窗口查询，别再往这里加调用点。
 - (NSArray<IMMessageModel *> *)messagesForConv:(NSString *)convID;
+
+#pragma mark - 消息窗口（分页与定位的本地一半，见 IMServer/docs/design/MESSAGE_WINDOW_DESIGN.md §4）
+
+/// 一窗默认条数（与服务端 window_req 单侧上限、im-web 的 RENDER_WINDOW_STEP 同量级）。
+FOUNDATION_EXPORT const NSInteger kIMMessageWindowPageSize;
+
+/// 取会话**最新一窗**：最后 limit 条（升序）。**含待发/失败消息**（conv_seq==0，排序上恒在末尾）。
+- (NSArray<IMMessageModel *> *)latestMessagesForConv:(NSString *)convID limit:(NSInteger)limit;
+
+/// 取 conv_seq < beforeConvSeq 的**最后** limit 条（升序）。向上翻页用；不含待发消息。
+/// 返回**升序**——与 latest/around 三者返回序一致。这三个返回序若不一致，拼窗口时极易静默把顺序弄反。
+- (NSArray<IMMessageModel *> *)messagesForConv:(NSString *)convID
+                                 beforeConvSeq:(int64_t)beforeConvSeq
+                                         limit:(NSInteger)limit;
+
+/// 以 anchorConvSeq 开一窗（升序）：conv_seq ≤ anchor 的**最后** before 条 + conv_seq > anchor 的**最前** after 条。
+///
+/// anchor 是**位点不是行**——这是刻意的：进会话要用「已读位点」开窗，而那个值未必对应任何一行
+/// （它可能指向一条已删除、或对我不可见的消息）。跳转到第 X 条时传 anchor=X，X 自己落在 before 段末尾。
+- (NSArray<IMMessageModel *> *)messagesForConv:(NSString *)convID
+                                 aroundConvSeq:(int64_t)anchorConvSeq
+                                        before:(NSInteger)before
+                                         after:(NSInteger)after;
+
+/// 取本地这一条（不存在返回 nil）。分页后内存里只有当前一窗，"这条是不是已撤回"之类的判定
+/// 不能再靠遍历内存数组——目标多半根本不在窗口里。
+- (nullable IMMessageModel *)messageInConv:(NSString *)convID convSeq:(int64_t)convSeq;
+
+/// 按 client_msg_id 取本会话的发件行（不存在返回 nil）。
+/// 发送结果回来时目标可能已不在当前窗口（发完立刻跳去看历史），那时只能从库里取出来改状态，
+/// 否则那条会永远停在「发送中」——分页之前内存里有全部消息，不会出现这种情况。
+- (nullable IMMessageModel *)messageInConv:(NSString *)convID clientMsgID:(NSString *)clientMsgID;
+
+/// 本会话的图片/视频消息（升序，排除撤回与空内容）。
+/// 媒体查看器左右翻页、会话媒体库共用：它们的语义是「整个会话的媒体时间线」，不是「当前窗口里的」。
+- (NSArray<IMMessageModel *> *)mediaMessagesForConv:(NSString *)convID;
+
+#pragma mark - 会话内搜索 / 日历 / 发件人候选（都必须查库，不能扫内存窗口）
+// 分页之前这三件事都是遍历 `messages` 内存数组算出来的——那时它就是"本会话全部消息"。
+// 分页之后内存里只剩一窗，再扫内存会让「会话内搜索」悄悄变成「只搜看得见的这 200 条」、
+// 日历只点亮这一窗覆盖的几天、「来自」只列出最近发过言的人。**静默降级最难发现**，故一律改查库。
+
+/// 会话内搜索命中的 conv_seq（**升序**，排除撤回）。
+/// keyword 为空且 fromUID 非空=只按发件人过滤；两者都空返回空。
+/// 命中口径与全局搜索一致：text 的 content / 任意消息的 caption / 文件名。
+- (NSArray<NSNumber *> *)searchConvSeqsInConv:(NSString *)convID
+                                      keyword:(nullable NSString *)keyword
+                                      fromUID:(nullable NSString *)fromUID
+                                        limit:(NSInteger)limit;
+
+/// 本会话中 timestamp ≥ ms 的第一条（按显示序）的 conv_seq；没有返回 0。排除撤回。
+/// ms 传 0 即「最早一条」——日历的"跳到最早"与"跳到某天"共用这一个查询。
+- (int64_t)firstConvSeqInConv:(NSString *)convID atOrAfterTimestamp:(int64_t)ms;
+
+/// 本会话有消息的**本地日**（每天 0 点的 epoch 毫秒，升序）。日历打点用。
+/// utcOffsetMs 传当前时区偏移：SQLite 里没有可靠的本地时区，故把偏移当常量下推做整除分桶。
+/// ⚠️ 代价：跨夏令时的历史消息，若落在午夜前后一小时内可能算进相邻那天。日历打点可接受。
+- (NSArray<NSNumber *> *)activeLocalDayStartsInConv:(NSString *)convID utcOffsetMs:(int64_t)utcOffsetMs;
+
+/// 本会话每个发件人的一条代表消息（各取其**最新**一条，按时间倒序）。
+/// 「来自」候选面板用：要拿发件人 uid，也要拿那条消息上的昵称/头像来显示。
+- (NSArray<IMMessageModel *> *)distinctSenderSamplesInConv:(NSString *)convID limit:(NSInteger)limit;
+
+/// 本会话中发件人非我、且 conv_seq > afterConvSeq 的条数。
+/// 窗口不在末尾时的「↓N」计数来源——那时内存里只有一段，数不出下方还有多少。
+/// ⚠️ 口径必须与 IMChatViewController 的 unreadBelowReadFrontier 一致（同一个 UI 上的同一个数字）。
+- (NSInteger)countIncomingInConv:(NSString *)convID afterConvSeq:(int64_t)afterConvSeq;
 
 /// 本地全文搜索（搜索功能 P0，纯本地）。convID 传 nil = 跨全部会话（首页全局搜索）；否则限该会话（会话内搜索）。
 /// 命中口径同后端 G4：text 消息 content 或任意消息 caption 子串（大小写不敏感）；排除撤回。

@@ -246,13 +246,13 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
 - (void)im_relayAfterMessageID:(NSString *)currentMid convID:(NSString *)convID {
     if (![convID isEqualToString:self.convID]) { return; } // 只对本页会话生效
     NSInteger startIdx = -1;
-    for (NSInteger i = 0; i < (NSInteger)self.messages.count; i++) {
-        NSString *mid = IMVoicePlayerPlayableIDForMessage(self.messages[i]);
+    for (NSInteger i = 0; i < (NSInteger)self.windowState.messages.count; i++) {
+        NSString *mid = IMVoicePlayerPlayableIDForMessage(self.windowState.messages[i]);
         if ([mid isEqualToString:currentMid]) { startIdx = i; break; }
     }
     if (startIdx < 0) { return; }
-    for (NSInteger i = startIdx + 1; i < (NSInteger)self.messages.count; i++) {
-        IMMessageModel *m = self.messages[i];
+    for (NSInteger i = startIdx + 1; i < (NSInteger)self.windowState.messages.count; i++) {
+        IMMessageModel *m = self.windowState.messages[i];
         // 遇到非 voice（含 msg_op 等系统事件）即停——话题边界。
         if (![m.contentType isEqualToString:@"voice"]) { return; }
         if (m.recalledAt > 0 || m.deletedAt > 0) { continue; } // 撤回/删的跳过
@@ -566,8 +566,8 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
                 return;
             }
             // 摘掉占位（内存 + DB），走既有 sendMedia + 新 echo 路径（拿到真实 cid 后 upsert 落库）。
-            NSUInteger idx = [self.messages indexOfObjectIdenticalTo:placeholder];
-            if (idx != NSNotFound) { [self.messages removeObjectAtIndex:idx]; }
+            NSUInteger idx = [self.windowState.messages indexOfObjectIdenticalTo:placeholder];
+            if (idx != NSNotFound) { [self.windowState.messages removeObjectAtIndex:idx]; }
             if (dbCtx) {
                 [IMDatabase.sharedDatabase performWithAccountContext:dbCtx block:^(IMDatabase *db) { [db deleteMessage:placeholder]; }];
             }
@@ -607,7 +607,7 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
             }
             __strong typeof(wsAck) self = wsAck;
             if (!self) { return; }
-            if (convSeq > 0) { [self.seenConvSeqs addObject:@(convSeq)]; } // 防 sync 重复回显
+            if (convSeq > 0) { [self.windowState.seenConvSeqs addObject:@(convSeq)]; } // 防 sync 重复回显
             [self.tableView reloadData]; // failed 时气泡红 ! 标识随 reload 出现
         });
     }];
@@ -652,8 +652,8 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
         return;
     }
     [self performDatabaseOperation:^(IMDatabase *db) { [db deleteMessage:m]; }];
-    NSUInteger idx = [self.messages indexOfObjectIdenticalTo:m];
-    if (idx != NSNotFound) { [self.messages removeObjectAtIndex:idx]; }
+    NSUInteger idx = [self.windowState.messages indexOfObjectIdenticalTo:m];
+    if (idx != NSNotFound) { [self.windowState.messages removeObjectAtIndex:idx]; }
     [self im_uploadAndSendVoice:localURL waveform:wave durationMillis:dur];
 }
 
@@ -686,7 +686,7 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
     if ([[IMVoicePlayer sharedPlayer] hasPlayed:mid inConv:message.convID owner:self.userID]) { return; }
     [[IMVoicePlayer sharedPlayer] markPlayed:mid inConv:message.convID owner:self.userID];
     // 红点是 cellForRow 里算的，不刷这一行就要等下次复用才消失。
-    NSUInteger row = [self.messages indexOfObjectIdenticalTo:message];
+    NSUInteger row = [self.windowState.messages indexOfObjectIdenticalTo:message];
     if (row == NSNotFound || (NSInteger)row >= [self.tableView numberOfRowsInSection:0]) { return; }
     [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:(NSInteger)row inSection:0]]
                           withRowAnimation:UITableViewRowAnimationNone];
@@ -795,8 +795,8 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
     for (UITableViewCell *cell in self.tableView.visibleCells) {
         if (![cell isKindOfClass:[IMVoiceBubbleCell class]]) { continue; }
         NSIndexPath *ip = [self.tableView indexPathForCell:cell];
-        if (ip.row >= (NSInteger)self.messages.count) { continue; }
-        IMMessageModel *m = self.messages[ip.row];
+        if (ip.row >= (NSInteger)self.windowState.messages.count) { continue; }
+        IMMessageModel *m = self.windowState.messages[ip.row];
         NSString *cellID = IMVoicePlayerPlayableIDForMessage(m);
         if ([cellID isEqualToString:mid]) {
             [(IMVoiceBubbleCell *)cell applyTranscriptText:text loading:loading];
@@ -808,7 +808,7 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
 - (IMMessageModel *)im_persistLocalVoiceEcho:(NSString *)url waveform:(NSString *)waveform duration:(int64_t)dur fileSize:(int64_t)size clientMsgID:(NSString *)cid {
     if (!cid) { return nil; }
     // 若同 cid 已存在（理论不至于），返回既有行防重复插入。
-    for (IMMessageModel *x in self.messages) {
+    for (IMMessageModel *x in self.windowState.messages) {
         if ([x.clientMsgID isEqualToString:cid]) { return x; }
     }
     IMMessageModel *m = [IMMessageModel new];
@@ -829,14 +829,14 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
     // 之前"先落库再 addObject"存在窄窗口：saveMessage 之后如果 sync/new_msg fan-back 恰好触发内存
     // messages 重建（socket 层 processIncoming 走 addObject 而非 upsert 到已有引用），会与后续
     // addObject 生成两个数组分支，视觉上就是"发出去的气泡没了、直到重进会话才从 DB 拿回"。
-    [self.messages addObject:m];
+    [self.windowState.messages addObject:m];
     [self appendReloadAndScroll];
     [self performDatabaseOperation:^(IMDatabase *db) { [db saveMessage:m]; }];
     // 诊断（2026-08-27，用户三报"发送后气泡不显示、滑动/重进才出现"，代码审读未定位）：
     // 打齐插入后的表状态——rows/offset/contentH/贴底与否。若下轮复现，此行 + ack 行可对账出
     // 是"没插入"“插入了没滚到位"还是"插入即被外力顶掉"。
     IMLogUI(@"voice_echo_inserted cid=%@ rows=%lu tv_rows=%ld offset_y=%.1f content_h=%.1f bounds_h=%.1f near_bottom=%d",
-            cid, (unsigned long)self.messages.count, (long)[self.tableView numberOfRowsInSection:0],
+            cid, (unsigned long)self.windowState.messages.count, (long)[self.tableView numberOfRowsInSection:0],
             self.tableView.contentOffset.y, self.tableView.contentSize.height,
             self.tableView.bounds.size.height, [self isNearBottom]);
     return m;

@@ -122,6 +122,20 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
 /// 某用户在线状态变化（主线程）。presence 只报**变化**，初始值须由 HTTP 快照提供
 /// （会话列表 peer_presence / 资料卡 presence）；服务端不推下线，靠 presence.onlineUntil 到期本地降级。
 - (void)socketManager:(IMSocketManager *)manager didChangePresenceForUser:(NSString *)user presence:(IMPresence *)presence;
+/// 按锚点开的一窗消息已到达并**全部落库**（主线程）。
+///
+/// 刻意**不逐条**投递（不像 new_msg / sync 走 didReceiveMessage:）：窗口是"我现在看哪一段"的
+/// 一次性快照，逐条投递会让页面把历史消息当新消息尾插到当前窗口末尾。正确姿势是收到本回调后
+/// **按本地库重开一次窗**——消息此刻已经在库里了。
+///
+/// anchor 原样回显请求值，用来区分「跳到第 X 条」与「向上翻一页」两种开窗（响应形状相同）。
+/// anchorFound=NO 且 anchor>0 ⇒ 这条消息**真的**不存在/已删除（不是"没在这一窗"）。
+- (void)socketManager:(IMSocketManager *)manager
+     didReceiveWindowForConv:(NSString *)convID
+                      anchor:(int64_t)anchor
+                 anchorFound:(BOOL)anchorFound
+                   hasBefore:(BOOL)hasBefore
+                    hasAfter:(BOOL)hasAfter;
 @end
 
 @interface IMSocketManager : NSObject
@@ -310,6 +324,12 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
 /// 同上，但用调用方提供的位点作为同步起点（取与内存值的较大者）。
 /// 上层从 IMDatabase 取已存最大 conv_seq 传入，实现 App 重启后的断点续传。
 - (void)trackConversation:(NSString *)convID syncedSeq:(int64_t)syncedSeq;
+
+/// 按锚点向服务端开一窗（PROTOCOL §6.11）：anchor=0 取最新，>0 取该条附近。
+/// 结果落库后经 `socketManager:didReceiveWindowForConv:…` 一次性回调，**不推进同步位点**。
+/// 用于两处：本地库翻到头了还要往上翻；跳转目标本地没有。
+- (void)requestWindowForConv:(NSString *)convID anchor:(int64_t)anchor
+                      before:(NSInteger)before after:(NSInteger)after;
 
 @end
 

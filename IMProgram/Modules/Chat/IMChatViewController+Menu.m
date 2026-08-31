@@ -34,8 +34,8 @@
 /// 预览 delegate 都实现（见下 pragma 段），iOS 13…26 预览形状全可控。
 - (nullable UIContextMenuConfiguration *)messageContextMenuConfigurationForIndexPath:(NSIndexPath *)indexPath {
     if (self.selecting) { return nil; } // 多选态无长按菜单
-    if (indexPath.row >= (NSInteger)self.messages.count) { return nil; }
-    IMMessageModel *message = self.messages[indexPath.row];
+    if (indexPath.row >= (NSInteger)self.windowState.messages.count) { return nil; }
+    IMMessageModel *message = self.windowState.messages[indexPath.row];
     if ([message.contentType isEqualToString:@"system"]) { return nil; } // 系统消息无操作菜单
     if (message.recalledAt > 0) { return nil; } // 撤回墓碑无操作菜单
     if ([self isAlbumMember:message]) { return nil; } // 相册宫格：菜单由每个格子自带（定位到单条成员）
@@ -409,8 +409,8 @@ static UIBezierPath *IMBubbleOutlinePath(CGRect rect, CGFloat radius, CACornerMa
     [self performDatabaseOperation:^(IMDatabase *database) {
         [database deleteMessage:message];
     }];
-    [self.messages removeObject:message];
-    if (message.convSeq > 0) { [self.seenConvSeqs removeObject:@(message.convSeq)]; }
+    [self.windowState.messages removeObject:message];
+    if (message.convSeq > 0) { [self.windowState.seenConvSeqs removeObject:@(message.convSeq)]; }
     [self.tableView reloadData];
 }
 

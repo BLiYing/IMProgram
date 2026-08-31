@@ -16,8 +16,8 @@
 /// 表现为「以下为 N 条新消息」下方实际多出几行（群改名/入群留痕都会触发）。
 - (NSInteger)firstUnreadRow {
     if (self.entryUnread <= 0) { return -1; }
-    for (NSInteger i = 0; i < (NSInteger)self.messages.count; i++) {
-        IMMessageModel *m = self.messages[i];
+    for (NSInteger i = 0; i < (NSInteger)self.windowState.messages.count; i++) {
+        IMMessageModel *m = self.windowState.messages[i];
         if (m.convSeq <= self.entryReadSeq) { continue; }
         if ([m.from isEqualToString:self.userID]) { continue; }
         if (IMContentTypeCountsAsUnread(m.contentType)) { return i; }
@@ -27,7 +27,7 @@
 
 /// 进会话定位（只做一次）：有未读则停在首条未读，否则到底（CHAT_UX §3）。
 - (void)positionInitialIfNeeded {
-    if (self.didInitialPosition || self.messages.count == 0) { return; }
+    if (self.didInitialPosition || self.windowState.messages.count == 0) { return; }
     self.didInitialPosition = YES;
     NSInteger unreadRow = [self firstUnreadRow];
     if (unreadRow >= 0) {
@@ -37,7 +37,7 @@
         [self scrollToAbsoluteBottom];
     }
     IMLogDebugWithTag(IMLogTagUI, @"chat_initial_position conv_id=%@ rows=%lu unread_row=%ld offset_y=%.1f content_h=%.1f viewport_h=%.1f",
-                      self.convID, (unsigned long)self.messages.count, (long)unreadRow,
+                      self.convID, (unsigned long)self.windowState.messages.count, (long)unreadRow,
                       self.tableView.contentOffset.y, self.tableView.contentSize.height,
                       self.tableView.bounds.size.height);
     // 定位后下一轮 runloop（自适应高度落定）再兜一次：无未读精确贴底；有未读重锚首条未读
@@ -53,7 +53,7 @@
 /// 把某行锚到视口顶（进会话停首条未读用）：scrollToRow 触发目标区域真实布局后再对齐一轮，
 /// 抵消估高偏差；行靠近末尾时 scrollToRow 自带底部 clamp——未读不足一屏时锚定即等价于贴底。
 - (void)anchorRowToTop:(NSInteger)row {
-    if (row < 0 || row >= (NSInteger)self.messages.count) { return; }
+    if (row < 0 || row >= (NSInteger)self.windowState.messages.count) { return; }
     NSIndexPath *ip = [NSIndexPath indexPathForRow:row inSection:0];
     for (int pass = 0; pass < 2; pass++) {
         [self.tableView scrollToRowAtIndexPath:ip atScrollPosition:UITableViewScrollPositionTop animated:NO];
@@ -66,8 +66,8 @@
 - (void)markVisibleRowsRead {
     int64_t maxSeq = 0;
     for (NSIndexPath *ip in self.tableView.indexPathsForVisibleRows) {
-        if (ip.row < (NSInteger)self.messages.count) {
-            int64_t s = self.messages[ip.row].convSeq;
+        if (ip.row < (NSInteger)self.windowState.messages.count) {
+            int64_t s = self.windowState.messages[ip.row].convSeq;
             if (s > maxSeq) { maxSeq = s; }
         }
     }

@@ -216,13 +216,9 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
 /// 套 IMMediaPagerViewController 支持左右翻页（混排、封面待点、翻到头即停）；仅一张时退化为单开。
 - (void)presentMediaViewerForMessage:(IMMessageModel *)m preloaded:(UIImage *)image {
     if (m.content.length == 0) { return; }
-    NSMutableArray<IMMessageModel *> *mediaMsgs = [NSMutableArray array];
-    for (IMMessageModel *x in self.messages) {
-        if (x.recalledAt > 0 || x.content.length == 0) { continue; }
-        if ([x.contentType isEqualToString:@"image"] || [x.contentType isEqualToString:@"video"]) {
-            [mediaMsgs addObject:x];
-        }
-    }
+    // **整个会话的媒体时间线**，不是当前窗口里的那几张：分页后扫内存会让左右翻页只能翻到
+    // 恰好还留在窗口里的媒体，用户看到的是"这张图前后没有别的图了"。查库（只取 image/video，量本就小）。
+    NSArray<IMMessageModel *> *mediaMsgs = [self conversationMediaMessages];
     NSUInteger start = [mediaMsgs indexOfObjectIdenticalTo:m];
     if (start == NSNotFound) {
         // 不在时间线内（理论不至于，兜底）→ 单开自带全套控件的查看器。
@@ -319,15 +315,23 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     return [self peerDisplayName];
 }
 
+/// 本会话全部图片/视频消息（升序）——媒体查看器左右翻页与媒体库共用的**唯一取数口径**。
+/// 走本地库而不是内存窗口：这两处的语义是"整个会话的媒体时间线"，与"当前看哪一段"无关。
+- (NSArray<IMMessageModel *> *)conversationMediaMessages {
+    __block NSArray<IMMessageModel *> *out = @[];
+    NSString *convID = self.convID;
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        out = [database mediaMessagesForConv:convID];
+    }];
+    return out;
+}
+
 /// 会话媒体库：汇总当前会话所有图片/视频消息，按时间序展示，点击复用同一查看器。
 - (void)openConversationMediaGallery {
     NSMutableArray<IMMediaItem *> *items = [NSMutableArray array];
     NSMutableArray<IMMessageModel *> *msgs = [NSMutableArray array];
-    for (IMMessageModel *m in self.messages) {
-        if (m.recalledAt > 0 || m.content.length == 0) { continue; }
+    for (IMMessageModel *m in [self conversationMediaMessages]) { // 同上：整会话口径，不是当前窗口
         BOOL isVideo = [m.contentType isEqualToString:@"video"];
-        BOOL isImage = [m.contentType isEqualToString:@"image"];
-        if (!isVideo && !isImage) { continue; }
         [items addObject:[IMMediaItem itemWithURL:[self fullMediaURL:m.content] isVideo:isVideo timestamp:m.timestamp thumb:m.thumb]];
         [msgs addObject:m];
     }
@@ -374,7 +378,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
         m.groupID = gid;
         m.status = IMMessageStatusSending;
         m.timestamp = IMNowMillis();
-        [self.messages addObject:m];
+        [self.windowState.messages addObject:m];
         [pending addObject:m];
     }
     // 转码 → 落盘 → 上传 → 发消息全程活在常驻服务（退出本页/无页面存活都不中断）；
@@ -587,7 +591,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
         m.fileSize = 0; // 未知，导出完成后服务补写（第二行先显「准备中…」）
         m.status = IMMessageStatusSending;
         m.timestamp = IMNowMillis();
-        [self.messages addObject:m];
+        [self.windowState.messages addObject:m];
         [pending addObject:m];
     }
     // 先上屏再入列（与 sendLargeFileAtURL 同理：入列路径若同步广播进度，reloadRows 会撞行数断言）。
@@ -628,7 +632,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
                                                            extension:fileName.pathExtension];
     if (!localRef) { [self im_showToast:@"本地暂存失败，请重试"]; return; }
     m.content = localRef;
-    [self.messages addObject:m];
+    [self.windowState.messages addObject:m];
     [self persistOutboxMessage:m];
     // **先上屏再入列**：enqueue 内部会同步广播初始进度（分片作业立即标 ⏸），通知回调按 messages
     // 数组定位新行去 reloadRows——若 tableView 还不知道这行存在，行数断言直接崩（真机 2026-08-04 实锤）。
@@ -649,17 +653,17 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     for (IMMessageModel *serviceModel in [IMMediaSendService.shared inFlightMessagesInConv:self.convID]) {
         IMMessageModel *mine = [self messageForClientMsgID:serviceModel.clientMsgID];
         if (!mine) {
-            [self.messages addObject:serviceModel];
+            [self.windowState.messages addObject:serviceModel];
             changed = YES;
         } else if (mine != serviceModel) {
-            NSUInteger idx = [self.messages indexOfObjectIdenticalTo:mine];
-            if (idx != NSNotFound) { [self.messages replaceObjectAtIndex:idx withObject:serviceModel]; }
+            NSUInteger idx = [self.windowState.messages indexOfObjectIdenticalTo:mine];
+            if (idx != NSNotFound) { [self.windowState.messages replaceObjectAtIndex:idx withObject:serviceModel]; }
             changed = YES;
         }
     }
     NSString *toUser = self.isGroupChat ? @"" : self.peerID;
     // im-pending:// 本地件（图片/视频/文件）：续传或降级 Failed。
-    for (IMMessageModel *m in self.messages) {
+    for (IMMessageModel *m in self.windowState.messages) {
         if (m.status != IMMessageStatusSending || m.convSeq > 0) { continue; }
         if (![IMPendingMediaStore isLocalRef:m.content]) { continue; }
         if ([IMMediaSendService.shared hasActiveJobForClientMsgID:m.clientMsgID]) { continue; }
@@ -673,9 +677,11 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     // 进程在上传中途被杀时 DB 会留一条 content="" 的永久 Sending 空气泡——没有任何路径能唤醒它，
     // im-pending://（含 file://）走上面那段已覆盖，剩下的就是 content 空这一种。
     // **只清一次**：本 VC 生命周期内新起的上传占位也是 content=""，反复 push/pop 时不能误伤。
-    if (!self.didReclaimStaleVoiceSending) {
+    // 窗口不在末尾时跳过：待发消息恒在会话末尾、此刻不在内存里，扫了是空扫，
+    // 却会把"只做一次"的标志用掉——回到末尾后那条空气泡就再也没人清了。
+    if (!self.didReclaimStaleVoiceSending && self.windowState.atTail) {
         self.didReclaimStaleVoiceSending = YES;
-        for (IMMessageModel *m in self.messages) {
+        for (IMMessageModel *m in self.windowState.messages) {
             if (m.status != IMMessageStatusSending || m.convSeq > 0) { continue; }
             if (![m.contentType isEqualToString:@"voice"]) { continue; }
             if (m.content.length > 0) { continue; } // 有 im-pending:// 走上面那段
@@ -838,7 +844,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     [self performDatabaseOperation:^(IMDatabase *database) {
         [database saveMessage:m];
     }];
-    [self.messages addObject:m];
+    [self.windowState.messages addObject:m];
     [self appendReloadAndScroll];
 }
 
@@ -883,7 +889,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     m.status = IMMessageStatusFailed;
     m.caption = caption.length > 0 ? caption : nil;
     m.timestamp = IMNowMillis();
-    [self.messages addObject:m];
+    [self.windowState.messages addObject:m];
     [self appendReloadAndScroll];
     [self im_showToast:@"图片发送失败"];
 }

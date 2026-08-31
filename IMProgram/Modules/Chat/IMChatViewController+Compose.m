@@ -86,7 +86,7 @@
     [self performDatabaseOperation:^(IMDatabase *database) {
         [database saveMessage:m]; // 落库（sending）
     }];
-    [self.messages addObject:m];
+    [self.windowState.messages addObject:m];
     self.inputField.text = @"";
     [self clearPendingMentions]; // 发出即清，下一条重新累积（M4-8）
     [self updateSendButtonVisibility];
