@@ -275,6 +275,7 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
         if (!self || !group) { return; }
         self.group = group;
         self.groupName = group.name;
+        [self resetSuperMemberPaging]; // 超级群：资料只回我自己，成员签另走分页（非超级群 no-op）
         BOOL manage = group.myRole == IMGroupRoleOwner || group.myRole == IMGroupRoleAdmin;
         [self.avatarView setAvatarURL:[self headerAvatarURL] seed:self.convID name:group.name];
         // 头像编辑统一由右上角“编辑”进入。
@@ -584,7 +585,9 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
     if (self.tabs.count == 0) { return 0; }
     IMChatDetailTab *t = self.tabs[self.selectedTab];
     switch (t.kind) {
-        case IMDetailTabKindMembers: return [self memberRowOffset] + (NSInteger)self.group.members.count; // [添加成员] + 成员
+        case IMDetailTabKindMembers: // [添加成员] + 成员（超级群分页累积）+ 可选「加载更多」行
+            return [self memberRowOffset] + (NSInteger)self.displayMembers.count
+                 + ((self.group.isSuper && self.superHasMore) ? 1 : 0);
         case IMDetailTabKindMedia:   return 1;                                        // 1 个宫格 cell（空态也占位）
         default:                     return MAX(1, (NSInteger)self.tabRows.count);    // 至少 1（空态提示）
     }
@@ -802,8 +805,16 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
             cell.imageView.image = [UIImage systemImageNamed:@"person.badge.plus"];
             return cell;
         }
+        NSArray<IMGroupMember *> *list = self.displayMembers;
+        if (row - offset >= (NSInteger)list.count) { // 末尾的「加载更多成员」行（仅超级群且还有下一页）
+            UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleDefault reuseID:@"dDef" inTable:tv];
+            cell.textLabel.text = self.superLoading ? @"加载中…" : @"加载更多成员";
+            cell.textLabel.textColor = IMTheme.accent;
+            cell.imageView.image = [UIImage systemImageNamed:@"ellipsis.circle"];
+            return cell;
+        }
         IMDetailMemberCell *cell = [tv dequeueReusableCellWithIdentifier:@"member"];
-        IMGroupMember *m = self.group.members[row - offset];
+        IMGroupMember *m = list[row - offset];
         [cell configureWithMember:m isMe:[m.userID isEqualToString:self.userID]];
         cell.selectionStyle = UITableViewCellSelectionStyleDefault;
         return cell;
@@ -916,7 +927,8 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
         if (t.kind == IMDetailTabKindMembers) {
             NSInteger offset = [self memberRowOffset];
             if (offset > 0 && indexPath.row == 0) { [self inviteMembers]; }
-            else { [self openPeerDetail:self.group.members[indexPath.row - offset]]; } // tap→对方资料页
+            else if (indexPath.row - offset >= (NSInteger)self.displayMembers.count) { [self loadMoreSuperMembers]; } // 「加载更多」行
+            else { [self openPeerDetail:self.displayMembers[indexPath.row - offset]]; } // tap→对方资料页
         } else if (t.kind == IMDetailTabKindFiles) {
             if (indexPath.row >= (NSInteger)self.tabRows.count) { return; }
             IMMessageModel *m = self.tabRows[indexPath.row];
@@ -940,7 +952,8 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     NSInteger offset = [self memberRowOffset];
     if (offset > 0 && ip.row == 0) { return nil; } // 「添加成员」行不是成员
     NSInteger i = ip.row - offset;
-    return (i >= 0 && i < (NSInteger)self.group.members.count) ? self.group.members[i] : nil;
+    NSArray<IMGroupMember *> *list = self.displayMembers;
+    return (i >= 0 && i < (NSInteger)list.count) ? list[i] : nil; // 「加载更多」行越界 → nil，长按菜单等自然跳过
 }
 
 /// 我能否移除该成员（owner 可移任何非自己；admin 可移 member）。
@@ -1117,7 +1130,8 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
         return;
     }
     NSMutableSet<NSString *> *inGroup = [NSMutableSet set];
-    for (IMGroupMember *m in self.group.members) { [inGroup addObject:m.userID]; }
+    // 超级群下这份排除集只有"已加载的那几页"，翻没到的成员仍可能被选中——服务端对重复邀请幂等，可接受。
+    for (IMGroupMember *m in self.displayMembers) { [inGroup addObject:m.userID]; }
     __weak typeof(self) ws = self;
     IMFriendPickerViewController *picker =
         [[IMFriendPickerViewController alloc] initWithHost:self.host userID:self.userID

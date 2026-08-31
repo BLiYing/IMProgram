@@ -522,4 +522,51 @@ static NSInteger IMRuneCount(NSString *s) {
     } else { commit(); }
 }
 
+#pragma mark - 成员页签 · 超级群分页（声明见 +Private.h；与 IMGroupInfoViewController 同一套路）
+
+- (NSArray<IMGroupMember *> *)displayMembers {
+    if (self.group.isSuper) { return self.superMembers ?: @[]; }
+    return self.group.members ?: @[];
+}
+
+- (void)resetSuperMemberPaging {
+    if (!self.group.isSuper) { return; }
+    // 每次群资料刷新都从第一页重来——资料刚更新过，成员集也可能变了（同 IMGroupInfoViewController 的取舍）。
+    self.superMembers = [NSMutableArray array];
+    self.superCursor = nil;
+    self.superHasMore = YES;
+    [self loadMoreSuperMembers];
+}
+
+- (void)loadMoreSuperMembers {
+    if (!self.group.isSuper || self.superLoading) { return; }
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0) { return; }
+    self.superLoading = YES;
+    [self.tableView reloadData]; // 「加载更多」→「加载中…」，不然点下去几百毫秒毫无反馈会连点
+    NSString *cursor = self.superCursor;
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService groupMembersPageWithToken:token convID:self.convID
+                                                    cursor:cursor limit:50
+                                                completion:^(NSArray<IMGroupMember *> *members,
+                                                             NSString *nextCursor, BOOL hasMore, NSError *error) {
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        self.superLoading = NO;
+        if (error) {
+            // 拉不到就停在当前页：成员签少几行，不影响详情页其余部分。
+            self.superHasMore = NO;
+            [self im_showToast:error.localizedDescription ?: @"拉取群成员失败"];
+            [self.tableView reloadData];
+            return;
+        }
+        if (cursor.length == 0 || !self.superMembers) { self.superMembers = [NSMutableArray array]; }
+        [self.superMembers addObjectsFromArray:members ?: @[]];
+        self.superCursor = nextCursor;
+        // has_more 为真但空页也要停：否则服务端异常时「加载更多」永远点不完。
+        self.superHasMore = hasMore && members.count > 0;
+        [self.tableView reloadData];
+    }];
+}
+
 @end

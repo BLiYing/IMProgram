@@ -10,6 +10,7 @@
 
 @class IMDatabaseAccountContext;
 @class IMGroupInfo;
+@class IMGroupMember;
 @class IMDetailHeaderContainer;
 @class IMDetailAvatarView;
 @class IMDetailMediaContainerCell;
@@ -114,6 +115,14 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 @property (nonatomic, assign) CGFloat topInset;
 @property (nonatomic, assign) BOOL didHapticCircle;
 @property (nonatomic, assign) BOOL didHapticAbsorb;
+// —— 成员页签的超级群分页状态（行为在 +Actions.m）——
+// **必须放类扩展、不能放下面的 (Private) category**：category 里的 @property 不合成存取器，
+// 编译照过，运行到 setSuperMembers: 就 unrecognized selector 崩溃（2026-09-01 实测踩过）。
+@property (nonatomic, strong, nullable) NSMutableArray<IMGroupMember *> *superMembers; ///< 已加载的成员（仅超级群用）
+@property (nonatomic, copy, nullable) NSString *superCursor;   ///< 下一页游标
+@property (nonatomic, assign) BOOL superHasMore;               ///< 还有下一页（控制「加载更多」行）
+@property (nonatomic, assign) BOOL superLoading;               ///< 在途标记（防连点）
+
 @end
 
 /// 跨分文件 category 互调的私有方法：主实现与各 category 都 import 本头。按业务概念粗分组、不标注定义文件
@@ -188,6 +197,18 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 - (BOOL)initialPeerIsFriendGuess:(nullable NSString *)peerID;
 /// 单聊「备注名 / 用户名」两行（row 0/1）。放 +Peer.m 是体量门禁拆分——主实现文件贴着 1500 行红线。
 - (UITableViewCell *)infoCell:(UITableView *)tv row:(NSInteger)row;
+
+// —— 成员页签的超级群分页（loader 在 +Actions.m，主文件贴着 1500 行红线）——
+// 超级群的 `GET /groups/{id}` 只回我自己（语义降级⑤），成员签必须走分页接口另拉。
+// 2g 首版只改了 IMGroupInfoViewController 的那份成员列表，漏了本页这份——模拟器联测时
+// 露馅：详情页成员签在超级群里只显示我一个人。两份列表、两处都要接，正是当时
+// 「displayMembers 唯一数据源」注释警告过的分叉，这次在本类内同样收成唯一入口。
+/// 成员签的**唯一数据源**：超级群=分页累积的 superMembers；普通群=群资料全量 members。
+- (NSArray<IMGroupMember *> *)displayMembers;
+/// 拉下一页超级群成员（+Actions.m）。首页在群资料到达时由 resetSuperMemberPaging 触发。
+- (void)loadMoreSuperMembers;
+/// 群资料刷新后重置分页并拉首页（非超级群为 no-op）。
+- (void)resetSuperMemberPaging;
 
 // —— 名片页签（IMChatDetailViewController+Contacts.m）——
 /// 名片行 cell（详情页「名片」签）。message 必须已通过 matchesKind: 的解析校验。
