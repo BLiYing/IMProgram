@@ -88,6 +88,9 @@ static const NSTimeInterval kIMWindowRequestTimeout = 6.0;
 #pragma mark - 向上翻页
 
 - (void)maybeLoadOlderOnScroll {
+    // 初始定位（贴底/锚未读）没跑完之前 contentOffset 还停在 0 附近——那不是"用户滚到了顶"，
+    // 是表刚建好。不拦的话每次进会话都会白翻一页（日志实锤：applied 200 后必跟一条 prepend 200）。
+    if (!self.didInitialPosition) { return; }
     // pendingAnchor != 0 ⇒ 已有一次开窗在途（本地翻页是同步的，只有服务端那一步会在途）。
     if (!self.windowState.hasMoreAbove || self.windowState.pendingAnchor != 0 || self.windowState.messages.count == 0) { return; }
     if (self.tableView.contentOffset.y > kIMWindowLoadOlderThreshold) { return; }
@@ -248,11 +251,58 @@ static const NSTimeInterval kIMWindowRequestTimeout = 6.0;
     self.windowState.hasMoreAbove = hasBefore;
 }
 
+#pragma mark - 向下翻页
+
+/// 快滚到窗口底部且窗口不含本地最新 → 从本地库接下一页（对称于向上翻页）。
+///
+/// 没有它，跳到历史后往下滚会在窗口底"撞墙"——下面明明还有（至少在本地库里），却只能点 ↓ 回到最新。
+/// 只走本地库、不走服务端：向下的空洞只会出现在「跳到比同步游标更深的历史」这一种情形，
+/// 缺的那段由后台 sync 持续补（补上后这里自然能翻到）；为它单开一条服务端向下取数不划算。
+/// 代价：本地不连续时（跳深处 + 同步没追上）翻下去会直接接到下一段，中间无视觉提示——
+/// 与"首次同步期间尾窗横跨两段"同一个已知限制。
+- (void)maybeLoadNewerOnScroll {
+    if (!self.didInitialPosition) { return; } // 同 maybeLoadOlderOnScroll：建表期的 offset 不是用户手势
+    if (self.windowState.atTail || self.windowState.pendingAnchor != 0 || self.windowState.messages.count == 0) { return; }
+    UIScrollView *sv = self.tableView;
+    CGFloat distance = sv.contentSize.height - sv.contentOffset.y - sv.bounds.size.height;
+    if (distance > kIMWindowLoadOlderThreshold) { return; }
+    int64_t hi = 0;
+    for (IMMessageModel *m in self.windowState.messages) {
+        if (m.convSeq > hi) { hi = m.convSeq; }
+    }
+    if (hi <= 0) { return; }
+    NSInteger page = IMWindowPage();
+    __block NSArray<IMMessageModel *> *newer = @[];
+    __block int64_t localMax = 0;
+    NSString *convID = self.convID;
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        newer = [database messagesForConv:convID aroundConvSeq:hi before:0 after:page];
+        localMax = [database maxConvSeqForConv:convID];
+    }];
+    if (newer.count == 0) {
+        if (localMax <= hi) { self.windowState.atTail = YES; [self updateJumpButton]; } // 其实已在本地末尾
+        return;
+    }
+    int64_t newHi = hi;
+    for (IMMessageModel *m in newer) {
+        if (m.convSeq > 0) { [self.windowState.seenConvSeqs addObject:@(m.convSeq)]; }
+        if (m.convSeq > newHi) { newHi = m.convSeq; }
+    }
+    [self.windowState.messages addObjectsFromArray:newer];
+    self.windowState.atTail = (localMax > 0 && newHi >= localMax);
+    [self.tableView reloadData]; // 追加在视口下方，contentOffset 不动
+    [self updateJumpButton];
+    IMLogDebugWithTag(IMLogTagUI, @"chat_window_append conv_id=%@ added=%lu rows=%lu at_tail=%d",
+                      self.convID, (unsigned long)newer.count, (unsigned long)self.windowState.messages.count,
+                      self.windowState.atTail);
+}
+
 #pragma mark - 回到末尾
 
 /// 回到"最新一窗"。发送消息、点 ↓ 按钮都走这里——它们的语义都是"我要看最新的"。
 - (void)resetWindowToTailAnimated:(BOOL)animated {
-    if (!self.windowState.atTail) {
+    BOOL replaced = !self.windowState.atTail;
+    if (replaced) {
         __block NSArray<IMMessageModel *> *msgs = @[];
         NSString *convID = self.convID;
         NSInteger page = IMWindowPage();
@@ -262,28 +312,54 @@ static const NSTimeInterval kIMWindowRequestTimeout = 6.0;
         [self applyWindowMessages:msgs atTail:YES];
         [self.tableView reloadData];
     }
-    if (animated) { [self scrollToBottomAnimated:YES]; } else { [self scrollToAbsoluteBottom]; }
+    // 刚整窗替换过：全表只有估高（56），单发的 scrollToBottomAnimated 会大幅欠滚——
+    // 3 万条群里实测停在真底部上方约 170 行，看起来像 ↓ 没起作用。必须走迭代收敛的精确贴底；
+    // 反正内容全换了，滚动动画也没有"从哪滚到哪"的连续性可言。动画只留给"窗口没换、只是滚上去了"的情形。
+    if (animated && !replaced) { [self scrollToBottomAnimated:YES]; } else { [self scrollToAbsoluteBottom]; }
     [self markVisibleRowsRead];
+    [self updateJumpButton];
 }
 
-/// 贴底连收消息时窗口只涨不缩（活跃大群一小时 7 万条），到 kIMWindowMaxPages 窗就从顶部裁掉一窗。
-/// **只在用户贴底时裁**：裁的是顶部、贴底时那一段在屏幕外，用户看不到任何跳动；
-/// 正在往上翻历史时裁会把他正看的内容抽走。
+/// 连收消息时窗口只涨不缩（活跃大群一小时 7 万条），到 kIMWindowMaxPages 窗就裁。**从哪头裁看用户在哪**：
+/// - 贴底（在跟最新）：从**顶部**裁——那一段在屏幕上方老远，看不到任何跳动；
+/// - 不贴底（停在窗口上方看着，尾部还在涨——首次同步追赶、大群刷屏都会这样）：从**底部**裁，
+///   裁掉的行在视口下方、不可见，不动用户正看的位置；裁完窗口不再含本地最新 ⇒ atTail=NO，
+///   之后的新消息经 didReceiveMessage 的守卫只落库不上屏——"每条消息一次 reloadData"的追赶风暴就此打住。
+///   （3 万条首次同步实测：不这么做，窗口一路涨到几万条、主线程被 reload 打满，点置顶横幅都排不上队。）
 - (void)trimWindowIfOverlongAtTail {
     NSInteger page = IMWindowPage();
     if (!self.windowState.atTail || (NSInteger)self.windowState.messages.count <= kIMWindowMaxPages * page) { return; }
-    if (![self isNearBottom]) { return; }
-    NSRange drop = NSMakeRange(0, (NSUInteger)page);
-    for (NSUInteger i = 0; i < drop.length; i++) {
-        int64_t s = self.windowState.messages[i].convSeq;
-        if (s > 0) { [self.windowState.seenConvSeqs removeObject:@(s)]; }
+    if ([self isNearBottom]) {
+        NSRange drop = NSMakeRange(0, (NSUInteger)page);
+        for (NSUInteger i = 0; i < drop.length; i++) {
+            int64_t s = self.windowState.messages[i].convSeq;
+            if (s > 0) { [self.windowState.seenConvSeqs removeObject:@(s)]; }
+        }
+        [self.windowState.messages removeObjectsInRange:drop];
+        self.windowState.hasMoreAbove = YES; // 裁掉的那一段仍在本地库里，往上翻能拿回来
+        [self.tableView reloadData];
+        [self scrollToAbsoluteBottom];
+        IMLogDebugWithTag(IMLogTagUI, @"chat_window_trim conv_id=%@ dropped=%ld rows=%lu",
+                          self.convID, (long)page, (unsigned long)self.windowState.messages.count);
+        return;
     }
-    [self.windowState.messages removeObjectsInRange:drop];
-    self.windowState.hasMoreAbove = YES; // 裁掉的那一段仍在本地库里，往上翻能拿回来
-    [self.tableView reloadData];
-    [self scrollToAbsoluteBottom];
-    IMLogDebugWithTag(IMLogTagUI, @"chat_window_trim conv_id=%@ dropped=%ld rows=%lu",
-                      self.convID, (long)page, (unsigned long)self.windowState.messages.count);
+    // 从底部裁：只裁已上号的行（conv_seq==0 的待发/失败消息属于"最新一段"的一部分，
+    // 且用户此刻若有待发消息，appendReloadAndScroll 早已把窗口拉回末尾——碰到就停）。
+    NSInteger overflow = (NSInteger)self.windowState.messages.count - kIMWindowMaxPages * page;
+    NSInteger dropped = 0;
+    while (dropped < overflow) {
+        IMMessageModel *last = self.windowState.messages.lastObject;
+        if (!last || last.convSeq <= 0) { break; }
+        [self.windowState.seenConvSeqs removeObject:@(last.convSeq)];
+        [self.windowState.messages removeLastObject];
+        dropped++;
+    }
+    if (dropped == 0) { return; }
+    self.windowState.atTail = NO; // 裁掉的是最新一段：窗口不再贴着本地末尾
+    [self.tableView reloadData];  // 裁的行全在视口下方，contentOffset 不动、画面无跳变
+    [self updateJumpButton];
+    IMLogDebugWithTag(IMLogTagUI, @"chat_window_trim_bottom conv_id=%@ dropped=%ld rows=%lu",
+                      self.convID, (long)dropped, (unsigned long)self.windowState.messages.count);
 }
 
 #pragma mark - ↓N 计数

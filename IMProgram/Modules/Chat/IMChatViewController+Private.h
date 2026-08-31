@@ -206,6 +206,8 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (BOOL)openLocalWindowAroundConvSeq:(int64_t)convSeq;
 - (void)requestServerWindowAnchor:(int64_t)anchor isJump:(BOOL)isJump;
 - (void)maybeLoadOlderOnScroll;
+- (void)maybeLoadNewerOnScroll;
+- (int64_t)maxInMemoryConvSeq; ///< 窗口内已上号消息的最大 conv_seq（主实现定义；+Socket 的"低于窗口末尾不上屏"守卫用）
 - (void)resetWindowToTailAnimated:(BOOL)animated;
 - (void)trimWindowIfOverlongAtTail;
 - (NSInteger)windowUnreadBelowCount;

@@ -129,6 +129,14 @@
         [self updateJumpButton];
         return;
     }
+    // 低于窗口末尾的已上号消息同样只落库不上屏（模拟器 3 万条实测抓到的坑）：
+    // 跳到比同步游标更深的历史后（如游标在 12000、跳到 20000），后台补拉会继续送 12001、12002…——
+    // 它们 seq 低于窗口末尾，按时间序会**插进当前窗口中间**，窗口从"连续一段"变成大杂烩，
+    // 且每条一次重排+reloadData。窗口内的重复投递仍由上面的 seenConvSeqs 分支负责（含元数据回填）。
+    if (message.convSeq > 0 && message.convSeq <= [self maxInMemoryConvSeq]) {
+        [self updateJumpButton];
+        return;
+    }
     // 收到新消息：贴底才自动贴底；在上方看历史则不打断，累加到"↓N"（CHAT_UX §9）。
     BOOL wasNearBottom = [self isNearBottom];
     // 绝大多数消息按序到达：直接尾插即保持有序，省掉每条都做的 O(n log n) 全量重排。

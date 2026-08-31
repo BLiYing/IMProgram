@@ -52,6 +52,7 @@
     [self markVisibleRowsRead];   // 可见即读：滚到哪、读到哪（先推进 pendingReadSeq）
     [self updateJumpButton];      // 再据新位点刷新 ↓N 计数
     [self maybeLoadOlderOnScroll]; // 快到顶了就往上翻一页（本地库优先，翻到头才问服务端）
+    [self maybeLoadNewerOnScroll]; // 快到底了且窗口不含本地最新 → 从本地库接下一页（对称）
 }
 
 // 滚动中媒体尺寸落定被延迟的行高重排：拖拽/惯性结束后统一补一次（滚动期间做会肉眼可见地弹跳）。
