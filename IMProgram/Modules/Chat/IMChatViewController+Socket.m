@@ -71,7 +71,10 @@
     NSInteger count = self.groupInfo.memberCount > 0
         ? self.groupInfo.memberCount
         : (NSInteger)self.groupInfo.members.count;
-    return count > 0 ? [NSString stringWithFormat:@"%ld 位成员", (long)count] : @"";
+    // 「大群」标注：大群不显示已读双勾/正在输入/成员在线态，副标题点明缘由，
+    // 否则用户会把"功能没了"当成 bug 报上来。
+    NSString *tag = self.groupInfo.isSuper ? @" · 大群" : @"";
+    return count > 0 ? [NSString stringWithFormat:@"%ld 位成员%@", (long)count, tag] : (self.groupInfo.isSuper ? @"大群" : @"");
 }
 
 /// 消息排序（**唯一入口**，与 IMDatabase.messagesForConv 的 ORDER BY 及 im-web 的渲染排序三方一致）：

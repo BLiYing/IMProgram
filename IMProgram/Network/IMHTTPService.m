@@ -524,6 +524,34 @@ const NSInteger IMFavoritesPageSize = 60;
     [self runGroupInfoRequest:req fallback:@"拉取群资料失败" completion:completion];
 }
 
+- (void)groupMembersPageWithToken:(NSString *)token
+                           convID:(NSString *)convID
+                           cursor:(NSString *)cursor
+                            limit:(NSInteger)limit
+                       completion:(void (^)(NSArray<IMGroupMember *> *, NSString *, BOOL, NSError *))completion {
+    NSMutableString *suffix = [NSMutableString stringWithFormat:@"/members?limit=%ld", (long)(limit > 0 ? limit : 50)];
+    if (cursor.length > 0) {
+        [suffix appendFormat:@"&cursor=%@", [self pathEscape:cursor]];
+    }
+    NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:suffix]
+                                                   method:@"GET" token:token body:nil];
+    [self runDataRequest:req fallback:@"拉取群成员失败" completion:^(NSDictionary *data, NSError *error) {
+        if (error) { completion(nil, nil, NO, error); return; }
+        // ⚠️ 分页接口的成员数组在 **items** 里，不是 members——`GET /groups/{id}` 用 members，
+        // 这个分页接口用 items，两者不同名。照直觉写成 members 会静默拿到空列表
+        // （Web 端同一个坑当场把界面搞白屏了）。字段名以后端 handlers_group.go 为准。
+        NSArray *raw = [data[@"items"] isKindOfClass:NSArray.class] ? data[@"items"] : @[];
+        NSMutableArray<IMGroupMember *> *out = [NSMutableArray arrayWithCapacity:raw.count];
+        for (id item in raw) {
+            if (![item isKindOfClass:NSDictionary.class]) { continue; }
+            IMGroupMember *m = [IMGroupMember memberFromDictionary:item];
+            if (m) { [out addObject:m]; }
+        }
+        NSString *next = [data[@"next_cursor"] isKindOfClass:NSString.class] ? data[@"next_cursor"] : @"";
+        completion(out, next, [data[@"has_more"] boolValue], nil);
+    }];
+}
+
 - (void)pinnedMessagesWithToken:(NSString *)token
                          convID:(NSString *)convID
                      completion:(void (^)(NSArray<IMPinnedMessage *> *, NSError *))completion {

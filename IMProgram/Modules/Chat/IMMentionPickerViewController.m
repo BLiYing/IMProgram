@@ -168,6 +168,11 @@ static UIColor *IMMentionBaseGroupedBackgroundColor(void) {
 @implementation IMMentionPickerViewController {
     IMGroupInfo *_group;
     NSArray<IMGroupMember *> *_all;      ///< 候选成员（已剔除自己）
+    /// 超级群（2 万人量级）：候选来自**服务端搜索**，不是本地 group.members——
+    /// 那里只有我自己（服务端不再全量下发成员），不走服务端就一个候选都搜不到。
+    BOOL _isSuper;
+    NSString *_convID;
+    int64_t _searchToken;                ///< 去抖 + 丢弃过期响应（快速打字时后发先至会让候选闪回旧词的结果）
     NSArray<IMGroupMember *> *_filtered; ///< 当前过滤结果
     NSString *_query;
     BOOL _canMentionAll;                 ///< 我是群主/管理员——决定「@所有人」行是否渲染
@@ -241,7 +246,10 @@ static const NSInteger kIMMentionInlineMaxVisibleRows = 4;
             if (![m.userID isEqualToString:me]) { [others addObject:m]; } // @自己无意义
         }
         _all = others;
+        _isSuper = group.isSuper;
+        _convID = group.convID ?: @"";
         _filtered = [self membersMatching:_query];
+        if (_isSuper) { [self searchRemoteMembers]; } // 超级群：先拉一页，面板打开即有候选
         _host = IMHTTPService.sharedService.host;
     }
     return self;
@@ -431,12 +439,48 @@ static const NSInteger kIMMentionInlineMaxVisibleRows = 4;
     _query = [query copy] ?: @"";
     _filtered = [self membersMatching:[self effectiveQuery]];
     [_tableView reloadData];
+    if (_isSuper) { [self searchRemoteMembers]; }
+}
+
+/// 超级群：向服务端搜候选（本地成员表只有我自己）。
+///
+/// 300ms 去抖 —— 每敲一个字打一次请求，在 2 万人的群里既浪费又会让候选闪烁。
+/// `_searchToken` 同时用来**丢弃过期响应**：快速打字时请求可能后发先至，
+/// 不校验的话候选会闪回上一个搜索词的结果。
+- (void)searchRemoteMembers {
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0 || _convID.length == 0) { return; }
+    int64_t myToken = ++_searchToken;
+    NSString *q = [self effectiveQuery] ?: @"";
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self || myToken != self->_searchToken) { return; } // 去抖：期间又打字了
+        [IMHTTPService.sharedService groupMembersPageWithToken:token convID:self->_convID
+                                                        cursor:nil limit:20
+                                                    completion:^(NSArray<IMGroupMember *> *members,
+                                                                 NSString *nextCursor, BOOL hasMore, NSError *error) {
+            __strong typeof(weakSelf) self = weakSelf;
+            if (!self || myToken != self->_searchToken) { return; } // 过期响应：丢弃
+            if (error) { return; }                                  // 搜不到就维持现状，不打断输入
+            NSString *me = IMSessionStore.userID ?: @"";
+            NSMutableArray<IMGroupMember *> *others = [NSMutableArray array];
+            for (IMGroupMember *m in members) {
+                if (![m.userID isEqualToString:me]) { [others addObject:m]; }
+            }
+            self->_all = others;
+            self->_filtered = others; // 服务端已按 q 过滤，不再本地二次筛（本地筛会把服务端命中的项误滤掉）
+            [self->_tableView reloadData];
+            if (self->_inline && self.onInlineFilterChanged) { self.onInlineFilterChanged(); }
+        }];
+    });
 }
 
 - (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText {
     // 面板搜索框＝独立搜索：只改「生效过滤词」，不写回 _query（聊天输入框的 @查询词），二者互不覆盖。
     _filtered = [self membersMatching:[self effectiveQuery]];
     [_tableView reloadData];
+    if (_isSuper) { [self searchRemoteMembers]; }
     if (_inline && self.onInlineFilterChanged) { self.onInlineFilterChanged(); } // 宿主据此更新面板高度
 }
 

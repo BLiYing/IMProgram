@@ -305,7 +305,8 @@
     if (self.isGroup) {
         // 优先 memberCount：超级群的 members 只含我自己（服务端不下发全量成员）。
         NSInteger n = self.group.memberCount > 0 ? self.group.memberCount : (NSInteger)self.group.members.count;
-        return n > 0 ? [NSString stringWithFormat:@"%ld 位成员", (long)n] : @"群聊";
+        NSString *tag = self.group.isSuper ? @" · 大群" : @"";
+        return n > 0 ? [NSString stringWithFormat:@"%ld 位成员%@", (long)n, tag] : (self.group.isSuper ? @"大群" : @"群聊");
     }
     // 单聊副标题 = **在线态**（对齐 Telegram：标题是名字、副标题是「在线 / 最近在线」）。
     //

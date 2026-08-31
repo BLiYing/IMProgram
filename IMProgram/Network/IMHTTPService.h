@@ -6,6 +6,7 @@
 @class IMConversation;
 @class IMUserCard;
 @class IMGroupInfo;
+@class IMGroupMember;
 @class IMPinnedMessage;
 @class IMDeviceSession;
 
@@ -202,6 +203,24 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
 - (void)groupInfoWithToken:(NSString *)token
                     convID:(NSString *)convID
                 completion:(void (^)(IMGroupInfo *_Nullable group, NSError *_Nullable error))completion;
+
+/// 群成员目录**分页 + 搜索**（G5-c）：GET /groups/{id}/members?cursor=&limit=&q=。
+///
+/// **超级群必须走这条**：那时 `GET /groups/{id}` 的 members 只含我自己
+///（2 万人约 2.5MB，服务端不再全量下发，见 IMServer/docs/design/SUPERGROUP_DESIGN.md §4）。
+/// 普通群不必用——群资料接口已一次带全。
+///
+/// @param cursor 上一页的 nextCursor；传空/nil 取第一页。
+/// @param limit  每页条数（服务端默认 50、上限 200）。
+/// completion 在主线程回调；hasMore=NO 表示已到末页。
+- (void)groupMembersPageWithToken:(NSString *)token
+                           convID:(NSString *)convID
+                           cursor:(nullable NSString *)cursor
+                            limit:(NSInteger)limit
+                       completion:(void (^)(NSArray<IMGroupMember *> *_Nullable members,
+                                            NSString *_Nullable nextCursor,
+                                            BOOL hasMore,
+                                            NSError *_Nullable error))completion;
 
 /// 会话当前置顶消息（G0）：GET /conversations/{id}/pinned。须为会话成员；服务端按 pinned_at 倒序、
 /// 最多 50 条，且已排除撤回/为所有人删除/本人「仅为我删除」的。进会话拉一次回填横幅，

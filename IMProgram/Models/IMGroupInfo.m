@@ -29,11 +29,6 @@ static BOOL IMGroupBool(NSDictionary *dict, NSString *key) {
     return [v respondsToSelector:@selector(boolValue)] ? [v boolValue] : NO;
 }
 
-@interface IMGroupMember ()
-/// 单个成员解析（脏数据安全；无 user_id 返回 nil）。
-+ (nullable instancetype)memberFromDictionary:(NSDictionary *)dict;
-@end
-
 @implementation IMGroupMember
 
 - (NSString *)displayName {

@@ -33,6 +33,13 @@ IMGroupRole IMGroupRoleFromString(NSString *_Nullable s);
 /// **本机显示名**：我给他起的备注 > 公开名。凡是"给我自己看"的地方（成员列表、已读回执、
 /// 菜单标题、确认文案）都用它；绝不能用在会发出去的内容上，见 docs/UI.md「备注 · 隐私红线」。
 @property (nonatomic, readonly) NSString *localDisplayName;
+
+/// 单个成员解析（脏数据安全；无 user_id 返回 nil）。
+///
+/// 原为 .m 内私有；**成员分页接口**（GET /groups/{id}/members，超级群必走）也要解析同一份
+/// 成员 JSON，公开它比在网络层另写一份解析可靠——两份迟早分叉（少解一个字段就是少一个徽标）。
++ (nullable instancetype)memberFromDictionary:(NSDictionary *)dict;
+
 @end
 
 /// 群资料 + 成员列表。convID 即群 topic_id（g_xxx），与消息层 conv_id 同名同值。

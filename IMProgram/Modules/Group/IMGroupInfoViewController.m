@@ -128,6 +128,12 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
 @property (nonatomic, copy) NSString *convID;
 @property (nonatomic, strong, nullable) IMGroupInfo *group;
 @property (nonatomic, strong) UITableView *tableView;
+/// 超级群的成员分页态（普通群不用：群资料接口已一次带全）。
+/// superMembers 是**已加载**的那些人；superCursor 为下一页游标；superHasMore 控制"加载更多"行。
+@property (nonatomic, strong) NSMutableArray<IMGroupMember *> *superMembers;
+@property (nonatomic, copy, nullable) NSString *superCursor;
+@property (nonatomic, assign) BOOL superHasMore;
+@property (nonatomic, assign) BOOL superLoading; ///< 防重入：连点/滚动触底重复拉同一页
 @end
 
 @implementation IMGroupInfoViewController
@@ -194,6 +200,14 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
             return;
         }
         self.group = group;
+        // 超级群：群资料只回我自己，成员表要另外分页拉（见 loadMoreSuperMembers）。
+        // 每次 reload 都从第一页重来——群资料刚更新过，成员集也可能变了。
+        if (group.isSuper) {
+            self.superMembers = [NSMutableArray array];
+            self.superCursor = nil;
+            self.superHasMore = YES;
+            [self loadMoreSuperMembers];
+        }
         // 改群名：群主/管理员可见（服务端二次校验）。
         BOOL canEdit = group.myRole == IMGroupRoleOwner || group.myRole == IMGroupRoleAdmin;
         self.navigationItem.rightBarButtonItem = canEdit
@@ -422,19 +436,31 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
     return self.group ? IMGroupInfoSectionCount : 0;
 }
 
+/// 成员列表的**唯一数据源**：超级群用分页累积的 superMembers，普通群用群资料里的全量 members。
+/// 所有读成员的地方都走这里——分成两处取会在某个分支上忘记切换，表现是大群里点谁都点错人。
+- (NSArray<IMGroupMember *> *)displayMembers {
+    if (self.group.isSuper) { return self.superMembers ?: @[]; }
+    return self.group.members ?: @[];
+}
+
+/// 超级群且还有下一页时，成员分区末尾多一行「加载更多」。
+- (BOOL)showsLoadMoreRow {
+    return self.group.isSuper && self.superHasMore;
+}
+
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     switch (section) {
         case IMGroupInfoSectionHeader:  return 1;
         case IMGroupInfoSectionActions: return 2; // 邀请成员 / 退出群聊
-        default:                        return (NSInteger)self.group.members.count;
+        default:                        return (NSInteger)self.displayMembers.count + (self.showsLoadMoreRow ? 1 : 0);
     }
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     if (section == IMGroupInfoSectionMembers) {
-        // 标题人数用 memberCount（超级群的 members 只含我自己）；列表行数仍按实际下发的成员数，
-        // 故这里与 numberOfRowsInSection 刻意不同源——那不是 bug：大群只列出已加载的那些人。
-        NSInteger total = self.group.memberCount > 0 ? self.group.memberCount : (NSInteger)self.group.members.count;
+        // 标题人数用 memberCount（真实总数）；列表行数是**已加载**的那些（超级群分页累积）。
+        // 两者刻意不同源——大群下"成员（20000）"配着几十行是对的，翻页会逐步补齐。
+        NSInteger total = self.group.memberCount > 0 ? self.group.memberCount : (NSInteger)self.displayMembers.count;
         return [NSString stringWithFormat:@"成员（%ld）", (long)total];
     }
     return nil;
@@ -446,8 +472,19 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     if (indexPath.section == IMGroupInfoSectionMembers) {
+        NSArray<IMGroupMember *> *list = self.displayMembers;
+        if (indexPath.row >= (NSInteger)list.count) {
+            // 「加载更多」行（仅超级群且还有下一页）。
+            UITableViewCell *more = [tableView dequeueReusableCellWithIdentifier:@"plain" forIndexPath:indexPath];
+            more.accessoryType = UITableViewCellAccessoryNone;
+            more.imageView.image = nil;
+            more.textLabel.text = self.superLoading ? @"加载中…" : @"加载更多成员";
+            more.textLabel.textAlignment = NSTextAlignmentCenter;
+            more.textLabel.textColor = IMTheme.accent;
+            return more;
+        }
         IMGroupMemberCell *cell = [tableView dequeueReusableCellWithIdentifier:@"member" forIndexPath:indexPath];
-        IMGroupMember *m = self.group.members[indexPath.row];
+        IMGroupMember *m = list[indexPath.row];
         [cell configureWithMember:m isMe:[m.userID isEqualToString:self.userID]];
         return cell;
     }
@@ -490,8 +527,49 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
         return;
     }
     if (indexPath.section == IMGroupInfoSectionMembers) {
-        [self showActionsForMember:self.group.members[indexPath.row]];
+        NSArray<IMGroupMember *> *list = self.displayMembers;
+        if (indexPath.row >= (NSInteger)list.count) { [self loadMoreSuperMembers]; return; } // 「加载更多」行
+        [self showActionsForMember:list[indexPath.row]];
     }
+}
+
+#pragma mark - 超级群成员分页
+
+/// 拉超级群成员的下一页；cursor 为空表示从第一页重来（进页面/刷新时）。
+///
+/// 普通群不调用——群资料接口已一次带全，再走分页只会多打请求。
+- (void)loadMoreSuperMembers {
+    if (!self.group.isSuper || self.superLoading) { return; }
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0) { return; }
+    self.superLoading = YES;
+    // 立刻把「加载更多」刷成「加载中…」，否则点下去几百毫秒内毫无反馈，用户会连点。
+    [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:IMGroupInfoSectionMembers]
+                  withRowAnimation:UITableViewRowAnimationNone];
+    NSString *cursor = self.superCursor;
+    __weak typeof(self) weakSelf = self;
+    [IMHTTPService.sharedService groupMembersPageWithToken:token convID:self.convID
+                                                    cursor:cursor limit:50
+                                                completion:^(NSArray<IMGroupMember *> *members,
+                                                             NSString *nextCursor, BOOL hasMore, NSError *error) {
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self) { return; }
+        self.superLoading = NO;
+        if (error) {
+            // 拉不到就停在当前页：成员列表少几行，不影响群资料页其余部分与聊天本身。
+            self.superHasMore = NO;
+            [self im_showToast:error.localizedDescription ?: @"拉取群成员失败"];
+            [self.tableView reloadData];
+            return;
+        }
+        if (cursor.length == 0) { self.superMembers = [NSMutableArray array]; } // 首页：重来
+        if (!self.superMembers) { self.superMembers = [NSMutableArray array]; }
+        [self.superMembers addObjectsFromArray:members ?: @[]];
+        self.superCursor = nextCursor;
+        // has_more 为真但这页一个人都没回时也要停：否则「加载更多」永远点不完（服务端异常时的死循环）。
+        self.superHasMore = hasMore && members.count > 0;
+        [self.tableView reloadData];
+    }];
 }
 
 @end
