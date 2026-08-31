@@ -745,10 +745,11 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
     NSInteger unreadDelta = inserted && isIncoming && isUnread && !representedByServerSnapshot && !isSystem ? 1 : 0;
     if (!exists) {
         BOOL ok = [db executeUpdate:
-            @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,peer,peer_nickname,peer_avatar_url,last_content,last_from,last_from_nickname,last_recalled,last_content_type,last_caption,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq) VALUES (?,?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,0,0)",
+            @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,peer,peer_nickname,peer_avatar_url,last_content,last_from,last_from_nickname,last_sys_segments,last_recalled,last_content_type,last_caption,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq) VALUES (?,?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,0,0)",
             owner, message.convID, @(isGroup), isGroup ? @"群聊" : @"", @"", @0,
             isGroup ? @"" : (peer ?: @""), isGroup ? @"" : (peer ?: @""), @"",
             message.content ?: @"", message.from ?: @"", message.fromNickname ?: @"",
+            IMEncodeSysSegments(message.sysSegments),
             @(message.recalledAt > 0), message.contentType ?: @"text", message.caption ?: @"", @(message.convSeq), @0, @0,
             @(message.timestamp), @(unreadDelta)];
         if (!ok) {
@@ -757,10 +758,14 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
         }
     } else if (isLatest) {
         BOOL ok = [db executeUpdate:
-            // last_caption 必须随每条新消息**覆写**（含无 caption 的空串）：漏写会把上一条的图说文字
-            // 串到新消息的预览上（code-review 2026-08-19——快照写入路径有它、实时路径漏了）。
-            @"UPDATE im_conversation_local SET last_content=?,last_from=?,last_from_nickname=?,last_recalled=?,last_content_type=?,last_caption=?,latest_conv_seq=MAX(latest_conv_seq,?),timestamp=MAX(timestamp,?),unread=MIN(999,unread+?) WHERE owner_uid=? AND conv_id=?",
+            // last_caption / last_sys_segments 必须随每条新消息**覆写**（含空串）：漏写会把上一条的
+            // 图说文字、或上一条系统消息的分段串到新消息的预览上——后者更狠，因为
+            // `IMConversation.lastPreviewTextForSelfUID:` 只要 lastSysSegments 非空就整句用它渲染，
+            // last_content 根本不参与，列表会一直显示那条早已被顶掉的旧系统消息
+            // （code-review 2026-08-19 修过 caption 那一半、2026-08-30 补上 sys_segments 这一半）。
+            @"UPDATE im_conversation_local SET last_content=?,last_from=?,last_from_nickname=?,last_sys_segments=?,last_recalled=?,last_content_type=?,last_caption=?,latest_conv_seq=MAX(latest_conv_seq,?),timestamp=MAX(timestamp,?),unread=MIN(999,unread+?) WHERE owner_uid=? AND conv_id=?",
             message.content ?: @"", message.from ?: @"", message.fromNickname ?: @"",
+            IMEncodeSysSegments(message.sysSegments),
             @(message.recalledAt > 0), message.contentType ?: @"text", message.caption ?: @"", @(message.convSeq),
             @(message.timestamp), @(unreadDelta), owner, message.convID];
         if (!ok) {

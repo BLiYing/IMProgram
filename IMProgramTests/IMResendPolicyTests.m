@@ -67,6 +67,25 @@ static IMMessageModel *failedText(NSString *content) {
     XCTAssertEqual(IMResendPolicyForMessage(m, YES), IMResendPolicyRetryUpload);
 }
 
+/// 语音上传失败会**无条件**写一句 note（"语音上传失败"），但服务端从没见过这条（content 仍是
+/// im-pending://）——note 在这里不代表"被拒收"，必须仍然可重传。
+/// 2026-08-30 回归：判据顺序写反过一次，导致红❗照显却点不动、语音重传整条路径失效。
+- (void)testPendingLocalRefWithUploadErrorNoteStillRetriesUpload {
+    IMMessageModel *m = failedText(@"im-pending://voice-1.m4a");
+    m.contentType = @"voice";
+    m.note = @"语音上传失败";
+    XCTAssertEqual(IMResendPolicyForMessage(m, YES), IMResendPolicyRetryUpload);
+}
+
+/// 反向守住：note 只有在**没有本地字节**时才意味着"不可重发"。
+/// 语音"发送中断，请重新录制"就是这一类（content 空 + note）。
+- (void)testEmptyContentWithNoteIsNotResendable {
+    IMMessageModel *m = failedText(@"");
+    m.contentType = @"voice";
+    m.note = @"发送中断，请重新录制";
+    XCTAssertEqual(IMResendPolicyForMessage(m, YES), IMResendPolicyNone);
+}
+
 - (void)testEmptyContentRetriesUpload {
     IMMessageModel *m = failedText(@"");
     m.contentType = @"image"; // 排队/压缩期就失败：还没落盘，content 为空

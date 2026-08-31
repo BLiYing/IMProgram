@@ -31,11 +31,11 @@ iOS 即时通讯（IM）聊天 App。标准 Xcode 工程，UIKit + Storyboard。
 动手前（Read，不靠记忆）：
 - 改客户端代码前，先 Read `CODING_STYLE.md` 与 `ARCHITECTURE.md`；涉及协议字段再 Read `../IMServer/docs/PROTOCOL.md`。
 
-声明「完成」前必须全部满足，并在回复中**贴出编译输出**：
+声明「完成」前必须全部满足，并在回复中**贴出 `./scripts/test.sh` 的输出**：
 1. 新功能配套测试用例（`IMProgramTests/` 的 XCTest），纳入回归。
-2. 真编译（已引入 CocoaPods，**用 `.xcworkspace`**）：`xcodebuild -workspace IMProgram.xcworkspace -scheme IMProgram -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' build CODE_SIGNING_ALLOWED=NO` 通过（零 error/warning）。
-3. 测试 bundle 编译：`xcodebuild build-for-testing -workspace IMProgram.xcworkspace -scheme IMProgram -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO` → `** TEST BUILD SUCCEEDED **`。
-   - **不强制启动模拟器执行**（本机模拟器子系统不稳，常 launchd_sim 卡死）。XCTest 由用户在真机/Xcode 手动跑。
+2. **`./scripts/test.sh` 全绿**（体量门禁 + 编译 + `IMProgramTests` 单测）——**这是唯一入口，别手拼 xcodebuild 命令行**，理由见「构建 / 测试」一节。
+   - 改代码途中想快速过一遍编译：`BUILD_ONLY=1 ./scripts/test.sh`（不碰模拟器）。但**声明「完成」前必须去掉 `BUILD_ONLY` 再跑一次**。
+   - 只跑某个类/某条用例：`ONLY=IMResendPolicyTests ./scripts/test.sh` / `ONLY=IMResendPolicyTests/testXxx ./scripts/test.sh`。
 4. 更新 `current_task.md`。
 5. **更新 `../IMServer/docs/CLIENT_PARITY.md` 对应单元格**（功能×端状态的唯一来源）。
 6. **端对齐扫一遍**：凡声明"某功能完成/对齐 Web"，先按 CLIENT_PARITY **逐行 diff iOS↔Web**——Web ✅ 而 iOS ⬜ 的就是缺口，要么补上、要么在回复里点名为已知缺口。（"↓N 跳转"曾因没做这步而漏掉。）
@@ -47,6 +47,16 @@ iOS 即时通讯（IM）聊天 App。标准 Xcode 工程，UIKit + Storyboard。
 
 ## 构建 / 测试
 - **已用 CocoaPods（FMDB）**：打开/构建一律用 `IMProgram.xcworkspace`，不再用 `.xcodeproj`。新机器先 `cd IMProgram && pod install`。
-- 构建：`xcodebuild -workspace IMProgram.xcworkspace -scheme IMProgram -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' build CODE_SIGNING_ALLOWED=NO`
-- 测试编译：`xcodebuild build-for-testing -workspace IMProgram.xcworkspace -scheme IMProgram ... CODE_SIGNING_ALLOWED=NO`（执行由真机/Xcode 手动跑）
+- **唯一入口：`./scripts/test.sh`**（与后端 `IMServer/scripts/test.sh` 对称）。
+  ```bash
+  ./scripts/test.sh                            # 体量门禁 + 编译 + IMProgramTests 单测
+  BUILD_ONLY=1 ./scripts/test.sh               # 只编译（不碰模拟器，最快）
+  ONLY=IMResendPolicyTests ./scripts/test.sh   # 只跑一个类（排查偶发失败用）
+  ```
+- **不要手拼 `xcodebuild` 命令行**——2026-08-31 之前每次都拼得不一样，反复踩三个坑，脚本已把它们写死：
+  1. **不能跑整个 scheme**：它带着 `IMProgramUITests`，`testExample` 一条 135s、`testLaunch` 37s（要真启动 App 跑交互）；而 313 条单测加起来不到 1 分钟。脚本写死 `-only-testing:IMProgramTests`。UI 测试要跑请单独手动跑。
+  2. **必须关并行**：Xcode 默认按 target 克隆模拟器并行跑，一台机器上自己跟自己抢 CPU，会把时序敏感的用例压出偶发失败（`IMMediaPlaceholderTests` 那条，见 `current_task.md`「已知坑」）。脚本写死 `-parallel-testing-enabled NO`。
+  3. **失败原因不在纯文本日志里**：xcodebuild 只给一句 `** TEST FAILED **`，断言原文在 `.xcresult` 里。脚本固定 `-resultBundlePath` 并用 `xcresulttool` 把「哪条用例 + 断言原文」直接打出来。
+  - 另：固定 `-derivedDataPath build/DerivedData` 复用增量产物；模拟器**自动挑**最新 iOS 的 iPhone（写死名字会在换 Xcode/换机后报 destination 找不到，那种失败看起来像"测试挂了"，白费排查时间）。要指定：`IM_SIM=<udid|名字>`。
+- 完整日志与结果包落在 `build/`（已 gitignore）：`build/xcodebuild-test.log` / `build/TestResults.xcresult`。
 - Podfile 已关 `ENABLE_USER_SCRIPT_SANDBOXING`（post_install），避免 Pods 资源拷贝被沙盒拒写。
