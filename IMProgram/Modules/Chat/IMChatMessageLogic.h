@@ -33,6 +33,19 @@ FOUNDATION_EXPORT NSString *IMConversationPublicName(BOOL isGroup,
                                                      NSString *_Nullable peerNickname,
                                                      NSString *_Nullable peerID);
 
+/// 合并转发卡片标题 `t` 的**唯一生成口径**（与 Web `chatRecordTitle` 逐字对齐）。
+///
+/// 群聊一律固定串「群聊的聊天记录」，**绝不写真实群名**：收件人往往不在那个群里，群名本身就是信息
+/// （「XX 病友群」），而 `t` 会被冻结进消息内容、还能被收件人再次转发，泄露没有回收路径。微信同款。
+/// 单聊写双方名字——只写对方的话，收件人看不出这是「对方和谁」的对话。
+///
+/// 名字用**公开名**（昵称），不能用聊天页标题：备注（好友备注 / 会话备注 G1）仅本人可见，
+/// 写进去等于把「我给他起的私房名」发出去（见 IMConversationPublicName）。
+/// 缺名逐级降级到「聊天记录」，**绝不落到 10 位内部 ID**（内部 ID 不上屏是全局纪律）。
+FOUNDATION_EXPORT NSString *IMChatRecordTitle(BOOL isGroup,
+                                              NSString *_Nullable peerPublicName,
+                                              NSString *_Nullable myPublicName);
+
 /// 发送失败消息的重发路径。**红❗ 是否可点、点了走哪条路，全端唯一判据**——
 /// 各 cell 的红❗显隐与聊天页的重发分派都读它，别在 cell 里各判各的（头像列曾因此漏接两次）。
 typedef NS_ENUM(NSInteger, IMResendPolicy) {

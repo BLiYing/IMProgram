@@ -132,6 +132,7 @@ BOOL IMIsTransientNetworkError(NSError *error) {
 
 @interface IMHTTPService ()
 @property (atomic, copy, nullable) NSString *currentToken; // 对外只读，内部可写
+@property (atomic, copy, nullable) NSString *currentNickname; // 同上；登录后异步预热，见 warmUpMyNickname
 @property (atomic, copy, nullable) NSString *tokenUserID;      // 缓存 token 归属的 uid（切账号即失效）
 @property (atomic, assign) CFAbsoluteTime tokenFetchedAt;      // 取得时刻：TTL 内直接复用，不重复 POST /login
 // 合并在途登录（同 @synchronized(self) 保护）：冷启动缓存尚空时 socket 与会话列表等会并发调 loginWithUserID，
@@ -217,6 +218,7 @@ BOOL IMIsTransientNetworkError(NSError *error) {
         // 若拿它当键，随后各处以内部 ID 调用会全部 miss 缓存、每次都真发一次 /login。
         self.tokenUserID = self.lastLoginUserID;
         self.tokenFetchedAt = CFAbsoluteTimeGetCurrent();
+        [self warmUpMyNicknameWithToken:token];
         [self finishLogin:owner userID:userID token:token error:nil soloCompletion:completion];
     }];
 }
@@ -241,7 +243,23 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     }];
 }
 
+/// 登录后异步拉一次本人资料，把公开显示名缓存起来（供合并转发标题等**同步**场景取用）。
+/// 已有缓存就不重复拉——token 每 10 分钟会因 TTL 重登一次（见 IMServer current_task「已知坑」），
+/// 不设这道闸门就会变成每 10 分钟一次无谓请求。失败静默：调用方本就要能降级。
+- (void)warmUpMyNicknameWithToken:(NSString *)token {
+    if (token.length == 0 || self.currentNickname.length > 0) { return; }
+    __weak typeof(self) ws = self;
+    [self myProfileWithToken:token completion:^(IMUserCard *card, NSError *err) {
+        __strong typeof(ws) self = ws;
+        // 取 nickname 而非 displayName：后者是「备注名 > 昵称」，而这个值会被写进**发出去的**
+        // 卡片标题——备注仅本人可见，绝不能外流（同 IMConversationPublicName 的纪律）。
+        if (!self || err || card.nickname.length == 0) { return; }
+        self.currentNickname = card.nickname;
+    }];
+}
+
 - (void)invalidateToken {
+    self.currentNickname = nil; // 换账号必须一起清，否则新账号会顶着旧账号的名字打包转发卡片
     self.currentToken = nil;
     self.tokenUserID = nil;
     self.tokenFetchedAt = 0;

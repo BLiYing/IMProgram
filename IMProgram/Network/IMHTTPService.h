@@ -39,6 +39,14 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
 /// 最近一次登录成功缓存的 JWT（只读）。供聊天页等无需重新登录即可发起 HTTP（如举报）。
 @property (atomic, copy, readonly, nullable) NSString *currentToken;
 
+/// **我自己的公开显示名**（昵称）缓存，只读。登录成功后由本服务异步拉一次 `/users/me` 填上；
+/// 取不到 / 还没回来时为 nil，调用方必须能降级（别拿它当必得值）。
+///
+/// 为什么要缓存：合并转发卡片标题要写「对方和我的聊天记录」（微信式），而打包是**同步**的
+/// JSON 构造，等不了一次网络往返；而此前 App 里根本没有"我叫什么"的进程内缓存——只有
+/// 设置页/资料编辑页各自拉一次自用。空值时标题按 IMChatRecordTitle 的降级链退成「对方的聊天记录」。
+@property (atomic, copy, readonly, nullable) NSString *currentNickname;
+
 /// 登录换取 JWT：带 password 走真账号校验，password 为空走开发期免密。completion 在主线程回调。
 /// userID 是**内存缓存键与在途合并键**（内部 ID）；真正发给后端的用户名取 self.username。
 - (void)loginWithUserID:(NSString *)userID

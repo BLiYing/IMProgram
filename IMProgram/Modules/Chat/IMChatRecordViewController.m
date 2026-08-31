@@ -394,8 +394,10 @@ static NSString *IMRecordItemTimeText(int64_t timestampMillis) {
     _avatarHeight.constant = continued ? 16 : 28;
     if (continued) { [_avatar im_clearAvatarImage]; return; }  // 作废在途头像请求，防晚到的图落在别人头上
     _name.text = name;
-    // seed 用 uid（与全局取色规则一致，两端同色）；老记录没有 u 就退回名字——总比不画好。
-    [_avatar im_setAvatarURL:avatarURL seed:(uid.length > 0 ? uid : (name ?: @"")) displayName:name];
+    // seed 用**名字**：`u` 自 2026-08-31 起是卡片内匿名序号（s1/s2…），拿它当色种会让同一个人在
+    // 不同卡片里换色、不同的人在两张卡里同色——毫无意义。名字虽会改，但至少同一人同色。
+    // 名字为空才退回 u（老记录里它是真 uid，仍是个稳定色种）。
+    [_avatar im_setAvatarURL:avatarURL seed:(name.length > 0 ? name : (uid ?: @"")) displayName:name];
 }
 
 // CALayer 的 CGColor 不随明暗动态解析：外观切换时手动重刷 mini 卡片描边色（背景是动态 UIColor 会自更新）。

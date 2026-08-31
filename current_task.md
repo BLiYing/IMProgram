@@ -5,6 +5,32 @@
 
 ## 当前焦点
 
+> **三项：搜索 pill 直接开会话 + 合并转发标题口径 + 条目 `u` 匿名化（2026-08-31，与 Web 同步；
+> `./scripts/test.sh` 全绿，`IMProgramTests` 320/320；**未手测**）**
+>
+> 1. **「请返回聊天页后再搜索」改成直接开会话** —— `IMChatDetailViewController+Actions.m` 的搜索 pill
+>    原先要求导航栈里已有本会话的聊天页，取不到就吐司。而最常见的触发正是**从群成员头像点进来的
+>    单聊资料页**——那个单聊压根没打开过，必吐司。那句话是把实现约束（栈里没有这一页）甩给用户，
+>    旁边的「消息」pill 明明就能开会话。现新增 `openChatForInChatSearch`（群/单聊分派，与「消息」pill
+>    同一个统一入口），取不到就开会话，转场落定后 `beginInChatSearch`。
+> 2. **合并转发卡片标题收敛到微信口径** —— 原先写 `IMConversationPublicName`，群聊时**就是真实群名**，
+>    发给了往往不在群里的收件人；Web 那侧则按条目发送者数量推，两端分叉。现共用纯函数
+>    `IMChatRecordTitle`（`IMChatMessageLogic`）：群聊固定「群聊的聊天记录」（**不写群名**）、
+>    单聊「{对方公开名}和{我的公开名}的聊天记录」，缺名逐级降级到「聊天记录」、绝不回落内部 ID。
+>    **顺带补了一个此前没有的东西**：App 里没有"我叫什么"的进程内缓存（只有设置页/资料编辑页各拉一次
+>    自用），而打包 JSON 是同步的等不了网络。故 `IMHTTPService` 加 `currentNickname`——登录成功后异步
+>    预热一次（已有值就不重拉，避免 10min token TTL 重登时反复请求）、`invalidateToken` 一并清（换账号
+>    不能顶着旧名字）。取的是 `card.nickname` **不是 `displayName`**（后者是"备注优先"，备注不能外流）。
+>    **允许为空**：空则标题降级成「对方的聊天记录」。
+> 3. **条目 `u` 改成卡片内匿名序号 `s1/s2`**（`IMRecordSenderKeysForUIDs`，`IMMediaUtil`）——
+>    原本发的是发送者真 10 位内部 ID，随卡片到了可能不在群里的收件人手上，而 `GET /users/{id}`
+>    只校验「持有合法 token」、不校验关系，随机 10 位 ID 的不可枚举是那个接口唯一的防线。
+>    **读端零改动**（`IMRecordSenderKey` 本就只做相等比较，存量卡片里的真 uid 自然兼容）；
+>    只把 `IMChatRecordViewController` 的头像色种从 `uid` 换成名字（匿名序号当色种没意义）。
+>    契约见 `../IMServer/docs/PROTOCOL.md`「合并转发卡片（chat_record）的条目结构」。
+>
+> **未手测**；后端同批加了显示名字符清洗（`internal/textguard`），iOS 侧无需配合改动。
+
 > **收藏页 / 详情页 / 置顶 / 记录卡 五项 UI 修复（2026-08-30，两端同步；iOS `build` 绿、**已跑 `IMProgramTests` 311 例全绿**；
 > Web `tsc -b` + `vitest 681` 绿。**两端已手测通过（2026-08-30，用户逐项验收）**）**
 >
@@ -66,6 +92,32 @@
 >   **已知限制**：坏文件（MP4/Opus）报的时长是天文数字，被 `IMVoiceFileIsPlayable` 一并挡掉 → 仍显 0:00，
 >   这是对的；那条消息本身在 iOS 上就播不了。
 
+> **/code-review 三条修复（2026-08-30，纯客户端；`build` 绿、`-only-testing:IMProgramTests` 314 例
+> 仅剩那条已知偶发的 `testFrostedLandscapeScalesLongestSideTo48`，单独重跑绿。**未手测**）**
+> 1. **语音上传失败的红❗点不动**（重传路径整条失效）：`im_uploadAndSendVoice` 失败时**无条件**写
+>    `note`（"语音上传失败"），而 `IMResendPolicyForMessage` 把"有 note"一律当成"被服务端拒收 → 不可重发"，
+>    于是 `IMFailBadgeView.tappable=NO`、红❗照显却吃不到点击。判据顺序改成
+>    **「本地还留着字节（`im-pending://` / `file://`）」优先于 note** —— content 是本地引用就说明服务端
+>    从没见过这条，"拒收"的解释不成立。`content` 空 + note（语音"发送中断，请重新录制"）仍判不可重发。
+>    补两条护栏用例。
+> 2. **会话列表预览显示早已被顶掉的旧系统消息**：`updateConversationForMessage`（实时路径）覆写了
+>    `last_content` 却漏写 `last_sys_segments`，而 `IMConversation.lastPreviewTextForSelfUID:` 只要分段非空
+>    就整句用它渲染、`last_content` 根本不参与 → HTTP 快照存过一次系统消息分段后，之后来的普通消息
+>    在冷启动/离线首屏一律显示那条旧系统消息。INSERT/UPDATE 两处一并补上（与 2026-08-19 修过的
+>    `last_caption` 同一类漏写）。
+> 3. **合并转发条目里"我自己"的名字是 10 位内部 ID**：`displayNameForMessage:` 自己那一支返回
+>    `self.userID`。记录详情页现在把 `n` 当头行昵称显示（2026-08-30 加 ts/u/a），于是我发的每条都顶着
+>    一串随机数字。改为「我」，与 Web `useForward.ts#nameOf` 同口径。
+
+> **iOS 回归有唯一入口了：`./scripts/test.sh`（2026-08-31）** —— 与后端 `IMServer/scripts/test.sh` 对称。
+> 起因：之前每次手拼 xcodebuild 命令行，反复踩三个坑（跑整 scheme 被 UITests 拖死 135s+37s、
+> 并行 clone 抢 CPU 压出偶发失败、失败原因只有一句 `** TEST FAILED **`）。脚本把三条写死：
+> `-only-testing:IMProgramTests` + `-parallel-testing-enabled NO` + `-resultBundlePath` 配 `xcresulttool`
+> 直接打「哪条用例 + 断言原文」；另固定 `-derivedDataPath build/DerivedData`，模拟器自动挑最新 iOS 的 iPhone
+> （写死名字换机就报 destination 找不到）。`BUILD_ONLY=1` 只编译、`ONLY=<类|类/用例>` 只跑一部分。
+> **实测：全量 314 例绿，3 分 10 秒**（含冷编译）；那条 `IMMediaPlaceholder` 偶发失败在串行模式下没再出现。
+> 用法与三条理由写进了 [CLAUDE.md](CLAUDE.md)「构建 / 测试」与「完成的定义」。
+
 > **无其它进行中的开发项。** 网络恢复秒连（2026-08-30）与 `UI_COLOR.md` 收敛已完成，细节转入
 > `current_task.archive.md`。仍**未做**的是「下一步」里那两件老账：真机手测语音 P1 与相机录像
 > （模拟器没有摄像头/麦克风，只能真机验）。
@@ -82,11 +134,11 @@
 4. `setupUI` 抽 `IMComposerBar`（老欠账）；「从收藏发送」入口开放（见「已知坑」）。
 
 ## 已知坑 / 限制
-- **`IMMediaPlaceholderTests testFrostedLandscapeScalesLongestSideTo48` 在高负载下会偶发失败（2026-08-30 首次观察）**：
-  全量 `xcodebuild test`（含 UITests，`testLaunchPerformance` 跑 109s 占满机器）时，该用例作为某个
-  clone 上的**第一条**执行、耗时 9.5s（正常 2.7s）后失败；单独重跑该类、以及
-  `-only-testing:IMProgramTests` 全量（289 例）都稳定绿。判定为冷启动/负载下的抖动，**未定位**。
-  与后端 `internal/gateway` 那条间歇失败同类，先记着；再复现请抓 XCTAssert 原文。
+- **`IMMediaPlaceholderTests testFrostedLandscapeScalesLongestSideTo48` 在高负载下会偶发失败**（2026-08-30 首次观察；
+  2026-08-31 起**基本被 `scripts/test.sh` 规避**）：只在**并行 clone + 同时跑 UITests** 时复现——
+  该用例作为某个 clone 上的第一条执行、耗时 9.5s（正常 2.7s）后失败。`scripts/test.sh` 写死了
+  `-only-testing:IMProgramTests` + `-parallel-testing-enabled NO`，两个诱因都没了，314 例稳定绿。
+  **根因仍未定位**（用例本身对时序敏感），若哪天在串行模式下也复现，请抓 XCTAssert 原文再查。
 - **`runAfterKeyboardHidden:` 兜底待测（2026-08-05 记）**：依赖 `resignFirstResponder` 后必然收到 `UIKeyboardDidHideNotification`——软键盘正常成立；若实测硬件/外接键盘场景引用跳转不触发，加 `dispatch_after` 超时兜底。
 - 相册导出期杀 App 消息消失（PHPicker 句柄一次性，属预期，微信同）；导出失败的行点 ↻ 提示副本丢失需重选。Files 面板 <8MB 小文件、相机**拍照**、粘贴图仍为 VC 锚定一次性上传（秒级；粘贴图已带预览条攒批）；
   相机**录像**已改走 `IMMediaSendService` 常驻队列（2026-08-29）。

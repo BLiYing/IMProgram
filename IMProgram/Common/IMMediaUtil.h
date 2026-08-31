@@ -48,9 +48,22 @@ FOUNDATION_EXPORT BOOL IMLooksLikeChatRecordJSON(NSString *_Nullable s);
 FOUNDATION_EXPORT NSString *IMRecordItemPreview(NSDictionary *_Nullable item);
 
 /// 合并转发条目的「发送者身份键」——记录详情页据此判「连续同一人」（只显一次头像与昵称）。
-/// 优先 `u`（uid，同名不同人才分得开）；老记录没有 `u` 就退回显示名 `n`。
-/// 两个前缀（`u:` / `n:`）保证 uid 与昵称不会互相误撞。与 Web `recordSenderKey` 同口径。
+/// 优先 `u`（发送者键，同名不同人才分得开）；老记录没有 `u` 就退回显示名 `n`。
+/// 两个前缀（`u:` / `n:`）保证键与昵称不会互相误撞。与 Web `recordSenderKey` 同口径。
+/// **只做相等比较**——`u` 的取值语义见 IMRecordSenderKeysForUIDs，不得解析、不得当接口参数。
 FOUNDATION_EXPORT NSString *IMRecordSenderKey(NSDictionary *_Nullable item);
+
+/// 打包合并转发卡片时，为一组发送者 uid 算出**卡片内匿名序号**（真 uid → `s1`/`s2`/…，按首次出现顺序）。
+///
+/// 为什么条目里不发真 uid（2026-08-31 收口）：`GET /users/{id}` 只校验「持有合法 token」、不校验请求方
+/// 与目标的关系——随机 10 位内部 ID 的**不可枚举**就是这个接口唯一的防线（见后端
+/// `internal/account/userid.go` 头部注释）。把群成员的真 uid 打包发给一个不在群里的收件人，等于绕过它：
+/// 对方照着拉一遍就能多拿到 @句柄 / 标签 / 注册时间，还得到一个长期可复查的稳定句柄、可挨个发好友申请。
+///
+/// `u` 原本的两个用途都不需要真 uid：判「连续同一人」只要卡片内可区分；查头像本就有 `a` 快照兜底
+/// （`a` 还比读端查本地缓存更准——读端未必缓存过这个陌生人）。
+/// **存量卡片里的 `u` 仍是真 uid**，故读端一律只做相等比较。空串/nil 的 uid 不占号。
+FOUNDATION_EXPORT NSDictionary<NSString *, NSString *> *IMRecordSenderKeysForUIDs(NSArray<NSString *> *_Nullable uids);
 
 /// 解析合并转发记录 JSON → 标题(*outTitle) + 前 maxLines 条「发送者: 预览」(*outLines)。
 /// maxLines<=0 时只取标题、outLines 置空；out 参数均可传 NULL。解析失败标题回落「聊天记录」。

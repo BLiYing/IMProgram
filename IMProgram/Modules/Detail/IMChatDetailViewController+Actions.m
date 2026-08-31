@@ -115,16 +115,31 @@
 - (void)pillTapped:(UIButton *)b {
     NSString *a = b.accessibilityLabel;
     if ([a isEqualToString:@"search"]) {
-        // 会话内搜索：pop 回本会话的聊天页，转场落定后进入搜索态（设计见 SEARCH_DESIGN §4）。
+        // 会话内搜索：栈里已有本会话的聊天页就 pop 回去；没有就**直接开这个会话**再进搜索态
+        //（设计见 SEARCH_DESIGN §4）。转场落定后才 beginInChatSearch，两条路径共用同一段收尾。
+        //
+        // 2026-08-31 前这里没有第二条路径，取不到聊天页就吐司「请返回聊天页后再搜索」——而最常见的
+        // 触发正是**从群成员头像点进来的单聊资料页**（那个单聊压根没打开过，必吐司）。那句话是把实现
+        // 约束（导航栈里没有这一页）甩给用户，旁边的「消息」pill 明明就能开会话。Web 侧同批修的是更糟
+        // 的一版：它不提示，直接把搜索开在了当时还开着的那个群上。
         IMChatViewController *chat = [IMChatViewController existingChatForConvID:self.convID
                                                           inNavigationController:self.navigationController];
-        if (!chat) { [self im_showToast:@"请返回聊天页后再搜索"]; return; }
-        [self.navigationController popToViewController:chat animated:YES];
+        if (chat) {
+            [self.navigationController popToViewController:chat animated:YES];
+        } else {
+            chat = [self openChatForInChatSearch];
+            if (!chat) { return; } // 开不出会话（缺 peerID / 无导航栈）：静默返回，别摆一个假的搜索态
+        }
         id<UIViewControllerTransitionCoordinator> tc = self.navigationController.transitionCoordinator;
         if (tc) {
-            [tc animateAlongsideTransition:nil completion:^(id<UIViewControllerTransitionCoordinatorContext> ctx) { [chat beginInChatSearch]; }];
+            IMChatViewController *target = chat;
+            [tc animateAlongsideTransition:nil completion:^(id<UIViewControllerTransitionCoordinatorContext> ctx) { [target beginInChatSearch]; }];
         } else {
-            [chat beginInChatSearch];
+            // 无转场协调器（pop 到栈顶是 no-op、或转场已同步完成）：推到下一轮 runloop 再进搜索态。
+            // **新开会话那条路径必须这样**——beginInChatSearch 要摸 tableView / inputBar / 注入标题栏，
+            // 刚 push 出来的页此刻未必布局完，同步调用会对着半成品视图建搜索栏。
+            IMChatViewController *target = chat;
+            dispatch_async(dispatch_get_main_queue(), ^{ [target beginInChatSearch]; });
         }
     }
     else if ([a isEqualToString:@"call"]) { [self im_showToast:@"语音通话即将上线"]; }
@@ -155,6 +170,25 @@
         if (self.isGroup) { [self loadFriendUIDs]; } else { [self loadPeerBlockState]; }
         if (!becameFriend) { [self im_showToast:@"已发送好友申请"]; }
     }];
+}
+
+/// 打开本资料页对应的会话，供「搜索」pill 在导航栈里找不到聊天页时兜底（群/单聊分派）。
+/// 与「消息」pill 走同一个统一入口（IMChatViewController 的 open…），只是把返回的实例交出去，
+/// 让调用方在转场落定后进搜索态。
+- (nullable IMChatViewController *)openChatForInChatSearch {
+    if (!self.navigationController) { return nil; }
+    if (self.isGroup) {
+        return [IMChatViewController openInNavigationController:self.navigationController
+                                                           host:self.host userID:self.userID
+                                                    groupConvID:self.convID groupName:self.groupName
+                                                        readSeq:0 unread:0 groupReadSeq:0
+                                                 groupAvatarURL:self.group.avatarURL];
+    }
+    if (self.peerID.length == 0 || [self.peerID isEqualToString:self.userID]) { return nil; }
+    return [IMChatViewController openInNavigationController:self.navigationController
+                                                       host:self.host userID:self.userID
+                                                     peerID:self.peerID readSeq:0 unread:0 peerReadSeq:0
+                                               peerNickname:self.peerNickname peerAvatarURL:self.peerAvatarURL];
 }
 
 /// 与某人开始/回到单聊（操作排「消息」）。

@@ -523,12 +523,17 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
 
 #pragma mark 合并转发数据
 
-/// 合并转发条目里的发送方名：自己→uid，群聊→成员昵称（群昵称/全局昵称，公开），单聊→对端**昵称**。
+/// 合并转发条目里的发送方名：自己→「我」，群聊→成员昵称（群昵称/全局昵称，公开），单聊→对端**昵称**。
 ///
 /// 单聊分支刻意**不取聊天页标题**：标题是"备注优先"的，而备注仅本人可见——取标题就等于把
 /// 我给对方起的私房名写进消息内容发给收件人。对外一律走 IMConversationPublicName。
+///
+/// 自己那一支曾返回 `self.userID`——账号体系重构后那是 10 位随机数字内部 ID，
+/// 而记录详情页现在把 `n` 当头行昵称显示（2026-08-30 加 ts/u/a），于是我自己发的每一条
+/// 都顶着一串数字。改为「我」，与 Web `useForward.ts#nameOf` 同口径（两端必须一致，
+/// 条目结构是两端客户端之间的约定，服务端不参与，见 PROTOCOL「合并转发卡片的条目结构」）。
 - (NSString *)displayNameForMessage:(IMMessageModel *)m {
-    if ([m.from isEqualToString:self.userID]) { return self.userID ?: @"我"; }
+    if ([m.from isEqualToString:self.userID]) { return @"我"; }
     if (self.isGroupChat) { return [self senderPublicNameForMessage:m]; } // 公开名：这段会随消息发出去
     return IMConversationPublicName(NO, nil, self.peerNickname, self.peerID);
 }
@@ -540,20 +545,33 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
 /// **老记录一定缺字段**，读端每一项都要能降级：无 fn 从 URL 反推原名；无 d/w 语音退化成等高条纹；
 /// 无 ts 不显时间；无 u/a 头像退化成按名字生成的首字母色块。**绝不能因为缺字段就不渲染**。
 ///
-/// `u` 是内部 ID，只作**读端查本地头像的键**，任何时候都不上屏（显示名一律走 `n`）。
+/// `u` 是**卡片内匿名序号**（s1/s2/…，见 IMRecordSenderKeysForUIDs），只作读端判「连续同一人」
+/// 的键，任何时候都不上屏（显示名一律走 `n`）。**不发真 uid**：真 uid 发给一个不在群里的收件人，
+/// 等于绕过 `GET /users/{id}` 的「不可枚举」防线（2026-08-31 收口，理由见该函数注释）。
 /// `a` 存**相对路径**（与个人名片的 `a` 同款），读端自己拼 host；单聊里"我自己"那一方拿不到
-/// 头像路径（本页没有自己的资料快照），此时只发 `u`，读端按 uid 查本地缓存兜底。
+/// 头像路径（本页没有自己的资料快照），此时只发 `u`，读端退化成按名字生成的首字母色块。
 - (NSString *)mergedForwardJSONForMessages:(NSArray<IMMessageModel *> *)msgs {
-    NSMutableArray<NSDictionary *> *items = [NSMutableArray array];
+    // 先筛出真正入卡的消息，再据此算一份**整卡共用**的发送者匿名序号表（真 uid → s1/s2…）——
+    // 读端靠它判「连续同一人」，所以必须全卡一致，不能逐条现算。
+    NSMutableArray<IMMessageModel *> *kept = [NSMutableArray array];
     for (IMMessageModel *m in msgs) {
         if (m.recalledAt > 0 || [m.contentType isEqualToString:@"system"] || m.content.length == 0) { continue; }
         if (m.convSeq <= 0) { continue; } // 防御：发送中/失败的本地件（多选已拦，此处兜底）
         if ([self isMediaExpiredForForward:m]) { continue; } // 失效媒体剔出合并记录（收端点开必 404）
+        [kept addObject:m];
+    }
+    NSMutableArray<NSString *> *froms = [NSMutableArray array];
+    for (IMMessageModel *m in kept) { [froms addObject:(m.from ?: @"")]; }
+    NSDictionary<NSString *, NSString *> *senderKeys = IMRecordSenderKeysForUIDs(froms);
+
+    NSMutableArray<NSDictionary *> *items = [NSMutableArray array];
+    for (IMMessageModel *m in kept) {
         NSMutableDictionary *item = [@{ @"n": [self displayNameForMessage:m] ?: @"",
                                         @"ct": m.contentType ?: @"text",
                                         @"c": m.content ?: @"" } mutableCopy];
         if (m.timestamp > 0) { item[@"ts"] = @(m.timestamp); }   // 读端右上角显「原消息时间」
-        if (m.from.length > 0) { item[@"u"] = m.from; }          // 读端按 uid 查本地头像 / 判「连续同一人」
+        NSString *senderKey = m.from.length > 0 ? senderKeys[m.from] : nil;
+        if (senderKey.length > 0) { item[@"u"] = senderKey; }    // 匿名序号，读端只拿它判「连续同一人」
         NSString *avatar = [self recordSenderAvatarPathForMessage:m];
         if (avatar.length > 0) { item[@"a"] = avatar; }
         if ([m.contentType isEqualToString:@"file"]) {
@@ -570,10 +588,15 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
         if (m.caption.length > 0) { item[@"cap"] = m.caption; } // 图说条目携带 caption（cap，与 Web 同 key）→ 记录卡「有字显字」
         [items addObject:item];
     }
-    // 记录卡标题用**对外可见名**（群=真实群名 / 单聊=对端昵称），不能用 savedTitle——
-    // 那是聊天页标题，群备注(G1)与好友备注都会顶上去，而两者都仅本人可见（见 IMConversationPublicName）。
-    NSString *base = IMConversationPublicName(self.isGroupChat, self.groupName, self.peerNickname, self.peerID);
-    NSDictionary *dict = @{ @"t": [NSString stringWithFormat:@"%@ 的聊天记录", base], @"items": items };
+    // 标题口径见 IMChatRecordTitle（与 Web chatRecordTitle 逐字对齐）：
+    // 群聊固定「群聊的聊天记录」——**不写真实群名**，收件人往往不在那个群里，而 t 会被冻结进消息、
+    // 还能被再转发，泄露无从回收；单聊写双方**公开名**（绝不用 savedTitle，那是"备注优先"的聊天页
+    // 标题，群备注 G1 与好友备注都仅本人可见）。我自己的昵称取登录时预热的进程内缓存，取不到就降级
+    // 成「对方的聊天记录」（IMHTTPService.currentNickname 明确允许为空）。
+    NSString *peerPublic = self.isGroupChat ? nil
+        : IMConversationPublicName(NO, nil, self.peerNickname, self.peerID);
+    NSString *title = IMChatRecordTitle(self.isGroupChat, peerPublic, IMHTTPService.sharedService.currentNickname);
+    NSDictionary *dict = @{ @"t": title, @"items": items };
     NSData *data = [NSJSONSerialization dataWithJSONObject:dict options:0 error:NULL];
     return data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"";
 }

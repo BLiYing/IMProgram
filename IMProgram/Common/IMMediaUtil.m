@@ -95,6 +95,17 @@ NSString *IMRecordSenderKey(NSDictionary *it) {
     return [@"n:" stringByAppendingString:n];
 }
 
+NSDictionary<NSString *, NSString *> *IMRecordSenderKeysForUIDs(NSArray<NSString *> *uids) {
+    NSMutableDictionary<NSString *, NSString *> *keys = [NSMutableDictionary dictionary];
+    for (id raw in (uids ?: @[])) {
+        if (![raw isKindOfClass:NSString.class]) { continue; }
+        NSString *uid = (NSString *)raw;
+        if (uid.length == 0 || keys[uid]) { continue; }
+        keys[uid] = [NSString stringWithFormat:@"s%lu", (unsigned long)(keys.count + 1)];
+    }
+    return keys;
+}
+
 void IMSummarizeRecord(NSString *json, NSString **outTitle, NSArray<NSString *> **outLines, NSInteger maxLines) {
     NSString *title = @"聊天记录";
     NSMutableArray<NSString *> *lines = [NSMutableArray array];
