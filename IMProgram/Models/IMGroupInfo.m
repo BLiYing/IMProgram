@@ -87,6 +87,7 @@ static BOOL IMGroupBool(NSDictionary *dict, NSString *key) {
     g.announcementBy = annBy.length > 0 ? annBy : nil;
     g.announcementAt = IMGroupInt64(dict, @"announcement_at");
     g.memberCount = (NSInteger)IMGroupInt64(dict, @"member_count");
+    g.isSuper = [dict[@"is_super"] boolValue];
     NSString *myNick = IMGroupString(dict, @"my_nickname");
     g.myNickname = myNick.length > 0 ? myNick : nil;
     g.muteUntil = IMGroupInt64(dict, @"mute_until");

@@ -19,6 +19,7 @@ NSString * const kIMTypeGroup    = @"group";
 NSString * const kIMTypeMsgOp    = @"msg_op";
 NSString * const kIMTypeConvUpdate = @"conv_update";
 NSString * const kIMTypeCapabilitiesUpdate = @"capabilities_update";
+NSString * const kIMTypeConvBump = @"conv_bump";
 NSString * const kIMTypeMsgHidden = @"msg_hidden";
 NSString * const kIMTypeVoiceTranscript = @"voice_transcript";
 NSString * const kIMTypeError    = @"error";

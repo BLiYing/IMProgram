@@ -24,6 +24,10 @@ extern NSString * const kIMTypeGroup;
 extern NSString * const kIMTypeMsgOp;
 extern NSString * const kIMTypeConvUpdate; ///< 会话级设置变更（置顶/免打扰/标未读/删除会话，M4.5）
 extern NSString * const kIMTypeCapabilitiesUpdate; ///< 账号级配置版本变更（自动下载策略，M4-7）：据 version 重拉 /download-settings
+/// 超级群（2 万人量级）的轻量投递信号：一帧带一批「某会话最新到 conv_seq 了」，**不含正文**。
+/// 超级群不推全文 new_msg——2 万人数千在线推全文约 50MB/s，算术上不成立。
+/// 正文在打开会话时经 sync_req 拉。见 IMServer/docs/design/SUPERGROUP_DESIGN.md §5。
+extern NSString * const kIMTypeConvBump;
 extern NSString * const kIMTypeMsgHidden; ///< 「仅为我删除」多设备同步（任务2）：本人另一端删了某条 → 本端物理移除
 extern NSString * const kIMTypeVoiceTranscript; ///< 语音转文字结果（服务端识别；只推给请求者，见 IMServer docs/design/VOICE_TRANSCRIBE_DESIGN.md §3.2）
 extern NSString * const kIMTypeError;

@@ -432,7 +432,10 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     if (section == IMGroupInfoSectionMembers) {
-        return [NSString stringWithFormat:@"成员（%lu）", (unsigned long)self.group.members.count];
+        // 标题人数用 memberCount（超级群的 members 只含我自己）；列表行数仍按实际下发的成员数，
+        // 故这里与 numberOfRowsInSection 刻意不同源——那不是 bug：大群只列出已加载的那些人。
+        NSInteger total = self.group.memberCount > 0 ? self.group.memberCount : (NSInteger)self.group.members.count;
+        return [NSString stringWithFormat:@"成员（%ld）", (long)total];
     }
     return nil;
 }

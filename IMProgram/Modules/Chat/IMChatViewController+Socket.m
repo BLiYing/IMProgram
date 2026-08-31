@@ -66,8 +66,12 @@
         // 单聊：在线态走副标题（原先的 🟢 已去掉）。
         return self.peerPresence.subtitleText ?: @"";
     }
-    NSUInteger count = self.groupInfo.members.count;
-    return count > 0 ? [NSString stringWithFormat:@"%lu 位成员", (unsigned long)count] : @"";
+    // 人数优先取 memberCount：超级群的 members 只含我自己（服务端不再下发全量），
+    // 用 members.count 会把「2 万位成员」显示成「1 位成员」。
+    NSInteger count = self.groupInfo.memberCount > 0
+        ? self.groupInfo.memberCount
+        : (NSInteger)self.groupInfo.members.count;
+    return count > 0 ? [NSString stringWithFormat:@"%ld 位成员", (long)count] : @"";
 }
 
 /// 消息排序（**唯一入口**，与 IMDatabase.messagesForConv 的 ORDER BY 及 im-web 的渲染排序三方一致）：

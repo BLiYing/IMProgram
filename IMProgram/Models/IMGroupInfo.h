@@ -50,6 +50,14 @@ IMGroupRole IMGroupRoleFromString(NSString *_Nullable s);
 @property (nonatomic, copy, nullable) NSString *announcementBy;        ///< 公告最后发布者 uid
 @property (nonatomic, assign) int64_t announcementAt;                  ///< 公告最后发布时间（端上据此判断"这版我看过没"）
 @property (nonatomic, assign) NSInteger memberCount;                   ///< 群成员数
+/// 超级群（2 万人量级）。为 YES 时：
+///   · `members` **只含我自己**——服务端不再一次性下发全量（2 万人约 2.5MB），
+///     成员列表须走 `GET /groups/{id}/members?cursor=&limit=` 分页；
+///   · 不显示已读双勾 /「正在输入」/ 成员在线态（服务端已不发相应帧）；
+///   · 消息经 conv_bump 轻量信号 + sync 补拉，而非直接推全文。
+/// 显示人数一律用 `memberCount`，**不要用 `members.count`**。
+/// 见 IMServer/docs/design/SUPERGROUP_DESIGN.md §4。
+@property (nonatomic, assign) BOOL isSuper;
 @property (nonatomic, copy, nullable) NSString *myNickname;            ///< 我在本群的昵称（便于直接回填编辑框）
 @property (nonatomic, assign) int64_t muteUntil;                       ///< 全员禁言到期毫秒（0=未禁言；端上据此显示自助开关，G1）
 // G2 群治理开关组（GET /groups/{id} 下发；仅群主/管理员能改）。

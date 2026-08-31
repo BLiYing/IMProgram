@@ -421,6 +421,25 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
         }
     } else if ([type isEqualToString:kIMTypeConvUpdate]) {
         [self handleConvUpdate:payload];
+    } else if ([type isEqualToString:kIMTypeConvBump]) {
+        // 超级群轻量信号（2 万人量级）：服务端**不推全文**，只说「某会话最新到 seq 了」。
+        // 处理方式：对每个提到的会话直接发 sync_req 补拉——本端已同步位点由 trackConversation
+        // 维护，sendSyncReqForConvs: 会从那里续，落后多少补多少，不会重复也不会漏。
+        //
+        // 为什么不像 Web 那样只补"正开着的那个会话"：iOS 的会话列表预览取自本地库，
+        // 不补拉的话列表那一行会一直停在旧消息上（Web 是重新拉服务端会话列表，拿到的是权威预览）。
+        // 补拉的量由服务端分页兜住，且信号本就是合并过的（同会话一个窗口只来一条）。
+        NSArray *items = [payload[@"items"] isKindOfClass:NSArray.class] ? payload[@"items"] : @[];
+        NSMutableArray<NSString *> *convs = [NSMutableArray arrayWithCapacity:items.count];
+        for (id it in items) {
+            if (![it isKindOfClass:NSDictionary.class]) continue;
+            NSString *cid = [it[@"conv_id"] isKindOfClass:NSString.class] ? it[@"conv_id"] : nil;
+            if (cid.length > 0) [convs addObject:cid];
+        }
+        if (convs.count > 0) {
+            IMLogSocket(@"conv_bump_received convs=%lu", (unsigned long)convs.count);
+            [self sendSyncReqForConvs:convs];
+        }
     } else if ([type isEqualToString:kIMTypeCapabilitiesUpdate]) {
         // 账号级配置版本变更（自动下载策略，M4-7）：只广播，IMDownloadSettingsStore 据此重拉最新配置。
         // 记 version：与服务端 download_settings_saved 的 version、本端随后的 download_settings_applied
