@@ -3,6 +3,8 @@
 //  从 IMChatDetailViewController.m 平移，未改行为；私有属性/常量经 IMChatDetailViewController+Private.h 共享。
 
 #import "IMChatDetailViewController+Private.h"
+#import "IMGroupMemberSearchViewController.h" // 成员搜索页 + IMShouldOfferMemberSearch
+#import "IMServerConfigStore.h"              // 部署级配额：满员告知的判据
 #import "IMDetailMemberCell.h"
 #import "IMDetailFileCell.h"
 #import "IMDetailMediaContainerCell.h"
@@ -524,6 +526,120 @@ static NSInteger IMRuneCount(NSString *s) {
 
 #pragma mark - 成员页签 · 超级群分页（声明见 +Private.h；与 IMGroupInfoViewController 同一套路）
 
+/// 成员签的**前导行**：先「搜索成员」（大群才有）、再「添加成员」（有邀请权才有）。
+/// 顺序即渲染顺序，改这里就要一并改 cellForRow / didSelect 里的分支。
+- (BOOL)showsMemberSearchRow { return IMShouldOfferMemberSearch(self.group); }
+
+/// 满员告知行：普通群人满 + 本部署开了超级群时才有。
+/// 三个条件缺一不可，尤其 **serverConfig 没拉到就不显示**——按猜测的上限误报"群已满"
+/// 比不提示更糟（Web 端硬编码上限那个坑刚踩过：端 500、后端已 2000）。
+/// 只在人满那一刻现身，不做常驻入口：升级不可逆，平时挂在那儿只会诱导用户去点。
+- (BOOL)showsUpgradeHintRow {
+    IMServerConfigStore *cfg = IMServerConfigStore.shared;
+    if (!self.group || self.group.isSuper) { return NO; }
+    if (!cfg.loaded || !cfg.supergroupEnabled || cfg.maxGroupMembers <= 0) { return NO; }
+    NSInteger total = self.group.memberCount > 0 ? self.group.memberCount : (NSInteger)self.group.members.count;
+    return total >= cfg.maxGroupMembers;
+}
+
+- (NSInteger)memberRowOffset {
+    return ([self showsMemberSearchRow] ? 1 : 0)
+         + ([self inviteEntriesVisible] ? 1 : 0)
+         + ([self showsUpgradeHintRow] ? 1 : 0);
+}
+
+/// 打开成员搜索页。落点**与本页列表点成员一致**（对方资料页）——搜索页是这张列表的延伸，
+/// 不该换一套行为（群资料页那侧点成员弹的是管理动作表，它的搜索页也就跟着弹动作表）。
+- (void)openMemberSearch {
+    IMGroupInfo *g = self.group;
+    if (!g) { return; }
+    __weak typeof(self) ws = self;
+    IMGroupMemberSearchViewController *vc =
+        [[IMGroupMemberSearchViewController alloc] initWithGroup:g onPickMember:^(IMGroupMember *m) {
+            __strong typeof(ws) self = ws;
+            if (!self) { return; }
+            // 直接 push 资料页（不先 pop）：从搜索结果进资料页、返回时还在搜索结果上，
+            // 便于挨个查看——pop 掉搜索页就得重新搜一遍。
+            [self openPeerDetail:m];
+        }];
+    [self.navigationController pushViewController:vc animated:YES];
+}
+
+/// 成员签的行渲染。**整块住在这里而不是主文件的 tabCell:**——它和上面的分页/搜索是一件事，
+/// 分两处放，改前导行顺序时必然漏掉其中一处（行号错位的表现是"点谁都点错人"）。
+- (UITableViewCell *)memberTabCell:(UITableView *)tv row:(NSInteger)row {
+    NSInteger offset = [self memberRowOffset];
+    NSInteger lead = 0;
+    if ([self showsMemberSearchRow]) {
+        if (row == lead) {
+            UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleDefault reuseID:@"dDef" inTable:tv];
+            cell.textLabel.text = @"搜索成员"; cell.textLabel.textColor = IMTheme.accent;
+            cell.imageView.image = [UIImage systemImageNamed:@"magnifyingglass"];
+            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            return cell;
+        }
+        lead++;
+    }
+    if ([self inviteEntriesVisible]) {
+        if (row == lead) {
+            UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleDefault reuseID:@"dDef" inTable:tv];
+            cell.textLabel.text = @"添加成员"; cell.textLabel.textColor = IMTheme.accent;
+            cell.imageView.image = [UIImage systemImageNamed:@"person.badge.plus"];
+            return cell;
+        }
+        lead++;
+    }
+    if ([self showsUpgradeHintRow] && row == lead) {
+        IMServerConfigStore *cfg = IMServerConfigStore.shared;
+        UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleSubtitle reuseID:@"dSub" inTable:tv];
+        cell.textLabel.text = [NSString stringWithFormat:@"成员已达上限 %ld", (long)cfg.maxGroupMembers];
+        cell.textLabel.textColor = IMTheme.textPrimary;
+        cell.detailTextLabel.numberOfLines = 0;
+        cell.detailTextLabel.text = [NSString stringWithFormat:
+            @"升级为大群可容纳至 %ld 人，请联系管理员办理。升级后已读回执与「正在输入」不再显示，且不可撤销。点此复制群 ID。",
+            (long)cfg.maxSupergroupMembers];
+        cell.detailTextLabel.textColor = IMTheme.textSecondary;
+        cell.imageView.image = [UIImage systemImageNamed:@"person.3.sequence"];
+        cell.imageView.tintColor = IMTheme.textSecondary;
+        return cell;
+    }
+    NSArray<IMGroupMember *> *list = self.displayMembers;
+    if (row - offset >= (NSInteger)list.count) { // 末尾的「加载更多成员」行（仅超级群且还有下一页）
+        UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleDefault reuseID:@"dDef" inTable:tv];
+        cell.textLabel.text = self.superLoading ? @"加载中…" : @"加载更多成员";
+        cell.textLabel.textColor = IMTheme.accent;
+        cell.imageView.image = [UIImage systemImageNamed:@"ellipsis.circle"];
+        return cell;
+    }
+    IMDetailMemberCell *cell = [tv dequeueReusableCellWithIdentifier:@"member"];
+    IMGroupMember *m = list[row - offset];
+    [cell configureWithMember:m isMe:[m.userID isEqualToString:self.userID]];
+    cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+    return cell;
+}
+
+/// 成员签的点击分发。**前导行的判定顺序必须与 memberTabCell: 完全一致**，否则点位错行。
+- (void)handleMemberTabTapAtRow:(NSInteger)row {
+    NSInteger offset = [self memberRowOffset];
+    NSInteger lead = 0;
+    if ([self showsMemberSearchRow]) {
+        if (row == lead) { [self openMemberSearch]; return; }
+        lead++;
+    }
+    if ([self inviteEntriesVisible]) {
+        if (row == lead) { [self inviteMembers]; return; }
+        lead++;
+    }
+    if ([self showsUpgradeHintRow] && row == lead) {
+        UIPasteboard.generalPasteboard.string = self.convID;
+        [self im_showToast:@"已复制群 ID"];
+        return;
+    }
+    if (row - offset >= (NSInteger)self.displayMembers.count) { [self loadMoreSuperMembers]; return; } // 「加载更多」行
+    [self openPeerDetail:self.displayMembers[row - offset]]; // tap→对方资料页
+}
+
+
 - (NSArray<IMGroupMember *> *)displayMembers {
     if (self.group.isSuper) { return self.superMembers ?: @[]; }
     return self.group.members ?: @[];
@@ -561,7 +677,17 @@ static NSInteger IMRuneCount(NSString *s) {
             return;
         }
         if (cursor.length == 0 || !self.superMembers) { self.superMembers = [NSMutableArray array]; }
-        [self.superMembers addObjectsFromArray:members ?: @[]];
+        // 按 userID 去重再追加。**superLoading 那个在途守卫挡不住这个**——它挡的是连点造成的
+        // 重复请求；这里兜的是另一种重叠：keyset 游标翻页期间有人进群/退群，游标锚点位移，
+        // 相邻两页可能真的覆盖到同一个人，直接追加就会出现重复行。
+        // Web 侧一直有这一步，iOS 两处此前都漏了（TASKS C-iOS-memberdedup）。
+        NSMutableSet<NSString *> *seen = [NSMutableSet setWithCapacity:self.superMembers.count];
+        for (IMGroupMember *m in self.superMembers) { if (m.userID) { [seen addObject:m.userID]; } }
+        for (IMGroupMember *m in members) {
+            if (m.userID.length > 0 && [seen containsObject:m.userID]) { continue; }
+            if (m.userID) { [seen addObject:m.userID]; }
+            [self.superMembers addObject:m];
+        }
         self.superCursor = nextCursor;
         // has_more 为真但空页也要停：否则服务端异常时「加载更多」永远点不完。
         self.superHasMore = hasMore && members.count > 0;

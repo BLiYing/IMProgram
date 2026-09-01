@@ -209,6 +209,23 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 - (void)loadMoreSuperMembers;
 /// 群资料刷新后重置分页并拉首页（非超级群为 no-op）。
 - (void)resetSuperMemberPaging;
+/// 成员签是否有「搜索成员」前导行（大群才有，判据 IMShouldOfferMemberSearch）。
+/// **必须在这里登记**：实现在 +Actions.m，而 numberOfRows/cellForRow/didSelect 在主文件——
+/// 跨 TU 不声明会编译过、运行到就 unrecognized selector（本仓已踩过这类）。
+- (BOOL)showsMemberSearchRow;
+/// 成员签的前导行数（搜索 + 添加成员）。所有按 row 取成员的地方都要减它。
+- (NSInteger)memberRowOffset;
+/// 打开成员搜索页（+Actions.m）。
+- (void)openMemberSearch;
+/// 成员签的行渲染与点击分发（+Actions.m）。两者的前导行判定顺序必须一致。
+- (UITableViewCell *)memberTabCell:(UITableView *)tv row:(NSInteger)row;
+- (void)handleMemberTabTapAtRow:(NSInteger)row;
+/// 「仅管理员可邀请」开启且我非管理员 → 隐藏邀请类入口（含成员签的「添加成员」行）。
+- (BOOL)inviteEntriesVisible;
+/// 打开「添加成员」选人页。
+- (void)inviteMembers;
+/// 点某个群成员 → 对方资料页（口径：先进资料页，不直接进聊天）。
+- (void)openPeerDetail:(IMGroupMember *)member;
 
 // —— 名片页签（IMChatDetailViewController+Contacts.m）——
 /// 名片行 cell（详情页「名片」签）。message 必须已通过 matchesKind: 的解析校验。

@@ -204,6 +204,24 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
                     convID:(NSString *)convID
                 completion:(void (^)(IMGroupInfo *_Nullable group, NSError *_Nullable error))completion;
 
+/// 拉**部署级**能力/配额：GET /api/v1/server-config。
+///
+/// 与账号级能力不是一回事：那个随账号走、多端同步；这个随部署走，同一部署下所有账号一致、
+/// 本次会话内不会变，**登录后拉一次即可**。
+///
+/// 用途：客户端**不得硬编码群成员上限**——它是部署配置（后端 `-max-group-members`），
+/// 端上写死会与服务端实际拒绝的口径对不上（Web 端就出过：端 500、后端已 2000）。
+/// `supergroupEnabled` 决定「升级为大群」这类入口显不显示：本部署没开的话，
+/// 提示用户去联系管理员也没用（后端直接拒 upgrade-super）。
+///
+/// 拉不到时 completion 回 error，**调用方应按"未知"处理而不是套用默认值**——
+/// 宁可少显示一个提示，也不要按猜测的上限误报"群已满"。
+- (void)serverConfigWithToken:(NSString *)token
+                   completion:(void (^)(NSInteger maxGroupMembers,
+                                        BOOL supergroupEnabled,
+                                        NSInteger maxSupergroupMembers,
+                                        NSError *_Nullable error))completion;
+
 /// 群成员目录**分页 + 搜索**（G5-c）：GET /groups/{id}/members?cursor=&limit=&q=。
 ///
 /// **超级群必须走这条**：那时 `GET /groups/{id}` 的 members 只含我自己
@@ -212,8 +230,10 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
 ///
 /// @param cursor 上一页的 nextCursor；传空/nil 取第一页。
 /// @param limit  每页条数（服务端默认 50、上限 200）。
-/// @param query  搜索词（uid / 群昵称 / 全局昵称，服务端大小写不敏感）；传空/nil = 不过滤。
-///               **超级群的 @人选择器只能靠它**——本地成员表只有我自己，不带 q 就永远是"最前 20 个人"。
+/// @param query  搜索词（**句柄 username / 群昵称 / 全局昵称**，服务端大小写不敏感）；传空/nil = 不过滤。
+///               **刻意不匹配 user_id**（那是 10 位随机内部 ID，界面从不显示，可搜就成了 ID 探测器）。
+///               **超级群的 @人选择器与成员搜索页都只能靠它**——本地成员表只有我自己，
+///               不带 q 就永远是"最前 N 个人"。
 /// completion 在主线程回调；hasMore=NO 表示已到末页。
 - (void)groupMembersPageWithToken:(NSString *)token
                            convID:(NSString *)convID

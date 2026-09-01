@@ -797,28 +797,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
 
 - (UITableViewCell *)tabCell:(UITableView *)tv row:(NSInteger)row {
     IMChatDetailTab *t = self.tabs[self.selectedTab];
-    if (t.kind == IMDetailTabKindMembers) {
-        NSInteger offset = [self memberRowOffset];
-        if (offset > 0 && row == 0) {
-            UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleDefault reuseID:@"dDef" inTable:tv];
-            cell.textLabel.text = @"添加成员"; cell.textLabel.textColor = IMTheme.accent;
-            cell.imageView.image = [UIImage systemImageNamed:@"person.badge.plus"];
-            return cell;
-        }
-        NSArray<IMGroupMember *> *list = self.displayMembers;
-        if (row - offset >= (NSInteger)list.count) { // 末尾的「加载更多成员」行（仅超级群且还有下一页）
-            UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleDefault reuseID:@"dDef" inTable:tv];
-            cell.textLabel.text = self.superLoading ? @"加载中…" : @"加载更多成员";
-            cell.textLabel.textColor = IMTheme.accent;
-            cell.imageView.image = [UIImage systemImageNamed:@"ellipsis.circle"];
-            return cell;
-        }
-        IMDetailMemberCell *cell = [tv dequeueReusableCellWithIdentifier:@"member"];
-        IMGroupMember *m = list[row - offset];
-        [cell configureWithMember:m isMe:[m.userID isEqualToString:self.userID]];
-        cell.selectionStyle = UITableViewCellSelectionStyleDefault;
-        return cell;
-    }
+    if (t.kind == IMDetailTabKindMembers) { return [self memberTabCell:tv row:row]; }
     if (t.kind == IMDetailTabKindMedia) {
         if (self.tabMedia.count == 0) { return [self emptyCell:tv text:@"暂无媒体"]; }
         IMDetailMediaContainerCell *cell = [tv dequeueReusableCellWithIdentifier:@"mediagrid"];
@@ -925,10 +904,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     if (kind == IMDetailSectionTabs && self.tabs.count > 0) {
         IMChatDetailTab *t = self.tabs[self.selectedTab];
         if (t.kind == IMDetailTabKindMembers) {
-            NSInteger offset = [self memberRowOffset];
-            if (offset > 0 && indexPath.row == 0) { [self inviteMembers]; }
-            else if (indexPath.row - offset >= (NSInteger)self.displayMembers.count) { [self loadMoreSuperMembers]; } // 「加载更多」行
-            else { [self openPeerDetail:self.displayMembers[indexPath.row - offset]]; } // tap→对方资料页
+            [self handleMemberTabTapAtRow:indexPath.row];
         } else if (t.kind == IMDetailTabKindFiles) {
             if (indexPath.row >= (NSInteger)self.tabRows.count) { return; }
             IMMessageModel *m = self.tabRows[indexPath.row];
@@ -1187,11 +1163,6 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
 /// 对齐微信：无邀请权者不给死胡同入口；服务端仍是权威闸门（点到也会被 300204/300212 拦）。
 - (BOOL)inviteEntriesVisible {
     return !(self.isGroup && self.group.permInvite && ![self canManageGroup]);
-}
-
-/// 成员 Tab 首行是否为「添加成员」：随 inviteEntriesVisible 显隐；隐藏时成员从第 0 行起（消 off-by-one）。
-- (NSInteger)memberRowOffset {
-    return [self inviteEntriesVisible] ? 1 : 0;
 }
 
 - (void)openGroupManage {

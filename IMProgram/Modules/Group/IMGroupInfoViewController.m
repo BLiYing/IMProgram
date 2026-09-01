@@ -12,6 +12,7 @@
 #import "IMTimeUtil.h"
 #import "IMLog.h"
 #import "IMAccountIdentity.h"
+#import "IMGroupMemberSearchViewController.h"
 
 #pragma mark - 成员行 Cell（头像 + 昵称/uid + 角色徽章）
 
@@ -448,11 +449,18 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
     return self.group.isSuper && self.superHasMore;
 }
 
+/// 成员分区顶部是否有「搜索成员」行（大群才给，判据见 IMShouldOfferMemberSearch）。
+/// 它占掉 row 0，成员行整体后移——所有按 row 取成员的地方都要减这个偏移。
+- (NSInteger)memberRowOffset {
+    return IMShouldOfferMemberSearch(self.group) ? 1 : 0;
+}
+
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     switch (section) {
         case IMGroupInfoSectionHeader:  return 1;
         case IMGroupInfoSectionActions: return 2; // 邀请成员 / 退出群聊
-        default:                        return (NSInteger)self.displayMembers.count + (self.showsLoadMoreRow ? 1 : 0);
+        default:                        return [self memberRowOffset] + (NSInteger)self.displayMembers.count
+                                             + (self.showsLoadMoreRow ? 1 : 0);
     }
 }
 
@@ -467,13 +475,29 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
-    return indexPath.section == IMGroupInfoSectionMembers ? 60 : 52;
+    if (indexPath.section != IMGroupInfoSectionMembers) { return 52; }
+    NSInteger offset = [self memberRowOffset];
+    if (offset > 0 && indexPath.row == 0) { return 52; }                 // 「搜索成员」按动作行高
+    if (indexPath.row - offset >= (NSInteger)self.displayMembers.count) { return 52; } // 「加载更多」
+    return 60;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     if (indexPath.section == IMGroupInfoSectionMembers) {
+        NSInteger offset = [self memberRowOffset];
+        if (offset > 0 && indexPath.row == 0) { // 「搜索成员」→ push 搜索页
+            UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"plain" forIndexPath:indexPath];
+            cell.textLabel.text = @"搜索成员";
+            cell.textLabel.textAlignment = NSTextAlignmentNatural;
+            cell.textLabel.textColor = IMTheme.accent;
+            cell.imageView.image = [UIImage systemImageNamed:@"magnifyingglass"];
+            cell.imageView.tintColor = IMTheme.accent;
+            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+            return cell;
+        }
         NSArray<IMGroupMember *> *list = self.displayMembers;
-        if (indexPath.row >= (NSInteger)list.count) {
+        if (indexPath.row - offset >= (NSInteger)list.count) {
             // 「加载更多」行（仅超级群且还有下一页）。
             UITableViewCell *more = [tableView dequeueReusableCellWithIdentifier:@"plain" forIndexPath:indexPath];
             more.accessoryType = UITableViewCellAccessoryNone;
@@ -484,7 +508,7 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
             return more;
         }
         IMGroupMemberCell *cell = [tableView dequeueReusableCellWithIdentifier:@"member" forIndexPath:indexPath];
-        IMGroupMember *m = list[indexPath.row];
+        IMGroupMember *m = list[indexPath.row - offset];
         [cell configureWithMember:m isMe:[m.userID isEqualToString:self.userID]];
         return cell;
     }
@@ -527,10 +551,30 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
         return;
     }
     if (indexPath.section == IMGroupInfoSectionMembers) {
+        NSInteger offset = [self memberRowOffset];
+        if (offset > 0 && indexPath.row == 0) { [self openMemberSearch]; return; } // 「搜索成员」行
         NSArray<IMGroupMember *> *list = self.displayMembers;
-        if (indexPath.row >= (NSInteger)list.count) { [self loadMoreSuperMembers]; return; } // 「加载更多」行
-        [self showActionsForMember:list[indexPath.row]];
+        if (indexPath.row - offset >= (NSInteger)list.count) { [self loadMoreSuperMembers]; return; } // 「加载更多」行
+        [self showActionsForMember:list[indexPath.row - offset]];
     }
+}
+
+/// 打开成员搜索页。选中后的落点**与本页列表点成员一致**（管理动作表）——
+/// 搜索页是这张列表的延伸，不该换一套行为。会话详情页那侧点成员进的是资料页，
+/// 它的搜索页也就跟着进资料页，各自与自己所在的列表对齐。
+- (void)openMemberSearch {
+    IMGroupInfo *g = self.group;
+    if (!g) { return; }
+    __weak typeof(self) weakSelf = self;
+    IMGroupMemberSearchViewController *vc =
+        [[IMGroupMemberSearchViewController alloc] initWithGroup:g onPickMember:^(IMGroupMember *m) {
+            __strong typeof(weakSelf) self = weakSelf;
+            if (!self) { return; }
+            // 先退回本页再弹动作表：动作表挂在搜索页上会随它一起被 pop 掉。
+            [self.navigationController popViewControllerAnimated:YES];
+            dispatch_async(dispatch_get_main_queue(), ^{ [self showActionsForMember:m]; });
+        }];
+    [self.navigationController pushViewController:vc animated:YES];
 }
 
 #pragma mark - 超级群成员分页
@@ -564,7 +608,17 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
         }
         if (cursor.length == 0) { self.superMembers = [NSMutableArray array]; } // 首页：重来
         if (!self.superMembers) { self.superMembers = [NSMutableArray array]; }
-        [self.superMembers addObjectsFromArray:members ?: @[]];
+        // 按 userID 去重再追加。**superLoading 那个在途守卫挡不住这个**——它挡的是连点造成的
+        // 重复请求；这里兜的是另一种重叠：keyset 游标翻页期间有人进群/退群，游标锚点位移，
+        // 相邻两页可能真的覆盖到同一个人，直接追加就会出现重复行（点哪行都是同一个人）。
+        // Web 侧一直有这一步，iOS 两处此前都漏了（TASKS C-iOS-memberdedup）。
+        NSMutableSet<NSString *> *seen = [NSMutableSet setWithCapacity:self.superMembers.count];
+        for (IMGroupMember *m in self.superMembers) { if (m.userID) { [seen addObject:m.userID]; } }
+        for (IMGroupMember *m in members) {
+            if (m.userID.length > 0 && [seen containsObject:m.userID]) { continue; }
+            if (m.userID) { [seen addObject:m.userID]; }
+            [self.superMembers addObject:m];
+        }
         self.superCursor = nextCursor;
         // has_more 为真但这页一个人都没回时也要停：否则「加载更多」永远点不完（服务端异常时的死循环）。
         self.superHasMore = hasMore && members.count > 0;

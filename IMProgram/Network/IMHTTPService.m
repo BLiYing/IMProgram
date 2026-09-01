@@ -524,6 +524,18 @@ const NSInteger IMFavoritesPageSize = 60;
     [self runGroupInfoRequest:req fallback:@"拉取群资料失败" completion:completion];
 }
 
+- (void)serverConfigWithToken:(NSString *)token
+                   completion:(void (^)(NSInteger, BOOL, NSInteger, NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/server-config" method:@"GET" token:token body:nil];
+    [self runDataRequest:req fallback:@"拉取服务端配置失败" completion:^(NSDictionary *data, NSError *error) {
+        if (error) { completion(0, NO, 0, error); return; }
+        completion([data[@"max_group_members"] integerValue],
+                   [data[@"supergroup_enabled"] boolValue],
+                   [data[@"max_supergroup_members"] integerValue],
+                   nil);
+    }];
+}
+
 - (void)groupMembersPageWithToken:(NSString *)token
                            convID:(NSString *)convID
                            cursor:(NSString *)cursor
