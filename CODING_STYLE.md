@@ -75,9 +75,11 @@
 **红线（机械护栏，别靠自觉）**：`./scripts/check-file-size.sh`——单 `.m` > 1500 行、或 `*+Private.h`
 > 72 个 `@property` 即非零退出。**建议装 pre-commit 钩子自动跑**：`./scripts/install-hooks.sh`（每个
 clone 一次，超预算即拦提交；应急 `git commit --no-verify`）。**新增属性到共享类扩展 = 警报**，先问「这状态能不能归给某个协作对象自持」。
-超标的正确处理是**拆分**（按上面三档），**不是放宽阈值**。历史欠账（`IMChatDetailViewController.m`
-2439 行等）在脚本里登记「只准降不准升」，逐步拆到 1500 以下。同样的病别的大页也有（详情页/会话列表/
-资料页），红线覆盖整个 `Modules/`，一处触发就顺手治，别等长成第二个 4700 行。
+超标的正确处理是**拆分**（按上面三档），**不是放宽阈值**。历史欠账在脚本的 `grandfather_limit()`
+里登记「只准降不准升」，逐步拆到 1500 以下（当前挂账：`IMProgram/Network/IMSocketManager.m` 1566 行）。
+同样的病别的大页也有（详情页/会话列表/资料页），**红线覆盖整个 `IMProgram/`**——不只 `Modules/`：
+2026-09-01 之前脚本只扫 `Modules` + `Common`，`Network`/`Database`/`Models`/`App` 全在视野外，
+`IMSocketManager.m` 就是这么悄悄超标的。一处触发就顺手治，别等长成第二个 4700 行。
 
 ### 8. 清理 / 重构的纪律（2026-08 `/simplify` + `/code-review` 复盘）
 「简化」最容易在不知不觉间改掉行为——本轮清理被 review 打回一批同类回归，提炼成红线：

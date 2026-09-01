@@ -17,9 +17,13 @@ MAX_LINES=${MAX_LINES:-1500}          # 未登记 .m 文件行数上限（可用
 WARN_RATIO=${WARN_RATIO:-80}          # 达上限该比例即预警（不失败），尽早规划拆分
 PRIVATE_H_MAX=${PRIVATE_H_MAX:-72}    # 共享类扩展（*+Private.h）@property 条数上限：加属性=加耦合，优先让协作对象自持状态
 
-# 历史欠账（已超 MAX_LINES、待拆分）。值 = 当前行数 + 少量余量。
+# 历史欠账（已超 MAX_LINES、待拆分）。值 = 当前行数 + 少量余量——**只准降不准升**。
 grandfather_limit() {
   case "$1" in
+    # 2026-09-01 扩大扫描范围（Modules/Common → 整个 IMProgram/）后暴露出来的欠账：
+    # 网络层长连接总管，登记时 1566 行。拆分方向：帧编解码 / 重连退避 / 各业务 send-recv 分组
+    # 各自成协作对象或 category。**只准降不准升**——降到 1500 以下后把这行删掉。
+    IMProgram/Network/IMSocketManager.m) echo 1600 ;;
     *) echo "" ;;
   esac
 }
@@ -30,6 +34,9 @@ fail=0
 warn=0
 
 echo "== 单文件行数体检（默认上限 ${MAX_LINES}；历史欠账见脚本内 GRANDFATHER）=="
+# 扫整个 IMProgram/（不只 Modules + Common）——2026-09-01 修补的覆盖盲区：
+# Network/Database/Models/App 此前全在闸门视野外，IMSocketManager.m 已悄悄长到 1566 行没人拦。
+# 单测/UI 测试在仓库根的 IMProgramTests/、IMProgramUITests/，是 IMProgram/ 的兄弟目录，天然不在范围内。
 while IFS= read -r f; do
   lines=$(wc -l < "$f" | tr -d ' ')
   gf=$(grandfather_limit "$f")
@@ -44,7 +51,7 @@ while IFS= read -r f; do
       warn=1
     fi
   fi
-done < <(find IMProgram/Modules IMProgram/Common -name "*.m" -not -path "*/build/*" | sort)
+done < <(find IMProgram -name "*.m" -not -path "*/build/*" | sort)
 
 echo ""
 echo "== 共享私有头属性数体检（上限 ${PRIVATE_H_MAX} 个 @property）=="
@@ -57,7 +64,7 @@ while IFS= read -r h; do
   else
     echo "  ✓ OK    ${h}  ${props} 个 @property"
   fi
-done < <(find IMProgram/Modules -name "*+Private.h" | sort)
+done < <(find IMProgram -name "*+Private.h" -not -path "*/build/*" | sort)
 
 echo ""
 if [ "$fail" -ne 0 ]; then
