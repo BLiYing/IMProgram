@@ -25,6 +25,16 @@ BOOL IMShouldOfferMemberSearch(IMGroupInfo *group) {
     return total > kIMMemberSearchMinMembers;
 }
 
+const NSInteger kIMMemberAutoLoadLeadRows = 15;
+
+BOOL IMShouldAutoLoadMoreMembers(NSInteger displayedIndex, NSInteger loadedCount, BOOL hasMore, BOOL loading) {
+    if (!hasMore || loading) { return NO; }
+    if (loadedCount <= 0) { return NO; } // 首页还没回来，交给各页自己的首屏加载，别在这里抢跑
+    // 落在"末尾提前量"之内即触发。用 >= 而不是 ==：行可能被跳着显示（快速甩动、
+    // reloadData 后从中间开始复用），只认相等的话滚得快一点就整个错过、再也不续拉。
+    return displayedIndex >= loadedCount - kIMMemberAutoLoadLeadRows;
+}
+
 /// 每页条数。结果本身也可能很长（搜 "big" 能命中几千人），所以结果也要翻页。
 static const NSInteger kIMMemberSearchPageSize = 50;
 /// 输入到发请求之间的静默期。与 @人选择器同口径，别各调各的。
@@ -379,6 +389,14 @@ static NSAttributedString *IMHighlighted(NSString *text, NSString *needle, UICol
     IMMemberSearchRowCell *cell = [tableView dequeueReusableCellWithIdentifier:@"member" forIndexPath:indexPath];
     [cell configureWithMember:_results[indexPath.row] highlight:_needle];
     return cell;
+}
+
+/// 滚到底自动续拉：搜 "big" 能命中几千人，结果本身就是长列表，同样不该让人点几十次。
+/// 末尾那行保留为**失败重试入口**（自动续拉遇错会停下，没有它只能退出重搜）。
+- (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (IMShouldAutoLoadMoreMembers(indexPath.row, (NSInteger)_results.count, _hasMore, _loading)) {
+        [self loadMoreResults];
+    }
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {

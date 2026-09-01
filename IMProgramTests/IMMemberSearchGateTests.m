@@ -66,4 +66,34 @@ static IMGroupInfo *MakeGroup(NSInteger memberCount, NSUInteger loadedMembers) {
     XCTAssertTrue(IMShouldOfferMemberSearch(MakeGroup(0, kIMMemberSearchMinMembers + 1)));
 }
 
+#pragma mark - 滚到底自动续拉（PERF-members-autoload）
+
+// 判据本身只有两行，但错一点后果都不小：提前量取反 = 一进页面就把 400 页全拉下来；
+// 用 == 而不是 >= = 滚快一点就整个错过、"自动"变成"永远不动"。
+
+/// 列表开头不拉；进入末尾提前量才拉。
+- (void)testAutoLoadTriggersOnlyNearTheEnd {
+    const NSInteger loaded = 50;
+    XCTAssertFalse(IMShouldAutoLoadMoreMembers(0, loaded, YES, NO), @"第一行就拉 = 一进页面把 400 页全拉下来");
+    XCTAssertFalse(IMShouldAutoLoadMoreMembers(loaded - kIMMemberAutoLoadLeadRows - 1, loaded, YES, NO));
+    XCTAssertTrue(IMShouldAutoLoadMoreMembers(loaded - kIMMemberAutoLoadLeadRows, loaded, YES, NO), @"提前量边界（含）应触发");
+    XCTAssertTrue(IMShouldAutoLoadMoreMembers(loaded - 1, loaded, YES, NO), @"最后一行当然要触发");
+}
+
+/// **用 >= 而不是 ==**：快速甩动/reloadData 后行会被跳着显示，只认相等就会整个错过。
+- (void)testAutoLoadStillFiresWhenRowsAreSkipped {
+    XCTAssertTrue(IMShouldAutoLoadMoreMembers(999, 50, YES, NO), @"下标越过末尾（跳着显示）仍应触发");
+}
+
+/// 没有下一页 / 已在路上 一律不拉——本函数不去抖，全靠这两个闸门挡住重复请求。
+- (void)testAutoLoadRespectsGuards {
+    XCTAssertFalse(IMShouldAutoLoadMoreMembers(49, 50, NO, NO), @"没有下一页");
+    XCTAssertFalse(IMShouldAutoLoadMoreMembers(49, 50, YES, YES), @"在途中，重复触发会拉重同一页");
+}
+
+/// 首页还没回来（loaded=0）不抢跑：首屏加载由各页自己发起，这里插一脚会打两次同一个请求。
+- (void)testAutoLoadDoesNotRaceFirstPage {
+    XCTAssertFalse(IMShouldAutoLoadMoreMembers(0, 0, YES, NO));
+}
+
 @end

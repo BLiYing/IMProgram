@@ -497,6 +497,17 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
     return 60;
 }
 
+/// 滚到底自动续拉（PERF-members-autoload）：此前 2 万人群要点 400 次「加载更多成员」。
+/// 判据是共用的纯函数 IMShouldAutoLoadMoreMembers（三处成员列表同一口径）；
+/// 末尾那行保留为**失败重试入口**——自动续拉遇错会停在那儿，没有它只能退出重进。
+- (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (indexPath.section != IMGroupInfoSectionMembers) { return; }
+    NSInteger idx = indexPath.row - [self memberRowOffset]; // 减掉「搜索成员」行
+    if (IMShouldAutoLoadMoreMembers(idx, (NSInteger)self.displayMembers.count, self.showsLoadMoreRow, self.superLoading)) {
+        [self loadMoreSuperMembers];
+    }
+}
+
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     if (indexPath.section == IMGroupInfoSectionMembers) {
         NSInteger offset = [self memberRowOffset];

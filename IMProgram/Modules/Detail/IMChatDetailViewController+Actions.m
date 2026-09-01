@@ -3,7 +3,8 @@
 //  从 IMChatDetailViewController.m 平移，未改行为；私有属性/常量经 IMChatDetailViewController+Private.h 共享。
 
 #import "IMChatDetailViewController+Private.h"
-#import "IMGroupMemberSearchViewController.h" // 成员搜索页 + IMShouldOfferMemberSearch
+#import "IMGroupMemberSearchViewController.h" // 成员搜索页 + IMShouldOfferMemberSearch / IMShouldAutoLoadMoreMembers
+#import "IMChatDetailTabs.h"                 // IMChatDetailTab.kind（判定当前是不是成员签）
 #import "IMServerConfigStore.h"              // 部署级配额：满员告知的判据
 #import "IMDetailMemberCell.h"
 #import "IMDetailFileCell.h"
@@ -563,6 +564,22 @@ static NSInteger IMRuneCount(NSString *s) {
             [self openPeerDetail:m];
         }];
     [self.navigationController pushViewController:vc animated:YES];
+}
+
+/// 滚到底自动续拉（PERF-members-autoload）：此前 2 万人群要点 400 次「加载更多成员」。
+/// 判据是共用的纯函数 IMShouldAutoLoadMoreMembers（三处成员列表同一口径）；
+/// 末尾那行保留为**失败重试入口**——自动续拉遇错会停在那儿，没有它只能退出重进。
+///
+/// 放在本 category 而不是主文件：它和上面的分页/搜索/行序偏移是一件事，
+/// 分两处放，改前导行顺序时必然漏掉其中一处（与 memberTabCell: 同一条理由）。
+- (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
+    if ([self sectionKindAt:indexPath.section] != IMDetailSectionTabs) { return; }
+    IMChatDetailTab *t = self.selectedTab < (NSInteger)self.tabs.count ? self.tabs[self.selectedTab] : nil;
+    if (t.kind != IMDetailTabKindMembers) { return; }
+    NSInteger idx = indexPath.row - [self memberRowOffset]; // 减掉搜索/添加成员/满员告知等前导行
+    if (IMShouldAutoLoadMoreMembers(idx, (NSInteger)self.displayMembers.count, self.superHasMore, self.superLoading)) {
+        [self loadMoreSuperMembers];
+    }
 }
 
 /// 成员签的行渲染。**整块住在这里而不是主文件的 tabCell:**——它和上面的分页/搜索是一件事，

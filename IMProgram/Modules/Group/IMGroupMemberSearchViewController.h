@@ -26,6 +26,22 @@ FOUNDATION_EXPORT const NSInteger kIMMemberSearchMinMembers;
 /// 看行数会把 2 万人的群判成小群、不给搜索框，那恰恰是最需要搜索的场景。
 FOUNDATION_EXPORT BOOL IMShouldOfferMemberSearch(IMGroupInfo *_Nullable group);
 
+/// 「滚到底自动续拉」的提前量：还剩这么多行没显示到，就开始拉下一页。
+/// 约 1~2 屏（成员行 60pt，一屏十几行）——滚到底之前下一页就已经在路上，用户看不到"加载中"。
+FOUNDATION_EXPORT const NSInteger kIMMemberAutoLoadLeadRows;
+
+/// 是否该自动续拉（PERF-members-autoload，2026-09-01）。**纯函数**，三处成员列表共用同一判据。
+///
+/// 此前只能手点「加载更多成员」，2 万人群要点 **400 次**。注意这与虚拟化（UITableView 复用）
+/// 不是一回事：那个解决"已加载的行不撑爆内存"，这个解决"怎么把它们加载进来"。
+///
+/// @param displayedIndex  即将显示的那一行在**成员数组里**的下标（已减掉搜索行/告知行等偏移）。
+/// @param loadedCount     已加载的成员行数。
+/// @param hasMore         服务端说还有下一页。
+/// @param loading         下一页已在路上（调用方的在途守卫）——本函数不去抖，靠它挡住重复触发。
+FOUNDATION_EXPORT BOOL IMShouldAutoLoadMoreMembers(NSInteger displayedIndex, NSInteger loadedCount,
+                                                   BOOL hasMore, BOOL loading);
+
 @interface IMGroupMemberSearchViewController : UIViewController
 
 /// @param group        当前群（取 conv_id 与人数；**不依赖 group.members**——超级群那里只有我自己）。
