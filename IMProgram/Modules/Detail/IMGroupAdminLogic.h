@@ -31,6 +31,14 @@ FOUNDATION_EXPORT const NSUInteger IMGroupAdminMaxBatch;
 + (NSArray<IMGroupMember *> *)adminCandidatesFromMembers:(nullable NSArray<IMGroupMember *> *)members
                                                 myUserID:(nullable NSString *)myUserID;
 
+/// 「添加管理员」在**远端候选模式**（超级群）下的排除集：群主 + 现有管理员 + 我。
+///
+/// 与 adminCandidatesFromMembers: 是同一套口径的两种用法：普通群端上有全量成员，直接**筛出**候选；
+/// 超级群端上只有治理集（群主+管理员），候选来自服务端搜索，只能**排除**。
+/// 排除集正好只需要治理集 + 我——而那恰恰是超级群资料里有的（2026-09-01 服务端补下发）。
++ (NSSet<NSString *> *)adminExclusionsFromMembers:(nullable NSArray<IMGroupMember *> *)members
+                                         myUserID:(nullable NSString *)myUserID;
+
 /// 「转让群组」的候选：全体成员 − 我（管理员也可以选，后端不限）。
 + (NSArray<IMGroupMember *> *)transferCandidatesFromMembers:(nullable NSArray<IMGroupMember *> *)members
                                                    myUserID:(nullable NSString *)myUserID;

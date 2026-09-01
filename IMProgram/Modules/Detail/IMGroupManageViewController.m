@@ -11,6 +11,7 @@
 #import "IMGroupManageRowIcon.h"
 #import "IMJoinRequestsViewController.h"
 #import "IMFriendPickerViewController.h"
+#import "IMUserCard.h"   // 转让确认要从选人页回查显示名（超级群下 group.members 里没有）
 #import "IMSocketManager.h"
 #import "IMGroupInfo.h"
 #import "IMHTTPService.h"
@@ -407,13 +408,17 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
 
 /// 转让群组：单选一个新群主 → Alert 二次确认 → 成功后**必须退回详情页**。
 - (void)openTransferPicker {
-    NSArray<IMGroupMember *> *candidates = [IMGroupAdminLogic transferCandidatesFromMembers:self.group.members
-                                                                                   myUserID:self.userID];
+    // 普通群：端上有全量成员，直接筛出候选（全体 − 我）。
+    // **超级群：候选在服务端**——端上只有治理集，注入式候选会退化成"只能转让给现有管理员"。
+    BOOL super_ = self.group.isSuper;
+    NSArray<IMGroupMember *> *candidates = super_ ? @[]
+        : [IMGroupAdminLogic transferCandidatesFromMembers:self.group.members myUserID:self.userID];
+    NSSet<NSString *> *excluded = super_ && self.userID.length > 0 ? [NSSet setWithObject:self.userID] : nil;
     __weak typeof(self) ws = self;
     IMFriendPickerViewController *picker =
         [[IMFriendPickerViewController alloc] initWithHost:self.host userID:self.userID
                                                 candidates:[IMGroupAdminLogic pickerCardsFromMembers:candidates]
-                                               excludedIDs:nil
+                                               excludedIDs:excluded
                                                      title:@"选择新群主"
                                               confirmTitle:@"转让"
                                                     onDone:^(NSArray<NSString *> *selectedIDs) {
@@ -427,6 +432,7 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
     picker.selectsImmediately = YES; // 转让是"选谁"不是"选一批"：点中即弹确认，不再要求点「确定」
     picker.searchPlaceholder = @"搜索群成员";
     picker.emptyText = @"群里还没有其他成员";
+    if (super_) { picker.remoteCandidateSearch = [IMFriendPickerViewController groupMemberSearchForConvID:self.convID]; }
     [self.navigationController pushViewController:picker animated:YES];
 }
 
@@ -435,7 +441,17 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
     for (IMGroupMember *m in self.group.members) {
         if ([m.userID isEqualToString:uid]) { target = m; break; }
     }
-    NSString *name = target ? target.localDisplayName : @"TA"; // 备注优先，本机渲染
+    NSString *name = target ? target.localDisplayName : nil; // 备注优先，本机渲染
+    if (name.length == 0) {
+        // 超级群：group.members 只有治理集，按 uid 找必然落空 → 回选人页问。
+        // 不做这一步的话确认弹窗会写成「确定把群主转让给 TA？」——转让不可撤销，
+        // 让用户对着一个代词点确认是不可接受的。
+        IMFriendPickerViewController *picker = (IMFriendPickerViewController *)self.transferHost;
+        if ([picker isKindOfClass:IMFriendPickerViewController.class]) {
+            name = [picker cardForUserID:uid].displayName;
+        }
+    }
+    if (name.length == 0) { name = @"TA"; } // 两条都落空才退到代词
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"转让群组"
         message:[NSString stringWithFormat:@"确定把群主转让给 %@？\n转让后你将变为普通成员，且不可撤销。", name]
         preferredStyle:UIAlertControllerStyleAlert];

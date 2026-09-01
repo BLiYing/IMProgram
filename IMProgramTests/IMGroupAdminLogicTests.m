@@ -152,4 +152,38 @@ static IMGroupMember *MakeMember(NSString *uid, NSString *nick, NSString *userna
     XCTAssertEqualObjects([IMGroupAdminLogic toastForError:err(-1009, @"网络未连接，请检查网络")], @"网络未连接，请检查网络");
 }
 
+
+#pragma mark - 远端候选模式的排除集（超级群）
+
+/// 超级群里「添加管理员」的候选来自服务端搜索，端上只能**排除**而不是**筛出**。
+/// 排除集 = 群主 + 现有管理员 + 我，正好只需要治理集——而那恰恰是超级群资料里有的。
+/// 少排一个的后果：把现任管理员再"设为管理员"，或把自己列进候选。
+- (void)testAdminExclusionsCoversOwnerAdminsAndSelf {
+    IMGroupMember *owner = [IMGroupMember new]; owner.userID = @"o"; owner.role = IMGroupRoleOwner;
+    IMGroupMember *a1 = [IMGroupMember new]; a1.userID = @"a1"; a1.role = IMGroupRoleAdmin;
+    IMGroupMember *me = [IMGroupMember new]; me.userID = @"me"; me.role = IMGroupRoleAdmin;
+    IMGroupMember *plain = [IMGroupMember new]; plain.userID = @"p1"; plain.role = IMGroupRoleMember;
+
+    NSSet<NSString *> *ex = [IMGroupAdminLogic adminExclusionsFromMembers:@[owner, a1, me, plain] myUserID:@"me"];
+    XCTAssertTrue([ex containsObject:@"o"], @"群主必须排除");
+    XCTAssertTrue([ex containsObject:@"a1"], @"现有管理员必须排除");
+    XCTAssertTrue([ex containsObject:@"me"], @"我自己必须排除");
+    XCTAssertFalse([ex containsObject:@"p1"], @"普通成员是候选，不该被排除");
+}
+
+/// 我还不是管理员时也要把自己排除（超级群资料里我那一行是 member，不在治理集内）。
+- (void)testAdminExclusionsIncludesSelfWhenPlainMember {
+    IMGroupMember *owner = [IMGroupMember new]; owner.userID = @"o"; owner.role = IMGroupRoleOwner;
+    NSSet<NSString *> *ex = [IMGroupAdminLogic adminExclusionsFromMembers:@[owner] myUserID:@"me"];
+    XCTAssertTrue([ex containsObject:@"me"]);
+    XCTAssertEqual(ex.count, 2u);
+}
+
+/// 空/nil 输入不崩，且仍排除我自己。
+- (void)testAdminExclusionsDegradesSafely {
+    XCTAssertEqualObjects([IMGroupAdminLogic adminExclusionsFromMembers:nil myUserID:@"me"],
+                          [NSSet setWithObject:@"me"]);
+    XCTAssertEqual([IMGroupAdminLogic adminExclusionsFromMembers:nil myUserID:nil].count, 0u);
+}
+
 @end

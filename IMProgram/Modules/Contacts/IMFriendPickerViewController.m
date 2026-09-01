@@ -7,6 +7,7 @@
 #import "IMListSearch.h"
 #import "IMHTTPService.h"
 #import "IMUserCard.h"
+#import "IMGroupInfo.h"        // IMGroupMember（远端候选源映射用）
 #import "IMTheme.h"
 #import "IMLog.h"
 #import "UIViewController+IMToast.h"
@@ -20,6 +21,9 @@
 @property (nonatomic, strong, nullable) NSArray<IMUserCard *> *injectedCandidates; // 非 nil = 不联网，直接用它
 @property (nonatomic, copy) void (^onDone)(NSArray<NSString *> *selectedIDs);
 @property (nonatomic, strong) NSArray<IMUserCard *> *usable;           // 可选好友全集（已排除 excludedIDs），搜索的输入
+/// 远端候选模式的请求序号：去抖 + **丢弃过期响应**（快速打字后发先至会让候选闪回旧词的结果）。
+/// 与 @人选择器/成员搜索页同一套路。
+@property (nonatomic, assign) int64_t remoteSearchToken;
 @property (nonatomic, strong) IMContactSectionIndex *friendIndex;     // **当前搜索词下**可见好友的 A–Z 分组索引，兼作表格数据源
 @property (nonatomic, strong) NSMutableOrderedSet<NSString *> *picked; // 选中的 uid（保持点选顺序）
 @property (nonatomic, strong) UITableView *tableView;
@@ -107,8 +111,47 @@
     IMListSearchHeaderSyncWidth(self.searchHeader, self.tableView); // 表头宽度对齐表格（宽度没变即空转）
 }
 
++ (void (^)(NSString *, void (^)(NSArray<IMUserCard *> *, NSError *)))groupMemberSearchForConvID:(NSString *)convID {
+    NSString *cid = [convID copy];
+    return ^(NSString *query, void (^done)(NSArray<IMUserCard *> *, NSError *)) {
+        NSString *token = IMHTTPService.sharedService.currentToken;
+        if (token.length == 0 || cid.length == 0) { done(@[], nil); return; }
+        // 一次 50 条。**不翻页**：这是"找某个人"而不是"浏览全体"——2 万人里靠翻页找人本就不成立，
+        // 打更精确的关键词才是路径（与 @人选择器同取舍）。
+        [IMHTTPService.sharedService groupMembersPageWithToken:token convID:cid cursor:nil limit:50 query:query
+                                                    completion:^(NSArray<IMGroupMember *> *members,
+                                                                 NSString *nextCursor, BOOL hasMore, NSError *error) {
+            if (error) { done(nil, error); return; }
+            NSMutableArray<IMUserCard *> *cards = [NSMutableArray arrayWithCapacity:members.count];
+            for (IMGroupMember *m in members) {
+                // 与 IMGroupAdminLogic pickerCardsFromMembers: 同一套映射（群内公开名，绝不回退内部 ID）。
+                IMUserCard *c = [IMUserCard new];
+                c.userID = m.userID;
+                c.nickname = m.displayName;
+                c.username = m.username ?: @"";
+                c.avatarURL = m.avatarURL ?: @"";
+                [cards addObject:c];
+            }
+            done(cards, nil);
+        }];
+    };
+}
+
+- (IMUserCard *)cardForUserID:(NSString *)userID {
+    if (userID.length == 0) { return nil; }
+    for (IMUserCard *c in self.usable) {
+        if ([c.userID isEqualToString:userID]) { return c; }
+    }
+    return nil;
+}
+
 /// 拉好友列表（accepted），排除 excludedIDs。候选已注入时直接用它，不联网。
+/// 设了 remoteCandidateSearch（超级群）则改走服务端：候选全集不在端上。
 - (void)reload {
+    if (self.remoteCandidateSearch) {
+        [self runRemoteSearch]; // 空词 = 取第一页
+        return;
+    }
     if (self.injectedCandidates) {
         [self applyCandidates:self.injectedCandidates];
         return;
@@ -152,6 +195,17 @@
 - (void)applyFilter {
     NSString *q = IMListSearchNormalizedQuery(self.searchBar.text);
     NSArray<IMUserCard *> *visible = self.usable ?: @[];
+    // 远端模式：服务端已经按 q 过滤过了，usable 就是要显示的行。
+    // 再本地过一遍不但多余，还会**二次收窄**——服务端按句柄/群昵称/全局昵称三源命中，
+    // 本地只认显示名+句柄，命中群昵称的那些人会被本地这一道悄悄滤掉。
+    if (self.remoteCandidateSearch) {
+        self.friendIndex = [[IMContactSectionIndex alloc] initWithCards:visible];
+        self.emptyLabel.text = q.length > 0 ? @"没有匹配的成员"
+                                            : (self.emptyText.length ? self.emptyText : @"群里还没有其他成员");
+        self.emptyLabel.hidden = visible.count > 0;
+        [self.tableView reloadData];
+        return;
+    }
     // 搜索维度 = 显示名 + @句柄（+ 好友场景的内部 ID）。
     // 好友场景内部 ID **不展示但可搜**：排障时能粘贴 ID 精准定位，且 10 位随机数字不可能撞上昵称/备注。
     // 注入候选（群成员）场景**刻意不收 uid**：那等于把搜索框变成 ID 探测器，与账号身份体系
@@ -175,7 +229,28 @@
     [self.tableView reloadData];
 }
 
-- (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText { [self applyFilter]; }
+- (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText {
+    if (self.remoteCandidateSearch) { [self runRemoteSearch]; return; }
+    [self applyFilter];
+}
+
+/// 远端候选：300ms 去抖 + 请求序号丢弃过期响应（与 @人选择器同口径）。
+- (void)runRemoteSearch {
+    if (!self.remoteCandidateSearch) { return; }
+    int64_t myToken = ++self.remoteSearchToken;
+    NSString *q = IMListSearchNormalizedQuery(self.searchBar.text) ?: @"";
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self || myToken != self.remoteSearchToken) { return; } // 期间又打字了
+        self.remoteCandidateSearch(q, ^(NSArray<IMUserCard *> *cards, NSError *error) {
+            __strong typeof(weakSelf) self = weakSelf;
+            if (!self || myToken != self.remoteSearchToken) { return; } // 过期响应，丢弃
+            if (error) { return; }                                     // 保留上一批结果，别清成"没有匹配"
+            [self applyCandidates:cards ?: @[]];                       // 内含 excludedIDs 过滤
+        });
+    });
+}
 
 - (void)searchBarSearchButtonClicked:(UISearchBar *)searchBar { [searchBar resignFirstResponder]; }
 

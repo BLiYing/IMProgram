@@ -54,6 +54,31 @@ NS_ASSUME_NONNULL_BEGIN
 /// ——用户至少知道为什么点不上，而不是对着一排灰行猜。**须在 push 前设。**
 @property (nonatomic, copy, nullable) NSString *capToast;
 
+/// **远端候选源**（超级群用）：设了它就**不做本地过滤**——候选全集在服务端，
+/// 每次搜索词变化去服务端查一页，回来的就是要显示的行（仍会再过一遍 excludedIDs）。
+///
+/// 为什么必须有这条路：超级群的成员是 2 万人，`GET /groups/{id}` 只下发治理集，
+/// 端上根本拿不到全集——注入式候选在超级群下要么是空的（加管理员），要么只剩几个管理员
+/// （转让群主）。本地过滤等于"在几十个人里搜 2 万人"，界面正常、结果悄悄是错的。
+///
+/// query 为空 = 取第一页（进页面即有候选）。去抖与过期响应丢弃由本页负责，provider 只管发请求。
+/// **须在 push 前设。**
+@property (nonatomic, copy, nullable) void (^remoteCandidateSearch)(NSString *query,
+        void (^done)(NSArray<IMUserCard *> *_Nullable cards, NSError *_Nullable error));
+
+/// 回查当前候选里某个 uid 的卡片（拿显示名/头像用）。找不到返回 nil。
+///
+/// 远端候选模式下**这是调用方唯一能拿到名字的地方**：候选来自服务端搜索，
+/// 调用方手里那份 group.members 在超级群下只有治理集，按 uid 找必然落空
+/// ——转让群主的二次确认曾因此写成「确定把群主转让给 TA？」。
+- (nullable IMUserCard *)cardForUserID:(NSString *)userID;
+
+/// 现成的远端候选源：按 q 查 convID 这个群的成员一页，映射成本页要的 IMUserCard。
+/// 「超级群加管理员」与「超级群转让群主」两处**逻辑完全相同**，放这里共用，分开写迟早分叉。
+/// 复用 GET /groups/{id}/members?q=（服务端按句柄/群昵称/全局昵称三源命中，不含 user_id）。
++ (void (^)(NSString *query, void (^done)(NSArray<IMUserCard *> *_Nullable cards, NSError *_Nullable error)))
+    groupMemberSearchForConvID:(NSString *)convID;
+
 /// **单选即确认**：点中一行立即回调 onDone（单元素数组），右上确认按钮隐藏。
 /// 转让群主走这一支——那是"选谁"而不是"选一批"，再要求点一次「确定」是多余的一步。
 /// 置 YES 时应同时把 maxSelection 设为 1。**须在 push 前设。**

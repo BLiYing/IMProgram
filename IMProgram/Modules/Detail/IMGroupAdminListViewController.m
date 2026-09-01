@@ -304,15 +304,20 @@ typedef NS_ENUM(NSInteger, IMAdminSection) {
 
 /// 添加管理员：候选＝本群普通成员（排除群主/现有管理员/我），一次 ≤5 人，串行下发。
 - (void)openAdminPicker {
-    NSArray<IMGroupMember *> *candidates = [IMGroupAdminLogic adminCandidatesFromMembers:self.group.members
-                                                                                myUserID:self.userID];
+    // 普通群：端上有全量成员，直接筛出候选。
+    // **超级群：候选在服务端**（2 万人，端上只有治理集）——改为远端搜索 + 排除治理集与我。
+    BOOL super_ = self.group.isSuper;
+    NSArray<IMGroupMember *> *candidates = super_ ? @[]
+        : [IMGroupAdminLogic adminCandidatesFromMembers:self.group.members myUserID:self.userID];
+    NSSet<NSString *> *excluded = super_
+        ? [IMGroupAdminLogic adminExclusionsFromMembers:self.group.members myUserID:self.userID] : nil;
     __weak typeof(self) ws = self;
     // onDone 回调时选人页仍在最上层：全失败要「停在选人页」，吐司就得挂它——挂本页等于画在看不见的地方。
     __block __weak IMFriendPickerViewController *wsPicker = nil;
     IMFriendPickerViewController *picker =
         [[IMFriendPickerViewController alloc] initWithHost:self.host userID:self.userID
                                                 candidates:[IMGroupAdminLogic pickerCardsFromMembers:candidates]
-                                               excludedIDs:nil
+                                               excludedIDs:excluded
                                                      title:@"添加管理员"
                                               confirmTitle:@"确定"
                                                     onDone:^(NSArray<NSString *> *selectedIDs) {
@@ -323,6 +328,7 @@ typedef NS_ENUM(NSInteger, IMAdminSection) {
     picker.capToast = [NSString stringWithFormat:@"一次最多添加 %lu 位管理员", (unsigned long)IMGroupAdminMaxBatch];
     picker.searchPlaceholder = @"搜索群成员";
     picker.emptyText = @"群里还没有其他成员";
+    if (super_) { picker.remoteCandidateSearch = [IMFriendPickerViewController groupMemberSearchForConvID:self.convID]; }
     [self.navigationController pushViewController:picker animated:YES];
 }
 

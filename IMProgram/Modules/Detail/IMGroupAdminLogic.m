@@ -43,6 +43,17 @@ const NSUInteger IMGroupAdminMaxBatch = 5;
     return out;
 }
 
++ (NSSet<NSString *> *)adminExclusionsFromMembers:(NSArray<IMGroupMember *> *)members
+                                         myUserID:(NSString *)myUserID {
+    NSMutableSet<NSString *> *out = [NSMutableSet set];
+    if (myUserID.length > 0) { [out addObject:myUserID]; }
+    for (IMGroupMember *m in members) {
+        if (m.userID.length == 0) { continue; }
+        if (m.role == IMGroupRoleOwner || m.role == IMGroupRoleAdmin) { [out addObject:m.userID]; }
+    }
+    return out;
+}
+
 + (NSArray<IMGroupMember *> *)transferCandidatesFromMembers:(NSArray<IMGroupMember *> *)members
                                                    myUserID:(NSString *)myUserID {
     NSMutableArray<IMGroupMember *> *out = [NSMutableArray array];
