@@ -549,7 +549,7 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
     NSString *cursor = self.superCursor;
     __weak typeof(self) weakSelf = self;
     [IMHTTPService.sharedService groupMembersPageWithToken:token convID:self.convID
-                                                    cursor:cursor limit:50
+                                                    cursor:cursor limit:50 query:nil
                                                 completion:^(NSArray<IMGroupMember *> *members,
                                                              NSString *nextCursor, BOOL hasMore, NSError *error) {
         __strong typeof(weakSelf) self = weakSelf;

@@ -547,7 +547,7 @@ static NSInteger IMRuneCount(NSString *s) {
     NSString *cursor = self.superCursor;
     __weak typeof(self) ws = self;
     [IMHTTPService.sharedService groupMembersPageWithToken:token convID:self.convID
-                                                    cursor:cursor limit:50
+                                                    cursor:cursor limit:50 query:nil
                                                 completion:^(NSArray<IMGroupMember *> *members,
                                                              NSString *nextCursor, BOOL hasMore, NSError *error) {
         __strong typeof(ws) self = ws;

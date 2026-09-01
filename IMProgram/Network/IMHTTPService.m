@@ -528,10 +528,14 @@ const NSInteger IMFavoritesPageSize = 60;
                            convID:(NSString *)convID
                            cursor:(NSString *)cursor
                             limit:(NSInteger)limit
+                            query:(NSString *)query
                        completion:(void (^)(NSArray<IMGroupMember *> *, NSString *, BOOL, NSError *))completion {
     NSMutableString *suffix = [NSMutableString stringWithFormat:@"/members?limit=%ld", (long)(limit > 0 ? limit : 50)];
     if (cursor.length > 0) {
         [suffix appendFormat:@"&cursor=%@", [self pathEscape:cursor]];
+    }
+    if (query.length > 0) {
+        [suffix appendFormat:@"&q=%@", [self pathEscape:query]];
     }
     NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:suffix]
                                                    method:@"GET" token:token body:nil];

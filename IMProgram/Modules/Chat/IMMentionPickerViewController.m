@@ -171,6 +171,9 @@ static UIColor *IMMentionBaseGroupedBackgroundColor(void) {
     /// 超级群（2 万人量级）：候选来自**服务端搜索**，不是本地 group.members——
     /// 那里只有我自己（服务端不再全量下发成员），不走服务端就一个候选都搜不到。
     BOOL _isSuper;
+    /// 群总人数（不含我）。**不能用 _all.count 代替**：超级群下 _all 只是"当前这一页候选"，
+    /// 20000 人的群会把「@所有人」副标题写成「通知全部 20 人」（2 万人群实测所见）。
+    NSInteger _mentionAllReach;
     NSString *_convID;
     int64_t _searchToken;                ///< 去抖 + 丢弃过期响应（快速打字时后发先至会让候选闪回旧词的结果）
     NSArray<IMGroupMember *> *_filtered; ///< 当前过滤结果
@@ -247,6 +250,10 @@ static const NSInteger kIMMentionInlineMaxVisibleRows = 4;
         }
         _all = others;
         _isSuper = group.isSuper;
+        // 权威人数优先取 memberCount（超级群资料只下发我自己，members.count 恒为 1）；
+        // 普通群 memberCount 为 0 时回落到成员表长度。减 1 = 去掉我自己。
+        NSInteger total = group.memberCount > 0 ? group.memberCount : (NSInteger)group.members.count;
+        _mentionAllReach = MAX(0, total - 1);
         _convID = group.convID ?: @"";
         _filtered = [self membersMatching:_query];
         if (_isSuper) { [self searchRemoteMembers]; } // 超级群：先拉一页，面板打开即有候选
@@ -271,6 +278,10 @@ static const NSInteger kIMMentionInlineMaxVisibleRows = 4;
     _searchBar.placeholder = @"搜索成员";
     _searchBar.delegate = self;
     _searchBar.searchBarStyle = UISearchBarStyleMinimal;
+    // 搜的是用户名（^[a-z0-9_]{5,32}$）：不关自动大写，键盘会把首字母顶成大写。
+    // 服务端 LIKE 恰好大小写不敏感所以还搜得到，但输入框里显示的 "Big2m0991" 本身就不对。
+    _searchBar.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    _searchBar.autocorrectionType = UITextAutocorrectionTypeNo;
     _searchBar.text = _query;
     IMApplyUnifiedSearchFieldStyle(_searchBar); // 统一搜索框圆角（24）
     [self.view addSubview:_searchBar];
@@ -314,6 +325,10 @@ static const NSInteger kIMMentionInlineMaxVisibleRows = 4;
     _searchBar.placeholder = @"搜索成员";
     _searchBar.delegate = self;
     _searchBar.searchBarStyle = UISearchBarStyleMinimal;
+    // 搜的是用户名（^[a-z0-9_]{5,32}$）：不关自动大写，键盘会把首字母顶成大写。
+    // 服务端 LIKE 恰好大小写不敏感所以还搜得到，但输入框里显示的 "Big2m0991" 本身就不对。
+    _searchBar.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    _searchBar.autocorrectionType = UITextAutocorrectionTypeNo;
     // 内联搜索框恒**从空开始**：它是独立搜索，绝不回填聊天输入框里 @后的字（列表已由 effectiveQuery 跟随 @字符）。
     _searchBar.text = @"";
     // 关闭钮改用右侧自绘「叉叉」，不用 UISearchBar 自带 cancel（任务2）：
@@ -447,6 +462,10 @@ static const NSInteger kIMMentionInlineMaxVisibleRows = 4;
 /// 300ms 去抖 —— 每敲一个字打一次请求，在 2 万人的群里既浪费又会让候选闪烁。
 /// `_searchToken` 同时用来**丢弃过期响应**：快速打字时请求可能后发先至，
 /// 不校验的话候选会闪回上一个搜索词的结果。
+///
+/// ⚠️ q 必须真的传进 `groupMembersPageWithToken:`。首版算出了 q 却没往下传（那个方法当时也没有 q 参数），
+/// 于是每次搜索都只是把"最前 20 个人"重新拉一遍——界面看着有响应、列表纹丝不动，
+/// 2 万人群实测才发现（服务端日志里三次请求返回字节数一模一样）。
 - (void)searchRemoteMembers {
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0 || _convID.length == 0) { return; }
@@ -457,7 +476,7 @@ static const NSInteger kIMMentionInlineMaxVisibleRows = 4;
         __strong typeof(weakSelf) self = weakSelf;
         if (!self || myToken != self->_searchToken) { return; } // 去抖：期间又打字了
         [IMHTTPService.sharedService groupMembersPageWithToken:token convID:self->_convID
-                                                        cursor:nil limit:20
+                                                        cursor:nil limit:20 query:q
                                                     completion:^(NSArray<IMGroupMember *> *members,
                                                                  NSString *nextCursor, BOOL hasMore, NSError *error) {
             __strong typeof(weakSelf) self = weakSelf;
@@ -508,7 +527,7 @@ static const NSInteger kIMMentionInlineMaxVisibleRows = 4;
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     IMMentionRowCell *cell = [tableView dequeueReusableCellWithIdentifier:@"row" forIndexPath:indexPath];
     if (self.showsMentionAllRow && indexPath.row == 0) {
-        [cell configureAsMentionAllWithMemberCount:(NSInteger)_all.count];
+        [cell configureAsMentionAllWithMemberCount:_mentionAllReach];
     } else {
         NSInteger idx = indexPath.row - (self.showsMentionAllRow ? 1 : 0);
         if (idx >= 0 && idx < (NSInteger)_filtered.count) {

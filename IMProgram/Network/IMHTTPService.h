@@ -212,11 +212,14 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
 ///
 /// @param cursor 上一页的 nextCursor；传空/nil 取第一页。
 /// @param limit  每页条数（服务端默认 50、上限 200）。
+/// @param query  搜索词（uid / 群昵称 / 全局昵称，服务端大小写不敏感）；传空/nil = 不过滤。
+///               **超级群的 @人选择器只能靠它**——本地成员表只有我自己，不带 q 就永远是"最前 20 个人"。
 /// completion 在主线程回调；hasMore=NO 表示已到末页。
 - (void)groupMembersPageWithToken:(NSString *)token
                            convID:(NSString *)convID
                            cursor:(nullable NSString *)cursor
                             limit:(NSInteger)limit
+                            query:(nullable NSString *)query
                        completion:(void (^)(NSArray<IMGroupMember *> *_Nullable members,
                                             NSString *_Nullable nextCursor,
                                             BOOL hasMore,
