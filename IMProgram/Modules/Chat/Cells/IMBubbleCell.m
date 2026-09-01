@@ -225,6 +225,52 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
                                      base:(NSDictionary *)base
                              mentionColor:(UIColor *)color
                                  mentions:(NSDictionary<NSString *, NSString *> *)mentions {
+    return [self attributedContent:text base:base mentionColor:color mentions:mentions spans:nil];
+}
+
+/// 片段属性（与下面按昵称切段共用同一套样式），抽出来免得两条路的字重/颜色漂移。
++ (NSDictionary *)mentionAttrs:(NSDictionary *)base color:(UIColor *)color {
+    NSMutableDictionary *matt = [base mutableCopy];
+    matt[NSForegroundColorAttributeName] = color;
+    UIFont *bf = base[NSFontAttributeName];
+    if (bf) { matt[NSFontAttributeName] = [UIFont systemFontOfSize:bf.pointSize weight:UIFontWeightMedium]; }
+    return matt;
+}
+
++ (NSAttributedString *)attributedContent:(NSString *)text
+                                     base:(NSDictionary *)base
+                             mentionColor:(UIColor *)color
+                                 mentions:(NSDictionary<NSString *, NSString *> *)mentions
+                                    spans:(NSArray<IMMentionSpan *> *)spans {
+    // **有片段就走片段**：位置由发送方给出，不查任何成员表——超级群不下发成员表，
+    // 下面那条老路在那里对普通成员必然失效。对不上的片段由 IMChatValidMentionSpans 过滤掉，
+    // 一段都不剩就自然落到老路（编辑过的老消息、脏数据都走这个降级）。
+    NSArray<IMMentionSpan *> *valid = IMChatValidMentionSpans(text, spans);
+    if (valid.count > 0) {
+        NSDictionary *matt = [self mentionAttrs:base color:color];
+        NSMutableAttributedString *out = [NSMutableAttributedString new];
+        NSUInteger at = 0;
+        for (IMMentionSpan *s in valid) {
+            if (s.range.location > at) {
+                [out appendAttributedString:[[NSAttributedString alloc]
+                    initWithString:[text substringWithRange:NSMakeRange(at, s.range.location - at)] attributes:base]];
+            }
+            NSDictionary *seg = matt;
+            if (s.uid.length > 0) { // 有 uid 才可点；@所有人 uid 为空，只高亮
+                NSMutableDictionary *m = [matt mutableCopy];
+                m[IMMentionUIDAttributeName] = s.uid;
+                seg = m;
+            }
+            [out appendAttributedString:[[NSAttributedString alloc]
+                initWithString:[text substringWithRange:s.range] attributes:seg]];
+            at = NSMaxRange(s.range);
+        }
+        if (at < text.length) {
+            [out appendAttributedString:[[NSAttributedString alloc]
+                initWithString:[text substringFromIndex:at] attributes:base]];
+        }
+        return out;
+    }
     NSMutableAttributedString *out = [NSMutableAttributedString new];
     if (text.length == 0) { return out; }
     NSArray<NSString *> *sorted = mentions.count > 0
@@ -233,10 +279,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
               return a.length > b.length ? NSOrderedAscending : NSOrderedDescending; // 长名优先
           }]
         : nil;
-    NSMutableDictionary *matt = [base mutableCopy];
-    matt[NSForegroundColorAttributeName] = color;
-    UIFont *bf = base[NSFontAttributeName];
-    if (bf) { matt[NSFontAttributeName] = [UIFont systemFontOfSize:bf.pointSize weight:UIFontWeightMedium]; }
+    NSDictionary *matt = [self mentionAttrs:base color:color];
     NSCharacterSet *ws = [NSCharacterSet whitespaceAndNewlineCharacterSet];
     NSUInteger i = 0, len = text.length;
     NSMutableString *buf = [NSMutableString string];
@@ -256,11 +299,12 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
         }
         if (hitName) {
             flush();
-            NSMutableDictionary *seg = matt;
+            NSDictionary *seg = matt;
             NSString *uid = mentions[hitName];
             if (uid.length > 0) { // 有 uid 才可点：挂 uid 属性（@所有人 uid 空串，只高亮）
-                seg = [matt mutableCopy];
-                seg[IMMentionUIDAttributeName] = uid;
+                NSMutableDictionary *m = [matt mutableCopy];
+                m[IMMentionUIDAttributeName] = uid;
+                seg = m;
             }
             [out appendAttributedString:[[NSAttributedString alloc] initWithString:[@"@" stringByAppendingString:hitName] attributes:seg]];
             i += hitName.length + 1;
@@ -737,6 +781,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
                                           NSForegroundColorAttributeName: IMTheme.accent };
         // 气泡内 @昵称 高亮：URL 不参与（整段是链接）；其余按宿主推导的 mentionNames 上强调色。
         NSDictionary<NSString *, NSString *> *mMap = isURL ? nil : self.mentionMap;
+        NSArray<IMMentionSpan *> *mSpans = isURL ? nil : self.mentionSpans; // 整段是 URL 时不做 @ 高亮（原行为）
         BOOL collapsed = NO; // Long 折叠态：跳过译文/展开态尾巴，避免折叠时下方还挂译文
         if (tier == IMBubbleTextTierHuge) {
             // 超长 → 摘要卡：📄 长文本 · 约N字\n 预览(次要色, 截断) \n 查看全文 ›
@@ -751,21 +796,21 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
             NSString *preview = [IMTruncateText(contentText, 3, IMTextHugePreviewChars) stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
             NSDictionary *previewAttr = @{ NSFontAttributeName: [UIFont systemFontOfSize:13],
                                            NSForegroundColorAttributeName: IMTheme.textSecondary };
-            [body appendAttributedString:[IMBubbleCell attributedContent:preview base:previewAttr mentionColor:IMTheme.accent mentions:mMap]];
+            [body appendAttributedString:[IMBubbleCell attributedContent:preview base:previewAttr mentionColor:IMTheme.accent mentions:mMap spans:mSpans]];
             [body appendAttributedString:[[NSAttributedString alloc] initWithString:@"\n查看全文 ›" attributes:affordanceAttr]];
         } else if (tier == IMBubbleTextTierLong && !self.textExpanded) {
             // 中长折叠：前若干行（并按字数硬顶）+ 省略号 + 「展开全文」
             collapsed = YES;
             NSString *shown = IMTruncateText(contentText, IMTextCollapsedLines, IMTextCollapsedChars);
             NSUInteger contentStart = body.length;
-            [body appendAttributedString:[IMBubbleCell attributedContent:shown base:(isURL ? urlAttr : contentAttr) mentionColor:IMTheme.accent mentions:mMap]];
+            [body appendAttributedString:[IMBubbleCell attributedContent:shown base:(isURL ? urlAttr : contentAttr) mentionColor:IMTheme.accent mentions:mMap spans:mSpans]];
             // 混排文本里的 URL 高亮：整段是 URL 时上面 urlAttr 已全染；否则按检测出的 URL 范围逐段补染。
             if (!isURL) { [IMBubbleCell applyURLHighlight:shown toBody:body startOffset:contentStart linkAttrs:urlAttr]; }
             [body appendAttributedString:[[NSAttributedString alloc] initWithString:@"…\n展开全文 ∨" attributes:affordanceAttr]];
         } else {
             // 短文本，或中长已展开：全显。展开态末尾加「收起」。
             NSUInteger contentStart = body.length;
-            [body appendAttributedString:[IMBubbleCell attributedContent:contentText base:(isURL ? urlAttr : contentAttr) mentionColor:IMTheme.accent mentions:mMap]];
+            [body appendAttributedString:[IMBubbleCell attributedContent:contentText base:(isURL ? urlAttr : contentAttr) mentionColor:IMTheme.accent mentions:mMap spans:mSpans]];
             if (!isURL) { [IMBubbleCell applyURLHighlight:contentText toBody:body startOffset:contentStart linkAttrs:urlAttr]; }
             if (tier == IMBubbleTextTierLong) {
                 [body appendAttributedString:[[NSAttributedString alloc] initWithString:@"\n收起 ∧" attributes:affordanceAttr]];
@@ -804,7 +849,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     if (hasFileCaption) {
         // 配文 @高亮（Telegram 模型，仅群聊）：命中的 @昵称/@所有人 上强调色。
         NSDictionary *capBase = @{ NSFontAttributeName: _fileCaption.font, NSForegroundColorAttributeName: _fileCaption.textColor };
-        _fileCaption.attributedText = [IMBubbleCell attributed:[IMBubbleCell attributedContent:fileCaption base:capBase mentionColor:IMTheme.accent mentions:self.captionMentionMap]
+        _fileCaption.attributedText = [IMBubbleCell attributed:[IMBubbleCell attributedContent:fileCaption base:capBase mentionColor:IMTheme.accent mentions:self.captionMentionMap spans:self.captionMentionSpans]
                                                   highlighting:self.searchHighlightKeyword];
     } else {
         _fileCaption.attributedText = nil;

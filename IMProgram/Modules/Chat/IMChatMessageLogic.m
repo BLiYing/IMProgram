@@ -23,6 +23,61 @@ BOOL IMChatTextContainsMentionToken(NSString *_Nullable text, NSString *_Nullabl
     return NO;
 }
 
+NSArray<IMMentionSpan *> *IMChatScanMentionSpans(NSString *text, NSDictionary<NSString *, NSString *> *nameToUID) {
+    if (text.length == 0 || nameToUID.count == 0) { return @[]; }
+    // 长名优先：`@小美丽` 必须先于 `@小美` 命中，否则前缀会把长名切碎。
+    NSArray<NSString *> *names = [nameToUID.allKeys sortedArrayUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
+        if (a.length == b.length) { return NSOrderedSame; }
+        return a.length > b.length ? NSOrderedAscending : NSOrderedDescending;
+    }];
+    NSCharacterSet *ws = NSCharacterSet.whitespaceAndNewlineCharacterSet;
+    NSMutableArray<IMMentionSpan *> *out = [NSMutableArray array];
+    NSUInteger i = 0, len = text.length;
+    while (i < len) {
+        if ([text characterAtIndex:i] == '@') {
+            NSString *hit = nil;
+            for (NSString *n in names) {
+                if (n.length == 0) { continue; }
+                NSUInteger tokenLen = n.length + 1;
+                if (i + tokenLen > len) { continue; }
+                if (![[text substringWithRange:NSMakeRange(i + 1, n.length)] isEqualToString:n]) { continue; }
+                NSUInteger after = i + tokenLen;
+                if (after >= len || [ws characterIsMember:[text characterAtIndex:after]]) { hit = n; break; }
+            }
+            if (hit) {
+                IMMentionSpan *span = [IMMentionSpan new];
+                span.range = NSMakeRange(i, hit.length + 1);
+                NSString *uid = nameToUID[hit];
+                span.uid = uid.length > 0 ? uid : nil; // 空串=@所有人
+                [out addObject:span];
+                i += hit.length + 1;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    return out;
+}
+
+NSArray<IMMentionSpan *> *IMChatValidMentionSpans(NSString *text, NSArray<IMMentionSpan *> *spans) {
+    if (text.length == 0 || spans.count == 0) { return @[]; }
+    NSArray<IMMentionSpan *> *sorted = [spans sortedArrayUsingComparator:^NSComparisonResult(IMMentionSpan *a, IMMentionSpan *b) {
+        if (a.range.location == b.range.location) { return NSOrderedSame; }
+        return a.range.location < b.range.location ? NSOrderedAscending : NSOrderedDescending;
+    }];
+    NSMutableArray<IMMentionSpan *> *out = [NSMutableArray array];
+    NSUInteger end = 0;
+    for (IMMentionSpan *s in sorted) {
+        NSRange r = s.range;
+        if (r.length == 0 || NSMaxRange(r) > text.length) { continue; }
+        if (r.location < end) { continue; }                              // 与前一段重叠
+        if ([text characterAtIndex:r.location] != '@') { continue; }      // 位置对不上（编辑过/脏数据）
+        [out addObject:s];
+        end = NSMaxRange(r);
+    }
+    return out;
+}
+
 BOOL IMContentTypeCountsAsUnread(NSString *_Nullable contentType) {
     NSString *ct = contentType ?: @"";
     return !([ct isEqualToString:@"system"] || [ct isEqualToString:@"msg_op"]);

@@ -9,6 +9,7 @@
 
 @class IMSocketManager;
 @class IMMessageModel;
+@class IMMentionSpan;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -193,6 +194,7 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
         replyToConvSeq:(int64_t)replyToConvSeq
               mentions:(nullable NSArray<NSString *> *)mentions
             mentionAll:(BOOL)mentionAll
+          mentionSpans:(nullable NSArray<IMMentionSpan *> *)mentionSpans
             completion:(nullable IMSendCompletion)completion;
 
 /// 转发变体（M4-3）：把 text 发到 convID（群=to 空/单聊=toUserID），带 forward_from 溯源。

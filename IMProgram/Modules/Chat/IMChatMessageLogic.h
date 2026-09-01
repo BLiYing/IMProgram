@@ -5,6 +5,7 @@
 #import <Foundation/Foundation.h>
 
 @class IMMessageModel;
+@class IMMentionSpan;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -14,6 +15,25 @@ NS_ASSUME_NONNULL_BEGIN
 /// `@小美丽 开会` 会把根本没被提及的「小美」也算进 mentions，让他收到一条穿透免打扰的错误强提醒。
 /// 判定规则：token 后面必须紧跟**空白或字符串结尾**。与 Web `containsMentionToken` 同一套。
 FOUNDATION_EXPORT BOOL IMChatTextContainsMentionToken(NSString *_Nullable text, NSString *_Nullable displayName);
+
+/// 扫描文本里的 `@名字` token，产出 **@ 片段**（发送侧用；协议见 IMServer/docs/PROTOCOL.md §4.1）。
+///
+/// token 边界与 `IMChatTextContainsMentionToken` 完全同规则（后接空白或结尾；长名优先，
+/// 防 `@小美` 误命中 `@小美丽`），与 Web 的 `resolveMentionSpans` 逐条对齐。
+///
+/// `nameToUID` 是「显示名 → uid」。同名多人只能记住一个 uid——这是**片段**的固有限制
+/// （一段文本只能链向一个人）；`mentions`（谁收到强提醒）不受影响，仍按每个候选独立判定。
+/// uid 传空串表示 `@所有人`。
+FOUNDATION_EXPORT NSArray<IMMentionSpan *> *IMChatScanMentionSpans(NSString *_Nullable text,
+                                                                   NSDictionary<NSString *, NSString *> *_Nullable nameToUID);
+
+/// 过滤出**与这段文本对得上**的片段（渲染侧用）。
+///
+/// 判据与服务端 `normalizeMentionSpans` / Web `segmentMentionsBySpans` 同一条：不越界、
+/// 该位置确是 `@`、彼此不重叠。对不上就跳过——编辑过的老消息、折叠截断的前缀、脏数据都会走到这，
+/// 全跳完调用方就回落到按昵称扫文本的老路。**两边都不信任偏移**。
+FOUNDATION_EXPORT NSArray<IMMentionSpan *> *IMChatValidMentionSpans(NSString *_Nullable text,
+                                                                    NSArray<IMMentionSpan *> *_Nullable spans);
 
 /// 该 content_type 是否计入未读——**与服务端 conversation.unreadCount 同口径**（M4-8）：
 /// `msg_op` 事件行（撤回/编辑/置顶）是操作、`system` 系统消息（改名/入群/禁言）是群内留痕，

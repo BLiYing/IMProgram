@@ -63,10 +63,12 @@
     // @提及（M4-8）：按输入框里**仍留着**的 token 还原 uid（删了 token 就自动不 @ 他）。解析在 +Mention.m。
     NSArray<NSString *> *mentions = self.isGroupChat ? [self resolvedMentionsInText:text] : @[];
     BOOL mentionAll = self.isGroupChat && [self resolvedMentionAllInText:text];
+    // @ 片段：位置随消息走，收端不必反查群成员表（超级群没那张表）。见 +Mention.m。
+    NSArray<IMMentionSpan *> *mentionSpans = [self resolvedMentionSpansInText:text];
     // 群聊按 conv_id 路由（to 留空，服务端查成员写扩散）；单聊按对端 uid。
     clientMsgID = self.isGroupChat
         ? [IMSocketManager.sharedManager sendText:text toConv:self.convID replyToConvSeq:replySeq
-                                         mentions:mentions mentionAll:mentionAll completion:completion]
+                                         mentions:mentions mentionAll:mentionAll mentionSpans:mentionSpans completion:completion]
         : [IMSocketManager.sharedManager sendText:text toUser:self.peerID replyToConvSeq:replySeq completion:completion];
 
     IMMessageModel *m = [IMMessageModel new];
@@ -77,6 +79,10 @@
     m.from = self.userID;
     m.contentType = @"text";
     m.status = IMMessageStatusSending;
+    // 本端回显也要带上 @ 信息：不带的话自己发的那条在 ack 回来前不高亮，落库后重进会话也不高亮。
+    m.mentions = mentions.count > 0 ? mentions : nil;
+    m.mentionAll = mentionAll;
+    m.mentionSpans = mentionSpans.count > 0 ? mentionSpans : nil;
     m.timestamp = IMNowMillis(); // 本地时间，气泡尾巴即时显示时间（与 Web 一致）
     if (replySeq > 0) { // 本端即时快照（服务端会给收件方冻结权威快照；媒体用 [图片]/[视频] 占位）
         m.replyToConvSeq = replySeq;

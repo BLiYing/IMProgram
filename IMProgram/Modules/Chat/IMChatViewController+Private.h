@@ -20,6 +20,7 @@
 @class IMDatabaseAccountContext;
 @class IMMentionPickerViewController;
 @class IMMessageModel;
+@class IMMentionSpan;
 @class IMPresence;
 @class IMDatabase;
 
@@ -298,6 +299,9 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (void)maybePresentMentionPicker;
 - (void)dismissMentionPanel;
 - (NSArray<NSString *> *)resolvedMentionsInText:(NSString *)text;
+- (NSArray<IMMentionSpan *> *)resolvedMentionSpansInText:(NSString *)text;
+- (nullable NSArray<IMMentionSpan *> *)mentionSpansForMessage:(IMMessageModel *)m;
+- (nullable NSArray<IMMentionSpan *> *)mentionSpansForCaption:(IMMessageModel *)m;
 - (BOOL)resolvedMentionAllInText:(NSString *)text;
 - (void)clearPendingMentions;
 

@@ -565,6 +565,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
     if (attributes.caption.length > 0) { payload[@"caption"] = attributes.caption; }
     if (attributes.mentions.count > 0) { payload[@"mentions"] = attributes.mentions; }
     if (attributes.mentionAll) { payload[@"mention_all"] = @YES; }
+    if (attributes.mentionSpans.count > 0) { payload[@"mention_spans"] = [IMMentionSpan arrayFromSpans:attributes.mentionSpans]; }
 
     NSString *ct = payload[@"content_type"] ?: @"";
     BOOL isMedia = [ct isEqualToString:@"image"] || [ct isEqualToString:@"video"];
@@ -660,6 +661,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
     // 文本的 @提及（媒体的配文 @ 已由 attributes 带走，此处写同一批键、值相同，无冲突）。
     if (message.mentions.count > 0) { payload[@"mentions"] = message.mentions; }
     if (message.mentionAll) { payload[@"mention_all"] = @YES; }
+    if (message.mentionSpans.count > 0) { payload[@"mention_spans"] = [IMMentionSpan arrayFromSpans:message.mentionSpans]; }
     IMLogSocket(@"重发 %@ content_type=%@（沿用原 client_msg_id，服务端幂等）", clientMsgID, ct);
     dispatch_async(_queue, ^{
         // 同 cid 仍在待确认队列里（理论上不会：判失败时已摘除）——此时不能重复登记，
@@ -675,19 +677,21 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
 
 /// 共用发送路径：构造 send_msg 负载并入队（ack 超时重发等由 enqueue 统一处理）。
 - (NSString *)sendText:(NSString *)text toConv:(NSString *)convID replyToConvSeq:(int64_t)replyToConvSeq
-              mentions:(NSArray<NSString *> *)mentions mentionAll:(BOOL)mentionAll completion:(IMSendCompletion)completion {
+              mentions:(NSArray<NSString *> *)mentions mentionAll:(BOOL)mentionAll
+          mentionSpans:(NSArray<IMMentionSpan *> *)mentionSpans completion:(IMSendCompletion)completion {
     // 群聊：to 留空，服务端按 conv_id 查群成员写扩散；mentions 由服务端按当时成员集再过滤一次。
     return [self sendText:text toUser:@"" convID:convID replyToConvSeq:replyToConvSeq forwardFrom:nil
-                 mentions:mentions mentionAll:mentionAll completion:completion];
+                 mentions:mentions mentionAll:mentionAll mentionSpans:mentionSpans completion:completion];
 }
 
 - (NSString *)sendText:(NSString *)text toUser:(NSString *)toUserID convID:(NSString *)convID replyToConvSeq:(int64_t)replyToConvSeq forwardFrom:(NSString *)forwardFrom completion:(IMSendCompletion)completion {
     return [self sendText:text toUser:toUserID convID:convID replyToConvSeq:replyToConvSeq forwardFrom:forwardFrom
-                 mentions:nil mentionAll:NO completion:completion];
+                 mentions:nil mentionAll:NO mentionSpans:nil completion:completion];
 }
 
 - (NSString *)sendText:(NSString *)text toUser:(NSString *)toUserID convID:(NSString *)convID replyToConvSeq:(int64_t)replyToConvSeq forwardFrom:(NSString *)forwardFrom
-              mentions:(NSArray<NSString *> *)mentions mentionAll:(BOOL)mentionAll completion:(IMSendCompletion)completion {
+              mentions:(NSArray<NSString *> *)mentions mentionAll:(BOOL)mentionAll
+          mentionSpans:(NSArray<IMMentionSpan *> *)mentionSpans completion:(IMSendCompletion)completion {
     NSString *clientMsgID = [NSUUID UUID].UUIDString;
     NSMutableDictionary *payload = [@{
         @"client_msg_id": clientMsgID,
@@ -701,6 +705,8 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
     // @提及（M4-8，仅群聊有意义）：服务端会按当时群成员集过滤/去重，并校验 @所有人 的群角色权限。
     if (mentions.count > 0) { payload[@"mentions"] = mentions; }
     if (mentionAll) { payload[@"mention_all"] = @YES; }
+    // @ 片段（位置随消息走）：收端有它就直接高亮，不必反查群成员表。服务端会校验 spans ⊆ mentions。
+    if (mentionSpans.count > 0) { payload[@"mention_spans"] = [IMMentionSpan arrayFromSpans:mentionSpans]; }
     dispatch_async(_queue, ^{
         [self enqueueSendWithClientMsgID:clientMsgID payload:payload completion:completion];
     });

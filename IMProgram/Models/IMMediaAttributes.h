@@ -8,6 +8,8 @@
 
 #import <Foundation/Foundation.h>
 
+@class IMMentionSpan;
+
 NS_ASSUME_NONNULL_BEGIN
 
 @interface IMMediaAttributes : NSObject
@@ -23,6 +25,9 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) NSString *caption; ///< 图说随附文本（Telegram 模型）：与媒体同发一条消息；仅 image/video/file 生效
 @property (nonatomic, copy, nullable) NSArray<NSString *> *mentions; ///< 配文 @提及成员 uid（仅群聊）：随媒体上行，服务端做被@强提醒
 @property (nonatomic, assign) BOOL mentionAll;          ///< 配文 @所有人（仅群聊、群主/管理员）
+/// 配文里每个 `@` token 的位置（见 IMMentionSpan）：收端据此直接高亮，不必反查群成员表
+/// ——超级群不下发成员表，老路在那里对普通成员失效。
+@property (nonatomic, copy, nullable) NSArray<IMMentionSpan *> *mentionSpans;
 
 /// 便捷构造：仅带相册分组与封面（老调用路径）。
 + (instancetype)attributesWithGroupID:(nullable NSString *)groupID poster:(nullable NSString *)poster;

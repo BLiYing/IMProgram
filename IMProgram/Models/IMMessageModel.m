@@ -4,6 +4,38 @@
 
 #import "IMRemarkStore.h"   // 名字段的本机显示名（备注优先）
 
+@implementation IMMentionSpan
+
++ (NSArray<IMMentionSpan *> *)spansFromArray:(NSArray *)array {
+    if (![array isKindOfClass:NSArray.class] || array.count == 0) { return nil; }
+    NSMutableArray<IMMentionSpan *> *out = [NSMutableArray arrayWithCapacity:array.count];
+    for (id item in array) {
+        if (![item isKindOfClass:NSDictionary.class]) { continue; }
+        id off = item[@"offset"], len = item[@"length"], uid = item[@"user_id"];
+        if (![off isKindOfClass:NSNumber.class] || ![len isKindOfClass:NSNumber.class]) { continue; }
+        NSInteger o = [off integerValue], l = [len integerValue];
+        if (o < 0 || l <= 0) { continue; }
+        IMMentionSpan *span = [IMMentionSpan new];
+        span.range = NSMakeRange((NSUInteger)o, (NSUInteger)l);
+        span.uid = [uid isKindOfClass:NSString.class] && [(NSString *)uid length] > 0 ? uid : nil;
+        [out addObject:span];
+    }
+    return out.count > 0 ? out : nil; // 一段都解不出 → 按"无片段"处理，回落按昵称扫文本
+}
+
++ (NSArray<NSDictionary *> *)arrayFromSpans:(NSArray<IMMentionSpan *> *)spans {
+    NSMutableArray<NSDictionary *> *out = [NSMutableArray arrayWithCapacity:spans.count];
+    for (IMMentionSpan *s in spans) {
+        if (s.range.length == 0) { continue; }
+        NSMutableDictionary *d = [@{ @"offset": @(s.range.location), @"length": @(s.range.length) } mutableCopy];
+        if (s.uid.length > 0) { d[@"user_id"] = s.uid; }
+        [out addObject:d];
+    }
+    return out;
+}
+
+@end
+
 @implementation IMSysSegment
 
 + (NSArray<IMSysSegment *> *)segmentsFromArray:(NSArray *)array {
@@ -79,6 +111,7 @@
     m.waveform       = [self stringForKey:@"waveform" in:data]; // voice 振幅指纹（base64≤160 rune）
     m.mentions       = [self stringArrayForKey:@"mentions" in:data]; // M4-8：落库供转发重发（强提醒）
     m.mentionAll     = [data[@"mention_all"] boolValue];
+    m.mentionSpans   = [IMMentionSpan spansFromArray:data[@"mention_spans"]]; // 有片段就不必反查成员表
     m.sysSegments    = [IMSysSegment segmentsFromArray:data[@"sys_segments"]]; // 系统消息可点名字（仅 system）
     return m;
 }
@@ -117,6 +150,7 @@
     if (self.waveform.length > 0) { d[@"waveform"] = self.waveform; }
     if (self.mentions.count > 0) { d[@"mentions"] = self.mentions; }
     if (self.mentionAll) { d[@"mention_all"] = @YES; }
+    if (self.mentionSpans.count > 0) { d[@"mention_spans"] = [IMMentionSpan arrayFromSpans:self.mentionSpans]; }
     return d;
 }
 
@@ -153,6 +187,7 @@
     m.thumb          = [self stringForKey:@"thumb" in:dict];
     m.mentions       = [self stringArrayForKey:@"mentions" in:dict];
     m.mentionAll     = [dict[@"mention_all"] boolValue];
+    m.mentionSpans   = [IMMentionSpan spansFromArray:dict[@"mention_spans"]];
     m.sysSegments    = [IMSysSegment segmentsFromArray:dict[@"sys_segments"]];
     return m;
 }

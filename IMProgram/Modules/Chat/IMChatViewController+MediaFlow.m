@@ -151,6 +151,20 @@
     return map.count > 0 ? map : nil;
 }
 
+/// 本条消息正文的 **@ 片段**（服务端下发；参照系是 content，仅 text 类）。
+/// 有它就按位置直接高亮、不查成员表——超级群成员表只含治理集，mentionMapForMessage: 在那里必然是空的。
+- (NSArray<IMMentionSpan *> *)mentionSpansForMessage:(IMMessageModel *)m {
+    if (!self.isGroupChat || ![m.contentType isEqualToString:@"text"]) { return nil; }
+    return m.mentionSpans;
+}
+
+/// 图说 caption 的 @ 片段（参照系是 caption，仅 image/video/file）。
+- (NSArray<IMMentionSpan *> *)mentionSpansForCaption:(IMMessageModel *)m {
+    if (!self.isGroupChat || m.caption.length == 0) { return nil; }
+    if (![m.contentType isEqualToString:@"image"] && ![m.contentType isEqualToString:@"video"] && ![m.contentType isEqualToString:@"file"]) { return nil; }
+    return m.mentionSpans;
+}
+
 /// 切换中长文本的展开态并就地重配该行（高度随之增减，气泡内容重排）。
 - (void)toggleTextExpandedForMessage:(IMMessageModel *)m atIndexPath:(NSIndexPath *)ip {
     if (!self.expandedTextKeys) { self.expandedTextKeys = [NSMutableSet set]; }
@@ -168,7 +182,7 @@
     IMBubbleTextTier tier = [IMBubbleCell textTierForContent:content];
     if (tier == IMBubbleTextTierHuge) {
         __weak typeof(self) ws = self;
-        IMTextReaderViewController *reader = [IMTextReaderViewController readerWithText:content mentions:[self mentionMapForMessage:m]];
+        IMTextReaderViewController *reader = [IMTextReaderViewController readerWithText:content mentions:[self mentionMapForMessage:m] spans:[self mentionSpansForMessage:m]];
         reader.onTapMentionUID = ^(NSString *uid) { [ws openMemberProfileForUID:uid]; }; // 阅读器内点 @昵称 → 关阅读器 + 跳资料
         [self presentViewController:reader animated:YES completion:nil];
         return YES;

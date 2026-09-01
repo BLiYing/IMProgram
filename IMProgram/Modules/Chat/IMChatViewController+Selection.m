@@ -365,6 +365,7 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
     if (!stripCaption) {
         attrs.caption = message.caption;
         attrs.mentions = message.mentions;
+        attrs.mentionSpans = message.mentionSpans; // caption 原样转走，偏移仍然对得上
     }
     return attrs;
 }
@@ -414,6 +415,7 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
     m.waveform = attributes.waveform.length > 0 ? attributes.waveform : nil; // 语音转发：本端回显波形不丢
     m.caption = attributes.caption.length > 0 ? attributes.caption : nil; // 图说随转发跟随（本端气泡即时显）
     m.mentions = attributes.mentions; // 配文 @ 落到本端回显行：再次转发这条时才能继续重发 mentions（强提醒链不断）
+    m.mentionSpans = attributes.mentionSpans;
     m.groupID = attributes.groupID.length > 0 ? attributes.groupID : nil; // 整体转发相册：本端回显也聚簇成宫格
     m.forwardFrom = origin.length > 0 ? origin : nil;
     m.status = IMMessageStatusSending;

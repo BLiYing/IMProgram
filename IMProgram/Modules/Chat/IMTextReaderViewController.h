@@ -6,11 +6,15 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+@class IMMentionSpan;
+
 @interface IMTextReaderViewController : UIViewController
 
 /// 用整段文本构造一个模态阅读器（内部 UITextView 只读可选中）。
 /// `mentions`：`@昵称` → uid（uid 空串＝仅高亮不可点，如 @所有人），与气泡内 @提及高亮/跳资料同一套。
-+ (instancetype)readerWithText:(NSString *)text mentions:(nullable NSDictionary<NSString *, NSString *> *)mentions;
++ (instancetype)readerWithText:(NSString *)text
+                      mentions:(nullable NSDictionary<NSString *, NSString *> *)mentions
+                         spans:(nullable NSArray<IMMentionSpan *> *)spans;
 
 /// 阅读器内点到某个可点 `@昵称` token 时回调其 uid（阅读器已先自我 dismiss）。
 @property (nonatomic, copy, nullable) void (^onTapMentionUID)(NSString *uid);

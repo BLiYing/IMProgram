@@ -175,6 +175,9 @@
             m.editedAt = editedAt.longLongValue;
             NSString *newContent = note.userInfo[kIMMsgOpContentKey];
             if (newContent) { m.content = newContent; }
+            // @ 片段的偏移是相对**原文**的，正文一改就全错位 → 清掉（服务端落库时也清了，
+            // 这里是本端内存态的同步）。渲染会自动回落到按昵称扫文本，与编辑前一致。
+            m.mentionSpans = nil;
         }
         if (pinnedAt) { m.pinnedAt = pinnedAt.longLongValue; } // 0=取消置顶
         break;

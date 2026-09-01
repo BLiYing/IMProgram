@@ -2,6 +2,7 @@
 #import "IMGroupInfo.h"   // IMGroupRole（群主/管理员气泡徽标）
 
 @class IMMessageModel;
+@class IMMentionSpan;
 @class IMUploadProgress;
 @class IMDownloadProgress;
 
@@ -33,6 +34,16 @@ typedef NS_ENUM(NSInteger, IMBubbleTextTier) {
                              mentionColor:(UIColor *)color
                                  mentions:(nullable NSDictionary<NSString *, NSString *> *)mentions;
 
+/// 片段版（优先）：`spans` 是服务端下发的 @ token 位置（IMMentionSpan），**不需要任何群成员表**——
+/// 超级群不下发成员表，`mentions` 那条路在那里对普通成员必然失效（2026-09-01）。
+/// 与本文对不上的片段（编辑过的老消息、折叠截断的前缀、脏数据）逐段跳过；一段都对不上就
+/// 自动回落到 `mentions`（按昵称扫文本）。协议见 IMServer/docs/PROTOCOL.md §4.1。
++ (NSAttributedString *)attributedContent:(nullable NSString *)text
+                                     base:(NSDictionary *)base
+                             mentionColor:(UIColor *)color
+                                 mentions:(nullable NSDictionary<NSString *, NSString *> *)mentions
+                                    spans:(nullable NSArray<IMMentionSpan *> *)spans;
+
 /// 长按菜单高亮/收起动画的目标视图（=气泡本体）：系统默认会截整行全宽快照，露出难看的底色托盘。
 @property (nonatomic, strong, readonly) UIView *previewTargetView;
 
@@ -54,6 +65,11 @@ typedef NS_ENUM(NSInteger, IMBubbleTextTier) {
 
 /// 文件文 caption 的 `@昵称`→uid 高亮映射（宿主按 caption 文本+群成员推导，configure 前设置；nil=不高亮）。
 @property (nonatomic, copy, nullable) NSDictionary<NSString *, NSString *> *captionMentionMap;
+
+/// 正文 / caption 的 **@ 片段**（服务端下发，configure 前设置）。有它就按位置直接高亮，
+/// 不查成员表——超级群里 mentionMap 必然是空的（成员表只含治理集）。
+@property (nonatomic, copy, nullable) NSArray<IMMentionSpan *> *mentionSpans;
+@property (nonatomic, copy, nullable) NSArray<IMMentionSpan *> *captionMentionSpans;
 
 /// 会话内搜索命中词（搜索态由宿主传入，configure 前设置；nil/空=不高亮）。正文与文件文 caption 的所有
 /// 大小写不敏感命中段染 accent 前景 + accentSoft 底（与全局搜索页/Web `<mark>` 同语义）。

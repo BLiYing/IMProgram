@@ -840,6 +840,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     m.caption = mediaAttributes.caption; // 图说：本端气泡即时显文字（重进会话仍在）
     m.mentions = mediaAttributes.mentions; // 配文 @：本端落库，转发自发消息时可重发（强提醒）
     m.mentionAll = mediaAttributes.mentionAll;
+    m.mentionSpans = mediaAttributes.mentionSpans;
     m.timestamp = sentAt;
     [self performDatabaseOperation:^(IMDatabase *database) {
         [database saveMessage:m];
@@ -988,6 +989,8 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
         attrs.caption = caption.length > 0 ? caption : nil;
         attrs.mentions = mentions.count > 0 ? mentions : nil;
         attrs.mentionAll = mentionAll;
+        // 配文 @ 的片段：参照系是 caption（不是正文），见 IMMentionSpan 注释。
+        attrs.mentionSpans = [self resolvedMentionSpansInText:caption];
         [self sendMediaURL:url contentType:(contentType ?: @"image") fileName:nil fileSize:0
            mediaAttributes:attrs];
     }];

@@ -151,6 +151,21 @@
 }
 
 /// @所有人 是否仍生效：既要标记在、文本里也要还留着完整的 `@所有人` token。
+/// 发送前算出 @ 片段（与 resolvedMentionsInText: 同源同规则，只是多记了每个 token 的位置）。
+/// 收端有片段就不必反查群成员表——超级群不下发成员表，老路在那里对普通成员必然失效。
+/// 协议见 IMServer/docs/PROTOCOL.md §4.1；与 Web 的 resolveMentionSpans 逐条对齐。
+- (NSArray<IMMentionSpan *> *)resolvedMentionSpansInText:(NSString *)text {
+    if (!self.isGroupChat || text.length == 0) { return @[]; }
+    NSMutableDictionary<NSString *, NSString *> *nameToUID = [NSMutableDictionary dictionary];
+    [self.mentionCandidates enumerateKeysAndObjectsUsingBlock:^(NSString *uid, NSString *name, BOOL *stop) {
+        if (name.length > 0 && !nameToUID[name]) { nameToUID[name] = uid; }
+    }];
+    // 「所有人」放在成员之后覆盖：同名成员碰上字面「所有人」时以 @所有人 为准——与服务端校验一致
+    //（空 uid 只在 mention_all 时合法；反过来记成员 uid 会因不在 mentions 里而被服务端丢弃）。
+    if ([self resolvedMentionAllInText:text]) { nameToUID[@"所有人"] = @""; }
+    return IMChatScanMentionSpans(text, nameToUID);
+}
+
 - (BOOL)resolvedMentionAllInText:(NSString *)text {
     return self.mentionAllPending && IMChatTextContainsMentionToken(text, @"所有人");
 }

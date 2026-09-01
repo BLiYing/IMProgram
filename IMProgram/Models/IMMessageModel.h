@@ -34,6 +34,27 @@ typedef NS_ENUM(NSInteger, IMMessageStatus) {
                      fallback:(nullable NSString *)fallback;
 @end
 
+/// 消息文本里的一段 **@ 提及**：从哪开始、多长、指向谁（对应后端 protocol.MentionSpan）。
+///
+/// **为什么要有它**（2026-09-01）：此前是拿「本群成员昵称表」去正文里找 `@昵称` token 决定高亮的。
+/// 超级群不下发成员表（2 万人），于是**普通成员的 @ 在大群里既不高亮也点不动**。
+/// 改由发送方在插入 token 的那一刻记下位置随消息走，收端不需要任何成员表。
+/// 对应 Telegram 的 `messageEntityMentionName`。协议见 IMServer/docs/PROTOCOL.md §4.1。
+///
+/// **location/length 的单位是 UTF-16 码元**，即可直接当 NSRange 用——`NSString` 天生就是
+/// UTF-16 索引，所以 iOS 这边零换算。**别改成码点**：那样 emoji 一出现就与 Web 的 String
+/// 索引和服务端校验全部对不上（`🎉@小明` 里 `@` 的 UTF-16 偏移是 2，码点偏移是 1）。
+///
+/// 片段覆盖**整个 token（含前导 `@`）**。`uid` 为空 = `@所有人`（只高亮、不可点）。
+@interface IMMentionSpan : NSObject
+@property (nonatomic, assign) NSRange range;              ///< token 在文本里的位置（UTF-16）
+@property (nonatomic, copy, nullable) NSString *uid;      ///< 被 @ 者；nil/空 = @所有人
+/// 从 mention_spans 数组解析（脏数据安全）；无有效片段返回 nil。
++ (nullable NSArray<IMMentionSpan *> *)spansFromArray:(nullable NSArray *)array;
+/// 序列化回数组（上行 send_msg / 落 SQLite 用）。
++ (NSArray<NSDictionary *> *)arrayFromSpans:(nullable NSArray<IMMentionSpan *> *)spans;
+@end
+
 @interface IMMessageModel : NSObject
 
 @property (nonatomic, copy)   NSString *clientMsgID;   ///< 客户端 UUID，幂等去重锚点
@@ -55,6 +76,10 @@ typedef NS_ENUM(NSInteger, IMMessageStatus) {
 /// 高亮渲染仍按「文本+群成员」派生（mentionMapFor*），不依赖此字段。
 @property (nonatomic, copy, nullable) NSArray<NSString *> *mentions;
 @property (nonatomic, assign) BOOL mentionAll; ///< @所有人（发送时服务端已校验角色）。转发**不**重发（目标群无权会整条拒发）
+/// 每个 `@` token 的位置（见 IMMentionSpan）。**有它就直接高亮，不必反查群成员表**——
+/// 超级群不下发成员表，老路在那里对普通成员必然失效。空 = 老消息/老客户端/被编辑过 → 回落老路。
+/// 参照系：`content_type=text` 是 `content`，其余（图说类）是 `caption`。
+@property (nonatomic, copy, nullable) NSArray<IMMentionSpan *> *mentionSpans;
 
 /// 系统消息（content_type=system）的结构化分段：把整句拆成「固定文案 / 某人的名字」若干段。
 /// 服务端在生成时只能填公开昵称，故拿到 uid 后**本端**才能把名字换成我的备注、并挂点击跳资料页。

@@ -319,6 +319,7 @@
         img.gated = gate != nil;
         img.downloadProgress = gate;
         img.captionMentionMap = [self mentionMapForCaption:m]; // 图说 caption 的 @高亮（configure 前置）
+        img.captionMentionSpans = [self mentionSpansForCaption:m]; // 片段优先（超级群成员表只含治理集）
         img.searchHighlightKeyword = self.searchState.searchKeyword; // 搜索态命中词高亮（非搜索态为 nil）
         [img configureWithMessage:m
                           fullURL:imgFullURL
@@ -464,6 +465,8 @@
     cell.textExpanded = [self isTextExpandedForMessage:m]; // 中长文本"展开全文"记忆（configure 前置）
     cell.mentionMap = [self mentionMapForMessage:m];       // 气泡内 @昵称 高亮+跳资料映射（configure 前置）
     cell.captionMentionMap = [self mentionMapForCaption:m]; // 文件文 caption 的 @高亮（configure 前置）
+    cell.mentionSpans = [self mentionSpansForMessage:m];        // 片段优先：位置随消息走，不查成员表
+    cell.captionMentionSpans = [self mentionSpansForCaption:m];
     cell.searchHighlightKeyword = self.searchState.searchKeyword; // 搜索态命中词高亮（非搜索态为 nil）
     [cell configureWithMessage:m mine:mine peerReadSeq:self.peerReadSeq
                      dayHeader:[self dayHeaderForRow:indexPath.row]

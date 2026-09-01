@@ -2,6 +2,7 @@
 #import "IMMessageCell.h"
 
 @class IMMessageModel;
+@class IMMentionSpan;
 @class IMUploadProgress;
 @class IMDownloadProgress;
 
@@ -30,6 +31,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// 图说 caption 的 @高亮映射（昵称→uid；@所有人 uid 空串）。由 VC 在 configure **前**设置；nil=不高亮。
 @property (nonatomic, copy, nullable) NSDictionary<NSString *, NSString *> *captionMentionMap;
+/// 图说的 **@ 片段**（服务端下发）：有它就按位置直接高亮，不查成员表（超级群没那张表）。
+@property (nonatomic, copy, nullable) NSArray<IMMentionSpan *> *captionMentionSpans;
 
 /// 会话内搜索命中词（搜索态由宿主 configure **前**设置；nil/空=不高亮）。图说 caption 命中段染色，与 IMBubbleCell 同语义。
 @property (nonatomic, copy, nullable) NSString *searchHighlightKeyword;

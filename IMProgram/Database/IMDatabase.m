@@ -15,6 +15,8 @@
 /// 系统消息分段 ↔ TEXT 列的前置声明：cachedConversations / 行→模型映射都在定义之前用到它们。
 static NSString *IMEncodeSysSegments(NSArray<IMSysSegment *> *segments);
 static NSArray<IMSysSegment *> *IMDecodeSysSegments(NSString *raw);
+static NSString *IMEncodeMentionSpans(NSArray<IMMentionSpan *> *spans);
+static NSArray<IMMentionSpan *> *IMDecodeMentionSpans(NSString *raw);
 
 @interface IMDatabase ()
 
@@ -108,6 +110,7 @@ static NSArray<IMSysSegment *> *IMDecodeSysSegments(NSString *raw);
         @[@"mentions",         @"TEXT"],                    // M4-8 被 @ 成员 uid（JSON 数组）：转发重发 mentions 用（强提醒）
         @[@"mention_all",      @"INTEGER NOT NULL DEFAULT 0"], // M4-8 @所有人
         @[@"sys_segments",     @"TEXT"],                    // 系统消息结构化分段（JSON）：名字换本地显示名 + 可点
+        @[@"mention_spans",    @"TEXT"],                    // @ token 的位置（JSON，UTF-16 偏移）：不落库的话冷启动后大群里的 @ 又退回不高亮
         @[@"conv_seq",         @"INTEGER"],
         @[@"timestamp",        @"INTEGER"],
         @[@"status",           @"INTEGER"],
@@ -573,6 +576,7 @@ static NSArray<IMSysSegment *> *IMDecodeSysSegments(NSString *raw);
         @"mentions":          IMEncodeMentions(message.mentions),
         @"mention_all":       @(message.mentionAll),
         @"sys_segments":      IMEncodeSysSegments(message.sysSegments),
+        @"mention_spans":     IMEncodeMentionSpans(message.mentionSpans),
     };
 }
 
@@ -591,6 +595,22 @@ static NSArray<IMSysSegment *> *IMDecodeSysSegments(NSString *raw) {
     NSData *d = [raw dataUsingEncoding:NSUTF8StringEncoding];
     id arr = d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:NULL] : nil;
     return [IMSysSegment segmentsFromArray:arr];
+}
+
+/// @ 片段 ↔ TEXT 列（JSON 数组；空存空串）。**必须落库**：否则冷启动读本地库时片段丢失，
+/// 超级群里的 @ 会退回"不高亮不可点"，与刚收到时不一致（与 sys_segments 同一条理由）。
+static NSString *IMEncodeMentionSpans(NSArray<IMMentionSpan *> *spans) {
+    if (spans.count == 0) { return @""; }
+    NSArray *raw = [IMMentionSpan arrayFromSpans:spans];
+    NSData *d = raw.count > 0 ? [NSJSONSerialization dataWithJSONObject:raw options:0 error:NULL] : nil;
+    return d ? [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding] : @"";
+}
+
+static NSArray<IMMentionSpan *> *IMDecodeMentionSpans(NSString *raw) {
+    if (raw.length == 0) { return nil; }
+    NSData *d = [raw dataUsingEncoding:NSUTF8StringEncoding];
+    id arr = d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:NULL] : nil;
+    return [IMMentionSpan spansFromArray:arr];
 }
 
 /// mentions []NSString ↔ TEXT 列（JSON 数组；空存空串）。解析失败按「未 @ 任何人」降级——
@@ -1174,6 +1194,7 @@ const NSInteger kIMMessageWindowPageSize = 200;
     m.mentions    = IMDecodeMentions([rs stringForColumn:@"mentions"]);
     m.mentionAll  = [rs boolForColumn:@"mention_all"];
     m.sysSegments = IMDecodeSysSegments([rs stringForColumn:@"sys_segments"]);
+    m.mentionSpans = IMDecodeMentionSpans([rs stringForColumn:@"mention_spans"]);
     m.convSeq     = [rs longLongIntForColumn:@"conv_seq"];
     m.timestamp   = [rs longLongIntForColumn:@"timestamp"];
     m.status      = (IMMessageStatus)[rs longForColumn:@"status"];

@@ -309,7 +309,7 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
         // 配文 @高亮（Telegram 模型，仅群聊）：复用文本气泡的 attributedContent，命中的 @昵称/@所有人 上强调色。
         _captionLabel.textColor = capColor;
         NSDictionary *capBase = @{ NSFontAttributeName: _captionLabel.font, NSForegroundColorAttributeName: capColor };
-        _captionLabel.attributedText = [IMBubbleCell attributed:[IMBubbleCell attributedContent:caption base:capBase mentionColor:IMTheme.accent mentions:self.captionMentionMap]
+        _captionLabel.attributedText = [IMBubbleCell attributed:[IMBubbleCell attributedContent:caption base:capBase mentionColor:IMTheme.accent mentions:self.captionMentionMap spans:self.captionMentionSpans]
                                                    highlighting:self.searchHighlightKeyword];
     } else {
         _captionLabel.attributedText = nil;

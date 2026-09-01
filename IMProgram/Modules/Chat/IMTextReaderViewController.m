@@ -8,16 +8,18 @@
 @implementation IMTextReaderViewController {
     NSString                              *_text;
     NSDictionary<NSString *, NSString *>  *_mentions; // @昵称 → uid（nil=不高亮）
+    NSArray<IMMentionSpan *>              *_spans;    // @ 片段（优先；不查成员表，见 IMBubbleCell 的片段版）
     UITextView                            *_textView;
     NSInteger                              _fontStep; // 字号档：-1 / 0 / 1 / 2 / 3（相对基准字号）
     UIButton                              *_smaller;
     UIButton                              *_bigger;
 }
 
-+ (instancetype)readerWithText:(NSString *)text mentions:(NSDictionary<NSString *, NSString *> *)mentions {
++ (instancetype)readerWithText:(NSString *)text mentions:(NSDictionary<NSString *, NSString *> *)mentions spans:(NSArray<IMMentionSpan *> *)spans {
     IMTextReaderViewController *vc = [IMTextReaderViewController new];
     vc->_text = [text copy] ?: @"";
     vc->_mentions = [mentions copy];
+    vc->_spans = [spans copy];
     vc.modalPresentationStyle = UIModalPresentationFullScreen;
     return vc;
 }
@@ -141,7 +143,7 @@
     CGFloat size = IMTheme.chatFontSize + (CGFloat)_fontStep;
     NSDictionary *base = @{ NSFontAttributeName: [UIFont systemFontOfSize:size],
                             NSForegroundColorAttributeName: IMTheme.textPrimary };
-    _textView.attributedText = [IMBubbleCell attributedContent:_text base:base mentionColor:IMTheme.accent mentions:_mentions];
+    _textView.attributedText = [IMBubbleCell attributedContent:_text base:base mentionColor:IMTheme.accent mentions:_mentions spans:_spans];
     _smaller.enabled = _fontStep > -1;
     _bigger.enabled = _fontStep < 3;
 }
