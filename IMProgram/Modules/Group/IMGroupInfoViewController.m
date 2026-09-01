@@ -284,10 +284,25 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
             [self.navigationController popToViewController:self animated:YES];
             [self runGroupAction:^(NSString *token, void (^done)(NSError *)) {
                 [IMHTTPService.sharedService inviteToGroupWithToken:token convID:self.convID
-                                                          memberIDs:selectedIDs completion:done];
+                                                          memberIDs:selectedIDs
+                                                         completion:^(NSArray<NSString *> *added, NSError *error) {
+                    // 按**实际加入数**给反馈：已在群里的人被服务端跳过（幂等，不是错误）。
+                    // 超级群下这是常态——排除集只有已翻到的那几页，老成员照样在候选里。
+                    if (!error) { [self toastForInvited:added.count selected:selectedIDs.count]; }
+                    done(error);
+                }];
             }];
         }];
     [self.navigationController pushViewController:picker animated:YES];
+}
+
+/// 邀请结果的统一反馈。**不能一律报"邀请成功"**：服务端会跳过已在群里的人，
+/// 而端上的排除集在超级群下必然不全（`GET /groups/{id}` 只回我自己 / 只翻到几页）。
+- (void)toastForInvited:(NSInteger)added selected:(NSInteger)selected {
+    NSInteger skipped = selected - added;
+    if (added == 0) { [self im_showToast:@"所选的人都已在群里"]; }
+    else if (skipped > 0) { [self im_showToast:[NSString stringWithFormat:@"已邀请 %ld 人，其余 %ld 人已在群里",
+                                                (long)added, (long)skipped]]; }
 }
 
 /// 退出群聊（群主会被服务端拦：需先转让，文案透传）。

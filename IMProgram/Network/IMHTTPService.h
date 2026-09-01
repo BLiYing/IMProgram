@@ -325,10 +325,16 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
                        completion:(void (^)(NSError *_Nullable error))completion;
 
 /// 邀请入群（任意成员可邀）。completion 在主线程回调。
+///
+/// @param completion `addedIDs` 是**实际加入的 uid**，不是传进去的那批——已在群里的人
+///        会被服务端跳过，且那属于**幂等成功**（不是错误）。**超级群下这是常态**：
+///        `GET /groups/{id}` 对超级群只回我自己，端上算不出完整的"已在群里"排除集，
+///        老成员照样会出现在候选里。UI 须按 addedIDs 与所选数量的差给反馈，
+///        别一律报"邀请成功"。error 非空时 addedIDs 为空。
 - (void)inviteToGroupWithToken:(NSString *)token
                         convID:(NSString *)convID
                      memberIDs:(NSArray<NSString *> *)memberIDs
-                    completion:(void (^)(NSError *_Nullable error))completion;
+                    completion:(void (^)(NSArray<NSString *> *addedIDs, NSError *_Nullable error))completion;
 
 /// 退群（群主须先转让，否则 300204 带服务端原因）。completion 在主线程回调。
 - (void)leaveGroupWithToken:(NSString *)token

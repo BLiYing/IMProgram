@@ -699,14 +699,18 @@ const NSInteger IMFavoritesPageSize = 60;
 
 - (void)inviteToGroupWithToken:(NSString *)token convID:(NSString *)convID
                      memberIDs:(NSArray<NSString *> *)memberIDs
-                    completion:(void (^)(NSError *))completion {
+                    completion:(void (^)(NSArray<NSString *> *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@"/members"]
                                                    method:@"POST" token:token
                                                      body:@{ @"member_ids": memberIDs ?: @[] }];
     // 用 runDataRequest（保留业务码）而非 runOKRequest：邀请可能返 300207（被邀请者已被移出/冷却期），
-    // UI 需按码给"邀请别人"场景的第三人称文案。data 用不到，只把 error 透传出去。
+    // UI 需按码给"邀请别人"场景的第三人称文案；data 里的 added 是实际加入者（见 .h）。
     [self runDataRequest:req fallback:@"邀请失败" completion:^(NSDictionary *data, NSError *error) {
-        completion(error);
+        if (error) { completion(@[], error); return; }
+        NSArray *raw = [data[@"added"] isKindOfClass:NSArray.class] ? data[@"added"] : @[];
+        NSMutableArray<NSString *> *added = [NSMutableArray arrayWithCapacity:raw.count];
+        for (id item in raw) { if ([item isKindOfClass:NSString.class]) { [added addObject:item]; } }
+        completion(added, nil);
     }];
 }
 

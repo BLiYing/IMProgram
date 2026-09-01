@@ -1117,7 +1117,8 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
         if (!self) { return; }
         [self.navigationController popToViewController:self animated:YES];
         NSString *token = IMHTTPService.sharedService.currentToken; if (token.length == 0) { return; }
-        [IMHTTPService.sharedService inviteToGroupWithToken:token convID:self.convID memberIDs:ids completion:^(NSError *error) {
+        [IMHTTPService.sharedService inviteToGroupWithToken:token convID:self.convID memberIDs:ids
+                                                 completion:^(NSArray<NSString *> *added, NSError *error) {
             if (error) {
                 // 300207 = 被邀请者已被移出/冷却期：用邀请场景第三人称文案（区别于自加群映射的第二人称）。
                 if (error.code == 300207) { [self im_showToast:@"该成员已被移出本群，暂时无法再次邀请"]; }
@@ -1127,7 +1128,13 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
                 else { [self im_showToast:error.localizedDescription]; }
                 return;
             }
-            [self loadGroupInfo];
+            // 按**实际加入数**给反馈，不能一律报成功：服务端会跳过已在群里的人（幂等，不是错误），
+            // 而端上的排除集在超级群下必然不全——那时 displayMembers 只有已翻到的那几页。
+            NSInteger skipped = (NSInteger)ids.count - (NSInteger)added.count;
+            if (added.count == 0) { [self im_showToast:@"所选的人都已在群里"]; }
+            else if (skipped > 0) { [self im_showToast:[NSString stringWithFormat:@"已邀请 %ld 人，其余 %ld 人已在群里",
+                                                        (long)added.count, (long)skipped]]; }
+            [self loadGroupInfo]; // 内含 resetSuperMemberPaging：超级群成员签从第一页重拉
         }];
     }];
     [self.navigationController pushViewController:picker animated:YES];
