@@ -128,6 +128,17 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
                        query:(NSString *)query
                   completion:(void (^)(NSArray<IMUserCard *> *_Nullable users, NSError *_Nullable error))completion;
 
+/// 批量解析 uid → 公开名片：POST /api/v1/users/batch（≤100 个）。completion 在主线程回调。
+///
+/// 这是「uid → 显示名/头像」的**兜底解析**通道，唯一调用方是 IMUserProfileCache——
+/// 各页请改用那层（它做合并/去重/缓存/负缓存），别直接调这里，否则一屏几十个 uid 就是几十次请求。
+/// `missing` 是查无此人的 uid（已注销/脏数据），端上据此做负缓存，不再反复重试。
+- (void)usersBatchWithToken:(NSString *)token
+                    userIDs:(NSArray<NSString *> *)userIDs
+                 completion:(void (^)(NSArray<IMUserCard *> *_Nullable users,
+                                      NSArray<NSString *> *_Nullable missing,
+                                      NSError *_Nullable error))completion;
+
 /// 好友/申请列表（status 为空=全部：accepted/pending/requested/blocked）。completion 在主线程回调。
 - (void)friendsWithToken:(NSString *)token
                   status:(nullable NSString *)status

@@ -12,6 +12,8 @@
 #import "UIViewController+IMToast.h"
 #import "IMTheme.h"
 #import "IMAccountIdentity.h"
+#import "IMUserProfileCache.h"
+#import "IMUserCard.h"
 
 /// 右上圆头像按钮（单聊对方 / 群聊群头像），点击进资料页。
 /// 44pt 官方 Glass 按钮直接承接点击和系统按压动画，内部 30pt 头像严格裁圆。
@@ -111,10 +113,18 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
 - (void)openMemberProfileForUID:(NSString *)uid {
     if (uid.length == 0 || [uid isEqualToString:self.userID]) { return; }
     NSString *nick = [self.groupInfo nicknameOfMember:uid];
+    NSString *avatar = [self.groupInfo avatarURLOfMember:uid];
+    // 成员表兜底（超级群不下发成员集 / 发送者已退群）：资料页自己也会 GET /users/{id} 拉全量，
+    // 这里只是让**推进去的第一帧**就有名字和头像，不闪一下"未命名用户 + 首字母圈"。
+    if (nick.length == 0 || avatar.length == 0) {
+        IMUserCard *card = [IMUserProfileCache.sharedCache cardForUserID:uid];
+        if (nick.length == 0) { nick = card.nickname; }
+        if (avatar.length == 0) { avatar = card.avatarURL; }
+    }
     IMChatDetailViewController *vc = [[IMChatDetailViewController alloc] initSingleWithHost:self.host userID:self.userID
                                                                                     peerID:uid
                                                                               peerNickname:IMDisplayName(nick, nil)
-                                                                             peerAvatarURL:[self.groupInfo avatarURLOfMember:uid]];
+                                                                             peerAvatarURL:avatar];
     vc.showsMessagePill = YES;
     [self.navigationController pushViewController:vc animated:YES];
 }

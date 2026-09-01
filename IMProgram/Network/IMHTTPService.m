@@ -350,6 +350,18 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     }];
 }
 
+- (void)usersBatchWithToken:(NSString *)token
+                    userIDs:(NSArray<NSString *> *)userIDs
+                 completion:(void (^)(NSArray<IMUserCard *> *, NSArray<NSString *> *, NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/users/batch" method:@"POST" token:token
+                                                     body:@{@"ids": userIDs ?: @[]}];
+    [self runDataRequest:req fallback:@"解析用户资料失败" completion:^(NSDictionary *data, NSError *error) {
+        if (error) { completion(nil, nil, error); return; }
+        NSArray *missing = [data[@"missing"] isKindOfClass:NSArray.class] ? data[@"missing"] : @[];
+        completion([IMUserCard cardsFromArray:data[@"users"]], missing, nil);
+    }];
+}
+
 - (void)friendsWithToken:(NSString *)token
                   status:(NSString *)status
               completion:(void (^)(NSArray<IMUserCard *> *, NSError *))completion {

@@ -13,6 +13,8 @@
 #import "IMMediaUtil.h"
 #import "IMMediaExpiryRegistry.h"
 #import "IMTheme.h"
+#import "IMUserProfileCache.h"
+#import "IMUserCard.h"
 #import "IMTimeUtil.h"
 #import "IMGlass.h"
 #import "IMAlbumCell.h"
@@ -607,7 +609,14 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
 - (NSString *)recordSenderAvatarPathForMessage:(IMMessageModel *)m {
     NSString *from = m.from ?: @"";
     if (from.length == 0) { return @""; }
-    if (self.isGroupChat) { return [self.groupInfo avatarURLOfMember:from] ?: @""; }
+    if (self.isGroupChat) {
+        NSString *url = [self.groupInfo avatarURLOfMember:from];
+        // 成员表兜底：超级群不下发成员集，不兜底的话整份合并转发里所有人都没头像。
+        // 用 peek 而不是 cardForUserID：**这是发出去的快照**，不该为了它临时联网——
+        // 缓存里有就带上，没有就留空让读端按 `u` 自己兜底（本方法原本的语义）。
+        if (url.length == 0) { url = [IMUserProfileCache.sharedCache peekCardForUserID:from].avatarURL; }
+        return url ?: @"";
+    }
     if ([from isEqualToString:self.peerID]) { return self.peerAvatarURL ?: @""; }
     return @"";
 }

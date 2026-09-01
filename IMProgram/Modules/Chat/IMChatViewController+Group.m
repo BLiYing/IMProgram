@@ -9,6 +9,8 @@
 #import "IMMessageModel.h"
 #import "UIViewController+IMToast.h"
 #import "IMAccountIdentity.h"
+#import "IMUserProfileCache.h"
+#import "IMUserCard.h"
 
 @implementation IMChatViewController (Group)
 
@@ -23,6 +25,8 @@
         __strong typeof(weakSelf) self = weakSelf;
         if (!self || !group) { return; }
         self.groupInfo = group;
+        // 顺手喂全局解析器：省掉对群主/管理员的重复解析。超级群下发的正是这一小撮「治理集」。
+        [IMUserProfileCache.sharedCache ingestGroupMembers:group.members];
         self.groupName = group.name;
         [self updateTitle];
         // 群头像加载后刷新右上圆按钮。
@@ -85,7 +89,13 @@
 - (NSString *)senderPublicNameForMessage:(IMMessageModel *)m {
     if (m.fromNickname.length > 0) { return m.fromNickname; }
     NSString *nick = [self.groupInfo nicknameOfMember:m.from];
-    return nick.length > 0 ? nick : (m.from ?: @"");
+    if (nick.length > 0) { return nick; }
+    // 成员表查不到：超级群不下发成员表、发送者已退群，都会走到这。问全局解析器（缓存命中即返回，
+    // 未命中它会攒一批去补、回来发通知触发重刷）。见 IMUserProfileCache。
+    IMUserCard *card = [IMUserProfileCache.sharedCache cardForUserID:m.from];
+    // **回退链止于 IMDisplayName**（→「未命名用户」），绝不回退到 m.from ——那是 10 位内部 ID，
+    // 而这个方法的结果还会随合并转发发出去（见 +Selection.m 的调用点）。
+    return IMDisplayName(card.nickname, nil);
 }
 
 /// 群内**本机显示名**：我给他起的备注 > 公开名。气泡上方昵称、头像首字母、系统消息里的名字都走它。
@@ -109,6 +119,7 @@
     if (uid.length == 0) { return nil; }
     if ([uid isEqualToString:self.userID]) { return @"你"; }
     NSString *nick = [self.groupInfo nicknameOfMember:uid];
+    if (nick.length == 0) { nick = [IMUserProfileCache.sharedCache cardForUserID:uid].nickname; } // 成员表兜底
     // 备注优先（本机显示）。引用条只在本机渲染，不进消息内容——发送时冻结的是 reply_to_from(uid)。
     return [IMRemarkStore.sharedStore displayNameForUser:uid fallback:IMDisplayName(nick, nil)];
 }
@@ -116,6 +127,9 @@
 /// 群聊发送者头像绝对 URL（无则空串——头像圈回退首字母）。相对路径补 host。
 - (NSString *)senderAvatarURLForMessage:(IMMessageModel *)m {
     NSString *url = [self.groupInfo avatarURLOfMember:m.from];
+    // 成员表没有就问全局解析器。**超级群里这是常态而非例外**：成员表只含群主+管理员，
+    // 不兜底的话满屏普通成员的气泡头像全是首字母圈。
+    if (url.length == 0) { url = [IMUserProfileCache.sharedCache cardForUserID:m.from].avatarURL; }
     return url.length > 0 ? [self fullMediaURL:url] : @"";
 }
 

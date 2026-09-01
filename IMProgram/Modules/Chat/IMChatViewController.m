@@ -19,6 +19,7 @@
 #import "IMHTTPService.h"
 #import "IMConversation.h"
 #import "IMRemarkStore.h"
+#import "IMUserProfileCache.h"
 #import "IMVideoThumbnailLoader.h"
 #import "IMMediaPlaceholder.h"   // 引用缩略 / 媒体库统一门控取图（真帧>thumb磨砂>图标）
 #import "IMMediaViewerViewController.h"
@@ -289,6 +290,14 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     [self refreshDisplayIdentity];
 }
 
+/// 一批 uid 的资料解析回来了（IMUserProfileCache）。只在群聊注册，纯本地重绘。
+/// 与备注变更同一处理：不做"只刷相关行"的精细化——解析是**一次性**的（每个 uid 只补一次），
+/// 开一个超级群总共也就触发个位数次，为它写一套行级 diff 不划算。
+- (void)onUserProfilesResolved:(NSNotification *)note {
+    if (!self.isGroupChat) { return; }
+    [self.tableView reloadData];
+}
+
 /// 按当前 peer*/group* 值重装标题与右上头像按钮（viewDidLoad 与复用刷新共用同一口径，避免漂移）。
 - (void)refreshDisplayIdentity {
     [self updateTitle];
@@ -371,6 +380,10 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
         // 会话备注多端同步：本人在别处（本机详情页 / 其它端）改备注 → conv_update → 就地刷新标题。
         [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onConvUpdatedForRemark:)
                                                    name:IMSocketDidUpdateConversationNotification object:nil];
+        // uid → 头像/显名的兜底解析回来了 → 重绘可见气泡。**超级群里这是必需的一步**：
+        // 成员表只含群主+管理员，普通成员的头像/名字第一帧必然是缺的，靠这一帧补上。
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onUserProfilesResolved:)
+                                                   name:IMUserProfileCacheDidResolveNotification object:nil];
     }
     // 好友备注变更（本机详情页改 / 其它设备改）→ 就地刷新。
     // 单聊：标题与右上头像首字母；群聊：气泡上方的发送者名、头像首字母、系统消息里的名字。
