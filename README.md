@@ -25,7 +25,7 @@ IMProgramTests/  IMProtocolTests（XCTest）
 `IMSocketManager` 是 iOS 的"协议 SDK"雏形（对应 Web 的 `@im/sdk`），后续沉淀为 `IMKit`。
 
 ## 运行
-1. 先起后端：`cd ../IMServer && go run ./cmd/imserver`（详见 [IMServer/docs/DEPLOY.md](../IMServer/docs/DEPLOY.md)）。
+1. 先起后端：`cd ../IMServer && ./scripts/dev.sh --no-tail`（详见 [IMServer/docs/DEPLOY.md](../IMServer/docs/DEPLOY.md)）。
 2. 首次：`cd IMProgram && pod install`；之后 Xcode 打开 **`IMProgram.xcworkspace`**（不是 .xcodeproj），选模拟器点 ▶。
 3. 登录页 host：模拟器填 `localhost:8080`；真机填 Mac 局域网 IP（如 `192.168.1.3:8080`，需同一 Wi-Fi，注意 Mac 防火墙，见 DEPLOY.md §2.D）。
 
