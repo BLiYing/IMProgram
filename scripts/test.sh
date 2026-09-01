@@ -31,14 +31,51 @@ WORKSPACE="IMProgram.xcworkspace"
 SCHEME="IMProgram"
 UNIT_TARGET="IMProgramTests"
 DERIVED="${IM_DERIVED_DATA:-build/DerivedData}"
-RESULT="build/TestResults.xcresult"
-LOG="build/xcodebuild-test.log"
+# 日志与结果包**带 PID**。本脚本会被并发跑起来（同时开两个会话各跑一次就够了），
+# 而固定路径下两个 xcodebuild 会互相掀桌子：后起的 `rm -rf $RESULT` 删掉前一个正在写的
+# 结果包，两个进程还同时 `tee` 进同一个日志。表现极具迷惑性——**「354/354 全绿」却报
+# `** TEST FAILED **`**，日志里两段时间戳交错（2026-09-01 实测，排查花了十几分钟）。
+#
+# DerivedData **刻意不带 PID**：那是增量编译产物，按跑次分开等于每次全量重编（本脚本
+# 固定它就是为了复用）。并发由 Xcode 自己对 DerivedData 加锁——后来者排队，不会损坏，
+# 只是慢。**模拟器仍是共享的**：同一台 sim 上并发装同一个 app bundle 仍可能打架，
+# 真要并发请用 `IM_SIM=<另一台的 udid>` 各跑各的。
+RESULT="build/TestResults.$$.xcresult"
+LOG="build/xcodebuild-test.$$.log"
+# 稳定入口：软链到本次跑的产物，方便「直接打开 build/xcodebuild-test.log」这类肌肉记忆。
+# 并发时它指向最后开始的那一个；**排查请认脚本打印出来的带 PID 的那条路径**。
+LATEST_LOG="build/xcodebuild-test.log"
+LATEST_RESULT="build/TestResults.xcresult"
 
 bold() { printf '\033[1m%s\033[0m\n' "$1"; }
 pass() { printf '\033[32m✓ %s\033[0m\n' "$1"; }
 fail() { printf '\033[31m✗ %s\033[0m\n' "$1"; }
 
 mkdir -p build
+
+# 清掉**已经跑完**的历史跑次留下的产物（xcresult 动辄几十 MB，不清会一直堆）。
+# 判据是那个 PID 还在不在：**正在跑的另一个会话必须留着**，否则又变成互相删对方的东西。
+# 不带 PID 的老产物一概不动（可能是用户自己留的），交给用户处置。
+prune_stale_runs() {
+    local f pid
+    for f in build/xcodebuild-test.*.log build/TestResults.*.xcresult; do
+        [ -e "$f" ] || continue
+        pid=$(printf '%s' "$f" | sed -nE 's/.*\.([0-9]+)\.(log|xcresult)$/\1/p')
+        [ -n "$pid" ] || continue
+        [ "$pid" = "$$" ] && continue
+        # 用 ps 而不是 `kill -0`：后者对别的用户的进程回 EPERM（非零），会被误判成"已退出"。
+        ps -p "$pid" >/dev/null 2>&1 && continue
+        rm -rf "$f"
+    done
+}
+prune_stale_runs
+
+# 固定路径指向本次。**先确认它是软链再覆盖**：若它还是老版本留下的真目录，
+# `ln -s` 会把链接建到那个目录**里面**去（经典坑），下次就找不着了。
+[ -L "$LATEST_LOG" ] || rm -rf "$LATEST_LOG"
+[ -L "$LATEST_RESULT" ] || rm -rf "$LATEST_RESULT"
+ln -sfn "$(basename "$LOG")" "$LATEST_LOG"
+ln -sfn "$(basename "$RESULT")" "$LATEST_RESULT"
 
 # ─────────────────────────────────────────────────────────────
 bold "[1/3] 防巨类体检（单文件行数 + 共享私有头属性数，见 CODING_STYLE §7）"
@@ -154,6 +191,7 @@ fi
 
 if [ "$status" -ne 0 ]; then
     fail "测试未通过（完整日志：$LOG；结果包：$RESULT）"
+    echo "  （$LATEST_LOG / $LATEST_RESULT 是软链，并发跑时可能指向别人那次——认上面这两条带 PID 的）"
     echo "  失败某一条时，先单独重跑那个类确认是不是偶发："
     echo "    ONLY=<TestClass> ./scripts/test.sh"
     echo "  已知偶发项见 current_task.md「已知坑」：IMMediaPlaceholderTests testFrostedLandscapeScalesLongestSideTo48"

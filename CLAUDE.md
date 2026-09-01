@@ -58,5 +58,12 @@ iOS 即时通讯（IM）聊天 App。标准 Xcode 工程，UIKit + Storyboard。
   2. **必须关并行**：Xcode 默认按 target 克隆模拟器并行跑，一台机器上自己跟自己抢 CPU，会把时序敏感的用例压出偶发失败（`IMMediaPlaceholderTests` 那条，见 `current_task.md`「已知坑」）。脚本写死 `-parallel-testing-enabled NO`。
   3. **失败原因不在纯文本日志里**：xcodebuild 只给一句 `** TEST FAILED **`，断言原文在 `.xcresult` 里。脚本固定 `-resultBundlePath` 并用 `xcresulttool` 把「哪条用例 + 断言原文」直接打出来。
   - 另：固定 `-derivedDataPath build/DerivedData` 复用增量产物；模拟器**自动挑**最新 iOS 的 iPhone（写死名字会在换 Xcode/换机后报 destination 找不到，那种失败看起来像"测试挂了"，白费排查时间）。要指定：`IM_SIM=<udid|名字>`。
-- 完整日志与结果包落在 `build/`（已 gitignore）：`build/xcodebuild-test.log` / `build/TestResults.xcresult`。
+- 完整日志与结果包落在 `build/`（已 gitignore），**按跑次带 PID**：
+  `build/xcodebuild-test.<pid>.log` / `build/TestResults.<pid>.xcresult`；
+  `build/xcodebuild-test.log` 与 `build/TestResults.xcresult` 是指向最近一次的软链。
+  带 PID 是因为**本脚本会被并发跑起来**（同时开两个会话就够了），共用固定路径时后起的那个
+  会删掉前一个正在写的结果包 —— 表现是「全绿却报 TEST FAILED」。脚本每次启动会清掉
+  **已退出**跑次的产物（正在跑的另一个会话原样保留）。
+  DerivedData 仍是共享的（增量编译产物，Xcode 自己加锁排队）；**模拟器也是共享的**，
+  真要并发请 `IM_SIM=<另一台 udid>` 各跑各的。
 - Podfile 已关 `ENABLE_USER_SCRIPT_SANDBOXING`（post_install），避免 Pods 资源拷贝被沙盒拒写。
