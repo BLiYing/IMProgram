@@ -19,6 +19,11 @@ static const NSUInteger kMaxBatch = 100;
 /// 负缓存有效期：查无此人（已注销/脏数据）先记 10 分钟，别每次滚动都重试一遍。
 /// 不设永久是因为「查无此人」也可能是那一次请求恰好失败之外的服务端瞬时状态。
 static const NSTimeInterval kMissingTTL = 600;
+/// 一批失败后的**退避窗口**。失败的 uid 不写负缓存（一次抖动不该变成十分钟的"查无此人"），
+/// 但也不能立刻重来：调用方是 cellForRow 这类渲染路径，每 reloadData 一次就重新排一遍队，
+/// 断网时会以滚动/重绘的频率反复打同一个接口——服务端 60 次/分的配额几秒就烧光，
+/// 之后一直 429，网络恢复了也解析不出来（自己把自己锁死）。
+static const NSTimeInterval kFailureBackoff = 5;
 /// 缓存条数上限。超了按插入序丢最老的一批——身份数据丢了顶多再解析一次，不值得为它做 LRU 计账。
 static const NSUInteger kMaxCached = 2000;
 
@@ -29,6 +34,7 @@ static const NSUInteger kMaxCached = 2000;
     NSMutableOrderedSet<NSString *> *_pending;           // 待发起解析（保持请求顺序，先看到的先解析）
     NSMutableSet<NSString *> *_inflight;                 // 已发出、未回来
     BOOL _flushScheduled;
+    NSDate *_backoffUntil;              // 上一批失败后的退避截止时刻（nil=不在退避中）
     NSString *_ownerUserID;
 }
 
@@ -83,6 +89,7 @@ static const NSUInteger kMaxCached = 2000;
         IMUserCard *hit = _cards[userID];
         if (hit) { return hit; }
         if (!enqueue) { return nil; }
+        if (_backoffUntil && _backoffUntil.timeIntervalSinceNow > 0) { return nil; } // 刚失败过，先歇一会
         NSDate *missedAt = _missing[userID];
         if (missedAt && -missedAt.timeIntervalSinceNow < kMissingTTL) { return nil; }
         if (missedAt) { [_missing removeObjectForKey:userID]; } // 过期了，允许再试一次
@@ -160,6 +167,10 @@ static const NSUInteger kMaxCached = 2000;
             [_pending removeAllObjects];
             return;
         }
+        // 退避中不发。**这一条也要有**：失败那批若有超过 kMaxBatch 的余量，handleBatch 会顺手
+        // scheduleFlush 把余量发出去——那一发正好绕过刚设的退避。队列原样留着，
+        // 退避过去后下一次 cardForUserID: 会重新 scheduleFlush。
+        if (_backoffUntil && _backoffUntil.timeIntervalSinceNow > 0) { return; }
         NSUInteger n = MIN(_pending.count, kMaxBatch);
         if (n == 0) { return; }
         batch = [[_pending.array subarrayWithRange:NSMakeRange(0, n)] copy];
@@ -193,6 +204,7 @@ static const NSUInteger kMaxCached = 2000;
             // **失败不写负缓存**：那会把一次网络抖动变成 10 分钟的"查无此人"。
             // 也不自动重排队重试——下一帧 cellForRow 还需要的话自然会再问一次，
             // 那才是"还在屏幕上"的证据；无条件重试会在断网时打转。
+            _backoffUntil = [NSDate dateWithTimeIntervalSinceNow:kFailureBackoff];
             IMLogWarnWithTag(IMLogTagHTTP, @"user_profile_batch_failed count=%lu error=%@",
                              (unsigned long)batch.count, error.localizedDescription ?: @"");
         } else {
@@ -201,6 +213,7 @@ static const NSUInteger kMaxCached = 2000;
                 [self storeLocked:c];
                 [resolved addObject:c.userID];
             }
+            _backoffUntil = nil; // 这一批成功了，解除退避
             NSDate *now = [NSDate date];
             for (NSString *uid in missing) {
                 if (![uid isKindOfClass:NSString.class] || uid.length == 0) { continue; }
@@ -235,6 +248,7 @@ static const NSUInteger kMaxCached = 2000;
     [_order removeAllObjects];
     [_missing removeAllObjects];
     [_pending removeAllObjects];
+    _backoffUntil = nil;
     // _inflight 也清空：在飞的那批回来时会被 handleBatch 的 requestOwner 比对挡掉，
     // 不清的话换号后它们会一直占着"已在飞"的名额、让新账号对同一批 uid 永远排不进队。
     [_inflight removeAllObjects];

@@ -1363,7 +1363,14 @@ const NSInteger kIMMessageWindowPageSize = 200;
         // 取消置顶与置顶共用 op=pin，若沿用"0=不改"就永远落不了地——本地会一直显示已置顶（G0 修）。
         if (pinnedAt > 0)      { [sets addObject:@"pinned_at=?"];   [args addObject:@(pinnedAt)]; }
         else if (pinnedAt < 0) { [sets addObject:@"pinned_at=?"];   [args addObject:@(0)]; }
-        if (newContent != nil) { [sets addObject:@"content=?"]; [args addObject:newContent]; }
+        if (newContent != nil) {
+            [sets addObject:@"content=?"]; [args addObject:newContent];
+            // @ 片段的偏移是相对**原文**的，正文一改就全错位 → 连同清空（服务端落库时也清了）。
+            // 只清内存不清库的话，重启后旧片段会从本地库回来配上新正文：多数时候被
+            // IMChatValidMentionSpans 挡掉（那个位置不是 `@`），但只要新正文碰巧在同一偏移有个 `@`，
+            // 就会高亮出来并且**点进去是另一个人**的资料页。
+            [sets addObject:@"mention_spans=?"]; [args addObject:@""];
+        }
         if (sets.count == 0) { return; }
         NSString *sql = [NSString stringWithFormat:@"UPDATE im_message_local SET %@ WHERE owner_uid=? AND conv_id=? AND conv_seq=?",
                          [sets componentsJoinedByString:@","]];

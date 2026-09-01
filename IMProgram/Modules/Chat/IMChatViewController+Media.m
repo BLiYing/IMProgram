@@ -969,6 +969,11 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
 /// 不回填输入框（用户已明确不需要，2026-08-19）。
 - (void)uploadAndSendPastedImage:(UIImage *)image groupID:(NSString *)groupID
                          caption:(NSString *)caption mentions:(NSArray<NSString *> *)mentions mentionAll:(BOOL)mentionAll {
+    // ⚠️ **必须在这里、同步算好** @ 片段，不能挪进下面的上传回调：
+    // 调用方（+Compose.m）在调完本方法的**下一行**就 clearPendingMentions 了，
+    // 而上传是异步的——等回调跑起来 mentionCandidates 已经空了，片段恒为空数组，
+    // 于是超级群里图说的 @ 又变回不高亮（mentions 是提前算好的，强提醒还在，只有位置丢了）。
+    NSArray<IMMentionSpan *> *mentionSpans = [self resolvedMentionSpansInText:caption];
     NSData *jpeg = UIImageJPEGRepresentation(image, 0.8);
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (jpeg.length == 0 || token.length == 0) {
@@ -989,8 +994,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
         attrs.caption = caption.length > 0 ? caption : nil;
         attrs.mentions = mentions.count > 0 ? mentions : nil;
         attrs.mentionAll = mentionAll;
-        // 配文 @ 的片段：参照系是 caption（不是正文），见 IMMentionSpan 注释。
-        attrs.mentionSpans = [self resolvedMentionSpansInText:caption];
+        attrs.mentionSpans = mentionSpans; // 参照系是 caption（不是正文），见 IMMentionSpan 注释
         [self sendMediaURL:url contentType:(contentType ?: @"image") fileName:nil fileSize:0
            mediaAttributes:attrs];
     }];
