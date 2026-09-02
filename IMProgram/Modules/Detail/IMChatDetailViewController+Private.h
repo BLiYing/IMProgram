@@ -213,8 +213,13 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 /// **必须在这里登记**：实现在 +Actions.m，而 numberOfRows/cellForRow/didSelect 在主文件——
 /// 跨 TU 不声明会编译过、运行到就 unrecognized selector（本仓已踩过这类）。
 - (BOOL)showsMemberSearchRow;
-/// 成员签的前导行数（搜索 + 添加成员）。所有按 row 取成员的地方都要减它。
+/// 成员签的前导行数（搜索 + 添加成员 + 满员告知）。所有按 row 取成员的地方都要减它。
 - (NSInteger)memberRowOffset;
+/// 满员告知行：是否显示 / 行号 / 精确行高（实现在 +Actions.m，heightForRow 在主文件调用）。
+/// 行高必须精确：本表 estimatedRowHeight = 0，返回固定 60 会把多行副文案压扁。
+- (BOOL)showsUpgradeHintRow;
+- (NSInteger)upgradeHintRowIndex;
+- (CGFloat)upgradeHintRowHeightForWidth:(CGFloat)tableWidth;
 /// 打开成员搜索页（+Actions.m）。
 - (void)openMemberSearch;
 /// 成员签的行渲染与点击分发（+Actions.m）。两者的前导行判定顺序必须一致。

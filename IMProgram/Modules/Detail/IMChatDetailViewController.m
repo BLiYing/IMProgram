@@ -621,7 +621,15 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
     if (kind == IMDetailSectionAbout) { return 64; } // 标题 + 一行预览（subtitle 样式）
     if (kind == IMDetailSectionTabs && self.tabs.count > 0) {
         IMChatDetailTab *t = self.tabs[self.selectedTab];
-        if (t.kind == IMDetailTabKindMembers) { return 60; }
+        if (t.kind == IMDetailTabKindMembers) {
+            // 满员告知行是「标题 + 四行副文案」的 subtitle cell，装不进 60pt——
+            // 本表 estimatedRowHeight = 0，行高必须精确给出，否则文字被压扁（用户反馈"上下间隔太小"）。
+            // 它恒在成员 Tab 的前导行里，位置由 memberRowOffset 的判定顺序决定。
+            if ([self showsUpgradeHintRow] && indexPath.row == [self upgradeHintRowIndex]) {
+                return [self upgradeHintRowHeightForWidth:tableView.bounds.size.width];
+            }
+            return 60;
+        }
         if (t.kind == IMDetailTabKindMedia) {
             // 宽度必须与宫格排布用的**真实** cell 内容宽一致，否则行高多出几 pt → 卡片底部白边。
             // 真实宽由 cell 首次布局回调上报（见 mediaGridWidth）；未知时先用估算值兜底。

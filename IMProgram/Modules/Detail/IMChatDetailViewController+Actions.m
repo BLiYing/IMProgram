@@ -543,6 +543,56 @@ static NSInteger IMRuneCount(NSString *s) {
     return total >= cfg.maxGroupMembers;
 }
 
+/// 满员告知行的副文案。**拆成分条短行**而不是一整段：原先是一句 50 余字的长句，
+/// 在 iPhone 宽度下折成三四行且行距是系统默认（几乎贴着），读起来像一坨。
+/// 三条各说一件事，与后台「升级为大群」确认框的 1/2/3 同口径（两端说法不一致会让人以为是两回事）。
+///
+/// 用 attributedText 而不是 text：`lineSpacing` 是这里唯一能把行与行撑开的手段——
+/// UITableViewCellStyleSubtitle 的两个 label 由 UIKit 内部布局，间距改不了。
+- (NSAttributedString *)upgradeHintDetailText {
+    IMServerConfigStore *cfg = IMServerConfigStore.shared;
+    NSString *text = [NSString stringWithFormat:
+        @"1. 可容纳至 %ld 人，需联系管理员办理\n"
+        @"2. 升级后已读回执与「正在输入」不再显示\n"
+        @"3. 单向操作，升级后不可撤销\n"
+        @"点此复制群 ID", (long)cfg.maxSupergroupMembers];
+    NSMutableParagraphStyle *ps = [[NSMutableParagraphStyle alloc] init];
+    ps.lineSpacing = 4; // 分条之间撑开一点；系统默认几乎贴着，正是「上下间隔太小」的观感来源
+    return [[NSAttributedString alloc] initWithString:text attributes:@{
+        NSFontAttributeName: [self upgradeHintDetailFont],
+        NSParagraphStyleAttributeName: ps,
+    }];
+}
+
+/// 副文案字号。**必须与度量时用的一致**——本表 `estimatedRowHeight = 0`，
+/// 行高全由 heightForRowAtIndexPath 精确给出，字号与度量对不上就会截字或留白。
+- (UIFont *)upgradeHintDetailFont {
+    return [UIFont systemFontOfSize:13];
+}
+
+/// 满员告知行的精确高度。
+///
+/// **这才是「上下间隔太小」的真因**：成员 Tab 的行高原先一律固定 60pt，而这一行是
+/// 标题 + 多行副标题的 subtitle cell，四行副文案要 90pt 上下——文字被压在 60pt 里，
+/// 看起来就是"挤成一团、上下没有留白"。故按真实文本度量：
+///     上下留白 12×2 + 标题 22 + 标题与副文案间距 4 + 副文案实测高
+- (CGFloat)upgradeHintRowHeightForWidth:(CGFloat)tableWidth {
+    // 文本可用宽 = 表宽 - 左侧图标区(约 58) - 右侧留白(16)。宽度取不到时给个保守值，
+    // 宁可高一点留白，也不要矮到截字。
+    CGFloat textWidth = tableWidth > 120 ? tableWidth - 58 - 16 : 240;
+    NSAttributedString *detail = [self upgradeHintDetailText];
+    CGRect r = [detail boundingRectWithSize:CGSizeMake(textWidth, CGFLOAT_MAX)
+                                    options:NSStringDrawingUsesLineFragmentOrigin
+                                    context:nil];
+    return 12 + 22 + 4 + ceil(r.size.height) + 12;
+}
+
+/// 满员告知行在成员 Tab 里的行号。**必须与 memberTabCell: / handleMemberTabTapAtRow: 的
+/// 判定顺序一致**——那两处已经因为"顺序必须一致"吃过点位错行的亏，行高再抄一遍顺序只会多一处。
+- (NSInteger)upgradeHintRowIndex {
+    return ([self showsMemberSearchRow] ? 1 : 0) + ([self inviteEntriesVisible] ? 1 : 0);
+}
+
 - (NSInteger)memberRowOffset {
     return ([self showsMemberSearchRow] ? 1 : 0)
          + ([self inviteEntriesVisible] ? 1 : 0)
@@ -612,9 +662,7 @@ static NSInteger IMRuneCount(NSString *s) {
         cell.textLabel.text = [NSString stringWithFormat:@"成员已达上限 %ld", (long)cfg.maxGroupMembers];
         cell.textLabel.textColor = IMTheme.textPrimary;
         cell.detailTextLabel.numberOfLines = 0;
-        cell.detailTextLabel.text = [NSString stringWithFormat:
-            @"升级为大群可容纳至 %ld 人，请联系管理员办理。升级后已读回执与「正在输入」不再显示，且不可撤销。点此复制群 ID。",
-            (long)cfg.maxSupergroupMembers];
+        cell.detailTextLabel.attributedText = [self upgradeHintDetailText];
         cell.detailTextLabel.textColor = IMTheme.textSecondary;
         cell.imageView.image = [UIImage systemImageNamed:@"person.3.sequence"];
         cell.imageView.tintColor = IMTheme.textSecondary;
