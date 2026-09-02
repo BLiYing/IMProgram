@@ -171,7 +171,7 @@ static NSArray<IMMentionSpan *> *IMDecodeMentionSpans(NSString *raw);
         ok = [db executeUpdate:
             @"CREATE TABLE IF NOT EXISTS im_conversation_local ("
              "owner_uid TEXT NOT NULL, conv_id TEXT NOT NULL, sort_order INTEGER NOT NULL,"
-             "is_group INTEGER, name TEXT, avatar_url TEXT, member_count INTEGER,"
+             "is_group INTEGER, name TEXT, avatar_url TEXT, member_count INTEGER, is_super INTEGER NOT NULL DEFAULT 0,"
              "peer TEXT, peer_nickname TEXT, peer_avatar_url TEXT, peer_remark TEXT NOT NULL DEFAULT '',"
              "last_content TEXT, last_from TEXT, last_from_nickname TEXT, last_sys_segments TEXT NOT NULL DEFAULT '',"
              "last_recalled INTEGER, last_content_type TEXT, last_caption TEXT NOT NULL DEFAULT '', latest_conv_seq INTEGER,"
@@ -212,6 +212,13 @@ static NSArray<IMMentionSpan *> *IMDecodeMentionSpans(NSString *raw);
         if (![self column:@"last_caption" existsInTable:@"im_conversation_local" db:db]) {
             if (![db executeUpdate:@"ALTER TABLE im_conversation_local ADD COLUMN last_caption TEXT NOT NULL DEFAULT ''"]) {
                 IMLogDatabase(@"迁移失败：im_conversation_local 补列 last_caption 未成功: %@", db.lastErrorMessage);
+            }
+        }
+        // 超级群标记：持久化的理由与 peer_remark 同——不存的话冷启动首屏（本地快路）没有「大群」
+        // 标记，等 HTTP 权威列表回来才蹦出来，肉眼可见闪一下。
+        if (![self column:@"is_super" existsInTable:@"im_conversation_local" db:db]) {
+            if (![db executeUpdate:@"ALTER TABLE im_conversation_local ADD COLUMN is_super INTEGER NOT NULL DEFAULT 0"]) {
+                IMLogDatabase(@"迁移失败：im_conversation_local 补列 is_super 未成功: %@", db.lastErrorMessage);
             }
         }
         // 群「@我」未读（M4-8）：必须持久化，否则 HTTP 权威列表（带 mention_unread）与本地快路
@@ -352,6 +359,7 @@ static NSArray<IMMentionSpan *> *IMDecodeMentionSpans(NSString *raw);
             c.name = [rs stringForColumn:@"name"];
             c.avatarURL = [rs stringForColumn:@"avatar_url"];
             c.memberCount = [rs longForColumn:@"member_count"];
+            c.isSuper = [rs boolForColumn:@"is_super"];
             c.peer = [rs stringForColumn:@"peer"] ?: @"";
             c.peerNickname = [rs stringForColumn:@"peer_nickname"];
             c.peerRemark = [rs stringForColumn:@"peer_remark"];
@@ -409,9 +417,9 @@ static NSArray<IMMentionSpan *> *IMDecodeMentionSpans(NSString *raw);
         [conversations enumerateObjectsUsingBlock:^(IMConversation *c, NSUInteger idx, BOOL *stop) {
             if (c.convID.length == 0) { return; }
             BOOL ok = [db executeUpdate:
-                @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,peer,peer_nickname,peer_avatar_url,peer_remark,last_content,last_from,last_from_nickname,last_sys_segments,last_recalled,last_content_type,last_caption,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq,synced_conv_seq,remark,mention_unread) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,is_super,peer,peer_nickname,peer_avatar_url,peer_remark,last_content,last_from,last_from_nickname,last_sys_segments,last_recalled,last_content_type,last_caption,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq,synced_conv_seq,remark,mention_unread) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 owner, c.convID, @(idx), @(c.isGroup), c.name ?: @"", c.avatarURL ?: @"",
-                @(c.memberCount), c.peer ?: @"", c.peerNickname ?: @"", c.peerAvatarURL ?: @"", c.peerRemark ?: @"",
+                @(c.memberCount), @(c.isSuper), c.peer ?: @"", c.peerNickname ?: @"", c.peerAvatarURL ?: @"", c.peerRemark ?: @"",
                 c.lastContent ?: @"", c.lastFrom ?: @"", c.lastFromNickname ?: @"",
                 IMEncodeSysSegments(c.lastSysSegments), @(c.lastRecalled),
                 c.lastContentType ?: @"", c.lastCaption ?: @"", @(c.latestConvSeq), @(c.readSeq), @(c.peerReadSeq),

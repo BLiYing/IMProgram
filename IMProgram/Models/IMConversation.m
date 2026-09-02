@@ -35,6 +35,7 @@ static BOOL IMBoolFromJSON(id value) {
     c.avatarURL = [self stringForKey:@"avatar_url" in:dict];
     c.memberCount = [dict[@"member_count"] respondsToSelector:@selector(integerValue)] ? [dict[@"member_count"] integerValue] : 0;
     c.pendingCount = [dict[@"pending_count"] respondsToSelector:@selector(integerValue)] ? [dict[@"pending_count"] integerValue] : 0;
+    c.isSuper = IMBoolFromJSON(dict[@"is_super"]);
     c.peer = [self stringForKey:@"peer" in:dict];
     c.peerNickname = [self stringForKey:@"peer_nickname" in:dict];
     c.peerAvatarURL = [self stringForKey:@"peer_avatar_url" in:dict];

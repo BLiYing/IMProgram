@@ -16,6 +16,11 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) NSString *avatarURL;    // 群头像（仅群聊，空回退群名首字母圈）
 @property (nonatomic, assign) NSInteger memberCount;   // 群成员数（仅群聊）
 @property (nonatomic, assign) NSInteger pendingCount;  // 待审入群申请数（仅群聊且我是群主/管理员，供列表红点，G3）
+/// isSuper：这是个超级群（大群）。**服务端早就随 /conversations 下发 is_super**（见后端
+/// conversation.go 的注释「客户端在会话列表就要知道」），端上此前一直没接。
+/// 列表据此在群名后挂「大群」标记——用户在列表里第一个察觉到的异常正是这里：
+/// 这个群没有在线绿点、没有「正在输入」，不标出来就会被当成 bug。
+@property (nonatomic, assign) BOOL isSuper;
 @property (nonatomic, copy) NSString *peer;            // 单聊对端 uid（群聊为空）
 @property (nonatomic, copy, nullable) NSString *peerNickname;  // 对端昵称（显示名/首字母，空回退 uid）
 @property (nonatomic, copy, nullable) NSString *peerAvatarURL; // 对端头像（data:/http，空回退首字母圈）

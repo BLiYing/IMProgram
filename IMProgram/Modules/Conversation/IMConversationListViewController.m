@@ -53,6 +53,7 @@ static CGFloat const kIMRowLeading = 16;
     UIImageView *_mute;
     UILabel *_check;   // 最后一条是我发的 → 时间左侧显示 ✓✓（绿）
     UILabel *_badge;
+    UILabel *_superTag; // 「大群」标记（仅超级群，群名右侧；见 SUPERGROUP_DESIGN §9）
     UIView *_dot;      // 手动"标未读"小圆点（无未读数时显示，M4.5）
     UIView *_onlineDot; // 在线态绿点（仅单聊、对端在线时，头像右下角，M-presence）
     NSLayoutConstraint *_badgeWidth;
@@ -124,7 +125,26 @@ static CGFloat const kIMRowLeading = 16;
                 [icon.heightAnchor constraintEqualToConstant:14],
             ]];
         }
-        _nameStateStack = [[UIStackView alloc] initWithArrangedSubviews:@[_name, _pin, _mute]];
+        // 「大群」标记：**文字 pill 而不是图标**——没有约定俗成的"大群"图标，而这个标记的全部
+        // 价值是解释"为什么没有在线绿点/正在输入"，图标不自解释。与聊天页副标题、群资料页
+        // 说明行、后台列表 pill 同一套语汇（SUPERGROUP_DESIGN §9）。
+        _superTag = [UILabel new];
+        _superTag.translatesAutoresizingMaskIntoConstraints = NO;
+        _superTag.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
+        _superTag.textColor = IMTheme.textSecondary;
+        // 底色用 groupedBackground（页面底色，比 cell 的 cardBackground 略深）——
+        // 刻意不用强调色：它是一条**中性说明**，不是提醒，抢不过未读徽标才对。
+        _superTag.backgroundColor = IMTheme.groupedBackground;
+        _superTag.textAlignment = NSTextAlignmentCenter;
+        _superTag.text = @" 大群 ";
+        _superTag.layer.cornerRadius = 4;
+        _superTag.layer.masksToBounds = YES;
+        // 不被群名挤掉：长群名截断发生在名字上，标记恒完整——做反了的话，最需要标记的
+        // 长名字群反而看不到标记。
+        [_superTag setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+        [_superTag setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+
+        _nameStateStack = [[UIStackView alloc] initWithArrangedSubviews:@[_name, _superTag, _pin, _mute]];
         _nameStateStack.translatesAutoresizingMaskIntoConstraints = NO;
         _nameStateStack.axis = UILayoutConstraintAxisHorizontal;
         _nameStateStack.alignment = UIStackViewAlignmentCenter;
@@ -261,6 +281,7 @@ static CGFloat const kIMRowLeading = 16;
         // 群头像可能是 /uploads 相对路径 → 补 host 成绝对 URL，否则 IMImageLoader 加载不了、只显首字母。
         [_avatar im_setAvatarURL:IMMediaFullURL(c.avatarURL, host) seed:c.convID displayName:display];
         _name.text = display;
+        _superTag.hidden = !c.isSuper;
         if (recalledPreview) {
             _last.text = recalledPreview;   // 撤回：文案已含"谁"，不再加前缀
         } else if (mediaPreview.length > 0 || [c lastPreviewTextForSelfUID:selfUID].length > 0) {
@@ -280,6 +301,7 @@ static CGFloat const kIMRowLeading = 16;
         // 对端头像同理补 host（data:/http 原样返回，相对路径补全）。
         [_avatar im_setAvatarURL:IMMediaFullURL(c.peerAvatarURL, host) seed:c.peer displayName:display]; // 有头像渲图，否则首字母圈
         _name.text = display;
+        _superTag.hidden = YES; // 单聊无此概念；cell 复用，必须显式关掉
         _last.text = recalledPreview ?: (mediaPreview.length > 0 ? mediaPreview : (c.lastContent.length > 0 ? c.lastContent : @"（无消息）"));
     }
     // 群「@我」红字前缀（M4-8）：未读区间内被 @（含 @所有人）时，预览行前挂 [有人@我]。
