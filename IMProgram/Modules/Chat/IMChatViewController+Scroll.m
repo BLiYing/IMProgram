@@ -3,6 +3,7 @@
 //  ↓N 未读计数与显隐、贴底/锚定滚动、键盘与附件面板互斥顶起输入栏。从 IMChatViewController.m 平移，未改行为。
 
 #import "IMChatViewController+Private.h"
+#import "IMUnreadBadge.h"   // ↓N 角标格式化（与 im-web unreadBadge.ts 同源）
 #import "IMMessageModel.h"
 #import "IMTheme.h"
 #import "IMLog.h"
@@ -88,7 +89,9 @@
     NSInteger below = [self unreadBelowReadFrontier];
     if (below > 0) {
         self.jumpBadge.hidden = NO;
-        self.jumpBadge.text = below > 99 ? @"99+" : [NSString stringWithFormat:@"%ld", (long)below];
+        // 与 im-web 的 unreadBadgeText 同一份格式化：1.2K / 1.2M，不再一律 99+。
+        // 那顶帽子来自服务端"扫 999 条再数"的旧成本，早已换成覆盖索引精确计数。
+        self.jumpBadge.text = IMUnreadBadgeText(below, NO);
     } else {
         self.jumpBadge.hidden = YES;
     }

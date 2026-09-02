@@ -9,6 +9,21 @@
 #import "IMMediaExpiryRegistry.h" // 失效登记：据此显 ⊘（只读本地、不联网探测）
 #import "IMOriginalVideoCache.h"  // 铁律 A：本机有原件则照显真图、不叠失效
 
+/// 勾选框：按下时**不**让图标变暗。
+///
+/// 原先用 `adjustsImageWhenHighlighted = NO`，它自 iOS 15 起废弃（官方替代是给配置式按钮挂
+/// `configurationUpdateHandler`）。**这里刻意不迁到配置式按钮**：勾选态的图标/描边/阴影是每次
+/// `configure` 用 `setImage:forState:` + tintColor + layer 阴影拼出来的，换成 UIButtonConfiguration
+/// 要把这一整套重画一遍，而这处只想要"别变暗"这一件事。
+/// 本按钮是纯图标的 custom button，高亮态唯一的视觉效果就是图标变暗，故直接不进入高亮态即可，
+/// 与原属性逐点等价（点击回调走 UIControl 的事件派发，不受 highlighted 影响）。
+@interface IMMediaTileCheckbox : UIButton
+@end
+
+@implementation IMMediaTileCheckbox
+- (void)setHighlighted:(BOOL)highlighted { [super setHighlighted:NO]; }
+@end
+
 @implementation IMMediaTileCell {
     UIImageView *_thumb; UIImageView *_play; NSString *_url;
     UIView *_dim; CAShapeLayer *_ringBG; CAShapeLayer *_ring; UILabel *_sizeChip; UILabel *_durChip;
@@ -72,10 +87,9 @@
 
         // 右上角勾选框：UIButton 自吃 touch 事件（不冒泡到 collectionView didSelectItem），
         // 图形用 SF Symbol；36×36 命中区（视觉 22pt），带白色描边环让选中/未选中在深色缩略图上都清晰。
-        _checkbox = [UIButton buttonWithType:UIButtonTypeCustom];
+        _checkbox = [IMMediaTileCheckbox buttonWithType:UIButtonTypeCustom];
         _checkbox.translatesAutoresizingMaskIntoConstraints = NO;
         _checkbox.hidden = YES;
-        _checkbox.adjustsImageWhenHighlighted = NO;
         [_checkbox addTarget:self action:@selector(handleCheckboxTap) forControlEvents:UIControlEventTouchUpInside];
         [self.contentView addSubview:_checkbox];
         [NSLayoutConstraint activateConstraints:@[

@@ -1,5 +1,6 @@
 //  IMConversationListViewController.m
 
+#import "IMUnreadBadge.h"   // 未读角标格式化（与 im-web unreadBadge.ts 同源）
 #import "IMConversationListViewController.h"
 #import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
 #import "IMChatViewController.h"
@@ -357,7 +358,9 @@ static CGFloat const kIMRowLeading = 16;
         // 真实未读数：蓝色胶囊带数字。
         _badge.hidden = NO;
         _dot.hidden = YES;
-        _badge.text = c.unread > 99 ? @"99+" : [NSString stringWithFormat:@"%ld", (long)c.unread];
+        // 与 im-web 的 unreadBadgeText 同一份格式化：1.2K / 1.2M；撞服务端计数上限才补 `+`。
+        // 同一个群在两端必须显示同一个数字，各写一遍格式化迟早分叉。
+        _badge.text = IMUnreadBadgeText(c.unread, c.unreadCapped);
         _badgeWidth.constant = MAX(20, [_badge sizeThatFits:CGSizeMake(CGFLOAT_MAX, 20)].width + 12);
     } else if (c.markedUnread) {
         // 手动"标未读"：无未读数（读位点已推进），仅显小圆点提示（微信式，无数字）。

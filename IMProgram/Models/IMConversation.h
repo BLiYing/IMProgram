@@ -43,7 +43,11 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) int64_t peerReadSeq;     // 单聊对端已读位点（判断"我发的最后一条"是否已读；群聊 0）
 @property (nonatomic, assign) int64_t groupReadSeq;    // 群聊全员已读位点=min(其他成员已读位点)；单聊 0。判断群消息是否"全员已读"→绿双勾（非实时，随列表/sync 刷新）
 @property (nonatomic, assign) int64_t timestamp;       // 最后一条时间（毫秒）
-@property (nonatomic, assign) NSInteger unread;        // 未读数（服务端 cap 999）
+@property (nonatomic, assign) NSInteger unread;        // 未读数（服务端按覆盖索引精确计，撞上限见 unreadCapped）
+/// 未读数撞到了服务端计数上限 → 真实值 ≥ unread，角标补 `+`（OFFLINE_BACKLOG_DESIGN §6.1）。
+/// **不落本地缓存**：它只在一次列表响应内有意义，冷启动先读缓存那一瞬没有 `+`，
+/// 列表拉回来即纠正。为它加一列 DB 迁移不值当。
+@property (nonatomic, assign) BOOL unreadCapped;
 // M4.5 会话级设置（每用户私有；服务端 conv_update 帧多端同步）：
 @property (nonatomic, assign) int64_t pinnedAt;        // 置顶时间（0=未置顶；服务端已按置顶优先排序）
 @property (nonatomic, assign) BOOL muted;              // 免打扰（弱提示）

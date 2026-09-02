@@ -52,6 +52,22 @@
 @property (nonatomic, strong) NSLayoutConstraint *senderTopSpacing;
 @end
 
+/// 倍速胶囊：只为在文字两侧留出内边距。
+///
+/// 原先用 `contentEdgeInsets`，它自 iOS 15 起废弃（官方替代是 UIButtonConfiguration）。
+/// **这里刻意不迁到配置式按钮**：本控件要直接动 `titleLabel.layer.transform` 做倍速翻牌动画，
+/// 而配置式按钮的 titleLabel 由系统托管、不保证可直接操作，迁过去等于拿一个能用的动画去换一条警告。
+/// 高度已由约束钉死 16pt，真正需要的只有横向内边距，撑宽 intrinsicContentSize 与原来逐点等价。
+@interface IMVoiceSpeedPill : UIButton
+@end
+
+@implementation IMVoiceSpeedPill
+- (CGSize)intrinsicContentSize {
+    CGSize s = [super intrinsicContentSize];
+    return CGSizeMake(s.width + 12, s.height + 4); // 对应原 UIEdgeInsetsMake(2, 6, 2, 6)
+}
+@end
+
 @implementation IMVoiceBubbleCell
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
@@ -125,12 +141,11 @@
     [_bubble addSubview:_unplayedDot];
 
     // 倍速胶囊（P1）：仅播放中出现（默认 alpha 0）。会话级记忆，从 IMVoicePlayer 取当前 rate。
-    _speedPill = [UIButton buttonWithType:UIButtonTypeSystem];
+    _speedPill = [IMVoiceSpeedPill buttonWithType:UIButtonTypeSystem];
     _speedPill.translatesAutoresizingMaskIntoConstraints = NO;
     _speedPill.titleLabel.font = [UIFont monospacedDigitSystemFontOfSize:10 weight:UIFontWeightBold];
     _speedPill.layer.cornerRadius = 8;
     _speedPill.layer.masksToBounds = YES;
-    _speedPill.contentEdgeInsets = UIEdgeInsetsMake(2, 6, 2, 6);
     _speedPill.alpha = 0;
     _speedPill.userInteractionEnabled = NO;
     [_speedPill addTarget:self action:@selector(speedTapped) forControlEvents:UIControlEventTouchUpInside];

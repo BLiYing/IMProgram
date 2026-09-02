@@ -31,6 +31,18 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, strong, nullable) NSLayoutConstraint *searchSavedTableBottom; ///< 原「表底=replyBar 顶」约束
 @property (nonatomic, strong, nullable) NSLayoutConstraint *searchTableBottom;      ///< 搜索期间「表底=屏幕底」
 @property (nonatomic, assign) CGFloat savedBottomInset;   ///< 进搜索前表格原 contentInset.bottom（退出恢复；键盘让位在其上叠加）
+/// 降级提示（离线只搜/只显已下载部分）本次搜索会话里是否已弹过——每敲一个字弹一次 toast 是骚扰。
+@property (nonatomic, assign) BOOL degradedSearchNoticed;
+@property (nonatomic, assign) BOOL degradedCalendarNoticed;
+
+/// 服务端检索只回一页（上限 50，与 im-web 同）。命中数被截断时计数胶囊写「/ 50+ 条」，
+/// 否则用户会以为大群里就只有这些命中——数字看着正常、其实是页大小。
+@property (nonatomic, assign) BOOL searchHitsTruncated;
+
+/// 服务端日历给的「某天 → 当天第一条 conv_seq」。有缺口时按日期跳转不能只查本地：
+/// 那一天的消息可能整天都在缺口里，本地查出来会落到别的日子（且只弹一句"该日期无消息"）。
+@property (nonatomic, strong, nullable) NSDictionary<NSNumber *, NSNumber *> *serverDayFirstSeq;
+
 @property (nonatomic, strong, nullable) UITapGestureRecognizer *tapToDismiss; ///< 点列表空白收起键盘（不吞点击）
 
 @end

@@ -16,6 +16,10 @@
 #import "UILabel+IMAvatar.h"         // im_setAvatarURL:（复用真实头像逻辑）
 #import "UIViewController+IMToast.h"
 #import "IMAccountIdentity.h"
+#import "IMConvQuerySource.h"          // 「整会话问题」问本地还是问服务端（三端同一份判据）
+#import "IMDatabase+Ranges.h"          // isConvComplete:（本地齐不齐）
+#import "IMHTTPService+ConvQueries.h"  // 会话内检索 / 日历聚合的服务端接口
+#import "IMNetworkMonitor.h"
 
 static const CGFloat kIMSearchNavBarH = 48;
 static const CGFloat kIMSearchFromRowH = 52;
@@ -27,6 +31,11 @@ static const CGFloat kIMSearchFromRowH = 52;
 - (void)beginInChatSearch { [self beginInChatSearchWithKeyword:nil]; }
 
 - (void)beginInChatSearchWithKeyword:(nullable NSString *)keyword {
+    // 每次进搜索都是新一轮：降级提示重新允许弹一次，服务端日历锚点作废（会话可能已补齐）。
+    self.searchState.degradedSearchNoticed = NO;
+    self.searchState.degradedCalendarNoticed = NO;
+    self.searchState.searchHitsTruncated = NO;
+    self.searchState.serverDayFirstSeq = nil;
     if (self.searchState.searching) {
         if (keyword.length > 0) { self.searchState.searchField.text = keyword; [self recomputeSearchHitsAndJump:YES]; }
         [self.searchState.searchField becomeFirstResponder];
@@ -291,6 +300,35 @@ static const CGFloat kIMSearchFromRowH = 52;
     [self recomputeSearchHitsAndJump:YES];
 }
 
+#pragma mark - 「整会话问题」问谁
+
+/// 本会话的搜索/日历该问本地还是问服务端（OFFLINE_BACKLOG_DESIGN §4.9）。
+///
+/// 判据与 im-web 逐字同源（`convQuerySource.ts`）：本地齐全就走本地（秒回、离线可用）；
+/// 有缺口且在线走服务端；有缺口且离线仍走本地，但**必须告诉用户只看了已下载的部分**——
+/// 静默给一个残缺答案，比明说"只搜了一部分"糟糕得多。
+- (IMConvQuerySource)convQuerySource {
+    NSString *convID = self.convID;
+    if (convID.length == 0) { return IMConvQuerySourceLocal; }
+    __block BOOL complete = YES;
+    [self performDatabaseOperation:^(IMDatabase *database) { complete = [database isConvComplete:convID]; }];
+    BOOL online = IMNetworkMonitor.shared.currentType != IMNetworkTypeNone;
+    return IMPickConvQuerySource(complete, online);
+}
+
+/// 同一次搜索会话里降级提示只弹一次——每敲一个字弹一次 toast 是骚扰。
+- (void)noticeDegradedSearchOnce {
+    if (self.searchState.degradedSearchNoticed) { return; }
+    self.searchState.degradedSearchNoticed = YES;
+    [self im_showToast:IMDegradedSearchNotice];
+}
+
+- (void)noticeDegradedCalendarOnce {
+    if (self.searchState.degradedCalendarNoticed) { return; }
+    self.searchState.degradedCalendarNoticed = YES;
+    [self im_showToast:IMDegradedCalendarNotice];
+}
+
 #pragma mark - 命中计算 / 导航
 
 - (NSString *)currentSearchKeyword {
@@ -309,7 +347,39 @@ static const CGFloat kIMSearchFromRowH = 52;
     [self performDatabaseOperation:^(IMDatabase *database) {
         hits = [database searchConvSeqsInConv:convID keyword:kw fromUID:fromUID limit:0];
     }];
-    self.searchState.searchHits = hits;                 // 升序（DB 查询已保证）
+    self.searchState.searchHitsTruncated = NO;   // 本地命中不分页，从不截断
+    [self applySearchHits:hits jumpToNewest:jumpToNewest];
+
+    // **有缺口时本地命中集必然偏小**：缺口里的消息根本没下载，搜出来的"没有结果"是假的
+    // （3 万条大群实测：本地只命中窗口那点条数）。在线就改问服务端，离线至少说一声。
+    IMConvQuerySource src = [self convQuerySource];
+    if (src == IMConvQuerySourceLocalDegraded) {
+        [self noticeDegradedSearchOnce];
+        return;
+    }
+    if (src != IMConvQuerySourceServer || kw.length == 0) { return; }
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0) { return; }
+    __weak typeof(self) ws = self;
+    // limit 取服务端单页上限 50（与 im-web 一致）。**只取一页**：命中更多时靠计数胶囊的 `+`
+    // 如实告知，而不是悄悄把命中集截断成 50 条还写「/ 50 条」。翻更多页属另一件事，两端都还没做。
+    [IMHTTPService.sharedService searchConvMessagesWithToken:token convID:convID keyword:kw fromUID:fromUID
+                                                       limit:50
+                                                  completion:^(NSArray<NSNumber *> *seqs, BOOL hasMore, NSError *error) {
+        __strong typeof(ws) self = ws;
+        if (!self || !self.searchState.searching) { return; }
+        // 关键词/发件人在请求途中被改过 → 这帧回的是上一次的结果，用了会让命中集与输入框对不上。
+        if (![[self currentSearchKeyword] isEqualToString:kw]) { return; }
+        if (![self.searchState.searchFromUID ?: @"" isEqualToString:fromUID ?: @""]) { return; }
+        if (error) { return; }  // 失败就留着本地那份，不清空——有总比没有强，且已在本地结果上
+        self.searchState.searchHitsTruncated = hasMore;
+        [self applySearchHits:seqs jumpToNewest:jumpToNewest];
+    }];
+}
+
+/// 落地一份命中集（本地或服务端来的都走这里，保证下标语义只有一处）。
+- (void)applySearchHits:(NSArray<NSNumber *> *)hits jumpToNewest:(BOOL)jumpToNewest {
+    self.searchState.searchHits = hits;                 // 升序
     self.searchState.searchHitIndex = (NSInteger)hits.count - 1; // 默认最新命中
     [self updateSearchNavState];
     [self.tableView reloadData];   // 刷新气泡内命中词高亮（cell 经 searchHighlightKeyword 染色）
@@ -341,7 +411,9 @@ static const CGFloat kIMSearchFromRowH = 52;
         self.searchState.searchCountPill.hidden = !hasQuery;
     } else {
         self.searchState.searchCountPill.hidden = NO;
-        self.searchState.searchCountLabel.text = [NSString stringWithFormat:@"第 %ld / %ld 条", (long)(self.searchState.searchHitIndex + 1), (long)n];
+        self.searchState.searchCountLabel.text =
+            [NSString stringWithFormat:@"第 %ld / %ld%@ 条", (long)(self.searchState.searchHitIndex + 1),
+             (long)n, self.searchState.searchHitsTruncated ? @"+" : @""];
     }
     BOOL canPrev = (n > 0 && self.searchState.searchHitIndex > 0);
     BOOL canNext = (n > 0 && self.searchState.searchHitIndex < n - 1);
@@ -386,9 +458,51 @@ static const CGFloat kIMSearchFromRowH = 52;
 
 - (void)searchCalTapped {
     [self.searchState.searchField resignFirstResponder];
+    IMConvQuerySource src = [self convQuerySource];
+    if (src != IMConvQuerySourceServer) {
+        // 本地齐全 → 本地打点即权威；离线 → 只能给本地的，但要说清楚（否则那些天全灰像是"真没消息"）。
+        if (src == IMConvQuerySourceLocalDegraded) {
+            [self noticeDegradedCalendarOnce];
+        }
+        [self presentDateJumpWithActiveDays:[self activeDaysFromMessages]];
+        return;
+    }
+    // 有缺口且在线：打点必须由服务端给。**先本地出一版再异步换成权威版**——
+    // 直接等网络会让点 📅 之后有一段"什么都不弹"的空白，那比数据略旧更难受。
+    NSSet<NSDate *> *localDays = [self activeDaysFromMessages];
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    NSString *convID = self.convID;
+    if (token.length == 0) { [self presentDateJumpWithActiveDays:localDays]; return; }
+    // 跨度：近两年。服务端对区间有上限，不设区间等于一次请求扫完整个会话。
+    NSDate *now = [NSDate date];
+    int64_t toMs = (int64_t)(now.timeIntervalSince1970 * 1000.0);
+    int64_t fromMs = toMs - (int64_t)(730LL * 24 * 3600 * 1000);
+    int64_t offsetMs = (int64_t)NSTimeZone.systemTimeZone.secondsFromGMT * 1000;
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService convCalendarWithToken:token convID:convID fromMs:fromMs toMs:toMs
+                                           utcOffsetMs:offsetMs
+                                            completion:^(NSArray<IMConvCalendarDay *> *days, NSError *error) {
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        if (error || days.count == 0) { [self presentDateJumpWithActiveDays:localDays]; return; }
+        NSCalendar *cal = [NSCalendar currentCalendar];
+        NSMutableSet<NSDate *> *merged = [localDays mutableCopy];
+        NSMutableDictionary<NSNumber *, NSNumber *> *firstSeq = [NSMutableDictionary dictionaryWithCapacity:days.count];
+        for (IMConvCalendarDay *d in days) {
+            // 再过一次 startOfDayForDate:：服务端按固定偏移整除分桶，夏令时下可能差一小时。
+            NSDate *day = [cal startOfDayForDate:[NSDate dateWithTimeIntervalSince1970:d.dayStartMs / 1000.0]];
+            [merged addObject:day];
+            if (d.firstConvSeq > 0) { firstSeq[@((int64_t)(day.timeIntervalSince1970 * 1000.0))] = @(d.firstConvSeq); }
+        }
+        self.searchState.serverDayFirstSeq = firstSeq; // 跳某天时优先用它，见 handleDateJumpKind:
+        [self presentDateJumpWithActiveDays:merged];
+    }];
+}
+
+- (void)presentDateJumpWithActiveDays:(NSSet<NSDate *> *)days {
     __weak typeof(self) ws = self;
     IMChatDateJumpViewController *vc =
-        [[IMChatDateJumpViewController alloc] initWithActiveDays:[self activeDaysFromMessages]
+        [[IMChatDateJumpViewController alloc] initWithActiveDays:days
                                                           onPick:^(IMDateJumpKind kind, NSDate *day) {
         [ws handleDateJumpKind:kind day:day];
     }];
@@ -428,7 +542,10 @@ static const CGFloat kIMSearchFromRowH = 52;
     }
     if (!day) { return; }
     NSTimeInterval dayMs = day.timeIntervalSince1970 * 1000.0;
-    int64_t seq = [self firstConvSeqAtOrAfter:dayMs];
+    // **服务端给的「当天第一条」优先**：有缺口时那一天可能整天都落在缺口里，
+    // 只查本地会跳到别的日子，还会弹一句假的「该日期无消息」。
+    int64_t seq = self.searchState.serverDayFirstSeq[@((int64_t)dayMs)].longLongValue;
+    if (seq <= 0) { seq = [self firstConvSeqAtOrAfter:dayMs]; }
     if (seq <= 0) { [self im_showToast:@"该日期及之后暂无消息"]; return; }
     [self jumpToConvSeq:seq];
     // 落点是不是用户选的那天：查库拿那一条（跳转可能要等服务端开窗，此刻它未必在内存里）。

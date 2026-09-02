@@ -49,6 +49,7 @@ static BOOL IMBoolFromJSON(id value) {
     c.peerReadSeq = [dict[@"peer_read_seq"] respondsToSelector:@selector(longLongValue)] ? [dict[@"peer_read_seq"] longLongValue] : 0;
     c.groupReadSeq = [dict[@"group_read_seq"] respondsToSelector:@selector(longLongValue)] ? [dict[@"group_read_seq"] longLongValue] : 0;
     c.unread = [dict[@"unread"] respondsToSelector:@selector(integerValue)] ? [dict[@"unread"] integerValue] : 0;
+    c.unreadCapped = IMBoolFromJSON(dict[@"unread_capped"]);
     c.pinnedAt = [dict[@"pinned_at"] respondsToSelector:@selector(longLongValue)] ? [dict[@"pinned_at"] longLongValue] : 0;
     c.muted = IMBoolFromJSON(dict[@"muted"]);
     c.markedUnread = IMBoolFromJSON(dict[@"marked_unread"]);
