@@ -545,7 +545,8 @@ static NSInteger IMRuneCount(NSString *s) {
 
 /// 满员告知行的副文案。**拆成分条短行**而不是一整段：原先是一句 50 余字的长句，
 /// 在 iPhone 宽度下折成三四行且行距是系统默认（几乎贴着），读起来像一坨。
-/// 三条各说一件事，与后台「升级为大群」确认框的 1/2/3 同口径（两端说法不一致会让人以为是两回事）。
+/// 三条各说一件事。**升级前时态**的定稿在 docs/design/SUPERGROUP_DESIGN.md §4.1（三端唯一真相源，
+/// 改文案按该节搜一圈）；已升级的群走大群说明行，见 +About.m 的 superGroupNoticeBody。
 ///
 /// 用 attributedText 而不是 text：`lineSpacing` 是这里唯一能把行与行撑开的手段——
 /// UITableViewCellStyleSubtitle 的两个 label 由 UIKit 内部布局，间距改不了。

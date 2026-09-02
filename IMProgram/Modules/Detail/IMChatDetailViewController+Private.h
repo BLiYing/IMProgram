@@ -213,6 +213,13 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 /// **必须在这里登记**：实现在 +Actions.m，而 numberOfRows/cellForRow/didSelect 在主文件——
 /// 跨 TU 不声明会编译过、运行到就 unrecognized selector（本仓已踩过这类）。
 - (BOOL)showsMemberSearchRow;
+/// 公告 / 简介 / 大群说明卡（实现在 +About.m，分区骨架在主文件调用）。
+/// aboutRowKinds 同时决定**整个分区显不显示**——大群说明恒显，正是靠它让"没公告也没简介的
+/// 大群"照样有这张卡（那是最需要解释的场景）。
+- (NSArray<NSNumber *> *)aboutRowKinds;
+- (UITableViewCell *)aboutCell:(UITableView *)tv row:(NSInteger)row;
+- (void)handleAboutTapAtRow:(NSInteger)row;
+
 /// 成员签的前导行数（搜索 + 添加成员 + 满员告知）。所有按 row 取成员的地方都要减它。
 - (NSInteger)memberRowOffset;
 /// 满员告知行：是否显示 / 行号 / 精确行高（实现在 +Actions.m，heightForRow 在主文件调用）。

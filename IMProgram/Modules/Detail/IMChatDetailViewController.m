@@ -555,7 +555,9 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
     // 尚未建立关系时这些设置无意义。仅隐藏，数据加载逻辑不动（加为好友后 reloadData 即恢复）。
     if (!self.isGroup && !self.peerIsFriend) { return s; }
     if (!self.isGroup) { [s addObject:@(IMDetailSectionInfo)]; } // 单聊：备注名/用户名
-    if (self.isGroup && [self aboutRowKinds].count > 0) { [s addObject:@(IMDetailSectionAbout)]; } // 公告/简介卡（Pills 下）
+    // 公告/简介/大群说明卡（Pills 下）。条件走 aboutRowKinds 而不是逐个判字段——
+    // 大群说明恒显，正是靠这一点让"没公告也没简介的大群"照样有卡（那是最需要解释的场景）。
+    if (self.isGroup && [self aboutRowKinds].count > 0) { [s addObject:@(IMDetailSectionAbout)]; }
     [s addObject:@(IMDetailSectionSettings)];
     if (self.tabs.count > 0) { [s addObject:@(IMDetailSectionTabs)]; }
     return s;
@@ -682,47 +684,11 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
     return cell;
 }
 
-#pragma mark - 公告 / 简介卡（全员只读，G1 修）
+#pragma mark - 公告 / 简介 / 大群说明卡
 
-/// 群公告/简介卡的行类型（顺序即展示顺序）。
-typedef NS_ENUM(NSInteger, IMDetailAboutRow) {
-    IMDetailAboutRowAnnouncement = 0, ///< 群公告（非空才显）
-    IMDetailAboutRowIntro,            ///< 群简介（非空才显）
-};
-
-/// 组装公告/简介卡当前应显示的行——公告/简介**非空才显**，都空则整卡不显（sectionLayout 里据 count 决定）。
-- (NSArray<NSNumber *> *)aboutRowKinds {
-    NSMutableArray<NSNumber *> *rows = [NSMutableArray array];
-    if (!self.isGroup) { return rows; }
-    if (self.group.announcement.length > 0) { [rows addObject:@(IMDetailAboutRowAnnouncement)]; }
-    if (self.group.intro.length > 0) { [rows addObject:@(IMDetailAboutRowIntro)]; }
-    return rows;
-}
-
-/// 折行/连续空白压成单行预览（详情页卡与横幅一致）。
-- (NSString *)aboutSingleLinePreview:(NSString *)text {
-    NSArray<NSString *> *parts = [text componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    NSMutableArray<NSString *> *kept = [NSMutableArray array];
-    for (NSString *part in parts) { if (part.length > 0) { [kept addObject:part]; } }
-    return [kept componentsJoinedByString:@" "];
-}
-
-- (UITableViewCell *)aboutCell:(UITableView *)tv row:(NSInteger)row {
-    NSArray<NSNumber *> *kinds = [self aboutRowKinds];
-    IMDetailAboutRow kind = (row < (NSInteger)kinds.count) ? (IMDetailAboutRow)kinds[row].integerValue : IMDetailAboutRowAnnouncement;
-    UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleSubtitle reuseID:@"dSub" inTable:tv];
-    cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-    if (kind == IMDetailAboutRowAnnouncement) {
-        cell.imageView.image = [UIImage systemImageNamed:@"megaphone"];
-        cell.textLabel.text = @"群公告";
-        cell.detailTextLabel.text = [self aboutSingleLinePreview:self.group.announcement];
-    } else {
-        cell.imageView.image = [UIImage systemImageNamed:@"info.circle"];
-        cell.textLabel.text = @"群简介";
-        cell.detailTextLabel.text = [self aboutSingleLinePreview:self.group.intro];
-    }
-    return cell;
-}
+// 本卡的行类型、组装、渲染与点击展开都在 IMChatDetailViewController+About.m。
+// 抽出去的原因：主文件加这张卡的第三行（大群说明）时触了 1500 行门禁（CODING_STYLE §7），
+// 而这张卡本就是个自洽单元。主文件只保留分区骨架里的调用点（sectionLayout / 行数 / 行高 / 出 cell / 点击分发）。
 
 /// 设置区行类型（顺序即展示顺序）。群聊比单聊多「我在本群的昵称/群备注」，管理员再多「群管理」。
 typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
@@ -884,18 +850,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     IMDetailSection kind = [self sectionKindAt:indexPath.section];
     if (kind == IMDetailSectionInfo && indexPath.row == 0) { [self editRemark]; return; }
-    if (kind == IMDetailSectionAbout) {
-        NSArray<NSNumber *> *kinds = [self aboutRowKinds];
-        if (indexPath.row >= (NSInteger)kinds.count) { return; }
-        if ((IMDetailAboutRow)kinds[indexPath.row].integerValue == IMDetailAboutRowAnnouncement) {
-            [IMGroupTextViewController presentFrom:self title:@"群公告"
-                                          subtitle:[IMGroupTextViewController announceSubtitleForMillis:self.group.announcementAt]
-                                              body:self.group.announcement];
-        } else {
-            [IMGroupTextViewController presentFrom:self title:@"群简介" subtitle:nil body:self.group.intro];
-        }
-        return;
-    }
+    if (kind == IMDetailSectionAbout) { [self handleAboutTapAtRow:indexPath.row]; return; }
     if (kind == IMDetailSectionSettings) {
         NSArray<NSNumber *> *kinds = [self settingsRowKinds];
         if (indexPath.row >= (NSInteger)kinds.count) { return; }
