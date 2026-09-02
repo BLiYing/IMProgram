@@ -206,6 +206,12 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (BOOL)scrollToLoadedConvSeq:(int64_t)convSeq;
 - (BOOL)openLocalWindowAroundConvSeq:(int64_t)convSeq;
 - (void)requestServerWindowAnchor:(int64_t)anchor isJump:(BOOL)isJump;
+
+/// 本地尾巴落后于服务端最新位点时，要一窗最新的（anchor=0）。本地已是最新则什么也不做。
+- (void)requestServerTailWindowIfBehind;
+
+/// 超级群轻量信号到达（IMSocketDidReceiveConvBumpNotification）：本会话则去取落后的那段。
+- (void)onConvBump:(NSNotification *)note;
 - (void)maybeLoadOlderOnScroll;
 - (void)maybeLoadNewerOnScroll;
 - (int64_t)maxInMemoryConvSeq; ///< 窗口内已上号消息的最大 conv_seq（主实现定义；+Socket 的"低于窗口末尾不上屏"守卫用）

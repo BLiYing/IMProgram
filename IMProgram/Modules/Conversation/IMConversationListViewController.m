@@ -492,6 +492,11 @@ static CGFloat const kIMRowLeading = 16;
     self.visible = YES;
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketMessage:)
                                                name:IMSocketDidReceiveMessageNotification object:nil];
+    // 超级群轻量信号（conv_bump）→ 列表刷新。**必须显式订阅**：此前 iOS 收到 bump 会立刻补拉全文，
+    // 于是列表靠随之而来的 new_msg 间接刷新；改成"只推信号、正文按需取"之后那条间接链断了，
+    // 不订阅的话大群那一行会一直停在旧消息上（OFFLINE_BACKLOG_DESIGN §4.5）。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketMessage:)
+                                               name:IMSocketDidReceiveConvBumpNotification object:nil];
     // 已读回执（对端已读→我发的✓✓；本人多端已读→未读清零）也触发列表刷新。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketMessage:)
                                                name:IMSocketDidReceiveReadNotification object:nil];
@@ -536,7 +541,8 @@ static CGFloat const kIMRowLeading = 16;
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
     self.visible = NO;
-    for (NSNotificationName n in @[IMSocketDidReceiveMessageNotification, IMSocketDidReceiveReadNotification,
+    for (NSNotificationName n in @[IMSocketDidReceiveMessageNotification, IMSocketDidReceiveConvBumpNotification,
+                                   IMSocketDidReceiveReadNotification,
                                    IMSocketDidReceiveGroupEventNotification, IMSocketDidUpdateConversationNotification,
                                    IMSocketDidApplyMsgOpNotification, IMSocketDidRemoveMessageNotification,
                                    IMSocketDidChangeStateNotification, IMSocketDidReceivePresenceNotification,
@@ -714,7 +720,9 @@ static CGFloat const kIMRowLeading = 16;
         if (![self performDatabaseOperation:^(IMDatabase *database) {
             synced = [database syncedConvSeqForConv:c.convID];
         }]) { return; }
-        [IMSocketManager.sharedManager trackConversation:c.convID syncedSeq:synced];
+        // isSuper 决定 max_gap=0：超级群正文只在打开会话时按需拉，连上时永不自动补拉
+        // （SUPERGROUP_DESIGN §5 早有此规定，OFFLINE_BACKLOG_DESIGN §4.5 把它落到 sync 帧上）。
+        [IMSocketManager.sharedManager trackConversation:c.convID syncedSeq:synced isSuper:c.isSuper];
     }
 }
 

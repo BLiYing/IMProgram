@@ -1,0 +1,253 @@
+#import <XCTest/XCTest.h>
+
+#import "IMBacklogTracker.h"
+#import "IMDatabase.h"
+#import "IMDatabase+Ranges.h"
+#import "IMMessageModel.h"
+
+/// 离线积压的两块地基（设计见 IMServer/docs/design/OFFLINE_BACKLOG_DESIGN.md）：
+///   ① `IMBacklogTracker`——连接级簿记（超级群 / head / 缺口 / 回执合批）；
+///   ② `IMDatabase (Ranges)`——「本地有哪几段」的区间清单。
+///
+/// 为什么这两处值得单独钉：它们的错法**全是静默的**。区间合并少并一次 → "本地齐全"永远判 false →
+/// 搜索一律改走服务端、离线集体降级；缺口标记该消没消 → 反过来，明明缺着却当齐全，
+/// 于是拿一段残缺数据去回答"整个会话"的问题。两种都不会崩、不会报错，只是答案悄悄不对。
+@interface IMBacklogRangesTests : XCTestCase
+@end
+
+@implementation IMBacklogRangesTests {
+    IMDatabase *_db;
+    NSURL *_url;
+}
+
+static NSString * const kConv = @"g_backlog";
+static NSString * const kMe = @"me";
+
+- (void)setUp {
+    [super setUp];
+    NSString *name = [NSString stringWithFormat:@"im-backlog-test-%@.sqlite", NSUUID.UUID.UUIDString];
+    _url = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:name]];
+    _db = [[IMDatabase alloc] initWithFileURL:_url];
+    [_db useOwnerUserID:kMe];
+}
+
+- (void)tearDown {
+    [NSFileManager.defaultManager removeItemAtURL:_url error:NULL];
+    [super tearDown];
+}
+
+#pragma mark - 区间清单
+
+/// 造一条已落库的对端消息。
+- (void)seedMessageSeq:(int64_t)seq {
+    IMMessageModel *m = [IMMessageModel receivedMessageWithNewMsgData:@{
+        @"server_msg_id": [NSString stringWithFormat:@"s%lld", seq],
+        @"conv_id": kConv, @"from": @"peer", @"content": [NSString stringWithFormat:@"#%lld", seq],
+        @"content_type": @"text", @"conv_seq": @(seq), @"timestamp": @(1788000000000 + seq),
+    }];
+    [_db saveMessage:m];
+}
+
+/// 建出 im_conversation_local 那一行。
+///
+/// `updateHeadConvSeq:` 是 UPDATE 不是 UPSERT——行不存在就静默丢弃（刻意：会话列表
+/// 是 `SELECT *` 直出，凭空插占位行会变成界面上一条无名空会话）。测试不建行的话，
+/// 所有 head 断言都在空转：head 恒 0，`isConvComplete:` 因"上界未知"一律回 YES，
+/// 于是几条本该测出问题的用例**全都假绿**（2026-09-03 首次真跑单测才暴露）。
+- (void)seedConversationRow {
+    [self seedMessageSeq:1];
+}
+
+
+/// 把区间清单压成 "lo-hi,lo-hi" 便于断言。
+- (NSString *)rangesText {
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    for (NSArray<NSNumber *> *r in [_db rangesForConv:kConv]) {
+        [parts addObject:[NSString stringWithFormat:@"%lld-%lld",
+                          r.firstObject.longLongValue, r.lastObject.longLongValue]];
+    }
+    return [parts componentsJoinedByString:@","];
+}
+
+- (void)testRegisterAndMergeAdjacent {
+    [_db registerRangeInConv:kConv from:1 to:100];
+    XCTAssertEqualObjects([self rangesText], @"1-100");
+
+    // **相邻必须合并**：conv_seq 是连续整数，[1,100] 与 [101,200] 之间没有空隙。
+    // 不合并的话「本地齐全」判定会永远为假——拉全了也当作有缺口。
+    [_db registerRangeInConv:kConv from:101 to:200];
+    XCTAssertEqualObjects([self rangesText], @"1-200");
+
+    // 隔开的一段自成一格（中间 201..999 是真缺口）。
+    [_db registerRangeInConv:kConv from:1000 to:1100];
+    XCTAssertEqualObjects([self rangesText], @"1-200,1000-1100");
+
+    // 补上中段 → 三段并成一段，缺口消失。缺口只会收窄，不会扩大。
+    [_db registerRangeInConv:kConv from:201 to:999];
+    XCTAssertEqualObjects([self rangesText], @"1-1100");
+}
+
+- (void)testRegisterIsIdempotent {
+    // 幂等：重拉同一页（服务端超时重发、客户端退避重试）不该把清单撑大。
+    for (int i = 0; i < 5; i++) { [_db registerRangeInConv:kConv from:1 to:100]; }
+    XCTAssertEqualObjects([self rangesText], @"1-100");
+    // 被完全包含的子区间同样不改变结果。
+    [_db registerRangeInConv:kConv from:20 to:30];
+    XCTAssertEqualObjects([self rangesText], @"1-100");
+}
+
+- (void)testRegisterRejectsInvalidRange {
+    [_db registerRangeInConv:kConv from:1 to:100];
+    [_db registerRangeInConv:kConv from:50 to:10];  // hi<lo
+    [_db registerRangeInConv:kConv from:0 to:0];
+    XCTAssertEqualObjects([self rangesText], @"1-100", @"非法区间应被忽略而不是污染清单");
+}
+
+- (void)testCompletenessNeedsHead {
+    [self seedConversationRow];
+    // head 未知（从没收到过服务端最新位点）→ 按齐全处理：没有上界就无从判断缺什么，
+    // 保持改造前的行为，不能让一个未知量把所有会话打成"有缺口"。
+    XCTAssertTrue([_db isConvComplete:kConv]);
+
+    [_db updateHeadConvSeq:1000 forConv:kConv];
+    XCTAssertFalse([_db isConvComplete:kConv], @"head=1000 但本地一段都没有");
+
+    [_db registerRangeInConv:kConv from:1 to:999];
+    XCTAssertFalse([_db isConvComplete:kConv], @"尾巴差一条也不算齐全");
+
+    [_db registerRangeInConv:kConv from:1000 to:1000];
+    XCTAssertTrue([_db isConvComplete:kConv]);
+}
+
+- (void)testGappedLocalIsNotComplete {
+    [self seedConversationRow];
+    [_db updateHeadConvSeq:100000 forConv:kConv];
+    // 典型的大群积压形态：旧的一段 + 最新一段，中间十万条没下载。
+    [_db registerRangeInConv:kConv from:1 to:1200];
+    [_db registerRangeInConv:kConv from:99800 to:100000];
+    XCTAssertFalse([_db isConvComplete:kConv]);
+}
+
+- (void)testHeadIsMonotonic {
+    [self seedConversationRow];
+    [_db updateHeadConvSeq:500 forConv:kConv];
+    [_db updateHeadConvSeq:100 forConv:kConv]; // 乱序到达的旧快照
+    XCTAssertEqual([_db headConvSeqForConv:kConv], 500,
+                   @"head 只能前进——被拉回去会让「齐不齐」的判定来回抖");
+}
+
+- (void)testLegacyCursorBecomesFirstRange {
+    [self seedConversationRow];
+    // 老库兼容：升级前只有连续游标、没有区间行。反推出 [1, synced] 那一段，
+    // 否则所有老用户升级后会被判成"整个会话都有缺口"，本地搜索一夜之间全改走服务端。
+    [_db advanceSyncedConvSeqForConv:kConv toConvSeq:0]; // 先确保会话行存在（下面的 UPDATE 才有目标）
+    [_db registerRangeInConv:kConv from:1 to:10];
+    [_db updateHeadConvSeq:10 forConv:kConv];
+    XCTAssertTrue([_db isConvComplete:kConv]);
+}
+
+#pragma mark - 尾窗按连续段切
+
+- (NSString *)tailSeqsWithLimit:(NSInteger)limit {
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    for (IMMessageModel *m in [_db latestContiguousMessagesForConv:kConv limit:limit]) {
+        [parts addObject:[NSString stringWithFormat:@"%lld", m.convSeq]];
+    }
+    return [parts componentsJoinedByString:@","];
+}
+
+/// 大群积压的典型形态：本地只剩「一条旧岛」+「最新一段」，中间几万条没下载。
+/// 直接取最后 N 行会把旧岛一并取出 → 首窗横跨缺口，且窗口里最早一条变成 seq 1，
+/// `hasMoreAbove` 的 `earliest != 1` 判据据此认定"到会话开头了"，中间那几万条**永久**翻不回来。
+- (void)testTailWindowExcludesIslandAcrossGap {
+    [_db updateHeadConvSeq:1000 forConv:kConv];
+    [self seedMessageSeq:1];
+    for (int64_t q = 996; q <= 1000; q++) { [self seedMessageSeq:q]; }
+    [_db registerRangeInConv:kConv from:1 to:1];
+    [_db registerRangeInConv:kConv from:996 to:1000];
+
+    XCTAssertEqualObjects([self tailSeqsWithLimit:200], @"996,997,998,999,1000",
+                          @"尾窗只能给包含本地最新一条的那一段，缺口另一侧的旧岛不能混进来");
+}
+
+/// 中间被「为所有人删除」的那条不在本地库里，但它**下载过**（区间清单覆盖着它）——
+/// 那不是缺口，不该把段切断。Web 侧同一个坑的表现是首屏只剩一条系统消息（2026-09-03 实测）。
+- (void)testDeletedRowInsideRangeDoesNotSplitTail {
+    [_db updateHeadConvSeq:18 forConv:kConv];
+    for (int64_t q = 10; q <= 18; q++) { if (q != 14) { [self seedMessageSeq:q]; } }
+    [_db registerRangeInConv:kConv from:1 to:18];   // 1..18 都下载过，14 只是不成为消息
+
+    XCTAssertEqualObjects([self tailSeqsWithLimit:200], @"10,11,12,13,15,16,17,18",
+                          @"区间清单覆盖到的空号不是缺口，不能据此切断尾段");
+}
+
+/// 老库（从没登记过区间）必须维持改造前的行为，否则升级即空窗。
+- (void)testTailWindowFallsBackWithoutRanges {
+    for (int64_t q = 1; q <= 5; q++) { [self seedMessageSeq:q]; }
+    XCTAssertEqualObjects([self tailSeqsWithLimit:200], @"1,2,3,4,5");
+}
+
+#pragma mark - 连接级簿记
+
+- (void)testMaxGapBySuperFlag {
+    IMBacklogTracker *t = [IMBacklogTracker new];
+    XCTAssertEqual([t maxGapForConv:@"c1"], IMSyncMaxGap, @"普通会话按分水岭补齐");
+
+    [t setSuper:YES forConv:@"c1"];
+    XCTAssertEqual([t maxGapForConv:@"c1"], 0, @"超级群永不自动补拉（正文打开会话时才取）");
+
+    // 两个方向都要生效：只置不清会让一次错误标记永久粘住。
+    [t setSuper:NO forConv:@"c1"];
+    XCTAssertEqual([t maxGapForConv:@"c1"], IMSyncMaxGap);
+}
+
+- (void)testGapMarkAndClear {
+    IMBacklogTracker *t = [IMBacklogTracker new];
+    XCTAssertFalse([t hasGapForConv:@"c1"]);
+    [t markGapForConv:@"c1"];
+    XCTAssertTrue([t hasGapForConv:@"c1"]);
+    [t clearGapForConv:@"c1"];
+    XCTAssertFalse([t hasGapForConv:@"c1"]);
+}
+
+- (void)testReceiptsCoalesceToMaxPerConv {
+    IMBacklogTracker *t = [IMBacklogTracker new];
+    // 第一条要求安排一次 flush；同窗口内后续的都不再安排——否则每条消息各排一个定时器，
+    // 补拉 10 万条就是 10 万个定时器，合批也就白做了。
+    XCTAssertTrue([t queueReceiptForConv:@"c1" upTo:1]);
+    XCTAssertFalse([t queueReceiptForConv:@"c1" upTo:2]);
+    XCTAssertFalse([t queueReceiptForConv:@"c2" upTo:7]);
+
+    NSMutableDictionary<NSString *, NSNumber *> *sent = [NSMutableDictionary dictionary];
+    [t drainReceipts:^(NSString *convID, int64_t upTo) { sent[convID] = @(upTo); }];
+    XCTAssertEqualObjects(sent, (@{ @"c1": @2, @"c2": @7 }), @"每会话只发最大位点（回执是单调位点）");
+
+    // drain 后应清空，且可以重新安排下一轮。
+    NSMutableArray *second = [NSMutableArray array];
+    [t drainReceipts:^(NSString *convID, int64_t upTo) { [second addObject:convID]; }];
+    XCTAssertEqual(second.count, 0);
+    XCTAssertTrue([t queueReceiptForConv:@"c1" upTo:3]);
+}
+
+- (void)testReceiptsIgnoreInvalidInput {
+    IMBacklogTracker *t = [IMBacklogTracker new];
+    XCTAssertFalse([t queueReceiptForConv:@"" upTo:5]);
+    XCTAssertFalse([t queueReceiptForConv:@"c1" upTo:0]);
+}
+
+- (void)testResetClearsEverything {
+    IMBacklogTracker *t = [IMBacklogTracker new];
+    [t setSuper:YES forConv:@"c1"];
+    [t noteHead:99 forConv:@"c1"];
+    [t markGapForConv:@"c1"];
+    [t queueReceiptForConv:@"c1" upTo:5];
+
+    [t reset];
+    // 切账号必须清干净：同一个 conv_id 在两个账号下可见范围不同，串了就是错的。
+    XCTAssertEqual([t maxGapForConv:@"c1"], IMSyncMaxGap);
+    XCTAssertEqual([t headForConv:@"c1"], 0);
+    XCTAssertFalse([t hasGapForConv:@"c1"]);
+    XCTAssertTrue([t queueReceiptForConv:@"c1" upTo:1], @"reset 后应能重新安排 flush");
+}
+
+@end

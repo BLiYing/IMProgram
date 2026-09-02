@@ -2,6 +2,7 @@
 //  FMDB + SQLite 实现（线程安全用 FMDatabaseQueue）。接口见 IMDatabase.h，上层无感。
 
 #import "IMDatabase.h"
+#import "IMDatabase+Ranges.h"
 #import "IMConversation.h"
 #import "IMMessageModel.h"
 #import "IMUserCard.h"
@@ -62,6 +63,9 @@ static NSArray<IMMentionSpan *> *IMDecodeMentionSpans(NSString *raw);
     NSUInteger _accountGeneration;
     IMDatabaseAccountContext *_accountContext;
 }
+
+/// 供分文件 category 使用的内部访问器（ivar 对 category 不可见）。见 IMDatabase+Ranges.m。
+- (FMDatabaseQueue *)dbQueue { return _queue; }
 
 + (instancetype)sharedDatabase {
     static IMDatabase *instance;
@@ -155,6 +159,16 @@ static NSArray<IMMentionSpan *> *IMDecodeMentionSpans(NSString *raw);
         }
         [db executeUpdate:@"CREATE INDEX IF NOT EXISTS idx_local_owner_conv ON im_message_local(owner_uid,conv_id)"];
 
+        // 区间清单（IMServer/docs/design/OFFLINE_BACKLOG_DESIGN.md §4.2）：本地对某会话「有哪几段」。
+        // 一段一行而不是把数组塞进一个 TEXT 列：合并/查询都在 SQL 里做，且单行写失败不会污染整份清单。
+        if (![db executeUpdate:
+              @"CREATE TABLE IF NOT EXISTS im_conv_range_local ("
+               "owner_uid TEXT NOT NULL, conv_id TEXT NOT NULL, lo INTEGER NOT NULL, hi INTEGER NOT NULL,"
+               "PRIMARY KEY(owner_uid,conv_id,lo))"]) {
+            IMLogDatabase(@"区间清单建表失败: %@", db.lastErrorMessage);
+        }
+        [db executeUpdate:@"CREATE INDEX IF NOT EXISTS idx_conv_range_owner_conv ON im_conv_range_local(owner_uid,conv_id,lo)"];
+
         BOOL ok = [db executeUpdate:
             @"CREATE TABLE IF NOT EXISTS im_sent_file_local ("
              "owner_uid TEXT NOT NULL, server_msg_id TEXT NOT NULL, url TEXT NOT NULL,"
@@ -226,6 +240,13 @@ static NSArray<IMMentionSpan *> *IMDecodeMentionSpans(NSString *raw);
         if (![self column:@"mention_unread" existsInTable:@"im_conversation_local" db:db]) {
             if (![db executeUpdate:@"ALTER TABLE im_conversation_local ADD COLUMN mention_unread INTEGER NOT NULL DEFAULT 0"]) {
                 IMLogDatabase(@"迁移失败：im_conversation_local 补列 mention_unread 未成功: %@", db.lastErrorMessage);
+            }
+        }
+        // 服务端会话最新位点快照（离线积压：判"本地齐不齐"的上界、↓N 计数来源）。
+        // 必须持久化：冷启动首屏要先于任何网络请求判断该会话能不能用本地回答"整会话问题"。
+        if (![self column:@"head_conv_seq" existsInTable:@"im_conversation_local" db:db]) {
+            if (![db executeUpdate:@"ALTER TABLE im_conversation_local ADD COLUMN head_conv_seq INTEGER NOT NULL DEFAULT 0"]) {
+                IMLogDatabase(@"迁移失败：im_conversation_local 补列 head_conv_seq 未成功: %@", db.lastErrorMessage);
             }
         }
 
@@ -398,14 +419,18 @@ static NSArray<IMMentionSpan *> *IMDecodeMentionSpans(NSString *raw);
 - (void)writeCachedConversations:(NSArray<IMConversation *> *)conversations {
     NSString *owner = [self ownerUserID];
     [_queue inTransaction:^(FMDatabase *db, BOOL *rollback) {
-        // HTTP 会话快照只描述列表状态，不能抹掉 WebSocket 已连续同步到的位置。
+        // HTTP 快照只描述列表状态，不能抹掉 WS 侧攒下的位点。**head_conv_seq 与 synced 一样要保**
+        // （2026-09-03 修，缘由见 IMDatabase+Ranges.h 的 updateHeadConvSeq:）：本方法 DELETE 全表
+        // 再逐行 INSERT，列表每刷新一次就走一遍，不保就等于 head 永远是 0。
         NSMutableDictionary<NSString *, NSNumber *> *syncCursors = [NSMutableDictionary dictionary];
+        NSMutableDictionary<NSString *, NSNumber *> *heads = [NSMutableDictionary dictionary];
         FMResultSet *cursorRS = [db executeQuery:
-            @"SELECT conv_id,synced_conv_seq FROM im_conversation_local WHERE owner_uid=?", owner];
+            @"SELECT conv_id,synced_conv_seq,head_conv_seq FROM im_conversation_local WHERE owner_uid=?", owner];
         while ([cursorRS next]) {
             NSString *convID = [cursorRS stringForColumn:@"conv_id"] ?: @"";
             if (convID.length > 0) {
                 syncCursors[convID] = @([cursorRS longLongIntForColumn:@"synced_conv_seq"]);
+                heads[convID] = @([cursorRS longLongIntForColumn:@"head_conv_seq"]);
             }
         }
         [cursorRS close];
@@ -417,14 +442,15 @@ static NSArray<IMMentionSpan *> *IMDecodeMentionSpans(NSString *raw);
         [conversations enumerateObjectsUsingBlock:^(IMConversation *c, NSUInteger idx, BOOL *stop) {
             if (c.convID.length == 0) { return; }
             BOOL ok = [db executeUpdate:
-                @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,is_super,peer,peer_nickname,peer_avatar_url,peer_remark,last_content,last_from,last_from_nickname,last_sys_segments,last_recalled,last_content_type,last_caption,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq,synced_conv_seq,remark,mention_unread) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,is_super,peer,peer_nickname,peer_avatar_url,peer_remark,last_content,last_from,last_from_nickname,last_sys_segments,last_recalled,last_content_type,last_caption,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq,synced_conv_seq,remark,mention_unread,head_conv_seq) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 owner, c.convID, @(idx), @(c.isGroup), c.name ?: @"", c.avatarURL ?: @"",
                 @(c.memberCount), @(c.isSuper), c.peer ?: @"", c.peerNickname ?: @"", c.peerAvatarURL ?: @"", c.peerRemark ?: @"",
                 c.lastContent ?: @"", c.lastFrom ?: @"", c.lastFromNickname ?: @"",
                 IMEncodeSysSegments(c.lastSysSegments), @(c.lastRecalled),
                 c.lastContentType ?: @"", c.lastCaption ?: @"", @(c.latestConvSeq), @(c.readSeq), @(c.peerReadSeq),
                 @(c.timestamp), @(c.unread), @(c.pinnedAt), @(c.muted), @(c.markedUnread), @(c.latestConvSeq),
-                syncCursors[c.convID] ?: @0, c.remark ?: @"", @(c.mentionUnread)];
+                syncCursors[c.convID] ?: @0, c.remark ?: @"", @(c.mentionUnread),
+                @(MAX(heads[c.convID].longLongValue, c.latestConvSeq))]; // 与快照 latest 取大：列表接口本身就带着服务端最新位点
             if (!ok) {
                 IMLogDatabase(@"写入会话缓存失败 owner=%@ conv=%@: %@", owner, c.convID, db.lastErrorMessage);
                 *rollback = YES;
@@ -641,90 +667,108 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
     return out.count > 0 ? out : nil;
 }
 
+/// 在**已开启的事务**里写一条接收消息 + 会话摘要 + （可选）推进连续同步位点。
+/// 返回 NO 表示调用方应回滚——`saveIncomingMessage:`（单条）与 `saveIncomingPage:`（整页）
+/// 共用它，从而保证两条路径的写入语义逐字相同（IMDatabase+SyncPage.m）。
+- (BOOL)writeIncomingMessage:(IMMessageModel *)message
+                       owner:(NSString *)owner
+      advancingSyncedConvSeq:(int64_t)syncedConvSeq
+                        inDB:(FMDatabase *)db {
+    NSNumber *rowID = [self existingRowIDFor:message owner:owner in:db];
+    BOOL inserted = rowID == nil;
+    BOOL ok = NO;
+    if (rowID) {
+        // UPDATE 保留手写：CASE WHEN 是**每列不同的业务保值策略**（本地量出的 file_name/thumb/
+        // 尺寸/时长优先于服务端回声的空值），不是可从列清单生成的样板；硬表驱动需发明策略 DSL，
+        // 反而难读难查。列名本身由建表/迁移同源保证存在，这里只依赖列名不定义列清单。
+        ok = [db executeUpdate:
+            @"UPDATE im_message_local SET server_msg_id=?,sender=?,recipient=?,content_type=?,content=?,"
+             "file_name=CASE WHEN LENGTH(?)>0 THEN ? ELSE file_name END,"
+             "file_size=CASE WHEN ?>0 THEN ? ELSE file_size END,"
+             // 媒体尺寸/时长同 file_size：本地发送端量出的值优先保留，服务端回声若为 0（老消息/老端）不覆盖。
+             "media_w=CASE WHEN ?>0 THEN ? ELSE media_w END,"
+             "media_h=CASE WHEN ?>0 THEN ? ELSE media_h END,"
+             "duration=CASE WHEN ?>0 THEN ? ELSE duration END,"
+             // thumb 同 file_name：本地发送端生成的模糊预览优先保留，服务端回声若为空不覆盖
+             // （否则重进会话拿不到 thumb，未下载卡片退回中性占位）。
+             "thumb=CASE WHEN LENGTH(?)>0 THEN ? ELSE thumb END,"
+             // waveform 同 thumb：本地录制端生成的振幅指纹优先保留（voice P0）。
+             "waveform=CASE WHEN LENGTH(?)>0 THEN ? ELSE waveform END,"
+             "conv_seq=?,timestamp=?,status=?,note=?,from_nickname=?,from_role=?,recalled_at=?,recalled_by=?,edited_at=?,pinned_at=?,reply_to_conv_seq=?,reply_snapshot=?,reply_to_from=?,forward_from=?,group_id=?,poster=? WHERE row_id=?",
+            message.serverMsgID ?: @"", message.from ?: @"", message.to ?: @"",
+            message.contentType ?: @"text", message.content ?: @"",
+            message.fileName ?: @"", message.fileName ?: @"", @(message.fileSize), @(message.fileSize),
+            @(message.mediaW), @(message.mediaW), @(message.mediaH), @(message.mediaH),
+            @(message.duration), @(message.duration),
+            message.thumb ?: @"", message.thumb ?: @"",
+            message.waveform ?: @"", message.waveform ?: @"",
+            @(message.convSeq), @(message.timestamp), @(message.status), message.note ?: @"",
+            message.fromNickname ?: @"", message.fromRole ?: @"", @(message.recalledAt), message.recalledBy ?: @"",
+            @(message.editedAt), @(message.pinnedAt), @(message.replyToConvSeq), message.replySnapshot ?: @"", message.replyToFrom ?: @"", message.forwardFrom ?: @"", message.groupID ?: @"", message.poster ?: @"", rowID];
+    } else {
+        // INSERT 列名串 + 值序列均由 +messageColumns × insertRowForMessage 同源生成：
+        // 新增字段只改"列清单一行 + 值映射一行"，列串漂移（当年 file_name 事故）结构上不可能。
+        // 列清单是运行期常量 → SQL 串与列序 dispatch_once 缓存一次；每条插入只构造值数组
+        //（同步 burst 可达 2 万+ 条，之前每条重建 30×2 数组/字典/两次 join 是纯浪费）。
+        static NSString *insertSQL;
+        static NSArray<NSString *> *insertColumns;
+        static dispatch_once_t once;
+        dispatch_once(&once, ^{
+            NSArray<NSArray<NSString *> *> *schema = [IMDatabase messageColumns];
+            NSMutableArray<NSString *> *names = [NSMutableArray arrayWithCapacity:schema.count];
+            NSMutableArray<NSString *> *marks = [NSMutableArray arrayWithCapacity:schema.count];
+            for (NSArray<NSString *> *c in schema) { [names addObject:c[0]]; [marks addObject:@"?"]; }
+            insertColumns = names;
+            insertSQL = [NSString stringWithFormat:@"INSERT INTO im_message_local (%@) VALUES (%@)",
+                         [names componentsJoinedByString:@","], [marks componentsJoinedByString:@","]];
+        });
+        NSDictionary<NSString *, id> *row = [self insertRowForMessage:message owner:owner];
+        NSAssert(row.count == insertColumns.count,
+                 @"messageColumns 与 insertRowForMessage 漂移：%lu 列 vs %lu 值",
+                 (unsigned long)insertColumns.count, (unsigned long)row.count);
+        NSMutableArray *values = [NSMutableArray arrayWithCapacity:insertColumns.count];
+        for (NSString *col in insertColumns) {
+            id v = row[col];
+            NSAssert(v, @"insertRowForMessage 缺列 %@ 的值", col);
+            // release 兜底绑 NULL（列数恒与 SQL 对齐）：可空列落 NULL、NOT NULL 列让 INSERT
+            // **显式报错**并落日志——绝不静默把列从语句里抠掉（那是 file_name 事故的安静变种）。
+            [values addObject:v ?: NSNull.null];
+        }
+        ok = [db executeUpdate:insertSQL withArgumentsInArray:values];
+    }
+    if (!ok) {
+        IMLogDatabase(@"保存消息失败 owner=%@ conv=%@: %@", owner, message.convID, db.lastErrorMessage);
+        return NO;
+    }
+    if (![self updateConversationForMessage:message owner:owner inserted:inserted inDB:db]) {
+        return NO;
+    }
+    if (syncedConvSeq > 0) {
+        if (![db executeUpdate:
+            @"UPDATE im_conversation_local SET synced_conv_seq=MAX(synced_conv_seq,?) WHERE owner_uid=? AND conv_id=?",
+            @(syncedConvSeq), owner, message.convID]) {
+            IMLogDatabase(@"消息与连续位置原子提交失败 owner=%@ conv=%@: %@", owner, message.convID, db.lastErrorMessage);
+            return NO;
+        }
+        // 区间清单同事务扩一格：位点推到哪，"我有哪几段"就得跟到哪
+        // （IMServer/docs/design/OFFLINE_BACKLOG_DESIGN.md §4.2）。漏了这一步，实时收到的那段
+        // 会被当成缺口——表现是"刚聊完的会话被判成本地不齐全"，于是搜索莫名其妙改走服务端。
+        if (!IMRegisterRangeInDB(db, owner, message.convID, syncedConvSeq, syncedConvSeq)) {
+            IMLogDatabase(@"区间扩展失败 owner=%@ conv=%@ seq=%lld: %@",
+                          owner, message.convID, syncedConvSeq, db.lastErrorMessage);
+            return NO;
+        }
+    }
+    return YES;
+}
+
 - (BOOL)saveIncomingMessage:(IMMessageModel *)message advancingSyncedConvSeq:(int64_t)syncedConvSeq {
     if (message.convID.length == 0) { return NO; }
     NSString *owner = [self ownerUserID];
     __block BOOL saved = NO;
     [_queue inTransaction:^(FMDatabase *db, BOOL *rollback) {
-        NSNumber *rowID = [self existingRowIDFor:message owner:owner in:db];
-        BOOL inserted = rowID == nil;
-        BOOL ok = NO;
-        if (rowID) {
-            // UPDATE 保留手写：CASE WHEN 是**每列不同的业务保值策略**（本地量出的 file_name/thumb/
-            // 尺寸/时长优先于服务端回声的空值），不是可从列清单生成的样板；硬表驱动需发明策略 DSL，
-            // 反而难读难查。列名本身由建表/迁移同源保证存在，这里只依赖列名不定义列清单。
-            ok = [db executeUpdate:
-                @"UPDATE im_message_local SET server_msg_id=?,sender=?,recipient=?,content_type=?,content=?,"
-                 "file_name=CASE WHEN LENGTH(?)>0 THEN ? ELSE file_name END,"
-                 "file_size=CASE WHEN ?>0 THEN ? ELSE file_size END,"
-                 // 媒体尺寸/时长同 file_size：本地发送端量出的值优先保留，服务端回声若为 0（老消息/老端）不覆盖。
-                 "media_w=CASE WHEN ?>0 THEN ? ELSE media_w END,"
-                 "media_h=CASE WHEN ?>0 THEN ? ELSE media_h END,"
-                 "duration=CASE WHEN ?>0 THEN ? ELSE duration END,"
-                 // thumb 同 file_name：本地发送端生成的模糊预览优先保留，服务端回声若为空不覆盖
-                 // （否则重进会话拿不到 thumb，未下载卡片退回中性占位）。
-                 "thumb=CASE WHEN LENGTH(?)>0 THEN ? ELSE thumb END,"
-                 // waveform 同 thumb：本地录制端生成的振幅指纹优先保留（voice P0）。
-                 "waveform=CASE WHEN LENGTH(?)>0 THEN ? ELSE waveform END,"
-                 "conv_seq=?,timestamp=?,status=?,note=?,from_nickname=?,from_role=?,recalled_at=?,recalled_by=?,edited_at=?,pinned_at=?,reply_to_conv_seq=?,reply_snapshot=?,reply_to_from=?,forward_from=?,group_id=?,poster=? WHERE row_id=?",
-                message.serverMsgID ?: @"", message.from ?: @"", message.to ?: @"",
-                message.contentType ?: @"text", message.content ?: @"",
-                message.fileName ?: @"", message.fileName ?: @"", @(message.fileSize), @(message.fileSize),
-                @(message.mediaW), @(message.mediaW), @(message.mediaH), @(message.mediaH),
-                @(message.duration), @(message.duration),
-                message.thumb ?: @"", message.thumb ?: @"",
-                message.waveform ?: @"", message.waveform ?: @"",
-                @(message.convSeq), @(message.timestamp), @(message.status), message.note ?: @"",
-                message.fromNickname ?: @"", message.fromRole ?: @"", @(message.recalledAt), message.recalledBy ?: @"",
-                @(message.editedAt), @(message.pinnedAt), @(message.replyToConvSeq), message.replySnapshot ?: @"", message.replyToFrom ?: @"", message.forwardFrom ?: @"", message.groupID ?: @"", message.poster ?: @"", rowID];
-        } else {
-            // INSERT 列名串 + 值序列均由 +messageColumns × insertRowForMessage 同源生成：
-            // 新增字段只改"列清单一行 + 值映射一行"，列串漂移（当年 file_name 事故）结构上不可能。
-            // 列清单是运行期常量 → SQL 串与列序 dispatch_once 缓存一次；每条插入只构造值数组
-            //（同步 burst 可达 2 万+ 条，之前每条重建 30×2 数组/字典/两次 join 是纯浪费）。
-            static NSString *insertSQL;
-            static NSArray<NSString *> *insertColumns;
-            static dispatch_once_t once;
-            dispatch_once(&once, ^{
-                NSArray<NSArray<NSString *> *> *schema = [IMDatabase messageColumns];
-                NSMutableArray<NSString *> *names = [NSMutableArray arrayWithCapacity:schema.count];
-                NSMutableArray<NSString *> *marks = [NSMutableArray arrayWithCapacity:schema.count];
-                for (NSArray<NSString *> *c in schema) { [names addObject:c[0]]; [marks addObject:@"?"]; }
-                insertColumns = names;
-                insertSQL = [NSString stringWithFormat:@"INSERT INTO im_message_local (%@) VALUES (%@)",
-                             [names componentsJoinedByString:@","], [marks componentsJoinedByString:@","]];
-            });
-            NSDictionary<NSString *, id> *row = [self insertRowForMessage:message owner:owner];
-            NSAssert(row.count == insertColumns.count,
-                     @"messageColumns 与 insertRowForMessage 漂移：%lu 列 vs %lu 值",
-                     (unsigned long)insertColumns.count, (unsigned long)row.count);
-            NSMutableArray *values = [NSMutableArray arrayWithCapacity:insertColumns.count];
-            for (NSString *col in insertColumns) {
-                id v = row[col];
-                NSAssert(v, @"insertRowForMessage 缺列 %@ 的值", col);
-                // release 兜底绑 NULL（列数恒与 SQL 对齐）：可空列落 NULL、NOT NULL 列让 INSERT
-                // **显式报错**并落日志——绝不静默把列从语句里抠掉（那是 file_name 事故的安静变种）。
-                [values addObject:v ?: NSNull.null];
-            }
-            ok = [db executeUpdate:insertSQL withArgumentsInArray:values];
-        }
-        if (!ok) {
-            IMLogDatabase(@"保存消息失败 owner=%@ conv=%@: %@", owner, message.convID, db.lastErrorMessage);
-            *rollback = YES;
-            return;
-        }
-        if (![self updateConversationForMessage:message owner:owner inserted:inserted inDB:db]) {
-            *rollback = YES;
-            return;
-        }
-        if (syncedConvSeq > 0 && ![db executeUpdate:
-            @"UPDATE im_conversation_local SET synced_conv_seq=MAX(synced_conv_seq,?) WHERE owner_uid=? AND conv_id=?",
-            @(syncedConvSeq), owner, message.convID]) {
-            IMLogDatabase(@"消息与连续位置原子提交失败 owner=%@ conv=%@: %@", owner, message.convID, db.lastErrorMessage);
-            *rollback = YES;
-            return;
-        }
-        saved = YES;
+        saved = [self writeIncomingMessage:message owner:owner advancingSyncedConvSeq:syncedConvSeq inDB:db];
+        if (!saved) { *rollback = YES; }
     }];
     return saved;
 }
@@ -1169,19 +1213,6 @@ const NSInteger kIMMessageWindowPageSize = 200;
     return out;
 }
 
-- (NSInteger)countIncomingInConv:(NSString *)convID afterConvSeq:(int64_t)afterConvSeq {
-    __block NSInteger n = 0;
-    NSString *owner = [self ownerUserID];
-    [_queue inDatabase:^(FMDatabase *db) {
-        FMResultSet *rs = [db executeQuery:
-            @"SELECT COUNT(*) AS n FROM im_message_local "
-             "WHERE owner_uid=? AND conv_id=? AND sender<>? AND conv_seq>?",
-            owner, convID, owner, @(afterConvSeq)];
-        if ([rs next]) { n = (NSInteger)[rs longForColumn:@"n"]; }
-        [rs close];
-    }];
-    return n;
-}
 
 /// im_message_local 行 → IMMessageModel 的**唯一映射**（列清单第③处，见 +messageColumns 注释）。
 /// messagesForConv / searchMessagesMatching 共用，杜绝两处映射漂移。SELECT * 名字取列，不受列序影响。

@@ -170,10 +170,6 @@ FOUNDATION_EXPORT const NSInteger kIMMessageWindowPageSize;
 /// 「来自」候选面板用：要拿发件人 uid，也要拿那条消息上的昵称/头像来显示。
 - (NSArray<IMMessageModel *> *)distinctSenderSamplesInConv:(NSString *)convID limit:(NSInteger)limit;
 
-/// 本会话中发件人非我、且 conv_seq > afterConvSeq 的条数。
-/// 窗口不在末尾时的「↓N」计数来源——那时内存里只有一段，数不出下方还有多少。
-/// ⚠️ 口径必须与 IMChatViewController 的 unreadBelowReadFrontier 一致（同一个 UI 上的同一个数字）。
-- (NSInteger)countIncomingInConv:(NSString *)convID afterConvSeq:(int64_t)afterConvSeq;
 
 /// 本地全文搜索（搜索功能 P0，纯本地）。convID 传 nil = 跨全部会话（首页全局搜索）；否则限该会话（会话内搜索）。
 /// 命中口径同后端 G4：text 消息 content 或任意消息 caption 子串（大小写不敏感）；排除撤回。

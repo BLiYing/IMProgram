@@ -15,6 +15,7 @@
 //  "内存里有全部消息"的地方都必须看 `windowAtTail`（新消息上屏、↓N 计数、发送后贴底）。
 
 #import "IMChatViewController+Private.h"
+#import "IMDatabase+Ranges.h"
 #import "IMMessageModel.h"
 #import "IMDatabase.h"
 #import "IMLog.h"
@@ -47,18 +48,63 @@ static const NSTimeInterval kIMWindowRequestTimeout = 6.0;
     NSInteger page = IMWindowPage();
     __block NSArray<IMMessageModel *> *msgs = @[];
     __block int64_t localMax = 0;
+    __block BOOL complete = YES;
     int64_t readSeq = self.entryReadSeq;
     BOOL hasUnread = self.entryUnread > 0 && readSeq > 0;
     NSString *convID = self.convID;
     [self performDatabaseOperation:^(IMDatabase *database) {
         msgs = hasUnread
             ? [database messagesForConv:convID aroundConvSeq:readSeq before:page / 4 after:page]
-            : [database latestMessagesForConv:convID limit:page];
+            : [database latestContiguousMessagesForConv:convID limit:page];
         localMax = [database maxConvSeqForConv:convID];
+        complete = [database isConvComplete:convID];
     }];
     int64_t loadedMax = 0;
     for (IMMessageModel *m in msgs) { if (m.convSeq > loadedMax) { loadedMax = m.convSeq; } }
     [self applyWindowMessages:msgs atTail:(localMax == 0 || loadedMax >= localMax)];
+    // **本地不齐就问服务端要最新一窗**（OFFLINE_BACKLOG_DESIGN §4.0②）。
+    // 离线积压被留成缺口的会话（超级群尤甚：max_gap=0，正文只在打开会话时取），本地尾巴可能
+    // 停在几天前甚至一条没有；只读本地的话，用户点进去看到的就是旧消息或空白，而那一页
+    // 服务端一直都在、只是没人去要。判据用区间清单 + head，普通会话 complete=YES，行为不变。
+    if (!complete) { [self requestServerTailWindowIfBehind]; }
+}
+
+/// 超级群 conv_bump：只有**本会话**才理会，其余一概不动。
+/// 取的是「最新一窗」而不是 sync_req——超级群 max_gap 恒 0，sync 只会回一个 too_long。
+- (void)onConvBump:(NSNotification *)note {
+    NSArray *items = note.userInfo[@"items"];
+    if (![items isKindOfClass:NSArray.class] || self.convID.length == 0) { return; }
+    BOOL hit = NO;
+    for (id it in items) {
+        if (![it isKindOfClass:NSDictionary.class]) { continue; }
+        NSString *cid = [it[@"conv_id"] isKindOfClass:NSString.class] ? it[@"conv_id"] : nil;
+        if (cid.length > 0 && [cid isEqualToString:self.convID]) { hit = YES; break; }
+    }
+    if (!hit) { return; }
+    // 用户正在看历史（窗口不在末尾）时**不要**把他拽到最新，只刷 ↓N——它按 head 算，
+    // 不依赖本地有没有下载；用户想看时点 ↓，那条路会去取。
+    if (!self.windowState.atTail) { [self updateJumpButton]; return; }
+    [self requestServerTailWindowIfBehind];
+}
+
+/// 本地尾巴落后于服务端最新位点 → 要一窗最新的（anchor=0 即"取最新"，PROTOCOL §6.11）。
+///
+/// 刻意不复用 `requestServerWindowAnchor:isJump:`：那条路把 `pendingAnchor` 当在途标志，
+/// 而 anchor=0 与"无在途"是同一个值，混用会让向上翻页的防重入判据失灵。
+- (void)requestServerTailWindowIfBehind {
+    if (IMSocketManager.sharedManager.state != IMSocketStateConnected) { return; }
+    if (self.windowState.pendingTail) { return; }
+    NSString *convID = self.convID;
+    __block int64_t localMax = 0;
+    [self performDatabaseOperation:^(IMDatabase *database) { localMax = [database maxConvSeqForConv:convID]; }];
+    int64_t head = [IMSocketManager.sharedManager headConvSeqForConv:convID];
+    if (head <= 0 || head <= localMax) { return; }   // 已经是最新的，或不知道最新在哪 → 不白跑
+    self.windowState.pendingTail = YES;
+    IMLogDebugWithTag(IMLogTagUI, @"chat_window_tail_request conv_id=%@ local_max=%lld head=%lld", convID, localMax, head);
+    [IMSocketManager.sharedManager requestWindowForConv:convID anchor:0 before:IMWindowPage() after:0];
+    __weak typeof(self) ws = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kIMWindowRequestTimeout * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{ ws.windowState.pendingTail = NO; });
 }
 
 /// **替换内存模型的唯一入口**：换窗 = 整段替换，不做多窗并存。
@@ -105,13 +151,24 @@ static const NSTimeInterval kIMWindowRequestTimeout = 6.0;
     __block NSArray<IMMessageModel *> *older = @[];
     NSString *convID = self.convID;
     [self performDatabaseOperation:^(IMDatabase *database) {
-        older = [database messagesForConv:convID beforeConvSeq:lo limit:page];
+        // **先问"本地这一段从哪开始"，再决定能不能用本地**（OFFLINE_BACKLOG_DESIGN §4.7）。
+        //
+        // 直接 `messagesForConv:beforeConvSeq:lo` 在有缺口时会从缺口**另一侧**的旧岛捞消息：
+        // 比如本地有 [1,1200] 与 [99800,100000] 两段，用户翻到 99800 顶部，这一查会返回
+        // 1001..1200 并被接到 99800 上方——两段不相邻的历史被静默拼在一起，界面照常、
+        // 时间戳看着也递增，只是中间少了九万多条且没有任何提示。
+        //
+        // 段起点 < lo 说明"同一段里还有更早的"，此时本地可用；否则一律问服务端。
+        int64_t segStart = [database localSegmentStartInConv:convID containingSeq:lo];
+        if (segStart > 0 && segStart < lo) {
+            older = [database messagesForConv:convID beforeConvSeq:lo limit:page];
+        }
     }];
     if (older.count > 0) {
         [self prependMessages:older];
         return;
     }
-    [self requestServerWindowAnchor:lo isJump:NO]; // 本地到头 → 服务端可能还有
+    [self requestServerWindowAnchor:lo isJump:NO]; // 本段到头（或撞上缺口）→ 问服务端
 }
 
 /// 把更早的一段接到窗口顶部，并**保住用户当前看的那一行**。
@@ -220,6 +277,24 @@ static const NSTimeInterval kIMWindowRequestTimeout = 6.0;
                    hasAfter:(BOOL)hasAfter {
     if (![convID isEqualToString:self.convID]) { return; }
     // 锚点回显对不上 = 这帧是回更早那次开窗的（用户翻页途中又点了置顶横幅）。用了它会把窗口拉到错误的一段。
+    // anchor=0 是「要最新一窗」那一路（进会话本地不齐 / 点 ↓）：消息已落库，这里把窗口拉到尾段。
+    if (anchor == 0 && self.windowState.pendingTail) {
+        self.windowState.pendingTail = NO;
+        NSString *cid = self.convID;
+        NSInteger page = IMWindowPage();
+        __block NSArray<IMMessageModel *> *msgs = @[];
+        [self performDatabaseOperation:^(IMDatabase *database) {
+            msgs = [database latestContiguousMessagesForConv:cid limit:page];
+        }];
+        if (msgs.count > 0) {
+            [self applyWindowMessages:msgs atTail:YES];
+            [self.tableView reloadData];
+            [self scrollToAbsoluteBottom];
+            [self markVisibleRowsRead];
+            [self updateJumpButton];
+        }
+        return;
+    }
     if (anchor != self.windowState.pendingAnchor) { return; }
     BOOL wasJump = self.windowState.pendingIsJump;
     self.windowState.pendingAnchor = 0;
@@ -307,11 +382,14 @@ static const NSTimeInterval kIMWindowRequestTimeout = 6.0;
         NSString *convID = self.convID;
         NSInteger page = IMWindowPage();
         [self performDatabaseOperation:^(IMDatabase *database) {
-            msgs = [database latestMessagesForConv:convID limit:page];
+            msgs = [database latestContiguousMessagesForConv:convID limit:page];
         }];
         [self applyWindowMessages:msgs atTail:YES];
         [self.tableView reloadData];
     }
+    // 点 ↓ 的语义是"我要看最新的"。有缺口时本地尾巴未必就是最新，只回本地等于到不了真正的底
+    // （红点也清不掉）。与 Web 的 jumpToBottom 走 openConversation(latest, latest) 同口径。
+    [self requestServerTailWindowIfBehind];
     // 刚整窗替换过：全表只有估高（56），单发的 scrollToBottomAnimated 会大幅欠滚——
     // 3 万条群里实测停在真底部上方约 170 行，看起来像 ↓ 没起作用。必须走迭代收敛的精确贴底；
     // 反正内容全换了，滚动动画也没有"从哪滚到哪"的连续性可言。动画只留给"窗口没换、只是滚上去了"的情形。
@@ -376,13 +454,25 @@ static const NSTimeInterval kIMWindowRequestTimeout = 6.0;
         }
         return n;
     }
-    __block NSInteger n = 0;
     NSString *convID = self.convID;
     int64_t frontier = self.pendingReadSeq;
+    // **本地有缺口时不能数本地**（IMServer/docs/design/OFFLINE_BACKLOG_DESIGN.md §4.9 第 8 项）：
+    // 离线积压被留成缺口后，缺口里的消息根本没下载，数出来必然偏小——而 ↓N 少显示几百条
+    // 不会报错、界面照常，只是数字悄悄不对。改用服务端最新位点减去已滚入位点（O(1)、不碰消息表）。
+    // 代价是把本人消息与系统消息也算进去，在"缺口"这个场景下（积压成千上万）这点偏差无意义。
+    __block BOOL complete = YES;
+    __block NSInteger n = 0;
     [self performDatabaseOperation:^(IMDatabase *database) {
-        n = [database countIncomingInConv:convID afterConvSeq:frontier];
+        complete = [database isConvComplete:convID];
+        n = [database countIncomingInConv:convID afterConvSeq:frontier]; // 两条分支都可能用到（见下）
     }];
-    return n;
+    if (complete) { return n; }
+    int64_t head = [IMSocketManager.sharedManager headConvSeqForConv:convID];
+    // head 未知（老服务端 / 尚未收到过带 head 的响应）→ **退回数本地**，宁可偏小也不编造。
+    // 早先这里直接返回 0，等于「有缺口且不知道 head 时把 ↓N 藏起来」——那是另一种错，
+    // 且与 Web 的判据不一致（im-web/src/unreadBelow.ts 是两端共同口径，CHAT_UX §7）。
+    if (head <= 0) { return n; }
+    return head > frontier ? (NSInteger)(head - frontier) : 0;
 }
 
 #pragma mark - 辅助

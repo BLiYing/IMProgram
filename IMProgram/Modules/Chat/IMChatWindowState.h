@@ -39,6 +39,11 @@ NS_ASSUME_NONNULL_BEGIN
 /// 两者的 window_resp 形状完全相同，不记这一位就分不清该怎么用。
 @property (nonatomic, assign) BOOL pendingIsJump;
 
+/// 是否有一次「要最新一窗」（anchor=0）在途：进会话发现本地不齐、或点 ↓ 时发出。
+/// **不能复用 pendingAnchor**——anchor=0 与"无在途请求"是同一个值，混在一起会让
+/// 向上翻页的防重入判据失灵（每次滚到顶都重复发请求）。
+@property (nonatomic, assign) BOOL pendingTail;
+
 @end
 
 NS_ASSUME_NONNULL_END

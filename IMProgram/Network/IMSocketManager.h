@@ -16,6 +16,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// 收到任意会话的新消息时广播（主线程）。会话列表等非当前页可借此实时刷新（未读/最后一条），
 /// 不占用单一 delegate 槽。userInfo[kIMConvIDKey] 为该消息的会话 id。
 extern NSString * const IMSocketDidReceiveMessageNotification;
+/// 超级群轻量信号（conv_bump）：userInfo[@"items"] 是 `@[{conv_id, latest_seq, from, from_nickname, preview}]`。
+/// **不含正文**——会话列表据此刷那一行，正文等用户打开会话时才按需取
+/// （IMServer/docs/design/OFFLINE_BACKLOG_DESIGN.md §4.5）。
+extern NSString * const IMSocketDidReceiveConvBumpNotification;
 /// 收到好友关系变更帧（friend）时广播（主线程）：通讯录据此实时刷新"新的朋友"/好友列表，无需切页。
 /// **不含 event=remark**（备注名多端同步）——那一类不重拉列表，直接更新 IMRemarkStore
 /// 并由 IMRemarkStoreDidChangeNotification 通知各页，见 IMRemarkStore.h。
@@ -326,6 +330,18 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
 /// 同上，但用调用方提供的位点作为同步起点（取与内存值的较大者）。
 /// 上层从 IMDatabase 取已存最大 conv_seq 传入，实现 App 重启后的断点续传。
 - (void)trackConversation:(NSString *)convID syncedSeq:(int64_t)syncedSeq;
+
+/// 同上，并声明该会话是否为**超级群**（IMServer/docs/design/OFFLINE_BACKLOG_DESIGN.md §4.5）。
+/// 超级群的 `max_gap` 恒为 0 —— 正文只在打开会话时按需拉，连上时永不自动补拉
+/// （SUPERGROUP_DESIGN §5 早有此规定，这里把它落到 sync 帧上）。
+- (void)trackConversation:(NSString *)convID syncedSeq:(int64_t)syncedSeq isSuper:(BOOL)isSuper;
+
+/// 该会话的本地库是否**有缺口**（收到过服务端的 `too_long`）。
+/// 上层据此决定「整个会话」类问题（搜索/日历/媒体库）问本地还是问服务端。
+- (BOOL)hasGapInConv:(NSString *)convID;
+
+/// 服务端会话最新位点的内存快照（未知为 0）。↓N 计数与"还差多少"用它，不数本地。
+- (int64_t)headConvSeqForConv:(NSString *)convID;
 
 /// 按锚点向服务端开一窗（PROTOCOL §6.11）：anchor=0 取最新，>0 取该条附近。
 /// 结果落库后经 `socketManager:didReceiveWindowForConv:…` 一次性回调，**不推进同步位点**。

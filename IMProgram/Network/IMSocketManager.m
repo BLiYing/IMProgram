@@ -1,6 +1,9 @@
 //  IMSocketManager.m
 
 #import "IMSocketManager.h"
+#import "IMSocketManager+Private.h"
+#import "IMDatabase+Ranges.h"   // 区间清单：window_resp 落库后登记本窗覆盖段
+#import "IMBacklogTracker.h"
 #import "IMProtocol.h"
 #import "IMConversation.h"
 #import "IMMessageModel.h"
@@ -22,6 +25,7 @@ static const NSTimeInterval kIMReconnectCap   = 30.0; ///< 重连退避上限
 static NSString * const kIMErrorDomain = @"IMSocketManagerErrorDomain";
 
 NSString * const IMSocketDidReceiveMessageNotification = @"IMSocketDidReceiveMessageNotification";
+NSString * const IMSocketDidReceiveConvBumpNotification = @"IMSocketDidReceiveConvBumpNotification";
 NSString * const IMSocketDidReceiveFriendEventNotification = @"IMSocketDidReceiveFriendEventNotification";
 NSString * const IMSocketDidReceiveGroupEventNotification = @"IMSocketDidReceiveGroupEventNotification";
 NSString * const kIMGroupEventKey = @"groupEvent";
@@ -64,34 +68,7 @@ NSString * const IMSocketDidUpdateConversationNotification = @"IMSocketDidUpdate
 
 #pragma mark - IMSocketManager
 
-@interface IMSocketManager () <NSURLSessionWebSocketDelegate>
-@property (nonatomic, assign) IMSocketState state;
-@property (nonatomic, copy, nullable)   NSString *userID;
-- (void)cancelAllPendingSendsWithMessage:(NSString *)message;
-- (BOOL)applyMsgOpPayload:(NSDictionary *)payload advancingSyncedConvSeq:(int64_t)syncedConvSeq;
-- (BOOL)performDatabaseOperation:(void (^)(IMDatabase *database))operation;
-@end
-
-@implementation IMSocketManager {
-    dispatch_queue_t _queue;          ///< 串行队列：所有内部状态仅在此队列变更
-    NSURLSession *_session;
-    NSURLSessionWebSocketTask *_task;
-    NSString *_host;
-    int64_t   _seq;                   ///< 客户端单调自增请求号
-    BOOL      _manualClose;           ///< 用户主动断开，禁止自动重连
-    NSInteger _reconnectAttempts;
-    NSUInteger _connectionGeneration;  ///< 使旧登录请求/socket 回调在切账号或新重连后失效
-    IMDatabaseAccountContext *_databaseContext; ///< 与当前连接账号及激活代次绑定，拒绝 A→B→A 的迟到落库
-    dispatch_source_t _pingTimer;
-    NSMutableDictionary<NSString *, IMPendingSend *> *_pending;
-    NSMutableDictionary<NSString *, NSNumber *> *_syncedSeq; // conv_id -> 已连续同步完成的 conv_seq（非“见过的最大值”）
-    NSMutableSet<NSString *> *_trackedConvs;                 // 需在重连后增量同步的会话
-    NSMutableSet<NSString *> *_syncingConvs;                 // 已发出 sync_req、等待该会话响应，避免实时连发造成请求风暴
-    NSMutableDictionary<NSString *, NSNumber *> *_syncStalledUntil; // conv_id -> 该时刻(CFAbsoluteTime)前不再发 sync_req：
-                                                             // 整页处理完位点没动（落库持续失败/页内空洞）时热重试只会烧 CPU
-    NSMutableSet<NSString *> *_pendingOps;                   // 已发出、待确认的消息操作 client_msg_id（撤回/编辑/置顶），供失败回滚
-    NSArray<NSString *> *_watchedUsers;                      // 在线态关注全集：连接级易失态，重连成功后由本类自动重发（PROTOCOL §5.5）
-}
+@implementation IMSocketManager
 
 IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) {
     if (manualClose) { return IMSocketWakeActionNone; }
@@ -117,6 +94,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
         _pending = [NSMutableDictionary dictionary];
         _syncedSeq = [NSMutableDictionary dictionary];
         _trackedConvs = [NSMutableSet set];
+        _backlog = [IMBacklogTracker new];
         _syncingConvs = [NSMutableSet set];
         _syncStalledUntil = [NSMutableDictionary dictionary];
         _pendingOps = [NSMutableSet set];
@@ -182,6 +160,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
             // 新账号便会从过大的 since 开始，永久漏掉历史。
             [self->_syncedSeq removeAllObjects];
             [self->_trackedConvs removeAllObjects];
+            [self->_backlog reset];
             [self->_syncingConvs removeAllObjects];
             [self->_pendingOps removeAllObjects];
             @synchronized (self) { self->_watchedUsers = nil; } // 否则新账号连上会把上个账号的关注集重发出去
@@ -220,6 +199,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
         [self teardownSocket];
         [self->_syncedSeq removeAllObjects];
         [self->_trackedConvs removeAllObjects];
+        [self->_backlog reset];
         [self->_syncingConvs removeAllObjects];
         [self->_pendingOps removeAllObjects];
         @synchronized (self) { self->_watchedUsers = nil; } // 退出登录：下次登录由页面重新订阅，不沿用上一轮
@@ -424,23 +404,35 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
     } else if ([type isEqualToString:kIMTypeConvUpdate]) {
         [self handleConvUpdate:payload];
     } else if ([type isEqualToString:kIMTypeConvBump]) {
-        // 超级群轻量信号（2 万人量级）：服务端**不推全文**，只说「某会话最新到 seq 了」。
-        // 处理方式：对每个提到的会话直接发 sync_req 补拉——本端已同步位点由 trackConversation
-        // 维护，sendSyncReqForConvs: 会从那里续，落后多少补多少，不会重复也不会漏。
+        // 超级群轻量信号（2 万人量级）：服务端**不推全文**，只说「某会话最新到 seq 了」+ 一行极简预览。
         //
-        // 为什么不像 Web 那样只补"正开着的那个会话"：iOS 的会话列表预览取自本地库，
-        // 不补拉的话列表那一行会一直停在旧消息上（Web 是重新拉服务端会话列表，拿到的是权威预览）。
-        // 补拉的量由服务端分页兜住，且信号本就是合并过的（同会话一个窗口只来一条）。
+        // **2026-09-02 改**：此前收到 bump 就立刻 sync_req 补拉全文，理由是"iOS 列表预览取自本地库，
+        // 不补拉那一行会停在旧消息上"。但帧里本来就带了 from/from_nickname/preview——用它刷列表行即可，
+        // 不必为了一行预览把整段正文拉下来。旧做法让 iOS 在大群里持续全量补拉，正是
+        // OFFLINE_BACKLOG_DESIGN §4.5 要消除的那条路径（SUPERGROUP_DESIGN §5 本就规定"打开会话才拉正文"）。
         NSArray *items = [payload[@"items"] isKindOfClass:NSArray.class] ? payload[@"items"] : @[];
-        NSMutableArray<NSString *> *convs = [NSMutableArray arrayWithCapacity:items.count];
+        NSMutableArray<NSDictionary *> *bumps = [NSMutableArray arrayWithCapacity:items.count];
         for (id it in items) {
             if (![it isKindOfClass:NSDictionary.class]) continue;
             NSString *cid = [it[@"conv_id"] isKindOfClass:NSString.class] ? it[@"conv_id"] : nil;
-            if (cid.length > 0) [convs addObject:cid];
+            if (cid.length == 0) continue;
+            int64_t latest = [it[@"latest_seq"] longLongValue];
+            if (latest > 0) {
+                [_backlog noteHead:latest forConv:cid];
+                // 本地位点落后于服务端最新 → 这个会话现在有缺口（正文按需再取）。
+                if (latest > [self syncedSeqForConv:cid]) { [_backlog markGapForConv:cid]; }
+                [self performDatabaseOperation:^(IMDatabase *database) {
+                    [database updateHeadConvSeq:latest forConv:cid];
+                }];
+            }
+            [bumps addObject:it];
         }
-        if (convs.count > 0) {
-            IMLogSocket(@"conv_bump_received convs=%lu", (unsigned long)convs.count);
-            [self sendSyncReqForConvs:convs];
+        if (bumps.count > 0) {
+            IMLogSocket(@"conv_bump_received convs=%lu", (unsigned long)bumps.count);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidReceiveConvBumpNotification
+                                                                  object:self userInfo:@{ @"items": bumps }];
+            });
         }
     } else if ([type isEqualToString:kIMTypeCapabilitiesUpdate]) {
         // 账号级配置版本变更（自动下载策略，M4-7）：只广播，IMDownloadSettingsStore 据此重拉最新配置。
@@ -818,73 +810,6 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
                   syncAdvanceSeq:0];
 }
 
-/// 处理 sync_resp：按会话投递增量消息，并据服务端权威 covered_conv_seq 推进游标；has_more 时以新位点继续拉。
-/// 仅在 _queue 调用。
-///
-/// 死循环修复（2026-08-13）：服务端为做**按用户可见性过滤**（G2 history_visible 抬入群下界、「仅为我删除」
-/// 隐藏项）会在 conv_seq 序列里留下客户端永远拿不到的空洞。老逻辑只按「连续」推进，游标会永久卡在空洞前一位，
-/// 每 10s 空转重拉同一页（真机曾连刷一天多）。中间态：本页消息全部落库成功后，把游标直接推进到服务端断言
-/// 的 covered_conv_seq——它保证 (since, covered] 内每个序号要么已下发、要么对本人不可见。
-///
-/// 丢消息事务原子性修复（2026-08-25）：老逻辑「消息事务」与「游标事务」分成**两次**提交——中间进程被杀
-/// （sync burst 期间用户杀 App、系统 OOM、切账号），会出现「消息 A 事务已 commit 但 WAL 未 checkpoint
-/// 就丢，而游标事务后写入并保住」→ 游标越过 A，A 永久漏（真机 seq=416 案例复现）。改为**逐条**原子提交
-/// 游标：`saveIncomingMessage:advancingSyncedConvSeq:` 把消息行与游标推进合到同一 `inTransaction:` 里，
-/// 一条消息事务失败 → 游标绝不越过它。页尾若 `covered > 最后一条 seq`（服务端可见性空洞），再补一次
-/// `advanceSyncedConvSeqForConv:covered` 单事务，把空洞跨过——首条失败后 syncAdvanceSeq 传 0，
-/// 后续消息事务照落但不再动游标，游标停在最后成功一条上，靠 backoff 重拉。事务数不变（仍是每条一事务），
-/// 只是每事务多一次 im_conversation_local 主键 UPDATE，纳秒级。
-- (void)handleSyncResp:(NSDictionary *)data {
-    NSArray *convs = [data[@"conversations"] isKindOfClass:[NSArray class]] ? data[@"conversations"] : @[];
-    for (NSDictionary *conv in convs) {
-        if (![conv isKindOfClass:[NSDictionary class]]) { continue; }
-        NSString *convID = conv[@"conv_id"];
-        if (convID.length == 0) { continue; }
-        [_syncingConvs removeObject:convID];
-        int64_t pageStart = [self syncedSeqForConv:convID];
-        NSArray *messages = [conv[@"messages"] isKindOfClass:[NSArray class]] ? conv[@"messages"] : @[];
-        int64_t firstFailureSeq = 0; // 首个落库失败的下发序号（0=全部成功）
-        for (NSDictionary *md in messages) {
-            if (![md isKindOfClass:[NSDictionary class]]) { continue; }
-            IMMessageModel *m = [IMMessageModel receivedMessageWithNewMsgData:md];
-            // 首条失败后：后续消息仍照落库（利于本地缓存尽量满），但传 syncAdvanceSeq=0 → 不再原子推游标，
-            // 游标永远停在最后成功那一条 seq，保证「消息未落 → 游标绝不越过」的核心约束。
-            int64_t advSeq = (firstFailureSeq == 0 && m.convSeq > 0) ? m.convSeq : 0;
-            BOOL durable = [self processIncomingMessage:m fromSync:YES syncAdvanceSeq:advSeq];
-            if (!durable && firstFailureSeq == 0 && m.convSeq > 0) { firstFailureSeq = m.convSeq; }
-        }
-        // 权威覆盖位点：全部成功 → 若 covered > 已推进位点（存在可见性空洞未被消息事务带到位），补一次单事务
-        // 把游标推到 covered；有失败 → 不补，靠 backoff 重拉，游标停在最后成功一条上。
-        int64_t covered = [conv[@"covered_conv_seq"] longLongValue];
-        BOOL fullyDurable = (firstFailureSeq == 0);
-        int64_t currentSynced = [self syncedSeqForConv:convID];
-        if (fullyDurable && covered > currentSynced) {
-            [self updateSyncedSeqForConv:convID seq:covered];
-            [self performDatabaseOperation:^(IMDatabase *database) {
-                [database advanceSyncedConvSeqForConv:convID toConvSeq:covered]; // 跨过服务端可见性空洞
-            }];
-            currentSynced = covered;
-        }
-        if (fullyDurable) {
-            [_syncStalledUntil removeObjectForKey:convID];
-            // 只有真推进了才继续翻页；否则是空页/已追平，停手（避免 has_more 误设时空转）。
-            if (currentSynced > pageStart && [conv[@"has_more"] boolValue]) {
-                [self sendSyncReqForConvs:@[convID]];
-            }
-            continue;
-        }
-        // 落库有失败（典型：磁盘/上下文异常）：退避 10s 后从（可能已部分推进的）游标重拉，防热循环。
-        _syncStalledUntil[convID] = @(CFAbsoluteTimeGetCurrent() + 10);
-        IMLogSocket(@"sync stalled (durable save failed); backing off 10s conv=%@ synced=%lld first_fail=%lld",
-                    convID, [self syncedSeqForConv:convID], firstFailureSeq);
-        __weak typeof(self) weakSelf = self;
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(10 * NSEC_PER_SEC)), _queue, ^{
-            __strong typeof(weakSelf) self = weakSelf;
-            if (!self) { return; }
-            [self sendSyncReqForConvs:@[convID]]; // 到点重试；仍失败会再次退避，节奏 6 次/分钟
-        });
-    }
-}
 
 /// 统一处理收到的一条消息：落库、回执、投递 delegate。返回该消息是否**已持久化/已处理**
 /// （sync 路径据此判断能否安全把游标推过它）。仅在 _queue 调用。
@@ -1205,12 +1130,23 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
     return [obj isKindOfClass:[NSDictionary class]] ? obj : nil;
 }
 
-/// 回送送达回执（仅在 _queue 调用）。
+/// 排队一个 delivered 回执（只留最大位点），短窗口内合并成一帧（仅在 _queue 调用）。
+///
+/// 为什么可以合批：回执语义是"我已收到**到某个位点为止**"的单调位点，
+/// 服务端 `SetReadPosition`/送达广播都按最大值处理，合批零语义损失。
+/// 为什么必须合批：补拉 10 万条时逐条发就是 10 万个上行帧，服务端每帧还要做一次
+/// 群路由快照 + 成员鉴权——补拉越快，回执洪水越猛，两头互相拖（§2.3 / §4.8）。
 - (void)sendReceiptForConv:(NSString *)convID upTo:(int64_t)convSeq {
-    if (convID.length == 0) { return; }
-    [self sendEnvelopeType:kIMTypeReceipt
-                      data:@{ @"conv_id": convID, @"status": @"delivered", @"up_to_conv_seq": @(convSeq) }
-                completion:nil];
+    if (![_backlog queueReceiptForConv:convID upTo:convSeq]) { return; } // 已排过 flush 或无效入参
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kIMReceiptFlushDelay * NSEC_PER_SEC)), _queue, ^{
+        __strong typeof(weakSelf) self = weakSelf;
+        [self->_backlog drainReceipts:^(NSString *cid, int64_t upTo) {
+            [self sendEnvelopeType:kIMTypeReceipt
+                              data:@{ @"conv_id": cid, @"status": @"delivered", @"up_to_conv_seq": @(upTo) }
+                        completion:nil];
+        }];
+    });
 }
 
 #pragma mark - M2：已读回执 / 正在输入 / 在线状态
@@ -1330,15 +1266,43 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
     [self trackConversation:convID syncedSeq:0];
 }
 
+/// **不带 isSuper 的这一版不碰超级群标记**（2026-09-03 修）。
+/// 它此前转发 `isSuper:NO`，而聊天页进会话走的正是这一版——于是每进一次超级群，
+/// 标记就被清掉一次，该会话的 max_gap 从 0 退回 400，本该消除的自动补拉又回来了。
+/// 谁知道真值谁来写：会话列表拿的是服务端的 `c.isSuper`，聊天页不知道，就不该表态。
 - (void)trackConversation:(NSString *)convID syncedSeq:(int64_t)syncedSeq {
+    [self trackConversation:convID syncedSeq:syncedSeq isSuper:NO updatesSuperFlag:NO];
+}
+
+- (void)trackConversation:(NSString *)convID syncedSeq:(int64_t)syncedSeq isSuper:(BOOL)isSuper {
+    [self trackConversation:convID syncedSeq:syncedSeq isSuper:isSuper updatesSuperFlag:YES];
+}
+
+- (void)trackConversation:(NSString *)convID
+                syncedSeq:(int64_t)syncedSeq
+                  isSuper:(BOOL)isSuper
+         updatesSuperFlag:(BOOL)updatesSuperFlag {
     if (convID.length == 0) { return; }
     dispatch_async(_queue, ^{
         [self updateSyncedSeqForConv:convID seq:syncedSeq]; // 以持久化位点为起点（取较大值）
         [self->_trackedConvs addObject:convID];
+        if (updatesSuperFlag) { [self->_backlog setSuper:isSuper forConv:convID]; }
         if (self.state == IMSocketStateConnected) {
             [self sendSyncReqForConvs:@[convID]];
         }
     });
+}
+
+- (BOOL)hasGapInConv:(NSString *)convID {
+    __block BOOL gapped = NO;
+    dispatch_sync(_queue, ^{ gapped = [self->_backlog hasGapForConv:convID]; });
+    return gapped;
+}
+
+- (int64_t)headConvSeqForConv:(NSString *)convID {
+    __block int64_t head = 0;
+    dispatch_sync(_queue, ^{ head = [self->_backlog headForConv:convID]; });
+    return head;
 }
 
 /// 当前会话已同步到的最大 conv_seq（仅在 _queue 调用）。
@@ -1387,6 +1351,17 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
     BOOL hasAfter = [data[@"has_after"] boolValue];
     NSArray *messages = [data[@"messages"] isKindOfClass:NSArray.class] ? data[@"messages"] : @[];
     NSUInteger saved = 0;
+    // 本窗覆盖到的 conv_seq 上下界（含 msg_op 事件行与墓碑——它们同样是"服务端给过了"，
+    // 只是不成为气泡）。落库后据此登记区间，否则这一段永远进不了目录：`isConvComplete:`
+    // 对这类会话恒假、`localSegmentStartInConv:` 判不出可用段，上滑每页都得重问服务端。
+    int64_t spanLo = 0, spanHi = 0;
+    for (NSDictionary *md in messages) {
+        if (![md isKindOfClass:NSDictionary.class]) { continue; }
+        int64_t sq = [md[@"conv_seq"] longLongValue];
+        if (sq <= 0) { continue; }
+        if (spanLo == 0 || sq < spanLo) { spanLo = sq; }
+        if (sq > spanHi) { spanHi = sq; }
+    }
     for (NSDictionary *md in messages) {
         if (![md isKindOfClass:NSDictionary.class]) { continue; }
         IMMessageModel *m = [IMMessageModel receivedMessageWithNewMsgData:md];
@@ -1402,9 +1377,14 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
         [self performDatabaseOperation:^(IMDatabase *database) { [database saveMessage:m]; }];
         saved++;
     }
-    IMLogSocket(@"window_resp conv=%@ anchor=%lld found=%d rows=%lu saved=%lu before=%d after=%d",
+    if (convID.length > 0 && spanHi >= spanLo && spanLo > 0) {
+        [self performDatabaseOperation:^(IMDatabase *database) {
+            [database registerRangeInConv:convID from:spanLo to:spanHi];
+        }];
+    }
+    IMLogSocket(@"window_resp conv=%@ anchor=%lld found=%d rows=%lu saved=%lu before=%d after=%d span=[%lld,%lld]",
                 convID, anchor, anchorFound, (unsigned long)messages.count, (unsigned long)saved,
-                hasBefore, hasAfter);
+                hasBefore, hasAfter, spanLo, spanHi);
     __weak typeof(self) weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
         __strong typeof(weakSelf) self = weakSelf;
@@ -1416,6 +1396,9 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
     });
 }
 
+/// delivered 回执的合批窗口（秒）。理由见 IMBacklogTracker 头注释。
+static const NSTimeInterval kIMReceiptFlushDelay = 0.12;
+
 /// 为指定会话从各自已同步位点发一个 sync_req（仅在 _queue 调用）。
 - (void)sendSyncReqForConvs:(NSArray<NSString *> *)convIDs {
     NSMutableArray *cursors = [NSMutableArray array];
@@ -1423,7 +1406,10 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
     for (NSString *convID in convIDs) {
         if ([_syncingConvs containsObject:convID]) { continue; }
         if (_syncStalledUntil[convID].doubleValue > now) { continue; } // 退避期内不追加请求（处理空洞/落库失败的热循环）
-        [cursors addObject:@{ @"conv_id": convID, @"since_conv_seq": @([self syncedSeqForConv:convID]) }];
+        // max_gap：本次最多愿意补拉多深（OFFLINE_BACKLOG_DESIGN §4.4；取值规则见 IMBacklogTracker）。
+        [cursors addObject:@{ @"conv_id": convID,
+                              @"since_conv_seq": @([self syncedSeqForConv:convID]),
+                              @"max_gap": @([_backlog maxGapForConv:convID]) }];
         [_syncingConvs addObject:convID];
     }
     if (cursors.count == 0) { return; }

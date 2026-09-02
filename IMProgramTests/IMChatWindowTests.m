@@ -1,6 +1,7 @@
 #import <XCTest/XCTest.h>
 
 #import "IMDatabase.h"
+#import "IMDatabase+Ranges.h"   // countIncomingInConv: 等区间清单相关查询
 #import "IMMessageModel.h"
 
 /// 消息窗口的**本地库契约**（设计见 IMServer/docs/design/MESSAGE_WINDOW_DESIGN.md）。

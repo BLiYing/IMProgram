@@ -407,6 +407,11 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     // 任务2：消息被物理移除（为所有人删除 / 仅为我删除）→ 本会话则从列表删掉该条。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onMessageRemoved:)
                                                name:IMSocketDidRemoveMessageNotification object:nil];
+    // 超级群轻量信号：服务端**不推正文**，只说「某会话最新到 seq 了」（SUPERGROUP_DESIGN §5）。
+    // 正开着的那个会话必须自己去把落后的那段取回来，否则大群里对方发言当场不上屏，
+    // 要切走再切回来才看得到——最容易被当成"消息丢了"报上来（Web 侧 onConvBump 早已这么做）。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onConvBump:)
+                                               name:IMSocketDidReceiveConvBumpNotification object:nil];
     // 任务2：返回按钮全局未读徽标——其它会话来新消息 / 已读位点变化时刷新数字（本会话已排除，不受影响）。
     // 走合并入口：消息成批到达时每条一次全表 SUM(unread) 是主线程阻塞浪费，0.12s 合并（同会话列表）。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(scheduleBackUnreadBadgeRefresh)
