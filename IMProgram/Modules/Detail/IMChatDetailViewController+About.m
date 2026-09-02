@@ -40,9 +40,10 @@ typedef NS_ENUM(NSInteger, IMDetailAboutRow) {
 /// **不写具体人数**：上限是部署级配置，本行拿不到 server-config 的真值（详情页不依赖它），
 /// 硬编码就会与服务端口径分叉。满员告知行能写数字，是因为它本来就要判 serverConfig 才显示。
 - (NSString *)superGroupNoticeBody {
-    return @"1. 成员上限为超级群配额，成员列表分页加载\n"
+    return @"1. 成员上限为超级群配额；成员列表分页加载，搜索走服务端（不是本地过滤）\n"
            @"2. 已读回执、「正在输入」、成员在线态已关闭\n"
-           @"3. 群规模所致，无法改回普通群";
+           @"3. 成员进出不再产生群消息（「X 加入了群聊」「A 将 B 移出群聊」等）\n"
+           @"4. 群规模所致，无法改回普通群";
 }
 
 /// 折行/连续空白压成单行预览（详情页卡与横幅一致）。
@@ -65,7 +66,10 @@ typedef NS_ENUM(NSInteger, IMDetailAboutRow) {
     } else if (kind == IMDetailAboutRowSuper) {
         cell.imageView.image = [UIImage systemImageNamed:@"person.3.sequence"]; // 与满员告知行同图标
         cell.textLabel.text = @"大群";
-        cell.detailTextLabel.text = @"已关闭 3 项能力";
+        // N 数的是**被关掉的能力**：已读回执 / 正在输入 / 在线态 / 进出群消息 = 4。
+        // 全文里的第 1、4 条（上限、不可撤销）不是"关闭"，不计入。
+        // 改 superGroupNoticeBody 的列表时**记得同步这个数**（前身写死 3，加第 3 条时就对不上了）。
+        cell.detailTextLabel.text = @"已关闭 4 项能力";
     } else {
         cell.imageView.image = [UIImage systemImageNamed:@"info.circle"];
         cell.textLabel.text = @"群简介";

@@ -553,9 +553,10 @@ static NSInteger IMRuneCount(NSString *s) {
 - (NSAttributedString *)upgradeHintDetailText {
     IMServerConfigStore *cfg = IMServerConfigStore.shared;
     NSString *text = [NSString stringWithFormat:
-        @"1. 可容纳至 %ld 人，需联系管理员办理\n"
-        @"2. 升级后已读回执与「正在输入」不再显示\n"
-        @"3. 单向操作，升级后不可撤销\n"
+        @"1. 可容纳至 %ld 人；成员列表改为分页加载，搜索改走服务端\n"
+        @"2. 升级后已读回执、「正在输入」、成员在线态不再显示\n"
+        @"3. 升级后成员进出不再产生群消息（「X 加入了群聊」等）\n"
+        @"4. 单向操作，升级后不可撤销\n"
         @"点此复制群 ID", (long)cfg.maxSupergroupMembers];
     NSMutableParagraphStyle *ps = [[NSMutableParagraphStyle alloc] init];
     ps.lineSpacing = 4; // 分条之间撑开一点；系统默认几乎贴着，正是「上下间隔太小」的观感来源
