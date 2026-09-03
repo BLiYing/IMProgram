@@ -224,25 +224,93 @@ static const NSTimeInterval kIMWindowRequestTimeout = 6.0;
 
     // 行号与 windowState.messages 下标一一对应（numberOfRowsInSection 返回的就是它的 count，
     // 相册成员行只是高度为 0），故锚点的新行号 = 旧行号 + 本次插入条数，不必回数组里找。
-    CGFloat y = table.contentOffset.y;
-    NSInteger movedRow = anchor ? anchor.row + (NSInteger)older.count : NSNotFound;
-    if (anchor && movedRow < (NSInteger)self.windowState.messages.count) {
-        NSIndexPath *moved = [NSIndexPath indexPathForRow:movedRow inSection:0];
-        for (int pass = 0; pass < 3; pass++) {
-            [table layoutIfNeeded];
-            CGFloat topInset = table.adjustedContentInset.top;
-            CGFloat maxY = MAX(-topInset,
-                               table.contentSize.height - table.bounds.size.height + table.adjustedContentInset.bottom);
-            y = MIN(MAX([table rectForRowAtIndexPath:moved].origin.y - anchorScreenY, -topInset), maxY);
-            if (fabs(table.contentOffset.y - y) < 0.5) { break; } // 已经在正确位置
-            [table setContentOffset:CGPointMake(0, y) animated:NO];
-        }
-    } else {
-        [table layoutIfNeeded];
-    }
+    CGFloat y = [self restoreWindowAnchorRow:(anchor ? anchor.row + (NSInteger)older.count : NSNotFound)
+                                    toScreenY:anchorScreenY];
     IMLogDebugWithTag(IMLogTagUI, @"chat_window_prepend conv_id=%@ added=%lu rows=%lu earliest=%lld anchor_row=%ld offset_y=%.1f",
                       self.convID, (unsigned long)older.count, (unsigned long)self.windowState.messages.count,
                       earliest, (long)(anchor ? anchor.row : -1), y);
+    [self trimWindowToCapDroppingFromTop:NO];  // 内容加在顶部 → 裁底部（那一段在视口下方）
+}
+
+/// 把某一行摆回指定的**屏幕偏移**（距可视区顶多少 pt），返回最终 contentOffset.y。
+///
+/// 增删行之后保位的唯一正确做法：`contentSize` 的增量在自适应行高下是估高拼出来的、不可信
+/// （2026-09-03 上翻跳一段那个 bug 就是拿它做补偿）。按"同一行摆回同一个屏幕位置"则与估高无关。
+/// 迭代三轮的理由同 scrollToAbsoluteBottom：设完 offset 才会真正布局出锚点附近那几行，
+/// 它的 rect 随之变准，需要再修一遍才稳。row 传 NSNotFound / 越界即只做一次布局。
+- (CGFloat)restoreWindowAnchorRow:(NSInteger)row toScreenY:(CGFloat)screenY {
+    UITableView *table = self.tableView;
+    if (row == NSNotFound || row < 0 || row >= (NSInteger)self.windowState.messages.count) {
+        [table layoutIfNeeded];
+        return table.contentOffset.y;
+    }
+    NSIndexPath *ip = [NSIndexPath indexPathForRow:row inSection:0];
+    CGFloat y = table.contentOffset.y;
+    for (int pass = 0; pass < 3; pass++) {
+        [table layoutIfNeeded];
+        CGFloat topInset = table.adjustedContentInset.top;
+        CGFloat maxY = MAX(-topInset,
+                           table.contentSize.height - table.bounds.size.height + table.adjustedContentInset.bottom);
+        y = MIN(MAX([table rectForRowAtIndexPath:ip].origin.y - screenY, -topInset), maxY);
+        if (fabs(table.contentOffset.y - y) < 0.5) { break; } // 已经在正确位置
+        [table setContentOffset:CGPointMake(0, y) animated:NO];
+    }
+    return y;
+}
+
+/// 翻页之后把窗口裁回 kIMWindowMaxPages 页，**从远离用户的那一头裁**。
+///
+/// 与 `trimWindowIfOverlongAtTail` 分工不同，别混用：那个管的是「贴底收新消息时窗口只涨不缩」，
+/// 裁完会 `scrollToAbsoluteBottom`——用在正翻页的用户身上就是把人甩走。这个管翻页，
+/// 要求是**用户眼下看的那一行纹丝不动**。
+///
+/// - dropTop=NO（向上翻页，内容加在顶部）：裁底部。那些行在视口下方，上方内容位置不变，无需补偿。
+/// - dropTop=YES（向下翻页，内容加在底部）：裁顶部。上方行被移除会让整段内容上移，必须按锚点补回来。
+///
+/// 不裁的后果不是崩，是渐进劣化：先是每次追加的整表 reloadData 越来越慢（自适应行高下它是 O(n)），
+/// 其次是 ↓N 每帧 O(n) 扫描，最后才是内存。一路翻十万条就都摸到了。
+- (void)trimWindowToCapDroppingFromTop:(BOOL)dropTop {
+    NSInteger cap = kIMWindowMaxPages * IMWindowPage();
+    NSInteger overflow = (NSInteger)self.windowState.messages.count - cap;
+    if (overflow <= 0) { return; }
+    UITableView *table = self.tableView;
+
+    if (!dropTop) {
+        // 只裁已上号的行：conv_seq==0 是待发/失败的本地消息，属于"最新一段"，碰到就停。
+        NSInteger dropped = 0;
+        while (dropped < overflow) {
+            IMMessageModel *last = self.windowState.messages.lastObject;
+            if (!last || last.convSeq <= 0) { break; }
+            [self.windowState.seenConvSeqs removeObject:@(last.convSeq)];
+            [self.windowState.messages removeLastObject];
+            dropped++;
+        }
+        if (dropped == 0) { return; }
+        self.windowState.atTail = NO; // 窗口不再含本地最新一条
+        [table reloadData];           // 裁的行全在视口下方，contentOffset 不动、画面无跳变
+        [self updateJumpButton];
+        IMLogDebugWithTag(IMLogTagUI, @"chat_window_trim_paging conv_id=%@ from_top=0 dropped=%ld rows=%lu",
+                          self.convID, (long)dropped, (unsigned long)self.windowState.messages.count);
+        return;
+    }
+
+    NSIndexPath *anchor = table.indexPathsForVisibleRows.firstObject;
+    CGFloat anchorScreenY = anchor ? [table rectForRowAtIndexPath:anchor].origin.y - table.contentOffset.y : 0;
+    // 锚点本身若落在要裁掉的那一段里（用户滚得很快、视口已越过它），就别裁——
+    // 宁可这一轮窗口超标，也不能把用户正看着的行删掉。下一次翻页还会再来一次。
+    if (anchor && anchor.row < overflow) { return; }
+    NSRange drop = NSMakeRange(0, (NSUInteger)overflow);
+    for (NSUInteger i = 0; i < drop.length; i++) {
+        int64_t s = self.windowState.messages[i].convSeq;
+        if (s > 0) { [self.windowState.seenConvSeqs removeObject:@(s)]; }
+    }
+    [self.windowState.messages removeObjectsInRange:drop];
+    self.windowState.hasMoreAbove = YES; // 裁掉的那段仍在本地库/服务端，往上翻能拿回来
+    [table reloadData];
+    CGFloat y = [self restoreWindowAnchorRow:(anchor ? anchor.row - overflow : NSNotFound)
+                                   toScreenY:anchorScreenY];
+    IMLogDebugWithTag(IMLogTagUI, @"chat_window_trim_paging conv_id=%@ from_top=1 dropped=%ld rows=%lu offset_y=%.1f",
+                      self.convID, (long)overflow, (unsigned long)self.windowState.messages.count, y);
 }
 
 #pragma mark - 定位（三层回落的实现）
@@ -472,6 +540,7 @@ static const NSTimeInterval kIMWindowRequestTimeout = 6.0;
     IMLogDebugWithTag(IMLogTagUI, @"chat_window_append conv_id=%@ added=%lu rows=%lu at_tail=%d",
                       self.convID, (unsigned long)newer.count, (unsigned long)self.windowState.messages.count,
                       self.windowState.atTail);
+    [self trimWindowToCapDroppingFromTop:YES];  // 内容加在底部 → 裁顶部（需按锚点补位）
     return YES;
 }
 

@@ -222,6 +222,9 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 /// 从本地库往窗口尾部接一段（> hi 的最多一页）；返回是否真的接上了。
 - (BOOL)appendNewerFromLocalAfter:(int64_t)hi;
 
+/// 翻页后把窗口裁回上限，从远离用户的那一头裁（dropTop=YES 裁顶部并按锚点补位）。
+- (void)trimWindowToCapDroppingFromTop:(BOOL)dropTop;
+
 /// 本地已到尾、服务端还领先 → 按窗口末尾要更新的一段。
 - (void)requestServerNewerWindowAfter:(int64_t)hi;
 
