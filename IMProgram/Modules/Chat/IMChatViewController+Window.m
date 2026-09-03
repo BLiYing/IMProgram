@@ -151,18 +151,10 @@ static const NSTimeInterval kIMWindowRequestTimeout = 6.0;
     __block NSArray<IMMessageModel *> *older = @[];
     NSString *convID = self.convID;
     [self performDatabaseOperation:^(IMDatabase *database) {
-        // **先问"本地这一段从哪开始"，再决定能不能用本地**（OFFLINE_BACKLOG_DESIGN §4.7）。
-        //
-        // 直接 `messagesForConv:beforeConvSeq:lo` 在有缺口时会从缺口**另一侧**的旧岛捞消息：
-        // 比如本地有 [1,1200] 与 [99800,100000] 两段，用户翻到 99800 顶部，这一查会返回
-        // 1001..1200 并被接到 99800 上方——两段不相邻的历史被静默拼在一起，界面照常、
-        // 时间戳看着也递增，只是中间少了九万多条且没有任何提示。
-        //
-        // 段起点 < lo 说明"同一段里还有更早的"，此时本地可用；否则一律问服务端。
-        int64_t segStart = [database localSegmentStartInConv:convID containingSeq:lo];
-        if (segStart > 0 && segStart < lo) {
-            older = [database messagesForConv:convID beforeConvSeq:lo limit:page];
-        }
+        // **段内取**（OFFLINE_BACKLOG_DESIGN §4.7）：只要与 lo 同属一段的更早消息。
+        // 光判"这一段里还有更早的"不够——段内剩余不足一页时，无下界的查询会径直翻过缺口，
+        // 把旧岛接到窗口顶部。下界收在 contiguousMessagesForConv: 里，返回空即本段到头。
+        older = [database contiguousMessagesForConv:convID beforeConvSeq:lo limit:page];
     }];
     if (older.count > 0) {
         [self prependMessages:older];
@@ -173,11 +165,24 @@ static const NSTimeInterval kIMWindowRequestTimeout = 6.0;
 
 /// 把更早的一段接到窗口顶部，并**保住用户当前看的那一行**。
 ///
-/// 做法是按 contentSize 的增量补偿 contentOffset。自适应行高下离屏行仍是估高（56），
-/// 故这个增量是近似值、可能有几十 pt 的偏差；胜在无论行高多离谱都不会把用户甩到别处。
+/// 保位按「**同一条消息**补偿」，不是按「插入前后 contentSize 之差」。
+///
+/// 差值法在自适应行高下必错，且错得很大（2026-09-03 用户实测：上翻到 9820 触发拉取，
+/// 回来后列表跳到 9891 才开始显示）。原因是 `reloadData` 会把**所有**行的高度打回
+/// `estimatedRowHeight`(56)，contentSize 的增量里既含新插的那 200 行，也含"旧行由真实高度
+/// 退回估高"的那部分差额；而真实气泡普遍比 56 矮，于是 delta 被高估几百上千 pt，
+/// 补偿过头就把用户甩到了更靠后的消息上。
+///
+/// 换成锚点法之后与估高无关：记下当前最靠上那一行**距可视区顶的偏移**，重建后把同一条消息
+/// 摆回同一个屏幕位置即可——不管它的 frame 在哪个坐标系里，差值是恒等的。
+/// 迭代两轮的理由同 `scrollToAbsoluteBottom`：设完 offset 后锚点上方那几行才被真正布局出来，
+/// 锚点的 rect 会再动一次，需要再修一遍才稳。
 - (void)prependMessages:(NSArray<IMMessageModel *> *)older {
-    CGFloat oldHeight = self.tableView.contentSize.height;
-    CGFloat oldOffsetY = self.tableView.contentOffset.y;
+    if (older.count == 0) { return; }
+    UITableView *table = self.tableView;
+    NSIndexPath *anchor = table.indexPathsForVisibleRows.firstObject;
+    CGFloat anchorScreenY = anchor ? [table rectForRowAtIndexPath:anchor].origin.y - table.contentOffset.y : 0;
+
     NSMutableArray<IMMessageModel *> *merged = [older mutableCopy];
     for (IMMessageModel *m in older) {
         if (m.convSeq > 0) { [self.windowState.seenConvSeqs addObject:@(m.convSeq)]; }
@@ -186,12 +191,29 @@ static const NSTimeInterval kIMWindowRequestTimeout = 6.0;
     self.windowState.messages = merged;
     int64_t earliest = [self earliestLoadedConvSeq];
     self.windowState.hasMoreAbove = (earliest != 1);
-    [self.tableView reloadData];
-    [self.tableView layoutIfNeeded];
-    CGFloat delta = self.tableView.contentSize.height - oldHeight;
-    [self.tableView setContentOffset:CGPointMake(0, oldOffsetY + delta) animated:NO];
-    IMLogDebugWithTag(IMLogTagUI, @"chat_window_prepend conv_id=%@ added=%lu rows=%lu earliest=%lld delta_y=%.1f",
-                      self.convID, (unsigned long)older.count, (unsigned long)self.windowState.messages.count, earliest, delta);
+    [table reloadData];
+
+    // 行号与 windowState.messages 下标一一对应（numberOfRowsInSection 返回的就是它的 count，
+    // 相册成员行只是高度为 0），故锚点的新行号 = 旧行号 + 本次插入条数，不必回数组里找。
+    CGFloat y = table.contentOffset.y;
+    NSInteger movedRow = anchor ? anchor.row + (NSInteger)older.count : NSNotFound;
+    if (anchor && movedRow < (NSInteger)self.windowState.messages.count) {
+        NSIndexPath *moved = [NSIndexPath indexPathForRow:movedRow inSection:0];
+        for (int pass = 0; pass < 3; pass++) {
+            [table layoutIfNeeded];
+            CGFloat topInset = table.adjustedContentInset.top;
+            CGFloat maxY = MAX(-topInset,
+                               table.contentSize.height - table.bounds.size.height + table.adjustedContentInset.bottom);
+            y = MIN(MAX([table rectForRowAtIndexPath:moved].origin.y - anchorScreenY, -topInset), maxY);
+            if (fabs(table.contentOffset.y - y) < 0.5) { break; } // 已经在正确位置
+            [table setContentOffset:CGPointMake(0, y) animated:NO];
+        }
+    } else {
+        [table layoutIfNeeded];
+    }
+    IMLogDebugWithTag(IMLogTagUI, @"chat_window_prepend conv_id=%@ added=%lu rows=%lu earliest=%lld anchor_row=%ld offset_y=%.1f",
+                      self.convID, (unsigned long)older.count, (unsigned long)self.windowState.messages.count,
+                      earliest, (long)(anchor ? anchor.row : -1), y);
 }
 
 #pragma mark - 定位（三层回落的实现）
@@ -316,7 +338,9 @@ static const NSTimeInterval kIMWindowRequestTimeout = 6.0;
     NSString *cid = self.convID;
     NSInteger page = IMWindowPage();
     [self performDatabaseOperation:^(IMDatabase *database) {
-        older = [database messagesForConv:cid beforeConvSeq:lo limit:page];
+        // 同样走段内取：服务端这一页若未填满（撞上可见下界等），无下界的查询会把旧岛捞上来。
+        // 本窗已在 handleWindowResp 登记过区间，故此刻 lo 所在段已包含刚拿回的这一段。
+        older = [database contiguousMessagesForConv:cid beforeConvSeq:lo limit:page];
     }];
     if (older.count > 0) { [self prependMessages:older]; }
     // **服务端的 has_before 是权威，且必须写在 prepend 之后**：prepend 里那句

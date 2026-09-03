@@ -196,6 +196,20 @@ BOOL IMRegisterRangeInDB(FMDatabase *db, NSString *owner, NSString *convID, int6
     return out;
 }
 
+- (NSArray<IMMessageModel *> *)contiguousMessagesForConv:(NSString *)convID
+                                           beforeConvSeq:(int64_t)beforeConvSeq
+                                                   limit:(NSInteger)limit {
+    if (beforeConvSeq <= 0) { return @[]; }
+    int64_t segStart = [self localSegmentStartInConv:convID containingSeq:beforeConvSeq];
+    if (segStart <= 0 || segStart >= beforeConvSeq) { return @[]; } // 无清单可依 / 本段已到头
+    NSArray<IMMessageModel *> *rows = [self messagesForConv:convID beforeConvSeq:beforeConvSeq limit:limit];
+    NSMutableArray<IMMessageModel *> *out = [NSMutableArray arrayWithCapacity:rows.count];
+    for (IMMessageModel *m in rows) {
+        if (m.convSeq >= segStart) { [out addObject:m]; } // 段外的一律丢弃：那是缺口另一侧的旧岛
+    }
+    return out;
+}
+
 - (NSInteger)countIncomingInConv:(NSString *)convID afterConvSeq:(int64_t)afterConvSeq {
     __block NSInteger n = 0;
     NSString *owner = [self ownerUserID];

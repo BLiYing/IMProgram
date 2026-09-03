@@ -181,6 +181,33 @@ static NSString * const kMe = @"me";
                           @"区间清单覆盖到的空号不是缺口，不能据此切断尾段");
 }
 
+/// 上翻一页只能给**同一段**里的更早消息。
+///
+/// 光判"这一段里还有更早的"不够：段内剩余不足一页时，无下界的查询会径直翻过缺口，
+/// 把旧岛接到窗口顶部——两段不相邻的历史被静默拼在一起，界面照常、时间戳看着也递增
+/// （2026-09-03 用户实测「上翻不连贯」的另一半成因）。
+- (void)testOlderPageStopsAtSegmentStart {
+    [_db updateHeadConvSeq:1000 forConv:kConv];
+    for (int64_t q = 1; q <= 5; q++) { [self seedMessageSeq:q]; }        // 旧岛
+    for (int64_t q = 996; q <= 1000; q++) { [self seedMessageSeq:q]; }   // 尾段
+    [_db registerRangeInConv:kConv from:1 to:5];
+    [_db registerRangeInConv:kConv from:996 to:1000];
+
+    // 段内只有 996..999 这 4 条比 1000 早，limit 给到 200 也不能把旧岛捞上来。
+    NSArray<IMMessageModel *> *page = [_db contiguousMessagesForConv:kConv beforeConvSeq:1000 limit:200];
+    NSMutableArray<NSString *> *seqs = [NSMutableArray array];
+    for (IMMessageModel *m in page) { [seqs addObject:[NSString stringWithFormat:@"%lld", m.convSeq]]; }
+    XCTAssertEqualObjects([seqs componentsJoinedByString:@","], @"996,997,998,999");
+}
+
+- (void)testOlderPageEmptyAtSegmentHead {
+    [_db updateHeadConvSeq:1000 forConv:kConv];
+    for (int64_t q = 996; q <= 1000; q++) { [self seedMessageSeq:q]; }
+    [_db registerRangeInConv:kConv from:996 to:1000];
+    // 已在本段最早一条：返回空 → 调用方据此改问服务端，而不是拿旧岛顶上。
+    XCTAssertEqual([_db contiguousMessagesForConv:kConv beforeConvSeq:996 limit:200].count, 0u);
+}
+
 /// 老库（从没登记过区间）必须维持改造前的行为，否则升级即空窗。
 - (void)testTailWindowFallsBackWithoutRanges {
     for (int64_t q = 1; q <= 5; q++) { [self seedMessageSeq:q]; }
