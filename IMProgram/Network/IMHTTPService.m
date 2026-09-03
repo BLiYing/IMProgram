@@ -887,6 +887,11 @@ const NSInteger IMFavoritesPageSize = 60;
     [self runOKRequest:req fallback:@"退出设备失败" completion:completion];
 }
 
+- (void)logoutWithToken:(NSString *)token completion:(void (^)(NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/logout" method:@"POST" token:token body:@{}];
+    [self runOKRequest:req fallback:@"退出登录失败" completion:completion];
+}
+
 - (void)revokeOtherDevicesWithToken:(NSString *)token
                          completion:(void (^)(NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/devices/revoke-others" method:@"POST" token:token body:@{}];

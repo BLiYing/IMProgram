@@ -26,23 +26,34 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
 + (instancetype)sharedService;
 
 /// 服务器地址 host:port（如 192.168.1.3:8080）。
-@property (nonatomic, copy) NSString *host;
+///
+/// atomic：与 password/refreshToken 同理——IMSocketManager 在其私有串行队列上读写它
+/// （fetchTokenForHost: 兜底对齐 host），各页面在主线程写。这条是**既有问题**（不是安全整改
+/// 引入的），顺手收口，免得四个跨线程字符串里两个 atomic 两个不是、下个人无从判断。
+@property (atomic, copy) NSString *host;
 
 /// 当前登录用的**公开句柄 username**（登录页设入 / 冷启动由 IMSessionStore 恢复）。
 /// 登录接口只认 username，**不认内部 ID**——App 内各处 loginWithUserID: 传的是内部 ID（作缓存键），
 /// 真正发出去的用户名取自这里。为空时回退用传入的 userID（仅兼容早期调用路径）。
-@property (nonatomic, copy, nullable) NSString *username;
+/// atomic：同 host（socket 队列读、主线程写）。
+@property (atomic, copy, nullable) NSString *username;
 
 /// 当前登录密码（**仅内存、仅登录页那一次请求用**；为空=走后端开发期免密直签）。
 /// 拿到 refresh_token 后即被清掉——不再落盘、也不再用于后续换 token（安全整改第 5 步）。
-@property (nonatomic, copy, nullable) NSString *password;
+///
+/// atomic：`obtainTokenForUserID:` 会在 **IMSocketManager 的私有串行队列**上读它（socket 换 token
+/// 走 fetchTokenForHost: → loginWithUserID:），而写它的是主线程（登录页 / SceneDelegate）。
+@property (atomic, copy, nullable) NSString *password;
 
 /// 续期凭据：绑定本设备会话，用来免密换取新的 access token（POST /api/v1/token/refresh）。
 /// 冷启动由 SceneDelegate 从 IMSessionStore 恢复；登录响应带回新值时本服务自行落盘。
 ///
 /// 与密码的关键差别：它**可吊销**。设备管理里注销这台、改密码后下线其它设备、封号，
 /// 三条既有通路都能让它立刻失效；而存密码时这三条对"保持登录"完全无效。
-@property (nonatomic, copy, nullable) NSString *refreshToken;
+///
+/// atomic：同 password——socket 的私有队列读、主线程写（登录响应落盘 / 登录页清零 /
+/// 续期被拒时清零）。本仓对这类跨线程属性的既有口径就是 atomic（currentToken 等）。
+@property (atomic, copy, nullable) NSString *refreshToken;
 
 /// 最近一次登录成功缓存的 JWT（只读）。供聊天页等无需重新登录即可发起 HTTP（如举报）。
 @property (atomic, copy, readonly, nullable) NSString *currentToken;
@@ -444,6 +455,17 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
 /// 踢下线某设备（吊销 sid + 断其活连接）。踢本机=退出登录。completion 在主线程回调。
 - (void)revokeDeviceWithToken:(NSString *)token sessionID:(NSString *)sessionID
                    completion:(void (^)(NSError *_Nullable error))completion;
+
+/// 退出登录：让服务端吊销**本次 token 所属的**那条设备会话（`POST /api/v1/logout`）。
+///
+/// **必须调**：只清本地凭据的话，服务端会话仍然有效——那枚绑定它的 `refresh_token` 在
+/// 180 天内还能换新 token，且这台设备会一直留在对方（另一台设备）看到的「已登录设备」列表里。
+/// 客户端不必知道自己的 sid，服务端从 bearer 里取。
+///
+/// 调用方按 **best-effort** 处理：无论成败都要继续清本地会话并回登录页——网络不好时不能把
+/// 用户困在"退不出去"的状态里（服务端会话最坏就是等它自然过期）。completion 在主线程回调。
+- (void)logoutWithToken:(NSString *)token
+             completion:(void (^)(NSError *_Nullable error))completion;
 
 /// 退出除本机外的全部设备（当前 sid 由 token 推导，无需入参）。completion 在主线程回调。
 - (void)revokeOtherDevicesWithToken:(NSString *)token

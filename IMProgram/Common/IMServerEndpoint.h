@@ -25,7 +25,15 @@ FOUNDATION_EXPORT NSString *const IMServerSchemeHTTPS;  ///< @"https"
 
 /// 当前协议：`IMServerSchemeHTTP`（默认）或 `IMServerSchemeHTTPS`。
 /// 赋非法值会被忽略并保持原值（宁可维持可用状态，也不要拼出畸形 URL）。
-@property (nonatomic, copy) NSString *scheme;
+///
+/// **atomic 是必需的，不是保险**：本类是进程级单例，`scheme` 在**多个队列**上被读——
+/// `IMSocketManager.openSocketWithToken:` 在其私有串行队列上读（建 ws URL），
+/// `IMMediaFullURL` 会在媒体下载 / 图片加载回调里被调到——而写它的是主线程（登录页、
+/// SceneDelegate 冷启动恢复）。`nonatomic` 的并发读写没有任何同步，读方可能拿到正在被替换、
+/// 已 release 的 NSString，表现为随机 EXC_BAD_ACCESS。
+/// 注意：本属性两个存取器都是**手写并加锁**的（见 .m）——只写 atomic 关键字不够，
+/// 自定义 setter 会绕过编译器合成的原子写。
+@property (atomic, copy) NSString *scheme;
 
 /// scheme == https。UI 提示与「已走过 https 就不再降级」之类的判断用。
 @property (nonatomic, readonly) BOOL isSecure;

@@ -19,6 +19,9 @@ static BOOL IMSplitHostPort(NSString *hostPort, NSString **outHost, NSNumber **o
 
 @implementation IMServerEndpoint
 
+// getter 与 setter 都手写了 → 编译器不再合成 ivar，必须显式 @synthesize。
+@synthesize scheme = _scheme;
+
 + (instancetype)shared {
     static IMServerEndpoint *instance;
     static dispatch_once_t onceToken;
@@ -32,11 +35,18 @@ static BOOL IMSplitHostPort(NSString *hostPort, NSString **outHost, NSNumber **o
     return self;
 }
 
+// scheme 的存取器**都手写并加锁**。只在 .h 写 atomic 是不够的：自定义 setter 会让编译器
+// 只合成 getter，写路径便绕过了原子性——那比 nonatomic 更糟，因为看起来是安全的。
+// 用 @synchronized 而不是引入新的锁类型，与本仓既有做法一致（IMHTTPService 的在途登录状态同款）。
+- (NSString *)scheme {
+    @synchronized (self) { return _scheme; }
+}
+
 - (void)setScheme:(NSString *)scheme {
     NSString *s = scheme.lowercaseString;
     // 非法值忽略：拼出 `null://host` 之后全端静默连不上，比维持旧值难查得多。
     if (![s isEqualToString:IMServerSchemeHTTP] && ![s isEqualToString:IMServerSchemeHTTPS]) { return; }
-    _scheme = [s copy];
+    @synchronized (self) { _scheme = [s copy]; }
 }
 
 - (BOOL)isSecure {

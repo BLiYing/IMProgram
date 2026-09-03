@@ -37,6 +37,21 @@
 > 后端 `gateway/client.go` 的 `handshakeToken` 两条并存（`?token=` 留给浏览器——浏览器 WebSocket API
 > 设不了请求头），**故本端改动不需要后端同版本才可用**，但仍需重启后端才生效。
 >
+> **`/code-review` 复查后的两条修复（2026-09-03，紧接第 5 步）**：
+> ① **跨线程属性改 `atomic`** —— `IMServerEndpoint.scheme` 与 `IMHTTPService` 的
+> `host`/`username`/`password`/`refreshToken`。这些值在 **IMSocketManager 的私有串行队列**上被读
+> （建 ws URL、socket 换 token），`IMMediaFullURL` 还会在媒体下载/图片加载回调里读 scheme，
+> 而写它们的是主线程（登录页、SceneDelegate、登录响应落盘）。`nonatomic` 的并发读写没有任何同步，
+> 读方可能拿到正在被替换、已 release 的 `NSString` → 随机 EXC_BAD_ACCESS。
+> 本仓对这类属性的既有口径本来就是 atomic（`currentToken`/`tokenUserID`/`lastLoginUserID`）。
+> **`scheme` 两个存取器都手写加锁**（`@synchronized` + `@synthesize`）——它有自定义校验 setter，
+> 只写 `atomic` 关键字会让编译器仅合成 getter，写路径反而绕过原子性，比 nonatomic 更骗人。
+> `host`/`username` 属于**既有问题**（非本轮引入），顺手收口，免得四个跨线程字符串两个 atomic 两个不是。
+> ② **退出登录调 `POST /api/v1/logout`** —— 只清本地不够：那枚绑定会话的 refresh_token 在 180 天内
+> 还能换新 token，且这台设备会一直留在别处看到的「已登录设备」里。**best-effort、不等回调**：
+> 请求在同步构造时已把 token 写进请求头，所以立刻清本地不影响它；网络不好也绝不把用户困在
+> "退不出去"的状态里，失败只记日志。被踢下线那条路径（`handleSessionRevoked`）不调——会话已被吊销。
+
 > **第 5 步同批（2026-09-03）：不再存账号明文密码，改存可吊销的续期凭据** ——
 > 原先 `IMSessionStore` 存的是**账号明文密码**，`SceneDelegate` 每次冷启动把它恢复进
 > `IMHTTPService` 重放去换 token。真正的问题不是"明文"，是**密码不可吊销**：App 里那套

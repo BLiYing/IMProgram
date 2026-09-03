@@ -22,6 +22,7 @@
 #import "UILabel+IMAvatar.h"
 #import "IMHTTPService.h"
 #import "IMUserCard.h"
+#import "IMLog.h"
 #import "IMGlass.h"
 #import "IMDropletHeaderMorph.h"
 #import "IMProgram-Swift.h"
@@ -571,6 +572,18 @@
 }
 
 - (void)logout {
+    // ① 先让服务端吊销本次设备会话。只清本地是不够的：那枚绑定该会话的 refresh_token 在 180 天内
+    //    还能换新 token，且这台设备会一直留在别处看到的「已登录设备」列表里（见 IMHTTPService
+    //    的 logoutWithToken: 注释）。请求在这里**同步构造完毕**（token 已写进请求头），
+    //    所以下面立刻清本地不会影响它。
+    // ② **best-effort、不等回调**：网络不好时不能把用户困在"退不出去"的状态里——本地一定要退掉，
+    //    服务端会话最坏就是等它自然过期。失败只记日志，不弹错、不阻塞。
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length > 0) {
+        [IMHTTPService.sharedService logoutWithToken:token completion:^(NSError *error) {
+            if (error) { IMLogWarnWithTag(IMLogTagHTTP, @"logout_revoke_failed: %@", error.localizedDescription ?: @"-"); }
+        }];
+    }
     [IMSocketManager.sharedManager disconnect];
     [IMHTTPService.sharedService invalidateToken];
     IMHTTPService.sharedService.refreshToken = nil; // 内存里的续期凭据也要清，否则本进程内还能换到 token
