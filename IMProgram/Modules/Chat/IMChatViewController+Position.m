@@ -29,6 +29,13 @@
 - (void)positionInitialIfNeeded {
     if (self.didInitialPosition || self.windowState.messages.count == 0) { return; }
     self.didInitialPosition = YES;
+    [self applyInitialPosition];
+}
+
+/// 定位那一下本身。抽出来是因为**还有第二个触发点**：有未读但那一段没下载时，
+/// 首屏只能先贴底，等 `window_req(anchor=读位点)` 回来换完窗口后要再定位一次
+/// （见 IMChatViewController+Window.m 的 pendingEntryAnchor 分支）。
+- (void)applyInitialPosition {
     NSInteger unreadRow = [self firstUnreadRow];
     if (unreadRow >= 0) {
         [self anchorRowToTop:unreadRow];
@@ -36,8 +43,12 @@
         // 无未读：估高会让 scrollToRow…Bottom 欠滚（stop 在真正底部之上）→ 用强制布局后的精确贴底。
         [self scrollToAbsoluteBottom];
     }
-    IMLogDebugWithTag(IMLogTagUI, @"chat_initial_position conv_id=%@ rows=%lu unread_row=%ld offset_y=%.1f content_h=%.1f viewport_h=%.1f",
+    // entry_unread / entry_read_seq 必须一起打：unread_row=-1 有**两种**完全不同的成因——
+    // "真没未读" 与 "有未读但那一段还没下载"，只看 -1 分不出来，排查时会一路走错方向
+    //（2026-09-03 就因此先怀疑了播种脚本）。
+    IMLogDebugWithTag(IMLogTagUI, @"chat_initial_position conv_id=%@ rows=%lu unread_row=%ld entry_unread=%ld entry_read_seq=%lld offset_y=%.1f content_h=%.1f viewport_h=%.1f",
                       self.convID, (unsigned long)self.windowState.messages.count, (long)unreadRow,
+                      (long)self.entryUnread, self.entryReadSeq,
                       self.tableView.contentOffset.y, self.tableView.contentSize.height,
                       self.tableView.bounds.size.height);
     // 定位后下一轮 runloop（自适应高度落定）再兜一次：无未读精确贴底；有未读重锚首条未读

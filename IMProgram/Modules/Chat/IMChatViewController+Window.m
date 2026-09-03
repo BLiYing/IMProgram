@@ -62,11 +62,40 @@ static const NSTimeInterval kIMWindowRequestTimeout = 6.0;
     int64_t loadedMax = 0;
     for (IMMessageModel *m in msgs) { if (m.convSeq > loadedMax) { loadedMax = m.convSeq; } }
     [self applyWindowMessages:msgs atTail:(localMax == 0 || loadedMax >= localMax)];
-    // **本地不齐就问服务端要最新一窗**（OFFLINE_BACKLOG_DESIGN §4.0②）。
-    // 离线积压被留成缺口的会话（超级群尤甚：max_gap=0，正文只在打开会话时取），本地尾巴可能
-    // 停在几天前甚至一条没有；只读本地的话，用户点进去看到的就是旧消息或空白，而那一页
-    // 服务端一直都在、只是没人去要。判据用区间清单 + head，普通会话 complete=YES，行为不变。
-    if (!complete) { [self requestServerTailWindowIfBehind]; }
+    if (complete) { return; }   // 本地齐全：本地怎么开窗就是最终结果，不必问服务端
+
+    // 本地不齐（离线积压留了缺口；超级群尤甚：max_gap=0，正文只在打开会话时取）。
+    // **要哪一窗取决于有没有未读**，这一步分错方向的代价很实在：
+    //   · 有未读 → 要**读位点附近**那一窗（OFFLINE_BACKLOG_DESIGN §4.0②），回来后停在首条未读；
+    //   · 无未读 → 要最新一窗，回来后贴底。
+    // 早先两种情况都去要最新一窗并贴底，于是有未读时不但把用户甩到最底，还顺手
+    // markVisibleRowsRead 把读位点一路推到 head——十万条未读**打开即清零**（2026-09-03 实测）。
+    if (!hasUnread) { [self requestServerTailWindowIfBehind]; return; }
+    // 分割线已经能在本地摆出来 → 首屏就是对的，不必再问（往下滚由 loadNewer 续）。
+    if ([self firstUnreadRow] >= 0) { return; }
+    [self requestServerEntryWindowAroundReadSeq:readSeq];
+}
+
+/// 有未读、但读位点附近那一段没下载 → 按**读位点**开一窗（anchor=readSeq）。
+///
+/// 锚点传的是位点而非某条消息的 seq：它未必对应任何一行（可能指向已删或对我不可见的消息）。
+/// 服务端的 window 查询按位点切分（LoadBefore(anchor) / LoadSince(anchor-1)），故成立；
+/// 回包的 anchor_found 在这条路上**无意义**，不据它弹「原消息已被删除」。
+- (void)requestServerEntryWindowAroundReadSeq:(int64_t)readSeq {
+    if (readSeq <= 0 || IMSocketManager.sharedManager.state != IMSocketStateConnected) { return; }
+    if (self.windowState.pendingEntryAnchor != 0) { return; }
+    self.windowState.pendingEntryAnchor = readSeq;
+    NSInteger page = IMWindowPage();
+    IMLogDebugWithTag(IMLogTagUI, @"chat_window_entry_request conv_id=%@ read_seq=%lld unread=%ld",
+                      self.convID, readSeq, (long)self.entryUnread);
+    [IMSocketManager.sharedManager requestWindowForConv:self.convID anchor:readSeq
+                                                 before:page / 4 after:page];
+    __weak typeof(self) ws = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kIMWindowRequestTimeout * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        // 只清自己那一次：值已变说明这帧早回来了、或又发了新的一次，别把别人的在途标志抹掉。
+        if (ws.windowState.pendingEntryAnchor == readSeq) { ws.windowState.pendingEntryAnchor = 0; }
+    });
 }
 
 /// 超级群 conv_bump：只有**本会话**才理会，其余一概不动。
@@ -299,7 +328,31 @@ static const NSTimeInterval kIMWindowRequestTimeout = 6.0;
                    hasAfter:(BOOL)hasAfter {
     if (![convID isEqualToString:self.convID]) { return; }
     // 锚点回显对不上 = 这帧是回更早那次开窗的（用户翻页途中又点了置顶横幅）。用了它会把窗口拉到错误的一段。
-    // anchor=0 是「要最新一窗」那一路（进会话本地不齐 / 点 ↓）：消息已落库，这里把窗口拉到尾段。
+    // 进会话「按读位点开窗」那一路：消息已落库，这里换成围绕读位点的一窗并**停在首条未读**。
+    // 与下面 anchor=0 那一路的关键差别：**不贴底、不强制标已读**——把用户按到最底再标已读，
+    // 等于替他把整段未读读完了。
+    if (anchor != 0 && anchor == self.windowState.pendingEntryAnchor) {
+        self.windowState.pendingEntryAnchor = 0;
+        NSString *cid = self.convID;
+        NSInteger page = IMWindowPage();
+        __block NSArray<IMMessageModel *> *msgs = @[];
+        __block int64_t localMax = 0;
+        [self performDatabaseOperation:^(IMDatabase *database) {
+            msgs = [database messagesForConv:cid aroundConvSeq:anchor before:page / 4 after:page];
+            localMax = [database maxConvSeqForConv:cid];
+        }];
+        if (msgs.count == 0) { return; }   // 服务端也没有可见内容 → 保持首屏，别把界面清空
+        int64_t loadedMax = 0;
+        for (IMMessageModel *m in msgs) { if (m.convSeq > loadedMax) { loadedMax = m.convSeq; } }
+        [self applyWindowMessages:msgs atTail:(localMax == 0 || loadedMax >= localMax)];
+        [self.tableView reloadData];
+        // 首屏那次若因窗口为空而早退，didInitialPosition 还是 NO；这里补上，免得随后的兜底
+        // positionInitialIfNeeded 再定位一次，把用户刚落好的位置又挪走。
+        self.didInitialPosition = YES;
+        [self applyInitialPosition];       // 停首条未读；分割线仍摆不出来时它自己回落到贴底
+        return;
+    }
+    // anchor=0 是「要最新一窗」那一路（无未读时进会话 / 点 ↓）：消息已落库，这里把窗口拉到尾段。
     if (anchor == 0 && self.windowState.pendingTail) {
         self.windowState.pendingTail = NO;
         NSString *cid = self.convID;

@@ -216,6 +216,13 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 /// 本地尾巴落后于服务端最新位点时，要一窗最新的（anchor=0）。本地已是最新则什么也不做。
 - (void)requestServerTailWindowIfBehind;
 
+/// 有未读但读位点附近那一段没下载时，按读位点开一窗；回来后停在首条未读（不贴底、不标已读）。
+- (void)requestServerEntryWindowAroundReadSeq:(int64_t)readSeq;
+
+/// 进会话定位那一下（停首条未读 / 否则贴底）。`positionInitialIfNeeded` 与
+/// 「读位点那一窗到达」两处共用。
+- (void)applyInitialPosition;
+
 /// 超级群轻量信号到达（IMSocketDidReceiveConvBumpNotification）：本会话则去取落后的那段。
 - (void)onConvBump:(NSNotification *)note;
 - (void)maybeLoadOlderOnScroll;

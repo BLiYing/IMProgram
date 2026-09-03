@@ -39,7 +39,14 @@ NS_ASSUME_NONNULL_BEGIN
 /// 两者的 window_resp 形状完全相同，不记这一位就分不清该怎么用。
 @property (nonatomic, assign) BOOL pendingIsJump;
 
-/// 是否有一次「要最新一窗」（anchor=0）在途：进会话发现本地不齐、或点 ↓ 时发出。
+/// 进会话「按读位点开窗」（anchor=entryReadSeq）在途的那个位点（0=无）。
+///
+/// 与 pendingTail **必须分开**：两者回来后的动作正相反——按读位点开窗是为了把未读分割线
+/// 那一段取下来、然后**停在首条未读**；取最新一窗是为了贴底。混用一个标志就会出现
+/// "本来要停在未读处，结果被甩到最底并顺手把一万条标成已读"（2026-09-03 实测）。
+@property (nonatomic, assign) int64_t pendingEntryAnchor;
+
+/// 是否有一次「要最新一窗」（anchor=0）在途：进会话发现本地不齐**且无未读**、或点 ↓ 时发出。
 /// **不能复用 pendingAnchor**——anchor=0 与"无在途请求"是同一个值，混在一起会让
 /// 向上翻页的防重入判据失灵（每次滚到顶都重复发请求）。
 @property (nonatomic, assign) BOOL pendingTail;
