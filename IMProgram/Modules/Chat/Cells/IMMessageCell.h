@@ -66,6 +66,14 @@ NS_ASSUME_NONNULL_BEGIN
 /// 但同样要用这段排法——做成类方法两边共用一份，不必为此改 IMBubbleCell 的继承。
 /// **注意**：failed 态在气泡内只出文字（"未发送 ✗"）；可点重发的红❗是**气泡外**另一件东西，
 /// 由基类的 `_failBadge` / `applyFailBadgeForMessage:mine:` 统一承载（IMBubbleCell 自持一份同款）。
+/// 传给 `peerReadSeq` 表示「本会话已关闭已读语义」——只排时间，**一个勾都不画**。
+///
+/// 大群（超级群）用它：整套已读位点在服务端就是关的（SUPERGROUP_DESIGN §4），2 万人"全员已读"
+/// 永不成立，群回执本也不向成员扇出，那个 ✓ 永远变不成 ✓✓。挂一个永不变化的钩子只会让人
+/// 以为消息没送到。走哨兵值而不是给每个 cell 的 configure 再加一个参数：这段排法有 6 处调用方，
+/// 而"该不该显示已读"只有会话级一个来源（IMChatViewController 的 peerReadSeqForCell）。
+FOUNDATION_EXPORT const int64_t kIMPeerReadSeqHidden;
+
 + (NSAttributedString *)attributedMetaForMessage:(IMMessageModel *)message
                                             mine:(BOOL)mine
                                      peerReadSeq:(int64_t)peerReadSeq;

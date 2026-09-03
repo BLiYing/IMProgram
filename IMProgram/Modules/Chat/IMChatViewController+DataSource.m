@@ -33,6 +33,10 @@
 
 @implementation IMChatViewController (DataSource)
 
+- (int64_t)peerReadSeqForCell {
+    return self.groupInfo.isSuper ? kIMPeerReadSeqHidden : self.peerReadSeq;
+}
+
 #pragma mark - UITableViewDataSource
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
@@ -120,7 +124,7 @@
         // 卡片主标题走**收方本地**显示名（备注 > 快照昵称）：VC 解析、cell 只渲染，与其它 cell 分工一致。
         IMContactCard *card = IMContactCardParse(m.content);
         NSString *shown = card ? [IMRemarkStore.sharedStore displayNameForUser:card.userID fallback:card.nickname] : nil;
-        [cc configureWithMessage:m mine:mineC displayName:shown peerReadSeq:self.peerReadSeq
+        [cc configureWithMessage:m mine:mineC displayName:shown peerReadSeq:[self peerReadSeqForCell]
                       senderName:(firstC ? [self senderNameForMessage:m] : nil)
                       senderRole:(firstC ? [self senderRoleForMessage:m] : IMGroupRoleMember)];
         [cc applyGroupAvatarURL:(grpC ? [self senderAvatarURLForMessage:m] : nil)
@@ -268,7 +272,7 @@
                       senderName:(firstV ? [self senderNameForMessage:m] : nil)
                       senderRole:(firstV ? [self senderRoleForMessage:m] : IMGroupRoleMember)
                        hasPlayed:played
-                     peerReadSeq:self.peerReadSeq
+                     peerReadSeq:[self peerReadSeqForCell]
                   isGroupContext:self.isGroupChat];
         [vc applyGroupAvatarURL:(grpV ? [self senderAvatarURLForMessage:m] : nil)
                            seed:(m.from ?: @"")
@@ -324,7 +328,7 @@
         [img configureWithMessage:m
                           fullURL:imgFullURL
                         posterURL:(m.poster.length > 0 ? [self fullMediaURL:m.poster] : nil)
-                             mine:mineI peerReadSeq:self.peerReadSeq
+                             mine:mineI peerReadSeq:[self peerReadSeqForCell]
                      previewImage:previewI senderName:senderNameI senderRole:senderRoleI];
         [img applyGroupAvatarURL:(grpI ? [self senderAvatarURLForMessage:m] : nil)
                             seed:(m.from ?: @"") name:(grpI ? [self senderNameForMessage:m] : nil)
@@ -468,7 +472,7 @@
     cell.mentionSpans = [self mentionSpansForMessage:m];        // 片段优先：位置随消息走，不查成员表
     cell.captionMentionSpans = [self mentionSpansForCaption:m];
     cell.searchHighlightKeyword = self.searchState.searchKeyword; // 搜索态命中词高亮（非搜索态为 nil）
-    [cell configureWithMessage:m mine:mine peerReadSeq:self.peerReadSeq
+    [cell configureWithMessage:m mine:mine peerReadSeq:[self peerReadSeqForCell]
                      dayHeader:[self dayHeaderForRow:indexPath.row]
             showsUnreadDivider:showsDivider
                     senderName:senderName

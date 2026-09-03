@@ -80,6 +80,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) int64_t maxReadReported; // 已上报的最大已读 conv_seq（可见即读，单调不回退）
 @property (nonatomic, assign) int64_t pendingReadSeq;  // 已滚入视口的最大 conv_seq（节流后上报）
 @property (nonatomic, assign) int64_t peerReadSeq;     // 对端已读位点（用于「已读」双勾）
+
 @property (nonatomic, strong) IMPresence *peerPresence; // 对端在线态（快照 + presence 帧增量更新）
 @property (nonatomic, strong, nullable) NSTimer *presenceTickTimer; // 在线态定时重算（租约到期无事件，须自己叫醒，见 startPresenceTick）
 @property (nonatomic, assign) IMSocketState connState; // 连接态（与在线点共同决定标题）
@@ -201,6 +202,11 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (void)flashRowAtIndexPath:(NSIndexPath *)ip; ///< 定位高亮一闪（+MediaFlow.m 定义，+Window.m 调用）
 
 // 消息窗口（+Window.m）：
+/// 传给 cell 的已读位点：大群恒为 `kIMPeerReadSeqHidden`（不画勾），其余同 `peerReadSeq`。
+/// 单独一个访问器而不是就地改 `peerReadSeq`：后者是"对端读到哪"的事实，
+/// 不该被"要不要显示"污染——群资料迟到时它还要保持可回滚。
+- (int64_t)peerReadSeqForCell;
+
 - (void)loadInitialWindow;
 - (void)applyWindowMessages:(NSArray<IMMessageModel *> *)msgs atTail:(BOOL)atTail;
 - (BOOL)scrollToLoadedConvSeq:(int64_t)convSeq;
