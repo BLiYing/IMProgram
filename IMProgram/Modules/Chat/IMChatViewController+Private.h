@@ -219,6 +219,12 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 /// 有未读但读位点附近那一段没下载时，按读位点开一窗；回来后停在首条未读（不贴底、不标已读）。
 - (void)requestServerEntryWindowAroundReadSeq:(int64_t)readSeq;
 
+/// 从本地库往窗口尾部接一段（> hi 的最多一页）；返回是否真的接上了。
+- (BOOL)appendNewerFromLocalAfter:(int64_t)hi;
+
+/// 本地已到尾、服务端还领先 → 按窗口末尾要更新的一段。
+- (void)requestServerNewerWindowAfter:(int64_t)hi;
+
 /// 进会话定位那一下（停首条未读 / 否则贴底）。`positionInitialIfNeeded` 与
 /// 「读位点那一窗到达」两处共用。
 - (void)applyInitialPosition;

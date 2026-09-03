@@ -68,6 +68,14 @@ BOOL IMRegisterRangeInDB(FMDatabase *db, NSString *owner, NSString *convID, int6
                                            beforeConvSeq:(int64_t)beforeConvSeq
                                                    limit:(NSInteger)limit;
 
+/// 段内向下翻一页：只取**与 afterConvSeq 同属一段**的更新消息；该段之后没有了就返回空。
+/// 与 `contiguousMessagesForConv:beforeConvSeq:limit:` 对称，理由同——本地按段存，
+/// 无上界的查询会径直翻过缺口把下一段接上来，两段不相邻的历史被静默拼在一起。
+/// 调用方据「返回空」判断本段到头，改问服务端。
+- (NSArray<IMMessageModel *> *)contiguousMessagesForConv:(NSString *)convID
+                                            afterConvSeq:(int64_t)afterConvSeq
+                                                   limit:(NSInteger)limit;
+
 /// 以下这组原先声明在 IMDatabase.h（主类接口）里，实现却在本分类——编译器据此判定
 /// 「category 实现了一个主类也会实现的方法」（-Wobjc-protocol-method-implementation），
 /// 而这种重复在运行期谁生效是未定义的。声明与实现放同一处才对。

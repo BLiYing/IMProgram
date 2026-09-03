@@ -200,6 +200,34 @@ static NSString * const kMe = @"me";
     XCTAssertEqualObjects([seqs componentsJoinedByString:@","], @"996,997,998,999");
 }
 
+/// 向下翻页同理：本段剩余不足一页时不能翻过缺口把下一段接上来。
+/// 现场形状取自用户实测的「20000人大群」：进会话按读位点开窗拿到 [99970,100219]，
+/// 本地另有一段很早的旧岛，服务端 head 还在 110019——往下滑到 100219 就该问服务端，
+/// 而不是把旧岛/下一段接到窗口尾部。
+- (void)testNewerPageStopsAtSegmentEnd {
+    [_db updateHeadConvSeq:110019 forConv:kConv];
+    for (int64_t q = 1; q <= 5; q++) { [self seedMessageSeq:q]; }              // 旧岛
+    for (int64_t q = 99970; q <= 100219; q++) { [self seedMessageSeq:q]; }     // 进会话那一窗
+    for (int64_t q = 110015; q <= 110019; q++) { [self seedMessageSeq:q]; }    // 实时到达的更新一段
+    [_db registerRangeInConv:kConv from:1 to:5];
+    [_db registerRangeInConv:kConv from:99970 to:100219];
+    [_db registerRangeInConv:kConv from:110015 to:110019];
+
+    // 段内 100216..100219 还剩 3 条；limit 给 200 也不能把 110015 那一段捞进来。
+    NSArray<IMMessageModel *> *page = [_db contiguousMessagesForConv:kConv afterConvSeq:100216 limit:200];
+    NSMutableArray<NSString *> *seqs = [NSMutableArray array];
+    for (IMMessageModel *m in page) { [seqs addObject:[NSString stringWithFormat:@"%lld", m.convSeq]]; }
+    XCTAssertEqualObjects([seqs componentsJoinedByString:@","], @"100217,100218,100219");
+}
+
+- (void)testNewerPageEmptyAtSegmentTail {
+    [_db updateHeadConvSeq:110019 forConv:kConv];
+    for (int64_t q = 99970; q <= 100219; q++) { [self seedMessageSeq:q]; }
+    [_db registerRangeInConv:kConv from:99970 to:100219];
+    // 已在本段最后一条：返回空 → 调用方据此改问服务端（此前这里会一直判"到底了"，翻不动）。
+    XCTAssertEqual([_db contiguousMessagesForConv:kConv afterConvSeq:100219 limit:200].count, 0u);
+}
+
 - (void)testOlderPageEmptyAtSegmentHead {
     [_db updateHeadConvSeq:1000 forConv:kConv];
     for (int64_t q = 996; q <= 1000; q++) { [self seedMessageSeq:q]; }

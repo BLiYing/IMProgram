@@ -39,6 +39,12 @@ NS_ASSUME_NONNULL_BEGIN
 /// 两者的 window_resp 形状完全相同，不记这一位就分不清该怎么用。
 @property (nonatomic, assign) BOOL pendingIsJump;
 
+/// 向下翻页「按窗口末尾要更新一段」（anchor=窗口最大 seq）在途的那个位点（0=无）。
+///
+/// 有缺口的会话（超级群尤甚）向下那段**等不到 sync 来补**——sync 只会回 too_long，
+/// 于是不向服务端要就永远翻不过去（实测：进会话停在首条未读后往下滑，到窗口末尾就撞墙）。
+@property (nonatomic, assign) int64_t pendingNewerAnchor;
+
 /// 进会话「按读位点开窗」（anchor=entryReadSeq）在途的那个位点（0=无）。
 ///
 /// 与 pendingTail **必须分开**：两者回来后的动作正相反——按读位点开窗是为了把未读分割线

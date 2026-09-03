@@ -210,6 +210,39 @@ BOOL IMRegisterRangeInDB(FMDatabase *db, NSString *owner, NSString *convID, int6
     return out;
 }
 
+/// 包含 seq 的那一段的**终点**；seq 不在任何段内返回 0。与 localSegmentStartInConv: 对称。
+- (int64_t)localSegmentEndInConv:(NSString *)convID containingSeq:(int64_t)seq {
+    if (convID.length == 0 || seq <= 0) { return 0; }
+    NSString *owner = [self ownerUserID];
+    __block int64_t end = 0;
+    [self.dbQueue inDatabase:^(FMDatabase *db) {
+        FMResultSet *rs = [db executeQuery:
+            @"SELECT hi FROM im_conv_range_local WHERE owner_uid=? AND conv_id=? AND lo<=? AND hi>=? LIMIT 1",
+            owner, convID, @(seq), @(seq)];
+        if ([rs next]) { end = [rs longLongIntForColumn:@"hi"]; }
+        [rs close];
+    }];
+    return end;
+}
+
+- (NSArray<IMMessageModel *> *)contiguousMessagesForConv:(NSString *)convID
+                                            afterConvSeq:(int64_t)afterConvSeq
+                                                   limit:(NSInteger)limit {
+    if (afterConvSeq <= 0) { return @[]; }
+    int64_t segEnd = [self localSegmentEndInConv:convID containingSeq:afterConvSeq];
+    if (segEnd <= 0) {
+        // 无清单可依（老库从没登记过区间）→ 维持改造前行为，直接取下一页。
+        return [self messagesForConv:convID aroundConvSeq:afterConvSeq before:0 after:limit];
+    }
+    if (segEnd <= afterConvSeq) { return @[]; }   // 本段已到头
+    NSArray<IMMessageModel *> *rows = [self messagesForConv:convID aroundConvSeq:afterConvSeq before:0 after:limit];
+    NSMutableArray<IMMessageModel *> *out = [NSMutableArray arrayWithCapacity:rows.count];
+    for (IMMessageModel *m in rows) {
+        if (m.convSeq <= segEnd) { [out addObject:m]; } // 段外的一律丢弃：那是缺口另一侧的下一段
+    }
+    return out;
+}
+
 - (NSInteger)countIncomingInConv:(NSString *)convID afterConvSeq:(int64_t)afterConvSeq {
     __block NSInteger n = 0;
     NSString *owner = [self ownerUserID];

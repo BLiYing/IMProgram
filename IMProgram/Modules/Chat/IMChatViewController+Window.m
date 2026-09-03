@@ -328,6 +328,16 @@ static const NSTimeInterval kIMWindowRequestTimeout = 6.0;
                    hasAfter:(BOOL)hasAfter {
     if (![convID isEqualToString:self.convID]) { return; }
     // 锚点回显对不上 = 这帧是回更早那次开窗的（用户翻页途中又点了置顶横幅）。用了它会把窗口拉到错误的一段。
+    // 向下翻页那一路：消息已落库，这里把它接到窗口尾部（与本地那条路同一段逻辑）。
+    if (anchor != 0 && anchor == self.windowState.pendingNewerAnchor) {
+        self.windowState.pendingNewerAnchor = 0;
+        if (![self appendNewerFromLocalAfter:anchor]) {
+            // 服务端也没有更新的可见消息 → 确实到头了，别让 ↓ 按钮一直挂着。
+            self.windowState.atTail = YES;
+            [self updateJumpButton];
+        }
+        return;
+    }
     // 进会话「按读位点开窗」那一路：消息已落库，这里换成围绕读位点的一窗并**停在首条未读**。
     // 与下面 anchor=0 那一路的关键差别：**不贴底、不强制标已读**——把用户按到最底再标已读，
     // 等于替他把整段未读读完了。
@@ -405,36 +415,51 @@ static const NSTimeInterval kIMWindowRequestTimeout = 6.0;
 
 #pragma mark - 向下翻页
 
-/// 快滚到窗口底部且窗口不含本地最新 → 从本地库接下一页（对称于向上翻页）。
+/// 快滚到窗口底部 → 往下接一段：先本地库，本地到头且服务端还领先则问服务端（对称于向上翻页）。
 ///
-/// 没有它，跳到历史后往下滚会在窗口底"撞墙"——下面明明还有（至少在本地库里），却只能点 ↓ 回到最新。
-/// 只走本地库、不走服务端：向下的空洞只会出现在「跳到比同步游标更深的历史」这一种情形，
-/// 缺的那段由后台 sync 持续补（补上后这里自然能翻到）；为它单开一条服务端向下取数不划算。
-/// 代价：本地不连续时（跳深处 + 同步没追上）翻下去会直接接到下一段，中间无视觉提示——
-/// 与"首次同步期间尾窗横跨两段"同一个已知限制。
+/// 没有它，跳到历史后往下滚会在窗口底"撞墙"——下面明明还有，却只能点 ↓ 回到最新。
+///
+/// **`atTail` 不能当终点用**（2026-09-03 实测）：它只说明「窗口含**本地**最新一条」。
+/// 有缺口的会话里本地尾巴可能落后服务端上万条，此时 atTail=YES 但下面明明还有一万条。
+/// 原先在这里直接 return，理由是「向下缺的那段由后台 sync 持续补」——那个前提对有缺口的
+/// 会话不成立：sync 撞 max_gap 只会回 too_long，永远补不上。于是用户停在首条未读往下滑，
+/// 滑到那一窗的末尾就再也滑不动了，而 ↓N 还显示着下面有一万条。
 - (void)maybeLoadNewerOnScroll {
     if (!self.didInitialPosition) { return; } // 同 maybeLoadOlderOnScroll：建表期的 offset 不是用户手势
-    if (self.windowState.atTail || self.windowState.pendingAnchor != 0 || self.windowState.messages.count == 0) { return; }
-    UIScrollView *sv = self.tableView;
-    CGFloat distance = sv.contentSize.height - sv.contentOffset.y - sv.bounds.size.height;
-    if (distance > kIMWindowLoadOlderThreshold) { return; }
+    if (self.windowState.pendingAnchor != 0 || self.windowState.pendingNewerAnchor != 0) { return; }
+    if (self.windowState.messages.count == 0) { return; }
     int64_t hi = 0;
     for (IMMessageModel *m in self.windowState.messages) {
         if (m.convSeq > hi) { hi = m.convSeq; }
     }
     if (hi <= 0) { return; }
+    // 窗口已含本地最新一条、且服务端也没有更新的 → 真到头了。
+    int64_t head = [IMSocketManager.sharedManager headConvSeqForConv:self.convID];
+    if (self.windowState.atTail && head <= hi) { return; }
+    UIScrollView *sv = self.tableView;
+    CGFloat distance = sv.contentSize.height - sv.contentOffset.y - sv.bounds.size.height;
+    if (distance > kIMWindowLoadOlderThreshold) { return; }
+    if ([self appendNewerFromLocalAfter:hi]) { return; }
+    // 本地到头了。服务端还领先就去要一段；否则记下"真到头"，让 ↓ 按钮收起来。
+    if (head > hi) { [self requestServerNewerWindowAfter:hi]; return; }
+    self.windowState.atTail = YES;
+    [self updateJumpButton];
+}
+
+/// 从本地库往窗口尾部接一段（> hi 的最多一页）。返回是否真的接上了。
+/// 抽出来是因为服务端那一段落库后要走**同一段逻辑**（见 window_resp 的 pendingNewerAnchor 分支）。
+- (BOOL)appendNewerFromLocalAfter:(int64_t)hi {
     NSInteger page = IMWindowPage();
     __block NSArray<IMMessageModel *> *newer = @[];
     __block int64_t localMax = 0;
     NSString *convID = self.convID;
     [self performDatabaseOperation:^(IMDatabase *database) {
-        newer = [database messagesForConv:convID aroundConvSeq:hi before:0 after:page];
+        // **段内取**：无上界的查询在本段剩余不足一页时会径直翻过缺口，把下一段接到窗口尾部
+        //（与向上翻页同一个坑，只是方向相反）。返回空即本段到头，调用方改问服务端。
+        newer = [database contiguousMessagesForConv:convID afterConvSeq:hi limit:page];
         localMax = [database maxConvSeqForConv:convID];
     }];
-    if (newer.count == 0) {
-        if (localMax <= hi) { self.windowState.atTail = YES; [self updateJumpButton]; } // 其实已在本地末尾
-        return;
-    }
+    if (newer.count == 0) { return NO; }
     int64_t newHi = hi;
     for (IMMessageModel *m in newer) {
         if (m.convSeq > 0) { [self.windowState.seenConvSeqs addObject:@(m.convSeq)]; }
@@ -447,6 +472,25 @@ static const NSTimeInterval kIMWindowRequestTimeout = 6.0;
     IMLogDebugWithTag(IMLogTagUI, @"chat_window_append conv_id=%@ added=%lu rows=%lu at_tail=%d",
                       self.convID, (unsigned long)newer.count, (unsigned long)self.windowState.messages.count,
                       self.windowState.atTail);
+    return YES;
+}
+
+/// 本地已到尾、服务端还领先 → 按窗口末尾要更新的一段（anchor=hi，只要 after）。
+///
+/// 服务端的 window 查询 `LoadSince(anchor-1)` 会把 anchor 本身也带回来，多一条重复无害
+/// （落库幂等、seenConvSeqs 去重）。
+- (void)requestServerNewerWindowAfter:(int64_t)hi {
+    if (hi <= 0 || IMSocketManager.sharedManager.state != IMSocketStateConnected) { return; }
+    if (self.windowState.pendingNewerAnchor != 0) { return; }
+    self.windowState.pendingNewerAnchor = hi;
+    IMLogDebugWithTag(IMLogTagUI, @"chat_window_newer_request conv_id=%@ after=%lld head=%lld",
+                      self.convID, hi, [IMSocketManager.sharedManager headConvSeqForConv:self.convID]);
+    [IMSocketManager.sharedManager requestWindowForConv:self.convID anchor:hi before:0 after:IMWindowPage()];
+    __weak typeof(self) ws = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kIMWindowRequestTimeout * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        if (ws.windowState.pendingNewerAnchor == hi) { ws.windowState.pendingNewerAnchor = 0; }
+    });
 }
 
 #pragma mark - 回到末尾
