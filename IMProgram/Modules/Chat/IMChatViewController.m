@@ -98,7 +98,13 @@ NSNotificationName const IMChatConversationClearedNotification = @"IMChatConvers
         _pendingReadSeq = readSeq;
         // 本地落库：进入即秒显历史。**只取一窗**（不再一次读全部，见 +Window.m 文件头）。
         _windowState = [IMChatWindowState new];
-        [self loadInitialWindow];
+        // **群聊此刻 _convID 还是错的**（peerID="" 算出来的 `u__u_<uid>`），装载推迟到群初始化器
+        // 覆写 convID 之后那一次。早先这里无条件装一次，看着无害——那一窗必然是空的、随即被重开。
+        // 直到「有未读就按读位点向服务端开窗」落地才现原形：这次白跑会拿**错误的 convID** 发一个
+        // window_req（服务端回 300102 not in conversation），顺手把 pendingEntryAnchor 占住，
+        // 于是紧接着那次**真正的**开窗被防重入闸门挡掉 → 进群是一个**空会话**
+        //（2026-09-03 模拟器实测，user7103 进「20000人大群」白屏）。
+        if (peerID.length > 0) { [self loadInitialWindow]; }
         _pendingPreviewLoading = [NSMutableSet set];
     }
     return self;
@@ -116,7 +122,7 @@ NSNotificationName const IMChatConversationClearedNotification = @"IMChatConvers
         _isGroupChat = YES;
         _groupName = [name copy];
         _convID = [convID copy];
-        // 指定初始化器按 IMConversationID(uid,"") 预载了错误会话，这里按群 convID 重开第一窗。
+        // 指定初始化器按约定**没有**装载（它那时的 _convID 还是 `u__u_<uid>`），第一窗在这里装。
         [self loadInitialWindow];
     }
     return self;

@@ -34,6 +34,36 @@ static const CGFloat kIMWindowLoadOlderThreshold = 300;
 /// 服务端开窗的兜底超时：断线/丢帧时不能让 windowLoading 永远挂着（那会把向上翻页永久卡死）。
 static const NSTimeInterval kIMWindowRequestTimeout = 6.0;
 
+#pragma mark - 进会话取哪一窗（文件级纯函数，可单测）
+
+// 这两条判据都**错得很安静**——界面照常渲染，只是停错了地方、顺手把未读清了。
+// 抽成文件级纯函数（同 IMPinnedTargetRecalled 的套路），免构造依赖数据库的真 VC，
+// 由 IMProgramTests/IMChatWindowTests.m 钉死。与 im-web `src/entryWindow.ts` 同一份口径。
+
+/// 进会话该不该按未读锚定。**只看真实未读数**（服务端算，已排除本人消息与系统/事件行）。
+///
+/// 两个曾经写进来又被证伪的附加条件，别再加回去：
+///  · `latestSeq > readSeq`——对**发送方**恒真（未读计数带 `sender <> ?`，自己刚发的一万条
+///    不推进自己的读位点），压测灌完自己进会话会被锚到一万条之前（2026-09-03 Web 修）；
+///  · `readSeq > 0`——readSeq==0 是「一条都没读过」（首次登录、刚入群），位点就是 0、
+///    首条未读即第一条可见消息，不是"没有可锚的位点"。加了它，首次登录进 2 万人大群会走
+///    「无未读」那一支取最新一窗贴底，而 firstUnreadRow 只看 unread、照样把分割线摆在那一窗
+///    开头 → 用户停在倒数第 200 条，随后「可见即读」把 read_seq 一路推到十万，
+///    **十万条未读进一次会话就清零**（user13028 实测 read_position 0 → 109820）。
+BOOL IMChatEntryHasUnread(NSInteger entryUnread) {
+    return entryUnread > 0;
+}
+
+/// 进会话按读位点向服务端开窗时的 anchor。
+///
+/// 协议里 `anchor <= 0` 的含义是「取最新一窗」（PROTOCOL §6.11），而 readSeq==0 要的恰恰相反
+/// ——会话开头那一窗。夹到 1 即可：服务端按位点切分（LoadBefore(1) 为空 + LoadSince(0) 从头给），
+/// 且会自己把下界抬到 G2 入群位点，故入群前历史不可见的新成员拿到的也是"对我可见的第一页"。
+/// 顺带解决在途标志的歧义——`pendingEntryAnchor == 0` 本就表示"没有在途"。
+int64_t IMChatEntryWindowAnchor(int64_t readSeq) {
+    return readSeq > 0 ? readSeq : 1;
+}
+
 @implementation IMChatViewController (Window)
 
 #pragma mark - 装载
@@ -49,8 +79,9 @@ static const NSTimeInterval kIMWindowRequestTimeout = 6.0;
     __block NSArray<IMMessageModel *> *msgs = @[];
     __block int64_t localMax = 0;
     __block BOOL complete = YES;
+    __block BOOL entrySegmentLocal = NO;
     int64_t readSeq = self.entryReadSeq;
-    BOOL hasUnread = self.entryUnread > 0 && readSeq > 0;
+    BOOL hasUnread = IMChatEntryHasUnread(self.entryUnread);   // 判据见函数注释（别在这里内联条件）
     NSString *convID = self.convID;
     [self performDatabaseOperation:^(IMDatabase *database) {
         msgs = hasUnread
@@ -58,11 +89,18 @@ static const NSTimeInterval kIMWindowRequestTimeout = 6.0;
             : [database latestContiguousMessagesForConv:convID limit:page];
         localMax = [database maxConvSeqForConv:convID];
         complete = [database isConvComplete:convID];
+        // 读位点的**下一格**是否落在某个已下载的区间里。见下方 hasUnread 分支的注释：
+        // 这是"本地这一窗真的跨在读位点上"与"around 查询捞回了缺口另一侧的旧岛"的唯一分界。
+        if (hasUnread) { entrySegmentLocal = [database localSegmentStartInConv:convID containingSeq:readSeq + 1] > 0; }
     }];
     int64_t loadedMax = 0;
     for (IMMessageModel *m in msgs) { if (m.convSeq > loadedMax) { loadedMax = m.convSeq; } }
     [self applyWindowMessages:msgs atTail:(localMax == 0 || loadedMax >= localMax)];
-    if (complete) { return; }   // 本地齐全：本地怎么开窗就是最终结果，不必问服务端
+    // 本地齐全：本地怎么开窗就是最终结果，不必问服务端。
+    // **但"齐全且一条都没有"不算数**：isConvComplete: 在 head 未知（=0）时一律判齐全，
+    // 而首次登录正是 head 还没落库的那一刻——就此早退会留下一个永远空白的会话页，
+    // 且没有任何重试入口。空窗一律往下走，让服务端那一步去要。
+    if (complete && msgs.count > 0) { return; }
 
     // 本地不齐（离线积压留了缺口；超级群尤甚：max_gap=0，正文只在打开会话时取）。
     // **要哪一窗取决于有没有未读**，这一步分错方向的代价很实在：
@@ -72,7 +110,13 @@ static const NSTimeInterval kIMWindowRequestTimeout = 6.0;
     // markVisibleRowsRead 把读位点一路推到 head——十万条未读**打开即清零**（2026-09-03 实测）。
     if (!hasUnread) { [self requestServerTailWindowIfBehind]; return; }
     // 分割线已经能在本地摆出来 → 首屏就是对的，不必再问（往下滚由 loadNewer 续）。
-    if ([self firstUnreadRow] >= 0) { return; }
+    //
+    // **但"摆得出分割线"不等于"摆对了地方"**：`messagesForConv:aroundConvSeq:` 没有段的概念，
+    // 本地只剩缺口另一侧的旧岛时（读位点 200、本地只有 [109820,110019]），它会把那个旧岛
+    // 当成"读位点之后的第一批"返回，firstUnreadRow 照样是 0——用户停在第 109820 条上，
+    // 界面一切正常，只是那根本不是他的首条未读。故还要问一句：读位点的下一格**下载过没有**。
+    // 区间清单是唯一能回答这个的地方（seq 连不连号不作数，见 latestContiguousMessagesForConv 的注释）。
+    if (entrySegmentLocal && [self firstUnreadRow] >= 0) { return; }
     [self requestServerEntryWindowAroundReadSeq:readSeq];
 }
 
@@ -82,19 +126,21 @@ static const NSTimeInterval kIMWindowRequestTimeout = 6.0;
 /// 服务端的 window 查询按位点切分（LoadBefore(anchor) / LoadSince(anchor-1)），故成立；
 /// 回包的 anchor_found 在这条路上**无意义**，不据它弹「原消息已被删除」。
 - (void)requestServerEntryWindowAroundReadSeq:(int64_t)readSeq {
-    if (readSeq <= 0 || IMSocketManager.sharedManager.state != IMSocketStateConnected) { return; }
+    if (readSeq < 0 || IMSocketManager.sharedManager.state != IMSocketStateConnected) { return; }
     if (self.windowState.pendingEntryAnchor != 0) { return; }
-    self.windowState.pendingEntryAnchor = readSeq;
+    int64_t anchor = IMChatEntryWindowAnchor(readSeq);   // anchor=0 在协议里是「取最新」，见函数注释
+
+    self.windowState.pendingEntryAnchor = anchor;
     NSInteger page = IMWindowPage();
-    IMLogDebugWithTag(IMLogTagUI, @"chat_window_entry_request conv_id=%@ read_seq=%lld unread=%ld",
-                      self.convID, readSeq, (long)self.entryUnread);
-    [IMSocketManager.sharedManager requestWindowForConv:self.convID anchor:readSeq
+    IMLogDebugWithTag(IMLogTagUI, @"chat_window_entry_request conv_id=%@ read_seq=%lld anchor=%lld unread=%ld",
+                      self.convID, readSeq, anchor, (long)self.entryUnread);
+    [IMSocketManager.sharedManager requestWindowForConv:self.convID anchor:anchor
                                                  before:page / 4 after:page];
     __weak typeof(self) ws = self;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kIMWindowRequestTimeout * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
         // 只清自己那一次：值已变说明这帧早回来了、或又发了新的一次，别把别人的在途标志抹掉。
-        if (ws.windowState.pendingEntryAnchor == readSeq) { ws.windowState.pendingEntryAnchor = 0; }
+        if (ws.windowState.pendingEntryAnchor == anchor) { ws.windowState.pendingEntryAnchor = 0; }
     });
 }
 

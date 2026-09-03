@@ -4,6 +4,11 @@
 #import "IMDatabase+Ranges.h"   // countIncomingInConv: 等区间清单相关查询
 #import "IMMessageModel.h"
 
+// IMChatViewController+Window.m 里的文件级纯函数（同 IMPinnedTargetRecalled 的套路：
+// 判据抽出来单测，免构造依赖数据库与 UIKit 的真 VC）。
+FOUNDATION_EXPORT BOOL IMChatEntryHasUnread(NSInteger entryUnread);
+FOUNDATION_EXPORT int64_t IMChatEntryWindowAnchor(int64_t readSeq);
+
 /// 消息窗口的**本地库契约**（设计见 IMServer/docs/design/MESSAGE_WINDOW_DESIGN.md）。
 ///
 /// 这些查询是分页的地基，且它们的错法都是**静默**的：顺序反了、边界差一条、待发消息漏掉，
@@ -144,6 +149,38 @@ static NSString * const kMe = @"me";
     [self seedMessages:20];
     NSArray<IMMessageModel *> *win = [_db messagesForConv:kConv aroundConvSeq:0 before:5 after:5];
     XCTAssertEqualObjects([self seqsOf:win], (@[@1, @2, @3, @4, @5])); // 位点 0 之前什么也没有
+}
+
+#pragma mark - ⑥ 进会话取哪一窗（首次登录 = readSeq 0）
+
+/// 判据只认真实未读数。两个曾被写进来的附加条件都会把「有未读」误判成「无未读」：
+/// `readSeq>0` 坑首次登录的新成员，`latest>read` 坑刚灌完消息的发送方。
+- (void)testEntryHasUnreadIgnoresReadSeqAndLatest {
+    XCTAssertTrue(IMChatEntryHasUnread(10000));   // 首次登录：readSeq=0 照样是有未读
+    XCTAssertTrue(IMChatEntryHasUnread(1));
+    XCTAssertFalse(IMChatEntryHasUnread(0));      // 发送方：latest 领先一万条也仍是无未读 → 贴底
+    XCTAssertFalse(IMChatEntryHasUnread(-1));
+}
+
+/// 向服务端开窗的 anchor 不能是 0——协议里那是「取最新一窗」，与"会话开头"正好相反。
+- (void)testEntryWindowAnchorNeverZero {
+    XCTAssertEqual(IMChatEntryWindowAnchor(0), 1);    // 从没读过 → 会话开头，不是最新
+    XCTAssertEqual(IMChatEntryWindowAnchor(-5), 1);
+    XCTAssertEqual(IMChatEntryWindowAnchor(1), 1);
+    XCTAssertEqual(IMChatEntryWindowAnchor(109820), 109820);
+}
+
+/// 首次登录进大群的首屏：按读位点(0)开窗拿到的是**会话开头**那一页，
+/// 而不是 `latestContiguousMessagesForConv:` 那一段（判据写错时首屏就是后者，
+/// 用户停在倒数第 200 条上、随后被「可见即读」把十万条未读一次清零）。
+- (void)testNeverReadEntryOpensHeadNotTail {
+    [self seedMessages:1000];
+    NSArray<IMMessageModel *> *entry = [_db messagesForConv:kConv aroundConvSeq:0 before:50 after:200];
+    NSArray<IMMessageModel *> *tail = [_db latestContiguousMessagesForConv:kConv limit:200];
+    XCTAssertEqual(entry.firstObject.convSeq, 1);
+    XCTAssertEqual(entry.lastObject.convSeq, 200);
+    XCTAssertEqual(tail.firstObject.convSeq, 801);   // 两段不能是同一段，否则这条测试什么也没测
+    XCTAssertEqual(tail.lastObject.convSeq, 1000);
 }
 
 #pragma mark - ↓N 计数
