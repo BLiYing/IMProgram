@@ -218,18 +218,25 @@ static const NSTimeInterval kIMWindowRequestTimeout = 6.0;
     }
     [merged addObjectsFromArray:self.windowState.messages];
     self.windowState.messages = merged;
+    // 裁剪必须**并进这同一次改动**：分成"先 reload 保位、再 reload 裁剪"会让第二次 reloadData
+    // 把刚补好的位置连同行高缓存一起作废（全体退回估高 56），contentOffset 数值没变、指向的消息
+    // 却换了人——那正是 2026-09-03 又一次报上来的"跳一段"（日志实锤：prepend 之后紧跟一条
+    // trim_paging）。**「contentOffset 不动」不等于「画面不动」**。
+    NSInteger droppedTail = [self dropOverflowFromTailKeepingAnchorRow:
+                             (anchor ? anchor.row + (NSInteger)older.count : NSNotFound)];
     int64_t earliest = [self earliestLoadedConvSeq];
     self.windowState.hasMoreAbove = (earliest != 1);
     [table reloadData];
 
     // 行号与 windowState.messages 下标一一对应（numberOfRowsInSection 返回的就是它的 count，
-    // 相册成员行只是高度为 0），故锚点的新行号 = 旧行号 + 本次插入条数，不必回数组里找。
+    // 相册成员行只是高度为 0），故锚点的新行号 = 旧行号 + 本次插入条数；从**尾部**裁不影响它上方的下标。
     CGFloat y = [self restoreWindowAnchorRow:(anchor ? anchor.row + (NSInteger)older.count : NSNotFound)
                                     toScreenY:anchorScreenY];
-    IMLogDebugWithTag(IMLogTagUI, @"chat_window_prepend conv_id=%@ added=%lu rows=%lu earliest=%lld anchor_row=%ld offset_y=%.1f",
-                      self.convID, (unsigned long)older.count, (unsigned long)self.windowState.messages.count,
+    IMLogDebugWithTag(IMLogTagUI, @"chat_window_prepend conv_id=%@ added=%lu dropped_tail=%ld rows=%lu earliest=%lld anchor_row=%ld offset_y=%.1f",
+                      self.convID, (unsigned long)older.count, (long)droppedTail,
+                      (unsigned long)self.windowState.messages.count,
                       earliest, (long)(anchor ? anchor.row : -1), y);
-    [self trimWindowToCapDroppingFromTop:NO];  // 内容加在顶部 → 裁底部（那一段在视口下方）
+    if (droppedTail > 0) { [self updateJumpButton]; }
 }
 
 /// 把某一行摆回指定的**屏幕偏移**（距可视区顶多少 pt），返回最终 contentOffset.y。
@@ -258,59 +265,49 @@ static const NSTimeInterval kIMWindowRequestTimeout = 6.0;
     return y;
 }
 
-/// 翻页之后把窗口裁回 kIMWindowMaxPages 页，**从远离用户的那一头裁**。
+/// 把窗口尾部超出上限的那一段丢掉，返回丢弃条数。**只改数组，不碰表格、不动 offset**。
 ///
-/// 与 `trimWindowIfOverlongAtTail` 分工不同，别混用：那个管的是「贴底收新消息时窗口只涨不缩」，
-/// 裁完会 `scrollToAbsoluteBottom`——用在正翻页的用户身上就是把人甩走。这个管翻页，
-/// 要求是**用户眼下看的那一行纹丝不动**。
+/// 调用方须把它并进自己那一次 `reloadData` + 保位里（见 prependMessages: 的注释）。
+/// 单独成一个"裁完自己 reload"的方法是错的——那会多出一次 reloadData 把保位作废。
 ///
-/// - dropTop=NO（向上翻页，内容加在顶部）：裁底部。那些行在视口下方，上方内容位置不变，无需补偿。
-/// - dropTop=YES（向下翻页，内容加在底部）：裁顶部。上方行被移除会让整段内容上移，必须按锚点补回来。
-///
-/// 不裁的后果不是崩，是渐进劣化：先是每次追加的整表 reloadData 越来越慢（自适应行高下它是 O(n)），
-/// 其次是 ↓N 每帧 O(n) 扫描，最后才是内存。一路翻十万条就都摸到了。
-- (void)trimWindowToCapDroppingFromTop:(BOOL)dropTop {
-    NSInteger cap = kIMWindowMaxPages * IMWindowPage();
-    NSInteger overflow = (NSInteger)self.windowState.messages.count - cap;
-    if (overflow <= 0) { return; }
-    UITableView *table = self.tableView;
-
-    if (!dropTop) {
-        // 只裁已上号的行：conv_seq==0 是待发/失败的本地消息，属于"最新一段"，碰到就停。
-        NSInteger dropped = 0;
-        while (dropped < overflow) {
-            IMMessageModel *last = self.windowState.messages.lastObject;
-            if (!last || last.convSeq <= 0) { break; }
-            [self.windowState.seenConvSeqs removeObject:@(last.convSeq)];
-            [self.windowState.messages removeLastObject];
-            dropped++;
-        }
-        if (dropped == 0) { return; }
-        self.windowState.atTail = NO; // 窗口不再含本地最新一条
-        [table reloadData];           // 裁的行全在视口下方，contentOffset 不动、画面无跳变
-        [self updateJumpButton];
-        IMLogDebugWithTag(IMLogTagUI, @"chat_window_trim_paging conv_id=%@ from_top=0 dropped=%ld rows=%lu",
-                          self.convID, (long)dropped, (unsigned long)self.windowState.messages.count);
-        return;
+/// 向上翻页时用它：内容加在顶部，尾部那一段在视口下方，丢掉不影响用户在看的位置。
+/// 只丢已上号的行——conv_seq==0 是待发/失败的本地消息，属于"最新一段"，碰到就停。
+- (NSInteger)dropOverflowFromTailKeepingAnchorRow:(NSInteger)anchorRow {
+    NSInteger overflow = (NSInteger)self.windowState.messages.count - kIMWindowMaxPages * IMWindowPage();
+    NSInteger dropped = 0;
+    while (dropped < overflow) {
+        // 别丢到锚点身上：丢了它，随后的保位就没有参照物、只能放弃补偿 → 又是一次跳变。
+        // 上翻的触发条件是 contentOffset ≤ 300（用户在顶部附近），锚点行号很小，实际碰不到；
+        // 留这道闸是因为"碰不到"是别处的前提推出来的，不该由本方法默默依赖。
+        if (anchorRow != NSNotFound && (NSInteger)self.windowState.messages.count - 1 <= anchorRow) { break; }
+        IMMessageModel *last = self.windowState.messages.lastObject;
+        if (!last || last.convSeq <= 0) { break; }
+        [self.windowState.seenConvSeqs removeObject:@(last.convSeq)];
+        [self.windowState.messages removeLastObject];
+        dropped++;
     }
+    if (dropped > 0) { self.windowState.atTail = NO; } // 窗口不再含本地最新一条
+    return dropped;
+}
 
-    NSIndexPath *anchor = table.indexPathsForVisibleRows.firstObject;
-    CGFloat anchorScreenY = anchor ? [table rectForRowAtIndexPath:anchor].origin.y - table.contentOffset.y : 0;
-    // 锚点本身若落在要裁掉的那一段里（用户滚得很快、视口已越过它），就别裁——
-    // 宁可这一轮窗口超标，也不能把用户正看着的行删掉。下一次翻页还会再来一次。
-    if (anchor && anchor.row < overflow) { return; }
+/// 把窗口顶部超出上限的那一段丢掉，返回丢弃条数。**只改数组，不碰表格、不动 offset**（同上）。
+///
+/// 向下翻页时用它：内容加在底部，顶部那一段在视口上方——丢掉会让整段内容上移，
+/// 故调用方**必须**在随后的保位里把行号减去这里的返回值。
+/// anchorRow 落在要丢的那一段里（用户滚太快、视口已越过它）就一条都不丢：
+/// 宁可这一轮窗口超标，也不能把用户正看着的行删掉；下一次翻页还会再来一次。
+- (NSInteger)dropOverflowFromHeadKeepingAnchorRow:(NSInteger)anchorRow {
+    NSInteger overflow = (NSInteger)self.windowState.messages.count - kIMWindowMaxPages * IMWindowPage();
+    if (overflow <= 0) { return 0; }
+    if (anchorRow != NSNotFound && anchorRow < overflow) { return 0; }
     NSRange drop = NSMakeRange(0, (NSUInteger)overflow);
     for (NSUInteger i = 0; i < drop.length; i++) {
-        int64_t s = self.windowState.messages[i].convSeq;
-        if (s > 0) { [self.windowState.seenConvSeqs removeObject:@(s)]; }
+        int64_t sq = self.windowState.messages[i].convSeq;
+        if (sq > 0) { [self.windowState.seenConvSeqs removeObject:@(sq)]; }
     }
     [self.windowState.messages removeObjectsInRange:drop];
-    self.windowState.hasMoreAbove = YES; // 裁掉的那段仍在本地库/服务端，往上翻能拿回来
-    [table reloadData];
-    CGFloat y = [self restoreWindowAnchorRow:(anchor ? anchor.row - overflow : NSNotFound)
-                                   toScreenY:anchorScreenY];
-    IMLogDebugWithTag(IMLogTagUI, @"chat_window_trim_paging conv_id=%@ from_top=1 dropped=%ld rows=%lu offset_y=%.1f",
-                      self.convID, (long)overflow, (unsigned long)self.windowState.messages.count, y);
+    self.windowState.hasMoreAbove = YES; // 丢掉的那段仍在本地库/服务端，往上翻能拿回来
+    return overflow;
 }
 
 #pragma mark - 定位（三层回落的实现）
@@ -533,14 +530,21 @@ static const NSTimeInterval kIMWindowRequestTimeout = 6.0;
         if (m.convSeq > 0) { [self.windowState.seenConvSeqs addObject:@(m.convSeq)]; }
         if (m.convSeq > newHi) { newHi = m.convSeq; }
     }
+    UITableView *table = self.tableView;
+    // 追加本身在视口下方，但 `reloadData` 会把**全部**行高缓存打回估高——上方那些行的位置随之变化，
+    // 所以这里同样要记锚点、reload 后摆回去（与 prependMessages: 同一套，理由见那边的注释）。
+    NSIndexPath *anchor = table.indexPathsForVisibleRows.firstObject;
+    CGFloat anchorScreenY = anchor ? [table rectForRowAtIndexPath:anchor].origin.y - table.contentOffset.y : 0;
     [self.windowState.messages addObjectsFromArray:newer];
     self.windowState.atTail = (localMax > 0 && newHi >= localMax);
-    [self.tableView reloadData]; // 追加在视口下方，contentOffset 不动
+    NSInteger droppedHead = [self dropOverflowFromHeadKeepingAnchorRow:(anchor ? anchor.row : NSNotFound)];
+    [table reloadData];
+    CGFloat y = [self restoreWindowAnchorRow:(anchor ? anchor.row - droppedHead : NSNotFound)
+                                   toScreenY:anchorScreenY];
     [self updateJumpButton];
-    IMLogDebugWithTag(IMLogTagUI, @"chat_window_append conv_id=%@ added=%lu rows=%lu at_tail=%d",
-                      self.convID, (unsigned long)newer.count, (unsigned long)self.windowState.messages.count,
-                      self.windowState.atTail);
-    [self trimWindowToCapDroppingFromTop:YES];  // 内容加在底部 → 裁顶部（需按锚点补位）
+    IMLogDebugWithTag(IMLogTagUI, @"chat_window_append conv_id=%@ added=%lu dropped_head=%ld rows=%lu at_tail=%d offset_y=%.1f",
+                      self.convID, (unsigned long)newer.count, (long)droppedHead,
+                      (unsigned long)self.windowState.messages.count, self.windowState.atTail, y);
     return YES;
 }
 
