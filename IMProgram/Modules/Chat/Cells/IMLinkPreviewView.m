@@ -118,7 +118,7 @@
     if (image.length) {
         _thumbHeight.constant = 130;
         __weak typeof(self) ws = self;
-        NSString *imageURL = IMMediaFullURL(image, IMHTTPService.sharedService.host);
+        NSString *imageURL = IMLinkPreviewImageURL(image, IMHTTPService.sharedService.host);
         [[IMImageLoader shared] loadImageURL:imageURL completion:^(UIImage *img) {
             __strong typeof(ws) self = ws;
             if (self && [self->_url isEqualToString:url]) { self->_thumb.image = img; }

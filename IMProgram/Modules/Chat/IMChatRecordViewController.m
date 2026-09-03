@@ -463,10 +463,10 @@ static NSString *IMRecordItemTimeText(int64_t timestampMillis) {
     return [IMRecordSenderKey(cur) isEqualToString:IMRecordSenderKey(prev)];
 }
 
+/// 媒体地址补全统一走 IMMediaFullURL（含外站白名单）。此前这里是它的一份拷贝，
+/// 于是同一条规则有两处实现、改一处漏一处。
 - (NSString *)fullURLFor:(NSString *)content {
-    if (content.length == 0) { return @""; }
-    if ([content hasPrefix:@"http"] || [content hasPrefix:@"data:"]) { return content; }
-    return [NSString stringWithFormat:@"http://%@%@", _host ?: @"", content];
+    return IMMediaFullURL(content, _host);
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return _items.count; }

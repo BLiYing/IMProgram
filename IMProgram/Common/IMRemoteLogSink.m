@@ -1,6 +1,7 @@
 //  IMRemoteLogSink.m
 
 #import "IMRemoteLogSink.h"
+#import "IMServerEndpoint.h"
 #import "IMHTTPService.h"
 #import "IMSessionStore.h"
 #import <UIKit/UIKit.h>
@@ -91,8 +92,7 @@ static const NSUInteger kIMLogSinkMaxBatch = 200;
     NSString *host = IMHTTPService.sharedService.host;
     if (host.length == 0) { return; } // 尚未登录/未知服务器：继续攒，别丢
 
-    NSString *urlStr = [NSString stringWithFormat:@"http://%@/__devlog", host];
-    NSURL *url = [NSURL URLWithString:urlStr];
+    NSURL *url = [IMServerEndpoint.shared httpURLForHost:host path:@"/__devlog"];
     if (!url) { [self.buffer removeAllObjects]; return; } // host 非法：清掉避免死攒
 
     NSUInteger n = MIN(self.buffer.count, kIMLogSinkMaxBatch);

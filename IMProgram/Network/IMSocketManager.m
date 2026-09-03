@@ -1,6 +1,7 @@
 //  IMSocketManager.m
 
 #import "IMSocketManager.h"
+#import "IMServerEndpoint.h"
 #import "IMSocketManager+Private.h"
 #import "IMDatabase+Ranges.h"   // 区间清单：window_resp 落库后登记本窗覆盖段
 #import "IMBacklogTracker.h"
@@ -239,8 +240,8 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
 - (void)openSocketWithToken:(NSString *)token host:(NSString *)host {
     NSString *encoded = [token stringByAddingPercentEncodingWithAllowedCharacters:
                          NSCharacterSet.URLQueryAllowedCharacterSet] ?: token;
-    NSString *urlStr = [NSString stringWithFormat:@"ws://%@/ws?token=%@", host, encoded];
-    NSURL *url = [NSURL URLWithString:urlStr];
+    NSURL *url = [IMServerEndpoint.shared webSocketURLForHost:host path:@"/ws"
+                                                        query:[@"token=" stringByAppendingString:encoded]];
     if (!url) {
         IMLogSocket(@"非法 ws 地址 host=%@", host);
         [self scheduleReconnect];
@@ -254,7 +255,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
     _task = [_session webSocketTaskWithURL:url];
     [_task resume];
     [self receiveNext];
-    IMLogSocket(@"connecting ws://%@/ws (token)", host);
+    IMLogSocket(@"connecting %@://%@/ws (token)", (IMServerEndpoint.shared.isSecure ? @"wss" : @"ws"), host);
 }
 
 /// 经 HTTP 登录接口换取 JWT。completion 可能在任意线程回调（调用方 openSocket 已 dispatch 回 _queue）。

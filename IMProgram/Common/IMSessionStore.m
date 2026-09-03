@@ -6,6 +6,7 @@ static NSString * const kIMSessionHostKey     = @"im_session_host";
 static NSString * const kIMSessionUserIDKey   = @"im_session_uid";      // 内部 ID（业务用）
 static NSString * const kIMSessionUsernameKey  = @"im_session_username"; // 公开句柄（登录用）
 static NSString * const kIMSessionPasswordKey = @"im_session_pwd";
+static NSString * const kIMSessionSchemeKey   = @"im_session_scheme";  // http / https
 
 // 说明：password 暂存 NSUserDefaults。理由——本工程是开发骨架（ws:// + NSAllowsArbitraryLoads），
 // 且用户以未签名方式（CODE_SIGNING_ALLOWED=NO）装模拟器，Keychain 无 entitlement 会静默失败、导致
@@ -33,6 +34,15 @@ static NSString * const kIMSessionPasswordKey = @"im_session_pwd";
     return [NSUserDefaults.standardUserDefaults stringForKey:kIMSessionHostKey];
 }
 
++ (NSString *)scheme {
+    return [NSUserDefaults.standardUserDefaults stringForKey:kIMSessionSchemeKey];
+}
+
++ (void)saveScheme:(NSString *)scheme {
+    if (scheme.length == 0) { return; }
+    [NSUserDefaults.standardUserDefaults setObject:scheme forKey:kIMSessionSchemeKey];
+}
+
 + (NSString *)userID {
     return [NSUserDefaults.standardUserDefaults stringForKey:kIMSessionUserIDKey];
 }
@@ -50,7 +60,7 @@ static NSString * const kIMSessionPasswordKey = @"im_session_pwd";
     [d removeObjectForKey:kIMSessionUserIDKey];
     [d removeObjectForKey:kIMSessionUsernameKey];
     [d removeObjectForKey:kIMSessionPasswordKey];
-    // host 保留（下次登录默认回填方便）。
+    // host / scheme 保留（下次登录默认回填方便；协议是"连哪台服务器"的属性，不随账号走）。
     [d synchronize];
 }
 

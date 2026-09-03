@@ -5,6 +5,35 @@
 
 ## 当前焦点
 
+> **安全整改第 1 步：服务器地址协议收口 + 媒体外站 URL 白名单（2026-09-03；`./scripts/test.sh` 全绿 395/395；**未手测**）**
+>
+> 背景：`/security-review` 全仓审计报了 3 条（明文 HTTP / WS 明文且 token 在 URL / 发送方可控 URL 被零点击拉取）。
+> 与后端商定的整改分 5 步（顺序见 `../IMServer/current_task.md`），**本次是第 1 步，且不引入 HTTPS**——
+> 真域名与云服务器到位后再切，切换时客户端不需要改代码。
+>
+> 1. **新增 `IMServerEndpoint`（`Common/`）= 全 App 唯一的 scheme 权威**。此前 `http://`/`ws://` 以字面量散在
+>    5 处（`IMHTTPService.urlForPath:` / `IMSocketManager` 建连 / `IMMediaUtil` / `IMChatRecordViewController`
+>    的一份拷贝 / `IMRemoteLogSink`），"换 https"等于跨 5 文件改代码 + 发版。现在四路共用一处，
+>    **登录页填 `https://im.example.com` 即整端切换**（http↔ws、https↔wss 成对，不会出现"网页加密了长连接还明文"）。
+>    scheme 随 host 存进 `IMSessionStore`（`im_session_scheme`），冷启动在任何网络调用前恢复；
+>    「上次地址」回填也带协议，否则填过的 https 下次静默退回 http。
+>    **协议永不从服务端下发**（要先选协议才连得上；明文信道问"要不要 https"就是降级攻击）——理由写在头文件里。
+> 2. **`IMMediaFullURL` 改为拒收外站绝对 URL**（漏洞 3 闭环）。`content`/`avatar_url` 是发送方可控且服务端原样
+>    存转的字段，图片又默认自动下载 → 对方发一条消息、或只把头像设成 `http://attacker/beacon.png` 再出现在
+>    你的搜索结果里，客户端就零点击发 GET，泄露 IP、粗粒度位置与精确的「已查看」时刻。现在只放行本服务器
+>    （`IMServerEndpoint.isOwnHost:forAbsoluteURL:`，主机名不分大小写、**端口从严**、拒 userinfo），
+>    自家的存量 `http://` 绝对地址按当前 scheme 重拼。外站图**唯一**合法场景是链接预览 OG 图，
+>    显式走新函数 `IMLinkPreviewImageURL`（仅 `IMLinkCardCell` / `IMLinkPreviewView` 两处）。
+> 3. 顺带：`IMChatRecordViewController.fullURLFor:` 那份逐字拷贝删掉，改调统一入口；
+>    旧判据 `hasPrefix:@"http"` 收紧成 `http://`/`https://`（原来 `httpfoo:` 也算数）。
+>
+> 新增 `IMProgramTests/IMServerEndpointTests.m`（16 条：输入解析 / ws-wss 成对 / 自家主机判定 / 外站拦截）。
+> **本步没做**：ATS 仍是全局 `NSAllowsArbitraryLoads`（第 4 步随 TLS 一起收窄）；WS token 仍在 query 串（第 3 步）；
+> 明文密码仍存 `NSUserDefaults`（第 5 步）。
+>
+> **待真机手测**：登录页填裸 `host:port` 应与改前完全一致；填 `https://…` 应连不上（后端尚未开 TLS，属预期）；
+> 聊天图片/头像/群头像/收藏/记录卡照常显示；链接卡片的外站预览图仍能出图。
+
 > **三项：搜索 pill 直接开会话 + 合并转发标题口径 + 条目 `u` 匿名化（2026-08-31，与 Web 同步；
 > `./scripts/test.sh` 全绿，`IMProgramTests` 320/320；**未手测**）**
 >
@@ -31,83 +60,6 @@
 >
 > **未手测**；后端同批加了显示名字符清洗（`internal/textguard`），iOS 侧无需配合改动。
 
-> **收藏页 / 详情页 / 置顶 / 记录卡 五项 UI 修复（2026-08-30，两端同步；iOS `build` 绿、**已跑 `IMProgramTests` 311 例全绿**；
-> Web `tsc -b` + `vitest 681` 绿。**两端已手测通过（2026-08-30，用户逐项验收）**）**
->
-> 1. **置顶预览**：`IMPinnedMessage.previewText` 只认 `audio` 不认 `voice`、且没有 `chat_record` 分支
->    → 语音置顶铺一串 URL、合并转发卡片铺整段 `{"t":…,"items":[…]}` JSON。现统一收成 `[语音]` /
->    `[聊天记录] 标题`（走既有 `IMChatRecordSnippet`，与引用快照同 token 口径）。Web `pinned.ts` 同修。
-> 2. **收藏页「来自X」不再露 10 位内部 ID**：根因是 `IMDatabase.cachedGroups` 恒 `members = @[]`
->    （成员只在进群详情页时联网拉），好友表又只覆盖好友 → 群里非好友发的收藏全回退 uid。
->    新增 `resolveMissingSourceNames`：按需**两级补拉**（先 `GET /groups/{id}` 拿群昵称，仍缺再
->    `GET /users/{id}` 拿名片），每个 id 只发一次、失败静默。Web 同款 effect。
-> 3. **收藏页副行时间与「来自X」拆两行 + 颜色分开**（时间 tertiary / 来源 accent，对齐链接分类）：
->    长备注名/群昵称原先会把时间整个挤没。改 `IMFavoriteRowCell` / `IMFavoriteVoiceCell` /
->    `IMDetailFileCell` / `IMDetailContactCell`（名片的「由 X 分享」从副行拆成第三行，行高 64→82，
->    新增 `IMDetailContactCellHeightWithSource`）。
-> 4. **详情页链接 tab 时间改「年月日 时:分」**（原「今日 HH:mm / 昨天 / M月d日」，同页四个 tab 两套语言、
->    跨年看不出年份）；Web 同修，并给 Web 文件 tab 补上原本没有的时间行。
-> 5. **页签条横向可滚**：`IMLiquidSegmentedControl` 底轨 `clipsToBounds=YES` 且无滚动容器 → 段总宽超出时
->    末尾页签（详情页 6 签的「名片」/ 收藏页 7 签的「名片」）被裁掉且划不到。内嵌 `UIScrollView`，
->    塞得下时 `scrollEnabled=NO`（手势不参与竞争，行为同改前）。Web `.detail-tabs` 加 `overflow-x:auto`。
-> 6. **合并转发记录详情页**：名片条目原先落通用文本分支铺 JSON 原文 → 改渲染 mini 名片卡（头像+显示名+
->    @句柄+「个人名片 ›」脚注）；语音条目原先铺裸 URL → 改用与详情页/收藏页同一个
->    `IMVoiceMiniPlayerView`。打包端补 `d`（时长）/`w`（波形）两个 key（两端同约定），老记录无这两项时
->    退化成等高条纹 + 0:00 仍可播。Web 语音同修（名片 Web 本就是卡片）。
->
-> 体量门禁副产物：`IMFavoritesViewController.m` 撞 1500 行 → 抽出 `IMFavoriteRowViews.{h,m}`
-> （阅读器 / 统一图标行 / 来源会话行，逐字平移、行为零变化），现 1364 行。
-
-> **记录卡补齐 + 语音四项（2026-08-30 第三批；`IMProgramTests` 312 例全绿；**已手测通过**）**
-> 1. **合并转发条目新增 `ts`/`u`/`a`**（原消息时间 / 发送者 uid / 头像相对路径，两端同 key，
->    契约表进了 [PROTOCOL.md](../IMServer/docs/PROTOCOL.md)）。记录详情页据此：右上角显**每条**消息的时间、
->    左侧显头像、**连续同一人只显一次头像与昵称**（判据抽成纯函数 `IMRecordSenderKey`，与 Web
->    `recordSenderKey` 同口径、各带单测）。**老记录一定缺这三个字段**——不显时间 / 首字母色块兜底，
->    绝不能因为缺字段就不渲染。`u` 只当查头像与判连续的键，**永不上屏**（显示名一律走 `n`）。
->    单聊里"我自己"那一方拿不到头像路径（本页没有自己的资料快照），只发 `u`（Web 有 `myInfo` 故能带 `a`；
->    `a` 可选，两端不算分叉）。
-> 2. **语音「已读」= 点了就算**：新增 `im_markVoiceConsumed:` 收口——播放与**转文字**都消未播红点
->    并刷那一行（原先只有播放会消，且要等 cell 复用才刷）。判据是"点了"不是"听完"。
->    **注意**：发送方看到的 ✓✓ 仍是"进会话即读"，语音不例外——`read_seq` 是水位线，做不到单条
->    语音"听了才算"，详见 [VOICE_MESSAGE_DESIGN §7](../IMServer/docs/design/VOICE_MESSAGE_DESIGN.md)。
-> 3. **单聊语音气泡终于和其它气泡左对齐**：`IMVoiceBubbleCell` 把对方气泡左缘钉死在
->    `_avatar.trailing + 8`，而 `applyGroupAvatarURL:…gutter:` **整个忽略了 gutter** ——
->    单聊没有头像列，气泡照样被推到 50pt，比同屏文本/图片气泡多缩进近 40pt。改成锚 contentView
->    + `gutter ? 48 : 12`（与 IMBubbleCell/IMImageCell/IMChatRecordCell/IMContactCardCell 同口径）；
->    顺带把头像几何 10/32 纠成 12/30（基类 cornerRadius 15 本就配 30，原来还差一点不圆）。
->
-> **记录卡语音：崩溃 + 无时长（2026-08-30 用户实测报，已修并**复测通过**；`IMProgramTests` 311 例全绿）**
-> - **崩溃根因不在记录卡，在语音播放通道**：Chrome 录的语音是 **MP4/Opus**（`audio/mp4` 容器塞 Opus），
->   `framesPerPacket == 0` → `AVAudioPlayer` 在 AVFAudio 内部**除零**（`EXC_ARITHMETIC`/`SIGFPE`，
->   `@try` 拦不住、整个 App 当场退出）。崩溃栈由 `~/Library/Logs/DiagnosticReports` 的 .ips 定位：
->   `AVFAudio ×4 → -[IMVoicePlayer togglePlayback:localFileURL:]`。**气泡/收藏/详情页语音 tab 同样会崩**，
->   只是这次先在记录卡撞上。修法：新增 `IMVoiceFileIsPlayable(url, &durationMs)`（AudioToolbox 读
->   `kAudioFilePropertyDataFormat`，`sampleRate<=0 / framesPerPacket==0 / channels==0` 一律拒），
->   `togglePlayback:` 与 `toggleEnsuringLocal:` 双重把关；被拒回 `NSError`「该语音格式无法播放」，
->   四个播放入口改吐 `err.localizedDescription`（原先写死「语音下载失败」，会把排查引偏）。
->   护栏 `IMVoiceFileGuardTests.m`（合成 WAV 放行并报时长 / 非音频字节被拒 / 缺文件与非 file URL 被拒）。
->   源头在 Web 侧一并修（见 im-web current_task）。
-> - **无时长**：老记录打包时没有 `d` 字段。新增 `fillDurationFromLocalFileIfNeeded:`——**只探已缓存的
->   文件、绝不为显个时长去发下载**；播放触发的下载完成后再探一次并刷该行。
->   **已知限制**：坏文件（MP4/Opus）报的时长是天文数字，被 `IMVoiceFileIsPlayable` 一并挡掉 → 仍显 0:00，
->   这是对的；那条消息本身在 iOS 上就播不了。
-
-> **/code-review 三条修复（2026-08-30，纯客户端；`build` 绿、`-only-testing:IMProgramTests` 314 例
-> 仅剩那条已知偶发的 `testFrostedLandscapeScalesLongestSideTo48`，单独重跑绿。**未手测**）**
-> 1. **语音上传失败的红❗点不动**（重传路径整条失效）：`im_uploadAndSendVoice` 失败时**无条件**写
->    `note`（"语音上传失败"），而 `IMResendPolicyForMessage` 把"有 note"一律当成"被服务端拒收 → 不可重发"，
->    于是 `IMFailBadgeView.tappable=NO`、红❗照显却吃不到点击。判据顺序改成
->    **「本地还留着字节（`im-pending://` / `file://`）」优先于 note** —— content 是本地引用就说明服务端
->    从没见过这条，"拒收"的解释不成立。`content` 空 + note（语音"发送中断，请重新录制"）仍判不可重发。
->    补两条护栏用例。
-> 2. **会话列表预览显示早已被顶掉的旧系统消息**：`updateConversationForMessage`（实时路径）覆写了
->    `last_content` 却漏写 `last_sys_segments`，而 `IMConversation.lastPreviewTextForSelfUID:` 只要分段非空
->    就整句用它渲染、`last_content` 根本不参与 → HTTP 快照存过一次系统消息分段后，之后来的普通消息
->    在冷启动/离线首屏一律显示那条旧系统消息。INSERT/UPDATE 两处一并补上（与 2026-08-19 修过的
->    `last_caption` 同一类漏写）。
-> 3. **合并转发条目里"我自己"的名字是 10 位内部 ID**：`displayNameForMessage:` 自己那一支返回
->    `self.userID`。记录详情页现在把 `n` 当头行昵称显示（2026-08-30 加 ts/u/a），于是我发的每条都顶着
->    一串随机数字。改为「我」，与 Web `useForward.ts#nameOf` 同口径。
 
 > **iOS 回归有唯一入口了：`./scripts/test.sh`（2026-08-31）** —— 与后端 `IMServer/scripts/test.sh` 对称。
 > 起因：之前每次手拼 xcodebuild 命令行，反复踩三个坑（跑整 scheme 被 UITests 拖死 135s+37s、

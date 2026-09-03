@@ -3,12 +3,34 @@
 #import "IMMediaUtil.h"
 #import "IMContactCard.h"
 #import "IMMessageModel.h"
+#import "IMServerEndpoint.h"
 #import <math.h>
+
+/// 是否是 http(s) 绝对 URL。旧实现用 `hasPrefix:@"http"`，把 `httpfoo:` 之类也算进去了。
+static BOOL IMIsAbsoluteHTTPURL(NSString *s) {
+    return [s hasPrefix:@"http://"] || [s hasPrefix:@"https://"];
+}
 
 NSString *IMMediaFullURL(NSString *content, NSString *host) {
     if (content.length == 0) { return @""; }
-    if ([content hasPrefix:@"http"] || [content hasPrefix:@"data:"]) { return content; }
-    return [NSString stringWithFormat:@"http://%@%@", host ?: @"", content];
+    if ([content hasPrefix:@"data:"]) { return content; } // 内联缩略图，不走网络
+    if (IMIsAbsoluteHTTPURL(content)) {
+        // 外站直接丢弃（返回空串，各调用点原本就按"没有图"降级到首字母圈/占位图）。理由见 .h。
+        if (![IMServerEndpoint.shared isOwnHost:host forAbsoluteURL:content]) { return @""; }
+        // 是自家的，但协议可能与当前配置不符（历史数据里的 http:// 绝对地址）——按当前 scheme 重拼，
+        // 免得整端切到 https 之后混进明文请求被 ATS 拦掉、表现为"部分图片不显示"。
+        NSURLComponents *c = [NSURLComponents componentsWithString:content];
+        NSString *path = c.percentEncodedPath ?: @"";
+        if (c.percentEncodedQuery.length > 0) { path = [path stringByAppendingFormat:@"?%@", c.percentEncodedQuery]; }
+        return [IMServerEndpoint.shared absoluteURLStringForHost:host relativePath:path];
+    }
+    return [IMServerEndpoint.shared absoluteURLStringForHost:host relativePath:content];
+}
+
+NSString *IMLinkPreviewImageURL(NSString *content, NSString *host) {
+    if (content.length == 0) { return @""; }
+    if ([content hasPrefix:@"data:"] || IMIsAbsoluteHTTPURL(content)) { return content; }
+    return [IMServerEndpoint.shared absoluteURLStringForHost:host relativePath:content];
 }
 
 NSString *IMReplySnippet(IMMessageModel *m) {

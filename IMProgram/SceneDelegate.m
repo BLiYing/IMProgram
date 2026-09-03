@@ -10,6 +10,7 @@
 #import "IMMainTabBarController.h"
 #import "IMHTTPService.h"
 #import "IMSessionStore.h"
+#import "IMServerEndpoint.h"
 #import "IMSocketManager.h"
 #import "UIViewController+IMToast.h"
 #import "IMLog.h"
@@ -34,7 +35,11 @@
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(handleSessionRevoked)
                                                name:IMSocketDidRevokeSessionNotification object:nil];
     [IMAppearance.shared applyInterfaceStyle];
-    IMLog(@"launch hasSession=%d uid=%@ host=%@", [IMSessionStore hasSession], IMSessionStore.userID, IMSessionStore.host);
+    // 协议要在任何网络调用之前恢复：IMServerEndpoint 默认 http，晚一步恢复就会有请求走错协议。
+    // 没存过（老版本升上来）时 saveScheme: 的空值保护让它保持默认 http，行为与改造前一致。
+    IMServerEndpoint.shared.scheme = IMSessionStore.scheme ?: IMServerSchemeHTTP;
+    IMLog(@"launch hasSession=%d uid=%@ host=%@ scheme=%@", [IMSessionStore hasSession],
+          IMSessionStore.userID, IMSessionStore.host, IMServerEndpoint.shared.scheme);
     if ([IMSessionStore hasSession]) {
         // 本地会话是启动导航的依据：即使服务器不可达，也先进入主界面展示本地会话和“未连接”。
         // 会话页负责静默登录、区分网络失败与鉴权失败，并由 socket 自动重连。

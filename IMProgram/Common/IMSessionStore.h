@@ -25,6 +25,12 @@ NS_ASSUME_NONNULL_BEGIN
 + (BOOL)hasSession;
 
 + (nullable NSString *)host;
+/// 上次使用的协议（`http` / `https`）。冷启动时用它恢复 IMServerEndpoint；
+/// 从未存过 → nil，调用方按默认 http 处理（老版本升上来即此情形）。
++ (nullable NSString *)scheme;
+/// 单独保存协议：saveHost:... 覆盖的是"这次登录用的账号"，而协议是"连哪台服务器"的一部分，
+/// 登出后仍应保留（与 host 同待遇，下次登录默认回填）。
++ (void)saveScheme:(nullable NSString *)scheme;
 + (nullable NSString *)userID;
 /// 登录凭据（公开句柄）。冷启动静默重登必须用它，不能用 userID。
 + (nullable NSString *)username;

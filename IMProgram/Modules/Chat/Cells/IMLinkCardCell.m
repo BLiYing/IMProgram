@@ -219,8 +219,9 @@
         _thumbHeight.constant = 130;
         __weak typeof(self) ws = self;
         // 服务端自家邀请卡返回**相对路径**（/avatars/…）——用本机配置的 host 补全（真机连局域网 IP 时
-        // 服务端并不知道端可达地址）；外站 OG 的绝对 URL 原样透传（IMMediaFullURL 对 http 前缀不动）。
-        NSString *imageURL = IMMediaFullURL(image, IMHTTPService.sharedService.host);
+        // 服务端并不知道端可达地址）；外站 OG 的绝对 URL 原样透传。这是全 App **唯一**允许外站图片的
+        // 场景，故显式走 IMLinkPreviewImageURL（IMMediaFullURL 已改为拒收外站，见其头文件注释）。
+        NSString *imageURL = IMLinkPreviewImageURL(image, IMHTTPService.sharedService.host);
         [[IMImageLoader shared] loadImageURL:imageURL completion:^(UIImage *img) {
             __strong typeof(ws) self = ws;
             if (self && [self->_url isEqualToString:url]) { self->_thumb.image = img; }

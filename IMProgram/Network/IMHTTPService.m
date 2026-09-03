@@ -1,6 +1,7 @@
 //  IMHTTPService.m
 
 #import "IMHTTPService.h"
+#import "IMServerEndpoint.h"
 #import "IMConversation.h"
 #import "IMUserCard.h"
 #import "IMGroupInfo.h"
@@ -1305,8 +1306,7 @@ const NSInteger IMFavoritesPageSize = 60;
 }
 
 - (nullable NSURL *)urlForPath:(NSString *)path {
-    if (self.host.length == 0) { return nil; }
-    return [NSURL URLWithString:[NSString stringWithFormat:@"http://%@%@", self.host, path]];
+    return [IMServerEndpoint.shared httpURLForHost:self.host path:path];
 }
 
 - (nullable NSMutableURLRequest *)postRequestToPath:(NSString *)path body:(NSDictionary *)body {

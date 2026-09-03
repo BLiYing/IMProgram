@@ -4,6 +4,7 @@
 #import "IMMainTabBarController.h"
 #import "IMHTTPService.h"
 #import "IMSessionStore.h"
+#import "IMServerEndpoint.h"
 
 static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过的 host
 
@@ -109,11 +110,12 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
 
 /// 登录：带密码做真账号校验，成功才进主界面；失败把服务端文案显示在登录页（不深入 App 再报错）。
 - (void)loginTapped {
-    NSString *host = [self trimmed:self.hostField.text];
+    NSString *host = [self resolvedHostOrShowError];
+    if (host.length == 0) { return; }
     NSString *userID = [self trimmed:self.userIDField.text];
     NSString *password = self.passwordField.text ?: @"";
-    if (host.length == 0 || userID.length == 0 || password.length == 0) {
-        [self showError:@"请填写服务器地址、用户名与密码"];
+    if (userID.length == 0 || password.length == 0) {
+        [self showError:@"请填写用户名与密码"];
         return;
     }
     [self loginWithHost:host username:userID password:password fallback:@"登录失败" activeButton:self.loginButton];
@@ -121,11 +123,12 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
 
 /// 注册并登录：先注册账号，成功后用同一密码进入。
 - (void)registerTapped {
-    NSString *host = [self trimmed:self.hostField.text];
+    NSString *host = [self resolvedHostOrShowError];
+    if (host.length == 0) { return; }
     NSString *username = [self trimmed:self.userIDField.text];
     NSString *nickname = [self trimmed:self.nicknameField.text];
     NSString *password = self.passwordField.text ?: @"";
-    if (host.length == 0 || username.length == 0 || password.length < 6) {
+    if (username.length == 0 || password.length < 6) {
         [self showError:@"用户名必填，密码至少 6 位"];
         return;
     }
@@ -159,10 +162,11 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
 /// 把连不通的真相推迟到主界面里静默失败。真机排障踩过——密码登录失败、免密"成功"，误判成密码问题，
 /// 实际是手机压根没连上 Mac（iOS 本地网络权限被拒）。登录页必须能自证后端可达。
 - (void)devLoginTapped {
-    NSString *host = [self trimmed:self.hostField.text];
+    NSString *host = [self resolvedHostOrShowError];
+    if (host.length == 0) { return; }
     NSString *userID = [self trimmed:self.userIDField.text];
-    if (host.length == 0 || userID.length == 0) {
-        [self showError:@"请填写服务器地址与用户名（uid）"];
+    if (userID.length == 0) {
+        [self showError:@"请填写用户名（uid）"];
         return;
     }
     [self loginWithHost:host username:userID password:@"" fallback:@"免密登录失败（后端需以 -dev-login 启动）" activeButton:self.devButton];
@@ -206,6 +210,29 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
     }
 }
 
+/// 解析服务器地址输入框：接受 `host:port` 与 `http(s)://host:port` 两种写法。
+/// 协议记进 IMServerEndpoint（全 App 唯一权威）并持久化；返回纯 `host:port`——
+/// App 内各处仍按 host 串传递，协议不再各自拼字面量。
+/// 非法或为空时**已经把错误显示出来**并返回空串，调用方直接 return 即可。
+///
+/// 这是「以后换 https 不用改代码」的落点：用户把地址改成 `https://im.example.com` 就整端切换，
+/// HTTP / WebSocket / 媒体补全 / 日志上报四路一起走 TLS。
+- (NSString *)resolvedHostOrShowError {
+    NSString *raw = [self trimmed:self.hostField.text];
+    if (raw.length == 0) {
+        [self showError:@"请填写服务器地址"];
+        return @"";
+    }
+    NSString *scheme = nil, *host = nil;
+    if (![IMServerEndpoint parseInput:raw scheme:&scheme host:&host]) {
+        [self showError:@"服务器地址格式不对（示例：192.168.1.12:8080 或 https://im.example.com）"];
+        return @"";
+    }
+    IMServerEndpoint.shared.scheme = scheme;
+    [IMSessionStore saveScheme:scheme];
+    return host;
+}
+
 /// 把 host/password 设入共享 HTTP 服务，供后续所有内部登录与 socket 换 token 复用。
 - (void)prepareServiceWithHost:(NSString *)host password:(NSString *)password {
     IMHTTPService.sharedService.host = host;
@@ -213,7 +240,11 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
     // 作废内存里的旧 token：loginWithUserID 有 10 分钟 TTL 缓存，不清就可能命中缓存直接回调成功——
     // 换 host / 换账号 / 改了密码后仍复用旧 token，且登录页看不出后端是否真的可达（排障假象）。
     [IMHTTPService.sharedService invalidateToken];
-    [NSUserDefaults.standardUserDefaults setObject:host forKey:kIMLastHostKey]; // 记住，下次免重填
+    // 记住，下次免重填。**带上协议**：只存 host 的话，这次填的 https 下次回填成裸 host，
+    // 又静默退回默认的 http（用户看不出来，只会觉得"怎么又不加密了"）。
+    NSString *remembered = IMServerEndpoint.shared.isSecure
+        ? [@"https://" stringByAppendingString:host] : host;
+    [NSUserDefaults.standardUserDefaults setObject:remembered forKey:kIMLastHostKey];
 }
 
 - (void)enterAppWithHost:(NSString *)host userID:(NSString *)userID username:(NSString *)username {

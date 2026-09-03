@@ -7,8 +7,20 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-/// 相对 URL（/uploads/xxx）补 host 成绝对地址；已是 http/data: 的原样返回；空→空串。
+/// 相对 URL（/uploads/xxx）补成绝对地址（协议取自 IMServerEndpoint）；`data:` 原样返回；空→空串。
+///
+/// **绝对 URL 只接受本服务器**（host 判据见 `IMServerEndpoint.isOwnHost:forAbsoluteURL:`），
+/// 外站一律返回空串。原因：消息 `content` 与 `avatar_url` 都是**发送方可控**且服务端原样存转的字段，
+/// 而图片默认自动下载（IMDownloadPolicy 对 image 无条件放行）——放行任意主机 = 对方发一条消息、
+/// 或仅仅把头像设成 `http://attacker/beacon.png` 再出现在你的搜索结果里，你的客户端就会**零点击**
+/// 发出一个 GET，泄露 IP、粗粒度位置与精确的「已查看」时刻，并把攻击者控制的字节喂给 ImageIO。
+/// 需要放外站图的**唯一**合法场景是链接预览 OG 图，走下面 IMLinkPreviewImageURL 显式豁免。
 FOUNDATION_EXPORT NSString *IMMediaFullURL(NSString *_Nullable content, NSString *_Nullable host);
+
+/// 链接预览（OG）图片地址——**唯一**允许外站绝对 URL 的入口，仅供 IMLinkCardCell / IMLinkPreviewView。
+/// 相对路径仍按自家 host 补全（服务端自家邀请卡返回 /avatars/…）。
+/// 新增调用点前先想清楚：这个函数会让远端指定的主机拿到本机 IP 与访问时刻。
+FOUNDATION_EXPORT NSString *IMLinkPreviewImageURL(NSString *_Nullable content, NSString *_Nullable host);
 
 /// 媒体消息在「引用/预览」场景的简短占位（本地生成，用于输入预览条与本端即时快照）：
 /// 图片/视频/文件→`[图片]`/`[视频]`/`[文件] 名`，聊天记录→标题，文本→截断。
