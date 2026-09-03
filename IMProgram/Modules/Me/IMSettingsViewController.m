@@ -572,6 +572,8 @@
 
 - (void)logout {
     [IMSocketManager.sharedManager disconnect];
+    [IMHTTPService.sharedService invalidateToken];
+    IMHTTPService.sharedService.refreshToken = nil; // 内存里的续期凭据也要清，否则本进程内还能换到 token
     [IMSessionStore clear]; // 退出登录：清持久化会话，下次启动回登录页
     UIWindow *window = self.view.window;
     IMLoginViewController *login = [IMLoginViewController new];

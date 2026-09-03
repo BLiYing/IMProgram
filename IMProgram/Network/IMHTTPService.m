@@ -1,6 +1,6 @@
 //  IMHTTPService.m
 
-#import "IMHTTPService.h"
+#import "IMHTTPService+Private.h" // 类扩展（私有存储属性）与分文件 category 的共享内部接口
 #import "IMServerEndpoint.h"
 #import "IMConversation.h"
 #import "IMUserCard.h"
@@ -11,6 +11,8 @@
 #import "IMHTTPLogFormatter.h"
 #import "IMLog.h"
 #import "IMFriendStateStore.h"
+#import "IMSessionStore.h"
+#import "IMSocketManager.h" // IMSocketDidRevokeSessionNotification（续期被拒时复用"被踢下线"通路）
 #import "IMRemarkStore.h"
 
 static NSString * const kIMHTTPErrorDomain = @"IMHTTPService";
@@ -131,21 +133,6 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     }
 }
 
-@interface IMHTTPService ()
-@property (atomic, copy, nullable) NSString *currentToken; // 对外只读，内部可写
-@property (atomic, copy, nullable) NSString *currentNickname; // 同上；登录后异步预热，见 warmUpMyNickname
-@property (atomic, copy, nullable) NSString *tokenUserID;      // 缓存 token 归属的 uid（切账号即失效）
-@property (atomic, assign) CFAbsoluteTime tokenFetchedAt;      // 取得时刻：TTL 内直接复用，不重复 POST /login
-// 合并在途登录（同 @synchronized(self) 保护）：冷启动缓存尚空时 socket 与会话列表等会并发调 loginWithUserID，
-// 若各发一次 POST /login，同 device_id 的多次登录会互相顶替并踢掉 sid（后注册吊销先注册），先注册者的 token
-// 若最后写回缓存，socket 便拿着已吊销 token 握手吃 401 被误判"被踢"回登录页。故同账号在途只真发一次。
-@property (nonatomic, strong, nullable) NSMutableArray *pendingLoginCompletions;
-@property (nonatomic, assign) BOOL loginInFlight;
-@property (nonatomic, copy, nullable) NSString *loginInFlightUserID;
-/// 最近一次登录成功时服务端返回的**内部 ID**。登录页据此拿到自己的身份（首次登录前 App 并不知道）。
-@property (atomic, copy, nullable) NSString *lastLoginUserID;
-@end
-
 @implementation IMHTTPService
 
 + (instancetype)sharedService {
@@ -155,111 +142,26 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     return instance;
 }
 
+// 登录 / token 生命周期的**公开入口**留在主实现：这几个方法声明在 IMHTTPService.h 上，
+// 放进 category 会同时触发 -Wincomplete-implementation 与
+// "category is implementing a method which will also be implemented by its primary class"。
+// 真正的实现细节（续期 vs 密码登录的分流、在途合并、TTL 缓存）在 IMHTTPService+Auth.m。
 - (void)loginWithUserID:(NSString *)userID
              completion:(void (^)(NSString *, NSError *))completion {
-    // TTL 内同账号直接复用缓存 token：会话列表每次 viewWillAppear 都会走到这里，
-    // 不去重就是每切一次页面一次 POST /login（真机日志一分钟内 5 次）。TTL 取 10 分钟，
-    // 远小于服务端 24h 过期；异常失效（如服务端换密钥）由下一次 TTL 过期后的重登自愈。
-    NSString *cached = self.currentToken;
-    if (cached.length > 0 && [self.tokenUserID isEqualToString:userID]
-        && CFAbsoluteTimeGetCurrent() - self.tokenFetchedAt < 600) {
-        [self callOnMain:^{ completion(cached, nil); }];
-        return;
-    }
-    // 合并在途登录：同账号已有一发在途 → 只排队，回来共享同一枚 token（见属性处说明，防冷启动并发自踢）。
-    // 极罕见的"在途中切到别的账号"走独立请求（owner=NO），不动共享队列，避免它的回调丢失。
-    BOOL owner = NO;
-    @synchronized (self) {
-        if (self.loginInFlight && [self.loginInFlightUserID isEqualToString:userID]) {
-            if (!self.pendingLoginCompletions) { self.pendingLoginCompletions = [NSMutableArray array]; }
-            [self.pendingLoginCompletions addObject:[completion copy]];
-            return;
-        }
-        if (!self.loginInFlight) {
-            self.loginInFlight = YES;
-            self.loginInFlightUserID = userID;
-            self.pendingLoginCompletions = [NSMutableArray arrayWithObject:[completion copy]];
-            owner = YES;
-        }
-    }
-    // 设备管理（QR P2）：随登录上报稳定 device_id + 平台/名/版本，后端按 (uid, device_id) 顶替同一台旧会话
-    // （避免每次登录堆一行），并在"已登录设备"里展示、可远程踢。字段皆可选，缺省后端按 UA 兜底。
-    // 发给后端的必须是 **username**（公开句柄）——登录接口不认内部 ID。
-    // userID 参数只作内存缓存键 / 在途合并键。self.username 为空时回退传入值，兼容早期调用路径。
-    NSString *loginName = self.username.length > 0 ? self.username : userID;
-    NSDictionary *reqBody = @{ @"username": loginName ?: @"", @"password": self.password ?: @"",
-                               @"device_id": IMDeviceIdentity.deviceID,
-                               @"platform": IMDeviceIdentity.platform,
-                               @"device_name": IMDeviceIdentity.deviceName,
-                               @"app_version": IMDeviceIdentity.appVersion };
-    NSURLRequest *req = [self postRequestToPath:@"/api/v1/login" body:reqBody];
-    if (!req) {
-        [self finishLogin:owner userID:userID token:nil error:[self errorWithMessage:@"非法服务器地址"] soloCompletion:completion];
-        return;
-    }
-    __weak typeof(self) weakSelf = self;
-    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
-        __strong typeof(weakSelf) self = weakSelf;
-        if (!self) { return; }
-        if (error) { [self finishLogin:owner userID:userID token:nil error:error soloCompletion:completion]; return; }
-        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
-        NSString *token = [data[@"token"] isKindOfClass:[NSString class]] ? data[@"token"] : nil;
-        if ([body[@"code"] integerValue] != 0 || token.length == 0) {
-            // 带上业务码，便于调用方区分"鉴权失败(退登录)"与"网络问题(重试)"。
-            [self finishLogin:owner userID:userID token:nil
-                        error:[self errorWithCode:[body[@"code"] integerValue] message:[self messageFrom:body fallback:@"登录失败"]]
-               soloCompletion:completion];
-            return;
-        }
-        // 服务端分配的内部 ID：首次登录时 App 尚不知道自己是谁，只能从这里取。
-        NSString *serverUID = [data[@"uid"] isKindOfClass:[NSString class]] ? data[@"uid"] : nil;
-        self.lastLoginUserID = serverUID.length > 0 ? serverUID : userID;
-        self.currentToken = token; // 缓存：供聊天页等无需重登即可发 HTTP（举报）
-        // 缓存键用**服务端返回的内部 ID**：调用方传进来的 userID 在首次登录时是 username，
-        // 若拿它当键，随后各处以内部 ID 调用会全部 miss 缓存、每次都真发一次 /login。
-        self.tokenUserID = self.lastLoginUserID;
-        self.tokenFetchedAt = CFAbsoluteTimeGetCurrent();
-        [self warmUpMyNicknameWithToken:token];
-        [self finishLogin:owner userID:userID token:token error:nil soloCompletion:completion];
-    }];
+    // 内部各处（socket 换 token、页面进入时兜底）走这条：**优先续期**，没有续期凭据才退回密码登录。
+    [self obtainTokenForUserID:userID forceCredentialLogin:NO completion:completion];
 }
 
-/// 收束一次登录：owner=YES 时把共享队列里排队的 completion 全部 fan-out（并清空在途状态）；
-/// owner=NO（独立请求）只回 soloCompletion。全部切主线程回调，与旧行为一致。
-- (void)finishLogin:(BOOL)owner userID:(NSString *)userID token:(nullable NSString *)token
-              error:(nullable NSError *)error soloCompletion:(void (^)(NSString *, NSError *))soloCompletion {
-    if (!owner) {
-        [self callOnMain:^{ soloCompletion(token, error); }];
-        return;
-    }
-    NSArray *pending;
-    @synchronized (self) {
-        pending = self.pendingLoginCompletions ?: @[];
-        self.pendingLoginCompletions = nil;
-        self.loginInFlight = NO;
-        self.loginInFlightUserID = nil;
-    }
-    [self callOnMain:^{
-        for (void (^cb)(NSString *, NSError *) in pending) { cb(token, error); }
-    }];
-}
-
-/// 登录后异步拉一次本人资料，把公开显示名缓存起来（供合并转发标题等**同步**场景取用）。
-/// 已有缓存就不重复拉——token 每 10 分钟会因 TTL 重登一次（见 IMServer current_task「已知坑」），
-/// 不设这道闸门就会变成每 10 分钟一次无谓请求。失败静默：调用方本就要能降级。
-- (void)warmUpMyNicknameWithToken:(NSString *)token {
-    if (token.length == 0 || self.currentNickname.length > 0) { return; }
-    __weak typeof(self) ws = self;
-    [self myProfileWithToken:token completion:^(IMUserCard *card, NSError *err) {
-        __strong typeof(ws) self = ws;
-        // 取 nickname 而非 displayName：后者是「备注名 > 昵称」，而这个值会被写进**发出去的**
-        // 卡片标题——备注仅本人可见，绝不能外流（同 IMConversationPublicName 的纪律）。
-        if (!self || err || card.nickname.length == 0) { return; }
-        self.currentNickname = card.nickname;
-    }];
-}
+/// 取一枚可用 access token。两条来源共用同一套「TTL 缓存 / 在途合并 / 响应解析」，只有请求本身不同：
+///   - 续期（默认）：POST /api/v1/token/refresh，凭 refreshToken，不碰密码；
+///   - 凭据登录（forceCredentialLogin=YES，或压根没有 refreshToken）：POST /api/v1/login。
+///
+/// 登录页必须 forceCredentialLogin=YES——用户刚输入的密码就是要拿去验的，
+/// 此刻若走续期就变成"密码填错也能进"（本地还留着上一个账号的有效凭据）。
 
 - (void)invalidateToken {
+    // 注意**不动 refreshToken**：这里作废的是 10 分钟 TTL 的 access token 缓存，
+    // 而续期凭据是长效的、由登录/退登/被拒三处管理。顺手清掉它会让"换 host 重连"退化成必须重输密码。
     self.currentNickname = nil; // 换账号必须一起清，否则新账号会顶着旧账号的名字打包转发卡片
     self.currentToken = nil;
     self.tokenUserID = nil;
@@ -272,7 +174,9 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     __weak typeof(self) weakSelf = self;
     // 复用 loginWithUserID: 的在途合并与错误处理；userID 传 username 仅作本次的去重键，
     // 真正的内部 ID 由响应带回（见 lastLoginUserID）。
-    [self loginWithUserID:username completion:^(NSString *token, NSError *error) {
+    // forceCredentialLogin=YES：用户刚输入的密码就是要拿去验的。走续期的话，本地若还留着上一个
+    // 账号的有效凭据，密码填错也会"登录成功"。
+    [self obtainTokenForUserID:username forceCredentialLogin:YES completion:^(NSString *token, NSError *error) {
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) { return; }
         completion(token, token.length > 0 ? self.lastLoginUserID : nil, error);

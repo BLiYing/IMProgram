@@ -48,7 +48,13 @@
         IMHTTPService.sharedService.host = host;
         // username 是重登凭据（登录接口不认内部 ID），不恢复它会让静默重登拿 uid 去登录、必然失败。
         IMHTTPService.sharedService.username = IMSessionStore.username ?: @"";
-        IMHTTPService.sharedService.password = IMSessionStore.password ?: @"";
+        // 保持登录改用**续期凭据**（可吊销、只作用于本设备），不再恢复明文密码（安全整改第 5 步）。
+        // 老安装升级上来时还没有它：退回用遗留明文密码做最后一次登录，IMHTTPService 收到
+        // refresh_token 后会立刻把明文从内存与磁盘一起擦掉（一次性迁移，见 IMSessionStore.legacyPassword）。
+        IMHTTPService.sharedService.refreshToken = IMSessionStore.refreshToken;
+        if (IMSessionStore.refreshToken.length == 0) {
+            IMHTTPService.sharedService.password = IMSessionStore.legacyPassword ?: @"";
+        }
         self.window.rootViewController = [[IMMainTabBarController alloc] initWithHost:host userID:uid];
     } else {
         [self showLogin];
@@ -73,6 +79,7 @@
     IMLog(@"session revoked → 强制登出回登录页");
     [IMSocketManager.sharedManager disconnect];
     [IMHTTPService.sharedService invalidateToken];
+    IMHTTPService.sharedService.refreshToken = nil; // invalidateToken 刻意不动它（长效凭据），登出这里必须清
     [IMSessionStore clear]; // 清持久化会话：下次启动直接回登录页，不再静默重登
     [self showLogin];
     [UIViewController im_showGlobalToast:@"该账号已在其他设备退出登录，请重新登录"];

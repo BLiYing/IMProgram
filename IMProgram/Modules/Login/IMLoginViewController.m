@@ -237,6 +237,10 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
 - (void)prepareServiceWithHost:(NSString *)host password:(NSString *)password {
     IMHTTPService.sharedService.host = host;
     IMHTTPService.sharedService.password = password;
+    // 换账号/重新登录：先擦掉上一个账号的续期凭据（内存 + 磁盘）。留着的话，本次密码填错后
+    // 内存里仍躺着一枚别人的有效凭据，任何走 loginWithUserID: 的兜底路径都可能拿它换到 token。
+    IMHTTPService.sharedService.refreshToken = nil;
+    [IMSessionStore saveRefreshToken:nil];
     // 作废内存里的旧 token：loginWithUserID 有 10 分钟 TTL 缓存，不清就可能命中缓存直接回调成功——
     // 换 host / 换账号 / 改了密码后仍复用旧 token，且登录页看不出后端是否真的可达（排障假象）。
     [IMHTTPService.sharedService invalidateToken];
@@ -248,9 +252,10 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
 }
 
 - (void)enterAppWithHost:(NSString *)host userID:(NSString *)userID username:(NSString *)username {
-    // 持久化会话（保持登录）：password 从服务层取（免密登录为空串）。下次启动静默重登直达主界面。
-    // **username 必须一起存**——冷启动重登只能用它，拿内部 ID 去登录后端按 username 查必然落空。
-    [IMSessionStore saveHost:host userID:userID username:username password:IMHTTPService.sharedService.password];
+    // 持久化会话（保持登录）。下次启动靠 refresh_token 静默换 token 直达主界面——
+    // 那枚凭据由 IMHTTPService 在登录响应里收到时自行落盘，这里不经手（也不再存明文密码）。
+    // **username 必须一起存**——它是密码登录的凭据；续期失效退回登录页时要能回填。
+    [IMSessionStore saveHost:host userID:userID username:username];
     IMMainTabBarController *main = [[IMMainTabBarController alloc] initWithHost:host userID:userID];
     self.view.window.rootViewController = main;
 }

@@ -425,7 +425,7 @@
         // 改名不吊销会话，但**下次冷启动要用它重登**——不写回本地会话，重启后会拿旧名登录而失败。
         IMHTTPService.sharedService.username = newName;
         [IMSessionStore saveHost:(IMSessionStore.host ?: @"") userID:(IMSessionStore.userID ?: @"")
-                        username:newName password:(IMSessionStore.password ?: @"")];
+                        username:newName];
         [self exitEditingAfterSave];
     }];
 }

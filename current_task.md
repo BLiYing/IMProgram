@@ -37,6 +37,28 @@
 > 后端 `gateway/client.go` 的 `handshakeToken` 两条并存（`?token=` 留给浏览器——浏览器 WebSocket API
 > 设不了请求头），**故本端改动不需要后端同版本才可用**，但仍需重启后端才生效。
 >
+> **第 5 步同批（2026-09-03）：不再存账号明文密码，改存可吊销的续期凭据** ——
+> 原先 `IMSessionStore` 存的是**账号明文密码**，`SceneDelegate` 每次冷启动把它恢复进
+> `IMHTTPService` 重放去换 token。真正的问题不是"明文"，是**密码不可吊销**：App 里那套
+> 「设备管理 / 注销这台设备」对"保持登录"这条路径**完全失效**（注销掉的只是会话，拿密码立刻重登），
+> 自己做的安全功能形同虚设。
+> 现在存后端签发的 `refresh_token`（绑定本设备会话 sid），`loginWithUserID:` 优先走
+> `POST /api/v1/token/refresh`；`loginWithUsername:`（登录页）强制走密码登录——
+> 否则本地若还留着上一个账号的有效凭据，**密码填错也会"登录成功"**。
+> 凭据由 `IMHTTPService` 在收到登录响应时自行落盘（触发登录的入口不止登录页，交给调用方各自保存必然漏）；
+> 拿到它就把明文密码从内存与磁盘一起清掉。续期被服务端明确拒绝（`IMIsAuthErrorCode`）时擦掉凭据并复用
+> `IMSocketDidRevokeSessionNotification` 把用户送回登录页——不擦的话每次进页面都拿同一枚废凭据重试，
+> 界面永远停在"未连接"且**没有出路**（密码已不落盘，退不回密码登录）。
+> **一次性迁移**：老安装升上来没有 refresh，退回用 `IMSessionStore.legacyPassword` 做最后一次密码登录，
+> 成功后立即 `clearLegacyPassword`（垫片可删除的条件写在头文件里）。
+> **登出/换账号三处都清内存里的凭据**：`invalidateToken` 刻意不动它（那只管 10min access token 缓存），
+> 所以退出登录、被踢下线、以及登录页每次提交各自显式清一次。
+> 顺带修 I7：`IMSessionStore.h` 那句"password 从 Keychain 删除"是假的（实现只清 `NSUserDefaults`）。
+> **体量门禁副产物**：`IMHTTPService.m` 撞 1503 > 1500 → 抽出 `IMHTTPService+Auth.m`（登录/token 生命周期，
+> 与上传/好友/会话无共享状态），类扩展下沉到 `IMHTTPService+Private.h`；**公开入口留在主实现**——
+> 声明在公开头上的方法放 category 会同时触发 `-Wincomplete-implementation` 与
+> "category is implementing a method which will also be implemented by its primary class"。现 1364 行。
+>
 > **待真机手测**：登录页填裸 `host:port` 应与改前完全一致；长连接能连上（会话列表出现"已连接"）；填 `https://…` 应连不上（后端尚未开 TLS，属预期）；
 > 聊天图片/头像/群头像/收藏/记录卡照常显示；链接卡片的外站预览图仍能出图。
 
