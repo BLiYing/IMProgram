@@ -31,7 +31,13 @@
 > **本步没做**：ATS 仍是全局 `NSAllowsArbitraryLoads`（第 4 步随 TLS 一起收窄）；WS token 仍在 query 串（第 3 步）；
 > 明文密码仍存 `NSUserDefaults`（第 5 步）。
 >
-> **待真机手测**：登录页填裸 `host:port` 应与改前完全一致；填 `https://…` 应连不上（后端尚未开 TLS，属预期）；
+> **第 3 步同批（2026-09-03）：WS token 移出 query 串** —— `openSocketWithToken:` 改用
+> `webSocketTaskWithRequest:` 并带 `Authorization: Bearer <jwt>` 头（`webSocketTaskWithURL:` 只收 URL，
+> 结构上带不了自定义头）。URI 里的凭据会被沿途反向代理 / 网关 / CDN 写进访问日志。
+> 后端 `gateway/client.go` 的 `handshakeToken` 两条并存（`?token=` 留给浏览器——浏览器 WebSocket API
+> 设不了请求头），**故本端改动不需要后端同版本才可用**，但仍需重启后端才生效。
+>
+> **待真机手测**：登录页填裸 `host:port` 应与改前完全一致；长连接能连上（会话列表出现"已连接"）；填 `https://…` 应连不上（后端尚未开 TLS，属预期）；
 > 聊天图片/头像/群头像/收藏/记录卡照常显示；链接卡片的外站预览图仍能出图。
 
 > **三项：搜索 pill 直接开会话 + 合并转发标题口径 + 条目 `u` 匿名化（2026-08-31，与 Web 同步；

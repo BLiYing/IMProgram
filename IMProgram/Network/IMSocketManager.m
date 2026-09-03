@@ -237,22 +237,28 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
 }
 
 /// 用换到的 token 打开 WebSocket（仅在 _queue 调用）。
+///
+/// token 走 **`Authorization: Bearer` 请求头**，不再放 `?token=` 查询串：URI 里的凭据会被沿途的
+/// 反向代理 / 网关 / CDN 原样写进访问日志，长效 JWT 就此散落在一堆没人当机密保管的文件里。
+/// （本端自己一直没记——下面那条日志特意只打 `(token)` 占位。）
+/// 为此必须用 `webSocketTaskWithRequest:`：`webSocketTaskWithURL:` 只收 URL，结构上带不了自定义头。
+/// 服务端两条都认（`gateway/client.go` 的 handshakeToken），`?token=` 留给浏览器——
+/// 浏览器的 WebSocket API 设不了请求头，im-web 只能走 query。
 - (void)openSocketWithToken:(NSString *)token host:(NSString *)host {
-    NSString *encoded = [token stringByAddingPercentEncodingWithAllowedCharacters:
-                         NSCharacterSet.URLQueryAllowedCharacterSet] ?: token;
-    NSURL *url = [IMServerEndpoint.shared webSocketURLForHost:host path:@"/ws"
-                                                        query:[@"token=" stringByAppendingString:encoded]];
+    NSURL *url = [IMServerEndpoint.shared webSocketURLForHost:host path:@"/ws" query:nil];
     if (!url) {
         IMLogSocket(@"非法 ws 地址 host=%@", host);
         [self scheduleReconnect];
         return;
     }
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    [request setValue:[@"Bearer " stringByAppendingString:token] forHTTPHeaderField:@"Authorization"];
     NSOperationQueue *delegateQueue = [NSOperationQueue new];
     delegateQueue.maxConcurrentOperationCount = 1;
     _session = [NSURLSession sessionWithConfiguration:NSURLSessionConfiguration.defaultSessionConfiguration
                                              delegate:self
                                         delegateQueue:delegateQueue];
-    _task = [_session webSocketTaskWithURL:url];
+    _task = [_session webSocketTaskWithRequest:request];
     [_task resume];
     [self receiveNext];
     IMLogSocket(@"connecting %@://%@/ws (token)", (IMServerEndpoint.shared.isSecure ? @"wss" : @"ws"), host);
