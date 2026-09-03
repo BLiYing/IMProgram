@@ -524,15 +524,25 @@ static const NSTimeInterval kIMWindowRequestTimeout = 6.0;
 /// 窗口在末尾时按内存数（快，且与屏幕上看到的一致）；不在末尾时内存里只有历史那一段、
 /// 根本数不出下方还有多少，改由本地库出——口径与内存版严格一致（发件人非我 且 conv_seq > 已滚入位点）。
 - (NSInteger)windowUnreadBelowCount {
-    if (self.windowState.atTail) {
-        NSInteger n = 0;
-        for (IMMessageModel *m in self.windowState.messages) {
-            if (![m.from isEqualToString:self.userID] && m.convSeq > self.pendingReadSeq) { n++; }
-        }
-        return n;
-    }
     NSString *convID = self.convID;
     int64_t frontier = self.pendingReadSeq;
+    // head = 服务端最新位点的内存快照（O(1)，不碰库）。下面两条分支都要拿它当上界。
+    int64_t head = [IMSocketManager.sharedManager headConvSeqForConv:convID];
+    if (self.windowState.atTail) {
+        int64_t windowMax = 0;
+        NSInteger n = 0;
+        for (IMMessageModel *m in self.windowState.messages) {
+            if (m.convSeq > windowMax) { windowMax = m.convSeq; }
+            if (![m.from isEqualToString:self.userID] && m.convSeq > frontier) { n++; }
+        }
+        // **`atTail` 只说明「窗口含本地最新一条」，不等于「含会话最新一条」**。
+        // 有缺口时本地尾巴可能落后服务端上万条，此时数内存必然偏小——1 万条未读实测显示成
+        // 185（= 窗口里读位点之后的条数），看着像个正常数字，其实是窗口大小（2026-09-03）。
+        // 判据用 head 与**窗口最大 seq** 比，不用 isConvComplete:：后者要查库，而这里
+        // 每帧滚动都会走一遍；head 本就在内存里，够用且更直接。
+        if (head > windowMax && head > frontier) { return (NSInteger)(head - frontier); }
+        return n;
+    }
     // **本地有缺口时不能数本地**（IMServer/docs/design/OFFLINE_BACKLOG_DESIGN.md §4.9 第 8 项）：
     // 离线积压被留成缺口后，缺口里的消息根本没下载，数出来必然偏小——而 ↓N 少显示几百条
     // 不会报错、界面照常，只是数字悄悄不对。改用服务端最新位点减去已滚入位点（O(1)、不碰消息表）。
@@ -544,7 +554,6 @@ static const NSTimeInterval kIMWindowRequestTimeout = 6.0;
         n = [database countIncomingInConv:convID afterConvSeq:frontier]; // 两条分支都可能用到（见下）
     }];
     if (complete) { return n; }
-    int64_t head = [IMSocketManager.sharedManager headConvSeqForConv:convID];
     // head 未知（老服务端 / 尚未收到过带 head 的响应）→ **退回数本地**，宁可偏小也不编造。
     // 早先这里直接返回 0，等于「有缺口且不知道 head 时把 ↓N 藏起来」——那是另一种错，
     // 且与 Web 的判据不一致（im-web/src/unreadBelow.ts 是两端共同口径，CHAT_UX §7）。
