@@ -222,8 +222,11 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
 #pragma mark - 群聊（M3）
 
 /// 建群：owner=自己（token 决定），memberIDs=初始成员。completion 回新建群资料（含成员），主线程。
+/// avatarURL：建群第二步选好并上传完的群头像（可空串=不设，服务端回退首字母圈）。
+/// **服务端 body 一直有 avatar_url 这一位**，只是端上长期传空串；2026-09-05 建群页落地后接上。
 - (void)createGroupWithToken:(NSString *)token
                         name:(NSString *)name
+                   avatarURL:(NSString *)avatarURL
                    memberIDs:(NSArray<NSString *> *)memberIDs
                   completion:(void (^)(IMGroupInfo *_Nullable group, NSError *_Nullable error))completion;
 

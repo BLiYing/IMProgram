@@ -419,10 +419,11 @@ const NSInteger IMFavoritesPageSize = 60;
 
 - (void)createGroupWithToken:(NSString *)token
                         name:(NSString *)name
+                   avatarURL:(NSString *)avatarURL
                    memberIDs:(NSArray<NSString *> *)memberIDs
                   completion:(void (^)(IMGroupInfo *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/groups" method:@"POST" token:token
-        body:@{ @"name": name ?: @"", @"avatar_url": @"", @"member_ids": memberIDs ?: @[] }];
+        body:@{ @"name": name ?: @"", @"avatar_url": avatarURL ?: @"", @"member_ids": memberIDs ?: @[] }];
     [self runGroupInfoRequest:req fallback:@"建群失败" completion:completion];
 }
 

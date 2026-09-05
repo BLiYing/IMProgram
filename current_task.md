@@ -5,18 +5,55 @@
 
 ## 当前焦点
 
-> **用户实测第四批（2026-09-05）：语音转文字撑高后要把文字补进视口**——末条是语音时，转出来的
-> 文字整段挂在视口下沿之外，用户必须手动再滑一下才看得见（Web 同病，两端同批修）。
-> `IMChatViewController+Voice.m` 的 `im_applyTranscriptText:loading:forMessageID:`：应用前记
-> `isNearBottom`，cell 的 `beginUpdates/endUpdates` 撑高之后——原本贴底就 `scrollToAbsoluteBottom`，
-> 否则 `scrollToRowAtIndexPath:` + **`UITableViewScrollPositionNone`**（最小位移露全该行，已完整可见
-> 就一步不动，在历史里转写中间某条不会被拽走）；**收起/失败不滚**（只会变矮）。
-> 用 **`animated:NO`**：动画滚动每帧走 `scrollViewDidScroll` → `maybeLoadOlder/NewerOnScroll`，
-> 翻页一插行落点就跑偏（同 2026-09-05「先最早再定位落到别处」那个坑）。
-> **按用户要求只编译（`BUILD_ONLY=1 ./scripts/test.sh` 通过），未跑模拟器、无新单测。**
-> 口径见 `../IMServer/docs/CHAT_UX.md §9`「消息就地变高」。
+> **建群两步流 ✅ 2026-09-05**（后端零改动）。原先是「选好友 →『创建』→ 弹一个 `UIAlertController`
+> 输群名」；现在第一步按钮改「下一步」，第二步是 `IMGroupCreateViewController`：
+> **群头像 / 群名（必填、预填「我、A、B」）/ 成员横条（可 ✕，不可删到 0）**。
+> 头像随 `POST /groups` 的 `avatar_url` 一起发——**服务端一直有这一位，端上此前恒传空串**，
+> 于是每个新群都得先建出来再进群管理页设图。设计稿见
+> `../IMServer/docs/design/sketches/GROUP_CREATE_UX_SKETCH.html`。
 >
-> 用户报的另两条（发送后滚到最新 / 卡片宽度）**iOS 本就正确或不适用**，只改了 Web。
+> **顺带收敛的重复**：会话页 ＋ 菜单与通讯录群聊页**各有一份**「alert 输群名 + POST」实现（几乎逐字重复），
+> 一并删掉，两处都改调 `+[IMGroupCreateViewController startInNavigationController:host:userID:onCreated:]`；
+> 群管理页那个 90pt 头像头（原为该文件的私有类）提成 `Modules/Group/IMGroupAvatarHeader`，
+> 加 `initial` 占位首字 + `applyAvatarImage:placeholder:caption:`，**群管理页行为逐字不变**。
+>
+> **三条值得记的**：
+> ① **预填群名只能用公开名**：群名会发到服务端、进系统消息、显示给全群，用备注＝把私下称呼广播出去
+>（同合并转发标题那次 P0）。故 `Common/IMGroupNameDefault` 只收 nickname/username/uid **三件套**，
+> 不收 `IMUserCard`——免得有人顺手传"备注优先"的 `displayName`；我自己那一位取
+> `IMHTTPService.currentNickname`（登录后预热的公开昵称，允许为空则跳过）。
+> **成员横条上显示的名字仍认备注**（本机渲染），两者刻意分叉。
+> ② **「＋ 添加」是 pop 回选好友页**（它还在栈上、勾选原样），所以 picker 的 `onDone` 必须分两支：
+> 栈里已有建群页就 `updateMembers:` + `popToViewController:`，无脑 push 会**叠出第二份**建群页。
+> ③ 群名按 **rune**（码点）计 30 字，与服务端 `len([]rune)` 同口径——不能用
+> `ByComposedCharacterSequences`（那按字形簇算，一家四口 emoji 算 1，会放过服务端要拒的名字）。
+>
+> `IM_SIM="iPhone 17 Pro Max" ./scripts/test.sh` **415/415 绿**（新增 `IMGroupNameDefaultTests` 8 例，
+> 与 Web `groupName.test.ts` 用例逐条对应）。
+>
+> **模拟器实测（用户点名要求）抓到一个 P0**：**注入式液态标题栏不监听 `navigationItem`**——
+> 它只在 push/pop/present 关闭等时机由 `IMMainNavigationController syncBarForController:` 同步一次。
+> 我改了 `rightBarButtonItem.enabled` 却没通知它：进页群名为空 → 栏上按钮同步成 disabled；
+> 之后输入群名，`UIBarButtonItem.enabled` 已是 YES 而**栏上那颗按钮仍灰且点不动 → 建不出群**。
+> 修法：`refreshCreateEnabled` 末尾调 `im_refreshNavigationBar`。**同一坑的另一面**：右上项
+> 不能用 `initWithCustomView:` 塞菊花（注入栏只认 title/image，会让按钮整个消失），在途改为置灰。
+> 另修：长群名把 12pt 计数挤成「25/…」→ 计数设 required 抗压缩、输入框让位。
+>
+> 实测跑通：两步流全程、**头像端到端**（选图→圆形裁切→上传→随建群发出→新群会话页右上与会话列表
+> 都显示该图）、「＋添加」pop 回选好友页且再「下一步」回到**同一个**建群页、删成员重算预填名、
+> 删到最后一位被拦、清空群名按钮置灰且头像圈回落相机。
+> **未测**：那句「至少选择一位好友」toast（存活 1.9s、截图往返 ~2s 没拍到，但拦截行为已验证）、
+> 头像上传超时 5s 与建群失败两支（要造网络故障）。
+>
+> **用户复测后再改两条（本轮按用户要求只编译、未启模拟器）**：
+> ① **「＋ 添加」改成固定列**——原先它跟成员条一起横滚，人一多要先滑到头才能继续加人。
+> 现用约束钉在 cell 右缘（`_strip.trailing = _addColumn.leading - space2`），成员条只占左边那段。
+> ② **预填群名不再补「…」**：放不下的名字直接不要（`IMDefaultGroupName` 与 Web `groupName.ts` 同步改，
+> 两端单测一起改）。理由是它是个**可改的候选名**而不是被裁短的完整名，末尾挂省略号既占掉一个可用字，
+> 又会被头像圈的「取末两字」规则显示成「2…」。
+
+> **上一批（2026-09-05，已提交 `e25ae08`）**：语音转文字撑高后把文字补进视口
+>（记 `isNearBottom` → 贴底或 `ScrollPositionNone` 最小位移，`animated:NO` 免动画滚动每帧触发翻页）。只编译未跑模拟器。
 
 > **已落地、细节转入 `current_task.archive.md`**（2026-08-30 ~ 09-03）：安全整改第 1/3/5 步
 > （`IMServerEndpoint` 收口 scheme + 媒体外站 URL 白名单 / WS token 移出 query 串改 `Authorization` 头 /
@@ -43,8 +80,11 @@
    但仍无上传进度/取消，上传失败即删录音无 failed 行）；Web 语音上传期无回显（对齐 useMediaSend 先回显后上传）；
    Web 收藏/气泡语音 404 失效占位（复用 MEDIA_EXPIRY）。中断 vs 手势取消的系统投递顺序仍是赌注
    （多数机型触摸先取消→行为=自动发送，通知先到→锁定暂停；根治需 recorder interrupting 窗口标志）。
-5. `setupUI` 抽 `IMComposerBar`（老欠账）；「从收藏发送」入口开放（见「已知坑」）。
-6. **拆 `IMProgram/Network/IMSocketManager.m`（1566 行，已在体量门禁登记欠账，上限 1600「只准降不准升」）**：
+5. **选好友页缺「全选」**（2026-09-05 记）：`IMFriendPickerViewController` 没有全选/取消全选，
+   Web 建群第一步早就有（只作用于当前可见行 + 按上限截断 + 与已选取并集）。加的时候照抄 Web 那套口径，
+   别只做「勾上全部候选」——搜索态下会勾到用户看不见的人。
+6. `setupUI` 抽 `IMComposerBar`（老欠账）；「从收藏发送」入口开放（见「已知坑」）。
+7. **拆 `IMProgram/Network/IMSocketManager.m`（1566 行，已在体量门禁登记欠账，上限 1600「只准降不准升」）**：
    方向按 CODING_STYLE §7 三档——帧编解码 / 重连退避 / 各业务 send-recv 分组各自成协作对象或 category。
    同批还有三个 WARN 逼近 1500：`IMHTTPService.m` 1460、`IMDatabase.m` 1453、`IMChatDetailViewController.m` 1466。
 

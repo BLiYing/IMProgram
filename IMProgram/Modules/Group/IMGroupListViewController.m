@@ -1,7 +1,7 @@
 //  IMGroupListViewController.m
 
 #import "IMGroupListViewController.h"
-#import "IMFriendPickerViewController.h"
+#import "IMGroupCreateViewController.h"
 #import "IMChatViewController.h"
 #import "IMHTTPService.h"
 #import "IMSocketManager.h"
@@ -197,56 +197,18 @@ static CGFloat const kIMGroupAvatarSize = 44;
     }];
 }
 
-#pragma mark - 建群（选好友 → 起群名 → POST → 进群聊）
+#pragma mark - 建群（选好友「下一步」→ 建群资料页 → POST → 进群聊）
 
+/// 两步流的编排收在 IMGroupCreateViewController（会话列表页那个入口用的是同一个），
+/// 本页只提供"建完之后去哪"。原先这里有一份「alert 输群名 + POST」的实现，
+/// 与 IMConversationListViewController 里那份几乎逐字重复，已一并删除。
 - (void)createTapped {
     __weak typeof(self) weakSelf = self;
-    IMFriendPickerViewController *picker =
-        [[IMFriendPickerViewController alloc] initWithHost:self.host userID:self.userID
-                                                    excludedIDs:nil confirmTitle:@"创建"
-                                                         onDone:^(NSArray<NSString *> *selectedIDs) {
-            [weakSelf promptGroupNameForMembers:selectedIDs];
-        }];
-    [self.navigationController pushViewController:picker animated:YES];
-}
-
-/// 起群名弹窗 → 创建。
-- (void)promptGroupNameForMembers:(NSArray<NSString *> *)memberIDs {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"群名"
-        message:@"1~30 字" preferredStyle:UIAlertControllerStyleAlert];
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) { tf.placeholder = @"给群起个名字"; }];
-    __weak typeof(self) weakSelf = self;
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"创建" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-        NSString *name = [alert.textFields.firstObject.text
-                          stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-        [weakSelf createGroupNamed:name members:memberIDs];
-    }]];
-    // 弹在导航栈顶（此刻是 picker 页）。
-    [self.navigationController.topViewController presentViewController:alert animated:YES completion:nil];
-}
-
-- (void)createGroupNamed:(NSString *)name members:(NSArray<NSString *> *)memberIDs {
-    UIViewController *top = self.navigationController.topViewController;
-    if (name.length == 0) {
-        [top im_showToast:@"请输入群名"];
-        return;
-    }
-    NSString *token = IMHTTPService.sharedService.currentToken;
-    if (token.length == 0) {
-        [top im_showToast:@"未登录"];
-        return;
-    }
-    __weak typeof(self) weakSelf = self;
-    [IMHTTPService.sharedService createGroupWithToken:token name:name memberIDs:memberIDs
-                                           completion:^(IMGroupInfo *group, NSError *error) {
+    [IMGroupCreateViewController startInNavigationController:self.navigationController
+                                                        host:self.host userID:self.userID
+                                                   onCreated:^(IMGroupInfo *group) {
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) { return; }
-        if (error || !group) {
-            [self.navigationController.topViewController im_showToast:
-                [NSString stringWithFormat:@"建群失败：%@", error.localizedDescription ?: @"未知错误"]];
-            return;
-        }
         // 回到群列表页并直接进入新群会话。
         [self.navigationController popToViewController:self animated:NO];
         [self reload];

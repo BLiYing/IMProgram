@@ -19,49 +19,10 @@
 #import "IMImageLoader.h"
 #import "IMMediaUtil.h"
 #import "IMAvatarCropViewController.h"
+#import "IMGroupAvatarHeader.h"   // 顶部头像编辑头（原为本文件私有类，2026-09-05 提出与建群页共用）
 #import "UIViewController+IMToast.h"
 #import "IMTheme.h"
 #import "IMTimeUtil.h"
-
-#pragma mark - 顶部头像编辑视图（相机圈 + 「设置新头像」）
-
-@interface IMGroupAvatarHeader : UIView
-@property (nonatomic, strong) UIImageView *avatar;
-@property (nonatomic, strong) UIImageView *cam;   ///< 中间相机提示：已有头像时隐藏
-@property (nonatomic, strong) UILabel *caption;
-@end
-@implementation IMGroupAvatarHeader
-- (instancetype)initWithFrame:(CGRect)frame {
-    if ((self = [super initWithFrame:frame])) {
-        _avatar = [UIImageView new];
-        _avatar.backgroundColor = [IMTheme.accent colorWithAlphaComponent:0.18];
-        _avatar.contentMode = UIViewContentModeScaleAspectFill;
-        _avatar.clipsToBounds = YES; _avatar.layer.cornerRadius = 45;
-        _avatar.translatesAutoresizingMaskIntoConstraints = NO;
-        [self addSubview:_avatar];
-        UIImageSymbolConfiguration *camCfg = [UIImageSymbolConfiguration configurationWithPointSize:24 weight:UIImageSymbolWeightRegular];
-        _cam = [[UIImageView alloc] initWithImage:[[UIImage systemImageNamed:@"camera.fill"] imageByApplyingSymbolConfiguration:camCfg]];
-        UIImageView *cam = _cam;
-        cam.tintColor = IMTheme.accent; cam.translatesAutoresizingMaskIntoConstraints = NO;
-        [_avatar addSubview:cam];
-        _caption = [UILabel new];
-        _caption.text = @"设置新头像"; _caption.textColor = IMTheme.accent;
-        _caption.font = [UIFont systemFontOfSize:15]; _caption.textAlignment = NSTextAlignmentCenter;
-        _caption.translatesAutoresizingMaskIntoConstraints = NO;
-        [self addSubview:_caption];
-        [NSLayoutConstraint activateConstraints:@[
-            [_avatar.centerXAnchor constraintEqualToAnchor:self.centerXAnchor],
-            [_avatar.topAnchor constraintEqualToAnchor:self.topAnchor constant:16],
-            [_avatar.widthAnchor constraintEqualToConstant:90], [_avatar.heightAnchor constraintEqualToConstant:90],
-            [cam.centerXAnchor constraintEqualToAnchor:_avatar.centerXAnchor],
-            [cam.centerYAnchor constraintEqualToAnchor:_avatar.centerYAnchor],
-            [_caption.topAnchor constraintEqualToAnchor:_avatar.bottomAnchor constant:8],
-            [_caption.centerXAnchor constraintEqualToAnchor:self.centerXAnchor],
-        ]];
-    }
-    return self;
-}
-@end
 
 #pragma mark - 群管理页
 
