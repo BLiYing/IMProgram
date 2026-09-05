@@ -4,6 +4,7 @@
 #import <XCTest/XCTest.h>
 
 #import "IMDatabase.h"
+#import "IMDatabase+RosterCache.h"
 #import "IMUserCard.h"
 #import "IMGroupInfo.h"
 

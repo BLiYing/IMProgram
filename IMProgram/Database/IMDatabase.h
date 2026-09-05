@@ -7,8 +7,6 @@
 @class IMConversation;
 @class IMDatabaseAccountContext;
 @class IMMessageModel;
-@class IMUserCard;
-@class IMGroupInfo;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -53,15 +51,8 @@ NS_ASSUME_NONNULL_BEGIN
 /// 原子替换当前账号的完整会话快照。空数组表示服务端权威列表为空。
 - (void)replaceCachedConversations:(NSArray<IMConversation *> *)conversations;
 
-/// 当前账号的本地好友快照（仅 accepted 好友；断网/服务不可用时通讯录离线首屏）。按 updated_at 倒序。
-- (NSArray<IMUserCard *> *)cachedFriends;
-/// 原子替换当前账号的好友快照。空数组表示权威列表为空（当前账号一人无好友）。
-- (void)replaceCachedFriends:(NSArray<IMUserCard *> *)friends;
-
-/// 当前账号的本地群组快照（断网/服务不可用时群聊列表离线首屏）。
-- (NSArray<IMGroupInfo *> *)cachedGroups;
-/// 原子替换当前账号的群组快照。空数组表示权威列表为空。
-- (void)replaceCachedGroups:(NSArray<IMGroupInfo *> *)groups;
+// 好友 / 群组名册的本地快照（cachedFriends / cachedGroups 等四个方法）已移到
+// IMDatabase+RosterCache.h —— 用它们的文件请 import 那个头。
 
 /// 保存/更新一条消息：出站按 clientMsgID upsert（sending→sent 覆盖），入站按 conv_seq 去重。
 /// 同一事务内同步会话最后一条、未读数和排序；新会话会建立可离线打开的最小摘要。

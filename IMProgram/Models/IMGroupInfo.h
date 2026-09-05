@@ -46,7 +46,13 @@ IMGroupRole IMGroupRoleFromString(NSString *_Nullable s);
 @interface IMGroupInfo : NSObject
 @property (nonatomic, copy) NSString *convID;
 @property (nonatomic, copy) NSString *name;
+/// 群主内部 ID：只用于判定「我是不是群主」等业务分支，**不得展示**（见下两个属性）。
 @property (nonatomic, copy) NSString *owner;
+/// 群主展示资料（`GET /groups` 群列表项下发；`GET /groups/{id}` 不带，那里从 members 取）。
+/// 群列表副标题走 `备注 → ownerNickname → @ownerUsername → 未命名用户`，
+/// 见 IMServer/docs/design/ACCOUNT_IDENTITY_REDESIGN.md §7.5「内部 ID 零 UI 露出」。
+@property (nonatomic, copy, nullable) NSString *ownerNickname;
+@property (nonatomic, copy, nullable) NSString *ownerUsername;
 @property (nonatomic, copy) NSString *avatarURL;
 @property (nonatomic, assign) int64_t createdAt;
 @property (nonatomic, assign) IMGroupRole myRole;                      ///< 我在群里的角色

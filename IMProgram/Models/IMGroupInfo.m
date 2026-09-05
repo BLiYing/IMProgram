@@ -73,6 +73,10 @@ static BOOL IMGroupBool(NSDictionary *dict, NSString *key) {
     if (g.convID.length == 0) { return nil; }
     g.name = IMGroupString(dict, @"name");
     g.owner = IMGroupString(dict, @"owner");
+    NSString *ownerNick = IMGroupString(dict, @"owner_nickname");
+    g.ownerNickname = ownerNick.length > 0 ? ownerNick : nil;
+    NSString *ownerName = IMGroupString(dict, @"owner_username");
+    g.ownerUsername = ownerName.length > 0 ? ownerName : nil;
     g.avatarURL = IMGroupString(dict, @"avatar_url");
     g.createdAt = IMGroupInt64(dict, @"created_at");
     g.myRole = IMGroupRoleFromString(IMGroupString(dict, @"my_role"));

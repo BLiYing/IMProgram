@@ -2,6 +2,7 @@
 
 #import "IMGlobalSearchViewController.h"
 #import "IMDatabase.h"
+#import "IMDatabase+RosterCache.h"
 #import "IMConversation.h"
 #import "IMUserCard.h"
 #import "IMMessageModel.h"

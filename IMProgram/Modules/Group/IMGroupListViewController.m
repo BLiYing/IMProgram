@@ -8,9 +8,12 @@
 #import "IMReconnectReloader.h"
 #import "IMGroupInfo.h"
 #import "IMDatabase.h"
+#import "IMDatabase+RosterCache.h"
 #import "UILabel+IMAvatar.h"
 #import "UIViewController+IMToast.h"
 #import "IMTheme.h"
+#import "IMAccountIdentity.h"
+#import "IMRemarkStore.h"
 #import "IMLog.h"
 #import "IMNavigationButton.h"
 
@@ -73,7 +76,16 @@ static CGFloat const kIMGroupAvatarSize = 44;
 - (void)configureWithGroup:(IMGroupInfo *)group mine:(BOOL)mine {
     [_avatar im_setAvatarURL:group.avatarURL seed:group.convID displayName:group.name];
     _name.text = group.name.length > 0 ? group.name : @"群聊";
-    _sub.text = mine ? @"我是群主" : [NSString stringWithFormat:@"群主 %@", group.owner];
+    // 群主名走全端统一口径 `备注 → 昵称 → @username → 未命名用户`。
+    // **不能直接显示 group.owner**——那是 10 位随机内部 ID（IMServer/docs/design/
+    // ACCOUNT_IDENTITY_REDESIGN.md §7.5「内部 ID 零 UI 露出」）。
+    if (mine) {
+        _sub.text = @"我是群主";
+    } else {
+        NSString *ownerName = [IMRemarkStore.sharedStore displayNameForUser:group.owner
+                                                                   fallback:IMDisplayName(group.ownerNickname, group.ownerUsername)];
+        _sub.text = [NSString stringWithFormat:@"群主 %@", ownerName];
+    }
 }
 
 @end

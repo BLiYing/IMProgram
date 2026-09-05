@@ -19,6 +19,7 @@
 #import "IMDetailHeaderViews.h"   // IMDetailAvatarView（setAvatarURL:seed:name:）
 #import "IMFriendStateStore.h"   // 进页那一刻的好友态起步值
 #import "IMDatabase.h"           // cachedFriends（本地好友全量快照）
+#import "IMDatabase+RosterCache.h"
 #import "UIViewController+IMToast.h"
 
 /// 「用户不存在」的业务码（errcode.UserNotFound）。

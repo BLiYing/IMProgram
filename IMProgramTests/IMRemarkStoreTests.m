@@ -3,6 +3,7 @@
 #import "IMChatMessageLogic.h"
 #import "IMConversation.h"
 #import "IMDatabase.h"
+#import "IMDatabase+RosterCache.h"
 #import "IMRemarkStore.h"
 #import "IMUserCard.h"
 

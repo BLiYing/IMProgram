@@ -34,6 +34,7 @@
 #import "IMSocketManager.h"
 #import "IMMediaAttributes.h"
 #import "IMDatabase.h"
+#import "IMDatabase+RosterCache.h"
 #import "IMConversation.h"
 #import "IMUserCard.h"
 #import "IMGroupInfo.h"

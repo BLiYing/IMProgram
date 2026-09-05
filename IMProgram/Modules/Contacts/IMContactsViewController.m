@@ -12,6 +12,7 @@
 #import "IMUserCard.h"
 #import "IMRemarkStore.h"
 #import "IMDatabase.h"
+#import "IMDatabase+RosterCache.h"
 #import "IMMenuAction.h"
 #import "IMAnimator.h"
 #import "UIViewController+IMToast.h"

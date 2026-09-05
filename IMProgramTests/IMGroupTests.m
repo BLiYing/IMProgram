@@ -5,6 +5,7 @@
 
 #import <XCTest/XCTest.h>
 
+#import "../IMProgram/Common/IMAccountIdentity.h"
 #import "../IMProgram/Models/IMGroupInfo.h"
 #import "../IMProgram/Models/IMConversation.h"
 #import "../IMProgram/Models/IMMessageModel.h"
@@ -54,6 +55,32 @@
     XCTAssertEqualObjects([g nicknameOfMember:@"1002"], @"小明");
     XCTAssertNil([g nicknameOfMember:@"1003"], @"无昵称成员返回 nil（回退 uid 由调用方做）");
     XCTAssertNil([g nicknameOfMember:@"ghost"]);
+}
+
+// 群列表项（GET /groups）带群主资料：副标题「群主 XXX」不能再显示 owner 这个内部 ID
+// （IMServer/docs/design/ACCOUNT_IDENTITY_REDESIGN.md §7.5）。这里守解析与兜底两侧。
+- (void)testParseGroupSummaryOwnerProfile {
+    IMGroupInfo *g = [IMGroupInfo groupFromDictionary:@{
+        @"conv_id": @"g_abc", @"name": @"开发群", @"owner": @"4820571639",
+        @"owner_nickname": @"小明", @"owner_username": @"xiaoming",
+    }];
+    XCTAssertEqualObjects(g.ownerNickname, @"小明");
+    XCTAssertEqualObjects(g.ownerUsername, @"xiaoming");
+    XCTAssertEqualObjects(IMDisplayName(g.ownerNickname, g.ownerUsername), @"小明");
+
+    // 老服务端 / 迁移前的行不带这两个字段 → nil，显示名走占位而**不是** uid。
+    IMGroupInfo *legacy = [IMGroupInfo groupFromDictionary:@{ @"conv_id": @"g_x", @"owner": @"4820571639" }];
+    XCTAssertNil(legacy.ownerNickname);
+    XCTAssertNil(legacy.ownerUsername);
+    NSString *shown = IMDisplayName(legacy.ownerNickname, legacy.ownerUsername);
+    XCTAssertEqualObjects(shown, @"未命名用户");
+    XCTAssertNotEqualObjects(shown, legacy.owner);
+
+    // 只有句柄没昵称 → @句柄。
+    IMGroupInfo *handleOnly = [IMGroupInfo groupFromDictionary:@{
+        @"conv_id": @"g_y", @"owner": @"4820571639", @"owner_username": @"xiaoming",
+    }];
+    XCTAssertEqualObjects(IMDisplayName(handleOnly.ownerNickname, handleOnly.ownerUsername), @"@xiaoming");
 }
 
 - (void)testParseGroupInfoDirtyData {
