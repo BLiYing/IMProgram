@@ -165,12 +165,17 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
 /// 发好友申请（POST /api/v1/friends/request）。completion 在主线程回调。
 /// becameFriend=YES 表示**已直接成为好友、无需对方确认**（对方先申请过我；或我曾单向删除对方而对方仍视我为好友）。
 /// 调用方据此**不要提示「已发送好友申请」**——那会让用户误以为还要等对方通过；刷新界面即可。
+/// 发好友申请。hello 是**验证消息**（申请理由，可空）：服务端压单行 + 截到 50 rune，超长不报错。
+/// becameFriend=YES 表示**已直接成为好友、无需对方确认**（对方先申请过我，或我曾单向删除对方
+/// 而对方仍视我为好友）——此时**不要**吐司「已发送好友申请」，那会让用户误以为还要等对方通过。
 - (void)requestFriendWithToken:(NSString *)token
                         peerID:(NSString *)peerID
+                         hello:(nullable NSString *)hello
                     completion:(void (^)(BOOL becameFriend, NSError *_Nullable error))completion;
 
-/// 好友动作（action ∈ request/accept/reject/block/unblock），body {user_id:peerID}。completion 在主线程回调。
-/// ⚠️ 发申请请改用上面的 `requestFriendWithToken:` —— 它能区分「已发申请」与「已直接成为好友」。
+/// 好友动作（action ∈ accept/reject/block/unblock），body {user_id:peerID}。completion 在主线程回调。
+/// ⚠️ **发申请不走这里**：它要带验证消息、还要区分「已发申请」与「已直接成为好友」。
+/// UI 层一律用 `-[UIViewController im_askFriendRequestForUID:name:onSent:]`（弹框填理由 → 发送 → 吐司）。
 - (void)friendActionWithToken:(NSString *)token
                        action:(NSString *)action
                        peerID:(NSString *)peerID

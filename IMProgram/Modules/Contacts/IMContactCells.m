@@ -234,7 +234,10 @@ static void IMConfigureBody(UILabel *avatar, UILabel *title, UILabel *subtitle, 
 }
 
 - (void)configureWithCard:(IMUserCard *)card onAccept:(void (^)(void))onAccept onReject:(void (^)(void))onReject {
-    IMConfigureBody(_avatar, _title, _subtitle, card, @"请求加你为好友");
+    // 副标题优先显**验证消息**：这一行才是收件人决定同不同意的依据，
+    // 「请求加你为好友」只是对方没写理由（或老数据无此字段）时的兜底——它没提供任何信息。
+    NSString *hello = [card.hello stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    IMConfigureBody(_avatar, _title, _subtitle, card, hello.length > 0 ? hello : @"请求加你为好友");
     _onAccept = [onAccept copy];
     _onReject = [onReject copy];
 }

@@ -92,6 +92,21 @@
 
 #pragma mark - 脏数据安全
 
+// 好友申请的**验证消息**：解析出来才能在「新的朋友」里显示"他为什么加我"。
+// 老服务端/老数据不带这个键 → 空串（端上按"没写理由"渲染），**不能是 nil**——
+// 各处都直接 `.length` 判断，nil 虽然也 length==0，但混着 nil 与空串迟早写出一个 `isEqualToString:` 分支。
+- (void)testParseHello {
+    NSArray<IMUserCard *> *cards = [IMUserCard cardsFromArray:@[
+        @{ @"user_id": @"u1", @"status": @"pending", @"hello": @"我是隔壁老王" },
+        @{ @"user_id": @"u2", @"status": @"pending" },                 // 老数据无此键
+        @{ @"user_id": @"u3", @"status": @"accepted", @"hello": @"" }, // 成为好友后服务端清空
+    ]];
+    XCTAssertEqual(cards.count, 3);
+    XCTAssertEqualObjects(cards[0].hello, @"我是隔壁老王");
+    XCTAssertEqualObjects(cards[1].hello, @"", @"缺键应为空串而不是 nil");
+    XCTAssertEqualObjects(cards[2].hello, @"");
+}
+
 - (void)testDirtyDataSafe {
     XCTAssertEqual([IMUserCard cardsFromArray:nil].count, 0);
     XCTAssertEqual([IMUserCard cardsFromArray:(id)@"not-an-array"].count, 0);

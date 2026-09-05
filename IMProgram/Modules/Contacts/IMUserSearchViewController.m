@@ -4,6 +4,7 @@
 #import "IMContactCells.h"
 #import "IMChatViewController.h"
 #import "IMHTTPService.h"
+#import "UIViewController+IMFriendRequest.h"
 #import "IMUserCard.h"
 #import "IMTheme.h"
 #import "IMGlass.h"
@@ -227,7 +228,12 @@
         }
         case IMFriendStatusNone:
         default: {
-            [cell setActionTitle:@"加好友" enabled:YES action:^{ [weakSelf performAction:@"request" onPeer:peer]; }];
+            // 走统一的「添加好友」弹窗填验证消息（见 UIViewController+IMFriendRequest.h）——
+            // 各入口直接调接口的话，加一个入口就漏一次理由，收件人那边又变回"只有一个名字"。
+            NSString *shown = c.displayName;
+            [cell setActionTitle:@"加好友" enabled:YES action:^{
+                [weakSelf im_askFriendRequestForUID:peer name:shown onSent:^(BOOL becameFriend) { [weakSelf refreshStatusMapThen:nil]; }];
+            }];
             break;
         }
     }

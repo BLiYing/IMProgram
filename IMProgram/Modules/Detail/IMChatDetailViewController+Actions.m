@@ -26,6 +26,7 @@
 #import "IMChatViewController.h"
 #import "IMPopoverCard.h"
 #import "UIViewController+IMToast.h"
+#import "UIViewController+IMFriendRequest.h"
 #import "IMTheme.h"
 #import "IMTimeUtil.h"
 #import "IMLog.h"
@@ -155,23 +156,17 @@
 - (void)requestAddPeerFriend { [self requestAddFriendUID:self.peerID]; }
 
 /// 向指定 uid 发好友申请（单聊 pill 与群成员菜单共用）。
-/// 两种结果分别对待：
-///  - **已直接成为好友**（对方仍视我为好友，典型于我曾单向删除对方后加回）：**不吐司**——
-///    说「已发送好友申请」会让用户误以为还要等对方通过；直接刷新界面（操作排/卡片立即恢复）即可。
-///  - 已发出申请（待对方同意）：吐司告知，界面暂不变（仍是 requested 非 accepted）。
+/// 走统一的「添加好友」弹窗填**验证消息**（见 UIViewController+IMFriendRequest.h）——
+/// 吐司与 becameFriend 的区别对待都在那里，本方法只负责发完之后重拉关系。
 - (void)requestAddFriendUID:(NSString *)uid {
-    NSString *token = IMHTTPService.sharedService.currentToken;
-    if (token.length == 0 || uid.length == 0) { return; }
     __weak typeof(self) ws = self;
-    [IMHTTPService.sharedService requestFriendWithToken:token peerID:uid
-                                             completion:^(BOOL becameFriend, NSError *error) {
+    NSString *shown = self.isGroup ? nil : self.peerNickname;
+    [self im_askFriendRequestForUID:uid name:shown onSent:^(BOOL becameFriend) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
-        if (error) { [self im_showToast:error.localizedDescription ?: @"好友申请发送失败"]; return; }
         // 重拉关系：单聊校正 peerIsFriend 并重建操作排/卡片；群聊刷新成员菜单依据。
         // 两种结果都要刷——即使只是发出申请，我侧也已从「无关系」变 requested。
         if (self.isGroup) { [self loadFriendUIDs]; } else { [self loadPeerBlockState]; }
-        if (!becameFriend) { [self im_showToast:@"已发送好友申请"]; }
     }];
 }
 

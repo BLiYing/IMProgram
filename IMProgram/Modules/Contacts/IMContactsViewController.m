@@ -3,6 +3,7 @@
 #import "IMContactsViewController.h"
 #import "IMUserSearchViewController.h"
 #import "IMGroupListViewController.h"
+#import "IMFriendRequestListViewController.h"
 #import "IMContactCells.h"
 #import "IMContactSectionIndex.h"
 #import "IMChatDetailViewController.h"
@@ -23,13 +24,15 @@
 #pragma mark - 顶部入口 Cell（彩色图标 + 标题 + chevron）
 
 @interface IMContactEntryCell : UITableViewCell
-- (void)configureWithAction:(IMMenuAction *)action iconBg:(UIColor *)iconBg;
+/// badge：右侧计数（如「新的朋友」的待确认数）。nil/空串 = 不显示。
+- (void)configureWithAction:(IMMenuAction *)action iconBg:(UIColor *)iconBg badge:(nullable NSString *)badge;
 @end
 
 @implementation IMContactEntryCell {
     UIImageView *_iconView;
     UIView *_iconBg;
     UILabel *_title;
+    UILabel *_badge;   // 右侧红点计数（贴在 disclosure 箭头左侧）
 }
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
     self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
@@ -52,6 +55,20 @@
         _title.textColor = IMTheme.textPrimary;
         [self.contentView addSubview:_title];
 
+        _badge = [UILabel new];
+        _badge.translatesAutoresizingMaskIntoConstraints = NO;
+        _badge.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+        _badge.textColor = UIColor.whiteColor;
+        _badge.textAlignment = NSTextAlignmentCenter;
+        _badge.backgroundColor = UIColor.systemRedColor;
+        _badge.layer.cornerRadius = 9;
+        _badge.layer.masksToBounds = YES;
+        _badge.hidden = YES;
+        // 抗压缩：两位数不该被标题挤成省略号。
+        [_badge setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+        [_badge setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+        [self.contentView addSubview:_badge];
+
         [NSLayoutConstraint activateConstraints:@[
             [_iconBg.leadingAnchor constraintEqualToAnchor:self.contentView.layoutMarginsGuide.leadingAnchor],
             [_iconBg.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
@@ -63,16 +80,23 @@
             [_iconView.heightAnchor constraintEqualToConstant:18],
             [_title.leadingAnchor constraintEqualToAnchor:_iconBg.trailingAnchor constant:IMTheme.space3],
             [_title.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
-            [_title.trailingAnchor constraintLessThanOrEqualToAnchor:self.contentView.layoutMarginsGuide.trailingAnchor],
+            [_title.trailingAnchor constraintLessThanOrEqualToAnchor:_badge.leadingAnchor constant:-8],
+            [_badge.trailingAnchor constraintEqualToAnchor:self.contentView.layoutMarginsGuide.trailingAnchor],
+            [_badge.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
+            [_badge.heightAnchor constraintEqualToConstant:18],
+            [_badge.widthAnchor constraintGreaterThanOrEqualToAnchor:_badge.heightAnchor],
         ]];
         self.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     }
     return self;
 }
-- (void)configureWithAction:(IMMenuAction *)action iconBg:(UIColor *)iconBg {
+- (void)configureWithAction:(IMMenuAction *)action iconBg:(UIColor *)iconBg badge:(NSString *)badge {
     _title.text = action.title;
     _iconView.image = action.systemImageName.length > 0 ? [UIImage systemImageNamed:action.systemImageName] : nil;
     _iconBg.backgroundColor = iconBg;
+    // 两侧各留 5pt：一位数是圆点，两位数自然拉成胶囊。
+    _badge.text = badge.length > 0 ? [NSString stringWithFormat:@"  %@  ", badge] : nil;
+    _badge.hidden = (badge.length == 0);
 }
 @end
 
@@ -133,10 +157,14 @@
     __weak typeof(self) ws = self;
     self.entries = @[
         [IMMenuAction actionWithId:@"groupChat" title:@"群聊" image:@"person.3.fill" handler:^{ [ws openGroupList]; }],
+        // 「新的朋友」独立入口（2026-09-05）：原先它是好友列表上方的一段，好友一多就被挤到看不见，
+        // 而"有人加我"恰恰是需要主动去处理的事。副标题显待确认数（0 时留空，别摆一个恒亮的 0）。
+        [IMMenuAction actionWithId:@"friendRequests" title:@"新的朋友" image:@"person.crop.circle.badge.plus"
+                           handler:^{ [ws openFriendRequests]; }],
         [IMMenuAction actionWithId:@"officialAccount" title:@"公众号" image:@"megaphone.fill" handler:^{ [ws im_showComingSoon:@"公众号"]; }],
         [IMMenuAction actionWithId:@"serviceAccount" title:@"服务号" image:@"headphones" handler:^{ [ws im_showComingSoon:@"服务号"]; }],
     ];
-    self.entryColors = @[UIColor.systemGreenColor, UIColor.systemOrangeColor, UIColor.systemBlueColor];
+    self.entryColors = @[UIColor.systemGreenColor, UIColor.systemTealColor, UIColor.systemOrangeColor, UIColor.systemBlueColor];
 }
 
 /// 收到好友事件 → 节流刷新（合并连发，避免每帧一次登录+拉取）。
@@ -165,7 +193,6 @@
     self.tableView.delegate = self;
     self.tableView.rowHeight = 68;
     [self.tableView registerClass:IMContactCell.class forCellReuseIdentifier:@"friend"];
-    [self.tableView registerClass:IMContactRequestCell.class forCellReuseIdentifier:@"request"];
     [self.tableView registerClass:IMContactEntryCell.class forCellReuseIdentifier:@"entry"];
     [self.view addSubview:self.tableView];
 
@@ -251,6 +278,12 @@
     [self.navigationController pushViewController:list animated:YES];
 }
 
+- (void)openFriendRequests {
+    IMFriendRequestListViewController *vc =
+        [[IMFriendRequestListViewController alloc] initWithHost:self.host userID:self.userID];
+    [self.navigationController pushViewController:vc animated:YES];
+}
+
 - (void)addFriendTapped {
     IMUserSearchViewController *search = [[IMUserSearchViewController alloc] initWithHost:self.host userID:self.userID];
     [self.navigationController pushViewController:search animated:YES];
@@ -294,19 +327,17 @@
 
 #pragma mark - 分区映射
 
-// 分区布局：section 0 = 顶部入口（始终存在）；有待处理申请时 section 1 = 新的朋友；
-// 其后接 N 个「好友 A–Z 字母分组」（由 friendIndex 提供）。下面以语义谓词判断，避免散落魔法下标。
+// 分区布局：section 0 = 顶部入口（始终存在）；其后接 N 个「好友 A–Z 字母分组」（由 friendIndex 提供）。
+// 下面以语义谓词判断，避免散落魔法下标。
+//
+// **「新的朋友」分区已于 2026-09-05 移除**：改由顶部入口行「新的朋友」→ IMFriendRequestListViewController。
+// 两处并存只会让人在列表里找一次、在入口里再找一次；而好友一多，原来那一段就被冲到看不见了。
+// self.pending 仍然要算——入口行的红点徽标与 Tab 角标都靠它。
 
 /// 顶部入口区永远是 section 0。
 - (BOOL)isEntriesSection:(NSInteger)section { return section == 0; }
-/// 是否有"新的朋友"分区。
-- (BOOL)hasRequestsSection { return self.pending.count > 0; }
-/// "新的朋友"分区（存在时固定为 section 1）。
-- (BOOL)isRequestsSection:(NSInteger)section {
-    return [self hasRequestsSection] && section == 1;
-}
-/// 好友字母分组的起始 section（入口 + 可选新的朋友之后）。
-- (NSInteger)friendsBaseSection { return 1 + ([self hasRequestsSection] ? 1 : 0); }
+/// 好友字母分组的起始 section（顶部入口之后）。
+- (NSInteger)friendsBaseSection { return 1; }
 /// 该 section 是否属于好友字母分组区。
 - (BOOL)isFriendSection:(NSInteger)section { return section >= [self friendsBaseSection]; }
 /// section → friendIndex 内的分组下标。
@@ -320,15 +351,11 @@
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if ([self isEntriesSection:section]) { return (NSInteger)self.entries.count; }
-    if ([self isRequestsSection:section]) { return (NSInteger)self.pending.count; }
     return [self.friendIndex numberOfRowsInSection:[self friendLocalSection:section]];
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     if ([self isEntriesSection:section]) { return nil; }
-    if ([self isRequestsSection:section]) {
-        return [NSString stringWithFormat:@"新的朋友（%lu）", (unsigned long)self.pending.count];
-    }
     return [self.friendIndex titleForSection:[self friendLocalSection:section]]; // 字母表头（索引 head）
 }
 
@@ -344,17 +371,11 @@
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     if ([self isEntriesSection:indexPath.section]) {
         IMContactEntryCell *cell = [tableView dequeueReusableCellWithIdentifier:@"entry" forIndexPath:indexPath];
-        [cell configureWithAction:self.entries[indexPath.row] iconBg:self.entryColors[indexPath.row]];
-        return cell;
-    }
-    if ([self isRequestsSection:indexPath.section]) {
-        IMContactRequestCell *cell = [tableView dequeueReusableCellWithIdentifier:@"request" forIndexPath:indexPath];
-        IMUserCard *c = self.pending[indexPath.row];
-        NSString *peer = c.userID;
-        __weak typeof(self) weakSelf = self;
-        [cell configureWithCard:c
-                       onAccept:^{ [weakSelf performAction:@"accept" onPeer:peer]; }
-                       onReject:^{ [weakSelf performAction:@"reject" onPeer:peer]; }];
+        IMMenuAction *entry = self.entries[indexPath.row];
+        // 「新的朋友」带待确认数徽标；其余入口无徽标。
+        NSString *badge = ([entry.actionId isEqualToString:@"friendRequests"] && self.pending.count > 0)
+            ? [NSString stringWithFormat:@"%lu", (unsigned long)self.pending.count] : nil;
+        [cell configureWithAction:entry iconBg:self.entryColors[indexPath.row] badge:badge];
         return cell;
     }
     IMContactCell *cell = [tableView dequeueReusableCellWithIdentifier:@"friend" forIndexPath:indexPath];
@@ -377,7 +398,6 @@
         if (entry.handler) { entry.handler(); }
         return;
     }
-    if ([self isRequestsSection:indexPath.section]) { return; } // 申请行靠按钮操作，不整行点击
     IMUserCard *c = [self.friendIndex cardAtSection:[self friendLocalSection:indexPath.section] row:indexPath.row];
     if (c) { [self openPeerDetail:c]; }
 }

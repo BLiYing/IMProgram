@@ -386,9 +386,10 @@ const NSInteger IMFavoritesPageSize = 60;
 
 - (void)requestFriendWithToken:(NSString *)token
                         peerID:(NSString *)peerID
+                         hello:(NSString *)hello
                     completion:(void (^)(BOOL, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/friends/request" method:@"POST" token:token
-                                                     body:@{ @"user_id": peerID ?: @"" }];
+                                                     body:@{ @"user_id": peerID ?: @"", @"hello": hello ?: @"" }];
     [self runDataRequest:req fallback:@"操作失败" completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(NO, error); return; }
         NSString *outcome = [data[@"outcome"] isKindOfClass:[NSString class]] ? data[@"outcome"] : nil;

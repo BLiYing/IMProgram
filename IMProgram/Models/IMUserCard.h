@@ -35,6 +35,9 @@ IMFriendStatus IMFriendStatusFromString(NSString *_Nullable s);
 @property (nonatomic, assign) BOOL blocked;                // 我是否拉黑了对方（与 status 正交）；拉黑的好友 status 仍 accepted
 @property (nonatomic, assign) int64_t updatedAt;           // 好友关系更新时间（毫秒）；找人结果 0
 @property (nonatomic, strong) IMPresence *presence;        // 在线态快照；仅 GET /users/{id} 与 /users/me 有，找人/好友列表为空态
+/// 好友申请的**验证消息**（申请理由）：仅 status=pending/requested 的关系行有值，成为好友后服务端清空。
+/// 老服务端/老数据不带它 → 空串，端上按"没写理由"渲染（别显示占位引号或编造内容）。
+@property (nonatomic, copy) NSString *hello;
 
 /// 展示名：备注名 > 昵称（全端统一口径）。**回退链止于昵称**——昵称是必填字段，
 /// 再往下回退到内部 ID 只会在界面上露出一串 10 位数字（见 ACCOUNT_IDENTITY_REDESIGN.md §5.2）。
