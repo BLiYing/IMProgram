@@ -354,16 +354,32 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
 /// TextKit 反查：命中点（cell 坐标系）是否落在某个挂了 IMMentionUIDAttributeName 的 `@昵称` token 上。
 - (NSString *)mentionUIDAtPoint:(CGPoint)pointInCell {
     // 正文命中优先；未中再查文件文 caption（图说 @ 可点，2026-08-19）。
-    NSString *uid = [IMBubbleCell mentionUIDInLabel:_text atPoint:[self convertPoint:pointInCell toView:_text]];
-    if (uid) { return uid; }
-    return [IMBubbleCell mentionUIDInLabel:_fileCaption atPoint:[self convertPoint:pointInCell toView:_fileCaption]];
+    // 命中即给一次视觉回执（与系统消息里的名字同一套）——否则点下去到资料页出来之前毫无反应。
+    for (UILabel *l in @[ _text, _fileCaption ]) {
+        NSRange hit = NSMakeRange(NSNotFound, 0);
+        NSString *uid = [IMBubbleCell mentionUIDInLabel:l atPoint:[self convertPoint:pointInCell toView:l] range:&hit];
+        if (uid.length > 0) {
+            [IMBubbleCell flashMentionHighlightInLabel:l range:hit];
+            return uid;
+        }
+    }
+    return nil;
 }
 
 + (nullable NSString *)mentionUIDInLabel:(UILabel *)label atPoint:(CGPoint)p {
+    return [self mentionUIDInLabel:label atPoint:p range:NULL];
+}
+
++ (nullable NSString *)mentionUIDInLabel:(UILabel *)label atPoint:(CGPoint)p range:(NSRangePointer)outRange {
     NSAttributedString *as = label.attributedText;
     if (as.length == 0 || label.hidden || label.window == nil) { return nil; }
     if (!CGRectContainsPoint(label.bounds, p)) { return nil; }
-    NSTextStorage *storage = [[NSTextStorage alloc] initWithAttributedString:as];
+    // ⚠️ 必须把 label 的 **textAlignment 补进串里**再交给 TextKit：UILabel 用自身的
+    // textAlignment 排版，而 TextKit 只认字符串里的 NSParagraphStyle——串里没有就按左对齐排。
+    // 对**居中**的 label（系统消息胶囊）两者于是错位：满行时恰好重合（居中==左对齐），
+    // 只有**没排满的那一行**被居中挪走。表现就是"邀请一串人，偏偏最后一个名字点不动"
+    // ——最后一行正是唯一的短行（2026-09-05 用户实测）。
+    NSTextStorage *storage = [[NSTextStorage alloc] initWithAttributedString:[self alignedString:as forLabel:label]];
     NSLayoutManager *lm = [NSLayoutManager new];
     [storage addLayoutManager:lm];
     NSTextContainer *container = [[NSTextContainer alloc] initWithSize:label.bounds.size];
@@ -381,7 +397,45 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     if (!CGRectContainsPoint(glyphRect, p)) { return nil; } // 命中矩形外（点在字之外）不算
     NSUInteger charIdx = [lm characterIndexForGlyphAtIndex:glyphIdx];
     if (charIdx >= as.length) { return nil; }
-    return [as attribute:IMMentionUIDAttributeName atIndex:charIdx effectiveRange:NULL];
+    NSRange effective = NSMakeRange(NSNotFound, 0);
+    NSString *uid = [as attribute:IMMentionUIDAttributeName atIndex:charIdx effectiveRange:&effective];
+    if (uid && outRange) { *outRange = effective; }
+    return uid;
+}
+
+/// 把 label 的 textAlignment 补进**缺段落样式**的区间，让 TextKit 的排版与 UILabel 的渲染一致。
+/// 只补对齐、不碰换行：换行仍由 NSTextContainer.lineBreakMode 决定（把 label 默认的
+/// truncatingTail 塞进段落样式会让多行文本被截成一行）。已自带段落样式的区间原样保留。
++ (NSAttributedString *)alignedString:(NSAttributedString *)as forLabel:(UILabel *)label {
+    if (label.textAlignment == NSTextAlignmentNatural || label.textAlignment == NSTextAlignmentLeft) {
+        return as; // TextKit 默认就是这个，无需复制整串
+    }
+    NSMutableParagraphStyle *ps = [NSMutableParagraphStyle new];
+    ps.alignment = label.textAlignment;
+    NSMutableAttributedString *m = [as mutableCopy];
+    [m enumerateAttribute:NSParagraphStyleAttributeName inRange:NSMakeRange(0, m.length) options:0
+               usingBlock:^(id value, NSRange range, BOOL *stop) {
+        if (!value) { [m addAttribute:NSParagraphStyleAttributeName value:ps range:range]; }
+    }];
+    return m;
+}
+
++ (void)flashMentionHighlightInLabel:(UILabel *)label range:(NSRange)range {
+    NSAttributedString *as = label.attributedText;
+    if (!as || range.location == NSNotFound || NSMaxRange(range) > as.length) { return; }
+    NSMutableAttributedString *hot = [as mutableCopy];
+    // 半透明中性灰：名字在绿胶囊上是琥珀、在气泡里是主色，用带透明度的中性色两处都看得见，
+    // 也不会把名字本身的颜色改掉。
+    [hot addAttribute:NSBackgroundColorAttributeName
+                value:[UIColor.systemGrayColor colorWithAlphaComponent:0.35] range:range];
+    label.attributedText = hot;
+    // 复位回**原串**而不是再去掉背景色属性：这期间可能已因 cell 复用换了内容，
+    // 那时 label.attributedText 已不是 hot，直接覆盖回旧内容才是错的——故先比对身份。
+    __weak UILabel *weakLabel = label;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.22 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        UILabel *l = weakLabel;
+        if (l && [l.attributedText isEqualToAttributedString:hot]) { l.attributedText = as; }
+    });
 }
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {

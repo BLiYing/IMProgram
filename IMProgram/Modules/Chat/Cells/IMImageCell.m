@@ -706,8 +706,14 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName) {
 - (UIView *)menuPreviewTargetView { return (_captionBG && !_captionBG.hidden) ? _captionBG : _thumb; }
 
 /// 图说 caption 的 @昵称 点击命中（cell 坐标系）：复用 IMBubbleCell 的 TextKit 反查。命中返回 uid。
+/// 命中即闪一下高亮（与文本气泡、系统消息里的名字同一套点击回执）。
 - (NSString *)mentionUIDAtPoint:(CGPoint)pointInCell {
-    return [IMBubbleCell mentionUIDInLabel:_captionLabel atPoint:[self convertPoint:pointInCell toView:_captionLabel]];
+    NSRange hit = NSMakeRange(NSNotFound, 0);
+    NSString *uid = [IMBubbleCell mentionUIDInLabel:_captionLabel
+                                            atPoint:[self convertPoint:pointInCell toView:_captionLabel]
+                                              range:&hit];
+    if (uid.length > 0) { [IMBubbleCell flashMentionHighlightInLabel:_captionLabel range:hit]; }
+    return uid;
 }
 
 + (CGFloat)displayHeightForPixelWidth:(CGFloat)pixelW pixelHeight:(CGFloat)pixelH {

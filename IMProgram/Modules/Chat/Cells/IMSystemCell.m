@@ -111,8 +111,11 @@
 /// 复用 IMBubbleCell 那套 @昵称 命中判定，避免再写一份坐标换算。
 - (void)onLabelTap:(UITapGestureRecognizer *)g {
     if (!_tapUIDHandler) { return; }
-    NSString *uid = [IMBubbleCell mentionUIDInLabel:_label atPoint:[g locationInView:_label]];
-    if (uid.length > 0) { _tapUIDHandler(uid); }
+    NSRange hit = NSMakeRange(NSNotFound, 0);
+    NSString *uid = [IMBubbleCell mentionUIDInLabel:_label atPoint:[g locationInView:_label] range:&hit];
+    if (uid.length == 0) { return; }
+    [IMBubbleCell flashMentionHighlightInLabel:_label range:hit]; // 点击回执：没有它，点下去到资料页出来之前毫无反应
+    _tapUIDHandler(uid);
 }
 - (void)onReedit {
     if (_reeditHandler) { _reeditHandler(); }

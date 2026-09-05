@@ -83,6 +83,18 @@ typedef NS_ENUM(NSInteger, IMBubbleTextTier) {
 /// 时返回 uid，否则 nil。供本 cell 正文/文件文 caption 与 IMImageCell 图说 caption 共用。
 + (nullable NSString *)mentionUIDInLabel:(UILabel *)label atPoint:(CGPoint)pointInLabel;
 
+/// 同上，另回该名字 token 在串里的完整范围（供点击后高亮回执）。不需要范围就用上面那个。
++ (nullable NSString *)mentionUIDInLabel:(UILabel *)label
+                                 atPoint:(CGPoint)pointInLabel
+                                   range:(nullable NSRangePointer)outRange;
+
+/// 点中名字后的**视觉回执**：把该范围的背景色短暂点亮再淡出（约 0.22s）。
+///
+/// 可点的名字（系统消息里的成员、气泡里的 @昵称）此前点下去毫无反应——要等资料页 push 出来
+/// 才知道点中了，而没点中就完全没有反馈，用户只会以为"这里点不动"（2026-09-05 用户反馈）。
+/// 做在 label 的富文本上而不是加子视图：名字可能跨行，子视图只能画一个矩形。
++ (void)flashMentionHighlightInLabel:(UILabel *)label range:(NSRange)range;
+
 /// 命中点（cell 坐标系）落在某个 `@昵称` token 上时返回其成员 uid，否则 nil。TextKit 反查 `_text` 富文本属性。
 - (nullable NSString *)mentionUIDAtPoint:(CGPoint)pointInCell;
 
