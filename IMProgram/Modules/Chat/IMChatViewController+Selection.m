@@ -8,6 +8,7 @@
 #import "IMConversation.h"
 #import "IMForwardPickerViewController.h"
 #import "IMHTTPService.h"
+#import "IMAccountIdentity.h"
 #import "IMDatabase.h"
 #import "IMProtocol.h"
 #import "IMMediaUtil.h"
@@ -527,17 +528,26 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
 
 #pragma mark 合并转发数据
 
-/// 合并转发条目里的发送方名：自己→「我」，群聊→成员昵称（群昵称/全局昵称，公开），单聊→对端**昵称**。
+/// 合并转发条目里的发送方名：自己→**我的公开昵称**，群聊→成员昵称（群昵称/全局昵称，公开），
+/// 单聊→对端**昵称**。三支都只取公开名——这个字符串会被烧进 JSON 原样发给收件人。
 ///
 /// 单聊分支刻意**不取聊天页标题**：标题是"备注优先"的，而备注仅本人可见——取标题就等于把
 /// 我给对方起的私房名写进消息内容发给收件人。对外一律走 IMConversationPublicName。
 ///
-/// 自己那一支曾返回 `self.userID`——账号体系重构后那是 10 位随机数字内部 ID，
-/// 而记录详情页现在把 `n` 当头行昵称显示（2026-08-30 加 ts/u/a），于是我自己发的每一条
-/// 都顶着一串数字。改为「我」，与 Web `useForward.ts#nameOf` 同口径（两端必须一致，
-/// 条目结构是两端客户端之间的约定，服务端不参与，见 PROTOCOL「合并转发卡片的条目结构」）。
+/// 自己那一支踩过两次坑，方向相反：
+///  ① 最早返回 `self.userID` —— 账号重构后那是 10 位随机内部 ID，记录详情页把 `n` 当昵称显示
+///    （2026-08-30 加 ts/u/a），于是我发的每一条都顶着一串数字；
+///  ② 于是改成写死 `@"我"` —— **同样是错的**：「我」是**看的人**才成立的称呼，而这里是
+///    打包时就定死、发给别人的字节。收件人打开卡片看到的是一排「我」，根本不知道是谁发的
+///    （2026-09-05 用户在 Web 端实测报出，两端同一处）。
+/// 正解是我自己的**公开昵称**（`IMHTTPService.currentNickname`，登录后预热，本就是为
+/// 合并转发标题准备的同一个值）；拿不到时回落 `IMDisplayName(nil,nil)`=「未命名用户」，
+/// 绝不回落内部 ID。与 Web `useForward.ts#nameOf` 同口径——条目结构是两端客户端之间的约定，
+/// 服务端不参与（见 PROTOCOL「合并转发卡片的条目结构」），一端改了另一端必须跟。
 - (NSString *)displayNameForMessage:(IMMessageModel *)m {
-    if ([m.from isEqualToString:self.userID]) { return @"我"; }
+    if ([m.from isEqualToString:self.userID]) {
+        return IMDisplayName(IMHTTPService.sharedService.currentNickname, nil);
+    }
     if (self.isGroupChat) { return [self senderPublicNameForMessage:m]; } // 公开名：这段会随消息发出去
     return IMConversationPublicName(NO, nil, self.peerNickname, self.peerID);
 }
