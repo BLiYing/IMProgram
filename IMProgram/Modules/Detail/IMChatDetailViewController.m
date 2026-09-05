@@ -52,6 +52,7 @@
 #import "IMDetailLinkCell.h"
 #import "IMDetailContactCell.h"
 #import "IMChatDetailViewController+Private.h" // 私有类扩展（属性/协议/常量/enum）——与分文件 category 共享
+#import "IMVoicePlayer.h"                      // 离页暂停语音（pauseOnLeavingScreen）
 
 #pragma mark - 详情页
 
@@ -172,6 +173,14 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
     // 主导航容器始终隐藏系统 UINavigationBar。返回时若临时恢复系统栏，会与统一 Glass 导航栏叠加产生双标题/双阴影。
+}
+
+/// 离开本页即暂停语音（保留位点，回来还能接着听）。
+/// 判据是**页面消失**而不是 cell 离屏：同一页里把气泡滚出视野不该中断播放（微信也不中断）。
+/// 规则与全部调用点见 IMVoicePlayer.h 的 `pauseOnLeavingScreen`。
+- (void)viewDidDisappear:(BOOL)animated {
+    [super viewDidDisappear:animated];
+    [[IMVoicePlayer sharedPlayer] pauseOnLeavingScreen];
 }
 
 - (void)viewDidLayoutSubviews {

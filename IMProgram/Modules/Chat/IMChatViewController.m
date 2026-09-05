@@ -9,6 +9,7 @@
 #import "IMAlbumCell.h"
 #import "IMBubbleCell.h"
 #import "IMChatRecordCell.h"
+#import "Voice/IMVoicePlayer.h"
 #import "IMContactCardCell.h"
 #import "IMImageCell.h"
 #import "IMLinkCardCell.h"
@@ -473,6 +474,14 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     [self updatePeerWatch:YES];
     [self startPresenceTick];   // 在线态随时间推进（租约到期 / 「N 分钟前」递增），无事件可依赖
     [self reattachRunningUploads]; // 上传任务活在 uploader 单例里，回到本页要重新接管它的进度与完成回调
+}
+
+/// 离开本页即暂停语音（保留位点，回来还能接着听）。
+/// 判据是**页面消失**而不是 cell 离屏：同一页里把气泡滚出视野不该中断播放（微信也不中断）。
+/// 规则与全部调用点见 IMVoicePlayer.h 的 `pauseOnLeavingScreen`。
+- (void)viewDidDisappear:(BOOL)animated {
+    [super viewDidDisappear:animated];
+    [[IMVoicePlayer sharedPlayer] pauseOnLeavingScreen];
 }
 
 #pragma mark - 拉黑（微信式单向：拉黑者仍可发，故聊天页不拦输入；黑名单状态在通讯录管理）

@@ -235,6 +235,14 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     }
 }
 
+/// 离开本页即暂停语音（保留位点，回来还能接着听）。
+/// 判据是**页面消失**而不是 cell 离屏：同一页里把气泡滚出视野不该中断播放（微信也不中断）。
+/// 规则与全部调用点见 IMVoicePlayer.h 的 `pauseOnLeavingScreen`。
+- (void)viewDidDisappear:(BOOL)animated {
+    [super viewDidDisappear:animated];
+    [[IMVoicePlayer sharedPlayer] pauseOnLeavingScreen];
+}
+
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
     IMApplyUnifiedSearchFieldStyle(_searchBar);

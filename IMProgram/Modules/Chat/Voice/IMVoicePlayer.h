@@ -51,8 +51,28 @@ extern BOOL IMVoiceFileIsPlayable(NSURL *_Nullable fileURL, int64_t *_Nullable o
                        host:(nullable NSString *)host
                  completion:(void (^_Nullable)(NSError *_Nullable error))completion;
 
-/// 显式暂停/停止。
+/// 显式暂停/停止（丢弃播放位点，回到 Idle）。
 - (void)stop;
+
+/// **就地暂停**（保留位点，状态转 Paused，UI 停在当前进度）。已暂停/未播放时什么也不做。
+///
+/// 与 `stop` 的分工：stop 是"这条不放了"（切到另一条、录音要抢设备），
+/// pause 是"先停一下"——用户离开这一页或把 App 切后台时用它，回来还能接着听。
+- (void)pause;
+
+/// 离开会播语音的页面时调用（`viewDidDisappear:` 里一行）。
+///
+/// **为什么必须逐页调而不是在播放器里自动做**：播放器是单例、只知道"正在播哪一条"，
+/// 不知道那条属于哪个页面；而 cell 级的"离屏即停"又是错的——同一页里把气泡滚出视野
+/// 不该中断播放（微信也不中断）。所以粒度只能落在"页面消失"。
+///
+/// 当前调用点（新增会播语音的页面时**必须**跟着加一处）：
+///   · `IMChatViewController`（聊天页）
+///   · `IMChatDetailViewController`（资料页 · 语音页签）
+///   · `IMFavoritesViewController`（收藏页）
+///   · `IMChatRecordViewController`（合并转发记录页）
+/// App 切后台不在此列——那个由播放器自己订阅通知处理，见 .m 的 `handleEnterBackground:`。
+- (void)pauseOnLeavingScreen;
 
 /// 查询某条消息当前状态（未在播放/暂停的返回 Idle）。
 - (IMVoicePlayerState)stateForMessageID:(NSString *)messageID;

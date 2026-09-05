@@ -6,6 +6,7 @@
 #import "IMMessageModel.h"
 #import "IMMediaDownloader.h" // toggleEnsuringLocal: 未缓存时直连下载
 #import "IMMediaUtil.h"       // IMMediaFullURL
+#import <UIKit/UIKit.h>   // UIApplicationDidEnterBackgroundNotification
 #import <AVFoundation/AVFoundation.h>
 #import <AudioToolbox/AudioToolbox.h>
 
@@ -70,6 +71,23 @@ static NSString *_Nonnull IMVoicePlayerPlayedKey(NSString *ownerUID, NSString *c
     dispatch_once(&once, ^{ inst = [IMVoicePlayer new]; });
     return inst;
 }
+
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        // App 切后台即暂停：本 App **没有**开启后台音频能力（Info.plist 无 audio background mode），
+        // 系统本来就会掐掉声音，但播放器的状态还停在 Playing——回到前台气泡仍显"播放中"、
+        // 进度条不动，用户只能再点两下才恢复。这里主动转成 Paused，让 UI 与实际一致，
+        // 且保留位点（回来接着听），故用 pause 而不是 stop。
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(handleEnterBackground:)
+                                                   name:UIApplicationDidEnterBackgroundNotification object:nil];
+    }
+    return self;
+}
+
+- (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
+
+- (void)handleEnterBackground:(NSNotification *)note { [self pause]; }
 
 - (void)togglePlayback:(IMMessageModel *)message localFileURL:(NSURL *)localFileURL {
     NSString *mid = IMVoicePlayerPlayableIDForMessage(message);
@@ -166,6 +184,16 @@ static NSString *_Nonnull IMVoicePlayerPlayedKey(NSString *ownerUID, NSString *c
     return [NSError errorWithDomain:@"IMVoicePlayer" code:-4
                            userInfo:@{NSLocalizedDescriptionKey: @"该语音格式无法播放"}];
 }
+
+- (void)pause {
+    if (!self.player || !self.player.isPlaying) { return; }
+    [self.player pause];
+    self.currentState = IMVoicePlayerStatePaused;
+    [self stopProgressLink];
+    [self broadcastStateForID:self.currentID convID:self.currentConvID state:IMVoicePlayerStatePaused];
+}
+
+- (void)pauseOnLeavingScreen { [self pause]; }
 
 - (void)stop {
     if (!self.player) { return; }

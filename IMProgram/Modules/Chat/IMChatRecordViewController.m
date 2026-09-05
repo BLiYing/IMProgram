@@ -453,6 +453,14 @@ static NSString *IMRecordItemTimeText(int64_t timestampMillis) {
     [self.view addSubview:_tableView];
 }
 
+/// 离开本页即暂停语音（保留位点，回来还能接着听）。
+/// 判据是**页面消失**而不是 cell 离屏：同一页里把行滚出视野不该中断播放。
+/// 规则与全部调用点见 IMVoicePlayer.h 的 `pauseOnLeavingScreen`。
+- (void)viewDidDisappear:(BOOL)animated {
+    [super viewDidDisappear:animated];
+    [[IMVoicePlayer sharedPlayer] pauseOnLeavingScreen];
+}
+
 /// 「与上一条同一发送者」——连续同一人只显一次头像与昵称（微信/Telegram 式）。
 /// 身份判据在 `IMRecordSenderKey`（纯函数，与 Web `recordSenderKey` 同口径、各自有单测）。
 - (BOOL)isSameSenderAsPreviousAtIndex:(NSInteger)index {
