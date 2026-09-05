@@ -57,7 +57,10 @@
     self.view.backgroundColor = UIColor.systemBackgroundColor;
 
     self.searchBar = [[UISearchBar alloc] init];
-    self.searchBar.placeholder = @"对方完整 uid 或手机号";
+    // 找人只认**完整 username / 手机号**（后端 SearchUsers 是等值匹配，防枚举）。
+    // 原文案写「完整 uid」是双重错误：内部 ID 用户根本看不到（docs/UI.md 用户标识），
+    // 而且真拿 uid 来搜也搜不到——SQL 里压根没有 user_id 这一路。
+    self.searchBar.placeholder = @"对方用户名或手机号";
     self.searchBar.delegate = self;
     self.searchBar.returnKeyType = UIReturnKeySearch;
     [self.searchBar sizeToFit];
@@ -75,7 +78,7 @@
 
     self.hintLabel = [UILabel new];
     self.hintLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.hintLabel.text = @"输入关键词搜索用户";
+    self.hintLabel.text = @"输入完整的用户名或手机号查找"; // 不支持模糊/前缀匹配，别让用户以为是关键词搜索
     self.hintLabel.textColor = IMTheme.textSecondary;
     self.hintLabel.textAlignment = NSTextAlignmentCenter;
     [self.view addSubview:self.hintLabel];

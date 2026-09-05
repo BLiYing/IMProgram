@@ -111,6 +111,7 @@
 @property (nonatomic, strong) NSArray<UIColor *> *entryColors;  // 与 entries 同序的图标底色
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) UILabel *emptyLabel;
+@property (nonatomic, strong) UIView *emptyFooter;  // 承载 emptyLabel 的表尾容器（见 layoutEmptyFooter）
 @property (nonatomic, strong, nullable) IMDatabaseAccountContext *databaseContext; // 任务5：本地缓存账号隔离
 @property (nonatomic, strong) IMReconnectReloader *reconnectReloader;              // 重连即取权威（可见时）
 @end
@@ -196,20 +197,36 @@
     [self.tableView registerClass:IMContactEntryCell.class forCellReuseIdentifier:@"entry"];
     [self.view addSubview:self.tableView];
 
+    // 空态文案挂 tableView 的**表尾**，不再居中盖在 self.view 上：顶部入口区是 4 行 68pt 的
+    // 分组表，屏幕竖直中心恰好落在最后一条入口（服务号）身上，两段文字直接叠在一起（2026-09-05 实测）。
+    // 表尾天然接在最后一段内容下方，以后入口再增减也撞不上。
     self.emptyLabel = [UILabel new];
-    self.emptyLabel.translatesAutoresizingMaskIntoConstraints = NO;
     self.emptyLabel.text = @"还没有好友，点右上角 + 搜索用户添加";
     self.emptyLabel.textColor = IMTheme.textSecondary;
     self.emptyLabel.textAlignment = NSTextAlignmentCenter;
     self.emptyLabel.numberOfLines = 0;
-    self.emptyLabel.hidden = YES;
-    [self.view addSubview:self.emptyLabel];
-    [NSLayoutConstraint activateConstraints:@[
-        [self.emptyLabel.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
-        [self.emptyLabel.centerYAnchor constraintEqualToAnchor:self.view.centerYAnchor],
-        [self.emptyLabel.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:IMTheme.space4 * 2],
-        [self.emptyLabel.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-IMTheme.space4 * 2],
-    ]];
+    self.emptyFooter = [UIView new];
+    [self.emptyFooter addSubview:self.emptyLabel];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    [self layoutEmptyFooter]; // 宽度变了（旋转/分屏）要重排文案
+}
+
+/// 表尾空态排版：表尾视图**不参与 Auto Layout**，必须自己按当前宽度算出具体 frame。
+/// 高度变了才回写 tableFooterView（赋值会触发一次布局，无条件回写就是死循环）。
+- (void)layoutEmptyFooter {
+    if (self.tableView.tableFooterView != self.emptyFooter) { return; }
+    CGFloat inset = IMTheme.space4 * 2;
+    CGFloat width = self.tableView.bounds.size.width;
+    if (width <= inset * 2) { return; }
+    CGSize fit = [self.emptyLabel sizeThatFits:CGSizeMake(width - inset * 2, CGFLOAT_MAX)];
+    self.emptyLabel.frame = CGRectMake(inset, inset, width - inset * 2, fit.height);
+    CGRect target = CGRectMake(0, 0, width, fit.height + inset * 2);
+    if (CGRectEqualToRect(self.emptyFooter.frame, target)) { return; }
+    self.emptyFooter.frame = target;
+    self.tableView.tableFooterView = self.emptyFooter;
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -259,8 +276,9 @@
     self.pending = pending;
     self.accepted = accepted;
     self.friendIndex = [[IMContactSectionIndex alloc] initWithCards:accepted]; // 排序/分桶交给索引
-    self.emptyLabel.hidden = (pending.count + accepted.count) > 0;
+    self.tableView.tableFooterView = (pending.count + accepted.count) > 0 ? nil : self.emptyFooter;
     [self.tableView reloadData];
+    [self layoutEmptyFooter];
     // 任务5：权威好友列表落库（仅 accepted），供下次断网离线首屏。空数组也写，代表当前账号无好友。
     [IMDatabase.sharedDatabase performWithAccountContext:self.databaseContext block:^(IMDatabase *database) {
         [database replaceCachedFriends:accepted];
