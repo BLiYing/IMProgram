@@ -791,7 +791,19 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
 }
 
 /// 在可见 cell 上应用转写文本。cell 已被复用/滚出视口则忽略——下次再触发时会重新展开缓存。
+///
+/// 面板撑高之后要把撑出来的那段**补进视口**（2026-09-05 用户实测：最后一条是语音时，
+/// 转出来的文字整段挂在视口下沿之外，必须手动再滑一下才看得见——展开是用户刚亲手点的，
+/// 这一步不该由用户补）。判据与 im-web transcriptReveal.ts 同语义：
+///   · 原本贴底 → 贴回底（末条变高后仍在视口内，与被拒收挂系统行那条路同一套）；
+///   · 否则 → 把该行滚到"刚好完整可见"（ScrollPositionNone = 最小位移），已完整可见就一步不动，
+///     在历史里转写中间某条不会被拽走；
+///   · 收起/失败（面板消失、内容只会变矮）不滚。
+/// 用 animated:NO：动画滚动的每一帧都会走 scrollViewDidScroll → maybeLoadOlder/NewerOnScroll，
+/// 翻页一旦插行，行号后移、动画被取消，落点就跑偏（同 ⑥「先最早再定位落到别处」的坑）。
 - (void)im_applyTranscriptText:(nullable NSString *)text loading:(BOOL)loading forMessageID:(NSString *)mid {
+    BOOL wasNearBottom = [self isNearBottom];
+    BOOL shows = loading || text.length > 0;
     for (UITableViewCell *cell in self.tableView.visibleCells) {
         if (![cell isKindOfClass:[IMVoiceBubbleCell class]]) { continue; }
         NSIndexPath *ip = [self.tableView indexPathForCell:cell];
@@ -800,6 +812,13 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
         NSString *cellID = IMVoicePlayerPlayableIDForMessage(m);
         if ([cellID isEqualToString:mid]) {
             [(IMVoiceBubbleCell *)cell applyTranscriptText:text loading:loading];
+            if (shows) {
+                if (wasNearBottom) {
+                    [self scrollToAbsoluteBottom];
+                } else {
+                    [self.tableView scrollToRowAtIndexPath:ip atScrollPosition:UITableViewScrollPositionNone animated:NO];
+                }
+            }
             break;
         }
     }

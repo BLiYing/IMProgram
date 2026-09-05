@@ -5,6 +5,19 @@
 
 ## 当前焦点
 
+> **用户实测第四批（2026-09-05）：语音转文字撑高后要把文字补进视口**——末条是语音时，转出来的
+> 文字整段挂在视口下沿之外，用户必须手动再滑一下才看得见（Web 同病，两端同批修）。
+> `IMChatViewController+Voice.m` 的 `im_applyTranscriptText:loading:forMessageID:`：应用前记
+> `isNearBottom`，cell 的 `beginUpdates/endUpdates` 撑高之后——原本贴底就 `scrollToAbsoluteBottom`，
+> 否则 `scrollToRowAtIndexPath:` + **`UITableViewScrollPositionNone`**（最小位移露全该行，已完整可见
+> 就一步不动，在历史里转写中间某条不会被拽走）；**收起/失败不滚**（只会变矮）。
+> 用 **`animated:NO`**：动画滚动每帧走 `scrollViewDidScroll` → `maybeLoadOlder/NewerOnScroll`，
+> 翻页一插行落点就跑偏（同 2026-09-05「先最早再定位落到别处」那个坑）。
+> **按用户要求只编译（`BUILD_ONLY=1 ./scripts/test.sh` 通过），未跑模拟器、无新单测。**
+> 口径见 `../IMServer/docs/CHAT_UX.md §9`「消息就地变高」。
+>
+> 用户报的另两条（发送后滚到最新 / 卡片宽度）**iOS 本就正确或不适用**，只改了 Web。
+
 > **安全整改第 1 步：服务器地址协议收口 + 媒体外站 URL 白名单（2026-09-03；`./scripts/test.sh` 全绿 395/395；**未手测**）**
 >
 > 背景：`/security-review` 全仓审计报了 3 条（明文 HTTP / WS 明文且 token 在 URL / 发送方可控 URL 被零点击拉取）。
