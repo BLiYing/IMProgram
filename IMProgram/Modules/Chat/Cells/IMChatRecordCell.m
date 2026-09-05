@@ -14,6 +14,7 @@
     UILabel *_title;
     UILabel *_preview;
     UILabel *_footer;
+    UILabel *_meta;                // 时间 + 勾（卡片右下角，与 _footer 同排）
     NSLayoutConstraint *_leading;
     NSLayoutConstraint *_trailing;
     UILabel *_senderLabel;         // 群聊对方消息：发送者昵称（连续段首条显示，主色小字，卡片上方）
@@ -63,6 +64,16 @@
         _footer.textColor = IMTheme.textSecondary;
         _footer.text = @"聊天记录";
         [_card addSubview:_footer];
+
+        // 时间/状态：与「聊天记录」脚注**同一排、贴卡片右下角**。此前本 cell 完全没有这一块——
+        // 别的气泡都在右下角显时间，唯独合并转发卡片没有，看不出这条是什么时候发/收的。
+        // 放进卡片内而不是卡片下方另起一行：卡片就是气泡本身（_card 直接套 applyBubbleDirectionStyle），
+        // 下方再挂一行会多出一截空白，也和 IMContactCardView 的同款布局分叉。
+        _meta = [UILabel new];
+        _meta.translatesAutoresizingMaskIntoConstraints = NO;
+        _meta.font = [UIFont systemFontOfSize:11];
+        [_meta setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+        [_card addSubview:_meta];
 
         // 群聊对方消息（与 IMBubbleCell/IMImageCell/IMLinkCardCell 一致）：昵称在卡片上方、头像贴卡片底左侧。
         _senderLabel = [UILabel new];
@@ -125,14 +136,21 @@
             [_footer.topAnchor constraintEqualToAnchor:sep.bottomAnchor constant:6],
             [_footer.leadingAnchor constraintEqualToAnchor:_card.leadingAnchor constant:12],
             [_footer.bottomAnchor constraintEqualToAnchor:_card.bottomAnchor constant:-8],
+            // 时间贴右、与脚注同一基线；中间留 ≥6 的间隙，脚注文案再长也不会压到时间上。
+            [_meta.trailingAnchor constraintEqualToAnchor:_card.trailingAnchor constant:-12],
+            [_meta.centerYAnchor constraintEqualToAnchor:_footer.centerYAnchor],
+            [_meta.leadingAnchor constraintGreaterThanOrEqualToAnchor:_footer.trailingAnchor constant:6],
         ]];
     }
     return self;
 }
 - (void)configureWithMessage:(IMMessageModel *)message mine:(BOOL)mine
+                 peerReadSeq:(int64_t)peerReadSeq
                   senderName:(NSString *)senderName
                   senderRole:(IMGroupRole)senderRole {
     [IMTheme applyBubbleDirectionStyle:_card mine:mine]; // 底色+圆角+尾角（收发方向样式，四类气泡 cell 共用）
+    // 右下角时间/状态：与其余气泡共用基类的同一套判据（发送中…/未发送 ✗/时间 + ✓✓）。
+    _meta.attributedText = [IMMessageCell attributedMetaForMessage:message mine:mine peerReadSeq:peerReadSeq];
     _title.font = [UIFont systemFontOfSize:MAX(14, IMTheme.chatFontSize - 2) weight:UIFontWeightSemibold];
     _preview.font = [UIFont systemFontOfSize:MAX(12, IMTheme.chatFontSize - 5)];
     NSString *title = nil; NSArray<NSString *> *lines = nil;

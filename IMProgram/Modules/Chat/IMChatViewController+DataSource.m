@@ -93,7 +93,8 @@
         BOOL grpR = self.isGroupChat && !mineR;                              // 群聊对方
         BOOL firstR = grpR && [self isFirstInSenderRun:indexPath.row];       // 连续段首条→显示名
         BOOL lastR = grpR && [self isLastInSenderRun:indexPath.row];         // 连续段末条→显示头像
-        [rec configureWithMessage:m mine:mineR senderName:(firstR ? [self senderNameForMessage:m] : nil)
+        [rec configureWithMessage:m mine:mineR peerReadSeq:[self peerReadSeqForCell]
+                       senderName:(firstR ? [self senderNameForMessage:m] : nil)
                        senderRole:(firstR ? [self senderRoleForMessage:m] : IMGroupRoleMember)];
         [rec applyGroupAvatarURL:(grpR ? [self senderAvatarURLForMessage:m] : nil)
                             seed:(m.from ?: @"") name:(grpR ? [self senderNameForMessage:m] : nil)
