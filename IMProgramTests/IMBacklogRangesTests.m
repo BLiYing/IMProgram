@@ -119,6 +119,39 @@ static NSString * const kMe = @"me";
     XCTAssertTrue([_db isConvComplete:kConv]);
 }
 
+/// ↓N 问的不是"整个会话齐不齐"，而是"**已滚入位点到 head 之间**还缺不缺"——
+/// 会话开头缺十万条与"下面还有多少"无关。这条判据必须与 isConvComplete: 分开。
+///
+/// 现场（2026-09-05，libeyond 在「20000人大群」）：滚到底再往上滑，↓ 恒显 1。
+/// 会话最后一个 conv_seq 是 op=pin 的 **msg_op 事件行**（110031），最后一条真消息是 110030 ——
+/// 旧判据拿 `head > 本地最大消息 seq` 猜"下面还有没下载的"，把那个事件行数成了一条不存在的未读。
+/// 区间清单登记时**含**这类不渲染的行，所以它盖得住 (frontier, head]。
+- (void)testCoversFromToAnswersOnlyAboutTheAskedSpan {
+    [self seedConversationRow];
+    // 大群典型形态：开头缺一大片，只有尾段在本地——但尾段确实盖住了 (110030, 110031]。
+    [_db registerRangeInConv:kConv from:109832 to:110031];
+    [_db updateHeadConvSeq:110031 forConv:kConv];
+    XCTAssertFalse([_db isConvComplete:kConv], @"整会话当然不齐全（前十万条没下载）");
+    XCTAssertTrue([_db conv:kConv coversFrom:110031 to:110031],
+                  @"但「已读到 110030，下面还缺不缺」的答案是：不缺");
+
+    // 真有没下载的：head 超出本地那一段。
+    [_db updateHeadConvSeq:110032 forConv:kConv];
+    XCTAssertFalse([_db conv:kConv coversFrom:110031 to:110032]);
+
+    // **跨两段不算覆盖**：中间那条缺口正是"没下载"，合起来算就等于宣称拿到了没拿到的东西。
+    [_db registerRangeInConv:kConv from:110033 to:110040];
+    [_db updateHeadConvSeq:110040 forConv:kConv];
+    XCTAssertFalse([_db conv:kConv coversFrom:110031 to:110040], @"110032 缺着，两段不能合起来算");
+
+    // 补上缺口 → 相邻段合并 → 覆盖成立。
+    [_db registerRangeInConv:kConv from:110032 to:110032];
+    XCTAssertTrue([_db conv:kConv coversFrom:110031 to:110040]);
+
+    // 退化入参：hi<lo 不算覆盖（调用方 frontier==head 时压根不该问）。
+    XCTAssertFalse([_db conv:kConv coversFrom:110041 to:110040]);
+}
+
 - (void)testGappedLocalIsNotComplete {
     [self seedConversationRow];
     [_db updateHeadConvSeq:100000 forConv:kConv];

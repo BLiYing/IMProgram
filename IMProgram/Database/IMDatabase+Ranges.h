@@ -108,6 +108,13 @@ BOOL IMRegisterRangeInDB(FMDatabase *db, NSString *owner, NSString *convID, int6
 - (int64_t)headConvSeqForConv:(NSString *)convID;
 - (void)updateHeadConvSeq:(int64_t)head forConv:(NSString *)convID;
 
+/// 区间清单是否**用同一段**完整覆盖 [lo, hi]（跨两段说明中间有缺口，不算覆盖）。
+///
+/// 与 `isConvComplete:` 的区别是**问的范围不同**：那个问"从 1 到 head 全有吗"，
+/// 这个问"我关心的这一段全有吗"。↓N 要的正是后者——"已滚入位点到 head 之间还缺不缺东西"，
+/// 会话开头缺几万条与这个问题无关。
+- (BOOL)conv:(NSString *)convID coversFrom:(int64_t)lo to:(int64_t)hi;
+
 /// 本地对该会话是否**齐全**：区间清单从 1 一路连续覆盖到 head。
 /// head 未知（0）时按齐全处理——没有上界就无从判断缺什么，宁可保持改造前的行为。
 - (BOOL)isConvComplete:(NSString *)convID;

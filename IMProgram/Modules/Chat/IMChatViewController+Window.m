@@ -691,6 +691,23 @@ int64_t IMChatEntryWindowAnchor(int64_t readSeq) {
     int64_t frontier = self.pendingReadSeq;
     // head = 服务端最新位点的内存快照（O(1)，不碰库）。下面两条分支都要拿它当上界。
     int64_t head = [IMSocketManager.sharedManager headConvSeqForConv:convID];
+    // **正面证据优先**：区间清单若用同一段盖住 (frontier, head]，说明"下面"服务端给过的一件不缺，
+    // 数本地就是精确值。下面那些 `head > 本地最大 seq` 的判据都是拿 seq 连不连号在**猜**，
+    // 而 conv_seq 里混着 msg_op 事件行 / 「为所有人删除」的墓碑 / 对我不可见的行——
+    // 它们占号但永不成为消息，猜出来必然凭空多几条。
+    // 2026-09-05 实测：libeyond 在「20000人大群」滚到底再往上滑，↓ 恒显 1 ——
+    // 会话最后一条恰是 op=pin 的事件行（head=110031，最后一条真消息 110030）。
+    // 只在 head 已知且未贴到 frontier 时才查库，正常滚动这段一次都不走。
+    if (head > frontier) {
+        __block BOOL coveredBelow = NO;
+        __block NSInteger belowLocal = 0;
+        [self performDatabaseOperation:^(IMDatabase *database) {
+            coveredBelow = [database conv:convID coversFrom:frontier + 1 to:head];
+            // 覆盖住才数——不覆盖时这个数必然偏小，白花一次查询。
+            if (coveredBelow) { belowLocal = [database countIncomingInConv:convID afterConvSeq:frontier]; }
+        }];
+        if (coveredBelow) { return belowLocal; }
+    }
     if (self.windowState.atTail) {
         int64_t windowMax = 0;
         NSInteger n = 0;

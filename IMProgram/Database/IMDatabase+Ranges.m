@@ -128,6 +128,14 @@ BOOL IMRegisterRangeInDB(FMDatabase *db, NSString *owner, NSString *convID, int6
     }];
 }
 
+- (BOOL)conv:(NSString *)convID coversFrom:(int64_t)lo to:(int64_t)hi {
+    if (hi < lo) { return NO; }
+    for (NSArray<NSNumber *> *r in [self rangesForConv:convID]) {
+        if (r.firstObject.longLongValue <= lo && r.lastObject.longLongValue >= hi) { return YES; }
+    }
+    return NO;
+}
+
 - (BOOL)isConvComplete:(NSString *)convID {
     int64_t head = [self headConvSeqForConv:convID];
     if (head <= 0) { return YES; } // 上界未知 → 无从判断缺什么，保持改造前的行为（当作齐全）
