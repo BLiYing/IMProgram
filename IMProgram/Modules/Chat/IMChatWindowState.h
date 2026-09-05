@@ -45,6 +45,12 @@ NS_ASSUME_NONNULL_BEGIN
 /// 按普通跳转报一句**假的**「原消息已被删除」，把到手的历史丢掉。
 @property (nonatomic, assign) BOOL pendingJumpIsEarliest;
 
+/// 正在**整窗换段 + 重新定位**（openLocalWindowAroundConvSeq:）。期间 scrollViewDidScroll 会被
+/// reloadData / 钳位 / 程序性定位反复触发，那些 offset 不是用户的手——按它们翻页会把刚换好的窗口
+/// 再改一次（向上翻页 prepend 会让目标行号整体后移、还会取消定位滚动），表现为"定位到聊天落到别处"。
+/// 为 YES 时 maybeLoadOlderOnScroll / maybeLoadNewerOnScroll 一律不动。
+@property (nonatomic, assign) BOOL reanchoring;
+
 /// 向下翻页「按窗口末尾要更新一段」（anchor=窗口最大 seq）在途的那个位点（0=无）。
 ///
 /// 有缺口的会话（超级群尤甚）向下那段**等不到 sync 来补**——sync 只会回 too_long，

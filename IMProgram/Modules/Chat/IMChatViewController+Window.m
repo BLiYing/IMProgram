@@ -212,6 +212,7 @@ int64_t IMChatEntryWindowAnchor(int64_t readSeq) {
     // 初始定位（贴底/锚未读）没跑完之前 contentOffset 还停在 0 附近——那不是"用户滚到了顶"，
     // 是表刚建好。不拦的话每次进会话都会白翻一页（日志实锤：applied 200 后必跟一条 prepend 200）。
     if (!self.didInitialPosition) { return; }
+    if (self.windowState.reanchoring) { return; } // 正在换窗定位：这些 offset 不是用户的手（见 IMChatWindowState.reanchoring）
     // pendingAnchor != 0 ⇒ 已有一次开窗在途（本地翻页是同步的，只有服务端那一步会在途）。
     if (!self.windowState.hasMoreAbove || self.windowState.pendingAnchor != 0 || self.windowState.messages.count == 0) { return; }
     if (self.tableView.contentOffset.y > kIMWindowLoadOlderThreshold) { return; }
@@ -360,6 +361,10 @@ int64_t IMChatEntryWindowAnchor(int64_t readSeq) {
 
 /// 目标已在当前窗口 → 滚过去并高亮一闪；不在则返回 NO 交给调用方回落。
 - (BOOL)scrollToLoadedConvSeq:(int64_t)convSeq {
+    return [self scrollToLoadedConvSeq:convSeq animated:YES];
+}
+
+- (BOOL)scrollToLoadedConvSeq:(int64_t)convSeq animated:(BOOL)animated {
     if (convSeq <= 0) { return NO; }
     for (NSUInteger i = 0; i < self.windowState.messages.count; i++) {
         if (self.windowState.messages[i].convSeq != convSeq) { continue; }
@@ -368,6 +373,13 @@ int64_t IMChatEntryWindowAnchor(int64_t readSeq) {
         NSUInteger visRow = [self visibleRowForMessage:self.windowState.messages[i]];
         NSInteger targetRow = (visRow == NSNotFound) ? (NSInteger)i : (NSInteger)visRow;
         NSIndexPath *ip = [NSIndexPath indexPathForRow:targetRow inSection:0];
+        if (!animated) {
+            // 换窗后的即时定位：offset 直接摆到位，布局落定后立刻闪（没有动画就没有"等到位"的问题）。
+            [self.tableView scrollToRowAtIndexPath:ip atScrollPosition:UITableViewScrollPositionMiddle animated:NO];
+            [self.tableView layoutIfNeeded];
+            [self flashRowAtIndexPath:ip];
+            return YES;
+        }
         [self.tableView scrollToRowAtIndexPath:ip atScrollPosition:UITableViewScrollPositionMiddle animated:YES];
         // 等滚动动画到位后再闪（已在视口时 scrollToRow 也可能微调，同样适用）。
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)),
@@ -395,10 +407,19 @@ int64_t IMChatEntryWindowAnchor(int64_t readSeq) {
         if (m.convSeq > loadedMax) { loadedMax = m.convSeq; }
     }
     if (!found) { return NO; }
+    // **换窗期间禁掉滚动翻页，并且定位不用动画**（2026-09-05 用户实测：先「最早」再从资料页语音 tab
+    // 「定位到聊天」落到别处；直接进会话再定位却正常）。
+    // 根因：applyWindowMessages + reloadData 不动 contentOffset。从会话开头来时 offset≈0，新窗一渲染就
+    // 停在"顶部 300pt 以内"，随后的**动画**滚动每一帧都触发 scrollViewDidScroll → maybeLoadOlderOnScroll
+    // 判定"用户滚到了顶"→ 本地 prepend 一页 → 目标行号整体后移、restoreWindowAnchorRow 还把动画中的
+    // offset 改掉（动画即被取消）；0.4s 后闪的是按旧行号算的那一行。从尾部来时 offset 落在底部附近，
+    // 触发的是向下追加（下标不变），所以看着正常——两条路径的差别就在这一个起始 offset。
+    self.windowState.reanchoring = YES;
     [self applyWindowMessages:msgs atTail:(localMax > 0 && loadedMax >= localMax)];
     [self.tableView reloadData];
     [self.tableView layoutIfNeeded];
-    [self scrollToLoadedConvSeq:convSeq];
+    [self scrollToLoadedConvSeq:convSeq animated:NO]; // 旧内容已不在，没有可以动画过去的起点
+    self.windowState.reanchoring = NO;
     [self updateJumpButton]; // 窗口离开末尾 → ↓N 要显示出来（计数改由 DB 出，见 windowUnreadBelowCount）
     return YES;
 }
@@ -558,6 +579,7 @@ int64_t IMChatEntryWindowAnchor(int64_t readSeq) {
 /// 滑到那一窗的末尾就再也滑不动了，而 ↓N 还显示着下面有一万条。
 - (void)maybeLoadNewerOnScroll {
     if (!self.didInitialPosition) { return; } // 同 maybeLoadOlderOnScroll：建表期的 offset 不是用户手势
+    if (self.windowState.reanchoring) { return; } // 同上：换窗定位期间不翻页
     if (self.windowState.pendingAnchor != 0 || self.windowState.pendingNewerAnchor != 0) { return; }
     if (self.windowState.messages.count == 0) { return; }
     int64_t hi = 0;

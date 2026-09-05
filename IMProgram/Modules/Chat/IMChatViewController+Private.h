@@ -210,6 +210,8 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (void)loadInitialWindow;
 - (void)applyWindowMessages:(NSArray<IMMessageModel *> *)msgs atTail:(BOOL)atTail;
 - (BOOL)scrollToLoadedConvSeq:(int64_t)convSeq;
+/// animated=NO：换窗后的**即时**定位（旧内容已不在，没有可以动画过去的起点）；先把 offset 摆到位再闪。
+- (BOOL)scrollToLoadedConvSeq:(int64_t)convSeq animated:(BOOL)animated;
 - (BOOL)openLocalWindowAroundConvSeq:(int64_t)convSeq;
 - (void)requestServerWindowAnchor:(int64_t)anchor isJump:(BOOL)isJump;
 /// earliest=YES：这是「跳到最早」（锚点写死 1）。回包 anchor_found=false 不当作"没有这条消息"，
