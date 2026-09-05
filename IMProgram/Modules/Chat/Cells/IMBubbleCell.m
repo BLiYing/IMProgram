@@ -420,7 +420,20 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     return m;
 }
 
+/// 上一次点击回执的现场：只可能有一个（单指点击），故用两个静态变量而不是逐 label 关联对象。
+/// **必须记着**：连点两下（<0.22s）时，第二次若把「已带上一次灰底」的串当原串记下来，
+/// 第二次的定时器就会把第一次的灰底复位回去并永久留在那儿。
+static __weak UILabel *sIMMentionFlashLabel = nil;
+static NSAttributedString *sIMMentionFlashOriginal = nil;
+
 + (void)flashMentionHighlightInLabel:(UILabel *)label range:(NSRange)range {
+    // 同一个 label 上还有没复位的上一次高亮 → 先原样复位，再以**干净的串**作为这次的原串。
+    UILabel *prev = sIMMentionFlashLabel;
+    if (prev == label && sIMMentionFlashOriginal) {
+        label.attributedText = sIMMentionFlashOriginal;
+    }
+    sIMMentionFlashLabel = nil; sIMMentionFlashOriginal = nil;
+
     NSAttributedString *as = label.attributedText;
     if (!as || range.location == NSNotFound || NSMaxRange(range) > as.length) { return; }
     NSMutableAttributedString *hot = [as mutableCopy];
@@ -429,12 +442,16 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     [hot addAttribute:NSBackgroundColorAttributeName
                 value:[UIColor.systemGrayColor colorWithAlphaComponent:0.35] range:range];
     label.attributedText = hot;
-    // 复位回**原串**而不是再去掉背景色属性：这期间可能已因 cell 复用换了内容，
-    // 那时 label.attributedText 已不是 hot，直接覆盖回旧内容才是错的——故先比对身份。
+    sIMMentionFlashLabel = label; sIMMentionFlashOriginal = as;
+    // 复位回**原串**而不是再去掉背景色属性：同一个 label 里搜索命中高亮用的也是
+    // NSBackgroundColorAttributeName，按属性清会把它一并抹掉。
+    // 这期间可能已因 cell 复用换了内容，那时 label.attributedText 已不是 hot，
+    // 直接覆盖回旧内容才是错的——故先比对身份。
     __weak UILabel *weakLabel = label;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.22 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         UILabel *l = weakLabel;
         if (l && [l.attributedText isEqualToAttributedString:hot]) { l.attributedText = as; }
+        if (sIMMentionFlashLabel == l) { sIMMentionFlashLabel = nil; sIMMentionFlashOriginal = nil; }
     });
 }
 

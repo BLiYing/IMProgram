@@ -54,6 +54,31 @@
     return label;
 }
 
+/// 造一个含**两个**可点名字的居中 label（「甲 邀请 乙 和 丙 加入群聊」），供"连点两个名字"用例用。
+- (UILabel *)labelWithTwoNamesFirstRange:(NSRange *)outFirst secondRange:(NSRange *)outSecond {
+    UIFont *font = [UIFont systemFontOfSize:12];
+    NSDictionary *plain = @{ NSFontAttributeName: font };
+    NSMutableAttributedString *as = [[NSMutableAttributedString alloc] initWithString:@"甲 邀请 " attributes:plain];
+    NSMutableDictionary *n1 = [plain mutableCopy]; n1[IMMentionUIDAttributeName] = @"1111111111";
+    NSUInteger s1 = as.length;
+    [as appendAttributedString:[[NSAttributedString alloc] initWithString:@"乙" attributes:n1]];
+    if (outFirst) { *outFirst = NSMakeRange(s1, 1); }
+    [as appendAttributedString:[[NSAttributedString alloc] initWithString:@" 和 " attributes:plain]];
+    NSMutableDictionary *n2 = [plain mutableCopy]; n2[IMMentionUIDAttributeName] = @"2222222222";
+    NSUInteger s2 = as.length;
+    [as appendAttributedString:[[NSAttributedString alloc] initWithString:@"丙" attributes:n2]];
+    if (outSecond) { *outSecond = NSMakeRange(s2, 1); }
+    [as appendAttributedString:[[NSAttributedString alloc] initWithString:@" 加入群聊" attributes:plain]];
+
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 400, 20)];
+    label.numberOfLines = 0;
+    label.textAlignment = NSTextAlignmentCenter;
+    label.attributedText = as;
+    [_window addSubview:label];
+    [label layoutIfNeeded];
+    return label;
+}
+
 /// 名字在 label 里的**渲染**中心（按居中偏移算），即用户手指真正会点的位置。
 - (CGPoint)renderedCenterOfRange:(NSRange)range inLabel:(UILabel *)label {
     NSAttributedString *as = label.attributedText;
@@ -121,6 +146,31 @@
     XCTestExpectation *restored = [self expectationWithDescription:@"高亮自动还原"];
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         XCTAssertTrue([label.attributedText isEqualToAttributedString:before], @"应还原成原串");
+        [restored fulfill];
+    });
+    [self waitForExpectationsWithTimeout:2 handler:nil];
+}
+
+/// 复位窗口（0.22s）内先后点**两个不同的名字**：第二次不能把「已带第一次灰底」的串当成原串
+/// 记下来，否则它的定时器会把第一次的灰底复位回去并**永久留在那儿**——用户看到一个洗不掉的
+/// 灰底名字，直到该 cell 被复用。
+///
+/// ⚠️ 用两个**不同**的 range 才复现得出来：连点同一个名字时第二次算出的 hot 与第一次逐字节相等，
+/// 第一个定时器就把它整个复位掉了，问题会自愈（第一版用例正是这么写的，改坏代码也照样绿）。
+- (void)testFlashingTwoDifferentNamesLeavesNoStuckHighlight {
+    NSRange firstRange = NSMakeRange(NSNotFound, 0);
+    UILabel *label = [self labelWithTwoNamesFirstRange:&firstRange secondRange:NULL];
+    NSRange secondRange = NSMakeRange(NSNotFound, 0);
+    (void)[self labelWithTwoNamesFirstRange:NULL secondRange:&secondRange]; // 只为取第二个名字的 range
+    NSAttributedString *pristine = [label.attributedText copy];
+
+    [IMBubbleCell flashMentionHighlightInLabel:label range:firstRange];
+    [IMBubbleCell flashMentionHighlightInLabel:label range:secondRange]; // 复位窗口内点了另一个名字
+
+    XCTestExpectation *restored = [self expectationWithDescription:@"两次点击后仍还原成干净的原串"];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        XCTAssertTrue([label.attributedText isEqualToAttributedString:pristine],
+                      @"先后点两个名字后不能残留灰底：%@", label.attributedText);
         [restored fulfill];
     });
     [self waitForExpectationsWithTimeout:2 handler:nil];

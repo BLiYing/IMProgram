@@ -163,9 +163,7 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
               completion:(void (^)(NSArray<IMUserCard *> *_Nullable friends, NSError *_Nullable error))completion;
 
 /// 发好友申请（POST /api/v1/friends/request）。completion 在主线程回调。
-/// becameFriend=YES 表示**已直接成为好友、无需对方确认**（对方先申请过我；或我曾单向删除对方而对方仍视我为好友）。
-/// 调用方据此**不要提示「已发送好友申请」**——那会让用户误以为还要等对方通过；刷新界面即可。
-/// 发好友申请。hello 是**验证消息**（申请理由，可空）：服务端压单行 + 截到 50 rune，超长不报错。
+/// hello 是**验证消息**（申请理由，可空）：服务端压单行 + 截到 50 rune，超长不报错。
 /// becameFriend=YES 表示**已直接成为好友、无需对方确认**（对方先申请过我，或我曾单向删除对方
 /// 而对方仍视我为好友）——此时**不要**吐司「已发送好友申请」，那会让用户误以为还要等对方通过。
 - (void)requestFriendWithToken:(NSString *)token
