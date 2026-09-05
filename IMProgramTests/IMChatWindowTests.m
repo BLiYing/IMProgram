@@ -8,6 +8,8 @@
 // 判据抽出来单测，免构造依赖数据库与 UIKit 的真 VC）。
 FOUNDATION_EXPORT BOOL IMChatEntryHasUnread(NSInteger entryUnread);
 FOUNDATION_EXPORT int64_t IMChatEntryWindowAnchor(int64_t readSeq);
+// IMChatViewController+Search.m 里的同款纯函数（日历「跳到最早」该走本地还是问服务端）。
+FOUNDATION_EXPORT BOOL IMEarliestJumpNeedsServer(int64_t localEarliest);
 
 /// 消息窗口的**本地库契约**（设计见 IMServer/docs/design/MESSAGE_WINDOW_DESIGN.md）。
 ///
@@ -163,6 +165,16 @@ static NSString * const kMe = @"me";
 }
 
 /// 向服务端开窗的 anchor 不能是 0——协议里那是「取最新一窗」，与"会话开头"正好相反。
+/// 「跳到最早」= 会话首条，而不是"我下载到的最早一条"。
+/// 离线积压 / 大群缺口时本地只有尾巴那一段（如最早只到 29802），照着它跳等于原地打转、
+/// 还让人以为翻到头了——那时必须以 1 为锚点向服务端开一窗。
+- (void)testEarliestJumpAsksServerUnlessConversationHeadIsAlreadyLocal {
+    XCTAssertFalse(IMEarliestJumpNeedsServer(1), @"本地已有 1 号 = 真握着会话开头，直接跳");
+    XCTAssertTrue(IMEarliestJumpNeedsServer(2), @"差一条也是差——本地最早不是会话最早");
+    XCTAssertTrue(IMEarliestJumpNeedsServer(29802), @"三万条会话只下载了尾巴，跳本地最早=原地打转");
+    XCTAssertFalse(IMEarliestJumpNeedsServer(0), @"本地一条都没有由调用方提示「暂无消息」，不开窗");
+}
+
 - (void)testEntryWindowAnchorNeverZero {
     XCTAssertEqual(IMChatEntryWindowAnchor(0), 1);    // 从没读过 → 会话开头，不是最新
     XCTAssertEqual(IMChatEntryWindowAnchor(-5), 1);

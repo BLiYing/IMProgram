@@ -405,6 +405,10 @@ int64_t IMChatEntryWindowAnchor(int64_t readSeq) {
 
 /// 向服务端开一窗。isJump=YES 是「跳到某条」（回来要滚过去），NO 是「向上翻一页」。
 - (void)requestServerWindowAnchor:(int64_t)anchor isJump:(BOOL)isJump {
+    [self requestServerWindowAnchor:anchor isJump:isJump earliest:NO];
+}
+
+- (void)requestServerWindowAnchor:(int64_t)anchor isJump:(BOOL)isJump earliest:(BOOL)earliest {
     if (IMSocketManager.sharedManager.state != IMSocketStateConnected) {
         // 不静默失败：离线时用户点了置顶横幅什么也不发生，会当成 bug 报上来。
         if (isJump) { [self im_showToast:@"网络未连接，无法加载这条消息"]; }
@@ -414,6 +418,7 @@ int64_t IMChatEntryWindowAnchor(int64_t readSeq) {
     NSInteger half = IMWindowPage() / 2;
     self.windowState.pendingAnchor = anchor;
     self.windowState.pendingIsJump = isJump;
+    self.windowState.pendingJumpIsEarliest = earliest;
     [IMSocketManager.sharedManager requestWindowForConv:self.convID anchor:anchor
                                                  before:(isJump ? half : IMWindowPage())
                                                   after:(isJump ? half : 0)];
@@ -493,7 +498,23 @@ int64_t IMChatEntryWindowAnchor(int64_t readSeq) {
     }
     if (anchor != self.windowState.pendingAnchor) { return; }
     BOOL wasJump = self.windowState.pendingIsJump;
+    BOOL wasEarliest = self.windowState.pendingJumpIsEarliest;
     self.windowState.pendingAnchor = 0;
+    self.windowState.pendingJumpIsEarliest = NO;
+    if (wasJump && wasEarliest) {
+        // 「最早」的锚点写死 1，而 1 号常常不是一条消息（msg_op 事件行 / 墓碑 / 入群前对我不可见
+        // 的行都占号）。此时 anchor_found=false **不代表这一窗白开**——它照样把最早那一段带回来了。
+        // 故不看 anchorFound，直接落到落库后本地实际最早的那一条。
+        __block int64_t target = 0;
+        NSString *cid = self.convID;
+        [self performDatabaseOperation:^(IMDatabase *database) {
+            target = [database firstConvSeqInConv:cid atOrAfterTimestamp:0];
+        }];
+        if (target <= 0 || ![self openLocalWindowAroundConvSeq:target]) {
+            [self im_showToast:@"没有更早的消息了"];
+        }
+        return;
+    }
     if (wasJump) {
         if (!anchorFound) {
             // 这次是**真的**：服务端明确说这条不存在/对我不可见。

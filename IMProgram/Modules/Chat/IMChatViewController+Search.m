@@ -21,6 +21,14 @@
 #import "IMHTTPService+ConvQueries.h"  // 会话内检索 / 日历聚合的服务端接口
 #import "IMNetworkMonitor.h"
 
+/// 「跳到最早」是否必须问服务端。
+///
+/// localEarliest 是**本地已下载**的最早一条（0=本地没有消息）。它 ≠ 会话最早那条：
+/// 离线积压 / 大群缺口时本地往往只有尾巴那一段，直接跳过去等于原地打转，还让人以为已经到头了。
+/// 只有本地已经拿到 1 号才算真的握着会话开头。
+/// （入群前历史不可见的新成员永远拿不到 1 号 → 每次都问一次服务端，一次往返换一个正确落点，值。）
+BOOL IMEarliestJumpNeedsServer(int64_t localEarliest) { return localEarliest > 1; }
+
 static const CGFloat kIMSearchNavBarH = 48;
 static const CGFloat kIMSearchFromRowH = 52;
 
@@ -522,10 +530,20 @@ static const CGFloat kIMSearchFromRowH = 52;
 - (void)handleDateJumpKind:(IMDateJumpKind)kind day:(nullable NSDate *)day {
     NSCalendar *cal = [NSCalendar currentCalendar];
     if (kind == IMDateJumpKindEarliest) {
-        // 「跳到最早」= timestamp ≥ 0 的第一条。分页前这里扫内存正好等价（内存就是全部），
-        // 分页后会变成"跳到当前窗口最早那条"，也就是原地不动。
+        // 「跳到最早」要的是**会话首条**，而 firstConvSeqAtOrAfter: 只查得到**本地已下载**的最早一条。
+        // 离线积压/大群缺口时本地往往只有尾巴那一段，跳过去等于原地打转，还让人以为已经到头了。
+        // 故：本地已经拿到 1 号才直接跳；否则以 1 为锚点向服务端开一窗（earliest=YES，理由见该方法）。
         int64_t earliest = [self firstConvSeqAtOrAfter:0];
-        if (earliest > 0) { [self jumpToConvSeq:earliest]; }
+        if (earliest <= 0) { [self im_showToast:@"暂无消息"]; return; }
+        if (!IMEarliestJumpNeedsServer(earliest)) { [self jumpToConvSeq:earliest]; return; }
+        if (IMSocketManager.sharedManager.state != IMSocketStateConnected) {
+            // 离线拿不到更早的，但跳到"已下载的最早一条"仍有用——只是必须说清楚这不是会话开头。
+            [self jumpToConvSeq:earliest];
+            [self im_showToast:@"网络未连接，已跳到已下载的最早一条"];
+            return;
+        }
+        [self im_showToast:@"正在加载更早历史…"];
+        [self requestServerWindowAnchor:1 isJump:YES earliest:YES];
         return;
     }
     if (kind == IMDateJumpKindToday) {

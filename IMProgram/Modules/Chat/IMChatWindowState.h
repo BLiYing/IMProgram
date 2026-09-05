@@ -39,6 +39,12 @@ NS_ASSUME_NONNULL_BEGIN
 /// 两者的 window_resp 形状完全相同，不记这一位就分不清该怎么用。
 @property (nonatomic, assign) BOOL pendingIsJump;
 
+/// 这次跳转是「跳到最早」（日历里的「最早」）。它的锚点写死 1，而 **1 号常常不是一条消息**——
+/// msg_op 事件行（撤回/编辑/置顶）、已删墓碑、入群前对我不可见的行都占号却不成为消息，
+/// 于是服务端回 anchor_found=false。可这一窗照样把最早那一段带回来了：不记这一位就会
+/// 按普通跳转报一句**假的**「原消息已被删除」，把到手的历史丢掉。
+@property (nonatomic, assign) BOOL pendingJumpIsEarliest;
+
 /// 向下翻页「按窗口末尾要更新一段」（anchor=窗口最大 seq）在途的那个位点（0=无）。
 ///
 /// 有缺口的会话（超级群尤甚）向下那段**等不到 sync 来补**——sync 只会回 too_long，

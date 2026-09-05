@@ -212,6 +212,9 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (BOOL)scrollToLoadedConvSeq:(int64_t)convSeq;
 - (BOOL)openLocalWindowAroundConvSeq:(int64_t)convSeq;
 - (void)requestServerWindowAnchor:(int64_t)anchor isJump:(BOOL)isJump;
+/// earliest=YES：这是「跳到最早」（锚点写死 1）。回包 anchor_found=false 不当作"没有这条消息"，
+/// 改为落到**落库后本地实际最早的一条**（见 IMChatWindowState.pendingJumpIsEarliest）。
+- (void)requestServerWindowAnchor:(int64_t)anchor isJump:(BOOL)isJump earliest:(BOOL)earliest;
 
 /// 本地尾巴落后于服务端最新位点时，要一窗最新的（anchor=0）。本地已是最新则什么也不做。
 - (void)requestServerTailWindowIfBehind;
