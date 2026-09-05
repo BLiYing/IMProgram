@@ -870,3 +870,122 @@
 > 3. **合并转发条目里"我自己"的名字是 10 位内部 ID**：`displayNameForMessage:` 自己那一支返回
 >    `self.userID`。记录详情页现在把 `n` 当头行昵称显示（2026-08-30 加 ts/u/a），于是我发的每条都顶着
 >    一串随机数字。改为「我」，与 Web `useForward.ts#nameOf` 同口径。
+
+
+---
+
+# 归档于 2026-09-05（安全整改 1/3/5 步 · 搜索 pill 与合并转发标题口径 · 回归入口 test.sh）
+
+> 从活快照转入（活快照只留当前焦点，见 current_task.md）。
+
+> **安全整改第 1 步：服务器地址协议收口 + 媒体外站 URL 白名单（2026-09-03；`./scripts/test.sh` 全绿 395/395；**未手测**）**
+>
+> 背景：`/security-review` 全仓审计报了 3 条（明文 HTTP / WS 明文且 token 在 URL / 发送方可控 URL 被零点击拉取）。
+> 与后端商定的整改分 5 步（顺序见 `../IMServer/current_task.md`），**本次是第 1 步，且不引入 HTTPS**——
+> 真域名与云服务器到位后再切，切换时客户端不需要改代码。
+>
+> 1. **新增 `IMServerEndpoint`（`Common/`）= 全 App 唯一的 scheme 权威**。此前 `http://`/`ws://` 以字面量散在
+>    5 处（`IMHTTPService.urlForPath:` / `IMSocketManager` 建连 / `IMMediaUtil` / `IMChatRecordViewController`
+>    的一份拷贝 / `IMRemoteLogSink`），"换 https"等于跨 5 文件改代码 + 发版。现在四路共用一处，
+>    **登录页填 `https://im.example.com` 即整端切换**（http↔ws、https↔wss 成对，不会出现"网页加密了长连接还明文"）。
+>    scheme 随 host 存进 `IMSessionStore`（`im_session_scheme`），冷启动在任何网络调用前恢复；
+>    「上次地址」回填也带协议，否则填过的 https 下次静默退回 http。
+>    **协议永不从服务端下发**（要先选协议才连得上；明文信道问"要不要 https"就是降级攻击）——理由写在头文件里。
+> 2. **`IMMediaFullURL` 改为拒收外站绝对 URL**（漏洞 3 闭环）。`content`/`avatar_url` 是发送方可控且服务端原样
+>    存转的字段，图片又默认自动下载 → 对方发一条消息、或只把头像设成 `http://attacker/beacon.png` 再出现在
+>    你的搜索结果里，客户端就零点击发 GET，泄露 IP、粗粒度位置与精确的「已查看」时刻。现在只放行本服务器
+>    （`IMServerEndpoint.isOwnHost:forAbsoluteURL:`，主机名不分大小写、**端口从严**、拒 userinfo），
+>    自家的存量 `http://` 绝对地址按当前 scheme 重拼。外站图**唯一**合法场景是链接预览 OG 图，
+>    显式走新函数 `IMLinkPreviewImageURL`（仅 `IMLinkCardCell` / `IMLinkPreviewView` 两处）。
+> 3. 顺带：`IMChatRecordViewController.fullURLFor:` 那份逐字拷贝删掉，改调统一入口；
+>    旧判据 `hasPrefix:@"http"` 收紧成 `http://`/`https://`（原来 `httpfoo:` 也算数）。
+>
+> 新增 `IMProgramTests/IMServerEndpointTests.m`（16 条：输入解析 / ws-wss 成对 / 自家主机判定 / 外站拦截）。
+> **本步没做**：ATS 仍是全局 `NSAllowsArbitraryLoads`（第 4 步随 TLS 一起收窄）；WS token 仍在 query 串（第 3 步）；
+> 明文密码仍存 `NSUserDefaults`（第 5 步）。
+>
+> **第 3 步同批（2026-09-03）：WS token 移出 query 串** —— `openSocketWithToken:` 改用
+> `webSocketTaskWithRequest:` 并带 `Authorization: Bearer <jwt>` 头（`webSocketTaskWithURL:` 只收 URL，
+> 结构上带不了自定义头）。URI 里的凭据会被沿途反向代理 / 网关 / CDN 写进访问日志。
+> 后端 `gateway/client.go` 的 `handshakeToken` 两条并存（`?token=` 留给浏览器——浏览器 WebSocket API
+> 设不了请求头），**故本端改动不需要后端同版本才可用**，但仍需重启后端才生效。
+>
+> **`/code-review` 复查后的两条修复（2026-09-03，紧接第 5 步）**：
+> ① **跨线程属性改 `atomic`** —— `IMServerEndpoint.scheme` 与 `IMHTTPService` 的
+> `host`/`username`/`password`/`refreshToken`。这些值在 **IMSocketManager 的私有串行队列**上被读
+> （建 ws URL、socket 换 token），`IMMediaFullURL` 还会在媒体下载/图片加载回调里读 scheme，
+> 而写它们的是主线程（登录页、SceneDelegate、登录响应落盘）。`nonatomic` 的并发读写没有任何同步，
+> 读方可能拿到正在被替换、已 release 的 `NSString` → 随机 EXC_BAD_ACCESS。
+> 本仓对这类属性的既有口径本来就是 atomic（`currentToken`/`tokenUserID`/`lastLoginUserID`）。
+> **`scheme` 两个存取器都手写加锁**（`@synchronized` + `@synthesize`）——它有自定义校验 setter，
+> 只写 `atomic` 关键字会让编译器仅合成 getter，写路径反而绕过原子性，比 nonatomic 更骗人。
+> `host`/`username` 属于**既有问题**（非本轮引入），顺手收口，免得四个跨线程字符串两个 atomic 两个不是。
+> ② **退出登录调 `POST /api/v1/logout`** —— 只清本地不够：那枚绑定会话的 refresh_token 在 180 天内
+> 还能换新 token，且这台设备会一直留在别处看到的「已登录设备」里。**best-effort、不等回调**：
+> 请求在同步构造时已把 token 写进请求头，所以立刻清本地不影响它；网络不好也绝不把用户困在
+> "退不出去"的状态里，失败只记日志。被踢下线那条路径（`handleSessionRevoked`）不调——会话已被吊销。
+
+> **第 5 步同批（2026-09-03）：不再存账号明文密码，改存可吊销的续期凭据** ——
+> 原先 `IMSessionStore` 存的是**账号明文密码**，`SceneDelegate` 每次冷启动把它恢复进
+> `IMHTTPService` 重放去换 token。真正的问题不是"明文"，是**密码不可吊销**：App 里那套
+> 「设备管理 / 注销这台设备」对"保持登录"这条路径**完全失效**（注销掉的只是会话，拿密码立刻重登），
+> 自己做的安全功能形同虚设。
+> 现在存后端签发的 `refresh_token`（绑定本设备会话 sid），`loginWithUserID:` 优先走
+> `POST /api/v1/token/refresh`；`loginWithUsername:`（登录页）强制走密码登录——
+> 否则本地若还留着上一个账号的有效凭据，**密码填错也会"登录成功"**。
+> 凭据由 `IMHTTPService` 在收到登录响应时自行落盘（触发登录的入口不止登录页，交给调用方各自保存必然漏）；
+> 拿到它就把明文密码从内存与磁盘一起清掉。续期被服务端明确拒绝（`IMIsAuthErrorCode`）时擦掉凭据并复用
+> `IMSocketDidRevokeSessionNotification` 把用户送回登录页——不擦的话每次进页面都拿同一枚废凭据重试，
+> 界面永远停在"未连接"且**没有出路**（密码已不落盘，退不回密码登录）。
+> **一次性迁移**：老安装升上来没有 refresh，退回用 `IMSessionStore.legacyPassword` 做最后一次密码登录，
+> 成功后立即 `clearLegacyPassword`（垫片可删除的条件写在头文件里）。
+> **登出/换账号三处都清内存里的凭据**：`invalidateToken` 刻意不动它（那只管 10min access token 缓存），
+> 所以退出登录、被踢下线、以及登录页每次提交各自显式清一次。
+> 顺带修 I7：`IMSessionStore.h` 那句"password 从 Keychain 删除"是假的（实现只清 `NSUserDefaults`）。
+> **体量门禁副产物**：`IMHTTPService.m` 撞 1503 > 1500 → 抽出 `IMHTTPService+Auth.m`（登录/token 生命周期，
+> 与上传/好友/会话无共享状态），类扩展下沉到 `IMHTTPService+Private.h`；**公开入口留在主实现**——
+> 声明在公开头上的方法放 category 会同时触发 `-Wincomplete-implementation` 与
+> "category is implementing a method which will also be implemented by its primary class"。现 1364 行。
+>
+> **待真机手测**：登录页填裸 `host:port` 应与改前完全一致；长连接能连上（会话列表出现"已连接"）；填 `https://…` 应连不上（后端尚未开 TLS，属预期）；
+> 聊天图片/头像/群头像/收藏/记录卡照常显示；链接卡片的外站预览图仍能出图。
+
+> **三项：搜索 pill 直接开会话 + 合并转发标题口径 + 条目 `u` 匿名化（2026-08-31，与 Web 同步；
+> `./scripts/test.sh` 全绿，`IMProgramTests` 320/320；**未手测**）**
+>
+> 1. **「请返回聊天页后再搜索」改成直接开会话** —— `IMChatDetailViewController+Actions.m` 的搜索 pill
+>    原先要求导航栈里已有本会话的聊天页，取不到就吐司。而最常见的触发正是**从群成员头像点进来的
+>    单聊资料页**——那个单聊压根没打开过，必吐司。那句话是把实现约束（栈里没有这一页）甩给用户，
+>    旁边的「消息」pill 明明就能开会话。现新增 `openChatForInChatSearch`（群/单聊分派，与「消息」pill
+>    同一个统一入口），取不到就开会话，转场落定后 `beginInChatSearch`。
+> 2. **合并转发卡片标题收敛到微信口径** —— 原先写 `IMConversationPublicName`，群聊时**就是真实群名**，
+>    发给了往往不在群里的收件人；Web 那侧则按条目发送者数量推，两端分叉。现共用纯函数
+>    `IMChatRecordTitle`（`IMChatMessageLogic`）：群聊固定「群聊的聊天记录」（**不写群名**）、
+>    单聊「{对方公开名}和{我的公开名}的聊天记录」，缺名逐级降级到「聊天记录」、绝不回落内部 ID。
+>    **顺带补了一个此前没有的东西**：App 里没有"我叫什么"的进程内缓存（只有设置页/资料编辑页各拉一次
+>    自用），而打包 JSON 是同步的等不了网络。故 `IMHTTPService` 加 `currentNickname`——登录成功后异步
+>    预热一次（已有值就不重拉，避免 10min token TTL 重登时反复请求）、`invalidateToken` 一并清（换账号
+>    不能顶着旧名字）。取的是 `card.nickname` **不是 `displayName`**（后者是"备注优先"，备注不能外流）。
+>    **允许为空**：空则标题降级成「对方的聊天记录」。
+> 3. **条目 `u` 改成卡片内匿名序号 `s1/s2`**（`IMRecordSenderKeysForUIDs`，`IMMediaUtil`）——
+>    原本发的是发送者真 10 位内部 ID，随卡片到了可能不在群里的收件人手上，而 `GET /users/{id}`
+>    只校验「持有合法 token」、不校验关系，随机 10 位 ID 的不可枚举是那个接口唯一的防线。
+>    **读端零改动**（`IMRecordSenderKey` 本就只做相等比较，存量卡片里的真 uid 自然兼容）；
+>    只把 `IMChatRecordViewController` 的头像色种从 `uid` 换成名字（匿名序号当色种没意义）。
+>    契约见 `../IMServer/docs/PROTOCOL.md`「合并转发卡片（chat_record）的条目结构」。
+>
+> **未手测**；后端同批加了显示名字符清洗（`internal/textguard`），iOS 侧无需配合改动。
+
+
+> **iOS 回归有唯一入口了：`./scripts/test.sh`（2026-08-31）** —— 与后端 `IMServer/scripts/test.sh` 对称。
+> 起因：之前每次手拼 xcodebuild 命令行，反复踩三个坑（跑整 scheme 被 UITests 拖死 135s+37s、
+> 并行 clone 抢 CPU 压出偶发失败、失败原因只有一句 `** TEST FAILED **`）。脚本把三条写死：
+> `-only-testing:IMProgramTests` + `-parallel-testing-enabled NO` + `-resultBundlePath` 配 `xcresulttool`
+> 直接打「哪条用例 + 断言原文」；另固定 `-derivedDataPath build/DerivedData`，模拟器自动挑最新 iOS 的 iPhone
+> （写死名字换机就报 destination 找不到）。`BUILD_ONLY=1` 只编译、`ONLY=<类|类/用例>` 只跑一部分。
+> **实测：全量 314 例绿，3 分 10 秒**（含冷编译）；那条 `IMMediaPlaceholder` 偶发失败在串行模式下没再出现。
+> 用法与三条理由写进了 [CLAUDE.md](CLAUDE.md)「构建 / 测试」与「完成的定义」。
+
+> **无其它进行中的开发项。** 网络恢复秒连（2026-08-30）与 `UI_COLOR.md` 收敛已完成，细节转入
+> `current_task.archive.md`。仍**未做**的是「下一步」里那两件老账：真机手测语音 P1 与相机录像
+> （模拟器没有摄像头/麦克风，只能真机验）。
