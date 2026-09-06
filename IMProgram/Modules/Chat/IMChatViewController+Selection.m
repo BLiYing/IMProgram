@@ -22,9 +22,15 @@
 #import "IMChatSearchState.h"
 #import "IMChatSelectionState.h"
 #import "IMPopoverCard.h"
+#import "IMRemarkStore.h"   // 举报确认弹窗用**本机显示名**（备注优先）——只在本机渲染，不随请求发出
 #import "UIViewController+IMToast.h"
 
 static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索导航 kIMSearchNavBarH，堆叠时按钮间距一致）
+
+/// 多选一次最多勾几条（2026-09-06）。**一道闸管住转发/收藏/举报三件事**，不给每个动作各设一个数字：
+/// 三套阈值＝三套文案，用户记不住、我们也难维护。不限的话「选 200 条 × 9 个会话」会串行发出 1800 条。
+/// 服务端另有独立上限（举报 100 条/单、收藏 300 次/分），那是脚本也绕不过的约束，与本常量互不依赖。
+static const NSUInteger kIMSelectionMaxCount = 100;
 
 @implementation IMChatViewController (Selection)
 
@@ -126,8 +132,12 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
 
 - (void)buildSelectionBarIfNeeded {
     if (self.selectionBar) { return; }
-    // 与会话内搜索底部导航**同构且对齐**：透明容器定高 kIMSelectionBarH(=搜索栏高)，三个 36pt 玻璃钮——
-    // 转发左对齐 📅(leading+16)、删除右对齐 ▼(trailing-16)、收藏居中；壁纸铺到底后钮浮其上、无背景。
+    // 与会话内搜索底部导航**同构且对齐**：透明容器定高 kIMSelectionBarH(=搜索栏高)，四个 36pt 玻璃钮
+    // 「转发 / 举报 / 收藏 / 删除」等距横排；壁纸铺到底后钮浮其上、无背景。
+    //
+    // 2026-09-06 由三钮改四钮时**从三条独立锚点（左/中/右）换成 UIStackView 等距**：
+    // 原布局把"居中"写死给收藏，插入第四个钮后没有一组独立锚点能让四钮看着等距；
+    // 而举报钮是**常驻置灰**（不隐藏，见 updateSelectionUI），栏内钮数恒为 4，栈的等距因此是稳定的。
     UIView *bar = [UIView new];
     bar.translatesAutoresizingMaskIntoConstraints = NO;
     bar.backgroundColor = UIColor.clearColor;
@@ -141,18 +151,30 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
     // 删除：点击弹「仅为我删除」自定义气泡（复用 IMPopoverCard、锚删除钮上方，不与按钮重叠）。
     UIButton *del = [self selectionBarButton:@"删除" image:@"trash" action:@selector(deleteButtonTapped:)];
     del.tag = 3;
-    [bar addSubview:fwd]; [bar addSubview:fav]; [bar addSubview:del];
+    // 举报：仅当所选**全部来自同一个对方**时可点，否则置灰（不隐藏——隐藏会让栏内钮数随勾选变化，
+    // 每勾一下按钮就左右跳一次）。位置按产品口径落在转发与收藏之间。
+    UIButton *report = [self selectionBarButton:@"举报" image:@"exclamationmark.bubble" action:@selector(reportSelected)];
+    report.tag = 4;
+
+    UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:@[fwd, report, fav, del]];
+    row.axis = UILayoutConstraintAxisHorizontal;
+    row.distribution = UIStackViewDistributionEqualSpacing;
+    row.alignment = UIStackViewAlignmentCenter;
+    row.translatesAutoresizingMaskIntoConstraints = NO;
+    [bar addSubview:row];
     [NSLayoutConstraint activateConstraints:@[
         [bar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [bar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
         [bar.heightAnchor constraintEqualToConstant:kIMSelectionBarH],
-        [fwd.leadingAnchor constraintEqualToAnchor:bar.leadingAnchor constant:16],
-        [fwd.centerYAnchor constraintEqualToAnchor:bar.centerYAnchor],
-        [del.trailingAnchor constraintEqualToAnchor:bar.trailingAnchor constant:-16],
-        [del.centerYAnchor constraintEqualToAnchor:bar.centerYAnchor],
-        [fav.centerXAnchor constraintEqualToAnchor:bar.centerXAnchor],
-        [fav.centerYAnchor constraintEqualToAnchor:bar.centerYAnchor],
+        [row.leadingAnchor constraintEqualToAnchor:bar.leadingAnchor constant:16],
+        [row.trailingAnchor constraintEqualToAnchor:bar.trailingAnchor constant:-16],
+        [row.centerYAnchor constraintEqualToAnchor:bar.centerYAnchor],
     ]];
+    // 举报钮**置灰时**不响应触摸（系统行为），用户戳不出任何反馈。挂一个栏级手势解释原因；
+    // 它只在举报钮 disabled 且点在钮上时出手，其余情况原样放过（不影响其余三钮的正常点击）。
+    UITapGestureRecognizer *hint = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(reportHintTapped:)];
+    hint.cancelsTouchesInView = NO;
+    [bar addGestureRecognizer:hint];
     [self updateSelectionBarBottomAnchor]; // 底边：搜索开着=贴搜索栏顶（上下堆叠）/否则=安全区底
 }
 
@@ -265,7 +287,10 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
     if (!self.selectionState.selectedMediaSeqs) { self.selectionState.selectedMediaSeqs = [NSMutableSet set]; }
     NSNumber *seq = @(member.convSeq);
     if ([self.selectionState.selectedMediaSeqs containsObject:seq]) { [self.selectionState.selectedMediaSeqs removeObject:seq]; }
-    else { [self.selectionState.selectedMediaSeqs addObject:seq]; }
+    else {
+        if (![self allowSelectingMore:1]) { return; } // 上限闸：逐格勾选也走同一个入口（取消勾选永远放行）
+        [self.selectionState.selectedMediaSeqs addObject:seq];
+    }
     [self syncAlbumRowSelectionForGroupID:member.groupID];
     [self updateSelectionUI];
 }
@@ -288,17 +313,96 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
 
 - (void)updateSelectionUI {
     // 用展开后的真实条数（相册整组算 N 条）——与转发/删除的作用条数一致，不再按"行数"少算。
-    NSUInteger n = [self selectedMessages].count;
+    NSArray<IMMessageModel *> *sel = [self selectedMessages];
+    NSUInteger n = sel.count;
     self.title = n > 0 ? [NSString stringWithFormat:@"已选择 %lu 条", (unsigned long)n] : @"选择消息";
-    // a(4)：0 选中时三钮置灰禁用（系统按钮自动变淡、不可点）→ 去掉「请先选择消息」吐司。
+    // a(4)：0 选中时各钮置灰禁用（系统按钮自动变淡、不可点）→ 去掉「请先选择消息」吐司。
     BOOL has = n > 0;
     ((UIButton *)[self.selectionBar viewWithTag:1]).enabled = has; // 转发
     ((UIButton *)[self.selectionBar viewWithTag:2]).enabled = has; // 收藏
     ((UIButton *)[self.selectionBar viewWithTag:3]).enabled = has; // 删除
+    // 举报：仅"全是同一个对方发的"才可点。**置灰不隐藏**——隐藏会让栏内钮数随勾选变化、按钮左右跳。
+    ((UIButton *)[self.selectionBar viewWithTag:4]).enabled = ([self reportableSenderForMessages:sel] != nil);
     [self refreshUnifiedNavigationBar]; // 标题与「取消」左钮由统一 Liquid 栏渲染，改完必须刷一次
 }
 
+/// 这批已选消息能否作为「批量举报」的对象：能则回那个**唯一发送者的 uid**，否则回 nil。
+///
+/// 三个条件缺一不可：非空、不含我自己发的、全部来自同一个人。第三条是产品口径也是后端口径——
+/// 服务端 Subject() 只按首条反查处置对象，混着两个人的证据会让管理员的一键封号落到"第一条那个人"头上。
+/// 撤回件/系统消息在多选态本就不可勾选，这里不重复判定。
+- (nullable NSString *)reportableSenderForMessages:(NSArray<IMMessageModel *> *)msgs {
+    if (msgs.count == 0) { return nil; }
+    NSString *sender = nil;
+    for (IMMessageModel *m in msgs) {
+        if (m.convSeq <= 0) { return nil; }                                  // 未发出的本地件没有 conv_seq，服务端定位不到
+        if (m.from.length == 0 || [m.from isEqualToString:self.userID]) { return nil; } // 含我自己 → 不可举报
+        if (sender == nil) { sender = m.from; }
+        else if (![sender isEqualToString:m.from]) { return nil; }           // 跨发送者 → 不可举报
+    }
+    return sender;
+}
+
 #pragma mark 多选工具栏动作
+
+/// 多选批量举报（2026-09-06）：所选须**全部来自同一个对方**（否则按钮已置灰），
+/// 填一次理由 → 一次 POST 合成**一张**工单（勾 N 条不给管理员刷出 N 张讲同一件事的单）。
+- (void)reportSelected {
+    NSArray<IMMessageModel *> *msgs = [self selectedMessages];
+    NSString *sender = [self reportableSenderForMessages:msgs];
+    if (sender == nil) { return; } // 按钮禁用兜底（点不到；置灰态的原因提示走 selectionBlockedToastFor…）
+    NSMutableArray<NSNumber *> *seqs = [NSMutableArray arrayWithCapacity:msgs.count];
+    for (IMMessageModel *m in msgs) { [seqs addObject:@(m.convSeq)]; }
+
+    // 举报确认里的名字用**本机显示名**（我给他起的备注优先）：这句话只给我自己看、不随请求发出，
+    // 与合并转发标题那种"会发出去必须用公开名"的场景刻意分叉（见 displayNameForMessage: 的说明）。
+    NSString *who = [IMRemarkStore.sharedStore displayNameForUser:sender
+                                                         fallback:[self displayNameForMessage:msgs.firstObject]];
+    NSString *title = seqs.count == 1 ? @"举报这条消息"
+                                      : [NSString stringWithFormat:@"举报 %@ 的 %lu 条消息", who, (unsigned long)seqs.count];
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:title
+        message:@"请填写举报理由（可空）" preferredStyle:UIAlertControllerStyleAlert];
+    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf) { tf.placeholder = @"理由"; }];
+    __weak typeof(self) ws = self;
+    [ac addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"提交举报" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+        __strong typeof(ws) self = ws; if (!self) { return; }
+        NSString *reason = ac.textFields.firstObject.text ?: @"";
+        NSString *token = IMHTTPService.sharedService.currentToken;
+        if (token.length == 0) { [self showReportResult:@"举报失败：未登录"]; return; }
+        [IMHTTPService.sharedService reportMessagesWithToken:token convID:self.convID convSeqs:seqs reason:reason
+            completion:^(NSError *error) {
+                __strong typeof(ws) inner = ws; if (!inner) { return; }
+                [inner showReportResult:error ? [NSString stringWithFormat:@"举报失败：%@", error.localizedDescription]
+                                              : @"举报已提交，感谢反馈。"];
+                if (!error) { [inner exitSelection]; } // 成功才退出多选；失败留在原地让用户重试，不用重新勾一遍
+            }];
+    }]];
+    [self presentViewController:ac animated:YES completion:nil];
+}
+
+/// 举报钮**置灰时**被点的原因提示。系统 disabled 按钮不响应触摸，所以这条走的是栏上的透明兜底手势
+/// （见 buildSelectionBarIfNeeded 的 reportHintTap）——不给原因的话用户只会反复戳一个灰按钮。
+- (void)reportHintTapped:(UITapGestureRecognizer *)gr {
+    UIButton *btn = (UIButton *)[self.selectionBar viewWithTag:4];
+    if (!btn || btn.enabled) { return; }
+    CGPoint p = [gr locationInView:btn];
+    if (!CGRectContainsPoint(CGRectInset(btn.bounds, -8, -8), p)) { return; } // 只认落在举报钮上的点击
+    NSArray<IMMessageModel *> *msgs = [self selectedMessages];
+    if (msgs.count == 0) { return; } // 0 选中时全栏皆灰，不单独解释举报
+    BOOL hasMine = NO;
+    for (IMMessageModel *m in msgs) { if ([m.from isEqualToString:self.userID]) { hasMine = YES; break; } }
+    [self im_showToast:hasMine ? @"不能举报自己的消息" : @"一次只能举报同一个人的消息"];
+}
+
+/// 还能再勾几条：多选上限的唯一判定入口（行勾选 / 相册整组全选 / 相册逐格 三处共用）。
+/// adding 是本次操作**新增**的条数；超限回 NO 并吐司说明，绝不静默吞掉这一下点击。
+- (BOOL)allowSelectingMore:(NSUInteger)adding {
+    if (adding == 0) { return YES; }
+    if ([self selectedMessages].count + adding <= kIMSelectionMaxCount) { return YES; }
+    [self im_showToast:[NSString stringWithFormat:@"最多选择 %lu 条", (unsigned long)kIMSelectionMaxCount]];
+    return NO;
+}
 
 - (void)forwardSelected {
     NSArray<IMMessageModel *> *msgs = [self selectedMessages];
@@ -663,6 +767,26 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
     // 长按菜单交互统一在此挂（单一咽喉点，取代原先在 cellForRow 各类型分支各补一行——漏接一种即静默无菜单）。
     // 幂等；system/albumPad 等不实现 previewTargetView 的 cell 自动跳过；相册宫格每格自带交互不受影响。
     [self attachMessageContextMenuToCell:cell];
+}
+
+/// 多选上限闸（行勾选路径）：超限直接**拒绝这一次选中**并吐司。
+/// 必须在 willSelect 拦——didSelect 里再撤销的话，勾选圈会先亮一下再弹回去，看着像 bug。
+/// 相册 leader 行一勾等于整组入选，故按"该组尚未勾选的成员数"计增量，不是恒 1。
+- (nullable NSIndexPath *)tableView:(UITableView *)tableView willSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (!self.selecting) { return indexPath; }
+    return [self allowSelectingMore:[self selectionDeltaForRow:indexPath.row]] ? indexPath : nil;
+}
+
+/// 勾选某一行会**新增**多少条：相册 leader 行=该组尚未勾选的成员数，其余=1。
+- (NSUInteger)selectionDeltaForRow:(NSInteger)row {
+    if (row < 0 || row >= (NSInteger)self.windowState.messages.count) { return 1; }
+    IMMessageModel *m = self.windowState.messages[(NSUInteger)row];
+    if (![self isAlbumMember:m] || m.groupID.length == 0) { return 1; }
+    NSUInteger delta = 0;
+    for (IMMessageModel *mm in [self albumMembersForGroupID:m.groupID]) {
+        if (mm.convSeq > 0 && ![self.selectionState.selectedMediaSeqs containsObject:@(mm.convSeq)]) { delta++; }
+    }
+    return delta;
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {

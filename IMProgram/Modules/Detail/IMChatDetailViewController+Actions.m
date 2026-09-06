@@ -1,5 +1,5 @@
 //  IMChatDetailViewController+Actions.m
-//  详情页「动作」分文件实现：操作排/更多菜单、置顶/免打扰/编辑/拉黑、群昵称/群备注（G1）。
+//  详情页「动作」分文件实现：操作排/更多菜单、置顶/免打扰/编辑/拉黑/举报、群昵称/群备注（G1）。
 //  从 IMChatDetailViewController.m 平移，未改行为；私有属性/常量经 IMChatDetailViewController+Private.h 共享。
 
 #import "IMChatDetailViewController+Private.h"
@@ -219,6 +219,11 @@
         }]];
         [items addObject:[IMPopoverCardItem itemWithTitle:(self.peerBlocked ? @"取消拉黑" : @"拉黑") symbol:@"hand.raised"
                                              destructive:!self.peerBlocked handler:^{ [ws toggleBlock]; }]];
+        // 举报这个人（target_type=user）。2026-09-06 聊天页长按菜单把「举报消息/举报发送者」
+        // 合并成单个「举报」（=举报这条消息）后，**针对人本身**的举报只剩这一个入口——
+        // 合并时若不在这里补上，等于静默丢掉一整个能力（合并前两端资料页都没有举报）。
+        [items addObject:[IMPopoverCardItem itemWithTitle:@"举报" symbol:@"exclamationmark.bubble"
+                                             destructive:YES handler:^{ [ws reportPeer]; }]];
         [items addObject:[IMPopoverCardItem itemWithTitle:@"清空聊天记录" symbol:@"trash" destructive:NO handler:^{ [ws confirmClearHistory]; }]];
         // 删除好友（2026-08-30 补齐；此前只有通讯录左滑有这个动作，资料页里找不到）。
         // 破坏性最重 → 放末位（destructive-last，与消息/会话菜单同约定）。非好友根本看不到「更多」，
@@ -518,6 +523,31 @@ static NSInteger IMRuneCount(NSString *s) {
         [self confirmDestructive:[NSString stringWithFormat:@"拉黑「%@」？", self.displayTitle]
                          message:@"拉黑后将不再收到对方消息。" action:@"拉黑" handler:commit];
     } else { commit(); }
+}
+
+/// 举报这个人（target_type=user）：填理由 → POST /api/v1/reports。
+/// 与聊天页长按菜单的「举报」（target_type=message，举报某条）互补，两者都在用，别合并掉。
+/// 标题里的名字用 `displayTitle`（备注优先的**本机显示名**）——这句话只给我自己看、不随请求发出。
+- (void)reportPeer {
+    if (self.peerID.length == 0) { return; }
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:[NSString stringWithFormat:@"举报「%@」？", self.displayTitle]
+        message:@"请填写举报理由（可空）" preferredStyle:UIAlertControllerStyleAlert];
+    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf) { tf.placeholder = @"理由"; }];
+    __weak typeof(self) ws = self;
+    [ac addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"提交举报" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+        __strong typeof(ws) self = ws; if (!self) { return; }
+        NSString *token = IMHTTPService.sharedService.currentToken;
+        if (token.length == 0) { [self im_showToast:@"举报失败：未登录"]; return; }
+        [IMHTTPService.sharedService reportWithToken:token targetType:@"user" targetID:self.peerID
+                                              convID:nil reason:(ac.textFields.firstObject.text ?: @"")
+                                          completion:^(NSError *error) {
+            __strong typeof(ws) inner = ws; if (!inner) { return; }
+            [inner im_showToast:error ? [NSString stringWithFormat:@"举报失败：%@", error.localizedDescription]
+                                      : @"举报已提交，感谢反馈。"];
+        }];
+    }]];
+    [self presentViewController:ac animated:YES completion:nil];
 }
 
 #pragma mark - 成员页签 · 超级群分页（声明见 +Private.h；与 IMGroupInfoViewController 同一套路）

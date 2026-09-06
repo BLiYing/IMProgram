@@ -301,6 +301,17 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     [self runOKRequest:req fallback:@"举报失败" completion:completion];
 }
 
+- (void)reportMessagesWithToken:(NSString *)token
+                         convID:(NSString *)convID
+                       convSeqs:(NSArray<NSNumber *> *)convSeqs
+                         reason:(NSString *)reason
+                     completion:(void (^)(NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/reports" method:@"POST" token:token
+        body:@{ @"target_type": @"message", @"target_seqs": convSeqs ?: @[],
+                @"conv_id": convID ?: @"", @"reason": reason ?: @"" }];
+    [self runOKRequest:req fallback:@"举报失败" completion:completion];
+}
+
 - (void)addFavoriteWithToken:(NSString *)token
                  contentType:(NSString *)contentType
                      content:(NSString *)content

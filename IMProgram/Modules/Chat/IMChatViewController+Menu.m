@@ -263,7 +263,7 @@ static UIBezierPath *IMBubbleOutlinePath(CGRect rect, CGFloat radius, CACornerMa
 
 /// 单条消息的菜单动作（按显示顺序，仅含可见项）：
 /// 复制 / 引用 / 转发 / 收藏 / 撤回(仅自己且有真实 conv_seq) / 多选 / 翻译 / 删除(破坏性)；
-/// 对方消息额外含 举报消息 / 举报发送者。已接：复制、删除、举报*；其余 → 开发中吐司。
+/// 对方消息额外含 举报（单一入口，2026-09-06 由「举报消息/举报发送者」合并）。已接：复制、删除、举报；其余 → 开发中吐司。
 - (NSArray<IMMenuAction *> *)messageActionsForMessage:(IMMessageModel *)message mine:(BOOL)mine {
     __weak typeof(self) ws = self;
     NSMutableArray<IMMenuAction *> *actions = [NSMutableArray array];
@@ -360,13 +360,15 @@ static UIBezierPath *IMBubbleOutlinePath(CGRect rect, CGFloat radius, CACornerMa
             [ws translateMessage:message];
         }]];
     }
-    // 举报（AG-3）：仅对方消息可举报。举报消息用 conv_seq 定位（与 Web 一致）。
-    if (!mine) {
-        [actions addObject:[IMMenuAction actionWithId:@"reportMessage" title:@"举报消息" image:@"exclamationmark.bubble" handler:^{
+    // 举报（AG-3）：仅对方消息可举报，**单一入口**。举报消息用 conv_seq 定位（与 Web 一致）。
+    //
+    // 2026-09-06 由「举报消息 / 举报发送者」两项合并为一项：对用户来说这本就是同一个动作，
+    // 两个入口只让人犹豫选哪个；而消息类工单的信息是用户类的**超集**——服务端 Subject()
+    // 已按 (conv_id, conv_seq) 反查发送者，管理员的一键禁言/封号照常落到那个人身上。
+    // 「只举报这个人、不针对某条消息」的入口保留在资料页 / 会话详情页（target_type=user）。
+    if (!mine && message.convSeq > 0) {
+        [actions addObject:[IMMenuAction actionWithId:@"report" title:@"举报" image:@"exclamationmark.bubble" handler:^{
             [ws reportTargetType:@"message" targetID:[@(message.convSeq) stringValue] title:@"举报这条消息"];
-        }]];
-        [actions addObject:[IMMenuAction actionWithId:@"reportUser" title:@"举报发送者" image:@"person.crop.circle.badge.exclamationmark" handler:^{
-            [ws reportTargetType:@"user" targetID:(message.from ?: @"") title:[NSString stringWithFormat:@"举报用户 %@", message.from]];
         }]];
     }
     // 删除：发送中的本地件不显示——删除只删行不停止上传，传完仍会发出去（僵尸任务）；

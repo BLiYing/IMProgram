@@ -515,6 +515,15 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
                  reason:(NSString *)reason
              completion:(void (^)(NSError *_Nullable error))completion;
 
+/// 批量举报同一发送者的多条消息（多选态，2026-09-06）：POST /api/v1/reports 带 `target_seqs`。
+/// 服务端按**首条** conv_seq 作处置锚点合成**一张**工单（勾 N 条不会刷出 N 张单）；≤100 条、convID 必填。
+/// 「所选须同一发送者」由调用方保证（多选栏按钮据此置灰）。completion 在主线程回调。
+- (void)reportMessagesWithToken:(NSString *)token
+                         convID:(NSString *)convID
+                       convSeqs:(NSArray<NSNumber *> *)convSeqs
+                         reason:(NSString *)reason
+                     completion:(void (^)(NSError *_Nullable error))completion;
+
 /// 收藏（M4-4）：POST /api/v1/favorites（内容快照）。completion 主线程回调。
 /// fileName/fileSize 仅文件收藏有意义（供收藏页展示与转发保真），非文件传 nil/0。
 - (void)addFavoriteWithToken:(NSString *)token

@@ -189,6 +189,8 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (BOOL)isAlbumMember:(IMMessageModel *)m;
 - (void)openMemberProfileForUID:(NSString *)uid;
 - (void)reportTargetType:(NSString *)targetType targetID:(NSString *)targetID title:(NSString *)title;
+/// 举报结果提示弹窗（+Menu.m 实现；多选态批量举报 +Selection.m 也用它，故在此登记跨 TU）。
+- (void)showReportResult:(NSString *)msg;
 
 // 长按菜单：构建 / 删除路径：
 - (void)attachMessageContextMenuToCell:(UITableViewCell *)cell;
