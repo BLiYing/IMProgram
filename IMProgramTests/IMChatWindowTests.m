@@ -8,6 +8,8 @@
 // 判据抽出来单测，免构造依赖数据库与 UIKit 的真 VC）。
 FOUNDATION_EXPORT BOOL IMChatEntryHasUnread(NSInteger entryUnread);
 FOUNDATION_EXPORT int64_t IMChatEntryWindowAnchor(int64_t readSeq);
+FOUNDATION_EXPORT NSArray<IMMessageModel *> *IMChatMessagesNotInWindow(NSArray<IMMessageModel *> *rows,
+                                                                      NSSet<NSNumber *> *seen);
 // IMChatViewController+Search.m 里的同款纯函数（日历「跳到最早」该走本地还是问服务端）。
 FOUNDATION_EXPORT BOOL IMEarliestJumpNeedsServer(int64_t localEarliest);
 
@@ -291,6 +293,55 @@ static NSString * const kMe = @"me";
     XCTAssertNotNil(row);
     XCTAssertEqual(row.convSeq, 0);
     XCTAssertNil([_db messageInConv:kConv clientMsgID:@"不存在的"]);
+}
+
+#pragma mark - 向下接段的去重（进会话「每条显示两遍」，2026-09-06）
+
+/// 造几条只带 conv_seq 的行——`IMChatMessagesNotInWindow` 只看这一个字段。
+- (NSArray<IMMessageModel *> *)rowsWithSeqs:(NSArray<NSNumber *> *)seqs {
+    NSMutableArray<IMMessageModel *> *rows = [NSMutableArray array];
+    for (NSNumber *seq in seqs) {
+        IMMessageModel *m = [IMMessageModel new];
+        m.convID = kConv; m.from = @"peer"; m.contentType = @"text"; m.content = @"x";
+        m.convSeq = seq.longLongValue;
+        [rows addObject:m];
+    }
+    return rows;
+}
+
+- (NSArray<NSNumber *> *)seqNumbersOf:(NSArray<IMMessageModel *> *)rows {
+    NSMutableArray<NSNumber *> *out = [NSMutableArray array];
+    for (IMMessageModel *m in rows) { [out addObject:@(m.convSeq)]; }
+    return out;
+}
+
+/// 主场景：window_resp 在途期间窗口被「按读位点开窗」整段换过，新窗口已含这三条 →
+/// 一条都不该再接。这正是用户报的「进大群，Web 端最后 3 条各显示两遍」。
+- (void)testMessagesNotInWindowDropsSeqsAlreadyWindowed {
+    NSSet<NSNumber *> *seen = [NSSet setWithArray:@[@110040, @110041, @110042]];
+    NSArray *filtered = [self rowsWithSeqs:@[@110040, @110041, @110042]];
+    XCTAssertEqual(IMChatMessagesNotInWindow(filtered, seen).count, 0);
+}
+
+/// 部分重叠：只筛掉重的那几条，其余**保持原序**接上（正常向下翻页就是这一支）。
+- (void)testMessagesNotInWindowKeepsNewOnesInOrder {
+    NSSet<NSNumber *> *seen = [NSSet setWithArray:@[@10, @11]];
+    NSArray *rows = [self rowsWithSeqs:@[@10, @11, @12, @13]];
+    XCTAssertEqualObjects([self seqNumbersOf:IMChatMessagesNotInWindow(rows, seen)], (@[@12, @13]));
+}
+
+/// 待发消息（conv_seq==0）没有身份可去重，且窗口尾部本来就该留着它——不能被误筛。
+- (void)testMessagesNotInWindowKeepsPendingRows {
+    NSSet<NSNumber *> *seen = [NSSet setWithArray:@[@10, @(0)]];
+    NSArray *rows = [self rowsWithSeqs:@[@10, @0, @11]];
+    XCTAssertEqualObjects([self seqNumbersOf:IMChatMessagesNotInWindow(rows, seen)], (@[@0, @11]));
+}
+
+/// 空去重集 / 空输入：原样返回，且不返回 nil（调用方直接 count 取用）。
+- (void)testMessagesNotInWindowPassesThroughWhenNothingSeen {
+    NSArray *rows = [self rowsWithSeqs:@[@1, @2]];
+    XCTAssertEqualObjects([self seqNumbersOf:IMChatMessagesNotInWindow(rows, [NSSet set])], (@[@1, @2]));
+    XCTAssertEqual(IMChatMessagesNotInWindow(@[], [NSSet setWithObject:@1]).count, 0);
 }
 
 @end

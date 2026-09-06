@@ -64,6 +64,29 @@ int64_t IMChatEntryWindowAnchor(int64_t readSeq) {
     return readSeq > 0 ? readSeq : 1;
 }
 
+/// 「往窗口尾部接一段」之前的去重：筛掉窗口里**已经有**的那些 conv_seq，保持原序。
+///
+/// 向下翻页是异步的：`window_req` 发出时窗口末尾是 hi，等 `window_resp` 回来，窗口可能已经被
+/// 别的路**整段换过**——进会话那一刻「按读位点开窗」与「向下翻页」本来就是并发的两条路，
+/// 而前者取回的那一窗往往已经含着后者要接的这一段。此时无脑 append 就是把同样几条再上屏一次。
+/// 2026-09-06 实测：iOS 进「20000人大群」，Web 端刚发的最后 3 条**各显示两遍**
+/// （日志实锤：`window_resp anchor=110036` → `chat_window_applied rows=53`，
+/// 紧跟 `window_resp anchor=110035` → `chat_window_append added=3 rows=56`）。
+///
+/// 这是**兜底**而不是主修：主修是应答时按当前窗口末尾重新算 hi（见 window_resp 的
+/// pendingNewerAnchor 分支）。两道都留着——窗口的唯一身份是 conv_seq，去重集就该是最后一关。
+NSArray<IMMessageModel *> *IMChatMessagesNotInWindow(NSArray<IMMessageModel *> *rows,
+                                                     NSSet<NSNumber *> *seen) {
+    if (rows.count == 0 || seen.count == 0) { return rows ?: @[]; }
+    NSMutableArray<IMMessageModel *> *out = [NSMutableArray arrayWithCapacity:rows.count];
+    for (IMMessageModel *m in rows) {
+        // conv_seq==0 是待发消息：它没有身份可去重，且窗口尾部本来就该留着它。
+        if (m.convSeq > 0 && [seen containsObject:@(m.convSeq)]) { continue; }
+        [out addObject:m];
+    }
+    return out;
+}
+
 @implementation IMChatViewController (Window)
 
 #pragma mark - 装载
@@ -215,6 +238,8 @@ int64_t IMChatEntryWindowAnchor(int64_t readSeq) {
     if (self.windowState.reanchoring) { return; } // 正在换窗定位：这些 offset 不是用户的手（见 IMChatWindowState.reanchoring）
     // pendingAnchor != 0 ⇒ 已有一次开窗在途（本地翻页是同步的，只有服务端那一步会在途）。
     if (!self.windowState.hasMoreAbove || self.windowState.pendingAnchor != 0 || self.windowState.messages.count == 0) { return; }
+    // 同 maybeLoadNewerOnScroll：整段换窗的两路在途时不翻页，免得应答回来接到别的窗口上。
+    if (self.windowState.pendingEntryAnchor != 0 || self.windowState.pendingTail) { return; }
     if (self.tableView.contentOffset.y > kIMWindowLoadOlderThreshold) { return; }
     [self loadOlderPage];
 }
@@ -468,7 +493,16 @@ int64_t IMChatEntryWindowAnchor(int64_t readSeq) {
     // 向下翻页那一路：消息已落库，这里把它接到窗口尾部（与本地那条路同一段逻辑）。
     if (anchor != 0 && anchor == self.windowState.pendingNewerAnchor) {
         self.windowState.pendingNewerAnchor = 0;
-        if (![self appendNewerFromLocalAfter:anchor]) {
+        // **不能拿 anchor 当窗口末尾**——那是**请求发出时**的末尾。这帧在途期间窗口可能已被
+        // 别的路整段换过（进会话时「按读位点开窗」与向下翻页并发），照 anchor 接就会把新窗口
+        // 里已经有的那几条再接一遍，表现为**每条消息显示两遍**（2026-09-06 大群实测）。
+        // 与向上翻页那一路对称：那边同样是应答时重新取 `earliestLoadedConvSeq` 而非用 anchor。
+        int64_t hi = [self latestLoadedConvSeq];
+        // 窗口被换到了**更早**的一段（翻页途中点了置顶横幅/搜索结果跳转）→ 这帧已过期。
+        // 消息早已落库，用户往下滚时 maybeLoadNewerOnScroll 会重新接，这里什么都不做，
+        // 尤其不能顺手改 atTail（那说的是另一段窗口的事）。
+        if (hi <= 0 || hi < anchor) { return; }
+        if (![self appendNewerFromLocalAfter:hi]) {
             // 服务端也没有更新的可见消息 → 确实到头了，别让 ↓ 按钮一直挂着。
             self.windowState.atTail = YES;
             [self updateJumpButton];
@@ -581,11 +615,12 @@ int64_t IMChatEntryWindowAnchor(int64_t readSeq) {
     if (!self.didInitialPosition) { return; } // 同 maybeLoadOlderOnScroll：建表期的 offset 不是用户手势
     if (self.windowState.reanchoring) { return; } // 同上：换窗定位期间不翻页
     if (self.windowState.pendingAnchor != 0 || self.windowState.pendingNewerAnchor != 0) { return; }
+    // 进会话「按读位点开窗」/「取最新一窗」在途时也不翻页：那两路回来都会**整段换窗**，
+    // 此刻发出的这一次翻页等应答回来时，窗口早已不是发请求时那一个——正是 2026-09-06
+    // 「进大群最后 3 条各显示两遍」的成因（那次由 pendingEntryAnchor 与本函数并发触发）。
+    if (self.windowState.pendingEntryAnchor != 0 || self.windowState.pendingTail) { return; }
     if (self.windowState.messages.count == 0) { return; }
-    int64_t hi = 0;
-    for (IMMessageModel *m in self.windowState.messages) {
-        if (m.convSeq > hi) { hi = m.convSeq; }
-    }
+    int64_t hi = [self latestLoadedConvSeq];
     if (hi <= 0) { return; }
     // 窗口已含本地最新一条、且服务端也没有更新的 → 真到头了。
     int64_t head = [IMSocketManager.sharedManager headConvSeqForConv:self.convID];
@@ -613,6 +648,9 @@ int64_t IMChatEntryWindowAnchor(int64_t readSeq) {
         newer = [database contiguousMessagesForConv:convID afterConvSeq:hi limit:page];
         localMax = [database maxConvSeqForConv:convID];
     }];
+    // 窗口里已有的一律筛掉（理由见 IMChatMessagesNotInWindow 的注释：这一段可能刚被别的路
+    // 整段换进窗口里了）。筛空即"没什么可接的"，与本段到头同样返回 NO。
+    newer = IMChatMessagesNotInWindow(newer, self.windowState.seenConvSeqs);
     if (newer.count == 0) { return NO; }
     int64_t newHi = hi;
     for (IMMessageModel *m in newer) {
@@ -785,6 +823,16 @@ int64_t IMChatEntryWindowAnchor(int64_t readSeq) {
 }
 
 #pragma mark - 辅助
+
+/// 窗口里最新的已上号 conv_seq（待发消息 conv_seq==0 不算）；窗口里没有已上号消息时返回 0。
+/// 与 earliestLoadedConvSeq 对称：向下接段一律**在那一刻**从窗口现算，不用请求时记下的值。
+- (int64_t)latestLoadedConvSeq {
+    int64_t latest = 0;
+    for (IMMessageModel *m in self.windowState.messages) {
+        if (m.convSeq > latest) { latest = m.convSeq; }
+    }
+    return latest;
+}
 
 /// 窗口里最早的已上号 conv_seq（待发消息 conv_seq==0 不算）；窗口里没有已上号消息时返回 0。
 - (int64_t)earliestLoadedConvSeq {
