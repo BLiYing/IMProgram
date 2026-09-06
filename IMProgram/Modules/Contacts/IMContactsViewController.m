@@ -232,7 +232,9 @@
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     self.reconnectReloader.visible = YES;
-    [self reload];
+    // 不在 viewWillAppear 里无条件 reload，而是交给 reconnectReloader 或 Socket 事件。
+    // 首次进入时，缓存种子已在 init 时加载，可直接显示；
+    // 重连或有新事件时，reconnectReloader 和 onFriendEvent 各自触发刷新。
 }
 
 - (void)viewDidDisappear:(BOOL)animated {
