@@ -155,6 +155,7 @@
     }
     [self.windowState.messages addObject:message];
     if (needsSort) { [self sortMessagesInPlace]; }
+    [self checkWindowInvariantAt:@"inbound"];
     [self.tableView reloadData];
     // 冷启动直进本页时 init 读库可能为空（账号数据库上下文未就绪），历史全靠 sync 事后补进——
     // 而 reloadData 不触发 VC 的 viewDidLayoutSubviews，进会话定位永远不会跑（模拟器日志实锤：

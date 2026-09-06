@@ -9,6 +9,11 @@ set -u
 
 REPO_ROOT=$(git rev-parse --show-toplevel) || exit 1
 
+# 「改一处，先看兄弟」——登记表与脚本都在同级的 IMServer 仓（三仓共用一份，避免三处抄）。
+# 只 WARN 不拦；没有那个仓（只 clone 了本仓）就静默跳过。
+SYMMETRY="$REPO_ROOT/../IMServer/scripts/check-symmetry.sh"
+[ -x "$SYMMETRY" ] && "$SYMMETRY" --repo "IMProgram" || true
+
 "$REPO_ROOT/scripts/check-file-size.sh"
 status=$?
 

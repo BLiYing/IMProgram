@@ -229,6 +229,10 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 /// 从本地库往窗口尾部接一段（> hi 的最多一页）；返回是否真的接上了。
 - (BOOL)appendNewerFromLocalAfter:(int64_t)hi;
 
+/// 改完窗口自检不变式（同一 conv_seq 不得在窗口里出现两次）。DEBUG 才真跑，Release 是空操作。
+/// **凡是往 windowState.messages 里塞东西的地方，改完都该调一次**——site 随便起个短名，用于日志定位。
+- (void)checkWindowInvariantAt:(NSString *)site;
+
 /// 把窗口尾/首超出上限的那一段丢掉（**只改数组**，调用方须并进自己那次 reloadData + 保位）。
 - (NSInteger)dropOverflowFromTailKeepingAnchorRow:(NSInteger)anchorRow;
 - (NSInteger)dropOverflowFromHeadKeepingAnchorRow:(NSInteger)anchorRow;

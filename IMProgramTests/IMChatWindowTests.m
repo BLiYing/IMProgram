@@ -10,6 +10,7 @@ FOUNDATION_EXPORT BOOL IMChatEntryHasUnread(NSInteger entryUnread);
 FOUNDATION_EXPORT int64_t IMChatEntryWindowAnchor(int64_t readSeq);
 FOUNDATION_EXPORT NSArray<IMMessageModel *> *IMChatMessagesNotInWindow(NSArray<IMMessageModel *> *rows,
                                                                       NSSet<NSNumber *> *seen);
+FOUNDATION_EXPORT int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages);
 // IMChatViewController+Search.m 里的同款纯函数（日历「跳到最早」该走本地还是问服务端）。
 FOUNDATION_EXPORT BOOL IMEarliestJumpNeedsServer(int64_t localEarliest);
 
@@ -338,6 +339,31 @@ static NSString * const kMe = @"me";
 }
 
 /// 空去重集 / 空输入：原样返回，且不返回 nil（调用方直接 count 取用）。
+#pragma mark - 窗口不变式（同一 conv_seq 不得出现两次）
+
+/// 正常窗口：无重复即返回 0。
+- (void)testWindowDuplicateSeqReturnsZeroForCleanWindow {
+    XCTAssertEqual(IMChatWindowDuplicateSeq([self rowsWithSeqs:@[@10, @11, @12]]), 0);
+    XCTAssertEqual(IMChatWindowDuplicateSeq(@[]), 0);
+}
+
+/// 2026-09-06 那个 bug 的形状：向下接段把已在窗口里的 3 条又接了一遍。
+- (void)testWindowDuplicateSeqCatchesDoubleAppendedTail {
+    NSArray *rows = [self rowsWithSeqs:@[@110039, @110040, @110041, @110042, @110040, @110041, @110042]];
+    XCTAssertEqual(IMChatWindowDuplicateSeq(rows), 110040);   // 报第一个撞上的
+}
+
+/// 待发/失败消息 conv_seq==0，同时有多条是正常的——**不能**被判成重复，否则一发两条就假报警。
+- (void)testWindowDuplicateSeqIgnoresPendingRows {
+    XCTAssertEqual(IMChatWindowDuplicateSeq([self rowsWithSeqs:@[@10, @0, @0, @11]]), 0);
+}
+
+/// 显示序是时间戳主排，**不是** conv_seq 递增（见 IMDatabase 的 kIMMessageOrderAsc）。
+/// 乱序但不重复的窗口是合法的，不变式不该管它——钉错了就是一堆假警报。
+- (void)testWindowDuplicateSeqAllowsNonMonotonicOrder {
+    XCTAssertEqual(IMChatWindowDuplicateSeq([self rowsWithSeqs:@[@12, @10, @11]]), 0);
+}
+
 - (void)testMessagesNotInWindowPassesThroughWhenNothingSeen {
     NSArray *rows = [self rowsWithSeqs:@[@1, @2]];
     XCTAssertEqualObjects([self seqNumbersOf:IMChatMessagesNotInWindow(rows, [NSSet set])], (@[@1, @2]));

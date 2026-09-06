@@ -75,6 +75,28 @@ int64_t IMChatEntryWindowAnchor(int64_t readSeq) {
 ///
 /// 这是**兜底**而不是主修：主修是应答时按当前窗口末尾重新算 hi（见 window_resp 的
 /// pendingNewerAnchor 分支）。两道都留着——窗口的唯一身份是 conv_seq，去重集就该是最后一关。
+/// 窗口不变式：**已上号（conv_seq>0）的消息在一个窗口里不得出现两次**。
+/// 返回第一个重复的 conv_seq；0 = 没有重复。
+///
+/// **为什么只钉这一条、不钉「按 conv_seq 递增」**：窗口的显示序是**时间戳主排**
+/// （唯一定义处 `IMDatabase` 的 kIMMessageOrderAsc 与 `sortMessagesInPlace`）——被拒收的消息
+/// 永远 conv_seq=0，2026-08-05 就是因为按 seq 排把它永久钉底、新消息全插它上面。
+/// 所以「seq 递增」根本不是本工程的不变式，照它断言只会造出一堆假警报。
+/// 而「同一条消息在窗口里出现两次」任何时候都是 bug，没有例外——只钉能钉死的那一条。
+///
+/// 这正是 2026-09-06 那个 bug 违反的东西（向下接段用了过期的窗口末尾，把已在窗口里的 3 条又接一遍）。
+/// 当时没有任何东西会响，一路走到用户眼前才被发现——加这道自检就是为了让下一次当场就响。
+int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
+    NSMutableSet<NSNumber *> *seen = [NSMutableSet setWithCapacity:messages.count];
+    for (IMMessageModel *m in messages) {
+        if (m.convSeq <= 0) { continue; }   // 待发/失败消息没有身份，同时有多条是正常的
+        NSNumber *key = @(m.convSeq);
+        if ([seen containsObject:key]) { return m.convSeq; }
+        [seen addObject:key];
+    }
+    return 0;
+}
+
 NSArray<IMMessageModel *> *IMChatMessagesNotInWindow(NSArray<IMMessageModel *> *rows,
                                                      NSSet<NSNumber *> *seen) {
     if (rows.count == 0 || seen.count == 0) { return rows ?: @[]; }
@@ -227,6 +249,7 @@ NSArray<IMMessageModel *> *IMChatMessagesNotInWindow(NSArray<IMMessageModel *> *
     self.windowState.hasMoreAbove = (earliest != 1);
     IMLogDebugWithTag(IMLogTagUI, @"chat_window_applied conv_id=%@ rows=%lu earliest=%lld at_tail=%d more_above=%d",
                       self.convID, (unsigned long)msgs.count, earliest, atTail, self.windowState.hasMoreAbove);
+    [self checkWindowInvariantAt:@"apply"];
 }
 
 #pragma mark - 向上翻页
@@ -309,6 +332,7 @@ NSArray<IMMessageModel *> *IMChatMessagesNotInWindow(NSArray<IMMessageModel *> *
                       (unsigned long)self.windowState.messages.count,
                       earliest, (long)(anchor ? anchor.row : -1), y);
     if (droppedTail > 0) { [self updateJumpButton]; }
+    [self checkWindowInvariantAt:@"prepend"];
 }
 
 /// 把某一行摆回指定的**屏幕偏移**（距可视区顶多少 pt），返回最终 contentOffset.y。
@@ -672,6 +696,7 @@ NSArray<IMMessageModel *> *IMChatMessagesNotInWindow(NSArray<IMMessageModel *> *
     IMLogDebugWithTag(IMLogTagUI, @"chat_window_append conv_id=%@ added=%lu dropped_head=%ld rows=%lu at_tail=%d offset_y=%.1f",
                       self.convID, (unsigned long)newer.count, (long)droppedHead,
                       (unsigned long)self.windowState.messages.count, self.windowState.atTail, y);
+    [self checkWindowInvariantAt:@"append"];
     return YES;
 }
 
@@ -823,6 +848,23 @@ NSArray<IMMessageModel *> *IMChatMessagesNotInWindow(NSArray<IMMessageModel *> *
 }
 
 #pragma mark - 辅助
+
+/// 改完窗口自检一次不变式。**只在 DEBUG 编译**：日常开发跑的就是 DEBUG，坏了当场炸；
+/// Release 一行都不留——大群刷屏时 didReceiveMessage 每条消息走一次，热路径上不留白花的开销。
+///
+/// 先 warn 再 assert：断言在没挂调试器时不一定看得见，而这行 warn 会进 `dev-logs/im-ios.log`，
+/// 事后 `grep window_invariant_violated` 就能定位是哪个入口写坏的。
+- (void)checkWindowInvariantAt:(NSString *)site {
+#if DEBUG
+    int64_t dup = IMChatWindowDuplicateSeq(self.windowState.messages);
+    if (dup == 0) { return; }
+    IMLogWarnWithTag(IMLogTagUI, @"window_invariant_violated site=%@ conv_id=%@ dup_seq=%lld rows=%lu",
+                     site, self.convID, dup, (unsigned long)self.windowState.messages.count);
+    NSAssert(NO, @"窗口里 conv_seq=%lld 出现两次（site=%@）——见 IMChatWindowDuplicateSeq 注释", dup, site);
+#else
+    (void)site;
+#endif
+}
 
 /// 窗口里最新的已上号 conv_seq（待发消息 conv_seq==0 不算）；窗口里没有已上号消息时返回 0。
 /// 与 earliestLoadedConvSeq 对称：向下接段一律**在那一刻**从窗口现算，不用请求时记下的值。
