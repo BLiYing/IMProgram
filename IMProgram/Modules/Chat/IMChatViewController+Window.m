@@ -64,17 +64,6 @@ int64_t IMChatEntryWindowAnchor(int64_t readSeq) {
     return readSeq > 0 ? readSeq : 1;
 }
 
-/// 「往窗口尾部接一段」之前的去重：筛掉窗口里**已经有**的那些 conv_seq，保持原序。
-///
-/// 向下翻页是异步的：`window_req` 发出时窗口末尾是 hi，等 `window_resp` 回来，窗口可能已经被
-/// 别的路**整段换过**——进会话那一刻「按读位点开窗」与「向下翻页」本来就是并发的两条路，
-/// 而前者取回的那一窗往往已经含着后者要接的这一段。此时无脑 append 就是把同样几条再上屏一次。
-/// 2026-09-06 实测：iOS 进「20000人大群」，Web 端刚发的最后 3 条**各显示两遍**
-/// （日志实锤：`window_resp anchor=110036` → `chat_window_applied rows=53`，
-/// 紧跟 `window_resp anchor=110035` → `chat_window_append added=3 rows=56`）。
-///
-/// 这是**兜底**而不是主修：主修是应答时按当前窗口末尾重新算 hi（见 window_resp 的
-/// pendingNewerAnchor 分支）。两道都留着——窗口的唯一身份是 conv_seq，去重集就该是最后一关。
 /// 窗口不变式：**已上号（conv_seq>0）的消息在一个窗口里不得出现两次**。
 /// 返回第一个重复的 conv_seq；0 = 没有重复。
 ///
@@ -95,18 +84,6 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
         [seen addObject:key];
     }
     return 0;
-}
-
-NSArray<IMMessageModel *> *IMChatMessagesNotInWindow(NSArray<IMMessageModel *> *rows,
-                                                     NSSet<NSNumber *> *seen) {
-    if (rows.count == 0 || seen.count == 0) { return rows ?: @[]; }
-    NSMutableArray<IMMessageModel *> *out = [NSMutableArray arrayWithCapacity:rows.count];
-    for (IMMessageModel *m in rows) {
-        // conv_seq==0 是待发消息：它没有身份可去重，且窗口尾部本来就该留着它。
-        if (m.convSeq > 0 && [seen containsObject:@(m.convSeq)]) { continue; }
-        [out addObject:m];
-    }
-    return out;
 }
 
 @implementation IMChatViewController (Window)
@@ -261,8 +238,11 @@ NSArray<IMMessageModel *> *IMChatMessagesNotInWindow(NSArray<IMMessageModel *> *
     if (self.windowState.reanchoring) { return; } // 正在换窗定位：这些 offset 不是用户的手（见 IMChatWindowState.reanchoring）
     // pendingAnchor != 0 ⇒ 已有一次开窗在途（本地翻页是同步的，只有服务端那一步会在途）。
     if (!self.windowState.hasMoreAbove || self.windowState.pendingAnchor != 0 || self.windowState.messages.count == 0) { return; }
-    // 同 maybeLoadNewerOnScroll：整段换窗的两路在途时不翻页，免得应答回来接到别的窗口上。
-    if (self.windowState.pendingEntryAnchor != 0 || self.windowState.pendingTail) { return; }
+    // **这里刻意不守 pendingEntryAnchor / pendingTail**（与 maybeLoadNewerOnScroll 不对称，是有意的）：
+    // 向上这条路在**应答时**重新取 `earliestLoadedConvSeq`，本就不吃请求时记下的边界，不需要这道闸；
+    // 而 pendingTail 最长挂 6s，且被发消息 / 点 ↓ / 超级群每次 conv_bump 频繁置起——守了它，
+    // 活跃大群里用户往上滑会连翻页请求都发不出去，表现为「滑到顶不加载，卡一下才动」
+    // （2026-09-06 顺手加、当天 /code-review 打回）。
     if (self.tableView.contentOffset.y > kIMWindowLoadOlderThreshold) { return; }
     [self loadOlderPage];
 }
@@ -672,9 +652,12 @@ NSArray<IMMessageModel *> *IMChatMessagesNotInWindow(NSArray<IMMessageModel *> *
         newer = [database contiguousMessagesForConv:convID afterConvSeq:hi limit:page];
         localMax = [database maxConvSeqForConv:convID];
     }];
-    // 窗口里已有的一律筛掉（理由见 IMChatMessagesNotInWindow 的注释：这一段可能刚被别的路
-    // 整段换进窗口里了）。筛空即"没什么可接的"，与本段到头同样返回 NO。
-    newer = IMChatMessagesNotInWindow(newer, self.windowState.seenConvSeqs);
+    // **别在这里按 seenConvSeqs 再去重一次**（2026-09-06 加过、当天 /code-review 打回）：
+    // 那个集合是「已经处理过哪些 seq」而不是「窗口里有哪些 seq」——`didReceiveMessage` 会先把 seq
+    // 加进它、再因「窗口不在末尾」early-return 而**不**写入 messages。照它筛，用户上翻期间收到的
+    // 消息会在滚回来时被永久筛掉，且随后 atTail 被置 YES、↓ 按钮收起，只有点 ↓ 重建窗口才自愈。
+    // 而且这道过滤本就没防住任何东西：hi 由调用方从 `latestLoadedConvSeq` 现算，
+    // 库里 conv_seq > hi 的行按定义不可能已在窗口里。真正的兜底是下面那句 checkWindowInvariantAt:。
     if (newer.count == 0) { return NO; }
     int64_t newHi = hi;
     for (IMMessageModel *m in newer) {

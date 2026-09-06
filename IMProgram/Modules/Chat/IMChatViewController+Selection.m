@@ -797,7 +797,18 @@ NSArray<IMMessageModel *> *IMChatSelectedMessages(NSDictionary<NSNumber *, IMMes
 /// 相册 leader 行一勾等于整组入选，故按"该组尚未勾选的成员数"计增量，不是恒 1。
 - (nullable NSIndexPath *)tableView:(UITableView *)tableView willSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     if (!self.selecting) { return indexPath; }
+    // 未上号的行（conv_seq==0：发送中 / 发送失败）**明确不可选**。
+    // 勾选真相记在 selectedModels、按 conv_seq 索引，而它们没有 conv_seq —— 不在这里拦的话，
+    // UIKit 会先把左圈打上勾，markSelected: 却记不进去（计数不涨），随后该行滚出再滚回视口时
+    // restoreRowSelectionAtIndexPath: 判定 want=NO 又把勾撤掉，用户看到的是「勾一下，划两下就没了」。
+    if (![self isSelectableRow:indexPath.row]) { return nil; }
     return [self allowSelectingMore:[self selectionDeltaForRow:indexPath.row]] ? indexPath : nil;
+}
+
+/// 该行能否被勾选：已上号（conv_seq>0）才行。相册 leader 行按其成员判（成员都是已上号的媒体）。
+- (BOOL)isSelectableRow:(NSInteger)row {
+    if (row < 0 || row >= (NSInteger)self.windowState.messages.count) { return NO; }
+    return self.windowState.messages[(NSUInteger)row].convSeq > 0;
 }
 
 /// 把某一行的**左侧勾选圈**按 selectedModels 补回来（勾选真相不在表格里，表格只负责显示）。
