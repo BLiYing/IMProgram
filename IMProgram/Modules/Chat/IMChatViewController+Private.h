@@ -352,6 +352,8 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 // 多选 / 转发：
 - (void)enterSelectionWithMessage:(IMMessageModel *)message;
 - (void)toggleAlbumMemberSelection:(IMMessageModel *)member; // 相册逐格勾选切换（2a，DataSource 的格点击块调）
+/// 该消息是否已勾选（按 conv_seq 查 selectionState.selectedModels）。相册逐格 checkbox 由 DataSource 调，故跨 TU 登记。
+- (BOOL)isSelectedMessage:(IMMessageModel *)m;
 - (void)extendTableBottomForSelection; // 多选期间壁纸铺到底（Search 退出时若仍在多选需接管调用）
 - (void)updateSelectionBarBottomAnchor; // 选择栏底边随搜索态重定位（Search 进/出时若在多选需重排堆叠）
 - (void)updateJumpButtonBottomAnchor;   // 向下钮底边随 多选/搜索 态重定位（堆叠不重叠、间距一致）

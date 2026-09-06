@@ -4,7 +4,7 @@
 
 #import "IMChatViewController+Private.h"
 #import "IMChatSearchState.h"   // 搜索态命中词（cell 高亮）
-#import "IMChatSelectionState.h" // 多选态逐格勾选集（selectedMediaSeqs）
+#import "IMChatSelectionState.h" // 多选态勾选集（selectedModels，按 conv_seq）
 #import "IMMediaDownloadCoordinator.h"
 #import "IMMediaSendService.h"
 #import "IMMessageModel.h"
@@ -215,7 +215,7 @@
         __weak typeof(self) wsAlbSel = self;
         alb.isMemberSelected = ^BOOL(IMMessageModel *mm) {
             __strong typeof(wsAlbSel) self = wsAlbSel;
-            return self && mm.convSeq > 0 && [self.selectionState.selectedMediaSeqs containsObject:@(mm.convSeq)];
+            return self && [self isSelectedMessage:mm];
         };
         alb.onToggleMember = ^(IMMessageModel *mm) {
             __strong typeof(wsAlbSel) self = wsAlbSel;

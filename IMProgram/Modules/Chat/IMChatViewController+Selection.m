@@ -32,6 +32,22 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
 /// 服务端另有独立上限（举报 100 条/单、收藏 300 次/分），那是脚本也绕不过的约束，与本常量互不依赖。
 static const NSUInteger kIMSelectionMaxCount = 100;
 
+/// 从勾选集导出「已选消息」，**按 conv_seq 升序**（= 会话时序）。
+///
+/// 抽成文件级纯函数是为了能单测（同 IMChatEntryWindowAnchor 的套路）：这里要钉住的不是它算得对，
+/// 而是它**不吃任何行号 / 窗口 / 表格状态**——那正是 2026-09-06 那个 bug 的形状：勾选态原先记在
+/// UITableView 的行选中里，上翻翻页一次 `reloadData` 就清空、行下标还整体平移，用户勾的消息静默消失。
+/// 签名里再也拿不到窗口，就没法退回按行号记。
+NSArray<IMMessageModel *> *IMChatSelectedMessages(NSDictionary<NSNumber *, IMMessageModel *> *selected) {
+    NSArray<NSNumber *> *keys = [selected.allKeys sortedArrayUsingSelector:@selector(compare:)];
+    NSMutableArray<IMMessageModel *> *out = [NSMutableArray arrayWithCapacity:keys.count];
+    for (NSNumber *k in keys) {
+        IMMessageModel *m = selected[k];
+        if (m) { [out addObject:m]; }
+    }
+    return out;
+}
+
 @implementation IMChatViewController (Selection)
 
 #pragma mark - 多选态（#2：转发/收藏/删除）
@@ -42,14 +58,14 @@ static const NSUInteger kIMSelectionMaxCount = 100;
     if (self.selecting) { return; }
     self.selecting = YES;
     self.selectionState = [IMChatSelectionState new];          // 多选态状态袋：进入创建、退出置 nil 整体释放
-    self.selectionState.selectedMediaSeqs = [NSMutableSet set]; // 相册逐格勾选集（2a），每次进多选清空
+    self.selectionState.selectedModels = [NSMutableDictionary dictionary]; // 勾选集（按 conv_seq），每次进多选清空
     [self showAttachPanel:NO];
     [self cancelReply];
     [self.inputField resignFirstResponder];
 
     // 长按某相册格 → 只预选该格（左侧全选圈不主动打勾）；非相册消息 → 预选其整行。锚定用宫格 leader 行防漂移。
     BOOL triggeredAlbum = [self isAlbumMember:message] && message.convSeq > 0;
-    if (triggeredAlbum) { [self.selectionState.selectedMediaSeqs addObject:@(message.convSeq)]; }
+    if (triggeredAlbum) { [self markSelected:message]; }
     NSUInteger row = [self visibleRowForMessage:message];
     if (row == NSNotFound) { row = [self.windowState.messages indexOfObject:message]; }
     [self preserveScreenPositionOfRow:row during:^{
@@ -78,11 +94,12 @@ static const NSUInteger kIMSelectionMaxCount = 100;
         [[UIBarButtonItem alloc] initWithTitle:@"取消" style:UIBarButtonItemStylePlain
                                         target:self action:@selector(exitSelection)];
 
-    // 相册格：勾选态在逐格 checkbox（selectedMediaSeqs），只在整组恰好只有这一格时才让左圈打勾；
+    // 相册格：勾选态在逐格 checkbox（selectedModels），只在整组恰好只有这一格时才让左圈打勾；
     // 非相册消息：预选其整行。
     if (triggeredAlbum) {
         [self syncAlbumRowSelectionForGroupID:message.groupID];
     } else if (row != NSNotFound) {
+        [self markSelected:message]; // 真相记在字典里；下面这行只是让左圈立刻显示成已勾
         [self.tableView selectRowAtIndexPath:[NSIndexPath indexPathForRow:(NSInteger)row inSection:0]
                                     animated:NO scrollPosition:UITableViewScrollPositionNone];
     }
@@ -262,34 +279,39 @@ static const NSUInteger kIMSelectionMaxCount = 100;
     self.jumpButtonBottom.active = YES;
 }
 
-/// 已选消息（按行序）。相册**逐格勾选**（2a）：成员按 selectedMediaSeqs（conv_seq 集合）判定；
-/// 非相册消息仍按表格行选中判定。整组"全选"只是左侧系统圈的显示态，不作为选中来源（避免重复）。
+/// 已选消息（按 conv_seq 升序＝会话时序）。**唯一来源是 selectedModels**，与表格行选中、与当前
+/// 渲染窗口都无关——正因如此，上翻拉历史（prepend + reloadData + 尾部裁剪）不会把勾选弄丢。
+///
+/// 曾经是「相册看集合、非相册看 indexPathsForSelectedRows」两套：reloadData 清掉行选中、
+/// prepend 又让行下标整体平移，于是用户勾了两条再上翻一页，那两条就静默没了（2026-09-06 实测报出）。
 - (NSArray<IMMessageModel *> *)selectedMessages {
-    NSMutableSet<NSNumber *> *selRows = [NSMutableSet set];
-    for (NSIndexPath *ip in self.tableView.indexPathsForSelectedRows) { [selRows addObject:@(ip.row)]; }
-    NSMutableArray<IMMessageModel *> *out = [NSMutableArray array];
-    for (NSUInteger i = 0; i < self.windowState.messages.count; i++) {
-        IMMessageModel *m = self.windowState.messages[i];
-        BOOL selected;
-        if ([self isAlbumMember:m]) {
-            selected = m.convSeq > 0 && [self.selectionState.selectedMediaSeqs containsObject:@(m.convSeq)];
-        } else {
-            selected = [selRows containsObject:@(i)];
-        }
-        if (selected) { [out addObject:m]; }
-    }
-    return out;
+    return IMChatSelectedMessages(self.selectionState.selectedModels);
 }
 
-/// 相册逐格勾选切换（2a）：翻转该成员在 selectedMediaSeqs 的选中，同步左侧系统圈（整组全选态），刷新计数。
+/// 该消息是否已勾选（按 conv_seq）。相册逐格 checkbox 与行选中恢复都走它。
+- (BOOL)isSelectedMessage:(IMMessageModel *)m {
+    return m.convSeq > 0 && self.selectionState.selectedModels[@(m.convSeq)] != nil;
+}
+
+/// 勾选 / 取消勾选的**唯一写入口**（所有路径都必须经过这里，别再各处直接改容器）。
+- (void)markSelected:(IMMessageModel *)m {
+    if (m.convSeq <= 0) { return; } // 未发出的本地件没有 conv_seq，无法作为稳定身份
+    if (!self.selectionState.selectedModels) { self.selectionState.selectedModels = [NSMutableDictionary dictionary]; }
+    self.selectionState.selectedModels[@(m.convSeq)] = m;
+}
+
+- (void)unmarkSelected:(IMMessageModel *)m {
+    if (m.convSeq <= 0) { return; }
+    [self.selectionState.selectedModels removeObjectForKey:@(m.convSeq)];
+}
+
+/// 相册逐格勾选切换（2a）：翻转该成员的勾选，同步左侧系统圈（整组全选态），刷新计数。
 - (void)toggleAlbumMemberSelection:(IMMessageModel *)member {
     if (member.convSeq <= 0) { return; }
-    if (!self.selectionState.selectedMediaSeqs) { self.selectionState.selectedMediaSeqs = [NSMutableSet set]; }
-    NSNumber *seq = @(member.convSeq);
-    if ([self.selectionState.selectedMediaSeqs containsObject:seq]) { [self.selectionState.selectedMediaSeqs removeObject:seq]; }
+    if ([self isSelectedMessage:member]) { [self unmarkSelected:member]; }
     else {
         if (![self allowSelectingMore:1]) { return; } // 上限闸：逐格勾选也走同一个入口（取消勾选永远放行）
-        [self.selectionState.selectedMediaSeqs addObject:seq];
+        [self markSelected:member];
     }
     [self syncAlbumRowSelectionForGroupID:member.groupID];
     [self updateSelectionUI];
@@ -303,7 +325,7 @@ static const NSUInteger kIMSelectionMaxCount = 100;
     NSMutableArray<IMMessageModel *> *selectable = [NSMutableArray array];
     for (IMMessageModel *m in members) { if (m.convSeq > 0) { [selectable addObject:m]; } }
     BOOL allSelected = selectable.count > 0;
-    for (IMMessageModel *m in selectable) { if (![self.selectionState.selectedMediaSeqs containsObject:@(m.convSeq)]) { allSelected = NO; break; } }
+    for (IMMessageModel *m in selectable) { if (![self isSelectedMessage:m]) { allSelected = NO; break; } }
     NSUInteger leaderRow = members.count > 0 ? [self visibleRowForMessage:members.firstObject] : NSNotFound;
     if (leaderRow == NSNotFound || leaderRow >= self.windowState.messages.count) { return; }
     NSIndexPath *ip = [NSIndexPath indexPathForRow:(NSInteger)leaderRow inSection:0];
@@ -764,6 +786,7 @@ static const NSUInteger kIMSelectionMaxCount = 100;
 
 - (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
     [self applySelectionStyleForCell:cell];
+    [self restoreRowSelectionAtIndexPath:indexPath]; // 勾选真相在 selectedModels，这里只是把左圈补回来
     // 长按菜单交互统一在此挂（单一咽喉点，取代原先在 cellForRow 各类型分支各补一行——漏接一种即静默无菜单）。
     // 幂等；system/albumPad 等不实现 previewTargetView 的 cell 自动跳过；相册宫格每格自带交互不受影响。
     [self attachMessageContextMenuToCell:cell];
@@ -777,6 +800,29 @@ static const NSUInteger kIMSelectionMaxCount = 100;
     return [self allowSelectingMore:[self selectionDeltaForRow:indexPath.row]] ? indexPath : nil;
 }
 
+/// 把某一行的**左侧勾选圈**按 selectedModels 补回来（勾选真相不在表格里，表格只负责显示）。
+///
+/// 挂在 willDisplay 而不是各处 reloadData 之后：Window.m 里有十来处 reloadData（翻页 / 裁剪 /
+/// 收到新消息 / 跳转…），逐个补漏一个就又是这个 bug；willDisplay 是所有路径的共同咽喉，
+/// 且滚动时才进视口的行也能顺带补上。程序化 selectRow 不触发 didSelect，无回环。
+/// 相册 leader 行不在这里处理——它的圈是「整组是否全勾」的派生态，由 syncAlbumRowSelectionForGroupID: 管。
+- (void)restoreRowSelectionAtIndexPath:(NSIndexPath *)indexPath {
+    if (!self.selecting) { return; }
+    if (indexPath.row < 0 || indexPath.row >= (NSInteger)self.windowState.messages.count) { return; }
+    IMMessageModel *m = self.windowState.messages[(NSUInteger)indexPath.row];
+    if ([self isAlbumMember:m]) {
+        [self syncAlbumRowSelectionForGroupID:m.groupID];
+        return;
+    }
+    BOOL want = [self isSelectedMessage:m];
+    BOOL now = [self.tableView.indexPathsForSelectedRows containsObject:indexPath];
+    if (want && !now) {
+        [self.tableView selectRowAtIndexPath:indexPath animated:NO scrollPosition:UITableViewScrollPositionNone];
+    } else if (!want && now) {
+        [self.tableView deselectRowAtIndexPath:indexPath animated:NO];
+    }
+}
+
 /// 勾选某一行会**新增**多少条：相册 leader 行=该组尚未勾选的成员数，其余=1。
 - (NSUInteger)selectionDeltaForRow:(NSInteger)row {
     if (row < 0 || row >= (NSInteger)self.windowState.messages.count) { return 1; }
@@ -784,15 +830,16 @@ static const NSUInteger kIMSelectionMaxCount = 100;
     if (![self isAlbumMember:m] || m.groupID.length == 0) { return 1; }
     NSUInteger delta = 0;
     for (IMMessageModel *mm in [self albumMembersForGroupID:m.groupID]) {
-        if (mm.convSeq > 0 && ![self.selectionState.selectedMediaSeqs containsObject:@(mm.convSeq)]) { delta++; }
+        if (mm.convSeq > 0 && ![self isSelectedMessage:mm]) { delta++; }
     }
     return delta;
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     if (self.selecting) {
-        // 相册 leader 行的左侧系统圈 = 整组全选（点圈落到这里；逐格点选走 toggleAlbumMemberSelection: 程序化改圈、不触发本回调）。
-        [self applyAlbumSelectAll:YES atRow:indexPath.row];
+        // 行左侧系统圈：相册 leader 行 = 整组全选，其余 = 它自己那一条。
+        // （逐格点选走 toggleAlbumMemberSelection: 程序化改圈、不触发本回调。）
+        [self applyRowSelection:YES atRow:indexPath.row];
         [self updateSelectionUI];
         return;
     }
@@ -802,22 +849,25 @@ static const NSUInteger kIMSelectionMaxCount = 100;
 
 - (void)tableView:(UITableView *)tableView didDeselectRowAtIndexPath:(NSIndexPath *)indexPath {
     if (self.selecting) {
-        [self applyAlbumSelectAll:NO atRow:indexPath.row]; // 相册 leader 行取消 = 整组全不选
+        [self applyRowSelection:NO atRow:indexPath.row];
         [self updateSelectionUI];
     }
 }
 
-/// 相册 leader 行左侧系统圈全选/全不选：把整组成员 conv_seq 批量加入/移出 selectedMediaSeqs，并就地刷新该 cell 的逐格勾选框。
-/// 非相册行不处理（其选中已由系统行选中表达）。
-- (void)applyAlbumSelectAll:(BOOL)selectAll atRow:(NSInteger)row {
+/// 行勾选落到勾选集：相册 leader 行=整组成员批量加入/移出并刷新逐格框；**非相册行=它自己那一条**。
+///
+/// 非相册那一支是 2026-09-06 补的：在此之前非相册消息的勾选只活在 UITableView 的行选中里，
+/// 一次 reloadData（上翻翻页必然发生）就全没了。现在两类都写进 selectedModels，行选中退化成纯显示。
+- (void)applyRowSelection:(BOOL)selected atRow:(NSInteger)row {
     if (row < 0 || row >= (NSInteger)self.windowState.messages.count) { return; }
     IMMessageModel *m = self.windowState.messages[(NSUInteger)row];
-    if (![self isAlbumMember:m] || m.groupID.length == 0) { return; }
-    if (!self.selectionState.selectedMediaSeqs) { self.selectionState.selectedMediaSeqs = [NSMutableSet set]; }
+    if (![self isAlbumMember:m] || m.groupID.length == 0) {
+        if (selected) { [self markSelected:m]; } else { [self unmarkSelected:m]; }
+        return;
+    }
     for (IMMessageModel *mm in [self albumMembersForGroupID:m.groupID]) {
         if (mm.convSeq <= 0) { continue; }
-        if (selectAll) { [self.selectionState.selectedMediaSeqs addObject:@(mm.convSeq)]; }
-        else { [self.selectionState.selectedMediaSeqs removeObject:@(mm.convSeq)]; }
+        if (selected) { [self markSelected:mm]; } else { [self unmarkSelected:mm]; }
     }
     UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:row inSection:0]];
     if ([cell isKindOfClass:IMAlbumCell.class]) { [(IMAlbumCell *)cell refreshTileSelectionStates]; }
