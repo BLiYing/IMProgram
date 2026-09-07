@@ -61,6 +61,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// 毫秒时间戳 → "HH:mm"（今天）/"MM-dd"（更早）；0 返回空串。
 + (NSString *)timeStringFromMillis:(int64_t)ms;
+/// 会话列表右侧时间（四段式，docs/UI_SPEC.md §5.1）。气泡时间用 timeStringFromMillis:。
++ (NSString *)conversationTimeStringFromMillis:(int64_t)ms;
 /// 由种子（uid）派生稳定的头像底色（一组柔和色循环）。
 + (UIColor *)avatarColorForSeed:(nullable NSString *)seed;
 

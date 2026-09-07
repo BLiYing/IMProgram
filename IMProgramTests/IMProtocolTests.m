@@ -121,6 +121,39 @@
     XCTAssertFalse([IMTheme isMillis:now sameDayAsMillis:0]);
 }
 
+- (void)testBubbleTimeIsAlwaysHHmm {
+    // 气泡时间恒 HH:mm（UI_SPEC §5.3）。2026-09-07 前这里对非今天的消息返回 MM-dd，
+    // 于是「9月3日」胶囊底下的气泡显示成 09-03——冗余且与 Web/Android 不一致。
+    int64_t now = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
+    for (NSNumber *n in @[@(now), @(now - 24LL * 3600 * 1000), @(1700000000000LL)]) {
+        NSString *t = [IMTheme timeStringFromMillis:n.longLongValue];
+        XCTAssertEqual(t.length, (NSUInteger)5, @"应为 HH:mm 五个字符，实得 %@", t);
+        XCTAssertEqualObjects([t substringWithRange:NSMakeRange(2, 1)], @":");
+        XCTAssertFalse([t containsString:@"-"], @"不得出现 MM-dd 形态：%@", t);
+        XCTAssertFalse([t containsString:@"月"], @"不得出现日期形态：%@", t);
+    }
+    XCTAssertEqualObjects([IMTheme timeStringFromMillis:0], @"");
+}
+
+- (void)testConversationTimeIsFourSegment {
+    // 会话列表四段式（UI_SPEC §5.1，2026-09-07 三端拍板）：
+    // 今天 HH:mm / 昨天「昨天」/ 今年 M月d日 / 更早 yyyy年M月d日。
+    int64_t now = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
+    NSString *today = [IMTheme conversationTimeStringFromMillis:now];
+    XCTAssertEqualObjects(today, [IMTheme timeStringFromMillis:now], @"今天应与气泡时间同口径");
+
+    XCTAssertEqualObjects([IMTheme conversationTimeStringFromMillis:now - 24LL * 3600 * 1000], @"昨天");
+    XCTAssertEqualObjects([IMTheme conversationTimeStringFromMillis:0], @"");
+
+    // 2023-11 的固定时间：跨年 → 含「年」。
+    NSString *old = [IMTheme conversationTimeStringFromMillis:1700000000000];
+    XCTAssertTrue([old hasSuffix:@"日"], @"实得 %@", old);
+    XCTAssertTrue([old containsString:@"年"], @"跨年应带年份，实得 %@", old);
+
+    // 与日期胶囊**刻意共用词汇**：除「今天」那一段外，两者对同一时间应给出同一字符串。
+    XCTAssertEqualObjects(old, [IMTheme dayHeaderStringFromMillis:1700000000000]);
+}
+
 - (void)testDayHeaderString {
     int64_t now = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
     XCTAssertEqualObjects([IMTheme dayHeaderStringFromMillis:now], @"今天");

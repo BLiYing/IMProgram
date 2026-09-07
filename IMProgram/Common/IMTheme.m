@@ -77,18 +77,39 @@
         : (kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner | kCALayerMaxXMaxYCorner);
 }
 
+/// 气泡内的时间：**恒 `HH:mm`**（三端一致，见 IMServer `docs/UI_SPEC.md` §5.3）。
+///
+/// 2026-09-07 修正：此前这里对非今天的消息返回 `MM-dd`，于是一条 9 月 3 日的消息
+/// 在「9月3日」日期胶囊底下显示成 `09-03`——既冗余又与 Web/Android 不一致。
+/// `IMVoiceBubbleCell` 的调用处注释一直写着 `// HH:mm`，说明这是回归不是设计。
+/// **会话列表要的是另一套口径**，走 `conversationTimeStringFromMillis:`，别混用。
 + (NSString *)timeStringFromMillis:(int64_t)ms {
     if (ms <= 0) { return @""; }
     NSDate *date = [NSDate dateWithTimeIntervalSince1970:ms / 1000.0];
-    static NSDateFormatter *timeFmt, *dateFmt; static NSCalendar *cal;
-    static dispatch_once_t once;
+    static NSDateFormatter *timeFmt; static dispatch_once_t once;
+    dispatch_once(&once, ^{ timeFmt = [NSDateFormatter new]; timeFmt.dateFormat = @"HH:mm"; });
+    return [timeFmt stringFromDate:date];
+}
+
+/// 会话列表右侧时间：**四段式**（`HH:mm` / `昨天` / `M月d日` / `yyyy年M月d日`）。
+///
+/// 基准见 IMServer `docs/UI_SPEC.md` §5.1（2026-09-07 三端拍板）。与 `dayHeaderStringFromMillis:`
+/// **刻意共用同一套词汇**——用户只需要学一次；差别只在今天那一段（这里给时分，那里给「今天」）。
+/// 对端实现：im-web `src/time.ts` `conversationTime()`、im-android `TimeFormat.conversationTime()`。
++ (NSString *)conversationTimeStringFromMillis:(int64_t)ms {
+    if (ms <= 0) { return @""; }
+    NSDate *date = [NSDate dateWithTimeIntervalSince1970:ms / 1000.0];
+    NSCalendar *cal = NSCalendar.currentCalendar;
+    if ([cal isDateInToday:date]) { return [self timeStringFromMillis:ms]; }
+    if ([cal isDateInYesterday:date]) { return @"昨天"; }
+    static NSDateFormatter *sameYearFmt, *fullFmt; static dispatch_once_t once;
     dispatch_once(&once, ^{
-        timeFmt = [NSDateFormatter new]; timeFmt.dateFormat = @"HH:mm";
-        dateFmt = [NSDateFormatter new]; dateFmt.dateFormat = @"MM-dd";
-        cal = NSCalendar.currentCalendar;
+        sameYearFmt = [NSDateFormatter new]; sameYearFmt.dateFormat = @"M月d日";
+        fullFmt = [NSDateFormatter new]; fullFmt.dateFormat = @"yyyy年M月d日";
     });
-    BOOL today = [cal isDateInToday:date];
-    return [(today ? timeFmt : dateFmt) stringFromDate:date];
+    BOOL sameYear = [cal component:NSCalendarUnitYear fromDate:date] ==
+                    [cal component:NSCalendarUnitYear fromDate:NSDate.date];
+    return [(sameYear ? sameYearFmt : fullFmt) stringFromDate:date];
 }
 
 + (BOOL)isMillis:(int64_t)a sameDayAsMillis:(int64_t)b {

@@ -339,7 +339,7 @@ static CGFloat const kIMRowLeading = 16;
     _mute.tintColor = IMTheme.textSecondary;
     // 置顶行背景轻微区分（微信/Telegram 式，深浅色皆适配）。
     self.contentView.backgroundColor = c.pinnedAt > 0 ? [IMTheme.accent colorWithAlphaComponent:0.10] : UIColor.clearColor;
-    _time.text = [IMTheme timeStringFromMillis:c.timestamp];
+    _time.text = [IMTheme conversationTimeStringFromMillis:c.timestamp];  // 四段式，UI_SPEC §5.1
     // 最后一条是我发的才显示勾：对端已读到该条 → 绿 ✓✓；否则 → 灰单勾 ✓（已送达/未读）。
     // 已读判定用后端返回的对端已读位点 peer_read_seq（CHAT_UX §8）。群项不显示（无对端位点）。
     BOOL showCheck = !c.isGroup && mine && c.lastContent.length > 0;
