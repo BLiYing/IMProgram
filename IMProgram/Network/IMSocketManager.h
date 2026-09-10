@@ -343,6 +343,11 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
 /// 服务端会话最新位点的内存快照（未知为 0）。↓N 计数与"还差多少"用它，不数本地。
 - (int64_t)headConvSeqForConv:(NSString *)convID;
 
+/// 服务端说过的**可见下界位点**的内存快照（未知为 0）。上滚据此不再空跑注定回空页的请求。
+/// 判据与「为什么必须是位点、不能是布尔」见 `IMChatWindowPlan.h`；
+/// 与 im-web `imSdk.atHistoryFloor()` 读的是同一份东西。
+- (int64_t)historyFloorForConv:(NSString *)convID;
+
 /// 按锚点向服务端开一窗（PROTOCOL §6.11）：anchor=0 取最新，>0 取该条附近。
 /// 结果落库后经 `socketManager:didReceiveWindowForConv:…` 一次性回调，**不推进同步位点**。
 /// 用于两处：本地库翻到头了还要往上翻；跳转目标本地没有。

@@ -141,7 +141,10 @@ else
     SIM_NAME="$(printf '%s' "$SIM_INFO" | cut -f2)"
     SIM_RT="$(printf '%s' "$SIM_INFO" | cut -f3)"
     DESTINATION="platform=iOS Simulator,id=$SIM_UDID"
-    echo "  自动选中：$SIM_NAME（$SIM_RT）  $SIM_UDID"
+    # ⚠️ 变量后面紧跟**全角**字符时必须加花括号：bash 3.2（macOS 自带、`env bash` 解析到的就是它）
+    # 会把全角字符的首字节当成变量名的一部分，`set -u` 下当场 `SIM_NAME<?>: unbound variable`。
+    # 这一行曾让 test.sh 的默认路径（自动选模拟器）整个跑不起来。同类见下面两处 bold/fail。
+    echo "  自动选中：${SIM_NAME}（${SIM_RT}）  ${SIM_UDID}"
 fi
 pass "模拟器就绪"
 
@@ -149,7 +152,7 @@ pass "模拟器就绪"
 ONLY_TESTING="$UNIT_TARGET"
 [ -n "${ONLY:-}" ] && ONLY_TESTING="$UNIT_TARGET/$ONLY"
 
-bold "[3/3] 单元测试（-only-testing:$ONLY_TESTING，串行）"
+bold "[3/3] 单元测试（-only-testing:${ONLY_TESTING}，串行）"
 rm -rf "$RESULT"   # -resultBundlePath 遇到已存在的路径会直接报错
 set +e
 xcodebuild test \
@@ -190,7 +193,7 @@ for f in fails:
 fi
 
 if [ "$status" -ne 0 ]; then
-    fail "测试未通过（完整日志：$LOG；结果包：$RESULT）"
+    fail "测试未通过（完整日志：${LOG}；结果包：${RESULT}）"
     echo "  （$LATEST_LOG / $LATEST_RESULT 是软链，并发跑时可能指向别人那次——认上面这两条带 PID 的）"
     echo "  失败某一条时，先单独重跑那个类确认是不是偶发："
     echo "    ONLY=<TestClass> ./scripts/test.sh"

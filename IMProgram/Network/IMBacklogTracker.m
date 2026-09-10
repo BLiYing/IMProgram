@@ -1,4 +1,5 @@
 #import "IMBacklogTracker.h"
+#import "IMChatWindowPlan.h"   // 可见下界的合并口径（只往小里收），与 im-web windowPlan.ts 同源
 
 // 400 = 2 页（服务端单页 200）。正常用户离线一晚攒的量远在此之下，走的还是老路径、什么都没变；
 // 只有"10 万条大群"这种会话才会被判 too_long 留成缺口——而那种会话本来就不该被当成本地齐全。
@@ -7,6 +8,7 @@ const int64_t IMSyncMaxGap = 400;
 @implementation IMBacklogTracker {
     NSMutableSet<NSString *> *_superConvs;
     NSMutableDictionary<NSString *, NSNumber *> *_headSeq;
+    NSMutableDictionary<NSString *, NSNumber *> *_historyFloor;
     NSMutableSet<NSString *> *_gappedConvs;
     NSMutableDictionary<NSString *, NSNumber *> *_pendingReceipts;
     BOOL _flushScheduled;
@@ -16,6 +18,7 @@ const int64_t IMSyncMaxGap = 400;
     if (self = [super init]) {
         _superConvs = [NSMutableSet set];
         _headSeq = [NSMutableDictionary dictionary];
+        _historyFloor = [NSMutableDictionary dictionary];
         _gappedConvs = [NSMutableSet set];
         _pendingReceipts = [NSMutableDictionary dictionary];
     }
@@ -38,6 +41,16 @@ const int64_t IMSyncMaxGap = 400;
 
 - (int64_t)headForConv:(NSString *)convID {
     return convID.length > 0 ? _headSeq[convID].longLongValue : 0;
+}
+
+- (void)noteHistoryFloor:(int64_t)floor forConv:(NSString *)convID {
+    if (convID.length == 0) { return; }
+    int64_t merged = IMChatMergeHistoryFloor(_historyFloor[convID].longLongValue, floor);
+    if (merged > 0) { _historyFloor[convID] = @(merged); }
+}
+
+- (int64_t)historyFloorForConv:(NSString *)convID {
+    return convID.length > 0 ? _historyFloor[convID].longLongValue : 0;
 }
 
 - (void)markGapForConv:(NSString *)convID {
@@ -73,6 +86,7 @@ const int64_t IMSyncMaxGap = 400;
 - (void)reset {
     [_superConvs removeAllObjects];
     [_headSeq removeAllObjects];
+    [_historyFloor removeAllObjects];
     [_gappedConvs removeAllObjects];
     [_pendingReceipts removeAllObjects];
     _flushScheduled = NO;

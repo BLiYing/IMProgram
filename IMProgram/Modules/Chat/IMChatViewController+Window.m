@@ -16,6 +16,7 @@
 
 #import "IMChatViewController+Private.h"
 #import "IMDatabase+Ranges.h"
+#import "IMChatWindowPlan.h"
 #import "IMMessageModel.h"
 #import "IMDatabase.h"
 #import "IMLog.h"
@@ -221,9 +222,7 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
         if (earliest == 0 || m.convSeq < earliest) { earliest = m.convSeq; }
     }
     self.windowState.atTail = atTail;
-    // conv_seq 是会话内从 1 起的连续序号，故"最早一条就是 1"⇒ 上面确定没有了，免掉一次白跑的翻页请求。
-    // （入群前历史不可见的新成员，其最早可见条 >1，会白跑一次，服务端回 has_before=false 后收敛。）
-    self.windowState.hasMoreAbove = (earliest != 1);
+    [self refreshHasMoreAbove];
     IMLogDebugWithTag(IMLogTagUI, @"chat_window_applied conv_id=%@ rows=%lu earliest=%lld at_tail=%d more_above=%d",
                       self.convID, (unsigned long)msgs.count, earliest, atTail, self.windowState.hasMoreAbove);
     [self checkWindowInvariantAt:@"apply"];
@@ -300,7 +299,7 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
     NSInteger droppedTail = [self dropOverflowFromTailKeepingAnchorRow:
                              (anchor ? anchor.row + (NSInteger)older.count : NSNotFound)];
     int64_t earliest = [self earliestLoadedConvSeq];
-    self.windowState.hasMoreAbove = (earliest != 1);
+    [self refreshHasMoreAbove];
     [table reloadData];
 
     // 行号与 windowState.messages 下标一一对应（numberOfRowsInSection 返回的就是它的 count，
@@ -597,11 +596,14 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
         older = [database contiguousMessagesForConv:cid beforeConvSeq:lo limit:page];
     }];
     if (older.count > 0) { [self prependMessages:older]; }
-    // **服务端的 has_before 是权威，且必须写在 prepend 之后**：prepend 里那句
-    // `hasMoreAbove = (earliest != 1)` 只是本地启发式，对"入群前历史不可见"的新成员是错的
-    // （他能看到的最早一条是 500 而不是 1）。顺序反了的话，启发式会把标志重新打开，
-    // 于是每次滚到顶都再问一次服务端、每次都得到"没有了"——永远不收敛的空转。
-    self.windowState.hasMoreAbove = hasBefore;
+    // **必须写在 prepend 之后**：prepend 会按新的上沿重算一次，顺序反了就被它覆盖掉。
+    //
+    // 这里**不再直接赋 `hasBefore`**（那是 2026-09-09 Web 侧复查打回的第 ② 条）：它是相对
+    // **本窗下沿**说的，不是相对整条会话，赋成布尔等于宣布"整条会话到顶了"——从搜索结果跳进
+    // 旧岛、上滑到岛顶时它同样为 false，之后回到最新那段再上滑会被永久静默屏蔽。
+    // 参数 `hasBefore` 已由网络层落成**会话级可见下界位点**（handleWindowResp → noteHistoryFloor），
+    // 本方法只需重算一次，判据仍只有 refreshHasMoreAbove 一处。
+    [self refreshHasMoreAbove];
 }
 
 #pragma mark - 向下翻页
@@ -857,6 +859,19 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
         if (m.convSeq > latest) { latest = m.convSeq; }
     }
     return latest;
+}
+
+/// 重算「窗口上方还有没有更早的」。**唯一入口**——换窗 / 接段 / 服务端应答三处都走它。
+///
+/// 早先这三处各写各的：换窗与接段用 `earliest != 1` 这个本地启发式，服务端应答直接赋 `has_before`。
+/// 两个毛病：① 启发式对**入群前历史不可见的新成员**恒真（他最早只能看到第 500 条），
+/// 每次滚到顶都再问一次、每次都得到"没有了"——永远不收敛的空转；② 服务端那次赋值只活到
+/// 下一次换窗，之后又被启发式打开。现在权威答案由网络层记成**会话级位点**
+/// （`historyFloorForConv:`，见 IMChatWindowPlan.h），这里只负责把它和当前上沿套进同一个判据。
+- (void)refreshHasMoreAbove {
+    int64_t earliest = [self earliestLoadedConvSeq];
+    int64_t floor = [IMSocketManager.sharedManager historyFloorForConv:self.convID];
+    self.windowState.hasMoreAbove = IMChatWindowHasMoreAbove(earliest, floor);
 }
 
 /// 窗口里最早的已上号 conv_seq（待发消息 conv_seq==0 不算）；窗口里没有已上号消息时返回 0。

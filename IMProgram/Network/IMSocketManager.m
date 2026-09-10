@@ -5,6 +5,7 @@
 #import "IMSocketManager+Private.h"
 #import "IMDatabase+Ranges.h"   // 区间清单：window_resp 落库后登记本窗覆盖段
 #import "IMBacklogTracker.h"
+#import "IMChatWindowPlan.h"
 #import "IMProtocol.h"
 #import "IMConversation.h"
 #import "IMMessageModel.h"
@@ -1312,6 +1313,12 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
     return head;
 }
 
+- (int64_t)historyFloorForConv:(NSString *)convID {
+    __block int64_t floor = 0;
+    dispatch_sync(_queue, ^{ floor = [self->_backlog historyFloorForConv:convID]; });
+    return floor;
+}
+
 /// 当前会话已同步到的最大 conv_seq（仅在 _queue 调用）。
 - (int64_t)syncedSeqForConv:(NSString *)convID {
     return convID ? _syncedSeq[convID].longLongValue : 0;
@@ -1388,6 +1395,12 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
         [self performDatabaseOperation:^(IMDatabase *database) {
             [database registerRangeInConv:convID from:spanLo to:spanHi];
         }];
+    }
+    // `has_before=false` ⇒ **本窗下沿就是我能看到的最早一条**。记成会话级位点（不是"这一窗的布尔"）：
+    // 判据与坑见 IMChatWindowPlan.h。**在这里记而不是在页面记**，与 im-web 把它记在 SDK 里对称——
+    // 跳转/换窗/退出重进都不该把它忘掉，忘掉的表现是滚到顶反复空问服务端。
+    if (!hasBefore && convID.length > 0) {
+        [_backlog noteHistoryFloor:IMChatFloorFromWindow(spanLo, anchor) forConv:convID];
     }
     IMLogSocket(@"window_resp conv=%@ anchor=%lld found=%d rows=%lu saved=%lu before=%d after=%d span=[%lld,%lld]",
                 convID, anchor, anchorFound, (unsigned long)messages.count, (unsigned long)saved,

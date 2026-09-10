@@ -34,6 +34,17 @@ extern const int64_t IMSyncMaxGap;
 - (void)noteHead:(int64_t)head forConv:(NSString *)convID;
 - (int64_t)headForConv:(NSString *)convID;
 
+/// 服务端说过的**可见下界位点**（`window_resp` 的 `has_before=false`）。0 = 未知。
+///
+/// **必须记位点、不能记布尔**，也不能只记在"当前这一窗"上——判据与坑见
+/// `IMChatWindowPlan.h` 的 `IMChatFloorFromWindow`。记在这里（连接级、按会话）
+/// 而不是 `IMChatWindowState`（窗口级）的理由：窗口每换一次就重建，
+/// 而"这条会话对我最早只能看到第 N 条"是**会话的属性**，换窗不该把它忘掉——
+/// 忘掉的表现是每次滚到顶都再问一次服务端、每次都得到"没有了"，永远不收敛的空转。
+/// 与 im-web 把 `floorSeq` 放在 SDK（而非组件 state）里是同一个位置选择。
+- (void)noteHistoryFloor:(int64_t)floor forConv:(NSString *)convID;
+- (int64_t)historyFloorForConv:(NSString *)convID;
+
 /// 缺口标记：收到 `too_long`（或 bump 显示本地落后）时置位；追平后消位。
 /// 缺口只会收窄不会扩大，所以消位条件必须是"确实追平了"，不能只看单页拉成功。
 - (void)markGapForConv:(NSString *)convID;
