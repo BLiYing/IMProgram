@@ -374,6 +374,9 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
 
 - (void)viewDidLoad {
     [super viewDidLoad];
+    // 「进会话」的**起点**（B0/B5 基线，OFFLINE_BACKLOG_DESIGN §5）。终点是 +Position.m 的
+    // chat_initial_position——那条早就有，缺的一直是起点，于是这个动作此前根本量不出来。
+    IMLogUI(@"chat_open conv_id=%@ entry_unread=%ld", self.convID, (long)self.entryUnread);
     self.view.backgroundColor = UIColor.systemBackgroundColor;
     // 标题 + 右上头像按钮：与复用刷新共用 refreshDisplayIdentity 同一口径（列表透传的头像立即显真图、
     // 免闪首字母；群资料加载后再由 reloadGroupInfo 补正）。

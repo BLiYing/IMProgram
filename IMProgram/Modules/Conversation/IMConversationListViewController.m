@@ -488,6 +488,13 @@ static CGFloat const kIMRowLeading = 16;
         [self.emptyLabel.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-IMTheme.space4 * 2],
     ]];
     [self.tableView reloadData];
+    // 冷启动终点（配 AppDelegate 的 app_launched）。**只打第一次**：这个 VC 一个进程只建一次，
+    // 静态量足够；打成每次刷新都记就成了高频日志，LOGGING §「UI」明确不要。
+    static BOOL loggedFirstVisible = NO;
+    if (!loggedFirstVisible) {
+        loggedFirstVisible = YES;
+        IMLogUI(@"conv_list_visible rows=%ld", (long)self.conversations.count);
+    }
 }
 
 - (void)viewWillAppear:(BOOL)animated {

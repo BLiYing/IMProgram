@@ -717,6 +717,9 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
 
 /// 回到"最新一窗"。发送消息、点 ↓ 按钮都走这里——它们的语义都是"我要看最新的"。
 - (void)resetWindowToTailAnimated:(BOOL)animated {
+    // 「↓ 到底」的起点／终点（B0/B5 基线，OFFLINE_BACKLOG_DESIGN §5）。低频（用户点一次才走一次），
+    // 不是滚动热路径——那条路是 maybeLoadNewerOnScroll，那里一个字都没加。
+    IMLogUI(@"jump_bottom_begin conv_id=%@ at_tail=%d", self.convID, self.windowState.atTail);
     BOOL replaced = !self.windowState.atTail;
     if (replaced) {
         __block NSArray<IMMessageModel *> *msgs = @[];
@@ -737,6 +740,8 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
     if (animated && !replaced) { [self scrollToBottomAnimated:YES]; } else { [self scrollToAbsoluteBottom]; }
     [self markVisibleRowsRead];
     [self updateJumpButton];
+    IMLogUI(@"jump_bottom_done conv_id=%@ rows=%lu replaced=%d",
+            self.convID, (unsigned long)self.windowState.messages.count, replaced);
 }
 
 /// 连收消息时窗口只涨不缩（活跃大群一小时 7 万条），到 kIMWindowMaxPages 窗就裁。**从哪头裁看用户在哪**：
