@@ -1369,6 +1369,10 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
     // 只是不成为气泡）。落库后据此登记区间，否则这一段永远进不了目录：`isConvComplete:`
     // 对这类会话恒假、`localSegmentStartInConv:` 判不出可用段，上滑每页都得重问服务端。
     int64_t spanLo = 0, spanHi = 0;
+    // **区间登记用 spanLo/spanHi（含占号行），可见下界用 minKept（只算留下来的行）——两者刻意不同。**
+    // 区间断言的是"这段服务端给全了"，事件行/墓碑也算给过；而下界要跟渲染上沿比，
+    // 必须落在页面真能渲染出来的号上，否则闸永远合不上（见 IMChatWindowPlan.h）。
+    int64_t minKept = 0;
     for (NSDictionary *md in messages) {
         if (![md isKindOfClass:NSDictionary.class]) { continue; }
         int64_t sq = [md[@"conv_seq"] longLongValue];
@@ -1389,6 +1393,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
             continue;
         }
         [self performDatabaseOperation:^(IMDatabase *database) { [database saveMessage:m]; }];
+        if (m.convSeq > 0 && (minKept == 0 || m.convSeq < minKept)) { minKept = m.convSeq; }
         saved++;
     }
     if (convID.length > 0 && spanHi >= spanLo && spanLo > 0) {
@@ -1400,7 +1405,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
     // 判据与坑见 IMChatWindowPlan.h。**在这里记而不是在页面记**，与 im-web 把它记在 SDK 里对称——
     // 跳转/换窗/退出重进都不该把它忘掉，忘掉的表现是滚到顶反复空问服务端。
     if (!hasBefore && convID.length > 0) {
-        [_backlog noteHistoryFloor:IMChatFloorFromWindow(spanLo, anchor) forConv:convID];
+        [_backlog noteHistoryFloor:IMChatFloorFromWindow(minKept, anchor) forConv:convID];
     }
     IMLogSocket(@"window_resp conv=%@ anchor=%lld found=%d rows=%lu saved=%lu before=%d after=%d span=[%lld,%lld]",
                 convID, anchor, anchorFound, (unsigned long)messages.count, (unsigned long)saved,
@@ -1536,6 +1541,11 @@ didOpenWithProtocol:(NSString *)protocol {
     dispatch_async(_queue, ^{
         if (webSocketTask != self->_task) { return; }
         self->_reconnectAttempts = 0;
+        // **可见下界每次连上都清掉**（2026-09-10 /code-review）：它是会变小的——群主关掉
+        // 「新成员仅可见入群后历史」后服务端的 `visibleFloorFor` 当即返回 0，而端上还缓存着旧值，
+        // 那条会话就在本 App 生命周期内再也翻不上去、且没有任何提示。head / 缺口标记不受影响
+        // （head 单调只增、自纠错；下界是唯一"陈旧即封死"的那一项）。
+        [self->_backlog clearHistoryFloors];
         [self updateState:IMSocketStateConnected];
         [self startHeartbeat];
         [self syncTrackedConversations]; // 按各会话 synced_conv_seq 触发增量同步，补回离线/缺失消息

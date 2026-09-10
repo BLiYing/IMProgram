@@ -17,15 +17,26 @@
 
 #pragma mark - 可见下界记在哪一条上
 
-/// 正常一窗：下界就是本窗最小的那个 conv_seq。
-- (void)test_下界取本窗最小位点 {
+/// 正常一窗：下界＝**客户端留下来的那批行**里最小的那个 conv_seq（不是整窗最小，见下一条）。
+- (void)test_下界取留下来的行的最小位点 {
     XCTAssertEqual(IMChatFloorFromWindow(500, 620), 500);
     XCTAssertEqual(IMChatFloorFromWindow(1, 1), 1);
 }
 
+/// **下界必须落在"页面真能渲染出来的号"上**（2026-09-10 /code-review，两端同一个洞）。
+/// 会话最早一条 seq=1 被「为所有人删除」、最早的真实消息是 seq=2：`window_resp` 里那条墓碑
+/// 照样回给客户端（服务端 LoadBefore 只过滤 conv_seq>0），但客户端当场把它删掉。
+/// 若拿**整窗**最小 seq（=1）当下界，而上沿只数真实消息（恒 2），`2<=1` 永假 →
+/// 每次滑到顶都再空问一次，**永不收敛**——比改造前还糟（改造前赋 has_before 一次就收敛）。
+- (void)test_下界不能落在被丢掉的墓碑上 {
+    // 传进来的必须是"留下来的行"的最小 seq，不是整窗最小 seq。
+    XCTAssertEqual(IMChatFloorFromWindow(2, 0), 2);
+    XCTAssertTrue(IMChatAtHistoryFloor(2, 2), @"上沿=2、下界=2 → 该停");
+}
+
 /// 整窗一条真消息都没有（全是 msg_op 事件行 / 墓碑，它们占号但不成为气泡）→ 退回锚点。
 /// 那同样断言了"anchor 之下没有"，不能因为窗空就把下界丢了——丢了就等于"未知"，
-/// 于是上滑又会去空问一次。
+/// 于是上滑又会去空问一次。锚点正是请求方当时的上沿，比得上、能收敛。
 - (void)test_空窗退回锚点 {
     XCTAssertEqual(IMChatFloorFromWindow(0, 620), 620);
     XCTAssertEqual(IMChatFloorFromWindow(0, 0), 0);      // 两个都没有 → 只能是未知
@@ -64,31 +75,32 @@
 
 #pragma mark - 上滚总闸
 
-/// 这是本轮 C3 iOS 要修的那条：`earliest != 1` 对**入群前历史不可见的新成员恒真**
-/// （他能看到的最早一条是 500 而不是 1），于是每次滚到顶都再问一次服务端、每次都得到
-/// "没有了"——永远不收敛的空转。叠上服务端说过的下界之后才会停。
-- (void)test_新成员滚到自己的可见下界后要停 {
-    // 服务端还没表过态：只能按老判据放行去问（宁可多问一次）。
-    XCTAssertTrue(IMChatWindowHasMoreAbove(500, 0));
-    // 服务端回过 has_before=false、下界记成 500 之后：同一个上沿就不该再问了。
-    XCTAssertFalse(IMChatWindowHasMoreAbove(500, 500));
-}
-
-/// conv_seq 从 1 起，1 号之上确定没有——这一条与下界无关，恒 NO。
+/// 粗闸只管"到没到 conv_seq 1"。
 - (void)test_上沿是1就到顶了 {
-    XCTAssertFalse(IMChatWindowHasMoreAbove(1, 0));
-    XCTAssertFalse(IMChatWindowHasMoreAbove(1, 500));
+    XCTAssertFalse(IMChatWindowHasMoreAbove(1));
+    XCTAssertTrue(IMChatWindowHasMoreAbove(2));
+    XCTAssertTrue(IMChatWindowHasMoreAbove(9820));
 }
 
 /// 窗口里全是待发消息（conv_seq==0）：没有可作边界的位点，不能拿 0 去问服务端。
 - (void)test_窗口里没有已上号消息时不发请求 {
-    XCTAssertFalse(IMChatWindowHasMoreAbove(0, 0));
-    XCTAssertFalse(IMChatWindowHasMoreAbove(-1, 0));
+    XCTAssertFalse(IMChatWindowHasMoreAbove(0));
+    XCTAssertFalse(IMChatWindowHasMoreAbove(-1));
 }
 
-/// 下界之上照常放行——别把闸修成"记过下界就再也不往上要了"。
-- (void)test_下界之上仍放行 {
-    XCTAssertTrue(IMChatWindowHasMoreAbove(9820, 500));
+/// **下界不能并进粗闸**（2026-09-10 /code-review）：iOS 的 hasMoreAbove 是本地展开与服务端
+/// 请求共用的一道闸，并进去会连本地已经存着的更早历史一起挡掉——成员退群再入群会抬高
+/// `join_conv_seq`，而入群前下载过的行仍在本地库里，用户跳进那一段往上滑就展不出来了。
+/// 粗闸对下界必须**无感**；下界只在 loadOlderPage 准备问服务端那一步生效。
+- (void)test_粗闸不受下界影响 {
+    XCTAssertTrue(IMChatWindowHasMoreAbove(300), @"本地存着 300、下界在 500：粗闸仍须放行，交给本地展开");
+}
+
+/// 入群前历史不可见的新成员：`oldest > 1` 对他恒真，只有服务端说过的下界能让上滑停下来。
+/// 这一条判的是**请求那一步**用的判据（loadOlderPage 里那句），不是粗闸。
+- (void)test_新成员滚到自己的可见下界后不再问服务端 {
+    XCTAssertFalse(IMChatAtHistoryFloor(0, 500), @"服务端没表过态 → 去问（宁可多问一次）");
+    XCTAssertTrue(IMChatAtHistoryFloor(500, 500), @"服务端说过 500 之下没有 → 别再空问");
 }
 
 #pragma mark - 簿记：下界记在会话上，不是记在窗口上
@@ -119,6 +131,23 @@
     [t noteHistoryFloor:0 forConv:@"c1"];
     [t noteHistoryFloor:-3 forConv:@"c1"];
     XCTAssertEqual([t historyFloorForConv:@"c1"], 0);
+}
+
+/// **每次连上都要清下界**（2026-09-10 /code-review）：它是会**变小**的——群主关掉
+/// 「新成员仅可见入群后历史」后服务端的可见下界当即降到 0，而端上还缓存着旧的 500，
+/// 那条会话就在本 App 生命周期内再也翻不上去、且没有任何提示。
+/// 只清下界，**不动 head / 缺口**（那两项自纠错，下界是唯一"陈旧即封死"的）。
+- (void)test_clearHistoryFloors只清下界 {
+    IMBacklogTracker *t = [IMBacklogTracker new];
+    [t noteHistoryFloor:500 forConv:@"c1"];
+    [t noteHead:20001 forConv:@"c1"];
+    [t markGapForConv:@"c1"];
+
+    [t clearHistoryFloors];
+
+    XCTAssertEqual([t historyFloorForConv:@"c1"], 0);
+    XCTAssertEqual([t headForConv:@"c1"], 20001, @"head 不该被连累");
+    XCTAssertTrue([t hasGapForConv:@"c1"], @"缺口标记不该被连累");
 }
 
 /// 切账号 / 断开必须清干净：同一个 conv_id 在两个账号下可见范围不同，串了就是错的

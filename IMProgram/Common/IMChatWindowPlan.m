@@ -3,8 +3,8 @@
 
 #import "IMChatWindowPlan.h"
 
-int64_t IMChatFloorFromWindow(int64_t minSeqInWindow, int64_t anchor) {
-    if (minSeqInWindow > 0) { return minSeqInWindow; }
+int64_t IMChatFloorFromWindow(int64_t minKeptSeq, int64_t anchor) {
+    if (minKeptSeq > 0) { return minKeptSeq; }
     return anchor > 0 ? anchor : 0;
 }
 
@@ -18,8 +18,7 @@ BOOL IMChatAtHistoryFloor(int64_t historyFloor, int64_t oldestSeq) {
     return historyFloor > 0 && oldestSeq > 0 && oldestSeq <= historyFloor;
 }
 
-BOOL IMChatWindowHasMoreAbove(int64_t oldestRendered, int64_t historyFloor) {
+BOOL IMChatWindowHasMoreAbove(int64_t oldestRendered) {
     if (oldestRendered <= 0) { return NO; }   // 窗口里全是待发消息：没有可作边界的位点
-    if (oldestRendered <= 1) { return NO; }   // conv_seq 从 1 起，1 号之上确定没有
-    return !IMChatAtHistoryFloor(historyFloor, oldestRendered);
+    return oldestRendered > 1;                // conv_seq 从 1 起，1 号之上确定没有
 }

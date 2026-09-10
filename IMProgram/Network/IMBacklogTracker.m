@@ -53,6 +53,10 @@ const int64_t IMSyncMaxGap = 400;
     return convID.length > 0 ? _historyFloor[convID].longLongValue : 0;
 }
 
+- (void)clearHistoryFloors {
+    [_historyFloor removeAllObjects];
+}
+
 - (void)markGapForConv:(NSString *)convID {
     if (convID.length > 0) { [_gappedConvs addObject:convID]; }
 }

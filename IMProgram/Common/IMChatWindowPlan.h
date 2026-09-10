@@ -29,11 +29,21 @@ NS_ASSUME_NONNULL_BEGIN
  ——记成布尔就等于宣布"整条会话到顶了"，之后回到最新那一段再上滑会被**永久静默屏蔽**，
  中间那段缺口再也补不上。
 
- @param minSeqInWindow 本窗里最小的正 conv_seq（含事件行与墓碑——它们同样是"服务端给过了"）；
-                       0 = 整窗一条都没有。对应 im-web `floorFromWindow` 里对 seqs 取 min 那一步。
- @param anchor         本次开窗的锚点。整窗都是占号行时退回它——那同样断言了"anchor 之下没有"。
+ ⚠️ **`minKeptSeq` 必须是「客户端真正会留下的行」的最小 seq，不能是整窗最小 seq**
+ （2026-09-10 /code-review 抓到，两端同一个洞）。`window_resp` 里混着 msg_op 事件行与
+ 「为所有人删除」的墓碑，它们**占号但会被客户端当场丢掉**（iOS `handleWindowResp` 一个 `continue`
+ 一个 `removeLocalMessage…`；Web 的 `processIncoming` 同样不产出）。拿整窗最小 seq 当下界，
+ 就把下界记在了一条**页面永远渲染不出来的号**上，而拿去比的上沿只数真实消息 →
+ `IMChatAtHistoryFloor` 恒假 → 每次滑到顶都再空问一次，**永不收敛**。
+ 具体：会话最早一条 seq=1 被「为所有人删除」、最早的真实消息是 seq=2 → 下界记成 1，
+ 上沿恒为 2，`2<=1` 永假。这正是本判据要消灭的那个空转，且比改造前更糟
+ （改造前那一行是 `hasMoreAbove = hasBefore`，一次应答后就收敛）。
+
+ @param minKeptSeq 本窗里**客户端留下的**行的最小正 conv_seq；0 = 整窗都是占号行 / 一条都没有。
+ @param anchor     本次开窗的锚点。留不下任何行时退回它——那同样断言了"anchor 之下没有"，
+                   且 anchor 正是请求方当时的上沿，比得上、能收敛。
  */
-extern int64_t IMChatFloorFromWindow(int64_t minSeqInWindow, int64_t anchor);
+extern int64_t IMChatFloorFromWindow(int64_t minKeptSeq, int64_t anchor);
 
 /// 两次报上来的可见下界怎么合并：**只往小里收**（同 im-web 的 `Math.min`）。
 /// 往大里收会把已经证实存在的更早内容挡在外面，那是"少给用户看东西"的方向，不能容忍。
@@ -45,16 +55,17 @@ extern int64_t IMChatMergeHistoryFloor(int64_t currentFloor, int64_t incomingFlo
 extern BOOL IMChatAtHistoryFloor(int64_t historyFloor, int64_t oldestSeq);
 
 /**
- 上滚这一路的**总闸**：窗口上方是否还可能有更早的（本地库或服务端）。
+ 上滚的**粗闸**：窗口上方是否还可能有更早的。只回答"上沿是不是已经到 conv_seq 1"。
 
- 与 im-web `App.tsx` 上滚分支里 `oldestRendered > 1 && !atHistoryFloor(cid, oldestRendered)`
- 同一判据。`> 1` 只是猜——conv_seq 从 1 起，但对**入群前历史不可见的新成员**，他能看到的最早
- 一条可能是 500，`> 1` 对他恒真，于是每次滚到顶都再问一次服务端、每次都得到"没有了"，
- **永远不收敛的空转**。真正权威的答案只有服务端的 `has_before`，所以要叠上下界这一条。
+ ⚠️ **可见下界那道闸刻意不放在这里**（2026-09-10 /code-review 抓到）。iOS 的 `hasMoreAbove`
+ 是本地展开与服务端请求**共用**的一道闸，而 im-web 那边 `atHistoryFloor` 只出现在
+ 「本地展不出来了」之后的分支里——把下界并进总闸，就会连**本地已经存着的**更早历史也一起挡掉：
+ 成员退群再入群会把 `join_conv_seq` 刷成新值（服务端 `store_group.go`），下界随之抬高，
+ 而入群前下载过的行仍在本地库里；用户跳进那一段往上滑，本地明明有也展不出来。
+ 所以下界只在 `loadOlderPage` 里「本段到头、准备问服务端」那一步生效。
 
  @param oldestRendered 当前窗口里最早的已上号 conv_seq；<=0（窗口里全是待发消息）一律 NO。
- @param historyFloor   服务端说过的可见下界位点（0=未知）。
  */
-extern BOOL IMChatWindowHasMoreAbove(int64_t oldestRendered, int64_t historyFloor);
+extern BOOL IMChatWindowHasMoreAbove(int64_t oldestRendered);
 
 NS_ASSUME_NONNULL_END

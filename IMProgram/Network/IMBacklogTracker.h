@@ -45,6 +45,12 @@ extern const int64_t IMSyncMaxGap;
 - (void)noteHistoryFloor:(int64_t)floor forConv:(NSString *)convID;
 - (int64_t)historyFloorForConv:(NSString *)convID;
 
+/// 只清可见下界，**不动 head / 缺口 / 回执**。每次连上都要清一次（见调用处注释）：
+/// 下界是会**变小**的——群主关掉「新成员仅可见入群后历史」，服务端 `visibleFloorFor`
+/// 当即返回 0，而端上缓存着旧的 500，于是那条会话在本 App 生命周期内**再也翻不上去且无任何提示**。
+/// 缓存陈旧的代价只是每条会话多问一次服务端，方向是安全的；反过来则是无声地少给用户看东西。
+- (void)clearHistoryFloors;
+
 /// 缺口标记：收到 `too_long`（或 bump 显示本地落后）时置位；追平后消位。
 /// 缺口只会收窄不会扩大，所以消位条件必须是"确实追平了"，不能只看单页拉成功。
 - (void)markGapForConv:(NSString *)convID;

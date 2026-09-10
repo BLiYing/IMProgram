@@ -263,7 +263,17 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
         [self prependMessages:older];
         return;
     }
-    [self requestServerWindowAnchor:lo isJump:NO]; // 本段到头（或撞上缺口）→ 问服务端
+    // 本段到头（或撞上缺口）→ 问服务端。**但先看服务端有没有说过"下面没有了"**。
+    // 这道闸只放在这里、不放进 hasMoreAbove：那是本地展开与服务端请求共用的总闸，
+    // 并进去会连**本地已经存着的**更早历史一起挡掉（退群再入群会抬高下界，而入群前
+    // 下载过的行还在库里）。与 im-web 的结构一致：atHistoryFloor 只出现在"本地展不出来"之后。
+    if (IMChatAtHistoryFloor([IMSocketManager.sharedManager historyFloorForConv:self.convID], lo)) {
+        // 置 NO 是为了让随后每一帧滚动短路掉，不必每帧再查一次本地库。
+        self.windowState.hasMoreAbove = NO;
+        IMLogDebugWithTag(IMLogTagUI, @"chat_window_at_floor conv_id=%@ oldest=%lld", self.convID, lo);
+        return;
+    }
+    [self requestServerWindowAnchor:lo isJump:NO];
 }
 
 /// 把更早的一段接到窗口顶部，并**保住用户当前看的那一行**。
@@ -861,17 +871,18 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
     return latest;
 }
 
-/// 重算「窗口上方还有没有更早的」。**唯一入口**——换窗 / 接段 / 服务端应答三处都走它。
+/// 重算「窗口上方还有没有更早的」这道**粗闸**。换窗 / 接段 / 服务端应答三处都走它。
 ///
-/// 早先这三处各写各的：换窗与接段用 `earliest != 1` 这个本地启发式，服务端应答直接赋 `has_before`。
-/// 两个毛病：① 启发式对**入群前历史不可见的新成员**恒真（他最早只能看到第 500 条），
-/// 每次滚到顶都再问一次、每次都得到"没有了"——永远不收敛的空转；② 服务端那次赋值只活到
-/// 下一次换窗，之后又被启发式打开。现在权威答案由网络层记成**会话级位点**
-/// （`historyFloorForConv:`，见 IMChatWindowPlan.h），这里只负责把它和当前上沿套进同一个判据。
+/// 早先这三处各写各的：换窗与接段用 `earliest != 1`，服务端应答直接赋 `has_before` 布尔——
+/// 后者**只活到下一次换窗**，之后又被启发式打开，于是每次滚到顶都再问一次、每次都得到
+/// "没有了"，永不收敛的空转。现在权威答案由网络层记成**会话级位点**（`historyFloorForConv:`），
+/// 而那道闸放在 `loadOlderPage` 里「本段到头、准备问服务端」那一步——**不在这里**，
+/// 理由见 IMChatWindowPlan.h 的 `IMChatWindowHasMoreAbove`（并进来会连本地已有的历史一起挡掉）。
+///
+/// ⚠️ 本方法不是 `hasMoreAbove` 的唯一写入点：裁窗两处（丢掉的那段仍在本地）与离线翻页失败
+/// 那一处仍直接赋值，方向都是安全的（往"还有"倒）。
 - (void)refreshHasMoreAbove {
-    int64_t earliest = [self earliestLoadedConvSeq];
-    int64_t floor = [IMSocketManager.sharedManager historyFloorForConv:self.convID];
-    self.windowState.hasMoreAbove = IMChatWindowHasMoreAbove(earliest, floor);
+    self.windowState.hasMoreAbove = IMChatWindowHasMoreAbove([self earliestLoadedConvSeq]);
 }
 
 /// 窗口里最早的已上号 conv_seq（待发消息 conv_seq==0 不算）；窗口里没有已上号消息时返回 0。
