@@ -5,14 +5,17 @@
 
 ## 当前焦点
 
-> **通讯录 Tab 延迟修复 ✅ 2026-09-06**。切换到通讯录时延迟 0.5-1.5s（等待 HTTP 请求），因为
-> `viewWillAppear` 每次都无条件调 `reload()`（登录 + 拉友列表）。改为**事件驱动**：
-> - `reconnectReloader` 监听网络重连时刷新
-> - `onFriendEvent` 监听 Socket 好友事件即时更新
-> - 首次进入使用本地缓存种子（已在 init 加载），无需同步请求
-> 
-> 预期：Tab 切换响应 <100ms（从 500-1500ms 改善），与会话/设置切换流畅度对齐。
-> 已提交 `7930087`。
+> **会话内搜索服务端命中翻页 ✅ 2026-09-11**（与 im-web `b30bed6` 对齐）：有缺口的会话走服务端检索，
+> 原先只取一页（计数写「/ 50+ 条」却翻不过去）。▲ 翻过最旧命中带 `next_cursor` 取下一页，判据在
+> `Common/IMChatSearchPaging`（8 例单测），调用点 `IMChatViewController+Search.m` 的 `loadOlderSearchHitsAttempt:`。
+> 模拟器实测过（20000人大群 10 万条命中翻过第一页），脚本 `IMProgramUITests/IMChatSearchPagingUITests`
+> 需 `:8099` 积压副本库（IMServer `docs/ops/LOAD_TESTING.md` §10.5），默认跳过。
+>
+> ⚠️ 顺带发现两处**既有无障碍缺口，未改**：① 注入的液态标题栏没透出右上角「聊天详情」按钮的 accessibilityLabel
+> （VoiceOver 念不出）；② 详情页操作排按钮的 accessibilityLabel 是动作键（"search"/"more"），
+> `IMChatDetailViewController+Actions.m` 的 `pillTapped:` 靠它分派——改 label 要连分派一起改成 identifier。
+>
+> **接下来是 C4**（↓ 跳到底 / 实时跳号 / conv_bump，OFFLINE_BACKLOG_DESIGN §4.8），Web 先做先验，再同步到这里。
 
 > 更早的已完成块已移入 [current_task.archive.md](current_task.archive.md)（只读归档）。
 
