@@ -867,6 +867,11 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
     __block BOOL saved = NO;
     BOOL contextIsCurrent = [self performDatabaseOperation:^(IMDatabase *database) {
         saved = [database saveIncomingMessage:msg advancingSyncedConvSeq:effectiveAdvance];
+        // 实时消息**落库成功后**登记 [seq, seq]（C4，OFFLINE_BACKLOG_DESIGN §4.8：跳号不补、登记成岛，紧接尾段则并进尾段）。
+        // 与 im-web 同一条规则。sync 路径不在这里登记：那边按页整段登记（+Sync.m），逐条登记十万条就是十万次写。
+        // 未与消息同一事务（im-web 是）：先落库后登记保证了「没落库就绝不登记」，缺的只是崩在两步之间时少登一格——
+        // 方向是保守的（多问服务端一次），不会宣称拿到了没拿到的。
+        if (saved && !fromSync && msg.convSeq > 0) { [database registerRangeInConv:msg.convID from:msg.convSeq to:msg.convSeq]; }
     }];
     if (!contextIsCurrent) { return NO; } // 账号已切换：不推进、不投递
     if ([msg.contentType isEqualToString:@"file"]) {

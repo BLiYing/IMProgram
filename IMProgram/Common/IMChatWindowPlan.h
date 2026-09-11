@@ -68,4 +68,30 @@ extern BOOL IMChatAtHistoryFloor(int64_t historyFloor, int64_t oldestSeq);
  */
 extern BOOL IMChatWindowHasMoreAbove(int64_t oldestRendered);
 
+#pragma mark - C4：↓ 跳到底 / 超级群 conv_bump（OFFLINE_BACKLOG_DESIGN §4.8）
+
+/**
+ 「取最新一页」拿回的那一段的下沿：`[tip-page+1, tip]`。
+
+ 服务端 `window_req(anchor=0, before=page)` 回的是**以 head 结尾的 page 条**
+ （IMServer `internal/gateway/window.go` 的 `got[len(got)-before:]`）。按 `tip-page` 算会多要一条——
+ 刚取回最新一页后这一窗永远判不齐，每次点 ↓ 都白问一次（2026-09-11 im-web 的出站帧测试抓到，两端同口径）。
+ */
+extern int64_t IMChatLatestPageLow(int64_t tip, NSInteger page);
+
+/**
+ 超级群 conv_bump 到了、会话正开着：该不该补。与 im-web `windowPlan.planBumpCatchUp` 的**不变式**一致：
+ 没贴底（在翻历史）就**不补**——↓N 按 head 计数，点 ↓ 再取；贴底跟随才补。
+
+ ⚠️ **补法与 im-web 刻意不同**（SYMMETRY 已登记）：im-web 差距 ≤ 一页时只取差的那几条（`anchor=尾段上沿, after=差距`）；
+ iOS 一律走 `requestServerTailWindowIfBehind`（取最新一页、整窗替换、贴底）。原因在窗口模型：iOS 内存只装一窗，
+ 「从尾巴接着取」落库后走 `appendNewerFromLocalAfter:`，那条路**保持首个可见行不动、不贴底**（它是给用户手动下滑用的），
+ 跟随中的人会看到新消息落在屏幕下方要自己滑——比现在更差。代价只是多下几十行已在本地的消息。
+
+ @param following 窗口含本地最新**且**贴着底部。只看 atTail 不够：在尾窗里往上滑着读时取最新会整窗替换并贴底，把人拽走。
+ @param head      服务端最新位点（未知为 0）。
+ @param tailHi    窗口里最新一条的 conv_seq（0 = 窗口里没有已上号的消息）。
+ */
+extern BOOL IMChatBumpShouldCatchUp(BOOL following, int64_t head, int64_t tailHi);
+
 NS_ASSUME_NONNULL_END

@@ -181,8 +181,12 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
     if (!hit) { return; }
     // 用户正在看历史（窗口不在末尾）时**不要**把他拽到最新，只刷 ↓N——它按 head 算，
     // 不依赖本地有没有下载；用户想看时点 ↓，那条路会去取。
-    if (!self.windowState.atTail) { [self updateJumpButton]; return; }
-    [self requestServerTailWindowIfBehind];
+    // **贴底跟随才补**（C4，判据 IMChatBumpShouldCatchUp）：窗口含本地最新**且**贴着底部。
+    // C4 之前只看 atTail——用户在尾窗里往上滑着读时，这次取最新会整窗替换并贴底，把人拽走。
+    BOOL following = self.windowState.atTail && [self isNearBottom];
+    int64_t head = [IMSocketManager.sharedManager headConvSeqForConv:self.convID];
+    if (!IMChatBumpShouldCatchUp(following, head, [self latestLoadedConvSeq])) { [self updateJumpButton]; return; }
+    [self requestServerTailWindowIfBehind];   // 取最新一页（补法与 im-web 刻意不同，理由见 IMChatBumpShouldCatchUp）
 }
 
 /// 本地尾巴落后于服务端最新位点 → 要一窗最新的（anchor=0 即"取最新"，PROTOCOL §6.11）。
@@ -193,12 +197,20 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
     if (IMSocketManager.sharedManager.state != IMSocketStateConnected) { return; }
     if (self.windowState.pendingTail) { return; }
     NSString *convID = self.convID;
-    __block int64_t localMax = 0;
-    [self performDatabaseOperation:^(IMDatabase *database) { localMax = [database maxConvSeqForConv:convID]; }];
     int64_t head = [IMSocketManager.sharedManager headConvSeqForConv:convID];
-    if (head <= 0 || head <= localMax) { return; }   // 已经是最新的，或不知道最新在哪 → 不白跑
+    if (head <= 0) { return; }   // 不知道最新在哪 → 不白跑
+    // **问区间清单「最新一页齐不齐」，不比最大 seq**（C4，与 im-web windowPlan.planJumpToLatest 同口径）：
+    // 离线积压超过 max_gap 后实时来一条，它被登记成孤岛 [seq, seq]，本地最大 seq 已等于 head——
+    // 旧判据 `head <= localMax` 判「已是最新」，点 ↓ / 进无未读的会话只看到孤零零一条，上面那一页永远不来。
+    // 这也是 C3 iOS 记着的残留①（「无未读那条路 head <= localMax 误判已是最新」）。
+    __block BOOL covered = NO;
+    NSInteger page = IMWindowPage();
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        covered = [database conv:convID coversFrom:IMChatLatestPageLow(head, page) to:head];
+    }];
+    if (covered) { return; }
     self.windowState.pendingTail = YES;
-    IMLogDebugWithTag(IMLogTagUI, @"chat_window_tail_request conv_id=%@ local_max=%lld head=%lld", convID, localMax, head);
+    IMLogDebugWithTag(IMLogTagUI, @"chat_window_tail_request conv_id=%@ head=%lld", convID, head);
     [IMSocketManager.sharedManager requestWindowForConv:convID anchor:0 before:IMWindowPage() after:0];
     __weak typeof(self) ws = self;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kIMWindowRequestTimeout * NSEC_PER_SEC)),

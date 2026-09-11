@@ -159,4 +159,30 @@
     XCTAssertEqual([t historyFloorForConv:@"c1"], 0);
 }
 
+#pragma mark - C4：↓ 跳到底 / conv_bump（与 im-web windowPlan.test.ts 同一组场景）
+
+/// 取最新拿回的正是 `[tip-199, tip]` 这 200 条。下沿多算一条，刚取回最新一页后这一窗永远判不齐，
+/// 每次点 ↓ 都白问一次（2026-09-11 im-web 出站帧测试抓到的 off-by-one，两端同口径）。
+- (void)test_最新一页下沿是tip减page加1 {
+    XCTAssertEqual(IMChatLatestPageLow(1000, 200), 801);
+    XCTAssertEqual(IMChatLatestPageLow(50, 200), 1, @"会话不足一页时下沿钳到 1");
+}
+
+/// C4 之前 iOS 在 atTail 时一律取最新一窗；用户在尾窗里往上滑着读时会被整窗替换并贴底拽走。
+/// 「贴底」由调用方算成 atTail && isNearBottom 传进来，这里钉的是「没贴底就绝不补」。
+- (void)test_bump没贴底不补 {
+    XCTAssertFalse(IMChatBumpShouldCatchUp(NO, 130, 100));
+    XCTAssertFalse(IMChatBumpShouldCatchUp(NO, 5000, 100), @"差距再大，在翻历史也不补——↓N 按 head 计数");
+}
+
+- (void)test_bump贴底且落后才补 {
+    XCTAssertTrue(IMChatBumpShouldCatchUp(YES, 130, 100));
+    XCTAssertTrue(IMChatBumpShouldCatchUp(YES, 50, 0), @"窗口里没有已上号的消息");
+}
+
+- (void)test_bump已含最新或不知道最新不补 {
+    XCTAssertFalse(IMChatBumpShouldCatchUp(YES, 130, 130), @"信号晚到，窗口已含最新");
+    XCTAssertFalse(IMChatBumpShouldCatchUp(YES, 0, 100), @"head 未知");
+}
+
 @end
