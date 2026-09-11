@@ -66,6 +66,51 @@
     XCTAssertEqualObjects([idx cardAtSection:2 row:0].displayName, @"123数字");
 }
 
+/// 分桶走的是内部「复用已算拼音」那条路（不是公开的 sectionKeyForName:），多音姓氏也要在索引里归对桶。
+- (void)testIndexBucketsPolyphonicSurnames {
+    IMContactSectionIndex *idx = [[IMContactSectionIndex alloc] initWithCards:@[
+        [self cardWithNickname:@"曾国藩" uid:@"u1"],
+        [self cardWithNickname:@"单雄信" uid:@"u2"],
+    ]];
+    XCTAssertEqualObjects(idx.titles, (@[ @"S", @"Z" ]));
+    XCTAssertEqualObjects([idx cardAtSection:1 row:0].displayName, @"曾国藩");
+}
+
+#pragma mark - 异步构建
+
+/// 后台构建与同步构建结果一致，且 completion 回到主线程（调用方在回调里直接 reloadData）。
+- (void)testAsyncBuildMatchesSyncAndCallsBackOnMain {
+    NSArray<IMUserCard *> *cards = @[
+        [self cardWithNickname:@"刘备" uid:@"u1"],
+        [self cardWithNickname:@"Alice" uid:@"u2"],
+        [self cardWithNickname:@"李四" uid:@"u3"],
+        [self cardWithNickname:@"123数字" uid:@"u4"],
+    ];
+    IMContactSectionIndex *sync = [[IMContactSectionIndex alloc] initWithCards:cards];
+    XCTestExpectation *done = [self expectationWithDescription:@"async build"];
+    [IMContactSectionIndex buildWithCards:cards completion:^(IMContactSectionIndex *index) {
+        XCTAssertTrue(NSThread.isMainThread);
+        XCTAssertEqualObjects(index.titles, sync.titles);
+        for (NSInteger s = 0; s < sync.numberOfSections; s++) {
+            XCTAssertEqual([index numberOfRowsInSection:s], [sync numberOfRowsInSection:s]);
+            for (NSInteger r = 0; r < [sync numberOfRowsInSection:s]; r++) {
+                XCTAssertEqual([index cardAtSection:s row:r], [sync cardAtSection:s row:r]);
+            }
+        }
+        [done fulfill];
+    }];
+    [self waitForExpectationsWithTimeout:5 handler:nil];
+}
+
+- (void)testAsyncBuildNilCards {
+    XCTestExpectation *done = [self expectationWithDescription:@"async nil"];
+    [IMContactSectionIndex buildWithCards:nil completion:^(IMContactSectionIndex *index) {
+        XCTAssertEqual([index numberOfSections], 0);
+        [done fulfill];
+    }];
+    [self waitForExpectationsWithTimeout:5 handler:nil];
+}
+
 #pragma mark - 边界
 
 - (void)testEmptyAndOutOfRange {

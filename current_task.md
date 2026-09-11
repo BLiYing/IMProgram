@@ -5,18 +5,24 @@
 
 ## 当前焦点
 
+> **通讯录好友列表空白 + 切 Tab 卡顿 ✅ 2026-09-11（真机手测通过 2026-09-12；`scripts/test.sh` 462/462 绿，新增 8 例中 7 例变异红过——`testAsyncBuildNilCards` 是边界例、未单独变异；独立复查无阻塞项）**：`7930087`（09-06）为治卡顿删了
+> `viewWillAppear` 里的 `reload`，但好友缓存只有通讯录页自己写、socket 早在会话页就连上（重连刷新不触发）→
+> 整页空白、左滑删除/拉黑静默失效（`token` 从未赋值）、「新的朋友」徽标不亮。
+> **卡顿真因不是请求**（异步 + 10 分钟 token 缓存），是 user1001/1002 各约 2000 好友、回来后**主线程**重建拼音索引
+> （Mac 实测旧实现 300–440ms，其中每人拼音转了两遍）。修法：`IMContactSectionIndex buildWithCards:completion:`
+> 后台串行队列算 + 拼音 `NSCache` + 去掉重复转换（首次约 290ms 在后台，之后约 12ms）；切入刷新恢复并加 30s 节流
+> （判据 `IMContactsShouldRefreshOnAppear`，好友事件/重连/本页增删不走节流）；种子与备注变更也改后台建，旧代号结果丢弃。
+> **待手测**：user1001 登录 → 通讯录出 A–Z 分组；与会话/设置来回快切不卡；左滑删除/拉黑有反应；
+> `../IMServer/dev-logs/im-ios.log` 搜 `contacts_index_applied` 看 `latency_ms`（第二次起应是个位数）。
+> **没改的主线程开销**：好友缓存整表重写 2013 行（Mac 约 16ms）、2013 张卡片解析与 `IMRemarkStore` 灌入；选好友页仍同步建索引（受益于拼音缓存）。
+> **复查留的一条（老问题，未修）**：`reload` 本身不防重入，节流只挡切入这一路；好友事件 / 增删拉黑与切入的请求并发时，
+> 后发先至会让 `applyFriends:` 按到达顺序覆盖成较旧名单（短暂，下次刷新自愈）。补法：`reload` 在途时只记「待重跑」，回来后再拉一次。
+
 > **会话内搜索服务端命中翻页 ✅ 2026-09-11**（与 im-web `b30bed6` 对齐）：有缺口的会话走服务端检索，
 > 原先只取一页（计数写「/ 50+ 条」却翻不过去）。▲ 翻过最旧命中带 `next_cursor` 取下一页，判据在
 > `Common/IMChatSearchPaging`（8 例单测），调用点 `IMChatViewController+Search.m` 的 `loadOlderSearchHitsAttempt:`。
 > 模拟器实测过（20000人大群 10 万条命中翻过第一页），脚本 `IMProgramUITests/IMChatSearchPagingUITests`
 > 需 `:8099` 积压副本库（IMServer `docs/ops/LOAD_TESTING.md` §10.5），默认跳过。
->
-> **顺带发现的两处读屏（VoiceOver）缺口 ✅ 2026-09-11 已修**：① 注入的液态标题栏丢了页面挂在右上 item 上的
-> accessibilityLabel（聊天页头像按钮念不出「X的聊天详情」）→ `IMLiquidNavigationBar.actionAccessibilityLabel`，
-> 由 `IMMainTabBarController.m` 的 `applyBarItemsForController:` 透传；② 详情页操作排 label 是动作键（念英文 "search"）
-> → label 改放标题，动作键放 identifier `detail.pill.<键>`（`+Private.h` 的 `IMDetailPillIdentifier`），`pillTapped:` 改认 identifier。
-> 单测 `IMAccessibilityLabelTests`（2 例，双向变异过）；上面那条 UI 测试已改成按标签/标识找这两处、不再按位置兜底，模拟器重跑通过。
-> 左上角自定义纯图标钮（如 xmark）仍一律念「返回」——目前没有页面给左 item 设标签，未做透传。
 >
 > **C4 ✅ 2026-09-11**（`c6d2015`，同步 im-web）：`requestServerTailWindowIfBehind` 改问区间清单（收掉 C3 残留①「无未读那条路
 > `head <= localMax`」）、实时消息落库后登记 [seq, seq]、bump 贴底跟随才补（补法与 Web 刻意不同，见 `IMChatBumpShouldCatchUp`）。

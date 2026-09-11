@@ -114,7 +114,20 @@
 @property (nonatomic, strong) UIView *emptyFooter;  // 承载 emptyLabel 的表尾容器（见 layoutEmptyFooter）
 @property (nonatomic, strong, nullable) IMDatabaseAccountContext *databaseContext; // 任务5：本地缓存账号隔离
 @property (nonatomic, strong) IMReconnectReloader *reconnectReloader;              // 重连即取权威（可见时）
+@property (nonatomic, assign) NSUInteger indexGeneration;   // 最近一次发起的索引构建代号；回来的不是这一代就丢弃
+@property (nonatomic, assign) CFTimeInterval lastRefreshAt; // 最近一次拉到权威好友列表的时刻（CACurrentMediaTime，0=从未）
+@property (nonatomic, assign) BOOL refreshInFlight;         // 好友列表请求在途（切入节流用）
 @end
+
+/// 切入通讯录的刷新节流间隔：来回切 Tab 不必每次都拉 2000 人的名单，变化靠好友事件与重连兜住。
+static const CFTimeInterval kIMContactsAppearRefreshInterval = 30;
+
+BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt,
+                                     CFTimeInterval now, CFTimeInterval interval) {
+    if (inFlight) { return NO; }
+    if (lastRefreshAt <= 0 || now < lastRefreshAt) { return YES; }
+    return now - lastRefreshAt >= interval;
+}
 
 @implementation IMContactsViewController
 
@@ -132,7 +145,9 @@
         }];
         _pending = @[];              // 待处理申请不落库（易变，以服务端为准），联网后由 applyFriends 补上
         _accepted = cachedFriends;   // 好友种子（离线首屏）
-        _friendIndex = [[IMContactSectionIndex alloc] initWithCards:cachedFriends]; // 种子也分组，离线首屏即带索引
+        // 种子也分组，离线首屏即带索引。后台算：本页随 TabBar 在启动时就创建，2000 人同步分组会拖慢冷启动。
+        _friendIndex = [[IMContactSectionIndex alloc] initWithCards:@[]];
+        [self rebuildFriendIndexWithReason:@"seed"];
         [self buildEntries];
         // 实时好友事件：即使没在通讯录页，也据此刷新（Tab 角标随之亮/灭，无需切页）。
         [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onFriendEvent)
@@ -171,8 +186,7 @@
 /// 收到好友事件 → 节流刷新（合并连发，避免每帧一次登录+拉取）。
 /// 备注名变更 → 按新显示名重排分桶并刷新（纯本地，零请求）。
 - (void)onRemarkChanged {
-    self.friendIndex = [[IMContactSectionIndex alloc] initWithCards:self.accepted];
-    [self.tableView reloadData];
+    [self rebuildFriendIndexWithReason:@"remark"];
 }
 
 - (void)onFriendEvent {
@@ -232,9 +246,14 @@
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     self.reconnectReloader.visible = YES;
-    // 不在 viewWillAppear 里无条件 reload，而是交给 reconnectReloader 或 Socket 事件。
-    // 首次进入时，缓存种子已在 init 时加载，可直接显示；
-    // 重连或有新事件时，reconnectReloader 和 onFriendEvent 各自触发刷新。
+    // 切入即取权威好友列表（带节流）。**不能只靠重连 / 好友事件**：socket 多半在停留「会话」页时就连上了，
+    // 那一刻本页不可见、重连刷新不触发；好友缓存又只有本页写，2026-09-06 删掉这句后通讯录整页空白。
+    // 当时的切 Tab 卡顿不是这次请求（异步、token 有缓存），而是回来后在主线程重建 2000 人拼音索引——
+    // 已改为后台构建 + 拼音缓存（见 rebuildFriendIndexWithReason:）。
+    if (IMContactsShouldRefreshOnAppear(self.refreshInFlight, self.lastRefreshAt,
+                                        CACurrentMediaTime(), kIMContactsAppearRefreshInterval)) {
+        [self reload];
+    }
 }
 
 - (void)viewDidDisappear:(BOOL)animated {
@@ -246,11 +265,13 @@
 
 - (void)reload {
     IMHTTPService.sharedService.host = self.host;
+    self.refreshInFlight = YES;
     __weak typeof(self) weakSelf = self;
     [IMHTTPService.sharedService loginWithUserID:self.userID completion:^(NSString *token, NSError *error) {
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) { return; }
         if (token.length == 0) {
+            self.refreshInFlight = NO;
             IMLog(@"通讯录刷新登录失败（保留当前内容）：%@", error.localizedDescription ?: @"未知错误");
             return;
         }
@@ -258,12 +279,30 @@
         [IMHTTPService.sharedService friendsWithToken:token status:nil completion:^(NSArray<IMUserCard *> *friends, NSError *err) {
             __strong typeof(weakSelf) self = weakSelf;
             if (!self) { return; }
+            self.refreshInFlight = NO;
             if (err) {
                 IMLog(@"通讯录刷新失败（保留当前内容）：%@", err.localizedDescription ?: @"未知错误");
                 return;
             }
             [self applyFriends:friends ?: @[]];
         }];
+    }];
+}
+
+/// 按 self.accepted 重建 A–Z 索引：拼音分组在后台队列算，回主线程只做赋值 + reloadData。
+/// 连发时以最后一次发起为准（代号不匹配的结果直接丢弃），慢结果不会盖掉新数据。
+- (void)rebuildFriendIndexWithReason:(NSString *)reason {
+    NSUInteger generation = ++self.indexGeneration;
+    NSUInteger count = self.accepted.count;
+    CFTimeInterval startedAt = CACurrentMediaTime();
+    __weak typeof(self) weakSelf = self;
+    [IMContactSectionIndex buildWithCards:self.accepted completion:^(IMContactSectionIndex *index) {
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self || generation != self.indexGeneration) { return; }
+        self.friendIndex = index;
+        [self.tableView reloadData];
+        IMLogUI(@"contacts_index_applied reason=%@ friends=%lu latency_ms=%.0f",
+                reason, (unsigned long)count, (CACurrentMediaTime() - startedAt) * 1000);
     }];
 }
 
@@ -277,10 +316,12 @@
     }
     self.pending = pending;
     self.accepted = accepted;
-    self.friendIndex = [[IMContactSectionIndex alloc] initWithCards:accepted]; // 排序/分桶交给索引
+    self.lastRefreshAt = CACurrentMediaTime();
+    // 表尾空态只看条数，当场就能定（种子阶段不设：种子为空不代表没有好友，可能只是没缓存过）。
     self.tableView.tableFooterView = (pending.count + accepted.count) > 0 ? nil : self.emptyFooter;
-    [self.tableView reloadData];
     [self layoutEmptyFooter];
+    // 好友行与「新的朋友」徽标随新索引回来的那次 reloadData 一起刷，省一次整表重载。
+    [self rebuildFriendIndexWithReason:@"server"];
     // 任务5：权威好友列表落库（仅 accepted），供下次断网离线首屏。空数组也写，代表当前账号无好友。
     [IMDatabase.sharedDatabase performWithAccountContext:self.databaseContext block:^(IMDatabase *database) {
         [database replaceCachedFriends:accepted];

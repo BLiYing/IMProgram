@@ -12,7 +12,15 @@ NS_ASSUME_NONNULL_BEGIN
 @interface IMContactSectionIndex : NSObject
 
 /// 按 displayName 拼音首字母分桶（A–Z 升序，非字母/取不到归 "#" 排最后），组内按名字本地化升序。
+/// **同步**计算：名单小（选人页搜索结果）用它；上千人的全量名单请用 `buildWithCards:completion:`。
 - (instancetype)initWithCards:(nullable NSArray<IMUserCard *> *)cards;
+
+/// 异步构建：显示名在**调用线程**取快照（应在主线程调用），拼音分组在后台串行队列算，completion 回主线程。
+/// 为什么要有：拼音转换约 65µs/人（Mac 实测），2000 人的通讯录整表重建会把主线程占住数百毫秒，
+/// 表现为切 Tab 卡顿。拼音结果进程内缓存，名字没变的重建几乎零成本。
+/// 调用方连发时须自行丢弃过期结果（队列串行，结果按发起顺序回来）。
++ (void)buildWithCards:(nullable NSArray<IMUserCard *> *)cards
+            completion:(void (^)(IMContactSectionIndex *index))completion;
 
 /// 分组字母（如 @[@"A", @"B", @"#"]），与右侧纵向索引尺一一对应；无好友时为空数组。
 @property (nonatomic, readonly) NSArray<NSString *> *titles;

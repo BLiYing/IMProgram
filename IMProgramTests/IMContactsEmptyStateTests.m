@@ -59,4 +59,22 @@
     XCTAssertNil(vc.tableView.tableFooterView, @"有好友了还挂着空态表尾 = 列表底部一段莫名留白");
 }
 
+/// 好友 A–Z 分组改在后台算（2000 人同步算会把切 Tab 卡住数百毫秒）：applyFriends 当场返回，
+/// 索引回来后好友分组必须真的出现在入口区之后——只算不赋值 / 不 reloadData，列表就一直是空的。
+- (void)testFriendRowsAppearAfterBackgroundIndexBuild {
+    IMContactsViewController *vc = [self loadedControllerWithNoFriends];
+    NSArray *friends = [IMUserCard cardsFromArray:@[
+        @{ @"user_id": @"u-2", @"nickname": @"张三", @"status": @"accepted" },
+        @{ @"user_id": @"u-3", @"nickname": @"李四", @"status": @"accepted" },
+    ]];
+    [vc applyFriends:friends];
+    NSPredicate *lettersShown = [NSPredicate predicateWithBlock:^BOOL(UITableView *table, NSDictionary *bindings) {
+        return table.numberOfSections == 3; // 入口区 + L + Z
+    }];
+    [self expectationForPredicate:lettersShown evaluatedWithObject:vc.tableView handler:nil];
+    [self waitForExpectationsWithTimeout:5 handler:nil];
+    XCTAssertEqual([vc.tableView numberOfRowsInSection:1], 1);
+    XCTAssertEqual([vc.tableView numberOfRowsInSection:2], 1);
+}
+
 @end

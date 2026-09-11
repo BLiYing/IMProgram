@@ -1067,3 +1067,12 @@
 > 
 > 预期：Tab 切换响应 <100ms（从 500-1500ms 改善），与会话/设置切换流畅度对齐。
 > 已提交 `7930087`。
+
+## 2026-09-11 读屏（VoiceOver）两处缺口（2026-09-11 自 current_task.md「当前焦点」移入）
+
+> **顺带发现的两处读屏（VoiceOver）缺口 ✅ 2026-09-11 已修**：① 注入的液态标题栏丢了页面挂在右上 item 上的
+> accessibilityLabel（聊天页头像按钮念不出「X的聊天详情」）→ `IMLiquidNavigationBar.actionAccessibilityLabel`，
+> 由 `IMMainTabBarController.m` 的 `applyBarItemsForController:` 透传；② 详情页操作排 label 是动作键（念英文 "search"）
+> → label 改放标题，动作键放 identifier `detail.pill.<键>`（`+Private.h` 的 `IMDetailPillIdentifier`），`pillTapped:` 改认 identifier。
+> 单测 `IMAccessibilityLabelTests`（2 例，双向变异过）；上面那条 UI 测试已改成按标签/标识找这两处、不再按位置兜底，模拟器重跑通过。
+> 左上角自定义纯图标钮（如 xmark）仍一律念「返回」——目前没有页面给左 item 设标签，未做透传。
