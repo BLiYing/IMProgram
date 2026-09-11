@@ -29,13 +29,18 @@ NS_ASSUME_NONNULL_BEGIN
 /// `fromUID` 非空时叠加「来自某人」过滤——本地有缺口时这一筛也必须由服务端给，
 /// 否则缺口里那些人的消息会静默漏掉。cursor=0 表示从最新开始，按 conv_seq 倒序。
 /// 回调给的是**命中的 conv_seq（升序）**：调用方只需要位点，正文本地有或按需开窗取。
+///
+/// 分页：`cursor` 传上一页回调里的 `nextCursor`（0 = 首页），拿回来的是**更旧**的一批；
+/// `hasMore` 为 NO 或 `nextCursor` 为 0 表示到头了。拼接规则见 IMChatSearchPaging.h。
 - (void)searchConvMessagesWithToken:(NSString *)token
                              convID:(NSString *)convID
                             keyword:(NSString *)keyword
                             fromUID:(nullable NSString *)fromUID
+                             cursor:(int64_t)cursor
                               limit:(NSInteger)limit
                          completion:(void (^)(NSArray<NSNumber *> *convSeqsAscending,
                                               BOOL hasMore,
+                                              int64_t nextCursor,
                                               NSError *_Nullable error))completion;
 
 /// 日历按天聚合。

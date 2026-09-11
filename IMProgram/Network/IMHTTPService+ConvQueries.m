@@ -16,16 +16,18 @@ static NSString *IMQueryEscape(NSString *raw) {
                              convID:(NSString *)convID
                             keyword:(NSString *)keyword
                             fromUID:(nullable NSString *)fromUID
+                             cursor:(int64_t)cursor
                               limit:(NSInteger)limit
-                         completion:(void (^)(NSArray<NSNumber *> *, BOOL, NSError *_Nullable))completion {
+                         completion:(void (^)(NSArray<NSNumber *> *, BOOL, int64_t, NSError *_Nullable))completion {
     if (!completion) { return; }
     NSMutableString *path = [NSMutableString stringWithFormat:
         @"/api/v1/conversations/%@/messages/search?q=%@", [self pathEscape:convID], IMQueryEscape(keyword ?: @"")];
     if (fromUID.length > 0) { [path appendFormat:@"&from=%@", IMQueryEscape(fromUID)]; }
+    if (cursor > 0) { [path appendFormat:@"&cursor=%lld", cursor]; }
     if (limit > 0) { [path appendFormat:@"&limit=%ld", (long)limit]; }
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
     [self runDataRequest:req fallback:@"搜索失败" completion:^(NSDictionary *data, NSError *error) {
-        if (error) { completion(@[], NO, error); return; }
+        if (error) { completion(@[], NO, 0, error); return; }
         NSArray *raw = [data[@"items"] isKindOfClass:NSArray.class] ? data[@"items"] : @[];
         NSMutableArray<NSNumber *> *seqs = [NSMutableArray arrayWithCapacity:raw.count];
         for (id one in raw) {
@@ -36,7 +38,7 @@ static NSString *IMQueryEscape(NSString *raw) {
         // 服务端按 conv_seq **倒序**下发（cursor 分页需要），而命中集的既有契约是**升序**
         // （▲▼ 上一条/下一条、默认跳最新都按下标走）。在此处一次反转，调用方不必知道这个差异。
         [seqs sortUsingComparator:^NSComparisonResult(NSNumber *a, NSNumber *b) { return [a compare:b]; }];
-        completion(seqs, [data[@"has_more"] boolValue], nil);
+        completion(seqs, [data[@"has_more"] boolValue], [data[@"next_cursor"] longLongValue], nil);
     }];
 }
 

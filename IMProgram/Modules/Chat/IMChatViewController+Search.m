@@ -20,6 +20,7 @@
 #import "IMDatabase+Ranges.h"          // isConvComplete:（本地齐不齐）
 #import "IMHTTPService+ConvQueries.h"  // 会话内检索 / 日历聚合的服务端接口
 #import "IMNetworkMonitor.h"
+#import "IMChatSearchPaging.h"          // 服务端命中翻页的拼接与 ▲ 可点判据（与 im-web searchPaging.ts 同口径）
 
 /// 「跳到最早」是否必须问服务端。
 ///
@@ -234,6 +235,10 @@ static const CGFloat kIMSearchFromRowH = 52;
 
     UIButton *prev = [self searchGlassButtonSymbol:@"chevron.up" action:@selector(searchPrevTapped)];
     UIButton *next = [self searchGlassButtonSymbol:@"chevron.down" action:@selector(searchNextTapped)];
+    // 纯图标钮：不给 label 的话 VoiceOver 念 "chevron up"，UI 测试也只能按图标名找。
+    prev.accessibilityLabel = @"上一条（更旧）"; prev.accessibilityIdentifier = @"chat.search.prev";
+    next.accessibilityLabel = @"下一条（更新）"; next.accessibilityIdentifier = @"chat.search.next";
+    self.searchState.searchCountLabel.accessibilityIdentifier = @"chat.search.count";
     self.searchState.searchPrevButton = prev; self.searchState.searchNextButton = next;
     [nav addSubview:prev]; [nav addSubview:next];
 
@@ -345,6 +350,11 @@ static const CGFloat kIMSearchFromRowH = 52;
 }
 
 - (void)recomputeSearchHitsAndJump:(BOOL)jumpToNewest {
+    // 新一轮查询：代次 +1 让在途的「取更早」作废，游标从首页重来。
+    self.searchState.searchQueryGeneration += 1;
+    self.searchState.searchLoadingOlder = NO;
+    self.searchState.searchNextCursor = 0;
+    NSUInteger gen = self.searchState.searchQueryGeneration;
     NSString *kw = [self currentSearchKeyword];
     self.searchState.searchKeyword = kw;
     NSString *fromUID = self.searchState.searchFromUID;
@@ -369,19 +379,66 @@ static const CGFloat kIMSearchFromRowH = 52;
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0) { return; }
     __weak typeof(self) ws = self;
-    // limit 取服务端单页上限 50（与 im-web 一致）。**只取一页**：命中更多时靠计数胶囊的 `+`
-    // 如实告知，而不是悄悄把命中集截断成 50 条还写「/ 50 条」。翻更多页属另一件事，两端都还没做。
+    // limit 取服务端单页上限 50（与 im-web 一致）。这里只取**首页**：还有更早的页时计数胶囊写 `+`，
+    // ▲ 翻过最旧命中再去取下一页（loadOlderSearchHitsAttempt:），而不是一次把几百条命中全拉下来。
     [IMHTTPService.sharedService searchConvMessagesWithToken:token convID:convID keyword:kw fromUID:fromUID
+                                                      cursor:0
                                                        limit:50
-                                                  completion:^(NSArray<NSNumber *> *seqs, BOOL hasMore, NSError *error) {
+                                                  completion:^(NSArray<NSNumber *> *seqs, BOOL hasMore, int64_t nextCursor, NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self || !self.searchState.searching) { return; }
         // 关键词/发件人在请求途中被改过 → 这帧回的是上一次的结果，用了会让命中集与输入框对不上。
+        if (self.searchState.searchQueryGeneration != gen) { return; }
         if (![[self currentSearchKeyword] isEqualToString:kw]) { return; }
         if (![self.searchState.searchFromUID ?: @"" isEqualToString:fromUID ?: @""]) { return; }
         if (error) { return; }  // 失败就留着本地那份，不清空——有总比没有强，且已在本地结果上
-        self.searchState.searchHitsTruncated = hasMore;
+        self.searchState.searchNextCursor = nextCursor;
+        self.searchState.searchHitsTruncated = hasMore && nextCursor > 0;
         [self applySearchHits:seqs jumpToNewest:jumpToNewest];
+    }];
+}
+
+/// 取服务端下一页（更早的命中），拼到命中集前面，并落到紧挨着原最旧命中的那一条。
+/// 与 im-web `useChatSearch` 的 `loadOlderHits` 同语义：代次对不上就丢；空页但仍有更多时接着翻，有上限。
+- (void)loadOlderSearchHitsAttempt:(NSInteger)attempt {
+    IMChatSearchState *st = self.searchState;
+    if (!st.searching || st.searchLoadingOlder || !st.searchHitsTruncated) { return; }
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0) { return; }
+    st.searchLoadingOlder = YES;
+    [self updateSearchNavState];
+    NSUInteger gen = st.searchQueryGeneration;
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService searchConvMessagesWithToken:token convID:self.convID keyword:st.searchKeyword ?: @""
+                                                     fromUID:st.searchFromUID
+                                                      cursor:st.searchNextCursor
+                                                       limit:50
+                                                  completion:^(NSArray<NSNumber *> *seqs, BOOL hasMore, int64_t nextCursor, NSError *error) {
+        __strong typeof(ws) self = ws;
+        IMChatSearchState *s = self.searchState;
+        // 已退出搜索，或词 / 发件人在途中变了：这页属于上一次搜索。
+        if (!self || !s.searching || s.searchQueryGeneration != gen) { return; }
+        s.searchLoadingOlder = NO;
+        if (error) {
+            [self updateSearchNavState];
+            [self im_showToast:@"加载更早的搜索结果失败，请重试"];
+            return;
+        }
+        s.searchNextCursor = nextCursor;
+        BOOL more = hasMore && nextCursor > 0;
+        NSInteger added = 0;
+        NSArray<NSNumber *> *merged = IMChatSearchPrependOlderHits(s.searchHits ?: @[], seqs, &added);
+        if (added == 0 && more && attempt < IMChatSearchMaxEmptyPages) {
+            [self loadOlderSearchHitsAttempt:attempt + 1];   // 服务端过滤出空页但还有更早的：接着翻
+            return;
+        }
+        s.searchHitsTruncated = more;
+        if (added > 0) {
+            s.searchHits = merged;
+            s.searchHitIndex = added - 1;
+        }
+        [self updateSearchNavState];
+        if (added > 0) { [self jumpToConvSeq:merged[(NSUInteger)(added - 1)].longLongValue]; }
     }];
 }
 
@@ -423,7 +480,8 @@ static const CGFloat kIMSearchFromRowH = 52;
             [NSString stringWithFormat:@"第 %ld / %ld%@ 条", (long)(self.searchState.searchHitIndex + 1),
              (long)n, self.searchState.searchHitsTruncated ? @"+" : @""];
     }
-    BOOL canPrev = (n > 0 && self.searchState.searchHitIndex > 0);
+    BOOL canPrev = IMChatSearchCanGoOlder(self.searchState.searchHitIndex, n,
+                                          self.searchState.searchHitsTruncated, self.searchState.searchLoadingOlder);
     BOOL canNext = (n > 0 && self.searchState.searchHitIndex < n - 1);
     self.searchState.searchPrevButton.enabled = canPrev;
     self.searchState.searchNextButton.enabled = canNext;
@@ -432,7 +490,11 @@ static const CGFloat kIMSearchFromRowH = 52;
 }
 
 - (void)searchPrevTapped {  // 更旧
-    if (self.searchState.searchHitIndex <= 0) { return; }
+    if (self.searchState.searchHitIndex <= 0) {
+        // 已在取回的最旧命中上：服务端还有更早的页就去取（取回后自动落到紧挨着的那一条）。
+        if (self.searchState.searchHitsTruncated) { [self loadOlderSearchHitsAttempt:0]; }
+        return;
+    }
     self.searchState.searchHitIndex -= 1;
     [self updateSearchNavState];
     [self jumpToConvSeq:self.searchState.searchHits[self.searchState.searchHitIndex].longLongValue];

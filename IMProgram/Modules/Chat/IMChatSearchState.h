@@ -35,9 +35,15 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) BOOL degradedSearchNoticed;
 @property (nonatomic, assign) BOOL degradedCalendarNoticed;
 
-/// 服务端检索只回一页（上限 50，与 im-web 同）。命中数被截断时计数胶囊写「/ 50+ 条」，
-/// 否则用户会以为大群里就只有这些命中——数字看着正常、其实是页大小。
+/// 服务端检索按页回（每页上限 50，与 im-web 同）。还有更早的页时计数胶囊写「/ 50+ 条」，
+/// ▲ 翻过最旧命中就去取下一页——否则用户会以为大群里就只有这些命中。
 @property (nonatomic, assign) BOOL searchHitsTruncated;
+/// 服务端下一页游标（上一页回的 next_cursor；0 = 首页 / 没有更多）。
+@property (nonatomic, assign) int64_t searchNextCursor;
+/// 一次「取更早的命中」在途：▲ 此时灰掉，防连点发出多份请求、把同一页拼两次。
+@property (nonatomic, assign) BOOL searchLoadingOlder;
+/// 查询代次：关键词 / 发件人每变一次 +1。在途的旧页回来对不上代次就丢——否则旧词的第二页会混进新词的命中集。
+@property (nonatomic, assign) NSUInteger searchQueryGeneration;
 
 /// 服务端日历给的「某天 → 当天第一条 conv_seq」。有缺口时按日期跳转不能只查本地：
 /// 那一天的消息可能整天都在缺口里，本地查出来会落到别的日子（且只弹一句"该日期无消息"）。
