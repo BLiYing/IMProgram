@@ -83,49 +83,23 @@
     [row tap];
 
     // ③ 聊天页右上角头像 → 聊天详情 → 「搜索」
-    XCUIElement *detail = app.buttons[[NSString stringWithFormat:@"%@的聊天详情", group]];
-    if (![detail waitForExistenceWithTimeout:5]) {
-        // ⚠️ 注入的液态标题栏没把 rightBarButtonItem 的 accessibilityLabel 透出来（2026-09-11 首跑实测：
-        // 右上角那颗 44×44 圆钮 label 为空）——VoiceOver 同样念不出「聊天详情」，是既有的无障碍缺口。
-        // 这里退回按位置找：标题栏那一行最右边的 44×44 按钮。
-        CGFloat width = app.windows.firstMatch.frame.size.width;
-        for (XCUIElement *b in app.buttons.allElementsBoundByIndex) {
-            CGRect f = b.frame;
-            if (f.origin.y < 130 && CGRectGetMaxX(f) > width - 40 && f.size.width <= 48 && f.size.height <= 48) {
-                detail = b;
-                break;
-            }
-        }
-    }
-    if (!detail.exists) {
+    // 两处都按无障碍标签/标识找、不按位置——它们顺带是 2026-09-11 修掉的两处无障碍缺口的哨兵：
+    // 注入的液态标题栏曾丢掉头像按钮的「X的聊天详情」（label 为空），操作排曾把动作键 "search" 当 label。
+    XCUIElement *detail = [app.buttons matchingPredicate:
+        [NSPredicate predicateWithFormat:@"label ENDSWITH %@", @"的聊天详情"]].firstMatch;
+    if (![detail waitForExistenceWithTimeout:10]) {
         [self attachScreenshotOf:app named:@"找不到详情入口"];
-        for (XCUIElement *b in app.buttons.allElementsBoundByIndex) {
-            NSLog(@"[im-uitest] button label=%@ id=%@ frame=%@", b.label, b.identifier, NSStringFromCGRect(b.frame));
-        }
-        XCTFail(@"聊天页右上角的详情入口没找到");
+        XCTFail(@"聊天页右上角没有 label 以「的聊天详情」结尾的按钮——注入标题栏没透传无障碍标签？");
         return;
     }
     [detail tap];
-    // ⚠️ 详情页操作排的按钮 accessibilityLabel 是**动作键**（"search"/"more"），不是标题「搜索」——
-    // 见 IMChatDetailViewController+Header.m 的 actionPillButtonForSpec:。VoiceOver 因此念英文键名，是既有的无障碍缺口。
-    XCUIElement *searchPill = app.buttons[@"search"];
+    XCUIElement *searchPill = app.buttons[@"detail.pill.search"];
     if (![searchPill waitForExistenceWithTimeout:10]) {
-        // 按 label 找不到时把详情页上所有叫「搜索」的元素列出来，再挑标题栏以下那一个点。
         [self attachScreenshotOf:app named:@"详情页找不到搜索"];
-        NSPredicate *named = [NSPredicate predicateWithFormat:@"label CONTAINS %@ OR identifier CONTAINS %@", @"搜索", @"search"];
-        XCUIElementQuery *all = [[app descendantsMatchingType:XCUIElementTypeAny] matchingPredicate:named];
-        XCUIElement *pick = nil;
-        for (XCUIElement *e in all.allElementsBoundByIndex) {
-            NSLog(@"[im-uitest] 搜索候选 type=%lu label=%@ id=%@ frame=%@ hittable=%d",
-                  (unsigned long)e.elementType, e.label, e.identifier, NSStringFromCGRect(e.frame), e.isHittable);
-            if (!pick && e.isHittable && e.frame.origin.y > 120) { pick = e; }
-        }
-        for (XCUIElement *b in app.buttons.allElementsBoundByIndex) {
-            NSLog(@"[im-uitest] 详情页 button label=%@ id=%@ frame=%@", b.label, b.identifier, NSStringFromCGRect(b.frame));
-        }
-        XCTAssertNotNil(pick, @"详情页没有「搜索」");
-        searchPill = pick;
+        XCTFail(@"详情页没有 identifier 为 detail.pill.search 的按钮");
+        return;
     }
+    XCTAssertEqualObjects(searchPill.label, @"搜索", @"操作排按钮念给读屏的应是标题，不是动作键");
     [searchPill tap];
 
     // ④ 输入关键词 → 第一页

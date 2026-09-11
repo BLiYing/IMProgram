@@ -11,9 +11,12 @@
 > 模拟器实测过（20000人大群 10 万条命中翻过第一页），脚本 `IMProgramUITests/IMChatSearchPagingUITests`
 > 需 `:8099` 积压副本库（IMServer `docs/ops/LOAD_TESTING.md` §10.5），默认跳过。
 >
-> ⚠️ 顺带发现两处**既有无障碍缺口，未改**：① 注入的液态标题栏没透出右上角「聊天详情」按钮的 accessibilityLabel
-> （VoiceOver 念不出）；② 详情页操作排按钮的 accessibilityLabel 是动作键（"search"/"more"），
-> `IMChatDetailViewController+Actions.m` 的 `pillTapped:` 靠它分派——改 label 要连分派一起改成 identifier。
+> **顺带发现的两处读屏（VoiceOver）缺口 ✅ 2026-09-11 已修**：① 注入的液态标题栏丢了页面挂在右上 item 上的
+> accessibilityLabel（聊天页头像按钮念不出「X的聊天详情」）→ `IMLiquidNavigationBar.actionAccessibilityLabel`，
+> 由 `IMMainTabBarController.m` 的 `applyBarItemsForController:` 透传；② 详情页操作排 label 是动作键（念英文 "search"）
+> → label 改放标题，动作键放 identifier `detail.pill.<键>`（`+Private.h` 的 `IMDetailPillIdentifier`），`pillTapped:` 改认 identifier。
+> 单测 `IMAccessibilityLabelTests`（2 例，双向变异过）；上面那条 UI 测试已改成按标签/标识找这两处、不再按位置兜底，模拟器重跑通过。
+> 左上角自定义纯图标钮（如 xmark）仍一律念「返回」——目前没有页面给左 item 设标签，未做透传。
 >
 > **C4 ✅ 2026-09-11**（`c6d2015`，同步 im-web）：`requestServerTailWindowIfBehind` 改问区间清单（收掉 C3 残留①「无未读那条路
 > `head <= localMax`」）、实时消息落库后登记 [seq, seq]、bump 贴底跟随才补（补法与 Web 刻意不同，见 `IMChatBumpShouldCatchUp`）。

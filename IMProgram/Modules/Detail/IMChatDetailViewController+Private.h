@@ -29,6 +29,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// 夹取到 [a,b]（头部形变/滚动多处共用；static inline 供各 category TU 各自内联，无链接冲突）。
 static inline CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(x, a), b); }
 
+/// 操作排按钮的 accessibilityIdentifier（动作键 "search"/"more"… → "detail.pill.search"）。
+/// label 留给读屏念标题，分派只认它（+Header.m 赋值、+Actions.m 的 pillTapped: 比对，两处共用这一个拼法）。
+static inline NSString *IMDetailPillIdentifier(NSString *action) { return [@"detail.pill." stringByAppendingString:action ?: @""]; }
+
 /// 页面分区（动态组装到 _sections）。
 typedef NS_ENUM(NSInteger, IMDetailSection) {
     IMDetailSectionInfo = 0,   ///< 单聊：备注名 / 用户名

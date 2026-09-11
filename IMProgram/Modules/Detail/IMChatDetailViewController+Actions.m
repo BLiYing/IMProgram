@@ -117,8 +117,9 @@
 #pragma mark - 动作：操作排 / 更多菜单
 
 - (void)pillTapped:(UIButton *)b {
-    NSString *a = b.accessibilityLabel;
-    if ([a isEqualToString:@"search"]) {
+    // 认 identifier 不认 label：label 是念给 VoiceOver 的标题（见 +Header.m 的 actionPillButtonForSpec:）。
+    NSString *a = b.accessibilityIdentifier;
+    if ([a isEqualToString:IMDetailPillIdentifier(@"search")]) {
         // 会话内搜索：栈里已有本会话的聊天页就 pop 回去；没有就**直接开这个会话**再进搜索态
         //（设计见 SEARCH_DESIGN §4）。转场落定后才 beginInChatSearch，两条路径共用同一段收尾。
         //
@@ -146,10 +147,10 @@
             dispatch_async(dispatch_get_main_queue(), ^{ [target beginInChatSearch]; });
         }
     }
-    else if ([a isEqualToString:@"call"]) { [self im_showToast:@"语音通话即将上线"]; }
-    else if ([a isEqualToString:@"video"]) { [self im_showToast:@"视频通话即将上线"]; }
-    else if ([a isEqualToString:@"message"]) { [self openChatWithPeerID:self.peerID nickname:self.peerNickname avatarURL:self.peerAvatarURL]; }
-    else if ([a isEqualToString:@"addfriend"]) { [self requestAddPeerFriend]; }
+    else if ([a isEqualToString:IMDetailPillIdentifier(@"call")]) { [self im_showToast:@"语音通话即将上线"]; }
+    else if ([a isEqualToString:IMDetailPillIdentifier(@"video")]) { [self im_showToast:@"视频通话即将上线"]; }
+    else if ([a isEqualToString:IMDetailPillIdentifier(@"message")]) { [self openChatWithPeerID:self.peerID nickname:self.peerNickname avatarURL:self.peerAvatarURL]; }
+    else if ([a isEqualToString:IMDetailPillIdentifier(@"addfriend")]) { [self requestAddPeerFriend]; }
 }
 
 /// 单聊「加好友」：向对端发好友申请（微信式，任务一 P0）。

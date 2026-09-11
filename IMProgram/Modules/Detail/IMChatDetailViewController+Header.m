@@ -114,7 +114,10 @@
     cfg.cornerStyle = UIButtonConfigurationCornerStyleLarge;
     button.configuration = cfg;
     button.tintColor = tint;
-    button.accessibilityLabel = spec[@"a"];
+    // label 念给 VoiceOver，用标题（「搜索」）；动作键给代码分派，放 identifier（pillTapped: 只认它）。
+    // 2026-09-11 前 label 直接放动作键，读屏念出英文 "search"。
+    button.accessibilityLabel = spec[@"t"];
+    button.accessibilityIdentifier = IMDetailPillIdentifier(spec[@"a"]);
     [button addTarget:self action:([spec[@"a"] isEqualToString:@"more"] ? @selector(moreTapped:) : @selector(pillTapped:))
      forControlEvents:UIControlEventTouchUpInside];
     return button;

@@ -189,6 +189,9 @@ static void * const kIMInjectedBarKey = (void *)&kIMInjectedBarKey;
     }
     bar.actionTitle = right.title;
     bar.actionImage = actionImage;
+    // 纯图标项没有标题可念：页面挂在 item（或它的 customView）上的无障碍标签要一起带过来，
+    // 否则聊天页右上头像的「X的聊天详情」到栏上就丢了，VoiceOver 只念「按钮」。
+    bar.actionAccessibilityLabel = right.accessibilityLabel ?: right.customView.accessibilityLabel;
     bar.actionCircular = right != nil && right.title.length == 0 && actionImage != nil;
     bar.actionEnabled = right ? right.enabled : YES;
 }

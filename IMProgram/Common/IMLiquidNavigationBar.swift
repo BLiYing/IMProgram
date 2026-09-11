@@ -96,6 +96,15 @@ public final class IMLiquidNavigationBar: UIView {
         }
     }
 
+    /// 右侧按钮念给 VoiceOver 的标签；nil 时退回 `actionTitle`。宿主从 `UIBarButtonItem.accessibilityLabel` 透传。
+    /// 纯图标按钮（聊天页右上头像）没有标题可退，不透传就什么都念不出来（2026-09-11 UI 测试实测 label 为空）。
+    public var actionAccessibilityLabel: String? {
+        didSet {
+            guard oldValue != actionAccessibilityLabel else { return }
+            actionButton.accessibilityLabel = actionAccessibilityLabel ?? actionTitle
+        }
+    }
+
     public var actionEnabled: Bool = true {
         didSet {
             guard oldValue != actionEnabled else { return }
@@ -404,7 +413,7 @@ public final class IMLiquidNavigationBar: UIView {
         let title = (actionTitle?.isEmpty ?? true) ? nil : actionTitle
         actionButton.configuration = styledButtonConfig(image: actionImage, title: title, foreground: currentPrimary())
         actionButton.isEnabled = actionEnabled
-        actionButton.accessibilityLabel = actionTitle
+        actionButton.accessibilityLabel = actionAccessibilityLabel ?? actionTitle
         actionButton.isHidden = (actionTitle?.isEmpty ?? true) && actionImage == nil
         setNeedsLayout()
     }
