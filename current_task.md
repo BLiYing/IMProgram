@@ -15,7 +15,9 @@
 > （VoiceOver 念不出）；② 详情页操作排按钮的 accessibilityLabel 是动作键（"search"/"more"），
 > `IMChatDetailViewController+Actions.m` 的 `pillTapped:` 靠它分派——改 label 要连分派一起改成 identifier。
 >
-> **接下来是 C4**（↓ 跳到底 / 实时跳号 / conv_bump，OFFLINE_BACKLOG_DESIGN §4.8），Web 先做先验，再同步到这里。
+> **C4 ✅ 2026-09-11**（`c6d2015`，同步 im-web）：`requestServerTailWindowIfBehind` 改问区间清单（收掉 C3 残留①「无未读那条路
+> `head <= localMax`」）、实时消息落库后登记 [seq, seq]、bump 贴底跟随才补（补法与 Web 刻意不同，见 `IMChatBumpShouldCatchUp`）。
+> **只跑了单测 + 变异，未上模拟器**；实时登记区间与 onConvBump 的 following 取值没有测试覆盖。
 
 > 更早的已完成块已移入 [current_task.archive.md](current_task.archive.md)（只读归档）。
 
