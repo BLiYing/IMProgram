@@ -1076,3 +1076,23 @@
 > → label 改放标题，动作键放 identifier `detail.pill.<键>`（`+Private.h` 的 `IMDetailPillIdentifier`），`pillTapped:` 改认 identifier。
 > 单测 `IMAccessibilityLabelTests`（2 例，双向变异过）；上面那条 UI 测试已改成按标签/标识找这两处、不再按位置兜底，模拟器重跑通过。
 > 左上角自定义纯图标钮（如 xmark）仍一律念「返回」——目前没有页面给左 item 设标签，未做透传。
+
+## 2026-09-11~12 通讯录大名单（2026-09-12 自 current_task.md「当前焦点」移入）
+
+> **通讯录好友列表空白 + 切 Tab 卡顿 ✅ 2026-09-11**（`e5cbac8`；真机手测通过 2026-09-12；`scripts/test.sh` 462/462，
+> 新增 8 例中 7 例变异红过——`testAsyncBuildNilCards` 是边界例、未单独变异；独立复查无阻塞项）：`7930087`（09-06）为治卡顿删了
+> `viewWillAppear` 里的 `reload`，但好友缓存只有通讯录页自己写、socket 早在会话页就连上（重连刷新不触发）→
+> 整页空白、左滑删除/拉黑静默失效（`token` 从未赋值）、「新的朋友」徽标不亮。**上面 2026-09-06 那段的诊断（「同步 HTTP 请求」）是错的。**
+> **卡顿真因不是请求**（异步 + 10 分钟 token 缓存），是 user1001/1002 各约 2000 好友、回来后**主线程**重建拼音索引
+> （Mac 实测旧实现 300–440ms，其中每人拼音转了两遍）。修法：`IMContactSectionIndex buildWithCards:completion:`
+> 后台串行队列算 + 拼音 `NSCache` + 去掉重复转换（首次约 290ms 在后台，之后约 12ms；真机首次 608ms，同样在后台）；
+> 切入刷新恢复并加 30s 节流（判据 `IMContactsShouldRefreshOnAppear`，好友事件/重连/本页增删不走节流）；种子与备注变更也改后台建，旧代号结果丢弃。
+>
+> **剩余三项主线程开销 ✅ 2026-09-12**（`f57816a`；单测 466/466，独立复查两条已修；手测通过 2026-09-12）：好友快照「名单没变就不写」
+> （`IMCachedFriendsFingerprint`，不含顺序——服务端同 updated_at 时顺序不稳定），变了才到后台串行队列写、**写成功才记指纹**
+> （`replaceCachedFriends:` 改回报成败，写失败下次刷新重试）；`friendsWithToken:` 建卡 + 灌 `IMRemarkStore`/`IMFriendStateStore`
+> 挪到后台串行队列（completion 仍在主线程、回调时两份缓存已就绪）；选好友页分组改后台建 + 代号丢弃过期结果。
+> 复查两条：① 指纹原先先于写成就记，写失败后再不重试；② `IMHTTPFriendsParseTests` 原先改全局 host，改成按专用 Bearer token 拦截。
+>
+> **UI 自测脚本 `IMProgramUITests/IMContactsPerfUITests.m`**（2026-09-12 提交，默认跳过）：对 2000 好友账号跑到 `cells.count`
+> 会因 XCUITest 无障碍快照 30s+ 超时卡住，未跑通；遗留项记在 current_task.md「已知坑」。

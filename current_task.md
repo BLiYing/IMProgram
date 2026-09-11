@@ -5,22 +5,8 @@
 
 ## 当前焦点
 
-> **通讯录好友列表空白 + 切 Tab 卡顿 ✅ 2026-09-11（真机手测通过 2026-09-12；`scripts/test.sh` 462/462 绿，新增 8 例中 7 例变异红过——`testAsyncBuildNilCards` 是边界例、未单独变异；独立复查无阻塞项）**：`7930087`（09-06）为治卡顿删了
-> `viewWillAppear` 里的 `reload`，但好友缓存只有通讯录页自己写、socket 早在会话页就连上（重连刷新不触发）→
-> 整页空白、左滑删除/拉黑静默失效（`token` 从未赋值）、「新的朋友」徽标不亮。
-> **卡顿真因不是请求**（异步 + 10 分钟 token 缓存），是 user1001/1002 各约 2000 好友、回来后**主线程**重建拼音索引
-> （Mac 实测旧实现 300–440ms，其中每人拼音转了两遍）。修法：`IMContactSectionIndex buildWithCards:completion:`
-> 后台串行队列算 + 拼音 `NSCache` + 去掉重复转换（首次约 290ms 在后台，之后约 12ms）；切入刷新恢复并加 30s 节流
-> （判据 `IMContactsShouldRefreshOnAppear`，好友事件/重连/本页增删不走节流）；种子与备注变更也改后台建，旧代号结果丢弃。
-> **待手测**：user1001 登录 → 通讯录出 A–Z 分组；与会话/设置来回快切不卡；左滑删除/拉黑有反应；
-> `../IMServer/dev-logs/im-ios.log` 搜 `contacts_index_applied` 看 `latency_ms`（第二次起应是个位数）。
-> **剩余三项主线程开销 ✅ 2026-09-12（单测 466/466，独立复查两条已修；未上模拟器实测）**：好友快照「名单没变就不写」
-> （`IMCachedFriendsFingerprint`，不含顺序），变了才到后台串行队列写、**写成功才记指纹**（写失败下次刷新重试）；
-> `friendsWithToken:` 建卡 + 灌 `IMRemarkStore`/`IMFriendStateStore` 挪到后台串行队列；选好友页分组改后台建 + 代号丢弃过期结果。
-> **UI 自测脚本 `IMProgramUITests/IMContactsPerfUITests.m` 未提交**：XCUITest 查 2000 行表格（`cells.count`）每次无障碍快照 30s+
-> 超时卡住（App 本身不卡）。要重跑须改成不查大表，改看 `contacts_index_applied` / `contacts_cache_persist` 日志与 simctl 截图。
-> **复查留的一条（老问题，未修）**：`reload` 本身不防重入，节流只挡切入这一路；好友事件 / 增删拉黑与切入的请求并发时，
-> 后发先至会让 `applyFriends:` 按到达顺序覆盖成较旧名单（短暂，下次刷新自愈）。补法：`reload` 在途时只记「待重跑」，回来后再拉一次。
+> **通讯录大名单（好友列表空白 + 切 Tab 卡顿 + 剩余主线程开销）✅ 2026-09-12 手测通过**（`e5cbac8` + `f57816a`）：
+> 细节已移入 [current_task.archive.md](current_task.archive.md)「2026-09-11~12 通讯录大名单」。遗留的 `reload` 并发覆盖见「已知坑」。
 
 > **会话内搜索服务端命中翻页 ✅ 2026-09-11**（与 im-web `b30bed6` 对齐）：有缺口的会话走服务端检索，
 > 原先只取一页（计数写「/ 50+ 条」却翻不过去）。▲ 翻过最旧命中带 `next_cursor` 取下一页，判据在
@@ -56,6 +42,11 @@
    同批还有三个 WARN 逼近 1500：`IMHTTPService.m` 1460、`IMDatabase.m` 1453、`IMChatDetailViewController.m` 1466。
 
 ## 已知坑 / 限制
+- **通讯录 `reload` 不防重入（2026-09-12 复查记，老问题未修）**：切入节流只挡切入这一路；好友事件 / 增删拉黑与切入的请求
+  并发时，后发先至会让 `applyFriends:` 按到达顺序覆盖成较旧名单（短暂，下次刷新自愈）。补法：`reload` 在途时只记「待重跑」，回来后再拉一次。
+- **`IMProgramUITests/IMContactsPerfUITests` 对 2000 好友的账号会卡住**：XCUITest 每查一次元素都要给整棵无障碍树拍快照，
+  `UITableView` 把 2000 行全暴露出来 → `cells.count` 一次 30s+ 超时重试（App 本身不卡）。重跑前须改成不查大表（只点 Tab / 看标题），
+  效果改看 `contacts_index_applied` / `contacts_cache_persist` 日志与 simctl 截图。
 - **撤回消息的「重新编辑」可能在重拉后消失（2026-09-03 评估后刻意不修）**：服务端本轮安全修复起，
   撤回 / 「为所有人删除」的**正文不再随 `sync_resp`/`window_resp` 下发**（原文只留服务端库内供审计）。
   而 `IMDatabase writeIncomingMessage` 的 UPDATE 里 `content=?` 是**无条件覆盖**的——`file_name`/`thumb`/
