@@ -280,13 +280,27 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
     [self runDataRequest:req fallback:@"拉取好友失败" completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(nil, error); return; }
-        NSArray<IMUserCard *> *friends = [IMUserCard cardsFromArray:data[@"friends"]];
-        [IMRemarkStore.sharedStore ingestFriends:friends authoritative:authoritative];
-        // 同一批数据顺路刷新「谁是我的好友」进程内快照：资料页 init 那一刻据此决定显示
-        // 好友视图还是「加好友」视图，不必先猜一个再被网络结果推翻（见 IMFriendStateStore.h）。
-        [IMFriendStateStore.sharedStore ingestFriends:friends authoritative:authoritative];
-        completion(friends, nil);
+        id rawFriends = data[@"friends"];
+        // 建卡 + 灌两份进程内缓存挪出主线程：2000 人的名单在主线程做完再回调，会在列表刷新前再顿一下。
+        // 两个 store 自带锁、锁内不碰 IMDatabase，与主线程锁序一致；备注变更通知由 IMRemarkStore 自己切回
+        // 主线程发，先于下面的 completion 入队，顺序与原先相同。串行队列：多次拉取按响应到达顺序灌缓存与回调。
+        dispatch_async([IMHTTPService friendsParseQueue], ^{
+            NSArray<IMUserCard *> *friends = [IMUserCard cardsFromArray:rawFriends];
+            [IMRemarkStore.sharedStore ingestFriends:friends authoritative:authoritative];
+            // 同一批数据顺路刷新「谁是我的好友」进程内快照：资料页 init 那一刻据此决定显示
+            // 好友视图还是「加好友」视图，不必先猜一个再被网络结果推翻（见 IMFriendStateStore.h）。
+            [IMFriendStateStore.sharedStore ingestFriends:friends authoritative:authoritative];
+            [self callOnMain:^{ completion(friends, nil); }];
+        });
     }];
+}
+
+/// GET /friends 名单解析的串行队列（见 friendsWithToken:status:completion:）。
++ (dispatch_queue_t)friendsParseQueue {
+    static dispatch_queue_t queue;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ queue = dispatch_queue_create("im.http.friends.parse", DISPATCH_QUEUE_SERIAL); });
+    return queue;
 }
 
 - (void)reportWithToken:(NSString *)token

@@ -11,6 +11,16 @@
 
 #import <FMDB/FMDB.h>
 
+NSDictionary<NSString *, NSArray *> *IMCachedFriendsFingerprint(NSArray<IMUserCard *> *friends) {
+    NSMutableDictionary<NSString *, NSArray *> *fingerprint = [NSMutableDictionary dictionaryWithCapacity:friends.count];
+    for (IMUserCard *c in friends) {
+        if (c.userID.length == 0) { continue; } // 与 replaceCachedFriends: 同口径：空 uid 不落库
+        fingerprint[c.userID] = @[ c.nickname ?: @"", c.avatarURL ?: @"", @(c.status), @(c.blocked),
+                                   @(c.updatedAt), c.remark ?: @"" ];
+    }
+    return fingerprint;
+}
+
 @implementation IMDatabase (RosterCache)
 
 - (NSArray<IMUserCard *> *)cachedFriends {
@@ -40,12 +50,13 @@
     return out;
 }
 
-- (void)replaceCachedFriends:(NSArray<IMUserCard *> *)friends {
+- (BOOL)replaceCachedFriends:(NSArray<IMUserCard *> *)friends {
     NSString *owner = [self ownerUserID];
+    __block BOOL written = YES;
     [self.dbQueue inTransaction:^(FMDatabase *db, BOOL *rollback) {
         if (![db executeUpdate:@"DELETE FROM im_friend_local WHERE owner_uid=?", owner]) {
             IMLogDatabase(@"清理旧好友缓存失败 owner=%@: %@", owner, db.lastErrorMessage);
-            *rollback = YES; return;
+            written = NO; *rollback = YES; return;
         }
         [friends enumerateObjectsUsingBlock:^(IMUserCard *c, NSUInteger idx, BOOL *stop) {
             if (c.userID.length == 0) { return; }
@@ -55,10 +66,11 @@
                 @(c.status), @(c.blocked), @(c.updatedAt), c.remark ?: @""];
             if (!ok) {
                 IMLogDatabase(@"写入好友缓存失败 owner=%@ uid=%@: %@", owner, c.userID, db.lastErrorMessage);
-                *rollback = YES; *stop = YES;
+                written = NO; *rollback = YES; *stop = YES;
             }
         }];
     }];
+    return written;
 }
 
 - (NSArray<IMGroupInfo *> *)cachedGroups {

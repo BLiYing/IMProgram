@@ -59,6 +59,50 @@
     [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
 }
 
+/// 通讯录据指纹决定「名单没变就不重写快照」。漏掉任何一列 = 那一列改了也判成没变 → 离线首屏永远是旧值。
+- (void)testFriendsFingerprintIgnoresOrderButCatchesEveryPersistedColumn {
+    IMUserCard *a = [self friendWithID:@"1002" nickname:@"小二"];
+    IMUserCard *b = [self friendWithID:@"1003" nickname:@"小三"];
+    NSDictionary *base = IMCachedFriendsFingerprint(@[a, b]);
+    XCTAssertEqualObjects(IMCachedFriendsFingerprint(@[b, a]), base, @"顺序不参与（服务端同 updated_at 时顺序不稳定）");
+
+    NSArray<NSString *> *columns = @[ @"nickname", @"avatarURL", @"status", @"blocked", @"updatedAt", @"remark" ];
+    NSArray<void (^)(IMUserCard *)> *mutations = @[
+        ^(IMUserCard *c) { c.nickname = @"改名"; },
+        ^(IMUserCard *c) { c.avatarURL = @"/avatars/new"; },
+        ^(IMUserCard *c) { c.status = IMFriendStatusBlocked; },
+        ^(IMUserCard *c) { c.blocked = YES; },
+        ^(IMUserCard *c) { c.updatedAt = 654321; },
+        ^(IMUserCard *c) { c.remark = @"备注"; },
+    ];
+    [mutations enumerateObjectsUsingBlock:^(void (^mutate)(IMUserCard *), NSUInteger i, BOOL *stop) {
+        IMUserCard *changed = [self friendWithID:@"1002" nickname:@"小二"];
+        mutate(changed);
+        XCTAssertNotEqualObjects(IMCachedFriendsFingerprint(@[changed, b]), base, @"改了 %@ 却判为没变", columns[i]);
+    }];
+    XCTAssertNotEqualObjects(IMCachedFriendsFingerprint(@[a]), base, @"少了一个人却判为没变");
+    IMUserCard *noID = [self friendWithID:@"" nickname:@"没有 uid"];
+    XCTAssertEqualObjects(IMCachedFriendsFingerprint(@[a, b, noID]), base, @"空 uid 本就不落库，不该让指纹变");
+}
+
+/// 冷启动的快照指纹来自读回的缓存：读回来的与写进去的必须指纹相同，否则每次启动后第一次刷新都会白写一遍。
+- (void)testFriendsFingerprintSurvivesDatabaseRoundTrip {
+    NSURL *url = [self temporaryDatabaseURL];
+    IMUserCard *a = [self friendWithID:@"1002" nickname:@"小二"];
+    a.remark = @"二哥";
+    IMUserCard *b = [self friendWithID:@"1003" nickname:@"小三"];
+    b.blocked = YES;
+    IMDatabase *writer = [[IMDatabase alloc] initWithFileURL:url];
+    [writer useOwnerUserID:@"1001"];
+    BOOL written = [writer replaceCachedFriends:@[a, b]]; // 数组字面量的逗号不能直接进 XCTAssert 宏参数
+    XCTAssertTrue(written, @"正常写入应报成功——调用方只在成功时记指纹");
+
+    IMDatabase *reader = [[IMDatabase alloc] initWithFileURL:url];
+    [reader useOwnerUserID:@"1001"];
+    XCTAssertEqualObjects(IMCachedFriendsFingerprint(reader.cachedFriends), IMCachedFriendsFingerprint(@[a, b]));
+    [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
+}
+
 - (void)testGroupsPersistAcrossDatabaseInstances {
     NSURL *url = [self temporaryDatabaseURL];
     IMDatabase *writer = [[IMDatabase alloc] initWithFileURL:url];

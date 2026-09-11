@@ -14,7 +14,11 @@
 > （判据 `IMContactsShouldRefreshOnAppear`，好友事件/重连/本页增删不走节流）；种子与备注变更也改后台建，旧代号结果丢弃。
 > **待手测**：user1001 登录 → 通讯录出 A–Z 分组；与会话/设置来回快切不卡；左滑删除/拉黑有反应；
 > `../IMServer/dev-logs/im-ios.log` 搜 `contacts_index_applied` 看 `latency_ms`（第二次起应是个位数）。
-> **没改的主线程开销**：好友缓存整表重写 2013 行（Mac 约 16ms）、2013 张卡片解析与 `IMRemarkStore` 灌入；选好友页仍同步建索引（受益于拼音缓存）。
+> **剩余三项主线程开销 ✅ 2026-09-12（单测 466/466，独立复查两条已修；未上模拟器实测）**：好友快照「名单没变就不写」
+> （`IMCachedFriendsFingerprint`，不含顺序），变了才到后台串行队列写、**写成功才记指纹**（写失败下次刷新重试）；
+> `friendsWithToken:` 建卡 + 灌 `IMRemarkStore`/`IMFriendStateStore` 挪到后台串行队列；选好友页分组改后台建 + 代号丢弃过期结果。
+> **UI 自测脚本 `IMProgramUITests/IMContactsPerfUITests.m` 未提交**：XCUITest 查 2000 行表格（`cells.count`）每次无障碍快照 30s+
+> 超时卡住（App 本身不卡）。要重跑须改成不查大表，改看 `contacts_index_applied` / `contacts_cache_persist` 日志与 simctl 截图。
 > **复查留的一条（老问题，未修）**：`reload` 本身不防重入，节流只挡切入这一路；好友事件 / 增删拉黑与切入的请求并发时，
 > 后发先至会让 `applyFriends:` 按到达顺序覆盖成较旧名单（短暂，下次刷新自愈）。补法：`reload` 在途时只记「待重跑」，回来后再拉一次。
 

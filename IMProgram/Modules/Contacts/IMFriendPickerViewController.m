@@ -25,6 +25,7 @@
 /// 与 @人选择器/成员搜索页同一套路。
 @property (nonatomic, assign) int64_t remoteSearchToken;
 @property (nonatomic, strong) IMContactSectionIndex *friendIndex;     // **当前搜索词下**可见好友的 A–Z 分组索引，兼作表格数据源
+@property (nonatomic, assign) NSUInteger indexGeneration;             // 最近一次发起的分组构建代号；回来的不是这一代就丢弃
 @property (nonatomic, strong) NSMutableOrderedSet<NSString *> *picked; // 选中的 uid（保持点选顺序）
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) UISearchBar *searchBar;
@@ -199,11 +200,8 @@
     // 再本地过一遍不但多余，还会**二次收窄**——服务端按句柄/群昵称/全局昵称三源命中，
     // 本地只认显示名+句柄，命中群昵称的那些人会被本地这一道悄悄滤掉。
     if (self.remoteCandidateSearch) {
-        self.friendIndex = [[IMContactSectionIndex alloc] initWithCards:visible];
-        self.emptyLabel.text = q.length > 0 ? @"没有匹配的成员"
-                                            : (self.emptyText.length ? self.emptyText : @"群里还没有其他成员");
-        self.emptyLabel.hidden = visible.count > 0;
-        [self.tableView reloadData];
+        [self showVisibleCards:visible emptyText:(q.length > 0 ? @"没有匹配的成员"
+                                                 : (self.emptyText.length ? self.emptyText : @"群里还没有其他成员"))];
         return;
     }
     // 搜索维度 = 显示名 + @句柄（+ 好友场景的内部 ID）。
@@ -221,12 +219,25 @@
         }
         visible = out;
     }
-    self.friendIndex = [[IMContactSectionIndex alloc] initWithCards:visible]; // A–Z 分组，兼作数据源
     NSString *noneText = self.emptyText.length ? self.emptyText : @"没有可选的好友";
     NSString *noHitText = searchUserID ? @"没有匹配的好友" : @"没有匹配的成员";
-    self.emptyLabel.text = (q.length > 0 && self.usable.count > 0) ? noHitText : noneText;
-    self.emptyLabel.hidden = visible.count > 0;
-    [self.tableView reloadData];
+    [self showVisibleCards:visible emptyText:((q.length > 0 && self.usable.count > 0) ? noHitText : noneText)];
+}
+
+/// 可见行 → 后台建 A–Z 分组 → 回主线程换数据源、空态文案并刷新。
+/// 为什么不同步建：候选是 2000 人的好友全集时，拼音没命中缓存要算上百毫秒，打开页面 / 每敲一个字都会卡。
+/// 连续打字只认最后一次（代号不符的结果丢弃），否则慢一拍的旧词结果会把新词的列表闪回去。
+- (void)showVisibleCards:(NSArray<IMUserCard *> *)visible emptyText:(NSString *)emptyText {
+    NSUInteger generation = ++self.indexGeneration;
+    __weak typeof(self) weakSelf = self;
+    [IMContactSectionIndex buildWithCards:visible completion:^(IMContactSectionIndex *index) {
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self || generation != self.indexGeneration) { return; }
+        self.friendIndex = index;
+        self.emptyLabel.text = emptyText;
+        self.emptyLabel.hidden = visible.count > 0;
+        [self.tableView reloadData];
+    }];
 }
 
 - (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText {

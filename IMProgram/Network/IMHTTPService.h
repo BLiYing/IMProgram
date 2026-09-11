@@ -158,6 +158,7 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
                                       NSError *_Nullable error))completion;
 
 /// 好友/申请列表（status 为空=全部：accepted/pending/requested/blocked）。completion 在主线程回调。
+/// 名单解析与 IMRemarkStore / IMFriendStateStore 的灌入在后台串行队列完成，回调那一刻两者已就绪。
 - (void)friendsWithToken:(NSString *)token
                   status:(nullable NSString *)status
               completion:(void (^)(NSArray<IMUserCard *> *_Nullable friends, NSError *_Nullable error))completion;

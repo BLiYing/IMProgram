@@ -117,10 +117,19 @@
 @property (nonatomic, assign) NSUInteger indexGeneration;   // 最近一次发起的索引构建代号；回来的不是这一代就丢弃
 @property (nonatomic, assign) CFTimeInterval lastRefreshAt; // 最近一次拉到权威好友列表的时刻（CACurrentMediaTime，0=从未）
 @property (nonatomic, assign) BOOL refreshInFlight;         // 好友列表请求在途（切入节流用）
+@property (nonatomic, copy) NSDictionary<NSString *, NSArray *> *cachedFriendsFingerprint; // 本地好友快照的内容指纹（见 persistFriendsIfChanged:）
 @end
 
 /// 切入通讯录的刷新节流间隔：来回切 Tab 不必每次都拉 2000 人的名单，变化靠好友事件与重连兜住。
 static const CFTimeInterval kIMContactsAppearRefreshInterval = 30;
+
+/// 好友快照整表重写的串行队列：按发起顺序落库，后拉到的名单不会被先拉到的那份覆盖。
+static dispatch_queue_t IMContactsCacheWriteQueue(void) {
+    static dispatch_queue_t queue;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ queue = dispatch_queue_create("im.contacts.cache", DISPATCH_QUEUE_SERIAL); });
+    return queue;
+}
 
 BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt,
                                      CFTimeInterval now, CFTimeInterval interval) {
@@ -143,6 +152,8 @@ BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt
         [IMDatabase.sharedDatabase performWithAccountContext:_databaseContext block:^(IMDatabase *database) {
             cachedFriends = database.cachedFriends;
         }];
+        // 快照指纹：之后拉回来的名单跟它一样就不必整表重写（冷启动后的第一次刷新通常就是这种情况）。
+        _cachedFriendsFingerprint = IMCachedFriendsFingerprint(cachedFriends);
         _pending = @[];              // 待处理申请不落库（易变，以服务端为准），联网后由 applyFriends 补上
         _accepted = cachedFriends;   // 好友种子（离线首屏）
         // 种子也分组，离线首屏即带索引。后台算：本页随 TabBar 在启动时就创建，2000 人同步分组会拖慢冷启动。
@@ -306,6 +317,31 @@ BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt
     }];
 }
 
+/// 任务5：权威好友列表落库（仅 accepted），供下次断网离线首屏。空名单也写，代表当前账号无好友。
+/// 与上次落库（或冷启动读出的快照）逐列一致就不写——2000 人删了重插在 Mac 上约 16ms，而切 Tab 拉回来的名单
+/// 几乎总是没变。变了才写，并挪到后台串行队列：FMDatabaseQueue 线程安全；卡片解析后不再被改写；
+/// performWithAccountContext 会丢弃账号已切走的写入。锁序与主线程一致（IMDatabase 锁 → FMDB 队列），不会反向等待。
+/// **指纹只在真的写成后才记**：写失败整笔回滚、库里仍是上一份，保留旧指纹下次刷新就会重试
+/// （原先每次无条件重写，天然带重试；「没变不写」不能把这一点弄丢）。串行队列 + 主队列 FIFO，
+/// 指纹始终等于最后一次写成的那份。
+- (void)persistFriendsIfChanged:(NSArray<IMUserCard *> *)accepted {
+    NSDictionary<NSString *, NSArray *> *fingerprint = IMCachedFriendsFingerprint(accepted);
+    BOOL changed = ![fingerprint isEqualToDictionary:self.cachedFriendsFingerprint ?: @{}];
+    IMLogUI(@"contacts_cache_persist changed=%d friends=%lu", changed, (unsigned long)accepted.count);
+    if (!changed) { return; }
+    IMDatabaseAccountContext *context = self.databaseContext;
+    NSArray<IMUserCard *> *snapshot = [accepted copy];
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(IMContactsCacheWriteQueue(), ^{
+        __block BOOL written = NO;
+        [IMDatabase.sharedDatabase performWithAccountContext:context block:^(IMDatabase *database) {
+            written = [database replaceCachedFriends:snapshot];
+        }];
+        if (!written) { return; }
+        dispatch_async(dispatch_get_main_queue(), ^{ weakSelf.cachedFriendsFingerprint = fingerprint; });
+    });
+}
+
 /// 拆分为"新的朋友"(pending) 与 好友(accepted)；好友按拼音首字母分组（A–Z + 右侧索引尺，见 friendIndex）。
 - (void)applyFriends:(NSArray<IMUserCard *> *)friends {
     NSMutableArray<IMUserCard *> *pending = [NSMutableArray array];
@@ -322,10 +358,7 @@ BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt
     [self layoutEmptyFooter];
     // 好友行与「新的朋友」徽标随新索引回来的那次 reloadData 一起刷，省一次整表重载。
     [self rebuildFriendIndexWithReason:@"server"];
-    // 任务5：权威好友列表落库（仅 accepted），供下次断网离线首屏。空数组也写，代表当前账号无好友。
-    [IMDatabase.sharedDatabase performWithAccountContext:self.databaseContext block:^(IMDatabase *database) {
-        [database replaceCachedFriends:accepted];
-    }];
+    [self persistFriendsIfChanged:accepted];
     // Tab 角标：把待处理申请数显示在"通讯录"Tab 上（清零靠重新进入时再算）。
     NSString *badge = pending.count > 0 ? [NSString stringWithFormat:@"%lu", (unsigned long)pending.count] : nil;
     if (@available(iOS 18.0, *)) { self.navigationController.tab.badgeValue = badge; }
