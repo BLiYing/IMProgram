@@ -55,7 +55,9 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy) NSString *peerID;         // 单聊对端 uid；群聊为空串
 @property (nonatomic, assign) BOOL isGroupChat;        // YES=群聊（convID 为群 topic_id）
 @property (nonatomic, copy, nullable) NSString *groupName;     // 群名（进入时用会话项的，拉到群资料后刷新）
-@property (nonatomic, strong, nullable) IMGroupInfo *groupInfo; // 群资料缓存（标题成员数/气泡昵称回退）
+@property (nonatomic, strong, nullable) IMGroupInfo *groupInfo; // 群资料缓存（标题成员数/气泡昵称首选）
+/// 因「来消息带的昵称与成员表对不上」重拉群资料的上次时刻（CACurrentMediaTime，节流用；0=从未）。
+@property (nonatomic, assign) CFTimeInterval memberNicknameRefreshAt;
 // 顶部三横幅栈（G0 置顶 / G1 公告 / G3 入群申请）：视图/布局/高度→内边距/收起持久化全归它，
 // 点击导航经 IMChatBannerStackDelegate 回本页处理。进会话拉一次置顶，之后靠 msg_op 帧重拉。
 @property (nonatomic, strong, nullable) IMChatBannerStack *bannerStack;
@@ -333,6 +335,8 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (NSString *)peerDisplayName;
 /// 群内公开名（群昵称/全局昵称/uid，**不含好友备注**）：用于会被发出去的内容，见 +Group.m 说明。
 - (NSString *)senderPublicNameForMessage:(IMMessageModel *)m;
+/// 来消息的昵称与成员表不一致（对方改了名）→ 节流重拉群资料。实现在 +Group.m，调用点在 +Socket.m。
+- (void)refreshGroupInfoIfSenderRenamed:(IMMessageModel *)message;
 - (void)sortMessagesInPlace;
 
 // @提及：面板与发送前的 token 解析（sendTapped 在 +Compose，发送时回调这些解析本条 mentions）：

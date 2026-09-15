@@ -155,7 +155,8 @@
         BOOL grpL = self.isGroupChat && !mineL;
         BOOL firstL = grpL && [self isFirstInSenderRun:indexPath.row];
         BOOL lastL = grpL && [self isLastInSenderRun:indexPath.row];
-        [link configureWithMessage:m mine:mineL senderName:(firstL ? [self senderNameForMessage:m] : nil)
+        [link configureWithMessage:m mine:mineL peerReadSeq:[self peerReadSeqForCell]
+                        senderName:(firstL ? [self senderNameForMessage:m] : nil)
                         senderRole:(firstL ? [self senderRoleForMessage:m] : IMGroupRoleMember)];
         [link applyGroupAvatarURL:(grpL ? [self senderAvatarURLForMessage:m] : nil)
                              seed:(m.from ?: @"") name:(grpL ? [self senderNameForMessage:m] : nil)

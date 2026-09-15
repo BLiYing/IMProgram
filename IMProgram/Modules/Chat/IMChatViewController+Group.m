@@ -11,6 +11,7 @@
 #import "IMAccountIdentity.h"
 #import "IMUserProfileCache.h"
 #import "IMUserCard.h"
+#import "IMGroupSenderName.h"
 
 @implementation IMChatViewController (Group)
 
@@ -83,19 +84,33 @@
     [self reloadGroupInfo];
 }
 
-/// 群聊气泡发送者昵称：优先消息自带 from_nickname，其次群成员表，最后 uid。
-/// 群内**公开名**：群昵称 / 全局昵称 / uid。会被写进要发出去的内容时用它（当前：合并转发条目名）。
+/// 群内**公开名**：群成员表（群昵称 / 全局昵称）> 本窗该发送者最新快照 > 本条 from_nickname 快照 > 全局资料缓存。
+/// 气泡昵称经 senderNameForMessage 走它；会被写进要发出去的内容时也用它（当前：合并转发条目名）。
 /// 刻意不含好友备注——备注仅本人可见，进了消息内容就发给收件人了（见 docs/UI.md 隐私红线）。
+/// **成员表压过快照**（2026-09-15 改，此前快照优先）：快照是发消息那一刻的名字、落库后不会更新，
+/// 快照优先 = 改名后老消息永远显示旧名。取值链与理由见 IMGroupSenderName.h。
 - (NSString *)senderPublicNameForMessage:(IMMessageModel *)m {
-    if (m.fromNickname.length > 0) { return m.fromNickname; }
-    NSString *nick = [self.groupInfo nicknameOfMember:m.from];
-    if (nick.length > 0) { return nick; }
-    // 成员表查不到：超级群不下发成员表、发送者已退群，都会走到这。问全局解析器（缓存命中即返回，
+    NSString *name = IMGroupSenderPublicName([self.groupInfo nicknameOfMember:m.from],
+                                             IMLatestSenderNickname(self.windowState.messages, m.from),
+                                             m.fromNickname);
+    if (name.length > 0) { return name; }
+    // 成员表与快照都给不出：超级群不下发成员表、发送者已退群，都会走到这。问全局解析器（缓存命中即返回，
     // 未命中它会攒一批去补、回来发通知触发重刷）。见 IMUserProfileCache。
     IMUserCard *card = [IMUserProfileCache.sharedCache cardForUserID:m.from];
     // **回退链止于 IMDisplayName**（→「未命名用户」），绝不回退到 m.from ——那是 10 位内部 ID，
     // 而这个方法的结果还会随合并转发发出去（见 +Selection.m 的调用点）。
     return IMDisplayName(card.nickname, nil);
+}
+
+/// 实时收到本会话群消息：它带的昵称与成员表对不上 ⇒ 对方在会话开着期间改了名，成员表是进会话时拉的旧份。
+/// 成员表优先的前提是它新鲜——不重拉的话，这条新消息反而会被成员表压回旧名。5 秒节流：
+/// 同一人连发几条只拉一次；万一两边口径永远对不上（不应发生），也只是每 5 秒至多一次请求。
+- (void)refreshGroupInfoIfSenderRenamed:(IMMessageModel *)message {
+    if (!IMGroupMemberNicknameStale([self.groupInfo nicknameOfMember:message.from], message.fromNickname)) { return; }
+    CFTimeInterval now = CACurrentMediaTime();
+    if (self.memberNicknameRefreshAt > 0 && now - self.memberNicknameRefreshAt < 5) { return; }
+    self.memberNicknameRefreshAt = now;
+    [self reloadGroupInfo]; // 回来后 reloadData，窗内这个人的老消息一起换成新名
 }
 
 /// 群内**本机显示名**：我给他起的备注 > 公开名。气泡上方昵称、头像首字母、系统消息里的名字都走它。

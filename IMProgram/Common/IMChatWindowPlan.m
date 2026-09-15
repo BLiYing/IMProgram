@@ -27,6 +27,16 @@ int64_t IMChatLatestPageLow(int64_t tip, NSInteger page) {
     return MAX((int64_t)1, tip - (int64_t)page + 1);
 }
 
+int64_t IMChatTailTip(int64_t liveHead, int64_t storedHead) {
+    if (liveHead > 0) { return liveHead; }
+    return storedHead > 0 ? storedHead : 0;
+}
+
+BOOL IMChatShouldRequestTail(int64_t tip, BOOL latestPageCovered, int64_t windowTailHi) {
+    if (tip <= 0) { return windowTailHi <= 0; }   // 不知道最新在哪：空窗必须问，有内容不白跑
+    return !latestPageCovered;
+}
+
 BOOL IMChatBumpShouldCatchUp(BOOL following, int64_t head, int64_t tailHi) {
     if (!following || head <= 0) { return NO; }
     return head > tailHi;   // 窗口已含最新（信号晚到）就不补

@@ -185,4 +185,32 @@
     XCTAssertFalse(IMChatBumpShouldCatchUp(YES, 0, 100), @"head 未知");
 }
 
+#pragma mark - 取最新一页：内存 head 未知时（2026-09-13 进单聊空白页）
+
+/// 改密码被踢 → 重登 → 内存 head 清空、重连后该会话没再报 head；落库的 head 还在。
+/// 只认内存 head 时，进无未读、本地一条都没有的单聊（服务端 13 万条）直接 return → 空白页，
+/// 直到对方发来一条新消息把 head 带回来才出历史。
+- (void)test_内存head丢了退回落库的head {
+    XCTAssertEqual(IMChatTailTip(0, 130064), 130064);
+    XCTAssertEqual(IMChatTailTip(130065, 130064), 130065, @"本次连接报上来的优先");
+    XCTAssertEqual(IMChatTailTip(0, 0), 0);
+    XCTAssertEqual(IMChatTailTip(-1, -1), 0, @"非正值不是位点");
+}
+
+/// 连落库的 head 也没有（新装、从没同步过这条会话）：空窗时不问就是永久空白，且没有重试入口。
+- (void)test_head未知且空窗必须问服务端 {
+    XCTAssertTrue(IMChatShouldRequestTail(0, NO, 0));
+}
+
+/// 发消息 / 点 ↓ 都走这一步：窗口里已有内容而 head 未知时每次都问是白跑（与 Web 刻意不同，SYMMETRY 登记）。
+- (void)test_head未知但窗口有内容不白跑 {
+    XCTAssertFalse(IMChatShouldRequestTail(0, NO, 500));
+}
+
+- (void)test_head已知时只看最新一页盖没盖住 {
+    XCTAssertTrue(IMChatShouldRequestTail(130064, NO, 0));
+    XCTAssertTrue(IMChatShouldRequestTail(130064, NO, 130064), @"尾部孤岛：最大 seq 等于 head 也不算齐（C4）");
+    XCTAssertFalse(IMChatShouldRequestTail(130064, YES, 0), @"盖住了就不问，空窗也一样（本地展开由调用方负责）");
+}
+
 @end

@@ -5,6 +5,24 @@
 
 ## 当前焦点
 
+> **第二批用户报告 ✅ 2026-09-15（未提交；单测 + 变异验红 + iPhone 17 Pro Max 模拟器截图实测）**，逐条见 IMServer `docs/CLIENT_PARITY.md` 顶部：
+> ① 「新的朋友」角标数字偏右：UILabel 居中不计行尾空格，`"  %@  "` 撑宽必偏——改显式 `_badgeWidth`（同会话列表）；
+> ② 角标统一蓝：入口角标 `IMTheme.unreadBadge`，Tab 角标走 `UITabBarAppearance.badgeBackgroundColor`（iOS 18 起 UITab 没有 badgeColor）；
+> ③ 文本 / 引用消息时间挪到气泡右下角：`IMBubbleCell` 右下角独立 `_textMeta` + 正文末尾透明占位 `IMBubbleMetaPlaceholder`
+>    让位（链接卡展开时时间落卡片下方）；④ **改昵称后老消息仍显旧名**：`senderPublicNameForMessage:` 原为快照优先，
+>    改「成员表 > 本窗最新快照 > 本条快照」（`Common/IMGroupSenderName.h`，4 例单测）+ 来消息昵称对不上成员表节流重拉。
+> 实测：通讯录两处角标蓝且居中；「1002群」里改名后的 user3005 旧消息显示新名（本地库快照仍是旧名）；链接 / 引用消息时间在右下角。
+> 模拟器没覆盖到：文件文 / 长文本折叠 / 链接卡展开这几种气泡的时间位置；会话开着时对方改名再发消息的重拉。
+
+> **三个聊天页 bug ✅ 2026-09-15（用户报，未提交；只跑单测 + 变异验红，未上模拟器）**：
+> ① **进单聊一片空白、对方发新消息才出历史**（2026-09-13 libeyond↔user1001，13 万条积压、本地 0 条）：
+> `requestServerTailWindowIfBehind` 只认内存 head，改密被踢 → 重登后 `IMBacklogTracker` reset、head=0 → 直接 return。
+> 改为内存 head 未知退回**落库** head、两者都未知且空窗也问（`IMChatTailTip` / `IMChatShouldRequestTail`，4 例单测）；
+> 与 Web「tip 未知一律问」的差异已登记 SYMMETRY。② **文件文（文件 + caption）时间悬在气泡中段**：`IMBubbleCell`
+> 的 `_fileMetaLabel` 改挂气泡，有 caption 时落到 caption 下方（约束两组互斥，行高改「贴状态行但不矮于图标位」）。
+> ③ **纯链接消息没有时间**：`IMLinkCardCell` 加时间行 + configure 带 `peerReadSeq`。
+> **要真机/模拟器看**：②文件名一行/两行 × 有无 caption × 上传/下载进度中 的行高；③OG 卡片异步展开前后的间距。
+
 > **通讯录大名单（好友列表空白 + 切 Tab 卡顿 + 剩余主线程开销）✅ 2026-09-12 手测通过**（`e5cbac8` + `f57816a`）：
 > 细节已移入 [current_task.archive.md](current_task.archive.md)「2026-09-11~12 通讯录大名单」。遗留的 `reload` 并发覆盖见「已知坑」。
 

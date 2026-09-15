@@ -9,7 +9,7 @@
 /// 文件名/纯 URL 判定统一走 IMMediaUtil（聊天/收藏/记录共用），此处保留短别名以少改调用点。
 @implementation IMLinkCardCell {
     UIView *_bubble;          // 气泡底：包裹 引用+链接+OG卡 整体（与 Web 一致——链接与卡片在同一个气泡里）
-    UIStackView *_stack;      // 竖排：引用行(可选) + 可点击 URL 文本 + OG 卡片(拉到才显示)
+    UIStackView *_stack;      // 竖排：引用行(可选) + 可点击 URL 文本 + OG 卡片(拉到才显示) + 时间行
     UILabel *_quote;          // 引用快照（点击整行空白处由 tableView 手势跳原消息）
     UILabel *_link;           // URL 文本：始终显示、蓝色下划线、可点击打开
     UIView *_card;
@@ -18,6 +18,7 @@
     UILabel *_title;
     UILabel *_desc;
     UILabel *_host;
+    UILabel *_meta;           // 时间 + ✓/✓✓：stack 最后一行、靠右 = 气泡右下角（与其余气泡同一套判据）
     NSLayoutConstraint *_leading;
     NSLayoutConstraint *_trailing;
     NSString *_url;
@@ -67,10 +68,16 @@
         [_bubble addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tapped)]];
         [self.contentView addSubview:_bubble];
 
-        _stack = [[UIStackView alloc] initWithArrangedSubviews:@[_quote, _link, _card]];
+        _meta = [UILabel new];
+        _meta.font = [UIFont systemFontOfSize:11];
+        _meta.textAlignment = NSTextAlignmentRight;
+
+        _stack = [[UIStackView alloc] initWithArrangedSubviews:@[_quote, _link, _card, _meta]];
         _stack.axis = UILayoutConstraintAxisVertical;
         _stack.spacing = 6;
         _stack.alignment = UIStackViewAlignmentFill;
+        // 时间行紧贴上一行（卡片后 4；仅链接时由 configure 把链接后收成 2）：沿用 6 的话时间像另起的一段。
+        [_stack setCustomSpacing:4 afterView:_card];
         _stack.translatesAutoresizingMaskIntoConstraints = NO;
         // 内容装进**气泡子树**（约束本就全相对 _bubble）：否则 stack 只是盖在 _bubble 上的兄弟视图，
         // 长按落点祖先链不含 _bubble → 挂在 _bubble 上的 UIContextMenuInteraction 收不到触摸（长按无反应）。
@@ -155,9 +162,15 @@
     return self;
 }
 - (void)configureWithMessage:(IMMessageModel *)message mine:(BOOL)mine
+                 peerReadSeq:(int64_t)peerReadSeq
                   senderName:(NSString *)senderName
                   senderRole:(IMGroupRole)senderRole {
     _card.layer.cornerRadius = IMTheme.radiusBubble;
+    // 右下角时间/状态：与其余气泡共用基类的同一套判据（发送中…/未发送 ✗/时间 + ✓✓）。
+    // 此前本 cell 完全没有这一块（IMChatRecordCell 早先同病、已补），纯链接消息收发两端都看不出时间。
+    _meta.attributedText = [IMMessageCell attributedMetaForMessage:message mine:mine peerReadSeq:peerReadSeq];
+    _meta.textAlignment = NSTextAlignmentRight; // 赋 attributedText 会重置对齐，串里没有段落样式，靠 label 再设一次
+    [_stack setCustomSpacing:2 afterView:_link]; // 先按「仅链接 → 时间」排；抓到 OG 卡片时 applyPreview 改回 6
     _quote.font = [UIFont systemFontOfSize:MAX(12, IMTheme.chatFontSize - 4)];
     _title.font = [UIFont systemFontOfSize:MAX(14, IMTheme.chatFontSize - 2) weight:UIFontWeightSemibold];
     _desc.font = [UIFont systemFontOfSize:MAX(12, IMTheme.chatFontSize - 5)];
@@ -212,6 +225,7 @@
     NSString *image = [p[@"image"] isKindOfClass:NSString.class] ? p[@"image"] : @"";
     if (title.length == 0 && image.length == 0) { return; } // 没有可展示的预览 → 保持仅链接
     _card.hidden = NO;
+    [_stack setCustomSpacing:6 afterView:_link]; // 链接 → 卡片恢复默认间距（configure 为「仅链接 → 时间」收成了 2）
     _title.text = title.length ? title : url;
     _desc.text = desc;
     _host.text = site;

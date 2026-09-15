@@ -15,7 +15,10 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) void (^onTap)(NSString *url);
 /// OG 预览异步到达、卡片展开改变了行高 → 回调聊天页刷一次行高（否则内容被压进旧行高，滚动后才正常）。
 @property (nonatomic, copy, nullable) void (^onContentSizeResolved)(void);
+/// peerReadSeq：气泡右下角「时间 + ✓/✓✓」要用（与 IMChatRecordCell / IMContactCardCell 同签名）。
+/// 此前本 cell 没有这个参数、也没有时间——纯链接消息收发两端都看不出是什么时候的（2026-09-15 用户报）。
 - (void)configureWithMessage:(IMMessageModel *)message mine:(BOOL)mine
+                 peerReadSeq:(int64_t)peerReadSeq
                   senderName:(nullable NSString *)senderName
                   senderRole:(IMGroupRole)senderRole;
 // onAvatarTap / applyUnreadDivider: 由 IMMessageCell 基类提供。

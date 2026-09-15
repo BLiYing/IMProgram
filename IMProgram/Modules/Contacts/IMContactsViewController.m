@@ -32,7 +32,8 @@
     UIImageView *_iconView;
     UIView *_iconBg;
     UILabel *_title;
-    UILabel *_badge;   // 右侧红点计数（贴在 disclosure 箭头左侧）
+    UILabel *_badge;   // 右侧计数胶囊（贴在 disclosure 箭头左侧）
+    NSLayoutConstraint *_badgeWidth;
 }
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
     self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
@@ -60,14 +61,15 @@
         _badge.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
         _badge.textColor = UIColor.whiteColor;
         _badge.textAlignment = NSTextAlignmentCenter;
-        _badge.backgroundColor = UIColor.systemRedColor;
+        // 角标三端统一蓝色（2026-09-15 用户要求），与会话列表未读胶囊同一个色值。
+        _badge.backgroundColor = IMTheme.unreadBadge;
         _badge.layer.cornerRadius = 9;
         _badge.layer.masksToBounds = YES;
         _badge.hidden = YES;
-        // 抗压缩：两位数不该被标题挤成省略号。
-        [_badge setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
-        [_badge setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
         [self.contentView addSubview:_badge];
+        // 宽度显式给（与会话列表 _badgeWidth 同一做法），**不靠文本首尾空格撑宽**：
+        // UILabel 居中对齐时不计行尾空白，「  3  」只算了前面两个空格，数字整体偏右（2026-09-15 用户报）。
+        _badgeWidth = [_badge.widthAnchor constraintEqualToConstant:18];
 
         [NSLayoutConstraint activateConstraints:@[
             [_iconBg.leadingAnchor constraintEqualToAnchor:self.contentView.layoutMarginsGuide.leadingAnchor],
@@ -84,7 +86,7 @@
             [_badge.trailingAnchor constraintEqualToAnchor:self.contentView.layoutMarginsGuide.trailingAnchor],
             [_badge.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
             [_badge.heightAnchor constraintEqualToConstant:18],
-            [_badge.widthAnchor constraintGreaterThanOrEqualToAnchor:_badge.heightAnchor],
+            _badgeWidth,
         ]];
         self.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     }
@@ -94,9 +96,11 @@
     _title.text = action.title;
     _iconView.image = action.systemImageName.length > 0 ? [UIImage systemImageNamed:action.systemImageName] : nil;
     _iconBg.backgroundColor = iconBg;
-    // 两侧各留 5pt：一位数是圆点，两位数自然拉成胶囊。
-    _badge.text = badge.length > 0 ? [NSString stringWithFormat:@"  %@  ", badge] : nil;
+    _badge.text = badge.length > 0 ? badge : nil;
     _badge.hidden = (badge.length == 0);
+    // 两侧各留 5pt、最小 18：一位数是正圆，两位数自然拉成胶囊。
+    _badgeWidth.constant = badge.length > 0
+        ? MAX(18, ceil([_badge sizeThatFits:CGSizeMake(CGFLOAT_MAX, 18)].width) + 10) : 0;
 }
 @end
 

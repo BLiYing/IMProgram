@@ -197,20 +197,24 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
     if (IMSocketManager.sharedManager.state != IMSocketStateConnected) { return; }
     if (self.windowState.pendingTail) { return; }
     NSString *convID = self.convID;
-    int64_t head = [IMSocketManager.sharedManager headConvSeqForConv:convID];
-    if (head <= 0) { return; }   // 不知道最新在哪 → 不白跑
+    // 「最新」取内存 head，未知时退回落库的 head；两个都没有且窗口是空的也照样问。
+    // 此前这里是 `head <= 0 → return`（「不知道最新在哪 → 不白跑」），重登清空内存 head 后
+    // 进一条本地为空的会话就是永久空白页（2026-09-13，判据与来龙去脉见 IMChatTailTip / IMChatShouldRequestTail）。
+    int64_t liveHead = [IMSocketManager.sharedManager headConvSeqForConv:convID];
     // **问区间清单「最新一页齐不齐」，不比最大 seq**（C4，与 im-web windowPlan.planJumpToLatest 同口径）：
     // 离线积压超过 max_gap 后实时来一条，它被登记成孤岛 [seq, seq]，本地最大 seq 已等于 head——
     // 旧判据 `head <= localMax` 判「已是最新」，点 ↓ / 进无未读的会话只看到孤零零一条，上面那一页永远不来。
     // 这也是 C3 iOS 记着的残留①（「无未读那条路 head <= localMax 误判已是最新」）。
+    __block int64_t tip = liveHead;
     __block BOOL covered = NO;
     NSInteger page = IMWindowPage();
     [self performDatabaseOperation:^(IMDatabase *database) {
-        covered = [database conv:convID coversFrom:IMChatLatestPageLow(head, page) to:head];
+        if (liveHead <= 0) { tip = IMChatTailTip(liveHead, [database headConvSeqForConv:convID]); }
+        if (tip > 0) { covered = [database conv:convID coversFrom:IMChatLatestPageLow(tip, page) to:tip]; }
     }];
-    if (covered) { return; }
+    if (!IMChatShouldRequestTail(tip, covered, [self latestLoadedConvSeq])) { return; }
     self.windowState.pendingTail = YES;
-    IMLogDebugWithTag(IMLogTagUI, @"chat_window_tail_request conv_id=%@ head=%lld", convID, head);
+    IMLogDebugWithTag(IMLogTagUI, @"chat_window_tail_request conv_id=%@ head=%lld live_head=%lld", convID, tip, liveHead);
     [IMSocketManager.sharedManager requestWindowForConv:convID anchor:0 before:IMWindowPage() after:0];
     __weak typeof(self) ws = self;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kIMWindowRequestTimeout * NSEC_PER_SEC)),

@@ -102,6 +102,8 @@
         [database saveMessage:message]; // 任何会话的消息都落库（按 conv_seq 幂等）
     }]) { return; }
     if (![message.convID isEqualToString:self.convID]) { return; } // 非本会话不在此页显示
+    // 放在去重 / 不上屏的早退之前：哪怕这条只落库不上屏，它带的昵称也证明成员表旧了（见 IMGroupSenderName.h）。
+    if (self.isGroupChat) { [self refreshGroupInfoIfSenderRenamed:message]; }
     // 同一条消息可能既被 new_msg 推送、又被 sync_resp 拉到，按 conv_seq 去重。
     if (message.convSeq > 0) {
         NSNumber *key = @(message.convSeq);

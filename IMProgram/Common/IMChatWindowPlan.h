@@ -80,6 +80,32 @@ extern BOOL IMChatWindowHasMoreAbove(int64_t oldestRendered);
 extern int64_t IMChatLatestPageLow(int64_t tip, NSInteger page);
 
 /**
+ 「取最新一页」拿哪个位点当最新。与 im-web `planEntryWindow` 的 `tip = head > 0 ? head : latestSeq` 同口径：
+ 本次连接内报上来的**内存** head 优先，未知时退回**落库**的 head（上一次连接报过的，重登也还在）。
+
+ ⚠️ 只认内存 head 是 2026-09-13 那次「进单聊一片空白、对方发来一条新消息才出历史」的根因：
+ 改密码被踢回登录页 → 重登，`IMBacklogTracker` 随之 reset、内存 head 清空，重连后这条会话没有再报 head；
+ 进会话时本地一条都没有（13 万条积压当初按 max_gap 留成了缺口），取最新一页这一步因 head=0
+ 「不知道最新在哪 → 不白跑」直接 return——空白页，且没有任何重试入口。落库的 head 当时就在库里（130064）。
+ */
+extern int64_t IMChatTailTip(int64_t liveHead, int64_t storedHead);
+
+/**
+ 取最新一页该不该问服务端。
+
+ · tip 已知 → 区间清单盖不住 `[IMChatLatestPageLow(tip), tip]` 才问（C4 口径，不比最大 seq）；
+ · tip 未知 → **窗口里一条已上号消息都没有就问**（im-web `planEntryWindow` 的 `tip <= 0 → server`）。
+   窗口里已有内容时**不问**，这是与 Web 的刻意不对称（SYMMETRY 已登记）：Web 有会话列表的 latestSeq 可退、
+   tip 几乎不会未知；iOS 没有，而发消息 / 点 ↓ 都走这一步，head 未知时每次都问就是白跑。
+   空窗不问的代价是永久空白，问一次的代价只是一个往返——拿不准往「去问」倒。
+
+ @param tip               IMChatTailTip 的结果（0 = 未知）。
+ @param latestPageCovered 区间清单是否盖住最新一页；tip 未知时不看。
+ @param windowTailHi      窗口里最新一条已上号消息的 conv_seq（0 = 空窗，或只有待发消息）。
+ */
+extern BOOL IMChatShouldRequestTail(int64_t tip, BOOL latestPageCovered, int64_t windowTailHi);
+
+/**
  超级群 conv_bump 到了、会话正开着：该不该补。与 im-web `windowPlan.planBumpCatchUp` 的**不变式**一致：
  没贴底（在翻历史）就**不补**——↓N 按 head 计数，点 ↓ 再取；贴底跟随才补。
 

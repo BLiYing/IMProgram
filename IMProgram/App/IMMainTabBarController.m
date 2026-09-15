@@ -10,6 +10,7 @@
 #import "IMGlobalSearchViewController.h"
 #import "IMChatViewController.h"
 #import "IMDatabase.h"
+#import "IMTheme.h"
 #import <objc/runtime.h>
 
 CGFloat const kIMLiquidBarHeight = 56;
@@ -320,8 +321,33 @@ static void * const kIMInjectedBarKey = (void *)&kIMInjectedBarKey;
         } else {
             self.viewControllers = @[convNav, contactsNav, settingsNav, searchNav];
         }
+        [self applyUnreadBadgeColor];
     }
     return self;
+}
+
+/// Tab 角标（通讯录「新的朋友」待处理数）改蓝：系统默认红，三端角标统一蓝（2026-09-15 用户要求）。
+/// 走 appearance 而不是 `tabBarItem.badgeColor`：iOS 18 起 tab 由 UITab 生成，UITab 只有 badgeValue、没有颜色。
+/// scrollEdgeAppearance 为 nil 时系统取 standardAppearance 改透明背景，角标色随之带过去，故只在它非 nil 时补设
+/// ——给它赋一份 standard 的拷贝会让滚到边缘时也变成不透明底。
+- (void)applyUnreadBadgeColor {
+    UITabBarAppearance *standard = [self.tabBar.standardAppearance copy];
+    [self paintBadgeColorOnAppearance:standard];
+    self.tabBar.standardAppearance = standard;
+    if (self.tabBar.scrollEdgeAppearance) {
+        UITabBarAppearance *edge = [self.tabBar.scrollEdgeAppearance copy];
+        [self paintBadgeColorOnAppearance:edge];
+        self.tabBar.scrollEdgeAppearance = edge;
+    }
+}
+
+- (void)paintBadgeColorOnAppearance:(UITabBarAppearance *)appearance {
+    for (UITabBarItemAppearance *item in @[appearance.stackedLayoutAppearance,
+                                          appearance.inlineLayoutAppearance,
+                                          appearance.compactInlineLayoutAppearance]) {
+        item.normal.badgeBackgroundColor = IMTheme.unreadBadge;
+        item.selected.badgeBackgroundColor = IMTheme.unreadBadge;
+    }
 }
 
 @end
