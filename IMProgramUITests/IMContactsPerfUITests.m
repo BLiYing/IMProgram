@@ -96,7 +96,7 @@
 
     // ② 来回切 Tab，记录每一下的耗时
     NSMutableArray<NSString *> *timings = [NSMutableArray array];
-    NSArray<NSString *> *order = @[ @"会话", @"通讯录", @"我", @"通讯录" ];
+    NSArray<NSString *> *order = @[ @"消息", @"通讯录", @"我", @"通讯录" ];
     for (NSInteger round = 0; round < 5; round++) {
         for (NSString *name in order) {
             XCUIElement *tab = [self tabNamed:name app:app];
@@ -116,7 +116,7 @@
     [self attachScreenshotOf:app named:@"2-切完 Tab 回到通讯录"];
 
     // ③ 会话页右上 ＋ → 新建群聊 → 选好友页出行
-    [[self tabNamed:@"会话" app:app] tap];
+    [[self tabNamed:@"消息" app:app] tap];
     XCUIElement *plus = nil;
     for (NSString *label in @[ @"Add", @"添加", @"plus", @"新建" ]) {
         XCUIElement *candidate = app.buttons[label];

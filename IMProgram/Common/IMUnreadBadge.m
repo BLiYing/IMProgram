@@ -1,4 +1,14 @@
 #import "IMUnreadBadge.h"
+#import "IMConversation.h"
+
+NSInteger IMTabUnreadCount(NSArray<IMConversation *> *conversations) {
+    NSInteger n = 0;
+    for (IMConversation *c in conversations) {
+        if (!c.muted) { n += c.unread; }
+        else if (c.mentionUnread) { n += 1; }
+    }
+    return n;
+}
 
 NSString *IMCompactCount(NSInteger n) {
     if (n <= 0) { return @"0"; }

@@ -5,6 +5,19 @@
 
 ## 当前焦点
 
+> **第四批用户报告（iOS 部分）✅ 2026-09-15（用户自测通过，已提交）**：「消息」Tab 蓝点太大——系统 `badgeValue = @""` 尺寸不可调，
+> 改 `IMMainTabBarController` 的 `setConversationsTabDotVisible:` 自绘 8pt（按标题 label 找图标、挂在图标右上角；找不到退回系统空角标）。
+> ⚠️ 找图标依赖系统底栏私有层级，iOS 大版本升级后先看这颗点。
+
+> **第三批用户报告（iOS 部分）✅ 2026-09-15（用户复测通过，已提交；`ONLY=IMTabUnreadCountTests` 5 例通过 + 变异验红）**：
+> ① 页面标题与 Tab「会话」→「消息」（`IMMainTabBarController.m` 两处 + 列表页 `self.title` 两处 + UI 测试 `IMContactsPerfUITests`）；
+> ② 「消息」Tab 补未读蓝点（此前只有 Android 有）：判据 `Common/IMUnreadBadge.h` 的 `IMTabUnreadCount`（免打扰不计、免打扰里 @ 计 1、
+>    标未读不计，与 Web badgeCountOf / Android TabUnread 同口径）；列表页 `setConversations:` 一个咽喉算空态 + 蓝点，就地改
+>    unread/muted 处手动调 `refreshListIndicators`；**离屏也要变**——viewWillDisappear 会摘掉 self 全部订阅，故另挂一组常驻
+>    block token（`startTabDotObservers`，只在用户停在别的 Tab 时每秒最多补读一次本地库）；
+> ③ 顺带修同一个洞：新装包首登时缓存为空先闪「还没有会话」→ `serverListed`（服务端拉成过一次才画空态）。
+> **要模拟器看**：`badgeValue = @""` 在 iOS 26 UITab 上是否画成小圆点（没看过）；切到通讯录后来消息，约 1s 内点亮。
+
 > **第二批用户报告 ✅ 2026-09-15（未提交；单测 + 变异验红 + iPhone 17 Pro Max 模拟器截图实测）**，逐条见 IMServer `docs/CLIENT_PARITY.md` 顶部：
 > ① 「新的朋友」角标数字偏右：UILabel 居中不计行尾空格，`"  %@  "` 撑宽必偏——改显式 `_badgeWidth`（同会话列表）；
 > ② 角标统一蓝：入口角标 `IMTheme.unreadBadge`，Tab 角标走 `UITabBarAppearance.badgeBackgroundColor`（iOS 18 起 UITab 没有 badgeColor）；

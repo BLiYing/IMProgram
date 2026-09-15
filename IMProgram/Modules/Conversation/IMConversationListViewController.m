@@ -392,6 +392,13 @@ static CGFloat const kIMRowLeading = 16;
 @property (nonatomic, strong) NSArray<IMConversation *> *conversations;
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) UILabel *emptyLabel;
+/// 本次登录后拉成过一次服务端会话列表。**空态是结论**：新装包首登时本地缓存必空，只凭缓存就会先闪
+/// 「还没有会话」再改口（Android 同一个洞，2026-09-15 用户报；对端判据 im-android `ConversationListPhase`）。
+@property (nonatomic, assign) BOOL serverListed;
+/// 常驻订阅的 block token（见 startTabDotObservers）。**必须是 block token、不能 addObserver:self**：
+/// viewWillDisappear 按 name 摘 self 的订阅，会连这组一起摘掉。
+@property (nonatomic, copy) NSArray<id<NSObject>> *tabDotObservers;
+@property (nonatomic, assign) BOOL offscreenRefreshPending;
 @property (nonatomic, assign) BOOL visible; // 在屏时才响应新消息刷新（避免进聊天页时无谓拉取）
 @property (nonatomic, strong) NSMutableSet<NSString *> *trackedConvIDs; // 已登记增量同步的会话（每会话只登记一次）
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *outboxStates; // conv → 0无/1发送中/2失败（去抖用）
@@ -425,9 +432,61 @@ static CGFloat const kIMRowLeading = 16;
     return [IMDatabase.sharedDatabase performWithAccountContext:self.databaseContext block:operation];
 }
 
+/// 列表数据一换，空态与底栏「消息」蓝点就跟着算——**收在 setter 这一个咽喉**。此前 `emptyLabel.hidden`
+/// 在五个赋值点后各抄一遍，蓝点若也照那样散写，下一个新增的赋值点必漏（SYMMETRY「兄弟没跟」那一类）。
+- (void)setConversations:(NSArray<IMConversation *> *)conversations {
+    _conversations = conversations;
+    [self refreshListIndicators];
+}
+
+/// 空态 + 「消息」Tab 蓝点。**就地改了某行的 unread / muted 而没换数组时也要调它**（设为已读、免打扰）。
+- (void)refreshListIndicators {
+    self.emptyLabel.hidden = self.conversations.count > 0 || !self.serverListed;
+    // 蓝点只表「有」，由底栏容器自绘 8pt 小圆——系统 `badgeValue = @""` 那颗太大（2026-09-15 用户报）。
+    // 此前这颗点根本没画，只有 Android 有（同日用户报）。口径见 IMTabUnreadCount（三端同口径）
+    if ([self.tabBarController isKindOfClass:IMMainTabBarController.class]) {
+        [(IMMainTabBarController *)self.tabBarController
+            setConversationsTabDotVisible:IMTabUnreadCount(self.conversations) > 0];
+    }
+}
+
+/// 蓝点要在**别的 Tab 上**也跟着变。viewWillAppear 那一大组订阅在 viewWillDisappear 全部摘掉——
+/// 切到通讯录后来了新消息，列表不刷，蓝点就停在旧值上，而那正是这颗点唯一有用的时候。
+/// 这一组常驻，但只在「列表不在屏、本 Tab 又停在列表根页」（＝用户在别的 Tab）时补读一次本地库：
+/// 本 Tab 压着聊天页时底栏本就隐藏，回来 viewWillAppear 会 reload，不必白读。
+/// 节流而非防抖：大群消息连着来时防抖会一直往后推，蓝点永远亮不起来。
+- (void)startTabDotObservers {
+    if (self.tabDotObservers) { return; }
+    __weak typeof(self) ws = self;
+    NSMutableArray<id<NSObject>> *tokens = [NSMutableArray array];
+    for (NSNotificationName n in @[IMSocketDidReceiveMessageNotification, IMSocketDidReceiveConvBumpNotification,
+                                   IMSocketDidReceiveReadNotification, IMSocketDidUpdateConversationNotification]) {
+        [tokens addObject:[NSNotificationCenter.defaultCenter addObserverForName:n object:nil
+                                                                           queue:NSOperationQueue.mainQueue
+                                                                      usingBlock:^(NSNotification *note) {
+            [ws scheduleOffscreenRefresh];
+        }]];
+    }
+    self.tabDotObservers = tokens;
+}
+
+- (void)scheduleOffscreenRefresh {
+    if (self.visible || self.navigationController.topViewController != self) { return; }
+    if (self.offscreenRefreshPending) { return; }
+    self.offscreenRefreshPending = YES;
+    __weak typeof(self) ws = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        self.offscreenRefreshPending = NO;
+        if (self.visible) { return; } // 这一秒里切回来了：viewWillAppear 已经 reload
+        [self refreshLocalConversations];
+    });
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"会话";
+    self.title = @"消息"; // 2026-09-15 由「会话」改，与 Android 底栏、Web 左栏页签统一
     self.view.backgroundColor = UIColor.systemBackgroundColor;
     // 使用系统 UIBarButtonItem；iOS 26 会把标题、返回键和此按钮分成独立 Liquid Glass 控件。
     self.navigationItem.rightBarButtonItem =
@@ -479,8 +538,9 @@ static CGFloat const kIMRowLeading = 16;
     self.emptyLabel.textColor = IMTheme.textSecondary;
     self.emptyLabel.textAlignment = NSTextAlignmentCenter;
     self.emptyLabel.numberOfLines = 0;
-    self.emptyLabel.hidden = self.conversations.count > 0;
     [self.view addSubview:self.emptyLabel];
+    [self refreshListIndicators]; // init 里直接写的 ivar，没走 setter，这里补算一次
+    [self startTabDotObservers];
     [NSLayoutConstraint activateConstraints:@[
         [self.emptyLabel.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
         [self.emptyLabel.centerYAnchor constraintEqualToAnchor:self.view.centerYAnchor],
@@ -604,9 +664,9 @@ static CGFloat const kIMRowLeading = 16;
 }
 
 - (void)updateTitleForState:(IMSocketState)state {
-    // 标题恒为「会话」；连接态走副标题（同聊天页「在线」位置，无括号）。见 im_navigationSubtitle。
+    // 标题恒为「消息」；连接态走副标题（同聊天页「在线」位置，无括号）。见 im_navigationSubtitle。
     self.connState = state;
-    self.title = @"会话";
+    self.title = @"消息";
     // 当前工程隐藏了 UINavigationBar，标题实际由 IMMainNavigationController 的 Liquid Bar 绘制；
     // 只改 self.title/副标题不会触发其同步，必须显式请求刷新。
     [self im_refreshNavigationBar];
@@ -645,8 +705,7 @@ static CGFloat const kIMRowLeading = 16;
     // 抹掉，再由 0.4s 后的 HTTP reload 点亮——消息风暴/presence 心跳下肉眼即闪烁。故把旧列表里的
     // peerPresence 按 convID 迁移过来（租约 onlineUntil 会自然过期，迁移安全）。
     [self carryOverPeerPresenceInto:cached];
-    self.conversations = cached ?: @[];
-    self.emptyLabel.hidden = self.conversations.count > 0;
+    self.conversations = cached ?: @[]; // setter 顺带刷空态与 Tab 蓝点
     [self.tableView reloadData];
 }
 
@@ -665,6 +724,8 @@ static CGFloat const kIMRowLeading = 16;
 
 - (void)dealloc {
     [NSNotificationCenter.defaultCenter removeObserver:self];
+    // block token 不在上面那句的范围里，要逐个摘
+    for (id<NSObject> token in _tabDotObservers) { [NSNotificationCenter.defaultCenter removeObserver:token]; }
     [NSObject cancelPreviousPerformRequestsWithTarget:self];
 }
 
@@ -691,11 +752,11 @@ static CGFloat const kIMRowLeading = 16;
                 IMLog(@"拉取会话失败（忽略，不弹框）：%@", err.localizedDescription);
                 return;
             }
+            self.serverListed = YES; // 先置位再赋值：setter 里的空态判据要看到这一次
             self.conversations = convs ?: @[];
             if (![self performDatabaseOperation:^(IMDatabase *database) {
                 [database replaceCachedConversations:self.conversations];
             }]) { return; }
-            self.emptyLabel.hidden = self.conversations.count > 0;
             [self.tableView reloadData];
             [self trackConversationsForSync]; // 登记会话用于（重）连后增量同步，补拉离线消息
             [self fetchHiddenCatchUpWithToken:token]; // 任务2：拉「仅为我删除」隐藏集并本地移除（多设备同步 catch-up）
@@ -925,6 +986,7 @@ static CGFloat const kIMRowLeading = 16;
                 if (error) { [ws im_showToast:error.localizedDescription]; return; }
                 c.markedUnread = NO;
                 c.unread = 0;
+                [ws refreshListIndicators];
                 if (![ws performDatabaseOperation:^(IMDatabase *database) {
                     [database markConversationFullyRead:c.convID upToConvSeq:c.latestConvSeq];
                     [database applyCachedSettingsForConversation:c.convID
@@ -940,6 +1002,7 @@ static CGFloat const kIMRowLeading = 16;
         return;
     }
     c.unread = 0;
+    [self refreshListIndicators];
     [self performDatabaseOperation:^(IMDatabase *database) {
         [database markConversationFullyRead:c.convID upToConvSeq:c.latestConvSeq];
     }];
@@ -989,7 +1052,6 @@ static CGFloat const kIMRowLeading = 16;
                                                 muted:conversation.muted
                                          markedUnread:conversation.markedUnread];
     }];
-    self.emptyLabel.hidden = sorted.count > 0;
 
     NSIndexPath *from = [NSIndexPath indexPathForRow:(NSInteger)oldIndex inSection:0];
     NSIndexPath *to = [NSIndexPath indexPathForRow:(NSInteger)newIndex inSection:0];
@@ -1017,6 +1079,7 @@ static CGFloat const kIMRowLeading = 16;
     c.pinnedAt = pinnedAt;
     c.muted = muted;
     c.markedUnread = markedUnread;
+    [self refreshListIndicators]; // 就地改了 muted：Tab 蓝点的口径看它
     return [self performDatabaseOperation:^(IMDatabase *database) {
         [database applyCachedSettingsForConversation:c.convID pinnedAt:pinnedAt muted:muted markedUnread:markedUnread];
     }];
@@ -1055,7 +1118,6 @@ static CGFloat const kIMRowLeading = 16;
         if (![self performDatabaseOperation:^(IMDatabase *database) {
             [database deleteCachedConversation:c.convID];
         }]) { return; }
-        self.emptyLabel.hidden = remaining.count > 0;
         if (idx != NSNotFound) {
             [self.tableView deleteRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:(NSInteger)idx inSection:0]]
                                   withRowAnimation:UITableViewRowAnimationAutomatic];

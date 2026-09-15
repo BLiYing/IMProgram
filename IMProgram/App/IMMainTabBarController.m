@@ -266,7 +266,40 @@ static void * const kIMInjectedBarKey = (void *)&kIMInjectedBarKey;
 
 @end
 
-@implementation IMMainTabBarController
+/// 「消息」Tab 未读蓝点直径，与 Android `BottomBar` / Web `.tab-dot` 同为 8。
+static CGFloat const kIMTabDotSize = 8;
+
+/// 在 root 子树里按文字找底栏标题 label——系统不给 tab 按钮的公开入口，标题文字是各版本底栏都有的锚。
+static UILabel *IMFindTabTitleLabel(UIView *root, NSString *title) {
+    for (UIView *sub in root.subviews) {
+        if ([sub isKindOfClass:UILabel.class] && !sub.hidden && sub.alpha > 0.01
+            && [((UILabel *)sub).text isEqualToString:title]) { return (UILabel *)sub; }
+        UILabel *deeper = IMFindTabTitleLabel(sub, title);
+        if (deeper) { return deeper; }
+    }
+    return nil;
+}
+
+/// 收集图标尺寸的 UIImageView（宽高 < 60 排除底栏背景 / 阴影那种整宽图）。
+static void IMCollectTabIcons(UIView *root, NSMutableArray<UIImageView *> *out) {
+    for (UIView *sub in root.subviews) {
+        CGSize s = sub.bounds.size;
+        if ([sub isKindOfClass:UIImageView.class] && !sub.hidden && sub.alpha > 0.01
+            && s.width > 8 && s.width < 60 && s.height < 60) {
+            [out addObject:(UIImageView *)sub];
+        }
+        IMCollectTabIcons(sub, out);
+    }
+}
+
+@interface IMMainTabBarController ()
+@property (nonatomic, weak) UINavigationController *conversationsNav;
+@end
+
+@implementation IMMainTabBarController {
+    UIView *_conversationsDot;
+    BOOL _conversationsDotVisible;
+}
 
 - (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID {
     self = [super initWithNibName:nil bundle:nil];
@@ -276,7 +309,9 @@ static void * const kIMInjectedBarKey = (void *)&kIMInjectedBarKey;
         IMConversationListViewController *convList =
             [[IMConversationListViewController alloc] initWithHost:host userID:userID];
         UINavigationController *convNav = [[IMMainNavigationController alloc] initWithRootViewController:convList];
-        convNav.tabBarItem = [[UITabBarItem alloc] initWithTitle:@"会话"
+        _conversationsNav = convNav;
+        // Tab 名「消息」（2026-09-15 由「会话」改，与 Android 底栏、Web 左栏页签统一）。
+        convNav.tabBarItem = [[UITabBarItem alloc] initWithTitle:@"消息"
                                                            image:[UIImage systemImageNamed:@"bubble.left.and.bubble.right"]
                                                              tag:0];
 
@@ -301,7 +336,7 @@ static void * const kIMInjectedBarKey = (void *)&kIMInjectedBarKey;
 
         if (@available(iOS 18.0, *)) {
             self.mode = UITabBarControllerModeTabBar;
-            UITab *convTab = [[UITab alloc] initWithTitle:@"会话" image:[UIImage systemImageNamed:@"bubble.left.and.bubble.right"]
+            UITab *convTab = [[UITab alloc] initWithTitle:@"消息" image:[UIImage systemImageNamed:@"bubble.left.and.bubble.right"]
                                                identifier:@"im.tab.conversations"
                                    viewControllerProvider:^UIViewController *(UITab *tab) { return convNav; }];
             UITab *contactsTab = [[UITab alloc] initWithTitle:@"通讯录" image:[UIImage systemImageNamed:@"person.2"]
@@ -348,6 +383,87 @@ static void * const kIMInjectedBarKey = (void *)&kIMInjectedBarKey;
         item.normal.badgeBackgroundColor = IMTheme.unreadBadge;
         item.selected.badgeBackgroundColor = IMTheme.unreadBadge;
     }
+}
+
+#pragma mark - 「消息」Tab 未读蓝点
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    [self layoutConversationsDot];
+}
+
+- (void)setConversationsTabDotVisible:(BOOL)visible {
+    if (_conversationsDotVisible == visible) { return; }
+    _conversationsDotVisible = visible;
+    [self layoutConversationsDot];
+}
+
+/// 蓝点挂在「消息」图标**自己身上**（右上角外沿），跟着图标走：选中动效、横竖屏、iOS 26 浮动栏都不用另算位置。
+/// 系统重建按钮时旧图标连同蓝点一起丢，下一轮布局重新找、重新挂。
+- (void)layoutConversationsDot {
+    if (!_conversationsDotVisible) {
+        [_conversationsDot removeFromSuperview];
+        [self setConversationsFallbackBadge:nil];
+        return;
+    }
+    // 控制器的 viewDidLayoutSubviews 早于 tabBar 自己排子视图：先让按钮就位，否则首轮找不到或位置是旧的
+    [self.tabBar layoutIfNeeded];
+    UIImageView *icon = [self conversationsTabIconView];
+    if (!icon) {
+        // 找不到图标（系统换了底栏层级）：退回系统空角标——大，但总比丢了未读提示强。
+        // 只在底栏真正上屏排过版之后才退：首帧按钮还没建，此时退一下再收回会闪一颗大点。
+        [_conversationsDot removeFromSuperview];
+        if (self.tabBar.window && self.tabBar.bounds.size.width > 0) { [self setConversationsFallbackBadge:@""]; }
+        return;
+    }
+    [self setConversationsFallbackBadge:nil];
+    if (!_conversationsDot) {
+        _conversationsDot = [UIView new];
+        _conversationsDot.backgroundColor = IMTheme.unreadBadge;
+        _conversationsDot.layer.cornerRadius = kIMTabDotSize / 2;
+        _conversationsDot.userInteractionEnabled = NO;
+        _conversationsDot.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleBottomMargin;
+    }
+    if (_conversationsDot.superview != icon) { [icon addSubview:_conversationsDot]; }
+    CGFloat w = icon.bounds.size.width;
+    _conversationsDot.frame = CGRectMake(w - kIMTabDotSize / 2 - 1, -kIMTabDotSize / 2 + 1, kIMTabDotSize, kIMTabDotSize);
+}
+
+/// 「消息」Tab 的图标视图：先找标题 label，再在它所在的按钮里取离它最近的那枚图标；
+/// 按钮里没有才往上放大一层（最多三层），免得一上来就在整条底栏里挑、挑到隔壁 Tab。
+- (nullable UIImageView *)conversationsTabIconView {
+    UILabel *label = IMFindTabTitleLabel(self.tabBar, @"消息");
+    if (!label) { return nil; }
+    CGPoint labelCenter = [label convertPoint:CGPointMake(CGRectGetMidX(label.bounds), CGRectGetMidY(label.bounds))
+                                       toView:self.tabBar];
+    UIView *scope = label.superview;
+    for (NSInteger level = 0; scope && level < 3; level++, scope = scope.superview) {
+        NSMutableArray<UIImageView *> *icons = [NSMutableArray array];
+        IMCollectTabIcons(scope, icons);
+        UIImageView *best = nil;
+        CGFloat bestDistance = CGFLOAT_MAX;
+        for (UIImageView *icon in icons) {
+            CGPoint c = [icon convertPoint:CGPointMake(CGRectGetMidX(icon.bounds), CGRectGetMidY(icon.bounds))
+                                    toView:self.tabBar];
+            CGFloat distance = hypot(c.x - labelCenter.x, c.y - labelCenter.y);
+            if (distance < bestDistance) { bestDistance = distance; best = icon; }
+        }
+        if (best && bestDistance < 44) { return best; }
+        if (scope == self.tabBar) { break; }
+    }
+    return nil;
+}
+
+/// 兜底用的系统角标。只在值真的变了才写：写 badgeValue 会触发底栏重排，重排又回到这里。
+- (void)setConversationsFallbackBadge:(nullable NSString *)value {
+    UINavigationController *nav = self.conversationsNav;
+    if (!nav) { return; }
+    NSString *current = nil;
+    if (@available(iOS 18.0, *)) { current = nav.tab.badgeValue; }
+    else { current = nav.tabBarItem.badgeValue; }
+    if (current == value || [current isEqualToString:value]) { return; }
+    if (@available(iOS 18.0, *)) { nav.tab.badgeValue = value; }
+    else { nav.tabBarItem.badgeValue = value; }
 }
 
 @end

@@ -1,5 +1,5 @@
 //  IMMainTabBarController.h
-//  登录后的主界面骨架：底部 Tab（会话 / 我）。
+//  登录后的主界面骨架：底部 Tab（消息 / 通讯录 / 我 / 搜索）。
 
 #import <UIKit/UIKit.h>
 
@@ -8,6 +8,10 @@ NS_ASSUME_NONNULL_BEGIN
 @interface IMMainTabBarController : UITabBarController
 
 - (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID;
+
+/// 底栏「消息」Tab 的未读小蓝点（只表「有」，8pt，与 Android `BottomBar` / Web `.tab-dot` 同尺寸）。
+/// 不用 `badgeValue = @""`：系统空角标画出来是一颗大圆且尺寸不可调（2026-09-15 用户报「太大」）。
+- (void)setConversationsTabDotVisible:(BOOL)visible;
 
 @end
 
