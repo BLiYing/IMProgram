@@ -16,6 +16,7 @@
 #import "IMMediaSendService.h"
 #import "IMMediaViewerViewController.h"
 #import "IMMediaPagerViewController.h"
+#import "IMMediaTimeline.h"               // 翻页起始下标：按 conv_seq 认，不能用指针相等
 #import "IMConversationMediaViewController.h"
 #import "IMChatRecordViewController.h"
 #import "IMFavoritesViewController.h"    // Batch 2：加号面板 → 收藏 pick 模式
@@ -219,9 +220,12 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     // **整个会话的媒体时间线**，不是当前窗口里的那几张：分页后扫内存会让左右翻页只能翻到
     // 恰好还留在窗口里的媒体，用户看到的是"这张图前后没有别的图了"。查库（只取 image/video，量本就小）。
     NSArray<IMMessageModel *> *mediaMsgs = [self conversationMediaMessages];
-    NSUInteger start = [mediaMsgs indexOfObjectIdenticalTo:m];
+    // **按 conv_seq / clientMsgID 认，不能用指针相等**：时间线是现查库得到的另一批对象，
+    // `indexOfObjectIdenticalTo:` 在这里恒 NSNotFound，于是每次都掉进下面的兜底分支——
+    // 表现就是「聊天页点图片打开的查看器从来不能翻页，媒体库那条却正常」（2026-09-16 用户报）。
+    NSUInteger start = IMMediaTimelineIndexOfMessage(mediaMsgs, m);
     if (start == NSNotFound) {
-        // 不在时间线内（理论不至于，兜底）→ 单开自带全套控件的查看器。
+        // 真的不在时间线内（撤回后被剔除等）→ 单开自带全套控件的查看器。
         [self presentViewController:[self buildMediaViewerForMessage:m preloaded:image] animated:YES completion:nil];
         return;
     }
@@ -234,7 +238,10 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
             if (!self || index >= mediaMsgs.count) { return nil; }
             IMMessageModel *mm = mediaMsgs[index];
             // 仅初始点中的那条带气泡预载图（已解码），其余现建时自行按 URL 拉。
-            return [self buildMediaViewerForMessage:mm preloaded:(mm == m ? image : nil)];
+            // **按下标比，不能比指针**：`mm` 来自现查库的那批对象，`m` 来自聊天页内存窗口，
+            // `mm == m` 恒假 → 预载图从来没被用上，每次都先显模糊占位再按 URL 重拉
+            // （与上面那处 `indexOfObjectIdenticalTo:` 同一个根因，2026-09-16 /code-review 抓出）。
+            return [self buildMediaViewerForMessage:mm preloaded:(index == start ? image : nil)];
         }];
     pager.conversationTitle = [self conversationDisplayTitle];
     [self presentViewController:pager animated:YES completion:nil];

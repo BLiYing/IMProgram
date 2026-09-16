@@ -5,6 +5,18 @@
 
 ## 当前焦点
 
+> **修：聊天页点图片打开的查看器从来不能翻页（2026-09-16 用户报，未提交、未上模拟器）**：
+> 翻页容器与「整会话媒体时间线」2026-08-12 就落地了（`IMMediaPagerViewController` + `conversationMediaMessages`），
+> 但 `presentMediaViewerForMessage:` 取起始下标用的是 `indexOfObjectIdenticalTo:`（**指针相等**）——
+> 时间线是现查库得到的**另一批对象**，故恒 `NSNotFound`，每次都走「找不到就单开一个查看器」的兜底分支。
+> 媒体库那条路直接按下标开，所以一直正常，用户问的正是「媒体库的翻页不是有吗，不能共用吗」。
+> 判据抽成 `Common/IMMediaTimeline.h`（`conv_seq` 优先、未确认才用 `clientMsgID`、空串不认，与 im-web `album.ts`
+> 的 `msgKey` 同源，已登记 SYMMETRY），`IMMediaTimelineTests` 8 例 + 变异验红；`./scripts/test.sh` 487 例全绿。
+> **同根因的第二处**（`/code-review` 抓出）：同一函数 `pageProvider` 里的 `mm == m` 也是跨批次指针比较、恒假，
+> 于是「仅初始那条带气泡预载图」这个优化**从来没生效过**——每次打开都先显模糊占位再按 URL 重拉。改按下标判
+> （`index == start`）。这一条没有单测，要在模拟器上看：点一张已经渲染过的图，应当**瞬时**显示、不闪占位。
+> **要模拟器看**：点聊天里的图能左右翻、i/N 对得上、翻到的那张上「更多」作用在它身上。
+
 > **第四批用户报告（iOS 部分）✅ 2026-09-15（用户自测通过，已提交）**：「消息」Tab 蓝点太大——系统 `badgeValue = @""` 尺寸不可调，
 > 改 `IMMainTabBarController` 的 `setConversationsTabDotVisible:` 自绘 8pt（按标题 label 找图标、挂在图标右上角；找不到退回系统空角标）。
 > ⚠️ 找图标依赖系统底栏私有层级，iOS 大版本升级后先看这颗点。
