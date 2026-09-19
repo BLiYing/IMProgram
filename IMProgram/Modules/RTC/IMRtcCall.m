@@ -3,6 +3,7 @@
 #import "IMGroupInfo.h"
 #import "IMLog.h"
 #import "IMRtcConfig.h"
+#import "IMRtcInviteProvider.h"
 #import "IMRtcProfileResolver.h"
 @import IMCallEngine;
 @import IMCallEngineWebRTC;
@@ -52,6 +53,9 @@
     _resolver = [IMRtcProfileResolver new];
     IMCallKitConfig *kitConfig = [IMCallKitConfig new];
     kitConfig.profileResolver = _resolver; // 弱引用，强引用由 _resolver 持有
+    IMRtcInviteProvider *invite = [IMRtcInviteProvider new]; // Kit 强引用
+    invite.selfUID = uid;
+    kitConfig.inviteMemberProvider = invite;
     _kit = [[IMCallKit alloc] initWithEngine:_engine config:kitConfig];
     _resolver.kit = _kit;
     [_kit start]; // 必须在 login 之前
