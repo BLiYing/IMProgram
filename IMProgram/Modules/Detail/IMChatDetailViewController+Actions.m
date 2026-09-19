@@ -17,6 +17,9 @@
 #import "IMDatabase.h"
 #import "IMConversation.h"
 #import "IMGroupInfo.h"
+#import "IMGroupAdminLogic.h"
+#import "IMFriendPickerViewController.h"
+#import "IMRtcCall.h"
 #import "IMUserCard.h"
 #import "IMRemarkStore.h"
 #import "IMContactShare.h"
@@ -147,10 +150,50 @@
             dispatch_async(dispatch_get_main_queue(), ^{ [target beginInChatSearch]; });
         }
     }
-    else if ([a isEqualToString:IMDetailPillIdentifier(@"call")]) { [self im_showToast:@"语音通话即将上线"]; }
-    else if ([a isEqualToString:IMDetailPillIdentifier(@"video")]) { [self im_showToast:@"视频通话即将上线"]; }
+    else if ([a isEqualToString:IMDetailPillIdentifier(@"call")]) { [self placeRtcCallVideo:NO]; }
+    else if ([a isEqualToString:IMDetailPillIdentifier(@"video")]) { [self placeRtcCallVideo:YES]; }
+    else if ([a isEqualToString:IMDetailPillIdentifier(@"groupcall")]) { [self pickMembersForGroupCall]; }
     else if ([a isEqualToString:IMDetailPillIdentifier(@"message")]) { [self openChatWithPeerID:self.peerID nickname:self.peerNickname avatarURL:self.peerAvatarURL]; }
     else if ([a isEqualToString:IMDetailPillIdentifier(@"addfriend")]) { [self requestAddPeerFriend]; }
+}
+
+#pragma mark - 音视频通话（im-rtc）
+
+/// 单聊一对一通话。界面由 im-rtc 的 Kit 接管，这里只发起；不能发起时 IMRtcCall 给出原因。
+- (void)placeRtcCallVideo:(BOOL)video {
+    NSString *reason = [IMRtcCall.shared placeSingleCallToPeer:self.peerID ?: @"" video:video];
+    if (reason) { [self im_showToast:reason]; }
+}
+
+/// 群通话最多同时呼叫这么多人（连同自己 9 人，服务端房间上限）。
+static const NSUInteger kIMRtcMaxGroupCallPick = 8;
+
+/// 群通话：先选要呼叫的成员（不含自己），再发起。候选是当前已加载的群成员；超级群只含已翻出来的那部分。
+- (void)pickMembersForGroupCall {
+    NSArray<IMGroupMember *> *members = self.displayMembers;
+    NSMutableArray<IMGroupMember *> *others = [NSMutableArray array];
+    for (IMGroupMember *m in members) { if (![m.userID isEqualToString:self.userID]) { [others addObject:m]; } }
+    if (others.count == 0) { [self im_showToast:@"群里没有其他成员可呼叫"]; return; }
+    NSString *groupID = self.convID;
+    __weak typeof(self) ws = self;
+    IMFriendPickerViewController *picker =
+        [[IMFriendPickerViewController alloc] initWithHost:self.host userID:self.userID
+                                                candidates:[IMGroupAdminLogic pickerCardsFromMembers:others]
+                                               excludedIDs:nil title:@"选择成员"
+                                              confirmTitle:@"呼叫"
+                                                    onDone:^(NSArray<NSString *> *selectedIDs) {
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        if (selectedIDs.count > kIMRtcMaxGroupCallPick) {
+            [self.navigationController.topViewController im_showToast:
+                [NSString stringWithFormat:@"最多呼叫 %lu 人", (unsigned long)kIMRtcMaxGroupCallPick]];
+            return;
+        }
+        [self.navigationController popToViewController:self animated:YES];
+        NSString *reason = [IMRtcCall.shared placeGroupCallInGroup:groupID callees:selectedIDs];
+        if (reason) { [self im_showToast:reason]; }
+    }];
+    [self.navigationController pushViewController:picker animated:YES];
 }
 
 /// 单聊「加好友」：向对端发好友申请（微信式，任务一 P0）。

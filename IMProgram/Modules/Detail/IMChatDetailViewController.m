@@ -41,6 +41,7 @@
 #import "UIViewController+IMDeleteSheet.h" // 两档删除 sheet（与聊天页共用）
 #import "IMTheme.h"
 #import "IMLog.h"
+#import "IMRtcCall.h"
 #import <objc/runtime.h>
 #import "IMDropletHeaderMorph.h"
 #import "IMProgram-Swift.h"
@@ -283,6 +284,7 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
         __strong typeof(ws) self = ws;
         if (!self || !group) { return; }
         self.group = group;
+        [IMRtcCall.shared feedGroup:group]; // 群通话按这张成员表取群昵称与头像
         self.groupName = group.name;
         [self resetSuperMemberPaging]; // 超级群：资料只回我自己，成员签另走分页（非超级群 no-op）
         BOOL manage = group.myRole == IMGroupRoleOwner || group.myRole == IMGroupRoleAdmin;

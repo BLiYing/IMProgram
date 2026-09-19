@@ -16,6 +16,8 @@ FOUNDATION_EXPORT NSString * const IMLogTagUI;
 /// 媒体全链路（选择/探测 → 转码 → 上传 → 渲染 → 播放）。单独成桶是为了能一条命令捞出整条链路：
 /// 分散在 IM.UI / IM.WS 里会和其余 UI、信令日志混在一起，排查发不出去/播不了时无从下手。
 FOUNDATION_EXPORT NSString * const IMLogTagMedia;
+/// 音视频通话（im-rtc 接入层与 SDK 日志）。事件名 `rtc_*`，SDK 自己的日志带 `rtc-sdk` 前缀。
+FOUNDATION_EXPORT NSString * const IMLogTagRTC;
 
 /// App 启动时调用一次：注册系统控制台与滚动文件 Logger。
 FOUNDATION_EXPORT void IMLogConfigure(void);

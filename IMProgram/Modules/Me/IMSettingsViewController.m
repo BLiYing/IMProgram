@@ -3,6 +3,7 @@
 //  新增设置项 = 往 groups 数组里 append 一条 IMSettingsRow，渲染层不改。
 
 #import "IMSettingsViewController.h"
+#import "IMRtcCall.h"
 #import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
 #import "IMProfileEditViewController.h"
 #import "IMQRCardViewController.h"
@@ -584,6 +585,7 @@
             if (error) { IMLogWarnWithTag(IMLogTagHTTP, @"logout_revoke_failed: %@", error.localizedDescription ?: @"-"); }
         }];
     }
+    [IMRtcCall.shared stop]; // 通话服务跟着账号走，否则换号后同一设备会有两条 im-rtc 连接
     [IMSocketManager.sharedManager disconnect];
     [IMHTTPService.sharedService invalidateToken];
     IMHTTPService.sharedService.refreshToken = nil; // 内存里的续期凭据也要清，否则本进程内还能换到 token

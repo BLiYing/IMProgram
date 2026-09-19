@@ -32,3 +32,6 @@ temp_verify.*
 
 # Codex Code Graph 本地索引（机器相关缓存）
 /.codegraph/
+
+# im-rtc 调试密钥（仅本机联调，不要提交）
+IMProgram/Modules/RTC/IMRtcConfig.local.plist

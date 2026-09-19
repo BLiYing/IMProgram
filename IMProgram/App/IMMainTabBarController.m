@@ -11,6 +11,7 @@
 #import "IMChatViewController.h"
 #import "IMDatabase.h"
 #import "IMTheme.h"
+#import "IMRtcCall.h"
 #import <objc/runtime.h>
 
 CGFloat const kIMLiquidBarHeight = 56;
@@ -299,6 +300,13 @@ static void IMCollectTabIcons(UIView *root, NSMutableArray<UIImageView *> *out) 
 @implementation IMMainTabBarController {
     UIView *_conversationsDot;
     BOOL _conversationsDotVisible;
+    NSString *_rtcUserID;
+}
+
+/// 进入主界面才起通话服务（Kit 要挂在已上屏的 window 上）。幂等：同一账号重复进入是空操作。
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    if (_rtcUserID.length) { [IMRtcCall.shared startWithUserID:_rtcUserID]; }
 }
 
 - (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID {
@@ -306,6 +314,7 @@ static void IMCollectTabIcons(UIView *root, NSMutableArray<UIImageView *> *out) 
     if (self) {
         // 必须先切换账号命名空间，再创建任何会读取本地消息/会话的子页面。
         [IMDatabase.sharedDatabase useOwnerUserID:userID];
+        _rtcUserID = [userID copy];
         IMConversationListViewController *convList =
             [[IMConversationListViewController alloc] initWithHost:host userID:userID];
         UINavigationController *convNav = [[IMMainNavigationController alloc] initWithRootViewController:convList];

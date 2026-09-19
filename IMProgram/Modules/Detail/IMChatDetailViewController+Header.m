@@ -83,6 +83,10 @@
             [specs addObject:@{@"t": @"视频", @"s": @"video.fill", @"a": @"video"}];
         }
     }
+    // 群通话：群资料页的入口（单聊的「呼叫 / 视频」在上面）。选人后按群成员表取名字与头像。
+    if (self.isGroup) {
+        [specs addObject:@{@"t": @"群通话", @"s": @"person.3.fill", @"a": @"groupcall"}];
+    }
     // 搜索：群聊与**单聊好友**都显示（对齐 im-web；功能待开发，点击走占位 toast）。
     // 非好友不显示——尚无聊天记录可搜，与隐藏备注名/设置/页签三张卡同一判据。
     if (self.isGroup || self.peerIsFriend) {

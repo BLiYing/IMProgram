@@ -5,6 +5,14 @@
 
 ## 当前焦点
 
+> **接入 im-rtc 音视频（2026-09-19，代码已写、模拟器编译通过，未上真机、未提交）**：本地 SPM 依赖 `../im-rtc/im-rtc-ios`
+> （`IMCallEngine` / `IMCallKit` / `IMCallEngineWebRTC`），调试密钥本机签票，SDKAppID 10000002 / kid `dbg-1`。
+> 代码在 `Modules/RTC/`：`IMRtcCall`（起停、票、引擎事件）、`IMRtcProfileResolver`（读 IM 已有数据：备注 > 群昵称 > 昵称，
+> 头像走 `IMImageLoader`；不为通话另建缓存）、`IMRtcConfig`。配置在 `IMRtcConfig.local.plist`（gitignored，模板见 `.example.plist`，
+> `wsUrl` 填本机局域网 IP）。入口：单聊资料页「呼叫 / 视频」、群资料页新增「群通话」（先选人，最多 8 人）；主界面出现时起服务，登出 / 被踢时停。
+> `Info.plist` 补了通话用途文案与 `UIBackgroundModes=audio`。**待真机验**：单聊 / 群通话、名字头像、退出登录后重登不出现两条连接。
+> 限制：超级群只能选已翻出来的成员；来电的群成员表只有打开过该群资料页才有，否则退回全局名片。
+
 > **修：聊天页点图片打开的查看器从来不能翻页（2026-09-16 用户报，未提交、未上模拟器）**：
 > 翻页容器与「整会话媒体时间线」2026-08-12 就落地了（`IMMediaPagerViewController` + `conversationMediaMessages`），
 > 但 `presentMediaViewerForMessage:` 取起始下标用的是 `indexOfObjectIdenticalTo:`（**指针相等**）——

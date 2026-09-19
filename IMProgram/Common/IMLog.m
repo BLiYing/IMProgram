@@ -15,6 +15,7 @@ NSString * const IMLogTagSocket = @"IM.WS";
 NSString * const IMLogTagDatabase = @"IM.DB";
 NSString * const IMLogTagUI = @"IM.UI";
 NSString * const IMLogTagMedia = @"IM.MEDIA";
+NSString * const IMLogTagRTC = @"IM.RTC";
 
 /// 控制台格式化器：给 Xcode 控制台每行加「本地时间 + 级别」前缀（tag 已由 IMLogWithTag 写进正文）。
 /// 仅挂在 DDOSLogger 上——DDFileLogger 有自带时间戳格式、IMRemoteLogSink 自建 NDJSON(带 epoch ts)，都不受影响。

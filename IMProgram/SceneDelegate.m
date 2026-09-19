@@ -6,6 +6,7 @@
 //
 
 #import "SceneDelegate.h"
+#import "IMRtcCall.h"
 #import "IMLoginViewController.h"
 #import "IMMainTabBarController.h"
 #import "IMHTTPService.h"
@@ -77,6 +78,7 @@
         return;
     }
     IMLog(@"session revoked → 强制登出回登录页");
+    [IMRtcCall.shared stop];
     [IMSocketManager.sharedManager disconnect];
     [IMHTTPService.sharedService invalidateToken];
     IMHTTPService.sharedService.refreshToken = nil; // invalidateToken 刻意不动它（长效凭据），登出这里必须清

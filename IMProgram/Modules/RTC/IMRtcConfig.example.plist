@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- 复制成 IMRtcConfig.local.plist 再填值（后者已被 .gitignore 忽略，别提交）。字段含义见 IMRtcConfig.h。 -->
+<plist version="1.0">
+<dict>
+	<key>wsUrl</key>
+	<string>ws://192.168.1.12:8787/v1/ws</string>
+	<key>appId</key>
+	<string>10000002</string>
+	<key>keyId</key>
+	<string>dbg-1</string>
+	<key>debugSecret</key>
+	<string></string>
+</dict>
+</plist>

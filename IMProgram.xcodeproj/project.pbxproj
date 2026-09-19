@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		76C6719819B7D76F5BECAB52 /* IMCallEngine in Frameworks */ = {isa = PBXBuildFile; productRef = BD6B606EDC9BD0697BE0FC93 /* IMCallEngine */; };
+		A471FB1DF55740310DF72BBB /* IMCallKit in Frameworks */ = {isa = PBXBuildFile; productRef = 71C30990714612F17C67B180 /* IMCallKit */; };
+		C47EE36D054FD4C008F05233 /* IMCallEngineWebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 465715510A42A1A9E63F6EDF /* IMCallEngineWebRTC */; };
 		E5E7F79FA2808C353D86BD74 /* Pods_IMProgramTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C0D6EE28067E07E29A97AD33 /* Pods_IMProgramTests.framework */; };
 		F503133B41F37979B409778D /* Pods_IMProgram.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7291A8548425E35ADCB62603 /* Pods_IMProgram.framework */; };
 /* End PBXBuildFile section */
@@ -77,6 +80,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				F503133B41F37979B409778D /* Pods_IMProgram.framework in Frameworks */,
+				76C6719819B7D76F5BECAB52 /* IMCallEngine in Frameworks */,
+				A471FB1DF55740310DF72BBB /* IMCallKit in Frameworks */,
+				C47EE36D054FD4C008F05233 /* IMCallEngineWebRTC in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -161,6 +167,11 @@
 				B2853AD82FDD41A500896F20 /* IMProgram */,
 			);
 			name = IMProgram;
+			packageProductDependencies = (
+				BD6B606EDC9BD0697BE0FC93 /* IMCallEngine */,
+				71C30990714612F17C67B180 /* IMCallKit */,
+				465715510A42A1A9E63F6EDF /* IMCallEngineWebRTC */,
+			);
 			productName = IMProgram;
 			productReference = B2853AD62FDD41A500896F20 /* IMProgram.app */;
 			productType = "com.apple.product-type.application";
@@ -239,6 +250,9 @@
 			);
 			mainGroup = B2853ACD2FDD41A500896F20;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				8AD0F3F3A92D9C4CFD6B5E29 /* XCLocalSwiftPackageReference "im-rtc-ios" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = B2853AD72FDD41A500896F20 /* Products */;
 			projectDirPath = "";
@@ -683,6 +697,28 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		8AD0F3F3A92D9C4CFD6B5E29 /* XCLocalSwiftPackageReference "im-rtc-ios" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../im-rtc/im-rtc-ios";
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		465715510A42A1A9E63F6EDF /* IMCallEngineWebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = IMCallEngineWebRTC;
+		};
+		71C30990714612F17C67B180 /* IMCallKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = IMCallKit;
+		};
+		BD6B606EDC9BD0697BE0FC93 /* IMCallEngine */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = IMCallEngine;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = B2853ACE2FDD41A500896F20 /* Project object */;
 }
