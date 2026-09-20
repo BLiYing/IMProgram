@@ -2,6 +2,7 @@
 //  聊天页「长按消息菜单」分文件实现（数据驱动 IMMenuAction + iOS26 UIContextMenu 光栅化预览）。
 //  从 IMChatViewController.m 平移，未改行为；私有属性经 IMChatViewController+Private.h 共享。
 
+#import "IMCallRecord.h"
 #import "IMChatViewController+Private.h"
 #import "IMChatViewController+Voice.h"
 #import "IMMessageModel.h"
@@ -267,6 +268,15 @@ static UIBezierPath *IMBubbleOutlinePath(CGRect rect, CGFloat radius, CACornerMa
 - (NSArray<IMMenuAction *> *)messageActionsForMessage:(IMMessageModel *)message mine:(BOOL)mine {
     __weak typeof(self) ws = self;
     NSMutableArray<IMMenuAction *> *actions = [NSMutableArray array];
+
+    // 通话记录是系统事实、不是「说过的话」：长按只留「删除」（仅为我删除）——
+    // 不能复制 / 引用 / 转发 / 收藏 / 撤回 / 置顶 / 多选 / 翻译 / 举报。
+    if ([message.contentType isEqualToString:IMContentTypeCall]) {
+        if (!(message.status == IMMessageStatusSending && message.convSeq <= 0)) {
+            [actions addObject:[self deleteMenuActionForMessage:message]];
+        }
+        return actions;
+    }
 
     // 语音消息「转文字」：只对已发出的 voice 消息可用。识别在**服务端**跑（2026-08-26 起），
     // 结果按音频内容在服务端与本机各缓存一份；本地"折叠名单"决定面板展开与否。

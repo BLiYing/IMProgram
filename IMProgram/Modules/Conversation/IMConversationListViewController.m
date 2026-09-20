@@ -22,6 +22,7 @@
 #import "IMPresence.h"
 #import "IMMediaUtil.h"
 #import "IMContactCard.h"
+#import "IMCallRecord.h"
 #import "IMPopoverCard.h"
 #import "IMLog.h"
 #import "IMUserSearchViewController.h"
@@ -249,6 +250,8 @@ static CGFloat const kIMRowLeading = 16;
                          : @"对方");
         recalledPreview = [NSString stringWithFormat:@"%@撤回了一条消息", who];
     }
+    _last.textColor = IMTheme.textSecondary; // 复用：上一行可能是红色的未接来电
+    BOOL callMissed = NO;
     // 富媒体预览（M4-6）：图片/视频/文件显示占位标签而非 URL。群聊里与文本一样带"昵称:"前缀（见下方群分支）。
     NSString *mediaPreview = nil;
     if (!recalledPreview) {
@@ -267,6 +270,12 @@ static CGFloat const kIMRowLeading = 16;
         } else if ([c.lastContentType isEqualToString:IMContentTypeContact]) {
             // 个人名片：`[个人名片] 小明`——需要 content（快照里的昵称），故不能走上面的 ct→字符串静态表。
             mediaPreview = IMContactCardPreview(c.lastContent);
+        } else if ([c.lastContentType isEqualToString:IMContentTypeCall]) {
+            // 通话记录：`[语音通话] 未接来电`（按**我**的视角，与气泡同一句，纯函数在 IMCallRecord）；
+            // 只有被叫「未接来电」整行变红。
+            IMCallRecordDisplay *cd = IMCallRecordRender(c.lastContent, mine, c.isGroup, nil);
+            mediaPreview = cd.preview;
+            callMissed = cd.tone == IMCallRecordToneMissed;
         } else if ([c.lastContentType isEqualToString:@"voice"]) {
             // voice P0：预览 [语音] m:ss（时长来自 MessageView.duration）。与 iOS 的 IMVoiceBubbleCell 格式一致。
             int64_t sec = MAX((int64_t)0, c.lastDuration / 1000);
@@ -305,6 +314,7 @@ static CGFloat const kIMRowLeading = 16;
         _superTag.hidden = YES; // 单聊无此概念；cell 复用，必须显式关掉
         _last.text = recalledPreview ?: (mediaPreview.length > 0 ? mediaPreview : (c.lastContent.length > 0 ? c.lastContent : @"（无消息）"));
     }
+    if (callMissed) { _last.textColor = IMTheme.danger; }
     // 群「@我」红字前缀（M4-8）：未读区间内被 @（含 @所有人）时，预览行前挂 [有人@我]。
     // 用富文本只染前缀、正文保持次要色；不再另加右侧红 @ 角标（左侧红字已足够醒目，见 GROUP_READ_UX_SKETCH §02）。
     if (c.isGroup && c.mentionUnread && _last.text.length > 0) {

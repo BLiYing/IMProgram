@@ -54,6 +54,8 @@ NS_ASSUME_NONNULL_BEGIN
 /// 排队一个 delivered 回执（同会话取最大位点，短窗口合批发一帧）。由主实现提供。
 - (void)sendReceiptForConv:(NSString *)convID upTo:(int64_t)convSeq;
 - (void)sendEnvelopeType:(NSString *)type data:(nullable NSDictionary *)data completion:(nullable IMSendCompletion)completion;
+/// 序列化 send_msg、登记待确认项、发送并武装超时。由主实现提供，被 +CallRecord 复用（仅在 queue 调用）。
+- (void)enqueueSendWithClientMsgID:(NSString *)clientMsgID payload:(NSDictionary *)payload completion:(nullable IMSendCompletion)completion;
 
 @end
 

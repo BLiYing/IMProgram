@@ -26,6 +26,10 @@
 #import "IMChatRecordCell.h"
 #import "IMContactCardCell.h"
 #import "IMContactCard.h"
+#import "IMCallRecordCell.h"
+#import "IMCallRecord.h"
+#import "IMRtcCall.h"
+#import "UIViewController+IMToast.h"
 #import "IMRemarkStore.h"
 #import "Voice/IMVoiceBubbleCell.h" // voice P0
 #import "Voice/IMVoicePlayer.h"
@@ -147,6 +151,31 @@
         __weak typeof(self) wsRetry_cc = self;
         cc.onRetryTap = ^{ [wsRetry_cc im_resendMessage:m]; }; // 发送失败红❗ → 重发
         return cc;
+    }
+    // 音视频通话记录（call）：单聊 = 可点气泡（点击按原类型回拨）；群聊 = 居中系统条（不可点）。
+    // 文案 / 红字全由 IMCallRecord 按「看的人」渲染；解析失败走兜底灰字，不露 JSON。
+    if ([m.contentType isEqualToString:IMContentTypeCall]) {
+        BOOL mineK = [m.from isEqualToString:self.userID];
+        if (self.isGroupChat || !IMCallRecordParse(m.content)) {
+            IMSystemCell *sys = [tableView dequeueReusableCellWithIdentifier:@"system" forIndexPath:indexPath];
+            [sys configureWithText:IMCallRecordRender(m.content, mineK, self.isGroupChat,
+                                                      mineK ? nil : [self senderNameForMessage:m]).text];
+            return sys;
+        }
+        IMCallRecordCell *kc = [tableView dequeueReusableCellWithIdentifier:@"callrecord" forIndexPath:indexPath];
+        [kc configureWithMessage:m mine:mineK displayName:nil peerReadSeq:[self peerReadSeqForCell]
+                      senderName:nil senderRole:IMGroupRoleMember];
+        [kc applyGroupAvatarURL:nil seed:(m.from ?: @"") name:nil showAvatar:NO gutter:NO];
+        [kc applyUnreadDivider:rowIsFirstUnread];
+        __weak typeof(self) wsCall = self;
+        kc.onTap = ^(BOOL video) {
+            // 与聊天资料页顶部「语音 / 视频」同一个入口；忙线 / 权限一律由 Kit 守门，宿主不判忙。
+            NSString *reason = [IMRtcCall.shared placeSingleCallToPeer:wsCall.peerID ?: @"" video:video];
+            if (reason) { [wsCall im_showToast:reason]; }
+        };
+        __weak typeof(self) wsRetry_kc = self;
+        kc.onRetryTap = ^{ [wsRetry_kc im_resendMessage:m]; }; // 发送失败红❗ → 重发
+        return kc;
     }
     // 纯 URL 文本消息：URL 文本 + 链接富预览卡片（OG），点击应用内打开（带引用时也显示引用行+卡片）。
     if ([m.contentType isEqualToString:@"text"] && m.recalledAt == 0 && m.translation.length == 0 && IMMediaLooksLikeURL(m.content)) {
@@ -565,6 +594,8 @@
             && [self isFirstInSenderRun:indexPath.row];
         return grpNameCard ? 121 : 99;
     }
+    // 通话记录：单聊气泡 ≈ 10+行高+10 → 约 46 + 上下间距 6；群系统条一行 ≈ 40。
+    if ([m.contentType isEqualToString:IMContentTypeCall]) { return self.isGroupChat ? 40 : 56; }
     if ([m.contentType isEqualToString:@"chat_record"]) {
         // 群聊对方连续段首条多一行发送者昵称（~22pt），估高相应加高，减少上滑实体化时的 offset 修正。
         BOOL grpNameRec = self.isGroupChat && ![m.from isEqualToString:self.userID]

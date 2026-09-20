@@ -2,6 +2,7 @@
 //  聊天页「多选态」分文件实现（#2：转发/收藏/删除 + 合并转发）。
 //  从 IMChatViewController.m 平移，未改行为；私有属性经 IMChatViewController+Private.h 共享。
 
+#import "IMCallRecord.h"
 #import "IMChatViewController+Private.h"
 #import "IMMessageModel.h"
 #import "IMChatMessageLogic.h"
@@ -570,6 +571,7 @@ NSArray<IMMessageModel *> *IMChatSelectedMessages(NSDictionary<NSNumber *, IMMes
 /// 该消息是否可被转发（撤回/空内容/系统/发送中·失败本地件/失效媒体一律不可）。
 - (BOOL)isForwardableMessage:(IMMessageModel *)m {
     if (m.recalledAt > 0 || m.content.length == 0 || [m.contentType isEqualToString:@"system"]) { return NO; }
+    if ([m.contentType isEqualToString:IMContentTypeCall]) { return NO; } // 通话记录不可转发
     if (m.convSeq <= 0) { return NO; }
     if ([self isMediaExpiredForForward:m]) { return NO; }
     return YES;
@@ -631,7 +633,8 @@ NSArray<IMMessageModel *> *IMChatSelectedMessages(NSDictionary<NSNumber *, IMMes
     NSArray<IMMessageModel *> *msgs = [self selectedMessages];
     if (msgs.count == 0) { return; } // 按钮禁用兜底：0 选中不弹吐司（a4）
     for (IMMessageModel *m in msgs) {
-        if (m.recalledAt > 0 || m.content.length == 0 || [m.contentType isEqualToString:@"system"]) { continue; }
+        if (m.recalledAt > 0 || m.content.length == 0 || [m.contentType isEqualToString:@"system"]
+            || [m.contentType isEqualToString:IMContentTypeCall]) { continue; }
         [self favoriteMessage:m];
     }
     [self exitSelection];
@@ -763,7 +766,8 @@ NSArray<IMMessageModel *> *IMChatSelectedMessages(NSDictionary<NSNumber *, IMMes
 
 /// 多选态下该消息是否可勾选：系统提示/撤回墓碑/发送中·失败的本地件（无服务端内容，转出去是空的）不可选。
 - (BOOL)isSelectableMessage:(IMMessageModel *)m {
-    return ![m.contentType isEqualToString:@"system"] && m.recalledAt == 0 && m.convSeq > 0;
+    return ![m.contentType isEqualToString:@"system"] && ![m.contentType isEqualToString:IMContentTypeCall]
+        && m.recalledAt == 0 && m.convSeq > 0;
 }
 
 - (BOOL)tableView:(UITableView *)tableView canEditRowAtIndexPath:(NSIndexPath *)indexPath {

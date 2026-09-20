@@ -2,6 +2,7 @@
 
 #import "IMMediaUtil.h"
 #import "IMContactCard.h"
+#import "IMCallRecord.h"
 #import "IMMessageModel.h"
 #import "IMServerEndpoint.h"
 #import <math.h>
@@ -47,6 +48,7 @@ NSString *IMReplySnippet(IMMessageModel *m) {
     }
     if ([m.contentType isEqualToString:@"chat_record"]) { return IMChatRecordSnippet(m.content); } // [聊天记录] 标题
     if ([m.contentType isEqualToString:IMContentTypeContact]) { return IMContactCardPreview(m.content); } // [个人名片] 昵称
+    if ([m.contentType isEqualToString:IMContentTypeCall]) { return IMCallRecordNeutralPreview(); }      // 通话记录不可被引用；历史里已有的预本地化
     NSString *c = m.content ?: @"";
     return c.length > 60 ? [[c substringToIndex:60] stringByAppendingString:@"…"] : c;
 }
@@ -92,6 +94,7 @@ NSString *IMRecordItemPreview(NSDictionary *it) {
         return fn.length > 0 ? [@"[文件] " stringByAppendingString:fn] : @"[文件]";
     }
     if ([ct isEqualToString:IMContentTypeContact]) { return IMContactCardPreview(c); }
+    if ([ct isEqualToString:IMContentTypeCall]) { return IMCallRecordNeutralPreview(); }
     // 语音条目：显 [语音] m:ss（无 d 的老记录只显 [语音]），别把 URL 铺进套娃卡片的两行预览里。
     if ([ct isEqualToString:@"voice"] || [ct isEqualToString:@"audio"]) {
         int64_t ms = [it[@"d"] respondsToSelector:@selector(longLongValue)] ? [it[@"d"] longLongValue] : 0;
@@ -312,6 +315,7 @@ NSString *IMLocalizeReplySnippet(NSString *snap) {
     if (fn.length > 0) { return [@"[文件] " stringByAppendingString:fn]; } // 带名文件；本地化输入幂等重组
     if ([snap isEqualToString:@"[chat_record]"]) { return @"[聊天记录]"; } // 旧服务端 token（无标题）兜底
     if ([snap isEqualToString:@"[contact]"]) { return @"[个人名片]"; }      // 同上：老服务端下发的裸 token
+    if ([snap isEqualToString:@"[call]"]) { return IMCallRecordNeutralPreview(); } // 通话记录同上
     if (IMLooksLikeChatRecordJSON(snap)) { return IMChatRecordSnippet(snap); } // 存量 JSON 截段救援
     return snap;
 }

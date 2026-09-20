@@ -2,6 +2,7 @@
 
 #import "IMPinnedMessage.h"
 #import "IMContactCard.h"
+#import "IMCallRecord.h"
 #import "IMMediaUtil.h"   // IMChatRecordSnippet：聊天记录卡片 → 「[聊天记录] 标题」
 
 @implementation IMPinnedMessage
@@ -41,6 +42,7 @@
     if ([self.contentType isEqualToString:@"voice"] || [self.contentType isEqualToString:@"audio"]) { return @"[语音]"; }
     if ([self.contentType isEqualToString:@"file"])  { return @"[文件]"; }
     if ([self.contentType isEqualToString:IMContentTypeContact]) { return IMContactCardPreview(self.content); }
+    if ([self.contentType isEqualToString:IMContentTypeCall]) { return IMCallRecordNeutralPreview(); }
     // 合并转发卡片：content 是整段 JSON，直接显会把 {"t":…,"items":[…]} 铺满横幅 → 统一收成「[聊天记录] 标题」
     //（与引用快照 / 会话列表预览 / 合并转发条目同一 token 口径）。
     if ([self.contentType isEqualToString:@"chat_record"]) { return IMChatRecordSnippet(self.content); }

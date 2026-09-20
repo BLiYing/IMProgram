@@ -11,6 +11,7 @@
 #import "IMChatRecordCell.h"
 #import "Voice/IMVoicePlayer.h"
 #import "IMContactCardCell.h"
+#import "IMCallRecordCell.h"
 #import "IMImageCell.h"
 #import "IMLinkCardCell.h"
 #import "IMSystemCell.h"
@@ -576,6 +577,7 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     [self.tableView registerClass:UITableViewCell.class forCellReuseIdentifier:@"albumPad"]; // 相册从行（零高占位）
     [self.tableView registerClass:IMChatRecordCell.class forCellReuseIdentifier:@"record"];
     [self.tableView registerClass:IMContactCardCell.class forCellReuseIdentifier:@"contact"];
+    [self.tableView registerClass:IMCallRecordCell.class forCellReuseIdentifier:@"callrecord"];
     [self.tableView registerClass:IMLinkCardCell.class forCellReuseIdentifier:@"link"];
     [self.tableView registerClass:IMVoiceBubbleCell.class forCellReuseIdentifier:@"voice"]; // P0 voice
     [self.view addSubview:self.tableView];

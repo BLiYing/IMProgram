@@ -2,6 +2,7 @@
 #import "IMDeviceIdentity.h"
 #import "IMGroupInfo.h"
 #import "IMLog.h"
+#import "IMRtcCallRecordSender.h"
 #import "IMRtcConfig.h"
 #import "IMRtcInviteProvider.h"
 #import "IMRtcProfileResolver.h"
@@ -163,6 +164,10 @@
             _resolver.groupID = isGroup && [group isKindOfClass:NSString.class] ? group : @"";
             break;
         }
+        case IMCallEventNameCallSummary:
+            // 每通电话终局后恰好一次；只有主叫（role=caller）发通话记录消息，被叫不发。
+            [IMRtcCallRecordSender handleSummaryPayload:event.payload selfUID:_uid ?: @""];
+            break;
         case IMCallEventNameError:
             IMLogWarnWithTag(IMLogTagRTC, @"rtc_error %@", event.payload);
             break;
