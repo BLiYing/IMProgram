@@ -251,7 +251,7 @@
 			mainGroup = B2853ACD2FDD41A500896F20;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				8AD0F3F3A92D9C4CFD6B5E29 /* XCLocalSwiftPackageReference "im-rtc-ios" */,
+				8AD0F3F3A92D9C4CFD6B5E29 /* XCRemoteSwiftPackageReference "im-rtc-ios" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = B2853AD72FDD41A500896F20 /* Products */;
@@ -698,24 +698,31 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCLocalSwiftPackageReference section */
-		8AD0F3F3A92D9C4CFD6B5E29 /* XCLocalSwiftPackageReference "im-rtc-ios" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = "../im-rtc/im-rtc-ios";
+/* Begin XCRemoteSwiftPackageReference section */
+		8AD0F3F3A92D9C4CFD6B5E29 /* XCRemoteSwiftPackageReference "im-rtc-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/BLiYing/im-rtc-ios.git";
+			requirement = {
+				kind = exactVersion;
+				version = 2.0.0;
+			};
 		};
-/* End XCLocalSwiftPackageReference section */
+/* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		465715510A42A1A9E63F6EDF /* IMCallEngineWebRTC */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = 8AD0F3F3A92D9C4CFD6B5E29 /* XCRemoteSwiftPackageReference "im-rtc-ios" */;
 			productName = IMCallEngineWebRTC;
 		};
 		71C30990714612F17C67B180 /* IMCallKit */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = 8AD0F3F3A92D9C4CFD6B5E29 /* XCRemoteSwiftPackageReference "im-rtc-ios" */;
 			productName = IMCallKit;
 		};
 		BD6B606EDC9BD0697BE0FC93 /* IMCallEngine */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = 8AD0F3F3A92D9C4CFD6B5E29 /* XCRemoteSwiftPackageReference "im-rtc-ios" */;
 			productName = IMCallEngine;
 		};
 /* End XCSwiftPackageProductDependency section */

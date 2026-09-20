@@ -1,0 +1,15 @@
+{
+  "originHash" : "c88f29a849b369165893f4aeff5dd5762414dcc1511e1e81ff6232d07967ebb4",
+  "pins" : [
+    {
+      "identity" : "im-rtc-ios",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/BLiYing/im-rtc-ios.git",
+      "state" : {
+        "revision" : "fa76fed69a1895cc7576d3bcc0153cb192ad4fc1",
+        "version" : "2.0.0"
+      }
+    }
+  ],
+  "version" : 3
+}

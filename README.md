@@ -43,3 +43,15 @@ xcodebuild test -project IMProgram.xcodeproj -scheme IMProgram \
 ## 关联文档
 - 协议：[../IMServer/docs/PROTOCOL.md](../IMServer/docs/PROTOCOL.md)
 - 路线图 / 端一致性 / UI 蓝图：[ROADMAP](../IMServer/docs/ROADMAP.md) · [CLIENT_PARITY](../IMServer/docs/CLIENT_PARITY.md) · [UI](../IMServer/docs/UI.md)
+
+## 音视频通话 SDK（im-rtc-ios）：正式版 / 本地源码 切换
+
+默认依赖 GitHub 正式版 `https://github.com/BLiYing/im-rtc-ios.git`，Exact `2.0.0`。要联调 SDK 源码时切到本地：
+
+```bash
+./scripts/switch-rtc-sdk.sh local            # ../im-rtc/im-rtc-ios，改 SDK 源码立刻生效
+./scripts/switch-rtc-sdk.sh remote [版本]    # 回到正式版（默认 2.0.0），并重新解析依赖
+./scripts/switch-rtc-sdk.sh status           # 看当前是哪一档
+```
+
+切档后请重开 Xcode 工程。提交前确认是 `remote`，别把本地路径档提交上去。
