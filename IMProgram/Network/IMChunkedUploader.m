@@ -1,6 +1,7 @@
 //  IMChunkedUploader.m
 
 #import "IMChunkedUploader.h"
+#import "IMLocalization.h"
 #import "IMHTTPService.h"
 #import "IMLog.h"
 
@@ -110,7 +111,7 @@ static const NSUInteger kIMChunkedThreshold = 8 * 1024 * 1024;
     task.totalBytes = (int64_t)total;
     if (key.length > 0) { _tasks[key] = task; }
     if (total == 0) {
-        [self finishTask:task url:nil contentType:nil error:[self errorWithMessage:@"文件为空或不可读"]];
+        [self finishTask:task url:nil contentType:nil error:[self errorWithMessage:IMLocalized(@"net.error.file_empty")]];
         return task;
     }
 
@@ -131,7 +132,7 @@ static const NSUInteger kIMChunkedThreshold = 8 * 1024 * 1024;
             __strong IMChunkedUploadTask *t2 = weakTask;
             if (!t2 || t2.cancelled || t2.finished || gen != t2.generation) { return; }
             if (error || uploadID.length == 0) {
-                [self finishTask:t2 url:nil contentType:nil error:(error ?: [self errorWithMessage:@"上传初始化失败"])];
+                [self finishTask:t2 url:nil contentType:nil error:(error ?: [self errorWithMessage:IMLocalized(@"net.error.upload_init_failed")])];
                 return;
             }
             t2.uploadID = uploadID;
@@ -190,7 +191,7 @@ static BOOL IMChainAlive(IMChunkedUploadTask *task, NSInteger gen) {
         dispatch_async(dispatch_get_main_queue(), ^{
             if (!IMChainAlive(task, gen)) { return; }
             if (chunk.length == 0) {
-                [self finishTask:task url:nil contentType:nil error:[self errorWithMessage:@"本地文件读取失败"]];
+                [self finishTask:task url:nil contentType:nil error:[self errorWithMessage:IMLocalized(@"net.error.file_read_failed")]];
                 return;
             }
             task.inFlightRequest = [self sendChunk:chunk uploadID:task.uploadID offset:offset token:token completion:^(int64_t newOffset, NSError *error) {
@@ -307,7 +308,7 @@ static BOOL IMChainAlive(IMChunkedUploadTask *task, NSInteger gen) {
 
 - (NSError *)errorWithMessage:(NSString *)message {
     return [NSError errorWithDomain:@"IMChunkedUploaderErrorDomain" code:-1
-                           userInfo:@{ NSLocalizedDescriptionKey: message ?: @"上传失败" }];
+                           userInfo:@{ NSLocalizedDescriptionKey: message ?: IMLocalized(@"net.error.upload_failed") }];
 }
 
 @end

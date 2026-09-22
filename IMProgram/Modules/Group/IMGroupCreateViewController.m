@@ -4,6 +4,7 @@
 #import <objc/runtime.h>
 
 #import "IMGroupCreateViewController.h"
+#import "IMLocalization.h"
 #import "IMMainTabBarController.h"   // im_refreshNavigationBar：注入式液态标题栏不监听 navigationItem
 #import "IMGroupAvatarHeader.h"
 #import "IMGroupNameDefault.h"
@@ -47,7 +48,7 @@ static const NSTimeInterval kIMGroupCreateAvatarWait = 5.0;
         [self.contentView addSubview:_strip];
 
         // 固定列：一格「＋ 添加」，永远贴着右边缘。成员条只占它左边那段宽度。
-        _addColumn = [self chipAtX:0 avatarURL:nil seed:@"" name:@"添加" removeUID:nil isAdd:YES];
+        _addColumn = [self chipAtX:0 avatarURL:nil seed:@"" name:IMLocalized(@"common.add") removeUID:nil isAdd:YES];
         _addColumn.translatesAutoresizingMaskIntoConstraints = NO;
         [self.contentView addSubview:_addColumn];
 
@@ -133,7 +134,7 @@ static const NSTimeInterval kIMGroupCreateAvatarWait = 5.0;
         [rm setImage:[[UIImage systemImageNamed:@"xmark"] imageByApplyingSymbolConfiguration:
                       [UIImageSymbolConfiguration configurationWithPointSize:9 weight:UIImageSymbolWeightBold]]
             forState:UIControlStateNormal];
-        rm.accessibilityLabel = [NSString stringWithFormat:@"移除 %@", name];
+        rm.accessibilityLabel = IMLocalizedFormat(@"group.create.remove_member", name ?: @"");
         objc_setAssociatedObject(rm, @selector(removeTapped:), uid, OBJC_ASSOCIATION_COPY_NONATOMIC);
         [rm addTarget:self action:@selector(removeTapped:) forControlEvents:UIControlEventTouchUpInside];
         [wrap addSubview:rm];
@@ -200,7 +201,7 @@ typedef NS_ENUM(NSInteger, IMGroupCreateSection) {
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"创建群聊";
+    self.title = IMLocalized(@"group.create.title");
     self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
 
     self.tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStyleInsetGrouped];
@@ -217,7 +218,7 @@ typedef NS_ENUM(NSInteger, IMGroupCreateSection) {
     self.tableView.tableHeaderView = self.header;
 
     self.navigationItem.rightBarButtonItem =
-        [[UIBarButtonItem alloc] initWithTitle:@"创建" style:UIBarButtonItemStyleDone
+        [[UIBarButtonItem alloc] initWithTitle:IMLocalized(@"common.create") style:UIBarButtonItemStyleDone
                                         target:self action:@selector(createTapped)];
 
     [self buildNameField];   // 必须在预填之前：否则 applySuggestedNameIfNeeded 写进的是 nil
@@ -239,7 +240,7 @@ typedef NS_ENUM(NSInteger, IMGroupCreateSection) {
     // 不允许删到 0：与第一步「一个都没选不能下一步」同口径。让用户先删空再报错，
     // 是把错误留到最后一步——这里直接拦住并说清楚。
     if (self.members.count <= 1) {
-        [self im_showToast:@"至少选择一位好友"];
+        [self im_showToast:IMLocalized(@"group.create.min_friends")];
         return;
     }
     NSUInteger idx = NSNotFound;
@@ -266,7 +267,7 @@ typedef NS_ENUM(NSInteger, IMGroupCreateSection) {
     self.nameField = [UITextField new];
     self.nameField.font = [UIFont systemFontOfSize:16];
     self.nameField.textColor = IMTheme.textPrimary;
-    self.nameField.placeholder = @"群聊名称";
+    self.nameField.placeholder = IMLocalized(@"group.create.name_placeholder");
     self.nameField.clearButtonMode = UITextFieldViewModeWhileEditing;
     self.nameField.returnKeyType = UIReturnKeyDone;
     self.nameField.delegate = self;
@@ -345,7 +346,7 @@ typedef NS_ENUM(NSInteger, IMGroupCreateSection) {
     NSString *name = self.trimmedName;
     [self.header applyAvatarImage:self.header.avatar.image
                       placeholder:IMAvatarInitials(name)
-                          caption:(self.header.avatar.image || self.avatarURL.length > 0) ? @"更换群头像" : @"添加群头像"];
+                          caption:(self.header.avatar.image || self.avatarURL.length > 0) ? IMLocalized(@"group.avatar.change") : IMLocalized(@"group.avatar.add")];
 }
 
 - (void)pickAvatar {
@@ -362,13 +363,13 @@ typedef NS_ENUM(NSInteger, IMGroupCreateSection) {
 - (void)uploadAvatarHandle:(IMPickedMediaHandle *)handle {
     IMHTTPService.sharedService.host = self.host;   // 与选好友页同一套路：发请求前对齐 host
     NSString *token = IMHTTPService.sharedService.currentToken;
-    if (token.length == 0) { [self im_showToast:@"未登录"]; return; }
+    if (token.length == 0) { [self im_showToast:IMLocalized(@"common.not_logged_in")]; return; }
     __weak typeof(self) ws = self;
     [handle loadData:^(IMPickedMedia *item) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
         UIImage *img = item.data ? [UIImage imageWithData:item.data] : nil;
-        if (!img) { [self im_showToast:@"图片处理失败"]; return; }
+        if (!img) { [self im_showToast:IMLocalized(@"common.image_process_failed")]; return; }
         IMAvatarCropViewController *crop = [[IMAvatarCropViewController alloc] initWithImage:img];
         crop.onComplete = ^(NSData *jpeg) {
             __strong typeof(ws) self2 = ws;
@@ -381,9 +382,9 @@ typedef NS_ENUM(NSInteger, IMGroupCreateSection) {
 
 - (void)startAvatarUpload:(NSData *)jpeg token:(NSString *)token {
     self.avatarUploading = YES;
-    [self im_showToast:@"上传中…"];
+    [self im_showToast:IMLocalized(@"common.uploading")];
     // 先把裁好的图贴上去：上传还没回来时用户也该看见自己选的那张。
-    [self.header applyAvatarImage:[UIImage imageWithData:jpeg] placeholder:nil caption:@"更换群头像"];
+    [self.header applyAvatarImage:[UIImage imageWithData:jpeg] placeholder:nil caption:IMLocalized(@"group.avatar.change")];
     __weak typeof(self) ws = self;
     [IMHTTPService.sharedService uploadAvatarData:jpeg token:token completion:^(NSString *url, NSError *error) {
         __strong typeof(ws) self = ws;
@@ -392,8 +393,8 @@ typedef NS_ENUM(NSInteger, IMGroupCreateSection) {
         if (error || url.length == 0) {
             // 头像是可选项，失败不挡建群：回到占位圈，提示一句，建完还能在群管理里补。
             self.avatarURL = @"";
-            [self.header applyAvatarImage:nil placeholder:IMAvatarInitials(self.trimmedName) caption:@"添加群头像"];
-            [self im_showToast:error.localizedDescription ?: @"头像上传失败"];
+            [self.header applyAvatarImage:nil placeholder:IMAvatarInitials(self.trimmedName) caption:IMLocalized(@"group.avatar.add")];
+            [self im_showToast:error.localizedDescription ?: IMLocalized(@"group.create.avatar_failed")];
         } else {
             self.avatarURL = url;
         }
@@ -417,7 +418,7 @@ typedef NS_ENUM(NSInteger, IMGroupCreateSection) {
             __strong typeof(ws) self = ws;
             if (!self || !self.createPending) { return; }
             self.avatarURL = @"";                          // 放弃这张图（上传回来也不再用）
-            [self im_showToast:@"头像上传较慢，已先创建群聊，可稍后在群管理里设置"];
+            [self im_showToast:IMLocalized(@"group.create.avatar_slow")];
             self.creating = NO;                            // 交回 submitCreate 重新置位
             [self submitCreate];
         });
@@ -431,7 +432,7 @@ typedef NS_ENUM(NSInteger, IMGroupCreateSection) {
     self.createPending = NO;
     IMHTTPService.sharedService.host = self.host;
     NSString *token = IMHTTPService.sharedService.currentToken;
-    if (token.length == 0) { [self im_showToast:@"未登录"]; self.creating = NO; [self refreshCreateEnabled]; return; }
+    if (token.length == 0) { [self im_showToast:IMLocalized(@"common.not_logged_in")]; self.creating = NO; [self refreshCreateEnabled]; return; }
     NSMutableArray<NSString *> *ids = [NSMutableArray arrayWithCapacity:self.members.count];
     for (IMUserCard *c in self.members) { [ids addObject:c.userID]; }
     self.creating = YES;
@@ -445,7 +446,7 @@ typedef NS_ENUM(NSInteger, IMGroupCreateSection) {
         [self refreshCreateEnabled];
         if (error || !group) {
             // 不自动重试：建群没有幂等键，重试可能真的建出两个群。
-            [self im_showToast:[NSString stringWithFormat:@"建群失败：%@", error.localizedDescription ?: @"未知错误"]];
+            [self im_showToast:IMLocalizedFormat(@"group.create.failed", error.localizedDescription ?: IMLocalized(@"common.unknown_error"))];
             return;
         }
         if (self.onCreated) { self.onCreated(group); }
@@ -462,7 +463,7 @@ typedef NS_ENUM(NSInteger, IMGroupCreateSection) {
     __weak UINavigationController *weakNav = nav;
     IMFriendPickerViewController *picker =
         [[IMFriendPickerViewController alloc] initWithHost:host userID:userID excludedIDs:nil
-                                              confirmTitle:@"下一步"
+                                              confirmTitle:IMLocalized(@"common.next")
                                                     onDone:^(NSArray<NSString *> *selectedIDs) {
         UINavigationController *stack = weakNav;
         IMFriendPickerViewController *pk = weakPicker;
@@ -506,15 +507,15 @@ typedef NS_ENUM(NSInteger, IMGroupCreateSection) {
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     if (section != IMGroupCreateSecMembers) { return nil; }
-    return [NSString stringWithFormat:@"成员 · %lu 人（加我 %lu 人）",
-            (unsigned long)self.members.count, (unsigned long)(self.members.count + 1)];
+    return IMLocalizedFormat(@"group.create.members_summary",
+            (long)self.members.count, (long)(self.members.count + 1));
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     // 上限是**部署配置**，没拉到就什么都不说——按猜测的数字提示等于误导（见 IMServerConfigStore）。
     IMServerConfigStore *cfg = IMServerConfigStore.shared;
     if (section != IMGroupCreateSecMembers || !cfg.loaded || cfg.maxGroupMembers <= 0) { return nil; }
-    return [NSString stringWithFormat:@"最多 %ld 位成员。", (long)(cfg.maxGroupMembers - 1)]; // 群主占 1 席
+    return IMLocalizedFormat(@"group.create.max_members", (long)(cfg.maxGroupMembers - 1)); // 群主占 1 席
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {

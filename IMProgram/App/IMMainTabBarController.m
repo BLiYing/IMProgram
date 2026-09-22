@@ -1,6 +1,7 @@
 //  IMMainTabBarController.m
 
 #import "IMMainTabBarController.h"
+#import "IMLocalization.h"
 #import "IMConversationListViewController.h"
 #import "IMContactsViewController.h"
 #import "IMSettingsViewController.h"
@@ -320,20 +321,20 @@ static void IMCollectTabIcons(UIView *root, NSMutableArray<UIImageView *> *out) 
         UINavigationController *convNav = [[IMMainNavigationController alloc] initWithRootViewController:convList];
         _conversationsNav = convNav;
         // Tab 名「消息」（2026-09-15 由「会话」改，与 Android 底栏、Web 左栏页签统一）。
-        convNav.tabBarItem = [[UITabBarItem alloc] initWithTitle:@"消息"
+        convNav.tabBarItem = [[UITabBarItem alloc] initWithTitle:IMLocalized(@"ios.tab.messages")
                                                            image:[UIImage systemImageNamed:@"bubble.left.and.bubble.right"]
                                                              tag:0];
 
         IMContactsViewController *contacts =
             [[IMContactsViewController alloc] initWithHost:host userID:userID];
         UINavigationController *contactsNav = [[IMMainNavigationController alloc] initWithRootViewController:contacts];
-        contactsNav.tabBarItem = [[UITabBarItem alloc] initWithTitle:@"通讯录"
+        contactsNav.tabBarItem = [[UITabBarItem alloc] initWithTitle:IMLocalized(@"ios.tab.contacts")
                                                                image:[UIImage systemImageNamed:@"person.2"]
                                                                  tag:1];
 
         IMSettingsViewController *settings = [[IMSettingsViewController alloc] initWithHost:host userID:userID];
         UINavigationController *settingsNav = [[IMMainNavigationController alloc] initWithRootViewController:settings];
-        settingsNav.tabBarItem = [[UITabBarItem alloc] initWithTitle:@"我"
+        settingsNav.tabBarItem = [[UITabBarItem alloc] initWithTitle:IMLocalized(@"ios.tab.me")
                                                                image:[UIImage systemImageNamed:@"person.crop.circle"]
                                                                  tag:2];
 
@@ -345,16 +346,16 @@ static void IMCollectTabIcons(UIView *root, NSMutableArray<UIImageView *> *out) 
 
         if (@available(iOS 18.0, *)) {
             self.mode = UITabBarControllerModeTabBar;
-            UITab *convTab = [[UITab alloc] initWithTitle:@"消息" image:[UIImage systemImageNamed:@"bubble.left.and.bubble.right"]
+            UITab *convTab = [[UITab alloc] initWithTitle:IMLocalized(@"ios.tab.messages") image:[UIImage systemImageNamed:@"bubble.left.and.bubble.right"]
                                                identifier:@"im.tab.conversations"
                                    viewControllerProvider:^UIViewController *(UITab *tab) { return convNav; }];
-            UITab *contactsTab = [[UITab alloc] initWithTitle:@"通讯录" image:[UIImage systemImageNamed:@"person.2"]
+            UITab *contactsTab = [[UITab alloc] initWithTitle:IMLocalized(@"ios.tab.contacts") image:[UIImage systemImageNamed:@"person.2"]
                                                    identifier:@"im.tab.contacts"
                                        viewControllerProvider:^UIViewController *(UITab *tab) { return contactsNav; }];
-            UITab *settingsTab = [[UITab alloc] initWithTitle:@"我" image:[UIImage systemImageNamed:@"person.crop.circle"]
+            UITab *settingsTab = [[UITab alloc] initWithTitle:IMLocalized(@"ios.tab.me") image:[UIImage systemImageNamed:@"person.crop.circle"]
                                                    identifier:@"im.tab.settings"
                                        viewControllerProvider:^UIViewController *(UITab *tab) { return settingsNav; }];
-            UITab *searchTab = [[UITab alloc] initWithTitle:@"搜索" image:[UIImage systemImageNamed:@"magnifyingglass"]
+            UITab *searchTab = [[UITab alloc] initWithTitle:IMLocalized(@"ios.tab.search") image:[UIImage systemImageNamed:@"magnifyingglass"]
                                                  identifier:@"im.tab.search"
                                      viewControllerProvider:^UIViewController *(UITab *tab) { return searchNav; }];
             searchTab.preferredPlacement = UITabPlacementPinned; // iOS 26：右侧独立 Glass 搜索圆钮
@@ -441,7 +442,7 @@ static void IMCollectTabIcons(UIView *root, NSMutableArray<UIImageView *> *out) 
 /// 「消息」Tab 的图标视图：先找标题 label，再在它所在的按钮里取离它最近的那枚图标；
 /// 按钮里没有才往上放大一层（最多三层），免得一上来就在整条底栏里挑、挑到隔壁 Tab。
 - (nullable UIImageView *)conversationsTabIconView {
-    UILabel *label = IMFindTabTitleLabel(self.tabBar, @"消息");
+    UILabel *label = IMFindTabTitleLabel(self.tabBar, IMLocalized(@"ios.tab.messages"));
     if (!label) { return nil; }
     CGPoint labelCenter = [label convertPoint:CGPointMake(CGRectGetMidX(label.bounds), CGRectGetMidY(label.bounds))
                                        toView:self.tabBar];

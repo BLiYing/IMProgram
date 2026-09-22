@@ -1,5 +1,6 @@
 //  IMMediaPlaceholder.m
 #import "IMMediaPlaceholder.h"
+#import "IMLocalization.h"
 #import <CoreImage/CoreImage.h>
 #import "IMImageLoader.h"          // 图片本地缓存判定 + 取图
 #import "IMVideoThumbnailLoader.h" // 视频本地文件抽帧
@@ -120,7 +121,7 @@ static const CGFloat kIMFrostedBlurSigma = 4.0;
 
     UILabel *label = [UILabel new];
     label.translatesAutoresizingMaskIntoConstraints = NO;
-    label.text = caption.length > 0 ? caption : @"已失效";
+    label.text = caption.length > 0 ? caption : IMLocalized(@"media.placeholder.expired");
     label.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
     label.textColor = UIColor.whiteColor;
     label.textAlignment = NSTextAlignmentCenter;

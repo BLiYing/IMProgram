@@ -3,6 +3,7 @@
 #import "IMPinnedBannerView.h"
 #import "IMPinnedMessage.h"
 #import "IMTheme.h"
+#import "IMLocalization.h"
 
 // 卡片视觉高度 + 上方留白（横幅整体高度 = 卡片 + 顶部间隔；左右间隔由内层卡片相对 self 内缩实现）。
 static CGFloat const kCardHeight = 44;
@@ -179,7 +180,7 @@ static CGFloat const kSideInset  = 8;
     }
     self.hidden = NO;
 
-    NSMutableString *kicker = [NSMutableString stringWithString:@"置顶消息"];
+    NSMutableString *kicker = [NSMutableString stringWithString:IMLocalized(@"chat.banner.pinned")];
     if (total > 1) { [kicker appendFormat:@" %ld/%ld", (long)(index + 1), (long)total]; }
     NSString *sender = [item senderLabelForGroup:isGroup];
     if (sender.length > 0) { [kicker appendFormat:@" · %@", sender]; }
@@ -206,7 +207,7 @@ static CGFloat const kSideInset  = 8;
 - (void)applyAnnouncement:(nullable NSString *)text {
     if (text.length == 0) { self.hidden = YES; return; }
     self.hidden = NO;
-    [self setKickerSymbol:@"megaphone" text:@"群公告"];
+    [self setKickerSymbol:@"megaphone" text:IMLocalized(@"group.text.announcement")];
     // 折行/连续空白压成单行（横幅单行布局）。
     NSArray<NSString *> *parts = [text componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     NSMutableArray<NSString *> *kept = [NSMutableArray array];
@@ -220,8 +221,8 @@ static CGFloat const kSideInset  = 8;
 - (void)applyApprovalCount:(NSInteger)count {
     if (count <= 0) { self.hidden = YES; return; }
     self.hidden = NO;
-    [self setKickerSymbol:@"person.badge.plus" text:@"入群申请"];
-    self.preview.text = [NSString stringWithFormat:@"%ld 人申请加入本群 · 点击审批", (long)count];
+    [self setKickerSymbol:@"person.badge.plus" text:IMLocalized(@"chat.banner.join_request")];
+    self.preview.text = IMLocalizedFormat(@"chat.banner.join_pending", (long)count);
     self.barGradient.hidden = YES;
     self.bar.backgroundColor = [self accentColor];
     self.listButton.hidden = YES;

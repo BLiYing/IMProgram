@@ -23,6 +23,7 @@
 #import "UIViewController+IMToast.h"
 #import "IMTheme.h"
 #import "IMTimeUtil.h"
+#import "IMLocalization.h"
 
 #pragma mark - 群管理页
 
@@ -88,7 +89,7 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"群管理";
+    self.title = IMLocalized(@"group.manage.title");
     self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
     self.tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStyleInsetGrouped];
     self.tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -135,7 +136,7 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
         }
         self.group = group;
         // 我已不是群主/管理员（被撤职、或群主身份被别处转走）→ 整页对我不再可见，留下来点什么都会吃 300204。
-        if (!group.canManage) { [self popWithToast:@"你已不是群主或管理员"]; return; }
+        if (!group.canManage) { [self popWithToast:IMLocalized(@"group.error.not_admin")]; return; }
         [self.tableView reloadData];
         [self refreshHeaderAvatar];
     }];
@@ -149,7 +150,7 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
     NSString *target = note.userInfo[kIMGroupTargetKey];
     BOOL removedMe = [event isEqualToString:@"remove"] && [target isEqualToString:self.userID];
     if (removedMe || [event isEqualToString:@"dissolve"]) {
-        [self popWithToast:removedMe ? @"你已不在该群" : @"该群已被解散"];
+        [self popWithToast:removedMe ? IMLocalized(@"group.manage.removed_toast") : IMLocalized(@"group.event.dissolved")];
         return;
     }
     [self reloadGroup];
@@ -175,7 +176,7 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
     NSString *url = self.group.avatarURL.length ? IMMediaFullURL(self.group.avatarURL, self.host) : @"";
     BOOL hasAvatar = url.length > 0;
     self.header.cam.hidden = hasAvatar;                              // 已有头像时不再盖住图
-    self.header.caption.text = hasAvatar ? @"更换头像" : @"设置新头像";
+    self.header.caption.text = hasAvatar ? IMLocalized(@"group.avatar.change") : IMLocalized(@"group.avatar.set_new");
     self.header.avatar.image = nil;
     if (hasAvatar) {
         __weak typeof(self) ws = self;
@@ -205,21 +206,21 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
 }
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     switch (section) {
-        case IMManageSecJoinSpeak: return @"加入与发言";
-        case IMManageSecPerms:     return @"成员权限";
-        case IMManageSecGovernance: return @"治理";
-        case IMManageSecAdmins:    return @"管理员";
-        case IMManageSecOwner:     return @"群主";
+        case IMManageSecJoinSpeak: return IMLocalized(@"group.manage.section_join");
+        case IMManageSecPerms:     return IMLocalized(@"group.manage.section_permissions");
+        case IMManageSecGovernance: return IMLocalized(@"group.manage.section_governance");
+        case IMManageSecAdmins:    return IMLocalized(@"group.role.admin");
+        case IMManageSecOwner:     return IMLocalized(@"group.role.owner");
         default: return nil;
     }
 }
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     switch (section) {
-        case IMManageSecProfile:   return @"简介与公告展示给全体成员；公告发布后会通知所有人。";
-        case IMManageSecJoinSpeak: return @"进群确认：凭二维码加入需管理员审批。全员禁言：仅群主 / 管理员可发言。";
-        case IMManageSecPerms:     return @"「新成员可见历史」开启后，新成员看不到加入前的聊天记录。";
-        case IMManageSecAdmins:    return @"管理员可审批入群、禁言与移出普通成员，但不能设置管理员或转让群组。";
-        case IMManageSecOwner:     return @"转让后你将立即变为普通成员，且不可撤销。群主不能直接退群，须先转让。";
+        case IMManageSecProfile:   return IMLocalized(@"group.manage.profile_footer");
+        case IMManageSecJoinSpeak: return IMLocalized(@"group.manage.join_speak_footer");
+        case IMManageSecPerms:     return IMLocalized(@"group.manage.perms_footer");
+        case IMManageSecAdmins:    return IMLocalized(@"group.manage.permission_note");
+        case IMManageSecOwner:     return IMLocalized(@"group.manage.transfer_warning");
         default: return nil;
     }
 }
@@ -255,43 +256,43 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
             case IMManageRowName:
                 // 「群名称」原用 textformat（Aa 字形），小尺寸下像散字、与整体图标风格不一；换成 tag.fill（名牌）更像图标。
                 cell.imageView.image = IMGroupManageRowIcon(@"tag.fill");
-                cell.textLabel.text = @"群名称";
+                cell.textLabel.text = IMLocalized(@"group.create.name_label");
                 cell.detailTextLabel.text = self.group.name;
                 break;
             case IMManageRowIntro:
                 cell.imageView.image = IMGroupManageRowIcon(@"text.alignleft");
-                cell.textLabel.text = @"简介";
-                cell.detailTextLabel.text = self.group.intro.length ? self.group.intro : @"未填写";
+                cell.textLabel.text = IMLocalized(@"group.manage.intro_label");
+                cell.detailTextLabel.text = self.group.intro.length ? self.group.intro : IMLocalized(@"group.manage.intro_empty");
                 break;
             default:
                 cell.imageView.image = IMGroupManageRowIcon(@"megaphone.fill");
-                cell.textLabel.text = @"群公告";
-                cell.detailTextLabel.text = self.group.announcement.length ? @"已发布" : @"未发布";
+                cell.textLabel.text = IMLocalized(@"group.text.announcement");
+                cell.detailTextLabel.text = self.group.announcement.length ? IMLocalized(@"group.manage.announcement_published") : IMLocalized(@"group.manage.announcement_unpublished");
                 break;
         }
         return cell;
     }
     if (indexPath.section == IMManageSecJoinSpeak) {
         if (indexPath.row == IMManageRowJoinApproval) {
-            return [self switchCell:@"进群确认" icon:@"lock.shield" on:self.group.joinApproval action:@selector(joinApprovalChanged:)];
+            return [self switchCell:IMLocalized(@"group.manage.join_approval") icon:@"lock.shield" on:self.group.joinApproval action:@selector(joinApprovalChanged:)];
         }
-        return [self switchCell:@"全员禁言" icon:@"mic.slash" on:[self muteActive] action:@selector(muteSwitchChanged:)];
+        return [self switchCell:IMLocalized(@"group.manage.mute_all") icon:@"mic.slash" on:[self muteActive] action:@selector(muteSwitchChanged:)];
     }
     if (indexPath.section == IMManageSecPerms) {
         switch (indexPath.row) {
             case IMManageRowPermInvite:
-                return [self switchCell:@"仅管理员可邀请" icon:@"person.badge.plus" on:self.group.permInvite action:@selector(permInviteChanged:)];
+                return [self switchCell:IMLocalized(@"group.manage.perm_invite") icon:@"person.badge.plus" on:self.group.permInvite action:@selector(permInviteChanged:)];
             case IMManageRowPermEditInfo:
-                return [self switchCell:@"仅管理员可改群资料" icon:@"square.and.pencil" on:self.group.permEditInfo action:@selector(permEditInfoChanged:)];
+                return [self switchCell:IMLocalized(@"group.manage.perm_edit_info") icon:@"square.and.pencil" on:self.group.permEditInfo action:@selector(permEditInfoChanged:)];
             case IMManageRowPermPin:
-                return [self switchCell:@"仅管理员可置顶消息" icon:@"pin" on:self.group.permPin action:@selector(permPinChanged:)];
+                return [self switchCell:IMLocalized(@"group.manage.perm_pin") icon:@"pin" on:self.group.permPin action:@selector(permPinChanged:)];
             default:
-                return [self switchCell:@"新成员仅可见入群后历史" icon:@"clock.arrow.circlepath" on:self.group.historyVisible action:@selector(historyVisibleChanged:)];
+                return [self switchCell:IMLocalized(@"group.manage.history_visible") icon:@"clock.arrow.circlepath" on:self.group.historyVisible action:@selector(historyVisibleChanged:)];
         }
     }
     if (indexPath.section == IMManageSecAdmins) {
         UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:@"a"];
-        cell.textLabel.text = @"管理员";
+        cell.textLabel.text = IMLocalized(@"group.role.admin");
         cell.textLabel.textColor = IMTheme.textPrimary;
         cell.detailTextLabel.text = [IMGroupAdminLogic adminCountTextForMembers:self.group.members];
         cell.detailTextLabel.textColor = IMTheme.textSecondary; // 不做红点/角标——这不是待办事项
@@ -303,7 +304,7 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
     }
     if (indexPath.section == IMManageSecOwner) {
         UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:@"o"];
-        cell.textLabel.text = @"转让群组";
+        cell.textLabel.text = IMLocalized(@"group.manage.transfer_group");
         // 本页唯一的红色行：转让不可逆，与详情页「解散群组」同族。有意为之，不是漏改主题色。
         cell.textLabel.textColor = IMTheme.danger;
         cell.imageView.image = IMGroupManageRowIconTinted(@"crown.fill", IMTheme.danger);
@@ -315,12 +316,12 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
     cell.textLabel.textColor = IMTheme.textPrimary;
     cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     if (indexPath.row == 0) {
-        cell.textLabel.text = @"待审入群申请";
-        cell.detailTextLabel.text = self.group.pendingCount > 0 ? [NSString stringWithFormat:@"%ld 待处理", (long)self.group.pendingCount] : @"无";
+        cell.textLabel.text = IMLocalized(@"qr.join_req.list_title");
+        cell.detailTextLabel.text = self.group.pendingCount > 0 ? IMLocalizedFormat(@"group.manage.pending_count", (long)self.group.pendingCount) : IMLocalized(@"group.manage.pending_none");
         cell.detailTextLabel.textColor = self.group.pendingCount > 0 ? IMTheme.accent : IMTheme.textSecondary;
         cell.imageView.image = IMGroupManageRowIcon(@"person.crop.circle.badge.checkmark");
     } else {
-        cell.textLabel.text = @"黑名单";
+        cell.textLabel.text = IMLocalized(@"group.manage.blacklist");
         cell.imageView.image = IMGroupManageRowIcon(@"nosign");
     }
     return cell;
@@ -380,8 +381,8 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
         [[IMFriendPickerViewController alloc] initWithHost:self.host userID:self.userID
                                                 candidates:[IMGroupAdminLogic pickerCardsFromMembers:candidates]
                                                excludedIDs:excluded
-                                                     title:@"选择新群主"
-                                              confirmTitle:@"转让"
+                                                     title:IMLocalized(@"group.transfer_owner.title")
+                                              confirmTitle:IMLocalized(@"group.transfer_owner.confirm")
                                                     onDone:^(NSArray<NSString *> *selectedIDs) {
         NSString *uid = selectedIDs.firstObject;
         if (uid.length > 0) { [ws confirmTransferTo:uid]; }
@@ -391,8 +392,8 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
     self.transferHost = picker;
     picker.maxSelection = 1;
     picker.selectsImmediately = YES; // 转让是"选谁"不是"选一批"：点中即弹确认，不再要求点「确定」
-    picker.searchPlaceholder = @"搜索群成员";
-    picker.emptyText = @"群里还没有其他成员";
+    picker.searchPlaceholder = IMLocalized(@"group.picker.search_placeholder");
+    picker.emptyText = IMLocalized(@"group.picker.no_others");
     if (super_) { picker.remoteCandidateSearch = [IMFriendPickerViewController groupMemberSearchForConvID:self.convID]; }
     [self.navigationController pushViewController:picker animated:YES];
 }
@@ -412,13 +413,13 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
             name = [picker cardForUserID:uid].displayName;
         }
     }
-    if (name.length == 0) { name = @"TA"; } // 两条都落空才退到代词
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"转让群组"
-        message:[NSString stringWithFormat:@"确定把群主转让给 %@？\n转让后你将变为普通成员，且不可撤销。", name]
+    if (name.length == 0) { name = IMLocalized(@"group.transfer_owner.fallback_name"); } // 两条都落空才退到代词
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:IMLocalized(@"group.manage.transfer_group")
+        message:IMLocalizedFormat(@"group.transfer_owner.confirm_message_full", name)
         preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
     __weak typeof(self) ws = self;
-    [alert addAction:[UIAlertAction actionWithTitle:@"转让" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"group.transfer_owner.confirm") style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
         [ws commitTransferTo:uid name:name];
     }]];
     [(self.transferHost ?: self) presentViewController:alert animated:YES completion:nil];
@@ -426,7 +427,7 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
 
 - (void)commitTransferTo:(NSString *)uid name:(NSString *)name {
     NSString *token = IMHTTPService.sharedService.currentToken;
-    if (token.length == 0) { [self im_showToast:@"未登录"]; return; }
+    if (token.length == 0) { [self im_showToast:IMLocalized(@"common.not_logged_in")]; return; }
     // **必须在发请求之前**置位：后端 Transfer 是"先广播 group 帧、后返回 HTTP"，
     // 我自己的 transfer 帧完全可能先于响应到达；那时 my_role 已是 member，
     // 刷新路径会抢先弹一句「你已不是群主或管理员」，把「已转让给 X」挤掉。
@@ -446,7 +447,7 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
         // 否则下一次点任何开关都会吃 300204（设计文档 §3.4「最容易漏的一条」）。
         if (self.onChanged) { self.onChanged(); } // 详情页刷新（「群管理」行随之消失）
         // 退回详情页（本页与选人页一起弹掉），吐司挂落地页。
-        [self popWithToast:[NSString stringWithFormat:@"已转让给 %@", name]];
+        [self popWithToast:IMLocalizedFormat(@"group.transfer_owner.done", name)];
     }];
 }
 
@@ -456,32 +457,32 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
 /// 整体替换语义——三者都回带当前值，只改其一时另两项传现值（避免清空）。
 - (void)commitName:(NSString *)name avatarURL:(NSString *)avatarURL intro:(NSString *)intro {
     NSString *token = IMHTTPService.sharedService.currentToken;
-    if (token.length == 0) { [self im_showToast:@"未登录"]; return; }
+    if (token.length == 0) { [self im_showToast:IMLocalized(@"common.not_logged_in")]; return; }
     __weak typeof(self) ws = self;
     [IMHTTPService.sharedService updateGroupWithToken:token convID:self.convID name:name avatarURL:avatarURL intro:intro
                                           completion:^(NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
-        if (error) { [self im_showToast:error.localizedDescription ?: @"修改失败"]; return; }
+        if (error) { [self im_showToast:error.localizedDescription ?: IMLocalized(@"common.update_failed")]; return; }
         self.group.name = name;
         self.group.avatarURL = avatarURL;
         self.group.intro = intro;
         [self.tableView reloadData];
         [self refreshHeaderAvatar];
-        [self im_showToast:@"已更新"];
+        [self im_showToast:IMLocalized(@"common.updated")];
         if (self.onChanged) { self.onChanged(); }
     }];
 }
 
 - (void)editName {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"修改群名" message:@"1~30 字"
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:IMLocalized(@"group.info.rename_title") message:IMLocalized(@"group.info.rename_hint")
                                                            preferredStyle:UIAlertControllerStyleAlert];
     NSString *current = self.group.name ?: @"";
     NSString *avatar = self.group.avatarURL ?: @"";
     [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) { tf.text = current; }];
     __weak typeof(self) ws = self;
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.save") style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
         NSString *name = [alert.textFields.firstObject.text
                           stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
         if (name.length == 0 || [name isEqualToString:current]) { return; }
@@ -494,9 +495,9 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
 - (void)editIntro {
     NSString *current = self.group.intro ?: @"";
     __weak typeof(self) ws = self;
-    [IMGroupTextEditViewController presentFrom:self title:@"群简介" text:current
-                                   placeholder:@"介绍这个群" maxChars:200 commitTitle:@"保存"
-                                  allowRetract:NO footer:@"简介会展示在群资料页与加群预览页。"
+    [IMGroupTextEditViewController presentFrom:self title:IMLocalized(@"group.text.intro") text:current
+                                   placeholder:IMLocalized(@"group.manage.intro_placeholder") maxChars:200 commitTitle:IMLocalized(@"common.save")
+                                  allowRetract:NO footer:IMLocalized(@"group.manage.intro_footer")
                                       onCommit:^(NSString *intro) {
         if ([intro isEqualToString:current]) { return; }
         [ws commitName:(ws.group.name ?: @"") avatarURL:(ws.group.avatarURL ?: @"") intro:intro];
@@ -507,9 +508,9 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
 - (void)editAnnouncement {
     NSString *current = self.group.announcement ?: @"";
     __weak typeof(self) ws = self;
-    [IMGroupTextEditViewController presentFrom:self title:@"群公告" text:current
-                                   placeholder:@"输入公告内容" maxChars:500 commitTitle:@"发布"
-                                  allowRetract:current.length > 0 footer:@"发布后全体成员会收到通知，并在聊天页顶部常驻。"
+    [IMGroupTextEditViewController presentFrom:self title:IMLocalized(@"group.text.announcement") text:current
+                                   placeholder:IMLocalized(@"group.manage.announcement_placeholder") maxChars:500 commitTitle:IMLocalized(@"common.publish")
+                                  allowRetract:current.length > 0 footer:IMLocalized(@"group.manage.announcement_footer")
                                       onCommit:^(NSString *text) {
         if ([text isEqualToString:current]) { return; }
         [ws commitAnnouncement:text];
@@ -518,16 +519,16 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
 
 - (void)commitAnnouncement:(NSString *)text {
     NSString *token = IMHTTPService.sharedService.currentToken;
-    if (token.length == 0) { [self im_showToast:@"未登录"]; return; }
+    if (token.length == 0) { [self im_showToast:IMLocalized(@"common.not_logged_in")]; return; }
     __weak typeof(self) ws = self;
     [IMHTTPService.sharedService setGroupAnnouncementWithToken:token convID:self.convID text:text
                                                    completion:^(NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
-        if (error) { [self im_showToast:error.localizedDescription ?: @"发布失败"]; return; }
+        if (error) { [self im_showToast:error.localizedDescription ?: IMLocalized(@"group.manage.announcement_publish_failed")]; return; }
         self.group.announcement = text;
         [self.tableView reloadData];
-        [self im_showToast:text.length ? @"公告已发布" : @"公告已撤下"];
+        [self im_showToast:text.length ? IMLocalized(@"group.manage.announcement_published_toast") : IMLocalized(@"group.manage.announcement_retracted_toast")];
         if (self.onChanged) { self.onChanged(); }
     }];
 }
@@ -535,7 +536,7 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
 /// 全员禁言开关：开=永久（until=-1），关=解除（until=0）。限时禁言留待后续（G2 可加时长选择）。
 - (void)muteSwitchChanged:(UISwitch *)sw {
     NSString *token = IMHTTPService.sharedService.currentToken;
-    if (token.length == 0) { [self im_showToast:@"未登录"]; sw.on = [self muteActive]; return; }
+    if (token.length == 0) { [self im_showToast:IMLocalized(@"common.not_logged_in")]; sw.on = [self muteActive]; return; }
     BOOL turnOn = sw.on;
     int64_t until = turnOn ? -1 : 0;
     __weak typeof(self) ws = self;
@@ -544,13 +545,13 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
         if (error) {
-            [self im_showToast:error.localizedDescription ?: @"设置失败"];
+            [self im_showToast:error.localizedDescription ?: IMLocalized(@"conv.error.settings_failed")];
             sw.on = [self muteActive]; // 回滚开关到真实状态
             return;
         }
         // 本地 muteUntil 反映新态：永久用一个远未来时间戳（与后端 MutePermanent 语义一致，仅用于本地 muteActive 判定）。
         self.group.muteUntil = turnOn ? (int64_t)1 << 62 : 0;
-        [self im_showToast:turnOn ? @"已开启全员禁言" : @"已关闭全员禁言"];
+        [self im_showToast:turnOn ? IMLocalized(@"group.manage.mute_all_on_toast") : IMLocalized(@"group.manage.mute_all_off_toast")];
         if (self.onChanged) { self.onChanged(); }
     }];
 }
@@ -561,7 +562,7 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
 /// changed 块把某个字段应用到 self.group（本地乐观），revert 块把 sw 拨回真实值。
 - (void)commitSettingsSwitch:(UISwitch *)sw apply:(void (^)(BOOL on))apply revert:(void (^)(void))revert {
     NSString *token = IMHTTPService.sharedService.currentToken;
-    if (token.length == 0) { [self im_showToast:@"未登录"]; revert(); return; }
+    if (token.length == 0) { [self im_showToast:IMLocalized(@"common.not_logged_in")]; revert(); return; }
     apply(sw.on); // 本地乐观更新，随后整体上报
     __weak typeof(self) ws = self;
     IMGroupInfo *g = self.group;
@@ -572,7 +573,7 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
         if (error) {
-            [self im_showToast:error.localizedDescription ?: @"设置失败"];
+            [self im_showToast:error.localizedDescription ?: IMLocalized(@"conv.error.settings_failed")];
             revert();
             return;
         }
@@ -613,23 +614,23 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
 
 - (void)uploadAvatarHandle:(IMPickedMediaHandle *)handle {
     NSString *token = IMHTTPService.sharedService.currentToken;
-    if (token.length == 0) { [self im_showToast:@"未登录"]; return; }
+    if (token.length == 0) { [self im_showToast:IMLocalized(@"common.not_logged_in")]; return; }
     __weak typeof(self) ws = self;
     // 选好图 → 圆形裁切 → 头像专用上传（方案 C）→ 更新群资料。
     [handle loadData:^(IMPickedMedia *item) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
         UIImage *img = item.data ? [UIImage imageWithData:item.data] : nil;
-        if (!img) { [self im_showToast:@"图片处理失败"]; return; }
+        if (!img) { [self im_showToast:IMLocalized(@"common.image_process_failed")]; return; }
         IMAvatarCropViewController *crop = [[IMAvatarCropViewController alloc] initWithImage:img];
         crop.onComplete = ^(NSData *jpeg) {
             __strong typeof(ws) self2 = ws;
             if (!self2 || !jpeg) { return; } // nil = 用户取消
-            [self2 im_showToast:@"上传中…"];
+            [self2 im_showToast:IMLocalized(@"common.uploading")];
             [IMHTTPService.sharedService uploadAvatarData:jpeg token:token completion:^(NSString *url, NSError *error) {
                 __strong typeof(ws) self3 = ws;
                 if (!self3) { return; }
-                if (error || url.length == 0) { [self3 im_showToast:error.localizedDescription ?: @"上传失败"]; return; }
+                if (error || url.length == 0) { [self3 im_showToast:error.localizedDescription ?: IMLocalized(@"net.error.upload_failed")]; return; }
                 [self3 commitName:(self3.group.name ?: @"") avatarURL:url intro:(self3.group.intro ?: @"")];
             }];
         };

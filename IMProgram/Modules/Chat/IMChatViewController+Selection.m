@@ -25,6 +25,7 @@
 #import "IMPopoverCard.h"
 #import "IMRemarkStore.h"   // 举报确认弹窗用**本机显示名**（备注优先）——只在本机渲染，不随请求发出
 #import "UIViewController+IMToast.h"
+#import "IMLocalization.h"
 
 static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索导航 kIMSearchNavBarH，堆叠时按钮间距一致）
 
@@ -92,7 +93,7 @@ NSArray<IMMessageModel *> *IMChatSelectedMessages(NSDictionary<NSNumber *, IMMes
     // 必须用**带标题**的 item：统一 Liquid 标题栏按 leftTitle 渲染左位文字并把点击路由到本 item；
     // 系统 Cancel item 无标题 → 被回落成返回箭头、点击直接 pop 出聊天页（"没有取消按钮"的根因）。
     self.navigationItem.leftBarButtonItem =
-        [[UIBarButtonItem alloc] initWithTitle:@"取消" style:UIBarButtonItemStylePlain
+        [[UIBarButtonItem alloc] initWithTitle:IMLocalized(@"common.cancel") style:UIBarButtonItemStylePlain
                                         target:self action:@selector(exitSelection)];
 
     // 相册格：勾选态在逐格 checkbox（selectedModels），只在整组恰好只有这一格时才让左圈打勾；
@@ -162,16 +163,16 @@ NSArray<IMMessageModel *> *IMChatSelectedMessages(NSDictionary<NSNumber *, IMMes
     [self.view addSubview:bar];
     self.selectionBar = bar;
 
-    UIButton *fwd = [self selectionBarButton:@"转发" image:@"arrowshape.turn.up.right" action:@selector(forwardSelected)];
+    UIButton *fwd = [self selectionBarButton:IMLocalized(@"common.forward") image:@"arrowshape.turn.up.right" action:@selector(forwardSelected)];
     fwd.tag = 1;
-    UIButton *fav = [self selectionBarButton:@"收藏" image:@"bookmark" action:@selector(favoriteSelected)];
+    UIButton *fav = [self selectionBarButton:IMLocalized(@"common.favorite") image:@"bookmark" action:@selector(favoriteSelected)];
     fav.tag = 2;
     // 删除：点击弹「仅为我删除」自定义气泡（复用 IMPopoverCard、锚删除钮上方，不与按钮重叠）。
-    UIButton *del = [self selectionBarButton:@"删除" image:@"trash" action:@selector(deleteButtonTapped:)];
+    UIButton *del = [self selectionBarButton:IMLocalized(@"common.delete") image:@"trash" action:@selector(deleteButtonTapped:)];
     del.tag = 3;
     // 举报：仅当所选**全部来自同一个对方**时可点，否则置灰（不隐藏——隐藏会让栏内钮数随勾选变化，
     // 每勾一下按钮就左右跳一次）。位置按产品口径落在转发与收藏之间。
-    UIButton *report = [self selectionBarButton:@"举报" image:@"exclamationmark.bubble" action:@selector(reportSelected)];
+    UIButton *report = [self selectionBarButton:IMLocalized(@"common.report") image:@"exclamationmark.bubble" action:@selector(reportSelected)];
     report.tag = 4;
 
     UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:@[fwd, report, fav, del]];
@@ -200,7 +201,7 @@ NSArray<IMMessageModel *> *IMChatSelectedMessages(NSDictionary<NSNumber *, IMMes
 - (void)deleteButtonTapped:(UIButton *)sender {
     if ([self selectedMessages].count == 0) { return; } // 兜底：此时按钮本应已禁用
     __weak typeof(self) ws = self;
-    IMPopoverCardItem *item = [IMPopoverCardItem itemWithTitle:@"仅为我删除" symbol:@"trash" destructive:YES
+    IMPopoverCardItem *item = [IMPopoverCardItem itemWithTitle:IMLocalized(@"delete_sheet.only_me") symbol:@"trash" destructive:YES
                                                        handler:^{ [ws performDeleteSelected]; }];
     [IMPopoverCard presentFromAnchor:sender inHostView:self.view items:@[item]];
 }
@@ -255,7 +256,7 @@ NSArray<IMMessageModel *> *IMChatSelectedMessages(NSDictionary<NSNumber *, IMMes
     UIButtonConfiguration *cfg = IMGlassButtonConfiguration();
     cfg.image = [UIImage systemImageNamed:image];
     cfg.cornerStyle = UIButtonConfigurationCornerStyleCapsule;
-    cfg.baseForegroundColor = [title isEqualToString:@"删除"] ? UIColor.systemRedColor : IMTheme.textPrimary;
+    cfg.baseForegroundColor = [title isEqualToString:IMLocalized(@"common.delete")] ? UIColor.systemRedColor : IMTheme.textPrimary;
     b.configuration = cfg;
     b.accessibilityLabel = title;
     b.translatesAutoresizingMaskIntoConstraints = NO;
@@ -338,7 +339,7 @@ NSArray<IMMessageModel *> *IMChatSelectedMessages(NSDictionary<NSNumber *, IMMes
     // 用展开后的真实条数（相册整组算 N 条）——与转发/删除的作用条数一致，不再按"行数"少算。
     NSArray<IMMessageModel *> *sel = [self selectedMessages];
     NSUInteger n = sel.count;
-    self.title = n > 0 ? [NSString stringWithFormat:@"已选择 %lu 条", (unsigned long)n] : @"选择消息";
+    self.title = n > 0 ? IMLocalizedFormat(@"chat.selection.selected_count", (long)n) : IMLocalized(@"chat.menu.select_messages");
     // a(4)：0 选中时各钮置灰禁用（系统按钮自动变淡、不可点）→ 去掉「请先选择消息」吐司。
     BOOL has = n > 0;
     ((UIButton *)[self.selectionBar viewWithTag:1]).enabled = has; // 转发
@@ -381,23 +382,23 @@ NSArray<IMMessageModel *> *IMChatSelectedMessages(NSDictionary<NSNumber *, IMMes
     // 与合并转发标题那种"会发出去必须用公开名"的场景刻意分叉（见 displayNameForMessage: 的说明）。
     NSString *who = [IMRemarkStore.sharedStore displayNameForUser:sender
                                                          fallback:[self displayNameForMessage:msgs.firstObject]];
-    NSString *title = seqs.count == 1 ? @"举报这条消息"
-                                      : [NSString stringWithFormat:@"举报 %@ 的 %lu 条消息", who, (unsigned long)seqs.count];
+    NSString *title = seqs.count == 1 ? IMLocalized(@"chat.report.single_title")
+                                      : IMLocalizedFormat(@"chat.report.multi_title", who, (long)seqs.count);
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:title
-        message:@"请填写举报理由（可空）" preferredStyle:UIAlertControllerStyleAlert];
-    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf) { tf.placeholder = @"理由"; }];
+        message:IMLocalized(@"chat.detail.report_reason_prompt") preferredStyle:UIAlertControllerStyleAlert];
+    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf) { tf.placeholder = IMLocalized(@"chat.detail.report_reason_placeholder"); }];
     __weak typeof(self) ws = self;
-    [ac addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [ac addAction:[UIAlertAction actionWithTitle:@"提交举报" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+    [ac addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
+    [ac addAction:[UIAlertAction actionWithTitle:IMLocalized(@"chat.detail.report_submit") style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
         __strong typeof(ws) self = ws; if (!self) { return; }
         NSString *reason = ac.textFields.firstObject.text ?: @"";
         NSString *token = IMHTTPService.sharedService.currentToken;
-        if (token.length == 0) { [self showReportResult:@"举报失败：未登录"]; return; }
+        if (token.length == 0) { [self showReportResult:IMLocalized(@"chat.detail.report_failed_not_logged_in")]; return; }
         [IMHTTPService.sharedService reportMessagesWithToken:token convID:self.convID convSeqs:seqs reason:reason
             completion:^(NSError *error) {
                 __strong typeof(ws) inner = ws; if (!inner) { return; }
-                [inner showReportResult:error ? [NSString stringWithFormat:@"举报失败：%@", error.localizedDescription]
-                                              : @"举报已提交，感谢反馈。"];
+                [inner showReportResult:error ? IMLocalizedFormat(@"chat.detail.report_failed_detail", error.localizedDescription)
+                                              : IMLocalized(@"chat.detail.report_submitted")];
                 if (!error) { [inner exitSelection]; } // 成功才退出多选；失败留在原地让用户重试，不用重新勾一遍
             }];
     }]];
@@ -415,7 +416,7 @@ NSArray<IMMessageModel *> *IMChatSelectedMessages(NSDictionary<NSNumber *, IMMes
     if (msgs.count == 0) { return; } // 0 选中时全栏皆灰，不单独解释举报
     BOOL hasMine = NO;
     for (IMMessageModel *m in msgs) { if ([m.from isEqualToString:self.userID]) { hasMine = YES; break; } }
-    [self im_showToast:hasMine ? @"不能举报自己的消息" : @"一次只能举报同一个人的消息"];
+    [self im_showToast:hasMine ? IMLocalized(@"chat.select.report_own") : IMLocalized(@"chat.select.report_multi")];
 }
 
 /// 还能再勾几条：多选上限的唯一判定入口（行勾选 / 相册整组全选 / 相册逐格 三处共用）。
@@ -423,7 +424,7 @@ NSArray<IMMessageModel *> *IMChatSelectedMessages(NSDictionary<NSNumber *, IMMes
 - (BOOL)allowSelectingMore:(NSUInteger)adding {
     if (adding == 0) { return YES; }
     if ([self selectedMessages].count + adding <= kIMSelectionMaxCount) { return YES; }
-    [self im_showToast:[NSString stringWithFormat:@"最多选择 %lu 条", (unsigned long)kIMSelectionMaxCount]];
+    [self im_showToast:IMLocalizedFormat(@"chat.select.max", (long)kIMSelectionMaxCount)];
     return NO;
 }
 
@@ -432,18 +433,18 @@ NSArray<IMMessageModel *> *IMChatSelectedMessages(NSDictionary<NSNumber *, IMMes
     if (msgs.count == 0) { return; } // 按钮禁用兜底：0 选中不弹吐司（a4）
     __weak typeof(self) ws = self;
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:nil message:nil preferredStyle:UIAlertControllerStyleActionSheet];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"逐条转发" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+    [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"forward.mode.each") style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
         [ws pickConversationsThen:^(NSArray<IMConversation *> *convs) { [ws forwardMessages:msgs perMessageToConversations:convs]; }];
     }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"合并转发" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+    [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"forward.mode.merged") style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
         __strong typeof(ws) self = ws; if (!self) { return; }
         NSUInteger expiredCount = 0;
         for (IMMessageModel *m in msgs) { if ([self isMediaExpiredForForward:m]) { expiredCount++; } }
-        if (expiredCount >= msgs.count) { [self im_showToast:@"所选均已失效，无法合并转发"]; return; } // 失效项会被剔出记录，全失效则整条无意义
+        if (expiredCount >= msgs.count) { [self im_showToast:IMLocalized(@"chat.forward.all_expired_merge")]; return; } // 失效项会被剔出记录，全失效则整条无意义
         NSString *json = [self mergedForwardJSONForMessages:msgs];
         [self pickConversationsThen:^(NSArray<IMConversation *> *convs) { [self forwardMergedRecord:json toConversations:convs]; }];
     }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
     // iPad/regular 宽度下走 popover：sourceRect 必须在 sourceView 自身坐标系内，否则锚点跑到屏幕外（原用 self.view 坐标）。
     UIView *anchor = self.selectionBar ?: self.view;
     sheet.popoverPresentationController.sourceView = anchor;
@@ -609,12 +610,12 @@ NSArray<IMMessageModel *> *IMChatSelectedMessages(NSDictionary<NSNumber *, IMMes
     }
     [self exitSelection];
     if (expiredCount >= msgs.count) { // 所选可选消息均为失效媒体（系统/撤回件多选态本就不可选）
-        [self im_showToast:@"所选均已失效，未转发"];
+        [self im_showToast:IMLocalized(@"chat.forward.all_expired_skip")];
         return;
     }
-    NSString *base = convs.count == 1 ? @"已转发" : [NSString stringWithFormat:@"已转发到 %lu 个会话", (unsigned long)convs.count];
+    NSString *base = convs.count == 1 ? IMLocalized(@"favorites.forward.success_single") : IMLocalizedFormat(@"favorites.forward.success_count", (long)convs.count);
     [self im_showToast:expiredCount > 0
-        ? [NSString stringWithFormat:@"%@（%lu 条已失效未转发）", base, (unsigned long)expiredCount]
+        ? [base stringByAppendingString:IMLocalizedFormat(@"chat.forward.expired_suffix", (long)expiredCount)]
         : base];
 }
 
@@ -626,7 +627,7 @@ NSArray<IMMessageModel *> *IMChatSelectedMessages(NSDictionary<NSNumber *, IMMes
                           toConv:c.convID toUser:toUser];
     }
     [self exitSelection];
-    [self im_showToast:@"已合并转发"];
+    [self im_showToast:IMLocalized(@"chat.forward.merged_success")];
 }
 
 - (void)favoriteSelected {

@@ -9,6 +9,7 @@
 //  判据只有两个输入：本地这个会话齐不齐（区间清单覆盖到 head 没有）、现在能不能上网。
 
 #import <Foundation/Foundation.h>
+#import "IMLocalization.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -24,8 +25,9 @@ extern IMConvQuerySource IMPickConvQuerySource(BOOL complete, BOOL online);
 
 /// 降级提示文案（三端同源；与 im-web 的 convQuerySource.ts 逐字一致，
 /// 避免同一处境两副说辞——那会让用户以为是两个不同的问题）。
-extern NSString * const IMDegradedSearchNotice;
-extern NSString * const IMDegradedCalendarNotice;
-extern NSString * const IMNeedNetworkNotice;
+/// 宏而非常量：每次取用时才本地化（全局常量在加载期求值一次，切语言后不会变）。
+#define IMDegradedSearchNotice   IMLocalized(@"conv.query.offline_search")
+#define IMDegradedCalendarNotice IMLocalized(@"conv.query.offline_calendar")
+#define IMNeedNetworkNotice      IMLocalized(@"conv.query.need_network")
 
 NS_ASSUME_NONNULL_END

@@ -9,6 +9,7 @@
 #import "IMHTTPService.h"
 #import "IMMainTabBarController.h"      // kIMLiquidBarHeight
 #import "IMProgram-Swift.h"             // IMLiquidNavigationBar
+#import "IMLocalization.h"
 
 /// 默认展开高度占屏比（草图定「屏幕一半」；可上滑到 large 看更多成员）。
 static const CGFloat kIMReadReceiptDefaultHeightRatio = 0.5;
@@ -100,7 +101,7 @@ static UIColor *IMReadReceiptCardBackgroundColor(void) {
     NSString *display = member ? member.localDisplayName : uid; // 备注优先（本机显示）
     [_avatar im_setAvatarURL:IMMediaFullURL(member.avatarURL, host) seed:uid displayName:display];
     _name.text = display;
-    NSString *roleText = member.role == IMGroupRoleOwner ? @"群主" : (member.role == IMGroupRoleAdmin ? @"管理员" : nil);
+    NSString *roleText = member.role == IMGroupRoleOwner ? IMLocalized(@"group.role.owner") : (member.role == IMGroupRoleAdmin ? IMLocalized(@"group.role.admin") : nil);
     _role.text = roleText;
     _role.hidden = roleText == nil;
     _role.layer.borderColor = IMTheme.separator.CGColor;
@@ -157,7 +158,7 @@ static UIColor *IMReadReceiptCardBackgroundColor(void) {
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"已读详情";
+    self.title = IMLocalized(@"receipts.title");
     if (@available(iOS 17.0, *)) {
         self.traitOverrides.userInterfaceLevel = UIUserInterfaceLevelBase;
     }
@@ -166,8 +167,8 @@ static UIColor *IMReadReceiptCardBackgroundColor(void) {
 
     _segmented = [[IMLiquidSegmentedControl alloc] initWithFrame:CGRectZero];
     _segmented.translatesAutoresizingMaskIntoConstraints = NO;
-    _segmented.titles = @[[NSString stringWithFormat:@"已读 %ld", (long)_read.count],
-                          [NSString stringWithFormat:@"未读 %ld", (long)_unread.count]];
+    _segmented.titles = @[IMLocalizedFormat(@"receipts.tab_read", (long)_read.count),
+                          IMLocalizedFormat(@"receipts.tab_unread", (long)_unread.count)];
     _segmented.selectedIndex = 0;
     [_segmented addTarget:self action:@selector(tabChanged:) forControlEvents:UIControlEventValueChanged];
     [self.view addSubview:_segmented];
@@ -243,7 +244,7 @@ static UIColor *IMReadReceiptCardBackgroundColor(void) {
 /// 空态文案：已读栏"暂无人已读"，未读栏"全部已读"——后者是正面信息，不该显示为"空"。
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     if (self.currentUIDs.count > 0) { return nil; }
-    return _tab == 0 ? @"还没有人读过这条消息" : @"所有人都已读";
+    return _tab == 0 ? IMLocalized(@"receipts.empty_read") : IMLocalized(@"receipts.empty_unread");
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {

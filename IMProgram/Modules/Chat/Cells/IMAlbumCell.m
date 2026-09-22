@@ -12,6 +12,7 @@
 #import "IMMediaPlaceholder.h" // 共用失效 ⊘ 字形
 #import "IMMediaUtil.h"
 #import "UILabel+IMAvatar.h"
+#import "IMLocalization.h"
 #import "IMTheme.h"
 
 @interface IMAlbumTileView : UIView
@@ -195,7 +196,7 @@
         _expiredBadge.hidden = NO;
         self.isAccessibilityElement = YES;
         self.accessibilityTraits = UIAccessibilityTraitImage;
-        self.accessibilityLabel = @"已失效";
+        self.accessibilityLabel = IMLocalized(@"media.placeholder.expired");
         [self setNeedsLayout];
     } else {
         _expiredBadge.hidden = YES;       // dim 由 setDownloadState:/setProgress: 各自决定，这里不强关

@@ -27,6 +27,7 @@
 #import "IMBubbleHitTesting.h" // 表级点击命中收窄到气泡（各 cell 实现 pointInsideBubble:）
 #import "IMAlbumCell.h"
 #import "UIViewController+IMToast.h"
+#import "IMLocalization.h"
 
 @implementation IMChatViewController (MediaFlow)
 
@@ -43,9 +44,9 @@
 
 /// 失效媒体的类型名词（toast 用）：视频/文件/图片。
 - (NSString *)expiredNounForMessage:(IMMessageModel *)m {
-    if ([m.contentType isEqualToString:@"video"]) { return @"视频"; }
-    if ([m.contentType isEqualToString:@"file"]) { return @"文件"; }
-    return @"图片";
+    if ([m.contentType isEqualToString:@"video"]) { return IMLocalized(@"common.video"); }
+    if ([m.contentType isEqualToString:@"file"]) { return IMLocalized(@"common.file"); }
+    return IMLocalized(@"common.image");
 }
 
 /// 转发一条消息（#6）：整页会话选择器（单/多选，最多 9）→ 逐条转发，保留 content_type（图片/视频不退化成文本）。
@@ -71,7 +72,7 @@
     if (message.content.length == 0 || message.recalledAt > 0) { return; }
     // 失效守卫：曾可用媒体被服务端清理(404) → 转出去对端必 404，不给转发入口。一处拦住卡片菜单/长按菜单/详情页文件列表复用三入口。
     if ([self isMediaExpiredForForward:message]) {
-        [(presenter ?: self) im_showToast:[NSString stringWithFormat:@"该%@已失效，无法转发", [self expiredNounForMessage:message]]];
+        [(presenter ?: self) im_showToast:IMLocalizedFormat(@"chat.forward.expired_noun", [self expiredNounForMessage:message])];
         return;
     }
     NSString *token = IMHTTPService.sharedService.currentToken;
@@ -94,7 +95,7 @@
             [self forwardEchoContent:content contentType:contentType forwardFrom:origin fileName:fileName fileSize:fileSize
                           attributes:attrs toConv:c.convID toUser:toUser];
         }
-        [(wp ?: self) im_showToast:selected.count == 1 ? @"已转发" : [NSString stringWithFormat:@"已转发到 %lu 个会话", (unsigned long)selected.count]];
+        [(wp ?: self) im_showToast:selected.count == 1 ? IMLocalized(@"favorites.forward.success_single") : IMLocalizedFormat(@"favorites.forward.success_count", (long)selected.count)];
     }];
     UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:picker];
     [(presenter ?: self) presentViewController:nav animated:YES completion:nil];
@@ -203,7 +204,7 @@
         if (sip && sip.row < (NSInteger)self.windowState.messages.count) {
             IMMessageModel *sm = self.windowState.messages[(NSUInteger)sip.row];
             if (sm.convSeq <= 0 && ![sm.contentType isEqualToString:@"system"]) {
-                [self im_showToast:@"发送中/失败的消息不可选择"];
+                [self im_showToast:IMLocalized(@"chat.select.unsent_blocked")];
             }
         }
         return;

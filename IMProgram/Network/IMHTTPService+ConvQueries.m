@@ -1,4 +1,5 @@
 #import "IMHTTPService+ConvQueries.h"
+#import "IMLocalization.h"
 #import "IMHTTPService+Private.h"
 
 @implementation IMConvCalendarDay
@@ -26,7 +27,7 @@ static NSString *IMQueryEscape(NSString *raw) {
     if (cursor > 0) { [path appendFormat:@"&cursor=%lld", cursor]; }
     if (limit > 0) { [path appendFormat:@"&limit=%ld", (long)limit]; }
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
-    [self runDataRequest:req fallback:@"搜索失败" completion:^(NSDictionary *data, NSError *error) {
+    [self runDataRequest:req fallback:IMLocalized(@"common.search_failed") completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(@[], NO, 0, error); return; }
         NSArray *raw = [data[@"items"] isKindOfClass:NSArray.class] ? data[@"items"] : @[];
         NSMutableArray<NSNumber *> *seqs = [NSMutableArray arrayWithCapacity:raw.count];
@@ -53,7 +54,7 @@ static NSString *IMQueryEscape(NSString *raw) {
         @"/api/v1/conversations/%@/calendar?from=%lld&to=%lld&utc_offset_ms=%lld",
         [self pathEscape:convID], fromMs, toMs, utcOffsetMs];
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
-    [self runDataRequest:req fallback:@"加载日历失败" completion:^(NSDictionary *data, NSError *error) {
+    [self runDataRequest:req fallback:IMLocalized(@"net.fallback.calendar_load") completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(@[], error); return; }
         NSArray *raw = [data[@"days"] isKindOfClass:NSArray.class] ? data[@"days"] : @[];
         NSMutableArray<IMConvCalendarDay *> *days = [NSMutableArray arrayWithCapacity:raw.count];

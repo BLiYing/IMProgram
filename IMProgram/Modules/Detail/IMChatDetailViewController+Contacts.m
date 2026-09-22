@@ -11,6 +11,7 @@
 #import "IMGroupInfo.h"
 #import "IMRemarkStore.h"
 #import "IMProfileEditViewController.h"
+#import "IMLocalization.h"
 
 @implementation IMChatDetailViewController (Contacts)
 
@@ -31,7 +32,7 @@
     if (self.isGroup) {
         NSString *from = m.from ?: @"";
         if ([from isEqualToString:self.userID]) {
-            source = @"你自己";
+            source = IMLocalized(@"chat.detail.you");
         } else if (from.length > 0) {
             NSString *nick = [self.group nicknameOfMember:from] ?: from;
             source = [IMRemarkStore.sharedStore displayNameForUser:from fallback:nick];

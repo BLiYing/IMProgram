@@ -54,6 +54,7 @@
 #import "IMDetailContactCell.h"
 #import "IMChatDetailViewController+Private.h" // 私有类扩展（属性/协议/常量/enum）——与分文件 category 共享
 #import "IMVoicePlayer.h"                      // 离页暂停语音（pauseOnLeavingScreen）
+#import "IMLocalization.h"
 
 #pragma mark - 详情页
 
@@ -290,7 +291,7 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
         BOOL manage = group.myRole == IMGroupRoleOwner || group.myRole == IMGroupRoleAdmin;
         [self.avatarView setAvatarURL:[self headerAvatarURL] seed:self.convID name:group.name];
         // 头像编辑统一由右上角“编辑”进入。
-        self.liquidNavigationBar.actionTitle = manage ? @"编辑" : nil;
+        self.liquidNavigationBar.actionTitle = manage ? IMLocalized(@"common.edit") : nil;
         [self refreshHeaderTexts];
         [self rebuildTabs];
         [self.tableView reloadData];
@@ -734,45 +735,45 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleValue1 reuseID:@"dVal" inTable:tv];
     switch (kind) {
         case IMDetailSettingsRowPin: {
-            cell.textLabel.text = @"置顶聊天";
+            cell.textLabel.text = IMLocalized(@"chat.detail.pinned");
             UISwitch *sw = [UISwitch new]; sw.on = self.pinnedAt > 0; sw.tag = 1;
             [sw addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
             cell.accessoryView = sw;
             break;
         }
         case IMDetailSettingsRowMute: {
-            cell.textLabel.text = @"消息免打扰";
+            cell.textLabel.text = IMLocalized(@"chat.detail.muted");
             UISwitch *sw = [UISwitch new]; sw.on = self.muted; sw.tag = 2;
             [sw addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
             cell.accessoryView = sw;
             break;
         }
         case IMDetailSettingsRowMyNickname:
-            cell.textLabel.text = @"我在本群的昵称";
-            cell.detailTextLabel.text = self.group.myNickname.length ? self.group.myNickname : @"未设置";
+            cell.textLabel.text = IMLocalized(@"chat.detail.my_group_nickname");
+            cell.detailTextLabel.text = self.group.myNickname.length ? self.group.myNickname : IMLocalized(@"settings.info.not_set");
             cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
             break;
         case IMDetailSettingsRowRemark:
-            cell.textLabel.text = @"群备注";
-            cell.detailTextLabel.text = [self currentConvRemark].length ? [self currentConvRemark] : @"未设置";
+            cell.textLabel.text = IMLocalized(@"chat.detail.group_remark");
+            cell.detailTextLabel.text = [self currentConvRemark].length ? [self currentConvRemark] : IMLocalized(@"settings.info.not_set");
             cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
             break;
         case IMDetailSettingsRowGroupQR:
-            cell.textLabel.text = @"群二维码";
+            cell.textLabel.text = IMLocalized(@"qr.card.group_title_code");
             cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
             break;
         case IMDetailSettingsRowGroupInviteLink:
-            cell.textLabel.text = @"群邀请链接";
+            cell.textLabel.text = IMLocalized(@"qr.card.group_title_link");
             cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
             break;
         case IMDetailSettingsRowManage:
-            cell.textLabel.text = @"群管理";
+            cell.textLabel.text = IMLocalized(@"group.manage.title");
             // 有待审入群申请时把红点带到「群管理」行（不必进管理页才发现，G3 修）。
             if (self.group.pendingCount > 0) {
-                cell.detailTextLabel.text = [NSString stringWithFormat:@"%ld 待审", (long)self.group.pendingCount];
+                cell.detailTextLabel.text = IMLocalizedFormat(@"chat.detail.manage_pending_badge", (long)self.group.pendingCount);
                 cell.detailTextLabel.textColor = IMTheme.danger;
             } else {
-                cell.detailTextLabel.text = @"仅群主/管理员";
+                cell.detailTextLabel.text = IMLocalized(@"chat.detail.manage_hint");
             }
             cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
             break;
@@ -784,7 +785,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     IMChatDetailTab *t = self.tabs[self.selectedTab];
     if (t.kind == IMDetailTabKindMembers) { return [self memberTabCell:tv row:row]; }
     if (t.kind == IMDetailTabKindMedia) {
-        if (self.tabMedia.count == 0) { return [self emptyCell:tv text:@"暂无媒体"]; }
+        if (self.tabMedia.count == 0) { return [self emptyCell:tv text:IMLocalized(@"detail.tab.empty_media")]; }
         IMDetailMediaContainerCell *cell = [tv dequeueReusableCellWithIdentifier:@"mediagrid"];
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
         __weak typeof(self) ws = self;
@@ -821,7 +822,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     }
     // 文件/语音/链接
     if (self.tabRows.count == 0) {
-        NSString *empty = t.kind == IMDetailTabKindFiles ? @"暂无文件" : (t.kind == IMDetailTabKindVoice ? @"暂无语音" : (t.kind == IMDetailTabKindContacts ? @"暂无名片" : @"暂无链接"));
+        NSString *empty = t.kind == IMDetailTabKindFiles ? IMLocalized(@"detail.tab.empty_files") : (t.kind == IMDetailTabKindVoice ? IMLocalized(@"detail.tab.empty_voice") : (t.kind == IMDetailTabKindContacts ? IMLocalized(@"detail.tab.empty_contacts") : IMLocalized(@"detail.tab.empty_links")));
         return [self emptyCell:tv text:empty];
     }
     IMMessageModel *m = self.tabRows[row];
@@ -921,7 +922,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     if (![self canRemoveMember:m]) { return nil; }
     __weak typeof(self) ws = self;
     UIContextualAction *remove = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive
-        title:@"移除" handler:^(UIContextualAction *a, UIView *v, void (^done)(BOOL)) {
+        title:IMLocalized(@"common.remove") handler:^(UIContextualAction *a, UIView *v, void (^done)(BOOL)) {
         [ws removeMember:m ban:@"cooldown"]; done(YES);
     }];
     remove.image = [UIImage systemImageNamed:@"trash"];
@@ -944,34 +945,34 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
         NSMutableArray<UIMenuElement *> *items = [NSMutableArray array];
         // 好友准入（微信式，任务一 P0）：好友 → 「发送消息」；非好友 → 「添加好友」（非好友发消息会被 200103 拒收）。
         if ([ws isFriendUID:m.userID]) {
-            [items addObject:[UIAction actionWithTitle:@"发送消息" image:[UIImage systemImageNamed:@"bubble.right"]
+            [items addObject:[UIAction actionWithTitle:IMLocalized(@"group.member_action.send_message") image:[UIImage systemImageNamed:@"bubble.right"]
                                             identifier:nil handler:^(UIAction *a) { [ws openChatWithMember:m]; }]];
         } else {
-            [items addObject:[UIAction actionWithTitle:@"添加好友" image:[UIImage systemImageNamed:@"person.badge.plus"]
+            [items addObject:[UIAction actionWithTitle:IMLocalized(@"common.add_friend") image:[UIImage systemImageNamed:@"person.badge.plus"]
                                             identifier:nil handler:^(UIAction *a) { [ws requestAddFriendUID:m.userID]; }]];
         }
         if (ws.group.myRole == IMGroupRoleOwner && m.role == IMGroupRoleMember) {
-            [items addObject:[UIAction actionWithTitle:@"设为管理员" image:[UIImage systemImageNamed:@"person.badge.shield.checkmark"]
+            [items addObject:[UIAction actionWithTitle:IMLocalized(@"group.member_action.make_admin") image:[UIImage systemImageNamed:@"person.badge.shield.checkmark"]
                                             identifier:nil handler:^(UIAction *a) { [ws runGroupRole:ws.convID user:m.userID role:@"admin"]; }]];
         }
         if (ws.group.myRole == IMGroupRoleOwner && m.role == IMGroupRoleAdmin) {
-            [items addObject:[UIAction actionWithTitle:@"撤销管理员" image:[UIImage systemImageNamed:@"person.badge.minus"]
+            [items addObject:[UIAction actionWithTitle:IMLocalized(@"group.member_action.revoke_admin") image:[UIImage systemImageNamed:@"person.badge.minus"]
                                             identifier:nil handler:^(UIAction *a) { [ws runGroupRole:ws.convID user:m.userID role:@"member"]; }]];
         }
         if (ws.group.myRole == IMGroupRoleOwner) {
-            [items addObject:[UIAction actionWithTitle:@"转让群主" image:[UIImage systemImageNamed:@"crown"]
+            [items addObject:[UIAction actionWithTitle:IMLocalized(@"group.member_action.transfer_owner") image:[UIImage systemImageNamed:@"crown"]
                                             identifier:nil handler:^(UIAction *a) { [ws confirmTransfer:m]; }]];
         }
         // G2 禁言/解禁：权限同移除（严格高于对方）。已被禁言显「解除禁言」，否则「禁言…」（弹时长）。
         if ([ws canRemoveMember:m]) {
             BOOL muted = m.muteUntil > IMNowMillis();
             if (muted) {
-                [items addObject:[UIAction actionWithTitle:@"解除禁言" image:[UIImage systemImageNamed:@"speaker.wave.2"]
+                [items addObject:[UIAction actionWithTitle:IMLocalized(@"group.member_action.unmute") image:[UIImage systemImageNamed:@"speaker.wave.2"]
                                                 identifier:nil handler:^(UIAction *a) {
                     [ws muteMember:m.userID until:0];
                 }]];
             } else {
-                [items addObject:[UIAction actionWithTitle:@"禁言…" image:[UIImage systemImageNamed:@"speaker.slash"]
+                [items addObject:[UIAction actionWithTitle:IMLocalized(@"group.member_action.mute") image:[UIImage systemImageNamed:@"speaker.slash"]
                                                 identifier:nil handler:^(UIAction *a) {
                     [ws pickMuteDurationForMember:m];
                 }]];
@@ -979,12 +980,12 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
         }
         if ([ws canRemoveMember:m]) {
             // 「移出群聊」= cooldown（24h 内不能再加），与旧详情页对齐；服务端 ban=cooldown 归一为 24h。
-            UIAction *rm = [UIAction actionWithTitle:@"移出群聊" image:[UIImage systemImageNamed:@"trash"]
+            UIAction *rm = [UIAction actionWithTitle:IMLocalized(@"group.member_action.remove") image:[UIImage systemImageNamed:@"trash"]
                                           identifier:nil handler:^(UIAction *a) { [ws removeMember:m ban:@"cooldown"]; }];
             rm.attributes = UIMenuElementAttributesDestructive;
             [items addObject:rm];
             // 「移出并不再允许加入」= forever，与 Web MemberMenu 对齐。
-            UIAction *rmBan = [UIAction actionWithTitle:@"移出并不再允许加入"
+            UIAction *rmBan = [UIAction actionWithTitle:IMLocalized(@"group.member_action.remove_and_ban")
                                                  image:[UIImage systemImageNamed:@"nosign"]
                                             identifier:nil handler:^(UIAction *a) { [ws removeMember:m ban:@"forever"]; }];
             rmBan.attributes = UIMenuElementAttributesDestructive;
@@ -1019,12 +1020,12 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     if (![self canRemoveMember:m]) { return; }
     BOOL forever = [ban isEqualToString:@"forever"];
     NSString *title = forever
-        ? [NSString stringWithFormat:@"移出「%@」并不再允许加入？", m.localDisplayName]
-        : [NSString stringWithFormat:@"移出「%@」？", m.localDisplayName];
+        ? IMLocalizedFormat(@"chat.detail.remove_member_ban_confirm_title", m.localDisplayName)
+        : IMLocalizedFormat(@"chat.detail.remove_member_confirm_title", m.localDisplayName);
     NSString *message = forever
-        ? @"该成员将被移出群聊并永久拉黑，无法再次通过邀请或扫码加入本群。"
-        : @"该成员将被移出群聊。";
-    [self confirmDestructive:title message:message action:@"移除" handler:^{
+        ? IMLocalized(@"chat.detail.remove_member_ban_message")
+        : IMLocalized(@"chat.detail.remove_member_message");
+    [self confirmDestructive:title message:message action:IMLocalized(@"common.remove") handler:^{
         NSString *token = IMHTTPService.sharedService.currentToken; if (token.length == 0) { return; }
         __weak typeof(self) ws = self;
         [IMHTTPService.sharedService removeGroupMemberWithToken:token convID:self.convID userID:m.userID
@@ -1049,7 +1050,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
 
 /// 禁言时长弹窗：10 分钟 / 1 小时 / 1 天 / 永久（与旧 IMGroupInfoViewController 完全对齐）。
 - (void)pickMuteDurationForMember:(IMGroupMember *)m {
-    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"禁言时长"
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:IMLocalized(@"mute.title")
                                                                    message:m.localDisplayName
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
     __weak typeof(self) ws = self;
@@ -1059,11 +1060,11 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
                                                 handler:^(UIAlertAction *a) { [ws muteMember:target until:untilMs]; }]];
     };
     int64_t now = IMNowMillis();
-    add(@"10 分钟", now + 10 * 60 * 1000);
-    add(@"1 小时",  now + 60 * 60 * 1000);
-    add(@"1 天",    now + 24 * 60 * 60 * 1000);
-    add(@"永久", -1); // 服务端把 <0 归一为永久
-    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    add(IMLocalized(@"mute.10m"), now + 10 * 60 * 1000);
+    add(IMLocalized(@"mute.1h"),  now + 60 * 60 * 1000);
+    add(IMLocalized(@"mute.1d"),    now + 24 * 60 * 60 * 1000);
+    add(IMLocalized(@"common.permanent"), -1); // 服务端把 <0 归一为永久
+    [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
     // iPad 兜底锚点
     sheet.popoverPresentationController.sourceView = self.view;
     sheet.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(self.view.bounds),
@@ -1076,7 +1077,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
 - (void)inviteMembers {
     // 二次拦（入口通常已隐藏；防竞态/异常路径点到）：无邀请权直接中文吐司，不进好友选择器。
     if (self.group.permInvite && ![self canManageGroup]) {
-        [self im_showToast:@"群主已开启「仅管理员可邀请」，你无法邀请成员"];
+        [self im_showToast:IMLocalized(@"chat.detail.invite_members_blocked")];
         return;
     }
     NSMutableSet<NSString *> *inGroup = [NSMutableSet set];
@@ -1085,7 +1086,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     __weak typeof(self) ws = self;
     IMFriendPickerViewController *picker =
         [[IMFriendPickerViewController alloc] initWithHost:self.host userID:self.userID
-                                                    excludedIDs:inGroup confirmTitle:@"邀请"
+                                                    excludedIDs:inGroup confirmTitle:IMLocalized(@"common.invite")
                                                          onDone:^(NSArray<NSString *> *ids) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
@@ -1095,19 +1096,19 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
                                                  completion:^(NSArray<NSString *> *added, NSError *error) {
             if (error) {
                 // 300207 = 被邀请者已被移出/冷却期：用邀请场景第三人称文案（区别于自加群映射的第二人称）。
-                if (error.code == 300207) { [self im_showToast:@"该成员已被移出本群，暂时无法再次邀请"]; }
+                if (error.code == 300207) { [self im_showToast:IMLocalized(@"group.info.reinvite_blocked")]; }
                 // 300204 = 无邀请权（竞态：进选择器后群主刚开启「仅管理员可邀请」）。后端此码下发英文默认文案，
                 // 且 300204 被多场景复用不宜在 IMFriendlyMessageForCode 一刀切映射，故在此邀请场景就地给中文。
-                else if (error.code == 300204) { [self im_showToast:@"群主已开启「仅管理员可邀请」，你无法邀请成员"]; }
+                else if (error.code == 300204) { [self im_showToast:IMLocalized(@"chat.detail.invite_members_blocked")]; }
                 else { [self im_showToast:error.localizedDescription]; }
                 return;
             }
             // 按**实际加入数**给反馈，不能一律报成功：服务端会跳过已在群里的人（幂等，不是错误），
             // 而端上的排除集在超级群下必然不全——那时 displayMembers 只有已翻到的那几页。
             NSInteger skipped = (NSInteger)ids.count - (NSInteger)added.count;
-            if (added.count == 0) { [self im_showToast:@"所选的人都已在群里"]; }
-            else if (skipped > 0) { [self im_showToast:[NSString stringWithFormat:@"已邀请 %ld 人，其余 %ld 人已在群里",
-                                                        (long)added.count, (long)skipped]]; }
+            if (added.count == 0) { [self im_showToast:IMLocalized(@"group.info.invite_all_in")]; }
+            else if (skipped > 0) { [self im_showToast:IMLocalizedFormat(@"group.info.invite_partial",
+                                                        (long)added.count, (long)skipped)]; }
             [self loadGroupInfo]; // 内含 resetSuperMemberPaging：超级群成员签从第一页重拉
         }];
     }];
@@ -1124,9 +1125,9 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
 }
 
 - (void)confirmTransfer:(IMGroupMember *)member {
-    [self confirmDestructive:@"转让群主"
-                     message:[NSString stringWithFormat:@"确定把群主转让给 %@？你将变为普通成员。", member.localDisplayName]
-                      action:@"转让" handler:^{
+    [self confirmDestructive:IMLocalized(@"group.member_action.transfer_owner")
+                     message:IMLocalizedFormat(@"group.transfer_owner.message", member.localDisplayName)
+                      action:IMLocalized(@"group.transfer_owner.confirm") handler:^{
         NSString *token = IMHTTPService.sharedService.currentToken; if (token.length == 0) { return; }
         __weak typeof(self) ws = self;
         [IMHTTPService.sharedService transferGroupWithToken:token convID:self.convID userID:member.userID completion:^(NSError *error) {
@@ -1166,8 +1167,8 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
 /// 群二维码 / 群邀请链接同源同权限，仅呈现文案不同——收口为一处（asLink 决定标题与拦截文案）。
 - (void)pushGroupCardAsLink:(BOOL)asLink {
     if (self.group.permInvite && ![self canManageGroup]) {
-        [self im_showToast:(asLink ? @"群主已开启「仅管理员可邀请」，你无法获取群邀请链接"
-                                   : @"群主已开启「仅管理员可邀请」，你无法出示群二维码")];
+        [self im_showToast:(asLink ? IMLocalized(@"qr.toast.admin_only_link")
+                                   : IMLocalized(@"qr.toast.admin_only_code"))];
         return;
     }
     IMQRCardViewController *vc = [[IMQRCardViewController alloc] initGroupCardWithHost:self.host userID:self.userID
@@ -1264,29 +1265,29 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil
         actionProvider:^UIMenu *(NSArray<UIMenuElement *> *sug) {
         NSMutableArray<UIMenuElement *> *items = [NSMutableArray array];
-        [items addObject:[UIAction actionWithTitle:@"转发" image:[UIImage systemImageNamed:@"arrowshape.turn.up.right"]
+        [items addObject:[UIAction actionWithTitle:IMLocalized(@"common.forward") image:[UIImage systemImageNamed:@"arrowshape.turn.up.right"]
                                         identifier:nil handler:^(UIAction *a) { [ws forwardFileMessage:m]; }]];
-        [items addObject:[UIAction actionWithTitle:@"定位到聊天" image:[UIImage systemImageNamed:@"bubble.left.and.text.bubble.right"]
+        [items addObject:[UIAction actionWithTitle:IMLocalized(@"chat.menu.locate") image:[UIImage systemImageNamed:@"bubble.left.and.text.bubble.right"]
                                         identifier:nil handler:^(UIAction *a) { [ws locateFileMessageInChat:m]; }]];
         IMDownloadProgress *dp = [ws.downloads stateForMessage:m];
         if (dp.phase == IMDownloadPhaseDownloading || dp.phase == IMDownloadPhasePaused) {
-            [items addObject:[UIAction actionWithTitle:@"取消下载" image:[UIImage systemImageNamed:@"xmark.circle"]
+            [items addObject:[UIAction actionWithTitle:IMLocalized(@"file.menu.cancel_download") image:[UIImage systemImageNamed:@"xmark.circle"]
                                             identifier:nil handler:^(UIAction *a) { [ws.downloads cancelDownloadForMessage:m]; }]];
         }
         // 删除（任务2，两档，对齐聊天页）：可为所有人删 → 原生子菜单【为所有人删除】+【仅删除自己】（点开有 push 过渡）；
         // 否则「删除」= 仅删除自己。不再用居中 actionSheet。
         if ([ws canDeleteForEveryone:m]) {
-            UIAction *selfOnly = [UIAction actionWithTitle:@"仅删除自己" image:[UIImage systemImageNamed:@"trash"]
+            UIAction *selfOnly = [UIAction actionWithTitle:IMLocalized(@"delete_sheet.only_me") image:[UIImage systemImageNamed:@"trash"]
                                                identifier:nil handler:^(UIAction *a) { [ws hideMessageForSelf:m]; }];
             selfOnly.attributes = UIMenuElementAttributesDestructive;
-            UIAction *everyone = [UIAction actionWithTitle:@"为所有人删除" image:[UIImage systemImageNamed:@"trash"]
+            UIAction *everyone = [UIAction actionWithTitle:IMLocalized(@"delete_sheet.everyone") image:[UIImage systemImageNamed:@"trash"]
                                                identifier:nil handler:^(UIAction *a) { [ws deleteMessageForEveryone:m]; }];
             everyone.attributes = UIMenuElementAttributesDestructive;
             // 破坏性重的「为所有人删除」放最后（destructive-last，与本仓菜单约定一致）。
-            [items addObject:[UIMenu menuWithTitle:@"删除" image:[UIImage systemImageNamed:@"trash"]
+            [items addObject:[UIMenu menuWithTitle:IMLocalized(@"common.delete") image:[UIImage systemImageNamed:@"trash"]
                                         identifier:nil options:0 children:@[selfOnly, everyone]]];
         } else {
-            UIAction *del = [UIAction actionWithTitle:@"删除" image:[UIImage systemImageNamed:@"trash"]
+            UIAction *del = [UIAction actionWithTitle:IMLocalized(@"common.delete") image:[UIImage systemImageNamed:@"trash"]
                                            identifier:nil handler:^(UIAction *a) { [ws hideMessageForSelf:m]; }];
             del.attributes = UIMenuElementAttributesDestructive;
             [items addObject:del];
@@ -1309,14 +1310,14 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
 - (void)forwardFileMessage:(IMMessageModel *)m {
     IMChatViewController *chat = [self originChatInStack];
     if (chat) { [chat presentForwardPickerForMessage:m fromViewController:self stripCaption:YES]; }
-    else { [self im_showToast:@"请回到聊天页转发"]; } // 详情页非从聊天进入（如通讯录），无聊天上下文
+    else { [self im_showToast:IMLocalized(@"chat.detail.forward_no_chat")]; } // 详情页非从聊天进入（如通讯录），无聊天上下文
 }
 
 /// 定位到聊天：pop 回本会话聊天页并滚到该消息高亮一闪。
 - (void)locateFileMessageInChat:(IMMessageModel *)m {
     IMChatViewController *chat = [self originChatInStack];
-    if (!chat) { [self im_showToast:@"请回到聊天页查看"]; return; }
-    if (m.convSeq <= 0) { [self im_showToast:@"该消息无法定位"]; return; }
+    if (!chat) { [self im_showToast:IMLocalized(@"chat.detail.locate_no_chat")]; return; }
+    if (m.convSeq <= 0) { [self im_showToast:IMLocalized(@"conv.locate.unavailable")]; return; }
     int64_t seq = m.convSeq;
     [self.navigationController popToViewController:chat animated:YES];
     // pop 动画进行中滚动会被转场吞掉/落错位（dispatch_async 只是下一轮 runloop，仍在动画中）。
@@ -1355,7 +1356,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     __weak typeof(self) ws = self;
     [[IMSocketManager sharedManager] hideMessageInConv:(m.convID ?: self.convID) targetConvSeq:m.convSeq
                                             completion:^(NSError *error) {
-        if (error) { [ws im_showToast:error.localizedDescription ?: @"删除失败"]; }
+        if (error) { [ws im_showToast:error.localizedDescription ?: IMLocalized(@"net.fallback.delete_failed")]; }
     }];
 }
 
@@ -1394,11 +1395,11 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     if (!m || m.convSeq <= 0) { return @[]; }
     __weak typeof(self) ws = self;
     NSMutableArray<IMPopoverCardItem *> *acts = [NSMutableArray array];
-    [acts addObject:[IMPopoverCardItem itemWithTitle:@"定位到聊天" symbol:@"text.bubble" destructive:NO
+    [acts addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"chat.menu.locate") symbol:@"text.bubble" destructive:NO
                                              handler:^{ [ws locateFileMessageInChat:m]; }]];
-    [acts addObject:[IMPopoverCardItem itemWithTitle:@"转发" symbol:@"arrowshape.turn.up.right" destructive:NO
+    [acts addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"common.forward") symbol:@"arrowshape.turn.up.right" destructive:NO
                                              handler:^{ [ws forwardFileMessage:m]; }]];
-    [acts addObject:[IMPopoverCardItem itemWithTitle:@"删除" symbol:@"trash" destructive:YES
+    [acts addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"common.delete") symbol:@"trash" destructive:YES
                                              handler:^{ [ws confirmDeleteMediaMessage:m]; }]];
     return acts;
 }

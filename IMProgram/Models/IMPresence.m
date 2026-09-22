@@ -2,6 +2,8 @@
 
 #import "IMPresence.h"
 #import "IMTimeUtil.h"
+#import "IMTheme.h"
+#import "IMLocalization.h"
 
 /// 档位字符串 → 枚举（脏数据安全：未知串落 Unknown）。
 static IMPresenceLevel IMPresenceLevelFromString(NSString *s) {
@@ -54,17 +56,17 @@ static int64_t IMPresenceInt64(NSDictionary *dict, NSString *key) {
 }
 
 - (NSString *)subtitleText {
-    if (self.isOnline) { return @"在线"; }
+    if (self.isOnline) { return IMLocalized(@"common.online"); }
     if (self.lastSeen > 0) { return [self relativeLastSeenText]; }
     // 无精确时间（未知或将来被隐私设置抹掉）时回退到粗档文案。
     switch (self.level) {
         // 档位说 online 但租约已过期/缺失：**不能**显示「在线」——没有租约就没有到期时刻，
         // 这个「在线」再也不会被时间推翻，会永久停在错误状态。从宽也只到「最近在线」。
-        case IMPresenceLevelOnline:    return @"最近在线";
-        case IMPresenceLevelRecently:  return @"最近在线";
-        case IMPresenceLevelLastWeek:  return @"一周内在线";
-        case IMPresenceLevelLastMonth: return @"一个月内在线";
-        case IMPresenceLevelLongAgo:   return @"很久未上线";
+        case IMPresenceLevelOnline:    return IMLocalized(@"presence.recently");
+        case IMPresenceLevelRecently:  return IMLocalized(@"presence.recently");
+        case IMPresenceLevelLastWeek:  return IMLocalized(@"presence.last_week");
+        case IMPresenceLevelLastMonth: return IMLocalized(@"presence.last_month");
+        case IMPresenceLevelLongAgo:   return IMLocalized(@"presence.long_ago");
         case IMPresenceLevelUnknown:   return @"";
     }
 }
@@ -73,25 +75,15 @@ static int64_t IMPresenceInt64(NSDictionary *dict, NSString *key) {
 - (NSString *)relativeLastSeenText {
     NSDate *seen = [NSDate dateWithTimeIntervalSince1970:self.lastSeen / 1000.0];
     NSTimeInterval elapsed = -seen.timeIntervalSinceNow;
-    if (elapsed < 60) { return @"刚刚在线"; }
-    if (elapsed < 3600) { return [NSString stringWithFormat:@"%d 分钟前在线", (int)(elapsed / 60)]; }
+    if (elapsed < 60) { return IMLocalized(@"presence.just_now"); }
+    if (elapsed < 3600) { return IMLocalizedFormat(@"presence.minutes_ago", (long)(elapsed / 60)); }
 
     NSCalendar *cal = NSCalendar.currentCalendar;
-    NSDateFormatter *fmt = [NSDateFormatter new];
-    fmt.locale = NSLocale.currentLocale;
-    if ([cal isDateInToday:seen]) {
-        fmt.dateFormat = @"HH:mm";
-        return [NSString stringWithFormat:@"今天 %@ 在线", [fmt stringFromDate:seen]];
-    }
-    if ([cal isDateInYesterday:seen]) {
-        fmt.dateFormat = @"HH:mm";
-        return [NSString stringWithFormat:@"昨天 %@ 在线", [fmt stringFromDate:seen]];
-    }
-    // 跨年时带上年份，避免「1月2日」指向去年却看不出来。
-    NSInteger seenYear = [cal component:NSCalendarUnitYear fromDate:seen];
-    NSInteger nowYear = [cal component:NSCalendarUnitYear fromDate:NSDate.date];
-    fmt.dateFormat = (seenYear == nowYear) ? @"M月d日" : @"yyyy年M月d日";
-    return [NSString stringWithFormat:@"%@ 在线", [fmt stringFromDate:seen]];
+    NSString *hm = [[IMTheme timeFormatterForCurrentLanguage] stringFromDate:seen];
+    if ([cal isDateInToday:seen]) { return IMLocalizedFormat(@"presence.today_at", hm); }
+    if ([cal isDateInYesterday:seen]) { return IMLocalizedFormat(@"presence.yesterday_at", hm); }
+    // 跨年时带上年份，避免「1月2日」指向去年却看不出来（dateLabelForDate: 已按同年 / 往年分段）。
+    return IMLocalizedFormat(@"presence.on_date", [IMTheme dateLabelForDate:seen]);
 }
 
 @end

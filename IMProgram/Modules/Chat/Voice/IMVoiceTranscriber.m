@@ -4,6 +4,7 @@
 
 #import "IMVoiceTranscriber.h"
 #import "IMHTTPService.h"
+#import "IMLocalization.h"
 
 NSNotificationName const IMVoiceTranscriberDidChangeNotification = @"IMVoiceTranscriberDidChangeNotification";
 
@@ -89,7 +90,7 @@ static const NSUInteger kIMVoiceTranscriptCacheMax = 2000;
     if ([self statusForMessageID:messageID] == IMVoiceTranscribeStatusRecognizing) { return; }
     NSString *token = IMHTTPService.sharedService.currentToken ?: @"";
     if (token.length == 0) {
-        [self postError:@"未登录，无法转文字" forID:messageID convID:convID];
+        [self postError:IMLocalized(@"chat.voice.not_logged_in_transcribe") forID:messageID convID:convID];
         return;
     }
     [self setStatus:IMVoiceTranscribeStatusRecognizing forID:messageID text:nil convID:convID];
@@ -101,7 +102,7 @@ static const NSUInteger kIMVoiceTranscriptCacheMax = 2000;
         if (!self) { return; }
         if (error) {
             // 文案已由 IMHTTPService 按业务码映射（IMFriendlyMessageForCode，含 5001xx/100002）。
-            NSString *tip = error.localizedDescription.length > 0 ? error.localizedDescription : @"转文字失败，请稍后重试";
+            NSString *tip = error.localizedDescription.length > 0 ? error.localizedDescription : IMLocalized(@"chat.voice.transcribe_failed_retry");
             [self postError:tip forID:messageID convID:convID];
             return;
         }

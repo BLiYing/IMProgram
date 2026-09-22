@@ -5,6 +5,7 @@
 #import "IMFavoriteLinkCell.h"
 #import "IMLinkRowView.h"
 #import "IMTheme.h"
+#import "IMLocalization.h"
 
 @implementation IMFavoriteLinkCell {
     IMLinkRowView *_row;
@@ -97,7 +98,7 @@
         _sourceTopNoQuote.active = YES;
     }
 
-    _source.text = sourceText.length > 0 ? [@"来自" stringByAppendingString:sourceText] : @"";
+    _source.text = sourceText.length > 0 ? IMLocalizedFormat(@"favorites.source.label", sourceText) : @"";
 }
 
 @end

@@ -6,6 +6,7 @@
 //  与上传、好友、会话等接口没有交集。
 
 #import "IMHTTPService+Private.h"
+#import "IMLocalization.h"
 #import "IMDeviceIdentity.h"
 #import "IMLog.h"
 #import "IMSessionStore.h"
@@ -57,7 +58,7 @@
                                      @"device_name": IMDeviceIdentity.deviceName,
                                      @"app_version": IMDeviceIdentity.appVersion }];
     if (!req) {
-        [self finishLogin:owner userID:userID token:nil error:[self errorWithMessage:@"非法服务器地址"] soloCompletion:completion];
+        [self finishLogin:owner userID:userID token:nil error:[self errorWithMessage:IMLocalized(@"net.error.invalid_server")] soloCompletion:completion];
         return;
     }
     __weak typeof(self) weakSelf = self;
@@ -81,7 +82,7 @@
             }
             // 带上业务码，便于调用方区分"鉴权失败(退登录)"与"网络问题(重试)"。
             [self finishLogin:owner userID:userID token:nil
-                        error:[self errorWithCode:code message:[self messageFrom:body fallback:@"登录失败"]]
+                        error:[self errorWithCode:code message:[self messageFrom:body fallback:IMLocalized(@"login.error.login_failed")]]
                soloCompletion:completion];
             return;
         }

@@ -13,6 +13,7 @@
 #import "IMLog.h"
 #import "IMSessionStore.h"
 #import "IMAccountIdentity.h"
+#import "IMLocalization.h"
 
 @interface IMProfileEditViewController ()
 @property (nonatomic, copy) NSString *host;
@@ -55,23 +56,23 @@
     [super viewDidLoad];
     self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
 
-    self.nicknameField = [self fieldWithPlaceholder:@"昵称"];
+    self.nicknameField = [self fieldWithPlaceholder:IMLocalized(@"login.nickname")];
     // 用户名（公开句柄）与昵称分开：前者是别人搜索到我的凭据、也是登录名，规则严格；后者随便填。
-    self.usernameField = [self fieldWithPlaceholder:@"a-z、0-9、下划线，≥5 位"];
+    self.usernameField = [self fieldWithPlaceholder:IMLocalized(@"profile.field.username_placeholder")];
     self.usernameField.autocapitalizationType = UITextAutocapitalizationTypeNone;
     self.usernameField.autocorrectionType = UITextAutocorrectionTypeNo;
     self.usernameField.keyboardType = UIKeyboardTypeASCIICapable;
-    self.phoneField = [self fieldWithPlaceholder:@"手机号"];
+    self.phoneField = [self fieldWithPlaceholder:IMLocalized(@"settings.info.phone")];
     self.phoneField.keyboardType = UIKeyboardTypePhonePad;
-    self.tagsField = [self fieldWithPlaceholder:@"标签（空格或逗号分隔）"];
+    self.tagsField = [self fieldWithPlaceholder:IMLocalized(@"profile.field.tags_placeholder")];
     self.tagsField.autocapitalizationType = UITextAutocapitalizationTypeNone;
 
     self.editStack = [[UIStackView alloc] initWithArrangedSubviews:@[
         [self avatarHeader],
-        [self labeledRow:@"昵称" field:self.nicknameField],
-        [self labeledRow:@"用户名" field:self.usernameField],
-        [self labeledRow:@"手机号" field:self.phoneField],
-        [self labeledRow:@"标签" field:self.tagsField],
+        [self labeledRow:IMLocalized(@"login.nickname") field:self.nicknameField],
+        [self labeledRow:IMLocalized(@"settings.info.username") field:self.usernameField],
+        [self labeledRow:IMLocalized(@"settings.info.phone") field:self.phoneField],
+        [self labeledRow:IMLocalized(@"profile.field.tags_label") field:self.tagsField],
     ]];
     self.editStack.translatesAutoresizingMaskIntoConstraints = NO;
     self.editStack.axis = UILayoutConstraintAxisVertical;
@@ -137,7 +138,7 @@
     [wrap addSubview:cam];
 
     UILabel *caption = [UILabel new];
-    caption.text = @"点击头像更换";
+    caption.text = IMLocalized(@"profile.avatar.change_hint");
     caption.textColor = IMTheme.accent;
     caption.font = [UIFont systemFontOfSize:13];
     caption.textAlignment = NSTextAlignmentCenter;
@@ -170,7 +171,7 @@
             __strong typeof(ws) self = ws;
             if (!self) { return; }
             UIImage *img = item.data ? [UIImage imageWithData:item.data] : nil;
-            if (!img) { [self showMessage:@"图片处理失败"]; return; }
+            if (!img) { [self showMessage:IMLocalized(@"common.image_process_failed")]; return; }
             IMAvatarCropViewController *crop = [[IMAvatarCropViewController alloc] initWithImage:img];
             crop.onComplete = ^(NSData *jpeg) {
                 __strong typeof(ws) self2 = ws;
@@ -183,18 +184,18 @@
 }
 
 - (void)uploadAvatarJPEG:(NSData *)jpeg {
-    if (self.token.length == 0) { [self showMessage:@"尚未登录，请稍候重试"]; return; }
+    if (self.token.length == 0) { [self showMessage:IMLocalized(@"profile.not_logged_in_retry")]; return; }
     UIImage *preview = [UIImage imageWithData:jpeg];
-    [self im_showToast:@"上传中…"]; // 与群头像流程一致的进行态反馈
+    [self im_showToast:IMLocalized(@"common.uploading")]; // 与群头像流程一致的进行态反馈
     __weak typeof(self) ws = self;
     [IMHTTPService.sharedService uploadAvatarData:jpeg token:self.token completion:^(NSString *url, NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
-        if (error || url.length == 0) { [self showMessage:error.localizedDescription ?: @"头像上传失败"]; return; }
+        if (error || url.length == 0) { [self showMessage:error.localizedDescription ?: IMLocalized(@"group.create.avatar_failed")]; return; }
         self.avatarURL = url;
         self.avatarView.image = preview; // 立即预览
         [[IMImageLoader shared] cacheImage:preview forURL:IMMediaFullURL(url, self.host)]; // 种缓存，别处不再重下
-        [self im_showToast:@"头像已更新，记得保存"];
+        [self im_showToast:IMLocalized(@"profile.avatar_saved_hint")];
     }];
 }
 
@@ -231,12 +232,12 @@
     self.roStatus.font = [UIFont systemFontOfSize:15];
     self.roStatus.textColor = IMTheme.textSecondary;
     self.roStatus.textAlignment = NSTextAlignmentCenter;
-    self.roStatus.text = @"在线";  // 本人页面：自己永远在线，不必查 presence
+    self.roStatus.text = IMLocalized(@"common.online");  // 本人页面：自己永远在线，不必查 presence
 
     self.roPhoneValue = [self readonlyValueLabel];
     self.roUsernameValue = [self readonlyValueLabel];
-    self.roPhoneRow = [self readonlyRow:@"手机" value:self.roPhoneValue];
-    UIView *usernameRow = [self readonlyRow:@"用户名" value:self.roUsernameValue];
+    self.roPhoneRow = [self readonlyRow:IMLocalized(@"profile.readonly.phone_label") value:self.roPhoneValue];
+    UIView *usernameRow = [self readonlyRow:IMLocalized(@"settings.info.username") value:self.roUsernameValue];
 
     UIStackView *card = [[UIStackView alloc] initWithArrangedSubviews:@[self.roPhoneRow, usernameRow]];
     card.axis = UILayoutConstraintAxisVertical;
@@ -282,14 +283,14 @@
     self.editingMode = editing;
     self.editStack.hidden = !editing;
     self.readonlyStack.hidden = editing;
-    self.title = editing ? @"编辑资料" : @"我的资料";
+    self.title = editing ? IMLocalized(@"settings.edit_profile") : IMLocalized(@"profile.title.view");
     // 用显式标题而非 UIBarButtonSystemItem*：本页 push 进液态标题栏容器，栏靠读 item 的 title/image
     // 渲染按钮，系统项两样都没有会渲染不出（不像模态里的系统导航栏能自绘系统项）。
     self.navigationItem.rightBarButtonItem = editing
-        ? [[UIBarButtonItem alloc] initWithTitle:@"保存" style:UIBarButtonItemStyleDone target:self action:@selector(saveTapped)]
-        : [[UIBarButtonItem alloc] initWithTitle:@"编辑" style:UIBarButtonItemStylePlain target:self action:@selector(enterEditing)];
+        ? [[UIBarButtonItem alloc] initWithTitle:IMLocalized(@"common.save") style:UIBarButtonItemStyleDone target:self action:@selector(saveTapped)]
+        : [[UIBarButtonItem alloc] initWithTitle:IMLocalized(@"common.edit") style:UIBarButtonItemStylePlain target:self action:@selector(enterEditing)];
     self.navigationItem.leftBarButtonItem = editing
-        ? [[UIBarButtonItem alloc] initWithTitle:@"取消" style:UIBarButtonItemStylePlain target:self action:@selector(cancelEditing)]
+        ? [[UIBarButtonItem alloc] initWithTitle:IMLocalized(@"common.cancel") style:UIBarButtonItemStylePlain target:self action:@selector(cancelEditing)]
         : nil;
     [self im_refreshNavigationBar]; // 液态标题栏按 navigationItem 渲染，改完必须显式刷新
 }
@@ -320,7 +321,7 @@
     self.tagsField.text = [profile.tags componentsJoinedByString:@" "];
 
     self.roName.text = IMDisplayName(profile.nickname, profile.username);
-    self.roUsernameValue.text = profile.username.length > 0 ? [@"@" stringByAppendingString:profile.username] : @"未设置";
+    self.roUsernameValue.text = profile.username.length > 0 ? [@"@" stringByAppendingString:profile.username] : IMLocalized(@"settings.info.not_set");
     self.roPhoneValue.text = profile.phone;
     self.roPhoneRow.hidden = profile.phone.length == 0;  // 没填手机号就整行不占位（Telegram 同款）
 
@@ -372,11 +373,11 @@
 }
 
 - (void)saveTapped {
-    if (self.token.length == 0) { [self showMessage:@"尚未登录，请稍候重试"]; return; }
+    if (self.token.length == 0) { [self showMessage:IMLocalized(@"profile.not_logged_in_retry")]; return; }
     [self.view endEditing:YES];
     // 昵称必填：它是全端显示名回退链的终点，清空会让各处露出 10 位数字内部 ID。后端也会拒，这里前置提示。
     if ([self trimmed:self.nicknameField.text].length == 0) {
-        [self showMessage:@"昵称不能为空"];
+        [self showMessage:IMLocalized(@"profile.nickname_required")];
         return;
     }
     NSArray<NSString *> *tags = [self tagsFromString:self.tagsField.text];
@@ -394,7 +395,7 @@
         self.navigationItem.rightBarButtonItem.enabled = YES;
         [self im_refreshNavigationBar]; // 否则栏上仍是置灰态，「保存」再也点不动
         if (error) {
-            [self showMessage:[NSString stringWithFormat:@"保存失败：%@", error.localizedDescription]];
+            [self showMessage:IMLocalizedFormat(@"profile.save_failed", error.localizedDescription)];
             return;
         }
         [self saveUsernameIfChangedThenExitEditing];
@@ -418,7 +419,7 @@
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) { return; }
         if (error) {
-            [self showMessage:[NSString stringWithFormat:@"用户名未能修改：%@", error.localizedDescription]];
+            [self showMessage:IMLocalizedFormat(@"profile.username_change_failed", error.localizedDescription)];
             return;
         }
         self.loadedUsername = newName;
@@ -436,7 +437,7 @@
 - (void)exitEditingAfterSave {
     [self applyEditingMode:NO];
     [self load];
-    [self im_showToast:@"已保存"];
+    [self im_showToast:IMLocalized(@"profile.saved_toast")];
 }
 
 /// 标签串按空格/逗号切分，去空白去空项。
@@ -456,9 +457,9 @@
 
 - (void)showMessage:(NSString *)message {
     IMLog(@"%@", message);
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"提示" message:message
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:IMLocalized(@"common.notice") message:message
                                                            preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.ok") style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
 }
 

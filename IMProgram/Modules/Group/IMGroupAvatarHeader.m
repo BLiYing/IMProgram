@@ -2,6 +2,7 @@
 //  见头文件。视图搭建逐字来自 IMGroupManageViewController.m（2026-09-05 提取），只加了 initial 一层。
 
 #import "IMGroupAvatarHeader.h"
+#import "IMLocalization.h"
 #import "IMTheme.h"
 
 @implementation IMGroupAvatarHeader
@@ -27,7 +28,7 @@
         _initial.translatesAutoresizingMaskIntoConstraints = NO;
         [_avatar addSubview:_initial];
         _caption = [UILabel new];
-        _caption.text = @"设置新头像"; _caption.textColor = IMTheme.accent;
+        _caption.text = IMLocalized(@"group.avatar.set_new"); _caption.textColor = IMTheme.accent;
         _caption.font = [UIFont systemFontOfSize:15]; _caption.textAlignment = NSTextAlignmentCenter;
         _caption.translatesAutoresizingMaskIntoConstraints = NO;
         [self addSubview:_caption];

@@ -3,6 +3,7 @@
 #import "IMGroupAdminLogic.h"
 #import "IMGroupInfo.h"
 #import "IMUserCard.h"
+#import "IMLocalization.h"
 
 const NSUInteger IMGroupAdminMaxBatch = 5;
 
@@ -29,7 +30,7 @@ const NSUInteger IMGroupAdminMaxBatch = 5;
 
 + (NSString *)adminCountTextForMembers:(NSArray<IMGroupMember *> *)members {
     NSUInteger n = [self adminsFromMembers:members].count;
-    return n == 0 ? @"未设置" : [NSString stringWithFormat:@"%lu 人", (unsigned long)n];
+    return n == 0 ? IMLocalized(@"settings.info.not_set") : IMLocalizedFormat(@"common.people_count", (long)n);
 }
 
 + (NSArray<IMGroupMember *> *)adminCandidatesFromMembers:(NSArray<IMGroupMember *> *)members
@@ -84,22 +85,22 @@ const NSUInteger IMGroupAdminMaxBatch = 5;
 
 + (NSString *)toastForError:(NSError *)error {
     switch (error.code) {
-        case 300201: return @"该群已被解散";
-        case 300203: return @"你已不在该群";
-        case 300204: return @"只有群主可以进行此操作";
-        case 100001: return @"操作失败，请刷新后重试"; // 三种语义共用一个码，见头文件说明
+        case 300201: return IMLocalized(@"group.event.dissolved");
+        case 300203: return IMLocalized(@"group.manage.removed_toast");
+        case 300204: return IMLocalized(@"group.admin.error.owner_only");
+        case 100001: return IMLocalized(@"group.admin.error.stale_retry"); // 三种语义共用一个码，见头文件说明
         default: break;
     }
-    return error.localizedDescription.length > 0 ? error.localizedDescription : @"操作失败";
+    return error.localizedDescription.length > 0 ? error.localizedDescription : IMLocalized(@"common.action_failed");
 }
 
 + (NSString *)batchToastWithSucceeded:(NSUInteger)succeeded
                                failed:(NSUInteger)failed
                            firstError:(NSString *)firstError {
-    if (failed == 0) { return [NSString stringWithFormat:@"已添加 %lu 位管理员", (unsigned long)succeeded]; }
-    if (succeeded == 0) { return firstError.length > 0 ? firstError : @"添加失败"; }
-    return [NSString stringWithFormat:@"%lu 位已添加，%lu 位失败：%@",
-            (unsigned long)succeeded, (unsigned long)failed, firstError.length > 0 ? firstError : @"操作失败"];
+    if (failed == 0) { return IMLocalizedFormat(@"group.admin_list.batch_added", (long)succeeded); }
+    if (succeeded == 0) { return firstError.length > 0 ? firstError : IMLocalized(@"group.admin_list.add_failed"); }
+    return IMLocalizedFormat(@"group.admin_list.batch_partial",
+            (long)succeeded, (long)failed, firstError.length > 0 ? firstError : IMLocalized(@"common.action_failed"));
 }
 
 @end

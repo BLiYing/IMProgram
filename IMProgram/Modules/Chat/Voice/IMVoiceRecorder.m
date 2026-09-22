@@ -5,6 +5,7 @@
 #import "IMVoiceRecorder.h"
 #import <AVFoundation/AVFoundation.h>
 #import <CoreMedia/CoreMedia.h> // CMTimeRange / kCMTimeZero（多段合并用）
+#import "IMLocalization.h"
 
 /// waveform 采样数：60（每 100ms 一次 tick × 平均 6s 语音 = 60 帧），与设计文档 §1 的
 /// 服务端上限 120 字节留一半余量（同一批语音条振幅指纹再上采/下采都不会突破 max）。
@@ -229,12 +230,12 @@ static const NSTimeInterval IMVoiceSampleInterval = 0.1;
     if (!completion) { return; }
     if (self.recording) {
         completion(nil, [NSError errorWithDomain:@"IMVoiceRecorder" code:-11
-                                        userInfo:@{NSLocalizedDescriptionKey: @"录制中不能试听"}]);
+                                        userInfo:@{NSLocalizedDescriptionKey: IMLocalized(@"chat.voice.cannot_preview_while_recording")}]);
         return;
     }
     if (self.segmentURLs.count == 0) {
         completion(nil, [NSError errorWithDomain:@"IMVoiceRecorder" code:-12
-                                        userInfo:@{NSLocalizedDescriptionKey: @"暂无可试听内容"}]);
+                                        userInfo:@{NSLocalizedDescriptionKey: IMLocalized(@"chat.voice.nothing_to_preview")}]);
         return;
     }
     if (self.segmentURLs.count == 1) {
@@ -269,7 +270,7 @@ static const NSTimeInterval IMVoiceSampleInterval = 0.1;
         CMTimeRange range = CMTimeRangeMake(kCMTimeZero, asset.duration);
         if (![audioTrack insertTimeRange:range ofTrack:at atTime:cursor error:&insertErr]) {
             completion(insertErr ?: [NSError errorWithDomain:@"IMVoiceRecorder" code:-13
-                                                    userInfo:@{NSLocalizedDescriptionKey: @"合并音频段失败"}]);
+                                                    userInfo:@{NSLocalizedDescriptionKey: IMLocalized(@"chat.voice.merge_segments_failed")}]);
             return;
         }
         cursor = CMTimeAdd(cursor, asset.duration);
@@ -283,7 +284,7 @@ static const NSTimeInterval IMVoiceSampleInterval = 0.1;
         dispatch_async(dispatch_get_main_queue(), ^{
             if (export.status != AVAssetExportSessionStatusCompleted) {
                 completion(export.error ?: [NSError errorWithDomain:@"IMVoiceRecorder" code:-14
-                                                            userInfo:@{NSLocalizedDescriptionKey: @"导出合并音频失败"}]);
+                                                            userInfo:@{NSLocalizedDescriptionKey: IMLocalized(@"chat.voice.export_merged_failed")}]);
                 return;
             }
             completion(nil);

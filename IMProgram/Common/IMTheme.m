@@ -2,12 +2,23 @@
 
 #import "IMTheme.h"
 #import "IMAppearance.h"
+#import "IMLocalization.h"
 
 @interface IMTheme ()
 + (UIColor *)dynamicLight:(UIColor *)light dark:(UIColor *)dark;
 + (UIColor *)rgb:(NSInteger)hex;
 + (UIColor *)rgb:(NSInteger)hex alpha:(CGFloat)a;
 @end
+
+/// 月份标签：zh 给数字串（配「{month}月」），en 给英文缩写（Sep）。模板在文案表 time.month_day / time.full_date。
+static NSString *IMMonthLabel(NSDate *date, NSCalendar *cal) {
+    NSInteger m = [cal component:NSCalendarUnitMonth fromDate:date];
+    if ([IMLocalization.shared.language isEqualToString:IMLanguagePrefZhHans]) { return [NSString stringWithFormat:@"%ld", (long)m]; }
+    NSDateFormatter *f = [NSDateFormatter new]; f.locale = IMLocalization.shared.locale;
+    NSArray<NSString *> *symbols = f.shortMonthSymbols;
+    return symbols[MAX(0, MIN((NSInteger)symbols.count - 1, m - 1))];
+}
+
 
 @implementation IMTheme
 
@@ -86,9 +97,31 @@
 + (NSString *)timeStringFromMillis:(int64_t)ms {
     if (ms <= 0) { return @""; }
     NSDate *date = [NSDate dateWithTimeIntervalSince1970:ms / 1000.0];
-    static NSDateFormatter *timeFmt; static dispatch_once_t once;
-    dispatch_once(&once, ^{ timeFmt = [NSDateFormatter new]; timeFmt.dateFormat = @"HH:mm"; });
-    return [timeFmt stringFromDate:date];
+    return [[self timeFormatterForCurrentLanguage] stringFromDate:date];
+}
+
+/// 时分格式器：**中文恒 `HH:mm`**（UI_SPEC §5.3）；英文跟随系统 12/24 小时设置（I18N_DESIGN §6.3）。
+/// 按语言重建（不缓存成 dispatch_once 静态量——切语言后必须变）；格式器创建开销可接受，调用点是单元格配置。
++ (NSDateFormatter *)timeFormatterForCurrentLanguage {
+    NSDateFormatter *f = [NSDateFormatter new];
+    f.locale = IMLocalization.shared.locale;
+    if ([IMLocalization.shared.language isEqualToString:IMLanguagePrefZhHans]) {
+        f.dateFormat = @"HH:mm";
+    } else {
+        // `j` 让系统按用户的 12/24 小时偏好选 h / H；用系统 locale 取模板，再套到英文 locale 的格式器上。
+        f.dateFormat = [NSDateFormatter dateFormatFromTemplate:@"jmm" options:0 locale:NSLocale.currentLocale];
+    }
+    return f;
+}
+
+/// 「今年内 / 往年」日期文案，会话列表与日期胶囊共用（词汇刻意一致，UI_SPEC §5.1）。
++ (NSString *)dateLabelForDate:(NSDate *)date {
+    NSCalendar *cal = NSCalendar.currentCalendar;
+    BOOL sameYear = [cal component:NSCalendarUnitYear fromDate:date] == [cal component:NSCalendarUnitYear fromDate:NSDate.date];
+    NSString *month = IMMonthLabel(date, cal);
+    NSInteger day = [cal component:NSCalendarUnitDay fromDate:date];
+    if (sameYear) { return IMLocalizedFormat(@"time.month_day", month, (long)day); }
+    return IMLocalizedFormat(@"time.full_date", [NSString stringWithFormat:@"%ld", (long)[cal component:NSCalendarUnitYear fromDate:date]], month, (long)day);
 }
 
 /// 会话列表右侧时间：**四段式**（`HH:mm` / `昨天` / `M月d日` / `yyyy年M月d日`）。
@@ -101,15 +134,8 @@
     NSDate *date = [NSDate dateWithTimeIntervalSince1970:ms / 1000.0];
     NSCalendar *cal = NSCalendar.currentCalendar;
     if ([cal isDateInToday:date]) { return [self timeStringFromMillis:ms]; }
-    if ([cal isDateInYesterday:date]) { return @"昨天"; }
-    static NSDateFormatter *sameYearFmt, *fullFmt; static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        sameYearFmt = [NSDateFormatter new]; sameYearFmt.dateFormat = @"M月d日";
-        fullFmt = [NSDateFormatter new]; fullFmt.dateFormat = @"yyyy年M月d日";
-    });
-    BOOL sameYear = [cal component:NSCalendarUnitYear fromDate:date] ==
-                    [cal component:NSCalendarUnitYear fromDate:NSDate.date];
-    return [(sameYear ? sameYearFmt : fullFmt) stringFromDate:date];
+    if ([cal isDateInYesterday:date]) { return IMLocalized(@"time.yesterday"); }
+    return [self dateLabelForDate:date];
 }
 
 + (BOOL)isMillis:(int64_t)a sameDayAsMillis:(int64_t)b {
@@ -124,16 +150,9 @@
     if (ms <= 0) { return @""; }
     NSDate *date = [NSDate dateWithTimeIntervalSince1970:ms / 1000.0];
     NSCalendar *cal = NSCalendar.currentCalendar;
-    if ([cal isDateInToday:date]) { return @"今天"; }
-    if ([cal isDateInYesterday:date]) { return @"昨天"; }
-    static NSDateFormatter *sameYearFmt, *fullFmt; static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        sameYearFmt = [NSDateFormatter new]; sameYearFmt.dateFormat = @"M月d日";
-        fullFmt = [NSDateFormatter new]; fullFmt.dateFormat = @"yyyy年M月d日";
-    });
-    BOOL sameYear = [cal component:NSCalendarUnitYear fromDate:date] ==
-                    [cal component:NSCalendarUnitYear fromDate:NSDate.date];
-    return [(sameYear ? sameYearFmt : fullFmt) stringFromDate:date];
+    if ([cal isDateInToday:date]) { return IMLocalized(@"time.today"); }
+    if ([cal isDateInYesterday:date]) { return IMLocalized(@"time.yesterday"); }
+    return [self dateLabelForDate:date];
 }
 
 + (UIColor *)avatarColorForSeed:(NSString *)seed {

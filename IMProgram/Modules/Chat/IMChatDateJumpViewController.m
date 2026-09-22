@@ -5,6 +5,7 @@
 #import "IMGlass.h"                // IMGlassButtonConfiguration（iOS26 玻璃 / 降级 gray）
 #import "IMMainTabBarController.h" // kIMLiquidBarHeight
 #import "IMProgram-Swift.h"        // IMLiquidNavigationBar（自持沉浸式标题栏）
+#import "IMLocalization.h"
 
 /// 叉叉距 sheet 顶留白（同 IMFilePickerViewController，避免被顶部圆角遮挡）。
 static const CGFloat kIMDateJumpTopPadding = 16;
@@ -62,7 +63,7 @@ API_AVAILABLE(ios(16.0))
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"按日期";
+    self.title = IMLocalized(@"chat.search.by_date");
     if (@available(iOS 17.0, *)) { self.traitOverrides.userInterfaceLevel = UIUserInterfaceLevelBase; }
     self.view.backgroundColor = IMDateJumpBaseGroupedBackgroundColor();
     [self installLiquidNavigationBar];
@@ -81,8 +82,8 @@ API_AVAILABLE(ios(16.0))
     [content addSubview:calendar];
 
     // 底部两颗快捷钮「最早 / 今天」（Liquid Glass）。
-    UIButton *earliest = [self glassButtonTitle:@"最早" action:@selector(earliestTapped)];
-    UIButton *today = [self glassButtonTitle:@"今天" action:@selector(todayTapped)];
+    UIButton *earliest = [self glassButtonTitle:IMLocalized(@"chat.search.earliest") action:@selector(earliestTapped)];
+    UIButton *today = [self glassButtonTitle:IMLocalized(@"time.today") action:@selector(todayTapped)];
     UIStackView *quick = [[UIStackView alloc] initWithArrangedSubviews:@[earliest, today]];
     quick.axis = UILayoutConstraintAxisHorizontal;
     quick.distribution = UIStackViewDistributionFillEqually;

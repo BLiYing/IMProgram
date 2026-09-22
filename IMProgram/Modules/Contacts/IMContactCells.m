@@ -1,6 +1,7 @@
 //  IMContactCells.m
 
 #import "IMContactCells.h"
+#import "IMLocalization.h"
 #import "IMUserCard.h"
 #import "IMTheme.h"
 #import "UILabel+IMAvatar.h"
@@ -209,13 +210,13 @@ static void IMConfigureBody(UILabel *avatar, UILabel *title, UILabel *subtitle, 
     self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
     if (self) {
         _accept = IMMakeMiniButton();
-        IMSetMiniTitle(_accept, @"同意");
+        IMSetMiniTitle(_accept, IMLocalized(@"common.agree"));
         IMStyleMiniButton(_accept, IMMiniPrimary);
         [_accept addTarget:self action:@selector(acceptTapped) forControlEvents:UIControlEventTouchUpInside];
         [self.contentView addSubview:_accept];
 
         _reject = IMMakeMiniButton();
-        IMSetMiniTitle(_reject, @"拒绝");
+        IMSetMiniTitle(_reject, IMLocalized(@"common.reject"));
         IMStyleMiniButton(_reject, IMMiniSecondary); // 灰底但**可点**（修复点击无反应）
         [_reject addTarget:self action:@selector(rejectTapped) forControlEvents:UIControlEventTouchUpInside];
         [self.contentView addSubview:_reject];
@@ -237,7 +238,7 @@ static void IMConfigureBody(UILabel *avatar, UILabel *title, UILabel *subtitle, 
     // 副标题优先显**验证消息**：这一行才是收件人决定同不同意的依据，
     // 「请求加你为好友」只是对方没写理由（或老数据无此字段）时的兜底——它没提供任何信息。
     NSString *hello = [card.hello stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    IMConfigureBody(_avatar, _title, _subtitle, card, hello.length > 0 ? hello : @"请求加你为好友");
+    IMConfigureBody(_avatar, _title, _subtitle, card, hello.length > 0 ? hello : IMLocalized(@"friend.requests.default_hello"));
     _onAccept = [onAccept copy];
     _onReject = [onReject copy];
 }

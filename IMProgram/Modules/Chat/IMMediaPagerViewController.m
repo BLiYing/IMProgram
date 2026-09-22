@@ -4,6 +4,7 @@
 #import "IMPopoverCard.h" // 「更多」锚点菜单
 #import "IMGlass.h"       // 标准 Liquid Glass 圆钮
 #import "IMMainTabBarController.h" // kIMLiquidBarHeight
+#import "IMLocalization.h"
 #import "IMProgram-Swift.h"         // IMLiquidNavigationBar（复用聊天页标题栏）
 
 @interface IMMediaPagerViewController () <UIPageViewControllerDataSource, UIPageViewControllerDelegate, IMMediaViewerContentDelegate, IMLiquidNavigationBarDelegate>
@@ -170,7 +171,7 @@
     __weak typeof(self) ws = self;
     NSMutableArray<IMPopoverCardItem *> *items = [NSMutableArray array];
     // 内置「下载」（不关查看器）+ 外部动作（先关查看器再执行，回到聊天页上下文）。
-    [items addObject:[IMPopoverCardItem itemWithTitle:@"下载" symbol:@"arrow.down.to.line" destructive:NO handler:^{
+    [items addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"common.download") symbol:@"arrow.down.to.line" destructive:NO handler:^{
         [ws.currentViewer saveToAlbum];
     }]];
     for (IMPopoverCardItem *ext in cur.moreActions) {

@@ -6,6 +6,7 @@
 #import "UIView+IMFade.h"
 #import "IMTheme.h"
 #import "IMTimeUtil.h"
+#import "IMLocalization.h"
 
 @interface IMVoiceRecordingHUD ()
 @property (nonatomic, strong) UIView *pill;
@@ -57,7 +58,7 @@
     _slideHint.translatesAutoresizingMaskIntoConstraints = NO;
     _slideHint.font = [UIFont systemFontOfSize:12.5 weight:UIFontWeightMedium];
     _slideHint.textColor = IMTheme.textSecondary;
-    _slideHint.text = @"‹ 向左滑动取消";
+    _slideHint.text = IMLocalized(@"chat.voice.slide_to_cancel");
     _slideHint.textAlignment = NSTextAlignmentCenter;
     [_pill addSubview:_slideHint];
 
@@ -112,7 +113,7 @@
         if (cancelReady) {
             self.pill.backgroundColor = UIColor.systemRedColor;
             self.pill.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.6].CGColor;
-            self.slideHint.text = @"松开 取消";
+            self.slideHint.text = IMLocalized(@"chat.voice.release_to_cancel");
             self.slideHint.textColor = UIColor.whiteColor;
             self.timerLabel.textColor = UIColor.whiteColor;
             self.slideHint.alpha = 1.0;
@@ -120,7 +121,7 @@
         } else {
             self.pill.backgroundColor = IMTheme.pageBackground;
             self.pill.layer.borderColor = IMTheme.separator.CGColor;
-            self.slideHint.text = @"‹ 向左滑动取消";
+            self.slideHint.text = IMLocalized(@"chat.voice.slide_to_cancel");
             self.slideHint.textColor = IMTheme.textSecondary;
             self.timerLabel.textColor = IMTheme.textPrimary;
         }

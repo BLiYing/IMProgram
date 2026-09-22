@@ -1,6 +1,7 @@
 //  IMUserCard.m
 
 #import "IMUserCard.h"
+#import "IMLocalization.h"
 
 #import "IMRemarkStore.h"
 
@@ -56,7 +57,7 @@ IMFriendStatus IMFriendStatusFromString(NSString *s) {
     NSString *nick = [self.nickname stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     // 昵称为空时不再回退到 userID（那是 10 位内部数字 ID）；退到 @username，两者都空才给占位。
     NSString *fallback = nick.length > 0 ? nick
-                       : (self.username.length > 0 ? [@"@" stringByAppendingString:self.username] : @"未命名用户");
+                       : (self.username.length > 0 ? [@"@" stringByAppendingString:self.username] : IMLocalized(@"common.unnamed_user"));
     return [IMRemarkStore.sharedStore displayNameForUser:self.userID fallback:fallback];
 }
 

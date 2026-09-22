@@ -21,6 +21,7 @@
 #import "IMChatRecordCell.h"
 #import "UIViewController+IMToast.h"
 #import "UIViewController+IMDeleteSheet.h"
+#import "IMLocalization.h"
 
 @implementation IMChatViewController (Menu)
 
@@ -111,8 +112,8 @@
                 // 出错/超限：整行不出现——菜单里挂一条报错项没有任何操作价值。
                 if (error || !enabled) { completion(@[]); return; }
                 NSString *title = read.count > 0
-                    ? [NSString stringWithFormat:@"%lu 人已读", (unsigned long)read.count]
-                    : @"暂无人已读";
+                    ? IMLocalizedFormat(@"chat.menu.read_count", (long)read.count)
+                    : IMLocalized(@"chat.menu.no_reads");
                 UIAction *action = [UIAction actionWithTitle:title
                                                        image:[UIImage systemImageNamed:@"eye"]
                                                   identifier:nil
@@ -284,7 +285,7 @@ static UIBezierPath *IMBubbleOutlinePath(CGRect rect, CGFloat radius, CACornerMa
     if ([message.contentType isEqualToString:@"voice"] && message.convSeq > 0 && message.recalledAt == 0) {
         // 已转过 → 菜单项变「取消转文字」（清缓存 + 收起面板）；否则「转文字」。
         BOOL hasTranscript = [self im_hasVoiceTranscript:message];
-        NSString *title = hasTranscript ? @"取消转文字" : @"转文字";
+        NSString *title = hasTranscript ? IMLocalized(@"chat.msg_menu.transcribe_cancel") : IMLocalized(@"chat.msg_menu.transcribe");
         NSString *icon = hasTranscript ? @"text.badge.xmark" : @"text.bubble";
         [actions addObject:[IMMenuAction actionWithId:@"transcribe" title:title image:icon handler:^{
             if (hasTranscript) { [ws im_clearVoiceTranscript:message]; }
@@ -300,31 +301,31 @@ static UIBezierPath *IMBubbleOutlinePath(CGRect rect, CGFloat radius, CACornerMa
                  || ([message.contentType isEqualToString:@"image"] && message.convSeq > 0 && message.recalledAt == 0)
                  || (message.caption.length > 0 && message.convSeq > 0 && message.recalledAt == 0);
     if (copyable) {
-        [actions addObject:[IMMenuAction actionWithId:@"copy" title:@"复制" image:@"doc.on.doc" handler:^{
+        [actions addObject:[IMMenuAction actionWithId:@"copy" title:IMLocalized(@"common.copy") image:@"doc.on.doc" handler:^{
             [ws copyMessageToPasteboard:message];
         }]];
     }
     if (message.recalledAt == 0 && message.convSeq > 0) {
-        [actions addObject:[IMMenuAction actionWithId:@"reply" title:@"引用" image:@"arrowshape.turn.up.left" handler:^{
+        [actions addObject:[IMMenuAction actionWithId:@"reply" title:IMLocalized(@"chat.msg_menu.reply") image:@"arrowshape.turn.up.left" handler:^{
             [ws beginReplyTo:message];
         }]];
     }
     if (message.recalledAt == 0 && message.convSeq > 0) {
-        [actions addObject:[IMMenuAction actionWithId:@"forward" title:@"转发" image:@"arrowshape.turn.up.right" handler:^{
+        [actions addObject:[IMMenuAction actionWithId:@"forward" title:IMLocalized(@"common.forward") image:@"arrowshape.turn.up.right" handler:^{
             [ws forwardMessage:message];
         }]];
     }
     // 收藏：文本/图片/视频/文件/链接均可（快照存 content+content_type，后端通用；system/撤回除外）。
     // 必须 convSeq>0：发送中的行 content 是 im-pending:// 本地引用，收藏它是一条别端永远打不开的死链（与 Web 对齐）。
     if (message.convSeq > 0 && message.content.length > 0 && message.recalledAt == 0 && ![message.contentType isEqualToString:@"system"]) {
-        [actions addObject:[IMMenuAction actionWithId:@"favorite" title:@"收藏" image:@"bookmark" handler:^{
+        [actions addObject:[IMMenuAction actionWithId:@"favorite" title:IMLocalized(@"common.favorite") image:@"bookmark" handler:^{
             [ws favoriteMessage:message];
         }]];
     }
     // 撤回（M4-1）：仅本人、已拿到 conv_seq、未撤回、2min 窗口内（服务端为准，此处仅避免必然失败的入口）。
     int64_t nowMs = IMNowMillis();
     if (mine && message.convSeq > 0 && message.recalledAt == 0 && (nowMs - message.timestamp) <= kIMRecallWindowMs) {
-        [actions addObject:[IMMenuAction actionWithId:@"recall" title:@"撤回" image:@"arrow.uturn.backward" handler:^{
+        [actions addObject:[IMMenuAction actionWithId:@"recall" title:IMLocalized(@"chat.msg_menu.recall") image:@"arrow.uturn.backward" handler:^{
             [IMSocketManager.sharedManager recallMessageInConv:(message.convID ?: @"") targetConvSeq:message.convSeq];
         }]];
     }
@@ -332,12 +333,12 @@ static UIBezierPath *IMBubbleOutlinePath(CGRect rect, CGFloat radius, CACornerMa
     // 撤回态/未发出/系统消息不可置顶（横幅不能指向墓碑或本地行）；但已撤回的置顶仍要能摘下来。
     if ([self canPinMessages] && message.convSeq > 0) {
         if (message.pinnedAt > 0) {
-            [actions addObject:[IMMenuAction actionWithId:@"unpin" title:@"取消置顶" image:@"pin.slash" handler:^{
+            [actions addObject:[IMMenuAction actionWithId:@"unpin" title:IMLocalized(@"chat.msg_menu.unpin") image:@"pin.slash" handler:^{
                 [IMSocketManager.sharedManager pinMessageInConv:(message.convID ?: @"")
                                                   targetConvSeq:message.convSeq pinned:NO];
             }]];
         } else if (message.recalledAt == 0 && ![message.contentType isEqualToString:@"system"]) {
-            [actions addObject:[IMMenuAction actionWithId:@"pin" title:@"置顶" image:@"pin" handler:^{
+            [actions addObject:[IMMenuAction actionWithId:@"pin" title:IMLocalized(@"chat.msg_menu.pin") image:@"pin" handler:^{
                 [IMSocketManager.sharedManager pinMessageInConv:(message.convID ?: @"")
                                                   targetConvSeq:message.convSeq pinned:YES];
             }]];
@@ -346,7 +347,7 @@ static UIBezierPath *IMBubbleOutlinePath(CGRect rect, CGFloat radius, CACornerMa
     // 编辑（M4-5）：仅本人文本、已拿到 conv_seq、未撤回。必须 convSeq>0——发送中的行发 msg_op edit
     // 会因 sendTapped 的 convSeq>0 判定落空而改走「发新消息」分支，造成重复发送且编辑条卡住。
     if (mine && [message.contentType isEqualToString:@"text"] && message.content.length > 0 && message.convSeq > 0 && message.recalledAt == 0) {
-        [actions addObject:[IMMenuAction actionWithId:@"edit" title:@"编辑" image:@"pencil" handler:^{
+        [actions addObject:[IMMenuAction actionWithId:@"edit" title:IMLocalized(@"common.edit") image:@"pencil" handler:^{
             [ws beginEditMessage:message];
         }]];
     }
@@ -355,18 +356,18 @@ static UIBezierPath *IMBubbleOutlinePath(CGRect rect, CGFloat radius, CACornerMa
     if (mine && message.convSeq <= 0
         && ([IMPendingMediaStore isLocalRef:message.content] || message.content.length == 0)
         && (message.status == IMMessageStatusSending || message.status == IMMessageStatusFailed)) {
-        [actions addObject:[IMMenuAction actionWithId:@"cancelSend" title:@"取消发送" image:@"xmark.circle" handler:^{
+        [actions addObject:[IMMenuAction actionWithId:@"cancelSend" title:IMLocalized(@"chat.msg_menu.cancel_send") image:@"xmark.circle" handler:^{
             [ws cancelPendingMessage:message];
         }]];
     }
     // 多选：仅已发出的消息（发送中/失败的本地件不可勾选，入口一并收掉；与 Web visible convSeq>0 对齐）。
     if (message.convSeq > 0) {
-        [actions addObject:[IMMenuAction actionWithId:@"multiSelect" title:@"多选" image:@"checkmark.circle" handler:^{
+        [actions addObject:[IMMenuAction actionWithId:@"multiSelect" title:IMLocalized(@"chat.msg_menu.multi_select") image:@"checkmark.circle" handler:^{
             [ws enterSelectionWithMessage:message];
         }]];
     }
     if ([message.contentType isEqualToString:@"text"] && message.content.length > 0 && message.recalledAt == 0) {
-        [actions addObject:[IMMenuAction actionWithId:@"translate" title:@"翻译" image:@"character.bubble" handler:^{
+        [actions addObject:[IMMenuAction actionWithId:@"translate" title:IMLocalized(@"chat.msg_menu.translate") image:@"character.bubble" handler:^{
             [ws translateMessage:message];
         }]];
     }
@@ -377,8 +378,8 @@ static UIBezierPath *IMBubbleOutlinePath(CGRect rect, CGFloat radius, CACornerMa
     // 已按 (conv_id, conv_seq) 反查发送者，管理员的一键禁言/封号照常落到那个人身上。
     // 「只举报这个人、不针对某条消息」的入口保留在资料页 / 会话详情页（target_type=user）。
     if (!mine && message.convSeq > 0) {
-        [actions addObject:[IMMenuAction actionWithId:@"report" title:@"举报" image:@"exclamationmark.bubble" handler:^{
-            [ws reportTargetType:@"message" targetID:[@(message.convSeq) stringValue] title:@"举报这条消息"];
+        [actions addObject:[IMMenuAction actionWithId:@"report" title:IMLocalized(@"common.report") image:@"exclamationmark.bubble" handler:^{
+            [ws reportTargetType:@"message" targetID:[@(message.convSeq) stringValue] title:IMLocalized(@"chat.report.single_title")];
         }]];
     }
     // 删除：发送中的本地件不显示——删除只删行不停止上传，传完仍会发出去（僵尸任务）；
@@ -403,17 +404,17 @@ static UIBezierPath *IMBubbleOutlinePath(CGRect rect, CGFloat radius, CACornerMa
 - (IMMenuAction *)deleteMenuActionForMessage:(IMMessageModel *)message {
     __weak typeof(self) ws = self;
     if (message.convSeq <= 0) {
-        return [IMMenuAction destructiveActionWithId:@"delete" title:@"删除" image:@"trash" handler:^{ [ws deleteMessage:message]; }];
+        return [IMMenuAction destructiveActionWithId:@"delete" title:IMLocalized(@"common.delete") image:@"trash" handler:^{ [ws deleteMessage:message]; }];
     }
     if (![self canDeleteForEveryone:message]) {
-        return [IMMenuAction destructiveActionWithId:@"delete" title:@"删除" image:@"trash" handler:^{ [ws hideMessageForSelf:message]; }];
+        return [IMMenuAction destructiveActionWithId:@"delete" title:IMLocalized(@"common.delete") image:@"trash" handler:^{ [ws hideMessageForSelf:message]; }];
     }
-    IMMenuAction *selfOnly = [IMMenuAction destructiveActionWithId:@"deleteSelf" title:@"仅删除自己" image:@"trash"
+    IMMenuAction *selfOnly = [IMMenuAction destructiveActionWithId:@"deleteSelf" title:IMLocalized(@"delete_sheet.only_me") image:@"trash"
                                                           handler:^{ [ws hideMessageForSelf:message]; }];
-    IMMenuAction *everyone = [IMMenuAction destructiveActionWithId:@"deleteEveryone" title:@"为所有人删除" image:@"trash"
+    IMMenuAction *everyone = [IMMenuAction destructiveActionWithId:@"deleteEveryone" title:IMLocalized(@"delete_sheet.everyone") image:@"trash"
                                                           handler:^{ [ws deleteMessageForEveryone:message]; }];
     // 破坏性重的「为所有人删除」放最后（destructive-last，与本仓菜单约定一致，降低误触不可逆项）。
-    return [IMMenuAction submenuWithId:@"delete" title:@"删除" image:@"trash" children:@[selfOnly, everyone]];
+    return [IMMenuAction submenuWithId:@"delete" title:IMLocalized(@"common.delete") image:@"trash" children:@[selfOnly, everyone]];
 }
 
 /// 本地删除一条消息（仅本端：从库 + 内存移除并刷新；不影响对端）。convSeq<=0 的本地失败件走此。
@@ -438,7 +439,7 @@ static UIBezierPath *IMBubbleOutlinePath(CGRect rect, CGFloat radius, CACornerMa
     __weak typeof(self) ws = self;
     [[IMSocketManager sharedManager] hideMessageInConv:(message.convID ?: self.convID) targetConvSeq:message.convSeq
                                             completion:^(NSError *error) {
-        if (error) { [ws im_showToast:error.localizedDescription ?: @"删除失败"]; }
+        if (error) { [ws im_showToast:error.localizedDescription ?: IMLocalized(@"net.fallback.delete_failed")]; }
     }];
 }
 
@@ -448,20 +449,20 @@ static UIBezierPath *IMBubbleOutlinePath(CGRect rect, CGFloat radius, CACornerMa
 - (void)reportTargetType:(NSString *)targetType targetID:(NSString *)targetID title:(NSString *)title {
     if (targetID.length == 0) { return; }
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:title
-        message:@"请填写举报理由（可空）" preferredStyle:UIAlertControllerStyleAlert];
-    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf) { tf.placeholder = @"理由"; }];
+        message:IMLocalized(@"chat.detail.report_reason_prompt") preferredStyle:UIAlertControllerStyleAlert];
+    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf) { tf.placeholder = IMLocalized(@"chat.detail.report_reason_placeholder"); }];
     __weak typeof(self) weakSelf = self;
-    [ac addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [ac addAction:[UIAlertAction actionWithTitle:@"提交举报" style:UIAlertActionStyleDestructive
+    [ac addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
+    [ac addAction:[UIAlertAction actionWithTitle:IMLocalized(@"chat.detail.report_submit") style:UIAlertActionStyleDestructive
         handler:^(UIAlertAction *a) {
             NSString *reason = ac.textFields.firstObject.text ?: @"";
             NSString *convID = [targetType isEqualToString:@"message"] ? weakSelf.convID : nil;
             NSString *token = IMHTTPService.sharedService.currentToken;
-            if (token.length == 0) { [weakSelf showReportResult:@"举报失败：未登录"]; return; }
+            if (token.length == 0) { [weakSelf showReportResult:IMLocalized(@"chat.detail.report_failed_not_logged_in")]; return; }
             [IMHTTPService.sharedService reportWithToken:token targetType:targetType targetID:targetID
                 convID:convID reason:reason completion:^(NSError *error) {
-                    [weakSelf showReportResult:error ? [NSString stringWithFormat:@"举报失败：%@", error.localizedDescription]
-                                                      : @"举报已提交，感谢反馈。"];
+                    [weakSelf showReportResult:error ? IMLocalizedFormat(@"chat.detail.report_failed_detail", error.localizedDescription)
+                                                      : IMLocalized(@"chat.detail.report_submitted")];
                 }];
         }]];
     [self presentViewController:ac animated:YES completion:nil];
@@ -469,7 +470,7 @@ static UIBezierPath *IMBubbleOutlinePath(CGRect rect, CGFloat radius, CACornerMa
 
 - (void)showReportResult:(NSString *)msg {
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:nil message:msg preferredStyle:UIAlertControllerStyleAlert];
-    [ac addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];
+    [ac addAction:[UIAlertAction actionWithTitle:IMLocalized(@"chat.detail.report_ack") style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:ac animated:YES completion:nil];
 }
 

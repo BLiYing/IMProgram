@@ -1,6 +1,7 @@
 //  IMMediaFormat.m
 
 #import "IMMediaFormat.h"
+#import "IMLocalization.h"
 
 const CGFloat kIMMediaFallbackSide = 180;
 
@@ -27,7 +28,7 @@ NSString *IMFormatByteSize(int64_t bytes) {
 }
 
 NSString *IMFormatUploadProgress(double fraction, int64_t totalBytes) {
-    if (fraction <= 0) { return @"等待中"; }
+    if (fraction <= 0) { return IMLocalized(@"media.upload.waiting"); }
     double clamped = MIN(fraction, 1.0);
     if (totalBytes <= 0) { return [NSString stringWithFormat:@"%d%%", (int)(clamped * 100)]; }
     int64_t sent = (int64_t)llround(clamped * (double)totalBytes);

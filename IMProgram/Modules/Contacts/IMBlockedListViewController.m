@@ -3,6 +3,7 @@
 //  设计见 IMServer/docs/PRIVACY_SECURITY_DESIGN.md §3；草图 §2。
 
 #import "IMBlockedListViewController.h"
+#import "IMLocalization.h"
 #import "IMContactCells.h"
 #import "IMHTTPService.h"
 #import "IMUserCard.h"
@@ -32,7 +33,7 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"已屏蔽的用户"; // 对齐 Telegram 中文版
+    self.title = IMLocalized(@"blocked.title"); // 对齐 Telegram 中文版
     self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
 
     // Inset-Grouped 承载列表；顶部说明走 section footer（放 section 0 的 footer 太远，用 tableHeaderView 更贴近首行）。
@@ -73,7 +74,7 @@
     hint.numberOfLines = 0;
     hint.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote]; // 13pt
     hint.textColor = UIColor.secondaryLabelColor;
-    hint.text = @"已屏蔽的用户不能给你发消息，也看不到你的资料。";
+    hint.text = IMLocalized(@"blocked.hint");
     [host addSubview:hint];
     [NSLayoutConstraint activateConstraints:@[
         [hint.leadingAnchor  constraintEqualToAnchor:host.leadingAnchor  constant:32],
@@ -106,14 +107,14 @@
     title.font = [UIFont preferredFontForTextStyle:UIFontTextStyleTitle3];
     title.font = [UIFont systemFontOfSize:20 weight:UIFontWeightSemibold];
     title.textColor = UIColor.labelColor;
-    title.text = @"暂无已屏蔽的用户";
+    title.text = IMLocalized(@"blocked.empty_title");
     [host addSubview:title];
 
     UILabel *sub = [UILabel new];
     sub.translatesAutoresizingMaskIntoConstraints = NO;
     sub.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
     sub.textColor = UIColor.secondaryLabelColor;
-    sub.text = @"你在通讯录或聊天页拉黑对方后，会出现在这里。";
+    sub.text = IMLocalized(@"blocked.empty_subtitle");
     sub.numberOfLines = 0;
     sub.textAlignment = NSTextAlignmentCenter;
     [host addSubview:sub];
@@ -175,7 +176,7 @@
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) { if (completion) { completion(NO); } return; }
         if (error) {
-            [self showError:[NSString stringWithFormat:@"取消屏蔽失败：%@", error.localizedDescription]];
+            [self showError:IMLocalizedFormat(@"blocked.unblock_failed", error.localizedDescription ?: @"")];
             if (completion) { completion(NO); }
             return;
         }
@@ -186,9 +187,9 @@
 
 - (void)showError:(NSString *)message {
     IMLog(@"%@", message);
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"提示" message:message
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:IMLocalized(@"common.notice") message:message
                                                            preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.ok") style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
 }
 
@@ -214,7 +215,7 @@
     NSString *peerID = self.blocked[indexPath.row].userID;
     __weak typeof(self) ws = self;
     UIContextualAction *unblock = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive
-                                                                          title:@"取消屏蔽"
+                                                                          title:IMLocalized(@"blocked.unblock")
                                                                         handler:^(UIContextualAction * _Nonnull action, __kindof UIView * _Nonnull sourceView, void (^ _Nonnull done)(BOOL)) {
         [ws unblockPeer:peerID completion:^(BOOL ok) { done(ok); }];
     }];

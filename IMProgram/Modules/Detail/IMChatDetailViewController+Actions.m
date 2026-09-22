@@ -3,6 +3,7 @@
 //  从 IMChatDetailViewController.m 平移，未改行为；私有属性/常量经 IMChatDetailViewController+Private.h 共享。
 
 #import "IMChatDetailViewController+Private.h"
+#import "IMLocalization.h"
 #import "IMGroupMemberSearchViewController.h" // 成员搜索页 + IMShouldOfferMemberSearch / IMShouldAutoLoadMoreMembers
 #import "IMChatDetailTabs.h"                 // IMChatDetailTab.kind（判定当前是不是成员签）
 #import "IMServerConfigStore.h"              // 部署级配额：满员告知的判据
@@ -83,7 +84,7 @@
     NSString *senderUID = m.from ?: @"";
     NSString *senderText;
     if ([senderUID isEqualToString:self.userID]) {
-        senderText = @"你自己";
+        senderText = IMLocalized(@"chat.detail.you");
     } else if (self.isGroup) {
         NSString *nick = [self.group nicknameOfMember:senderUID] ?: senderUID;
         senderText = [IMRemarkStore.sharedStore displayNameForUser:senderUID fallback:nick]; // 备注优先（本机显示）
@@ -101,7 +102,7 @@
         __strong typeof(ws) self = ws;
         if (!self) { return; }
         [[IMVoicePlayer sharedPlayer] toggleEnsuringLocal:msg host:self.host completion:^(NSError *err) {
-            if (err) { [self im_showToast:(err.localizedDescription ?: @"语音播放失败")]; } // CODING_STYLE §5 不吞错
+            if (err) { [self im_showToast:(err.localizedDescription ?: IMLocalized(@"favorites.voice.play_failed"))]; } // CODING_STYLE §5 不吞错
         }];
     };
 }
@@ -113,7 +114,7 @@
     __weak typeof(self) ws = self;
     [[IMVoicePlayer sharedPlayer] toggleEnsuringLocal:m host:self.host completion:^(NSError *err) {
         __strong typeof(ws) self = ws;
-        if (self && err) { [self im_showToast:(err.localizedDescription ?: @"语音播放失败")]; } // IO 错误不吞（CODING_STYLE §5）
+        if (self && err) { [self im_showToast:(err.localizedDescription ?: IMLocalized(@"favorites.voice.play_failed"))]; } // IO 错误不吞（CODING_STYLE §5）
     }];
 }
 
@@ -173,20 +174,20 @@ static const NSUInteger kIMRtcMaxGroupCallPick = 8;
     NSArray<IMGroupMember *> *members = self.displayMembers;
     NSMutableArray<IMGroupMember *> *others = [NSMutableArray array];
     for (IMGroupMember *m in members) { if (![m.userID isEqualToString:self.userID]) { [others addObject:m]; } }
-    if (others.count == 0) { [self im_showToast:@"群里没有其他成员可呼叫"]; return; }
+    if (others.count == 0) { [self im_showToast:IMLocalized(@"chat.detail.group_call_no_members")]; return; }
     NSString *groupID = self.convID;
     __weak typeof(self) ws = self;
     IMFriendPickerViewController *picker =
         [[IMFriendPickerViewController alloc] initWithHost:self.host userID:self.userID
                                                 candidates:[IMGroupAdminLogic pickerCardsFromMembers:others]
-                                               excludedIDs:nil title:@"选择成员"
-                                              confirmTitle:@"呼叫"
+                                               excludedIDs:nil title:IMLocalized(@"chat.detail.group_call_picker_title")
+                                              confirmTitle:IMLocalized(@"chat.header.call")
                                                     onDone:^(NSArray<NSString *> *selectedIDs) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
         if (selectedIDs.count > kIMRtcMaxGroupCallPick) {
             [self.navigationController.topViewController im_showToast:
-                [NSString stringWithFormat:@"最多呼叫 %lu 人", (unsigned long)kIMRtcMaxGroupCallPick]];
+                IMLocalizedFormat(@"chat.detail.group_call_pick_max", (long)kIMRtcMaxGroupCallPick)];
             return;
         }
         [self.navigationController popToViewController:self animated:YES];
@@ -247,33 +248,33 @@ static const NSUInteger kIMRtcMaxGroupCallPick = 8;
     NSMutableArray<IMPopoverCardItem *> *items = [NSMutableArray array];
     __weak typeof(self) ws = self;
     if (self.isGroup) {
-        [items addObject:[IMPopoverCardItem itemWithTitle:@"清空聊天记录" symbol:@"trash" destructive:NO handler:^{ [ws confirmClearHistory]; }]];
-        [items addObject:[IMPopoverCardItem itemWithTitle:@"退出群组" symbol:@"rectangle.portrait.and.arrow.right" destructive:YES handler:^{ [ws confirmLeaveGroup]; }]];
+        [items addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"chat.detail.clear_history") symbol:@"trash" destructive:NO handler:^{ [ws confirmClearHistory]; }]];
+        [items addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"chat.detail.leave_group") symbol:@"rectangle.portrait.and.arrow.right" destructive:YES handler:^{ [ws confirmLeaveGroup]; }]];
         if (self.group && self.group.myRole == IMGroupRoleOwner) {
-            [items addObject:[IMPopoverCardItem itemWithTitle:@"删除群组" symbol:@"trash.fill" destructive:YES handler:^{ [ws confirmDissolve]; }]];
+            [items addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"chat.detail.dissolve_group") symbol:@"trash.fill" destructive:YES handler:^{ [ws confirmDissolve]; }]];
         }
     } else if (IMIsSystemUserID(self.peerID)) {
         // 系统通知会话：只保留清空聊天记录（拉黑/举报 不适用；护栏也会拒）。
-        [items addObject:[IMPopoverCardItem itemWithTitle:@"清空聊天记录" symbol:@"trash" destructive:NO handler:^{ [ws confirmClearHistory]; }]];
+        [items addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"chat.detail.clear_history") symbol:@"trash" destructive:NO handler:^{ [ws confirmClearHistory]; }]];
     } else {
         // 入口 ②「推荐给朋友」（CONTACT_CARD_DESIGN §4.3）：把**当前正在看的这个人**推给别的会话。
         // 微信里比"聊天页发名片"更高频（我正在看这个人 → 推给谁），且零新组件：选会话复用转发选择页。
-        [items addObject:[IMPopoverCardItem itemWithTitle:@"推荐给朋友" symbol:@"person.crop.square" destructive:NO handler:^{
+        [items addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"chat.detail.recommend_to_friend") symbol:@"person.crop.square" destructive:NO handler:^{
             [ws shareThisPeerAsContactCard];
         }]];
-        [items addObject:[IMPopoverCardItem itemWithTitle:(self.peerBlocked ? @"取消拉黑" : @"拉黑") symbol:@"hand.raised"
+        [items addObject:[IMPopoverCardItem itemWithTitle:(self.peerBlocked ? IMLocalized(@"chat.menu.unblock") : IMLocalized(@"common.block")) symbol:@"hand.raised"
                                              destructive:!self.peerBlocked handler:^{ [ws toggleBlock]; }]];
         // 举报这个人（target_type=user）。2026-09-06 聊天页长按菜单把「举报消息/举报发送者」
         // 合并成单个「举报」（=举报这条消息）后，**针对人本身**的举报只剩这一个入口——
         // 合并时若不在这里补上，等于静默丢掉一整个能力（合并前两端资料页都没有举报）。
-        [items addObject:[IMPopoverCardItem itemWithTitle:@"举报" symbol:@"exclamationmark.bubble"
+        [items addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"common.report") symbol:@"exclamationmark.bubble"
                                              destructive:YES handler:^{ [ws reportPeer]; }]];
-        [items addObject:[IMPopoverCardItem itemWithTitle:@"清空聊天记录" symbol:@"trash" destructive:NO handler:^{ [ws confirmClearHistory]; }]];
+        [items addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"chat.detail.clear_history") symbol:@"trash" destructive:NO handler:^{ [ws confirmClearHistory]; }]];
         // 删除好友（2026-08-30 补齐；此前只有通讯录左滑有这个动作，资料页里找不到）。
         // 破坏性最重 → 放末位（destructive-last，与消息/会话菜单同约定）。非好友根本看不到「更多」，
         // 这里的判定只是兜底：好友态是异步校正的，别在旧值下摆一个必然 4xx 的按钮。
         if (self.peerIsFriend) {
-            [items addObject:[IMPopoverCardItem itemWithTitle:@"删除好友" symbol:@"person.badge.minus"
+            [items addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"friend.menu.delete") symbol:@"person.badge.minus"
                                                  destructive:YES handler:^{ [ws confirmRemoveFriend]; }]];
         }
     }
@@ -295,7 +296,7 @@ static const NSUInteger kIMRtcMaxGroupCallPick = 8;
         return;
     }
     NSString *token = IMHTTPService.sharedService.currentToken;
-    if (token.length == 0) { [self im_showToast:@"请先登录"]; return; }
+    if (token.length == 0) { [self im_showToast:IMLocalized(@"chat.detail.login_first")]; return; }
     __weak typeof(self) ws = self;
     [IMHTTPService.sharedService userProfileWithToken:token userID:self.peerID
                                           completion:^(IMUserCard *card, NSError *error) {
@@ -303,7 +304,7 @@ static const NSUInteger kIMRtcMaxGroupCallPick = 8;
         if (!self) { return; }
         if (error) {
             // 200001 用户不存在 → 没有可分享的名片；其余（网络）也不该冻一个可能错的名字进去。
-            [self im_showToast:(error.code == 200001 ? @"该用户不存在或已注销" : @"拉取资料失败，请重试")];
+            [self im_showToast:(error.code == 200001 ? IMLocalized(@"chat.detail.deleted_user") : IMLocalized(@"chat.detail.fetch_profile_failed"))];
             return;
         }
         self.peerNickname = card.nickname.length ? card.nickname : self.peerNickname;
@@ -321,15 +322,15 @@ static const NSUInteger kIMRtcMaxGroupCallPick = 8;
 - (void)confirmRemoveFriend {
     if (self.isGroup || self.peerID.length == 0) { return; }
     __weak typeof(self) ws = self;
-    [self confirmDestructive:[NSString stringWithFormat:@"删除好友「%@」？", self.displayTitle]
-                     message:@"将从通讯录移除，聊天记录仍保留在本机。" action:@"删除" handler:^{
+    [self confirmDestructive:IMLocalizedFormat(@"chat.detail.remove_friend_confirm_title", self.displayTitle)
+                     message:IMLocalized(@"chat.detail.remove_friend_confirm_message") action:IMLocalized(@"common.delete") handler:^{
         NSString *token = IMHTTPService.sharedService.currentToken; if (token.length == 0) { return; }
         NSString *peer = ws.peerID; if (peer.length == 0) { return; }
         [IMHTTPService.sharedService removeFriendWithToken:token peerID:peer completion:^(NSError *error) {
             __strong typeof(ws) self = ws;
             if (!self) { return; }
-            if (error) { [self im_showToast:error.localizedDescription ?: @"删除失败"]; return; }
-            [self im_showToast:@"已删除好友"];
+            if (error) { [self im_showToast:error.localizedDescription ?: IMLocalized(@"net.fallback.delete_failed")]; return; }
+            [self im_showToast:IMLocalized(@"friend.delete.done")];
             // 重拉关系：校正 peerIsFriend → 重建操作排 + 隐藏备注名/设置/页签三张卡。
             // 同一次 /friends 也会刷新 IMFriendStateStore，故下次再进本页起步值就是"非好友"。
             [self loadPeerBlockState];
@@ -338,8 +339,8 @@ static const NSUInteger kIMRtcMaxGroupCallPick = 8;
 }
 
 - (void)confirmDissolve {
-    [self confirmDestructive:[NSString stringWithFormat:@"删除并解散「%@」？", self.displayTitle]
-                     message:@"所有成员将被移出，聊天记录无法恢复，此操作不可撤销。" action:@"删除" handler:^{
+    [self confirmDestructive:IMLocalizedFormat(@"chat.detail.dissolve_confirm_title", self.displayTitle)
+                     message:IMLocalized(@"chat.detail.dissolve_confirm_message") action:IMLocalized(@"common.delete") handler:^{
         NSString *token = IMHTTPService.sharedService.currentToken; if (token.length == 0) { return; }
         __weak typeof(self) ws = self;
         [IMHTTPService.sharedService dissolveGroupWithToken:token convID:self.convID completion:^(NSError *error) {
@@ -354,8 +355,8 @@ static const NSUInteger kIMRtcMaxGroupCallPick = 8;
 }
 
 - (void)confirmClearHistory {
-    NSString *msg = self.isGroup ? @"仅清空本机记录，不影响其他成员。" : @"将删除此会话在本机的全部消息，且无法恢复。";
-    [self confirmDestructive:@"清空聊天记录？" message:msg action:@"清空" handler:^{
+    NSString *msg = self.isGroup ? IMLocalized(@"chat.detail.clear_history_message_group") : IMLocalized(@"chat.detail.clear_history_message_dm");
+    [self confirmDestructive:IMLocalized(@"chat.detail.clear_history_confirm_title") message:msg action:IMLocalized(@"chat.clear.ok") handler:^{
         if (![self performDatabaseOperation:^(IMDatabase *database) {
             [database clearMessagesForConv:self.convID];
         }]) { return; }
@@ -364,13 +365,13 @@ static const NSUInteger kIMRtcMaxGroupCallPick = 8;
         // 通知底层聊天页清空内存并刷新（否则返回聊天页仍显旧消息）。
         [NSNotificationCenter.defaultCenter postNotificationName:IMChatConversationClearedNotification
                                                           object:nil userInfo:@{kIMConvIDKey: self.convID}];
-        [self im_showToast:@"聊天记录已清空"];
+        [self im_showToast:IMLocalized(@"chat.detail.clear_history_done")];
     }];
 }
 
 - (void)confirmLeaveGroup {
-    [self confirmDestructive:[NSString stringWithFormat:@"退出「%@」？", self.displayTitle]
-                     message:@"退出后将不再接收此群消息。" action:@"退出" handler:^{
+    [self confirmDestructive:IMLocalizedFormat(@"chat.detail.leave_group_confirm_title", self.displayTitle)
+                     message:IMLocalized(@"chat.detail.leave_group_message") action:IMLocalized(@"group.info.leave_confirm") handler:^{
         NSString *token = IMHTTPService.sharedService.currentToken; if (token.length == 0) { return; }
         __weak typeof(self) ws = self;
         [IMHTTPService.sharedService leaveGroupWithToken:token convID:self.convID completion:^(NSError *error) {
@@ -388,7 +389,7 @@ static const NSUInteger kIMRtcMaxGroupCallPick = 8;
 - (void)confirmDestructive:(NSString *)title message:(NSString *)message action:(NSString *)action handler:(void (^)(void))handler {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:message
                                                            preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
     [alert addAction:[UIAlertAction actionWithTitle:action style:UIAlertActionStyleDestructive handler:^(UIAlertAction *x) {
         if (handler) { handler(); }
     }]];
@@ -411,7 +412,7 @@ static const NSUInteger kIMRtcMaxGroupCallPick = 8;
         pinnedAt:self.pinnedAt muted:self.muted markedUnread:self.markedUnread completion:^(NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self || !error) { return; }
-        [self im_showToast:error.localizedDescription ?: @"设置失败"];
+        [self im_showToast:error.localizedDescription ?: IMLocalized(@"conv.error.settings_failed")];
         // 提交失败：重拉权威值并刷新开关，不让 UI 停留在"看起来成功"的失败态。
         [self loadConversationSettings];
     }];
@@ -436,14 +437,14 @@ static NSInteger IMRuneCount(NSString *s) {
 /// friend(event=remark) 帧推给本人其它设备；本机各页由 IMRemarkStore 的变更通知刷新。
 - (void)editRemark {
     if (self.peerID.length == 0) { return; }
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"设置备注名"
-        message:@"备注名仅自己可见，将替代对方昵称显示，多端同步。" preferredStyle:UIAlertControllerStyleAlert];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:IMLocalized(@"contact.edit.remark_placeholder")
+        message:IMLocalized(@"chat.detail.remark_alert_message") preferredStyle:UIAlertControllerStyleAlert];
     NSString *current = self.peerRemark ?: @"";
     NSString *placeholder = self.peerNickname.length ? self.peerNickname : (self.peerID ?: @"");
     [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) { tf.text = current; tf.placeholder = placeholder; }];
     __weak typeof(self) ws = self;
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
+    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.save") style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
         NSString *v = [alert.textFields.firstObject.text
                        stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] ?: @"";
         if ([v isEqualToString:current]) { return; } // 没改就别打服务端（清空也走这里：""=="" 直接返回）
@@ -453,18 +454,18 @@ static NSInteger IMRuneCount(NSString *s) {
         // 按 Unicode 码点数，与服务端 len([]rune(..)) 同口径——NSString.length 是 UTF-16 单元数，
         // 一个 emoji 占 2，用它会把「32 字」提前拦成 16 个 emoji。
         if (IMRuneCount(v) > kIMFriendRemarkMaxRunes) {
-            [self im_showToast:[NSString stringWithFormat:@"备注名最多 %ld 字", (long)kIMFriendRemarkMaxRunes]];
+            [self im_showToast:IMLocalizedFormat(@"chat.detail.remark_max_length", (long)kIMFriendRemarkMaxRunes)];
             return;
         }
         NSString *token = IMHTTPService.sharedService.currentToken;
-        if (token.length == 0) { [self im_showToast:@"未登录"]; return; }
+        if (token.length == 0) { [self im_showToast:IMLocalized(@"common.not_logged_in")]; return; }
         NSString *peerID = self.peerID;
         [IMHTTPService.sharedService setFriendRemarkWithToken:token peerID:peerID remark:v
                                                   completion:^(NSError *error) {
             __strong typeof(ws) self = ws;
             if (!self) { return; }
             // 业务码文案已在 IMHTTPService 按码映射（如 200103 →「对方不是你的好友」），直接透出。
-            if (error) { [self im_showToast:error.localizedDescription ?: @"保存失败"]; return; }
+            if (error) { [self im_showToast:error.localizedDescription ?: IMLocalized(@"common.save_failed")]; return; }
             IMLog(@"好友备注已更新 peer=%@ len=%lu", peerID, (unsigned long)v.length);
             self.peerRemark = v.length ? v : nil;
             // 乐观落缓存 + 更新全局显示名：本机各页当场跟着变。服务端那帧也会回到本端，
@@ -475,7 +476,7 @@ static NSInteger IMRuneCount(NSString *s) {
             [IMRemarkStore.sharedStore applyRemark:v forUser:peerID];
             [self refreshHeaderTexts];
             [self.tableView reloadData];
-            [self im_showToast:v.length ? @"备注已更新" : @"备注已清除"];
+            [self im_showToast:v.length ? IMLocalized(@"chat.detail.remark_updated") : IMLocalized(@"chat.detail.remark_cleared")];
         }];
     }]];
     [self presentViewController:alert animated:YES completion:nil];
@@ -490,26 +491,26 @@ static NSInteger IMRuneCount(NSString *s) {
 
 /// 我在本群的昵称（G1，任意成员）：走后端 → 成功后刷新群资料（气泡回退名随之更新）。
 - (void)editMyGroupNickname {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"我在本群的昵称"
-        message:@"群内所有人可见，最多 20 字；留空恢复默认昵称。" preferredStyle:UIAlertControllerStyleAlert];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:IMLocalized(@"chat.detail.my_group_nickname")
+        message:IMLocalized(@"chat.detail.my_group_nickname_message") preferredStyle:UIAlertControllerStyleAlert];
     NSString *current = self.group.myNickname ?: @"";
     [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) { tf.text = current; }];
     __weak typeof(self) ws = self;
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
+    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.save") style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
         NSString *v = [alert.textFields.firstObject.text
                        stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] ?: @"";
         if ([v isEqualToString:current]) { return; }
         NSString *token = IMHTTPService.sharedService.currentToken;
-        if (token.length == 0) { [ws im_showToast:@"未登录"]; return; }
+        if (token.length == 0) { [ws im_showToast:IMLocalized(@"common.not_logged_in")]; return; }
         [IMHTTPService.sharedService setGroupMyNicknameWithToken:token convID:ws.convID nickname:v
                                                      completion:^(NSError *error) {
             __strong typeof(ws) self = ws;
             if (!self) { return; }
-            if (error) { [self im_showToast:error.localizedDescription ?: @"保存失败"]; return; }
+            if (error) { [self im_showToast:error.localizedDescription ?: IMLocalized(@"common.save_failed")]; return; }
             self.group.myNickname = v.length ? v : nil;
             [self loadGroupInfo]; // 成员表 group_nickname 变了，重拉刷新
-            [self im_showToast:@"已更新"];
+            [self im_showToast:IMLocalized(@"common.updated")];
         }];
     }]];
     [self presentViewController:alert animated:YES completion:nil];
@@ -518,23 +519,23 @@ static NSInteger IMRuneCount(NSString *s) {
 /// 群备注（G1，仅本人可见）：改我看到的群名，**服务端多端同步**（PUT …/remark）。
 /// 成功后本端乐观刷新 + 落缓存；conv_update 会把变更同步到本人其它端与本机的会话列表/聊天页标题。
 - (void)editGroupRemark {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"群备注"
-        message:@"仅自己可见，将替代群名显示，多端同步。" preferredStyle:UIAlertControllerStyleAlert];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:IMLocalized(@"chat.detail.group_remark")
+        message:IMLocalized(@"chat.detail.group_remark_message") preferredStyle:UIAlertControllerStyleAlert];
     NSString *current = [self currentConvRemark];
     [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) { tf.text = current; tf.placeholder = self.group.name; }];
     __weak typeof(self) ws = self;
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
+    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.save") style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
         NSString *v = [alert.textFields.firstObject.text
                        stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] ?: @"";
         if ([v isEqualToString:current]) { return; }
         NSString *token = IMHTTPService.sharedService.currentToken;
-        if (token.length == 0) { [ws im_showToast:@"未登录"]; return; }
+        if (token.length == 0) { [ws im_showToast:IMLocalized(@"common.not_logged_in")]; return; }
         [IMHTTPService.sharedService setConversationRemarkWithToken:token convID:ws.convID remark:v
                                                         completion:^(NSError *error) {
             __strong typeof(ws) self = ws;
             if (!self) { return; }
-            if (error) { [self im_showToast:error.localizedDescription ?: @"保存失败"]; return; }
+            if (error) { [self im_showToast:error.localizedDescription ?: IMLocalized(@"common.save_failed")]; return; }
             IMLog(@"群备注已更新 conv=%@ len=%lu", self.convID, (unsigned long)v.length);
             self.convRemark = v.length ? v : nil;
             // 乐观落缓存：本机会话列表下次刷新（含 conv_update 前）即显新备注，不必等 HTTP 重拉。
@@ -543,7 +544,7 @@ static NSInteger IMRuneCount(NSString *s) {
             }];
             [self refreshHeaderTexts];
             [self.tableView reloadData];
-            [self im_showToast:v.length ? @"备注已更新" : @"备注已清除"];
+            [self im_showToast:v.length ? IMLocalized(@"chat.detail.remark_updated") : IMLocalized(@"chat.detail.remark_cleared")];
         }];
     }]];
     [self presentViewController:alert animated:YES completion:nil];
@@ -558,14 +559,14 @@ static NSInteger IMRuneCount(NSString *s) {
                                                 completion:^(NSError *error) {
             __strong typeof(ws) self = ws;
             if (!self) { return; }
-            if (error) { [self im_showToast:error.localizedDescription ?: @"操作失败"]; return; }
+            if (error) { [self im_showToast:error.localizedDescription ?: IMLocalized(@"common.action_failed")]; return; }
             self.peerBlocked = toBlock;
-            [self im_showToast:toBlock ? @"已拉黑" : @"已取消拉黑"];
+            [self im_showToast:toBlock ? IMLocalized(@"common.blocked") : IMLocalized(@"friend.block.undone")];
         }];
     };
     if (toBlock) {
-        [self confirmDestructive:[NSString stringWithFormat:@"拉黑「%@」？", self.displayTitle]
-                         message:@"拉黑后将不再收到对方消息。" action:@"拉黑" handler:commit];
+        [self confirmDestructive:IMLocalizedFormat(@"chat.detail.block_confirm_title", self.displayTitle)
+                         message:IMLocalized(@"chat.detail.block_confirm_message") action:IMLocalized(@"common.block") handler:commit];
     } else { commit(); }
 }
 
@@ -574,21 +575,21 @@ static NSInteger IMRuneCount(NSString *s) {
 /// 标题里的名字用 `displayTitle`（备注优先的**本机显示名**）——这句话只给我自己看、不随请求发出。
 - (void)reportPeer {
     if (self.peerID.length == 0) { return; }
-    UIAlertController *ac = [UIAlertController alertControllerWithTitle:[NSString stringWithFormat:@"举报「%@」？", self.displayTitle]
-        message:@"请填写举报理由（可空）" preferredStyle:UIAlertControllerStyleAlert];
-    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf) { tf.placeholder = @"理由"; }];
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:IMLocalizedFormat(@"chat.detail.report_confirm_title", self.displayTitle)
+        message:IMLocalized(@"chat.detail.report_reason_prompt") preferredStyle:UIAlertControllerStyleAlert];
+    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf) { tf.placeholder = IMLocalized(@"chat.detail.report_reason_placeholder"); }];
     __weak typeof(self) ws = self;
-    [ac addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [ac addAction:[UIAlertAction actionWithTitle:@"提交举报" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+    [ac addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
+    [ac addAction:[UIAlertAction actionWithTitle:IMLocalized(@"chat.detail.report_submit") style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
         __strong typeof(ws) self = ws; if (!self) { return; }
         NSString *token = IMHTTPService.sharedService.currentToken;
-        if (token.length == 0) { [self im_showToast:@"举报失败：未登录"]; return; }
+        if (token.length == 0) { [self im_showToast:IMLocalized(@"chat.detail.report_failed_not_logged_in")]; return; }
         [IMHTTPService.sharedService reportWithToken:token targetType:@"user" targetID:self.peerID
                                               convID:nil reason:(ac.textFields.firstObject.text ?: @"")
                                           completion:^(NSError *error) {
             __strong typeof(ws) inner = ws; if (!inner) { return; }
-            [inner im_showToast:error ? [NSString stringWithFormat:@"举报失败：%@", error.localizedDescription]
-                                      : @"举报已提交，感谢反馈。"];
+            [inner im_showToast:error ? IMLocalizedFormat(@"chat.detail.report_failed_detail", error.localizedDescription)
+                                      : IMLocalized(@"chat.detail.report_submitted")];
         }];
     }]];
     [self presentViewController:ac animated:YES completion:nil];
@@ -621,12 +622,12 @@ static NSInteger IMRuneCount(NSString *s) {
 /// UITableViewCellStyleSubtitle 的两个 label 由 UIKit 内部布局，间距改不了。
 - (NSAttributedString *)upgradeHintDetailText {
     IMServerConfigStore *cfg = IMServerConfigStore.shared;
-    NSString *text = [NSString stringWithFormat:
-        @"1. 可容纳至 %ld 人；成员列表改为分页加载，搜索改走服务端\n"
-        @"2. 升级后已读回执、「正在输入」、成员在线态不再显示\n"
-        @"3. 升级后成员进出不再产生群消息（「X 加入了群聊」等）\n"
-        @"4. 单向操作，升级后不可撤销\n"
-        @"点此复制群 ID", (long)cfg.maxSupergroupMembers];
+    NSString *text = [NSString stringWithFormat:@"1. %@\n2. %@\n3. %@\n4. %@\n%@",
+        IMLocalizedFormat(@"group.upgrade_hint.item_1", (long)cfg.maxSupergroupMembers),
+        IMLocalized(@"group.upgrade_hint.item_2"),
+        IMLocalized(@"group.upgrade_hint.item_3"),
+        IMLocalized(@"group.upgrade_hint.item_4_short"),
+        IMLocalized(@"group.upgrade_hint.tap_copy_id")];
     NSMutableParagraphStyle *ps = [[NSMutableParagraphStyle alloc] init];
     ps.lineSpacing = 4; // 分条之间撑开一点；系统默认几乎贴着，正是「上下间隔太小」的观感来源
     return [[NSAttributedString alloc] initWithString:text attributes:@{
@@ -711,7 +712,7 @@ static NSInteger IMRuneCount(NSString *s) {
     if ([self showsMemberSearchRow]) {
         if (row == lead) {
             UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleDefault reuseID:@"dDef" inTable:tv];
-            cell.textLabel.text = @"搜索成员"; cell.textLabel.textColor = IMTheme.accent;
+            cell.textLabel.text = IMLocalized(@"group.member.search"); cell.textLabel.textColor = IMTheme.accent;
             cell.imageView.image = [UIImage systemImageNamed:@"magnifyingglass"];
             cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
             return cell;
@@ -721,7 +722,7 @@ static NSInteger IMRuneCount(NSString *s) {
     if ([self inviteEntriesVisible]) {
         if (row == lead) {
             UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleDefault reuseID:@"dDef" inTable:tv];
-            cell.textLabel.text = @"添加成员"; cell.textLabel.textColor = IMTheme.accent;
+            cell.textLabel.text = IMLocalized(@"group.member.add"); cell.textLabel.textColor = IMTheme.accent;
             cell.imageView.image = [UIImage systemImageNamed:@"person.badge.plus"];
             return cell;
         }
@@ -730,7 +731,7 @@ static NSInteger IMRuneCount(NSString *s) {
     if ([self showsUpgradeHintRow] && row == lead) {
         IMServerConfigStore *cfg = IMServerConfigStore.shared;
         UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleSubtitle reuseID:@"dSub" inTable:tv];
-        cell.textLabel.text = [NSString stringWithFormat:@"成员已达上限 %ld", (long)cfg.maxGroupMembers];
+        cell.textLabel.text = IMLocalizedFormat(@"group.upgrade_hint.title", (long)cfg.maxGroupMembers);
         cell.textLabel.textColor = IMTheme.textPrimary;
         cell.detailTextLabel.numberOfLines = 0;
         cell.detailTextLabel.attributedText = [self upgradeHintDetailText];
@@ -742,7 +743,7 @@ static NSInteger IMRuneCount(NSString *s) {
     NSArray<IMGroupMember *> *list = self.displayMembers;
     if (row - offset >= (NSInteger)list.count) { // 末尾的「加载更多成员」行（仅超级群且还有下一页）
         UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleDefault reuseID:@"dDef" inTable:tv];
-        cell.textLabel.text = self.superLoading ? @"加载中…" : @"加载更多成员";
+        cell.textLabel.text = self.superLoading ? IMLocalized(@"common.loading") : IMLocalized(@"group.member.load_more");
         cell.textLabel.textColor = IMTheme.accent;
         cell.imageView.image = [UIImage systemImageNamed:@"ellipsis.circle"];
         return cell;
@@ -768,7 +769,7 @@ static NSInteger IMRuneCount(NSString *s) {
     }
     if ([self showsUpgradeHintRow] && row == lead) {
         UIPasteboard.generalPasteboard.string = self.convID;
-        [self im_showToast:@"已复制群 ID"];
+        [self im_showToast:IMLocalized(@"chat.detail.group_id_copied")];
         return;
     }
     if (row - offset >= (NSInteger)self.displayMembers.count) { [self loadMoreSuperMembers]; return; } // 「加载更多」行
@@ -808,7 +809,7 @@ static NSInteger IMRuneCount(NSString *s) {
         if (error) {
             // 拉不到就停在当前页：成员签少几行，不影响详情页其余部分。
             self.superHasMore = NO;
-            [self im_showToast:error.localizedDescription ?: @"拉取群成员失败"];
+            [self im_showToast:error.localizedDescription ?: IMLocalized(@"group.info.members_failed")];
             [self.tableView reloadData];
             return;
         }

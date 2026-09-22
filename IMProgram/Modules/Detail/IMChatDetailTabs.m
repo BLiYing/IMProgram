@@ -4,6 +4,7 @@
 #import "IMMessageModel.h"
 #import "IMMediaUtil.h"
 #import "IMContactCard.h"
+#import "IMLocalization.h"
 
 @implementation IMChatDetailTab
 @end
@@ -47,12 +48,12 @@
 
 + (NSString *)titleForKind:(IMDetailTabKind)kind {
     switch (kind) {
-        case IMDetailTabKindMembers: return @"成员";
-        case IMDetailTabKindMedia:   return @"媒体";
-        case IMDetailTabKindFiles:   return @"文件";
-        case IMDetailTabKindVoice:   return @"语音";
-        case IMDetailTabKindLinks:   return @"链接";
-        case IMDetailTabKindContacts: return @"名片";
+        case IMDetailTabKindMembers: return IMLocalized(@"group.member.tab_label");
+        case IMDetailTabKindMedia:   return IMLocalized(@"favorites.category.media");
+        case IMDetailTabKindFiles:   return IMLocalized(@"common.file");
+        case IMDetailTabKindVoice:   return IMLocalized(@"favorites.category.voice");
+        case IMDetailTabKindLinks:   return IMLocalized(@"favorites.category.links");
+        case IMDetailTabKindContacts: return IMLocalized(@"favorites.category.contact");
     }
     return @"";
 }

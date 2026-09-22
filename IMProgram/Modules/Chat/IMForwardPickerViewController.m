@@ -9,6 +9,7 @@
 #import "UILabel+IMAvatar.h"
 #import "IMTheme.h"
 #import "IMCircleCheckbox.h"
+#import "IMLocalization.h"
 
 static const NSUInteger kIMForwardMaxSelection = 9;
 
@@ -114,7 +115,7 @@ static const NSUInteger kIMForwardMaxSelection = 9;
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"转发到";
+    self.title = IMLocalized(@"forward.picker.destination_title");
     self.view.backgroundColor = UIColor.systemBackgroundColor;
 
     self.navigationItem.leftBarButtonItem =
@@ -130,7 +131,7 @@ static const NSUInteger kIMForwardMaxSelection = 9;
     // 搜索框（会话多了以后必需）：外观与匹配口径走 IMListSearch，与选好友页/@面板同一套。
     // 放 tableHeaderView 而非 UISearchController：本页是 modal + 自带导航栏，
     // UISearchController 会再叠一层导航态，交互与「取消/多选」两个 bar button 打架。
-    _searchBar = IMListSearchBarMake(self.view.bounds.size.width, @"搜索会话", self);
+    _searchBar = IMListSearchBarMake(self.view.bounds.size.width, IMLocalized(@"forward.picker.search_placeholder"), self);
     // 与选好友页同一套：搜索框进容器，宽度在 viewDidLayoutSubviews 对齐表格（详见 IMListSearch.h）。
     _searchHeader = IMListSearchHeaderMake(_searchBar);
     _tableView.tableHeaderView = _searchHeader;
@@ -150,7 +151,7 @@ static const NSUInteger kIMForwardMaxSelection = 9;
         __strong typeof(ws) self = ws;
         if (!self) { return; }
         if (error) {
-            [self im_showToast:@"加载会话失败"];
+            [self im_showToast:IMLocalized(@"forward.picker.load_failed")];
             return;
         }
         // 剔除「系统通知」单聊：那是只读会话，服务端直接拒 send_msg to=system（护栏见
@@ -162,7 +163,7 @@ static const NSUInteger kIMForwardMaxSelection = 9;
             [forwardable addObject:c];
         }
         if (forwardable.count == 0) {
-            [self im_showToast:@"暂无可转发的会话"];
+            [self im_showToast:IMLocalized(@"forward.picker.no_conversations")];
             return;
         }
         self->_convs = forwardable;
@@ -199,13 +200,13 @@ static const NSUInteger kIMForwardMaxSelection = 9;
 
 - (void)updateRightButton {
     if (_multiSelect) {
-        NSString *title = _selected.count > 0 ? [NSString stringWithFormat:@"发送(%lu)", (unsigned long)_selected.count] : @"发送";
+        NSString *title = _selected.count > 0 ? IMLocalizedFormat(@"forward.picker.send_count", (long)_selected.count) : IMLocalized(@"common.send");
         self.navigationItem.rightBarButtonItem =
             [[UIBarButtonItem alloc] initWithTitle:title style:UIBarButtonItemStyleDone target:self action:@selector(sendTapped)];
         self.navigationItem.rightBarButtonItem.enabled = _selected.count > 0;
     } else {
         self.navigationItem.rightBarButtonItem =
-            [[UIBarButtonItem alloc] initWithTitle:@"多选" style:UIBarButtonItemStylePlain target:self action:@selector(enterMultiSelect)];
+            [[UIBarButtonItem alloc] initWithTitle:IMLocalized(@"forward.picker.multi") style:UIBarButtonItemStylePlain target:self action:@selector(enterMultiSelect)];
     }
 }
 
@@ -246,11 +247,11 @@ static const NSUInteger kIMForwardMaxSelection = 9;
     IMConversation *c = _filtered[ip.row];
     if (!_multiSelect) { // 单选：确认后立即回调
         __weak typeof(self) ws = self;
-        UIAlertController *a = [UIAlertController alertControllerWithTitle:@"转发"
-            message:[NSString stringWithFormat:@"发送给「%@」？", [self displayNameFor:c]]
+        UIAlertController *a = [UIAlertController alertControllerWithTitle:IMLocalized(@"common.forward")
+            message:IMLocalizedFormat(@"forward.picker.confirm_single", [self displayNameFor:c])
             preferredStyle:UIAlertControllerStyleAlert];
-        [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-        [a addAction:[UIAlertAction actionWithTitle:@"发送" style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
+        [a addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
+        [a addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.send") style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
             __strong typeof(ws) self = ws;
             void (^done)(NSArray<IMConversation *> *) = self->_onDone;
             [self dismissViewControllerAnimated:YES completion:^{ if (done) { done(@[c]); } }];
@@ -263,7 +264,7 @@ static const NSUInteger kIMForwardMaxSelection = 9;
         [_selected removeObject:c];
     } else {
         if (_selected.count >= kIMForwardMaxSelection) {
-            [self im_showToast:[NSString stringWithFormat:@"最多选择 %lu 个会话", (unsigned long)kIMForwardMaxSelection]];
+            [self im_showToast:IMLocalizedFormat(@"forward.picker.max_selection", (long)kIMForwardMaxSelection)];
             return;
         }
         [_selected addObject:c];

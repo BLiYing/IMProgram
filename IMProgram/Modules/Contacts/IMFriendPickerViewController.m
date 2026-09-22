@@ -1,6 +1,7 @@
 //  IMFriendPickerViewController.m
 
 #import "IMFriendPickerViewController.h"
+#import "IMLocalization.h"
 #import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
 #import "IMContactCells.h"
 #import "IMContactSectionIndex.h"
@@ -40,7 +41,7 @@
                 confirmTitle:(NSString *)confirmTitle
                       onDone:(void (^)(NSArray<NSString *> *))onDone {
     return [self initWithHost:host userID:userID candidates:nil excludedIDs:excludedIDs
-                        title:@"选择好友" confirmTitle:confirmTitle onDone:onDone];
+                        title:IMLocalized(@"friend.picker.title") confirmTitle:confirmTitle onDone:onDone];
 }
 
 - (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID
@@ -55,7 +56,7 @@
         _userID = [userID copy];
         _injectedCandidates = [candidates copy];
         _excludedIDs = [excludedIDs copy];
-        _baseTitle = [(title.length > 0 ? title : @"选择好友") copy];
+        _baseTitle = [(title.length > 0 ? title : IMLocalized(@"friend.picker.title")) copy];
         _confirmTitle = [confirmTitle copy];
         _onDone = [onDone copy];
         _picked = [NSMutableOrderedSet orderedSet];
@@ -85,7 +86,7 @@
     [self.tableView registerClass:IMContactCell.class forCellReuseIdentifier:@"pick"];
     // 搜索框：好友一多就得搜。外观与匹配口径走 IMListSearch，与转发选择页/@面板同一套。
     self.searchBar = IMListSearchBarMake(self.view.bounds.size.width,
-                                         self.searchPlaceholder.length ? self.searchPlaceholder : @"搜索好友", self);
+                                         self.searchPlaceholder.length ? self.searchPlaceholder : IMLocalized(@"friend.picker.search_placeholder"), self);
     // 搜索框挂在容器里而不是直接当 tableHeaderView：直接挂时它的宽度停在 viewDidLoad 那一刻的
     // view.bounds，与表格真实宽度（本页右侧还有 A–Z 索引尺）对不上，整个框看起来左右都偏。
     self.searchHeader = IMListSearchHeaderMake(self.searchBar);
@@ -94,7 +95,7 @@
 
     self.emptyLabel = [UILabel new];
     self.emptyLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.emptyLabel.text = self.emptyText.length ? self.emptyText : @"没有可选的好友";
+    self.emptyLabel.text = self.emptyText.length ? self.emptyText : IMLocalized(@"friend.picker.no_selectable");
     self.emptyLabel.textColor = IMTheme.textSecondary;
     self.emptyLabel.textAlignment = NSTextAlignmentCenter;
     self.emptyLabel.hidden = YES;
@@ -200,8 +201,8 @@
     // 再本地过一遍不但多余，还会**二次收窄**——服务端按句柄/群昵称/全局昵称三源命中，
     // 本地只认显示名+句柄，命中群昵称的那些人会被本地这一道悄悄滤掉。
     if (self.remoteCandidateSearch) {
-        [self showVisibleCards:visible emptyText:(q.length > 0 ? @"没有匹配的成员"
-                                                 : (self.emptyText.length ? self.emptyText : @"群里还没有其他成员"))];
+        [self showVisibleCards:visible emptyText:(q.length > 0 ? IMLocalized(@"group.picker.no_match")
+                                                 : (self.emptyText.length ? self.emptyText : IMLocalized(@"group.picker.no_others")))];
         return;
     }
     // 搜索维度 = 显示名 + @句柄（+ 好友场景的内部 ID）。
@@ -219,8 +220,8 @@
         }
         visible = out;
     }
-    NSString *noneText = self.emptyText.length ? self.emptyText : @"没有可选的好友";
-    NSString *noHitText = searchUserID ? @"没有匹配的好友" : @"没有匹配的成员";
+    NSString *noneText = self.emptyText.length ? self.emptyText : IMLocalized(@"friend.picker.no_selectable");
+    NSString *noHitText = searchUserID ? IMLocalized(@"friend.picker.no_match") : IMLocalized(@"group.picker.no_match");
     [self showVisibleCards:visible emptyText:((q.length > 0 && self.usable.count > 0) ? noHitText : noneText)];
 }
 
@@ -275,10 +276,10 @@
     if (self.picked.count == 0) {
         self.title = self.baseTitle;
     } else if (self.maxSelection > 0) {
-        self.title = [NSString stringWithFormat:@"已选 %lu/%lu 人",
-                      (unsigned long)self.picked.count, (unsigned long)self.maxSelection];
+        self.title = IMLocalizedFormat(@"friend.picker.selected_of_max",
+                      (long)self.picked.count, (long)self.maxSelection);
     } else {
-        self.title = [NSString stringWithFormat:@"已选 %lu 人", (unsigned long)self.picked.count];
+        self.title = IMLocalizedFormat(@"friend.picker.selected", (long)self.picked.count);
     }
     self.navigationItem.rightBarButtonItem.enabled = self.picked.count > 0;
     // 标题栏按本页 navigationItem 渲染，改完必须显式请求刷新，

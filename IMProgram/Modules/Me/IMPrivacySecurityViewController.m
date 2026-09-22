@@ -7,6 +7,7 @@
 #import "IMUserCard.h"
 #import "UIViewController+IMToast.h"
 #import "IMLog.h"
+#import "IMLocalization.h"
 
 #pragma mark - 行模型
 
@@ -107,7 +108,7 @@
     _iconBg.backgroundColor = row.iconBgColor;
 
     self.accessoryType = UITableViewCellAccessoryDisclosureIndicator; // 占位行也保留 chevron（暗示可点开）
-    self.accessibilityHint = row.isPlaceholder ? @"即将上线" : nil;
+    self.accessibilityHint = row.isPlaceholder ? IMLocalized(@"ps.coming_soon_hint") : nil;
 }
 
 @end
@@ -135,7 +136,7 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"隐私与安全"; // 与设置页入口 title 完全一致（§0）
+    self.title = IMLocalized(@"settings.row.privacy"); // 与设置页入口 title 完全一致（§0）
     self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
 
     [self buildGroups];
@@ -160,56 +161,56 @@
 
     // 组 A · 安全（P0）
     IMPSRow *blocked = [IMPSRow new];
-    blocked.rowId = @"blocked"; blocked.title = @"已屏蔽的用户"; blocked.systemImage = @"nosign";
+    blocked.rowId = @"blocked"; blocked.title = IMLocalized(@"blocked.title"); blocked.systemImage = @"nosign";
     blocked.iconBgColor = UIColor.systemRedColor;
     blocked.handler = ^{ [ws openBlocked]; };
     self.blockedRow = blocked;
 
     IMPSRow *changePwd = [IMPSRow new];
-    changePwd.rowId = @"changePwd"; changePwd.title = @"修改密码"; changePwd.systemImage = @"key.fill";
+    changePwd.rowId = @"changePwd"; changePwd.title = IMLocalized(@"settings.change_password"); changePwd.systemImage = @"key.fill";
     changePwd.iconBgColor = UIColor.systemBlueColor;
     changePwd.handler = ^{ [ws openChangePassword]; };
 
     IMPSGroup *groupA = [IMPSGroup new];
-    groupA.footer = @"已屏蔽的用户不能给你发消息，也看不到你的资料。";
+    groupA.footer = IMLocalized(@"ps.group_a_footer");
     groupA.rows = @[blocked, changePwd];
 
     // 组 B · 账号保护（占位）
     IMPSGroup *groupB = [IMPSGroup new];
-    groupB.header = @"账号保护";
-    groupB.footer = @"绑定第二因子后，即使密码泄露也无法登录你的账号。";
+    groupB.header = IMLocalized(@"ps.section.account_protection");
+    groupB.footer = IMLocalized(@"ps.account_protection_footer");
     groupB.rows = @[
-        [self placeholder:@"两步验证" symbol:@"lock.shield.fill" bg:UIColor.systemGrayColor value:@"关闭"],
-        [self placeholder:@"通行密钥" symbol:@"key.horizontal.fill" bg:UIColor.systemPurpleColor value:@"关闭"],
-        [self placeholder:@"邮箱登录" symbol:@"envelope.fill" bg:UIColor.systemTealColor value:nil],
+        [self placeholder:IMLocalized(@"ps.row.two_factor") symbol:@"lock.shield.fill" bg:UIColor.systemGrayColor value:IMLocalized(@"common.off")],
+        [self placeholder:IMLocalized(@"ps.row.passkey") symbol:@"key.horizontal.fill" bg:UIColor.systemPurpleColor value:IMLocalized(@"common.off")],
+        [self placeholder:IMLocalized(@"ps.row.email_login") symbol:@"envelope.fill" bg:UIColor.systemTealColor value:nil],
     ];
 
     // 组 C · 会话隐私（占位）
     IMPSGroup *groupC = [IMPSGroup new];
-    groupC.header = @"会话隐私";
-    groupC.footer = @"为你开始的每个新会话默认开启阅后自删。";
+    groupC.header = IMLocalized(@"ps.section.chat_privacy");
+    groupC.footer = IMLocalized(@"ps.chat_privacy_footer");
     groupC.rows = @[
-        [self placeholder:@"自动删除消息" symbol:@"timer" bg:UIColor.systemOrangeColor value:@"关闭"],
+        [self placeholder:IMLocalized(@"ps.row.auto_delete_messages") symbol:@"timer" bg:UIColor.systemOrangeColor value:IMLocalized(@"common.off")],
     ];
 
     // 组 D · 谁能看到（占位，一整组 P2）
     IMPSGroup *groupD = [IMPSGroup new];
-    groupD.header = @"谁能看到";
-    groupD.footer = @"这些设置决定他人在你的资料页看到多少。";
+    groupD.header = IMLocalized(@"ps.section.who_can_see");
+    groupD.footer = IMLocalized(@"ps.who_can_see_footer");
     groupD.rows = @[
-        [self placeholder:@"手机号码" symbol:@"phone.fill" bg:UIColor.systemGreenColor value:@"我的联系人"],
-        [self placeholder:@"上次上线" symbol:@"eye.fill" bg:UIColor.systemBlueColor value:@"我的联系人"],
-        [self placeholder:@"头像" symbol:@"person.crop.circle.fill" bg:UIColor.systemPurpleColor value:@"所有人"],
-        [self placeholder:@"个人简介" symbol:@"text.alignleft" bg:UIColor.systemYellowColor value:@"所有人"],
-        [self placeholder:@"生日" symbol:@"gift.fill" bg:UIColor.systemPinkColor value:@"我的联系人"],
+        [self placeholder:IMLocalized(@"ps.row.phone_number") symbol:@"phone.fill" bg:UIColor.systemGreenColor value:IMLocalized(@"common.my_contacts")],
+        [self placeholder:IMLocalized(@"ps.row.last_seen") symbol:@"eye.fill" bg:UIColor.systemBlueColor value:IMLocalized(@"common.my_contacts")],
+        [self placeholder:IMLocalized(@"ps.row.avatar") symbol:@"person.crop.circle.fill" bg:UIColor.systemPurpleColor value:IMLocalized(@"common.everyone")],
+        [self placeholder:IMLocalized(@"ps.row.bio") symbol:@"text.alignleft" bg:UIColor.systemYellowColor value:IMLocalized(@"common.everyone")],
+        [self placeholder:IMLocalized(@"ps.row.birthday") symbol:@"gift.fill" bg:UIColor.systemPinkColor value:IMLocalized(@"common.my_contacts")],
     ];
 
     // 组 E · 数据（占位）
     IMPSGroup *groupE = [IMPSGroup new];
-    groupE.header = @"数据";
+    groupE.header = IMLocalized(@"ps.section.data");
     groupE.rows = @[
-        [self placeholder:@"清除所有对话" symbol:@"trash.fill" bg:UIColor.systemGrayColor value:nil],
-        [self placeholder:@"导出我的数据" symbol:@"arrow.up.doc.fill" bg:UIColor.systemBlueColor value:nil],
+        [self placeholder:IMLocalized(@"ps.row.clear_all_chats") symbol:@"trash.fill" bg:UIColor.systemGrayColor value:nil],
+        [self placeholder:IMLocalized(@"ps.row.export_data") symbol:@"arrow.up.doc.fill" bg:UIColor.systemBlueColor value:nil],
     ];
 
     self.groups = @[groupA, groupB, groupC, groupD, groupE];

@@ -3,6 +3,7 @@
 #import "IMBubbleCell.h"   // IMMentionUIDAttributeName + TextKit 反查（与 @昵称 点击同一套）
 #import "IMMessageModel.h" // IMSysSegment
 #import "IMTheme.h"
+#import "IMLocalization.h"
 
 @implementation IMSystemCell {
     UIView  *_pill;
@@ -44,7 +45,7 @@
         _reeditButton = [UIButton buttonWithType:UIButtonTypeSystem];
         _reeditButton.translatesAutoresizingMaskIntoConstraints = NO;
         _reeditButton.titleLabel.font = [UIFont systemFontOfSize:12];
-        [_reeditButton setTitle:@"重新编辑" forState:UIControlStateNormal];
+        [_reeditButton setTitle:IMLocalized(@"chat.message.reedit") forState:UIControlStateNormal];
         [_reeditButton addTarget:self action:@selector(onReedit) forControlEvents:UIControlEventTouchUpInside];
         _reeditButton.hidden = YES;
         [self.contentView addSubview:_reeditButton];

@@ -2,6 +2,7 @@
 
 #import "IMDownloadSettingsUI.h"
 #import "IMMediaUtil.h" // IMFormatFileSize
+#import "IMLocalization.h"
 
 static const int64_t kMB = 1LL << 20;
 
@@ -20,15 +21,15 @@ IMDownloadCategoryRule *IMRuleForCategory(IMDownloadNetworkPolicy *p, IMDownload
 
 NSString *IMDownloadCategoryName(IMDownloadCategoryKind cat) {
     switch (cat) {
-        case IMDownloadCategoryImage: return @"图片";
-        case IMDownloadCategoryVideo: return @"视频";
-        case IMDownloadCategoryFile:  return @"文件";
+        case IMDownloadCategoryImage: return IMLocalized(@"common.image");
+        case IMDownloadCategoryVideo: return IMLocalized(@"common.video");
+        case IMDownloadCategoryFile:  return IMLocalized(@"common.file");
     }
-    return @"文件";
+    return IMLocalized(@"common.file");
 }
 
 NSString *IMDownloadNetworkTitle(IMDownloadNetworkKind net) {
-    return net == IMDownloadNetworkCellular ? @"使用移动数据" : @"使用 Wi-Fi";
+    return net == IMDownloadNetworkCellular ? IMLocalized(@"download.network.cellular") : IMLocalized(@"download.network.wifi");
 }
 
 NSArray<NSNumber *> *IMDownloadSizeStops(void) {
@@ -53,7 +54,7 @@ NSInteger IMDownloadSizeStopIndex(int64_t bytes) {
 }
 
 NSString *IMDownloadSizeLabel(int64_t bytes) {
-    return bytes <= 0 ? @"关" : IMFormatFileSize(bytes);
+    return bytes <= 0 ? IMLocalized(@"download.size.off") : IMFormatFileSize(bytes);
 }
 
 void IMApplyTrafficPreset(IMDownloadNetworkPolicy *p, NSInteger preset) {
@@ -76,6 +77,6 @@ IMTrafficPreset IMTrafficPresetForPolicy(IMDownloadNetworkPolicy *p) {
 }
 
 NSString *IMNetworkSummary(IMDownloadNetworkPolicy *p) {
-    if (!p.enabled) { return @"已停用"; }
-    return [NSString stringWithFormat:@"视频 %@ · 文件 %@", IMDownloadSizeLabel(p.video.maxBytes), IMDownloadSizeLabel(p.file.maxBytes)];
+    if (!p.enabled) { return IMLocalized(@"download.network.disabled"); }
+    return IMLocalizedFormat(@"download.network.summary", IMDownloadSizeLabel(p.video.maxBytes), IMDownloadSizeLabel(p.file.maxBytes));
 }

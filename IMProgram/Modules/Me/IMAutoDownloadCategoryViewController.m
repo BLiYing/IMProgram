@@ -3,6 +3,7 @@
 #import "IMAutoDownloadCategoryViewController.h"
 #import "IMDownloadSettingsUI.h"
 #import "IMDownloadSettingsStore.h"
+#import "IMLocalization.h"
 
 @interface IMAutoDownloadCategoryViewController () <UITableViewDataSource, UITableViewDelegate>
 @property (nonatomic, strong) UITableView *tableView;
@@ -61,12 +62,12 @@
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    return section == 0 ? [@"自动下载" stringByAppendingString:IMDownloadCategoryName(_cat)] : @"大小上限";
+    return section == 0 ? IMLocalizedFormat(@"autodl.cat.header_prefix", IMDownloadCategoryName(_cat)) : IMLocalized(@"autodl.cat.size_limit_header");
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
-    if (_cat == IMDownloadCategoryImage) { return @"图片体积小，建议保持自动下载（无大小上限）。"; }
-    if (section == 1) { return @"超过上限的媒体不自动下载，卡片显“未下载”，可手动点 ↓。上限设为“关”即完全手动。"; }
+    if (_cat == IMDownloadCategoryImage) { return IMLocalized(@"autodl.cat.image_footer"); }
+    if (section == 1) { return IMLocalized(@"autodl.cat.size_limit_footer"); }
     return nil;
 }
 
@@ -75,7 +76,7 @@
     if (indexPath.section == 0) {
         UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
-        cell.textLabel.text = indexPath.row == 0 ? @"单聊" : @"群聊";
+        cell.textLabel.text = indexPath.row == 0 ? IMLocalized(@"common.private_chat") : IMLocalized(@"common.group_chat");
         UISwitch *sw = [UISwitch new];
         sw.on = indexPath.row == 0 ? rule.single : rule.group;
         sw.tag = indexPath.row; // 0=单聊,1=群聊
@@ -89,7 +90,7 @@
     UILabel *title = [[UILabel alloc] init];
     title.translatesAutoresizingMaskIntoConstraints = NO;
     title.font = [UIFont systemFontOfSize:15];
-    title.text = [NSString stringWithFormat:@"上限 %@", IMDownloadSizeLabel(rule.maxBytes)];
+    title.text = IMLocalizedFormat(@"autodl.cat.limit_prefix", IMDownloadSizeLabel(rule.maxBytes));
     _sizeTitleLabel = title;
     UISlider *slider = [[UISlider alloc] init];
     slider.translatesAutoresizingMaskIntoConstraints = NO;
@@ -123,7 +124,7 @@
     NSInteger idx = (NSInteger)lroundf(slider.value);
     int64_t bytes = IMDownloadSizeStops()[idx].longLongValue;
     [self rule].maxBytes = bytes; // 本地即时（PUT 留到松手）
-    _sizeTitleLabel.text = [NSString stringWithFormat:@"上限 %@", IMDownloadSizeLabel(bytes)];
+    _sizeTitleLabel.text = IMLocalizedFormat(@"autodl.cat.limit_prefix", IMDownloadSizeLabel(bytes));
 }
 
 - (void)sizeSliderCommitted:(UISlider *)slider {

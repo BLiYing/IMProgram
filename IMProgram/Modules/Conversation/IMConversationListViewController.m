@@ -1,6 +1,7 @@
 //  IMConversationListViewController.m
 
 #import "IMUnreadBadge.h"   // 未读角标格式化（与 im-web unreadBadge.ts 同源）
+#import "IMLocalization.h"
 #import "IMConversationListViewController.h"
 #import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
 #import "IMChatViewController.h"
@@ -138,7 +139,7 @@ static CGFloat const kIMRowLeading = 16;
         // 刻意不用强调色：它是一条**中性说明**，不是提醒，抢不过未读徽标才对。
         _superTag.backgroundColor = IMTheme.groupedBackground;
         _superTag.textAlignment = NSTextAlignmentCenter;
-        _superTag.text = @" 大群 ";
+        _superTag.text = [NSString stringWithFormat:@" %@ ", IMLocalized(@"group.text.super")];
         _superTag.layer.cornerRadius = 4;
         _superTag.layer.masksToBounds = YES;
         // 不被群名挤掉：长群名截断发生在名字上，标记恒完整——做反了的话，最需要标记的
@@ -244,24 +245,28 @@ static CGFloat const kIMRowLeading = 16;
     // 撤回预览（M4-1，后端已脱敏 content）：优先显示"撤回了一条消息"，不加"昵称:"前缀（微信式）。
     NSString *recalledPreview = nil;
     if (c.lastRecalled) {
-        NSString *who = mine ? @"你"
-            : (c.isGroup ? [IMRemarkStore.sharedStore displayNameForUser:c.lastFrom
-                                                                fallback:(c.lastFromNickname.length > 0 ? c.lastFromNickname : c.lastFrom)]
-                         : @"对方");
-        recalledPreview = [NSString stringWithFormat:@"%@撤回了一条消息", who];
+        if (mine) {
+            recalledPreview = IMLocalized(@"conv.list.recalled_self");
+        } else if (c.isGroup) {
+            NSString *who = [IMRemarkStore.sharedStore displayNameForUser:c.lastFrom
+                                                                 fallback:(c.lastFromNickname.length > 0 ? c.lastFromNickname : c.lastFrom)];
+            recalledPreview = IMLocalizedFormat(@"conv.list.recalled_member", who);
+        } else {
+            recalledPreview = IMLocalized(@"conv.list.recalled_peer");
+        }
     }
     _last.textColor = IMTheme.textSecondary; // 复用：上一行可能是红色的未接来电
     BOOL callMissed = NO;
     // 富媒体预览（M4-6）：图片/视频/文件显示占位标签而非 URL。群聊里与文本一样带"昵称:"前缀（见下方群分支）。
     NSString *mediaPreview = nil;
     if (!recalledPreview) {
-        // 静态占位表（每 cell 都取，不必每次重建）；语音/位置等类型落地后自动生效。
-        static NSDictionary *mediaNames;
+        // 静态占位表（每 cell 都取，不必每次重建）：只放**键**，取值时再本地化（切语言后才会变）。
+        static NSDictionary<NSString *, NSString *> *mediaNameKeys;
         static dispatch_once_t once;
         dispatch_once(&once, ^{
-            mediaNames = @{ @"image": @"[图片]", @"video": @"[视频]", @"file": @"[文件]",
-                            @"chat_record": @"[聊天记录]",
-                            @"location": @"[位置]" };
+            mediaNameKeys = @{ @"image": @"preview.image", @"video": @"preview.video", @"file": @"preview.file",
+                               @"chat_record": @"preview.chat_record",
+                               @"location": @"preview.location" };
         });
         // 图说 caption「有字显字」（Telegram 模型）：图文/视频文/文件文带 caption 时列表预览显 caption，否则回退 [图片] 等。
         if (c.lastCaption.length > 0 &&
@@ -279,15 +284,16 @@ static CGFloat const kIMRowLeading = 16;
         } else if ([c.lastContentType isEqualToString:@"voice"]) {
             // voice P0：预览 [语音] m:ss（时长来自 MessageView.duration）。与 iOS 的 IMVoiceBubbleCell 格式一致。
             int64_t sec = MAX((int64_t)0, c.lastDuration / 1000);
-            mediaPreview = [NSString stringWithFormat:@"[语音] %lld:%02lld", sec / 60, sec % 60];
+            mediaPreview = IMLocalizedFormat(@"preview.voice_duration", [NSString stringWithFormat:@"%lld:%02lld", sec / 60, sec % 60]);
         } else {
-            mediaPreview = mediaNames[c.lastContentType ?: @""];
+            NSString *nameKey = mediaNameKeys[c.lastContentType ?: @""];
+            mediaPreview = nameKey ? IMLocalized(nameKey) : nil;
         }
     }
     if (c.isGroup) {
         // 群项：群名/群头像；预览"昵称: 内容"；不显示 presence/✓✓（群无对端已读位点）。
         // 群备注（G1，仅本人可见、多端同步）非空即替代群名显示；头像取色按 convID 稳定，首字母随显示名。
-        NSString *display = c.remark.length > 0 ? c.remark : (c.name.length > 0 ? c.name : @"群聊");
+        NSString *display = c.remark.length > 0 ? c.remark : (c.name.length > 0 ? c.name : IMLocalized(@"common.group_chat"));
         // 群头像可能是 /uploads 相对路径 → 补 host 成绝对 URL，否则 IMImageLoader 加载不了、只显首字母。
         [_avatar im_setAvatarURL:IMMediaFullURL(c.avatarURL, host) seed:c.convID displayName:display];
         _name.text = display;
@@ -297,14 +303,14 @@ static CGFloat const kIMRowLeading = 16;
         } else if (mediaPreview.length > 0 || [c lastPreviewTextForSelfUID:selfUID].length > 0) {
             // 群聊：文本**与媒体/文件**都带"昵称: "前缀（与 Web 一致）——媒体正文用占位/caption，文本用原文。
             // 群预览前缀也按本机显示名（备注 > 公开昵称 > uid）——否则列表显真名、点进去显备注。
-            NSString *who = mine ? @"我"
+            NSString *who = mine ? IMLocalized(@"common.me")
                 : [IMRemarkStore.sharedStore displayNameForUser:c.lastFrom
                                                        fallback:(c.lastFromNickname.length > 0 ? c.lastFromNickname : c.lastFrom)];
             // 系统消息预览里的名字也按本机口径（我自己 → 「我」），与聊天页那句话一致。
             NSString *body = mediaPreview.length > 0 ? mediaPreview : [c lastPreviewTextForSelfUID:selfUID];
             _last.text = who.length > 0 ? [NSString stringWithFormat:@"%@: %@", who, body] : body;
         } else {
-            _last.text = @"（无消息）";
+            _last.text = IMLocalized(@"conv.list.no_message");
         }
     } else {
         NSString *display = c.displayName; // 备注名 > 昵称 > uid（与通讯录/聊天页标题同一口径）
@@ -312,13 +318,13 @@ static CGFloat const kIMRowLeading = 16;
         [_avatar im_setAvatarURL:IMMediaFullURL(c.peerAvatarURL, host) seed:c.peer displayName:display]; // 有头像渲图，否则首字母圈
         _name.text = display;
         _superTag.hidden = YES; // 单聊无此概念；cell 复用，必须显式关掉
-        _last.text = recalledPreview ?: (mediaPreview.length > 0 ? mediaPreview : (c.lastContent.length > 0 ? c.lastContent : @"（无消息）"));
+        _last.text = recalledPreview ?: (mediaPreview.length > 0 ? mediaPreview : (c.lastContent.length > 0 ? c.lastContent : IMLocalized(@"conv.list.no_message")));
     }
     if (callMissed) { _last.textColor = IMTheme.danger; }
     // 群「@我」红字前缀（M4-8）：未读区间内被 @（含 @所有人）时，预览行前挂 [有人@我]。
     // 用富文本只染前缀、正文保持次要色；不再另加右侧红 @ 角标（左侧红字已足够醒目，见 GROUP_READ_UX_SKETCH §02）。
     if (c.isGroup && c.mentionUnread && _last.text.length > 0) {
-        NSString *tag = @"[有人@我] ";
+        NSString *tag = [IMLocalized(@"conv.list.mention_tag") stringByAppendingString:@" "];
         NSMutableAttributedString *s = [[NSMutableAttributedString alloc]
             initWithString:[tag stringByAppendingString:_last.text]
                 attributes:@{ NSForegroundColorAttributeName: IMTheme.textSecondary, NSFontAttributeName: _last.font }];
@@ -329,7 +335,7 @@ static CGFloat const kIMRowLeading = 16;
     }
     // 群「待审入群申请」红字前缀（G3，仅群主/管理员下发 pendingCount）：进群管理才发现太深，顶到会话列表。
     if (c.isGroup && c.pendingCount > 0) {
-        NSString *tag = [NSString stringWithFormat:@"[%ld 待审] ", (long)c.pendingCount];
+        NSString *tag = [IMLocalizedFormat(@"conv.list.pending_tag", (long)c.pendingCount) stringByAppendingString:@" "];
         NSAttributedString *body = _last.attributedText.length ? _last.attributedText
             : [[NSAttributedString alloc] initWithString:(_last.text ?: @"")
                   attributes:@{ NSForegroundColorAttributeName: IMTheme.textSecondary, NSFontAttributeName: _last.font }];
@@ -496,7 +502,7 @@ static CGFloat const kIMRowLeading = 16;
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"消息"; // 2026-09-15 由「会话」改，与 Android 底栏、Web 左栏页签统一
+    self.title = IMLocalized(@"ios.tab.messages"); // 2026-09-15 由「会话」改，与 Android 底栏、Web 左栏页签统一
     self.view.backgroundColor = UIColor.systemBackgroundColor;
     // 使用系统 UIBarButtonItem；iOS 26 会把标题、返回键和此按钮分成独立 Liquid Glass 控件。
     self.navigationItem.rightBarButtonItem =
@@ -531,7 +537,7 @@ static CGFloat const kIMRowLeading = 16;
     mag.frame = CGRectMake(14, 13, 18, 18);
     [capsule.contentView addSubview:mag];
     UILabel *ph = [UILabel new];
-    ph.text = @"搜索";
+    ph.text = IMLocalized(@"common.search");
     ph.font = [UIFont systemFontOfSize:17];          // 同 searchMode 输入框字号
     ph.textColor = IMTheme.textSecondary;             // 同占位色
     ph.frame = CGRectMake(38, 0, 200, 44);
@@ -544,7 +550,7 @@ static CGFloat const kIMRowLeading = 16;
 
     self.emptyLabel = [UILabel new];
     self.emptyLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.emptyLabel.text = @"还没有会话，点右上角 ＋ 新建群聊或添加好友";
+    self.emptyLabel.text = IMLocalized(@"conv.list.empty");
     self.emptyLabel.textColor = IMTheme.textSecondary;
     self.emptyLabel.textAlignment = NSTextAlignmentCenter;
     self.emptyLabel.numberOfLines = 0;
@@ -676,7 +682,7 @@ static CGFloat const kIMRowLeading = 16;
 - (void)updateTitleForState:(IMSocketState)state {
     // 标题恒为「消息」；连接态走副标题（同聊天页「在线」位置，无括号）。见 im_navigationSubtitle。
     self.connState = state;
-    self.title = @"消息";
+    self.title = IMLocalized(@"ios.tab.messages");
     // 当前工程隐藏了 UINavigationBar，标题实际由 IMMainNavigationController 的 Liquid Bar 绘制；
     // 只改 self.title/副标题不会触发其同步，必须显式请求刷新。
     [self im_refreshNavigationBar];
@@ -809,9 +815,9 @@ static CGFloat const kIMRowLeading = 16;
 
 - (void)showError:(NSString *)message {
     IMLog(@"%@", message);
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"提示" message:message
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:IMLocalized(@"common.notice") message:message
                                                            preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.ok") style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
 }
 
@@ -822,9 +828,9 @@ static CGFloat const kIMRowLeading = 16;
     if ([IMPopoverCard isPresentingInHostView:self.view]) { return; }
     __weak typeof(self) ws = self;
     NSArray<IMPopoverCardItem *> *items = @[
-        [IMPopoverCardItem itemWithTitle:@"扫一扫" symbol:@"qrcode.viewfinder" destructive:NO handler:^{ [ws openScanner]; }],
-        [IMPopoverCardItem itemWithTitle:@"新建群聊" symbol:@"person.3" destructive:NO handler:^{ [ws startNewGroup]; }],
-        [IMPopoverCardItem itemWithTitle:@"添加好友" symbol:@"person.badge.plus" destructive:NO handler:^{ [ws openAddFriend]; }],
+        [IMPopoverCardItem itemWithTitle:IMLocalized(@"conv.menu.scan") symbol:@"qrcode.viewfinder" destructive:NO handler:^{ [ws openScanner]; }],
+        [IMPopoverCardItem itemWithTitle:IMLocalized(@"conv.menu.new_group") symbol:@"person.3" destructive:NO handler:^{ [ws startNewGroup]; }],
+        [IMPopoverCardItem itemWithTitle:IMLocalized(@"common.add_friend") symbol:@"person.badge.plus" destructive:NO handler:^{ [ws openAddFriend]; }],
     ];
     [IMPopoverCard presentFromBarButtonItem:barButtonItem inHostView:self.view items:items];
 }
@@ -858,7 +864,7 @@ static CGFloat const kIMRowLeading = 16;
 
 - (void)openChatWithPeer:(NSString *)peer {
     if (peer.length == 0 || [peer isEqualToString:self.userID]) {
-        [self showError:@"请输入有效且不同于自己的对方 uid"];
+        [self showError:IMLocalized(@"conv.error.invalid_peer_uid")];
         return;
     }
     // 从「发起会话」进入：新会话无已读位点/未读/对端已读位点。
@@ -891,7 +897,7 @@ static CGFloat const kIMRowLeading = 16;
     if ([event isEqualToString:@"join_request"]) { [self reload]; return; }
     if (![event isEqualToString:@"join_result"]) { return; }
     NSString *result = note.userInfo[kIMGroupResultKey];
-    [UIViewController im_showGlobalToast:[result isEqualToString:@"approved"] ? @"你的入群申请已通过，进群聊天吧" : @"你的入群申请未通过"];
+    [UIViewController im_showGlobalToast:[result isEqualToString:@"approved"] ? IMLocalized(@"conv.qr.join_approved") : IMLocalized(@"conv.qr.join_rejected")];
 }
 
 /// 从会话列表进入：带 read_seq + unread + peer_read_seq，供聊天页定位未读分割线 + 可见即读起点 + 进会话即显对端已读（CHAT_UX §3/§6/§8）。
@@ -959,24 +965,24 @@ static CGFloat const kIMRowLeading = 16;
     __weak typeof(self) ws = self;
     NSMutableArray<IMMenuAction *> *actions = [NSMutableArray array];
     BOOL pinned = c.pinnedAt > 0;
-    [actions addObject:[IMMenuAction actionWithId:@"pin" title:(pinned ? @"取消置顶" : @"置顶")
+    [actions addObject:[IMMenuAction actionWithId:@"pin" title:(pinned ? IMLocalized(@"conv.menu.unpin") : IMLocalized(@"conv.menu.pin"))
                                             image:(pinned ? @"pin.slash" : @"pin") handler:^{
         [ws setConversation:c pinned:!pinned];
     }]];
-    [actions addObject:[IMMenuAction actionWithId:@"mute" title:(c.muted ? @"取消免打扰" : @"免打扰")
+    [actions addObject:[IMMenuAction actionWithId:@"mute" title:(c.muted ? IMLocalized(@"conv.menu.unmute") : IMLocalized(@"conv.menu.mute"))
                                             image:(c.muted ? @"bell" : @"bell.slash") handler:^{
         [ws setConversation:c muted:!c.muted];
     }]];
     if (c.unread > 0 || c.markedUnread) {
-        [actions addObject:[IMMenuAction actionWithId:@"markRead" title:@"设为已读" image:@"checkmark.circle" handler:^{
+        [actions addObject:[IMMenuAction actionWithId:@"markRead" title:IMLocalized(@"conv.menu.mark_read") image:@"checkmark.circle" handler:^{
             [ws markConversationRead:c];
         }]];
     } else {
-        [actions addObject:[IMMenuAction actionWithId:@"markUnread" title:@"标为未读" image:@"circle" handler:^{
+        [actions addObject:[IMMenuAction actionWithId:@"markUnread" title:IMLocalized(@"conv.menu.mark_unread") image:@"circle" handler:^{
             [ws markConversationUnread:c];
         }]];
     }
-    [actions addObject:[IMMenuAction destructiveActionWithId:@"delete" title:@"删除" image:@"trash" handler:^{
+    [actions addObject:[IMMenuAction destructiveActionWithId:@"delete" title:IMLocalized(@"common.delete") image:@"trash" handler:^{
         [ws deleteConversation:c];
     }]];
     return actions;
@@ -1025,7 +1031,7 @@ static CGFloat const kIMRowLeading = 16;
 
 /// 标为未读：手动置红点（不改已读位点，不计数）；成功后刷新列表。
 - (void)markConversationUnread:(IMConversation *)c {
-    [self updateSettingsForConversation:c pinnedAt:c.pinnedAt muted:c.muted markedUnread:YES fail:@"标记失败"];
+    [self updateSettingsForConversation:c pinnedAt:c.pinnedAt muted:c.muted markedUnread:YES fail:IMLocalized(@"conv.error.mark_failed")];
 }
 
 /// 置顶/取消置顶：pinned_at=现在ms/0（服务端据此把置顶会话排列表顶）。
@@ -1035,7 +1041,7 @@ static CGFloat const kIMRowLeading = 16;
     __weak typeof(self) ws = self;
     [IMHTTPService.sharedService updateConversationSettingsWithToken:self.token convID:c.convID
         pinnedAt:pinnedAt muted:c.muted markedUnread:c.markedUnread completion:^(NSError *error) {
-            if (error) { [ws im_showToast:error.localizedDescription ?: @"置顶失败"]; return; }
+            if (error) { [ws im_showToast:error.localizedDescription ?: IMLocalized(@"conv.error.pin_failed")]; return; }
             [ws animateConversation:c pinnedAt:pinnedAt];
             // 服务端仍是最终排序来源；动画结束后静默拉取一次，收敛多端同时操作。
             [ws performSelector:@selector(reload) withObject:nil afterDelay:0.42];
@@ -1078,7 +1084,7 @@ static CGFloat const kIMRowLeading = 16;
 
 /// 免打扰/取消免打扰：muted 切换（弱提示，不改未读）。
 - (void)setConversation:(IMConversation *)c muted:(BOOL)muted {
-    [self updateSettingsForConversation:c pinnedAt:c.pinnedAt muted:muted markedUnread:c.markedUnread fail:@"设置失败"];
+    [self updateSettingsForConversation:c pinnedAt:c.pinnedAt muted:muted markedUnread:c.markedUnread fail:IMLocalized(@"conv.error.settings_failed")];
 }
 
 /// 把置顶/免打扰/标未读三态就地镜像到内存模型 + 本地库（乐观更新）；不刷新 UI，调用方各自选刷新方式。
@@ -1117,7 +1123,7 @@ static CGFloat const kIMRowLeading = 16;
     if (c.convID.length == 0 || self.token.length == 0) { return; }
     __weak typeof(self) ws = self;
     [IMHTTPService.sharedService deleteConversationWithToken:self.token convID:c.convID completion:^(NSError *error) {
-        if (error) { [ws im_showToast:error.localizedDescription ?: @"删除失败"]; return; }
+        if (error) { [ws im_showToast:error.localizedDescription ?: IMLocalized(@"conv.error.delete_failed")]; return; }
         __strong typeof(ws) self = ws;
         if (!self) { return; }
         // 取旧位置须在替换数据源之前；期间若有新消息重排导致 c 已不在列表，回退整表刷新。

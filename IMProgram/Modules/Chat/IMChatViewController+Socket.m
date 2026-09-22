@@ -7,6 +7,7 @@
 #import "IMMessageModel.h"
 #import "IMDatabase.h"
 #import "IMReadReceiptViewController.h"
+#import "IMLocalization.h"
 
 @implementation IMChatViewController (Socket)
 
@@ -35,7 +36,7 @@
     if (self.isGroupChat) {
         // 群备注（G1，仅本人可见、多端同步）非空即替代群名作标题；否则用真实群名。
         self.title = self.convRemark.length > 0 ? self.convRemark
-                   : (self.groupName.length > 0 ? self.groupName : @"群聊");
+                   : (self.groupName.length > 0 ? self.groupName : IMLocalized(@"common.group_chat"));
     } else {
         self.title = [self peerDisplayName]; // 好友备注 > 昵称 > uid
     }
@@ -54,9 +55,9 @@
             // 备注优先（本机显示）：列表/气泡都显备注了，副标题还显真名会显得是另一个人。
             NSString *display = [IMRemarkStore.sharedStore displayNameForUser:self.peerTypingUid
                                                                      fallback:(nick.length > 0 ? nick : self.peerTypingUid)];
-            return [NSString stringWithFormat:@"%@ 正在输入", display];
+            return IMLocalizedFormat(@"chat.typing_named", display);
         }
-        return @"正在输入"; // 单聊对端只有一人，不带名字
+        return IMLocalized(@"chat.typing"); // 单聊对端只有一人，不带名字
     }
     // 连接态优先：断开 / 连接中时副标题显示连接状态（同「在线」位置，无括号），
     // 覆盖单聊在线态与群聊成员数——此时本地在线快照无法再更新，显示连接态才是可验证的状态。
@@ -73,8 +74,11 @@
         : (NSInteger)self.groupInfo.members.count;
     // 「大群」标注：大群不显示已读双勾/正在输入/成员在线态，副标题点明缘由，
     // 否则用户会把"功能没了"当成 bug 报上来。
-    NSString *tag = self.groupInfo.isSuper ? @" · 大群" : @"";
-    return count > 0 ? [NSString stringWithFormat:@"%ld 位成员%@", (long)count, tag] : (self.groupInfo.isSuper ? @"大群" : @"");
+    BOOL isSuper = self.groupInfo.isSuper;
+    if (count > 0) {
+        return IMLocalizedFormat(isSuper ? @"chat.header.member_count_super" : @"chat.header.member_count", (long)count);
+    }
+    return isSuper ? IMLocalized(@"group.text.super") : @"";
 }
 
 /// 消息排序（**唯一入口**，与 IMDatabase.messagesForConv 的 ORDER BY 及 im-web 的渲染排序三方一致）：

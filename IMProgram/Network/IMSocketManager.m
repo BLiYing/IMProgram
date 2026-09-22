@@ -1,6 +1,7 @@
 //  IMSocketManager.m
 
 #import "IMSocketManager.h"
+#import "IMLocalization.h"
 #import "IMServerEndpoint.h"
 #import "IMSocketManager+Private.h"
 #import "IMDatabase+Ranges.h"   // 区间清单：window_resp 落库后登记本窗覆盖段
@@ -166,7 +167,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
             [self->_syncingConvs removeAllObjects];
             [self->_pendingOps removeAllObjects];
             @synchronized (self) { self->_watchedUsers = nil; } // 否则新账号连上会把上个账号的关注集重发出去
-            [self cancelAllPendingSendsWithMessage:@"账号已切换"];
+            [self cancelAllPendingSendsWithMessage:IMLocalized(@"net.error.account_switched")];
         }
         self->_databaseContext = databaseContext;
         // 幂等：已连到同一 host+uid 且未主动断开 → 复用现连接（避免会话列表/聊天页重复调用造成重连抖动）。
@@ -205,7 +206,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
         [self->_syncingConvs removeAllObjects];
         [self->_pendingOps removeAllObjects];
         @synchronized (self) { self->_watchedUsers = nil; } // 退出登录：下次登录由页面重新订阅，不沿用上一轮
-        [self cancelAllPendingSendsWithMessage:@"连接已关闭"];
+        [self cancelAllPendingSendsWithMessage:IMLocalized(@"net.error.connection_closed")];
         [self updateState:IMSocketStateDisconnected];
     });
 }
@@ -457,7 +458,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
         // 消息操作被拒（如撤回超时 300008）：不动消息，主线程广播回滚提示。
         if (cmid.length > 0 && [_pendingOps containsObject:cmid]) {
             [_pendingOps removeObject:cmid];
-            NSString *msg = [payload[@"message"] isKindOfClass:[NSString class]] ? payload[@"message"] : @"操作失败";
+            NSString *msg = [payload[@"message"] isKindOfClass:[NSString class]] ? payload[@"message"] : IMLocalized(@"common.action_failed");
             dispatch_async(dispatch_get_main_queue(), ^{
                 [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidRejectMsgOpNotification
                                                                   object:self userInfo:@{ @"message": msg }];
@@ -719,7 +720,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
                         completion:(IMSendCompletion)completion {
     NSData *frame = [self encodeEnvelopeType:kIMTypeSendMsg data:payload];
     if (!frame) {
-        [self finishSend:completion success:NO error:[self errorWithCode:5001 msg:@"序列化失败"] convSeq:0];
+        [self finishSend:completion success:NO error:[self errorWithCode:5001 msg:IMLocalized(@"net.error.serialize_failed")] convSeq:0];
         return;
     }
     IMPendingSend *p = [IMPendingSend new];
@@ -758,7 +759,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
     } else {
         [_pending removeObjectForKey:p.clientMsgID];
         IMLogSocket(@"ack 重发耗尽，判失败 %@", p.clientMsgID);
-        [self finishSend:p.completion success:NO error:[self errorWithCode:5002 msg:@"ack 超时"] convSeq:0];
+        [self finishSend:p.completion success:NO error:[self errorWithCode:5002 msg:IMLocalized(@"net.error.ack_timeout")] convSeq:0];
     }
 }
 
@@ -777,7 +778,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
         [self cancelAckTimer:item];
         [self finishSend:item.completion
                  success:NO
-                   error:[self errorWithCode:5005 msg:message ?: @"发送已取消"]
+                   error:[self errorWithCode:5005 msg:message ?: IMLocalized(@"net.error.send_cancelled")]
                  convSeq:0];
     }
 }
@@ -807,7 +808,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
     NSString *friendly = IMFriendlyMessageForCode(code);
     NSString *msg = friendly.length > 0
         ? friendly
-        : (([message isKindOfClass:[NSString class]] && message.length > 0) ? message : @"发送失败");
+        : (([message isKindOfClass:[NSString class]] && message.length > 0) ? message : IMLocalized(@"common.send_failed"));
     [self finishSend:p.completion success:NO error:[self errorWithCode:code msg:msg] convSeq:0];
 }
 

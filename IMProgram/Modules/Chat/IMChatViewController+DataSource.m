@@ -30,6 +30,7 @@
 #import "IMCallRecord.h"
 #import "IMRtcCall.h"
 #import "UIViewController+IMToast.h"
+#import "IMLocalization.h"
 #import "IMRemarkStore.h"
 #import "Voice/IMVoiceBubbleCell.h" // voice P0
 #import "Voice/IMVoicePlayer.h"
@@ -78,8 +79,9 @@
     if (m.recalledAt > 0) {
         BOOL mineR = [m.from isEqualToString:self.userID];
         IMSystemCell *sys = [tableView dequeueReusableCellWithIdentifier:@"system" forIndexPath:indexPath];
-        NSString *who = mineR ? @"你" : (self.isGroupChat ? [self senderNameForMessage:m] : @"对方");
-        NSString *text = [NSString stringWithFormat:@"%@撤回了一条消息", who];
+        NSString *text = mineR ? IMLocalized(@"conv.list.recalled_self")
+            : (self.isGroupChat ? IMLocalizedFormat(@"conv.list.recalled_member", [self senderNameForMessage:m])
+                                 : IMLocalized(@"conv.list.recalled_peer"));
         BOOL canReedit = mineR && [m.contentType isEqualToString:@"text"] && m.content.length > 0;
         __weak typeof(self) ws = self;
         NSString *original = m.content ?: @"";

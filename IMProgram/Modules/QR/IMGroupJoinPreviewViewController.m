@@ -1,6 +1,7 @@
 //  IMGroupJoinPreviewViewController.m
 
 #import "IMGroupJoinPreviewViewController.h"
+#import "IMLocalization.h"
 #import "IMTheme.h"
 #import "IMMediaUtil.h"
 #import "UILabel+IMAvatar.h"
@@ -25,7 +26,7 @@
     vc.card = card;
     vc.action = action;
     vc.onSubmit = onSubmit;
-    vc.title = @"加入群聊"; // 容器注入的液态标题栏据此显示标题 + 返回键
+    vc.title = IMLocalized(@"qr.action.join"); // 容器注入的液态标题栏据此显示标题 + 返回键
     [from.navigationController pushViewController:vc animated:YES];
 }
 
@@ -47,7 +48,7 @@
     [self.view addSubview:avatar];
 
     UILabel *name = [UILabel new];
-    name.text = self.card.name.length ? self.card.name : @"群聊";
+    name.text = self.card.name.length ? self.card.name : IMLocalized(@"common.group_chat");
     name.font = [UIFont systemFontOfSize:20 weight:UIFontWeightSemibold];
     name.textColor = IMTheme.textPrimary;
     name.textAlignment = NSTextAlignmentCenter;
@@ -55,8 +56,9 @@
     name.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:name];
 
-    NSMutableString *sub = [NSMutableString stringWithFormat:@"%ld 位成员", (long)self.card.memberCount];
-    if (self.card.inviterNickname.length > 0) { [sub appendFormat:@" · %@ 邀请你加入", self.card.inviterNickname]; }
+    NSString *sub = self.card.inviterNickname.length > 0
+        ? IMLocalizedFormat(@"qr.preview.meta_invited", (long)self.card.memberCount, self.card.inviterNickname)
+        : IMLocalizedFormat(@"qr.preview.meta", (long)self.card.memberCount);
     UILabel *subtitle = [UILabel new];
     subtitle.text = sub;
     subtitle.font = [UIFont systemFontOfSize:13];
@@ -105,14 +107,14 @@
     // 需审批：附言输入框（可不填）。
     if (self.action == IMQRGroupActionApply) {
         UILabel *hdr = [UILabel new];
-        hdr.text = @"附言（选填）";
+        hdr.text = IMLocalized(@"qr.preview.hello_header");
         hdr.font = [UIFont systemFontOfSize:12];
         hdr.textColor = IMTheme.textSecondary;
         hdr.translatesAutoresizingMaskIntoConstraints = NO;
         [self.view addSubview:hdr];
 
         UITextField *field = [UITextField new];
-        field.placeholder = @"我是…（可不填）";
+        field.placeholder = IMLocalized(@"qr.preview.hello_placeholder");
         field.font = [UIFont systemFontOfSize:16];
         field.textColor = IMTheme.textPrimary;
         field.backgroundColor = IMTheme.cardBackground;
@@ -129,7 +131,7 @@
         self.helloField = field;
 
         UILabel *foot = [UILabel new];
-        foot.text = @"该群已开启进群确认，管理员同意后你才会加入。";
+        foot.text = IMLocalized(@"qr.preview.approval_note");
         foot.font = [UIFont systemFontOfSize:12];
         foot.textColor = IMTheme.textSecondary;
         foot.numberOfLines = 0;

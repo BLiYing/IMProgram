@@ -2,6 +2,7 @@
 //  导航栏通用按钮外观。保持各模块的加号尺寸、符号配置与主题 Tint 一致。
 
 #import <UIKit/UIKit.h>
+#import "IMLocalization.h"
 #import "IMGlass.h"
 
 NS_ASSUME_NONNULL_BEGIN
@@ -16,7 +17,7 @@ NS_INLINE UIButton *IMNavigationAddButton(id target, SEL action) {
     buttonConfiguration.cornerStyle = UIButtonConfigurationCornerStyleCapsule;
     buttonConfiguration.contentInsets = NSDirectionalEdgeInsetsZero;
     button.configuration = buttonConfiguration; // 真正接收点击的按钮本身即 Glass，保留系统按压/聚合动画
-    button.accessibilityLabel = @"添加";
+    button.accessibilityLabel = IMLocalized(@"common.add");
     [button addTarget:target action:action forControlEvents:UIControlEventTouchUpInside];
     return button;
 }

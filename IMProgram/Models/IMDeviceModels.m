@@ -1,6 +1,7 @@
 //  IMDeviceModels.m
 
 #import "IMDeviceModels.h"
+#import "IMLocalization.h"
 
 #pragma mark - 脏数据安全取值（与 IMQRModels 同范式）
 
@@ -21,20 +22,20 @@ static BOOL IMDevBool(NSDictionary *d, NSString *k) {
 static NSString *IMDevPlatformLabel(NSString *p) {
     if ([p isEqualToString:@"ios"]) { return @"iOS"; }
     if ([p isEqualToString:@"android"]) { return @"Android"; }
-    if ([p isEqualToString:@"web"]) { return @"网页版"; }
-    if ([p isEqualToString:@"desktop"]) { return @"桌面端"; }
-    return @"未知设备";
+    if ([p isEqualToString:@"web"]) { return IMLocalized(@"device.platform.web"); }
+    if ([p isEqualToString:@"desktop"]) { return IMLocalized(@"device.platform.desktop"); }
+    return IMLocalized(@"device.platform.unknown");
 }
 
 /// 毫秒时间戳 → "刚刚 / X 分钟前活跃 / X 小时前活跃 / X 天前活跃"。
 static NSString *IMDevRelativeActive(int64_t ms) {
-    if (ms <= 0) { return @"离线"; }
+    if (ms <= 0) { return IMLocalized(@"common.offline"); }
     NSTimeInterval sec = NSDate.date.timeIntervalSince1970 - (NSTimeInterval)ms / 1000.0;
     if (sec < 0) { sec = 0; }
-    if (sec < 60) { return @"刚刚活跃"; }
-    if (sec < 3600) { return [NSString stringWithFormat:@"%ld 分钟前活跃", (long)(sec / 60)]; }
-    if (sec < 86400) { return [NSString stringWithFormat:@"%ld 小时前活跃", (long)(sec / 3600)]; }
-    return [NSString stringWithFormat:@"%ld 天前活跃", (long)(sec / 86400)];
+    if (sec < 60) { return IMLocalized(@"device.active.just_now"); }
+    if (sec < 3600) { return IMLocalizedFormat(@"device.active.minutes_ago", (long)(sec / 60)); }
+    if (sec < 86400) { return IMLocalizedFormat(@"device.active.hours_ago", (long)(sec / 3600)); }
+    return IMLocalizedFormat(@"device.active.days_ago", (long)(sec / 86400));
 }
 
 @implementation IMDeviceSession
@@ -80,7 +81,7 @@ static NSString *IMDevRelativeActive(int64_t ms) {
 - (NSString *)statusLine {
     NSMutableArray<NSString *> *parts = [NSMutableArray array];
     if (self.online) {
-        [parts addObject:@"在线"];
+        [parts addObject:IMLocalized(@"common.online")];
         [parts addObject:IMDevPlatformLabel(self.platform)];
     } else {
         [parts addObject:IMDevRelativeActive(self.lastActiveAt)];

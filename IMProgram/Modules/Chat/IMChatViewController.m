@@ -42,6 +42,7 @@
 #import "IMPendingMediaStore.h"
 #import "IMChunkedUploader.h"
 #import "IMMediaSendService.h"
+#import "IMLocalization.h"
 #import "IMFilePickerViewController.h"
 #import "IMProtocol.h"
 #import "IMMessageModel.h"
@@ -623,7 +624,7 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     pasteField.onPasteImage = ^(UIImage *image) { [wsPaste appendPastedImage:image]; }; // 粘贴图片→预览条攒批→发送键统一发（#2）
     self.inputField = pasteField;
     self.inputField.translatesAutoresizingMaskIntoConstraints = NO;
-    self.inputField.placeholder = @"输入消息…";
+    self.inputField.placeholder = IMLocalized(@"chat.input.placeholder");
     self.inputField.font = [UIFont systemFontOfSize:MAX(15, IMTheme.chatFontSize - 1)];
     self.inputField.returnKeyType = UIReturnKeySend;
     self.inputField.delegate = self;

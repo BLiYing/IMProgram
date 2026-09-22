@@ -5,6 +5,12 @@
 
 ## 当前焦点
 
+> **多语言 P1+P2 ✅ 已完成（2026-09-22，中文 + 英文；未提交、未真机）**：P1 基础设施（`Common/IMLocalization` + `Modules/Me/IMLanguageViewController` 设置 ▸ 语言）+ **P2 全部业务模块迁完**：Contacts/Conversation/Group/Login/Me（15 文件）/QR/Network/Detail（16 文件）/Chat（含 `Cells/`，46 文件，对应片段 I1-I6，共约 750 键新增）+ `IMPresence.subtitleText`；`./scripts/test.sh` 全量 **517/517 绿**。文案表现有 **1348 键**（跨三端共用，见 `../IMServer/docs/i18n/strings.json`）。
+> **P2 范围内刻意 DEFERRED（不是漏改）**：消息内容预览占位符（`[图片]`/`[视频]`/`[聊天记录]`等，`IMChatMessageLogic.m`/`IMBubbleCell.m` 等，会烧进 `content` JSON 发给对端）、@全员 mention token（`+Mention.m`，与解析逻辑强绑定）、合并转发/群聊兜底标题——均待 P3 服务端结构化后处理。
+> ⚠️ Detail 批次发现「月日+时分」这类 `NSDateFormatter` 硬编码中文格式（如 `@"M月d日 HH:mm"`）**尚未纳入 `time.*` 体系**（现有 `time.*` 只有 today/yesterday/month_day/full_date），全仓至少 6 处（`IMGroupTextViewController.m`/`IMChatViewController+Search.m`/`IMChatRecordViewController.m`/`IMTheme.m`/`IMMediaUtil.m`/`IMDeviceModels.m`）都是这个模式，DEFERRED，需要专门扩展 `time.*` 键位后统一处理，不要零散改一两处。
+> ⚠️ 单测由 `IMProgramTests/IMTestBootstrap.m` 固定简体中文（模拟器系统语言常是 en）；**它会把偏好写进模拟器里 App 的 defaults**，手测发现界面是中文别奇怪。`IMMainTabBarController` 里找「消息」tab 标题 label 是**按文字匹配**的（`IMFindTabTitleLabel`），已改成取本地化后的词——再动底栏标题要一起改。
+> ⚠️ P2 迁移子代理**曾因周额度限流失败两次**（batch I3/W3，2026-09-21）——失败前的代码改动与文案片段合并均已正常完成，只是收尾报告被打断；每次继续迁移前先核实 git diff 与片段合并状态，别假设失败=没做完，也别假设失败=都做完，务必重新跑一遍 `test.sh`/`check-i18n.mjs` 确认。
+>
 > **接入 im-rtc 音视频（2026-09-19，代码已写、模拟器编译通过，未上真机、未提交）**：本地 SPM 依赖 `../im-rtc/im-rtc-ios`
 > （`IMCallEngine` / `IMCallKit` / `IMCallEngineWebRTC`），调试密钥本机签票，SDKAppID 10000002 / kid `dbg-1`。
 > 代码在 `Modules/RTC/`：`IMRtcCall`（起停、票、引擎事件）、`IMRtcProfileResolver`（读 IM 已有数据：备注 > 群昵称 > 昵称，

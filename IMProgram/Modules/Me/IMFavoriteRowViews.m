@@ -5,13 +5,14 @@
 #import "IMMediaUtil.h"        // IMFormatFileDateTime / IMChatRecordSnippet
 #import "IMTheme.h"
 #import "UILabel+IMAvatar.h"
+#import "IMLocalization.h"
 
 #pragma mark - 收藏阅读器（点文本 → 全文只读页，§5.6）
 
 @implementation IMFavoriteReaderViewController { NSString *_text; }
 - (instancetype)initWithText:(NSString *)text {
     self = [super init];
-    if (self) { _text = [text copy]; self.title = @"收藏"; }
+    if (self) { _text = [text copy]; self.title = IMLocalized(@"favorites.reader.title"); }
     return self;
 }
 - (void)viewDidLoad {
@@ -98,10 +99,10 @@
         case IMFavoriteCategoryRecord: {
             symbol = @"bubble.left.and.bubble.right"; _title.numberOfLines = 2;
             NSString *snippet = IMChatRecordSnippet(content);
-            _title.text = snippet.length > 0 ? snippet : @"聊天记录"; break;
+            _title.text = snippet.length > 0 ? snippet : IMLocalized(@"record.chat_history"); break;
         }
         case IMFavoriteCategoryVoice:
-            symbol = @"waveform"; _title.numberOfLines = 1; _title.text = @"语音消息"; break;
+            symbol = @"waveform"; _title.numberOfLines = 1; _title.text = IMLocalized(@"favorites.row.voice_fallback"); break;
         default:
             _title.text = content; break;
     }
@@ -109,7 +110,7 @@
     NSString *when = createdAt > 0 ? IMFormatFileDateTime(createdAt) : @"";
     _time.text = when;
     _time.hidden = when.length == 0;
-    _source.text = source.length > 0 ? [@"来自" stringByAppendingString:source] : nil;
+    _source.text = source.length > 0 ? IMLocalizedFormat(@"favorites.source.label", source) : nil;
     _source.hidden = source.length == 0;
 }
 @end

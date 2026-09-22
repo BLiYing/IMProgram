@@ -1,6 +1,7 @@
 //  IMAvatarCropViewController.m
 
 #import "IMAvatarCropViewController.h"
+#import "IMLocalization.h"
 
 static const CGFloat kAvatarOut = 256.0;   // 输出边长
 static const CGFloat kCircleInset = 16.0;   // 圆左右各留边距（圆直径 = 屏宽 − 32）
@@ -62,7 +63,7 @@ static const CGFloat kBtnBottomGap = 30.0;  // 按钮中心距底部安全区
 
     // 顶部标题「移动和缩放」。
     UILabel *title = [UILabel new];
-    title.text = @"移动和缩放";
+    title.text = IMLocalized(@"avatar.crop.hint");
     title.textColor = [UIColor colorWithWhite:1 alpha:0.95];
     title.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
     title.translatesAutoresizingMaskIntoConstraints = NO;

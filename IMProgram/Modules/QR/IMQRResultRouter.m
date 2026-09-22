@@ -1,6 +1,7 @@
 //  IMQRResultRouter.m
 
 #import "IMQRResultRouter.h"
+#import "IMLocalization.h"
 
 #import "IMChatDetailViewController.h"
 #import "IMChatViewController.h"
@@ -47,7 +48,7 @@ static const NSInteger kIMErrCodeQRExpired = 200110;
     if (!([path hasPrefix:@"/q/u/"] || [path hasPrefix:@"/q/g/"])) { return NO; }
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0) { return NO; }
-    [vc im_showToast:@"解析中…"];
+    [vc im_showToast:IMLocalized(@"qr.result.resolving")];
     __weak UIViewController *wvc = vc;
     [IMHTTPService.sharedService qrResolveWithToken:token raw:urlString completion:^(NSDictionary *resolved, NSError *error) {
         __strong UIViewController *svc = wvc;
@@ -63,24 +64,24 @@ static const NSInteger kIMErrCodeQRExpired = 200110;
     // 刻意不区分过期/被重置/不存在（区分等于给爆破者反馈信号），文案由服务端 200110 统一映射。
     if (error.code == kIMErrCodeQRExpired) {
         UIAlertController *alert =
-            [UIAlertController alertControllerWithTitle:@"二维码已失效"
-                                                message:(error.localizedDescription ?: @"该二维码已过期或被重置，请向对方索取新的二维码。")
+            [UIAlertController alertControllerWithTitle:IMLocalized(@"qr.invalid.title")
+                                                message:(error.localizedDescription ?: IMLocalized(@"qr.invalid.note"))
                                          preferredStyle:UIAlertControllerStyleAlert];
-        [alert addAction:[UIAlertAction actionWithTitle:@"我知道了" style:UIAlertActionStyleDefault handler:nil]];
+        [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.got_it") style:UIAlertActionStyleDefault handler:nil]];
         [vc presentViewController:alert animated:YES completion:nil];
         return;
     }
-    [vc im_showToast:error.localizedDescription ?: @"识别失败"];
+    [vc im_showToast:error.localizedDescription ?: IMLocalized(@"qr.result.recognize_failed")];
 }
 
 #pragma mark - 名片码
 
 /// 不新建"扫码结果页"，直接进已有资料页——加好友/发消息由资料页按好友态自行决定（少一处三端分叉）。
 + (void)routeUser:(IMQRUserCard *)card host:(NSString *)host userID:(NSString *)userID from:(UIViewController *)vc {
-    if (!card || card.userID.length == 0) { [vc im_showToast:@"二维码内容有误"]; return; }
+    if (!card || card.userID.length == 0) { [vc im_showToast:IMLocalized(@"qr.result.bad_content")]; return; }
     if (IMQRUserActionForRelation(card.relation) == IMQRUserActionSelf) {
         // 扫自己的码：不给"加好友"，直接把他送回自己的名片码页（大概率是想给别人看）。
-        [vc im_showToast:@"这是你自己的名片码"];
+        [vc im_showToast:IMLocalized(@"qr.result.own_card")];
         IMQRCardViewController *mine = [[IMQRCardViewController alloc] initMyCardWithHost:host userID:userID
                                                                                 username:card.username
                                                                                 nickname:card.nickname
@@ -102,7 +103,7 @@ static const NSInteger kIMErrCodeQRExpired = 200110;
 /// 替换旧兜底 alert——弹窗装不下头像、也不是"页"。（备注：简介 `intro` 待 /qr/resolve 返回后再展示。）
 + (void)routeGroup:(IMQRGroupCard *)card raw:(NSString *)raw
               host:(NSString *)host userID:(NSString *)userID from:(UIViewController *)vc {
-    if (!card || card.groupID.length == 0) { [vc im_showToast:@"二维码内容有误"]; return; }
+    if (!card || card.groupID.length == 0) { [vc im_showToast:IMLocalized(@"qr.result.bad_content")]; return; }
     IMQRGroupAction action = IMQRGroupActionForCard(card);
     [IMGroupJoinPreviewViewController pushFrom:vc host:host card:card action:action onSubmit:^(NSString *hello) {
         switch (action) {
@@ -117,14 +118,14 @@ static const NSInteger kIMErrCodeQRExpired = 200110;
 + (void)joinGroup:(IMQRGroupCard *)card raw:(NSString *)raw hello:(NSString *)hello
              host:(NSString *)host userID:(NSString *)userID from:(UIViewController *)vc {
     NSString *token = IMHTTPService.sharedService.currentToken;
-    if (token.length == 0) { [vc im_showToast:@"登录已失效，请重新登录"]; return; }
+    if (token.length == 0) { [vc im_showToast:IMLocalized(@"common.login_expired")]; return; }
     [IMHTTPService.sharedService joinGroupWithToken:token code:raw ?: @"" hello:hello ?: @""
                                          completion:^(IMGroupInfo *_Nullable group, NSError *_Nullable error) {
         if (error) {
             // 300210 不是失败：申请已落库，等管理员审批（`join_result` 帧会回来）。
             [vc im_showToast:(error.code == kIMErrCodeJoinPending
-                              ? @"申请已提交，等待管理员审批"
-                              : (error.localizedDescription ?: @"加入群聊失败"))];
+                              ? IMLocalized(@"qr.result.join_pending")
+                              : (error.localizedDescription ?: IMLocalized(@"net.fallback.group_join")))];
             return;
         }
         [self enterGroup:card host:host userID:userID from:vc];
@@ -147,9 +148,9 @@ static const NSInteger kIMErrCodeQRExpired = 200110;
 /// 扫到网页版登录码：先 /qr/login/scan 拿 Web 端设备/IP/位置，再 push 确认页。
 /// resolve 已校验票据可用；scan 若回 200110（并发过期/被抢）走统一失效 alert。
 + (void)routeLogin:(IMQRLoginTicket *)ticket host:(NSString *)host userID:(NSString *)userID from:(UIViewController *)vc {
-    if (!ticket || ticket.ticket.length == 0) { [vc im_showToast:@"二维码内容有误"]; return; }
+    if (!ticket || ticket.ticket.length == 0) { [vc im_showToast:IMLocalized(@"qr.result.bad_content")]; return; }
     NSString *token = IMHTTPService.sharedService.currentToken;
-    if (token.length == 0) { [vc im_showToast:@"登录已失效，请重新登录"]; return; }
+    if (token.length == 0) { [vc im_showToast:IMLocalized(@"common.login_expired")]; return; }
     [IMHTTPService.sharedService qrLoginScanWithToken:token ticket:ticket.ticket
                                           completion:^(NSDictionary *_Nullable info, NSError *_Nullable error) {
         if (error) { [self presentError:error fromController:vc]; return; }
@@ -164,31 +165,31 @@ static const NSInteger kIMErrCodeQRExpired = 200110;
 
 /// 非本站码：显示原文，**不自动跳转**；是 http(s) 才给"在浏览器中打开"，且先把域名主体亮出来。
 + (void)routeUnknownText:(NSString *)text from:(UIViewController *)vc {
-    NSString *content = text.length ? text : @"未能识别该二维码";
+    NSString *content = text.length ? text : IMLocalized(@"qr.result.unrecognized");
     NSString *domain = IMQRUnknownDomain(text);
     NSString *message = domain.length
-        ? [NSString stringWithFormat:@"%@\n\n链接来自二维码，可能是钓鱼站点。确认域名「%@」无误再打开。", content, domain]
+        ? IMLocalizedFormat(@"qr.result.phishing_message", content, domain)
         : content;
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"扫描结果"
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:IMLocalized(@"qr.result.title")
                                                                   message:message
                                                            preferredStyle:UIAlertControllerStyleAlert];
     if (domain.length > 0) {
         NSURL *url = [NSURL URLWithString:[text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]];
         if (url) {
-            [alert addAction:[UIAlertAction actionWithTitle:@"在浏览器中打开" style:UIAlertActionStyleDefault
+            [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"qr.result.open_in_browser") style:UIAlertActionStyleDefault
                                                     handler:^(UIAlertAction *_Nonnull a) {
                 [UIApplication.sharedApplication openURL:url options:@{} completionHandler:nil];
             }]];
         }
     }
     if (text.length > 0) {
-        [alert addAction:[UIAlertAction actionWithTitle:@"复制内容" style:UIAlertActionStyleDefault
+        [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"qr.result.copy_content") style:UIAlertActionStyleDefault
                                                 handler:^(UIAlertAction *_Nonnull a) {
             UIPasteboard.generalPasteboard.string = text;
-            [vc im_showToast:@"已复制"];
+            [vc im_showToast:IMLocalized(@"common.copied")];
         }]];
     }
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
     [vc presentViewController:alert animated:YES completion:nil];
 }
 

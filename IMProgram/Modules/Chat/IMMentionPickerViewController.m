@@ -12,6 +12,7 @@
 #import "IMProgram-Swift.h"        // IMLiquidNavigationBar
 #import "IMSessionStore.h"
 #import "IMHTTPService.h"
+#import "IMLocalization.h"
 
 /// 默认展开高度占屏比。草图定「屏幕一半」，实测 0.55 能多露一行成员、又不遮挡输入区。
 static const CGFloat kIMMentionPickerDefaultHeightRatio = 0.55;
@@ -101,7 +102,7 @@ static UIColor *IMMentionBaseGroupedBackgroundColor(void) {
                                           NSFontAttributeName: [UIFont systemFontOfSize:16] }];
     NSString *remark = [IMRemarkStore.sharedStore remarkForUser:m.userID];
     if (remark.length > 0 && ![remark isEqualToString:name]) {
-        NSString *tail = [NSString stringWithFormat:@"  备注: %@", remark];
+        NSString *tail = IMLocalizedFormat(@"chat.mention.remark_tail", remark);
         NSAttributedString *sub = [[NSAttributedString alloc] initWithString:tail
             attributes:@{ NSForegroundColorAttributeName: IMTheme.textSecondary,
                           NSFontAttributeName: [UIFont systemFontOfSize:12] }];
@@ -116,7 +117,7 @@ static UIColor *IMMentionBaseGroupedBackgroundColor(void) {
     }
     _name.attributedText = s;
 
-    NSString *roleText = m.role == IMGroupRoleOwner ? @"群主" : (m.role == IMGroupRoleAdmin ? @"管理员" : nil);
+    NSString *roleText = m.role == IMGroupRoleOwner ? IMLocalized(@"group.role.owner") : (m.role == IMGroupRoleAdmin ? IMLocalized(@"group.role.admin") : nil);
     _role.text = roleText;
     _role.hidden = roleText == nil;
     _role.layer.borderColor = IMTheme.separator.CGColor;
@@ -129,8 +130,8 @@ static UIColor *IMMentionBaseGroupedBackgroundColor(void) {
     _avatar.backgroundColor = IMTheme.accent;
     _avatar.font = [UIFont systemFontOfSize:18 weight:UIFontWeightBold];
 
-    NSString *head = @"所有人";
-    NSString *tail = [NSString stringWithFormat:@"  通知全部 %ld 人", (long)others];
+    NSString *head = IMLocalized(@"common.everyone");
+    NSString *tail = IMLocalizedFormat(@"chat.mention.notify_all_count", (long)others);
     NSMutableAttributedString *s = [[NSMutableAttributedString alloc]
         initWithString:[head stringByAppendingString:tail]
             attributes:@{ NSForegroundColorAttributeName: IMTheme.textPrimary,
@@ -264,7 +265,7 @@ static const NSInteger kIMMentionInlineMaxVisibleRows = 4;
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"提醒谁";
+    self.title = IMLocalized(@"chat.mention.title");
     if (@available(iOS 17.0, *)) {
         self.traitOverrides.userInterfaceLevel = UIUserInterfaceLevelBase;
     }
@@ -275,7 +276,7 @@ static const NSInteger kIMMentionInlineMaxVisibleRows = 4;
 
     _searchBar = [UISearchBar new];
     _searchBar.translatesAutoresizingMaskIntoConstraints = NO;
-    _searchBar.placeholder = @"搜索成员";
+    _searchBar.placeholder = IMLocalized(@"group.member.search");
     _searchBar.delegate = self;
     _searchBar.searchBarStyle = UISearchBarStyleMinimal;
     // 搜的是用户名（^[a-z0-9_]{5,32}$）：不关自动大写，键盘会把首字母顶成大写。
@@ -322,7 +323,7 @@ static const NSInteger kIMMentionInlineMaxVisibleRows = 4;
 
     _searchBar = [UISearchBar new];
     _searchBar.translatesAutoresizingMaskIntoConstraints = NO;
-    _searchBar.placeholder = @"搜索成员";
+    _searchBar.placeholder = IMLocalized(@"group.member.search");
     _searchBar.delegate = self;
     _searchBar.searchBarStyle = UISearchBarStyleMinimal;
     // 搜的是用户名（^[a-z0-9_]{5,32}$）：不关自动大写，键盘会把首字母顶成大写。

@@ -16,6 +16,8 @@
 #import "UIViewController+IMToast.h"
 #import "IMLog.h"
 #import "IMAppearance.h"
+#import "IMLocalization.h"
+#import "IMLanguageViewController.h"
 
 @interface SceneDelegate ()
 
@@ -35,6 +37,10 @@
     [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidRevokeSessionNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(handleSessionRevoked)
                                                name:IMSocketDidRevokeSessionNotification object:nil];
+    // 界面语言变了 → 重建根控制器（I18N_DESIGN §5.1：不逐个 VC 监听，漏一个就是半中半英）。
+    [NSNotificationCenter.defaultCenter removeObserver:self name:IMLanguageDidChangeNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(handleLanguageChanged)
+                                               name:IMLanguageDidChangeNotification object:nil];
     [IMAppearance.shared applyInterfaceStyle];
     // 协议要在任何网络调用之前恢复：IMServerEndpoint 默认 http，晚一步恢复就会有请求走错协议。
     // 没存过（老版本升上来）时 saveScheme: 的空值保护让它保持默认 http，行为与改造前一致。
@@ -65,6 +71,28 @@
     self.window.tintColor = IMAppearance.shared.accentColor;
 }
 
+/// 界面语言切换：按新语言重建主界面，并**停在切换发生的位置**（同一个 tab；若正停在语言页则再推一个新的语言页），
+/// 否则用户点完一个选项就被弹回首页，看不出是否生效。未登录（登录页无语言入口）时无需处理。
+- (void)handleLanguageChanged {
+    UIViewController *root = self.window.rootViewController;
+    if (![root isKindOfClass:IMMainTabBarController.class]) { return; }
+    IMMainTabBarController *old = (IMMainTabBarController *)root;
+    NSUInteger idx = old.selectedIndex;
+    UINavigationController *oldNav = [old.selectedViewController isKindOfClass:UINavigationController.class]
+        ? (UINavigationController *)old.selectedViewController : nil;
+    BOOL onLanguagePage = [oldNav.topViewController isKindOfClass:IMLanguageViewController.class];
+    IMLog(@"language changed → 重建主界面 pref=%@ lang=%@ tab=%lu", IMLocalization.shared.preference,
+          IMLocalization.shared.language, (unsigned long)idx);
+    IMMainTabBarController *fresh = [[IMMainTabBarController alloc] initWithHost:IMSessionStore.host ?: @""
+                                                                          userID:IMSessionStore.userID ?: @""];
+    fresh.selectedIndex = idx;
+    if (onLanguagePage && [fresh.selectedViewController isKindOfClass:UINavigationController.class]) {
+        [(UINavigationController *)fresh.selectedViewController pushViewController:[IMLanguageViewController new] animated:NO];
+    }
+    [UIView transitionWithView:self.window duration:0.25 options:UIViewAnimationOptionTransitionCrossDissolve
+                    animations:^{ self.window.rootViewController = fresh; } completion:nil];
+}
+
 - (void)showLogin {
     IMLoginViewController *login = [IMLoginViewController new];
     self.window.rootViewController = [[UINavigationController alloc] initWithRootViewController:login];
@@ -84,7 +112,7 @@
     IMHTTPService.sharedService.refreshToken = nil; // invalidateToken 刻意不动它（长效凭据），登出这里必须清
     [IMSessionStore clear]; // 清持久化会话：下次启动直接回登录页，不再静默重登
     [self showLogin];
-    [UIViewController im_showGlobalToast:@"该账号已在其他设备退出登录，请重新登录"];
+    [UIViewController im_showGlobalToast:IMLocalized(@"scene.kicked_logged_out")];
 }
 
 - (void)sceneDidDisconnect:(UIScene *)scene {

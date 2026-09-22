@@ -8,6 +8,7 @@
 #import "IMMediaUtil.h"       // IMMediaFullURL
 #import <UIKit/UIKit.h>   // UIApplicationDidEnterBackgroundNotification
 #import <AVFoundation/AVFoundation.h>
+#import "IMLocalization.h"
 #import <AudioToolbox/AudioToolbox.h>
 
 NSNotificationName const IMVoicePlayerDidChangeStateNotification = @"IMVoicePlayerDidChangeStateNotification";
@@ -140,7 +141,7 @@ static NSString *_Nonnull IMVoicePlayerPlayedKey(NSString *ownerUID, NSString *c
 - (void)toggleEnsuringLocal:(IMMessageModel *)message host:(NSString *)host completion:(void (^)(NSError *))completion {
     if (message.content.length == 0) {
         if (completion) { completion([NSError errorWithDomain:@"IMVoicePlayer" code:-1
-                                                     userInfo:@{NSLocalizedDescriptionKey: @"语音内容为空"}]); }
+                                                     userInfo:@{NSLocalizedDescriptionKey: IMLocalized(@"chat.voice.content_empty")}]); }
         return;
     }
     NSURL *cached = [IMMediaDownloader cachedFileURLForContent:message.content];
@@ -154,7 +155,7 @@ static NSString *_Nonnull IMVoicePlayerPlayedKey(NSString *ownerUID, NSString *c
     NSURL *remote = [NSURL URLWithString:IMMediaFullURL(message.content, host)];
     if (!remote || !cached) {
         if (completion) { completion([NSError errorWithDomain:@"IMVoicePlayer" code:-2
-                                                     userInfo:@{NSLocalizedDescriptionKey: @"语音地址无效"}]); }
+                                                     userInfo:@{NSLocalizedDescriptionKey: IMLocalized(@"chat.voice.invalid_url")}]); }
         return;
     }
     __weak typeof(self) ws = self;
@@ -165,7 +166,7 @@ static NSString *_Nonnull IMVoicePlayerPlayedKey(NSString *ownerUID, NSString *c
         if (!self) { return; }
         if (err || !location) {
             if (completion) { completion(err ?: [NSError errorWithDomain:@"IMVoicePlayer" code:-3
-                                                                userInfo:@{NSLocalizedDescriptionKey: @"语音下载失败"}]); }
+                                                                userInfo:@{NSLocalizedDescriptionKey: IMLocalized(@"chat.voice.download_failed")}]); }
             return;
         }
         NSError *bad = [self unplayableErrorIfNeeded:message localFileURL:location];
@@ -182,7 +183,7 @@ static NSString *_Nonnull IMVoicePlayerPlayedKey(NSString *ownerUID, NSString *c
     if (mid && [self.currentID isEqualToString:mid] && self.player) { return nil; }
     if (IMVoiceFileIsPlayable(url, NULL)) { return nil; }
     return [NSError errorWithDomain:@"IMVoicePlayer" code:-4
-                           userInfo:@{NSLocalizedDescriptionKey: @"该语音格式无法播放"}];
+                           userInfo:@{NSLocalizedDescriptionKey: IMLocalized(@"chat.voice.format_unsupported")}];
 }
 
 - (void)pause {

@@ -7,6 +7,7 @@
 //  也不走第二套口径——两套迟早分叉，而分叉那天没人会发现。
 //
 #import "IMGroupMemberSearchViewController.h"
+#import "IMLocalization.h"
 #import "IMGroupInfo.h"
 #import "IMHTTPService.h"
 #import "IMTheme.h"
@@ -129,12 +130,12 @@ static NSAttributedString *IMHighlighted(NSString *text, NSString *needle, UICol
     _sub.attributedText = IMHighlighted(handle, needle, IMTheme.accent);
     switch (member.role) {
         case IMGroupRoleOwner:
-            _badge.hidden = NO; _badge.text = @"群主";
+            _badge.hidden = NO; _badge.text = IMLocalized(@"group.role.owner");
             _badge.textColor = IMTheme.accent;
             _badge.backgroundColor = [IMTheme.accent colorWithAlphaComponent:0.15];
             break;
         case IMGroupRoleAdmin:
-            _badge.hidden = NO; _badge.text = @"管理员";
+            _badge.hidden = NO; _badge.text = IMLocalized(@"group.role.admin");
             _badge.textColor = IMTheme.textSecondary;
             _badge.backgroundColor = UIColor.secondarySystemFillColor;
             break;
@@ -187,12 +188,12 @@ static NSAttributedString *IMHighlighted(NSString *text, NSString *needle, UICol
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"搜索成员";
+    self.title = IMLocalized(@"group.member.search");
     self.view.backgroundColor = IMTheme.groupedBackground;
 
     _searchBar = [UISearchBar new];
     _searchBar.translatesAutoresizingMaskIntoConstraints = NO;
-    _searchBar.placeholder = @"搜索成员";
+    _searchBar.placeholder = IMLocalized(@"group.member.search");
     _searchBar.delegate = self;
     _searchBar.searchBarStyle = UISearchBarStyleMinimal;
     // 搜的是句柄（^[a-z0-9_]{5,32}$）：不关自动大写，键盘会把首字母顶成 "Big2m0991"。
@@ -218,7 +219,7 @@ static NSAttributedString *IMHighlighted(NSString *text, NSString *needle, UICol
     _emptyLabel.textColor = IMTheme.textSecondary;
     _emptyLabel.textAlignment = NSTextAlignmentCenter;
     _emptyLabel.numberOfLines = 0;
-    _emptyLabel.text = [NSString stringWithFormat:@"在 %ld 位成员里搜索", (long)[self totalMembers]];
+    _emptyLabel.text = IMLocalizedFormat(@"group.member.search_hint", (long)[self totalMembers]);
     [self.view addSubview:_emptyLabel];
 
     [self installLiquidNavigationBar];
@@ -324,7 +325,7 @@ static NSAttributedString *IMHighlighted(NSString *text, NSString *needle, UICol
             self->_hasMore = NO; // 否则「加载更多结果」变成点不完的死循环
             [self->_tableView reloadData];
             [self refreshEmptyState];
-            [self im_showToast:error.localizedDescription ?: @"搜索失败"];
+            [self im_showToast:error.localizedDescription ?: IMLocalized(@"common.search_failed")];
             return;
         }
         self->_failed = NO;
@@ -359,11 +360,11 @@ static NSAttributedString *IMHighlighted(NSString *text, NSString *needle, UICol
     if (_results.count > 0) { _emptyLabel.hidden = YES; return; }
     _emptyLabel.hidden = NO;
     if (_failed) {
-        _emptyLabel.text = @"搜索失败，请重试";
+        _emptyLabel.text = IMLocalized(@"group.picker.search_failed");
     } else if (_needle.length > 0) {
-        _emptyLabel.text = @"没有匹配的成员";
+        _emptyLabel.text = IMLocalized(@"group.picker.no_match");
     } else {
-        _emptyLabel.text = [NSString stringWithFormat:@"在 %ld 位成员里搜索", (long)[self totalMembers]];
+        _emptyLabel.text = IMLocalizedFormat(@"group.member.search_hint", (long)[self totalMembers]);
     }
 }
 
@@ -380,7 +381,7 @@ static NSAttributedString *IMHighlighted(NSString *text, NSString *needle, UICol
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     if (indexPath.row >= (NSInteger)_results.count) { // 末尾「加载更多结果」
         UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"plain" forIndexPath:indexPath];
-        cell.textLabel.text = _loading ? @"加载中…" : @"加载更多结果";
+        cell.textLabel.text = _loading ? IMLocalized(@"common.loading") : IMLocalized(@"common.load_more_results");
         cell.textLabel.textAlignment = NSTextAlignmentCenter;
         cell.textLabel.textColor = IMTheme.accent;
         cell.imageView.image = nil;

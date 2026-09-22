@@ -1,6 +1,7 @@
 //  IMQRScannerViewController.m
 
 #import "IMQRScannerViewController.h"
+#import "IMLocalization.h"
 
 #import <AVFoundation/AVFoundation.h>
 #import <PhotosUI/PhotosUI.h>
@@ -106,7 +107,7 @@ static const CGFloat kIMReticleSide = 220;
 
     UILabel *title = [UILabel new];
     title.translatesAutoresizingMaskIntoConstraints = NO;
-    title.text = @"扫一扫";
+    title.text = IMLocalized(@"conv.menu.scan");
     title.textColor = UIColor.whiteColor;
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
     [self.view addSubview:title];
@@ -118,8 +119,8 @@ static const CGFloat kIMReticleSide = 220;
     [self.torchButton addTarget:self action:@selector(toggleTorch) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:self.torchButton];
 
-    self.scanTab = [self makeTabWithTitle:@"扫码" action:@selector(showScanPage)];
-    self.cardTab = [self makeTabWithTitle:@"我的二维码" action:@selector(showCardPage)];
+    self.scanTab = [self makeTabWithTitle:IMLocalized(@"qr.scan.tab_scan") action:@selector(showScanPage)];
+    self.cardTab = [self makeTabWithTitle:IMLocalized(@"qr.scan.my_code") action:@selector(showCardPage)];
     UIStackView *tabs = [[UIStackView alloc] initWithArrangedSubviews:@[ self.scanTab, self.cardTab ]];
     tabs.translatesAutoresizingMaskIntoConstraints = NO;
     tabs.axis = UILayoutConstraintAxisHorizontal;
@@ -181,7 +182,7 @@ static const CGFloat kIMReticleSide = 220;
 
     UILabel *hint = [UILabel new];
     hint.translatesAutoresizingMaskIntoConstraints = NO;
-    hint.text = @"将二维码放入框内，即可自动扫描";
+    hint.text = IMLocalized(@"qr.scan.frame_hint");
     hint.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     hint.font = [UIFont systemFontOfSize:13];
     hint.numberOfLines = 0;
@@ -190,7 +191,7 @@ static const CGFloat kIMReticleSide = 220;
 
     UIButton *album = [UIButton buttonWithType:UIButtonTypeSystem];
     album.translatesAutoresizingMaskIntoConstraints = NO;
-    [album setTitle:@"从相册选择" forState:UIControlStateNormal];
+    [album setTitle:IMLocalized(@"qr.scan.pick_album") forState:UIControlStateNormal];
     [album setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
     album.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
     [album addTarget:self action:@selector(pickFromAlbum) forControlEvents:UIControlEventTouchUpInside];
@@ -299,7 +300,7 @@ static const CGFloat kIMReticleSide = 220;
 - (void)loadMyCardIfNeeded {
     if (self.cardLoaded) { return; }
     NSString *token = IMHTTPService.sharedService.currentToken;
-    if (token.length == 0) { [self im_showToast:@"登录已失效，请重新登录"]; return; }
+    if (token.length == 0) { [self im_showToast:IMLocalized(@"common.login_expired")]; return; }
     self.cardLoaded = YES;
     __weak typeof(self) ws = self;
     [IMHTTPService.sharedService qrMyCardWithToken:token completion:^(NSDictionary *card, NSError *error) {
@@ -307,7 +308,7 @@ static const CGFloat kIMReticleSide = 220;
         if (!self) { return; }
         if (error) {
             self.cardLoaded = NO; // 允许切回来重试
-            [self im_showToast:error.localizedDescription ?: @"获取名片码失败"];
+            [self im_showToast:error.localizedDescription ?: IMLocalized(@"qr.card.fetch_my_failed")];
             return;
         }
         NSString *url = [card[@"url"] isKindOfClass:NSString.class] ? card[@"url"] : nil;
@@ -324,7 +325,7 @@ static const CGFloat kIMReticleSide = 220;
     NSString *sub = self.myUsername.length > 0 ? [@"@" stringByAppendingString:self.myUsername] : @"";
     [self.cardView configureWithAvatarURL:self.myAvatarURL seed:self.userID name:display
                                  subtitle:sub
-                                 qrString:self.myCardURL hint:@"扫描二维码，加我为朋友"];
+                                 qrString:self.myCardURL hint:IMLocalized(@"qr.card.my_subtitle")];
 }
 
 /// 拉本人资料补齐卡片的昵称+头像：这张卡是给对方看的，只显 uid 对方认不出是谁
@@ -364,21 +365,21 @@ static const CGFloat kIMReticleSide = 220;
 
 - (void)setupSession {
     AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
-    if (!device) { [self showDeniedViewWithTitle:@"没有可用的摄像头" detail:@"你可以从相册选择一张带二维码的图片。"]; return; }
+    if (!device) { [self showDeniedViewWithTitle:IMLocalized(@"qr.scan.no_camera") detail:IMLocalized(@"qr.scan.album_hint")]; return; }
     NSError *error = nil;
     AVCaptureDeviceInput *input = [AVCaptureDeviceInput deviceInputWithDevice:device error:&error];
     if (!input || error) {
         IMLogErrorWithTag(IMLogTagUI, @"qr scanner input failed: %@", error.localizedDescription);
-        [self showDeniedViewWithTitle:@"无法打开摄像头" detail:@"你可以从相册选择一张带二维码的图片。"];
+        [self showDeniedViewWithTitle:IMLocalized(@"qr.scan.camera_open_failed") detail:IMLocalized(@"qr.scan.album_hint")];
         return;
     }
     AVCaptureSession *session = [AVCaptureSession new];
     session.sessionPreset = AVCaptureSessionPresetHigh;
-    if (![session canAddInput:input]) { [self showDeniedViewWithTitle:@"无法打开摄像头" detail:@"你可以从相册选择一张带二维码的图片。"]; return; }
+    if (![session canAddInput:input]) { [self showDeniedViewWithTitle:IMLocalized(@"qr.scan.camera_open_failed") detail:IMLocalized(@"qr.scan.album_hint")]; return; }
     [session addInput:input];
 
     AVCaptureMetadataOutput *output = [AVCaptureMetadataOutput new];
-    if (![session canAddOutput:output]) { [self showDeniedViewWithTitle:@"无法打开摄像头" detail:@"你可以从相册选择一张带二维码的图片。"]; return; }
+    if (![session canAddOutput:output]) { [self showDeniedViewWithTitle:IMLocalized(@"qr.scan.camera_open_failed") detail:IMLocalized(@"qr.scan.album_hint")]; return; }
     [session addOutput:output];
     [output setMetadataObjectsDelegate:self queue:dispatch_get_main_queue()];
     output.metadataObjectTypes = @[ AVMetadataObjectTypeQRCode ];
@@ -412,8 +413,8 @@ static const CGFloat kIMReticleSide = 220;
 }
 
 - (void)showDeniedView {
-    [self showDeniedViewWithTitle:@"需要相机权限"
-                           detail:@"开启后即可扫描二维码加好友、进群。\n你也可以直接从相册选择一张带码的图片。"];
+    [self showDeniedViewWithTitle:IMLocalized(@"qr.scan.perm_title")
+                           detail:IMLocalized(@"qr.scan.perm_detail")];
 }
 
 - (void)showDeniedViewWithTitle:(NSString *)title detail:(NSString *)detail {
@@ -438,7 +439,7 @@ static const CGFloat kIMReticleSide = 220;
 
     UIButton *settings = [UIButton buttonWithType:UIButtonTypeSystem];
     settings.translatesAutoresizingMaskIntoConstraints = NO;
-    [settings setTitle:@"去设置开启" forState:UIControlStateNormal];
+    [settings setTitle:IMLocalized(@"qr.scan.open_settings") forState:UIControlStateNormal];
     [settings setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
     settings.backgroundColor = [UIColor colorWithRed:0.04 green:0.52 blue:1 alpha:1];
     settings.layer.cornerRadius = 12;
@@ -522,7 +523,7 @@ didOutputMetadataObjects:(NSArray<__kindof AVMetadataObject *> *)metadataObjects
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0) {
         [self finishWithResolved:nil raw:raw error:[NSError errorWithDomain:@"IMQR" code:-1
-                                                                  userInfo:@{ NSLocalizedDescriptionKey: @"登录已失效，请重新登录" }]];
+                                                                  userInfo:@{ NSLocalizedDescriptionKey: IMLocalized(@"common.login_expired") }]];
         return;
     }
     __weak typeof(self) ws = self;
@@ -565,7 +566,7 @@ didOutputMetadataObjects:(NSArray<__kindof AVMetadataObject *> *)metadataObjects
             __strong typeof(ws) self = ws;
             if (!self) { return; }
             if (![object isKindOfClass:UIImage.class]) {
-                [self im_showToast:error.localizedDescription ?: @"无法读取该图片"];
+                [self im_showToast:error.localizedDescription ?: IMLocalized(@"qr.scan.image_read_failed")];
                 return;
             }
             [self handleDecodedCodes:[IMQRImage decodeAllInImage:(UIImage *)object]];
@@ -575,19 +576,19 @@ didOutputMetadataObjects:(NSArray<__kindof AVMetadataObject *> *)metadataObjects
 
 /// 一图多码时让用户点选，**不默认取第一个**（群公告截图常同时有群码与客服码）。
 - (void)handleDecodedCodes:(NSArray<NSString *> *)codes {
-    if (codes.count == 0) { [self im_showToast:@"图片里没有发现二维码"]; return; }
+    if (codes.count == 0) { [self im_showToast:IMLocalized(@"qr.scan.no_code_toast")]; return; }
     if (codes.count == 1) { [self handleRaw:codes.firstObject]; return; }
 
     UIAlertController *sheet =
-        [UIAlertController alertControllerWithTitle:@"这张图里有多个二维码"
-                                            message:@"选择你要打开的那个"
+        [UIAlertController alertControllerWithTitle:IMLocalized(@"qr.scan.multi_sheet_title")
+                                            message:IMLocalized(@"qr.scan.multi_sheet_message")
                                      preferredStyle:UIAlertControllerStyleActionSheet];
     __weak typeof(self) ws = self;
     for (NSString *code in codes) {
         [sheet addAction:[UIAlertAction actionWithTitle:[self labelForRaw:code] style:UIAlertActionStyleDefault
                                                 handler:^(UIAlertAction *_Nonnull a) { [ws handleRaw:code]; }]];
     }
-    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
     sheet.popoverPresentationController.sourceView = self.view; // iPad 锚点
     sheet.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(self.view.bounds),
                                                                 CGRectGetMaxY(self.view.bounds) - 60, 1, 1);
@@ -596,10 +597,10 @@ didOutputMetadataObjects:(NSArray<__kindof AVMetadataObject *> *)metadataObjects
 
 /// 候选码的可读摘要。本站码按前缀标注，其余给域名或文本首段——只为让用户分得清，不做语义判定（那在服务端）。
 - (NSString *)labelForRaw:(NSString *)raw {
-    if ([raw containsString:@"/q/u/"]) { return @"名片码（本应用）"; }
-    if ([raw containsString:@"/q/g/"]) { return @"群二维码（本应用）"; }
+    if ([raw containsString:@"/q/u/"]) { return IMLocalized(@"qr.scan.label_user"); }
+    if ([raw containsString:@"/q/g/"]) { return IMLocalized(@"qr.scan.label_group"); }
     NSString *domain = IMQRUnknownDomain(raw);
-    if (domain.length > 0) { return [NSString stringWithFormat:@"网址 · %@", domain]; }
+    if (domain.length > 0) { return IMLocalizedFormat(@"qr.scan.label_url", domain); }
     return raw.length > 20 ? [[raw substringToIndex:20] stringByAppendingString:@"…"] : raw;
 }
 

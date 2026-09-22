@@ -2,6 +2,7 @@
 //  接口与独立成页的理由见头文件。
 
 #import "IMFriendRequestListViewController.h"
+#import "IMLocalization.h"
 #import "IMContactCells.h"
 #import "IMUserCard.h"
 #import "IMHTTPService.h"
@@ -40,7 +41,7 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"新的朋友";
+    self.title = IMLocalized(@"friend.requests.title");
     self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
 
     // **不用 UITableViewController**：push 页里注入的液态标题栏会整体下移（已踩过三次）。
@@ -55,7 +56,7 @@
 
     self.emptyLabel = [UILabel new];
     self.emptyLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.emptyLabel.text = @"没有待处理的好友申请";
+    self.emptyLabel.text = IMLocalized(@"friend.requests.empty");
     self.emptyLabel.textColor = IMTheme.textSecondary;
     self.emptyLabel.textAlignment = NSTextAlignmentCenter;
     self.emptyLabel.numberOfLines = 0;
@@ -121,7 +122,7 @@
     [IMHTTPService.sharedService friendActionWithToken:self.token action:action peerID:peerID completion:^(NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
-        if (error) { [self im_showToast:error.localizedDescription ?: @"操作失败"]; return; }
+        if (error) { [self im_showToast:error.localizedDescription ?: IMLocalized(@"common.action_failed")]; return; }
         [self reload];
     }];
 }
@@ -141,8 +142,8 @@
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     return [self isIncomingSection:section]
-        ? [NSString stringWithFormat:@"待我确认（%lu）", (unsigned long)self.incoming.count]
-        : [NSString stringWithFormat:@"已发出（%lu）", (unsigned long)self.outgoing.count];
+        ? IMLocalizedFormat(@"friend.requests.incoming", (long)self.incoming.count)
+        : IMLocalizedFormat(@"friend.requests.outgoing", (long)self.outgoing.count);
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -160,8 +161,8 @@
     IMContactCell *cell = [tableView dequeueReusableCellWithIdentifier:@"sent" forIndexPath:indexPath];
     IMUserCard *c = self.outgoing[indexPath.row];
     NSString *hello = [c.hello stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    [cell configureWithCard:c subtitle:(hello.length > 0 ? hello : @"等待对方验证")];
-    [cell setActionTitle:@"等待验证" enabled:NO action:nil];
+    [cell configureWithCard:c subtitle:(hello.length > 0 ? hello : IMLocalized(@"friend.requests.waiting_hint"))];
+    [cell setActionTitle:IMLocalized(@"friend.requests.waiting") enabled:NO action:nil];
     return cell;
 }
 

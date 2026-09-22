@@ -9,6 +9,7 @@
 #import "IMTheme.h"
 #import "IMTimeUtil.h"
 #import "IMVoiceMiniPlayerView.h"
+#import "IMLocalization.h"
 
 @interface IMFavoriteVoiceCell ()
 @property (nonatomic, strong) IMVoiceMiniPlayerView *mini; ///< ▶+波形+时长/时间——与详情页语音 tab 共用组件
@@ -67,7 +68,7 @@
     // 收藏 = 对方视角展示（mine=NO 不显勾）；peerReadSeq/isGroup 无关。
     [self.mini configureWithMessage:message mine:NO peerReadSeq:0 isGroupContext:NO];
     self.timeLabel.text = timeText ?: @"";
-    self.sourceLabel.text = sourceText.length > 0 ? [@"来自" stringByAppendingString:sourceText] : nil;
+    self.sourceLabel.text = sourceText.length > 0 ? IMLocalizedFormat(@"favorites.source.label", sourceText) : nil;
     __weak typeof(self) ws = self;
     self.mini.onPlayTap = ^{ __strong typeof(ws) sself = ws; if (sself && sself->_onPlayTap) { sself->_onPlayTap(); } };
 }

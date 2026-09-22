@@ -6,6 +6,7 @@
 #import "IMAppearance.h"
 #import "IMTheme.h"
 #import "UIViewController+IMToast.h"
+#import "IMLocalization.h"
 
 static NSArray<NSString *> *IMThemeIDs(void) {
     return @[@"classic", @"ocean", @"violet", @"midnight",
@@ -14,9 +15,13 @@ static NSArray<NSString *> *IMThemeIDs(void) {
 }
 
 static NSArray<NSString *> *IMThemeNames(void) {
-    return @[@"经典", @"海洋", @"紫晶", @"深海",
-             @"莱姆绿", @"提香红", @"马尔斯绿", @"克莱因蓝", @"勃垦第红",
-             @"申布伦黄", @"蒂芙尼蓝", @"中国红", @"爱马仕橙", @"普鲁士蓝"];
+    return @[IMLocalized(@"appearance.theme.classic"), IMLocalized(@"appearance.theme.ocean"),
+             IMLocalized(@"appearance.theme.violet"), IMLocalized(@"appearance.theme.midnight"),
+             IMLocalized(@"appearance.theme.lime"), IMLocalized(@"appearance.theme.titian"),
+             IMLocalized(@"appearance.theme.mars_green"), IMLocalized(@"appearance.theme.klein_blue"),
+             IMLocalized(@"appearance.theme.burgundy"), IMLocalized(@"appearance.theme.schonbrunn"),
+             IMLocalized(@"appearance.theme.tiffany"), IMLocalized(@"appearance.theme.china_red"),
+             IMLocalized(@"appearance.theme.hermes_orange"), IMLocalized(@"appearance.theme.prussian_blue")];
 }
 
 static NSArray<NSString *> *IMWallpaperIDs(void) {
@@ -24,7 +29,7 @@ static NSArray<NSString *> *IMWallpaperIDs(void) {
 }
 
 static NSArray<NSString *> *IMWallpaperNames(void) {
-    return @[@"涂鸦", @"渐变", @"纯色"];
+    return @[IMLocalized(@"appearance.wallpaper.doodle"), IMLocalized(@"appearance.wallpaper.gradient"), IMLocalized(@"appearance.wallpaper.plain")];
 }
 
 static NSString *IMCurrentThemeName(void) {
@@ -38,7 +43,7 @@ static NSString *IMCurrentWallpaperName(void) {
 }
 
 static NSString *IMCurrentModeName(void) {
-    return @[@"跟随系统", @"浅色", @"深色"][IMAppearance.shared.mode];
+    return @[IMLocalized(@"common.follow_system"), IMLocalized(@"general.theme.light"), IMLocalized(@"general.theme.dark")][IMAppearance.shared.mode];
 }
 
 static UIImage *IMThumbnailImage(UIImage *image, CGSize size) {
@@ -108,7 +113,7 @@ static UIImage *IMThumbnailImage(UIImage *image, CGSize size) {
 
         _title = [UILabel new];
         _title.translatesAutoresizingMaskIntoConstraints = NO;
-        _title.text = @"聊天预览";
+        _title.text = IMLocalized(@"appearance.preview.title");
         _title.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
         _title.textAlignment = NSTextAlignmentCenter;
         _title.textColor = IMTheme.textPrimary;
@@ -116,7 +121,7 @@ static UIImage *IMThumbnailImage(UIImage *image, CGSize size) {
 
         _day = [UILabel new];
         _day.translatesAutoresizingMaskIntoConstraints = NO;
-        _day.text = @"今天";
+        _day.text = IMLocalized(@"time.today");
         _day.font = [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
         _day.textColor = UIColor.whiteColor;
         _day.backgroundColor = [UIColor colorWithWhite:0 alpha:0.22];
@@ -125,9 +130,9 @@ static UIImage *IMThumbnailImage(UIImage *image, CGSize size) {
         _day.clipsToBounds = YES;
         [self addSubview:_day];
 
-        _incoming = [self bubbleWithText:@"你看到新的外观了吗？"];
-        _outgoing = [self bubbleWithText:@"看到了，很有 Telegram 的感觉 ✓✓"];
-        _incomingSecond = [self bubbleWithText:@"字号和圆角也可以实时预览。"];
+        _incoming = [self bubbleWithText:IMLocalized(@"appearance.preview.bubble_incoming_1")];
+        _outgoing = [self bubbleWithText:IMLocalized(@"appearance.preview.bubble_outgoing")];
+        _incomingSecond = [self bubbleWithText:IMLocalized(@"appearance.preview.bubble_incoming_2")];
         [self addSubview:_incoming];
         [self addSubview:_outgoing];
         [self addSubview:_incomingSecond];
@@ -445,7 +450,7 @@ typedef NS_ENUM(NSInteger, IMAppearanceGridKind) {
 }
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = self.kind == IMAppearanceGridKindTheme ? @"聊天主题" : @"聊天壁纸";
+    self.title = self.kind == IMAppearanceGridKindTheme ? IMLocalized(@"appearance.chat_theme") : IMLocalized(@"general.wallpaper");
     self.view.backgroundColor = IMTheme.groupedBackground;
 
     UICollectionViewFlowLayout *layout = [UICollectionViewFlowLayout new];
@@ -512,7 +517,7 @@ typedef NS_ENUM(NSInteger, IMAppearanceGridKind) {
 }
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"显示模式";
+    self.title = IMLocalized(@"appearance.mode.title");
     self.view.backgroundColor = IMTheme.groupedBackground;
     _tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStyleInsetGrouped];
     _tableView.backgroundColor = IMTheme.groupedBackground;
@@ -531,7 +536,7 @@ typedef NS_ENUM(NSInteger, IMAppearanceGridKind) {
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return 3; }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
-    cell.textLabel.text = @[@"跟随系统", @"浅色", @"深色"][indexPath.row];
+    cell.textLabel.text = @[IMLocalized(@"common.follow_system"), IMLocalized(@"general.theme.light"), IMLocalized(@"general.theme.dark")][indexPath.row];
     cell.imageView.image = [UIImage systemImageNamed:@[@"circle.lefthalf.filled", @"sun.max.fill", @"moon.stars.fill"][indexPath.row]];
     cell.imageView.tintColor = IMTheme.accent;
     cell.accessoryType = IMAppearance.shared.mode == indexPath.row ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
@@ -564,14 +569,14 @@ typedef NS_ENUM(NSInteger, IMAppearanceSliderKind) {
 }
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = self.kind == IMAppearanceSliderKindFont ? @"字体大小" : @"信息框圆角";
+    self.title = self.kind == IMAppearanceSliderKindFont ? IMLocalized(@"appearance.font_size.title") : IMLocalized(@"appearance.bubble_radius.title");
     self.view.backgroundColor = IMTheme.groupedBackground;
     self.originalValue = self.kind == IMAppearanceSliderKindFont
         ? IMAppearance.shared.chatFontSize : IMAppearance.shared.bubbleRadius;
     self.navigationItem.leftBarButtonItem =
-        [[UIBarButtonItem alloc] initWithTitle:@"取消" style:UIBarButtonItemStylePlain target:self action:@selector(cancel)];
+        [[UIBarButtonItem alloc] initWithTitle:IMLocalized(@"common.cancel") style:UIBarButtonItemStylePlain target:self action:@selector(cancel)];
     self.navigationItem.rightBarButtonItem =
-        [[UIBarButtonItem alloc] initWithTitle:@"设置" style:UIBarButtonItemStyleDone target:self action:@selector(done)];
+        [[UIBarButtonItem alloc] initWithTitle:IMLocalized(@"appearance.slider.done") style:UIBarButtonItemStyleDone target:self action:@selector(done)];
 
     _preview = [IMAppearanceChatPreview new];
     _preview.translatesAutoresizingMaskIntoConstraints = NO;
@@ -666,10 +671,10 @@ typedef NS_ENUM(NSInteger, IMAppearanceSliderKind) {
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"外观";
+    self.title = IMLocalized(@"ios.settings.row.appearance");
     self.view.backgroundColor = IMTheme.groupedBackground;
     self.navigationItem.rightBarButtonItem =
-        [[UIBarButtonItem alloc] initWithTitle:@"还原" style:UIBarButtonItemStylePlain target:self action:@selector(resetTapped)];
+        [[UIBarButtonItem alloc] initWithTitle:IMLocalized(@"appearance.reset") style:UIBarButtonItemStylePlain target:self action:@selector(resetTapped)];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(appearanceChanged)
                                                name:IMAppearanceDidChangeNotification object:nil];
     [self buildLayout];
@@ -711,16 +716,16 @@ typedef NS_ENUM(NSInteger, IMAppearanceSliderKind) {
         [_contentStack.trailingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.trailingAnchor constant:-16],
     ]];
 
-    [_contentStack addArrangedSubview:[self sectionLabel:@"主题颜色"]];
+    [_contentStack addArrangedSubview:[self sectionLabel:IMLocalized(@"appearance.section.theme_color")]];
     [_contentStack addArrangedSubview:[self buildThemeCard]];
     [_contentStack setCustomSpacing:26 afterView:_contentStack.arrangedSubviews.lastObject];
-    [_contentStack addArrangedSubview:[self sectionLabel:@"显示模式"]];
+    [_contentStack addArrangedSubview:[self sectionLabel:IMLocalized(@"appearance.mode.title")]];
     [_contentStack addArrangedSubview:[self buildModeCard]];
     [_contentStack setCustomSpacing:26 afterView:_contentStack.arrangedSubviews.lastObject];
-    [_contentStack addArrangedSubview:[self sectionLabel:@"聊天外观"]];
+    [_contentStack addArrangedSubview:[self sectionLabel:IMLocalized(@"appearance.section.chat_appearance")]];
     [_contentStack addArrangedSubview:[self buildChatOptionsCard]];
     [_contentStack setCustomSpacing:26 afterView:_contentStack.arrangedSubviews.lastObject];
-    [_contentStack addArrangedSubview:[self sectionLabel:@"应用图标"]];
+    [_contentStack addArrangedSubview:[self sectionLabel:IMLocalized(@"appearance.section.app_icon")]];
     [_contentStack addArrangedSubview:[self buildIconCard]];
 }
 
@@ -771,13 +776,13 @@ typedef NS_ENUM(NSInteger, IMAppearanceSliderKind) {
     [stack addArrangedSubview:stripHost];
     [stack addArrangedSubview:IMSeparator()];
 
-    IMSettingRow *theme = [[IMSettingRow alloc] initWithTitle:@"聊天主题"];
+    IMSettingRow *theme = [[IMSettingRow alloc] initWithTitle:IMLocalized(@"appearance.chat_theme")];
     _themeDetail = theme.detailLabel;
     [theme addTarget:self action:@selector(openThemes) forControlEvents:UIControlEventTouchUpInside];
     [stack addArrangedSubview:theme];
     UIView *separator = IMSeparator();
     [stack addArrangedSubview:separator];
-    IMSettingRow *wallpaper = [[IMSettingRow alloc] initWithTitle:@"聊天壁纸"];
+    IMSettingRow *wallpaper = [[IMSettingRow alloc] initWithTitle:IMLocalized(@"general.wallpaper")];
     _wallpaperDetail = wallpaper.detailLabel;
     [wallpaper addTarget:self action:@selector(openWallpapers) forControlEvents:UIControlEventTouchUpInside];
     [stack addArrangedSubview:wallpaper];
@@ -791,25 +796,25 @@ typedef NS_ENUM(NSInteger, IMAppearanceSliderKind) {
 }
 
 - (UIView *)buildModeCard {
-    IMSettingRow *night = [[IMSettingRow alloc] initWithTitle:@"夜间模式"];
+    IMSettingRow *night = [[IMSettingRow alloc] initWithTitle:IMLocalized(@"appearance.row.night_mode")];
     UISwitch *toggle = [UISwitch new];
     toggle.on = IMAppearance.shared.mode == IMAppearanceModeDark;
     [toggle addTarget:self action:@selector(nightSwitchChanged:) forControlEvents:UIControlEventValueChanged];
     night.trailingView = toggle;
-    IMSettingRow *automatic = [[IMSettingRow alloc] initWithTitle:@"自动夜间模式"];
+    IMSettingRow *automatic = [[IMSettingRow alloc] initWithTitle:IMLocalized(@"appearance.row.auto_night_mode")];
     _modeDetail = automatic.detailLabel;
     [automatic addTarget:self action:@selector(openMode) forControlEvents:UIControlEventTouchUpInside];
     return IMCardWithRows(@[night, automatic]);
 }
 
 - (UIView *)buildChatOptionsCard {
-    IMSettingRow *font = [[IMSettingRow alloc] initWithTitle:@"字号"];
+    IMSettingRow *font = [[IMSettingRow alloc] initWithTitle:IMLocalized(@"appearance.row.font_size")];
     _fontDetail = font.detailLabel;
     [font addTarget:self action:@selector(openFont) forControlEvents:UIControlEventTouchUpInside];
-    IMSettingRow *radius = [[IMSettingRow alloc] initWithTitle:@"信息框圆角"];
+    IMSettingRow *radius = [[IMSettingRow alloc] initWithTitle:IMLocalized(@"appearance.bubble_radius.title")];
     _radiusDetail = radius.detailLabel;
     [radius addTarget:self action:@selector(openRadius) forControlEvents:UIControlEventTouchUpInside];
-    IMSettingRow *animation = [[IMSettingRow alloc] initWithTitle:@"动画"];
+    IMSettingRow *animation = [[IMSettingRow alloc] initWithTitle:IMLocalized(@"appearance.row.animation")];
     _animationSwitch = [UISwitch new];
     [_animationSwitch addTarget:self action:@selector(animationChanged:) forControlEvents:UIControlEventValueChanged];
     animation.trailingView = _animationSwitch;
@@ -826,7 +831,7 @@ typedef NS_ENUM(NSInteger, IMAppearanceSliderKind) {
     _iconGrid.axis = UILayoutConstraintAxisHorizontal;
     _iconGrid.distribution = UIStackViewDistributionFillEqually;
     _iconGrid.spacing = 12;
-    NSArray *names = @[@"默认", @"蓝色", @"紫色", @"深色"];
+    NSArray *names = @[IMLocalized(@"appearance.icon.default"), IMLocalized(@"appearance.icon.blue"), IMLocalized(@"appearance.icon.purple"), IMLocalized(@"general.theme.dark")];
     NSArray *assetNames = @[@"AppearanceIconDefault", @"AppearanceIconOcean",
                             @"AppearanceIconViolet", @"AppearanceIconMidnight"];
     for (NSUInteger index = 0; index < names.count; index++) {
@@ -934,7 +939,7 @@ typedef NS_ENUM(NSInteger, IMAppearanceSliderKind) {
 
 - (void)iconTapped:(UIButton *)sender {
     if (!UIApplication.sharedApplication.supportsAlternateIcons) {
-        [self im_showToast:@"当前系统不支持切换图标"];
+        [self im_showToast:IMLocalized(@"appearance.icon.unsupported")];
         return;
     }
     NSArray *names = @[[NSNull null], @"AppIconOcean", @"AppIconViolet", @"AppIconMidnight"];

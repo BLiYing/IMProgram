@@ -1,6 +1,7 @@
 //  IMGroupInfoViewController.m
 
 #import "IMGroupInfoViewController.h"
+#import "IMLocalization.h"
 #import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
 #import "IMFriendPickerViewController.h"
 #import "IMHTTPService.h"
@@ -88,19 +89,19 @@ static CGFloat const kIMMemberAvatarSize = 40;
 - (void)configureWithMember:(IMGroupMember *)member isMe:(BOOL)isMe {
     NSString *shown = member.localDisplayName; // 备注优先（本机显示）
     [_avatar im_setAvatarURL:member.avatarURL seed:member.userID displayName:shown];
-    _name.text = isMe ? [NSString stringWithFormat:@"%@（我）", shown] : shown;
+    _name.text = isMe ? IMLocalizedFormat(@"group.member.me_suffix", shown) : shown;
     // 同上：句柄而非内部 ID。
     _sub.text = member.username.length > 0 ? [@"@" stringByAppendingString:member.username] : @"";
     switch (member.role) {
         case IMGroupRoleOwner:
             _roleBadge.hidden = NO;
-            _roleBadge.text = @"群主";
+            _roleBadge.text = IMLocalized(@"group.role.owner");
             _roleBadge.textColor = IMTheme.accent;
             _roleBadge.backgroundColor = [IMTheme.accent colorWithAlphaComponent:0.15];
             break;
         case IMGroupRoleAdmin:
             _roleBadge.hidden = NO;
-            _roleBadge.text = @"管理员";
+            _roleBadge.text = IMLocalized(@"group.role.admin");
             _roleBadge.textColor = IMTheme.textSecondary;
             _roleBadge.backgroundColor = UIColor.secondarySystemFillColor;
             break;
@@ -152,7 +153,7 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"群资料";
+    self.title = IMLocalized(@"group.info.title");
     self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
 
     self.tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStyleInsetGrouped];
@@ -197,7 +198,7 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) { return; }
         if (error || !group) {
-            [self im_showToast:error.localizedDescription ?: @"拉取群资料失败"];
+            [self im_showToast:error.localizedDescription ?: IMLocalized(@"group.info.load_failed")];
             return;
         }
         self.group = group;
@@ -225,7 +226,7 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
 - (void)runGroupAction:(void (^)(NSString *token, void (^done)(NSError *_Nullable)))action {
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0) {
-        [self im_showToast:@"未登录"];
+        [self im_showToast:IMLocalized(@"common.not_logged_in")];
         return;
     }
     __weak typeof(self) weakSelf = self;
@@ -236,7 +237,7 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
             // 按业务码分支：300207 = 被邀请者已被移出/冷却期（仅邀请动作会返，走保留码的 runDataRequest）。
             // 用"邀请别人"的第三人称文案，区别于映射表里自加群的第二人称「你已被移出」。
             if (error.code == 300207) {
-                [self im_showToast:@"该成员已被移出本群，暂时无法再次邀请"];
+                [self im_showToast:IMLocalized(@"group.info.reinvite_blocked")];
             } else {
                 [self im_showToast:error.localizedDescription];
             }
@@ -250,13 +251,13 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
 
 - (void)renameTapped {
     if (!self.group) { return; }
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"修改群名"
-        message:@"1~30 字" preferredStyle:UIAlertControllerStyleAlert];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:IMLocalized(@"group.info.rename_title")
+        message:IMLocalized(@"group.info.rename_hint") preferredStyle:UIAlertControllerStyleAlert];
     NSString *current = self.group.name;
     [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) { tf.text = current; }];
     __weak typeof(self) weakSelf = self;
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.save") style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
         NSString *name = [alert.textFields.firstObject.text
                           stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
         __strong typeof(weakSelf) self = weakSelf;
@@ -277,7 +278,7 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
     __weak typeof(self) weakSelf = self;
     IMFriendPickerViewController *picker =
         [[IMFriendPickerViewController alloc] initWithHost:self.host userID:self.userID
-                                                    excludedIDs:inGroup confirmTitle:@"邀请"
+                                                    excludedIDs:inGroup confirmTitle:IMLocalized(@"common.invite")
                                                          onDone:^(NSArray<NSString *> *selectedIDs) {
             __strong typeof(weakSelf) self = weakSelf;
             if (!self) { return; }
@@ -300,18 +301,18 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
 /// 而端上的排除集在超级群下必然不全（`GET /groups/{id}` 只回我自己 / 只翻到几页）。
 - (void)toastForInvited:(NSInteger)added selected:(NSInteger)selected {
     NSInteger skipped = selected - added;
-    if (added == 0) { [self im_showToast:@"所选的人都已在群里"]; }
-    else if (skipped > 0) { [self im_showToast:[NSString stringWithFormat:@"已邀请 %ld 人，其余 %ld 人已在群里",
-                                                (long)added, (long)skipped]]; }
+    if (added == 0) { [self im_showToast:IMLocalized(@"group.info.invite_all_in")]; }
+    else if (skipped > 0) { [self im_showToast:IMLocalizedFormat(@"group.info.invite_partial",
+                                                (long)added, (long)skipped)]; }
 }
 
 /// 退出群聊（群主会被服务端拦：需先转让，文案透传）。
 - (void)leaveTapped {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"退出群聊"
-        message:@"退出后将不再接收该群消息" preferredStyle:UIAlertControllerStyleAlert];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:IMLocalized(@"group.info.leave")
+        message:IMLocalized(@"group.info.leave_message") preferredStyle:UIAlertControllerStyleAlert];
     __weak typeof(self) weakSelf = self;
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"退出" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"group.info.leave_confirm") style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) { return; }
         NSString *token = IMHTTPService.sharedService.currentToken;
@@ -352,21 +353,21 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
     NSString *target = member.userID;
 
     if (iAmOwner && member.role == IMGroupRoleMember) {
-        [sheet addAction:[UIAlertAction actionWithTitle:@"设为管理员" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"group.member_action.make_admin") style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
             [weakSelf runGroupAction:^(NSString *token, void (^done)(NSError *)) {
                 [IMHTTPService.sharedService setGroupRoleWithToken:token convID:convID userID:target role:@"admin" completion:done];
             }];
         }]];
     }
     if (iAmOwner && member.role == IMGroupRoleAdmin) {
-        [sheet addAction:[UIAlertAction actionWithTitle:@"撤销管理员" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"group.member_action.revoke_admin") style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
             [weakSelf runGroupAction:^(NSString *token, void (^done)(NSError *)) {
                 [IMHTTPService.sharedService setGroupRoleWithToken:token convID:convID userID:target role:@"member" completion:done];
             }];
         }]];
     }
     if (iAmOwner) {
-        [sheet addAction:[UIAlertAction actionWithTitle:@"转让群主" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"group.member_action.transfer_owner") style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
             [weakSelf confirmTransferTo:member];
         }]];
     }
@@ -375,31 +376,31 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
         int64_t now = IMNowMillis();
         BOOL muted = member.muteUntil > now;
         if (muted) {
-            [sheet addAction:[UIAlertAction actionWithTitle:@"解除禁言" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"group.member_action.unmute") style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
                 [weakSelf runGroupAction:^(NSString *token, void (^done)(NSError *)) {
                     [IMHTTPService.sharedService muteGroupMemberWithToken:token convID:convID userID:target until:0 completion:done];
                 }];
             }]];
         } else {
-            [sheet addAction:[UIAlertAction actionWithTitle:@"禁言…" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"group.member_action.mute") style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
                 [weakSelf pickMuteDurationForTarget:target];
             }]];
         }
     }
     if (canRemove) {
-        [sheet addAction:[UIAlertAction actionWithTitle:@"移出群聊" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+        [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"group.member_action.remove") style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
             [weakSelf runGroupAction:^(NSString *token, void (^done)(NSError *)) {
                 // 默认冷却档（24h），传 cooldown 显式表达。
                 [IMHTTPService.sharedService removeGroupMemberWithToken:token convID:convID userID:target ban:@"cooldown" completion:done];
             }];
         }]];
-        [sheet addAction:[UIAlertAction actionWithTitle:@"移出并不再允许加入" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+        [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"group.member_action.remove_and_ban") style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
             [weakSelf runGroupAction:^(NSString *token, void (^done)(NSError *)) {
                 [IMHTTPService.sharedService removeGroupMemberWithToken:token convID:convID userID:target ban:@"forever" completion:done];
             }];
         }]];
     }
-    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
     // iPad 兜底锚点。
     sheet.popoverPresentationController.sourceView = self.view;
     sheet.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(self.view.bounds), CGRectGetMidY(self.view.bounds), 1, 1);
@@ -408,7 +409,7 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
 
 /// 禁言时长选择（G2）：10 分钟 / 1 小时 / 1 天 / 永久。
 - (void)pickMuteDurationForTarget:(NSString *)target {
-    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"禁言时长"
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:IMLocalized(@"mute.title")
         message:nil preferredStyle:UIAlertControllerStyleActionSheet];
     __weak typeof(self) weakSelf = self;
     NSString *convID = self.convID;
@@ -420,25 +421,25 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
         }]];
     };
     int64_t now = IMNowMillis();
-    mute(@"10 分钟", now + 10 * 60 * 1000);
-    mute(@"1 小时", now + 60 * 60 * 1000);
-    mute(@"1 天", now + 24 * 60 * 60 * 1000);
-    mute(@"永久", -1); // 服务端把 <0 归一为永久
-    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    mute(IMLocalized(@"mute.10m"), now + 10 * 60 * 1000);
+    mute(IMLocalized(@"mute.1h"), now + 60 * 60 * 1000);
+    mute(IMLocalized(@"mute.1d"), now + 24 * 60 * 60 * 1000);
+    mute(IMLocalized(@"common.permanent"), -1); // 服务端把 <0 归一为永久
+    [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
     sheet.popoverPresentationController.sourceView = self.view;
     sheet.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(self.view.bounds), CGRectGetMidY(self.view.bounds), 1, 1);
     [self presentViewController:sheet animated:YES completion:nil];
 }
 
 - (void)confirmTransferTo:(IMGroupMember *)member {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"转让群主"
-        message:[NSString stringWithFormat:@"确定把群主转让给 %@？你将变为普通成员。", member.localDisplayName]
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:IMLocalized(@"group.member_action.transfer_owner")
+        message:IMLocalizedFormat(@"group.transfer_owner.message", member.localDisplayName ?: @"")
         preferredStyle:UIAlertControllerStyleAlert];
     __weak typeof(self) weakSelf = self;
     NSString *convID = self.convID;
     NSString *target = member.userID;
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"转让" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"group.transfer_owner.confirm") style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
         [weakSelf runGroupAction:^(NSString *token, void (^done)(NSError *)) {
             [IMHTTPService.sharedService transferGroupWithToken:token convID:convID userID:target completion:done];
         }];
@@ -484,7 +485,7 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
         // 标题人数用 memberCount（真实总数）；列表行数是**已加载**的那些（超级群分页累积）。
         // 两者刻意不同源——大群下"成员（20000）"配着几十行是对的，翻页会逐步补齐。
         NSInteger total = self.group.memberCount > 0 ? self.group.memberCount : (NSInteger)self.displayMembers.count;
-        return [NSString stringWithFormat:@"成员（%ld）", (long)total];
+        return IMLocalizedFormat(@"group.info.members_title", (long)total);
     }
     return nil;
 }
@@ -513,7 +514,7 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
         NSInteger offset = [self memberRowOffset];
         if (offset > 0 && indexPath.row == 0) { // 「搜索成员」→ push 搜索页
             UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"plain" forIndexPath:indexPath];
-            cell.textLabel.text = @"搜索成员";
+            cell.textLabel.text = IMLocalized(@"group.member.search");
             cell.textLabel.textAlignment = NSTextAlignmentNatural;
             cell.textLabel.textColor = IMTheme.accent;
             cell.imageView.image = [UIImage systemImageNamed:@"magnifyingglass"];
@@ -528,7 +529,7 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
             UITableViewCell *more = [tableView dequeueReusableCellWithIdentifier:@"plain" forIndexPath:indexPath];
             more.accessoryType = UITableViewCellAccessoryNone;
             more.imageView.image = nil;
-            more.textLabel.text = self.superLoading ? @"加载中…" : @"加载更多成员";
+            more.textLabel.text = self.superLoading ? IMLocalized(@"common.loading") : IMLocalized(@"group.member.load_more");
             more.textLabel.textAlignment = NSTextAlignmentCenter;
             more.textLabel.textColor = IMTheme.accent;
             return more;
@@ -554,13 +555,13 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
     // 动作区。
     cell.selectionStyle = UITableViewCellSelectionStyleDefault;
     if (indexPath.row == 0) {
-        cell.textLabel.text = @"邀请成员";
+        cell.textLabel.text = IMLocalized(@"friend.picker.default_title");
         cell.textLabel.font = [UIFont systemFontOfSize:17];
         cell.textLabel.textColor = IMTheme.accent;
         cell.imageView.image = [UIImage systemImageNamed:@"person.badge.plus"];
         cell.imageView.tintColor = IMTheme.accent;
     } else {
-        cell.textLabel.text = @"退出群聊";
+        cell.textLabel.text = IMLocalized(@"group.info.leave");
         cell.textLabel.font = [UIFont systemFontOfSize:17];
         cell.textLabel.textColor = UIColor.systemRedColor;
         cell.imageView.image = [UIImage systemImageNamed:@"rectangle.portrait.and.arrow.right"];
@@ -628,7 +629,7 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
         if (error) {
             // 拉不到就停在当前页：成员列表少几行，不影响群资料页其余部分与聊天本身。
             self.superHasMore = NO;
-            [self im_showToast:error.localizedDescription ?: @"拉取群成员失败"];
+            [self im_showToast:error.localizedDescription ?: IMLocalized(@"group.info.members_failed")];
             [self.tableView reloadData];
             return;
         }

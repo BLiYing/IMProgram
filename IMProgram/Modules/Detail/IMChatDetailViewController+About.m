@@ -10,6 +10,7 @@
 #import "IMChatDetailViewController+Private.h"
 #import "IMGroupInfo.h"          // 私有头里 IMGroupInfo 只是前向声明，本文件要读它的属性
 #import "IMGroupTextViewController.h"
+#import "IMLocalization.h"
 
 /// 卡内行类型（顺序即展示顺序）。
 typedef NS_ENUM(NSInteger, IMDetailAboutRow) {
@@ -40,10 +41,11 @@ typedef NS_ENUM(NSInteger, IMDetailAboutRow) {
 /// **不写具体人数**：上限是部署级配置，本行拿不到 server-config 的真值（详情页不依赖它），
 /// 硬编码就会与服务端口径分叉。满员告知行能写数字，是因为它本来就要判 serverConfig 才显示。
 - (NSString *)superGroupNoticeBody {
-    return @"1. 成员上限为超级群配额；成员列表分页加载，搜索走服务端（不是本地过滤）\n"
-           @"2. 已读回执、「正在输入」、成员在线态已关闭\n"
-           @"3. 成员进出不再产生群消息（「X 加入了群聊」「A 将 B 移出群聊」等）\n"
-           @"4. 群规模所致，无法改回普通群";
+    return [NSString stringWithFormat:@"%@\n%@\n%@\n%@",
+            IMLocalized(@"group.text.super_notice_1"),
+            IMLocalized(@"group.text.super_notice_2"),
+            IMLocalized(@"group.text.super_notice_3"),
+            IMLocalized(@"group.text.super_notice_4")];
 }
 
 /// 折行/连续空白压成单行预览（详情页卡与横幅一致）。
@@ -61,18 +63,18 @@ typedef NS_ENUM(NSInteger, IMDetailAboutRow) {
     cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     if (kind == IMDetailAboutRowAnnouncement) {
         cell.imageView.image = [UIImage systemImageNamed:@"megaphone"];
-        cell.textLabel.text = @"群公告";
+        cell.textLabel.text = IMLocalized(@"group.text.announcement");
         cell.detailTextLabel.text = [self aboutSingleLinePreview:self.group.announcement];
     } else if (kind == IMDetailAboutRowSuper) {
         cell.imageView.image = [UIImage systemImageNamed:@"person.3.sequence"]; // 与满员告知行同图标
-        cell.textLabel.text = @"大群";
+        cell.textLabel.text = IMLocalized(@"group.text.super");
         // N 数的是**被关掉的能力**：已读回执 / 正在输入 / 在线态 / 进出群消息 = 4。
         // 全文里的第 1、4 条（上限、不可撤销）不是"关闭"，不计入。
         // 改 superGroupNoticeBody 的列表时**记得同步这个数**（前身写死 3，加第 3 条时就对不上了）。
-        cell.detailTextLabel.text = @"已关闭 4 项能力";
+        cell.detailTextLabel.text = IMLocalized(@"chat.detail.super_group_perks_off");
     } else {
         cell.imageView.image = [UIImage systemImageNamed:@"info.circle"];
-        cell.textLabel.text = @"群简介";
+        cell.textLabel.text = IMLocalized(@"group.text.intro");
         cell.detailTextLabel.text = [self aboutSingleLinePreview:self.group.intro];
     }
     return cell;
@@ -85,17 +87,17 @@ typedef NS_ENUM(NSInteger, IMDetailAboutRow) {
     if (row >= (NSInteger)kinds.count) { return; }
     switch ((IMDetailAboutRow)kinds[row].integerValue) {
         case IMDetailAboutRowAnnouncement:
-            [IMGroupTextViewController presentFrom:self title:@"群公告"
+            [IMGroupTextViewController presentFrom:self title:IMLocalized(@"group.text.announcement")
                                           subtitle:[IMGroupTextViewController announceSubtitleForMillis:self.group.announcementAt]
                                               body:self.group.announcement];
             break;
         case IMDetailAboutRowSuper:
-            [IMGroupTextViewController presentFrom:self title:@"大群"
-                                          subtitle:@"本群成员规模较大，部分实时能力已关闭"
+            [IMGroupTextViewController presentFrom:self title:IMLocalized(@"group.text.super")
+                                          subtitle:IMLocalized(@"group.text.super_meta")
                                               body:[self superGroupNoticeBody]];
             break;
         case IMDetailAboutRowIntro:
-            [IMGroupTextViewController presentFrom:self title:@"群简介" subtitle:nil body:self.group.intro];
+            [IMGroupTextViewController presentFrom:self title:IMLocalized(@"group.text.intro") subtitle:nil body:self.group.intro];
             break;
     }
 }

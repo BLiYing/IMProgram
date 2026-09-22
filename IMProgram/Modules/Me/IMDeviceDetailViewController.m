@@ -6,6 +6,7 @@
 #import "IMKeyValueCardView.h"
 #import "IMTheme.h"
 #import "UIViewController+IMToast.h"
+#import "IMLocalization.h"
 
 @interface IMDeviceDetailViewController ()
 @property (nonatomic, copy) NSString *host;
@@ -29,7 +30,7 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"设备详情";
+    self.title = IMLocalized(@"device.detail.title");
     self.view.backgroundColor = IMTheme.groupedBackground;
 
     UILabel *icon = [UILabel new];
@@ -40,7 +41,7 @@
     [self.view addSubview:icon];
 
     UILabel *name = [UILabel new];
-    name.text = self.device.deviceName.length ? self.device.deviceName : @"未知设备";
+    name.text = self.device.deviceName.length ? self.device.deviceName : IMLocalized(@"device.platform.unknown");
     name.font = [UIFont systemFontOfSize:19 weight:UIFontWeightSemibold];
     name.textColor = IMTheme.textPrimary;
     name.textAlignment = NSTextAlignmentCenter;
@@ -52,7 +53,7 @@
     [self.view addSubview:card];
 
     UILabel *note = [UILabel new];
-    note.text = @"位置由 IP 粗略反查，仅供识别，不参与鉴权。";
+    note.text = IMLocalized(@"device.detail.location_note");
     note.font = [UIFont systemFontOfSize:12];
     note.textColor = IMTheme.textSecondary;
     note.numberOfLines = 0;
@@ -60,7 +61,7 @@
     [self.view addSubview:note];
 
     self.revokeButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    [self.revokeButton setTitle:@"退出登录该设备" forState:UIControlStateNormal];
+    [self.revokeButton setTitle:IMLocalized(@"device.detail.revoke_button") forState:UIControlStateNormal];
     [self.revokeButton setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
     self.revokeButton.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
     self.revokeButton.backgroundColor = IMTheme.danger;
@@ -95,17 +96,17 @@
 
 - (UIView *)buildInfoCard {
     IMDeviceSession *d = self.device;
-    NSString *statusText = d.online ? @"在线" : d.lastActiveText;
+    NSString *statusText = d.online ? IMLocalized(@"common.online") : d.lastActiveText;
     UIColor *statusColor = d.online ? IMTheme.onlineDot : IMTheme.textSecondary;
     NSString *typeText = d.appVersion.length ? [NSString stringWithFormat:@"%@ · v%@", d.platformLabel, d.appVersion]
                                              : d.platformLabel;
     return [IMKeyValueCardView cardWithRows:@[
-        @[@"状态", statusText, statusColor],
-        @[@"类型", typeText],
-        @[@"登录时间", d.loginTimeText],
-        @[@"最近活跃", (d.online ? @"当前在线" : d.lastActiveText)],
-        @[@"IP 地址", (d.loginIP.length ? d.loginIP : @"未知")],
-        @[@"大致位置", (d.loginLoc.length ? d.loginLoc : @"未知")],
+        @[IMLocalized(@"common.status"), statusText, statusColor],
+        @[IMLocalized(@"common.type"), typeText],
+        @[IMLocalized(@"device.detail.login_time"), d.loginTimeText],
+        @[IMLocalized(@"device.detail.last_active"), (d.online ? IMLocalized(@"device.detail.currently_online") : d.lastActiveText)],
+        @[IMLocalized(@"qr.login_confirm.row_ip"), (d.loginIP.length ? d.loginIP : IMLocalized(@"common.unknown"))],
+        @[IMLocalized(@"qr.login_confirm.row_location"), (d.loginLoc.length ? d.loginLoc : IMLocalized(@"common.unknown"))],
     ]];
 }
 
@@ -113,13 +114,13 @@
 
 - (void)confirmRevoke {
     if (self.submitting) { return; }
-    NSString *name = self.device.deviceName.length ? self.device.deviceName : @"该设备";
-    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"退出该设备登录？"
-        message:[NSString stringWithFormat:@"「%@」将立即下线并需重新登录。若这不是你的设备，退出后建议顺手改密码。", name]
+    NSString *name = self.device.deviceName.length ? self.device.deviceName : IMLocalized(@"device.detail.fallback_name");
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:IMLocalized(@"device.detail.revoke_confirm_title")
+        message:IMLocalizedFormat(@"device.detail.revoke_confirm_message", name)
         preferredStyle:UIAlertControllerStyleAlert];
-    [ac addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [ac addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
     __weak typeof(self) ws = self;
-    [ac addAction:[UIAlertAction actionWithTitle:@"退出登录" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+    [ac addAction:[UIAlertAction actionWithTitle:IMLocalized(@"settings.logout") style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
         [ws revoke];
     }]];
     [self presentViewController:ac animated:YES completion:nil];
@@ -127,7 +128,7 @@
 
 - (void)revoke {
     NSString *token = IMHTTPService.sharedService.currentToken;
-    if (token.length == 0) { [self im_showToast:@"登录已失效，请重新登录"]; return; }
+    if (token.length == 0) { [self im_showToast:IMLocalized(@"common.login_expired")]; return; }
     self.submitting = YES;
     self.revokeButton.enabled = NO;
     self.revokeButton.alpha = 0.6;
@@ -139,12 +140,12 @@
             self.submitting = NO;
             self.revokeButton.enabled = YES;
             self.revokeButton.alpha = 1.0;
-            [self im_showToast:(error.localizedDescription.length ? error.localizedDescription : @"退出设备失败")];
+            [self im_showToast:(error.localizedDescription.length ? error.localizedDescription : IMLocalized(@"device.detail.revoke_failed"))];
             return;
         }
         // 列表页 viewWillAppear 会自动重刷，这里只需回退 + 全局提示。
         [self.navigationController popViewControllerAnimated:YES];
-        [UIViewController im_showGlobalToast:@"已退出该设备"];
+        [UIViewController im_showGlobalToast:IMLocalized(@"device.detail.revoked_toast")];
     }];
 }
 

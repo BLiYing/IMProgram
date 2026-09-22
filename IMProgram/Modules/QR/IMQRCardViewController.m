@@ -1,6 +1,7 @@
 //  IMQRCardViewController.m
 
 #import "IMQRCardViewController.h"
+#import "IMLocalization.h"
 
 #import "IMAnimator.h"
 #import "IMHTTPService.h"
@@ -68,7 +69,7 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
         _host = [host copy];
         _userID = [userID copy];
         _convID = [convID copy];
-        _displayName = [(groupName.length ? groupName : @"群聊") copy];
+        _displayName = [(groupName.length ? groupName : IMLocalized(@"common.group_chat")) copy];
         _avatarURL = [avatarURL copy];
         _memberCount = memberCount;
         _canReset = canReset;
@@ -81,7 +82,7 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = (self.mode == IMQRCardModeGroup) ? (self.asLink ? @"群邀请链接" : @"群二维码") : @"我的二维码";
+    self.title = (self.mode == IMQRCardModeGroup) ? (self.asLink ? IMLocalized(@"qr.card.group_title_link") : IMLocalized(@"qr.card.group_title_code")) : IMLocalized(@"qr.scan.my_code");
     self.view.backgroundColor = IMTheme.groupedBackground;
     [self setupUI];
     [self reloadCode];
@@ -121,8 +122,8 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
     self.cardView.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:self.cardView];
 
-    self.saveButton = [self makeButtonWithTitle:@"保存到相册" primary:NO action:@selector(saveToAlbum)];
-    self.shareButton = [self makeButtonWithTitle:@"分享" primary:YES action:@selector(shareCode)];
+    self.saveButton = [self makeButtonWithTitle:IMLocalized(@"qr.card.save_to_album") primary:NO action:@selector(saveToAlbum)];
+    self.shareButton = [self makeButtonWithTitle:IMLocalized(@"common.share") primary:YES action:@selector(shareCode)];
     UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:@[ self.saveButton, self.shareButton ]];
     row.translatesAutoresizingMaskIntoConstraints = NO;
     row.axis = UILayoutConstraintAxisHorizontal;
@@ -133,7 +134,7 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
     // 复制链接：码内容串本身就是邀请/名片链接（/q/g|u/<token>），二级文字按钮，不挤主行两键布局。
     self.linkCopyButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.linkCopyButton.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.linkCopyButton setTitle:(self.mode == IMQRCardModeGroup ? @"复制群邀请链接" : @"复制链接") forState:UIControlStateNormal];
+    [self.linkCopyButton setTitle:(self.mode == IMQRCardModeGroup ? IMLocalized(@"qr.card.copy_group_link") : IMLocalized(@"qr.copy_link")) forState:UIControlStateNormal];
     [self.linkCopyButton setTitleColor:IMTheme.accent forState:UIControlStateNormal];
     self.linkCopyButton.titleLabel.font = [UIFont systemFontOfSize:15];
     [self.linkCopyButton addTarget:self action:@selector(shareLinkCopy) forControlEvents:UIControlEventTouchUpInside];
@@ -141,7 +142,7 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
 
     self.resetButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.resetButton.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.resetButton setTitle:(self.mode == IMQRCardModeGroup ? @"重置群二维码" : @"重置二维码")
+    [self.resetButton setTitle:(self.mode == IMQRCardModeGroup ? IMLocalized(@"qr.card.reset_group") : IMLocalized(@"qr.reset"))
                       forState:UIControlStateNormal];
     [self.resetButton setTitleColor:IMTheme.textSecondary forState:UIControlStateNormal];
     self.resetButton.titleLabel.font = [UIFont systemFontOfSize:14];
@@ -189,15 +190,15 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
     NSString *subtitle;
     NSString *hint;
     if (self.mode == IMQRCardModeGroup) {
-        subtitle = [NSString stringWithFormat:@"%ld 名成员", (long)self.memberCount];
+        subtitle = IMLocalizedFormat(@"qr.branch.group_meta", (long)self.memberCount);
         hint = self.expiresAt > 0
-            ? [NSString stringWithFormat:@"扫描二维码，加入群聊\n该二维码 %@ 前有效", [self dateStringFromMillis:self.expiresAt]]
-            : @"扫描二维码，加入群聊";
+            ? IMLocalizedFormat(@"qr.card.group_hint_expiry", [self dateStringFromMillis:self.expiresAt])
+            : IMLocalized(@"qr.card.group_subtitle_code");
     } else {
         // 副标题显示公开句柄，不是 userID（10 位随机数字内部 ID）——这张卡是给别人看的，
         // 显示一串随机数字对方认不出是谁（docs/UI.md「用户标识」）。没有句柄就留空。
         subtitle = self.username.length > 0 ? [@"@" stringByAppendingString:self.username] : @"";
-        hint = @"扫描二维码，加我为朋友\n该码长期有效，重置后旧码立即失效";
+        hint = IMLocalized(@"qr.card.my_hint");
     }
     NSString *seed = (self.mode == IMQRCardModeGroup) ? (self.convID ?: @"") : self.userID;
     [self.cardView configureWithAvatarURL:self.avatarURL seed:seed name:self.displayName ?: @""
@@ -209,17 +210,15 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
 }
 
 - (NSString *)dateStringFromMillis:(int64_t)ms {
-    NSDateFormatter *f = [NSDateFormatter new];
-    f.locale = [NSLocale localeWithLocaleIdentifier:@"zh_CN"];
-    f.dateFormat = @"M月d日";
-    return [f stringFromDate:[NSDate dateWithTimeIntervalSince1970:(NSTimeInterval)ms / 1000.0]];
+    // 走统一日期词汇（time.month_day / time.full_date，随 App 语言）；往年的码会带年份，比原先「M月d日」更不含糊。
+    return [IMTheme dateLabelForDate:[NSDate dateWithTimeIntervalSince1970:(NSTimeInterval)ms / 1000.0]];
 }
 
 #pragma mark - 取码 / 重置
 
 - (void)reloadCode {
     NSString *token = IMHTTPService.sharedService.currentToken;
-    if (token.length == 0) { [self im_showToast:@"登录已失效，请重新登录"]; return; }
+    if (token.length == 0) { [self im_showToast:IMLocalized(@"common.login_expired")]; return; }
     if (self.loading) { return; }
     self.loading = YES;
     __weak typeof(self) ws = self;
@@ -227,7 +226,7 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
         self.loading = NO;
-        if (error) { [self im_showToast:error.localizedDescription ?: @"获取二维码失败"]; return; }
+        if (error) { [self im_showToast:error.localizedDescription ?: IMLocalized(@"qr.card.fetch_failed")]; return; }
         [self applyCard:card];
     };
     if (self.mode == IMQRCardModeGroup) {
@@ -248,29 +247,29 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
 /// 重置是不可撤销且影响外部世界的操作（旧码可能已发出去/贴在群公告里），故强制二次确认。
 - (void)confirmReset {
     NSString *message = (self.mode == IMQRCardModeGroup)
-        ? @"重置后旧的群二维码立即失效，已拿到旧码但还没进群的人将无法加入。"
-        : @"重置后旧二维码立即失效，已经把码发出去的人将无法通过它加你。";
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"重置二维码？"
+        ? IMLocalized(@"qr.card.reset_group_message")
+        : IMLocalized(@"qr.card.reset_user_message");
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:IMLocalized(@"qr.card.reset_confirm_title")
                                                                   message:message
                                                            preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
     __weak typeof(self) ws = self;
-    [alert addAction:[UIAlertAction actionWithTitle:@"确认重置" style:UIAlertActionStyleDestructive
+    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"qr.confirm_reset") style:UIAlertActionStyleDestructive
                                             handler:^(UIAlertAction *_Nonnull a) { [ws performReset]; }]];
     [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)performReset {
     NSString *token = IMHTTPService.sharedService.currentToken;
-    if (token.length == 0) { [self im_showToast:@"登录已失效，请重新登录"]; return; }
+    if (token.length == 0) { [self im_showToast:IMLocalized(@"common.login_expired")]; return; }
     __weak typeof(self) ws = self;
     void (^done)(NSDictionary *, NSError *) = ^(NSDictionary *card, NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
-        if (error) { [self im_showToast:error.localizedDescription ?: @"重置失败"]; return; }
+        if (error) { [self im_showToast:error.localizedDescription ?: IMLocalized(@"qr.card.reset_failed")]; return; }
         [self applyCard:card];
         [IMAnimator lightImpact];
-        [self im_showToast:@"已重置，旧二维码已失效"];
+        [self im_showToast:IMLocalized(@"qr.card.reset_done")];
     };
     if (self.mode == IMQRCardModeGroup) {
         [IMHTTPService.sharedService groupQRResetWithToken:token convID:self.convID ?: @"" completion:done];
@@ -283,18 +282,18 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
 
 - (void)saveToAlbum {
     UIImage *image = self.cardView.qrImage;
-    if (!image) { [self im_showToast:@"二维码还没准备好"]; return; }
+    if (!image) { [self im_showToast:IMLocalized(@"qr.card.not_ready")]; return; }
     UIImageWriteToSavedPhotosAlbum(image, self, @selector(image:didFinishSavingWithError:contextInfo:), NULL);
 }
 
 - (void)image:(UIImage *)image didFinishSavingWithError:(NSError *)error contextInfo:(void *)contextInfo {
     // 相册权限被拒也会走这里（error 非空），必须给出可行动的提示而不是静默。
-    [self im_showToast:error ? (error.localizedDescription ?: @"保存失败，请检查相册权限") : @"已保存到相册"];
+    [self im_showToast:error ? (error.localizedDescription ?: IMLocalized(@"qr.card.save_failed")) : IMLocalized(@"qr.card.saved")];
 }
 
 - (void)shareCode {
     UIImage *image = self.cardView.qrImage;
-    if (!image || self.codeString.length == 0) { [self im_showToast:@"二维码还没准备好"]; return; }
+    if (!image || self.codeString.length == 0) { [self im_showToast:IMLocalized(@"qr.card.not_ready")]; return; }
     UIActivityViewController *share =
         [[UIActivityViewController alloc] initWithActivityItems:@[ image, self.codeString ] applicationActivities:nil];
     share.popoverPresentationController.sourceView = self.shareButton;      // iPad 必须给锚点，否则崩
@@ -304,9 +303,9 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
 
 /// 复制链接：把码内容串（即 /q/g|u/<token> 邀请/名片链接）拷进剪贴板。
 - (void)shareLinkCopy {
-    if (self.codeString.length == 0) { [self im_showToast:@"链接还没准备好"]; return; }
+    if (self.codeString.length == 0) { [self im_showToast:IMLocalized(@"qr.card.link_not_ready")]; return; }
     UIPasteboard.generalPasteboard.string = self.codeString;
-    [self im_showToast:(self.mode == IMQRCardModeGroup ? @"已复制群邀请链接" : @"已复制链接")];
+    [self im_showToast:(self.mode == IMQRCardModeGroup ? IMLocalized(@"qr.card.copied_group_link") : IMLocalized(@"common.copied_link"))];
 }
 
 @end

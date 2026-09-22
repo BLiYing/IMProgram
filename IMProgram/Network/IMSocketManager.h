@@ -4,6 +4,7 @@
 //  对齐 IMServer/docs/PROTOCOL.md。所有回调切回主线程。
 
 #import <Foundation/Foundation.h>
+#import "IMLocalization.h"
 #import "IMMediaAttributes.h"
 #import "IMPresence.h"
 
@@ -104,8 +105,8 @@ FOUNDATION_EXPORT IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, 
 /// 聊天页与会话列表页共用，避免两处各写一份 switch 导致文案漂移。
 NS_INLINE NSString *IMSocketStateSubtitle(IMSocketState state) {
     switch (state) {
-        case IMSocketStateConnecting:   return @"连接中…";
-        case IMSocketStateDisconnected: return @"未连接";
+        case IMSocketStateConnecting:   return IMLocalized(@"conn.state.connecting");
+        case IMSocketStateDisconnected: return IMLocalized(@"conn.state.disconnected");
         case IMSocketStateConnected:    return @"";
     }
     return @"";

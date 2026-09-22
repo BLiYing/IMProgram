@@ -13,6 +13,7 @@
 #import "IMLog.h" // 门控占位渲染点位日志（media_gated_render / media_gated_thumb_dropped）
 #import "IMMediaPlaceholder.h" // 磨砂占位统一渲染器（三处共用）
 #import "IMMediaExpiryRegistry.h" // 被动展示 404 失效登记 + 复验（曾可用媒体被清理）
+#import "IMLocalization.h"
 
 /// 气泡最大盒子：宽取 240 与屏宽 62% 的较小者（窄屏也不顶满），高 320（长图不会撑满整屏）。
 static const CGFloat kIMMediaMaxWidth = 240;
@@ -418,7 +419,7 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
             }];
         }
     }
-    [self showExpiredOverlayWithCaption:(isVideo ? @"视频已失效" : @"图片已失效")];
+    [self showExpiredOverlayWithCaption:(isVideo ? IMLocalized(@"media.video_expired") : IMLocalized(@"media.image_expired"))];
 }
 
 - (void)showExpiredOverlayWithCaption:(NSString *)caption {
@@ -461,7 +462,7 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     _thumb.isAccessibilityElement = YES;
     _thumb.accessibilityTraits = UIAccessibilityTraitButton;
     _thumb.accessibilityLabel = dp ? [dp accessibilityText]
-        : (_gatedSizeBytes > 0 ? [NSString stringWithFormat:@"下载，%@", IMFormatFileSize(_gatedSizeBytes)] : @"下载");
+        : (_gatedSizeBytes > 0 ? IMLocalizedFormat(@"media.download.a11y_start_sized", IMFormatFileSize(_gatedSizeBytes)) : IMLocalized(@"media.download.a11y_start"));
 
     // 左上角单块角标（防溢出：进度与时长不再各占一块）：
     //   未下载 = 「大小 · 时长」（大小在前，与宫格/Web 统一）；下载中/暂停 = 只显进度（**藏时长**，腾出空间）；失败 = 失败文案。
@@ -557,11 +558,11 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
         return;
     }
     if (message.status == IMMessageStatusSending) {
-        [self setMetaText:@"发送中…" checks:nil checkColor:base];
+        [self setMetaText:IMLocalized(@"common.sending") checks:nil checkColor:base];
         return;
     }
     if (message.status == IMMessageStatusFailed) {
-        [self setMetaText:(message.note.length > 0 ? time : @"未发送 ✗") checks:nil checkColor:base];
+        [self setMetaText:(message.note.length > 0 ? time : IMLocalized(@"chat.message.not_sent_mark")) checks:nil checkColor:base];
         return;
     }
     if (message.convSeq > 0) { // 拿到 conv_seq 即已送达，再按对端已读位点决定单勾/双勾
@@ -637,7 +638,7 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName) {
     }
     // 右下角只在**真正传输**时显「发送中…」；暂停时回落为时间（configure 按 status=sending 写死了发送中）。
     if (!progress.failed) {
-        [self setMetaText:(paused ? (_timeText ?: @"") : @"发送中…") checks:nil checkColor:IMTheme.mediaBadgeText];
+        [self setMetaText:(paused ? (_timeText ?: @"") : IMLocalized(@"common.sending")) checks:nil checkColor:IMTheme.mediaBadgeText];
     }
     [self.contentView bringSubviewToFront:_progressWrap];
     NSString *symbol = IMUploadCenterSymbol(progress);

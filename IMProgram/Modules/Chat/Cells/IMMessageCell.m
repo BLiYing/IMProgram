@@ -3,6 +3,7 @@
 #import "IMFailBadgeView.h"
 #import "IMMessageModel.h"
 #import "IMTheme.h"
+#import "IMLocalization.h"
 
 @implementation IMMessageCell
 
@@ -29,7 +30,7 @@
         _unreadDivider.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
         _unreadDivider.textColor = IMTheme.textSecondary;
         _unreadDivider.textAlignment = NSTextAlignmentCenter;
-        _unreadDivider.text = @"未读消息";
+        _unreadDivider.text = IMLocalized(@"chat.unread_divider");
         _unreadDivider.clipsToBounds = YES;
         _unreadDivider.hidden = YES;
         [self.contentView addSubview:_unreadDivider];
@@ -117,11 +118,11 @@
         return;
     }
     if (role == IMGroupRoleOwner) {
-        _senderRoleLabel.text = @"群主";
+        _senderRoleLabel.text = IMLocalized(@"group.role.owner");
         _senderRoleLabel.textColor = IMTheme.accent;
         _senderRoleBadge.backgroundColor = [IMTheme.accent colorWithAlphaComponent:0.14];
     } else { // IMGroupRoleAdmin
-        _senderRoleLabel.text = @"管理员";
+        _senderRoleLabel.text = IMLocalized(@"group.role.admin");
         _senderRoleLabel.textColor = IMTheme.textSecondary;
         _senderRoleBadge.backgroundColor = [IMTheme.separator colorWithAlphaComponent:0.5];
     }
@@ -166,7 +167,7 @@ const int64_t kIMPeerReadSeqHidden = -1;
                                      peerReadSeq:(int64_t)peerReadSeq {
     UIFont *font = [UIFont systemFontOfSize:11];
     NSString *time = [IMTheme timeStringFromMillis:message.timestamp];
-    if (message.editedAt > 0) { time = [@"已编辑 " stringByAppendingString:time ?: @""]; } // M4-5
+    if (message.editedAt > 0) { time = [IMLocalized(@"chat.message.edited_prefix") stringByAppendingString:time ?: @""]; } // M4-5
     UIColor *timeColor = IMTheme.bubbleMetaTime;
     NSDictionary *base = @{ NSFontAttributeName: font, NSForegroundColorAttributeName: timeColor };
 
@@ -174,14 +175,14 @@ const int64_t kIMPeerReadSeqHidden = -1;
         return [[NSAttributedString alloc] initWithString:time attributes:base];
     }
     if (message.status == IMMessageStatusSending) {
-        return [[NSAttributedString alloc] initWithString:@"发送中…" attributes:base];
+        return [[NSAttributedString alloc] initWithString:IMLocalized(@"common.sending") attributes:base];
     }
     if (message.status == IMMessageStatusFailed) {
         // 被拒收（有系统行）→ 气泡内只显时间，失败由红❗+下方系统行表达；其余失败仍显"未发送 ✗"。
         if (message.note.length > 0) {
             return [[NSAttributedString alloc] initWithString:time attributes:base];
         }
-        return [[NSAttributedString alloc] initWithString:@"未发送 ✗"
+        return [[NSAttributedString alloc] initWithString:IMLocalized(@"chat.message.not_sent_mark")
             attributes:@{ NSFontAttributeName: font, NSForegroundColorAttributeName: UIColor.systemRedColor }];
     }
     // 其余（Sent，或经多端抄送/同步收到的"自己消息"——其 status 为 Received）：

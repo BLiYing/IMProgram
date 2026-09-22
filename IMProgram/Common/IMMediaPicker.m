@@ -1,6 +1,7 @@
 //  IMMediaPicker.m
 
 #import "IMMediaPicker.h"
+#import "IMLocalization.h"
 #import "IMLog.h"
 #import <PhotosUI/PhotosUI.h>
 #import <AVFoundation/AVFoundation.h>
@@ -606,16 +607,16 @@ static IMMediaPicker *gActivePicker; // 会话期间自持有（PHPicker delegat
 
     // 微信式「原图」选择：PHPicker 无内置勾选，选完后弹一次（对全部所选生效）。
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:nil
-        message:[NSString stringWithFormat:@"已选 %lu 项", (unsigned long)results.count]
+        message:IMLocalizedFormat(@"media.picker.selected_count", (long)results.count)
         preferredStyle:UIAlertControllerStyleActionSheet];
     __weak typeof(self) ws = self;
-    [sheet addAction:[UIAlertAction actionWithTitle:@"发送" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+    [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.send") style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
         [ws buildHandlesOriginal:NO];
     }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"发送原图/原视频" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+    [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"media.picker.send_original") style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
         [ws buildHandlesOriginal:YES];
     }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction *a) {
+    [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:^(UIAlertAction *a) {
         [ws finishWithHandles:@[]];
     }]];
     UIViewController *host = _host;

@@ -1,6 +1,7 @@
 //  IMMessageModel.m
 
 #import "IMMessageModel.h"
+#import "IMLocalization.h"
 
 #import "IMRemarkStore.h"   // 名字段的本机显示名（备注优先）
 
@@ -68,7 +69,7 @@
                 groupNickname:(NSString *)groupNickname
                      fallback:(NSString *)fallback {
     if (uid.length == 0) { return fallback ?: @""; }
-    if (selfUID.length > 0 && [uid isEqualToString:selfUID]) { return @"我"; }
+    if (selfUID.length > 0 && [uid isEqualToString:selfUID]) { return IMLocalized(@"common.me"); }
     NSString *base = groupNickname.length > 0 ? groupNickname : (fallback.length > 0 ? fallback : uid);
     return [IMRemarkStore.sharedStore displayNameForUser:uid fallback:base];
 }

@@ -3,6 +3,7 @@
 #import "IMGroupTextViewController.h"
 #import "IMTheme.h"
 #import "UIViewController+IMToast.h"
+#import "IMLocalization.h"
 
 @interface IMGroupTextViewController ()
 @property (nonatomic, copy) NSString *headline;
@@ -41,7 +42,7 @@
         f.dateFormat = @"M月d日 HH:mm";
     });
     NSString *s = [f stringFromDate:[NSDate dateWithTimeIntervalSince1970:(NSTimeInterval)ms / 1000.0]];
-    return [s stringByAppendingString:@" 发布"];
+    return IMLocalizedFormat(@"group.announcement.published_at", s);
 }
 
 - (void)viewDidLoad {
@@ -87,7 +88,7 @@
 
     // 复制按钮
     UIButton *copy = [UIButton buttonWithType:UIButtonTypeSystem];
-    [copy setTitle:@"复制全文" forState:UIControlStateNormal];
+    [copy setTitle:IMLocalized(@"chat.reader.copy") forState:UIControlStateNormal];
     copy.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
     [copy setTitleColor:IMTheme.accent forState:UIControlStateNormal];
     copy.translatesAutoresizingMaskIntoConstraints = NO;
@@ -132,7 +133,7 @@
 
 - (void)copyTapped {
     UIPasteboard.generalPasteboard.string = self.body;
-    [self im_showToast:@"已复制"];
+    [self im_showToast:IMLocalized(@"common.copied")];
 }
 
 - (void)closeTapped {

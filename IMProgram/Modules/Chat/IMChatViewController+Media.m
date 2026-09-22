@@ -33,23 +33,24 @@
 #import "IMUploadProgress.h"
 #import "UIViewController+IMToast.h"
 #import "UIViewController+IMDeleteSheet.h"
+#import "IMLocalization.h"
 
 @implementation IMChatViewController (Media)
 
 #pragma mark - 附件面板 / 富媒体（M4-6）
 
-- (void)voiceTapped { [self im_showToast:@"按住 语音 按钮说话"]; }
-- (void)emojiTapped { [self im_showComingSoon:@"表情"]; }
+- (void)voiceTapped { [self im_showToast:IMLocalized(@"chat.media.voice_hint")]; }
+- (void)emojiTapped { [self im_showComingSoon:IMLocalized(@"common.emoji")]; }
 
 /// 面板项（数据驱动，M4-6）：加入口 = 数组加一条。照片接真实上传，其余占位。
 - (NSArray<NSDictionary *> *)attachItems {
     return @[
-        @{ @"id": @"photo", @"title": @"照片", @"image": @"photo" },
-        @{ @"id": @"camera", @"title": @"拍摄", @"image": @"camera" },
-        @{ @"id": @"av", @"title": @"音视频", @"image": @"video" },
-        @{ @"id": @"favorite", @"title": @"收藏", @"image": @"bookmark" },
-        @{ @"id": @"card", @"title": @"个人名片", @"image": @"person.crop.square" },
-        @{ @"id": @"file", @"title": @"文件", @"image": @"doc" },
+        @{ @"id": @"photo", @"title": IMLocalized(@"chat.attach.photo"), @"image": @"photo" },
+        @{ @"id": @"camera", @"title": IMLocalized(@"chat.attach.camera"), @"image": @"camera" },
+        @{ @"id": @"av", @"title": IMLocalized(@"chat.attach.av"), @"image": @"video" },
+        @{ @"id": @"favorite", @"title": IMLocalized(@"common.favorite"), @"image": @"bookmark" },
+        @{ @"id": @"card", @"title": IMLocalized(@"chat.attach.contact_card"), @"image": @"person.crop.square" },
+        @{ @"id": @"file", @"title": IMLocalized(@"common.file"), @"image": @"doc" },
     ];
 }
 
@@ -167,7 +168,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
         [self openFriendPickerForContactCard]; // 见 +Contact.m
         return;
     }
-    [self im_showComingSoon:@"音视频"]; // 其余占位（当前只剩 av），后续按需接真实功能
+    [self im_showComingSoon:IMLocalized(@"chat.attach.av")]; // 其余占位（当前只剩 av），后续按需接真实功能
 }
 
 /// 从收藏发送（Batch 2）：模态呈现 IMFavoritesViewController 的 pick 模式；
@@ -183,7 +184,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
             for (NSDictionary *f in picked) {
                 [self sendPickedFavorite:f];
             }
-            [self im_showToast:picked.count == 1 ? @"已发送" : [NSString stringWithFormat:@"已发送 %lu 条", (unsigned long)picked.count]];
+            [self im_showToast:picked.count == 1 ? IMLocalized(@"common.sent") : IMLocalizedFormat(@"chat.media.sent_count", (long)picked.count)];
         }];
     }];
     UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:picker];
@@ -269,23 +270,23 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     __weak typeof(self) ws = self;
     NSMutableArray<IMPopoverCardItem *> *acts = [NSMutableArray array];
     if (m.convSeq > 0) {
-        [acts addObject:[IMPopoverCardItem itemWithTitle:@"定位到聊天位置" symbol:@"text.bubble" destructive:NO handler:^{
+        [acts addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"media.viewer.locate") symbol:@"text.bubble" destructive:NO handler:^{
             [ws jumpToConvSeq:m.convSeq];
         }]];
     }
-    [acts addObject:[IMPopoverCardItem itemWithTitle:@"收藏" symbol:@"bookmark" destructive:NO handler:^{ [ws favoriteMessage:m]; }]];
+    [acts addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"common.favorite") symbol:@"bookmark" destructive:NO handler:^{ [ws favoriteMessage:m]; }]];
     // 视频不提供复制：无"复制字节"语义，复制链接意义不大，产品上禁止复制视频消息（与 Web 对齐）。
     if (!isVideo) {
-        [acts addObject:[IMPopoverCardItem itemWithTitle:@"复制" symbol:@"doc.on.doc" destructive:NO handler:^{
+        [acts addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"common.copy") symbol:@"doc.on.doc" destructive:NO handler:^{
             [ws copyMessageToPasteboard:m]; // 图片→复制图片字节（可粘贴回输入框发图）
         }]];
     }
     if (m.recalledAt == 0 && m.convSeq > 0) {
         // 相册查看器"更多"：看不到 caption/附言，转发时不带（对齐 forwardFileMessage: 语义）。
-        [acts addObject:[IMPopoverCardItem itemWithTitle:@"转发" symbol:@"arrowshape.turn.up.right" destructive:NO handler:^{ [ws forwardMediaFromViewerMessage:m]; }]];
+        [acts addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"common.forward") symbol:@"arrowshape.turn.up.right" destructive:NO handler:^{ [ws forwardMediaFromViewerMessage:m]; }]];
     }
     // 删除（与 Web 查看器「更多」对齐）：可为所有人删则弹两档 sheet，否则=仅删除自己 / 本地删。
-    [acts addObject:[IMPopoverCardItem itemWithTitle:@"删除" symbol:@"trash" destructive:YES handler:^{ [ws confirmDeleteMediaMessage:m]; }]];
+    [acts addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"common.delete") symbol:@"trash" destructive:YES handler:^{ [ws confirmDeleteMediaMessage:m]; }]];
     return acts;
 }
 
@@ -308,9 +309,9 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     __weak typeof(self) ws = self;
     NSMutableArray<IMMenuAction *> *acts = [NSMutableArray array];
     // 全屏媒体库长按：同为相册视角看不到 caption，转发不带（对齐单张查看器"更多"入口）。
-    [acts addObject:[IMMenuAction actionWithId:@"forward" title:@"转发" image:@"arrowshape.turn.up.right"
+    [acts addObject:[IMMenuAction actionWithId:@"forward" title:IMLocalized(@"common.forward") image:@"arrowshape.turn.up.right"
                                        handler:^{ [ws forwardMediaFromViewerMessage:m]; }]];
-    [acts addObject:[IMMenuAction actionWithId:@"locate" title:@"定位到聊天" image:@"text.bubble"
+    [acts addObject:[IMMenuAction actionWithId:@"locate" title:IMLocalized(@"chat.menu.locate") image:@"text.bubble"
                                        handler:^{ [ws jumpToConvSeq:m.convSeq]; }]];
     [acts addObject:[self deleteMenuActionForMessage:m]]; // actionId=@"delete"（媒体库据此在其前插「取消下载」）
     return acts;
@@ -318,7 +319,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
 
 /// 媒体查看器/媒体库顶部标题（会话名）：单聊=备注名/昵称/uid，群聊=群名。
 - (NSString *)conversationDisplayTitle {
-    if (self.isGroupChat) { return self.groupName.length > 0 ? self.groupName : @"群聊"; }
+    if (self.isGroupChat) { return self.groupName.length > 0 ? self.groupName : IMLocalized(@"common.group_chat"); }
     return [self peerDisplayName];
 }
 
@@ -448,12 +449,12 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
 
 /// 取消发送前确认（长按菜单直达 cancelPendingMessage，点按走这里防误触）。
 - (void)confirmCancelPendingMessage:(IMMessageModel *)m {
-    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:nil message:@"取消发送这条消息？"
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:nil message:IMLocalized(@"chat.media.cancel_send_confirm")
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
     __weak typeof(self) ws = self;
-    [sheet addAction:[UIAlertAction actionWithTitle:@"取消发送" style:UIAlertActionStyleDestructive
+    [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"chat.msg_menu.cancel_send") style:UIAlertActionStyleDestructive
                                             handler:^(UIAlertAction *a) { [ws cancelPendingMessage:m]; }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"继续发送" style:UIAlertActionStyleCancel handler:nil]];
+    [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"chat.media.continue_send") style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:sheet animated:YES completion:nil];
 }
 
@@ -467,7 +468,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     BOOL ok = [IMMediaSendService.shared retryMessage:m
                                                toUser:(self.isGroupChat ? @"" : self.peerID)
                                             dbContext:self.databaseContext];
-    if (!ok) { [self im_showToast:@"本地文件已丢失，无法重试"]; return; }
+    if (!ok) { [self im_showToast:IMLocalized(@"chat.media.local_file_lost")]; return; }
     [self refreshVisibleCellForMessage:m];
 }
 
@@ -518,13 +519,13 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
 /// （见 handleCapturedVideoAtURL:），此刻弹 toast 会被相机全屏盖住，用户根本看不见。
 - (void)openCamera {
     if (![UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypeCamera]) {
-        [self im_showToast:@"当前设备不支持拍摄"];
+        [self im_showToast:IMLocalized(@"chat.media.camera_unsupported")];
         return;
     }
     __weak typeof(self) ws = self;
     [AVCaptureDevice requestAccessForMediaType:AVMediaTypeVideo completionHandler:^(BOOL granted) {
         if (!granted) {
-            dispatch_async(dispatch_get_main_queue(), ^{ [ws im_showToast:@"请在设置中允许使用相机"]; });
+            dispatch_async(dispatch_get_main_queue(), ^{ [ws im_showToast:IMLocalized(@"chat.media.camera_permission_denied")]; });
             return;
         }
         // 已决定过（授权/拒绝）时 requestAccess 立即回调，不会二次弹框。
@@ -637,7 +638,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     NSString *localRef = [[IMPendingMediaStore shared] storeFileAtURL:fileURL
                                                       forClientMsgID:m.clientMsgID
                                                            extension:fileName.pathExtension];
-    if (!localRef) { [self im_showToast:@"本地暂存失败，请重试"]; return; }
+    if (!localRef) { [self im_showToast:IMLocalized(@"chat.media.stage_failed")]; return; }
     m.content = localRef;
     [self.windowState.messages addObject:m];
     [self persistOutboxMessage:m];
@@ -709,13 +710,13 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     NSString *originalName = url.lastPathComponent ?: @"file.bin";
     // 先 stat 再决定走哪条路：大文件绝不能为了判断大小就整包读进内存。
     int64_t size = (int64_t)[[NSFileManager.defaultManager attributesOfItemAtPath:url.path error:NULL][NSFileSize] unsignedLongLongValue];
-    if (size <= 0 || token.length == 0) { [self im_showToast:@"文件读取失败"]; return; }
+    if (size <= 0 || token.length == 0) { [self im_showToast:IMLocalized(@"chat.media.file_read_failed")]; return; }
     if (size >= (int64_t)IMChunkedUploader.chunkedThresholdBytes) {
         [self sendLargeFileAtURL:url fileName:originalName size:size token:token]; // 全程走文件，不进内存
         return;
     }
     NSData *data = [NSData dataWithContentsOfURL:url];
-    if (data.length == 0) { [self im_showToast:@"文件读取失败"]; return; }
+    if (data.length == 0) { [self im_showToast:IMLocalized(@"chat.media.file_read_failed")]; return; }
     __weak typeof(self) ws = self;
     [IMHTTPService.sharedService uploadData:data fileName:originalName
                                    mimeType:@"application/octet-stream" token:token
@@ -723,7 +724,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
         __strong typeof(ws) self = ws;
         if (!self) { return; }
         if (error || up.length == 0) {
-            [self im_showToast:error.localizedDescription.length ? error.localizedDescription : @"文件上传失败"];
+            [self im_showToast:error.localizedDescription.length ? error.localizedDescription : IMLocalized(@"chat.media.file_upload_failed")];
             return;
         }
         [self sendMediaURL:up contentType:@"file" fileName:originalName fileSize:(int64_t)data.length];
@@ -758,7 +759,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
                                  completion:^(NSString *url, NSString *contentType, NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
-        if (error || url.length == 0) { [self im_showToast:@"图片上传失败"]; return; }
+        if (error || url.length == 0) { [self im_showToast:IMLocalized(@"chat.media.image_upload_failed")]; return; }
         [self sendMediaURL:url contentType:(contentType ?: @"image") fileName:nil fileSize:0
            mediaAttributes:[self mediaAttributesForImage:image bytes:(int64_t)data.length]];
     }];
@@ -787,12 +788,12 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
 /// 单条句柄 → sendMediaHandles: 不生成 groupID → 普通视频气泡（不进宫格）。
 - (void)handleCapturedVideoAtURL:(NSURL *)url {
     IMPickedMediaHandle *handle = [IMMediaPicker handleForRecordedVideoAtURL:url];
-    if (!handle) { [self im_showToast:@"录像读取失败"]; return; }
+    if (!handle) { [self im_showToast:IMLocalized(@"chat.media.video_read_failed")]; return; }
     [self sendMediaHandles:@[handle]];
     // 麦克风被拒 → 录出来是**无声视频**，系统全程不吭声。这条 toast 是用户唯一的知情渠道，
     // 且只能等回到聊天页才弹（相机全屏时 toast 被盖住看不见）。
     if ([AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio] != AVAuthorizationStatusAuthorized) {
-        [self im_showToast:@"未开启麦克风权限，这段视频没有声音"];
+        [self im_showToast:IMLocalized(@"chat.media.no_mic_permission_video")];
     }
 }
 
@@ -862,7 +863,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
 - (void)copyMessageToPasteboard:(IMMessageModel *)message {
     if (message.caption.length > 0) { // 图说：复制文本（约定「这类消息文本操作作用于文本」）
         UIPasteboard.generalPasteboard.string = message.caption;
-        [self im_showToast:@"已复制"];
+        [self im_showToast:IMLocalized(@"common.copied")];
         return;
     }
     if ([message.contentType isEqualToString:@"image"]) {
@@ -870,17 +871,17 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
         [[IMImageLoader shared] loadImageURL:[self fullMediaURL:message.content] completion:^(UIImage *img) {
             if (img) {
                 UIPasteboard.generalPasteboard.image = img;
-                [ws im_showToast:@"已复制图片"];
+                [ws im_showToast:IMLocalized(@"common.copied_image")];
             } else {
                 UIPasteboard.generalPasteboard.string = [ws fullMediaURL:message.content];
-                [ws im_showToast:@"已复制链接"];
+                [ws im_showToast:IMLocalized(@"common.copied_link")];
             }
         }];
         return;
     }
     BOOL isMedia = [message.contentType isEqualToString:@"video"] || [message.contentType isEqualToString:@"file"];
     UIPasteboard.generalPasteboard.string = isMedia ? [self fullMediaURL:message.content] : (message.content ?: @"");
-    if (isMedia) { [self im_showToast:@"已复制链接"]; }
+    if (isMedia) { [self im_showToast:IMLocalized(@"common.copied_link")]; }
 }
 
 /// 粘贴图片 → 预览条攒批（#2 重设计，Telegram 式）：不直接发，缩略图 chip 出现在输入栏上方，
@@ -899,7 +900,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     m.timestamp = IMNowMillis();
     [self.windowState.messages addObject:m];
     [self appendReloadAndScroll];
-    [self im_showToast:@"图片发送失败"];
+    [self im_showToast:IMLocalized(@"chat.media.image_send_failed")];
 }
 
 - (void)appendPastedImage:(UIImage *)image {
@@ -909,7 +910,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     // 图说 caption 只对单件消息定义；多选发图仍走媒体选择器（相册宫格），不受此限。
     if (self.pendingPasteImages.count > 0) {
         [self.pendingPasteImages removeAllObjects];
-        [self im_showToast:@"一次只能粘贴一张图片，已保留最新的"];
+        [self im_showToast:IMLocalized(@"chat.media.paste_limit_one")];
     }
     [self.pendingPasteImages addObject:image];
     [self refreshPasteBar];

@@ -10,6 +10,7 @@
 #import "IMMainTabBarController.h"        // im_refreshNavigationBar
 #import "UILabel+IMAvatar.h"              // IMAvatarInitials
 #import "UIViewController+IMToast.h"
+#import "IMLocalization.h"
 #import "UIViewController+IMFriendRequest.h"
 #import "IMTheme.h"
 #import "IMAccountIdentity.h"
@@ -71,7 +72,7 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     UIBarButtonItem *item = [[UIBarButtonItem alloc] initWithImage:IMChatAvatarImage(nil, seed, name, avatarD)
                                                               style:UIBarButtonItemStylePlain
                                                              target:self action:action];
-    item.accessibilityLabel = name.length ? [NSString stringWithFormat:@"%@的聊天详情", name] : @"聊天详情";
+    item.accessibilityLabel = name.length ? IMLocalizedFormat(@"chat.detail.a11y_with_name", name) : IMLocalized(@"chat.detail.a11y_title");
     self.navigationItem.rightBarButtonItem = item;
     [self refreshUnifiedNavigationBar];
 

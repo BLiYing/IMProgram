@@ -20,6 +20,7 @@
 #import "IMLog.h"
 #import "IMAccountIdentity.h"
 #import "IMPresence.h"
+#import "IMLocalization.h"
 
 @implementation IMChatDetailViewController (Header)
 
@@ -68,31 +69,31 @@
     // 系统通知会话：只留「更多」（免打扰/清空聊天）——加好友/消息/呼叫/视频/搜索都不适用。
     // 见 docs/design/SYSTEM_NOTICE_SESSION_DESIGN.md §5.3 / §7 权限矩阵。
     if (!self.isGroup && IMIsSystemUserID(self.peerID)) {
-        [specs addObject:@{@"t": @"更多", @"s": @"ellipsis", @"a": @"more"}];
+        [specs addObject:@{@"t": IMLocalized(@"common.more"), @"s": @"ellipsis", @"a": @"more"}];
         return specs;
     }
     if (!self.isGroup) {
         if (!self.peerIsFriend) {
-            [specs addObject:@{@"t": @"加好友", @"s": @"person.badge.plus", @"a": @"addfriend"}];
+            [specs addObject:@{@"t": IMLocalized(@"contacts.search.action_add"), @"s": @"person.badge.plus", @"a": @"addfriend"}];
             return specs; // 非好友：到此为止（搜索/更多都不适用）
         } else {
             if (self.showsMessagePill) {
-                [specs addObject:@{@"t": @"消息", @"s": @"bubble.right.fill", @"a": @"message"}];
+                [specs addObject:@{@"t": IMLocalized(@"chat.detail.pill_message"), @"s": @"bubble.right.fill", @"a": @"message"}];
             }
-            [specs addObject:@{@"t": @"呼叫", @"s": @"phone.fill", @"a": @"call"}];
-            [specs addObject:@{@"t": @"视频", @"s": @"video.fill", @"a": @"video"}];
+            [specs addObject:@{@"t": IMLocalized(@"chat.header.call"), @"s": @"phone.fill", @"a": @"call"}];
+            [specs addObject:@{@"t": IMLocalized(@"common.video"), @"s": @"video.fill", @"a": @"video"}];
         }
     }
     // 群通话：群资料页的入口（单聊的「呼叫 / 视频」在上面）。选人后按群成员表取名字与头像。
     if (self.isGroup) {
-        [specs addObject:@{@"t": @"群通话", @"s": @"person.3.fill", @"a": @"groupcall"}];
+        [specs addObject:@{@"t": IMLocalized(@"chat.detail.pill_group_call"), @"s": @"person.3.fill", @"a": @"groupcall"}];
     }
     // 搜索：群聊与**单聊好友**都显示（对齐 im-web；功能待开发，点击走占位 toast）。
     // 非好友不显示——尚无聊天记录可搜，与隐藏备注名/设置/页签三张卡同一判据。
     if (self.isGroup || self.peerIsFriend) {
-        [specs addObject:@{@"t": @"搜索", @"s": @"magnifyingglass", @"a": @"search"}];
+        [specs addObject:@{@"t": IMLocalized(@"common.search"), @"s": @"magnifyingglass", @"a": @"search"}];
     }
-    [specs addObject:@{@"t": @"更多", @"s": @"ellipsis", @"a": @"more"}];
+    [specs addObject:@{@"t": IMLocalized(@"common.more"), @"s": @"ellipsis", @"a": @"more"}];
     return specs;
 }
 
@@ -239,7 +240,7 @@
 
     self.liquidNavigationBar = [[IMLiquidNavigationBar alloc] initWithTitle:name
                                                                      subtitle:self.displaySubtitle
-                                                                  actionTitle:(self.isGroup ? @"编辑" : nil)];
+                                                                  actionTitle:(self.isGroup ? IMLocalized(@"common.edit") : nil)];
     self.liquidNavigationBar.delegate = self;
     self.liquidNavigationBar.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:self.liquidNavigationBar];
@@ -302,7 +303,7 @@
     if (self.isGroup) {
         NSString *remark = [self currentConvRemark]; // 群备注（仅本人可见，G1）优先
         if (remark.length) { return remark; }
-        return self.group.name.length ? self.group.name : (self.groupName.length ? self.groupName : @"群聊");
+        return self.group.name.length ? self.group.name : (self.groupName.length ? self.groupName : IMLocalized(@"common.group_chat"));
     }
     // 单聊：好友备注（仅本人可见）优先于对端昵称——与会话列表/聊天页标题同一口径。
     if (self.peerRemark.length) { return self.peerRemark; }
@@ -312,8 +313,9 @@
     if (self.isGroup) {
         // 优先 memberCount：超级群的 members 只含我自己（服务端不下发全量成员）。
         NSInteger n = self.group.memberCount > 0 ? self.group.memberCount : (NSInteger)self.group.members.count;
-        NSString *tag = self.group.isSuper ? @" · 大群" : @"";
-        return n > 0 ? [NSString stringWithFormat:@"%ld 位成员%@", (long)n, tag] : (self.group.isSuper ? @"大群" : @"群聊");
+        NSString *tag = self.group.isSuper ? [NSString stringWithFormat:@" · %@", IMLocalized(@"group.text.super")] : @"";
+        return n > 0 ? [NSString stringWithFormat:@"%@%@", IMLocalizedFormat(@"qr.preview.meta", (long)n), tag]
+                     : (self.group.isSuper ? IMLocalized(@"group.text.super") : IMLocalized(@"common.group_chat"));
     }
     // 单聊副标题 = **在线态**（对齐 Telegram：标题是名字、副标题是「在线 / 最近在线」）。
     //

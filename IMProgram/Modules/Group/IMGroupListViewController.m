@@ -1,6 +1,7 @@
 //  IMGroupListViewController.m
 
 #import "IMGroupListViewController.h"
+#import "IMLocalization.h"
 #import "IMGroupCreateViewController.h"
 #import "IMChatViewController.h"
 #import "IMHTTPService.h"
@@ -75,16 +76,16 @@ static CGFloat const kIMGroupAvatarSize = 44;
 
 - (void)configureWithGroup:(IMGroupInfo *)group mine:(BOOL)mine {
     [_avatar im_setAvatarURL:group.avatarURL seed:group.convID displayName:group.name];
-    _name.text = group.name.length > 0 ? group.name : @"群聊";
+    _name.text = group.name.length > 0 ? group.name : IMLocalized(@"common.group_chat");
     // 群主名走全端统一口径 `备注 → 昵称 → @username → 未命名用户`。
     // **不能直接显示 group.owner**——那是 10 位随机内部 ID（IMServer/docs/design/
     // ACCOUNT_IDENTITY_REDESIGN.md §7.5「内部 ID 零 UI 露出」）。
     if (mine) {
-        _sub.text = @"我是群主";
+        _sub.text = IMLocalized(@"group.list.i_am_owner");
     } else {
         NSString *ownerName = [IMRemarkStore.sharedStore displayNameForUser:group.owner
                                                                    fallback:IMDisplayName(group.ownerNickname, group.ownerUsername)];
-        _sub.text = [NSString stringWithFormat:@"群主 %@", ownerName];
+        _sub.text = IMLocalizedFormat(@"group.list.owner", ownerName ?: @"");
     }
 }
 
@@ -127,7 +128,7 @@ static CGFloat const kIMGroupAvatarSize = 44;
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"群聊";
+    self.title = IMLocalized(@"common.group_chat");
     self.view.backgroundColor = UIColor.systemBackgroundColor;
     // 与通讯录入口保持一致，交给系统导航栏生成标准 Liquid Glass 按钮和按压反馈。
     self.navigationItem.rightBarButtonItem =
@@ -145,7 +146,7 @@ static CGFloat const kIMGroupAvatarSize = 44;
 
     self.emptyLabel = [UILabel new];
     self.emptyLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.emptyLabel.text = @"还没有加入群聊，点右上角 + 创建";
+    self.emptyLabel.text = IMLocalized(@"group.list.empty_hint");
     self.emptyLabel.textColor = IMTheme.textSecondary;
     self.emptyLabel.textAlignment = NSTextAlignmentCenter;
     self.emptyLabel.numberOfLines = 0;

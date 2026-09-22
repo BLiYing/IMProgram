@@ -7,6 +7,7 @@
 #import "IMMediaUtil.h" // IMFormatFileSize
 #import "IMImageLoader.h"
 #import "IMLog.h"
+#import "IMLocalization.h"
 
 static const CGFloat kIMSettingsIconSide = 29;
 
@@ -56,7 +57,7 @@ static UIImage *IMSettingsIconSpacer(void) {
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"数据和存储";
+    self.title = IMLocalized(@"ios.settings.row.data_storage");
     self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
     self.tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStyleInsetGrouped];
     self.tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -143,19 +144,19 @@ static UIImage *IMSettingsIconSpacer(void) {
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    return section == 1 ? @"自动下载媒体文件" : nil;
+    return section == 1 ? IMLocalized(@"autodl.master_switch") : nil;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
-    if (section == 0) { return @"下载的文件缓存在本机；清除后云端仍保留，需要时可重新下载。"; }
-    return @"“重置”会把两个网络都恢复为出厂默认（移动数据中档、Wi-Fi 高档）。语音消息占用小，始终自动下载。";
+    if (section == 0) { return IMLocalized(@"storage.footer.cache_hint"); }
+    return IMLocalized(@"storage.footer.reset_hint");
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     // 存储用量：橙色图标块 + 右侧用量 + ›（草图 §05 第一行）。
     if (indexPath.section == 0) {
         UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:nil];
-        cell.textLabel.text = @"存储用量";
+        cell.textLabel.text = IMLocalized(@"storage.row.usage");
         cell.detailTextLabel.text = _cacheBytes > 0 ? IMFormatFileSize(_cacheBytes) : @"0 KB";
         cell.imageView.image = IMSettingsIconImage(@"chart.pie.fill", UIColor.systemOrangeColor);
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
@@ -179,7 +180,7 @@ static UIImage *IMSettingsIconSpacer(void) {
     // 已是出厂默认（含刚点过重置）→ 无可重置：置灰 + 不可点。用户改动后自动恢复可点。
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
     BOOL atDefault = [self settingsAtDefault];
-    cell.textLabel.text = @"重置自动下载设置";
+    cell.textLabel.text = IMLocalized(@"storage.row.reset");
     cell.textLabel.textColor = atDefault ? UIColor.tertiaryLabelColor : cell.tintColor;
     cell.userInteractionEnabled = !atDefault;
     cell.imageView.image = IMSettingsIconSpacer();
@@ -204,22 +205,22 @@ static UIImage *IMSettingsIconSpacer(void) {
 }
 
 - (void)confirmClearCache {
-    NSString *msg = _cacheBytes > 0 ? [NSString stringWithFormat:@"将删除本机缓存的 %@ 下载文件，云端保留可重新下载。", IMFormatFileSize(_cacheBytes)]
-                                    : @"暂无可清除的缓存。";
-    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"清除缓存" message:msg preferredStyle:UIAlertControllerStyleAlert];
-    [ac addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    NSString *msg = _cacheBytes > 0 ? IMLocalizedFormat(@"storage.clear_confirm.message_with_size", IMFormatFileSize(_cacheBytes))
+                                    : IMLocalized(@"storage.clear_confirm.message_empty");
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:IMLocalized(@"storage.clear_confirm.title") message:msg preferredStyle:UIAlertControllerStyleAlert];
+    [ac addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
     if (_cacheBytes > 0) {
         __weak typeof(self) ws = self;
-        [ac addAction:[UIAlertAction actionWithTitle:@"清除" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) { [ws clearCache]; }]];
+        [ac addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.clear") style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) { [ws clearCache]; }]];
     }
     [self presentViewController:ac animated:YES completion:nil];
 }
 
 - (void)confirmReset {
-    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"重置自动下载设置"
-        message:@"恢复为出厂默认（移动数据中档、Wi-Fi 高档）。" preferredStyle:UIAlertControllerStyleAlert];
-    [ac addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [ac addAction:[UIAlertAction actionWithTitle:@"重置" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:IMLocalized(@"storage.row.reset")
+        message:IMLocalized(@"storage.reset_confirm.message") preferredStyle:UIAlertControllerStyleAlert];
+    [ac addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
+    [ac addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.reset") style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
         [[IMDownloadSettingsStore shared] resetToDefaults];
     }]];
     [self presentViewController:ac animated:YES completion:nil];

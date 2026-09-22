@@ -2,6 +2,7 @@
 //  接口与收口理由见头文件。
 
 #import "UIViewController+IMFriendRequest.h"
+#import "IMLocalization.h"
 #import "UIViewController+IMToast.h"
 #import "IMHTTPService.h"
 #import "IMAccountIdentity.h"
@@ -47,10 +48,10 @@ static NSInteger const kIMFriendHelloMaxRunes = 50;
                            onSent:(void (^)(BOOL))onSent {
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0 || uid.length == 0) { return; }
-    NSString *shown = name.length > 0 ? name : @"对方";
+    NSString *shown = name.length > 0 ? name : IMLocalized(@"friend.request.peer_fallback");
     UIAlertController *alert =
-        [UIAlertController alertControllerWithTitle:@"添加好友"
-                                            message:[NSString stringWithFormat:@"发送给 %@\n验证消息会展示给对方（选填）", shown]
+        [UIAlertController alertControllerWithTitle:IMLocalized(@"common.add_friend")
+                                            message:IMLocalizedFormat(@"friend.request.alert_message", shown)
                                      preferredStyle:UIAlertControllerStyleAlert];
     // 预填「我是<我的昵称>」（微信同款）：多数人不会自己想措辞，给个能直接发的默认值，
     // 比留空更可能真的带上信息。currentNickname 是登录后预热的**公开昵称**——这句会发出去，
@@ -58,17 +59,17 @@ static NSInteger const kIMFriendHelloMaxRunes = 50;
     NSString *myNick = IMHTTPService.sharedService.currentNickname;
     __block IMFriendHelloLimiter *limiter = nil;
     [alert addTextFieldWithConfigurationHandler:^(UITextField *field) {
-        field.placeholder = @"说一句，让对方知道你是谁";
+        field.placeholder = IMLocalized(@"friend.request.placeholder");
         field.text = myNick.length > 0 ? [NSString stringWithFormat:@"我是%@", myNick] : @"";
         field.clearButtonMode = UITextFieldViewModeWhileEditing;
         field.returnKeyType = UIReturnKeySend;
         limiter = [[IMFriendHelloLimiter alloc] initWithField:field];
     }];
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction *a) {
+    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:^(UIAlertAction *a) {
         limiter = nil; // 断开通知订阅
     }]];
     __weak typeof(self) ws = self;
-    [alert addAction:[UIAlertAction actionWithTitle:@"发送" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.send") style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
         NSString *hello = [alert.textFields.firstObject.text
             stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] ?: @"";
         limiter = nil;
@@ -76,9 +77,9 @@ static NSInteger const kIMFriendHelloMaxRunes = 50;
                                                  completion:^(BOOL becameFriend, NSError *error) {
             __strong typeof(ws) self = ws;
             if (!self) { return; }
-            if (error) { [self im_showToast:error.localizedDescription ?: @"好友申请发送失败"]; return; }
+            if (error) { [self im_showToast:error.localizedDescription ?: IMLocalized(@"friend.request.send_failed")]; return; }
             // becameFriend 时**不说**「已发送好友申请」——那会让用户误以为还要等对方通过。
-            [self im_showToast:becameFriend ? @"已添加为好友" : @"已发送好友申请"];
+            [self im_showToast:becameFriend ? IMLocalized(@"friend.request.became_friends") : IMLocalized(@"friend.request.sent")];
             if (onSent) { onSent(becameFriend); }
         }];
     }]];

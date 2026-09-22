@@ -1,6 +1,7 @@
 //  IMUploadProgress.m
 
 #import "IMUploadProgress.h"
+#import "IMLocalization.h"
 #import "IMMediaFormat.h"
 
 /// 转码/上传在总进度里的权重。转码快慢看设备、上传快慢看网络，谁都预估不了，
@@ -46,9 +47,9 @@ static const double kIMUploadWeight = 0.65;
 }
 
 - (NSString *)fileLineText {
-    if (self.failed) { return @"发送失败"; }
+    if (self.failed) { return IMLocalized(@"common.send_failed"); }
     // 排队 = 尚未开始传输：文件面板相册路径此阶段还在从相册导出原件（大小未知），统一显「准备中…」。
-    if (self.phase == IMUploadPhaseQueued) { return @"准备中…"; }
+    if (self.phase == IMUploadPhaseQueued) { return IMLocalized(@"media.upload.preparing"); }
     if (self.phase == IMUploadPhaseTranscoding) { return [self displayText]; } // 文件不转码，防御回落
     // 上传/暂停均只显纯字节数（「已传」有歧义像传完了；暂停态由气泡在行首加 ⏸ 小图标，同媒体角标）。
     return IMFormatUploadProgress(self.fraction, self.totalBytes);
@@ -56,9 +57,9 @@ static const double kIMUploadWeight = 0.65;
 
 - (NSString *)displayText {
     switch (self.phase) {
-        case IMUploadPhaseFailed:      return @"发送失败";
-        case IMUploadPhaseQueued:      return @"等待中";
-        case IMUploadPhaseTranscoding: return [NSString stringWithFormat:@"压缩中 %d%%", (int)(self.fraction * 100)];
+        case IMUploadPhaseFailed:      return IMLocalized(@"common.send_failed");
+        case IMUploadPhaseQueued:      return IMLocalized(@"media.upload.waiting");
+        case IMUploadPhaseTranscoding: return IMLocalizedFormat(@"media.upload.compressing", (long)(self.fraction * 100));
         case IMUploadPhaseUploading:   return IMFormatUploadProgress(self.fraction, self.totalBytes);
     }
 }

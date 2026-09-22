@@ -6,6 +6,7 @@
 #import "IMTimeUtil.h"        // IMNowMillis()：判定成员级禁言是否仍在期
 #import "UILabel+IMAvatar.h"
 #import "IMAccountIdentity.h"
+#import "IMLocalization.h"
 
 @implementation IMDetailMemberCell {
     UILabel *_avatar; UILabel *_name; UILabel *_sub; UILabel *_role;
@@ -37,7 +38,7 @@
         _muteBadge.textColor = UIColor.systemOrangeColor;
         _muteBadge.backgroundColor = [UIColor.systemOrangeColor colorWithAlphaComponent:0.15];
         _muteBadge.layer.cornerRadius = 8; _muteBadge.layer.masksToBounds = YES;
-        _muteBadge.text = @"禁言中";
+        _muteBadge.text = IMLocalized(@"group.member.mute_badge");
         [self.contentView addSubview:_muteBadge];
         [_muteBadge setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
         [_muteBadge setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
@@ -67,14 +68,14 @@
     // 本机显示名（备注优先）：这一列只给我自己看，不进任何要发出去的内容。
     NSString *shown = m.localDisplayName;
     [_avatar im_setAvatarURL:m.avatarURL seed:m.userID displayName:shown];
-    _name.text = isMe ? [NSString stringWithFormat:@"%@（我）", shown] : shown;
+    _name.text = isMe ? IMLocalizedFormat(@"group.member.me_suffix", shown) : shown;
     // 副标题显示公开句柄，不是 userID（10 位随机数字内部 ID）。没有句柄就留空。
     _sub.text = m.username.length > 0 ? [@"@" stringByAppendingString:m.username] : @"";
     if (m.role == IMGroupRoleOwner) {
-        _role.hidden = NO; _role.text = @"群主"; _role.textColor = IMTheme.accent;
+        _role.hidden = NO; _role.text = IMLocalized(@"group.role.owner"); _role.textColor = IMTheme.accent;
         _role.backgroundColor = [IMTheme.accent colorWithAlphaComponent:0.15];
     } else if (m.role == IMGroupRoleAdmin) {
-        _role.hidden = NO; _role.text = @"管理员"; _role.textColor = UIColor.systemGreenColor;
+        _role.hidden = NO; _role.text = IMLocalized(@"group.role.admin"); _role.textColor = UIColor.systemGreenColor;
         _role.backgroundColor = [UIColor.systemGreenColor colorWithAlphaComponent:0.15];
     } else {
         _role.hidden = YES; _role.text = @"";

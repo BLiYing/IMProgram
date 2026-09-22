@@ -5,6 +5,7 @@
 #import "IMDownloadProgress.h"
 #import "IMMediaUtil.h"       // IMFileTypeIconForName / IMFormatFileSize
 #import "IMTheme.h"
+#import "IMLocalization.h"
 
 @implementation IMDetailFileCell {
     UIImageView *_icon; UIImageView *_glyph; CAShapeLayer *_ringBG; CAShapeLayer *_ring;
@@ -118,11 +119,11 @@
     }
 }
 - (void)configureWithMessage:(IMMessageModel *)m download:(IMDownloadProgress *)dp {
-    _fileName = m.fileName.length > 0 ? m.fileName : @"文件";
+    _fileName = m.fileName.length > 0 ? m.fileName : IMLocalized(@"common.file");
     _fileSizeBytes = m.fileSize;
     _title.text = _fileName;
     _meta.text = m.timestamp > 0 ? IMFormatFileDateTime(m.timestamp) : @"";
-    _source.text = self.sourceName.length > 0 ? [@"来自" stringByAppendingString:self.sourceName] : nil;
+    _source.text = self.sourceName.length > 0 ? IMLocalizedFormat(@"favorites.source.label", self.sourceName) : nil;
     [self renderDownload:dp];
 }
 
@@ -146,8 +147,8 @@
         _glyph.hidden = YES;
         _sub.attributedText = nil;
         _sub.textColor = IMTheme.textSecondary;
-        _sub.text = size.length > 0 ? [NSString stringWithFormat:@"%@ · 已下载", size] : @"已下载";
-        self.accessibilityLabel = [NSString stringWithFormat:@"%@，已下载", _fileName ?: @"文件"];
+        _sub.text = size.length > 0 ? IMLocalizedFormat(@"detail.tab.file_size_downloaded", size) : IMLocalized(@"media.download.a11y_done");
+        self.accessibilityLabel = IMLocalizedFormat(@"detail.file.a11y_downloaded", _fileName ?: IMLocalized(@"common.file"));
         [self setNeedsLayout];
         return;
     }
@@ -185,10 +186,10 @@
     } else {
         _sub.attributedText = nil;
         _sub.text = (dp.phase == IMDownloadPhaseNotStarted)
-            ? (size.length > 0 ? [NSString stringWithFormat:@"%@ · 未下载", size] : @"未下载")
+            ? (size.length > 0 ? IMLocalizedFormat(@"detail.tab.file_size_not_downloaded", size) : IMLocalized(@"fav.file.not_downloaded"))
             : [dp fileLineText];
     }
-    self.accessibilityLabel = [NSString stringWithFormat:@"%@，%@", _fileName ?: @"文件", [dp accessibilityText]];
+    self.accessibilityLabel = IMLocalizedFormat(@"detail.file.a11y_with_status", _fileName ?: IMLocalized(@"common.file"), [dp accessibilityText]);
     [self setNeedsLayout];
 }
 

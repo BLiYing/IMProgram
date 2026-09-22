@@ -21,6 +21,7 @@
 #import "IMHTTPService+ConvQueries.h"  // 会话内检索 / 日历聚合的服务端接口
 #import "IMNetworkMonitor.h"
 #import "IMChatSearchPaging.h"          // 服务端命中翻页的拼接与 ▲ 可点判据（与 im-web searchPaging.ts 同口径）
+#import "IMLocalization.h"
 
 /// 「跳到最早」是否必须问服务端。
 ///
@@ -147,12 +148,12 @@ static const CGFloat kIMSearchFromRowH = 52;
 #pragma mark - 顶部搜索栏（自持 IMLiquidNavigationBar · searchMode）
 
 - (void)buildSearchTopBar {
-    IMLiquidNavigationBar *bar = [[IMLiquidNavigationBar alloc] initWithTitle:@"" subtitle:@"" actionTitle:@"取消"];
+    IMLiquidNavigationBar *bar = [[IMLiquidNavigationBar alloc] initWithTitle:@"" subtitle:@"" actionTitle:IMLocalized(@"common.cancel")];
     bar.delegate = (id<IMLiquidNavigationBarDelegate>)self;
     bar.hostExtraTopInset = kIMLiquidBarHeight;   // 内容落在与注入栏同款的标题行
     // 不设 opaqueProgress：保持与标题栏同款**磨砂**背景（注入栏已单独隐藏，无需靠不透光遮挡）。
     bar.tintColor = IMTheme.accent;                // 「取消」用主题色
-    bar.searchPlaceholder = @"搜索聊天记录";
+    bar.searchPlaceholder = IMLocalized(@"chat.search.in_chat_placeholder");
     bar.searchModeActive = YES;
     bar.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:bar];
@@ -236,8 +237,8 @@ static const CGFloat kIMSearchFromRowH = 52;
     UIButton *prev = [self searchGlassButtonSymbol:@"chevron.up" action:@selector(searchPrevTapped)];
     UIButton *next = [self searchGlassButtonSymbol:@"chevron.down" action:@selector(searchNextTapped)];
     // 纯图标钮：不给 label 的话 VoiceOver 念 "chevron up"，UI 测试也只能按图标名找。
-    prev.accessibilityLabel = @"上一条（更旧）"; prev.accessibilityIdentifier = @"chat.search.prev";
-    next.accessibilityLabel = @"下一条（更新）"; next.accessibilityIdentifier = @"chat.search.next";
+    prev.accessibilityLabel = IMLocalized(@"chat.search.prev"); prev.accessibilityIdentifier = @"chat.search.prev";
+    next.accessibilityLabel = IMLocalized(@"chat.search.next"); next.accessibilityIdentifier = @"chat.search.next";
     self.searchState.searchCountLabel.accessibilityIdentifier = @"chat.search.count";
     self.searchState.searchPrevButton = prev; self.searchState.searchNextButton = next;
     [nav addSubview:prev]; [nav addSubview:next];
@@ -421,7 +422,7 @@ static const CGFloat kIMSearchFromRowH = 52;
         s.searchLoadingOlder = NO;
         if (error) {
             [self updateSearchNavState];
-            [self im_showToast:@"加载更早的搜索结果失败，请重试"];
+            [self im_showToast:IMLocalized(@"chat.search.load_older_failed")];
             return;
         }
         s.searchNextCursor = nextCursor;
@@ -472,13 +473,13 @@ static const CGFloat kIMSearchFromRowH = 52;
     NSInteger n = (NSInteger)self.searchState.searchHits.count;
     BOOL hasQuery = (self.searchState.searchKeyword.length > 0 || self.searchState.searchFromUID.length > 0);
     if (n == 0) {
-        self.searchState.searchCountLabel.text = hasQuery ? @"无匹配" : @"";
+        self.searchState.searchCountLabel.text = hasQuery ? IMLocalized(@"chat.search.no_match") : @"";
         self.searchState.searchCountPill.hidden = !hasQuery;
     } else {
         self.searchState.searchCountPill.hidden = NO;
         self.searchState.searchCountLabel.text =
-            [NSString stringWithFormat:@"第 %ld / %ld%@ 条", (long)(self.searchState.searchHitIndex + 1),
-             (long)n, self.searchState.searchHitsTruncated ? @"+" : @""];
+            IMLocalizedFormat(@"chat.search.hit_position", (long)(self.searchState.searchHitIndex + 1),
+             (long)n, self.searchState.searchHitsTruncated ? @"+" : @"");
     }
     BOOL canPrev = IMChatSearchCanGoOlder(self.searchState.searchHitIndex, n,
                                           self.searchState.searchHitsTruncated, self.searchState.searchLoadingOlder);
@@ -596,15 +597,15 @@ static const CGFloat kIMSearchFromRowH = 52;
         // 离线积压/大群缺口时本地往往只有尾巴那一段，跳过去等于原地打转，还让人以为已经到头了。
         // 故：本地已经拿到 1 号才直接跳；否则以 1 为锚点向服务端开一窗（earliest=YES，理由见该方法）。
         int64_t earliest = [self firstConvSeqAtOrAfter:0];
-        if (earliest <= 0) { [self im_showToast:@"暂无消息"]; return; }
+        if (earliest <= 0) { [self im_showToast:IMLocalized(@"chat.search.no_messages")]; return; }
         if (!IMEarliestJumpNeedsServer(earliest)) { [self jumpToConvSeq:earliest]; return; }
         if (IMSocketManager.sharedManager.state != IMSocketStateConnected) {
             // 离线拿不到更早的，但跳到"已下载的最早一条"仍有用——只是必须说清楚这不是会话开头。
             [self jumpToConvSeq:earliest];
-            [self im_showToast:@"网络未连接，已跳到已下载的最早一条"];
+            [self im_showToast:IMLocalized(@"chat.search.offline_jumped_earliest")];
             return;
         }
-        [self im_showToast:@"正在加载更早历史…"];
+        [self im_showToast:IMLocalized(@"chat.search.loading_earlier")];
         [self requestServerWindowAnchor:1 isJump:YES earliest:YES];
         return;
     }
@@ -616,7 +617,7 @@ static const CGFloat kIMSearchFromRowH = 52;
             __block int64_t lastSeq = 0;
             NSString *cid = self.convID;
             [self performDatabaseOperation:^(IMDatabase *database) { lastSeq = [database maxConvSeqForConv:cid]; }];
-            if (lastSeq > 0) { [self jumpToConvSeq:lastSeq]; [self im_showToast:@"今天暂无消息，已跳到最近一条"]; }
+            if (lastSeq > 0) { [self jumpToConvSeq:lastSeq]; [self im_showToast:IMLocalized(@"chat.search.today_no_messages_jumped_latest")]; }
         }
         return;
     }
@@ -626,7 +627,7 @@ static const CGFloat kIMSearchFromRowH = 52;
     // 只查本地会跳到别的日子，还会弹一句假的「该日期无消息」。
     int64_t seq = self.searchState.serverDayFirstSeq[@((int64_t)dayMs)].longLongValue;
     if (seq <= 0) { seq = [self firstConvSeqAtOrAfter:dayMs]; }
-    if (seq <= 0) { [self im_showToast:@"该日期及之后暂无消息"]; return; }
+    if (seq <= 0) { [self im_showToast:IMLocalized(@"chat.search.day_no_messages_after")]; return; }
     [self jumpToConvSeq:seq];
     // 落点是不是用户选的那天：查库拿那一条（跳转可能要等服务端开窗，此刻它未必在内存里）。
     __block IMMessageModel *hit = nil;
@@ -635,9 +636,11 @@ static const CGFloat kIMSearchFromRowH = 52;
     if (!hit) { return; }
     NSDate *hitDay = [cal startOfDayForDate:[NSDate dateWithTimeIntervalSince1970:hit.timestamp / 1000.0]];
     if (![cal isDate:hitDay inSameDayAsDate:day]) {
+        // DEFERRED（与全仓其它 NSDateFormatter 硬编码中文格式同一坑，见 current_task.md）：
+        // "M月d日" 尚未纳入 time.* 体系，此处只迁提示句本身，日期格式暂留原样。
         NSDateFormatter *fmt = [NSDateFormatter new];
         fmt.dateFormat = @"M月d日";
-        [self im_showToast:[NSString stringWithFormat:@"该日期无消息，已跳到 %@", [fmt stringFromDate:hitDay]]];
+        [self im_showToast:IMLocalizedFormat(@"chat.search.day_no_messages_jumped", [fmt stringFromDate:hitDay])];
     }
 }
 
@@ -652,7 +655,7 @@ static const CGFloat kIMSearchFromRowH = 52;
 }
 
 - (void)insertFromTokenWithName:(nullable NSString *)name {
-    NSString *text = name.length > 0 ? [NSString stringWithFormat:@"来自:%@", name] : @"来自:";
+    NSString *text = name.length > 0 ? IMLocalizedFormat(@"chat.search.from_token", name) : IMLocalized(@"chat.search.from_prefix");
     UISearchToken *tok = [UISearchToken tokenWithIcon:[UIImage systemImageNamed:@"person.fill"] text:text];
     tok.representedObject = self.searchState.searchFromUID ?: @"";
     self.searchState.searchField.tokens = @[tok];
@@ -696,7 +699,7 @@ static const CGFloat kIMSearchFromRowH = 52;
 
 - (void)presentSearchFromPanel {
     NSArray<NSDictionary *> *candidates = [self searchFromCandidates];
-    if (candidates.count == 0) { [self im_showToast:@"暂无可筛选的发件人"]; return; }
+    if (candidates.count == 0) { [self im_showToast:IMLocalized(@"chat.search.no_senders")]; return; }
 
     // 磨砂透明圆角卡（材质与搜索标题栏协调）：玻璃容器 + 14pt continuous 圆角裁切 + 左右留边浮在聊天上。
     UIVisualEffectView *panel = IMGlassEffectView(NO);

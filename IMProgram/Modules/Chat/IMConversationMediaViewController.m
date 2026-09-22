@@ -10,6 +10,7 @@
 #import "IMMenuAction.h"
 #import "IMPopoverCard.h"
 #import "IMSocketManager.h" // IMSocketDidRemoveMessageNotification：长按删除后就地移除该格
+#import "IMLocalization.h"
 
 @implementation IMMediaItem
 + (instancetype)itemWithURL:(NSString *)url isVideo:(BOOL)isVideo timestamp:(int64_t)timestamp {
@@ -89,7 +90,7 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"图片与视频";
+    self.title = IMLocalized(@"gallery.title");
     self.view.backgroundColor = UIColor.systemBackgroundColor;
 
     UICollectionViewFlowLayout *layout = [UICollectionViewFlowLayout new];
@@ -104,7 +105,7 @@
     [self.view addSubview:_collection];
 
     _emptyLabel = [UILabel new];
-    _emptyLabel.text = @"暂无图片或视频";
+    _emptyLabel.text = IMLocalized(@"gallery.empty");
     _emptyLabel.textColor = UIColor.secondaryLabelColor;
     _emptyLabel.textAlignment = NSTextAlignmentCenter;
     _emptyLabel.frame = self.view.bounds;
@@ -237,7 +238,7 @@
         IMDownloadProgress *dp = [self.downloads stateForMessage:m];
         BOOL downloading = dp.phase == IMDownloadPhaseDownloading || dp.phase == IMDownloadPhasePaused;
         IMMenuAction *cancel = downloading
-            ? [IMMenuAction actionWithId:@"cancel" title:@"取消下载" image:@"xmark.circle"
+            ? [IMMenuAction actionWithId:@"cancel" title:IMLocalized(@"file.menu.cancel_download") image:@"xmark.circle"
                                  handler:^{ [ws.downloads cancelDownloadForMessage:m]; }]
             : nil;
         BOOL cancelInserted = NO;

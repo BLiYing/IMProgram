@@ -30,6 +30,7 @@
 #import "Voice/IMVoiceTranscriber.h"
 #import "Voice/IMVoiceBubbleCell.h"
 #import "IMLog.h"
+#import "IMLocalization.h"
 #import <objc/runtime.h>
 
 /// 按住条 pan 触发取消的距离阈值（占输入栏宽度的比例）。
@@ -105,10 +106,10 @@ static const void *kIMVoiceOverlayKey = &kIMVoiceOverlayKey;
             if (!self) { return; }
             // 设计 §5.3：已录 >10s 才二次确认——短的直接删，不为几秒钟打断用户。
             if (self.im_voiceRecorder.elapsedMillis > 10000) {
-                UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"删除这段录音？"
+                UIAlertController *ac = [UIAlertController alertControllerWithTitle:IMLocalized(@"chat.voice.delete_recording_confirm")
                                                                             message:nil preferredStyle:UIAlertControllerStyleAlert];
-                [ac addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-                [ac addAction:[UIAlertAction actionWithTitle:@"删除" style:UIAlertActionStyleDestructive
+                [ac addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
+                [ac addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.delete") style:UIAlertActionStyleDestructive
                                                      handler:^(UIAlertAction *a) { [self.im_voiceRecorder cancel]; }]];
                 [self presentViewController:ac animated:YES completion:nil];
             } else {
@@ -352,7 +353,7 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
     AVAudioSession *session = [AVAudioSession sharedInstance];
     AVAudioSessionRecordPermission perm = session.recordPermission;
     if (perm == AVAudioSessionRecordPermissionDenied) {
-        [self im_showToast:@"需要麦克风权限：在系统设置中开启后重试"];
+        [self im_showToast:IMLocalized(@"chat.voice.mic_permission_denied")];
         return;
     }
     if (perm == AVAudioSessionRecordPermissionUndetermined) {
@@ -361,7 +362,7 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
             __strong typeof(weakSelf) self = weakSelf;
             if (!self) { return; }
             if (!granted) {
-                [self im_showToast:@"未授权：在系统设置中开启麦克风"];
+                [self im_showToast:IMLocalized(@"chat.voice.mic_not_authorized")];
                 return;
             }
             // granted 后如果用户仍按住语音钮，直接开录；否则提示"再次按住"。
@@ -379,7 +380,7 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
                     [self.im_voiceOverlay presentAtAnchor:anchor fingerPoint:finger];
                 }
             } else {
-                [self im_showToast:@"已授权，再次按住说话"];
+                [self im_showToast:IMLocalized(@"chat.voice.mic_authorized_retry")];
             }
         }];
         return;
@@ -444,7 +445,7 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
     [self.im_voiceRecorder providePreviewURL:^(NSURL *url, NSError *err) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
-        if (err || !url) { [self im_showToast:@"试听准备失败"]; return; }
+        if (err || !url) { [self im_showToast:IMLocalized(@"chat.voice.preview_prepare_failed")]; return; }
         [self im_installPreviewObserverIfNeeded]; // 播放开始前装观察者
         // 造一条最小消息模型驱动 IMVoicePlayer（IMVoicePlayer 语义按消息，preview 复用同一 hack；
         // TODO: 加 IMVoicePlayer.playURL: 独立 API 让此 fake message 消失，见 code-review simplification）。
@@ -492,10 +493,10 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
         case IMVoiceRecorderStopReasonUserCancel:
             return;
         case IMVoiceRecorderStopReasonTooShort:
-            [self im_showToast:@"说话时间太短"];
+            [self im_showToast:IMLocalized(@"chat.voice.too_short")];
             return;
         case IMVoiceRecorderStopReasonError:
-            [self im_showToast:@"录音失败，请重试"];
+            [self im_showToast:IMLocalized(@"chat.voice.record_failed")];
             return;
         case IMVoiceRecorderStopReasonUserSend:
         case IMVoiceRecorderStopReasonReachedMax:
@@ -505,7 +506,7 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
     if (!fileURL) {
         // 合并失败等（durationMillis 有值但 fileURL nil）——不能装作发出去，让用户重试。
         if (reason == IMVoiceRecorderStopReasonUserSend || reason == IMVoiceRecorderStopReasonReachedMax) {
-            [self im_showToast:@"语音处理失败，请重试"];
+            [self im_showToast:IMLocalized(@"chat.voice.process_failed")];
         }
         return;
     }
@@ -515,13 +516,13 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
 - (void)im_uploadAndSendVoice:(NSURL *)fileURL waveform:(NSString *)waveform durationMillis:(int64_t)durationMillis {
     NSData *data = [NSData dataWithContentsOfURL:fileURL];
     if (data.length == 0) {
-        [self im_showToast:@"录音文件读取失败"];
+        [self im_showToast:IMLocalized(@"chat.voice.file_read_failed")];
         return;
     }
     int64_t fileSize = data.length;
     NSString *fileName = [fileURL.lastPathComponent length] > 0 ? fileURL.lastPathComponent : @"voice.m4a";
     NSString *token = IMHTTPService.sharedService.currentToken ?: @"";
-    if (token.length == 0) { [self im_showToast:@"未登录，无法发送"]; return; }
+    if (token.length == 0) { [self im_showToast:IMLocalized(@"chat.voice.not_logged_in_send")]; return; }
 
     // 2026-08-27 修 #1「发送语音有不显示的 bug」——原实现要等 upload 完成后才 im_sendVoiceURL→回显，
     // 网络稍慢即感知为"发出去没了"。改为松手立即插入 Sending 占位气泡（临时 cid），upload 成功后
@@ -633,7 +634,7 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
         NSString *path = [[IMPendingMediaStore shared] filePathForLocalRef:url];
         if (path.length == 0) {
             // 本地副本已不在：留着 failed 行让用户知道这条没发出去，别静默删。
-            [self im_showToast:@"原始录音已丢失，请重新录制"];
+            [self im_showToast:IMLocalized(@"chat.voice.original_lost")];
             return;
         }
         localURL = [NSURL fileURLWithPath:path];
@@ -641,7 +642,7 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
         // 兼容旧版本落库的 tmp 绝对路径（2026-08-27 前的失败件）。
         localURL = [NSURL URLWithString:url];
         if (![[NSFileManager defaultManager] fileExistsAtPath:localURL.path]) {
-            [self im_showToast:@"原始录音已丢失，请重新录制"];
+            [self im_showToast:IMLocalized(@"chat.voice.original_lost")];
             return;
         }
     }
@@ -669,7 +670,7 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
         __strong typeof(ws) self = ws;
         if (!self) { return; }
         // 文案取播放器给的：下载失败与「该语音格式无法播放」是两回事，写死一句会把排查引偏。
-        if (err) { [self im_showToast:(err.localizedDescription ?: @"语音播放失败")]; return; }
+        if (err) { [self im_showToast:(err.localizedDescription ?: IMLocalized(@"favorites.voice.play_failed"))]; return; }
         [self im_markVoiceConsumed:message]; // 进入播放即消未播红点（本机语义，见 §7）
     }];
 }
@@ -780,7 +781,7 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
             // （未启用 / 识别失败 / 繁忙 / 限流）；同时把"识别中…"收起来。曾把错误塞进
             // 转写面板 + 下面还挂"结果可能不完全准确"的尾行，一眼自相矛盾。
             NSString *err = note.userInfo[@"errorMessage"];
-            [self im_showToast:(err.length > 0 ? err : @"转文字失败，请稍后重试")];
+            [self im_showToast:(err.length > 0 ? err : IMLocalized(@"chat.voice.transcribe_failed_retry"))];
             [self im_applyTranscriptText:nil loading:NO forMessageID:mid];
             return;
         }

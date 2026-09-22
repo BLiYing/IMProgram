@@ -4,6 +4,7 @@
 //  设计：IMServer docs/design/CALL_RECORD_DESIGN.md；文案矩阵以 docs/conformance/call_record.json 为准（三端 + 服务端共用向量，改文案先改向量）。
 
 #import <Foundation/Foundation.h>
+#import "IMLocalization.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -11,7 +12,8 @@ NS_ASSUME_NONNULL_BEGIN
 FOUNDATION_EXPORT NSString * const IMContentTypeCall;
 
 /// 旧版兜底文案：content 解析不了（脏数据 / 将来的新版本字段）时，气泡位显一行灰字，绝不露 JSON。
-FOUNDATION_EXPORT NSString * const IMCallRecordUnsupportedText;
+/// （宏而非常量：取用时才本地化，切语言后会变。）
+#define IMCallRecordUnsupportedText IMLocalized(@"call.record.unsupported")
 
 typedef NS_ENUM(NSInteger, IMCallRecordTone) {
     IMCallRecordToneNormal = 0,

@@ -7,6 +7,7 @@
 #import "IMTheme.h"
 #import "IMLog.h"
 #import "UIViewController+IMToast.h"
+#import "IMLocalization.h"
 
 #pragma mark - 设备行 cell（emoji 图标 + 名 + 「当前」标 + 在线圆点 + 状态）
 
@@ -51,7 +52,7 @@
     _pillLabel = [UILabel new];
     _pillLabel.font = [UIFont systemFontOfSize:10 weight:UIFontWeightSemibold];
     _pillLabel.textColor = IMTheme.accent;
-    _pillLabel.text = @" 当前 ";
+    _pillLabel.text = IMLocalized(@"device.list.current_pill");
     _pillLabel.backgroundColor = [IMTheme.accent colorWithAlphaComponent:0.14];
     _pillLabel.layer.cornerRadius = 4;
     _pillLabel.layer.masksToBounds = YES;
@@ -105,7 +106,7 @@
 
 - (void)configureWithDevice:(IMDeviceSession *)device {
     _iconLabel.text = device.platformEmoji;
-    _nameLabel.text = device.deviceName.length ? device.deviceName : @"未知设备";
+    _nameLabel.text = device.deviceName.length ? device.deviceName : IMLocalized(@"device.platform.unknown");
     _pillLabel.hidden = !device.current;
     _dotView.backgroundColor = device.online ? IMTheme.onlineDot : IMTheme.textTertiary;
     _statusLabel.text = device.statusLine;
@@ -142,7 +143,7 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"已登录设备";
+    self.title = IMLocalized(@"settings.row.devices");
     self.view.backgroundColor = IMTheme.groupedBackground;
 
     self.tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStyleInsetGrouped];
@@ -195,17 +196,17 @@
     NSMutableArray<NSNumber *> *kinds = [NSMutableArray array];
     NSMutableArray<NSArray *> *items = [NSMutableArray array];
     if (current) {
-        [titles addObject:@"这台设备"]; [kinds addObject:@0]; [items addObject:@[current]];
+        [titles addObject:IMLocalized(@"device.list.section.this_device")]; [kinds addObject:@0]; [items addObject:@[current]];
         if (others.count > 0) {
-            [titles addObject:@"其他设备"]; [kinds addObject:@0]; [items addObject:others];
+            [titles addObject:IMLocalized(@"device.list.section.other_devices")]; [kinds addObject:@0]; [items addObject:others];
         }
     } else if (others.count > 0) {
         // 后端未标出本机（理论上不该发生：本机 sid 恒在列表里）。此时不谎称「其他设备」——用中性标题，
         // 避免把本机当成他人设备诱导误踢；「退出其他所有设备」由服务端按本次请求 sid 保留本机，仍安全。
-        [titles addObject:@"已登录设备"]; [kinds addObject:@0]; [items addObject:others];
+        [titles addObject:IMLocalized(@"settings.row.devices")]; [kinds addObject:@0]; [items addObject:others];
     }
     if (others.count > 0) {
-        [titles addObject:@""]; [kinds addObject:@1]; [items addObject:@[@"退出其他所有设备"]];
+        [titles addObject:@""]; [kinds addObject:@1]; [items addObject:@[IMLocalized(@"device.list.revoke_all_action")]];
     }
     self.sectionTitles = titles;
     self.sectionKinds = kinds;
@@ -228,7 +229,7 @@
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     if (self.sectionKinds[section].integerValue == 1) {
-        return @"退出后该设备需重新登录。若你不认识某台设备，请退出它并尽快修改密码。";
+        return IMLocalized(@"device.list.revoke_all_footer");
     }
     return nil;
 }
@@ -274,12 +275,12 @@
 #pragma mark - 退出其他所有设备
 
 - (void)confirmRevokeOthers {
-    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"退出其他所有设备"
-                                                               message:@"除这台设备外，其余设备都将立即下线并需重新登录。"
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:IMLocalized(@"device.list.revoke_all_action")
+                                                               message:IMLocalized(@"device.list.revoke_all_message")
                                                         preferredStyle:UIAlertControllerStyleAlert];
-    [ac addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [ac addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
     __weak typeof(self) ws = self;
-    [ac addAction:[UIAlertAction actionWithTitle:@"退出" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+    [ac addAction:[UIAlertAction actionWithTitle:IMLocalized(@"device.list.revoke_all_confirm") style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
         [ws revokeOthers];
     }]];
     [self presentViewController:ac animated:YES completion:nil];
@@ -287,16 +288,16 @@
 
 - (void)revokeOthers {
     NSString *token = self.token ?: IMHTTPService.sharedService.currentToken;
-    if (token.length == 0) { [self im_showToast:@"登录已失效，请重新登录"]; return; }
+    if (token.length == 0) { [self im_showToast:IMLocalized(@"common.login_expired")]; return; }
     __weak typeof(self) ws = self;
     [IMHTTPService.sharedService revokeOtherDevicesWithToken:token completion:^(NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
         if (error) {
-            [self im_showToast:(error.localizedDescription.length ? error.localizedDescription : @"退出其他设备失败")];
+            [self im_showToast:(error.localizedDescription.length ? error.localizedDescription : IMLocalized(@"device.list.revoke_other_failed"))];
             return;
         }
-        [self im_showToast:@"已退出其他所有设备"];
+        [self im_showToast:IMLocalized(@"device.list.revoked_other_toast")];
         [self reload];
     }];
 }

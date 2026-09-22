@@ -14,6 +14,7 @@
 #import "IMFailBadgeView.h" // 发送失败红❗（点击重发），与继承 IMMessageCell 的各 cell 共用同一款
 #import "IMChatMessageLogic.h" // IMResendPolicyForMessage：红❗可不可点的唯一判据
 #import "IMLinkPreviewView.h" // 文本气泡里首个 URL 的 og 预览卡片子视图
+#import "IMLocalization.h"
 
 // 引用快照本地化统一走 IMMediaUtil 的 IMLocalizeReplySnippet（与 IMLinkCardCell 共用，防两份 static 分叉）。
 
@@ -27,7 +28,7 @@ NSString *const IMMentionUIDAttributeName = @"IMMentionUID";
 /// 文本气泡的昵称在气泡内富文本首行，用 NSTextAttachment 把徽标烘成图挂在昵称同一行右侧。
 /// 普通成员返回 nil（不显徽标）。颜色按当前 traitCollection 解析，随深浅色。
 static NSAttributedString *IMRoleBadgeAttachment(IMGroupRole role, UITraitCollection *traits) {
-    NSString *title = (role == IMGroupRoleOwner) ? @"群主" : (role == IMGroupRoleAdmin ? @"管理员" : nil);
+    NSString *title = (role == IMGroupRoleOwner) ? IMLocalized(@"group.role.owner") : (role == IMGroupRoleAdmin ? IMLocalized(@"group.role.admin") : nil);
     if (!title) { return nil; }
     UIColor *fg = (role == IMGroupRoleOwner) ? IMTheme.accent : IMTheme.textSecondary;
     UIColor *bg = (role == IMGroupRoleOwner) ? [IMTheme.accent colorWithAlphaComponent:0.14]
@@ -244,7 +245,7 @@ static NSAttributedString *IMBubbleMetaPlaceholder(NSAttributedString *meta) {
     f.groupingSeparator = @",";
     f.usesGroupingSeparator = YES;
     NSNumber *n = @(IMCodePointCount(text ?: @""));
-    return [NSString stringWithFormat:@"约 %@ 字", [f stringFromNumber:n] ?: n.stringValue];
+    return IMLocalizedFormat(@"chat.text.approx_chars", [f stringFromNumber:n] ?: n.stringValue);
 }
 
 /// 把 `text` 按已知 `@昵称` token 切段构造富文本：命中的 token 用 `color`（+medium 字重）高亮，其余用 `base`。
@@ -510,7 +511,7 @@ static NSAttributedString *sIMMentionFlashOriginal = nil;
         _divider.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
         _divider.textColor = IMTheme.textSecondary;
         _divider.textAlignment = NSTextAlignmentCenter;
-        _divider.text = @"未读消息";
+        _divider.text = IMLocalized(@"chat.unread_divider");
         _divider.clipsToBounds = YES;
         [self.contentView addSubview:_divider];
 
@@ -866,7 +867,7 @@ static NSAttributedString *sIMMentionFlashOriginal = nil;
     _quoteThumbAtt = nil;
     _quoteThumbKey = nil;
     if (message.replyToConvSeq > 0) {
-        NSString *raw = message.replySnapshot.length > 0 ? message.replySnapshot : @"原消息";
+        NSString *raw = message.replySnapshot.length > 0 ? message.replySnapshot : IMLocalized(@"chat.quote.original_fallback");
         NSString *snap = IMLocalizeReplySnippet(raw);
         NSDictionary *quoteAttr = @{ NSFontAttributeName: [UIFont systemFontOfSize:13],
                                      NSForegroundColorAttributeName: IMTheme.textSecondary };
@@ -938,14 +939,14 @@ static NSAttributedString *sIMMentionFlashOriginal = nil;
             icon.bounds = CGRectMake(0, -2, 15, 15);
             [body appendAttributedString:[NSAttributedString attributedStringWithAttachment:icon]];
             [body appendAttributedString:[[NSAttributedString alloc]
-                initWithString:[NSString stringWithFormat:@" 长文本 · %@\n", [IMBubbleCell charCountLabelForText:contentText]]
+                initWithString:[NSString stringWithFormat:@" %@\n", IMLocalizedFormat(@"chat.text.long_title", [IMBubbleCell charCountLabelForText:contentText])]
                     attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:IMTheme.chatFontSize weight:UIFontWeightSemibold],
                                   NSForegroundColorAttributeName: IMTheme.textPrimary }]];
             NSString *preview = [IMTruncateText(contentText, 3, IMTextHugePreviewChars) stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
             NSDictionary *previewAttr = @{ NSFontAttributeName: [UIFont systemFontOfSize:13],
                                            NSForegroundColorAttributeName: IMTheme.textSecondary };
             [body appendAttributedString:[IMBubbleCell attributedContent:preview base:previewAttr mentionColor:IMTheme.accent mentions:mMap spans:mSpans]];
-            [body appendAttributedString:[[NSAttributedString alloc] initWithString:@"\n查看全文 ›" attributes:affordanceAttr]];
+            [body appendAttributedString:[[NSAttributedString alloc] initWithString:[NSString stringWithFormat:@"\n%@ ›", IMLocalized(@"chat.text.view_full")] attributes:affordanceAttr]];
         } else if (tier == IMBubbleTextTierLong && !self.textExpanded) {
             // 中长折叠：前若干行（并按字数硬顶）+ 省略号 + 「展开全文」
             collapsed = YES;
@@ -954,14 +955,14 @@ static NSAttributedString *sIMMentionFlashOriginal = nil;
             [body appendAttributedString:[IMBubbleCell attributedContent:shown base:(isURL ? urlAttr : contentAttr) mentionColor:IMTheme.accent mentions:mMap spans:mSpans]];
             // 混排文本里的 URL 高亮：整段是 URL 时上面 urlAttr 已全染；否则按检测出的 URL 范围逐段补染。
             if (!isURL) { [IMBubbleCell applyURLHighlight:shown toBody:body startOffset:contentStart linkAttrs:urlAttr]; }
-            [body appendAttributedString:[[NSAttributedString alloc] initWithString:@"…\n展开全文 ∨" attributes:affordanceAttr]];
+            [body appendAttributedString:[[NSAttributedString alloc] initWithString:[NSString stringWithFormat:@"…\n%@ ∨", IMLocalized(@"chat.text.expand")] attributes:affordanceAttr]];
         } else {
             // 短文本，或中长已展开：全显。展开态末尾加「收起」。
             NSUInteger contentStart = body.length;
             [body appendAttributedString:[IMBubbleCell attributedContent:contentText base:(isURL ? urlAttr : contentAttr) mentionColor:IMTheme.accent mentions:mMap spans:mSpans]];
             if (!isURL) { [IMBubbleCell applyURLHighlight:contentText toBody:body startOffset:contentStart linkAttrs:urlAttr]; }
             if (tier == IMBubbleTextTierLong) {
-                [body appendAttributedString:[[NSAttributedString alloc] initWithString:@"\n收起 ∧" attributes:affordanceAttr]];
+                [body appendAttributedString:[[NSAttributedString alloc] initWithString:[NSString stringWithFormat:@"\n%@ ∧", IMLocalized(@"chat.text.collapse")] attributes:affordanceAttr]];
             }
         }
         // 翻译（M4-5）：译文另起一行挂气泡内（灰字小字）。折叠态不挂（展开后再出现）。
@@ -1075,7 +1076,7 @@ static NSAttributedString *sIMMentionFlashOriginal = nil;
 - (void)configureFileRowWithMessage:(IMMessageModel *)message mine:(BOOL)mine peerReadSeq:(int64_t)peerReadSeq {
     _fileNameLabel.font = [UIFont systemFontOfSize:IMTheme.chatFontSize];
     _fileNameLabel.textColor = IMTheme.accent;
-    _fileNameLabel.text = message.fileName.length > 0 ? message.fileName : @"文件";
+    _fileNameLabel.text = message.fileName.length > 0 ? message.fileName : IMLocalized(@"common.file");
     _fileSizeBytes = message.fileSize; // 记住：进度就地更新时未下载/就绪态要拼"尺寸 · 点击下载"
     [self applyFileStatusLine];
     _fileMetaLabel.attributedText = [IMMessageCell attributedMetaForMessage:message mine:mine peerReadSeq:peerReadSeq];
@@ -1092,7 +1093,7 @@ static NSAttributedString *sIMMentionFlashOriginal = nil;
     if (dp) { // 收到的文件：下载态（未下载显"尺寸 · 点击下载"，就绪显尺寸，其余显 已下/总 或失败文案）
         statusColor = (dp.phase == IMDownloadPhaseFailed) ? IMTheme.danger : IMTheme.textSecondary;
         switch (dp.phase) {
-            case IMDownloadPhaseNotStarted: statusText = [NSString stringWithFormat:@"%@ · 点击下载", IMFormatFileSize(_fileSizeBytes)]; break;
+            case IMDownloadPhaseNotStarted: statusText = IMLocalizedFormat(@"chat.file.size_tap_download", IMFormatFileSize(_fileSizeBytes)); break;
             case IMDownloadPhaseDone:       statusText = IMFormatFileSize(_fileSizeBytes); break;
             default:                        statusText = [dp fileLineText]; break; // 下载中 / 暂停 / 失败
         }

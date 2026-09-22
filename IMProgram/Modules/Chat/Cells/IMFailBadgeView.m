@@ -3,6 +3,7 @@
 //
 
 #import "IMFailBadgeView.h"
+#import "IMLocalization.h"
 
 static const CGFloat kIMFailBadgeDiameter = 18;
 
@@ -25,7 +26,7 @@ static const UIEdgeInsets kIMFailBadgeTouchOutset = { .top = 11, .left = 11, .bo
         self.hidden = YES;              // 默认不占位：由 cell 在 failed 时开
         self.userInteractionEnabled = NO; // 随 tappable 打开
         self.isAccessibilityElement = YES;
-        self.accessibilityLabel = @"发送失败，点按重发";
+        self.accessibilityLabel = IMLocalized(@"chat.message.fail_badge_a11y");
         self.accessibilityTraits = UIAccessibilityTraitButton;
 
         _mark = [UILabel new];

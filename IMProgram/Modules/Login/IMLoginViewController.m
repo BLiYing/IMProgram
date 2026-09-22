@@ -1,6 +1,7 @@
 //  IMLoginViewController.m
 
 #import "IMLoginViewController.h"
+#import "IMLocalization.h"
 #import "IMMainTabBarController.h"
 #import "IMHTTPService.h"
 #import "IMSessionStore.h"
@@ -25,7 +26,7 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"IMProgram 登录";
+    self.title = IMLocalized(@"login.title");
     self.view.backgroundColor = UIColor.systemBackgroundColor;
     [self setupUI];
 }
@@ -45,14 +46,14 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
 }
 
 - (void)setupUI {
-    self.hostField     = [self fieldWithPlaceholder:@"服务器地址 host:port" text:[self defaultHost] keyboard:UIKeyboardTypeURL secure:NO];
+    self.hostField     = [self fieldWithPlaceholder:IMLocalized(@"login.host.placeholder") text:[self defaultHost] keyboard:UIKeyboardTypeURL secure:NO];
     // 用户名规则与服务端 ^[a-z0-9_]{5,32}$ 对齐（后端权威校验，这里只做提示与键盘优化）。
-    self.userIDField   = [self fieldWithPlaceholder:@"用户名（a-z、0-9、下划线，≥5 位）" text:@"" keyboard:UIKeyboardTypeASCIICapable secure:NO];
+    self.userIDField   = [self fieldWithPlaceholder:IMLocalized(@"login.username.placeholder") text:@"" keyboard:UIKeyboardTypeASCIICapable secure:NO];
     self.userIDField.autocapitalizationType = UITextAutocapitalizationTypeNone;
     self.userIDField.autocorrectionType = UITextAutocorrectionTypeNo;
     // 昵称是显示名（可中文/emoji），与用户名是两回事；仅"注册并登录"用得到。
-    self.nicknameField = [self fieldWithPlaceholder:@"昵称（注册用，可中文，≤32 字）" text:@"" keyboard:UIKeyboardTypeDefault secure:NO];
-    self.passwordField = [self fieldWithPlaceholder:@"密码（≥ 6 位）" text:@"" keyboard:UIKeyboardTypeDefault secure:YES];
+    self.nicknameField = [self fieldWithPlaceholder:IMLocalized(@"login.nickname.placeholder") text:@"" keyboard:UIKeyboardTypeDefault secure:NO];
+    self.passwordField = [self fieldWithPlaceholder:IMLocalized(@"login.password.placeholder") text:@"" keyboard:UIKeyboardTypeDefault secure:YES];
 
     self.errorLabel = [UILabel new];
     self.errorLabel.translatesAutoresizingMaskIntoConstraints = NO;
@@ -61,8 +62,8 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
     self.errorLabel.numberOfLines = 0;
     self.errorLabel.hidden = YES;
 
-    self.loginButton = [self buttonTitle:@"登录" config:[UIButtonConfiguration filledButtonConfiguration] action:@selector(loginTapped)];
-    self.registerButton = [self buttonTitle:@"注册并登录" config:[UIButtonConfiguration tintedButtonConfiguration] action:@selector(registerTapped)];
+    self.loginButton = [self buttonTitle:IMLocalized(@"login.button.login") config:[UIButtonConfiguration filledButtonConfiguration] action:@selector(loginTapped)];
+    self.registerButton = [self buttonTitle:IMLocalized(@"login.button.register") config:[UIButtonConfiguration tintedButtonConfiguration] action:@selector(registerTapped)];
     self.devButton = [self buttonTitle:@"免密登录（开发）" config:[UIButtonConfiguration plainButtonConfiguration] action:@selector(devLoginTapped)];
 
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
@@ -115,10 +116,10 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
     NSString *userID = [self trimmed:self.userIDField.text];
     NSString *password = self.passwordField.text ?: @"";
     if (userID.length == 0 || password.length == 0) {
-        [self showError:@"请填写用户名与密码"];
+        [self showError:IMLocalized(@"login.error.fill_credentials")];
         return;
     }
-    [self loginWithHost:host username:userID password:password fallback:@"登录失败" activeButton:self.loginButton];
+    [self loginWithHost:host username:userID password:password fallback:IMLocalized(@"login.error.login_failed") activeButton:self.loginButton];
 }
 
 /// 注册并登录：先注册账号，成功后用同一密码进入。
@@ -129,13 +130,13 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
     NSString *nickname = [self trimmed:self.nicknameField.text];
     NSString *password = self.passwordField.text ?: @"";
     if (username.length == 0 || password.length < 6) {
-        [self showError:@"用户名必填，密码至少 6 位"];
+        [self showError:IMLocalized(@"login.error.register_requirements")];
         return;
     }
     // 昵称必填：全端显示名回退链止于它，留空会让界面露出 10 位数字内部 ID。
     // 后端也会拒，这里前置提示省一次往返。
     if (nickname.length == 0) {
-        [self showError:@"请填写昵称（这是别人看到的名字）"];
+        [self showError:IMLocalized(@"login.error.nickname_required")];
         return;
     }
     [self showError:@""];
@@ -148,12 +149,12 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
         if (!self) { return; }
         if (error) {
             [self setBusy:NO activeButton:self.registerButton];
-            [self showError:error.localizedDescription ?: @"注册失败"];
+            [self showError:error.localizedDescription ?: IMLocalized(@"login.error.register_failed")];
             return;
         }
         // 注册接口不签发 token，也不回内部 ID 之外的东西——必须再登录一次拿 token + 内部 ID。
         [self loginWithHost:host username:username password:password
-                   fallback:@"注册成功但登录失败" activeButton:self.registerButton];
+                   fallback:IMLocalized(@"login.error.register_login_failed") activeButton:self.registerButton];
     }];
 }
 
@@ -220,12 +221,12 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
 - (NSString *)resolvedHostOrShowError {
     NSString *raw = [self trimmed:self.hostField.text];
     if (raw.length == 0) {
-        [self showError:@"请填写服务器地址"];
+        [self showError:IMLocalized(@"login.error.host_required")];
         return @"";
     }
     NSString *scheme = nil, *host = nil;
     if (![IMServerEndpoint parseInput:raw scheme:&scheme host:&host]) {
-        [self showError:@"服务器地址格式不对（示例：192.168.1.12:8080 或 https://im.example.com）"];
+        [self showError:IMLocalized(@"login.error.host_invalid")];
         return @"";
     }
     IMServerEndpoint.shared.scheme = scheme;

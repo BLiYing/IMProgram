@@ -13,6 +13,7 @@
 #import "IMMediaUtil.h"          // IMReplySnippet
 #import "IMMediaPlaceholder.h"
 #import "UIViewController+IMToast.h"
+#import "IMLocalization.h"
 
 @implementation IMChatViewController (Compose)
 
@@ -186,9 +187,9 @@
 - (void)beginReplyTo:(IMMessageModel *)message {
     self.editingMessage = nil; // 引用与编辑互斥（共用引用条）
     self.replyingTo = message;
-    NSString *who = [message.from isEqualToString:self.userID] ? @"自己"
+    NSString *who = [message.from isEqualToString:self.userID] ? IMLocalized(@"chat.reply.self")
         : (self.isGroupChat ? [self senderNameForMessage:message] : (self.peerID ?: @""));
-    self.replyTitleLabel.text = [NSString stringWithFormat:@"回复 %@", who];
+    self.replyTitleLabel.text = IMLocalizedFormat(@"chat.reply.header", who);
     [self setReplyPreviewForMessage:message];
     [self setReplyBarExpanded:YES];
     [self.inputField becomeFirstResponder];
@@ -218,10 +219,10 @@
     }
     self.replySnippetLabel.lineBreakMode = NSLineBreakByTruncatingTail;
     if (isImage || isVideo) {
-        self.replySnippetLabel.text = isImage ? @"图片" : @"视频";
+        self.replySnippetLabel.text = isImage ? IMLocalized(@"common.image") : IMLocalized(@"common.video");
         [self showReplyThumbForMediaMessage:message isVideo:isVideo];
     } else if ([ct isEqualToString:@"audio"]) {
-        self.replySnippetLabel.text = @"语音";
+        self.replySnippetLabel.text = IMLocalized(@"favorites.category.voice");
         [self showReplyIconSymbol:@"waveform"];
     } else if ([ct isEqualToString:@"chat_record"]) {
         self.replySnippetLabel.text = IMReplySnippet(message);
@@ -320,7 +321,7 @@
                                         sourceConvSeq:message.convSeq sourceFrom:(message.from ?: @"")
                                            completion:^(NSError *error) {
         // toast 吐在当前可见页（从全屏媒体库的查看器收藏时，本页不可见，吐在自己身上等于没提示）。
-        [UIViewController im_showGlobalToast:error ? [NSString stringWithFormat:@"收藏失败：%@", error.localizedDescription] : @"已收藏"];
+        [UIViewController im_showGlobalToast:error ? IMLocalizedFormat(@"chat.favorite.failed_detail", error.localizedDescription) : IMLocalized(@"chat.favorite.success")];
     }];
 }
 
@@ -331,7 +332,7 @@
     self.replyingTo = nil;
     self.editingMessage = message;
     [self showReplyIconSymbol:nil]; // 编辑仅文本，无图标
-    self.replyTitleLabel.text = @"编辑消息";
+    self.replyTitleLabel.text = IMLocalized(@"chat.edit.title");
     self.replySnippetLabel.lineBreakMode = NSLineBreakByTruncatingTail;
     self.replySnippetLabel.text = message.content.length > 60
         ? [[message.content substringToIndex:60] stringByAppendingString:@"…"] : (message.content ?: @"");
@@ -361,7 +362,7 @@
                                          completion:^(NSString *translation, NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
-        if (error) { [self im_showToast:[NSString stringWithFormat:@"翻译失败：%@", error.localizedDescription]]; return; }
+        if (error) { [self im_showToast:IMLocalizedFormat(@"chat.error.translate_failed", error.localizedDescription)]; return; }
         message.translation = translation;
         [self.tableView reloadData];
     }];

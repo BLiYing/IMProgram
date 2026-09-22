@@ -18,6 +18,7 @@
 #import "UILabel+IMAvatar.h"
 #import "IMAccountIdentity.h"        // IMDisplayName：末级不落 userID
 #import "UIViewController+IMToast.h"
+#import "IMLocalization.h"
 
 // 记录预览/标题解析统一走 IMMediaUtil 的 IMSummarizeRecord/IMRecordItemPreview（含嵌套 chat_record→[聊天记录] 子标题），
 // 与气泡卡片 IMChatRecordCell 共用同一 token 映射，避免各持 static 分叉。
@@ -160,7 +161,7 @@ static NSString *IMRecordItemTimeText(int64_t timestampMillis) {
         recFoot.translatesAutoresizingMaskIntoConstraints = NO;
         recFoot.font = [UIFont systemFontOfSize:11];
         recFoot.textColor = UIColor.secondaryLabelColor;
-        recFoot.text = @"聊天记录 ›";
+        recFoot.text = [NSString stringWithFormat:@"%@ ›", IMLocalized(@"record.chat_history")];
         [_recCard addSubview:recFoot];
         [NSLayoutConstraint activateConstraints:@[
             [_recCard.widthAnchor constraintEqualToConstant:240],
@@ -215,7 +216,7 @@ static NSString *IMRecordItemTimeText(int64_t timestampMillis) {
         cardFoot.translatesAutoresizingMaskIntoConstraints = NO;
         cardFoot.font = [UIFont systemFontOfSize:11];
         cardFoot.textColor = UIColor.secondaryLabelColor;
-        cardFoot.text = @"个人名片 ›";
+        cardFoot.text = [NSString stringWithFormat:@"%@ ›", IMLocalized(@"contact.card.footer")];
         [_cardBox addSubview:cardFoot];
         [NSLayoutConstraint activateConstraints:@[
             [_cardBox.widthAnchor constraintEqualToConstant:240],
@@ -426,7 +427,7 @@ static NSString *IMRecordItemTimeText(int64_t timestampMillis) {
 - (instancetype)initWithHost:(NSString *)host recordJSON:(NSString *)recordJSON {
     if ((self = [super initWithNibName:nil bundle:nil])) {
         _host = [host copy];
-        _title = @"聊天记录";
+        _title = IMLocalized(@"record.chat_history");
         _items = @[];
         _voiceModels = [NSMutableDictionary dictionary];
         NSData *d = [recordJSON dataUsingEncoding:NSUTF8StringEncoding];
@@ -544,7 +545,7 @@ static NSString *IMRecordItemTimeText(int64_t timestampMillis) {
         if (!self) { return; }
         // IO / 格式错误不吞（CODING_STYLE §5）：直接把播放器给的文案吐出来，
         // 「下载失败」与「该语音格式无法播放」是两回事，混成一句会把排查引偏。
-        if (err) { [self im_showToast:(err.localizedDescription ?: @"语音播放失败")]; return; }
+        if (err) { [self im_showToast:(err.localizedDescription ?: IMLocalized(@"favorites.voice.play_failed"))]; return; }
         // 刚下完的文件此时才有：老记录的时长在这一刻才补得上 → 刷该行。
         if (m.duration == 0) {
             [self fillDurationFromLocalFileIfNeeded:m];

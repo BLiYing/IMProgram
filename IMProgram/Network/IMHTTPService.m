@@ -1,6 +1,7 @@
 //  IMHTTPService.m
 
 #import "IMHTTPService+Private.h" // 类扩展（私有存储属性）与分文件 category 的共享内部接口
+#import "IMLocalization.h"
 #import "IMServerEndpoint.h"
 #import "IMConversation.h"
 #import "IMUserCard.h"
@@ -64,34 +65,34 @@ BOOL IMIsAuthErrorCode(NSInteger code) {
 /// 让被禁言/全员禁言等 send_msg 拒收错误也走同一中文映射（否则 error.localizedDescription = 英文原文）。
 NSString *IMFriendlyMessageForCode(NSInteger code) {
     switch (code) {
-        case 100101: case 100102: return @"登录已失效，请重新登录"; // invalid / expired token
-        case 200001: return @"用户不存在";                          // user not found
-        case 200002: return @"密码错误";                            // wrong password
-        case 200003: return @"账号已被封禁";                        // account banned
-        case 200004: return @"用户名已被注册";                      // user already exists
-        case 300004: return @"账号已被禁言";                        // account muted（全局禁言）
-        case 300206: return @"本群已开启全员禁言";                  // group all-muted（G2）
-        case 200101: return @"你们已经是好友了";                    // already friends
-        case 200102: return @"暂时无法添加对方为好友";              // blocked by peer（不暴露拉黑）
-        case 200103: return @"对方不是你的好友";                    // not friend
-        case 200104: return @"不能添加自己为好友";                  // cannot add yourself
-        case 200105: return @"申请已发出，等待对方同意";            // request pending
-        case 200106: return @"没有待处理的好友申请";                // no pending request
-        case 200110: return @"二维码已失效，请向对方索取新的";      // qr expired（QRCODE P0）
-        case 300201: return @"群不存在";                            // group not found
-        case 300202: return @"群名不能为空且不超过 30 字";          // invalid group name
-        case 300203: return @"你不在该群中";                        // not a group member
+        case 100101: case 100102: return IMLocalized(@"common.login_expired"); // invalid / expired token
+        case 200001: return IMLocalized(@"err.200001");                          // user not found
+        case 200002: return IMLocalized(@"err.200002");                            // wrong password
+        case 200003: return IMLocalized(@"err.200003");                        // account banned
+        case 200004: return IMLocalized(@"err.200004");                      // user already exists
+        case 300004: return IMLocalized(@"err.300004");                        // account muted（全局禁言）
+        case 300206: return IMLocalized(@"chat.input.disabled_mute_all");                  // group all-muted（G2）
+        case 200101: return IMLocalized(@"err.200101");                    // already friends
+        case 200102: return IMLocalized(@"err.200102");              // blocked by peer（不暴露拉黑）
+        case 200103: return IMLocalized(@"err.200103");                    // not friend
+        case 200104: return IMLocalized(@"err.200104");                  // cannot add yourself
+        case 200105: return IMLocalized(@"err.200105");            // request pending
+        case 200106: return IMLocalized(@"friend.requests.empty");                // no pending request
+        case 200110: return IMLocalized(@"err.200110");      // qr expired（QRCODE P0）
+        case 300201: return IMLocalized(@"err.300201");                            // group not found
+        case 300202: return IMLocalized(@"err.300202");          // invalid group name
+        case 300203: return IMLocalized(@"err.300203");                        // not a group member
         // 300204 不映射：服务端会带具体原因（如"群主需先转让群主再退群"），透传更有用。
-        case 300205: return @"群成员已达上限";                      // group member limit
-        case 300207: return @"你已被移出该群，暂时或永久不可加入";  // banned from group（G2）
-        case 300208: return @"你已被管理员禁言";                    // member muted（G2）
+        case 300205: return IMLocalized(@"err.300205");                      // group member limit
+        case 300207: return IMLocalized(@"qr.action.banned_note");  // banned from group（G2）
+        case 300208: return IMLocalized(@"chat.input.disabled_muted");                    // member muted（G2）
         // 300210 不映射：入群申请已提交，UI 走"待审批"分支而非错误提示。
-        case 300211: return @"你的入群申请刚被拒绝，请稍后再试";    // join cooldown（拒后再扫码，语义单一可安全映射）
-        case 300212: return @"该群已改为仅管理员可邀请，此邀请已失效"; // invite revoked（perm_invite，竞态兜底）
-        case 100002: return @"操作过于频繁，请稍后再试";              // rate limited（全站通用码）
-        case 500101: return @"转文字暂未开启（服务端未配置识别引擎）"; // transcribe disabled
-        case 500102: return @"识别失败，请稍后重试";                  // transcribe failed
-        case 500103: return @"转文字服务繁忙，请稍后再试";            // transcribe busy（队列满）
+        case 300211: return IMLocalized(@"err.300211");    // join cooldown（拒后再扫码，语义单一可安全映射）
+        case 300212: return IMLocalized(@"qr.action.admin_only_note"); // invite revoked（perm_invite，竞态兜底）
+        case 100002: return IMLocalized(@"err.100002");              // rate limited（全站通用码）
+        case 500101: return IMLocalized(@"err.500101"); // transcribe disabled
+        case 500102: return IMLocalized(@"err.500102");                  // transcribe failed
+        case 500103: return IMLocalized(@"err.500103");            // transcribe busy（队列满）
         default: return nil;
     }
 }
@@ -104,13 +105,13 @@ static NSString *IMFriendlyNetworkError(NSError *error) {
             case NSURLErrorCannotFindHost:
             case NSURLErrorTimedOut:
             case NSURLErrorNetworkConnectionLost:
-                return @"无法连接服务器，请确认后端已启动、地址端口正确";
+                return IMLocalized(@"net.error.unreachable");
             case NSURLErrorNotConnectedToInternet:
-                return @"网络未连接，请检查网络";
+                return IMLocalized(@"net.error.offline");
             default: break;
         }
     }
-    return error.localizedDescription.length > 0 ? error.localizedDescription : @"网络错误";
+    return error.localizedDescription.length > 0 ? error.localizedDescription : IMLocalized(@"net.error.generic");
 }
 
 /// 上传失败自动重试的次数上限（不含首次）。
@@ -191,7 +192,7 @@ BOOL IMIsTransientNetworkError(NSError *error) {
                                                   body:@{ @"username": username ?: @"",
                                                           @"password": password ?: @"",
                                                           @"nickname": nickname ?: @"" }];
-    [self runOKRequest:req fallback:@"注册失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"login.error.register_failed") completion:completion];
 }
 
 - (void)updateUsername:(NSString *)username
@@ -199,13 +200,13 @@ BOOL IMIsTransientNetworkError(NSError *error) {
             completion:(void (^)(NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/users/me/username" method:@"POST"
                                                     token:token body:@{ @"username": username ?: @"" }];
-    [self runOKRequest:req fallback:@"修改用户名失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"net.fallback.username_change") completion:completion];
 }
 
 - (void)conversationsWithToken:(NSString *)token
                     completion:(void (^)(NSArray<IMConversation *> *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/conversations" method:@"GET" token:token body:nil];
-    [self runDataRequest:req fallback:@"拉取会话失败" completion:^(NSDictionary *data, NSError *error) {
+    [self runDataRequest:req fallback:IMLocalized(@"net.fallback.convs_load") completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(nil, error); return; }
         NSArray<IMConversation *> *convs = [IMConversation conversationsFromArray:data[@"conversations"]];
         // 备注名喂进全局缓存放在这一层（而非各调用方）：会话列表/转发选择/详情页都走这个方法，
@@ -219,7 +220,7 @@ BOOL IMIsTransientNetworkError(NSError *error) {
 - (void)downloadSettingsWithToken:(NSString *)token
                        completion:(void (^)(NSDictionary *_Nullable data, NSError *_Nullable error))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/download-settings" method:@"GET" token:token body:nil];
-    [self runDataRequest:req fallback:@"拉取下载设置失败" completion:^(NSDictionary *data, NSError *error) {
+    [self runDataRequest:req fallback:IMLocalized(@"net.fallback.download_settings_load") completion:^(NSDictionary *data, NSError *error) {
         // 调用方以 nil 表示"没拿到设置"（保留旧值）；空字典还原为 nil，语义同手写版。
         completion(data.count > 0 ? data : nil, error);
     }];
@@ -229,7 +230,7 @@ BOOL IMIsTransientNetworkError(NSError *error) {
                                settings:(NSDictionary *)settings
                              completion:(void (^)(NSDictionary *_Nullable data, NSError *_Nullable error))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/download-settings" method:@"PUT" token:token body:(settings ?: @{})];
-    [self runDataRequest:req fallback:@"保存下载设置失败" completion:^(NSDictionary *data, NSError *error) {
+    [self runDataRequest:req fallback:IMLocalized(@"net.fallback.download_settings_save") completion:^(NSDictionary *data, NSError *error) {
         completion(data.count > 0 ? data : nil, error); // nil=没拿到回执，调用方据此回滚
     }];
 }
@@ -237,7 +238,7 @@ BOOL IMIsTransientNetworkError(NSError *error) {
 - (void)resetDownloadSettingsWithToken:(NSString *)token
                             completion:(void (^)(NSDictionary *_Nullable data, NSError *_Nullable error))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/download-settings/reset" method:@"POST" token:token body:@{}];
-    [self runDataRequest:req fallback:@"重置下载设置失败" completion:^(NSDictionary *data, NSError *error) {
+    [self runDataRequest:req fallback:IMLocalized(@"net.fallback.download_settings_reset") completion:^(NSDictionary *data, NSError *error) {
         completion(data.count > 0 ? data : nil, error); // nil=没拿到回执，调用方重拉刷新
     }];
 }
@@ -250,7 +251,7 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     NSString *q = [query stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLQueryAllowedCharacterSet] ?: @"";
     NSString *path = [NSString stringWithFormat:@"/api/v1/users/search?q=%@&limit=20", q];
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
-    [self runDataRequest:req fallback:@"搜索失败" completion:^(NSDictionary *data, NSError *error) {
+    [self runDataRequest:req fallback:IMLocalized(@"common.search_failed") completion:^(NSDictionary *data, NSError *error) {
         completion(error ? nil : [IMUserCard cardsFromArray:data[@"users"]], error);
     }];
 }
@@ -260,7 +261,7 @@ BOOL IMIsTransientNetworkError(NSError *error) {
                  completion:(void (^)(NSArray<IMUserCard *> *, NSArray<NSString *> *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/users/batch" method:@"POST" token:token
                                                      body:@{@"ids": userIDs ?: @[]}];
-    [self runDataRequest:req fallback:@"解析用户资料失败" completion:^(NSDictionary *data, NSError *error) {
+    [self runDataRequest:req fallback:IMLocalized(@"net.fallback.user_resolve_failed") completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(nil, nil, error); return; }
         NSArray *missing = [data[@"missing"] isKindOfClass:NSArray.class] ? data[@"missing"] : @[];
         completion([IMUserCard cardsFromArray:data[@"users"]], missing, nil);
@@ -278,7 +279,7 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     // blocked/pending 等是子集，只补不清（否则会把其他好友的备注误清空）。
     BOOL authoritative = (status.length == 0 || [status isEqualToString:@"accepted"]);
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
-    [self runDataRequest:req fallback:@"拉取好友失败" completion:^(NSDictionary *data, NSError *error) {
+    [self runDataRequest:req fallback:IMLocalized(@"net.fallback.friends_load") completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(nil, error); return; }
         id rawFriends = data[@"friends"];
         // 建卡 + 灌两份进程内缓存挪出主线程：2000 人的名单在主线程做完再回调，会在列表刷新前再顿一下。
@@ -312,7 +313,7 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/reports" method:@"POST" token:token
         body:@{ @"target_type": targetType ?: @"", @"target_id": targetID ?: @"",
                 @"conv_id": convID ?: @"", @"reason": reason ?: @"" }];
-    [self runOKRequest:req fallback:@"举报失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"net.fallback.report_failed") completion:completion];
 }
 
 - (void)reportMessagesWithToken:(NSString *)token
@@ -323,7 +324,7 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/reports" method:@"POST" token:token
         body:@{ @"target_type": @"message", @"target_seqs": convSeqs ?: @[],
                 @"conv_id": convID ?: @"", @"reason": reason ?: @"" }];
-    [self runOKRequest:req fallback:@"举报失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"net.fallback.report_failed") completion:completion];
 }
 
 - (void)addFavoriteWithToken:(NSString *)token
@@ -355,7 +356,7 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     if (mediaW > 0) { body[@"media_w"] = @(mediaW); } // 媒体像素宽（收端按原比例定框，转发不丢宽高）
     if (mediaH > 0) { body[@"media_h"] = @(mediaH); }
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/favorites" method:@"POST" token:token body:body];
-    [self runOKRequest:req fallback:@"收藏失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"net.fallback.favorite_failed") completion:completion];
 }
 
 const NSInteger IMFavoritesPageSize = 60;
@@ -366,7 +367,7 @@ const NSInteger IMFavoritesPageSize = 60;
     NSString *path = [NSString stringWithFormat:@"/api/v1/favorites?limit=%ld&offset=%ld",
                       (long)IMFavoritesPageSize, (long)MAX(0, offset)];
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
-    [self runDataRequest:req fallback:@"加载收藏失败" completion:^(NSDictionary *data, NSError *error) {
+    [self runDataRequest:req fallback:IMLocalized(@"net.fallback.favorites_load") completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(nil, 0, error); return; }
         id list = data[@"favorites"];
         NSArray *items = [list isKindOfClass:[NSArray class]] ? list : @[];
@@ -382,7 +383,7 @@ const NSInteger IMFavoritesPageSize = 60;
                      completion:(void (^)(NSError *))completion {
     NSString *path = [NSString stringWithFormat:@"/api/v1/favorites/%lld", favoriteID];
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"DELETE" token:token body:nil];
-    [self runOKRequest:req fallback:@"删除失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"net.fallback.delete_failed") completion:completion];
 }
 
 - (void)linkPreviewWithToken:(NSString *)token url:(NSString *)url
@@ -390,7 +391,7 @@ const NSInteger IMFavoritesPageSize = 60;
     NSString *q = [url stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLQueryAllowedCharacterSet] ?: @"";
     NSString *path = [@"/api/v1/link-preview?url=" stringByAppendingString:q];
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
-    [self runDataRequest:req fallback:@"预览失败" completion:^(NSDictionary *data, NSError *error) {
+    [self runDataRequest:req fallback:IMLocalized(@"net.fallback.preview_failed") completion:^(NSDictionary *data, NSError *error) {
         // 调用方以 nil 表示"无预览可用"（据此跳过缓存/渲染）；runDataRequest 成功恒回字典，空则还原为 nil。
         completion(data.count > 0 ? data : nil, error);
     }];
@@ -402,7 +403,7 @@ const NSInteger IMFavoritesPageSize = 60;
                 completion:(void (^)(NSString *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/translate" method:@"POST" token:token
         body:@{ @"text": text ?: @"", @"target_lang": targetLang ?: @"zh" }];
-    [self runDataRequest:req fallback:@"翻译失败" completion:^(NSDictionary *data, NSError *error) {
+    [self runDataRequest:req fallback:IMLocalized(@"net.fallback.translate_failed") completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(nil, error); return; }
         id t = data[@"translation"];
         completion([t isKindOfClass:[NSString class]] ? t : @"", nil);
@@ -415,7 +416,7 @@ const NSInteger IMFavoritesPageSize = 60;
                     completion:(void (^)(BOOL, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/friends/request" method:@"POST" token:token
                                                      body:@{ @"user_id": peerID ?: @"", @"hello": hello ?: @"" }];
-    [self runDataRequest:req fallback:@"操作失败" completion:^(NSDictionary *data, NSError *error) {
+    [self runDataRequest:req fallback:IMLocalized(@"common.action_failed") completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(NO, error); return; }
         NSString *outcome = [data[@"outcome"] isKindOfClass:[NSString class]] ? data[@"outcome"] : nil;
         completion([outcome isEqualToString:@"accepted"], nil);
@@ -428,7 +429,7 @@ const NSInteger IMFavoritesPageSize = 60;
                    completion:(void (^)(NSError *))completion {
     NSString *path = [NSString stringWithFormat:@"/api/v1/friends/%@", action];
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"POST" token:token body:@{ @"user_id": peerID ?: @"" }];
-    [self runOKRequest:req fallback:@"操作失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"common.action_failed") completion:completion];
 }
 
 - (void)removeFriendWithToken:(NSString *)token
@@ -437,7 +438,7 @@ const NSInteger IMFavoritesPageSize = 60;
     NSString *seg = [peerID stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet] ?: @"";
     NSString *path = [NSString stringWithFormat:@"/api/v1/friends/%@", seg];
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"DELETE" token:token body:nil];
-    [self runOKRequest:req fallback:@"删除失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"net.fallback.delete_failed") completion:completion];
 }
 
 #pragma mark - 群聊（M3）
@@ -449,13 +450,13 @@ const NSInteger IMFavoritesPageSize = 60;
                   completion:(void (^)(IMGroupInfo *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/groups" method:@"POST" token:token
         body:@{ @"name": name ?: @"", @"avatar_url": avatarURL ?: @"", @"member_ids": memberIDs ?: @[] }];
-    [self runGroupInfoRequest:req fallback:@"建群失败" completion:completion];
+    [self runGroupInfoRequest:req fallback:IMLocalized(@"net.fallback.group_create") completion:completion];
 }
 
 - (void)groupsWithToken:(NSString *)token
              completion:(void (^)(NSArray<IMGroupInfo *> *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/groups" method:@"GET" token:token body:nil];
-    [self runDataRequest:req fallback:@"拉取群列表失败" completion:^(NSDictionary *data, NSError *error) {
+    [self runDataRequest:req fallback:IMLocalized(@"net.fallback.groups_load") completion:^(NSDictionary *data, NSError *error) {
         completion(error ? nil : [IMGroupInfo groupsFromArray:data[@"groups"]], error);
     }];
 }
@@ -465,13 +466,13 @@ const NSInteger IMFavoritesPageSize = 60;
                 completion:(void (^)(IMGroupInfo *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@""]
                                                    method:@"GET" token:token body:nil];
-    [self runGroupInfoRequest:req fallback:@"拉取群资料失败" completion:completion];
+    [self runGroupInfoRequest:req fallback:IMLocalized(@"group.info.load_failed") completion:completion];
 }
 
 - (void)serverConfigWithToken:(NSString *)token
                    completion:(void (^)(NSInteger, BOOL, NSInteger, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/server-config" method:@"GET" token:token body:nil];
-    [self runDataRequest:req fallback:@"拉取服务端配置失败" completion:^(NSDictionary *data, NSError *error) {
+    [self runDataRequest:req fallback:IMLocalized(@"net.fallback.server_config_load") completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(0, NO, 0, error); return; }
         completion([data[@"max_group_members"] integerValue],
                    [data[@"supergroup_enabled"] boolValue],
@@ -495,7 +496,7 @@ const NSInteger IMFavoritesPageSize = 60;
     }
     NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:suffix]
                                                    method:@"GET" token:token body:nil];
-    [self runDataRequest:req fallback:@"拉取群成员失败" completion:^(NSDictionary *data, NSError *error) {
+    [self runDataRequest:req fallback:IMLocalized(@"group.info.members_failed") completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(nil, nil, NO, error); return; }
         // ⚠️ 分页接口的成员数组在 **items** 里，不是 members——`GET /groups/{id}` 用 members，
         // 这个分页接口用 items，两者不同名。照直觉写成 members 会静默拿到空列表
@@ -517,7 +518,7 @@ const NSInteger IMFavoritesPageSize = 60;
                      completion:(void (^)(NSArray<IMPinnedMessage *> *, NSError *))completion {
     NSString *path = [NSString stringWithFormat:@"/api/v1/conversations/%@/pinned", [self pathEscape:convID]];
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
-    [self runDataRequest:req fallback:@"拉取置顶消息失败" completion:^(NSDictionary *data, NSError *error) {
+    [self runDataRequest:req fallback:IMLocalized(@"net.fallback.pinned_load") completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(nil, error); return; }
         NSArray *raw = [data[@"items"] isKindOfClass:[NSArray class]] ? data[@"items"] : @[];
         NSMutableArray<IMPinnedMessage *> *items = [NSMutableArray arrayWithCapacity:raw.count];
@@ -538,13 +539,13 @@ const NSInteger IMFavoritesPageSize = 60;
     NSString *path = [NSString stringWithFormat:@"/api/v1/conversations/%@/messages/%lld/read-by", encoded, convSeq];
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
     if (!req) {
-        [self callOnMain:^{ completion(nil, nil, NO, [self errorWithMessage:@"非法服务器地址"]); }];
+        [self callOnMain:^{ completion(nil, nil, NO, [self errorWithMessage:IMLocalized(@"net.error.invalid_server")]); }];
         return;
     }
     [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
         if (error) { completion(nil, nil, NO, error); return; }
         if ([body[@"code"] integerValue] != 0) {
-            completion(nil, nil, NO, [self errorWithMessage:[self messageFrom:body fallback:@"拉取已读状态失败"]]);
+            completion(nil, nil, NO, [self errorWithMessage:[self messageFrom:body fallback:IMLocalized(@"net.fallback.receipts_load")]]);
             return;
         }
         NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
@@ -562,7 +563,7 @@ const NSInteger IMFavoritesPageSize = 60;
     NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@""]
                                                    method:@"PUT" token:token
                                                      body:@{ @"name": name ?: @"", @"avatar_url": avatarURL ?: @"", @"intro": intro ?: @"" }];
-    [self runOKRequest:req fallback:@"保存群资料失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"net.fallback.group_info_save") completion:completion];
 }
 
 // 群公告发布/撤下（G1）：text 空即撤下。仅群主/管理员（越权服务端回 300204）。
@@ -570,7 +571,7 @@ const NSInteger IMFavoritesPageSize = 60;
                                  text:(NSString *)text completion:(void (^)(NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@"/announcement"]
                                                    method:@"PUT" token:token body:@{ @"text": text ?: @"" }];
-    [self runOKRequest:req fallback:@"保存群公告失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"net.fallback.group_notice_save") completion:completion];
 }
 
 // 群主/管理员自助全员禁言（G1）：until=0 解除 / -1 永久 / 其余到期毫秒时间戳。
@@ -578,7 +579,7 @@ const NSInteger IMFavoritesPageSize = 60;
                         until:(int64_t)until completion:(void (^)(NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@"/mute"]
                                                    method:@"PUT" token:token body:@{ @"until": @(until) }];
-    [self runOKRequest:req fallback:@"设置全员禁言失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"net.fallback.mute_all_failed") completion:completion];
 }
 
 // 我在本群的昵称（G1）：任意成员改自己的，空串=清除回退全局昵称。
@@ -586,7 +587,7 @@ const NSInteger IMFavoritesPageSize = 60;
                            nickname:(NSString *)nickname completion:(void (^)(NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@"/members/me/nickname"]
                                                    method:@"PUT" token:token body:@{ @"nickname": nickname ?: @"" }];
-    [self runOKRequest:req fallback:@"保存群昵称失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"net.fallback.group_nick_save") completion:completion];
 }
 
 // 群治理开关组（G2，群主/管理员整体替换）。
@@ -599,7 +600,7 @@ const NSInteger IMFavoritesPageSize = 60;
         @"join_approval": @(joinApproval), @"perm_invite": @(permInvite),
         @"perm_edit_info": @(permEditInfo), @"perm_pin": @(permPin), @"history_visible": @(historyVisible),
     }];
-    [self runOKRequest:req fallback:@"保存群设置失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"net.fallback.group_settings_save") completion:completion];
 }
 
 // 单独禁言成员（G2）：until=0 解禁 / -1 永久 / 其余到期毫秒。
@@ -608,7 +609,7 @@ const NSInteger IMFavoritesPageSize = 60;
     NSString *suffix = [NSString stringWithFormat:@"/members/%@/mute", [self pathEscape:userID]];
     NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:suffix]
                                                    method:@"PUT" token:token body:@{ @"until": @(until) }];
-    [self runOKRequest:req fallback:@"禁言失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"net.fallback.mute_failed") completion:completion];
 }
 
 // 移出成员带封禁档（G2）：ban=none|cooldown|forever（缺省 cooldown）。
@@ -617,7 +618,7 @@ const NSInteger IMFavoritesPageSize = 60;
     NSString *suffix = [NSString stringWithFormat:@"/members/%@?ban=%@", [self pathEscape:userID], ban ?: @"cooldown"];
     NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:suffix]
                                                    method:@"DELETE" token:token body:nil];
-    [self runOKRequest:req fallback:@"移除失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"net.fallback.remove_failed") completion:completion];
 }
 
 // 群黑名单列表（G2，群主/管理员）→ 回 [{user_id,banned_by,banned_at,expires_at}]。
@@ -625,7 +626,7 @@ const NSInteger IMFavoritesPageSize = 60;
                 completion:(void (^)(NSArray<NSDictionary *> *bans, NSError *error))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@"/bans"]
                                                    method:@"GET" token:token body:nil];
-    [self runDataRequest:req fallback:@"拉取黑名单失败" completion:^(NSDictionary *data, NSError *error) {
+    [self runDataRequest:req fallback:IMLocalized(@"net.fallback.bans_load") completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(nil, error); return; }
         NSArray *bans = [data[@"bans"] isKindOfClass:[NSArray class]] ? data[@"bans"] : @[];
         completion(bans, nil);
@@ -638,7 +639,7 @@ const NSInteger IMFavoritesPageSize = 60;
     NSString *suffix = [NSString stringWithFormat:@"/bans/%@", [self pathEscape:userID]];
     NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:suffix]
                                                    method:@"DELETE" token:token body:nil];
-    [self runOKRequest:req fallback:@"解除失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"net.fallback.unmute_failed") completion:completion];
 }
 
 - (void)inviteToGroupWithToken:(NSString *)token convID:(NSString *)convID
@@ -649,7 +650,7 @@ const NSInteger IMFavoritesPageSize = 60;
                                                      body:@{ @"member_ids": memberIDs ?: @[] }];
     // 用 runDataRequest（保留业务码）而非 runOKRequest：邀请可能返 300207（被邀请者已被移出/冷却期），
     // UI 需按码给"邀请别人"场景的第三人称文案；data 里的 added 是实际加入者（见 .h）。
-    [self runDataRequest:req fallback:@"邀请失败" completion:^(NSDictionary *data, NSError *error) {
+    [self runDataRequest:req fallback:IMLocalized(@"net.fallback.invite_failed") completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(@[], error); return; }
         NSArray *raw = [data[@"added"] isKindOfClass:NSArray.class] ? data[@"added"] : @[];
         NSMutableArray<NSString *> *added = [NSMutableArray arrayWithCapacity:raw.count];
@@ -662,7 +663,7 @@ const NSInteger IMFavoritesPageSize = 60;
                  completion:(void (^)(NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@"/members/me"]
                                                    method:@"DELETE" token:token body:nil];
-    [self runOKRequest:req fallback:@"退群失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"net.fallback.leave_failed") completion:completion];
 }
 
 - (void)removeGroupMemberWithToken:(NSString *)token convID:(NSString *)convID userID:(NSString *)userID
@@ -670,7 +671,7 @@ const NSInteger IMFavoritesPageSize = 60;
     NSString *suffix = [NSString stringWithFormat:@"/members/%@", [self pathEscape:userID]];
     NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:suffix]
                                                    method:@"DELETE" token:token body:nil];
-    [self runOKRequest:req fallback:@"移除失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"net.fallback.remove_failed") completion:completion];
 }
 
 - (void)setGroupRoleWithToken:(NSString *)token convID:(NSString *)convID userID:(NSString *)userID
@@ -678,21 +679,21 @@ const NSInteger IMFavoritesPageSize = 60;
     NSString *suffix = [NSString stringWithFormat:@"/members/%@/role", [self pathEscape:userID]];
     NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:suffix]
                                                    method:@"PUT" token:token body:@{ @"role": role ?: @"" }];
-    [self runOKRequest:req fallback:@"设置角色失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"net.fallback.role_failed") completion:completion];
 }
 
 - (void)transferGroupWithToken:(NSString *)token convID:(NSString *)convID userID:(NSString *)userID
                     completion:(void (^)(NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@"/transfer"]
                                                    method:@"POST" token:token body:@{ @"user_id": userID ?: @"" }];
-    [self runOKRequest:req fallback:@"转让失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"net.fallback.transfer_failed") completion:completion];
 }
 
 - (void)dissolveGroupWithToken:(NSString *)token convID:(NSString *)convID
                     completion:(void (^)(NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@""]
                                                    method:@"DELETE" token:token body:nil];
-    [self runOKRequest:req fallback:@"解散失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"net.fallback.dissolve_failed") completion:completion];
 }
 
 #pragma mark - 会话管理（M4.5）
@@ -701,14 +702,14 @@ const NSInteger IMFavoritesPageSize = 60;
                            completion:(void (^)(NSDictionary *_Nullable, NSError *_Nullable))completion {
     NSString *path = [NSString stringWithFormat:@"/api/v1/conversations/%@/settings", [self pathEscape:convID]];
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
-    [self runDataRequest:req fallback:@"拉取会话设置失败" completion:completion];
+    [self runDataRequest:req fallback:IMLocalized(@"net.fallback.conv_settings_load") completion:completion];
 }
 
 - (void)setFriendRemarkWithToken:(NSString *)token peerID:(NSString *)peerID remark:(NSString *)remark
                       completion:(void (^)(NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/friends/remark" method:@"POST" token:token
         body:@{ @"user_id": peerID ?: @"", @"remark": remark ?: @"" }];
-    [self runOKRequest:req fallback:@"保存备注失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"net.fallback.alias_save") completion:completion];
 }
 
 - (void)setConversationRemarkWithToken:(NSString *)token convID:(NSString *)convID remark:(NSString *)remark
@@ -716,7 +717,7 @@ const NSInteger IMFavoritesPageSize = 60;
     NSString *path = [NSString stringWithFormat:@"/api/v1/conversations/%@/remark", [self pathEscape:convID]];
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"PUT" token:token
         body:@{ @"remark": remark ?: @"" }];
-    [self runOKRequest:req fallback:@"保存备注失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"net.fallback.alias_save") completion:completion];
 }
 
 - (void)updateConversationSettingsWithToken:(NSString *)token convID:(NSString *)convID
@@ -725,14 +726,14 @@ const NSInteger IMFavoritesPageSize = 60;
     NSString *path = [NSString stringWithFormat:@"/api/v1/conversations/%@/settings", [self pathEscape:convID]];
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"PUT" token:token
         body:@{ @"pinned_at": @(pinnedAt), @"muted": @(muted), @"marked_unread": @(markedUnread) }];
-    [self runOKRequest:req fallback:@"设置失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"conv.error.settings_failed") completion:completion];
 }
 
 - (void)deleteConversationWithToken:(NSString *)token convID:(NSString *)convID
                          completion:(void (^)(NSError *))completion {
     NSString *path = [NSString stringWithFormat:@"/api/v1/conversations/%@", [self pathEscape:convID]];
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"DELETE" token:token body:nil];
-    [self runOKRequest:req fallback:@"删除会话失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"net.fallback.conv_delete") completion:completion];
 }
 
 /// 群接口路径：/api/v1/groups/{convID}{suffix}（convID 经 path 转义）。
@@ -749,7 +750,7 @@ const NSInteger IMFavoritesPageSize = 60;
                    fallback:(NSString *)fallback
                  completion:(void (^)(IMGroupInfo *, NSError *))completion {
     if (!req) {
-        [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }];
+        [self callOnMain:^{ completion(nil, [self errorWithMessage:IMLocalized(@"net.error.invalid_server")]); }];
         return;
     }
     [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
@@ -770,7 +771,7 @@ const NSInteger IMFavoritesPageSize = 60;
             fallback:(NSString *)fallback
           completion:(void (^)(NSError *))completion {
     if (!req) {
-        [self callOnMain:^{ completion([self errorWithMessage:@"非法服务器地址"]); }];
+        [self callOnMain:^{ completion([self errorWithMessage:IMLocalized(@"net.error.invalid_server")]); }];
         return;
     }
     [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
@@ -791,7 +792,7 @@ const NSInteger IMFavoritesPageSize = 60;
               fallback:(NSString *)fallback
             completion:(void (^)(NSDictionary *_Nullable data, NSError *_Nullable error))completion {
     if (!req) {
-        [self callOnMain:^{ completion(nil, [self errorWithMessage:@"非法服务器地址"]); }];
+        [self callOnMain:^{ completion(nil, [self errorWithMessage:IMLocalized(@"net.error.invalid_server")]); }];
         return;
     }
     [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
@@ -811,34 +812,34 @@ const NSInteger IMFavoritesPageSize = 60;
 - (void)qrMyCardWithToken:(NSString *)token
                completion:(void (^)(NSDictionary *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/qr/me" method:@"GET" token:token body:nil];
-    [self runDataRequest:req fallback:@"获取名片码失败" completion:completion];
+    [self runDataRequest:req fallback:IMLocalized(@"qr.card.fetch_my_failed") completion:completion];
 }
 
 - (void)qrResetMyCardWithToken:(NSString *)token
                     completion:(void (^)(NSDictionary *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/qr/me/reset" method:@"POST" token:token body:@{}];
-    [self runDataRequest:req fallback:@"重置名片码失败" completion:completion];
+    [self runDataRequest:req fallback:IMLocalized(@"net.fallback.my_card_reset") completion:completion];
 }
 
 - (void)groupQRWithToken:(NSString *)token convID:(NSString *)convID
               completion:(void (^)(NSDictionary *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@"/qr"]
                                                    method:@"GET" token:token body:nil];
-    [self runDataRequest:req fallback:@"获取群二维码失败" completion:completion];
+    [self runDataRequest:req fallback:IMLocalized(@"net.fallback.group_qr_fetch") completion:completion];
 }
 
 - (void)groupQRResetWithToken:(NSString *)token convID:(NSString *)convID
                    completion:(void (^)(NSDictionary *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@"/qr/reset"]
                                                    method:@"POST" token:token body:@{}];
-    [self runDataRequest:req fallback:@"重置群二维码失败" completion:completion];
+    [self runDataRequest:req fallback:IMLocalized(@"net.fallback.group_qr_reset") completion:completion];
 }
 
 - (void)qrResolveWithToken:(NSString *)token raw:(NSString *)raw
                 completion:(void (^)(NSDictionary *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/qr/resolve" method:@"POST" token:token
                                                      body:@{ @"raw": raw ?: @"" }];
-    [self runDataRequest:req fallback:@"识别失败" completion:completion];
+    [self runDataRequest:req fallback:IMLocalized(@"qr.result.recognize_failed") completion:completion];
 }
 
 - (void)joinGroupWithToken:(NSString *)token code:(NSString *)code hello:(NSString *)hello
@@ -846,14 +847,14 @@ const NSInteger IMFavoritesPageSize = 60;
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/groups/join" method:@"POST" token:token
                                                      body:@{ @"token": code ?: @"", @"hello": hello ?: @"" }];
     // runGroupInfoRequest 已保留业务码：300210（需审批已提交）等分支照常按 error.code 走。
-    [self runGroupInfoRequest:req fallback:@"加入群聊失败" completion:completion];
+    [self runGroupInfoRequest:req fallback:IMLocalized(@"net.fallback.group_join") completion:completion];
 }
 
 - (void)joinRequestsWithToken:(NSString *)token convID:(NSString *)convID
                    completion:(void (^)(NSArray<NSDictionary *> *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@"/join-requests?status=pending"]
                                                    method:@"GET" token:token body:nil];
-    [self runDataRequest:req fallback:@"加载入群申请失败" completion:^(NSDictionary *data, NSError *error) {
+    [self runDataRequest:req fallback:IMLocalized(@"net.fallback.join_requests_load") completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(nil, error); return; }
         NSArray *reqs = [data[@"requests"] isKindOfClass:[NSArray class]] ? data[@"requests"] : @[];
         completion(reqs, nil);
@@ -867,7 +868,7 @@ const NSInteger IMFavoritesPageSize = 60;
     NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:suffix]
                                                    method:@"POST" token:token
                                                      body:@{ @"action": accept ? @"approve" : @"reject" }];
-    [self runOKRequest:req fallback:@"审批失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"net.fallback.join_decide") completion:completion];
 }
 
 #pragma mark - 扫码登录（QR P1，手机确认端）
@@ -877,7 +878,7 @@ const NSInteger IMFavoritesPageSize = 60;
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/qr/login/scan" method:@"POST" token:token
                                                      body:@{ @"ticket": ticket ?: @"" }];
     // 保留业务码：码失效回 200110，确认页据此弹"二维码已失效"而非通用错误。
-    [self runDataRequest:req fallback:@"识别登录码失败" completion:completion];
+    [self runDataRequest:req fallback:IMLocalized(@"qr.login_confirm.recognize_failed") completion:completion];
 }
 
 - (void)qrLoginConfirmWithToken:(NSString *)token ticket:(NSString *)ticket
@@ -885,14 +886,14 @@ const NSInteger IMFavoritesPageSize = 60;
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/qr/login/confirm" method:@"POST" token:token
                                                      body:@{ @"ticket": ticket ?: @"" }];
     // 只关心成功/失败；失效码 200110 的友好文案由 messageFrom 统一映射。
-    [self runOKRequest:req fallback:@"确认登录失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"qr.login_confirm.confirm_failed") completion:completion];
 }
 
 - (void)qrLoginRejectWithToken:(NSString *)token ticket:(NSString *)ticket
                     completion:(void (^)(NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/qr/login/reject" method:@"POST" token:token
                                                      body:@{ @"ticket": ticket ?: @"" }];
-    [self runOKRequest:req fallback:@"拒绝登录失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"qr.login_confirm.reject_failed") completion:completion];
 }
 
 #pragma mark - 已登录设备（多设备管理，QR P2）
@@ -900,7 +901,7 @@ const NSInteger IMFavoritesPageSize = 60;
 - (void)devicesWithToken:(NSString *)token
               completion:(void (^)(NSArray<IMDeviceSession *> *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/devices" method:@"GET" token:token body:nil];
-    [self runDataRequest:req fallback:@"获取设备列表失败" completion:^(NSDictionary *data, NSError *error) {
+    [self runDataRequest:req fallback:IMLocalized(@"net.fallback.devices_load") completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(nil, error); return; }
         NSArray *arr = [data[@"devices"] isKindOfClass:NSArray.class] ? data[@"devices"] : @[];
         completion([IMDeviceSession fromArray:arr], nil);
@@ -911,18 +912,18 @@ const NSInteger IMFavoritesPageSize = 60;
                    completion:(void (^)(NSError *))completion {
     NSString *path = [NSString stringWithFormat:@"/api/v1/devices/%@/revoke", [self pathEscape:sessionID]];
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"POST" token:token body:@{}];
-    [self runOKRequest:req fallback:@"退出设备失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"net.fallback.logout_device_failed") completion:completion];
 }
 
 - (void)logoutWithToken:(NSString *)token completion:(void (^)(NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/logout" method:@"POST" token:token body:@{}];
-    [self runOKRequest:req fallback:@"退出登录失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"net.fallback.logout_failed") completion:completion];
 }
 
 - (void)revokeOtherDevicesWithToken:(NSString *)token
                          completion:(void (^)(NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/devices/revoke-others" method:@"POST" token:token body:@{}];
-    [self runOKRequest:req fallback:@"退出其他设备失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"net.fallback.logout_others_failed") completion:completion];
 }
 
 #pragma mark - 我的资料
@@ -940,7 +941,7 @@ const NSInteger IMFavoritesPageSize = 60;
 - (void)myProfileWithToken:(NSString *)token
                 completion:(void (^)(IMUserCard *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/users/me" method:@"GET" token:token body:nil];
-    [self runUserCardRequest:req fallback:@"拉取资料失败" completion:completion];
+    [self runUserCardRequest:req fallback:IMLocalized(@"net.fallback.profile_load") completion:completion];
 }
 
 - (void)userProfileWithToken:(NSString *)token
@@ -950,7 +951,7 @@ const NSInteger IMFavoritesPageSize = 60;
                          NSCharacterSet.URLPathAllowedCharacterSet] ?: @"";
     NSString *path = [NSString stringWithFormat:@"/api/v1/users/%@", encoded];
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
-    [self runUserCardRequest:req fallback:@"拉取资料失败" completion:completion];
+    [self runUserCardRequest:req fallback:IMLocalized(@"net.fallback.profile_load") completion:completion];
 }
 
 - (void)updateProfileWithToken:(NSString *)token
@@ -962,7 +963,7 @@ const NSInteger IMFavoritesPageSize = 60;
     NSDictionary *bodyDict = @{ @"nickname": nickname ?: @"", @"avatar_url": avatarURL ?: @"",
                                 @"phone": phone ?: @"", @"tags": tags ?: @[] };
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/users/me" method:@"PUT" token:token body:bodyDict];
-    [self runUserCardRequest:req fallback:@"保存资料失败" completion:completion];
+    [self runUserCardRequest:req fallback:IMLocalized(@"net.fallback.profile_save") completion:completion];
 }
 
 - (void)changePasswordWithToken:(NSString *)token
@@ -976,7 +977,7 @@ const NSInteger IMFavoritesPageSize = 60;
     // （见后端 handleChangePassword）。必须就地换掉本地那枚：旧的已在服务端作废，
     // 不换的话下次冷启动续期被拒 → 用户刚改完密码就被登出。
     // 用 runDataRequest 而不是 runOKRequest：后者丢掉 data（也保业务码，见 CODING_STYLE §5）。
-    [self runDataRequest:req fallback:@"修改密码失败" completion:^(NSDictionary *data, NSError *error) {
+    [self runDataRequest:req fallback:IMLocalized(@"net.fallback.password_change") completion:^(NSDictionary *data, NSError *error) {
         __strong typeof(weakSelf) self = weakSelf;
         NSString *fresh = [data[@"refresh_token"] isKindOfClass:NSString.class] ? data[@"refresh_token"] : nil;
         if (self && !error && fresh.length > 0) {
@@ -997,13 +998,13 @@ const NSInteger IMFavoritesPageSize = 60;
     }
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
     if (!req) {
-        [self callOnMain:^{ completion(nil, nil, NO, [self errorWithMessage:@"非法服务器地址"]); }];
+        [self callOnMain:^{ completion(nil, nil, NO, [self errorWithMessage:IMLocalized(@"net.error.invalid_server")]); }];
         return;
     }
     [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
         if (error) { completion(nil, nil, NO, error); return; }
         if ([body[@"code"] integerValue] != 0) {
-            completion(nil, nil, NO, [self errorWithMessage:[self messageFrom:body fallback:@"拉取文件失败"]]);
+            completion(nil, nil, NO, [self errorWithMessage:[self messageFrom:body fallback:IMLocalized(@"net.fallback.file_load")]]);
             return;
         }
         NSDictionary *data = [body[@"data"] isKindOfClass:NSDictionary.class] ? body[@"data"] : @{};
@@ -1019,7 +1020,7 @@ const NSInteger IMFavoritesPageSize = 60;
                   completion:(void (^)(NSError *))completion {
     NSDictionary *bodyDict = @{ @"conv_id": convID ?: @"", @"conv_seq": @(convSeq) };
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/messages/hide" method:@"POST" token:token body:bodyDict];
-    [self runOKRequest:req fallback:@"删除失败" completion:completion];
+    [self runOKRequest:req fallback:IMLocalized(@"net.fallback.delete_failed") completion:completion];
 }
 
 - (void)transcribeVoiceWithToken:(NSString *)token
@@ -1030,7 +1031,7 @@ const NSInteger IMFavoritesPageSize = 60;
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/voice/transcripts" method:@"POST" token:token body:bodyDict];
     // 走 runDataRequest 而非 runOKRequest：需要按业务码分支（未启用/队列满/限流文案各不同），
     // runOKRequest 会把 code 丢掉只留文案。
-    [self runDataRequest:req fallback:@"转文字失败" completion:^(NSDictionary *data, NSError *error) {
+    [self runDataRequest:req fallback:IMLocalized(@"net.fallback.transcribe_failed") completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(nil, nil, error); return; }
         NSString *status = [data[@"status"] isKindOfClass:NSString.class] ? data[@"status"] : @"";
         NSString *text = [data[@"text"] isKindOfClass:NSString.class] ? data[@"text"] : nil;
@@ -1041,7 +1042,7 @@ const NSInteger IMFavoritesPageSize = 60;
 - (void)fetchHiddenWithToken:(NSString *)token
                   completion:(void (^)(NSArray<NSDictionary *> *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/messages/hidden" method:@"GET" token:token body:nil];
-    [self runDataRequest:req fallback:@"拉取隐藏列表失败" completion:^(NSDictionary *data, NSError *error) {
+    [self runDataRequest:req fallback:IMLocalized(@"net.fallback.hidden_load") completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(nil, error); return; }
         NSArray *items = [data[@"items"] isKindOfClass:NSArray.class] ? data[@"items"] : @[];
         completion(items, nil);
@@ -1106,11 +1107,11 @@ const NSInteger IMFavoritesPageSize = 60;
           progress:(void (^)(double))progress
         completion:(void (^)(NSString *, NSString *, NSError *))completion {
     NSURL *url = [self urlForPath:path];
-    if (!url || data.length == 0) { [self callOnMain:^{ completion(nil, nil, [self errorWithMessage:@"无效的上传"]); }]; return; }
+    if (!url || data.length == 0) { [self callOnMain:^{ completion(nil, nil, [self errorWithMessage:IMLocalized(@"net.error.upload_invalid")]); }]; return; }
     // multipart 信封落磁盘再流式上传：原先把 74MB 视频再拷进 NSMutableData，峰值内存翻倍且拼装本身就慢。
     NSString *boundary = [@"----IMBoundary" stringByAppendingString:NSUUID.UUID.UUIDString];
     NSURL *bodyFile = [self writeMultipartBodyToTempFileWithData:data fileName:fileName mimeType:mimeType boundary:boundary];
-    if (!bodyFile) { [self callOnMain:^{ completion(nil, nil, [self errorWithMessage:@"上传准备失败（磁盘空间不足？）"]); }]; return; }
+    if (!bodyFile) { [self callOnMain:^{ completion(nil, nil, [self errorWithMessage:IMLocalized(@"net.error.upload_prepare")]); }]; return; }
 
     NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
     req.HTTPMethod = @"POST";
@@ -1125,11 +1126,11 @@ const NSInteger IMFavoritesPageSize = 60;
         cleanup();
         if (!self) { return; }
         if (error) { completion(nil, nil, error); return; }
-        if ([resp[@"code"] integerValue] != 0) { completion(nil, nil, [self errorWithMessage:[self messageFrom:resp fallback:@"上传失败"]]); return; }
+        if ([resp[@"code"] integerValue] != 0) { completion(nil, nil, [self errorWithMessage:[self messageFrom:resp fallback:IMLocalized(@"net.error.upload_failed")]]); return; }
         NSDictionary *d = [resp[@"data"] isKindOfClass:[NSDictionary class]] ? resp[@"data"] : @{};
         NSString *u = [d[@"url"] isKindOfClass:[NSString class]] ? d[@"url"] : nil;
         NSString *ct = [d[@"content_type"] isKindOfClass:[NSString class]] ? d[@"content_type"] : @"image";
-        completion(u, ct, u ? nil : [self errorWithMessage:@"上传响应异常"]);
+        completion(u, ct, u ? nil : [self errorWithMessage:IMLocalized(@"net.error.upload_bad_response")]);
     }];
 }
 
@@ -1137,10 +1138,10 @@ const NSInteger IMFavoritesPageSize = 60;
                    token:(NSString *)token
               completion:(void (^)(NSString *, NSError *))completion {
     NSURL *url = [self urlForPath:@"/api/v1/avatar"];
-    if (!url || data.length == 0) { [self callOnMain:^{ completion(nil, [self errorWithMessage:@"无效的上传"]); }]; return; }
+    if (!url || data.length == 0) { [self callOnMain:^{ completion(nil, [self errorWithMessage:IMLocalized(@"net.error.upload_invalid")]); }]; return; }
     NSString *boundary = [@"----IMBoundary" stringByAppendingString:NSUUID.UUID.UUIDString];
     NSURL *bodyFile = [self writeMultipartBodyToTempFileWithData:data fileName:@"avatar.jpg" mimeType:@"image/jpeg" boundary:boundary];
-    if (!bodyFile) { [self callOnMain:^{ completion(nil, [self errorWithMessage:@"上传准备失败（磁盘空间不足？）"]); }]; return; }
+    if (!bodyFile) { [self callOnMain:^{ completion(nil, [self errorWithMessage:IMLocalized(@"net.error.upload_prepare")]); }]; return; }
 
     NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
     req.HTTPMethod = @"POST";
@@ -1155,10 +1156,10 @@ const NSInteger IMFavoritesPageSize = 60;
         cleanup();
         if (!self) { return; }
         if (error) { completion(nil, error); return; }
-        if ([resp[@"code"] integerValue] != 0) { completion(nil, [self errorWithMessage:[self messageFrom:resp fallback:@"上传失败"]]); return; }
+        if ([resp[@"code"] integerValue] != 0) { completion(nil, [self errorWithMessage:[self messageFrom:resp fallback:IMLocalized(@"net.error.upload_failed")]]); return; }
         NSDictionary *d = [resp[@"data"] isKindOfClass:[NSDictionary class]] ? resp[@"data"] : @{};
         NSString *u = [d[@"url"] isKindOfClass:[NSString class]] ? d[@"url"] : nil;
-        completion(u, u ? nil : [self errorWithMessage:@"上传响应异常"]);
+        completion(u, u ? nil : [self errorWithMessage:IMLocalized(@"net.error.upload_bad_response")]);
     }];
 }
 
@@ -1168,7 +1169,7 @@ const NSInteger IMFavoritesPageSize = 60;
                                  token:(NSString *)token
                             completion:(void (^)(NSDictionary *_Nullable, NSError *_Nullable))completion {
     NSURL *url = [self urlForPath:path];
-    if (!url) { completion(nil, [self errorWithMessage:@"非法服务器地址"]); return nil; }
+    if (!url) { completion(nil, [self errorWithMessage:IMLocalized(@"net.error.invalid_server")]); return nil; }
     NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
     req.HTTPMethod = method ?: @"POST";
     req.timeoutInterval = 60;
@@ -1189,7 +1190,7 @@ const NSInteger IMFavoritesPageSize = 60;
             // 与「网络失败」（code=-1 → 保留 offset 稍后重试）。
             NSInteger code = [resp[@"code"] integerValue];
             completion(nil, [self errorWithCode:(code != 0 ? code : -1)
-                                        message:[self messageFrom:resp fallback:@"上传失败"]]);
+                                        message:[self messageFrom:resp fallback:IMLocalized(@"net.error.upload_failed")]]);
             return;
         }
         NSDictionary *d = [resp[@"data"] isKindOfClass:NSDictionary.class] ? resp[@"data"] : @{};
@@ -1363,8 +1364,8 @@ const NSInteger IMFavoritesPageSize = 60;
         NSDictionary *body = [obj isKindOfClass:[NSDictionary class]] ? obj : nil;
         if (!body) {
             // 非 JSON / 空响应（后端没起或打到错地址）：友好提示 + 附 HTTP 码便于排查。
-            NSString *msg = status == 0 ? @"服务器无响应，请确认后端已启动"
-                : [NSString stringWithFormat:@"服务器响应异常 (HTTP %ld)", (long)status];
+            NSString *msg = status == 0 ? IMLocalized(@"net.error.no_response")
+                : IMLocalizedFormat(@"net.error.bad_response", [NSString stringWithFormat:@"%ld", (long)status]);
             [self callOnMain:^{ completion(nil, [self errorWithMessage:msg]); }];
             return;
         }

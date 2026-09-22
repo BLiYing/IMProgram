@@ -13,6 +13,7 @@
 #import "IMGroupTextViewController.h"
 #import "IMTimeUtil.h"                    // IMNowMillis
 #import "IMAccountIdentity.h"
+#import "IMLocalization.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -103,7 +104,7 @@ BOOL IMPinnedTargetRecalled(NSArray<IMMessageModel *> *messages, int64_t convSeq
         probe = row ? @[row] : @[];
     }
     if (IMPinnedTargetRecalled(probe, convSeq)) {
-        [self im_showToast:@"原消息已被撤回"];
+        [self im_showToast:IMLocalized(@"conv.error.original_recalled")];
         [self reloadPinnedBanner];
         return;
     }
@@ -136,7 +137,7 @@ BOOL IMPinnedTargetRecalled(NSArray<IMMessageModel *> *messages, int64_t convSeq
     // 与 Web 拉齐（App.tsx 同 announcement_by === uid 守卫）。
     if (self.groupInfo.announcementBy.length > 0 && [self.groupInfo.announcementBy isEqualToString:self.userID]) { return; }
     NSString *sub = [IMGroupTextViewController announceSubtitleForMillis:at];
-    [IMGroupTextViewController presentFrom:self title:@"群公告" subtitle:sub body:text];
+    [IMGroupTextViewController presentFrom:self title:IMLocalized(@"group.text.announcement") subtitle:sub body:text];
 }
 
 /// 点公告横幅：**直接开公告全文视图**（决策 16，不再跳群资料页——旧实现跳过去详情页却没公告卡，等于点了看不到）。
@@ -144,7 +145,7 @@ BOOL IMPinnedTargetRecalled(NSArray<IMMessageModel *> *messages, int64_t convSeq
     NSString *text = stack.announcementText;
     if (text.length == 0) { return; }
     NSString *sub = [IMGroupTextViewController announceSubtitleForMillis:self.groupInfo.announcementAt];
-    [IMGroupTextViewController presentFrom:self title:@"群公告" subtitle:sub body:text];
+    [IMGroupTextViewController presentFrom:self title:IMLocalized(@"group.text.announcement") subtitle:sub body:text];
 }
 
 /// G2 输入栏禁言锁：成员级禁言(myMuteUntil)或全员禁言(且我是普通成员)时禁用输入并改占位文案。
@@ -153,7 +154,7 @@ BOOL IMPinnedTargetRecalled(NSArray<IMMessageModel *> *messages, int64_t convSeq
 /// 见 docs/design/SYSTEM_NOTICE_SESSION_DESIGN.md §5.2；服务端也会拒收（护栏 §2.2）。
 - (void)refreshComposerMuteState {
     if (!self.isGroupChat && IMIsSystemUserID(self.peerID)) {
-        [self setComposerLocked:YES reason:@"此会话不支持回复"];
+        [self setComposerLocked:YES reason:IMLocalized(@"chat.input.disabled_system")];
         return;
     }
     if (!self.isGroupChat || !self.groupInfo) {
@@ -163,14 +164,14 @@ BOOL IMPinnedTargetRecalled(NSArray<IMMessageModel *> *messages, int64_t convSeq
     int64_t now = IMNowMillis();
     BOOL memberMuted = self.groupInfo.myMuteUntil > now;
     BOOL allMuted = self.groupInfo.muteUntil > now && self.groupInfo.myRole == IMGroupRoleMember;
-    NSString *reason = memberMuted ? @"你已被管理员禁言" : (allMuted ? @"本群已开启全员禁言" : nil);
+    NSString *reason = memberMuted ? IMLocalized(@"chat.input.disabled_muted") : (allMuted ? IMLocalized(@"chat.input.disabled_mute_all") : nil);
     [self setComposerLocked:(reason != nil) reason:reason];
 }
 
 - (void)setComposerLocked:(BOOL)locked reason:(nullable NSString *)reason {
     self.composerMuteLocked = locked;
     self.inputField.enabled = !locked;
-    self.inputField.placeholder = locked ? reason : @"输入消息…";
+    self.inputField.placeholder = locked ? reason : IMLocalized(@"chat.input.placeholder");
     // 2026-08-25：附件面板入口也一起锁——否则被禁言时输入栏禁了但 + 键仍能点开
     // 相册/相机/文件，一路走到 upload 才被 300208 拒，且此时 iOS 不会像文本一样给可读回执。
     // 表情键不锁（发不出去，占屏而已，但保留浏览表情的能力）。若面板开着，直接收起（键盘也收）。
@@ -189,7 +190,7 @@ BOOL IMPinnedTargetRecalled(NSArray<IMMessageModel *> *messages, int64_t convSeq
 - (void)bannerStackDidTapPinnedList:(IMChatBannerStack *)stack {
     NSArray<IMPinnedMessage *> *items = stack.pinnedItems;
     if (items.count == 0) { return; }
-    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"置顶消息"
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:IMLocalized(@"chat.banner.pinned")
                                                                   message:nil
                                                            preferredStyle:UIAlertControllerStyleActionSheet];
     __weak typeof(self) ws = self;
@@ -206,13 +207,13 @@ BOOL IMPinnedTargetRecalled(NSArray<IMMessageModel *> *messages, int64_t convSeq
     }
     IMPinnedMessage *shown = stack.currentPinnedItem;
     if (canPin && shown) {
-        [sheet addAction:[UIAlertAction actionWithTitle:@"取消置顶当前这条" style:UIAlertActionStyleDestructive
+        [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"chat.banner.unpin_current") style:UIAlertActionStyleDestructive
                                                handler:^(UIAlertAction *action) {
             [IMSocketManager.sharedManager pinMessageInConv:(ws.convID ?: @"")
                                               targetConvSeq:shown.convSeq pinned:NO];
         }]];
     }
-    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
     sheet.popoverPresentationController.sourceView = stack.pinnedBannerView;
     sheet.popoverPresentationController.sourceRect = stack.pinnedBannerView.bounds;
     [self presentViewController:sheet animated:YES completion:nil];

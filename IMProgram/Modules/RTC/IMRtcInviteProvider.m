@@ -1,4 +1,5 @@
 #import "IMRtcInviteProvider.h"
+#import "IMLocalization.h"
 #import "IMGroupInfo.h"
 #import "IMHTTPService.h"
 #import "IMLog.h"
@@ -40,7 +41,7 @@ static const NSInteger kPageSize = 50;
             NSString *full = m.avatarURL.length ? IMMediaFullURL(m.avatarURL, host) : nil;
             BOOL busy = [inCall containsObject:m.userID];
             [out addObject:[[IMInviteCandidate alloc] initWithUid:m.userID name:name ?: @"" avatarURL:full.length ? [NSURL URLWithString:full] : nil
-                                                         subtitle:nil selectable:!busy unselectableReason:busy ? @"已在通话中" : nil]];
+                                                         subtitle:nil selectable:!busy unselectableReason:busy ? IMLocalized(@"rtc.invite.in_call") : nil]];
         }
         IMLogWithTag(IMLogTagRTC, @"rtc_invite_candidates group=%@ q=%@ got=%lu shown=%lu more=%d", groupID, q.length ? q : @"-",
                      (unsigned long)members.count, (unsigned long)out.count, hasMore);

@@ -1,6 +1,7 @@
 //  IMDownloadProgress.m
 
 #import "IMDownloadProgress.h"
+#import "IMLocalization.h"
 #import "IMMediaFormat.h" // IMFormatUploadProgress（已下/总，与上传同格式）
 #import "IMMediaUtil.h"   // IMFormatFileSize（纯尺寸）
 
@@ -66,7 +67,7 @@
         case IMDownloadPhaseNotStarted: return self.totalBytes > 0 ? IMFormatFileSize(self.totalBytes) : @"";
         case IMDownloadPhaseDownloading:
         case IMDownloadPhasePaused:     return IMFormatUploadProgress(self.fraction, self.totalBytes);
-        case IMDownloadPhaseFailed:     return self.expired ? @"文件已失效" : @"下载失败";
+        case IMDownloadPhaseFailed:     return self.expired ? IMLocalized(@"fav.file.expired") : IMLocalized(@"media.download.failed");
         case IMDownloadPhaseDone:       return @"";
     }
 }
@@ -74,22 +75,22 @@
 - (NSString *)accessibilityText {
     switch (self.phase) {
         case IMDownloadPhaseNotStarted:
-            return self.totalBytes > 0 ? [NSString stringWithFormat:@"下载，%@", IMFormatFileSize(self.totalBytes)] : @"下载";
+            return self.totalBytes > 0 ? IMLocalizedFormat(@"media.download.a11y_start_size", IMFormatFileSize(self.totalBytes)) : IMLocalized(@"media.download.a11y_start");
         case IMDownloadPhaseDownloading:
-            return [NSString stringWithFormat:@"下载中 %d%%", (int)round(self.fraction * 100)];
-        case IMDownloadPhasePaused:  return @"已暂停，点按继续";
-        case IMDownloadPhaseFailed:  return self.expired ? @"文件已失效" : @"下载失败，点按重试";
-        case IMDownloadPhaseDone:    return @"已下载";
+            return IMLocalizedFormat(@"media.download.a11y_progress", (long)round(self.fraction * 100));
+        case IMDownloadPhasePaused:  return IMLocalized(@"media.download.a11y_paused");
+        case IMDownloadPhaseFailed:  return self.expired ? IMLocalized(@"fav.file.expired") : IMLocalized(@"media.download.a11y_failed");
+        case IMDownloadPhaseDone:    return IMLocalized(@"media.download.a11y_done");
     }
 }
 
 - (NSString *)fileLineText {
     switch (self.phase) {
-        case IMDownloadPhaseNotStarted: return @"点击下载";
+        case IMDownloadPhaseNotStarted: return IMLocalized(@"media.download.tap_to_download");
         case IMDownloadPhaseDownloading:
         case IMDownloadPhasePaused:     return IMFormatUploadProgress(self.fraction, self.totalBytes);
-        case IMDownloadPhaseFailed:     return self.expired ? @"文件已失效" : @"下载失败，点击重试";
-        case IMDownloadPhaseDone:       return @"点击打开";
+        case IMDownloadPhaseFailed:     return self.expired ? IMLocalized(@"fav.file.expired") : IMLocalized(@"media.download.failed_tap_retry");
+        case IMDownloadPhaseDone:       return IMLocalized(@"media.download.tap_to_open");
     }
 }
 

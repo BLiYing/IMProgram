@@ -3,6 +3,7 @@
 #import "UIViewController+IMToast.h"
 #import "IMAnimator.h"
 #import "IMTheme.h"
+#import "IMLocalization.h"
 
 @implementation UIViewController (IMToast)
 
@@ -52,7 +53,7 @@
 }
 
 - (void)im_showComingSoon:(NSString *)title {
-    [self im_showToast:[NSString stringWithFormat:@"%@（开发中）", title ?: @""]];
+    [self im_showToast:IMLocalizedFormat(@"common.coming_soon", title ?: @"")];
 }
 
 + (void)im_showGlobalToast:(NSString *)text {

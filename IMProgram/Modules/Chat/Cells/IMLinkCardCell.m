@@ -5,6 +5,7 @@
 #import "IMMediaUtil.h"
 #import "UILabel+IMAvatar.h"
 #import "IMTheme.h"
+#import "IMLocalization.h"
 
 /// 文件名/纯 URL 判定统一走 IMMediaUtil（聊天/收藏/记录共用），此处保留短别名以少改调用点。
 @implementation IMLinkCardCell {
@@ -189,7 +190,7 @@
     [self applyFailBadgeForMessage:message mine:mine]; // 失败红❗（显隐+可否点重发，判据在基类）
     // 引用行（共性 #1）：URL 消息带引用时也要显示引用条 + OG 卡片。
     if (message.replyToConvSeq > 0) {
-        NSString *snap = IMLocalizeReplySnippet(message.replySnapshot.length > 0 ? message.replySnapshot : @"原消息");
+        NSString *snap = IMLocalizeReplySnippet(message.replySnapshot.length > 0 ? message.replySnapshot : IMLocalized(@"chat.quote.original_fallback"));
         _quote.text = [NSString stringWithFormat:@"▏%@", snap];
         _quote.hidden = NO;
     } else {

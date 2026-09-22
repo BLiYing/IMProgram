@@ -4,6 +4,7 @@
 #import "IMContactCard.h"
 #import "UILabel+IMAvatar.h"
 #import "IMTheme.h"
+#import "IMLocalization.h"
 
 const CGFloat IMContactCardViewWidth = 240;
 
@@ -59,7 +60,7 @@ const CGFloat IMContactCardViewWidth = 240;
         _footText.translatesAutoresizingMaskIntoConstraints = NO;
         _footText.font = [UIFont systemFontOfSize:11];
         _footText.textColor = IMTheme.textSecondary;
-        _footText.text = @"个人名片";
+        _footText.text = IMLocalized(@"contact.card.footer");
         [self addSubview:_footText];
 
         _meta = [UILabel new];   // 时间 + 勾（气泡右下角），确认 sheet 里为空

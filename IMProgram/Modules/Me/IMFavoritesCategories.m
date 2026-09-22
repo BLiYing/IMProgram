@@ -3,6 +3,7 @@
 #import "IMFavoritesCategories.h"
 #import "IMMediaUtil.h" // IMMediaLooksLikeURL / IMFirstURLInText（与详情页/聊天页同一 URL 口径）
 #import "IMContactCard.h"
+#import "IMLocalization.h"
 
 @implementation IMFavoriteCategoryTab
 @end
@@ -22,14 +23,14 @@ static NSString *favContent(NSDictionary *f) {
 
 + (NSString *)titleForCategory:(IMFavoriteCategory)kind {
     switch (kind) {
-        case IMFavoriteCategoryAll:   return @"全部";
-        case IMFavoriteCategoryMedia: return @"媒体";
-        case IMFavoriteCategoryFiles: return @"文件";
-        case IMFavoriteCategoryLinks: return @"链接";
-        case IMFavoriteCategoryVoice: return @"语音";
-        case IMFavoriteCategoryText:  return @"文本";
-        case IMFavoriteCategoryRecord: return @"聊天记录";
-        case IMFavoriteCategoryContact: return @"名片";
+        case IMFavoriteCategoryAll:   return IMLocalized(@"favorites.category.all");
+        case IMFavoriteCategoryMedia: return IMLocalized(@"favorites.category.media");
+        case IMFavoriteCategoryFiles: return IMLocalized(@"common.file");
+        case IMFavoriteCategoryLinks: return IMLocalized(@"favorites.category.links");
+        case IMFavoriteCategoryVoice: return IMLocalized(@"favorites.category.voice");
+        case IMFavoriteCategoryText:  return IMLocalized(@"favorites.category.text");
+        case IMFavoriteCategoryRecord: return IMLocalized(@"record.chat_history");
+        case IMFavoriteCategoryContact: return IMLocalized(@"favorites.category.contact");
     }
     return @"";
 }

@@ -28,6 +28,8 @@
 #import "IMDropletHeaderMorph.h"
 #import "IMProgram-Swift.h"
 #import "IMAccountIdentity.h"
+#import "IMLocalization.h"
+#import "IMLanguageViewController.h"
 
 #pragma mark - 行模型（数据驱动单一来源）
 
@@ -265,9 +267,9 @@
     self.navigationItem.leftBarButtonItem =
         [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"qrcode"]
                                          style:UIBarButtonItemStylePlain target:self action:@selector(showQRCode)];
-    self.navigationItem.leftBarButtonItem.accessibilityLabel = @"我的二维码";
+    self.navigationItem.leftBarButtonItem.accessibilityLabel = IMLocalized(@"settings.info.my_qr");
     self.navigationItem.rightBarButtonItem =
-        [[UIBarButtonItem alloc] initWithTitle:@"编辑" style:UIBarButtonItemStylePlain
+        [[UIBarButtonItem alloc] initWithTitle:IMLocalized(@"common.edit") style:UIBarButtonItemStylePlain
                                         target:self action:@selector(openProfile)];
 
     self.profileOverlay = [[UIView alloc] initWithFrame:self.view.bounds];
@@ -327,7 +329,7 @@
     NSString *metaText = self.profileMeta.text ?: @"";
     self.liquidNavigationBar = [[IMLiquidNavigationBar alloc] initWithTitle:nameText
                                                                      subtitle:metaText
-                                                                  actionTitle:@"编辑"];
+                                                                  actionTitle:IMLocalized(@"common.edit")];
     // 自持 bar：本页自绘沉浸式标题栏（导航容器不为 ownsBar 页注入栏），左（二维码）右（编辑）按钮由本 VC 直接配置并响应。
     self.liquidNavigationBar.delegate = self;
     self.liquidNavigationBar.leftImage = [UIImage systemImageNamed:@"qrcode"];
@@ -366,7 +368,7 @@
 
 - (void)refreshProfileHeader {
     // 回退链止于昵称：userID 是 10 位内部数字 ID，露出来对用户毫无意义（见 ACCOUNT_IDENTITY_REDESIGN.md §5.2）。
-    NSString *display = self.myNickname.length ? self.myNickname : (self.myUsername.length ? self.myUsername : @"未命名用户");
+    NSString *display = self.myNickname.length ? self.myNickname : (self.myUsername.length ? self.myUsername : IMLocalized(@"common.unnamed_user"));
     self.profileName.text = display;
     // 副标题只放公开句柄；手机号有才补在前面。
     // 旧实现是 "<phone ?: userID> · @<userID>"，绝大多数账号没填手机号，于是渲染成 "1001 · @1001" 的重复，
@@ -497,48 +499,48 @@
 
     // 组1（对齐 Telegram「我」页第一组）：收藏消息 / 最近通话 / 已登录设备 / 聊天文件夹。
     NSArray<IMSettingsRow *> *groupA = @[
-        [IMSettingsRow rowWithId:@"saved" title:@"收藏消息" image:@"bookmark.fill"
+        [IMSettingsRow rowWithId:@"saved" title:IMLocalized(@"common.saved_messages") image:@"bookmark.fill"
                           iconBg:UIColor.systemBlueColor right:nil destructive:NO
                          handler:^{ [ws openFavorites]; }],
-        [IMSettingsRow rowWithId:@"recentCalls" title:@"最近通话" image:@"phone.fill"
+        [IMSettingsRow rowWithId:@"recentCalls" title:IMLocalized(@"ios.settings.row.recent_calls") image:@"phone.fill"
                           iconBg:UIColor.systemGreenColor right:nil destructive:NO
-                         handler:^{ [ws comingSoon:@"最近通话"]; }],
-        [IMSettingsRow rowWithId:@"devices" title:@"已登录设备" image:@"laptopcomputer"
+                         handler:^{ [ws comingSoon:IMLocalized(@"ios.settings.row.recent_calls")]; }],
+        [IMSettingsRow rowWithId:@"devices" title:IMLocalized(@"settings.row.devices") image:@"laptopcomputer"
                           iconBg:UIColor.systemOrangeColor right:nil destructive:NO
                          handler:^{ [ws openDevices]; }],
-        [IMSettingsRow rowWithId:@"folders" title:@"聊天文件夹" image:@"folder.fill"
+        [IMSettingsRow rowWithId:@"folders" title:IMLocalized(@"settings.row.folders") image:@"folder.fill"
                           iconBg:UIColor.systemBlueColor right:nil destructive:NO
-                         handler:^{ [ws comingSoon:@"聊天文件夹"]; }],
+                         handler:^{ [ws comingSoon:IMLocalized(@"settings.row.folders")]; }],
         // 入口 ③「分享我的名片」（CONTACT_CARD_DESIGN §4.4）：与左上角的「我的二维码」并列——
         // 二维码给**面对面**，名片消息给**线上**。
-        [IMSettingsRow rowWithId:@"shareMyCard" title:@"分享我的名片" image:@"person.crop.square"
+        [IMSettingsRow rowWithId:@"shareMyCard" title:IMLocalized(@"settings.info.share_card") image:@"person.crop.square"
                           iconBg:UIColor.systemTealColor right:nil destructive:NO
                          handler:^{ [ws shareMyContactCard]; }],
     ];
 
     NSArray<IMSettingsRow *> *groupB = @[
-        [IMSettingsRow rowWithId:@"notifications" title:@"通知与提示音" image:@"bell.badge.fill"
+        [IMSettingsRow rowWithId:@"notifications" title:IMLocalized(@"ios.settings.row.notifications") image:@"bell.badge.fill"
                           iconBg:UIColor.systemRedColor right:nil destructive:NO
-                         handler:^{ [ws comingSoon:@"通知与提示音"]; }],
-        [IMSettingsRow rowWithId:@"privacy" title:@"隐私与安全" image:@"lock.fill"
+                         handler:^{ [ws comingSoon:IMLocalized(@"ios.settings.row.notifications")]; }],
+        [IMSettingsRow rowWithId:@"privacy" title:IMLocalized(@"settings.row.privacy") image:@"lock.fill"
                           iconBg:UIColor.systemGrayColor right:nil destructive:NO
                          handler:^{ [ws openBlocked]; }],
-        [IMSettingsRow rowWithId:@"storage" title:@"数据和存储" image:@"externaldrive.fill"
+        [IMSettingsRow rowWithId:@"storage" title:IMLocalized(@"ios.settings.row.data_storage") image:@"externaldrive.fill"
                           iconBg:UIColor.systemGreenColor right:nil destructive:NO
                          handler:^{ [ws.navigationController pushViewController:[IMDataStorageViewController new] animated:YES]; }],
-        [IMSettingsRow rowWithId:@"appearance" title:@"外观" image:@"circle.lefthalf.filled"
+        [IMSettingsRow rowWithId:@"appearance" title:IMLocalized(@"ios.settings.row.appearance") image:@"circle.lefthalf.filled"
                           iconBg:UIColor.systemBlueColor right:nil destructive:NO
                          handler:^{ [ws.navigationController pushViewController:[IMAppearanceViewController new] animated:YES]; }],
-        [IMSettingsRow rowWithId:@"powerSaving" title:@"省电模式" image:@"bolt.fill"
-                          iconBg:UIColor.systemYellowColor right:@"关闭" destructive:NO
-                         handler:^{ [ws comingSoon:@"省电模式"]; }],
-        [IMSettingsRow rowWithId:@"language" title:@"语言" image:@"globe"
-                          iconBg:UIColor.systemPurpleColor right:@"简体中文" destructive:NO
-                         handler:^{ [ws comingSoon:@"语言"]; }],
+        [IMSettingsRow rowWithId:@"powerSaving" title:IMLocalized(@"ios.settings.row.power_saving") image:@"bolt.fill"
+                          iconBg:UIColor.systemYellowColor right:IMLocalized(@"common.off") destructive:NO
+                         handler:^{ [ws comingSoon:IMLocalized(@"ios.settings.row.power_saving")]; }],
+        [IMSettingsRow rowWithId:@"language" title:IMLocalized(@"settings.language.title") image:@"globe"
+                          iconBg:UIColor.systemPurpleColor right:IMLocalization.shared.currentPreferenceLabel destructive:NO
+                         handler:^{ [ws.navigationController pushViewController:[IMLanguageViewController new] animated:YES]; }],
     ];
 
     NSArray<IMSettingsRow *> *groupC = @[
-        [IMSettingsRow rowWithId:@"logout" title:@"退出登录" image:nil
+        [IMSettingsRow rowWithId:@"logout" title:IMLocalized(@"settings.logout") image:nil
                           iconBg:nil right:nil destructive:YES
                          handler:^{ [ws logout]; }],
     ];

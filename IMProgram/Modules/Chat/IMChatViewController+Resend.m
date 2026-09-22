@@ -20,6 +20,7 @@
 #import "IMDatabase.h"
 #import "IMSocketManager.h"
 #import "UIViewController+IMToast.h"
+#import "IMLocalization.h"
 
 @implementation IMChatViewController (Resend)
 
@@ -62,7 +63,7 @@
         // 与首发同一个收口：状态/conv_seq/被拒文案/落库/贴底全在里面，别在这里再写一份。
         [ws handleSendResult:success convSeq:convSeq error:error forClientMsgID:clientMsgID];
     }];
-    if (!queued) { [self im_showToast:@"这条消息内容已丢失，无法重发"]; return; }
+    if (!queued) { [self im_showToast:IMLocalized(@"chat.resend.content_lost")]; return; }
 
     // 入队成功才转「发送中…」：红❗随之消失，给出点击反馈（不然 5s ack 超时窗内像点了没反应）。
     // completion 不可能在此之前跑完（socket 内部 dispatch_async 到自己的串行队列、再回主线程），故顺序安全。

@@ -52,6 +52,7 @@
 #import "UIViewController+IMToast.h"
 #import <SafariServices/SafariServices.h>
 #import "IMFilePreviewPresenter.h"
+#import "IMLocalization.h"
 
 static NSString *const kIMFavoritesViewModeKey = @"im.favorites.viewMode"; // 0=消息模式 1=聊天模式
 static NSString *const kIMFavoritesMeBucket = @"__im_fav_me__";            // 聊天模式「我的」分组键
@@ -151,7 +152,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
 - (instancetype)init {
     self = [super init];
     if (self) {
-        self.title = @"收藏消息";
+        self.title = IMLocalized(@"common.saved_messages");
         _mode = (IMFavoritesViewMode)[NSUserDefaults.standardUserDefaults integerForKey:kIMFavoritesViewModeKey];
         if (_mode != IMFavoritesViewModeChats) { _mode = IMFavoritesViewModeMessages; }
     }
@@ -166,7 +167,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
         _sourceFilterKey = [key copy];
         _sourceFilterName = [name copy];
         _allItems = items ?: @[];
-        self.title = [NSString stringWithFormat:@"来自 %@", name ?: @""];
+        self.title = IMLocalizedFormat(@"favorites.source.title", name ?: @"");
     }
     return self;
 }
@@ -180,14 +181,14 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
         _onPickDone = [onDone copy];
         _pickedFavIds = [NSMutableSet new];
         _mode = IMFavoritesViewModeMessages; // pick 模式恒消息模式（聊天模式的分组下钻在 pick 场景无意义）
-        self.title = @"从收藏发送";
+        self.title = IMLocalized(@"favorites.pick.title");
     }
     return self;
 }
 
 - (NSString *)im_navigationSubtitle {
-    if (_sourceFilterKey) { return [NSString stringWithFormat:@"%lu 条收藏", (unsigned long)_scoped.count]; }
-    return _mode == IMFavoritesViewModeChats ? @"以聊天模式查看" : @"以消息模式查看";
+    if (_sourceFilterKey) { return IMLocalizedFormat(@"favorites.source.count", (long)_scoped.count); }
+    return _mode == IMFavoritesViewModeChats ? IMLocalized(@"favorites.mode.chats") : IMLocalized(@"favorites.mode.messages");
 }
 
 - (void)viewDidLoad {
@@ -355,7 +356,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     if (_sourceFilterKey || _pickMode) { return; } // 来源子页/pick 模式不显模式菜单
     UIBarButtonItem *item = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"ellipsis"]
                                                               style:UIBarButtonItemStylePlain target:self action:@selector(modeTapped:)];
-    item.accessibilityLabel = @"查看模式";
+    item.accessibilityLabel = IMLocalized(@"favorites.mode.accessibility_label");
     self.navigationItem.rightBarButtonItem = item;
     [self im_refreshNavigationBar];
 }
@@ -364,7 +365,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
 
 /// pick 模式右上"取消"按钮：与聊天页 attach 面板一致语义——放弃发送，onDone 回调 @[]，宿主 dismiss 本页。
 - (void)installPickCancelButton {
-    UIBarButtonItem *item = [[UIBarButtonItem alloc] initWithTitle:@"取消"
+    UIBarButtonItem *item = [[UIBarButtonItem alloc] initWithTitle:IMLocalized(@"common.cancel")
                                                              style:UIBarButtonItemStylePlain
                                                             target:self action:@selector(handlePickCancel)];
     self.navigationItem.rightBarButtonItem = item;
@@ -389,7 +390,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     _pickSendBtn.layer.cornerRadius = 18;
     _pickSendBtn.clipsToBounds = YES;
     _pickSendBtn.enabled = NO;
-    [_pickSendBtn setTitle:@"发送" forState:UIControlStateNormal];
+    [_pickSendBtn setTitle:IMLocalized(@"common.send") forState:UIControlStateNormal];
     [_pickSendBtn addTarget:self action:@selector(handlePickSend) forControlEvents:UIControlEventTouchUpInside];
     [_pickBar addSubview:_pickSendBtn];
 
@@ -412,7 +413,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
 - (void)updatePickSendButton {
     NSUInteger n = _pickedFavIds.count;
     _pickSendBtn.enabled = n > 0;
-    NSString *title = n > 0 ? [NSString stringWithFormat:@"发送 (%lu)", (unsigned long)n] : @"发送";
+    NSString *title = n > 0 ? IMLocalizedFormat(@"favorites.pick.send_count", (long)n) : IMLocalized(@"common.send");
     [_pickSendBtn setTitle:title forState:UIControlStateNormal];
 }
 
@@ -444,7 +445,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
         [_pickedFavIds removeObject:fid];
     } else {
         if ((NSInteger)_pickedFavIds.count >= kIMFavoritesPickMaxSelection) {
-            [self im_showToast:[NSString stringWithFormat:@"最多选择 %ld 项", (long)kIMFavoritesPickMaxSelection]];
+            [self im_showToast:IMLocalizedFormat(@"favorites.pick.max_selection", (long)kIMFavoritesPickMaxSelection)];
             return YES;
         }
         [_pickedFavIds addObject:fid];
@@ -466,10 +467,12 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     if ([IMPopoverCard isPresentingInHostView:self.view]) { return; }
     __weak typeof(self) ws = self;
     BOOL chats = _mode == IMFavoritesViewModeChats;
+    NSString *messagesTitle = IMLocalized(@"favorites.mode.messages");
+    NSString *chatsTitle = IMLocalized(@"favorites.mode.chats");
     NSArray<IMPopoverCardItem *> *items = @[
-        [IMPopoverCardItem itemWithTitle:(chats ? @"以消息模式查看" : @"✓ 以消息模式查看") symbol:@"square.grid.2x2" destructive:NO
+        [IMPopoverCardItem itemWithTitle:(chats ? messagesTitle : [@"✓ " stringByAppendingString:messagesTitle]) symbol:@"square.grid.2x2" destructive:NO
                                  handler:^{ [ws setMode:IMFavoritesViewModeMessages]; }],
-        [IMPopoverCardItem itemWithTitle:(chats ? @"✓ 以聊天模式查看" : @"以聊天模式查看") symbol:@"bubble.left.and.bubble.right" destructive:NO
+        [IMPopoverCardItem itemWithTitle:(chats ? [@"✓ " stringByAppendingString:chatsTitle] : chatsTitle) symbol:@"bubble.left.and.bubble.right" destructive:NO
                                  handler:^{ [ws setMode:IMFavoritesViewModeChats]; }],
     ];
     [IMPopoverCard presentFromBarButtonItem:item inHostView:self.view items:items];
@@ -603,7 +606,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     if (_mode == IMFavoritesViewModeChats) {
         [self rebuildGroups];
         _segmented.hidden = YES; _segHeight.constant = 0;
-        _searchBar.placeholder = @"搜索来源会话";
+        _searchBar.placeholder = IMLocalized(@"favorites.source.search_placeholder");
         _syncingToken = YES; _searchBar.searchTextField.tokens = @[]; _syncingToken = NO;
     } else {
         [self recomputeCategories];
@@ -628,7 +631,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
         for (NSInteger i = 0; i < (NSInteger)_categories.count; i++) { if (_categories[(NSUInteger)i].kind == IMFavoriteCategoryMedia) { selIdx = i; break; } }
         _selectedKind = _categories.count ? _categories[(NSUInteger)selIdx].kind : IMFavoriteCategoryMedia;
     }
-    _segmented.titles = titles.count ? titles : @[@"媒体"];
+    _segmented.titles = titles.count ? titles : @[IMLocalized(@"favorites.category.media")];
     _segmented.selectedIndex = selIdx;
     [self syncSearchScopeToken];
 }
@@ -660,7 +663,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
 
 /// 来源分组显示名（会话备注>群名/对端昵称>id；「我的」桶=「我」）——rebuildGroups 与非媒体行「来自X」共用。
 - (NSString *)displayNameForGroupKey:(NSString *)key conversation:(IMConversation *)c {
-    if ([key isEqualToString:kIMFavoritesMeBucket]) { return @"我"; }
+    if ([key isEqualToString:kIMFavoritesMeBucket]) { return IMLocalized(@"common.me"); }
     if (c) { return c.displayName; } // 会话备注 > 群名 / 好友备注 > 昵称 > uid
     return key; // 会话不在本地缓存：显 id 兜底
 }
@@ -670,7 +673,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
 - (NSString *)sourceNameForFavorite:(NSDictionary *)f {
     NSString *from = [f[@"source_from"] isKindOfClass:NSString.class] ? f[@"source_from"] : @"";
     if (from.length == 0) { return @""; }
-    if ([from isEqualToString:_selfUID]) { return @"我"; }
+    if ([from isEqualToString:_selfUID]) { return IMLocalized(@"common.me"); }
     NSString *convID = [f[@"source_conv_id"] isKindOfClass:NSString.class] ? f[@"source_conv_id"] : @"";
     IMConversation *c = _convByID[convID];
     if (c && !c.isGroup && [c.peer isEqualToString:from]) { return c.displayName; } // 单聊：备注 > 昵称 > uid
@@ -829,16 +832,16 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     NSString *q = [_searchText stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     if (_loadFailed && _allItems.count == 0) {
         _emptyIcon.image = [UIImage systemImageNamed:@"exclamationmark.arrow.circlepath"];
-        _emptyTitle.text = @"加载失败"; _emptySub.text = @"下拉重试";
+        _emptyTitle.text = IMLocalized(@"common.load_failed"); _emptySub.text = IMLocalized(@"common.pull_to_retry");
     } else if (q.length > 0) {
         _emptyIcon.image = [UIImage systemImageNamed:@"magnifyingglass"];
-        _emptyTitle.text = @"未找到相关收藏"; _emptySub.text = @"";
+        _emptyTitle.text = IMLocalized(@"favorites.empty.no_results"); _emptySub.text = @"";
     } else if (_scoped.count == 0) {
         _emptyIcon.image = [UIImage systemImageNamed:@"bookmark"];
-        _emptyTitle.text = @"还没有收藏"; _emptySub.text = @"长按聊天里的任意消息 → 收藏，就会出现在这里";
+        _emptyTitle.text = IMLocalized(@"favorites.empty.title"); _emptySub.text = IMLocalized(@"favorites.empty.hint");
     } else {
         _emptyIcon.image = [UIImage systemImageNamed:@"bookmark"];
-        _emptyTitle.text = [NSString stringWithFormat:@"暂无%@", [IMFavoritesCategories titleForCategory:_selectedKind]]; _emptySub.text = @"";
+        _emptyTitle.text = IMLocalizedFormat(@"favorites.empty.category_title", [IMFavoritesCategories titleForCategory:_selectedKind]); _emptySub.text = @"";
     }
 }
 
@@ -885,7 +888,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     _syncingToken = YES;
     NSString *title = [IMFavoritesCategories titleForCategory:_selectedKind];
     _searchBar.searchTextField.tokens = _categories.count ? @[[UISearchToken tokenWithIcon:nil text:title]] : @[];
-    _searchBar.placeholder = [NSString stringWithFormat:@"在%@中搜索", title];
+    _searchBar.placeholder = IMLocalizedFormat(@"favorites.search.placeholder_in_category", title);
     _syncingToken = NO;
 }
 
@@ -1140,7 +1143,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     __weak typeof(self) ws = self;
     [[IMVoicePlayer sharedPlayer] toggleEnsuringLocal:m host:IMHTTPService.sharedService.host completion:^(NSError *err) {
         __strong typeof(ws) self = ws;
-        if (self && err) { [self im_showToast:(err.localizedDescription ?: @"语音播放失败")]; } // IO 错误不吞（CODING_STYLE §5）
+        if (self && err) { [self im_showToast:(err.localizedDescription ?: IMLocalized(@"favorites.voice.play_failed"))]; } // IO 错误不吞（CODING_STYLE §5）
     }];
 }
 
@@ -1151,7 +1154,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     if (_pickMode) { return nil; }
     if (_mode == IMFavoritesViewModeChats || _selectedKind == IMFavoriteCategoryMedia) { return nil; }
     __weak typeof(self) ws = self;
-    UIContextualAction *del = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive title:@"删除"
+    UIContextualAction *del = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive title:IMLocalized(@"common.delete")
         handler:^(UIContextualAction *a, UIView *v, void (^done)(BOOL)) {
         __strong typeof(ws) self = ws;
         if (!self || indexPath.row >= (NSInteger)self->_rows.count) { done(NO); return; }
@@ -1181,17 +1184,17 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     __weak typeof(self) ws = self;
     return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil actionProvider:^UIMenu *(NSArray *suggested) {
         NSMutableArray<UIMenuElement *> *acts = [NSMutableArray array];
-        [acts addObject:[UIAction actionWithTitle:@"转发" image:[UIImage systemImageNamed:@"arrowshape.turn.up.right"] identifier:nil
+        [acts addObject:[UIAction actionWithTitle:IMLocalized(@"common.forward") image:[UIImage systemImageNamed:@"arrowshape.turn.up.right"] identifier:nil
                                           handler:^(UIAction *a) { [ws forwardFavorite:f]; }]];
         if (copyable) {
-            [acts addObject:[UIAction actionWithTitle:@"复制" image:[UIImage systemImageNamed:@"doc.on.doc"] identifier:nil
-                                              handler:^(UIAction *a) { UIPasteboard.generalPasteboard.string = content; [ws im_showToast:@"已复制"]; }]];
+            [acts addObject:[UIAction actionWithTitle:IMLocalized(@"common.copy") image:[UIImage systemImageNamed:@"doc.on.doc"] identifier:nil
+                                              handler:^(UIAction *a) { UIPasteboard.generalPasteboard.string = content; [ws im_showToast:IMLocalized(@"common.copied")]; }]];
         }
         if (downloading) {
-            [acts addObject:[UIAction actionWithTitle:@"取消下载" image:[UIImage systemImageNamed:@"xmark.circle"] identifier:nil
+            [acts addObject:[UIAction actionWithTitle:IMLocalized(@"file.menu.cancel_download") image:[UIImage systemImageNamed:@"xmark.circle"] identifier:nil
                                               handler:^(UIAction *a) { __strong typeof(ws) self = ws; if (self) { [self->_downloads cancelDownloadForMessage:[self modelForFavorite:f]]; } }]];
         }
-        UIAction *del = [UIAction actionWithTitle:@"删除" image:[UIImage systemImageNamed:@"trash"] identifier:nil
+        UIAction *del = [UIAction actionWithTitle:IMLocalized(@"common.delete") image:[UIImage systemImageNamed:@"trash"] identifier:nil
                                           handler:^(UIAction *a) { [ws deleteFavorite:f done:nil]; }];
         del.attributes = UIMenuElementAttributesDestructive;
         [acts addObject:del];
@@ -1209,7 +1212,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     [IMHTTPService.sharedService deleteFavoriteWithToken:token favoriteID:fid completion:^(NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self) { if (done) { done(NO); } return; }
-        if (error) { if (done) { done(NO); } [self im_showToast:@"删除失败"]; return; }
+        if (error) { if (done) { done(NO); } [self im_showToast:IMLocalized(@"net.fallback.delete_failed")]; return; }
         NSMutableArray *m = [self->_allItems mutableCopy];
         NSUInteger idx = [m indexOfObjectPassingTest:^BOOL(NSDictionary *x, NSUInteger i, BOOL *stop) {
             return [x[@"id"] respondsToSelector:@selector(longLongValue)] && [x[@"id"] longLongValue] == fid;
@@ -1243,7 +1246,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
             [self sendFavoriteContent:content contentType:ct fileName:fileName fileSize:fileSize forwardFrom:origin
                            attributes:attrs toConv:c.convID toUser:(c.isGroup ? @"" : (c.peer ?: @""))];
         }
-        [self im_showToast:selected.count == 1 ? @"已转发" : [NSString stringWithFormat:@"已转发到 %lu 个会话", (unsigned long)selected.count]];
+        [self im_showToast:selected.count == 1 ? IMLocalized(@"favorites.forward.success_single") : IMLocalizedFormat(@"favorites.forward.success_count", (long)selected.count)];
     }];
     [self presentViewController:[[UINavigationController alloc] initWithRootViewController:picker] animated:YES completion:nil];
 }

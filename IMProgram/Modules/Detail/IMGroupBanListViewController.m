@@ -5,6 +5,7 @@
 #import "UIViewController+IMToast.h"
 #import "IMTheme.h"
 #import "IMAccountIdentity.h"
+#import "IMLocalization.h"
 
 @interface IMGroupBanListViewController () <UITableViewDataSource, UITableViewDelegate>
 @property (nonatomic, copy) NSString *convID;
@@ -24,7 +25,7 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"黑名单";
+    self.title = IMLocalized(@"group.manage.blacklist");
     self.view.backgroundColor = IMTheme.groupedBackground;
     self.tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStyleInsetGrouped];
     self.tableView.dataSource = self;
@@ -49,7 +50,7 @@
                                         completion:^(NSArray<NSDictionary *> *bans, NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
-        if (error) { [self im_showToast:error.localizedDescription ?: @"加载失败"]; return; }
+        if (error) { [self im_showToast:error.localizedDescription ?: IMLocalized(@"common.load_failed")]; return; }
         self.bans = bans ?: @[];
         [self.tableView reloadData];
     }];
@@ -62,7 +63,7 @@
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
-    return self.bans.count ? @"左滑可解除拉黑。冷却期到期后会自动移出黑名单。" : nil;
+    return self.bans.count ? IMLocalized(@"group.bans.footer") : nil;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -70,7 +71,7 @@
     cell.textLabel.textColor = IMTheme.textPrimary;
     cell.detailTextLabel.textColor = IMTheme.textSecondary;
     if (self.bans.count == 0) {
-        cell.textLabel.text = @"暂无被拉黑成员";
+        cell.textLabel.text = IMLocalized(@"group.bans.empty");
         cell.textLabel.textColor = IMTheme.textSecondary;
         cell.detailTextLabel.text = nil;
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
@@ -83,7 +84,7 @@
     // 主标题=显示名（末级不落 uid），副标题=@句柄 + 封禁档位。管理员要认得出拉黑的是谁，
     // 而 uid 是 10 位随机数字（docs/UI.md「用户标识」）。
     cell.textLabel.text = IMDisplayName(nick, uname);
-    NSString *state = expires == 0 ? @"永久" : @"冷却中";
+    NSString *state = expires == 0 ? IMLocalized(@"common.permanent") : IMLocalized(@"group.bans.cooling");
     cell.detailTextLabel.text = uname.length > 0
         ? [NSString stringWithFormat:@"@%@ · %@", uname, state]
         : state;
@@ -99,15 +100,15 @@
     NSString *uid = [b[@"user_id"] isKindOfClass:[NSString class]] ? b[@"user_id"] : @"";
     __weak typeof(self) ws = self;
     UIContextualAction *unban = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive
-        title:@"解除" handler:^(UIContextualAction *a, UIView *v, void (^done)(BOOL)) {
+        title:IMLocalized(@"group.bans.unban") handler:^(UIContextualAction *a, UIView *v, void (^done)(BOOL)) {
         NSString *token = IMHTTPService.sharedService.currentToken;
         if (token.length == 0) { done(NO); return; }
         [IMHTTPService.sharedService unbanGroupMemberWithToken:token convID:ws.convID userID:uid
                                                    completion:^(NSError *error) {
             __strong typeof(ws) self = ws;
             if (!self) { done(NO); return; }
-            if (error) { [self im_showToast:error.localizedDescription ?: @"解除失败"]; done(NO); return; }
-            [self im_showToast:@"已解除"];
+            if (error) { [self im_showToast:error.localizedDescription ?: IMLocalized(@"net.fallback.unmute_failed")]; done(NO); return; }
+            [self im_showToast:IMLocalized(@"group.ops.unban_done")];
             [self reload];
             done(YES);
         }];

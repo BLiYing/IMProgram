@@ -12,6 +12,7 @@
 #import "IMUserProfileCache.h"
 #import "IMUserCard.h"
 #import "IMGroupSenderName.h"
+#import "IMLocalization.h"
 
 @implementation IMChatViewController (Group)
 
@@ -73,7 +74,7 @@
     BOOL removedMe = [event isEqualToString:@"remove"] && [target isEqualToString:self.userID];
     BOOL dissolved = [event isEqualToString:@"dissolve"];
     if (removedMe || dissolved) {
-        [self im_showToast:dissolved ? @"该群已被解散" : @"你已被移出群聊"];
+        [self im_showToast:dissolved ? IMLocalized(@"group.event.dissolved") : IMLocalized(@"group.event.removed")];
         // 先让吐司可见，再退出本页（随页面销毁，故略作停留）。
         __weak typeof(self) weakSelf = self;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.9 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
@@ -132,7 +133,7 @@
 /// 引用条被引用者显示名（群聊用）：自己→"你"，否则群成员昵称→uid。协议只下发 uid，昵称本地解析。
 - (NSString *)replyFromNameForUID:(NSString *)uid {
     if (uid.length == 0) { return nil; }
-    if ([uid isEqualToString:self.userID]) { return @"你"; }
+    if ([uid isEqualToString:self.userID]) { return IMLocalized(@"common.you"); }
     NSString *nick = [self.groupInfo nicknameOfMember:uid];
     if (nick.length == 0) { nick = [IMUserProfileCache.sharedCache cardForUserID:uid].nickname; } // 成员表兜底
     // 备注优先（本机显示）。引用条只在本机渲染，不进消息内容——发送时冻结的是 reply_to_from(uid)。

@@ -7,6 +7,7 @@
 #import "IMProgram-Swift.h"        // IMLiquidNavigationBar（自持沉浸式标题栏）
 
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#import "IMLocalization.h"
 
 // 可调参数（独立出来便于调试）：
 /// 默认弹窗高度占屏比（1/2 → 2/3；改这里调默认展开高度，需 iOS 16+ 自定义 detent）。
@@ -85,7 +86,7 @@ static UIColor *IMBaseGroupedBackgroundColor(void) {
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"文件";
+    self.title = IMLocalized(@"common.file");
     // sheet 不同 detent（2/3 悬浮 vs 拖到顶铺满）会切换 base/elevated 外观等级，导致分组背景变色。
     // iOS17+ 直接把整页外观等级固定为 base（＝拖到顶时的外观），连 cells 一并一致；
     // 背景色再用恒 base 的动态色兜底（覆盖 iOS16）。想要「悬浮态」颜色改成 Elevated 即可。
@@ -183,7 +184,7 @@ static UIColor *IMBaseGroupedBackgroundColor(void) {
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    return section == 1 ? @"最近发送的文件" : nil;
+    return section == 1 ? IMLocalized(@"chat.file_panel.recent_sent") : nil;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)ip {
@@ -193,16 +194,16 @@ static UIColor *IMBaseGroupedBackgroundColor(void) {
     cell.detailTextLabel.text = nil;
     if (ip.section == 0) {
         if (ip.row == 0) {
-            cell.textLabel.text = @"从相册中选择";
+            cell.textLabel.text = IMLocalized(@"chat.file_panel.from_photos");
             cell.imageView.image = [UIImage systemImageNamed:@"photo.on.rectangle"];
         } else {
-            cell.textLabel.text = @"从文件中选择";
+            cell.textLabel.text = IMLocalized(@"chat.file_panel.from_files");
             cell.imageView.image = [UIImage systemImageNamed:@"folder"];
         }
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     } else {
         NSDictionary *f = _recent[(NSUInteger)ip.row];
-        cell.textLabel.text = [f[@"name"] isKindOfClass:NSString.class] ? f[@"name"] : @"文件";
+        cell.textLabel.text = [f[@"name"] isKindOfClass:NSString.class] ? f[@"name"] : IMLocalized(@"common.file");
         cell.textLabel.numberOfLines = 1;
         // 文件名尾部是扩展名，长名字中间截断更可读（与详情页文件列表一致，保留后缀可见）。
         cell.textLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;

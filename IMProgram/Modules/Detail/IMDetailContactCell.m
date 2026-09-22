@@ -6,6 +6,7 @@
 #import "UILabel+IMAvatar.h"
 #import "IMTheme.h"
 #import "IMAccountIdentity.h"
+#import "IMLocalization.h"
 
 const CGFloat IMDetailContactCellHeight = 64;
 const CGFloat IMDetailContactCellHeightWithSource = 82;
@@ -106,7 +107,7 @@ const CGFloat IMDetailContactCellHeightWithSource = 82;
     _name.text = shown;
     // 副标题 = @句柄。绝不显示 userID。来源另起一行（见 _source）。
     _sub.text = card.username.length > 0 ? [@"@" stringByAppendingString:card.username] : @"";
-    _source.text = sourceName.length > 0 ? [NSString stringWithFormat:@"由 %@ 分享", sourceName] : nil;
+    _source.text = sourceName.length > 0 ? IMLocalizedFormat(@"contact.card.shared_by", sourceName) : nil;
     _time.text = timestampMillis > 0 ? IMFormatFileDateTime(timestampMillis) : @"";
     [_avatar im_setAvatarURL:card.avatarURL seed:(card.userID ?: @"") displayName:shown];
 }

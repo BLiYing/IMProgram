@@ -13,6 +13,7 @@
 #import "UIViewController+IMToast.h"
 #import "IMTheme.h"
 #import "IMAppearance.h"
+#import "IMLocalization.h"
 
 @implementation IMChatViewController (SendService)
 
@@ -96,7 +97,7 @@
     m.status = IMMessageStatusFailed; // 服务实例已置位；本页若持有库副本在此对齐
     [self updateUploadProgressForMessage:m];
     [self refreshVisibleCellForMessage:m];
-    [self im_showToast:@"发送失败，点击可重试"];
+    [self im_showToast:IMLocalized(@"chat.send.failed_tap_retry")];
 }
 
 /// 服务端 ack（状态/conv_seq/note 已由服务落库）：只更新内存模型与界面。
@@ -208,7 +209,7 @@
 /// 我方发起的操作被拒（如撤回超时）：吐司提示（不改消息）。
 - (void)onMsgOpRejected:(NSNotification *)note {
     NSString *msg = note.userInfo[@"message"];
-    [self im_showToast:msg.length > 0 ? msg : @"操作失败"];
+    [self im_showToast:msg.length > 0 ? msg : IMLocalized(@"common.action_failed")];
 }
 
 /// 任务2：某条消息被物理移除（为所有人删除 / 仅为我删除）→ 本会话则从消息列表删掉并刷新。

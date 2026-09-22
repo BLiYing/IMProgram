@@ -71,6 +71,11 @@ NS_ASSUME_NONNULL_BEGIN
 /// 毫秒时间戳 → 日期分隔文案："今天"/"昨天"/"M月d日"（今年）/"yyyy年M月d日"（往年）；0 返回空串。
 + (NSString *)dayHeaderStringFromMillis:(int64_t)ms;
 
+/// 「今年内 `M月d日` / 往年 `yyyy年M月d日`」的日期文案（按 App 语言渲染，英文为 `Sep 21` / `Sep 21, 2025`）。会话列表、日期胶囊、在线态共用。
++ (NSString *)dateLabelForDate:(NSDate *)date;
+/// 时分格式器：中文恒 `HH:mm`；英文跟随系统 12/24 小时设置。**每次新建**（不缓存，切语言后必须变）。
++ (NSDateFormatter *)timeFormatterForCurrentLanguage;
+
 @end
 
 NS_ASSUME_NONNULL_END

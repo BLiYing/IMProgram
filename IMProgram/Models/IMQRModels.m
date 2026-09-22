@@ -1,6 +1,7 @@
 //  IMQRModels.m
 
 #import "IMQRModels.h"
+#import "IMLocalization.h"
 
 #pragma mark - 脏数据安全的取值助手（与 IMGroupInfo 同范式）
 
@@ -123,11 +124,11 @@ IMQRUserAction IMQRUserActionForRelation(NSString *relation) {
 
 NSString *IMQRUserActionLabel(IMQRUserAction action) {
     switch (action) {
-        case IMQRUserActionMessage: return @"发消息";
-        case IMQRUserActionSelf:    return @"查看我的资料";
-        case IMQRUserActionBlocked: return @"查看资料";
+        case IMQRUserActionMessage: return IMLocalized(@"qr.action.send_message");
+        case IMQRUserActionSelf:    return IMLocalized(@"qr.action.view_my_profile");
+        case IMQRUserActionBlocked: return IMLocalized(@"qr.branch.view_profile");
         case IMQRUserActionAdd:
-        default:                    return @"添加到通讯录";
+        default:                    return IMLocalized(@"qr.action.add_contact");
     }
 }
 
@@ -141,11 +142,11 @@ IMQRGroupAction IMQRGroupActionForCard(IMQRGroupCard *card) {
 
 NSString *IMQRGroupActionLabel(IMQRGroupAction action) {
     switch (action) {
-        case IMQRGroupActionEnter:    return @"进入群聊";
-        case IMQRGroupActionApply:    return @"申请加入";
-        case IMQRGroupActionDisabled: return @"无法加入";
+        case IMQRGroupActionEnter:    return IMLocalized(@"qr.action.enter_group");
+        case IMQRGroupActionApply:    return IMLocalized(@"qr.action.apply");
+        case IMQRGroupActionDisabled: return IMLocalized(@"qr.action.cannot_join");
         case IMQRGroupActionJoin:
-        default:                      return @"加入群聊";
+        default:                      return IMLocalized(@"qr.action.join");
     }
 }
 
@@ -153,12 +154,12 @@ NSString *IMQRGroupActionNote(IMQRGroupCard *card) {
     if (!card) { return nil; }
     if (card.joined) { return nil; }
     if (!card.joinable) {
-        if ([card.reason isEqualToString:@"full"]) { return @"群成员已达上限，暂时无法加入"; }
-        if ([card.reason isEqualToString:@"banned"]) { return @"你已被移出该群，暂时或永久不可加入"; }
-        if ([card.reason isEqualToString:@"invite_revoked"]) { return @"该群已改为仅管理员可邀请，此邀请已失效"; }
+        if ([card.reason isEqualToString:@"full"]) { return IMLocalized(@"qr.action.group_full_note"); }
+        if ([card.reason isEqualToString:@"banned"]) { return IMLocalized(@"qr.action.banned_note"); }
+        if ([card.reason isEqualToString:@"invite_revoked"]) { return IMLocalized(@"qr.action.admin_only_note"); }
         return nil;
     }
-    if ([card.reason isEqualToString:@"approval"]) { return @"该群需管理员审批"; }
+    if ([card.reason isEqualToString:@"approval"]) { return IMLocalized(@"qr.action.apply_note"); }
     return nil;
 }
 

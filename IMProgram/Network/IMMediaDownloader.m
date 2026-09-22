@@ -1,6 +1,7 @@
 //  IMMediaDownloader.m
 
 #import "IMMediaDownloader.h"
+#import "IMLocalization.h"
 #import "IMLog.h"
 #import <objc/runtime.h>
 
@@ -187,7 +188,7 @@ static const void *kIMDownloadHandleAssocKey = &kIMDownloadHandleAssocKey;
     if (status >= 400) { // 404/416/5xx：永久失败，交 didComplete（不重试）
         // status 是「文件已失效(404/410)」与「网络错」分因的依据，必须留痕。
         IMLogWarnWithTag(IMLogTagMedia, @"download_http_error key=%@ status=%ld", task.key, (long)status);
-        task.pendingError = [self errorWithMessage:@"下载失败" code:status];
+        task.pendingError = [self errorWithMessage:IMLocalized(@"media.download.failed") code:status];
         completionHandler(NSURLSessionResponseCancel);
         return;
     }
@@ -206,7 +207,7 @@ static const void *kIMDownloadHandleAssocKey = &kIMDownloadHandleAssocKey;
 
     NSFileHandle *fh = [self openWriteHandleForTask:task truncate:fullBody];
     if (!fh) {
-        task.pendingError = [self errorWithMessage:@"本地文件写入失败" code:-1];
+        task.pendingError = [self errorWithMessage:IMLocalized(@"net.error.file_write_failed") code:-1];
         completionHandler(NSURLSessionResponseCancel);
         return;
     }
@@ -219,7 +220,7 @@ static const void *kIMDownloadHandleAssocKey = &kIMDownloadHandleAssocKey;
     NSFileHandle *fh = objc_getAssociatedObject(dataTask, kIMDownloadHandleAssocKey);
     if (!task || task.cancelled || task.finished || task.paused || !fh || dataTask != task.inFlight) { return; }
     if (![fh writeData:data error:NULL]) {
-        task.pendingError = [self errorWithMessage:@"本地文件写入失败" code:-1];
+        task.pendingError = [self errorWithMessage:IMLocalized(@"net.error.file_write_failed") code:-1];
         [task.inFlight cancel]; // → didComplete 据 pendingError 永久失败
         return;
     }
@@ -249,7 +250,7 @@ static const void *kIMDownloadHandleAssocKey = &kIMDownloadHandleAssocKey;
     NSError *mvErr = nil;
     [NSFileManager.defaultManager removeItemAtURL:task.destURL error:NULL];
     BOOL ok = [NSFileManager.defaultManager moveItemAtURL:task.partURL toURL:task.destURL error:&mvErr];
-    [self finishTask:task localURL:(ok ? task.destURL : nil) error:(ok ? nil : (mvErr ?: [self errorWithMessage:@"落地失败" code:-1]))];
+    [self finishTask:task localURL:(ok ? task.destURL : nil) error:(ok ? nil : (mvErr ?: [self errorWithMessage:IMLocalized(@"net.error.file_save_failed") code:-1]))];
 }
 
 #pragma mark - 完成 / 重试
@@ -321,7 +322,7 @@ static const void *kIMDownloadHandleAssocKey = &kIMDownloadHandleAssocKey;
 
 - (NSError *)errorWithMessage:(NSString *)message code:(NSInteger)code {
     return [NSError errorWithDomain:@"IMMediaDownloaderErrorDomain" code:code
-                           userInfo:@{ NSLocalizedDescriptionKey: message ?: @"下载失败" }];
+                           userInfo:@{ NSLocalizedDescriptionKey: message ?: IMLocalized(@"media.download.failed") }];
 }
 
 @end

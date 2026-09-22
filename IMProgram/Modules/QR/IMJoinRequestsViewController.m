@@ -1,6 +1,7 @@
 //  IMJoinRequestsViewController.m
 
 #import "IMJoinRequestsViewController.h"
+#import "IMLocalization.h"
 #import "IMQRModels.h"
 #import "IMTheme.h"
 #import "IMImageLoader.h"
@@ -32,7 +33,7 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"待审入群申请";
+    self.title = IMLocalized(@"qr.join_req.list_title");
     self.view.backgroundColor = IMTheme.groupedBackground;
 
     self.tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStyleInsetGrouped];
@@ -49,7 +50,7 @@
     ]];
 
     self.emptyLabel = [UILabel new];
-    self.emptyLabel.text = @"暂无待审批的入群申请";
+    self.emptyLabel.text = IMLocalized(@"qr.join_req.empty_pending");
     self.emptyLabel.textColor = IMTheme.textSecondary;
     self.emptyLabel.font = [UIFont systemFontOfSize:14];
     self.emptyLabel.textAlignment = NSTextAlignmentCenter;
@@ -96,7 +97,7 @@
     }
     IMJoinRequest *r = self.requests[indexPath.row];
     cell.textLabel.text = IMDisplayName(r.nickname, nil);
-    cell.detailTextLabel.text = r.hello.length ? r.hello : @"申请加入群聊";
+    cell.detailTextLabel.text = r.hello.length ? r.hello : IMLocalized(@"qr.join_req.default_hello");
     cell.detailTextLabel.textColor = IMTheme.textSecondary;
     cell.imageView.image = nil;
     cell.imageView.backgroundColor = [IMTheme avatarColorForSeed:r.userID];
@@ -111,8 +112,8 @@
         }];
     }
 
-    UIButton *accept = [self smallButton:@"同意" filled:YES tag:indexPath.row action:@selector(acceptTapped:)];
-    UIButton *reject = [self smallButton:@"拒绝" filled:NO tag:indexPath.row action:@selector(rejectTapped:)];
+    UIButton *accept = [self smallButton:IMLocalized(@"common.agree") filled:YES tag:indexPath.row action:@selector(acceptTapped:)];
+    UIButton *reject = [self smallButton:IMLocalized(@"common.reject") filled:NO tag:indexPath.row action:@selector(rejectTapped:)];
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[reject, accept]];
     stack.axis = UILayoutConstraintAxisHorizontal;
     stack.spacing = 8;
@@ -151,7 +152,7 @@
             if (idx != NSNotFound) { [self.requests removeObjectAtIndex:idx]; }
             [self refreshUI];
             if (self.onChanged) { self.onChanged(); }
-            [self im_showToast:accept ? @"已同意入群" : @"已拒绝"];
+            [self im_showToast:accept ? IMLocalized(@"qr.join_req.approved_toast") : IMLocalized(@"qr.join_req.rejected")];
         }];
 }
 

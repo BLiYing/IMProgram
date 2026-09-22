@@ -4,6 +4,7 @@
 #import "IMRejectNoteView.h"
 #import "UILabel+IMAvatar.h"
 #import "IMTheme.h"
+#import "IMLocalization.h"
 
 // 预览/标题解析统一走 IMMediaUtil 的 IMSummarizeRecord/IMRecordItemPreview（含嵌套 chat_record→[聊天记录] 子标题），
 // 与详情页共用同一 token 映射，避免各持 static 分叉。
@@ -62,7 +63,7 @@
         _footer.translatesAutoresizingMaskIntoConstraints = NO;
         _footer.font = [UIFont systemFontOfSize:11];
         _footer.textColor = IMTheme.textSecondary;
-        _footer.text = @"聊天记录";
+        _footer.text = IMLocalized(@"record.chat_history");
         [_card addSubview:_footer];
 
         // 时间/状态：与「聊天记录」脚注**同一排、贴卡片右下角**。此前本 cell 完全没有这一块——

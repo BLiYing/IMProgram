@@ -5,6 +5,7 @@
 #import "IMTheme.h"
 #import "UIViewController+IMToast.h"
 #import "IMLog.h"
+#import "IMLocalization.h"
 #import <objc/runtime.h>
 
 /// 与后端 errcode 对齐（不引 IMServer 头，硬编码常量集中一处）。
@@ -41,7 +42,7 @@ static NSInteger const IMTokenInvalid      = 100101;  // token 无效/过期
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"修改密码";
+    self.title = IMLocalized(@"settings.change_password");
     self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
 
     self.tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStyleInsetGrouped];
@@ -54,9 +55,9 @@ static NSInteger const IMTokenInvalid      = 100101;  // token 无效/过期
     [self.view addSubview:self.tableView];
 
     // 三个输入框（在 cellForRow 里挂到 cell.contentView；这里先建实例并配好属性）。
-    self.oldField     = [self makeField:@"旧密码"];
-    self.freshField     = [self makeField:@"新密码（≥6 位）"];
-    self.confirmField = [self makeField:@"再次输入新密码"];
+    self.oldField     = [self makeField:IMLocalized(@"password.field.old")];
+    self.freshField     = [self makeField:IMLocalized(@"password.field.new")];
+    self.confirmField = [self makeField:IMLocalized(@"password.field.confirm")];
 
     // 底部主按钮 + 错误红字：都挂在 tableFooterView 里（跟随 keyboard 布局）。
     UIView *footer = [self buildFooterView];
@@ -122,7 +123,7 @@ static NSInteger const IMTokenInvalid      = 100101;  // token 无效/过期
     helper.translatesAutoresizingMaskIntoConstraints = NO;
     helper.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
     helper.textColor = UIColor.secondaryLabelColor;
-    helper.text = @"新密码至少 6 位，与旧密码不同。";
+    helper.text = IMLocalized(@"password.helper.min_length_hint");
     helper.numberOfLines = 0;
     [host addSubview:helper];
 
@@ -130,7 +131,7 @@ static NSInteger const IMTokenInvalid      = 100101;  // token 无效/过期
     self.submitButton.translatesAutoresizingMaskIntoConstraints = NO;
     self.submitButton.backgroundColor = UIColor.systemBlueColor;
     self.submitButton.layer.cornerRadius = 12;
-    [self.submitButton setTitle:@"修改密码" forState:UIControlStateNormal];
+    [self.submitButton setTitle:IMLocalized(@"settings.change_password") forState:UIControlStateNormal];
     [self.submitButton setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
     self.submitButton.titleLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
     [self.submitButton addTarget:self action:@selector(submitTapped) forControlEvents:UIControlEventTouchUpInside];
@@ -185,13 +186,13 @@ static NSInteger const IMTokenInvalid      = 100101;  // token 无效/过期
     // 二次本地校验（防 UI 状态漂移）；具体友好提示：给出第一个不通过的原因。
     NSString *o = self.oldField.text ?: @"", *n = self.freshField.text ?: @"", *c = self.confirmField.text ?: @"";
     if (n.length < 6) {
-        [self showLocalError:@"新密码至少 6 位" onField:self.freshField]; return;
+        [self showLocalError:IMLocalized(@"password.error.min_length") onField:self.freshField]; return;
     }
     if ([n isEqualToString:o]) {
-        [self showLocalError:@"新密码不能与旧密码相同" onField:self.freshField]; return;
+        [self showLocalError:IMLocalized(@"password.error.same_as_old") onField:self.freshField]; return;
     }
     if (![n isEqualToString:c]) {
-        [self showLocalError:@"两次输入不一致" onField:self.confirmField]; return;
+        [self showLocalError:IMLocalized(@"password.error.mismatch") onField:self.confirmField]; return;
     }
 
     self.submitting = YES;
@@ -207,7 +208,7 @@ static NSInteger const IMTokenInvalid      = 100101;  // token 无效/过期
         if (!self) { return; }
         if (token.length == 0) {
             [self resetSubmittingWithSpinner:spin];
-            [self showLocalError:loginErr.localizedDescription ?: @"登录会话已失效" onField:nil];
+            [self showLocalError:loginErr.localizedDescription ?: IMLocalized(@"password.error.session_expired") onField:nil];
             return;
         }
         [IMHTTPService.sharedService changePasswordWithToken:token oldPassword:o newPassword:n
@@ -221,7 +222,7 @@ static NSInteger const IMTokenInvalid      = 100101;  // token 无效/过期
                     ? self.navigationController.viewControllers[self.navigationController.viewControllers.count - 2] : nil;
                 [self.navigationController popViewControllerAnimated:YES];
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                    [back im_showToast:@"✓ 密码已修改，其它设备已下线"];
+                    [back im_showToast:IMLocalized(@"password.success_toast")];
                 });
                 return;
             }
@@ -234,17 +235,17 @@ static NSInteger const IMTokenInvalid      = 100101;  // token 无效/过期
     NSInteger code = err.code;
     switch (code) {
         case IMWrongPassword:
-            [self showLocalError:@"旧密码错误" onField:self.oldField]; break;
+            [self showLocalError:IMLocalized(@"password.error.wrong_old") onField:self.oldField]; break;
         case IMParamInvalid:
-            [self showLocalError:@"密码强度不足（至少 6 位）" onField:self.freshField]; break;
+            [self showLocalError:IMLocalized(@"password.error.weak") onField:self.freshField]; break;
         case IMAccountBanned:
-            [self showLocalError:@"账号已被封禁，无法修改密码" onField:nil]; break;
+            [self showLocalError:IMLocalized(@"password.error.account_banned") onField:nil]; break;
         case IMTokenInvalid:
-            [self im_showToast:@"会话已过期，请重新登录"];
+            [self im_showToast:IMLocalized(@"password.error.session_expired_retry")];
             // 保持在本页——用户会自行退出登录；避免这里侵入导航栈。
             break;
         default:
-            [self im_showToast:err.localizedDescription ?: @"修改密码失败，请稍后再试"];
+            [self im_showToast:err.localizedDescription ?: IMLocalized(@"password.error.generic_failed")];
             break;
     }
 }
@@ -286,7 +287,7 @@ static NSInteger const IMTokenInvalid      = 100101;  // token 无效/过期
     [spin stopAnimating];
     [spin removeFromSuperview];
     self.submitting = NO;
-    [self.submitButton setTitle:@"修改密码" forState:UIControlStateNormal];
+    [self.submitButton setTitle:IMLocalized(@"settings.change_password") forState:UIControlStateNormal];
     [self refreshSubmitEnabled];
 }
 
@@ -330,7 +331,7 @@ static NSInteger const IMTokenInvalid      = 100101;  // token 无效/过期
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     if (section == 0) {
-        return @"为保护账号安全，修改密码后你在其它设备上的登录会被自动下线，需用新密码重新登录；当前设备保持登录。";
+        return IMLocalized(@"password.footer.security_note");
     }
     return nil;
 }

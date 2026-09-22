@@ -1,6 +1,7 @@
 //  IMQRCardView.m
 
 #import "IMQRCardView.h"
+#import "IMLocalization.h"
 
 #import "IMQRImage.h"
 #import "IMTheme.h"
@@ -67,7 +68,7 @@ static const CGFloat kIMQRCodeSide = 200;
     _codePlaceholder.textAlignment = NSTextAlignmentCenter;
     _codePlaceholder.font = [UIFont systemFontOfSize:13];
     _codePlaceholder.textColor = UIColor.systemGrayColor; // 白底上，故不用语义次要色
-    _codePlaceholder.text = @"二维码加载中…";
+    _codePlaceholder.text = IMLocalized(@"qr.card.loading");
 
     _hintLabel = [UILabel new];
     _hintLabel.translatesAutoresizingMaskIntoConstraints = NO;
@@ -147,7 +148,7 @@ static const CGFloat kIMQRCodeSide = 200;
     self.codeView.image = self.qrImage;
     self.codeView.hidden = (self.qrImage == nil);
     self.codePlaceholder.hidden = (self.qrImage != nil);
-    self.codePlaceholder.text = self.qrImage ? @"" : @"二维码生成失败";
+    self.codePlaceholder.text = self.qrImage ? @"" : IMLocalized(@"qr.card.gen_failed");
 }
 
 @end

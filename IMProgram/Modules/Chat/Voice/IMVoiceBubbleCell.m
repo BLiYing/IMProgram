@@ -10,6 +10,7 @@
 #import "IMTimeUtil.h"
 #import "IMVoiceTranscriber.h" // 复用缓存自动展开转写面板（cell 复用后不丢文字，2026-08-27 修）
 #import "UILabel+IMAvatar.h"
+#import "IMLocalization.h"
 
 @interface IMVoiceBubbleCell () <UIGestureRecognizerDelegate>
 @property (nonatomic, strong) UIView *bubble;
@@ -185,7 +186,7 @@
     _transcriptFooter.textColor = IMTheme.textSecondary;
     // 识别已从端上改到服务端（VOICE_TRANSCRIBE_DESIGN）：文案必须跟着改，
     // 否则界面上写着"仅本地保存"而实际结果存在服务端，是**错误的隐私承诺**。
-    _transcriptFooter.text = @"📝 由服务器识别，结果可能不完全准确";
+    _transcriptFooter.text = IMLocalized(@"chat.voice.transcript_note");
     [_transcriptPanel addSubview:_transcriptFooter];
 
     // 发送失败红❗（§5.5）：气泡左侧外，点击=重发。视图/点击/可点判据都在基类 IMMessageCell，
@@ -430,13 +431,13 @@
         return [[NSAttributedString alloc] initWithString:(timeStr ?: @"") attributes:base];
     }
     if (message.status == IMMessageStatusSending) {
-        return [[NSAttributedString alloc] initWithString:@"发送中…" attributes:base];
+        return [[NSAttributedString alloc] initWithString:IMLocalized(@"common.sending") attributes:base];
     }
     if (message.status == IMMessageStatusFailed) {
         if (message.note.length > 0) {
             return [[NSAttributedString alloc] initWithString:(timeStr ?: @"") attributes:base];
         }
-        return [[NSAttributedString alloc] initWithString:@"未发送 ✗"
+        return [[NSAttributedString alloc] initWithString:IMLocalized(@"chat.message.not_sent_mark")
                                               attributes:@{ NSFontAttributeName: font,
                                                             NSForegroundColorAttributeName: UIColor.systemRedColor }];
     }
@@ -478,7 +479,7 @@
     // 先关后开——两条同时 active 会被约束引擎判为冲突并打日志。
     if (shows) {
         self.cvBottomToBubble.active = NO; self.cvBottomToPanel.active = YES;
-        self.transcriptLabel.text = loading ? @"识别中…" : text;
+        self.transcriptLabel.text = loading ? IMLocalized(@"chat.voice.transcribing") : text;
         self.transcriptFooter.hidden = loading; // 识别中不显尾行
     } else {
         self.cvBottomToPanel.active = NO; self.cvBottomToBubble.active = YES;

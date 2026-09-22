@@ -9,6 +9,7 @@
 #import "UIViewController+IMToast.h"
 #import "IMGlass.h" // 标准 Liquid Glass 按钮配置（iOS26 glass()/旧系统 gray() 降级）
 #import "IMLog.h"
+#import "IMLocalization.h"
 #import <AVFoundation/AVFoundation.h>
 #import <Photos/Photos.h>
 
@@ -183,7 +184,7 @@
 - (void)showExpiredOverlayForVideo:(BOOL)isVideo {
     if (_expiredOverlay) { return; }
     _downloadButton.hidden = YES; // 失效无字节可存：藏掉保存钮，别留一个点了只弹 toast 的死按钮
-    _expiredOverlay = [IMMediaPlaceholder expiredOverlayWithCaption:(isVideo ? @"视频已失效" : @"图片已失效")];
+    _expiredOverlay = [IMMediaPlaceholder expiredOverlayWithCaption:(isVideo ? IMLocalized(@"media.video_expired") : IMLocalized(@"media.image_expired"))];
     _expiredOverlay.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:_expiredOverlay];
     [NSLayoutConstraint activateConstraints:@[
@@ -305,7 +306,7 @@
     _playButton.hidden = YES;
     _poster.hidden = NO;
     _unplayableLabel = [UILabel new];
-    _unplayableLabel.text = @"无法播放该视频\n可保存后用其他播放器打开";
+    _unplayableLabel.text = IMLocalized(@"chat.media.playback_unsupported");
     _unplayableLabel.numberOfLines = 0;
     _unplayableLabel.textAlignment = NSTextAlignmentCenter;
     _unplayableLabel.textColor = UIColor.whiteColor;
@@ -430,7 +431,7 @@
     NSURL *u = [NSURL URLWithString:_url];
     if (!u) { return; }
     _downloadingOriginal = YES;
-    [_originalChip setTitle:@"下载中 0%" forState:UIControlStateNormal];
+    [_originalChip setTitle:IMLocalizedFormat(@"chat.media.downloading_progress", 0) forState:UIControlStateNormal];
     _originalSession = [NSURLSession sessionWithConfiguration:NSURLSessionConfiguration.defaultSessionConfiguration
                                                      delegate:self delegateQueue:NSOperationQueue.mainQueue];
     [[_originalSession downloadTaskWithURL:u] resume];
@@ -462,7 +463,7 @@
     }
     _originalChip.hidden = YES;
     _originalChipVisible = NO; // 已切本地原件：chip 恒隐（沉浸态恢复也不再显）
-    [self im_showToast:@"已切换为原视频"];
+    [self im_showToast:IMLocalized(@"chat.media.switched_to_original")];
 }
 
 #pragma mark - NSURLSessionDownloadDelegate（原视频下载进度，#1）
@@ -472,7 +473,7 @@
 totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
     if (totalBytesExpectedToWrite <= 0) { return; }
     int pct = (int)(totalBytesWritten * 100 / totalBytesExpectedToWrite);
-    [_originalChip setTitle:[NSString stringWithFormat:@"下载中 %d%%", pct] forState:UIControlStateNormal];
+    [_originalChip setTitle:IMLocalizedFormat(@"chat.media.downloading_progress", pct) forState:UIControlStateNormal];
 }
 
 - (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)downloadTask
@@ -485,8 +486,8 @@ didFinishDownloadingToURL:(NSURL *)location {
     [session finishTasksAndInvalidate];
     _originalSession = nil;
     if (mv) {
-        [_originalChip setTitle:@"查看原视频" forState:UIControlStateNormal];
-        [self im_showToast:@"下载失败"];
+        [_originalChip setTitle:IMLocalized(@"chat.media.view_original") forState:UIControlStateNormal];
+        [self im_showToast:IMLocalized(@"media.download.failed")];
         return;
     }
     [self switchToLocalOriginal:dst];
@@ -497,8 +498,8 @@ didFinishDownloadingToURL:(NSURL *)location {
     _downloadingOriginal = NO;
     [session finishTasksAndInvalidate];
     _originalSession = nil;
-    [_originalChip setTitle:@"查看原视频" forState:UIControlStateNormal];
-    [self im_showToast:@"下载失败，请重试"];
+    [_originalChip setTitle:IMLocalized(@"chat.media.view_original") forState:UIControlStateNormal];
+    [self im_showToast:IMLocalized(@"chat.media.download_failed_retry")];
 }
 
 #pragma mark - 通用控件（关闭 / 下载 / 媒体库 / 视频进度条）
@@ -581,7 +582,7 @@ didFinishDownloadingToURL:(NSURL *)location {
     [_scrubber addTarget:self action:@selector(scrubberEnded:) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
 
     _speedButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    [_speedButton setTitle:@"倍速" forState:UIControlStateNormal];
+    [_speedButton setTitle:IMLocalized(@"chat.media.speed_label") forState:UIControlStateNormal];
     [_speedButton setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
     _speedButton.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
     _speedButton.translatesAutoresizingMaskIntoConstraints = NO;
@@ -608,7 +609,7 @@ didFinishDownloadingToURL:(NSURL *)location {
     if (_usingLocalOriginal) { return; } // 播的已是本地原件：无需「查看原视频」chip 与 HEAD 探体积
     _originalChip = [UIButton buttonWithType:UIButtonTypeSystem];
     UIButtonConfiguration *originalConfig = [UIButtonConfiguration plainButtonConfiguration];
-    originalConfig.title = @"查看原视频";
+    originalConfig.title = IMLocalized(@"chat.media.view_original");
     originalConfig.baseForegroundColor = UIColor.whiteColor;
     originalConfig.contentInsets = NSDirectionalEdgeInsetsMake(6, 12, 6, 12);
     originalConfig.titleTextAttributesTransformer = ^NSDictionary<NSAttributedStringKey, id> *(NSDictionary<NSAttributedStringKey, id> *attrs) {
@@ -668,7 +669,7 @@ didFinishDownloadingToURL:(NSURL *)location {
             if (!self) { return; }
             NSString *size = mb >= 1.0 ? [NSString stringWithFormat:@"%.0fMB", mb]
                                        : [NSString stringWithFormat:@"%.0fKB", (double)len / 1024.0];
-            [self->_originalChip setTitle:[NSString stringWithFormat:@"查看原视频 %@", size] forState:UIControlStateNormal];
+            [self->_originalChip setTitle:IMLocalizedFormat(@"chat.media.view_original_sized", size) forState:UIControlStateNormal];
         });
     }] resume];
 }
@@ -678,7 +679,7 @@ didFinishDownloadingToURL:(NSURL *)location {
 - (void)showMoreSheet {
     __weak typeof(self) ws = self;
     NSMutableArray<IMPopoverCardItem *> *items = [NSMutableArray array];
-    [items addObject:[IMPopoverCardItem itemWithTitle:@"下载" symbol:@"arrow.down.to.line" destructive:NO handler:^{
+    [items addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"common.download") symbol:@"arrow.down.to.line" destructive:NO handler:^{
         [ws saveToAlbum];
     }]];
     for (IMPopoverCardItem *ext in self.moreActions) {
@@ -703,7 +704,7 @@ didFinishDownloadingToURL:(NSURL *)location {
     // 失效守卫：曾可用媒体被服务端清理(404) → 无字节可存。铁律A（本机有缓存/原件则仍可存）天然成立：
     // 有缓存/原件时加载不会 404、URL 不会被登记失效，故命中 isExpiredURL 即代表无本机字节，直接拦。
     if ([IMMediaExpiryRegistry.shared isExpiredURL:_url]) {
-        [self im_showToast:@"该文件已失效，无法保存"];
+        [self im_showToast:IMLocalized(@"chat.media.file_expired_cant_save")];
         return;
     }
     _saving = YES;
@@ -714,7 +715,7 @@ didFinishDownloadingToURL:(NSURL *)location {
             if (!self) { return; }
             if (status != PHAuthorizationStatusAuthorized && status != PHAuthorizationStatusLimited) {
                 self->_saving = NO;
-                [self im_showToast:@"请在设置中允许访问相册"];
+                [self im_showToast:IMLocalized(@"chat.media.photos_permission_denied")];
                 return;
             }
             if (self->_isVideo) { [self saveVideo]; } else { [self saveImage]; }
@@ -724,7 +725,7 @@ didFinishDownloadingToURL:(NSURL *)location {
 
 - (void)saveImage {
     UIImage *img = _fullImage ?: _imageView.image;
-    if (!img) { _saving = NO; [self im_showToast:@"图片未加载完成"]; return; }
+    if (!img) { _saving = NO; [self im_showToast:IMLocalized(@"chat.media.image_not_loaded")]; return; }
     __weak typeof(self) ws = self;
     [[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
         [PHAssetChangeRequest creationRequestForAssetFromImage:img];
@@ -734,7 +735,7 @@ didFinishDownloadingToURL:(NSURL *)location {
 }
 
 - (void)saveVideo {
-    [self im_showToast:@"正在保存…"];
+    [self im_showToast:IMLocalized(@"chat.media.saving")];
     NSURL *u = [NSURL URLWithString:_url];
     __weak typeof(self) ws = self;
     NSURLSessionDownloadTask *task = [[NSURLSession sharedSession] downloadTaskWithURL:u
@@ -759,7 +760,7 @@ didFinishDownloadingToURL:(NSURL *)location {
 - (void)finishSave:(BOOL)success {
     dispatch_async(dispatch_get_main_queue(), ^{
         self->_saving = NO;
-        [self im_showToast:success ? @"已保存到相册" : @"保存失败"];
+        [self im_showToast:success ? IMLocalized(@"qr.card.saved") : IMLocalized(@"common.save_failed")];
     });
 }
 

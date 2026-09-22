@@ -4,6 +4,7 @@
 #import "IMTheme.h"
 #import "IMBubbleCell.h" // 复用 charCountLabelForText: / attributedContent:（字数标签 + @高亮唯一入口）
 #import "UIViewController+IMToast.h"
+#import "IMLocalization.h"
 
 @implementation IMTextReaderViewController {
     NSString                              *_text;
@@ -49,7 +50,7 @@
     title.translatesAutoresizingMaskIntoConstraints = NO;
     title.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
     title.textColor = IMTheme.textPrimary;
-    title.text = [NSString stringWithFormat:@"全文 · %@", [IMBubbleCell charCountLabelForText:_text]];
+    title.text = IMLocalizedFormat(@"chat.reader.title", [IMBubbleCell charCountLabelForText:_text]);
     [bar addSubview:title];
 
     UIButton *copy = [self barButtonWithSymbol:@"doc.on.doc" title:nil];
@@ -172,7 +173,7 @@
 
 - (void)copyAll {
     UIPasteboard.generalPasteboard.string = _text ?: @"";
-    [self im_showToast:@"已复制全文"];
+    [self im_showToast:IMLocalized(@"common.copied_full_text")];
 }
 
 - (void)dismissSelf { [self dismissViewControllerAnimated:YES completion:nil]; }

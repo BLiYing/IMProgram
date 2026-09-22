@@ -2,6 +2,7 @@
 
 #import "IMGroupTextEditViewController.h"
 #import "IMTheme.h"
+#import "IMLocalization.h"
 
 @interface IMGroupTextEditViewController () <UITextViewDelegate>
 @property (nonatomic, copy) NSString *initialText;
@@ -33,7 +34,7 @@
     vc.initialText = text ?: @"";
     vc.placeholder = placeholder ?: @"";
     vc.maxChars = maxChars;
-    vc.commitTitle = commitTitle ?: @"保存";
+    vc.commitTitle = commitTitle ?: IMLocalized(@"common.save");
     vc.allowRetract = allowRetract;
     vc.footerText = footer;
     vc.onCommit = onCommit;
@@ -47,7 +48,7 @@
     self.view.backgroundColor = IMTheme.groupedBackground;
 
     self.navigationItem.leftBarButtonItem =
-        [[UIBarButtonItem alloc] initWithTitle:@"取消" style:UIBarButtonItemStylePlain target:self action:@selector(cancelTapped)];
+        [[UIBarButtonItem alloc] initWithTitle:IMLocalized(@"common.cancel") style:UIBarButtonItemStylePlain target:self action:@selector(cancelTapped)];
     self.navigationItem.rightBarButtonItem =
         [[UIBarButtonItem alloc] initWithTitle:self.commitTitle style:UIBarButtonItemStyleDone target:self action:@selector(commitTapped)];
 
@@ -117,7 +118,7 @@
     // 撤下公告（红色行，发空串）——仅公告且已有内容时显示。
     if (self.allowRetract) {
         UIButton *retract = [UIButton buttonWithType:UIButtonTypeSystem];
-        [retract setTitle:@"撤下公告" forState:UIControlStateNormal];
+        [retract setTitle:IMLocalized(@"group.ops.announcement_retract") forState:UIControlStateNormal];
         [retract setTitleColor:IMTheme.danger forState:UIControlStateNormal];
         retract.titleLabel.font = [UIFont systemFontOfSize:16];
         retract.backgroundColor = IMTheme.cardBackground;

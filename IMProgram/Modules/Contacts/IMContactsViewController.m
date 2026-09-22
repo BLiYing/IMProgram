@@ -1,6 +1,7 @@
 //  IMContactsViewController.m
 
 #import "IMContactsViewController.h"
+#import "IMLocalization.h"
 #import "IMUserSearchViewController.h"
 #import "IMGroupListViewController.h"
 #import "IMFriendRequestListViewController.h"
@@ -187,13 +188,13 @@ BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt
 - (void)buildEntries {
     __weak typeof(self) ws = self;
     self.entries = @[
-        [IMMenuAction actionWithId:@"groupChat" title:@"群聊" image:@"person.3.fill" handler:^{ [ws openGroupList]; }],
+        [IMMenuAction actionWithId:@"groupChat" title:IMLocalized(@"common.group_chat") image:@"person.3.fill" handler:^{ [ws openGroupList]; }],
         // 「新的朋友」独立入口（2026-09-05）：原先它是好友列表上方的一段，好友一多就被挤到看不见，
         // 而"有人加我"恰恰是需要主动去处理的事。副标题显待确认数（0 时留空，别摆一个恒亮的 0）。
-        [IMMenuAction actionWithId:@"friendRequests" title:@"新的朋友" image:@"person.crop.circle.badge.plus"
+        [IMMenuAction actionWithId:@"friendRequests" title:IMLocalized(@"friend.requests.title") image:@"person.crop.circle.badge.plus"
                            handler:^{ [ws openFriendRequests]; }],
-        [IMMenuAction actionWithId:@"officialAccount" title:@"公众号" image:@"megaphone.fill" handler:^{ [ws im_showComingSoon:@"公众号"]; }],
-        [IMMenuAction actionWithId:@"serviceAccount" title:@"服务号" image:@"headphones" handler:^{ [ws im_showComingSoon:@"服务号"]; }],
+        [IMMenuAction actionWithId:@"officialAccount" title:IMLocalized(@"contacts.entry.official_account") image:@"megaphone.fill" handler:^{ [ws im_showComingSoon:IMLocalized(@"contacts.entry.official_account")]; }],
+        [IMMenuAction actionWithId:@"serviceAccount" title:IMLocalized(@"contacts.entry.service_account") image:@"headphones" handler:^{ [ws im_showComingSoon:IMLocalized(@"contacts.entry.service_account")]; }],
     ];
     self.entryColors = @[UIColor.systemGreenColor, UIColor.systemTealColor, UIColor.systemOrangeColor, UIColor.systemBlueColor];
 }
@@ -211,7 +212,7 @@ BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"通讯录";
+    self.title = IMLocalized(@"contacts.title");
     self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
     self.navigationItem.rightBarButtonItem =
         [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"person.badge.plus"]
@@ -230,7 +231,7 @@ BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt
     // 分组表，屏幕竖直中心恰好落在最后一条入口（服务号）身上，两段文字直接叠在一起（2026-09-05 实测）。
     // 表尾天然接在最后一段内容下方，以后入口再增减也撞不上。
     self.emptyLabel = [UILabel new];
-    self.emptyLabel.text = @"还没有好友，点右上角 + 搜索用户添加";
+    self.emptyLabel.text = IMLocalized(@"contacts.empty");
     self.emptyLabel.textColor = IMTheme.textSecondary;
     self.emptyLabel.textAlignment = NSTextAlignmentCenter;
     self.emptyLabel.numberOfLines = 0;
@@ -395,7 +396,7 @@ BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) { return; }
         if (error) {
-            [self showError:[NSString stringWithFormat:@"操作失败：%@", error.localizedDescription]];
+            [self showError:IMLocalizedFormat(@"common.action_failed_detail", error.localizedDescription ?: @"")];
             return;
         }
         [self reload];
@@ -417,9 +418,9 @@ BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt
 
 - (void)showError:(NSString *)message {
     IMLog(@"%@", message);
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"提示" message:message
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:IMLocalized(@"common.notice") message:message
                                                            preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.ok") style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
 }
 
@@ -481,7 +482,7 @@ BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt
     // 拉黑≠解绑：被拉黑的好友仍在列表，副标题标注"已拉黑"以区分。
     // 副标题 = @句柄（没有则留空），绝不显示 userID——那是 10 位随机数字内部 ID。
     NSString *handle = c.username.length > 0 ? [@"@" stringByAppendingString:c.username] : @"";
-    NSString *subtitle = c.blocked ? (handle.length > 0 ? [handle stringByAppendingString:@" · 已拉黑"] : @"已拉黑") : handle;
+    NSString *subtitle = c.blocked ? (handle.length > 0 ? IMLocalizedFormat(@"contacts.row.handle_blocked", handle) : IMLocalized(@"common.blocked")) : handle;
     [cell configureWithCard:c subtitle:subtitle];
     [cell setActionTitle:nil enabled:NO action:nil];
     cell.selectionStyle = UITableViewCellSelectionStyleDefault;
@@ -509,12 +510,12 @@ BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt
     NSString *peer = card.userID;
     __weak typeof(self) weakSelf = self;
     UIContextualAction *del = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive
-                                                                      title:@"删除"
+                                                                      title:IMLocalized(@"common.delete")
                                                                     handler:^(UIContextualAction *a, UIView *v, void (^done)(BOOL)) {
         [weakSelf removeFriend:peer]; done(YES);
     }];
     // 拉黑≠解绑：已拉黑的好友这里给"解除拉黑"，否则给"拉黑"。
-    NSString *blockTitle = card.blocked ? @"解除拉黑" : @"拉黑";
+    NSString *blockTitle = card.blocked ? IMLocalized(@"contacts.action.unblock") : IMLocalized(@"contacts.action.block");
     NSString *blockAction = card.blocked ? @"unblock" : @"block";
     UIContextualAction *block = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleNormal
                                                                         title:blockTitle
@@ -533,7 +534,7 @@ BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) { return; }
         if (error) {
-            [self showError:[NSString stringWithFormat:@"删除失败：%@", error.localizedDescription]];
+            [self showError:IMLocalizedFormat(@"common.delete_failed_detail", error.localizedDescription ?: @"")];
             return;
         }
         [self reload];

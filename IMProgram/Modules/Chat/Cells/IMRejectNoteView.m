@@ -1,5 +1,6 @@
 #import "IMRejectNoteView.h"
 #import "IMTheme.h"
+#import "IMLocalization.h"
 
 /// 拒收码是否带可自助恢复的动作。
 /// 当前只有「非好友」可恢复（发好友申请）；**被拉黑(200102) 刻意不给**——服务端对拉黑与非好友
@@ -60,7 +61,7 @@ static BOOL IMNoteCodeIsActionable(NSInteger code) { return code == 200103; }
         NSForegroundColorAttributeName: IMTheme.textSecondary,
         NSParagraphStyleAttributeName: ps,
     }];
-    [s appendAttributedString:[[NSAttributedString alloc] initWithString:@"\n发送好友申请" attributes:@{
+    [s appendAttributedString:[[NSAttributedString alloc] initWithString:[NSString stringWithFormat:@"\n%@", IMLocalized(@"chat.system.send_friend_request")] attributes:@{
         NSFontAttributeName: [UIFont systemFontOfSize:12 weight:UIFontWeightMedium],
         NSForegroundColorAttributeName: IMTheme.accent,
         NSParagraphStyleAttributeName: ps,

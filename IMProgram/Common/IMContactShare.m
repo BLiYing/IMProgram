@@ -1,6 +1,7 @@
 //  IMContactShare.m
 
 #import "IMContactShare.h"
+#import "IMLocalization.h"
 #import "IMContactCard.h"
 #import "IMForwardPickerViewController.h"
 #import "IMConversation.h"
@@ -31,8 +32,8 @@
                               toConv:c.convID toUser:(c.isGroup ? @"" : (c.peer ?: @""))];
         }
         // 这里**要**吐司：与入口 ① 不同，用户此刻不在目标会话里，看不到气泡这个天然反馈。
-        [wsHost im_showToast:selected.count == 1 ? @"已发送"
-                                                : [NSString stringWithFormat:@"已发送到 %lu 个会话", (unsigned long)selected.count]];
+        [wsHost im_showToast:selected.count == 1 ? IMLocalized(@"common.sent")
+                                                : IMLocalizedFormat(@"common.sent_to_chats", (long)selected.count)];
     }];
     [host presentViewController:[[UINavigationController alloc] initWithRootViewController:picker]
                        animated:YES completion:nil];

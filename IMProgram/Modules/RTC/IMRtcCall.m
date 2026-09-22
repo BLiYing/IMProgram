@@ -1,4 +1,5 @@
 #import "IMRtcCall.h"
+#import "IMLocalization.h"
 #import "IMDeviceIdentity.h"
 #import "IMGroupInfo.h"
 #import "IMLog.h"
@@ -101,7 +102,7 @@
 - (NSString *)placeGroupCallInGroup:(NSString *)groupID callees:(NSArray<NSString *> *)calleeUIDs {
     NSString *reason = [self unavailableReason] ?: [IMRtcConfig problemForID:groupID kind:@"群号"];
     if (reason) { return reason; }
-    if (calleeUIDs.count == 0) { return @"请选择要呼叫的成员"; }
+    if (calleeUIDs.count == 0) { return IMLocalized(@"rtc.error.no_callees"); }
     _resolver.groupID = groupID;
     [_kit.controller placeCall:calleeUIDs mediaType:@"video"
                        isGroup:YES chatGroupID:groupID userData:@"" timeoutSec:0];
@@ -118,7 +119,7 @@
     if (!config.isUsable) {
         return [@"通话未配置：IMRtcConfig.local.plist 缺 " stringByAppendingString:[config.missingKeys componentsJoinedByString:@"、"]];
     }
-    return @"通话服务未启动（请重新登录）";
+    return IMLocalized(@"rtc.error.not_started");
 }
 
 #pragma mark - 票

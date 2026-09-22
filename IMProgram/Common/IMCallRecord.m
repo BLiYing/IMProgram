@@ -1,9 +1,9 @@
 //  IMCallRecord.m
 
 #import "IMCallRecord.h"
+#import "IMLocalization.h"
 
 NSString * const IMContentTypeCall = @"call";
-NSString * const IMCallRecordUnsupportedText = @"[音视频通话] 请升级新版查看";
 
 static const NSInteger kIMCallRecordMaxDuration = 86400 * 3; // 与服务端截断一致
 
@@ -59,43 +59,45 @@ NSString *IMCallRecordFormatDuration(NSInteger sec) {
 /// 单聊正文；missed 同时输出。
 static NSString *singleText(IMCallRecord *r, BOOL viewerIsSender, BOOL *missed) {
     *missed = NO;
-    if (r.durationSec > 0) { return [@"通话时长 " stringByAppendingString:IMCallRecordFormatDuration(r.durationSec)]; }
+    if (r.durationSec > 0) { return IMLocalizedFormat(@"call.record.duration", IMCallRecordFormatDuration(r.durationSec)); }
     NSString *k = r.reason;
     // 主叫看 / 被叫看；只有被叫侧且 cancel/no_answer/busy/offline 才红（自己 reject 不红）。
+    // 表里放文案**键**（不在 dispatch_once 里取文案，否则切语言后不会变）。
     static NSDictionary<NSString *, NSArray<NSString *> *> *table;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        table = @{ @"cancel":    @[@"已取消", @"未接来电"],
-                   @"reject":    @[@"对方已拒绝", @"已拒绝"],
-                   @"no_answer": @[@"对方无应答", @"未接来电"],
-                   @"busy":      @[@"对方忙线", @"未接来电"],
-                   @"offline":   @[@"对方不在线", @"未接来电"] };
+        table = @{ @"cancel":    @[@"call.record.cancelled", @"call.record.missed"],
+                   @"reject":    @[@"call.record.declined_by_peer", @"call.record.declined"],
+                   @"no_answer": @[@"call.record.peer_no_answer", @"call.record.missed"],
+                   @"busy":      @[@"call.record.peer_busy", @"call.record.missed"],
+                   @"offline":   @[@"call.record.peer_offline", @"call.record.missed"] };
     });
     NSArray<NSString *> *row = table[k];
-    if (!row) { return @"通话未接通"; }   // network / room_closed / kicked / error / 表外 reason
+    if (!row) { return IMLocalized(@"call.record.not_connected"); }   // network / room_closed / kicked / error / 表外 reason
     *missed = !viewerIsSender && ![k isEqualToString:@"reject"];
-    return row[viewerIsSender ? 0 : 1];
+    return IMLocalized(row[viewerIsSender ? 0 : 1]);
 }
 
 /// 群系统条正文 + 会话列表预览尾巴。
 static NSString *groupText(IMCallRecord *r, BOOL viewerIsSender, NSString *senderName, NSString **tail) {
-    NSString *who = viewerIsSender ? @"你" : (senderName.length > 0 ? senderName : @"对方");
-    NSString *kind = r.video ? @"视频" : @"语音";
+    NSString *who = viewerIsSender ? IMLocalized(@"call.record.who_self")
+                                   : (senderName.length > 0 ? senderName : IMLocalized(@"call.record.who_peer"));
+    NSString *kind = IMLocalized(r.video ? @"call.record.kind_video" : @"call.record.kind_voice");
     if (r.durationSec > 0) {
         NSString *t = IMCallRecordFormatDuration(r.durationSec);
-        *tail = [@"时长 " stringByAppendingString:t];
-        return [NSString stringWithFormat:@"%@发起的群%@通话，时长 %@", who, kind, t];
+        *tail = IMLocalizedFormat(@"call.record.tail_duration", t);
+        return IMLocalizedFormat(@"call.record.group_duration", who, kind, t);
     }
     if ([r.reason isEqualToString:@"no_answer"]) {
-        *tail = @"无人接听";
-        return [NSString stringWithFormat:@"%@发起的群%@通话，无人接听", who, kind];
+        *tail = IMLocalized(@"call.record.tail_no_answer");
+        return IMLocalizedFormat(@"call.record.group_no_answer", who, kind);
     }
     if ([r.reason isEqualToString:@"cancel"]) {
-        *tail = @"已取消";
-        return [NSString stringWithFormat:@"%@取消了群%@通话", who, kind];
+        *tail = IMLocalized(@"call.record.cancelled");
+        return IMLocalizedFormat(@"call.record.group_cancelled", who, kind);
     }
-    *tail = @"已结束";
-    return @"群通话已结束";
+    *tail = IMLocalized(@"call.record.tail_ended");
+    return IMLocalized(@"call.record.group_ended");
 }
 
 IMCallRecordDisplay *IMCallRecordRender(NSString *content, BOOL viewerIsSender, BOOL isGroup, NSString *senderName) {
@@ -111,14 +113,14 @@ IMCallRecordDisplay *IMCallRecordRender(NSString *content, BOOL viewerIsSender, 
         NSString *tail = @"";
         out.text = groupText(r, viewerIsSender, senderName, &tail);
         out.tone = IMCallRecordToneNormal; out.tappable = NO;
-        out.preview = [NSString stringWithFormat:@"[群%@通话] %@", r.video ? @"视频" : @"语音", tail];
+        out.preview = IMLocalizedFormat(r.video ? @"call.record.preview_group_video" : @"call.record.preview_group_voice", tail);
         return out;
     }
     BOOL missed = NO;
     out.text = singleText(r, viewerIsSender, &missed);
     out.tone = missed ? IMCallRecordToneMissed : IMCallRecordToneNormal;
     out.tappable = YES;
-    out.preview = [NSString stringWithFormat:@"[%@通话] %@", r.video ? @"视频" : @"语音", out.text];
+    out.preview = IMLocalizedFormat(r.video ? @"call.record.preview_video" : @"call.record.preview_voice", out.text);
     return out;
 }
 

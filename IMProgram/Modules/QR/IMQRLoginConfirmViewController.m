@@ -1,6 +1,7 @@
 //  IMQRLoginConfirmViewController.m
 
 #import "IMQRLoginConfirmViewController.h"
+#import "IMLocalization.h"
 #import "IMHTTPService.h"
 #import "IMKeyValueCardView.h"
 #import "IMTheme.h"
@@ -28,7 +29,7 @@
     vc.device = device;
     vc.ip = ip;
     vc.location = location;
-    vc.title = @"网页版登录确认"; // 容器注入的液态标题栏据此显示标题 + 返回键
+    vc.title = IMLocalized(@"qr.login_confirm.nav_title"); // 容器注入的液态标题栏据此显示标题 + 返回键
     [from.navigationController pushViewController:vc animated:YES];
 }
 
@@ -44,7 +45,7 @@
     [self.view addSubview:icon];
 
     UILabel *title = [UILabel new];
-    title.text = @"确认登录网页版";
+    title.text = IMLocalized(@"qr.login_confirm.title");
     title.font = [UIFont systemFontOfSize:20 weight:UIFontWeightSemibold];
     title.textColor = IMTheme.textPrimary;
     title.textAlignment = NSTextAlignmentCenter;
@@ -52,7 +53,7 @@
     [self.view addSubview:title];
 
     UILabel *sub = [UILabel new];
-    sub.text = @"有设备正在用你的账号登录网页版，请核对下方信息";
+    sub.text = IMLocalized(@"qr.login_confirm.subtitle");
     sub.font = [UIFont systemFontOfSize:13];
     sub.textColor = IMTheme.textSecondary;
     sub.textAlignment = NSTextAlignmentCenter;
@@ -66,7 +67,7 @@
 
     // 安全提示条（红底）。
     UILabel *warn = [UILabel new];
-    warn.text = @"不是你本人操作？请点「不是我，拒绝登录」，并尽快修改密码。";
+    warn.text = IMLocalized(@"qr.login_confirm.warning");
     warn.font = [UIFont systemFontOfSize:12.5];
     warn.textColor = IMTheme.danger;
     warn.numberOfLines = 0;
@@ -78,11 +79,11 @@
     [warnBox addSubview:warn];
     [self.view addSubview:warnBox];
 
-    self.confirmButton = [self buttonWithTitle:@"确认登录" titleColor:UIColor.whiteColor
+    self.confirmButton = [self buttonWithTitle:IMLocalized(@"qr.login_confirm.confirm") titleColor:UIColor.whiteColor
                                     background:IMTheme.accent border:nil action:@selector(confirmTapped)];
     [self.view addSubview:self.confirmButton];
 
-    self.rejectButton = [self buttonWithTitle:@"不是我，拒绝登录" titleColor:IMTheme.danger
+    self.rejectButton = [self buttonWithTitle:IMLocalized(@"qr.login_confirm.reject") titleColor:IMTheme.danger
                                    background:IMTheme.cardBackground border:IMTheme.danger action:@selector(rejectTapped)];
     [self.view addSubview:self.rejectButton];
 
@@ -129,10 +130,10 @@
 /// 「扫码时间」= 用户此刻扫码/确认的时刻（scan 接口未回服务端时间）——按实义命名，不谎称是网页发起时间。
 - (UIView *)buildInfoCard {
     return [IMKeyValueCardView cardWithRows:@[
-        @[@"设备", self.device.length ? self.device : @"未知设备"],
-        @[@"IP 地址", self.ip.length ? self.ip : @"未知"],
-        @[@"大致位置", self.location.length ? self.location : @"未知"],
-        @[@"扫码时间", [self nowTimeString]],
+        @[IMLocalized(@"qr.login_confirm.row_device"), self.device.length ? self.device : IMLocalized(@"device.platform.unknown")],
+        @[IMLocalized(@"qr.login_confirm.row_ip"), self.ip.length ? self.ip : IMLocalized(@"common.unknown")],
+        @[IMLocalized(@"qr.login_confirm.row_location"), self.location.length ? self.location : IMLocalized(@"common.unknown")],
+        @[IMLocalized(@"qr.login_confirm.row_time"), [self nowTimeString]],
     ]];
 }
 
@@ -154,9 +155,8 @@
 }
 
 - (NSString *)nowTimeString {
-    NSDateFormatter *f = [NSDateFormatter new];
-    f.dateFormat = @"HH:mm";
-    return [@"今天 " stringByAppendingString:[f stringFromDate:NSDate.date]];
+    NSString *time = [[IMTheme timeFormatterForCurrentLanguage] stringFromDate:NSDate.date];
+    return IMLocalizedFormat(@"qr.login_confirm.scan_time_today", time);
 }
 
 #pragma mark - 动作
@@ -164,7 +164,7 @@
 - (void)confirmTapped {
     if (self.submitting) { return; }
     NSString *token = IMHTTPService.sharedService.currentToken;
-    if (token.length == 0) { [self im_showToast:@"登录已失效，请重新登录"]; return; }
+    if (token.length == 0) { [self im_showToast:IMLocalized(@"common.login_expired")]; return; }
     [self setSubmitting:YES];
     __weak typeof(self) ws = self;
     [IMHTTPService.sharedService qrLoginConfirmWithToken:token ticket:self.ticket completion:^(NSError *error) {
@@ -172,18 +172,18 @@
         if (!self) { return; }
         if (error) {
             [self setSubmitting:NO];
-            [self im_showToast:(error.localizedDescription.length ? error.localizedDescription : @"确认登录失败")];
+            [self im_showToast:(error.localizedDescription.length ? error.localizedDescription : IMLocalized(@"qr.login_confirm.confirm_failed"))];
             return;
         }
         [self.navigationController popViewControllerAnimated:YES];
-        [UIViewController im_showGlobalToast:@"已确认，网页版即将登录"];
+        [UIViewController im_showGlobalToast:IMLocalized(@"qr.login_confirm.confirmed_toast")];
     }];
 }
 
 - (void)rejectTapped {
     if (self.submitting) { return; }
     NSString *token = IMHTTPService.sharedService.currentToken;
-    if (token.length == 0) { [self im_showToast:@"登录已失效，请重新登录"]; return; }
+    if (token.length == 0) { [self im_showToast:IMLocalized(@"common.login_expired")]; return; }
     [self setSubmitting:YES];
     __weak typeof(self) ws = self;
     [IMHTTPService.sharedService qrLoginRejectWithToken:token ticket:self.ticket completion:^(NSError *error) {
@@ -191,11 +191,11 @@
         if (!self) { return; }
         if (error) {
             [self setSubmitting:NO];
-            [self im_showToast:(error.localizedDescription.length ? error.localizedDescription : @"拒绝登录失败")];
+            [self im_showToast:(error.localizedDescription.length ? error.localizedDescription : IMLocalized(@"qr.login_confirm.reject_failed"))];
             return;
         }
         [self.navigationController popViewControllerAnimated:YES];
-        [UIViewController im_showGlobalToast:@"已拒绝该次登录"];
+        [UIViewController im_showGlobalToast:IMLocalized(@"qr.login_confirm.rejected_toast")];
     }];
 }
 

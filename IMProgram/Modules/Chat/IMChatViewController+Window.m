@@ -21,6 +21,7 @@
 #import "IMDatabase.h"
 #import "IMLog.h"
 #import "UIViewController+IMToast.h"
+#import "IMLocalization.h"
 
 /// 一窗条数（与 IMDatabase 的 kIMMessageWindowPageSize、服务端单侧上限、im-web 的 RENDER_WINDOW_STEP 同量级）。
 static NSInteger IMWindowPage(void) { return kIMMessageWindowPageSize; }
@@ -486,7 +487,7 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
 - (void)requestServerWindowAnchor:(int64_t)anchor isJump:(BOOL)isJump earliest:(BOOL)earliest {
     if (IMSocketManager.sharedManager.state != IMSocketStateConnected) {
         // 不静默失败：离线时用户点了置顶横幅什么也不发生，会当成 bug 报上来。
-        if (isJump) { [self im_showToast:@"网络未连接，无法加载这条消息"]; }
+        if (isJump) { [self im_showToast:IMLocalized(@"chat.window.jump_offline")]; }
         self.windowState.hasMoreAbove = self.windowState.hasMoreAbove && !isJump; // 翻页失败不永久封死，重连后还能再试
         return;
     }
@@ -506,7 +507,7 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
         self.windowState.pendingAnchor = 0;
         IMLogWarnWithTag(IMLogTagUI, @"chat_window_request_timeout conv_id=%@ anchor=%lld is_jump=%d",
                          self.convID, anchor, isJump);
-        if (isJump) { [self im_showToast:@"加载超时，请重试"]; }
+        if (isJump) { [self im_showToast:IMLocalized(@"chat.window.jump_timeout")]; }
     });
 }
 
@@ -595,7 +596,7 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
             target = [database firstConvSeqInConv:cid atOrAfterTimestamp:0];
         }];
         if (target <= 0 || ![self openLocalWindowAroundConvSeq:target]) {
-            [self im_showToast:@"没有更早的消息了"];
+            [self im_showToast:IMLocalized(@"chat.window.no_older_messages")];
         }
         return;
     }
@@ -603,11 +604,11 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
         if (!anchorFound) {
             // 这次是**真的**：服务端明确说这条不存在/对我不可见。
             // 改造前只能靠"往前翻满 N 页还没见到"来猜，猜错就报出假的「原消息已被删除」。
-            [self im_showToast:@"原消息已被删除"];
+            [self im_showToast:IMLocalized(@"conv.error.original_deleted")];
             return;
         }
         if (![self openLocalWindowAroundConvSeq:anchor]) {
-            [self im_showToast:@"原消息已被删除"]; // 服务端说在，落库后却查不到 ⇒ 本端「仅为我删除」过
+            [self im_showToast:IMLocalized(@"conv.error.original_deleted")]; // 服务端说在，落库后却查不到 ⇒ 本端「仅为我删除」过
         }
         return;
     }

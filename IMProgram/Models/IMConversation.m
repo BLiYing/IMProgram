@@ -1,6 +1,7 @@
 //  IMConversation.m
 
 #import "IMConversation.h"
+#import "IMLocalization.h"
 
 #import "IMMessageModel.h" // IMSysSegment
 #import "IMPresence.h"
@@ -77,7 +78,7 @@ static BOOL IMBoolFromJSON(id value) {
     if (convRemark.length > 0) { return convRemark; } // 会话备注（G1）最"就近"，群/单聊通用
     if (self.isGroup) {
         NSString *name = [self.name stringByTrimmingCharactersInSet:ws];
-        return name.length > 0 ? name : @"群聊";
+        return name.length > 0 ? name : IMLocalized(@"common.group_chat");
     }
     // 好友备注取 IMRemarkStore 的实时值而非本对象快照：列表对象常比"刚改完的备注"旧一拍，
     // 读快照会闪回旧名。store 未被喂过该 uid 时回退昵称（宁可显真名，不显过期备注）。

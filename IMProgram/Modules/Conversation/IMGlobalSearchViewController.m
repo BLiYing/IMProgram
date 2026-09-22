@@ -1,6 +1,7 @@
 //  IMGlobalSearchViewController.m
 
 #import "IMGlobalSearchViewController.h"
+#import "IMLocalization.h"
 #import "IMDatabase.h"
 #import "IMDatabase+RosterCache.h"
 #import "IMConversation.h"
@@ -136,7 +137,7 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"搜索";
+    self.title = IMLocalized(@"common.search");
     self.view.backgroundColor = IMTheme.groupedBackground;
 
     // 搜索框在标题行：自持 IMLiquidNavigationBar 的 searchMode（复用 titleGlass 得 24 圆角+玻璃）。
@@ -145,14 +146,14 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
     // 里自己撑 56/72 会被每次转场同步清零，栏内按「安全区-hostExtraTopInset」算出负值钳 0，搜索框顶进
     // 状态栏（2026-08-20 踩坑）。正确做法：不碰 additionalSafeAreaInsets、hostExtraTopInset 保持 0，
     // 栏高改为显式「真实安全区 + 56」（bottom = safeArea.top + 56），内容行自然落在标准标题行位置。
-    IMLiquidNavigationBar *bar = [[IMLiquidNavigationBar alloc] initWithTitle:@"" subtitle:@"" actionTitle:@"取消"];
+    IMLiquidNavigationBar *bar = [[IMLiquidNavigationBar alloc] initWithTitle:@"" subtitle:@"" actionTitle:IMLocalized(@"common.cancel")];
     bar.delegate = self;
     // 关掉栏的磨砂底带（仿 IMFilePickerViewController）：本页自带纯色 groupedBackground，磨砂带叠上去
     // 在 iOS 26 呈现为「搜索框所在条带比页面白一截」（26 的 ultraThin 材质更透白；18 差异不可见）。
     // 页面静态无滚动穿透，无需磨砂——去掉后栏区与页面同色，玻璃只留搜索胶囊/取消钮本体。
     bar.backgroundEffectProgress = 0;
     bar.tintColor = IMTheme.accent;
-    bar.searchPlaceholder = @"搜索会话、联系人、聊天记录";
+    bar.searchPlaceholder = IMLocalized(@"search.global.placeholder");
     bar.searchModeActive = YES;
     bar.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:bar];
@@ -236,7 +237,7 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
 #pragma mark - 搜索
 
 - (NSString *)titleForConversation:(IMConversation *)c {
-    if (c.isGroup) { return c.name.length > 0 ? c.name : @"群聊"; }
+    if (c.isGroup) { return c.name.length > 0 ? c.name : IMLocalized(@"common.group_chat"); }
     return c.displayName;
 }
 
@@ -337,10 +338,10 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     switch ([self groupForSection:section]) {
-        case IMSearchGroupConversation: return @"会话";
-        case IMSearchGroupContact:      return @"联系人";
-        case IMSearchGroupRecord:       return @"聊天记录";
-        case IMSearchGroupUser:         return @"用户";
+        case IMSearchGroupConversation: return IMLocalized(@"search.section.conversations");
+        case IMSearchGroupContact:      return IMLocalized(@"search.section.contacts");
+        case IMSearchGroupRecord:       return IMLocalized(@"search.section.records");
+        case IMSearchGroupUser:         return IMLocalized(@"search.section.users");
     }
     return nil;
 }
@@ -354,14 +355,14 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
             [cell configureAvatarURL:(c.isGroup ? c.avatarURL : c.peerAvatarURL)
                                 seed:(c.isGroup ? c.convID : (c.peer ?: c.convID))
                          displayName:title title:title
-                            subtitle:c.isGroup ? [NSString stringWithFormat:@"%ld 人", (long)c.memberCount] : nil
+                            subtitle:c.isGroup ? IMLocalizedFormat(@"search.result.member_count", (long)c.memberCount) : nil
                              keyword:_keyword];
             break;
         }
         case IMSearchGroupContact: {
             IMUserCard *f = _friendHits[(NSUInteger)ip.row];
             [cell configureAvatarURL:f.avatarURL seed:f.userID displayName:f.displayName
-                               title:f.displayName subtitle:@"联系人" keyword:_keyword];
+                               title:f.displayName subtitle:IMLocalized(@"search.section.contacts") keyword:_keyword];
             break;
         }
         case IMSearchGroupRecord: {
@@ -376,9 +377,9 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
             break;
         }
         case IMSearchGroupUser: {
-            [cell configureAvatarURL:nil seed:@"__user_search__" displayName:@"搜"
-                               title:[NSString stringWithFormat:@"搜索用户「%@」", _keyword]
-                            subtitle:@"按 uid / 手机号精确查找、加好友" keyword:nil];
+            [cell configureAvatarURL:nil seed:@"__user_search__" displayName:IMLocalized(@"search.user.avatar_initial")
+                               title:IMLocalizedFormat(@"search.user.row_title", _keyword)
+                            subtitle:IMLocalized(@"search.user.row_subtitle") keyword:nil];
             break;
         }
     }

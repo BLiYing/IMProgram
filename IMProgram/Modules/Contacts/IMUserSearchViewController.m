@@ -1,6 +1,7 @@
 //  IMUserSearchViewController.m
 
 #import "IMUserSearchViewController.h"
+#import "IMLocalization.h"
 #import "IMContactCells.h"
 #import "IMChatViewController.h"
 #import "IMHTTPService.h"
@@ -53,14 +54,14 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"添加朋友";
+    self.title = IMLocalized(@"contacts.search.title");
     self.view.backgroundColor = UIColor.systemBackgroundColor;
 
     self.searchBar = [[UISearchBar alloc] init];
     // 找人只认**完整 username / 手机号**（后端 SearchUsers 是等值匹配，防枚举）。
     // 原文案写「完整 uid」是双重错误：内部 ID 用户根本看不到（docs/UI.md 用户标识），
     // 而且真拿 uid 来搜也搜不到——SQL 里压根没有 user_id 这一路。
-    self.searchBar.placeholder = @"对方用户名或手机号";
+    self.searchBar.placeholder = IMLocalized(@"contacts.search.placeholder");
     self.searchBar.delegate = self;
     self.searchBar.returnKeyType = UIReturnKeySearch;
     [self.searchBar sizeToFit];
@@ -78,7 +79,7 @@
 
     self.hintLabel = [UILabel new];
     self.hintLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.hintLabel.text = @"输入完整的用户名或手机号查找"; // 不支持模糊/前缀匹配，别让用户以为是关键词搜索
+    self.hintLabel.text = IMLocalized(@"contacts.search.hint"); // 不支持模糊/前缀匹配，别让用户以为是关键词搜索
     self.hintLabel.textColor = IMTheme.textSecondary;
     self.hintLabel.textAlignment = NSTextAlignmentCenter;
     [self.view addSubview:self.hintLabel];
@@ -136,12 +137,12 @@
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) { return; }
         if (error) {
-            [self showError:[NSString stringWithFormat:@"搜索失败：%@", error.localizedDescription]];
+            [self showError:IMLocalizedFormat(@"common.search_failed_detail", error.localizedDescription ?: @"")];
             return;
         }
         self.searched = YES;
         self.results = users ?: @[];
-        self.hintLabel.text = self.results.count > 0 ? @"" : @"没有找到匹配的用户";
+        self.hintLabel.text = self.results.count > 0 ? @"" : IMLocalized(@"contacts.search.no_results");
         self.hintLabel.hidden = self.results.count > 0;
         [self.tableView reloadData];
     }];
@@ -162,7 +163,7 @@
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) { return; }
         if (error) {
-            [self showError:[NSString stringWithFormat:@"操作失败：%@", error.localizedDescription]];
+            [self showError:IMLocalizedFormat(@"common.action_failed_detail", error.localizedDescription ?: @"")];
             return;
         }
         [self refreshStatusMapThen:nil];
@@ -179,9 +180,9 @@
 
 - (void)showError:(NSString *)message {
     IMLog(@"%@", message);
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"提示" message:message
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:IMLocalized(@"common.notice") message:message
                                                            preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.ok") style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
 }
 
@@ -214,19 +215,19 @@
     __weak typeof(self) weakSelf = self;
     switch ([self statusForUser:peer]) {
         case IMFriendStatusAccepted: {
-            [cell setActionTitle:@"发消息" enabled:YES action:^{ [weakSelf openChatWithPeer:peer]; }];
+            [cell setActionTitle:IMLocalized(@"qr.action.send_message") enabled:YES action:^{ [weakSelf openChatWithPeer:peer]; }];
             break;
         }
         case IMFriendStatusRequested: {
-            [cell setActionTitle:@"已申请" enabled:NO action:nil];
+            [cell setActionTitle:IMLocalized(@"contacts.search.action_requested") enabled:NO action:nil];
             break;
         }
         case IMFriendStatusPending: {
-            [cell setActionTitle:@"同意" enabled:YES action:^{ [weakSelf performAction:@"accept" onPeer:peer]; }];
+            [cell setActionTitle:IMLocalized(@"common.agree") enabled:YES action:^{ [weakSelf performAction:@"accept" onPeer:peer]; }];
             break;
         }
         case IMFriendStatusBlocked: {
-            [cell setActionTitle:@"已拉黑" enabled:NO action:nil];
+            [cell setActionTitle:IMLocalized(@"common.blocked") enabled:NO action:nil];
             break;
         }
         case IMFriendStatusNone:
@@ -234,7 +235,7 @@
             // 走统一的「添加好友」弹窗填验证消息（见 UIViewController+IMFriendRequest.h）——
             // 各入口直接调接口的话，加一个入口就漏一次理由，收件人那边又变回"只有一个名字"。
             NSString *shown = c.displayName;
-            [cell setActionTitle:@"加好友" enabled:YES action:^{
+            [cell setActionTitle:IMLocalized(@"contacts.search.action_add") enabled:YES action:^{
                 [weakSelf im_askFriendRequestForUID:peer name:shown onSent:^(BOOL becameFriend) { [weakSelf refreshStatusMapThen:nil]; }];
             }];
             break;

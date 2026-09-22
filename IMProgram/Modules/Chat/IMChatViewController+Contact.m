@@ -16,6 +16,7 @@
 #import "IMHTTPService.h"
 #import "IMTheme.h"
 #import "UIViewController+IMToast.h"
+#import "IMLocalization.h"
 
 /// 一次最多发几张名片（与转发选择页多选上限一致）。没有上限的话"一次发 200 张"就是刷屏。
 static const NSUInteger kIMContactMaxSelection = 9;
@@ -34,7 +35,7 @@ static const NSUInteger kIMContactMaxSelection = 9;
     IMFriendPickerViewController *picker =
         [[IMFriendPickerViewController alloc] initWithHost:self.host userID:self.userID
                                                excludedIDs:nil          // 名片不排除任何人（含自己的好友、含当前会话对端）
-                                              confirmTitle:@"发送"
+                                              confirmTitle:IMLocalized(@"common.send")
                                                     onDone:^(NSArray<NSString *> *uids) {
         __strong typeof(ws) self = ws;
         if (!self || uids.count == 0) { return; }
@@ -105,8 +106,8 @@ static const NSUInteger kIMContactMaxSelection = 9;
     title.numberOfLines = 2;
     NSString *to = [self conversationDisplayTitle] ?: @"";
     title.text = cards.count == 1
-        ? [NSString stringWithFormat:@"发送名片给「%@」", to]
-        : [NSString stringWithFormat:@"发送 %lu 张名片给「%@」", (unsigned long)cards.count, to];
+        ? IMLocalizedFormat(@"contact.card.send_one", to)
+        : IMLocalizedFormat(@"contact.card.send_many", (long)cards.count, to);
     [sheet.view addSubview:title];
 
     // 首张出全卡，其余折叠成一行显示名（≤3 个，再多显「等 N 人」）——避免 9 张卡把 sheet 撑爆。
@@ -130,7 +131,7 @@ static const NSUInteger kIMContactMaxSelection = 9;
 
     UIButton *send = [UIButton buttonWithType:UIButtonTypeSystem];
     send.translatesAutoresizingMaskIntoConstraints = NO;
-    [send setTitle:@"发送" forState:UIControlStateNormal];
+    [send setTitle:IMLocalized(@"common.send") forState:UIControlStateNormal];
     [send setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
     send.titleLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
     send.backgroundColor = IMTheme.accent;
@@ -139,7 +140,7 @@ static const NSUInteger kIMContactMaxSelection = 9;
 
     UIButton *cancel = [UIButton buttonWithType:UIButtonTypeSystem];
     cancel.translatesAutoresizingMaskIntoConstraints = NO;
-    [cancel setTitle:@"取消" forState:UIControlStateNormal];
+    [cancel setTitle:IMLocalized(@"common.cancel") forState:UIControlStateNormal];
     cancel.titleLabel.font = [UIFont systemFontOfSize:17];
     [sheet.view addSubview:cancel];
 
@@ -192,7 +193,7 @@ static const NSUInteger kIMContactMaxSelection = 9;
     }
     NSString *joined = [names componentsJoinedByString:@" · "];
     return rest.count > names.count
-        ? [joined stringByAppendingFormat:@" 等 %lu 人", (unsigned long)rest.count]
+        ? [joined stringByAppendingString:IMLocalizedFormat(@"chat.contact.rest_more_count", (long)rest.count)]
         : joined;
 }
 

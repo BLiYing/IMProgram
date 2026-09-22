@@ -3,6 +3,7 @@
 #import "IMAutoDownloadNetworkViewController.h"
 #import "IMDownloadSettingsUI.h"
 #import "IMDownloadSettingsStore.h"
+#import "IMLocalization.h"
 
 @interface IMAutoDownloadNetworkViewController () <UITableViewDataSource, UITableViewDelegate>
 @property (nonatomic, strong) UITableView *tableView;
@@ -66,14 +67,14 @@
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    if (section == 1) { return @"流量档位"; }
-    if (section == 2) { return @"媒体文件类型"; }
+    if (section == 1) { return IMLocalized(@"autodl.section.traffic_tier"); }
+    if (section == 2) { return IMLocalized(@"autodl.section.media_types"); }
     return nil;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
-    if (section == 1) { return @"“低”只自动下图片，视频/文件手动；“中/高”自动下更大的视频与文件。可进各类微调。"; }
-    if (section == 2) { return @"语音消息占用小，始终自动下载。"; }
+    if (section == 1) { return IMLocalized(@"autodl.footer.traffic_tier"); }
+    if (section == 2) { return IMLocalized(@"autodl.footer.media_types"); }
     return nil;
 }
 
@@ -82,7 +83,7 @@
     if (indexPath.section == 0) { // 总开关
         UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
-        cell.textLabel.text = @"自动下载媒体文件";
+        cell.textLabel.text = IMLocalized(@"autodl.master_switch");
         UISwitch *sw = [UISwitch new];
         sw.on = p.enabled;
         [sw addTarget:self action:@selector(masterSwitchChanged:) forControlEvents:UIControlEventValueChanged];
@@ -98,7 +99,7 @@
         UILabel *title = [[UILabel alloc] init];
         title.translatesAutoresizingMaskIntoConstraints = NO;
         title.font = [UIFont systemFontOfSize:15];
-        title.text = [@"流量使用情况：" stringByAppendingString:names[preset]];
+        title.text = IMLocalizedFormat(@"autodl.traffic_usage_prefix", names[preset]);
         _presetLabel = title;
         UISlider *slider = [[UISlider alloc] init];
         slider.translatesAutoresizingMaskIntoConstraints = NO;
@@ -146,10 +147,10 @@
     IMDownloadCategoryKind cat = (IMDownloadCategoryKind)indexPath.row;
     cell.textLabel.text = IMDownloadCategoryName(cat);
     if (cat == IMDownloadCategoryImage) {
-        cell.detailTextLabel.text = @"对所有聊天启用";
+        cell.detailTextLabel.text = IMLocalized(@"autodl.row.enabled_all_chats");
     } else {
         IMDownloadCategoryRule *r = IMRuleForCategory(p, cat);
-        cell.detailTextLabel.text = [@"最大 " stringByAppendingString:IMDownloadSizeLabel(r.maxBytes)];
+        cell.detailTextLabel.text = IMLocalizedFormat(@"autodl.row.max_size_prefix", IMDownloadSizeLabel(r.maxBytes));
     }
     return cell;
 }
@@ -172,7 +173,8 @@
 
 // 自定义时含第四档；仅命中预设时为三档。
 - (NSArray<NSString *> *)presetTickNames {
-    return _presetCustom ? @[ @"低", @"中", @"高", @"自定义" ] : @[ @"低", @"中", @"高" ];
+    NSString *low = IMLocalized(@"autodl.tier.low"), *medium = IMLocalized(@"autodl.tier.medium"), *high = IMLocalized(@"autodl.tier.high");
+    return _presetCustom ? @[ low, medium, high, IMLocalized(@"autodl.tier.custom") ] : @[ low, medium, high ];
 }
 
 // 拖动中：只更新文字/刻度高亮（不落库，PUT 留到松手），不重建控件（档数不变，避免抖动）。
@@ -180,7 +182,7 @@
     NSArray<NSString *> *names = [self presetTickNames];
     NSInteger idx = (NSInteger)lroundf(slider.value);
     idx = MAX(0, MIN(idx, (NSInteger)names.count - 1));
-    _presetLabel.text = [@"流量使用情况：" stringByAppendingString:names[idx]];
+    _presetLabel.text = IMLocalizedFormat(@"autodl.traffic_usage_prefix", names[idx]);
     for (NSUInteger i = 0; i < _presetTicks.arrangedSubviews.count; i++) {
         UILabel *t = (UILabel *)_presetTicks.arrangedSubviews[i];
         t.textColor = ((NSInteger)i == idx) ? UIColor.labelColor : UIColor.secondaryLabelColor;
