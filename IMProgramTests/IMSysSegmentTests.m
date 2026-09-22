@@ -1,5 +1,6 @@
 #import <XCTest/XCTest.h>
 
+#import "IMAccountIdentity.h"
 #import "IMConversation.h"
 #import "IMDatabase.h"
 #import "IMGroupInfo.h"
@@ -148,6 +149,34 @@
     ]];
     XCTAssertEqualObjects([c lastPreviewTextForSelfUID:@"1002"], @"我 将 用户3001 移出群聊");
     XCTAssertEqualObjects(c.lastPreviewText, @"用户1002 将 用户3001 移出群聊", @"不传 selfUID 即不替换（老口径）");
+}
+
+/// 系统通知单聊（sender=777000）的会话列表预览：走结构化 sys_event，取聊天页气泡正文
+/// （IMTextForNoticeSysEvent）的首行摘要，不落到 lastContent（服务端落库时按发送方
+/// 当时语言冻结的整句）——聊天页内气泡本身已修过，此前只有会话列表这一行残留。2026-09-22 补。
+- (void)testConversationPreviewRendersSystemNoticeFirstLine {
+    IMConversation *c = [IMConversation new];
+    c.convID = @"u_1002_777000"; c.isGroup = NO;
+    c.lastContentType = @"text";
+    c.lastFrom = IMSystemUserID;
+    c.lastSysEvent = @"password_changed";
+    c.lastSysArgs = @{ @"at": @"2026-09-22T10:30:00Z" };
+    c.lastContent = @"（老服务端落库整句，本测试验证走的是新分支而非这里）";
+    NSString *preview = [c lastPreviewTextForSelfUID:@"1002"];
+    XCTAssertTrue([preview hasPrefix:@"你的账号密码已于"], @"取的是通知正文首行，不是 lastContent 兜底");
+    XCTAssertTrue([preview hasSuffix:@"修改成功。"]);
+    XCTAssertFalse([preview containsString:@"\n"], @"会话列表只显首行摘要，不带完整多行正文");
+}
+
+/// 未识别 / 空 sys_event（存量老消息，服务端当时没存结构化字段）回退 lastContent，行为不变。
+- (void)testConversationPreviewSystemNoticeFallsBackToContentWhenUnrecognized {
+    IMConversation *c = [IMConversation new];
+    c.convID = @"u_1002_777000"; c.isGroup = NO;
+    c.lastContentType = @"text";
+    c.lastFrom = IMSystemUserID;
+    c.lastSysEvent = nil;
+    c.lastContent = @"你的账号密码已修改";
+    XCTAssertEqualObjects([c lastPreviewTextForSelfUID:@"1002"], @"你的账号密码已修改");
 }
 
 /// 群成员的两个名字必须泾渭分明：displayName=群内公开名（会进 @token 等发出去的内容），

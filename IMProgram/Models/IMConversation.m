@@ -7,6 +7,7 @@
 #import "IMPresence.h"
 #import "IMRemarkStore.h"
 #import "IMSysEventFormatter.h" // P3 i18n：sys_event → 本地化预览
+#import "IMAccountIdentity.h" // IMIsSystemUserID：系统通知单聊判定
 
 /// JSON 布尔的严格解析：**只认 NSNumber**（JSON 的 true/false/1/0 都落成 NSNumber）。
 ///
@@ -100,14 +101,25 @@ static BOOL IMBoolFromJSON(id value) {
     // P3 i18n（§3）：sys_event 非空且识别 → 按 App 当前语言重渲染；否则回退服务端原始 lastSysSegments
     // 整句（老消息/未识别事件），与聊天页系统行同一份算法（IMSegmentsForSysEvent）。
     NSArray<IMSysSegment *> *segments = IMSegmentsForSysEvent(self.lastSysEvent, self.lastSysArgs, self.lastSysSegments, resolve) ?: self.lastSysSegments;
-    if (segments.count == 0) { return self.lastContent; }
-    NSMutableString *out = [NSMutableString string];
-    for (IMSysSegment *seg in segments) {
-        if (seg.uid.length == 0) { [out appendString:seg.text ?: @""]; continue; }
-        // 预览不可点击：人名槽位直接用解析后的纯文本，不挂 uid。
-        [out appendString:resolve(seg.uid, seg.text)];
+    if (segments.count > 0) {
+        NSMutableString *out = [NSMutableString string];
+        for (IMSysSegment *seg in segments) {
+            if (seg.uid.length == 0) { [out appendString:seg.text ?: @""]; continue; }
+            // 预览不可点击：人名槽位直接用解析后的纯文本，不挂 uid。
+            [out appendString:resolve(seg.uid, seg.text)];
+        }
+        if (out.length > 0) { return out; }
     }
-    return out.length > 0 ? out : self.lastContent;
+    // 系统通知单聊（登录提醒/改密/被踢下线，sender=IMSystemUserID）会话列表只显首行摘要，
+    // 与聊天页内多行正文（IMBubbleCell 的 IMTextForNoticeSysEvent）同一套映射表，不重复维护一份。
+    // 2026-09-22 补：此前这条分支缺失，会一路落到下面的 self.lastContent——服务端落库时按
+    // 当时语言冻结的中文整句，不跟当前 App 语言（聊天页内气泡本身早就修过，只有列表这一行残留）。
+    if (IMIsSystemUserID(self.lastFrom)) {
+        NSString *notice = IMTextForNoticeSysEvent(self.lastSysEvent, self.lastSysArgs);
+        NSString *firstLine = [notice componentsSeparatedByString:@"\n"].firstObject;
+        if (firstLine.length > 0) { return firstLine; }
+    }
+    return self.lastContent;
 }
 
 + (NSString *)stringForKey:(NSString *)key in:(NSDictionary *)dict {
