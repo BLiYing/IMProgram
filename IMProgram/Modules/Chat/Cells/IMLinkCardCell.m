@@ -190,7 +190,9 @@
     [self applyFailBadgeForMessage:message mine:mine]; // 失败红❗（显隐+可否点重发，判据在基类）
     // 引用行（共性 #1）：URL 消息带引用时也要显示引用条 + OG 卡片。
     if (message.replyToConvSeq > 0) {
-        NSString *snap = IMLocalizeReplySnippet(message.replySnapshot.length > 0 ? message.replySnapshot : IMLocalized(@"chat.quote.original_fallback"));
+        // P3 i18n：与 IMBubbleCell 同一份引用快照渲染（kind 优先，见 IMRenderReplySnapshot 头注释）。
+        NSString *snap = nil;
+        IMRenderReplySnapshot(message, &snap, NULL, NULL, NULL);
         _quote.text = [NSString stringWithFormat:@"▏%@", snap];
         _quote.hidden = NO;
     } else {

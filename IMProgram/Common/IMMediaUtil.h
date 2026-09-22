@@ -90,12 +90,29 @@ FOUNDATION_EXPORT NSString *IMFileTypeIdentifierForName(NSString *_Nullable name
 /// 返回指定 pointSize 的原色“折角文件卡”图标；聊天/文件选择/详情/收藏共用同一映射。
 FOUNDATION_EXPORT UIImage *IMFileTypeIconForName(NSString *_Nullable name, CGFloat pointSize);
 
-/// 引用降级快照的跨端 token 本地化：[image]/[video]/[file]（含 `[file] <名>` 带文件名）→ 中文；
+/// 引用降级快照的跨端 token 本地化：[image]/[video]/[file]（含 `[file] <名>` 带文件名）→ 按 App
+/// **当前语言**（2026-09-22 P3 修复：此前硬编码中文，英文界面下引用条一直显中文，是真实 bug）；
 /// [chat_record]/存量 JSON 就地救援；已本地化输入幂等原样。两个气泡 cell 共用（此前各持 static 已分叉）。
+/// 仅供 `IMRenderReplySnapshot` 内部与老 `reply_snapshot_kind` 为空的回退路径使用；新代码优先用
+/// `IMRenderReplySnapshot`（结构化 kind 优先，§2 表）。
 FOUNDATION_EXPORT NSString *IMLocalizeReplySnippet(NSString *_Nullable snap);
 
 /// 从引用快照解析文件名：接受 wire 形 `[file] <名>` 与本端存量本地化形 `[文件] <名>`；非文件快照返回 nil。
 /// 一次解析供显示与 IMFileTypeIconForName 共用，避免对本地化字符串再做 magic offset 反解。
 FOUNDATION_EXPORT NSString *_Nullable IMReplySnippetFileName(NSString *_Nullable snap);
+
+/// 引用快照的最终渲染三元组（P3 i18n，§2）：本地化文案(*outText，非 nil，message 无引用时为空串)、
+/// 图标符号(*outGlyphSymbolName，SF Symbol 名，可能为 nil）、是否走"文件类型图标"渲染路径
+/// (*outIsFileKind，YES 时用 IMFileTypeIconForName 而不是 outGlyphSymbolName)、文件名
+/// (*outFileName，供 IMFileTypeIconForName，仅文件类可能非空)。
+///
+/// `message.replySnapshotKind` 非空按 §2 表渲染（结构化，跟随 App 语言、图标与语言无关）；为空
+/// （纯文本引用/老消息）回退 `IMLocalizeReplySnippet` 的旧 wire-token 路径。任一路径都不满足
+/// （非引用消息）→ *outText 置空串、其余置 nil/NO。四个 out 参数均可传 NULL（不关心就不取）。
+FOUNDATION_EXPORT void IMRenderReplySnapshot(IMMessageModel *_Nullable message,
+                                              NSString *_Nonnull *_Nullable outText,
+                                              NSString *_Nullable *_Nullable outGlyphSymbolName,
+                                              BOOL *_Nullable outIsFileKind,
+                                              NSString *_Nullable *_Nullable outFileName);
 
 NS_ASSUME_NONNULL_END

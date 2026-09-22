@@ -122,3 +122,15 @@ static NSString *const kIMLanguageDefaultsKey = @"im.language";
 }
 
 @end
+
+NSString *IMLocalizedFormatArgs(NSString *key, NSArray<NSString *> *args) {
+    switch (args.count) {
+        case 0: return IMLocalized(key);
+        case 1: return IMLocalizedFormat(key, args[0]);
+        case 2: return IMLocalizedFormat(key, args[0], args[1]);
+        case 3: return IMLocalizedFormat(key, args[0], args[1], args[2]);
+        default:
+            NSCAssert(NO, @"IMLocalizedFormatArgs: 参数个数超出已实现档位(%lu) key=%@", (unsigned long)args.count, key);
+            return IMLocalized(key);
+    }
+}

@@ -13,4 +13,9 @@ FOUNDATION_EXPORT int64_t IMNowMillis(void);
 /// 曾在气泡/收藏行/录音 HUD/锁定条/详情行五处各写一遍 %ld:%02ld（2026-08-26 收口）。
 FOUNDATION_EXPORT NSString *IMFormatVoiceDuration(int64_t millis);
 
+/// RFC3339 字符串（sys_args["at"]，如 "2026-09-22T10:00:00Z"）→ 本地时间 "yyyy-MM-dd HH:mm"；
+/// 解析失败/空串返回空串。系统通知单聊（P3 i18n，new_device_login/password_changed/device_kicked）
+/// 模板代入前必须先转成人读格式，不能把 RFC3339 原样喂进 IMLocalizedFormat。
+FOUNDATION_EXPORT NSString *IMFormatRFC3339LocalDateTime(NSString *_Nullable rfc3339);
+
 NS_ASSUME_NONNULL_END

@@ -50,6 +50,10 @@
     m.caption      = @"周末爬山拍的";      // 图说随附文本（2026-08-19）
     m.mentions     = @[@"bob", @"carol"]; // 配文 @（JSON TEXT 列，转发重发用）
     m.mentionAll   = YES;
+    m.sysEvent     = @"member_remove";    // P3 i18n（2026-09-22）
+    m.sysArgs      = @{ @"foo": @"bar" };
+    m.replySnapshotKind = @"file";
+    m.replySnapshotArgs = @{ @"name": @"季度财报_2026Q2.pdf" };
     return m;
 }
 
@@ -99,6 +103,10 @@
     XCTAssertEqualObjects(m.caption, @"周末爬山拍的");
     XCTAssertEqualObjects(m.mentions, (@[@"bob", @"carol"]));
     XCTAssertTrue(m.mentionAll);
+    XCTAssertEqualObjects(m.sysEvent, @"member_remove");
+    XCTAssertEqualObjects(m.sysArgs, (@{ @"foo": @"bar" }));
+    XCTAssertEqualObjects(m.replySnapshotKind, @"file");
+    XCTAssertEqualObjects(m.replySnapshotArgs, (@{ @"name": @"季度财报_2026Q2.pdf" }));
 }
 
 /// 全新库：建表由 +messageColumns 生成，每个字段都能写入并读回 → 证明列清单完整、无漏列。

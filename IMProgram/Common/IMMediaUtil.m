@@ -5,6 +5,8 @@
 #import "IMCallRecord.h"
 #import "IMMessageModel.h"
 #import "IMServerEndpoint.h"
+#import "IMLocalization.h"
+#import "IMTimeUtil.h" // IMFormatVoiceDuration：引用快照 voice 类复用同一 mm:ss 格式化，不重写
 #import <math.h>
 
 /// 是否是 http(s) 绝对 URL。旧实现用 `hasPrefix:@"http"`，把 `httpfoo:` 之类也算进去了。
@@ -306,16 +308,97 @@ NSString *IMReplySnippetFileName(NSString *snap) {
     return nil;
 }
 
+/// 2026-09-22 P3 修复：此前这里全是硬编码中文字面量，不看 App 当前语言——英文界面下引用条一直显
+/// 中文，是真实 bug（不是新引入的问题，见 P3 客户端消费守则 §2）。改为按 IMLocalized 取当前语言。
+/// `[chat_record]`/存量 JSON 救援分支仍调用 IMChatRecordSnippet（标题前缀硬编码中文）、`[call]`/
+/// `[contact]` 未改走 IMCallRecordNeutralPreview/IMContactCardPreview（同样硬编码中文）——这两个
+/// 是更大范围的共用函数（还服务会话列表/合并转发卡片等本批未涉及的界面），不在本批改动范围内，
+/// 已在交付报告里注明为已知残留限制。
 NSString *IMLocalizeReplySnippet(NSString *snap) {
     if (snap.length == 0) { return @""; }
-    if ([snap isEqualToString:@"[image]"]) { return @"[图片]"; }
-    if ([snap isEqualToString:@"[video]"]) { return @"[视频]"; }
-    if ([snap isEqualToString:@"[file]"])  { return @"[文件]"; }
-    NSString *fn = IMReplySnippetFileName(snap);
-    if (fn.length > 0) { return [@"[文件] " stringByAppendingString:fn]; } // 带名文件；本地化输入幂等重组
-    if ([snap isEqualToString:@"[chat_record]"]) { return @"[聊天记录]"; } // 旧服务端 token（无标题）兜底
-    if ([snap isEqualToString:@"[contact]"]) { return @"[个人名片]"; }      // 同上：老服务端下发的裸 token
-    if ([snap isEqualToString:@"[call]"]) { return IMCallRecordNeutralPreview(); } // 通话记录同上
-    if (IMLooksLikeChatRecordJSON(snap)) { return IMChatRecordSnippet(snap); } // 存量 JSON 截段救援
-    return snap;
+    if ([snap isEqualToString:@"[image]"]) { return IMLocalized(@"preview.image"); }
+    if ([snap isEqualToString:@"[video]"]) { return IMLocalized(@"preview.video"); }
+    if ([snap isEqualToString:@"[file]"])  { return IMLocalized(@"preview.file"); }
+    NSString *fn = IMReplySnippetFileName(snap); // wire 形 `[file] x` 与本端存量本地化形 `[文件] x` 都能取出文件名
+    if (fn.length > 0) { return IMLocalizedFormat(@"quote.snapshot.file_named", fn); } // 带名文件；本地化输入幂等重组（换成当前语言）
+    if ([snap isEqualToString:@"[chat_record]"]) { return IMLocalized(@"quote.snapshot.chat_record"); } // 旧服务端 token（无标题）兜底
+    if ([snap isEqualToString:@"[contact]"]) { return IMLocalized(@"quote.snapshot.contact"); }         // 同上：老服务端下发的裸 token
+    if ([snap isEqualToString:@"[call]"]) { return IMLocalized(@"quote.snapshot.call"); }               // 通话记录同上
+    if (IMLooksLikeChatRecordJSON(snap)) { return IMChatRecordSnippet(snap); } // 存量 JSON 截段救援（残留硬编码中文，见上注释）
+    return snap; // 纯文本 / 已本地化的存量输入：幂等原样
+}
+
+/// 语言无关的快照类别判定（供 IMRenderReplySnapshot 挑图标用）：同时识别 wire token（`[image]` 等）
+/// 与本端存量本地化形（`[图片]` 等），不依赖 IMLocalizeReplySnippet 的输出语言——旧版
+/// IMMediaGlyphForSnippet（IMBubbleCell.m）曾直接拿本地化后的中文字符串做字符串比较，一旦引用条
+/// 文案改成跟随语言（本批修复），英文界面下这个比较就再也不会命中，图标会静默消失，
+/// 是本批顺手一并修的另一处（原函数依赖 IMLocalizeReplySnippet 永远输出中文这一"巧合"才成立）。
+static NSString *IMReplySnippetGlyphKind(NSString *raw) {
+    if ([raw isEqualToString:@"[image]"] || [raw isEqualToString:@"[图片]"]) { return @"image"; }
+    if ([raw isEqualToString:@"[video]"] || [raw isEqualToString:@"[视频]"]) { return @"video"; }
+    if ([raw isEqualToString:@"[file]"]  || [raw isEqualToString:@"[文件]"]) { return @"file"; }
+    if (IMReplySnippetFileName(raw).length > 0) { return @"file"; }
+    if ([raw isEqualToString:@"[chat_record]"] || [raw hasPrefix:@"[聊天记录]"] || IMLooksLikeChatRecordJSON(raw)) { return @"chat_record"; }
+    return @"";
+}
+
+/// 旧 wire-token 路径的渲染（reply_snapshot_kind 为空时用）：文案 + 图标/文件类判定一起算好，
+/// 供 IMRenderReplySnapshot 的"kind 为空"与"kind==other 且非 image/video"两处共用，避免复制一份。
+static void IMRenderLegacyReplySnippet(NSString *raw,
+                                        NSString **outText, NSString **outGlyph,
+                                        BOOL *outIsFile, NSString **outFileName) {
+    NSString *text = IMLocalizeReplySnippet(raw);
+    NSString *tag = IMReplySnippetGlyphKind(raw);
+    NSString *glyph = nil; BOOL isFile = NO; NSString *fileName = nil;
+    if ([tag isEqualToString:@"image"]) { glyph = @"photo.fill"; }
+    else if ([tag isEqualToString:@"video"]) { glyph = @"video.fill"; }
+    else if ([tag isEqualToString:@"file"]) { isFile = YES; fileName = IMReplySnippetFileName(raw); }
+    else if ([tag isEqualToString:@"chat_record"]) { glyph = @"text.bubble.fill"; }
+    if (outText) { *outText = text; }
+    if (outGlyph) { *outGlyph = glyph; }
+    if (outIsFile) { *outIsFile = isFile; }
+    if (outFileName) { *outFileName = fileName; }
+}
+
+void IMRenderReplySnapshot(IMMessageModel *message,
+                            NSString **outText, NSString **outGlyphSymbolName,
+                            BOOL *outIsFileKind, NSString **outFileName) {
+    NSString *text = @""; NSString *glyph = nil; BOOL isFile = NO; NSString *fileName = nil;
+    if (message.replyToConvSeq > 0) {
+        NSString *rawFallback = message.replySnapshot.length > 0 ? message.replySnapshot : IMLocalized(@"chat.quote.original_fallback");
+        NSString *kind = message.replySnapshotKind;
+        NSDictionary<NSString *, NSString *> *args = message.replySnapshotArgs ?: @{};
+        if ([kind isEqualToString:@"recalled"]) {
+            text = IMLocalized(@"quote.snapshot.recalled");
+        } else if ([kind isEqualToString:@"chat_record"]) {
+            NSString *title = args[@"title"];
+            text = title.length > 0 ? IMLocalizedFormat(@"quote.snapshot.chat_record_titled", title) : IMLocalized(@"quote.snapshot.chat_record");
+            glyph = @"text.bubble.fill";
+        } else if ([kind isEqualToString:@"file"]) {
+            NSString *name = args[@"name"];
+            text = name.length > 0 ? IMLocalizedFormat(@"quote.snapshot.file_named", name) : IMLocalized(@"preview.file");
+            isFile = YES;
+            fileName = name;
+        } else if ([kind isEqualToString:@"voice"]) {
+            int64_t ms = [args[@"duration_ms"] longLongValue];
+            text = IMLocalizedFormat(@"preview.voice_duration", IMFormatVoiceDuration(ms));
+        } else if ([kind isEqualToString:@"contact"]) {
+            NSString *name = args[@"name"];
+            text = name.length > 0 ? IMLocalizedFormat(@"quote.snapshot.contact_named", name) : IMLocalized(@"quote.snapshot.contact");
+        } else if ([kind isEqualToString:@"call"]) {
+            text = IMLocalized(@"quote.snapshot.call");
+        } else if ([kind isEqualToString:@"other"]) {
+            NSString *ct = args[@"content_type"];
+            if ([ct isEqualToString:@"image"]) { text = IMLocalized(@"preview.image"); glyph = @"photo.fill"; }
+            else if ([ct isEqualToString:@"video"]) { text = IMLocalized(@"preview.video"); glyph = @"video.fill"; }
+            else { IMRenderLegacyReplySnippet(rawFallback, &text, &glyph, &isFile, &fileName); } // 罕见兜底
+        } else {
+            // kind 为空（纯文本引用/老消息）或不认识的取值 → 回退旧 wire-token 路径
+            IMRenderLegacyReplySnippet(rawFallback, &text, &glyph, &isFile, &fileName);
+        }
+    }
+    if (outText) { *outText = text; }
+    if (outGlyphSymbolName) { *outGlyphSymbolName = glyph; }
+    if (outIsFileKind) { *outIsFileKind = isFile; }
+    if (outFileName) { *outFileName = fileName; }
 }

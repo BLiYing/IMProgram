@@ -34,6 +34,11 @@ NS_ASSUME_NONNULL_BEGIN
 /// 最后一条若是系统消息，其结构化分段（同消息流的 sys_segments）。列表预览据此把名字换成本地显示名——
 /// 否则「张三 被取消管理员身份」在列表显真实昵称、点进会话却显备注，同一句话两副面孔。预览不挂点击。
 @property (nonatomic, copy, nullable) NSArray<IMSysSegment *> *lastSysSegments;
+/// P3 i18n：最后一条系统消息的结构化事件枚举/参数（服务端随 last_message 下发，同消息流的
+/// sys_event/sys_args）。非空且识别时，预览按 App 当前语言重渲染（IMSysEventFormatter），
+/// 与聊天页系统行同一份算法——预览不需要可点击，人名槽位直接用解析后的纯文本。
+@property (nonatomic, copy, nullable) NSString *lastSysEvent;
+@property (nonatomic, copy, nullable) NSDictionary<NSString *, NSString *> *lastSysArgs;
 @property (nonatomic, assign) BOOL lastRecalled;      // 最后一条是撤回消息（预览显示"撤回了一条消息"，M4-1）
 @property (nonatomic, copy, nullable) NSString *lastContentType; // 最后一条内容类型（image/video/file → 预览[图片]等，M4-6）
 @property (nonatomic, copy, nullable) NSString *lastCaption;     // 最后一条的图说 caption（Telegram 模型）：列表预览「有字显字」，空则回退 [图片] 等

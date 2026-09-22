@@ -3,9 +3,10 @@
 #import "IMConversation.h"
 #import "IMLocalization.h"
 
-#import "IMMessageModel.h" // IMSysSegment
+#import "IMMessageModel.h" // IMSysSegment / IMStringDictFromJSON
 #import "IMPresence.h"
 #import "IMRemarkStore.h"
+#import "IMSysEventFormatter.h" // P3 i18n：sys_event → 本地化预览
 
 /// JSON 布尔的严格解析：**只认 NSNumber**（JSON 的 true/false/1/0 都落成 NSNumber）。
 ///
@@ -63,6 +64,8 @@ static BOOL IMBoolFromJSON(id value) {
         c.lastFrom = [self stringForKey:@"from" in:last];
         c.lastFromNickname = [self stringForKey:@"from_nickname" in:last];
         c.lastSysSegments = [IMSysSegment segmentsFromArray:last[@"sys_segments"]];
+        c.lastSysEvent = [self stringForKey:@"sys_event" in:last]; // P3 i18n
+        c.lastSysArgs = IMStringDictFromJSON(last[@"sys_args"]);
         c.lastRecalled = [last[@"recalled_at"] respondsToSelector:@selector(longLongValue)] && [last[@"recalled_at"] longLongValue] > 0;
         c.lastContentType = [self stringForKey:@"content_type" in:last];
         c.lastCaption = [self stringForKey:@"caption" in:last]; // 图说 caption：列表预览「有字显字」
@@ -90,13 +93,19 @@ static BOOL IMBoolFromJSON(id value) {
 - (NSString *)lastPreviewText { return [self lastPreviewTextForSelfUID:nil]; }
 
 - (NSString *)lastPreviewTextForSelfUID:(NSString *)selfUID {
-    if (self.lastSysSegments.count == 0) { return self.lastContent; }
+    // 群昵称传 nil：会话行手上没有群成员表（那是群资料里的东西），退一级到服务端字面即可。
+    NSString *(^resolve)(NSString *, NSString *) = ^NSString *(NSString *uid, NSString *fallback) {
+        return [IMSysSegment localNameForUID:uid selfUID:selfUID groupNickname:nil fallback:fallback];
+    };
+    // P3 i18n（§3）：sys_event 非空且识别 → 按 App 当前语言重渲染；否则回退服务端原始 lastSysSegments
+    // 整句（老消息/未识别事件），与聊天页系统行同一份算法（IMSegmentsForSysEvent）。
+    NSArray<IMSysSegment *> *segments = IMSegmentsForSysEvent(self.lastSysEvent, self.lastSysArgs, self.lastSysSegments, resolve) ?: self.lastSysSegments;
+    if (segments.count == 0) { return self.lastContent; }
     NSMutableString *out = [NSMutableString string];
-    for (IMSysSegment *seg in self.lastSysSegments) {
+    for (IMSysSegment *seg in segments) {
         if (seg.uid.length == 0) { [out appendString:seg.text ?: @""]; continue; }
-        // 群昵称传 nil：会话行手上没有群成员表（那是群资料里的东西），退一级到服务端字面即可。
-        [out appendString:[IMSysSegment localNameForUID:seg.uid selfUID:selfUID
-                                          groupNickname:nil fallback:seg.text]];
+        // 预览不可点击：人名槽位直接用解析后的纯文本，不挂 uid。
+        [out appendString:resolve(seg.uid, seg.text)];
     }
     return out.length > 0 ? out : self.lastContent;
 }

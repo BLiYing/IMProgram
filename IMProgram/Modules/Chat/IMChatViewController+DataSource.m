@@ -32,6 +32,7 @@
 #import "UIViewController+IMToast.h"
 #import "IMLocalization.h"
 #import "IMRemarkStore.h"
+#import "IMSysEventFormatter.h" // P3 i18n：sys_event → 本地化系统消息分段
 #import "Voice/IMVoiceBubbleCell.h" // voice P0
 #import "Voice/IMVoicePlayer.h"
 #import "IMChatViewController+Voice.h"
@@ -62,16 +63,20 @@
     if ([m.contentType isEqualToString:@"system"]) {
         IMSystemCell *sys = [tableView dequeueReusableCellWithIdentifier:@"system" forIndexPath:indexPath];
         __weak typeof(self) wsSys = self;
-        [sys configureWithSegments:m.sysSegments
-                      fallbackText:m.content
-                 displayNameForUID:^NSString *(NSString *uid, NSString *fallbackName) {
+        NSString *(^displayNameForUID)(NSString *, NSString *) = ^NSString *(NSString *uid, NSString *fallbackName) {
             // 本机显示名：**是我自己 → 「我」** > 我给他起的备注 > 他在本群的昵称 > 服务端字面。
             // 口径收在 IMSysSegment，会话列表预览读同一个方法——同一句话两处必须一致。
             __strong typeof(wsSys) self = wsSys;
             return [IMSysSegment localNameForUID:uid selfUID:self.userID
                                    groupNickname:[self.groupInfo nicknameOfMember:uid]
                                         fallback:fallbackName];
-        }
+        };
+        // P3 i18n：sys_event 非空且识别 → 按 App 当前语言重渲染分段；为空/未识别 → 回退服务端原始
+        // sysSegments 整句（老消息/管理后台发的/未来新增事件），**不改变**这条回退路径。
+        NSArray<IMSysSegment *> *segments = IMSegmentsForSysEvent(m.sysEvent, m.sysArgs, m.sysSegments, displayNameForUID) ?: m.sysSegments;
+        [sys configureWithSegments:segments
+                      fallbackText:m.content
+                 displayNameForUID:displayNameForUID
                           onTapUID:^(NSString *uid) { [wsSys openMemberProfileForUID:uid]; }];
         return sys;
     }

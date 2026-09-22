@@ -15,6 +15,9 @@ static NSString *IMEncodeSysSegments(NSArray<IMSysSegment *> *segments);
 static NSArray<IMSysSegment *> *IMDecodeSysSegments(NSString *raw);
 static NSString *IMEncodeMentionSpans(NSArray<IMMentionSpan *> *spans);
 static NSArray<IMMentionSpan *> *IMDecodeMentionSpans(NSString *raw);
+/// P3 i18n：sys_args / reply_snapshot_args ↔ TEXT 列（JSON {string:string}）的前置声明，理由同上。
+static NSString *IMEncodeStringDict(NSDictionary<NSString *, NSString *> *dict);
+static NSDictionary<NSString *, NSString *> *IMDecodeStringDict(NSString *raw);
 
 @interface IMDatabase ()
 
@@ -133,6 +136,10 @@ static NSArray<IMMentionSpan *> *IMDecodeMentionSpans(NSString *raw);
         @[@"thumb",            @"TEXT"],                    // M4-7 极小模糊预览（~20px JPEG 的 data URI）
         @[@"waveform",         @"TEXT"],                    // voice 振幅指纹（base64≤160 rune，P0）：收端画气泡波形免下载音频
         @[@"from_role",        @"TEXT"],                    // 群主/管理员气泡徽标兜底（owner/admin 冗余下发）
+        @[@"sys_event",             @"TEXT"],               // P3 i18n：群系统消息结构化事件枚举，空=老消息/未识别→回退 sys_segments/content
+        @[@"sys_args",              @"TEXT"],               // P3 i18n：sys_event 模板的非人名参数（JSON {string:string}）
+        @[@"reply_snapshot_kind",   @"TEXT"],                // P3 i18n：引用快照结构化类型枚举，空=纯文本引用/老消息→回退 reply_snapshot
+        @[@"reply_snapshot_args",   @"TEXT"],                // P3 i18n：reply_snapshot_kind 模板参数（JSON {string:string}）
     ];
 }
 
@@ -185,6 +192,7 @@ static NSArray<IMMentionSpan *> *IMDecodeMentionSpans(NSString *raw);
              "is_group INTEGER, name TEXT, avatar_url TEXT, member_count INTEGER, is_super INTEGER NOT NULL DEFAULT 0,"
              "peer TEXT, peer_nickname TEXT, peer_avatar_url TEXT, peer_remark TEXT NOT NULL DEFAULT '',"
              "last_content TEXT, last_from TEXT, last_from_nickname TEXT, last_sys_segments TEXT NOT NULL DEFAULT '',"
+             "last_sys_event TEXT NOT NULL DEFAULT '', last_sys_args TEXT NOT NULL DEFAULT '',"
              "last_recalled INTEGER, last_content_type TEXT, last_caption TEXT NOT NULL DEFAULT '', latest_conv_seq INTEGER,"
              "read_seq INTEGER, peer_read_seq INTEGER, timestamp INTEGER, unread INTEGER,"
              "pinned_at INTEGER, muted INTEGER, marked_unread INTEGER,server_snapshot_seq INTEGER NOT NULL DEFAULT 0,"
@@ -210,6 +218,19 @@ static NSArray<IMMentionSpan *> *IMDecodeMentionSpans(NSString *raw);
         if (![self column:@"last_sys_segments" existsInTable:@"im_conversation_local" db:db]) {
             if (![db executeUpdate:@"ALTER TABLE im_conversation_local ADD COLUMN last_sys_segments TEXT NOT NULL DEFAULT ''"]) {
                 IMLogDatabase(@"迁移失败：im_conversation_local 补列 last_sys_segments 未成功: %@", db.lastErrorMessage);
+            }
+        }
+        // P3 i18n：最后一条系统消息的结构化事件/参数（会话列表预览按 App 语言重渲染要用，见 §3）。
+        // 持久化理由同 last_sys_segments：不存的话冷启动首屏（本地快路）预览会先显老式整句、
+        // 等 HTTP 权威列表回来才切成结构化重渲染，肉眼可见闪一下。
+        if (![self column:@"last_sys_event" existsInTable:@"im_conversation_local" db:db]) {
+            if (![db executeUpdate:@"ALTER TABLE im_conversation_local ADD COLUMN last_sys_event TEXT NOT NULL DEFAULT ''"]) {
+                IMLogDatabase(@"迁移失败：im_conversation_local 补列 last_sys_event 未成功: %@", db.lastErrorMessage);
+            }
+        }
+        if (![self column:@"last_sys_args" existsInTable:@"im_conversation_local" db:db]) {
+            if (![db executeUpdate:@"ALTER TABLE im_conversation_local ADD COLUMN last_sys_args TEXT NOT NULL DEFAULT ''"]) {
+                IMLogDatabase(@"迁移失败：im_conversation_local 补列 last_sys_args 未成功: %@", db.lastErrorMessage);
             }
         }
         // 好友备注名（仅本人可见、多端同步）：单聊显示名靠它，必须持久化——否则冷启动首屏
@@ -395,6 +416,9 @@ static NSArray<IMMentionSpan *> *IMDecodeMentionSpans(NSString *raw);
             c.lastFrom = [rs stringForColumn:@"last_from"];
             c.lastFromNickname = [rs stringForColumn:@"last_from_nickname"];
             c.lastSysSegments = IMDecodeSysSegments([rs stringForColumn:@"last_sys_segments"]);
+            NSString *lastSysEvent = [rs stringForColumn:@"last_sys_event"];
+            c.lastSysEvent = lastSysEvent.length > 0 ? lastSysEvent : nil; // P3 i18n
+            c.lastSysArgs = IMDecodeStringDict([rs stringForColumn:@"last_sys_args"]);
             c.lastRecalled = [rs boolForColumn:@"last_recalled"];
             c.lastContentType = [rs stringForColumn:@"last_content_type"];
             c.lastCaption = [rs stringForColumn:@"last_caption"];
@@ -448,11 +472,11 @@ static NSArray<IMMentionSpan *> *IMDecodeMentionSpans(NSString *raw);
         [conversations enumerateObjectsUsingBlock:^(IMConversation *c, NSUInteger idx, BOOL *stop) {
             if (c.convID.length == 0) { return; }
             BOOL ok = [db executeUpdate:
-                @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,is_super,peer,peer_nickname,peer_avatar_url,peer_remark,last_content,last_from,last_from_nickname,last_sys_segments,last_recalled,last_content_type,last_caption,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq,synced_conv_seq,remark,mention_unread,head_conv_seq) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,is_super,peer,peer_nickname,peer_avatar_url,peer_remark,last_content,last_from,last_from_nickname,last_sys_segments,last_sys_event,last_sys_args,last_recalled,last_content_type,last_caption,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq,synced_conv_seq,remark,mention_unread,head_conv_seq) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 owner, c.convID, @(idx), @(c.isGroup), c.name ?: @"", c.avatarURL ?: @"",
                 @(c.memberCount), @(c.isSuper), c.peer ?: @"", c.peerNickname ?: @"", c.peerAvatarURL ?: @"", c.peerRemark ?: @"",
                 c.lastContent ?: @"", c.lastFrom ?: @"", c.lastFromNickname ?: @"",
-                IMEncodeSysSegments(c.lastSysSegments), @(c.lastRecalled),
+                IMEncodeSysSegments(c.lastSysSegments), c.lastSysEvent ?: @"", IMEncodeStringDict(c.lastSysArgs), @(c.lastRecalled),
                 c.lastContentType ?: @"", c.lastCaption ?: @"", @(c.latestConvSeq), @(c.readSeq), @(c.peerReadSeq),
                 @(c.timestamp), @(c.unread), @(c.pinnedAt), @(c.muted), @(c.markedUnread), @(c.latestConvSeq),
                 syncCursors[c.convID] ?: @0, c.remark ?: @"", @(c.mentionUnread),
@@ -523,6 +547,10 @@ static NSArray<IMMentionSpan *> *IMDecodeMentionSpans(NSString *raw);
         @"mention_all":       @(message.mentionAll),
         @"sys_segments":      IMEncodeSysSegments(message.sysSegments),
         @"mention_spans":     IMEncodeMentionSpans(message.mentionSpans),
+        @"sys_event":              message.sysEvent ?: @"",
+        @"sys_args":               IMEncodeStringDict(message.sysArgs),
+        @"reply_snapshot_kind":    message.replySnapshotKind ?: @"",
+        @"reply_snapshot_args":    IMEncodeStringDict(message.replySnapshotArgs),
     };
 }
 
@@ -541,6 +569,21 @@ static NSArray<IMSysSegment *> *IMDecodeSysSegments(NSString *raw) {
     NSData *d = [raw dataUsingEncoding:NSUTF8StringEncoding];
     id arr = d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:NULL] : nil;
     return [IMSysSegment segmentsFromArray:arr];
+}
+
+/// P3 i18n：sys_args / reply_snapshot_args ↔ TEXT 列（JSON {string:string}；空存空串）。
+/// 与 sys_segments 同取舍：解析失败按「无参数」降级（回退整句/回退老快照），不阻断消息读取。
+static NSString *IMEncodeStringDict(NSDictionary<NSString *, NSString *> *dict) {
+    if (dict.count == 0) { return @""; }
+    NSData *d = [NSJSONSerialization dataWithJSONObject:dict options:0 error:NULL];
+    return d ? [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding] : @"";
+}
+
+static NSDictionary<NSString *, NSString *> *IMDecodeStringDict(NSString *raw) {
+    if (raw.length == 0) { return nil; }
+    NSData *d = [raw dataUsingEncoding:NSUTF8StringEncoding];
+    id obj = d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:NULL] : nil;
+    return IMStringDictFromJSON(obj);
 }
 
 /// @ 片段 ↔ TEXT 列（JSON 数组；空存空串）。**必须落库**：否则冷启动读本地库时片段丢失，
@@ -606,7 +649,10 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
              "thumb=CASE WHEN LENGTH(?)>0 THEN ? ELSE thumb END,"
              // waveform 同 thumb：本地录制端生成的振幅指纹优先保留（voice P0）。
              "waveform=CASE WHEN LENGTH(?)>0 THEN ? ELSE waveform END,"
-             "conv_seq=?,timestamp=?,status=?,note=?,from_nickname=?,from_role=?,recalled_at=?,recalled_by=?,edited_at=?,pinned_at=?,reply_to_conv_seq=?,reply_snapshot=?,reply_to_from=?,forward_from=?,group_id=?,poster=? WHERE row_id=?",
+             // reply_snapshot_kind/args 与 reply_snapshot 同一条理由随每次回声覆写（服务端权威判定，
+             // 不像 file_name/thumb 那样有"本地量出的值更准"的保留诉求）；sys_event/sys_args 不进这条
+             // UPDATE——与 sys_segments 同一取舍：系统消息永远是"收到"而不会走本地待发→ack合并这条路径。
+             "conv_seq=?,timestamp=?,status=?,note=?,from_nickname=?,from_role=?,recalled_at=?,recalled_by=?,edited_at=?,pinned_at=?,reply_to_conv_seq=?,reply_snapshot=?,reply_snapshot_kind=?,reply_snapshot_args=?,reply_to_from=?,forward_from=?,group_id=?,poster=? WHERE row_id=?",
             message.serverMsgID ?: @"", message.from ?: @"", message.to ?: @"",
             message.contentType ?: @"text", message.content ?: @"",
             message.fileName ?: @"", message.fileName ?: @"", @(message.fileSize), @(message.fileSize),
@@ -616,7 +662,9 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
             message.waveform ?: @"", message.waveform ?: @"",
             @(message.convSeq), @(message.timestamp), @(message.status), message.note ?: @"",
             message.fromNickname ?: @"", message.fromRole ?: @"", @(message.recalledAt), message.recalledBy ?: @"",
-            @(message.editedAt), @(message.pinnedAt), @(message.replyToConvSeq), message.replySnapshot ?: @"", message.replyToFrom ?: @"", message.forwardFrom ?: @"", message.groupID ?: @"", message.poster ?: @"", rowID];
+            @(message.editedAt), @(message.pinnedAt), @(message.replyToConvSeq), message.replySnapshot ?: @"",
+            message.replySnapshotKind ?: @"", IMEncodeStringDict(message.replySnapshotArgs),
+            message.replyToFrom ?: @"", message.forwardFrom ?: @"", message.groupID ?: @"", message.poster ?: @"", rowID];
     } else {
         // INSERT 列名串 + 值序列均由 +messageColumns × insertRowForMessage 同源生成：
         // 新增字段只改"列清单一行 + 值映射一行"，列串漂移（当年 file_name 事故）结构上不可能。
@@ -729,11 +777,11 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
     NSInteger unreadDelta = inserted && isIncoming && isUnread && !representedByServerSnapshot && !isSystem ? 1 : 0;
     if (!exists) {
         BOOL ok = [db executeUpdate:
-            @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,peer,peer_nickname,peer_avatar_url,last_content,last_from,last_from_nickname,last_sys_segments,last_recalled,last_content_type,last_caption,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq) VALUES (?,?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,0,0)",
+            @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,peer,peer_nickname,peer_avatar_url,last_content,last_from,last_from_nickname,last_sys_segments,last_sys_event,last_sys_args,last_recalled,last_content_type,last_caption,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq) VALUES (?,?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,0,0)",
             owner, message.convID, @(isGroup), isGroup ? @"群聊" : @"", @"", @0,
             isGroup ? @"" : (peer ?: @""), isGroup ? @"" : (peer ?: @""), @"",
             message.content ?: @"", message.from ?: @"", message.fromNickname ?: @"",
-            IMEncodeSysSegments(message.sysSegments),
+            IMEncodeSysSegments(message.sysSegments), message.sysEvent ?: @"", IMEncodeStringDict(message.sysArgs),
             @(message.recalledAt > 0), message.contentType ?: @"text", message.caption ?: @"", @(message.convSeq), @0, @0,
             @(message.timestamp), @(unreadDelta)];
         if (!ok) {
@@ -747,9 +795,9 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
             // `IMConversation.lastPreviewTextForSelfUID:` 只要 lastSysSegments 非空就整句用它渲染，
             // last_content 根本不参与，列表会一直显示那条早已被顶掉的旧系统消息
             // （code-review 2026-08-19 修过 caption 那一半、2026-08-30 补上 sys_segments 这一半）。
-            @"UPDATE im_conversation_local SET last_content=?,last_from=?,last_from_nickname=?,last_sys_segments=?,last_recalled=?,last_content_type=?,last_caption=?,latest_conv_seq=MAX(latest_conv_seq,?),timestamp=MAX(timestamp,?),unread=MIN(999,unread+?) WHERE owner_uid=? AND conv_id=?",
+            @"UPDATE im_conversation_local SET last_content=?,last_from=?,last_from_nickname=?,last_sys_segments=?,last_sys_event=?,last_sys_args=?,last_recalled=?,last_content_type=?,last_caption=?,latest_conv_seq=MAX(latest_conv_seq,?),timestamp=MAX(timestamp,?),unread=MIN(999,unread+?) WHERE owner_uid=? AND conv_id=?",
             message.content ?: @"", message.from ?: @"", message.fromNickname ?: @"",
-            IMEncodeSysSegments(message.sysSegments),
+            IMEncodeSysSegments(message.sysSegments), message.sysEvent ?: @"", IMEncodeStringDict(message.sysArgs),
             @(message.recalledAt > 0), message.contentType ?: @"text", message.caption ?: @"", @(message.convSeq),
             @(message.timestamp), @(unreadDelta), owner, message.convID];
         if (!ok) {
@@ -1146,6 +1194,9 @@ const NSInteger kIMMessageWindowPageSize = 200;
     m.mentionAll  = [rs boolForColumn:@"mention_all"];
     m.sysSegments = IMDecodeSysSegments([rs stringForColumn:@"sys_segments"]);
     m.mentionSpans = IMDecodeMentionSpans([rs stringForColumn:@"mention_spans"]);
+    NSString *sysEvent = [rs stringForColumn:@"sys_event"];
+    m.sysEvent = sysEvent.length > 0 ? sysEvent : nil; // P3 i18n
+    m.sysArgs = IMDecodeStringDict([rs stringForColumn:@"sys_args"]);
     m.convSeq     = [rs longLongIntForColumn:@"conv_seq"];
     m.timestamp   = [rs longLongIntForColumn:@"timestamp"];
     m.status      = (IMMessageStatus)[rs longForColumn:@"status"];
@@ -1163,6 +1214,9 @@ const NSInteger kIMMessageWindowPageSize = 200;
     m.replyToConvSeq = [rs longLongIntForColumn:@"reply_to_conv_seq"];
     NSString *snap = [rs stringForColumn:@"reply_snapshot"];
     m.replySnapshot = snap.length > 0 ? snap : nil;
+    NSString *snapKind = [rs stringForColumn:@"reply_snapshot_kind"];
+    m.replySnapshotKind = snapKind.length > 0 ? snapKind : nil; // P3 i18n
+    m.replySnapshotArgs = IMDecodeStringDict([rs stringForColumn:@"reply_snapshot_args"]);
     NSString *rf = [rs stringForColumn:@"reply_to_from"];
     m.replyToFrom = rf.length > 0 ? rf : nil;
     NSString *ff = [rs stringForColumn:@"forward_from"];

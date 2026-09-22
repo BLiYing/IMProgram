@@ -76,6 +76,17 @@
 
 @end
 
+NSDictionary<NSString *, NSString *> *IMStringDictFromJSON(id value) {
+    if (![value isKindOfClass:NSDictionary.class]) { return nil; }
+    NSMutableDictionary<NSString *, NSString *> *out = [NSMutableDictionary dictionary];
+    [(NSDictionary *)value enumerateKeysAndObjectsUsingBlock:^(id k, id v, BOOL *stop) {
+        if ([k isKindOfClass:NSString.class] && [(NSString *)k length] > 0 && [v isKindOfClass:NSString.class]) {
+            out[k] = v;
+        }
+    }];
+    return out.count > 0 ? out : nil;
+}
+
 @implementation IMMessageModel
 
 + (instancetype)receivedMessageWithNewMsgData:(NSDictionary *)data {
@@ -101,6 +112,8 @@
     m.pinnedAt    = [data[@"pinned_at"] longLongValue];
     m.replyToConvSeq = [data[@"reply_to_conv_seq"] longLongValue];
     m.replySnapshot  = [self stringForKey:@"reply_snapshot" in:data];
+    m.replySnapshotKind = [self stringForKey:@"reply_snapshot_kind" in:data]; // P3 i18n
+    m.replySnapshotArgs = IMStringDictFromJSON(data[@"reply_snapshot_args"]);
     m.replyToFrom    = [self stringForKey:@"reply_to_from" in:data];
     m.forwardFrom    = [self stringForKey:@"forward_from" in:data];
     m.groupID        = [self stringForKey:@"group_id" in:data];
@@ -114,6 +127,8 @@
     m.mentionAll     = [data[@"mention_all"] boolValue];
     m.mentionSpans   = [IMMentionSpan spansFromArray:data[@"mention_spans"]]; // 有片段就不必反查成员表
     m.sysSegments    = [IMSysSegment segmentsFromArray:data[@"sys_segments"]]; // 系统消息可点名字（仅 system）
+    m.sysEvent       = [self stringForKey:@"sys_event" in:data]; // P3 i18n
+    m.sysArgs        = IMStringDictFromJSON(data[@"sys_args"]);
     return m;
 }
 
@@ -140,6 +155,8 @@
     if (self.pinnedAt > 0) { d[@"pinned_at"] = @(self.pinnedAt); }
     if (self.replyToConvSeq > 0) { d[@"reply_to_conv_seq"] = @(self.replyToConvSeq); }
     if (self.replySnapshot) { d[@"reply_snapshot"] = self.replySnapshot; }
+    if (self.replySnapshotKind) { d[@"reply_snapshot_kind"] = self.replySnapshotKind; }
+    if (self.replySnapshotArgs.count > 0) { d[@"reply_snapshot_args"] = self.replySnapshotArgs; }
     if (self.replyToFrom) { d[@"reply_to_from"] = self.replyToFrom; }
     if (self.forwardFrom) { d[@"forward_from"] = self.forwardFrom; }
     if (self.groupID) { d[@"group_id"] = self.groupID; }
@@ -152,6 +169,8 @@
     if (self.mentions.count > 0) { d[@"mentions"] = self.mentions; }
     if (self.mentionAll) { d[@"mention_all"] = @YES; }
     if (self.mentionSpans.count > 0) { d[@"mention_spans"] = [IMMentionSpan arrayFromSpans:self.mentionSpans]; }
+    if (self.sysEvent) { d[@"sys_event"] = self.sysEvent; }
+    if (self.sysArgs.count > 0) { d[@"sys_args"] = self.sysArgs; }
     return d;
 }
 

@@ -34,6 +34,11 @@ typedef NS_ENUM(NSInteger, IMMessageStatus) {
                      fallback:(nullable NSString *)fallback;
 @end
 
+/// 脏数据安全解析 `{string:string}` 字典（P3 i18n：`sys_args`/`reply_snapshot_args` 两个字段共用，
+/// 消息模型解析、会话列表 last_message 解析、SQLite JSON 列解码三处都要用，避免各写一份过滤逻辑）。
+/// 非字典/键值非字符串一律丢弃该条；解析不出任何有效项返回 nil（与 IMSysSegment.segmentsFromArray: 同取舍）。
+FOUNDATION_EXPORT NSDictionary<NSString *, NSString *> *_Nullable IMStringDictFromJSON(id _Nullable value);
+
 /// 消息文本里的一段 **@ 提及**：从哪开始、多长、指向谁（对应后端 protocol.MentionSpan）。
 ///
 /// **为什么要有它**（2026-09-01）：此前是拿「本群成员昵称表」去正文里找 `@昵称` token 决定高亮的。
@@ -85,6 +90,12 @@ typedef NS_ENUM(NSInteger, IMMessageStatus) {
 /// 服务端在生成时只能填公开昵称，故拿到 uid 后**本端**才能把名字换成我的备注、并挂点击跳资料页。
 /// 空 = 历史系统消息（服务端当时没存分段）或非系统消息 → 回退按 content 整句渲染。
 @property (nonatomic, copy, nullable) NSArray<IMSysSegment *> *sysSegments;
+/// P3 i18n：群系统消息的结构化事件枚举（如 `member_remove`/`group_rename`），服务端 SysEvent* 常量。
+/// 客户端据此按 App 当前语言选模板重渲染（IMSysEventFormatter），人名槽位仍从 sysSegments 取 uid。
+/// 空 = 老消息/未识别事件 → 回退 sysSegments/content 整句渲染，**不改变**现有回退路径。
+@property (nonatomic, copy, nullable) NSString *sysEvent;
+/// sysEvent 模板的非人名参数（原始数据，不是译文；如新群名、设备名、RFC3339 时间）。
+@property (nonatomic, copy, nullable) NSDictionary<NSString *, NSString *> *sysArgs;
 @property (nonatomic, assign) int64_t  convSeq;      ///< 会话内单调序号，ack/new_msg 后填充
 @property (nonatomic, assign) int64_t  timestamp;    ///< 服务端时间（毫秒）
 @property (nonatomic, assign) IMMessageStatus status;
@@ -105,6 +116,12 @@ typedef NS_ENUM(NSInteger, IMMessageStatus) {
 /// M4-2 引用回复：目标 conv_seq + 服务端冻结的降级快照（气泡顶部引用条）。
 @property (nonatomic, assign) int64_t replyToConvSeq;
 @property (nonatomic, copy, nullable) NSString *replySnapshot;
+/// P3 i18n：引用快照的结构化类型枚举（服务端 SnapshotKind* 常量：recalled/chat_record/file/voice/
+/// contact/call/other）。非空时优先用它按 App 当前语言渲染（IMMediaUtil 的 IMRenderReplySnapshot），
+/// 空 = 纯文本引用/老消息 → 回退 replySnapshot 的旧前缀 token 本地化路径，**不改变**现有回退路径。
+@property (nonatomic, copy, nullable) NSString *replySnapshotKind;
+/// replySnapshotKind 模板的参数（原始数据，不是译文；标题/文件名/时长毫秒/名片显示名/原 content_type）。
+@property (nonatomic, copy, nullable) NSDictionary<NSString *, NSString *> *replySnapshotArgs;
 @property (nonatomic, copy, nullable) NSString *replyToFrom; ///< M4-x 被引用消息发送者 uid：群聊引用条显示发送者（本地解析昵称），单聊不显示
 /// M4-3 转发溯源："转发自 X"显示名（发送时冻结）。
 @property (nonatomic, copy, nullable) NSString *forwardFrom;

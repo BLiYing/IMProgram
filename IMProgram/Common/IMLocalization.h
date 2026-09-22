@@ -52,4 +52,10 @@ extern NSNotificationName const IMLanguageDidChangeNotification;
 #define IMLocalized(key) ([IMLocalization.shared stringForKey:(key)])
 #define IMLocalizedFormat(key, ...) ([IMLocalization.shared formattedStringForKey:(key), ##__VA_ARGS__])
 
+/// 按 `args` 个数安全分派到 `IMLocalizedFormat`（ObjC 变参方法不能用一个动态长度的数组直接转发调用，
+/// 只能按元数分档手写）。P3 结构化模板批量复用（IMSysEventFormatter 的 sys_event/系统通知、
+/// IMMediaUtil 的 reply_snapshot_kind），避免各处各写一份相同的按元数分派 switch。
+/// `args.count` 超出已实现档位时返回未替换的原串（防御性兜底，理论上不会触发——上限由调用方模板决定）。
+FOUNDATION_EXPORT NSString *IMLocalizedFormatArgs(NSString *key, NSArray<NSString *> *args);
+
 NS_ASSUME_NONNULL_END

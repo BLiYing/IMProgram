@@ -15,6 +15,8 @@
 #import "IMChatMessageLogic.h" // IMResendPolicyForMessage：红❗可不可点的唯一判据
 #import "IMLinkPreviewView.h" // 文本气泡里首个 URL 的 og 预览卡片子视图
 #import "IMLocalization.h"
+#import "IMAccountIdentity.h"   // IMIsSystemUserID：系统通知单聊判定
+#import "IMSysEventFormatter.h" // P3 i18n：sys_event → 本地化通知文案
 
 // 引用快照本地化统一走 IMMediaUtil 的 IMLocalizeReplySnippet（与 IMLinkCardCell 共用，防两份 static 分叉）。
 
@@ -101,17 +103,6 @@ static NSString *IMTruncateText(NSString *content, NSUInteger maxLines, NSUInteg
         out = [out substringToIndex:r.location];
     }
     return out;
-}
-
-/// 若快照是媒体占位（[图片]/[视频]/[文件]），返回对应 SF Symbol 名做内嵌小图标；否则 nil。
-/// 统一用 .fill 填充变体（与输入框回复条 video.fill/photo.fill 观感一致，矢量、跟随文字色）；
-/// 均为 iOS 13 基线符号，不随系统更新消失。
-static NSString *IMMediaGlyphForSnippet(NSString *snap) {
-    if ([snap isEqualToString:@"[图片]"]) { return @"photo.fill"; }
-    if ([snap isEqualToString:@"[视频]"]) { return @"video.fill"; }
-    if ([snap isEqualToString:@"[文件]"]) { return @"doc.fill"; }
-    if ([snap hasPrefix:@"[聊天记录]"]) { return @"text.bubble.fill"; } // 引用合并转发卡片
-    return nil;
 }
 
 /// 生成染成 textSecondary 的 SF Symbol 内嵌小图标，**等比缩放居中绘入 side×side 方形画布**。
@@ -867,8 +858,10 @@ static NSAttributedString *sIMMentionFlashOriginal = nil;
     _quoteThumbAtt = nil;
     _quoteThumbKey = nil;
     if (message.replyToConvSeq > 0) {
-        NSString *raw = message.replySnapshot.length > 0 ? message.replySnapshot : IMLocalized(@"chat.quote.original_fallback");
-        NSString *snap = IMLocalizeReplySnippet(raw);
+        // P3 i18n：reply_snapshot_kind 非空按结构化模板渲染（跟随 App 语言）；为空回退旧 wire-token
+        // 路径（IMLocalizeReplySnippet 本身已改为跟随语言，见该函数头注释）。图标/文件名同一次算好。
+        NSString *snap = nil; NSString *glyph = nil; BOOL fileSnippet = NO; NSString *quoteFileName = nil;
+        IMRenderReplySnapshot(message, &snap, &glyph, &fileSnippet, &quoteFileName);
         NSDictionary *quoteAttr = @{ NSFontAttributeName: [UIFont systemFontOfSize:13],
                                      NSForegroundColorAttributeName: IMTheme.textSecondary };
         // 群聊两行式（M4-x）：被引用者昵称独占一行（accent 小字），其下为图标 + 内容快照；单聊不传 replyFromName。
@@ -879,9 +872,6 @@ static NSAttributedString *sIMMentionFlashOriginal = nil;
                                   NSForegroundColorAttributeName: IMTheme.accent }]];
         }
         [body appendAttributedString:[[NSAttributedString alloc] initWithString:@"▏" attributes:quoteAttr]];
-        NSString *glyph = IMMediaGlyphForSnippet(snap);
-        NSString *quoteFileName = IMReplySnippetFileName(raw); // 一次解析（wire 形/本端存量本地化形皆可），文件判定与图标共用
-        BOOL fileSnippet = quoteFileName != nil || [snap isEqualToString:@"[文件]"];
         // 门控一致（M4-7）：有媒体地址即走 IMMediaPlaceholder 统一取图（真帧仅已下载 > thumb 磨砂 > nil）；
         // 复用 key 用完整媒体地址；返回 nil（未下载且无 thumb）则保留占位图标。绝不为引用小图联网拉原件/抽远端帧。
         NSString *previewKey = replyThumbURL;
@@ -917,7 +907,11 @@ static NSAttributedString *sIMMentionFlashOriginal = nil;
     // 纯 URL → 链接蓝+下划线（点击打开）；其余普通文本。头部（昵称/转发/引用）两种模式都走 _text。
     BOOL fileMode = [message.contentType isEqualToString:@"file"];
     if (!fileMode) {
-        NSString *contentText = message.content ?: @"";
+        // 系统通知单聊（P3 i18n，§1.4）：sender=777000 的 text 消息，sys_event 非空时本地拼装多行
+        // 通知文案（跟随 App 语言）替换 content；sys_event 为空/未识别 → 回退 content（服务端预生成
+        // 的中文成品，现有行为不变）。这条消息仍是普通文本气泡，不需要新 UI。
+        NSString *noticeText = IMIsSystemUserID(message.from) ? IMTextForNoticeSysEvent(message.sysEvent, message.sysArgs) : nil;
+        NSString *contentText = noticeText.length > 0 ? noticeText : (message.content ?: @"");
         BOOL isURL = IMLooksLikeURL(contentText);
         // URL 不参与长文本分档（纯 URL 不会超长）；其余按 chars/lines 双判据分档（与 Web longtext.ts 一致）。
         IMBubbleTextTier tier = isURL ? IMBubbleTextTierShort : [IMBubbleCell textTierForContent:contentText];
