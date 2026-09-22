@@ -128,4 +128,4 @@ NSString *IMCallRecordPreview(NSString *content, BOOL viewerIsSender, BOOL isGro
     return IMCallRecordRender(content, viewerIsSender, isGroup, nil).preview;
 }
 
-NSString *IMCallRecordNeutralPreview(void) { return @"[音视频通话]"; }
+NSString *IMCallRecordNeutralPreview(void) { return IMLocalized(@"quote.snapshot.call"); }

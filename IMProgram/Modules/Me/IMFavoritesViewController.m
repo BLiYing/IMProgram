@@ -761,14 +761,14 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
     NSString *ct = [f[@"content_type"] isKindOfClass:NSString.class] ? f[@"content_type"] : @"text";
     NSString *content = [f[@"content"] isKindOfClass:NSString.class] ? f[@"content"] : @"";
     NSString *caption = [f[@"caption"] isKindOfClass:NSString.class] ? f[@"caption"] : @"";
-    if ([ct isEqualToString:@"image"]) { return caption.length ? [@"[图片] " stringByAppendingString:caption] : @"[图片]"; }
-    if ([ct isEqualToString:@"video"]) { return caption.length ? [@"[视频] " stringByAppendingString:caption] : @"[视频]"; }
+    if ([ct isEqualToString:@"image"]) { return caption.length ? IMLocalizedFormat(@"preview.image_captioned", caption) : IMLocalized(@"preview.image"); }
+    if ([ct isEqualToString:@"video"]) { return caption.length ? IMLocalizedFormat(@"preview.video_captioned", caption) : IMLocalized(@"preview.video"); }
     if ([ct isEqualToString:@"file"]) {
         NSString *fn = [f[@"file_name"] isKindOfClass:NSString.class] && [f[@"file_name"] length] ? f[@"file_name"] : IMMediaFileName(content);
-        return fn.length ? fn : @"[文件]";
+        return fn.length ? fn : IMLocalized(@"preview.file");
     }
-    if ([ct isEqualToString:@"chat_record"] || IMLooksLikeChatRecordJSON(content)) { return IMChatRecordSnippet(content) ?: @"[聊天记录]"; }
-    if ([ct isEqualToString:@"audio"] || [ct isEqualToString:@"voice"]) { return @"[语音]"; }
+    if ([ct isEqualToString:@"chat_record"] || IMLooksLikeChatRecordJSON(content)) { return IMChatRecordSnippet(content) ?: IMLocalized(@"preview.chat_record"); }
+    if ([ct isEqualToString:@"audio"] || [ct isEqualToString:@"voice"]) { return IMLocalized(@"preview.voice"); }
     if ([ct isEqualToString:IMContentTypeContact]) { return IMContactCardPreview(content); }
     return content;
 }

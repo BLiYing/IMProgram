@@ -312,7 +312,7 @@ static NSString *IMRecordItemTimeText(int64_t timestampMillis) {
     }
     if (isContact) {
         // 脏名片：显灰字占位而不是整段 JSON。
-        _text.text = @"[个人名片]";
+        _text.text = IMLocalized(@"quote.snapshot.contact");
         _text.textColor = UIColor.secondaryLabelColor;
         _thumb.image = nil; _thumbURL = nil;
         return;
@@ -332,7 +332,7 @@ static NSString *IMRecordItemTimeText(int64_t timestampMillis) {
             // 文件行=类型图标 + 原名 + 大小（与聊天文件气泡同语言），点击整行打开（详情页 didSelectRow）。
             NSString *fn = fileName.length > 0 ? fileName : IMMediaFileName(content);
             if (fn.length == 0) {
-                _text.text = @"[文件]";
+                _text.text = IMLocalized(@"preview.file");
             } else {
                 NSTextAttachment *att = [NSTextAttachment new];
                 att.image = IMFileTypeIconForName(fn, 24);

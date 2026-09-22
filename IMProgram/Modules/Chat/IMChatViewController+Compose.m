@@ -211,7 +211,7 @@
     }
     if ([ct isEqualToString:@"file"]) {
         NSString *fn = message.fileName.length > 0 ? message.fileName : IMMediaFileName(message.content);
-        self.replySnippetLabel.text = fn.length > 0 ? fn : @"[文件]";
+        self.replySnippetLabel.text = fn.length > 0 ? fn : IMLocalized(@"preview.file");
         self.replySnippetLabel.lineBreakMode = NSLineBreakByTruncatingMiddle; // 文件名中间截断：报告…final.pdf
         // 按扩展名分型的共用文件图标（与文件气泡/详情文件行/收藏同款），而非所有文件一个 doc 图标。
         [self showReplySlotImage:IMFileTypeIconForName(fn, 30)];

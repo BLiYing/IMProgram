@@ -42,15 +42,15 @@ NSString *IMReplySnippet(IMMessageModel *m) {
         ([m.contentType isEqualToString:@"image"] || [m.contentType isEqualToString:@"video"] || [m.contentType isEqualToString:@"file"])) {
         return m.caption.length > 60 ? [[m.caption substringToIndex:60] stringByAppendingString:@"…"] : m.caption;
     }
-    if ([m.contentType isEqualToString:@"image"]) { return @"[图片]"; }
-    if ([m.contentType isEqualToString:@"video"]) { return @"[视频]"; }
+    if ([m.contentType isEqualToString:@"image"]) { return IMLocalized(@"preview.image"); }
+    if ([m.contentType isEqualToString:@"video"]) { return IMLocalized(@"preview.video"); }
     if ([m.contentType isEqualToString:@"file"]) {
         NSString *fn = m.fileName.length > 0 ? m.fileName : IMMediaFileName(m.content);
-        return fn.length > 0 ? [@"[文件] " stringByAppendingString:fn] : @"[文件]";
+        return fn.length > 0 ? IMLocalizedFormat(@"quote.snapshot.file_named", fn) : IMLocalized(@"preview.file");
     }
     if ([m.contentType isEqualToString:@"chat_record"]) { return IMChatRecordSnippet(m.content); } // [聊天记录] 标题
     if ([m.contentType isEqualToString:IMContentTypeContact]) { return IMContactCardPreview(m.content); } // [个人名片] 昵称
-    if ([m.contentType isEqualToString:IMContentTypeCall]) { return IMCallRecordNeutralPreview(); }      // 通话记录不可被引用；历史里已有的预本地化
+    if ([m.contentType isEqualToString:IMContentTypeCall]) { return IMCallRecordNeutralPreview(); }      // 通话记录不可被引用；已随 App 语言
     NSString *c = m.content ?: @"";
     return c.length > 60 ? [[c substringToIndex:60] stringByAppendingString:@"…"] : c;
 }
@@ -77,7 +77,7 @@ NSString *IMChatRecordSnippet(NSString *recordJSON) {
             }
         }
     }
-    return title.length > 0 ? [NSString stringWithFormat:@"[聊天记录] %@", title] : @"[聊天记录]";
+    return title.length > 0 ? IMLocalizedFormat(@"quote.snapshot.chat_record_titled", title) : IMLocalized(@"preview.chat_record");
 }
 
 NSString *IMRecordItemPreview(NSDictionary *it) {
@@ -89,27 +89,27 @@ NSString *IMRecordItemPreview(NSDictionary *it) {
     if (cap.length > 0 && ([ct isEqualToString:@"image"] || [ct isEqualToString:@"video"] || [ct isEqualToString:@"file"])) {
         return cap.length > 60 ? [[cap substringToIndex:60] stringByAppendingString:@"…"] : cap;
     }
-    if ([ct isEqualToString:@"image"]) { return @"[图片]"; }
-    if ([ct isEqualToString:@"video"]) { return @"[视频]"; }
+    if ([ct isEqualToString:@"image"]) { return IMLocalized(@"preview.image"); }
+    if ([ct isEqualToString:@"video"]) { return IMLocalized(@"preview.video"); }
     if ([ct isEqualToString:@"file"]) {
         NSString *fn = [it[@"fn"] isKindOfClass:NSString.class] ? it[@"fn"] : IMMediaFileName(c);
-        return fn.length > 0 ? [@"[文件] " stringByAppendingString:fn] : @"[文件]";
+        return fn.length > 0 ? IMLocalizedFormat(@"quote.snapshot.file_named", fn) : IMLocalized(@"preview.file");
     }
     if ([ct isEqualToString:IMContentTypeContact]) { return IMContactCardPreview(c); }
     if ([ct isEqualToString:IMContentTypeCall]) { return IMCallRecordNeutralPreview(); }
     // 语音条目：显 [语音] m:ss（无 d 的老记录只显 [语音]），别把 URL 铺进套娃卡片的两行预览里。
     if ([ct isEqualToString:@"voice"] || [ct isEqualToString:@"audio"]) {
         int64_t ms = [it[@"d"] respondsToSelector:@selector(longLongValue)] ? [it[@"d"] longLongValue] : 0;
-        if (ms <= 0) { return @"[语音]"; }
-        long long sec = ms / 1000;
-        return [NSString stringWithFormat:@"[语音] %lld:%02lld", sec / 60, sec % 60];
+        if (ms <= 0) { return IMLocalized(@"preview.voice"); }
+        return IMLocalizedFormat(@"preview.voice_duration", IMFormatVoiceDuration(ms));
     }
     if ([ct isEqualToString:@"chat_record"]) {
         // 嵌套合并转发：只取子标题（maxLines=0，不再展开子条目），显「[聊天记录] 子标题」。
-        // 子 JSON 非法时标题回落「聊天记录」，此时不叠加以免「[聊天记录] 聊天记录」（与 Web 一致）。
+        // 子 JSON 非法时标题回落 IMSummarizeRecord 的本地化默认标题，此时不叠加以免重复
+        // （与 IMSummarizeRecord 的默认标题同一口径，见 record.chat_history）。
         NSString *t = nil; IMSummarizeRecord(c, &t, NULL, 0);
-        return (t.length > 0 && ![t isEqualToString:@"聊天记录"])
-            ? [@"[聊天记录] " stringByAppendingString:t] : @"[聊天记录]";
+        return (t.length > 0 && ![t isEqualToString:IMLocalized(@"record.chat_history")])
+            ? IMLocalizedFormat(@"quote.snapshot.chat_record_titled", t) : IMLocalized(@"preview.chat_record");
     }
     return c;
 }
@@ -134,7 +134,7 @@ NSDictionary<NSString *, NSString *> *IMRecordSenderKeysForUIDs(NSArray<NSString
 }
 
 void IMSummarizeRecord(NSString *json, NSString **outTitle, NSArray<NSString *> **outLines, NSInteger maxLines) {
-    NSString *title = @"聊天记录";
+    NSString *title = IMLocalized(@"record.chat_history"); // 缺 t 字段的老快照兜底标题，跟随 App 语言
     NSMutableArray<NSString *> *lines = [NSMutableArray array];
     NSData *d = [json dataUsingEncoding:NSUTF8StringEncoding];
     NSDictionary *dict = d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:NULL] : nil;

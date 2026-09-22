@@ -6,6 +6,7 @@
 #import "IMMessageModel.h"
 #import "UILabel+IMAvatar.h"
 #import "IMTheme.h"
+#import "IMLocalization.h"
 
 /// 名片气泡。布局骨架逐项对齐 IMChatRecordCell（同为定宽卡片气泡）：
 /// 卡片 240 定宽、我方右对齐/对方左对齐、群聊留头像列、连续段首条上方显发送者昵称、
@@ -40,7 +41,7 @@
         _fallback.translatesAutoresizingMaskIntoConstraints = NO;
         _fallback.font = [UIFont systemFontOfSize:13];
         _fallback.textColor = IMTheme.textSecondary;
-        _fallback.text = @"[个人名片]";
+        _fallback.text = IMLocalized(@"quote.snapshot.contact");
         _fallback.textAlignment = NSTextAlignmentCenter;
         _fallback.hidden = YES;
         [_card addSubview:_fallback];

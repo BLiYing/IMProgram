@@ -1029,6 +1029,9 @@
 "net.fallback.unmute_failed" = "Couldn’t undo";
 "net.fallback.user_resolve_failed" = "Couldn’t read the user profile";
 "net.fallback.username_change" = "Couldn’t change the username";
+"notify.body.contact" = "[Contact]";
+"notify.body.default" = "[Message]";
+"notify.body.missed_call" = "[Missed call]";
 "password.error.account_banned" = "This account is banned and can't change its password";
 "password.error.generic_failed" = "Couldn't change the password. Please try again later.";
 "password.error.min_length" = "New password must be at least 6 characters";
@@ -1057,9 +1060,12 @@
 "preview.chat_record" = "[Chat history]";
 "preview.empty_message" = "(Empty message)";
 "preview.file" = "[File]";
+"preview.file_captioned" = "[File] %1$@";
 "preview.image" = "[Photo]";
+"preview.image_captioned" = "[Photo] %1$@";
 "preview.location" = "[Location]";
 "preview.video" = "[Video]";
+"preview.video_captioned" = "[Video] %1$@";
 "preview.voice" = "[Voice]";
 "preview.voice_duration" = "[Voice] %1$@";
 "profile.avatar.change_hint" = "Tap avatar to change";

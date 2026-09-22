@@ -1029,6 +1029,9 @@
 "net.fallback.unmute_failed" = "解除失败";
 "net.fallback.user_resolve_failed" = "解析用户资料失败";
 "net.fallback.username_change" = "修改用户名失败";
+"notify.body.contact" = "[名片]";
+"notify.body.default" = "[消息]";
+"notify.body.missed_call" = "[未接来电]";
 "password.error.account_banned" = "账号已被封禁，无法修改密码";
 "password.error.generic_failed" = "修改密码失败，请稍后再试";
 "password.error.min_length" = "新密码至少 6 位";
@@ -1057,9 +1060,12 @@
 "preview.chat_record" = "[聊天记录]";
 "preview.empty_message" = "（空消息）";
 "preview.file" = "[文件]";
+"preview.file_captioned" = "[文件] %1$@";
 "preview.image" = "[图片]";
+"preview.image_captioned" = "[图片] %1$@";
 "preview.location" = "[位置]";
 "preview.video" = "[视频]";
+"preview.video_captioned" = "[视频] %1$@";
 "preview.voice" = "[语音]";
 "preview.voice_duration" = "[语音] %1$@";
 "profile.avatar.change_hint" = "点击头像更换";
