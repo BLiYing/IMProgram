@@ -4,7 +4,7 @@
     {
       "name": "imweb",
       "runtimeExecutable": "sh",
-      "runtimeArgs": ["-c", "cd /Users/liying/IOSProject/im-web && npx vite --port $PORT --strictPort --host"],
+      "runtimeArgs": ["-c", "cd /Users/dev/IOSProject/im-web && npx vite --port $PORT --strictPort --host"],
       "port": 5173,
       "autoPort": true
     }

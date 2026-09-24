@@ -146,7 +146,7 @@
 
 # 11. Web 端（im-web）手测场景 + 独有差异
 
-> 工程：`/Users/liying/IOSProject/im-web`。**门控决策与 iOS 一致**（`src/download.ts shouldAutoDownload` 逐字段对齐 iOS `IMShouldAutoDownload`）；
+> 工程：`/Users/dev/IOSProject/im-web`。**门控决策与 iOS 一致**（`src/download.ts shouldAutoDownload` 逐字段对齐 iOS `IMShouldAutoDownload`）；
 > 差异只在**落地与呈现**，皆因浏览器沙盒（无 App 沙盒目录、无 Range 分片下载器、分不清移动/Wi-Fi），非功能缺失——逐条见 §11.J。
 > 关键实现符号：`src/App.tsx` 的 `mediaGate`（档 A 判定）/ `onGateTap`（点击路由）/ `startDownload`（文件真进度）/ `passivePreviewSource`（档 B 三态取图，`src/download.ts` 纯函数带单测）。
 >
