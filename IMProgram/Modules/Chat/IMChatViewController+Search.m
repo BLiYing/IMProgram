@@ -31,6 +31,17 @@
 /// （入群前历史不可见的新成员永远拿不到 1 号 → 每次都问一次服务端，一次往返换一个正确落点，值。）
 BOOL IMEarliestJumpNeedsServer(int64_t localEarliest) { return localEarliest > 1; }
 
+/// 日历一次性向服务端要的跨度（毫秒）。
+///
+/// **不能是「近两年」**：服务端 `conversation.MaxCalendarSpan` 只放行约 400 天，超限直接
+/// `errcode.ParamInvalid "time range too wide"`——此前这里写的是 730 天，等于每次点 📅 都在问一个
+/// 服务端必拒的请求，`searchCalTapped` 里 `error || days.count==0` 分支把这次必然失败静默吞掉、
+/// 退化成"仅本地打点"，圆点从未真正包含过服务端补的历史（2026-09-24 与 Android 端圆点数量对不上时
+/// 查出）。改成 390 天，与 Android `ChatCalendar.QUERY_SPAN_MS` 同一个数值、同一份理由
+/// （留 10 天余量，不踩服务端上限的线）。
+FOUNDATION_EXPORT const int64_t kIMChatCalendarQuerySpanMs;
+const int64_t kIMChatCalendarQuerySpanMs = 390LL * 24 * 3600 * 1000;
+
 static const CGFloat kIMSearchNavBarH = 48;
 static const CGFloat kIMSearchFromRowH = 52;
 
@@ -544,10 +555,10 @@ static const CGFloat kIMSearchFromRowH = 52;
     NSString *token = IMHTTPService.sharedService.currentToken;
     NSString *convID = self.convID;
     if (token.length == 0) { [self presentDateJumpWithActiveDays:localDays]; return; }
-    // 跨度：近两年。服务端对区间有上限，不设区间等于一次请求扫完整个会话。
+    // 跨度见 kIMChatCalendarQuerySpanMs 注释：服务端对区间有上限，不设区间等于一次请求扫完整个会话。
     NSDate *now = [NSDate date];
     int64_t toMs = (int64_t)(now.timeIntervalSince1970 * 1000.0);
-    int64_t fromMs = toMs - (int64_t)(730LL * 24 * 3600 * 1000);
+    int64_t fromMs = toMs - kIMChatCalendarQuerySpanMs;
     int64_t offsetMs = (int64_t)NSTimeZone.systemTimeZone.secondsFromGMT * 1000;
     __weak typeof(self) ws = self;
     [IMHTTPService.sharedService convCalendarWithToken:token convID:convID fromMs:fromMs toMs:toMs

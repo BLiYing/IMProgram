@@ -11,6 +11,9 @@ FOUNDATION_EXPORT int64_t IMChatEntryWindowAnchor(int64_t readSeq);
 FOUNDATION_EXPORT int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages);
 // IMChatViewController+Search.m 里的同款纯函数（日历「跳到最早」该走本地还是问服务端）。
 FOUNDATION_EXPORT BOOL IMEarliestJumpNeedsServer(int64_t localEarliest);
+// 日历一次性向服务端要的跨度（2026-09-24 从 730 天改成 390 天：730 天超服务端
+// MaxCalendarSpan≈400 天上限，请求恒被拒、圆点静默退化成仅本地打点）。
+FOUNDATION_EXPORT const int64_t kIMChatCalendarQuerySpanMs;
 
 /// 消息窗口的**本地库契约**（设计见 IMServer/docs/design/MESSAGE_WINDOW_DESIGN.md）。
 ///
@@ -174,6 +177,14 @@ static NSString * const kMe = @"me";
     XCTAssertTrue(IMEarliestJumpNeedsServer(2), @"差一条也是差——本地最早不是会话最早");
     XCTAssertTrue(IMEarliestJumpNeedsServer(29802), @"三万条会话只下载了尾巴，跳本地最早=原地打转");
     XCTAssertFalse(IMEarliestJumpNeedsServer(0), @"本地一条都没有由调用方提示「暂无消息」，不开窗");
+}
+
+- (void)testCalendarQuerySpanStaysUnderServerMaxCalendarSpan {
+    const int64_t serverMaxCalendarSpanMs = 400LL * 24 * 3600 * 1000; // 镜像 IMServer conversation.MaxCalendarSpan
+    XCTAssertLessThan(kIMChatCalendarQuerySpanMs, serverMaxCalendarSpanMs,
+        @"超过服务端上限的请求会被 errcode.ParamInvalid 拒绝，日历圆点会静默退化成仅本地打点（此前 730 天踩过）");
+    XCTAssertEqual(kIMChatCalendarQuerySpanMs, 390LL * 24 * 3600 * 1000,
+        @"与 Android ChatCalendar.QUERY_SPAN_MS 同一个数值，留 10 天余量");
 }
 
 - (void)testEntryWindowAnchorNeverZero {
