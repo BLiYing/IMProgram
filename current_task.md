@@ -5,16 +5,27 @@
 
 ## 当前焦点
 
-> **修：日历请求跨度 730 天超服务端上限 ✅ 2026-09-25（已提交 `63a074f`）**：Android 端做圆点标记功能时
-> 比对发现"Android 圆点比 iOS 多"，查出根因在 iOS 这侧——`IMChatViewController+Search.m` 的
-> `searchCalTapped` 写死请求近两年（730 天），但服务端 `conversation.MaxCalendarSpan` 只放行约 400 天，
-> 请求恒被拒（`errcode.ParamInvalid "time range too wide"`），`error||days.count==0` 分支把这次必然失败
-> 静默吞掉、退化成"仅本地打点"——iOS 的圆点从未真正包含过服务端补的历史。改成
-> `kIMChatCalendarQuerySpanMs = 390 天`，与 Android `ChatCalendar.QUERY_SPAN_MS` 同一个数值、同一份理由
-> （留 10 天余量）。`IMChatWindowTests` 新增回归测试锁住这个值必须小于服务端上限。
-> `./scripts/test.sh` 全量 **530/530 绿**。**未上模拟器/真机肉眼比对圆点**（这台机器上 `xcodebuild`
-> 一度卡在 Resolve Package Graph，后确认是本机授权问题，非代码问题；解决后单测已验证但还没来得及
-> 装模拟器实测）。
+> **修：日历请求跨度 730 天超服务端上限 + 搜索命中崩溃 ✅ 2026-09-25（已提交 `63a074f`/`2bc2f6e`，
+> IMServer 侧 `bf97410`）**：Android 端做圆点标记功能时比对发现"Android 圆点比 iOS 多"，查出根因在
+> iOS 这侧——`IMChatViewController+Search.m` 的 `searchCalTapped` 写死请求近两年（730 天），但服务端
+> `conversation.MaxCalendarSpan` 只放行约 400 天，请求恒被拒（`errcode.ParamInvalid "time range too
+> wide"`），`error||days.count==0` 分支把这次必然失败静默吞掉、退化成"仅本地打点"——iOS 的圆点从未真正
+> 包含过服务端补的历史。改成 `kIMChatCalendarQuerySpanMs = 390 天`，与 Android
+> `ChatCalendar.QUERY_SPAN_MS` 同一个数值、同一份理由（留 10 天余量）。
+>
+> 之前这台机器 `xcodebuild` 一度卡在 Resolve Package Graph（本机授权问题，非代码问题），解决后新增
+> `IMProgramUITests/IMChatCalendarUITests`（驱动 iPhone 17 Pro Max 模拟器进搜索态→点日历→核对圆点→
+> 点「最早」「今天」）真机跑通，**顺手撞见一个真实崩溃**：搜索有命中时 `updateSearchNavState` 拼计数文案
+> 用 `IMLocalizedFormat(@"chat.search.hit_position", (long)idx, (long)n, ...)`，但两份
+> `Localizable.strings` 把这个键写成 `%1$@/%2$@%3$@`（期望对象），`NSString initWithFormat:` 按格式串
+> 类型读栈上的 vararg，把小整数当指针解引用直接 `EXC_BAD_ACCESS`——任何账号只要搜到东西就必崩，是个
+> 相当严重的既有回归（多语言 P2 迁移遗留，见下一条）。改成 `%1$ld/%2$ld%3$@`，同步修
+> `IMServer/docs/i18n/strings.json` 里这个键的 `args` 声明（`string`→`int`，`node scripts/i18n/
+> gen-i18n.mjs --check` 确认三端生成物与文案表一致、无漂移）。日历钮补了 `chat.search.calendar`
+> accessibilityIdentifier（同 prev/next/count 已有模式），否则 UI 测试定位不到。
+>
+> `./scripts/test.sh` 全量 **530/530 绿**；`IMChatCalendarUITests` 在模拟器上验证：圆点位置正确、
+> 「最早」落到会话真正开头、「今天」正确退化到最新消息，全程不再崩溃（截图核对过）。
 
 > **多语言 P1+P2+P3 ✅ 已完成（2026-09-22，中文 + 英文；已 commit 37f1d2f 推送、未真机）**：P1 基础设施（`Common/IMLocalization` + `Modules/Me/IMLanguageViewController` 设置 ▸ 语言）+ **P2 全部业务模块迁完**：Contacts/Conversation/Group/Login/Me（15 文件）/QR/Network/Detail（16 文件）/Chat（含 `Cells/`，46 文件）+ `IMPresence.subtitleText`。**P3 客户端消费**（未提交，另一次会话完成）：新增 `Common/IMSysEventFormatter.{h,m}`（`IMSegmentsForSysEvent`/`IMTextForNoticeSysEvent`，消费服务端 `sys_event`/`sys_args` 渲染群系统消息与系统通知，占位符分词 + 哨兵定位切分，兼容 iOS `%N$@` 位置格式与任意语言词序）+ `IMMediaUtil.m` 的 `IMRenderReplySnapshot`（消费 `reply_snapshot_kind`/`_args`）；接入点 `IMBubbleCell.m`/`IMLinkCardCell.m`/`IMChatViewController+DataSource.m`；`IMMessageModel`/`IMConversation`/`IMDatabase` 三处补齐新字段解析/落库/会话列表预览。**顺手修了两个真实 bug**：`IMLocalizeReplySnippet` 硬编码中文（不跟随 App 语言）、`IMMediaGlyphForSnippet` 图标判定比较的是本地化后文本（英文模式下会失效）。`./scripts/test.sh` 全量 **527/527 绿**。文案表现有 **1386 键**（跨三端共用，见 `../IMServer/docs/i18n/strings.json`）。
 > ⚠️ 已知缺口（详见 `../IMServer/docs/design/I18N_DESIGN.md` §6.1）：`IMChatRecordSnippet`/`IMCallRecordNeutralPreview`/`IMContactCardPreview` 仍硬编码中文（服务面更广，未纳入本批）；系统通知单聊的会话列表预览未接结构化渲染（聊天页内气泡已修）。
