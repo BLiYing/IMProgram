@@ -293,7 +293,7 @@
 "chat.search.earliest" = "最早";
 "chat.search.from_prefix" = "来自:";
 "chat.search.from_token" = "来自:%1$@";
-"chat.search.hit_position" = "第 %1$@ / %2$@%3$@ 条";
+"chat.search.hit_position" = "第 %1$ld / %2$ld%3$@ 条";
 "chat.search.in_chat_placeholder" = "搜索聊天记录";
 "chat.search.load_earlier" = "加载更早的命中";
 "chat.search.load_older_failed" = "加载更早的搜索结果失败，请重试";

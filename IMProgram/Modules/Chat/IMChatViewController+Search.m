@@ -233,6 +233,9 @@ static const CGFloat kIMSearchFromRowH = 52;
     nav.backgroundColor = UIColor.clearColor;
 
     UIButton *cal = [self searchGlassButtonSymbol:@"calendar" action:@selector(searchCalTapped)];
+    // 纯图标钮同 prev/next：不给标签 VoiceOver 只念 "calendar"，UI 测试也定位不到。
+    cal.accessibilityLabel = IMLocalized(@"chat.search.by_date");
+    cal.accessibilityIdentifier = @"chat.search.calendar";
     self.searchState.searchCalButton = cal;
     [nav addSubview:cal];
 
