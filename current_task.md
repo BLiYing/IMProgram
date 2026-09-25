@@ -5,6 +5,17 @@
 
 ## 当前焦点
 
+> **修：日历请求跨度 730 天超服务端上限 ✅ 2026-09-25（已提交 `63a074f`）**：Android 端做圆点标记功能时
+> 比对发现"Android 圆点比 iOS 多"，查出根因在 iOS 这侧——`IMChatViewController+Search.m` 的
+> `searchCalTapped` 写死请求近两年（730 天），但服务端 `conversation.MaxCalendarSpan` 只放行约 400 天，
+> 请求恒被拒（`errcode.ParamInvalid "time range too wide"`），`error||days.count==0` 分支把这次必然失败
+> 静默吞掉、退化成"仅本地打点"——iOS 的圆点从未真正包含过服务端补的历史。改成
+> `kIMChatCalendarQuerySpanMs = 390 天`，与 Android `ChatCalendar.QUERY_SPAN_MS` 同一个数值、同一份理由
+> （留 10 天余量）。`IMChatWindowTests` 新增回归测试锁住这个值必须小于服务端上限。
+> `./scripts/test.sh` 全量 **530/530 绿**。**未上模拟器/真机肉眼比对圆点**（这台机器上 `xcodebuild`
+> 一度卡在 Resolve Package Graph，后确认是本机授权问题，非代码问题；解决后单测已验证但还没来得及
+> 装模拟器实测）。
+
 > **多语言 P1+P2+P3 ✅ 已完成（2026-09-22，中文 + 英文；已 commit 37f1d2f 推送、未真机）**：P1 基础设施（`Common/IMLocalization` + `Modules/Me/IMLanguageViewController` 设置 ▸ 语言）+ **P2 全部业务模块迁完**：Contacts/Conversation/Group/Login/Me（15 文件）/QR/Network/Detail（16 文件）/Chat（含 `Cells/`，46 文件）+ `IMPresence.subtitleText`。**P3 客户端消费**（未提交，另一次会话完成）：新增 `Common/IMSysEventFormatter.{h,m}`（`IMSegmentsForSysEvent`/`IMTextForNoticeSysEvent`，消费服务端 `sys_event`/`sys_args` 渲染群系统消息与系统通知，占位符分词 + 哨兵定位切分，兼容 iOS `%N$@` 位置格式与任意语言词序）+ `IMMediaUtil.m` 的 `IMRenderReplySnapshot`（消费 `reply_snapshot_kind`/`_args`）；接入点 `IMBubbleCell.m`/`IMLinkCardCell.m`/`IMChatViewController+DataSource.m`；`IMMessageModel`/`IMConversation`/`IMDatabase` 三处补齐新字段解析/落库/会话列表预览。**顺手修了两个真实 bug**：`IMLocalizeReplySnippet` 硬编码中文（不跟随 App 语言）、`IMMediaGlyphForSnippet` 图标判定比较的是本地化后文本（英文模式下会失效）。`./scripts/test.sh` 全量 **527/527 绿**。文案表现有 **1386 键**（跨三端共用，见 `../IMServer/docs/i18n/strings.json`）。
 > ⚠️ 已知缺口（详见 `../IMServer/docs/design/I18N_DESIGN.md` §6.1）：`IMChatRecordSnippet`/`IMCallRecordNeutralPreview`/`IMContactCardPreview` 仍硬编码中文（服务面更广，未纳入本批）；系统通知单聊的会话列表预览未接结构化渲染（聊天页内气泡已修）。
 > **P2 范围内刻意 DEFERRED（不是漏改）**：消息内容预览占位符（`[图片]`/`[视频]`/`[聊天记录]`等，`IMChatMessageLogic.m`/`IMBubbleCell.m` 等，会烧进 `content` JSON 发给对端）、@全员 mention token（`+Mention.m`，与解析逻辑强绑定）、合并转发/群聊兜底标题——均待 P3 服务端结构化后处理。
