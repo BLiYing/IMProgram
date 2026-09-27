@@ -917,6 +917,7 @@
 "login.submitting" = "Logging in…";
 "login.tab_password" = "Password login";
 "login.tab_qr" = "QR code login";
+"login.tab_register" = "Sign up";
 "login.title" = "IMProgram login";
 "login.username.placeholder" = "Username (a-z, 0-9, underscore, at least 5 characters)";
 "media.download.a11y_done" = "Downloaded";
@@ -1291,6 +1292,7 @@
 "settings.info.username" = "Username";
 "settings.language.current_system" = "Follow system (%1$@)";
 "settings.language.footer" = "Changing the language does not affect the content of messages already sent.";
+"settings.language.footer_call_only" = "Only the call screen supports English for now; the rest of the app remains in Chinese.";
 "settings.language.option_en" = "English";
 "settings.language.option_system" = "Follow system";
 "settings.language.option_zh_hans" = "简体中文";

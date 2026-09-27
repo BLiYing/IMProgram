@@ -5,6 +5,17 @@
 
 ## 当前焦点
 
+> **im-rtc 2.1.0 通话 Kit 多语言接线到「设置 ▸ 语言」（三端，2026-09-27，已提交待真机验）**：
+> SDK 2.1.0 的 `IMCallKitConfig.locale` 默认恒中文、不跟任何东西，此前升级后一直是"能用但没打开"。
+> `Modules/RTC/IMRtcCall.m` 加了 `IMLocaleFromLanguage()`（把 `IMLocalization.shared.language` 已解析结果
+> 映射到 SDK 的 `IMLocale`，**不用** SDK 自带的 `IMLocale.system()`，避免两套"跟系统"判据打架），
+> `startWithUserID:` 建 `kitConfig` 时设置 `.locale`；新增监听 `IMLanguageDidChangeNotification`，
+> 通话中途切语言直接改 `_kit.config.locale`（SDK 确认 `config` 是 `start()` 传入的同一实例，不用重建 Kit），
+> `stop` 里对称移除观察者。`IMLocalization` 本身不用动，它已是权威实现。`BUILD_ONLY=1 ./scripts/test.sh` 编译过；
+> **未做**：真机切一次语言后实际发起/接听通话看 Kit 文案是否跟着变。三端对称改动见 `../IMServer/docs/SYMMETRY.md`
+> 新增的 `IMRtcCall.m`/`RtcCall.kt`/`RtcHost.tsx` 那三行；Android 同批顺手补了「设置 ▸ 语言」入口本身
+> （此前只是占位符），细节见 im-android 的 `current_task.md`。
+
 > **通话记录：被叫侧 `cancel` 文案「未接来电」→「对方已取消」（三端 + 设计文档，2026-09-27，与用户讨论后拍板）**：
 > `cancel`（主叫主动撤回）跟真正错过（`no_answer`/`busy`/`offline`）不是一回事，只改这一种 reason 的措辞，其余三种
 > 与推送文案不变；`tone`（红/计未读/推送）完全不变，纯文案改动。本端改动：`Common/IMCallRecord.m` 的

@@ -11,11 +11,18 @@
 @import IMCallEngineWebRTC;
 @import IMCallKit;
 
+/// im-rtc 2.1.0 Kit 内置多语言：宿主已解析好的界面语言（IMLocalization.language，非"跟系统"）
+/// 直接映射到 SDK 的 IMLocale，不借 SDK 自带的 IMLocale.system()——两套"跟系统"判据并存会打架。
+static IMLocale IMLocaleFromLanguage(NSString *language) {
+    return [language isEqualToString:IMLanguagePrefEnglish] ? IMLocaleEn : IMLocaleZhCN;
+}
+
 @implementation IMRtcCall {
     IMCallEngine *_engine;
     IMCallKit *_kit;
     IMRtcProfileResolver *_resolver;
     NSUUID *_observer;
+    id _languageObserver;
     NSString *_uid;
     IMRtcConfig *_config;
     /// 每次 start / stop 加一：旧引擎迟到的回调一律不算数，别改动新一代的状态。
@@ -58,12 +65,21 @@
     IMRtcInviteProvider *invite = [IMRtcInviteProvider new]; // Kit 强引用
     invite.selfUID = uid;
     kitConfig.inviteMemberProvider = invite;
+    kitConfig.locale = IMLocaleFromLanguage(IMLocalization.shared.language);
     _kit = [[IMCallKit alloc] initWithEngine:_engine config:kitConfig];
     _resolver.kit = _kit;
     [_kit start]; // 必须在 login 之前
     __weak typeof(self) ws = self;
     _observer = [_engine addEventObserver:^(IMCallEvent *event) {
         dispatch_async(dispatch_get_main_queue(), ^{ [ws handleEvent:event generation:gen]; });
+    }];
+    // 通话中途切语言：config 是 Kit 持有的同一个实例，改了立刻对下一条文案生效，不用重建 Kit。
+    _languageObserver = [NSNotificationCenter.defaultCenter addObserverForName:IMLanguageDidChangeNotification
+                                                                         object:nil queue:NSOperationQueue.mainQueue
+                                                                     usingBlock:^(NSNotification *note) {
+        IMRtcCall *strongSelf = ws;
+        if (!strongSelf) { return; }
+        strongSelf->_kit.config.locale = IMLocaleFromLanguage(IMLocalization.shared.language);
     }];
 
     NSString *token = [self signToken];
@@ -80,6 +96,8 @@
     if (!old) { return; }
     if (_observer) { [old removeEventObserver:_observer]; }
     _observer = nil;
+    if (_languageObserver) { [NSNotificationCenter.defaultCenter removeObserver:_languageObserver]; }
+    _languageObserver = nil;
     _engine = nil;
     _kit = nil;
     _resolver.kit = nil;
