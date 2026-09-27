@@ -62,6 +62,7 @@
 "blocked.unblock" = "取消屏蔽";
 "blocked.unblock_failed" = "取消屏蔽失败：%1$@";
 "call.record.cancelled" = "已取消";
+"call.record.cancelled_by_peer" = "对方已取消";
 "call.record.declined" = "已拒绝";
 "call.record.declined_by_peer" = "对方已拒绝";
 "call.record.duration" = "通话时长 %1$@";

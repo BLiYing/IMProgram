@@ -66,7 +66,7 @@ static NSString *singleText(IMCallRecord *r, BOOL viewerIsSender, BOOL *missed) 
     static NSDictionary<NSString *, NSArray<NSString *> *> *table;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        table = @{ @"cancel":    @[@"call.record.cancelled", @"call.record.missed"],
+        table = @{ @"cancel":    @[@"call.record.cancelled", @"call.record.cancelled_by_peer"],
                    @"reject":    @[@"call.record.declined_by_peer", @"call.record.declined"],
                    @"no_answer": @[@"call.record.peer_no_answer", @"call.record.missed"],
                    @"busy":      @[@"call.record.peer_busy", @"call.record.missed"],

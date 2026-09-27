@@ -3,6 +3,47 @@
 
 ---
 
+## 归档于 2026-09-27b（im-rtc 音视频 SDK 2.0.0→2.1.0 三端版本升级 —— 从活快照转入，被通话记录 cancel 文案细化顶下）
+
+> 从活快照转入（活快照只留当前焦点，见 current_task.md）。
+
+> **im-rtc 音视频 SDK 2.0.0 → 2.1.0（三端同步，2026-09-27）**：`IMProgram.xcodeproj/project.pbxproj`
+> 里 `XCRemoteSwiftPackageReference "im-rtc-ios"` 的 `exactVersion` 改为 `2.1.0`；
+> `Package.resolved`（`IMProgram.xcworkspace/xcshareddata/swiftpm/`）同步改 `version`/`revision`
+> （`revision` 取自 `git ls-remote --tags` 对 2.1.0 tag 的解引用提交），并跑
+> `xcodebuild -resolvePackageDependencies` 确认 Xcode 真能 checkout 到 2.1.0（非纸面编辑）。同批联动改了
+> Android（`im-android`，`libs.versions.toml` 的 `imrtc`）与 Web（`im-web`，`im-rtc-call-engine`/
+> `im-rtc-call-uikit-react` npm 依赖）。`./scripts/test.sh` 全量 **530/530 绿**。
+> 未做真机验证通话功能本身（SDK 内部行为改动未知，只验证了版本号解析与编译）。
+
+## 归档于 2026-09-27（日历请求跨度 730 天超限 + 搜索命中崩溃 —— 从活快照转入，被 im-rtc 2.1.0 版本升级顶下）
+
+> 从活快照转入（活快照只留当前焦点，见 current_task.md）。
+
+> **修：日历请求跨度 730 天超服务端上限 + 搜索命中崩溃 ✅ 2026-09-25（已提交 `63a074f`/`2bc2f6e`，
+> IMServer 侧 `bf97410`）**：Android 端做圆点标记功能时比对发现"Android 圆点比 iOS 多"，查出根因在
+> iOS 这侧——`IMChatViewController+Search.m` 的 `searchCalTapped` 写死请求近两年（730 天），但服务端
+> `conversation.MaxCalendarSpan` 只放行约 400 天，请求恒被拒（`errcode.ParamInvalid "time range too
+> wide"`），`error||days.count==0` 分支把这次必然失败静默吞掉、退化成"仅本地打点"——iOS 的圆点从未真正
+> 包含过服务端补的历史。改成 `kIMChatCalendarQuerySpanMs = 390 天`，与 Android
+> `ChatCalendar.QUERY_SPAN_MS` 同一个数值、同一份理由（留 10 天余量）。
+>
+> 之前这台机器 `xcodebuild` 一度卡在 Resolve Package Graph（本机授权问题，非代码问题），解决后新增
+> `IMProgramUITests/IMChatCalendarUITests`（驱动 iPhone 17 Pro Max 模拟器进搜索态→点日历→核对圆点→
+> 点「最早」「今天」）真机跑通，**顺手撞见一个真实崩溃**：搜索有命中时 `updateSearchNavState` 拼计数文案
+> 用 `IMLocalizedFormat(@"chat.search.hit_position", (long)idx, (long)n, ...)`，但两份
+> `Localizable.strings` 把这个键写成 `%1$@/%2$@%3$@`（期望对象），`NSString initWithFormat:` 按格式串
+> 类型读栈上的 vararg，把小整数当指针解引用直接 `EXC_BAD_ACCESS`——任何账号只要搜到东西就必崩，是个
+> 相当严重的既有回归（多语言 P2 迁移遗留，见下一条）。改成 `%1$ld/%2$ld%3$@`，同步修
+> `IMServer/docs/i18n/strings.json` 里这个键的 `args` 声明（`string`→`int`，`node scripts/i18n/
+> gen-i18n.mjs --check` 确认三端生成物与文案表一致、无漂移）。日历钮补了 `chat.search.calendar`
+> accessibilityIdentifier（同 prev/next/count 已有模式），否则 UI 测试定位不到。
+>
+> `./scripts/test.sh` 全量 **530/530 绿**；`IMChatCalendarUITests` 在模拟器上验证：圆点位置正确、
+> 「最早」落到会话真正开头、「今天」正确退化到最新消息，全程不再崩溃（截图核对过）。
+
+---
+
 ## 归档于 2026-08-30（群系统消息可读性 · 转发排除系统通知 · 单聊资料页收口 · 失败重发 · 相机录像）
 
 > 从活快照转入（活快照只留当前焦点，见 current_task.md）。
