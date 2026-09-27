@@ -25,6 +25,17 @@
       <key>other</key><string> and %1$ld more</string>
     </dict>
   </dict>
+  <key>chat.favorite.success_count</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
+    <key>count</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>ld</string>
+      <key>one</key><string>Saved %1$ld item</string>
+      <key>other</key><string>Saved %1$ld items</string>
+    </dict>
+  </dict>
   <key>chat.forward.expired_suffix</key>
   <dict>
     <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
@@ -34,6 +45,16 @@
       <key>NSStringFormatValueTypeKey</key><string>ld</string>
       <key>one</key><string>(%1$ld item expired, not forwarded)</string>
       <key>other</key><string>(%1$ld items expired, not forwarded)</string>
+    </dict>
+  </dict>
+  <key>chat.forward.merged_success_count</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
+    <key>count</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>ld</string>
+      <key>other</key><string>Forwarded to %1$ld chats</string>
     </dict>
   </dict>
   <key>chat.header.member_count</key>
@@ -100,6 +121,46 @@
       <key>NSStringFormatValueTypeKey</key><string>ld</string>
       <key>one</key><string>Report %2$ld message from %1$@</string>
       <key>other</key><string>Report %2$ld messages from %1$@</string>
+    </dict>
+  </dict>
+  <key>chat.select.delete_confirm_title</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
+    <key>count</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>ld</string>
+      <key>other</key><string>Delete %1$ld messages</string>
+    </dict>
+  </dict>
+  <key>chat.select.delete_done</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
+    <key>count</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>ld</string>
+      <key>other</key><string>Deleted %1$ld</string>
+    </dict>
+  </dict>
+  <key>chat.select.delete_failed_count</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
+    <key>count</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>ld</string>
+      <key>other</key><string>%1$ld failed to delete</string>
+    </dict>
+  </dict>
+  <key>chat.select.forward_partial_skip</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
+    <key>count</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>ld</string>
+      <key>other</key><string>%1$ld couldn't be forwarded and were skipped</string>
     </dict>
   </dict>
   <key>chat.select.max</key>
@@ -256,6 +317,17 @@
       <key>other</key><string>You can select up to %1$ld items</string>
     </dict>
   </dict>
+  <key>favorites.pick.sent_expired_suffix</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
+    <key>count</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>ld</string>
+      <key>one</key><string>(%1$ld item expired, not sent)</string>
+      <key>other</key><string>(%1$ld items expired, not sent)</string>
+    </dict>
+  </dict>
   <key>favorites.source.count</key>
   <dict>
     <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
@@ -320,6 +392,28 @@
       <key>NSStringFormatValueTypeKey</key><string>ld</string>
       <key>one</key><string>%1$ld item selected</string>
       <key>other</key><string>%1$ld items selected</string>
+    </dict>
+  </dict>
+  <key>presence.days_ago</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
+    <key>count</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>ld</string>
+      <key>one</key><string>Last seen %1$ld day ago</string>
+      <key>other</key><string>Last seen %1$ld days ago</string>
+    </dict>
+  </dict>
+  <key>presence.hours_ago</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
+    <key>count</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>ld</string>
+      <key>one</key><string>Last seen %1$ld hour ago</string>
+      <key>other</key><string>Last seen %1$ld hours ago</string>
     </dict>
   </dict>
   <key>presence.minutes_ago</key>
