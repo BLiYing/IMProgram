@@ -599,7 +599,6 @@
 "detail.tab.file_size_downloaded" = "%1$@ · 已下载";
 "detail.tab.file_size_not_downloaded" = "%1$@ · 未下载";
 "detail.tab.link_note" = "链接由本机已加载的聊天记录扫出，往上翻得越多、这里越全。点一条在 App 内打开。";
-"detail.tab.voice_note" = "归档里暂不能播放（长按可定位回聊天、转发或删除）。";
 "device.active.just_now" = "刚刚活跃";
 "device.default_name_android" = "Android 设备";
 "device.detail.currently_online" = "当前在线";

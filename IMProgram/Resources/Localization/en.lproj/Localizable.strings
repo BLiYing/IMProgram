@@ -599,7 +599,6 @@
 "detail.tab.file_size_downloaded" = "%1$@ · Downloaded";
 "detail.tab.file_size_not_downloaded" = "%1$@ · Not downloaded";
 "detail.tab.link_note" = "Links are scanned from messages already loaded on this device — the further back you scroll, the more complete this list gets. Tap one to open it in the app.";
-"detail.tab.voice_note" = "Playback isn't available here yet (long-press to locate in chat, forward, or delete).";
 "device.active.just_now" = "Active just now";
 "device.default_name_android" = "Android device";
 "device.detail.currently_online" = "Currently online";
