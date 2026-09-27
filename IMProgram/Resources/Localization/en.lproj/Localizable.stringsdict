@@ -32,8 +32,8 @@
     <dict>
       <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
       <key>NSStringFormatValueTypeKey</key><string>ld</string>
-      <key>one</key><string>Saved %1$ld item</string>
-      <key>other</key><string>Saved %1$ld items</string>
+      <key>one</key><string>Saved %1$ld item to favorites</string>
+      <key>other</key><string>Saved %1$ld items to favorites</string>
     </dict>
   </dict>
   <key>chat.forward.expired_suffix</key>
@@ -54,6 +54,7 @@
     <dict>
       <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
       <key>NSStringFormatValueTypeKey</key><string>ld</string>
+      <key>one</key><string>Forwarded to %1$ld chat</string>
       <key>other</key><string>Forwarded to %1$ld chats</string>
     </dict>
   </dict>
@@ -130,6 +131,7 @@
     <dict>
       <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
       <key>NSStringFormatValueTypeKey</key><string>ld</string>
+      <key>one</key><string>Delete %1$ld message</string>
       <key>other</key><string>Delete %1$ld messages</string>
     </dict>
   </dict>
@@ -140,7 +142,8 @@
     <dict>
       <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
       <key>NSStringFormatValueTypeKey</key><string>ld</string>
-      <key>other</key><string>Deleted %1$ld</string>
+      <key>one</key><string>Deleted %1$ld message</string>
+      <key>other</key><string>Deleted %1$ld messages</string>
     </dict>
   </dict>
   <key>chat.select.delete_failed_count</key>
@@ -160,7 +163,8 @@
     <dict>
       <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
       <key>NSStringFormatValueTypeKey</key><string>ld</string>
-      <key>other</key><string>%1$ld couldn't be forwarded and were skipped</string>
+      <key>one</key><string>%1$ld message couldn't be forwarded and was skipped</string>
+      <key>other</key><string>%1$ld messages couldn't be forwarded and were skipped</string>
     </dict>
   </dict>
   <key>chat.select.max</key>

@@ -155,7 +155,7 @@
     IMCallRecordDisplay *en = IMCallRecordRender(content, YES, YES, nil);
     XCTAssertEqualObjects(en.text, @"You started a group video call, no one answered");
     XCTAssertEqualObjects(en.preview, @"[Group video call] No answer");
-    XCTAssertEqualObjects(IMCallRecordUnsupportedText, @"[Voice/video call] Update the app to view it");
+    XCTAssertEqualObjects(IMCallRecordUnsupportedText, @"[Call] Update the app to view it");
     XCTAssertEqualObjects(IMFormatUploadProgress(0, 0), @"Waiting\u2026");
 }
 
