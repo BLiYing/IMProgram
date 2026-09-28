@@ -73,9 +73,10 @@
 
 /// 据当前滚动位置显示/隐藏"↓N"：贴底则隐藏；离底则显示，徽标=视口下方未读数（随滚动递减）。
 - (void)updateJumpButton {
-    // 自己发消息触发的贴底动作在过渡窗口里 isNearBottom 会短暂 false（contentSize 已增而 offset 尚未收敛），
-    // 此时不该弹出↓N。selfSendScrollGuardUntil 由 appendReloadAndScroll 设置（now+0.5s），命中则保持隐藏。
-    if (self.selfSendScrollGuardUntil > [NSDate timeIntervalSinceReferenceDate]) {
+    // 贴底动作（自己发消息 / 贴底时收到新消息）触发的滚动在过渡窗口里 isNearBottom 会短暂 false
+    // （contentSize 已增而 offset 尚未收敛/动画尚未跑到底），此时不该弹出↓N。scrollToBottomGuardUntil
+    // 由 appendReloadAndScroll 与 didReceiveMessage 设置（now+0.5s），命中则保持隐藏。
+    if (self.scrollToBottomGuardUntil > [NSDate timeIntervalSinceReferenceDate]) {
         self.jumpButton.hidden = YES;
         self.jumpBadge.hidden = YES;
         return;

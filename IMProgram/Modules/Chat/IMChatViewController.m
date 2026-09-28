@@ -822,7 +822,7 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     // scrollToAbsoluteBottom 迭代收敛期间 scrollViewDidScroll 会以中间态偏移调用 updateJumpButton，
     // isNearBottom 短暂 false → ↓N 箭头闪一下、贴底后又消失。语义上"我自己发的消息"从不该触发"跳到底部"
     // 提示，这里给一个 0.5s 抑制窗口，让 updateJumpButton 在此期间保持隐藏。
-    self.selfSendScrollGuardUntil = [NSDate timeIntervalSinceReferenceDate] + 0.5;
+    self.scrollToBottomGuardUntil = [NSDate timeIntervalSinceReferenceDate] + 0.5;
     // 正在看历史时自己发了一条：那条落在最新处、不在当前窗口里，不回到末尾就等于"发出去了但看不见"。
     // 微信/Telegram 同样是发送即回到最新。resetWindow 内含 reload + 精确贴底 + 可见即读。
     if (!self.windowState.atTail) { [self resetWindowToTailAnimated:NO]; return; }

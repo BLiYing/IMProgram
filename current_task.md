@@ -5,6 +5,18 @@
 
 ## 当前焦点
 
+> **贴底收消息时「↓N」箭头闪一下的真实 bug 修复（2026-09-28，用户真机报——Android 发语音过来，
+> 已贴底的 iOS 聊天页会闪一下↓N 箭头+未读角标才落定；Web 端无此问题）**：`appendReloadAndScroll`
+> （自己发消息）早就为这个坑打了 0.5s 抑制窗口（`selfSendScrollGuardUntil`，防 `reloadData` 让
+> `contentSize` 骤增到滚动收敛之间那段 `isNearBottom` 短暂 false 时 `updateJumpButton` 弹出箭头），
+> 但 `IMChatViewController+Socket.m` 的 `didReceiveMessage:`（对端消息、贴底时用 `scrollToBottomAnimated:`
+> 而非精确贴底、动画耗时更长更易被看见）漏了同一个抑制——两条路径同一个坑，只有一条打了补丁。
+> 属性改名 `selfSendScrollGuardUntil`→`scrollToBottomGuardUntil`（语义已不止"自己发消息"），
+> `didReceiveMessage:` 里 `wasNearBottom` 分支贴底滚动前也设一次同样的 0.5s 窗口。
+> `./scripts/test.sh` 全量 **530/530 绿**。**未做**：真机/模拟器上实测"Android 发语音、iOS 贴底态接收"
+> 这条跨端路径肉眼确认箭头不再闪——本轮只连上了模拟器（idb 未配好，没法自动化点击登录+进对应会话），
+> 走查代码 + 编译 + 现有单测全绿，逻辑与自己发消息那条已验证过的修法完全同构，但没有肉眼二次确认。
+
 > **im-rtc 2.1.0 通话 Kit 多语言接线到「设置 ▸ 语言」（三端，2026-09-27，已提交待真机验）**：
 > SDK 2.1.0 的 `IMCallKitConfig.locale` 默认恒中文、不跟任何东西，此前升级后一直是"能用但没打开"。
 > `Modules/RTC/IMRtcCall.m` 加了 `IMLocaleFromLanguage()`（把 `IMLocalization.shared.language` 已解析结果

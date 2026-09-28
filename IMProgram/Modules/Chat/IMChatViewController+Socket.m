@@ -170,7 +170,17 @@
         [self positionInitialIfNeeded];
         return; // positionInitialIfNeeded 内已含精确贴底/锚定 + markVisibleRowsRead
     }
-    if (wasNearBottom) { [self scrollToBottomAnimated:YES]; }
+    if (wasNearBottom) {
+        // 与 appendReloadAndScroll 同一个坑：reloadData 已让 contentSize 骤增，scrollToBottomAnimated
+        // 的动画还没跑到底之前，scrollViewDidScroll 会以中间态偏移多次调用 updateJumpButton——
+        // isNearBottom 短暂 false，↓N 箭头 + 未读角标跟着闪一下、贴底后又消失（2026-09-28 用户实测：
+        // Android 发来一条语音，iOS 这边贴底态肉眼可见闪一下"↓N"才落定；Web 这条路径没有等效的
+        // "先 reload 再动画滚动"两步走，天然没有这个过渡窗口，所以这不是三端都有的坑）。
+        // 之前只有「自己发消息」那条路径补了这个抑制窗口，贴底收消息这条路径漏了——同一个原因、
+        // 同一个修法，这里补上。
+        self.scrollToBottomGuardUntil = [NSDate timeIntervalSinceReferenceDate] + 0.5;
+        [self scrollToBottomAnimated:YES];
+    }
     // 可见即读 + ↓N 刷新：贴底时新消息进视口即标已读；在上方看历史则不读、↓N 计数 +1（markVisibleRowsRead 内重算）。
     [self markVisibleRowsRead];
     // 贴底连收时窗口只涨不缩（活跃大群一小时能来 7 万条）：到上限就从顶部裁掉一窗。
