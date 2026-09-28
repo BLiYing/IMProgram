@@ -62,6 +62,10 @@
 "blocked.title" = "Blocked users";
 "blocked.unblock" = "Unblock";
 "blocked.unblock_failed" = "Couldn’t unblock: %1$@";
+"call.history.empty" = "No call history";
+"call.history.filter_all" = "All";
+"call.history.filter_missed" = "Missed";
+"call.history.group_subtitle" = "Group %1$@ call · %2$ld people";
 "call.record.cancelled" = "Cancelled";
 "call.record.cancelled_by_peer" = "Cancelled";
 "call.record.declined" = "Declined";

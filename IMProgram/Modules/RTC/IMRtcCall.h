@@ -9,8 +9,10 @@
 //  im-rtc-server 换票，本端不知道任何签名密钥）。对端：im-android `rtc/RtcCall.kt`、im-web `src/rtc/rtcEngine.ts`。
 
 #import <Foundation/Foundation.h>
+#import "IMCallHistoryRecord.h"
 
 @class IMGroupInfo;
+@class IMCallEvent;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -33,6 +35,23 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// 群资料页加载成员时顺手喂给通话（群通话按群成员表取名字与头像）；通话服务没起来时是空操作。
 - (void)feedGroup:(IMGroupInfo *)group;
+
+#pragma mark - 通话历史（设置 ▸ 最近通话）
+
+/// 查自己的通话记录，按发起时间倒序，游标翻页（`cursor` 首页传 nil；下一页传上一页回调的 `nextCursor`）。
+/// SDK 的 `fetchCallHistory` 没标 `@objc`（返回体是纯 Swift struct），本方法内部经 `IMRtcCallHistoryBridge`
+/// （Swift shim，把 struct 拍平成字典）转成 `IMCallHistoryRecord`；调用方（`IMCallHistoryPaginator`）
+/// 不需要知道这层桥接。引擎未启动、或本次调用期间 `stop`/`startWithUserID:` 被调用过（generation 已变）
+/// 都会回调错误，不会崩溃、不会把结果套到已经不存在的引擎上。`completion` 恒在主线程回调。
+- (void)fetchCallHistoryWithLimit:(NSInteger)limit cursor:(nullable NSNumber *)cursor
+                       completion:(void (^)(NSArray<IMCallHistoryRecord *> *_Nullable records,
+                                             NSNumber *_Nullable nextCursor, NSError *_Nullable error))completion;
+
+/// 供页面级消费者监听 SDK 事件（如「最近通话」页收到 `IMCallEventNameCallEnd` 后重拉首页）。
+/// 引擎未启动时返回 nil，调用方据此判定订阅不可用（同 `unavailableReason` 的降级口径）。
+/// 回调恒在主线程；`stop`/`startWithUserID:` 重建引擎后旧 token 自然失效（无需也不该再收到事件）。
+- (nullable NSUUID *)addEventObserver:(void (^)(IMCallEvent *event))block;
+- (void)removeEventObserver:(nullable NSUUID *)token;
 
 @end
 
