@@ -155,4 +155,48 @@
     XCTAssertTrue(p.reachedEnd);
 }
 
+#pragma mark - 续页判据不受筛选中途切换影响（/code-review 2026-09-29）
+
+/// 场景：用户在「全部」tab 触发翻页（尚未回来）时切到「未接」——旧实现按"调用那一刻"的
+/// 全部-过滤计数做增量比较，回来时会用"未接过滤后的当前计数 - 全部过滤下的旧计数"算出一个
+/// 没有意义的负数差值，误判成"不够"从而多打一次请求；新实现只看"当前未接过滤后的绝对数量"，
+/// 与发起这次翻页时用的是哪个筛选无关。
+- (void)testMissedAutoContinueUsesAbsoluteCountNotStaleFilterSnapshot {
+    NSMutableArray<IMCallHistoryFetchCompletion> *pending = [NSMutableArray array];
+    __block NSInteger callIndex = 0;
+    IMCallHistoryFetchBlock fetcher = ^(id cursor, NSInteger limit, IMCallHistoryFetchCompletion completion) {
+        callIndex++;
+        [pending addObject:completion];
+    };
+    IMCallHistoryPaginator *p = [[IMCallHistoryPaginator alloc] initWithSelfUID:@"1001" pageSize:5 fetcher:fetcher];
+    p.filter = IMCallHistoryFilterAll;
+
+    // 首页：5 条，其中 2 条未接，还没到底。
+    NSMutableArray<IMCallHistoryRecord *> *page1 = [NSMutableArray array];
+    [page1 addObject:[self recordWithCaller:@"1003" duration:0]]; // 未接
+    for (int i = 0; i < 2; i++) { [page1 addObject:[self recordWithCaller:@"1001" duration:9]]; }
+    [page1 addObject:[self recordWithCaller:@"1004" duration:0]]; // 未接
+    [page1 addObject:[self recordWithCaller:@"1001" duration:9]];
+
+    [p reloadWithMinVisible:0 completion:^(NSError *error) {}];
+    XCTAssertEqual(pending.count, 1u);
+    pending[0](page1, @"cursor-2", nil);
+    XCTAssertEqual(p.allRecords.count, 5u);
+    XCTAssertFalse(p.loading);
+
+    // 在「全部」下发起翻页（此时旧实现会把 startCount 拍在「全部」计数=5 上），仍在途时切到「未接」。
+    [p loadMoreWithMinVisible:2 completion:^(NSError *error) {}];
+    XCTAssertEqual(pending.count, 2u);
+    p.filter = IMCallHistoryFilterMissed;
+
+    // 这一页没有新的未接记录、还没到底——但「未接」眼下已经有 2 条（=minVisible），不该再续拉。
+    NSMutableArray<IMCallHistoryRecord *> *page2 = [NSMutableArray array];
+    for (int i = 0; i < 3; i++) { [page2 addObject:[self recordWithCaller:@"1001" duration:9]]; }
+    pending[1](page2, @"cursor-3", nil);
+
+    XCTAssertEqual(callIndex, 2); // 不该再发第 3 次请求
+    XCTAssertEqual(p.filteredRecords.count, 2u);
+    XCTAssertFalse(p.loading);
+}
+
 @end

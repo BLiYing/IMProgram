@@ -33,7 +33,7 @@
     _nextCursor = nil;
     _reachedEnd = NO;
     _loading = YES;
-    [self continueFetchGeneration:gen startFilteredCount:0 minVisible:minVisible completion:completion];
+    [self continueFetchGeneration:gen minVisible:minVisible completion:completion];
 }
 
 - (void)loadMoreWithMinVisible:(NSInteger)minVisible completion:(void (^)(NSError *_Nullable))completion {
@@ -43,14 +43,12 @@
     }
     NSUInteger gen = _generation;
     _loading = YES;
-    NSInteger startCount = (NSInteger)self.filteredRecords.count;
-    [self continueFetchGeneration:gen startFilteredCount:startCount minVisible:minVisible completion:completion];
+    [self continueFetchGeneration:gen minVisible:minVisible completion:completion];
 }
 
 /// 拉一页并按需自动续拉（仅「未接」视图会续拉，见类头注释）；`gen` 与当前 `_generation` 不符即作废，
 /// 不回调（更新的 reload/loadMore 已经接管，旧调用方不该再收到一次回调覆盖新状态）。
-- (void)continueFetchGeneration:(NSUInteger)gen startFilteredCount:(NSInteger)startCount
-                       minVisible:(NSInteger)minVisible completion:(void (^)(NSError *_Nullable))completion {
+- (void)continueFetchGeneration:(NSUInteger)gen minVisible:(NSInteger)minVisible completion:(void (^)(NSError *_Nullable))completion {
     __weak typeof(self) ws = self;
     _fetcher(_nextCursor, _pageSize, ^(NSArray<IMCallHistoryRecord *> *records, id nextCursor, NSError *error) {
         __strong typeof(ws) self = ws;
@@ -63,10 +61,15 @@
         self->_allRecords = [self->_allRecords arrayByAddingObjectsFromArray:records ?: @[]];
         self->_nextCursor = nextCursor;
         self->_reachedEnd = (self->_nextCursor == nil);
-        NSInteger gained = (NSInteger)self.filteredRecords.count - startCount;
-        BOOL shouldContinue = self->_filter == IMCallHistoryFilterMissed && !self->_reachedEnd && gained < minVisible;
+        // 续拉判据用**当前**过滤后的总量，不是本轮拉取的增量（/code-review 2026-09-29 发现两个问题：
+        // ① 原先按「调用时刻」快照的 startCount 算增量，若在拉取途中切换了 filter，两次计数基于不同
+        //    filter 算出来，对不上；② 用增量本身也不对——已经够一屏时只是这页恰好没有新未接记录，
+        //    增量判据会误判"不够"而继续拉。改成绝对量判据后两个问题一起消失，且天然不怕 filter 中途变，
+        //    因为 self.filteredRecords 每次都用当前 self.filter 现算，不依赖任何调用时刻快照。
+        BOOL shouldContinue = self->_filter == IMCallHistoryFilterMissed && !self->_reachedEnd
+            && (NSInteger)self.filteredRecords.count < minVisible;
         if (shouldContinue) {
-            [self continueFetchGeneration:gen startFilteredCount:startCount minVisible:minVisible completion:completion];
+            [self continueFetchGeneration:gen minVisible:minVisible completion:completion];
             return;
         }
         self->_loading = NO;

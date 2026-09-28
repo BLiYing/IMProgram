@@ -23,6 +23,9 @@ static const NSInteger kIMCallHistoryPageSize = 20;
 static const NSInteger kIMCallHistoryMinVisiblePerScreen = 10;
 /// 距底部还剩这么多点时触发下一页（对齐 IMFavoritesViewController 的 300pt 阈值）。
 static const CGFloat kIMCallHistoryLoadMoreThreshold = 300;
+/// `IMErrorCode.tokenInvalid`（im-rtc 五仓共用错误码表，与 im-android `RTC_TOKEN_INVALID` 同值）。
+/// SDK 侧枚举是 Swift-only，本端摸不到，另存一份同值（同 im-android CallHistoryHost.kt 的写法）。
+static const NSInteger kIMRTCErrorCodeTokenInvalid = 1101;
 
 #pragma mark - 行 cell
 
@@ -424,8 +427,20 @@ static const CGFloat kIMCallHistoryLoadMoreThreshold = 300;
         // 完全没数据可看：满屏态（空 / 出错），下面 updateFooter 会因 sections.count==0 保持无底部条。
         _footerError = nil;
         if (error) {
-            NSString *message = [error.domain isEqualToString:IMRTCErrorInfo.domain] ? IMLocalized(@"common.login_expired")
-                                                                                       : (error.localizedDescription ?: IMLocalized(@"common.load_failed"));
+            // 三档（/code-review 2026-09-29：原先「domain 是 SDK 就当作登录失效」把网络抖动、限流、
+            // 服务端内部错误等 SDK 错误域下的所有情况都误判成"请重新登录"）：
+            // ① 真正的票据失效（SDK 错误域 + tokenInvalid 码）→「登录已失效」；
+            // ② 引擎压根没起来（`IMRtcCall` 自己拼的本地错误，domain=@"IMRtcCall"，
+            //    localizedDescription 是 host 自己给的可显示原因，不是 SDK 内部诊断串）→ 直接显示；
+            // ③ 其它真实 SDK 错误（网络/限流/内部错误…）→ 通用「加载失败」，不把 SDK 诊断串亮给用户。
+            NSString *message;
+            if ([error.domain isEqualToString:IMRTCErrorInfo.domain] && error.code == kIMRTCErrorCodeTokenInvalid) {
+                message = IMLocalized(@"common.login_expired");
+            } else if ([error.domain isEqualToString:@"IMRtcCall"]) {
+                message = error.localizedDescription ?: IMLocalized(@"common.load_failed");
+            } else {
+                message = IMLocalized(@"common.load_failed");
+            }
             [_stateView showErrorWithMessage:message];
         } else {
             [_stateView showEmpty];
@@ -491,7 +506,14 @@ static const CGFloat kIMCallHistoryLoadMoreThreshold = 300;
     } else {
         [_stateView showLoading];
     }
-    [self loadMoreIfNeeded];
+    // 只在「已加载数据不够撑起这个筛选」时才续拉（/code-review 2026-09-29 发现：本方法注释明说
+    // "切换本身不发请求"，之前却无条件调 loadMoreIfNeeded——只要没到底就总会再发一次网络请求，
+    // 哪怕数据早就够用，在两个 tab 间来回点几下就是几次白打的请求）。判据与 paginator 内部的
+    // 自动续拉判据保持一致（IMCallHistoryPaginator.m 的 shouldContinue）。
+    NSInteger filteredCount = (NSInteger)_paginator.filteredRecords.count;
+    BOOL needsMore = _paginator.filter == IMCallHistoryFilterMissed && !_paginator.reachedEnd
+        && filteredCount < kIMCallHistoryMinVisiblePerScreen;
+    if (needsMore) { [self loadMoreIfNeeded]; }
 }
 
 #pragma mark - UITableView
