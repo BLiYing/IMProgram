@@ -63,9 +63,10 @@
 "blocked.unblock" = "取消屏蔽";
 "blocked.unblock_failed" = "取消屏蔽失败：%1$@";
 "call.history.empty" = "暂无通话记录";
-"call.history.filter_all" = "全部";
-"call.history.filter_missed" = "未接";
 "call.history.group_subtitle" = "群%1$@通话 · %2$ld人";
+"call.history.load_failed" = "加载失败，点击重试";
+"call.history.tab_all" = "全部";
+"call.history.tab_missed" = "未接";
 "call.record.cancelled" = "已取消";
 "call.record.cancelled_by_peer" = "对方已取消";
 "call.record.declined" = "已拒绝";

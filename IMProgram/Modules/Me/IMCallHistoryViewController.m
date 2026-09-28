@@ -319,7 +319,7 @@ static const CGFloat kIMCallHistoryLoadMoreThreshold = 300;
 
     _segmented = [[IMLiquidSegmentedControl alloc] initWithFrame:CGRectZero];
     _segmented.translatesAutoresizingMaskIntoConstraints = NO;
-    _segmented.titles = @[IMLocalized(@"call.history.filter_all"), IMLocalized(@"call.history.filter_missed")];
+    _segmented.titles = @[IMLocalized(@"call.history.tab_all"), IMLocalized(@"call.history.tab_missed")];
     _segmented.selectedIndex = 0;
     [_segmented addTarget:self action:@selector(filterChanged:) forControlEvents:UIControlEventValueChanged];
     [self.view addSubview:_segmented];
@@ -459,7 +459,7 @@ static const CGFloat kIMCallHistoryLoadMoreThreshold = 300;
         _footerSpinner.hidden = YES;
         [_footerSpinner stopAnimating];
         _footerLabel.textColor = IMTheme.danger;
-        _footerLabel.text = [NSString stringWithFormat:@"%@ · %@", IMLocalized(@"common.load_failed"), IMLocalized(@"common.retry")];
+        _footerLabel.text = IMLocalized(@"call.history.load_failed");
         _tableView.tableFooterView = _footerView;
     } else {
         _tableView.tableFooterView = nil;
