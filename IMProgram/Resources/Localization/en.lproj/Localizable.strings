@@ -1397,6 +1397,7 @@
 "rtc.error.id_too_long" = "%1$@ exceeds %2$ld bytes";
 "rtc.error.no_callees" = "Select members to call";
 "rtc.error.not_started" = "The call service isn’t running. Please log in again.";
+"rtc.error.token_fetch_failed" = "Failed to fetch the call credential";
 "rtc.invite.in_call" = "In a call";
 "rtc.kind.group_id" = "Group ID";
 "rtc.kind.peer_id" = "Peer ID";

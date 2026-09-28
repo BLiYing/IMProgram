@@ -10,9 +10,6 @@
 - (instancetype)initWithDictionary:(NSDictionary *)dict {
     if ((self = [super init])) {
         _wsURL = [self trimmed:dict[@"wsUrl"]];
-        _appID = [self trimmed:dict[@"appId"]];
-        _keyID = [self trimmed:dict[@"keyId"]];
-        _debugSecret = [self trimmed:dict[@"debugSecret"]];
     }
     return self;
 }
@@ -26,9 +23,6 @@
 - (NSArray<NSString *> *)missingKeys {
     NSMutableArray *missing = [NSMutableArray array];
     if (self.wsURL.length == 0) { [missing addObject:@"wsUrl"]; }
-    if (self.appID.length == 0) { [missing addObject:@"appId"]; }
-    if (self.keyID.length == 0) { [missing addObject:@"keyId"]; }
-    if (self.debugSecret.length == 0) { [missing addObject:@"debugSecret"]; }
     return missing;
 }
 

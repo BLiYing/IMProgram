@@ -5,6 +5,36 @@
 
 ## 当前焦点
 
+> **im-rtc 换票：从调试密钥迁移到 IMServer 真实换票接口 ✅（2026-09-28，本端已完成，Android 待迁移；
+> Web 端同日已完成，见 `../im-web/current_task.md`）**：`IMRtcCall.m` 的 `signToken`（同步、本地用
+> `IMDebugToken` 签票）改成 `signTokenWithCompletion:`（异步，调 IMServer 新接口 `POST /api/v1/rtc/token`）：
+> - `token` 参数取 `IMHTTPService.sharedService.currentToken`（当前 IM 会话，与项目里其它业务接口取 token
+>   同一入口）；未登录 IM 或换票失败只记日志、回调 nil——调用方按"通话入口不可用"静默降级，不打扰主流程。
+> - 新增 `IMHTTPService+RTC.h/.m`（分类文件，仿 `+Auth.m`/`+ConvQueries.m` 已有拆分模式）：
+>   `rtcTokenWithToken:completion:`，复用既有 `authedRequestForPath:method:token:body:`/`runDataRequest:`。
+> - `startWithUserID:` 与 `TokenWillExpire` 分支都改成异步流程后，各自加了 `generation` 判定
+>   （换票是网络请求，回来时可能已经 `stop` 过——切账号/登出，同 `handleEvent:generation:` 已有的
+>   防护思路，防止对一个已销毁的 `_engine` 发消息）。
+> - `IMRtcConfig` 精简为只剩 `wsURL`（去掉 `appID`/`keyID`/`debugSecret`），`.example.plist`/`.local.plist`
+>   同步精简；`IMDebugToken` 调用点整段删除（死代码 `_config` ivar 一并清掉）。
+> - 新增测试 `IMRtcConfigTests.m`（9 例，纯逻辑，之前这块完全没测试覆盖，顺手补上）、
+>   `IMHTTPRtcTokenParseTests.m`（2 例，`NSURLProtocol` 拦截，仿 `IMHTTPFriendsParseTests.m` 的
+>   app-hosted 套路，覆盖成功换票 + `600001` 业务码透传两条路径），均变异验红过。
+> - 新增文案键 `rtc.error.token_fetch_failed`（`../IMServer/docs/i18n/strings.json`，已重新生成
+>   `Resources/Localization/*.lproj/Localizable.strings`）。
+> - `./scripts/test.sh` 全量 **541/541 绿**（较之前 530 例多出的 11 例正是新增的两个测试文件）。
+> - 三端对称登记 `../IMServer/docs/SYMMETRY.md`：Android `rtc/RtcConfig.kt` 仍在用调试密钥，尚未迁移——
+>   迁移前对照本端 `signTokenWithCompletion:` 与 im-web `signToken` 的实现。
+> - **未做**：真机/模拟器实测一次完整登录 → 通话流程（本次只验证了单测 + 编译；Web 端已经浏览器
+>   端到端实测过同一个后端接口，链路本身已验证可行，iOS 侧走查代码逻辑与 Web 端同构）。
+>   需要真机验证清单见下方「真机验证清单」小节。
+>
+> **真机验证清单**（本次改动需要肉眼确认的点，未做）：
+> ① 单聊详情页点「呼叫」，能正常拨通（观察 `IMLog` 里 `rtc_start`/`rtc_login_failed`，
+>    确认走的是 `rtcTokenWithToken:` 而非本地签名——搜日志不该再出现 `IMDebugToken` 相关字样）；
+> ② IMServer 未配置 `-rtc-server-url` 等三项时，点「呼叫」应静默不可用（`unavailableReason` 文案），
+>    不应崩溃或弹出网络错误；③ 退出登录再重新登录，确认没有残留两条 RTC 连接（服务端会踢掉旧的）。
+
 > **贴底收消息时「↓N」箭头闪一下的真实 bug 修复（2026-09-28，用户真机报——Android 发语音过来，
 > 已贴底的 iOS 聊天页会闪一下↓N 箭头+未读角标才落定；Web 端无此问题）**：`appendReloadAndScroll`
 > （自己发消息）早就为这个坑打了 0.5s 抑制窗口（`selfSendScrollGuardUntil`，防 `reloadData` 让
@@ -47,13 +77,8 @@
 > ⚠️ 单测由 `IMProgramTests/IMTestBootstrap.m` 固定简体中文（模拟器系统语言常是 en）；**它会把偏好写进模拟器里 App 的 defaults**，手测发现界面是中文别奇怪。`IMMainTabBarController` 里找「消息」tab 标题 label 是**按文字匹配**的（`IMFindTabTitleLabel`），已改成取本地化后的词——再动底栏标题要一起改。
 > ⚠️ P2 迁移子代理**曾因周额度限流失败两次**（batch I3/W3，2026-09-21）——失败前的代码改动与文案片段合并均已正常完成，只是收尾报告被打断；每次继续迁移前先核实 git diff 与片段合并状态，别假设失败=没做完，也别假设失败=都做完，务必重新跑一遍 `test.sh`/`check-i18n.mjs` 确认。
 >
-> **接入 im-rtc 音视频（2026-09-19，代码已写、模拟器编译通过，未上真机、未提交）**：本地 SPM 依赖 `../im-rtc/im-rtc-ios`
-> （`IMCallEngine` / `IMCallKit` / `IMCallEngineWebRTC`），调试密钥本机签票，SDKAppID 10000002 / kid `dbg-1`。
-> 代码在 `Modules/RTC/`：`IMRtcCall`（起停、票、引擎事件）、`IMRtcProfileResolver`（读 IM 已有数据：备注 > 群昵称 > 昵称，
-> 头像走 `IMImageLoader`；不为通话另建缓存）、`IMRtcConfig`。配置在 `IMRtcConfig.local.plist`（gitignored，模板见 `.example.plist`，
-> `wsUrl` 填本机局域网 IP）。入口：单聊资料页「呼叫 / 视频」、群资料页新增「群通话」（先选人，最多 8 人）；主界面出现时起服务，登出 / 被踢时停。
-> `Info.plist` 补了通话用途文案与 `UIBackgroundModes=audio`。**待真机验**：单聊 / 群通话、名字头像、退出登录后重登不出现两条连接。
-> 限制：超级群只能选已翻出来的成员；来电的群成员表只有打开过该群资料页才有，否则退回全局名片。
+> 更早的 im-rtc 首次接入（调试密钥联调阶段）记录已移入 [current_task.archive.md](current_task.archive.md)
+> 「归档于 2026-09-28」；SPM 依赖来源、入口位置（单聊/群资料页）、Info.plist 配置等静态信息仍在那里、仍然准确。
 
 > **修：聊天页点图片打开的查看器从来不能翻页（2026-09-16 用户报，未提交、未上模拟器）**：
 > 翻页容器与「整会话媒体时间线」2026-08-12 就落地了（`IMMediaPagerViewController` + `conversationMediaMessages`），

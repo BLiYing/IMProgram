@@ -1,5 +1,19 @@
 > ⚠️ 历史归档（只读，勿更新）。当前活快照见同目录 current_task.md；本文件只供考古。
 
+---
+
+# 归档于 2026-09-28（im-rtc 音视频首次接入·调试密钥联调阶段的状态 —— 从活快照转入，被换票接口迁移顶下）
+
+> **接入 im-rtc 音视频（2026-09-19，代码已写、模拟器编译通过，未上真机、未提交）**：本地 SPM 依赖 `../im-rtc/im-rtc-ios`
+> （`IMCallEngine` / `IMCallKit` / `IMCallEngineWebRTC`），调试密钥本机签票，SDKAppID 10000002 / kid `dbg-1`。
+> 代码在 `Modules/RTC/`：`IMRtcCall`（起停、票、引擎事件）、`IMRtcProfileResolver`（读 IM 已有数据：备注 > 群昵称 > 昵称，
+> 头像走 `IMImageLoader`；不为通话另建缓存）、`IMRtcConfig`。配置在 `IMRtcConfig.local.plist`（gitignored，模板见 `.example.plist`，
+> `wsUrl` 填本机局域网 IP）。入口：单聊资料页「呼叫 / 视频」、群资料页新增「群通话」（先选人，最多 8 人）；主界面出现时起服务，登出 / 被踢时停。
+> `Info.plist` 补了通话用途文案与 `UIBackgroundModes=audio`。**待真机验**：单聊 / 群通话、名字头像、退出登录后重登不出现两条连接。
+> 限制：超级群只能选已翻出来的成员；来电的群成员表只有打开过该群资料页才有，否则退回全局名片。
+>
+> 此状态已被 2026-09-28 的换票接口迁移取代（本端不再用调试密钥本机签票，改调 IMServer
+> `POST /api/v1/rtc/token`），见活快照当前焦点。SPM 依赖来源、入口位置、Info.plist 配置这些仍然准确。
 
 ---
 

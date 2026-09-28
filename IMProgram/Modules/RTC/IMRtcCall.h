@@ -1,11 +1,12 @@
 //  IMRtcCall.h
 //  im-rtc 通话的宿主侧接入点（**只在主线程调用**）。
 //
-//  · startWithUserID:  进入主界面（IM 已登录）时调用——建引擎、本机签调试票、登录 im-rtc，此后能拨也能接。幂等。
+//  · startWithUserID:  进入主界面（IM 已登录）时调用——建引擎、向 IMServer 换票、登录 im-rtc，此后能拨也能接。幂等。
 //  · stop              退出 / 被踢离开主界面时调用——销毁引擎、断开 im-rtc。不停的话换账号会有两条连接，服务端踢掉其中一条。
 //  · placeSingle… / placeGroup…  业务入口，界面全部由 Kit 接管。
 //
-//  票从哪来只在 -signToken 一处，以后加「接口 / 调试」开关只改那里。对端：im-android `rtc/RtcCall.kt`、im-web `src/rtc/rtcEngine.ts`。
+//  票从哪来只在 -signTokenWithCompletion: 一处（调 IMServer POST /api/v1/rtc/token 代为向
+//  im-rtc-server 换票，本端不知道任何签名密钥）。对端：im-android `rtc/RtcCall.kt`、im-web `src/rtc/rtcEngine.ts`。
 
 #import <Foundation/Foundation.h>
 

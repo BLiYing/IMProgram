@@ -1397,6 +1397,7 @@
 "rtc.error.id_too_long" = "%1$@ 超过 %2$ld 字节";
 "rtc.error.no_callees" = "请选择要呼叫的成员";
 "rtc.error.not_started" = "通话服务未启动（请重新登录）";
+"rtc.error.token_fetch_failed" = "获取通话凭证失败";
 "rtc.invite.in_call" = "已在通话中";
 "rtc.kind.group_id" = "群号";
 "rtc.kind.peer_id" = "对方 id";

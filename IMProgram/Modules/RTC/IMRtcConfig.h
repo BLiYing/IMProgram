@@ -1,9 +1,10 @@
 //  IMRtcConfig.h
-//  im-rtc 联调配置。值来自 bundle 里的 `IMRtcConfig.local.plist`（**已被 .gitignore 忽略，不要提交**），
-//  secret 不进源码。模板见同目录 `IMRtcConfig.example.plist`。
+//  im-rtc 接入配置。值来自 bundle 里的 `IMRtcConfig.local.plist`（**已被 .gitignore 忽略，不要提交**）。
+//  模板见同目录 `IMRtcConfig.example.plist`。
 //
-//  联调期用「调试密钥」在本机签接入票（im-rtc-server docs/design/DEBUG_KEY_DESIGN.md）；
-//  上线前换成 IMServer 换票接口，那时 debugSecret 整个删掉。对端：im-android `rtc/RtcConfig.kt`、im-web `src/rtc/rtcConfig.ts`。
+//  接入票不再由本端签发，改由 IMServer 的 POST /api/v1/rtc/token 代为向 im-rtc-server 换票
+//  （见 IMRtcCall.m 的 signTokenWithCompletion:）——本端既不需要也不该知道 SDKAppID / SDKSecretKey。
+//  对端：im-android `rtc/RtcConfig.kt`、im-web `src/rtc/rtcConfig.ts`。
 
 #import <Foundation/Foundation.h>
 
@@ -13,10 +14,6 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// 信令地址，`ws://` 或 `wss://`。真机别填 127.0.0.1（那指的是手机自己）。
 @property (nonatomic, copy, readonly) NSString *wsURL;
-@property (nonatomic, copy, readonly) NSString *appID;
-/// 调试密钥 ID，形如 `dbg-1`。
-@property (nonatomic, copy, readonly) NSString *keyID;
-@property (nonatomic, copy, readonly) NSString *debugSecret;
 
 /// 从 bundle 读；文件不存在返回空配置（`missingKeys` 会列出全部）。
 + (instancetype)load;
