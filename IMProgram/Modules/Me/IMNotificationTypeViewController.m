@@ -9,6 +9,10 @@
 #import "IMChatViewController.h"
 #import "IMForwardPickerViewController.h"
 #import "IMNotifExceptionPickerFilter.h"
+#import "IMMuteState.h"
+#import "IMMuteDurationMenu.h"
+#import "IMMuteExpiryScheduler.h"
+#import "IMTimeUtil.h"
 #import "UIViewController+IMToast.h"
 #import "UILabel+IMAvatar.h"
 #import "IMTheme.h"
@@ -123,7 +127,9 @@ typedef NS_ENUM(NSInteger, IMNotifTypeSection) {
     NSString *seed = conversation.isGroup ? conversation.convID : conversation.peer;
     [_avatar im_setAvatarURL:avatarURL seed:seed displayName:display];
     _name.text = display;
-    _value.text = conversation.mentionUnread ? IMLocalized(@"notif.exceptions.muted_mention") : IMLocalized(@"notif.exceptions.muted");
+    // 例外列表本身就是"有效免打扰"的会话集合（reloadExceptions 已按 IMIsMutedNow 过滤），
+    // 这里只需拼「免打扰」/「免打扰至...」+ @我仍提醒变体（P1 §4.1 副标题文案）。
+    _value.text = IMMuteExceptionSubtitle(conversation.muteUntil, IMNowMillis(), conversation.mentionUnread);
 }
 @end
 
@@ -221,6 +227,15 @@ typedef NS_ENUM(NSInteger, IMNotifTypeSection) {
 
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(settingsChanged)
                                                name:IMNotificationSettingsDidChangeNotification object:nil];
+    // 定时免打扰到期 / App 回前台（§4.4）：本页在屏时也要跟着掉出例外列表，不必等下次 viewWillAppear。
+    for (NSNotificationName n in @[IMMuteExpiryDidChangeNotification, UIApplicationDidBecomeActiveNotification]) {
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onMuteExpiryChanged) name:n object:nil];
+    }
+}
+
+- (void)onMuteExpiryChanged {
+    [self reloadExceptions];
+    [self.tableView reloadData];
 }
 
 - (void)dealloc {
@@ -241,21 +256,24 @@ typedef NS_ENUM(NSInteger, IMNotifTypeSection) {
     return self.isGroup ? IMNotificationSettings.shared.groupType : IMNotificationSettings.shared.privateType;
 }
 
-/// 本机会话表里该类型 muted=YES 的会话，按最后消息时间倒序（§3.5）。
+/// 本机会话表里该类型**有效**免打扰（IMIsMutedNow）的会话，按最后消息时间倒序（§3.5）。
+/// 定时免打扰到期后要自然从这里消失——不能再直接读 c.muted（§4.3）。
 - (void)reloadExceptions {
     __block NSArray<IMConversation *> *cached = @[];
     [IMDatabase.sharedDatabase performWithAccountContext:self.databaseContext block:^(IMDatabase *database) {
         cached = database.cachedConversations;
     }];
     BOOL wantGroup = self.isGroup;
+    int64_t now = IMNowMillis();
     NSArray<IMConversation *> *filtered = [cached filteredArrayUsingPredicate:
         [NSPredicate predicateWithBlock:^BOOL(IMConversation *c, NSDictionary *bindings) {
-            return c.muted && c.isGroup == wantGroup;
+            return IMIsMutedNow(c.muted, c.muteUntil, now) && c.isGroup == wantGroup;
         }]];
     self.exceptions = [filtered sortedArrayUsingComparator:^NSComparisonResult(IMConversation *a, IMConversation *b) {
         if (a.timestamp == b.timestamp) { return NSOrderedSame; }
         return a.timestamp > b.timestamp ? NSOrderedAscending : NSOrderedDescending;
     }];
+    [IMMuteExpiryScheduler.shared rescheduleWithConversations:cached]; // 顺路重排到期定时器（列表页/详情页可能都没打开）
 }
 
 #pragma mark - 动作
@@ -282,16 +300,18 @@ typedef NS_ENUM(NSInteger, IMNotifTypeSection) {
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0 || conversation.convID.length == 0) { return; }
     __weak typeof(self) ws = self;
+    // 取消免打扰须显式带 mute_until=0（不能省略——省略会被服务端解读成"保留原值"，见 PROTOCOL.md §6.10）。
     [IMHTTPService.sharedService updateConversationSettingsWithToken:token convID:conversation.convID
-        pinnedAt:conversation.pinnedAt muted:NO markedUnread:conversation.markedUnread
+        pinnedAt:conversation.pinnedAt muted:NO muteUntil:@0 markedUnread:conversation.markedUnread
         completion:^(NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
         if (error) { [self im_showToast:error.localizedDescription ?: IMLocalized(@"conv.error.settings_failed")]; return; }
         conversation.muted = NO;
+        conversation.muteUntil = 0;
         [IMDatabase.sharedDatabase performWithAccountContext:self.databaseContext block:^(IMDatabase *database) {
             [database applyCachedSettingsForConversation:conversation.convID pinnedAt:conversation.pinnedAt
-                                                     muted:NO markedUnread:conversation.markedUnread];
+                                                     muted:NO muteUntil:0 markedUnread:conversation.markedUnread];
         }];
         NSMutableArray<IMConversation *> *mutable = [self.exceptions mutableCopy];
         [mutable removeObject:conversation];
@@ -308,36 +328,50 @@ typedef NS_ENUM(NSInteger, IMNotifTypeSection) {
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0) { return; }
     BOOL wantGroup = self.isGroup;
+    int64_t now = IMNowMillis();
     __weak typeof(self) ws = self;
     IMForwardPickerViewController *picker = [[IMForwardPickerViewController alloc]
         initWithHost:self.host token:token onDone:^(NSArray<IMConversation *> *selected) {
-        if (selected.count > 0) { [ws muteNewException:selected.firstObject]; }
+        // 选完会话先弹时长菜单，再真正设免打扰（§4.2「选择页」行）；此时 picker 的 nav 已经 dismiss 完，
+        // ws（本页）已回到最上层，present 时机安全。
+        if (selected.count > 0) { [ws presentMuteMenuForNewException:selected.firstObject]; }
     }];
     picker.immediateSingleSelect = YES;
     picker.titleOverride = IMLocalized(@"notif.exceptions.add");
     picker.footerText = IMLocalized(wantGroup ? @"notif.exceptions.pick_footer_group" : @"notif.exceptions.pick_footer_private");
     picker.emptyText = IMLocalized(@"notif.exceptions.pick_empty");
     picker.extraFilter = ^BOOL(IMConversation *c) {
-        return IMNotifExceptionPickerMatches(c.isGroup, c.muted, c.peer, wantGroup);
+        return IMNotifExceptionPickerMatches(c.isGroup, IMIsMutedNow(c.muted, c.muteUntil, now), c.peer, wantGroup);
     };
     UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:picker];
     [self presentViewController:nav animated:YES completion:nil];
 }
 
-- (void)muteNewException:(IMConversation *)conversation {
+/// 选完会话弹时长菜单（不已免打扰，恒不出「取消免打扰」项）。
+- (void)presentMuteMenuForNewException:(IMConversation *)conversation {
+    __weak typeof(self) ws = self;
+    [IMMuteDurationMenu presentFromViewController:self sourceView:nil sourceRect:CGRectZero
+        conversationName:conversation.displayName showUnmuteFirst:NO
+        completion:^(BOOL unmuted, int64_t muteUntil) {
+            if (!unmuted) { [ws muteNewException:conversation muteUntil:muteUntil]; }
+        }];
+}
+
+- (void)muteNewException:(IMConversation *)conversation muteUntil:(int64_t)muteUntil {
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0 || conversation.convID.length == 0) { return; }
     __weak typeof(self) ws = self;
     [IMHTTPService.sharedService updateConversationSettingsWithToken:token convID:conversation.convID
-        pinnedAt:conversation.pinnedAt muted:YES markedUnread:conversation.markedUnread
+        pinnedAt:conversation.pinnedAt muted:YES muteUntil:@(muteUntil) markedUnread:conversation.markedUnread
         completion:^(NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
         if (error) { [self im_showToast:error.localizedDescription ?: IMLocalized(@"conv.error.settings_failed")]; return; }
         conversation.muted = YES;
+        conversation.muteUntil = muteUntil;
         [IMDatabase.sharedDatabase performWithAccountContext:self.databaseContext block:^(IMDatabase *database) {
             [database applyCachedSettingsForConversation:conversation.convID pinnedAt:conversation.pinnedAt
-                                                     muted:YES markedUnread:conversation.markedUnread];
+                                                     muted:YES muteUntil:muteUntil markedUnread:conversation.markedUnread];
         }];
         [self reloadExceptions];
         [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:IMNotifTypeSectionExceptions]

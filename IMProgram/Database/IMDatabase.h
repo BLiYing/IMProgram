@@ -42,11 +42,12 @@ NS_ASSUME_NONNULL_BEGIN
 /// 当前账号的本地会话快照（服务不可用时用于离线首屏）。
 - (NSArray<IMConversation *> *)cachedConversations;
 
-/// 单个会话的「类型 + 免打扰」（实时来消息判提醒用，每条消息一次，不能整表读）。
-/// 本地没有这一行时返回 NO，出参不动。
+/// 单个会话的「类型 + 免打扰 + 定时免打扰到期」（实时来消息判提醒用，每条消息一次，不能整表读）。
+/// 本地没有这一行时返回 NO，出参不动。`muted` 是原始值，是否"现在算不算免打扰"由调用方经
+/// IMIsMutedNow(muted,muteUntil,now) 判定（NOTIFICATIONS_P1_DESIGN §4.3）。
 /// 按主键读一行完整会话（横幅渲染用；不要为找一个会话去读 cachedConversations 整表）。
 - (nullable IMConversation *)cachedConversationWithID:(NSString *)convID;
-- (BOOL)cachedConversation:(NSString *)convID isGroup:(BOOL *)isGroup muted:(BOOL *)muted;
+- (BOOL)cachedConversation:(NSString *)convID isGroup:(BOOL *)isGroup muted:(BOOL *)muted muteUntil:(int64_t *)muteUntil;
 
 /// 当前账号已发送文件的本地缓存（按时间倒序）；用于文件面板离线首屏。
 - (NSArray<NSDictionary *> *)cachedSentFiles;
@@ -82,10 +83,12 @@ NS_ASSUME_NONNULL_BEGIN
 /// 持久化对端已读位点（单聊列表的已读双勾）。
 - (void)markConversation:(NSString *)convID peerReadUpToConvSeq:(int64_t)convSeq;
 
-/// 应用服务端 conv_update 的完整会话设置；会话不存在时等待下一次权威列表补齐。
+/// 应用服务端 conv_update 的完整会话设置（含定时免打扰到期 mute_until）；会话不存在时等待下一次权威列表补齐。
+/// 调用方在只改置顶/标未读、不想动 mute_until 时，须原样传回该会话当前的 muteUntil（不能传 0，
+/// 否则等于本地把定时免打扰悄悄清成永久/清零——与 PUT 端"省略即保留"是同一个坑，见 PROTOCOL.md §6.10）。
 - (void)applyCachedSettingsForConversation:(NSString *)convID
                                   pinnedAt:(int64_t)pinnedAt
-                                     muted:(BOOL)muted
+                                     muted:(BOOL)muted muteUntil:(int64_t)muteUntil
                               markedUnread:(BOOL)markedUnread;
 
 /// 单独把会话备注（G1，仅本人可见）写进本地缓存；与三开关解耦。

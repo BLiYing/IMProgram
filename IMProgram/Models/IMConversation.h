@@ -55,7 +55,10 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) BOOL unreadCapped;
 // M4.5 会话级设置（每用户私有；服务端 conv_update 帧多端同步）：
 @property (nonatomic, assign) int64_t pinnedAt;        // 置顶时间（0=未置顶；服务端已按置顶优先排序）
-@property (nonatomic, assign) BOOL muted;              // 免打扰（弱提示）
+@property (nonatomic, assign) BOOL muted;              // 免打扰（弱提示）；服务端下发的已是**有效值**（已到期→false）
+/// 定时免打扰到期毫秒（0=永久或未免打扰）。是否"现在算不算免打扰"一律经 IMIsMutedNow(muted,muteUntil,now)
+/// 判定，不直接读 muted（NOTIFICATIONS_P1_DESIGN §4.3）。
+@property (nonatomic, assign) int64_t muteUntil;
 @property (nonatomic, assign) BOOL markedUnread;       // 手动标为未读（红点，不计数）
 @property (nonatomic, copy, nullable) NSString *remark; // 会话备注（G1，仅本人可见、多端同步）：非空即替代 name/群名显示
 /// 未读区间内有人 @我（含 @所有人），仅群聊（M4-8）。列表显「[有人@我]」红字前缀，

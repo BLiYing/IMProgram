@@ -721,11 +721,13 @@ const NSInteger IMFavoritesPageSize = 60;
 }
 
 - (void)updateConversationSettingsWithToken:(NSString *)token convID:(NSString *)convID
-                                   pinnedAt:(int64_t)pinnedAt muted:(BOOL)muted markedUnread:(BOOL)markedUnread
+                                   pinnedAt:(int64_t)pinnedAt muted:(BOOL)muted muteUntil:(NSNumber *)muteUntil
+                               markedUnread:(BOOL)markedUnread
                                  completion:(void (^)(NSError *))completion {
     NSString *path = [NSString stringWithFormat:@"/api/v1/conversations/%@/settings", [self pathEscape:convID]];
-    NSMutableURLRequest *req = [self authedRequestForPath:path method:@"PUT" token:token
-        body:@{ @"pinned_at": @(pinnedAt), @"muted": @(muted), @"marked_unread": @(markedUnread) }];
+    NSMutableDictionary *body = [@{ @"pinned_at": @(pinnedAt), @"muted": @(muted), @"marked_unread": @(markedUnread) } mutableCopy];
+    if (muteUntil) { body[@"mute_until"] = muteUntil; } // 省略即让服务端保留未到期的原值（PROTOCOL.md §6.10）
+    NSMutableURLRequest *req = [self authedRequestForPath:path method:@"PUT" token:token body:body];
     [self runOKRequest:req fallback:IMLocalized(@"conv.error.settings_failed") completion:completion];
 }
 

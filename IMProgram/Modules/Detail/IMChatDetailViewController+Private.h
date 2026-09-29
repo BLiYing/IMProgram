@@ -85,6 +85,9 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 // 会话设置
 @property (nonatomic, assign) int64_t pinnedAt;
 @property (nonatomic, assign) BOOL muted;
+/// 定时免打扰到期毫秒（0=永久或未免打扰）。行右值/是否有效免打扰一律经 IMIsMutedNow(muted,muteUntil,now)
+/// 判定，不直接读 muted（NOTIFICATIONS_P1_DESIGN §4.3）。
+@property (nonatomic, assign) int64_t muteUntil;
 @property (nonatomic, assign) BOOL markedUnread; ///< 手动标未读态：PUT 是整体替换，提交时必须回传，否则会清掉列表页设的红点
 @property (nonatomic, copy, nullable) NSString *convRemark; ///< 会话备注（G1，仅本人可见、多端同步）：从服务端读，非空替代群名显示
 // UI
@@ -145,6 +148,9 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 - (NSString *)displayTitle;
 - (NSString *)displaySubtitle;
 - (void)refreshHeaderTexts;
+/// 设置区 cell 内容变了（如免打扰值行）→ 重绘整表。放主实现文件是历史原因，声明必须搬到这里——
+/// +Actions.m 的免打扰提交需要它刷新行文案，跨 TU 不声明会编译过、运行到才 unrecognized selector。
+- (void)reloadSettingsAndPills;
 - (void)rebuildTabs;
 - (IMDetailSection)sectionKindAt:(NSInteger)index;
 - (NSInteger)indexOfSection:(IMDetailSection)kind;
@@ -171,6 +177,8 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 - (void)requestAddFriendUID:(NSString *)uid;
 - (void)requestAddPeerFriend;
 - (void)switchChanged:(UISwitch *)sw;
+/// 免打扰值行点击：已免打扰时菜单最上面多一条红色「取消免打扰」，否则直接弹时长菜单（P1 §4.1/§4.2）。
+- (void)presentMuteMenu;
 - (void)toggleBlock;
 - (void)confirmRemoveFriend;  ///< 「更多」→ 删除好友（二次确认；仅单聊·好友）
 // 数据加载 / DB（主实现）：

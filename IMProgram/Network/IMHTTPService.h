@@ -493,11 +493,16 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
                                 remark:(NSString *)remark
                             completion:(void (^)(NSError *_Nullable error))completion;
 
-/// 更新会话级设置（置顶/免打扰/标未读，整体替换）：PUT /api/v1/conversations/{id}/settings。completion 主线程回调。
+/// 更新会话级设置（置顶/免打扰/定时免打扰到期/标未读，整体替换）：PUT /api/v1/conversations/{id}/settings。
+/// muteUntil 传 nil 即**省略**该字段——服务端在本次 muted=true 且当前正处于未到期定时免打扰时保留原到期时间，
+/// 否则置 0（PROTOCOL.md §6.10）；改置顶/标未读等不想碰免打扰的调用方一律传 nil，别传 @(0)（那会把定时
+/// 免打扰错改成永久/清零，是第一期 pinned_at 被清掉的同一类坑）。选了时长/取消免打扰的调用方须显式传值。
+/// completion 主线程回调。
 - (void)updateConversationSettingsWithToken:(NSString *)token
                                      convID:(NSString *)convID
                                    pinnedAt:(int64_t)pinnedAt
                                       muted:(BOOL)muted
+                                 muteUntil:(nullable NSNumber *)muteUntil
                                markedUnread:(BOOL)markedUnread
                                  completion:(void (^)(NSError *_Nullable error))completion;
 

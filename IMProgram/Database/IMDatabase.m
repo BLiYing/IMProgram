@@ -3,6 +3,7 @@
 
 #import "IMDatabase.h"
 #import "IMDatabase+Ranges.h"
+#import "IMDatabase+MuteState.h"
 #import "IMConversation.h"
 #import "IMMessageModel.h"
 #import "IMLog.h"
@@ -197,7 +198,7 @@ static NSDictionary<NSString *, NSString *> *IMDecodeStringDict(NSString *raw);
              "read_seq INTEGER, peer_read_seq INTEGER, timestamp INTEGER, unread INTEGER,"
              "pinned_at INTEGER, muted INTEGER, marked_unread INTEGER,server_snapshot_seq INTEGER NOT NULL DEFAULT 0,"
              "synced_conv_seq INTEGER NOT NULL DEFAULT 0, remark TEXT NOT NULL DEFAULT '',"
-             "mention_unread INTEGER NOT NULL DEFAULT 0,"
+             "mention_unread INTEGER NOT NULL DEFAULT 0, mute_until INTEGER NOT NULL DEFAULT 0,"
              "PRIMARY KEY(owner_uid,conv_id))"];
         if (!ok) { IMLogDatabase(@"会话缓存建表失败: %@", db.lastErrorMessage); }
         if (![self column:@"server_snapshot_seq" existsInTable:@"im_conversation_local" db:db]) {
@@ -266,7 +267,7 @@ static NSDictionary<NSString *, NSString *> *IMDecodeStringDict(NSString *raw);
             if (![db executeUpdate:@"ALTER TABLE im_conversation_local ADD COLUMN head_conv_seq INTEGER NOT NULL DEFAULT 0"]) {
                 IMLogDatabase(@"迁移失败：im_conversation_local 补列 head_conv_seq 未成功: %@", db.lastErrorMessage);
             }
-        }
+        } [self migrateMuteUntilColumnDB:db]; // 定时免打扰到期毫秒（P1 二批）：实现移到 IMDatabase+MuteState.m（体量门禁，本文件已贴 1500 行上限）
 
         // 任务5：好友/群组本地快照（断网离线首屏）。仅缓存列表渲染所需字段，按 owner_uid 隔离。
         ok = [db executeUpdate:
@@ -401,17 +402,17 @@ static NSDictionary<NSString *, NSString *> *IMDecodeStringDict(NSString *raw);
     return out;
 }
 
-- (BOOL)cachedConversation:(NSString *)convID isGroup:(BOOL *)isGroup muted:(BOOL *)muted {
+- (BOOL)cachedConversation:(NSString *)convID isGroup:(BOOL *)isGroup muted:(BOOL *)muted muteUntil:(int64_t *)muteUntil {
     if (convID.length == 0) { return NO; }
     NSString *owner = [self ownerUserID];
     __block BOOL found = NO;
     [_queue inDatabase:^(FMDatabase *db) {
-        FMResultSet *rs = [db executeQuery:@"SELECT is_group,muted FROM im_conversation_local WHERE owner_uid=? AND conv_id=? LIMIT 1", owner, convID];
+        FMResultSet *rs = [db executeQuery:@"SELECT is_group,muted,mute_until FROM im_conversation_local WHERE owner_uid=? AND conv_id=? LIMIT 1", owner, convID];
         if (!rs) { IMLogDatabase(@"读取会话提醒信息失败 conv=%@: %@", convID, db.lastErrorMessage); return; }
         if ([rs next]) {
             found = YES;
             if (isGroup) { *isGroup = [rs boolForColumn:@"is_group"]; }
-            if (muted) { *muted = [rs boolForColumn:@"muted"]; }
+            if (muted) { *muted = [rs boolForColumn:@"muted"]; } if (muteUntil) { *muteUntil = [rs longLongIntForColumn:@"mute_until"]; }
         }
         [rs close];
     }];
@@ -447,7 +448,7 @@ static IMConversation *IMConversationFromCachedRow(FMResultSet *rs) {
     c.timestamp = [rs longLongIntForColumn:@"timestamp"];
     c.unread = [rs longForColumn:@"unread"];
     c.pinnedAt = [rs longLongIntForColumn:@"pinned_at"];
-    c.muted = [rs boolForColumn:@"muted"];
+    c.muted = [rs boolForColumn:@"muted"]; c.muteUntil = [rs longLongIntForColumn:@"mute_until"];
     c.markedUnread = [rs boolForColumn:@"marked_unread"];
     c.mentionUnread = [rs boolForColumn:@"mention_unread"];
     NSString *rmk = [rs stringForColumn:@"remark"];
@@ -506,7 +507,7 @@ static IMConversation *IMConversationFromCachedRow(FMResultSet *rs) {
         [conversations enumerateObjectsUsingBlock:^(IMConversation *c, NSUInteger idx, BOOL *stop) {
             if (c.convID.length == 0) { return; }
             BOOL ok = [db executeUpdate:
-                @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,is_super,peer,peer_nickname,peer_avatar_url,peer_remark,last_content,last_from,last_from_nickname,last_sys_segments,last_sys_event,last_sys_args,last_recalled,last_content_type,last_caption,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq,synced_conv_seq,remark,mention_unread,head_conv_seq) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,is_super,peer,peer_nickname,peer_avatar_url,peer_remark,last_content,last_from,last_from_nickname,last_sys_segments,last_sys_event,last_sys_args,last_recalled,last_content_type,last_caption,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq,synced_conv_seq,remark,mention_unread,head_conv_seq,mute_until) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 owner, c.convID, @(idx), @(c.isGroup), c.name ?: @"", c.avatarURL ?: @"",
                 @(c.memberCount), @(c.isSuper), c.peer ?: @"", c.peerNickname ?: @"", c.peerAvatarURL ?: @"", c.peerRemark ?: @"",
                 c.lastContent ?: @"", c.lastFrom ?: @"", c.lastFromNickname ?: @"",
@@ -514,7 +515,7 @@ static IMConversation *IMConversationFromCachedRow(FMResultSet *rs) {
                 c.lastContentType ?: @"", c.lastCaption ?: @"", @(c.latestConvSeq), @(c.readSeq), @(c.peerReadSeq),
                 @(c.timestamp), @(c.unread), @(c.pinnedAt), @(c.muted), @(c.markedUnread), @(c.latestConvSeq),
                 syncCursors[c.convID] ?: @0, c.remark ?: @"", @(c.mentionUnread),
-                @(MAX(heads[c.convID].longLongValue, c.latestConvSeq))]; // 与快照 latest 取大：列表接口本身就带着服务端最新位点
+                @(MAX(heads[c.convID].longLongValue, c.latestConvSeq)), @(c.muteUntil)]; // 与快照 latest 取大：列表接口本身就带着服务端最新位点
             if (!ok) {
                 IMLogDatabase(@"写入会话缓存失败 owner=%@ conv=%@: %@", owner, c.convID, db.lastErrorMessage);
                 *rollback = YES;
@@ -811,7 +812,7 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
     NSInteger unreadDelta = inserted && isIncoming && isUnread && !representedByServerSnapshot && !isSystem ? 1 : 0;
     if (!exists) {
         BOOL ok = [db executeUpdate:
-            @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,peer,peer_nickname,peer_avatar_url,last_content,last_from,last_from_nickname,last_sys_segments,last_sys_event,last_sys_args,last_recalled,last_content_type,last_caption,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq) VALUES (?,?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,0,0)",
+            @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,peer,peer_nickname,peer_avatar_url,last_content,last_from,last_from_nickname,last_sys_segments,last_sys_event,last_sys_args,last_recalled,last_content_type,last_caption,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq,mute_until) VALUES (?,?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,0,0,0)",
             owner, message.convID, @(isGroup), isGroup ? @"群聊" : @"", @"", @0,
             isGroup ? @"" : (peer ?: @""), isGroup ? @"" : (peer ?: @""), @"",
             message.content ?: @"", message.from ?: @"", message.fromNickname ?: @"",
@@ -916,14 +917,14 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
 
 - (void)applyCachedSettingsForConversation:(NSString *)convID
                                   pinnedAt:(int64_t)pinnedAt
-                                     muted:(BOOL)muted
+                                     muted:(BOOL)muted muteUntil:(int64_t)muteUntil
                               markedUnread:(BOOL)markedUnread {
     if (convID.length == 0) { return; }
     NSString *owner = [self ownerUserID];
     [_queue inDatabase:^(FMDatabase *db) {
         if (![db executeUpdate:
-              @"UPDATE im_conversation_local SET pinned_at=?,muted=?,marked_unread=? WHERE owner_uid=? AND conv_id=?",
-              @(pinnedAt), @(muted), @(markedUnread), owner, convID]) {
+              @"UPDATE im_conversation_local SET pinned_at=?,muted=?,mute_until=?,marked_unread=? WHERE owner_uid=? AND conv_id=?",
+              @(pinnedAt), @(muted), @(muteUntil), @(markedUnread), owner, convID]) {
             IMLogDatabase(@"更新本地会话设置失败 owner=%@ conv=%@: %@", owner, convID, db.lastErrorMessage);
         }
     }];
