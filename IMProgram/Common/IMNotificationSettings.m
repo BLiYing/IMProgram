@@ -81,9 +81,9 @@ static NSString * const kIMNotifBadgeIncludeMutedKey = @"im.notif.badge.includeM
         group.sound = IMNotificationSoundIDNormalize([d stringForKey:kIMNotifGroupSoundKey] ?: IMNotificationSoundIDDefault);
         _groupType = group;
 
-        _inAppSound = [d objectForKey:kIMNotifInAppSoundKey] ? [d boolForKey:kIMNotifInAppSoundKey] : YES;
-        _inAppVibrate = [d objectForKey:kIMNotifInAppVibrateKey] ? [d boolForKey:kIMNotifInAppVibrateKey] : YES;
-        _inAppPreview = [d objectForKey:kIMNotifInAppPreviewKey] ? [d boolForKey:kIMNotifInAppPreviewKey] : YES;
+        _inAppSound = [d objectForKey:kIMNotifInAppSoundKey] ? [d boolForKey:kIMNotifInAppSoundKey] : NO;
+        _inAppVibrate = [d objectForKey:kIMNotifInAppVibrateKey] ? [d boolForKey:kIMNotifInAppVibrateKey] : NO;
+        _inAppPreview = [d objectForKey:kIMNotifInAppPreviewKey] ? [d boolForKey:kIMNotifInAppPreviewKey] : NO;
         _badgeIncludeMuted = [d objectForKey:kIMNotifBadgeIncludeMutedKey] ? [d boolForKey:kIMNotifBadgeIncludeMutedKey] : NO;
     }
     return self;
@@ -139,9 +139,10 @@ static NSString * const kIMNotifBadgeIncludeMutedKey = @"im.notif.badge.includeM
     IMNotificationTypeSettings *group = [IMNotificationTypeSettings new];
     group.enabled = YES; group.preview = YES; group.sound = IMNotificationSoundIDDefault;
     self.groupType = group;
-    _inAppSound = YES;
-    _inAppVibrate = YES;
-    _inAppPreview = YES;
+    // 应用内三项默认关（2026-09-29 用户：App 开着时没必要响/振/弹；提醒留给后台时的系统通知）
+    _inAppSound = NO;
+    _inAppVibrate = NO;
+    _inAppPreview = NO;
     _badgeIncludeMuted = NO;
     [self persistAndNotify];
 }

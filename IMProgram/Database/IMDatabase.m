@@ -390,6 +390,17 @@ static NSDictionary<NSString *, NSString *> *IMDecodeStringDict(NSString *raw);
     }];
 }
 
+- (nullable IMConversation *)cachedConversationWithID:(NSString *)convID {
+    if (convID.length == 0) { return nil; }
+    __block IMConversation *out = nil;
+    [_queue inDatabase:^(FMDatabase *db) {
+        FMResultSet *rs = [db executeQuery:@"SELECT * FROM im_conversation_local WHERE owner_uid=? AND conv_id=? LIMIT 1", [self ownerUserID], convID];
+        if (!rs) { IMLogDatabase(@"读取单个会话缓存失败 conv=%@: %@", convID, db.lastErrorMessage); return; }
+        if ([rs next]) { out = IMConversationFromCachedRow(rs); } [rs close];
+    }];
+    return out;
+}
+
 - (BOOL)cachedConversation:(NSString *)convID isGroup:(BOOL *)isGroup muted:(BOOL *)muted {
     if (convID.length == 0) { return NO; }
     NSString *owner = [self ownerUserID];
@@ -407,6 +418,43 @@ static NSDictionary<NSString *, NSString *> *IMDecodeStringDict(NSString *raw);
     return found;
 }
 
+/// im_conversation_local 一行 → 会话对象（整表读取与按 id 单行读取共用，列一处维护）。
+static IMConversation *IMConversationFromCachedRow(FMResultSet *rs) {
+    IMConversation *c = [IMConversation new];
+    c.convID = [rs stringForColumn:@"conv_id"] ?: @"";
+    c.isGroup = [rs boolForColumn:@"is_group"];
+    c.name = [rs stringForColumn:@"name"];
+    c.avatarURL = [rs stringForColumn:@"avatar_url"];
+    c.memberCount = [rs longForColumn:@"member_count"];
+    c.isSuper = [rs boolForColumn:@"is_super"];
+    c.peer = [rs stringForColumn:@"peer"] ?: @"";
+    c.peerNickname = [rs stringForColumn:@"peer_nickname"];
+    c.peerRemark = [rs stringForColumn:@"peer_remark"];
+    c.peerAvatarURL = [rs stringForColumn:@"peer_avatar_url"];
+    c.lastContent = [rs stringForColumn:@"last_content"];
+    c.lastFrom = [rs stringForColumn:@"last_from"];
+    c.lastFromNickname = [rs stringForColumn:@"last_from_nickname"];
+    c.lastSysSegments = IMDecodeSysSegments([rs stringForColumn:@"last_sys_segments"]);
+    NSString *lastSysEvent = [rs stringForColumn:@"last_sys_event"];
+    c.lastSysEvent = lastSysEvent.length > 0 ? lastSysEvent : nil; // P3 i18n
+    c.lastSysArgs = IMDecodeStringDict([rs stringForColumn:@"last_sys_args"]);
+    c.lastRecalled = [rs boolForColumn:@"last_recalled"];
+    c.lastContentType = [rs stringForColumn:@"last_content_type"];
+    c.lastCaption = [rs stringForColumn:@"last_caption"];
+    c.latestConvSeq = [rs longLongIntForColumn:@"latest_conv_seq"];
+    c.readSeq = [rs longLongIntForColumn:@"read_seq"];
+    c.peerReadSeq = [rs longLongIntForColumn:@"peer_read_seq"];
+    c.timestamp = [rs longLongIntForColumn:@"timestamp"];
+    c.unread = [rs longForColumn:@"unread"];
+    c.pinnedAt = [rs longLongIntForColumn:@"pinned_at"];
+    c.muted = [rs boolForColumn:@"muted"];
+    c.markedUnread = [rs boolForColumn:@"marked_unread"];
+    c.mentionUnread = [rs boolForColumn:@"mention_unread"];
+    NSString *rmk = [rs stringForColumn:@"remark"];
+    c.remark = rmk.length > 0 ? rmk : nil; // 空串视作无备注
+    return c;
+}
+
 - (NSArray<IMConversation *> *)cachedConversations {
     NSString *owner = [self ownerUserID];
     NSMutableArray<IMConversation *> *out = [NSMutableArray array];
@@ -418,38 +466,7 @@ static NSDictionary<NSString *, NSString *> *IMDecodeStringDict(NSString *raw);
             return;
         }
         while ([rs next]) {
-            IMConversation *c = [IMConversation new];
-            c.convID = [rs stringForColumn:@"conv_id"] ?: @"";
-            c.isGroup = [rs boolForColumn:@"is_group"];
-            c.name = [rs stringForColumn:@"name"];
-            c.avatarURL = [rs stringForColumn:@"avatar_url"];
-            c.memberCount = [rs longForColumn:@"member_count"];
-            c.isSuper = [rs boolForColumn:@"is_super"];
-            c.peer = [rs stringForColumn:@"peer"] ?: @"";
-            c.peerNickname = [rs stringForColumn:@"peer_nickname"];
-            c.peerRemark = [rs stringForColumn:@"peer_remark"];
-            c.peerAvatarURL = [rs stringForColumn:@"peer_avatar_url"];
-            c.lastContent = [rs stringForColumn:@"last_content"];
-            c.lastFrom = [rs stringForColumn:@"last_from"];
-            c.lastFromNickname = [rs stringForColumn:@"last_from_nickname"];
-            c.lastSysSegments = IMDecodeSysSegments([rs stringForColumn:@"last_sys_segments"]);
-            NSString *lastSysEvent = [rs stringForColumn:@"last_sys_event"];
-            c.lastSysEvent = lastSysEvent.length > 0 ? lastSysEvent : nil; // P3 i18n
-            c.lastSysArgs = IMDecodeStringDict([rs stringForColumn:@"last_sys_args"]);
-            c.lastRecalled = [rs boolForColumn:@"last_recalled"];
-            c.lastContentType = [rs stringForColumn:@"last_content_type"];
-            c.lastCaption = [rs stringForColumn:@"last_caption"];
-            c.latestConvSeq = [rs longLongIntForColumn:@"latest_conv_seq"];
-            c.readSeq = [rs longLongIntForColumn:@"read_seq"];
-            c.peerReadSeq = [rs longLongIntForColumn:@"peer_read_seq"];
-            c.timestamp = [rs longLongIntForColumn:@"timestamp"];
-            c.unread = [rs longForColumn:@"unread"];
-            c.pinnedAt = [rs longLongIntForColumn:@"pinned_at"];
-            c.muted = [rs boolForColumn:@"muted"];
-            c.markedUnread = [rs boolForColumn:@"marked_unread"];
-            c.mentionUnread = [rs boolForColumn:@"mention_unread"];
-            NSString *rmk = [rs stringForColumn:@"remark"];
-            c.remark = rmk.length > 0 ? rmk : nil; // 空串视作无备注
+            IMConversation *c = IMConversationFromCachedRow(rs);
             if (c.convID.length > 0) { [out addObject:c]; }
         }
         [rs close];

@@ -10,6 +10,12 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+/// 「正在看的会话」变化时广播（object=nil，userInfo[IMChatPresenceConvIDKey]=新的 convID，可能为 nil）。
+/// 供应用内横幅（Common/IMInAppBannerView）订阅：横幅展示的会话一旦被打开（不论是否点了横幅本身），
+/// 立即收起（NOTIFICATIONS_P1_DESIGN §1.2「进入该会话 → 若横幅显示的正是当前打开的会话，立即收起」）。
+extern NSNotificationName const IMChatPresenceDidChangeNotification;
+extern NSString * const IMChatPresenceConvIDKey;
+
 @interface IMChatPresence : NSObject
 
 /// 聊天页出现在屏幕上时调用（viewDidAppear）。

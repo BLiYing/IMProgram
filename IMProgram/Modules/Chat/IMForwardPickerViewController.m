@@ -101,6 +101,7 @@ static const NSUInteger kIMForwardMaxSelection = 9;
     UITableView *_tableView;
     UISearchBar *_searchBar;
     UIView *_searchHeader;   // 托住 _searchBar 的表头容器（宽度随表格实时对齐）
+    UILabel *_emptyLabel;    // emptyText 非空时，_filtered 为空即显示（含搜索无匹配）
 }
 
 - (instancetype)initWithHost:(NSString *)host token:(NSString *)token onDone:(void (^)(NSArray<IMConversation *> *))onDone {
@@ -115,7 +116,7 @@ static const NSUInteger kIMForwardMaxSelection = 9;
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = IMLocalized(@"forward.picker.destination_title");
+    self.title = self.titleOverride.length > 0 ? self.titleOverride : IMLocalized(@"forward.picker.destination_title");
     self.view.backgroundColor = UIColor.systemBackgroundColor;
 
     self.navigationItem.leftBarButtonItem =
@@ -137,6 +138,24 @@ static const NSUInteger kIMForwardMaxSelection = 9;
     _tableView.tableHeaderView = _searchHeader;
     [self.view addSubview:_tableView];
 
+    if (self.emptyText.length > 0) {
+        _emptyLabel = [UILabel new];
+        _emptyLabel.translatesAutoresizingMaskIntoConstraints = NO;
+        _emptyLabel.text = self.emptyText;
+        _emptyLabel.font = [UIFont systemFontOfSize:15];
+        _emptyLabel.textColor = IMTheme.textSecondary;
+        _emptyLabel.textAlignment = NSTextAlignmentCenter;
+        _emptyLabel.numberOfLines = 0;
+        _emptyLabel.hidden = YES;
+        [self.view addSubview:_emptyLabel];
+        [NSLayoutConstraint activateConstraints:@[
+            [_emptyLabel.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
+            [_emptyLabel.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:80],
+            [_emptyLabel.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.view.leadingAnchor constant:IMTheme.space4 * 2],
+            [_emptyLabel.trailingAnchor constraintLessThanOrEqualToAnchor:self.view.trailingAnchor constant:-IMTheme.space4 * 2],
+        ]];
+    }
+
     [self loadConversations];
 }
 
@@ -156,13 +175,15 @@ static const NSUInteger kIMForwardMaxSelection = 9;
         }
         // 剔除「系统通知」单聊：那是只读会话，服务端直接拒 send_msg to=system（护栏见
         // IMServer/docs/design/SYSTEM_NOTICE_SESSION_DESIGN.md §2.2），列出来只会点了报错。
-        // 群聊不看 peer（群会话的 peer 无意义），故先判 isGroup。
+        // 群聊不看 peer（群会话的 peer 无意义），故先判 isGroup。**该剔除始终生效**，与 extraFilter 无关。
         NSMutableArray<IMConversation *> *forwardable = [NSMutableArray arrayWithCapacity:convs.count];
         for (IMConversation *c in convs) {
             if (!c.isGroup && IMIsSystemUserID(c.peer)) { continue; }
+            if (self.extraFilter && !self.extraFilter(c)) { continue; }
             [forwardable addObject:c];
         }
-        if (forwardable.count == 0) {
+        if (forwardable.count == 0 && self.emptyText.length == 0) {
+            // 转发流程原行为不变：零会话直接 toast，不留一个空表格在那儿。
             [self im_showToast:IMLocalized(@"forward.picker.no_conversations")];
             return;
         }
@@ -189,6 +210,7 @@ static const NSUInteger kIMForwardMaxSelection = 9;
         }
         _filtered = out;
     }
+    _emptyLabel.hidden = _filtered.count > 0;
     [_tableView reloadData];
 }
 
@@ -204,6 +226,8 @@ static const NSUInteger kIMForwardMaxSelection = 9;
         self.navigationItem.rightBarButtonItem =
             [[UIBarButtonItem alloc] initWithTitle:title style:UIBarButtonItemStyleDone target:self action:@selector(sendTapped)];
         self.navigationItem.rightBarButtonItem.enabled = _selected.count > 0;
+    } else if (self.immediateSingleSelect) {
+        self.navigationItem.rightBarButtonItem = nil; // 不提供多选入口：点一行即选定
     } else {
         self.navigationItem.rightBarButtonItem =
             [[UIBarButtonItem alloc] initWithTitle:IMLocalized(@"forward.picker.multi") style:UIBarButtonItemStylePlain target:self action:@selector(enterMultiSelect)];
@@ -231,6 +255,10 @@ static const NSUInteger kIMForwardMaxSelection = 9;
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return _filtered.count; }
 
+- (nullable NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
+    return self.footerText;
+}
+
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)ip {
     IMForwardPickerCell *cell = [tableView dequeueReusableCellWithIdentifier:@"conv" forIndexPath:ip];
     IMConversation *c = _filtered[ip.row];
@@ -245,6 +273,11 @@ static const NSUInteger kIMForwardMaxSelection = 9;
     [tableView deselectRowAtIndexPath:ip animated:YES];
     [_searchBar resignFirstResponder];
     IMConversation *c = _filtered[ip.row];
+    if (!_multiSelect && self.immediateSingleSelect) { // 单选·立即模式：不弹确认，选中即回调（§2）
+        void (^done)(NSArray<IMConversation *> *) = _onDone;
+        [self dismissViewControllerAnimated:YES completion:^{ if (done) { done(@[c]); } }];
+        return;
+    }
     if (!_multiSelect) { // 单选：确认后立即回调
         __weak typeof(self) ws = self;
         UIAlertController *a = [UIAlertController alertControllerWithTitle:IMLocalized(@"common.forward")

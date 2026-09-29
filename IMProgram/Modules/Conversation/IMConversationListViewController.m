@@ -23,8 +23,7 @@
 #import "UILabel+IMAvatar.h"
 #import "IMPresence.h"
 #import "IMMediaUtil.h"
-#import "IMContactCard.h"
-#import "IMCallRecord.h"
+#import "IMConversationPreview.h"
 #import "IMPopoverCard.h"
 #import "IMLog.h"
 #import "IMUserSearchViewController.h"
@@ -259,37 +258,12 @@ static CGFloat const kIMRowLeading = 16;
     _last.textColor = IMTheme.textSecondary; // 复用：上一行可能是红色的未接来电
     BOOL callMissed = NO;
     // 富媒体预览（M4-6）：图片/视频/文件显示占位标签而非 URL。群聊里与文本一样带"昵称:"前缀（见下方群分支）。
+    // 判定抽成纯函数 IMConversationMediaPreview（Common/IMConversationPreview.h），应用内横幅（NOTIFICATIONS_P1
+    // §1.2）复用同一份，不另写一套。
     NSString *mediaPreview = nil;
     if (!recalledPreview) {
-        // 静态占位表（每 cell 都取，不必每次重建）：只放**键**，取值时再本地化（切语言后才会变）。
-        static NSDictionary<NSString *, NSString *> *mediaNameKeys;
-        static dispatch_once_t once;
-        dispatch_once(&once, ^{
-            mediaNameKeys = @{ @"image": @"preview.image", @"video": @"preview.video", @"file": @"preview.file",
-                               @"chat_record": @"preview.chat_record",
-                               @"location": @"preview.location" };
-        });
-        // 图说 caption「有字显字」（Telegram 模型）：图文/视频文/文件文带 caption 时列表预览显 caption，否则回退 [图片] 等。
-        if (c.lastCaption.length > 0 &&
-            ([c.lastContentType isEqualToString:@"image"] || [c.lastContentType isEqualToString:@"video"] || [c.lastContentType isEqualToString:@"file"])) {
-            mediaPreview = c.lastCaption;
-        } else if ([c.lastContentType isEqualToString:IMContentTypeContact]) {
-            // 个人名片：`[个人名片] 小明`——需要 content（快照里的昵称），故不能走上面的 ct→字符串静态表。
-            mediaPreview = IMContactCardPreview(c.lastContent);
-        } else if ([c.lastContentType isEqualToString:IMContentTypeCall]) {
-            // 通话记录：`[语音通话] 未接来电`（按**我**的视角，与气泡同一句，纯函数在 IMCallRecord）；
-            // 只有被叫「未接来电」整行变红。
-            IMCallRecordDisplay *cd = IMCallRecordRender(c.lastContent, mine, c.isGroup, nil);
-            mediaPreview = cd.preview;
-            callMissed = cd.tone == IMCallRecordToneMissed;
-        } else if ([c.lastContentType isEqualToString:@"voice"]) {
-            // voice P0：预览 [语音] m:ss（时长来自 MessageView.duration）。与 iOS 的 IMVoiceBubbleCell 格式一致。
-            int64_t sec = MAX((int64_t)0, c.lastDuration / 1000);
-            mediaPreview = IMLocalizedFormat(@"preview.voice_duration", [NSString stringWithFormat:@"%lld:%02lld", sec / 60, sec % 60]);
-        } else {
-            NSString *nameKey = mediaNameKeys[c.lastContentType ?: @""];
-            mediaPreview = nameKey ? IMLocalized(nameKey) : nil;
-        }
+        mediaPreview = IMConversationMediaPreview(c.lastContentType, c.lastCaption, c.lastContent,
+                                                    c.lastDuration, mine, c.isGroup, &callMissed);
     }
     if (c.isGroup) {
         // 群项：群名/群头像；预览"昵称: 内容"；不显示 presence/✓✓（群无对端已读位点）。

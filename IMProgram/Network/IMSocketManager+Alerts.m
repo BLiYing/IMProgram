@@ -19,6 +19,7 @@
 #import "IMMessageModel.h"
 #import "IMConversation.h"
 #import "IMTimeUtil.h"
+#import "IMInAppBannerView.h" // P1 §1.1：result.banner 为真时弹应用内横幅（Common/，避免反向 import Modules/Chat）
 
 @implementation IMSocketManager (Alerts)
 
@@ -69,6 +70,18 @@
     IMAlertResult *result = IMAlertDecide(ctx);
     if (result.sound && result.soundId.length > 0) { [IMAlertPlayer.shared playSoundNamed:result.soundId]; }
     if (result.vibrate) { [IMAlertPlayer.shared vibrate]; }
+    if (result.banner) { [self showBannerForIncomingMessage:msg selfUID:selfUID]; }
+}
+
+/// 横幅要渲染标题/头像/摘要，需要完整会话对象（不只 isGroup/muted 两个字段）：按主键读一行，
+/// 只在 result.banner=YES 时做。
+- (void)showBannerForIncomingMessage:(IMMessageModel *)msg selfUID:(NSString *)selfUID {
+    __block IMConversation *conversation = nil;
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        conversation = [database cachedConversationWithID:msg.convID];
+    }];
+    if (!conversation) { return; } // 极端情况下（首条消息、缓存尚未落地）查不到：宁可不弹，不拼半份数据
+    [IMInAppBannerView showForConversation:conversation message:msg host:_host userID:selfUID];
 }
 
 @end

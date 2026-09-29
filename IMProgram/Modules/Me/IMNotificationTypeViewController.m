@@ -7,6 +7,8 @@
 #import "IMConversation.h"
 #import "IMHTTPService.h"
 #import "IMChatViewController.h"
+#import "IMForwardPickerViewController.h"
+#import "IMNotifExceptionPickerFilter.h"
 #import "UIViewController+IMToast.h"
 #import "UILabel+IMAvatar.h"
 #import "IMTheme.h"
@@ -125,6 +127,57 @@ typedef NS_ENUM(NSInteger, IMNotifTypeSection) {
 }
 @end
 
+#pragma mark - 「添加例外」行 Cell（绿色圆形 + 号，§2 / 草图 02-A：常驻「例外」组的第一行）
+
+@interface IMNotifAddExceptionCell : UITableViewCell
+@end
+@implementation IMNotifAddExceptionCell {
+    UIView *_circle;
+    UILabel *_title;
+}
+- (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
+    self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
+    if (self) {
+        _circle = [UIView new];
+        _circle.translatesAutoresizingMaskIntoConstraints = NO;
+        _circle.backgroundColor = IMTheme.accent; // 草图 --app-accent：本端主题绿，非硬编码颜色
+        _circle.layer.cornerRadius = 14;
+        _circle.layer.masksToBounds = YES;
+        [self.contentView addSubview:_circle];
+
+        UIImageView *plus = [UIImageView new];
+        plus.translatesAutoresizingMaskIntoConstraints = NO;
+        plus.image = [UIImage systemImageNamed:@"plus"];
+        plus.tintColor = UIColor.whiteColor;
+        plus.contentMode = UIViewContentModeCenter;
+        [_circle addSubview:plus];
+
+        _title = [UILabel new];
+        _title.translatesAutoresizingMaskIntoConstraints = NO;
+        _title.font = [UIFont systemFontOfSize:17];
+        _title.textColor = IMTheme.accent;
+        _title.text = IMLocalized(@"notif.exceptions.add");
+        [self.contentView addSubview:_title];
+
+        UILayoutGuide *g = self.contentView.layoutMarginsGuide;
+        [NSLayoutConstraint activateConstraints:@[
+            [_circle.leadingAnchor constraintEqualToAnchor:g.leadingAnchor],
+            [_circle.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
+            [_circle.widthAnchor constraintEqualToConstant:28],
+            [_circle.heightAnchor constraintEqualToConstant:28],
+            [plus.centerXAnchor constraintEqualToAnchor:_circle.centerXAnchor],
+            [plus.centerYAnchor constraintEqualToAnchor:_circle.centerYAnchor],
+            [_title.leadingAnchor constraintEqualToAnchor:_circle.trailingAnchor constant:IMTheme.space3],
+            [_title.trailingAnchor constraintEqualToAnchor:g.trailingAnchor],
+            [_title.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
+            [self.contentView.heightAnchor constraintGreaterThanOrEqualToConstant:44],
+        ]];
+        self.accessoryType = UITableViewCellAccessoryNone;
+    }
+    return self;
+}
+@end
+
 #pragma mark - 控制器
 
 @interface IMNotificationTypeViewController () <UITableViewDataSource, UITableViewDelegate>
@@ -163,6 +216,7 @@ typedef NS_ENUM(NSInteger, IMNotifTypeSection) {
     [self.tableView registerClass:IMNotifSwitchCell.class forCellReuseIdentifier:@"switch"];
     [self.tableView registerClass:IMNotifValueCell.class forCellReuseIdentifier:@"disclosure"];
     [self.tableView registerClass:IMNotifExceptionCell.class forCellReuseIdentifier:@"exception"];
+    [self.tableView registerClass:IMNotifAddExceptionCell.class forCellReuseIdentifier:@"addException"];
     [self.view addSubview:self.tableView];
 
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(settingsChanged)
@@ -242,13 +296,52 @@ typedef NS_ENUM(NSInteger, IMNotifTypeSection) {
         NSMutableArray<IMConversation *> *mutable = [self.exceptions mutableCopy];
         [mutable removeObject:conversation];
         self.exceptions = mutable;
-        if (mutable.count == 0) {
-            // 最后一个也取消了：整组消失（numberOfSections 随之变 2），不能只删行
-            [self.tableView deleteSections:[NSIndexSet indexSetWithIndex:IMNotifTypeSectionExceptions]
-                          withRowAnimation:UITableViewRowAnimationAutomatic];
-        } else {
-            [self.tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
-        }
+        // 「例外」组常驻（已拍板 ②，第一期 b4d9c88「没有例外就整组不显示」已随本批改回）：
+        // 最后一个也取消了，组里只剩「添加例外」一行，只删这一行，整组不消失。
+        [self.tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
+    }];
+}
+
+/// 「添加例外」：复用转发选择页（单选·立即模式），过滤出该类型、还没免打扰、非系统通知的会话；
+/// 选中即走「取消免打扰」的镜像操作——设免打扰，同样必须原样带回 pinned_at/marked_unread（§2）。
+- (void)addException {
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0) { return; }
+    BOOL wantGroup = self.isGroup;
+    __weak typeof(self) ws = self;
+    IMForwardPickerViewController *picker = [[IMForwardPickerViewController alloc]
+        initWithHost:self.host token:token onDone:^(NSArray<IMConversation *> *selected) {
+        if (selected.count > 0) { [ws muteNewException:selected.firstObject]; }
+    }];
+    picker.immediateSingleSelect = YES;
+    picker.titleOverride = IMLocalized(@"notif.exceptions.add");
+    picker.footerText = IMLocalized(wantGroup ? @"notif.exceptions.pick_footer_group" : @"notif.exceptions.pick_footer_private");
+    picker.emptyText = IMLocalized(@"notif.exceptions.pick_empty");
+    picker.extraFilter = ^BOOL(IMConversation *c) {
+        return IMNotifExceptionPickerMatches(c.isGroup, c.muted, c.peer, wantGroup);
+    };
+    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:picker];
+    [self presentViewController:nav animated:YES completion:nil];
+}
+
+- (void)muteNewException:(IMConversation *)conversation {
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0 || conversation.convID.length == 0) { return; }
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService updateConversationSettingsWithToken:token convID:conversation.convID
+        pinnedAt:conversation.pinnedAt muted:YES markedUnread:conversation.markedUnread
+        completion:^(NSError *error) {
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        if (error) { [self im_showToast:error.localizedDescription ?: IMLocalized(@"conv.error.settings_failed")]; return; }
+        conversation.muted = YES;
+        [IMDatabase.sharedDatabase performWithAccountContext:self.databaseContext block:^(IMDatabase *database) {
+            [database applyCachedSettingsForConversation:conversation.convID pinnedAt:conversation.pinnedAt
+                                                     muted:YES markedUnread:conversation.markedUnread];
+        }];
+        [self reloadExceptions];
+        [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:IMNotifTypeSectionExceptions]
+                       withRowAnimation:UITableViewRowAnimationAutomatic];
     }];
 }
 
@@ -268,14 +361,15 @@ typedef NS_ENUM(NSInteger, IMNotifTypeSection) {
 
 #pragma mark - UITableView
 
-// 没有免打扰的会话时整组「例外」不画（2026-09-29 用户要求：空列表只剩一句空态说明，没有意义）。
-- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return self.exceptions.count > 0 ? 3 : 2; }
+// 「例外」组常驻（P1 §2 / 已拍板 ②）：第一期「没有免打扰会话就整组不显示」（b4d9c88）随本批改回——
+// 组首固定一行绿色「添加例外」，没有免打扰会话时这一组只剩这一行，不再为空。
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return 3; }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     switch ((IMNotifTypeSection)section) {
         case IMNotifTypeSectionToggles: return 2;
         case IMNotifTypeSectionSound: return 1;
-        case IMNotifTypeSectionExceptions: return (NSInteger)self.exceptions.count;
+        case IMNotifTypeSectionExceptions: return 1 + (NSInteger)self.exceptions.count; // 首行「添加例外」+ 各免打扰会话
     }
     return 0;
 }
@@ -313,24 +407,30 @@ typedef NS_ENUM(NSInteger, IMNotifTypeSection) {
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         return cell;
     }
-    // 例外（只有 exceptions 非空时才有这一组）
+    // 例外组：row 0 固定「添加例外」，其余是本类型下 muted=YES 的会话（row-1 对应 exceptions 下标）。
+    if (indexPath.row == 0) {
+        return [tableView dequeueReusableCellWithIdentifier:@"addException" forIndexPath:indexPath];
+    }
     IMNotifExceptionCell *cell = [tableView dequeueReusableCellWithIdentifier:@"exception" forIndexPath:indexPath];
-    [cell configureWithConversation:self.exceptions[indexPath.row]];
+    [cell configureWithConversation:self.exceptions[indexPath.row - 1]];
     return cell;
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     if (indexPath.section == IMNotifTypeSectionSound) { [self openSoundPicker]; return; }
-    if (indexPath.section == IMNotifTypeSectionExceptions && indexPath.row < (NSInteger)self.exceptions.count) {
-        [self openConversation:self.exceptions[indexPath.row]];
-    }
+    if (indexPath.section != IMNotifTypeSectionExceptions) { return; }
+    if (indexPath.row == 0) { [self addException]; return; }
+    NSInteger i = indexPath.row - 1;
+    if (i < (NSInteger)self.exceptions.count) { [self openConversation:self.exceptions[i]]; }
 }
 
 - (nullable UISwipeActionsConfiguration *)tableView:(UITableView *)tableView
     trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (indexPath.section != IMNotifTypeSectionExceptions || indexPath.row >= (NSInteger)self.exceptions.count) { return nil; }
-    IMConversation *conversation = self.exceptions[indexPath.row];
+    if (indexPath.section != IMNotifTypeSectionExceptions || indexPath.row == 0) { return nil; } // 「添加例外」行不可滑
+    NSInteger i = indexPath.row - 1;
+    if (i >= (NSInteger)self.exceptions.count) { return nil; }
+    IMConversation *conversation = self.exceptions[i];
     __weak typeof(self) ws = self;
     UIContextualAction *unmute = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleNormal
         title:IMLocalized(@"conv.menu.unmute") handler:^(UIContextualAction *action, UIView *view, void (^done)(BOOL)) {
