@@ -14,6 +14,8 @@
 #import "IMDatabase.h"
 #import "IMDatabase+RosterCache.h"
 #import "IMGroupInfo.h"
+#import "IMConversation.h"
+#import "IMMediaUtil.h"
 #import "IMChatViewController.h"
 #import "UIViewController+IMToast.h"
 @import IMCallEngine;
@@ -41,7 +43,6 @@ static const NSInteger kIMRTCErrorCodeTokenInvalid = 1101;
 
 @implementation IMCallHistoryRowCell {
     UILabel *_avatar;
-    UIImageView *_groupGlyph;
     UILabel *_nameLabel;
     UIImageView *_kindIcon;
     UILabel *_subtitleLabel;
@@ -60,13 +61,6 @@ static const NSInteger kIMRTCErrorCodeTokenInvalid = 1101;
         _avatar.clipsToBounds = YES;
         _avatar.layer.cornerRadius = 20;
         [self.contentView addSubview:_avatar];
-
-        _groupGlyph = [UIImageView new];
-        _groupGlyph.translatesAutoresizingMaskIntoConstraints = NO;
-        _groupGlyph.tintColor = UIColor.whiteColor;
-        _groupGlyph.contentMode = UIViewContentModeScaleAspectFit;
-        _groupGlyph.image = [UIImage systemImageNamed:@"person.3.fill"];
-        [_avatar addSubview:_groupGlyph];
 
         _nameLabel = [UILabel new];
         _nameLabel.translatesAutoresizingMaskIntoConstraints = NO;
@@ -100,10 +94,6 @@ static const NSInteger kIMRTCErrorCodeTokenInvalid = 1101;
             [_avatar.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
             [_avatar.widthAnchor constraintEqualToConstant:40],
             [_avatar.heightAnchor constraintEqualToConstant:40],
-            [_groupGlyph.centerXAnchor constraintEqualToAnchor:_avatar.centerXAnchor],
-            [_groupGlyph.centerYAnchor constraintEqualToAnchor:_avatar.centerYAnchor],
-            [_groupGlyph.widthAnchor constraintEqualToConstant:16],
-            [_groupGlyph.heightAnchor constraintEqualToConstant:16],
 
             [_nameLabel.leadingAnchor constraintEqualToAnchor:_avatar.trailingAnchor constant:10],
             [_nameLabel.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:9],
@@ -133,22 +123,21 @@ static const NSInteger kIMRTCErrorCodeTokenInvalid = 1101;
     BOOL outgoing = [record.caller isEqualToString:selfUID];
     UIColor *nameColor = missed ? IMTheme.danger : IMTheme.textPrimary;
 
+    // UX 稿 §03：方向箭头 13 号次要色，未接时与名字一起变 danger
     NSString *arrow = outgoing ? @"↗ " : @"↙ "; // ↗ / ↙
-    NSMutableAttributedString *name = [[NSMutableAttributedString alloc] initWithString:arrow
-                                        attributes:@{ NSForegroundColorAttributeName: nameColor }];
+    NSMutableAttributedString *name = [[NSMutableAttributedString alloc] initWithString:arrow attributes:@{
+        NSForegroundColorAttributeName: missed ? IMTheme.danger : IMTheme.textSecondary,
+        NSFontAttributeName: [UIFont systemFontOfSize:13],
+    }];
     [name appendAttributedString:[[NSAttributedString alloc] initWithString:(displayName ?: @"")
                                         attributes:@{ NSForegroundColorAttributeName: nameColor }]];
     _nameLabel.attributedText = name;
 
+    // 群行与会话列表同一口径：有群头像画图，否则按群会话 id 取色的首字圈
+    [_avatar im_setAvatarURL:avatarURL seed:seed displayName:displayName];
     if (isGroup) {
-        _avatar.text = nil;
-        _avatar.backgroundColor = [IMTheme avatarColorForSeed:@"im-call-history-group"];
-        _groupGlyph.hidden = NO;
-        [_avatar im_clearAvatarImage];
         _subtitleLabel.text = groupSubtitle;
     } else {
-        _groupGlyph.hidden = YES;
-        [_avatar im_setAvatarURL:avatarURL seed:seed displayName:displayName];
         NSString *content = IMCallRecordBuild(record.callID, record.video, record.reason, record.durationSec, NO);
         IMCallRecordDisplay *d = IMCallRecordRender(content, outgoing, NO, nil);
         _subtitleLabel.text = d.text;
@@ -161,7 +150,6 @@ static const NSInteger kIMRTCErrorCodeTokenInvalid = 1101;
     [super prepareForReuse];
     [_avatar im_clearAvatarImage];
     _avatar.text = nil;
-    _groupGlyph.hidden = YES;
 }
 
 @end
@@ -282,7 +270,9 @@ static const NSInteger kIMRTCErrorCodeTokenInvalid = 1101;
     UILabel *_footerLabel;
     UIView *_footerView;
     NSArray<IMCallHistorySection *> *_sections;
-    NSDictionary<NSString *, IMGroupInfo *> *_groupsByConvID;
+    /// 群通话行的群名 / 群头像，按群会话 id 索引（见 `rebuildGroupIndex`）。
+    NSDictionary<NSString *, NSString *> *_groupNameByConvID;
+    NSDictionary<NSString *, NSString *> *_groupAvatarByConvID;
     NSUUID *_rtcEventToken;
     BOOL _didLoadOnce;
     /// 翻页（非首次加载）失败时记一笔，供底部「加载失败，点击重试」态用；成功/新请求发出时清空。
@@ -335,6 +325,8 @@ static const NSInteger kIMRTCErrorCodeTokenInvalid = 1101;
     _tableView.delegate = self;
     _tableView.rowHeight = 58;
     [_tableView registerClass:IMCallHistoryRowCell.class forCellReuseIdentifier:@"row"];
+    [_tableView registerClass:UITableViewHeaderFooterView.class forHeaderFooterViewReuseIdentifier:@"day"];
+    _tableView.sectionHeaderTopPadding = 0;
     [self.view addSubview:_tableView];
 
     _stateView = [[IMCallHistoryStateView alloc] initWithFrame:CGRectZero];
@@ -420,7 +412,7 @@ static const NSInteger kIMRTCErrorCodeTokenInvalid = 1101;
 }
 
 - (void)applyLoadResult:(NSError *)error {
-    _groupsByConvID = [self buildGroupsIndex];
+    [self rebuildGroupIndex];
     _sections = IMCallHistoryGroupByDate(_paginator.filteredRecords);
     [_tableView reloadData];
     if (_sections.count == 0) {
@@ -453,12 +445,25 @@ static const NSInteger kIMRTCErrorCodeTokenInvalid = 1101;
     [self updateFooter];
 }
 
-- (NSDictionary<NSString *, IMGroupInfo *> *)buildGroupsIndex {
-    NSMutableDictionary<NSString *, IMGroupInfo *> *m = [NSMutableDictionary dictionary];
-    for (IMGroupInfo *g in [IMDatabase.sharedDatabase cachedGroups]) {
-        if (g.convID.length > 0) { m[g.convID] = g; }
+/// 会话缓存优先、群名册缓存兜底（同 im-android `CallHistoryHost` 读会话表的口径）。
+/// **不能只读 `cachedGroups`**：它只在进过「通讯录 ▸ 群组」页后才写入（`IMGroupListViewController`），
+/// 新登录的账号没进过那页就是空的，整页群通话都会落到兜底名（2026-09-29 用户报「全部是未命名群聊」）。
+- (void)rebuildGroupIndex {
+    NSMutableDictionary<NSString *, NSString *> *names = [NSMutableDictionary dictionary];
+    NSMutableDictionary<NSString *, NSString *> *avatars = [NSMutableDictionary dictionary];
+    IMDatabase *db = IMDatabase.sharedDatabase;
+    for (IMGroupInfo *g in [db cachedGroups]) {
+        if (g.convID.length == 0) { continue; }
+        if (g.name.length > 0) { names[g.convID] = g.name; }
+        if (g.avatarURL.length > 0) { avatars[g.convID] = g.avatarURL; }
     }
-    return m;
+    for (IMConversation *c in [db cachedConversations]) {
+        if (!c.isGroup || c.convID.length == 0) { continue; }
+        if (c.name.length > 0) { names[c.convID] = c.name; }
+        if (c.avatarURL.length > 0) { avatars[c.convID] = c.avatarURL; }
+    }
+    _groupNameByConvID = names;
+    _groupAvatarByConvID = avatars;
 }
 
 /// 底部条只在**已有数据在屏**时出现（首次加载/切筛选无数据走满屏 `_stateView`）：翻页中显 spinner；
@@ -524,20 +529,42 @@ static const NSInteger kIMRTCErrorCodeTokenInvalid = 1101;
     return (NSInteger)_sections[(NSUInteger)section].records.count;
 }
 
-- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    return _sections[(NSUInteger)section].title;
+/// 日期分组头（UX 稿 §03：12 Bold 次要色，上 14 下 6，底色同列表背景）。不用系统默认 header——那是 17 号大字。
+- (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
+    UITableViewHeaderFooterView *v = [tableView dequeueReusableHeaderFooterViewWithIdentifier:@"day"];
+    UILabel *label = [v.contentView viewWithTag:1];
+    if (!label) {
+        v.backgroundConfiguration = [UIBackgroundConfiguration clearConfiguration];
+        v.contentView.backgroundColor = IMTheme.groupedBackground;
+        label = [UILabel new];
+        label.tag = 1;
+        label.translatesAutoresizingMaskIntoConstraints = NO;
+        label.font = [UIFont systemFontOfSize:12 weight:UIFontWeightBold];
+        label.textColor = IMTheme.textSecondary;
+        [v.contentView addSubview:label];
+        [NSLayoutConstraint activateConstraints:@[
+            [label.leadingAnchor constraintEqualToAnchor:v.contentView.leadingAnchor constant:16],
+            [label.bottomAnchor constraintEqualToAnchor:v.contentView.bottomAnchor constant:-6],
+        ]];
+    }
+    label.text = _sections[(NSUInteger)section].title;
+    return v;
 }
+
+- (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section { return 35; }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     IMCallHistoryRowCell *cell = [tableView dequeueReusableCellWithIdentifier:@"row" forIndexPath:indexPath];
     IMCallHistoryRecord *record = _sections[(NSUInteger)indexPath.section].records[(NSUInteger)indexPath.row];
     if (record.group) {
-        IMGroupInfo *group = _groupsByConvID[record.chatGroupID ?: @""];
-        NSString *name = group.name.length > 0 ? group.name : IMLocalized(@"common.unnamed_group");
+        NSString *convID = record.chatGroupID ?: @"";
         NSInteger peerCount = IMCallHistoryGroupPeerCount(record.memberUIDs, record.caller);
         NSString *kind = IMLocalized(record.video ? @"call.record.kind_video" : @"call.record.kind_voice");
         NSString *subtitle = IMLocalizedFormat(@"call.history.group_subtitle", kind, (long)peerCount);
-        [cell configureWithRecord:record selfUID:self.userID displayName:name avatarURL:nil seed:record.chatGroupID ?: @""
+        // 本机没有这个群（已退群等）：名字位置显示「群语音/视频通话 · N人」（设计文档 §2，同 im-android）
+        NSString *name = _groupNameByConvID[convID].length > 0 ? _groupNameByConvID[convID] : subtitle;
+        [cell configureWithRecord:record selfUID:self.userID displayName:name
+                        avatarURL:IMMediaFullURL(_groupAvatarByConvID[convID], self.host) seed:convID
                            isGroup:YES groupSubtitle:subtitle];
     } else {
         NSString *peerUID = IMCallHistoryRecordPeerUID(record, self.userID);
@@ -553,11 +580,11 @@ static const NSInteger kIMRTCErrorCodeTokenInvalid = 1101;
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     IMCallHistoryRecord *record = _sections[(NSUInteger)indexPath.section].records[(NSUInteger)indexPath.row];
     if (record.group) {
-        IMGroupInfo *group = _groupsByConvID[record.chatGroupID ?: @""];
         if (record.chatGroupID.length == 0) { return; }
         [IMChatViewController openInNavigationController:self.navigationController host:self.host userID:self.userID
-                                               groupConvID:record.chatGroupID groupName:group.name
-                                                   readSeq:0 unread:0 groupReadSeq:0 groupAvatarURL:group.avatarURL];
+                                               groupConvID:record.chatGroupID groupName:_groupNameByConvID[record.chatGroupID]
+                                                   readSeq:0 unread:0 groupReadSeq:0
+                                            groupAvatarURL:_groupAvatarByConvID[record.chatGroupID]];
         return;
     }
     NSString *peerUID = IMCallHistoryRecordPeerUID(record, self.userID);

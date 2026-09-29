@@ -5,6 +5,12 @@
 
 ## 当前焦点
 
+> **最近通话验收修复（2026-09-29，模拟器 libeyond 已验，未提交）**：① 群名全是「未命名群聊」——根因是只读
+> `cachedGroups`（仅进过「通讯录 ▸ 群组」页才写入），改为 `cachedConversations` 优先、`cachedGroups` 兜底；
+> 查不到的群退回「群X通话 · N人」（同 Android，设计文档 §2）。② 群行改用群会话真实头像（`im_setAvatarURL` +
+> `IMMediaFullURL`，同会话列表口径），去掉统一人形图标。③ 按 UX 稿：方向箭头 13 号次要色、日期分组头自绘 12 Bold。
+> 设计文档/草图已同步订正「群用群头像」。`IMCallHistoryViewController.m` 一个文件。
+
 > **设置 ▸ 最近通话 v1 ✅ 代码 + 单测已完成，待真机验（2026-09-29，分支 `feature/call-history`，
 > worktree `IMProgram-wt-call-history`，未提交前的开发态；设计：`../IMServer/docs/design/CALL_HISTORY_DESIGN.md` +
 > 配套 UX 稿）**：设置「我」页 groupA 早已有的 `recentCalls` 占位行（`IMSettingsViewController.m` 的
