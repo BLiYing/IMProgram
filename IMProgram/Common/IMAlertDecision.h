@@ -75,7 +75,7 @@ extern NSString * const IMAlertConvTypeGroup;
 @interface IMAlertResult : NSObject
 @property (nonatomic, assign) BOOL sound;
 @property (nonatomic, assign) BOOL vibrate;
-@property (nonatomic, assign) BOOL banner;   // P0 恒 NO（P1 才做应用内横幅）
+@property (nonatomic, assign) BOOL banner;   // P1 §1.1：eligible && platform==mobile && settings.inApp.preview（不受节流）
 @property (nonatomic, assign) BOOL osNotify; // 仅 desktop 且窗口不在焦点
 @property (nonatomic, copy, nullable) NSString *soundId;
 @end

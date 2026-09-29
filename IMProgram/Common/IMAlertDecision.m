@@ -71,7 +71,11 @@ IMAlertResult *IMAlertDecide(IMAlertContext *ctx) {
 
     result.sound = eligible && soundEnabledFlag && resolvedSoundId != nil && !throttled;
     result.vibrate = eligible && vibrateEnabledFlag && !throttled;
-    result.banner = NO; // P0 恒不出横幅（P1 才做应用内预览横幅）
+    // 横幅（P1 §1.1）：与 sound/vibrate 同一套资格（含 appActive），额外要求「应用内预览」开、
+    // 且仅移动端（Web/桌面已有系统通知，不做横幅）。**不看节流**——连来多条要原地换成最新一条重新计时，
+    // 节流只管声音/振动，横幅被节流吞掉会让用户以为消息没提醒；也**不看该类型提示音是不是「无」**，
+    // 提示音「无」只影响响不响，横幅仍按 eligible 出。
+    result.banner = eligible && isMobile && ctx.settings.inApp.preview;
     // 系统通知仅桌面：桌面通知开 且 窗口不在焦点（在焦点时只响一声，§3.1「桌面端窗口在焦点」段）。
     result.osNotify = eligible && isDesktop && ctx.settings.desktop.enabled && !ctx.windowFocused;
     result.soundId = result.sound ? resolvedSoundId : nil;

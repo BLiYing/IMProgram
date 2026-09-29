@@ -65,6 +65,7 @@
 #import <SafariServices/SafariServices.h>
 #import "IMPopoverCard.h"
 #import "IMAccountIdentity.h"
+#import "IMConversationRouter.h" // 供 Common/Network 层打开会话而不反向 import 本类（见其 .h 注释）
 
 NSNotificationName const IMChatConversationClearedNotification = @"IMChatConversationClearedNotification";
 
@@ -78,6 +79,29 @@ NSNotificationName const IMChatConversationClearedNotification = @"IMChatConvers
     // 交叠时段的 UIKeyboardWillChangeFrame 通知与自动 first-responder 恢复出现竞态，
     // 导致回来后键盘弹起但 inputBottom 停在 0（输入栏被键盘遮住）——该 bug 偶现于点头像去资料页再返回。
     BOOL _pushedWithKeyboardUp;
+}
+
+// 注册 IMConversationRouter 的 opener（Modules/Chat → Common，正常方向）：应用内横幅
+// （Common/IMInAppBannerView）点击后经这里落到「统一进会话入口」，不需要 Network/Common 层
+// 反向 import 本类。+load 在本类首次被链接进二进制时跑一次，早于任何调用点，无需额外触发。
++ (void)load {
+    IMConversationRouter.opener = ^(NSString *host, NSString *userID, IMConversation *conversation) {
+        UIViewController *top = [UIViewController im_topVisibleViewController];
+        UINavigationController *nav = [top isKindOfClass:UINavigationController.class]
+            ? (UINavigationController *)top : top.navigationController;
+        if (!nav || conversation.convID.length == 0) { return; }
+        if (conversation.isGroup) {
+            [self openInNavigationController:nav host:host userID:userID
+                                  groupConvID:conversation.convID groupName:conversation.displayName
+                                      readSeq:conversation.readSeq unread:conversation.unread
+                                 groupReadSeq:conversation.groupReadSeq groupAvatarURL:conversation.avatarURL];
+        } else {
+            [self openInNavigationController:nav host:host userID:userID
+                                       peerID:conversation.peer readSeq:conversation.readSeq
+                                       unread:conversation.unread peerReadSeq:conversation.peerReadSeq
+                                 peerNickname:conversation.displayName peerAvatarURL:conversation.peerAvatarURL];
+        }
+    };
 }
 
 - (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID peerID:(NSString *)peerID

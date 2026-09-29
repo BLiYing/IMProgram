@@ -1,5 +1,5 @@
 //  IMAlertDecisionTests.m
-//  IMAlertDecide 纯函数单测：读三端共用向量 IMServer/docs/conformance/alert_decision.json（31 条，
+//  IMAlertDecide 纯函数单测：读三端共用向量 IMServer/docs/conformance/alert_decision.json（32 条，
 //  改规则先改向量）。按本文件相对路径找，也可用环境变量 IM_ALERT_DECISION_VECTORS 指定。
 //  找不到时**失败**而不是跳过——静默跳过等于没测（同 IMCallRecordTests 先例）。
 

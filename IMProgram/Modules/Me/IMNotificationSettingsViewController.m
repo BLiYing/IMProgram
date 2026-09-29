@@ -230,9 +230,9 @@
 
     IMNSRow *inAppPreviewRow = [IMNSRow new];
     inAppPreviewRow.title = IMLocalized(@"notif.in_app.preview");
-    inAppPreviewRow.isPlaceholder = YES; // P1，画成灰置占位行（§2.2）
-    inAppPreviewRow.rightValue = IMLocalized(@"ps.coming_soon_hint");
-    inAppPreviewRow.handler = ^{ [ws im_showComingSoon:IMLocalized(@"notif.in_app.preview")]; };
+    inAppPreviewRow.isSwitch = YES; // P1：真开关，绑定 inApp.preview（应用内横幅用，§1.3）
+    inAppPreviewRow.switchValue = settings.inAppPreview;
+    inAppPreviewRow.switchHandler = ^(BOOL on) { IMNotificationSettings.shared.inAppPreview = on; };
 
     NSMutableArray<IMNSRow *> *inAppRows = [NSMutableArray arrayWithObject:inAppSoundRow];
     // 设备不支持触感（无 Taptic Engine，实际上就是 iPad）时整行不画（§2.2 iOS 备注）。
@@ -243,7 +243,7 @@
 
     IMNSGroup *inAppGroup = [IMNSGroup new];
     inAppGroup.header = IMLocalized(@"notif.section.in_app");
-    inAppGroup.footer = IMLocalized(@"notif.in_app.footer");
+    inAppGroup.footer = IMLocalized(@"notif.in_app.preview_footer"); // P1：组脚注换成横幅说明（§1.3）
     inAppGroup.rows = inAppRows;
 
     IMNSRow *includeMutedRow = [IMNSRow new];
