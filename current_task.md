@@ -5,6 +5,15 @@
 
 ## 当前焦点
 
+> **加号面板图标立体感优化 ✅（2026-09-29，用户反馈"图标好丑"，模拟器 XCUITest 截图验证）**：
+> 圆钮原先纯色块（`systemBackgroundColor`，未走语义令牌）贴着面板背景，两层灰度太接近显得扁平。
+> 征求方向后走「保留单色、加立体感」（未引入每项一个颜色——项目 `UI_COLOR.md` 是严格的语义化
+> 单色令牌体系，全 app 没有这个先例）：圆钮背景改 `IMTheme.surfaceElevated`，补轻阴影
+> （`shadowOpacity 0.12/radius 4/offset (0,1)`），同 `IMVoicePressOverlay` 的 `_lockPill` 那套
+> 手法。Android `AttachPanel.kt` 同批改（`c.surfaceElevated` + `shadow(1.dp)`，图标 26→28dp、
+> 色调 `textSecondary`→`textPrimary` 补对比度）。两端 `./scripts/test.sh` 全绿。**验证**：
+> XCUITest/adb 截图核对，肉眼确认方块与面板背景可辨、有明显阴影，已删除脚本。
+
 > **六条用户报告第 5 项：加号面板去掉音视频占位 ✅（2026-09-29，模拟器 XCUITest 截图验证）**：
 > `attachItems` 的 "av" 一直是打不通的占位——点了只弹「还没做」，而呼叫/视频早已在聊天详情页
 > （`showsMessagePill`/`IMChatDetailViewController`）真正接通，面板这颗反而误导用户以为是

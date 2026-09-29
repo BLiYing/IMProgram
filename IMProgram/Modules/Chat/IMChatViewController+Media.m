@@ -130,6 +130,12 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
 }
 
 /// 单个面板项：图标圆钮 + 标题。
+///
+/// 圆钮补了一层轻阴影（用户反馈"图标好丑"，2026-09-29）：原先纯色块贴着面板背景，
+/// 两层灰度太接近显得扁平。方案是保持单色线框图标不变（项目 UI_COLOR.md 是严格的语义化
+/// 单色令牌体系，全 app 没有"每项一个颜色"的先例，不引入），只补立体感——同
+/// `IMVoicePressOverlay` 的 `_lockPill`（`surfaceElevated` + 轻阴影）那套手法，Android
+/// `AttachPanel.kt` 同批改过去。
 - (UIView *)attachItemViewFor:(NSDictionary *)item {
     UIStackView *v = [UIStackView new];
     v.axis = UILayoutConstraintAxisVertical;
@@ -140,8 +146,12 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     UIImageSymbolConfiguration *c = [UIImageSymbolConfiguration configurationWithPointSize:26 weight:UIImageSymbolWeightRegular];
     [btn setImage:[UIImage systemImageNamed:item[@"image"] withConfiguration:c] forState:UIControlStateNormal];
     btn.tintColor = IMTheme.textPrimary;
-    btn.backgroundColor = UIColor.systemBackgroundColor;
+    btn.backgroundColor = IMTheme.surfaceElevated; // 原先是 systemBackgroundColor，没走语义令牌，顺手改掉
     btn.layer.cornerRadius = 12;
+    btn.layer.shadowColor = UIColor.blackColor.CGColor;
+    btn.layer.shadowOpacity = 0.12;
+    btn.layer.shadowRadius = 4;
+    btn.layer.shadowOffset = CGSizeMake(0, 1);
     NSString *itemId = item[@"id"];
     __weak typeof(self) ws = self;
     [btn addAction:[UIAction actionWithHandler:^(UIAction *a) { [ws attachItemTapped:itemId]; }]
