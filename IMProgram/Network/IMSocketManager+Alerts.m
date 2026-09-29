@@ -73,14 +73,12 @@
     if (result.banner) { [self showBannerForIncomingMessage:msg selfUID:selfUID]; }
 }
 
-/// 横幅要渲染标题/头像/摘要，需要完整会话对象（不只 isGroup/muted 两个字段）——只在 result.banner=YES
-/// 才做，不在每条实时消息上都跑（cachedConversations 是整表读 + 每行建对象）。
+/// 横幅要渲染标题/头像/摘要，需要完整会话对象（不只 isGroup/muted 两个字段）：按主键读一行，
+/// 只在 result.banner=YES 时做。
 - (void)showBannerForIncomingMessage:(IMMessageModel *)msg selfUID:(NSString *)selfUID {
     __block IMConversation *conversation = nil;
     [self performDatabaseOperation:^(IMDatabase *database) {
-        for (IMConversation *c in database.cachedConversations) {
-            if ([c.convID isEqualToString:msg.convID]) { conversation = c; break; }
-        }
+        conversation = [database cachedConversationWithID:msg.convID];
     }];
     if (!conversation) { return; } // 极端情况下（首条消息、缓存尚未落地）查不到：宁可不弹，不拼半份数据
     [IMInAppBannerView showForConversation:conversation message:msg host:_host userID:selfUID];

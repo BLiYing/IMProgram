@@ -48,7 +48,13 @@ static NSTimeInterval const kIMBannerAutoDismissDelay = 4.0;
 + (instancetype)shared {
     static IMInAppBannerPresenter *p;
     static dispatch_once_t once;
-    dispatch_once(&once, ^{ p = [IMInAppBannerPresenter new]; });
+    dispatch_once(&once, ^{
+        p = [IMInAppBannerPresenter new];
+        // 只在单例创建时注册一次（单例不释放、不需要配对移除）。放在 buildIfNeededInHost: 里的话，
+        // 每次换宿主窗口都会再注册一遍，回调重复触发（/code-review 2026-09-29）。
+        [NSNotificationCenter.defaultCenter addObserver:p selector:@selector(presenceChanged:)
+                                                    name:IMChatPresenceDidChangeNotification object:nil];
+    });
     return p;
 }
 
@@ -144,9 +150,7 @@ static NSTimeInterval const kIMBannerAutoDismissDelay = 4.0;
     ]];
     card.hidden = YES;
     card.alpha = 0;
-
-    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(presenceChanged:)
-                                                name:IMChatPresenceDidChangeNotification object:nil];
+    _visible = NO; // 新卡片是隐藏的：换宿主时若旧卡正显示，不复位的话下一条会走「原地换内容」分支，永远不滑出来
 }
 
 #pragma mark - 展示/刷新
@@ -217,6 +221,9 @@ static NSTimeInterval const kIMBannerAutoDismissDelay = 4.0;
 
     UIView *hostView = _card.superview;
     void (^cleanup)(void) = ^{
+        // 收起动画的 0.25 秒里若来了新消息、横幅已重新滑出（_visible 又变 YES），这里不能再把它藏掉
+        //（/code-review 2026-09-29：否则新横幅刚出现就消失）。
+        if (self->_visible) { return; }
         self->_card.hidden = YES;
         self->_card.alpha = 0;
     };

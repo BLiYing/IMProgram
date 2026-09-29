@@ -44,6 +44,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// 单个会话的「类型 + 免打扰」（实时来消息判提醒用，每条消息一次，不能整表读）。
 /// 本地没有这一行时返回 NO，出参不动。
+/// 按主键读一行完整会话（横幅渲染用；不要为找一个会话去读 cachedConversations 整表）。
+- (nullable IMConversation *)cachedConversationWithID:(NSString *)convID;
 - (BOOL)cachedConversation:(NSString *)convID isGroup:(BOOL *)isGroup muted:(BOOL *)muted;
 
 /// 当前账号已发送文件的本地缓存（按时间倒序）；用于文件面板离线首屏。
