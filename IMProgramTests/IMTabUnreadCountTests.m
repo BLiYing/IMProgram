@@ -3,6 +3,8 @@
 //
 //  与 im-web `src/components/SidebarTabs.test.tsx`（badgeCountOf）、im-android `TabUnreadTest` 同一组用例
 //  （IMServer/docs/SYMMETRY.md 登记）。此前 iOS 这颗点根本没画，只有 Android 有（2026-09-15 用户报）。
+//  2026-09-29：加 includeMuted 入参（设置 ▸ 通知与提示音 ▸ 角标计数 ▸「包含免打扰会话」，
+//  NOTIFICATIONS_DESIGN §3.4），旧用例全部固定传 NO=当前行为不变。
 
 #import <XCTest/XCTest.h>
 
@@ -24,25 +26,40 @@ static IMConversation *Conv(NSInteger unread, BOOL muted, BOOL mention, BOOL mar
 }
 
 - (void)test_没有会话或全部已读为0 {
-    XCTAssertEqual(IMTabUnreadCount(@[]), 0);
-    XCTAssertEqual(IMTabUnreadCount(@[Conv(0, NO, NO, NO), Conv(0, NO, NO, NO)]), 0);
+    XCTAssertEqual(IMTabUnreadCount(@[], NO), 0);
+    XCTAssertEqual(IMTabUnreadCount(@[Conv(0, NO, NO, NO), Conv(0, NO, NO, NO)], NO), 0);
 }
 
 - (void)test_未免打扰的会话按条数累加 {
-    XCTAssertEqual(IMTabUnreadCount(@[Conv(3, NO, NO, NO), Conv(4, NO, NO, NO)]), 7);
+    XCTAssertEqual(IMTabUnreadCount(@[Conv(3, NO, NO, NO), Conv(4, NO, NO, NO)], NO), 7);
 }
 
 - (void)test_免打扰的会话不计 {
-    XCTAssertEqual(IMTabUnreadCount(@[Conv(2, NO, NO, NO), Conv(99, YES, NO, NO)]), 2);
+    XCTAssertEqual(IMTabUnreadCount(@[Conv(2, NO, NO, NO), Conv(99, YES, NO, NO)], NO), 2);
 }
 
 /// @ 穿透免打扰，但只记 1：它说的是「这里有事」，不把 40 条静音消息都算进来。
 - (void)test_免打扰里被at只记1 {
-    XCTAssertEqual(IMTabUnreadCount(@[Conv(40, YES, YES, NO)]), 1);
+    XCTAssertEqual(IMTabUnreadCount(@[Conv(40, YES, YES, NO)], NO), 1);
 }
 
 - (void)test_手动标为未读不点亮Tab {
-    XCTAssertEqual(IMTabUnreadCount(@[Conv(0, NO, NO, YES)]), 0);
+    XCTAssertEqual(IMTabUnreadCount(@[Conv(0, NO, NO, YES)], NO), 0);
+}
+
+#pragma mark - includeMuted=YES（NOTIFICATIONS_DESIGN §3.4）
+
+- (void)test_includeMuted开时免打扰会话也按未读数计入 {
+    XCTAssertEqual(IMTabUnreadCount(@[Conv(2, NO, NO, NO), Conv(99, YES, NO, NO)], YES), 101);
+}
+
+/// 免打扰 + @我：includeMuted 打开后按真实未读数计，不再钳成 1（钳 1 只是 includeMuted=NO 时的弱提示折衷）。
+- (void)test_includeMuted开时免打扰里被at按真实未读数计 {
+    XCTAssertEqual(IMTabUnreadCount(@[Conv(40, YES, YES, NO)], YES), 40);
+}
+
+- (void)test_includeMuted开时手动标为未读仍不点亮Tab {
+    XCTAssertEqual(IMTabUnreadCount(@[Conv(0, NO, NO, YES), Conv(0, YES, NO, YES)], YES), 0);
 }
 
 @end

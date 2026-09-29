@@ -12,6 +12,7 @@
 #import "IMDataStorageViewController.h"
 #import "IMBlockedListViewController.h"
 #import "IMPrivacySecurityViewController.h"
+#import "IMNotificationSettingsViewController.h"
 #import "IMDeviceListViewController.h"
 #import "IMFavoritesViewController.h"
 #import "IMCallHistoryViewController.h"
@@ -522,7 +523,8 @@
     NSArray<IMSettingsRow *> *groupB = @[
         [IMSettingsRow rowWithId:@"notifications" title:IMLocalized(@"ios.settings.row.notifications") image:@"bell.badge.fill"
                           iconBg:UIColor.systemRedColor right:nil destructive:NO
-                         handler:^{ [ws comingSoon:IMLocalized(@"ios.settings.row.notifications")]; }],
+                         handler:^{ [ws.navigationController pushViewController:
+                             [[IMNotificationSettingsViewController alloc] initWithHost:ws.host userID:ws.userID] animated:YES]; }],
         [IMSettingsRow rowWithId:@"privacy" title:IMLocalized(@"settings.row.privacy") image:@"lock.fill"
                           iconBg:UIColor.systemGrayColor right:nil destructive:NO
                          handler:^{ [ws openBlocked]; }],

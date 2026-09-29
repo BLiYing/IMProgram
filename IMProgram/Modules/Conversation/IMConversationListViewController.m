@@ -1,6 +1,7 @@
 //  IMConversationListViewController.m
 
 #import "IMUnreadBadge.h"   // 未读角标格式化（与 im-web unreadBadge.ts 同源）
+#import "IMNotificationSettings.h" // badge.includeMuted（设置 ▸ 通知与提示音 ▸ 角标计数）
 #import "IMLocalization.h"
 #import "IMConversationListViewController.h"
 #import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
@@ -462,7 +463,7 @@ static CGFloat const kIMRowLeading = 16;
     // 此前这颗点根本没画，只有 Android 有（同日用户报）。口径见 IMTabUnreadCount（三端同口径）
     if ([self.tabBarController isKindOfClass:IMMainTabBarController.class]) {
         [(IMMainTabBarController *)self.tabBarController
-            setConversationsTabDotVisible:IMTabUnreadCount(self.conversations) > 0];
+            setConversationsTabDotVisible:IMTabUnreadCount(self.conversations, IMNotificationSettings.shared.badgeIncludeMuted) > 0];
     }
 }
 
@@ -610,6 +611,9 @@ static CGFloat const kIMRowLeading = 16;
     // presence 帧 → 就地点亮/更新对应单聊行的在线绿点（对端上线即时可见，不必等重拉 /conversations）。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onPresenceChanged:)
                                                name:IMSocketDidReceivePresenceNotification object:nil];
+    // 通知设置变更（角标计数 ▸ 包含免打扰会话）→ Tab 蓝点口径跟着变，无需重拉列表。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(refreshListIndicators)
+                                               name:IMNotificationSettingsDidChangeNotification object:nil];
     // 本地媒体/文件发送状态 → 副标题 ↑/! 标记刷新（进度通知每片一次，reloadData 对小列表足够便宜）。
     for (NSNotificationName n in @[IMMediaSendProgressDidChangeNotification, IMMediaSendMetaDidChangeNotification,
                                    IMMediaSendDidDispatchNotification, IMMediaSendDidFailNotification,
@@ -632,7 +636,7 @@ static CGFloat const kIMRowLeading = 16;
                                    IMSocketDidReceiveGroupEventNotification, IMSocketDidUpdateConversationNotification,
                                    IMSocketDidApplyMsgOpNotification, IMSocketDidRemoveMessageNotification,
                                    IMSocketDidChangeStateNotification, IMSocketDidReceivePresenceNotification,
-                                   IMRemarkStoreDidChangeNotification,
+                                   IMRemarkStoreDidChangeNotification, IMNotificationSettingsDidChangeNotification,
                                    IMMediaSendProgressDidChangeNotification, IMMediaSendMetaDidChangeNotification,
                                    IMMediaSendDidDispatchNotification, IMMediaSendDidFailNotification,
                                    IMMediaSendDidCancelNotification]) {

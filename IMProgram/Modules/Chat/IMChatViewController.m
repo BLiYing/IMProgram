@@ -57,6 +57,7 @@
 #import "IMTimeUtil.h"
 #import "IMAppearance.h"
 #import "IMLog.h"
+#import "IMChatPresence.h" // ctx.viewingConv 的单一来源（IMAlertDecision 用）
 #import "IMGlass.h"
 #import <Photos/Photos.h>
 #import <AVFoundation/AVFoundation.h>
@@ -504,6 +505,7 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
 
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
+    [IMChatPresence noteViewingConvID:self.convID]; // 通知判据据此判「正在看这个会话」，不响不振
     [self positionInitialIfNeeded]; // 兜底：若 layout 时机未就绪（消息晚到），这里再定位一次
     // 进场动画结束、布局/safe-area inset 完全稳定后再校正一次定位（只做一次，#8）：
     // 无未读精确贴底、有未读重锚首条未读。不以 isNearBottom 为前提——估高偏差可超 80pt，
@@ -528,6 +530,7 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
 
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
+    [IMChatPresence clearViewingConvIDIfCurrent:self.convID];
     // 退出前同步落一次已读：可见即读的上报是 0.3s 节流的（scheduleReadFlush 用 weak 捕获，页面 pop 后
     // dealloc 会让待发窗口静默丢弃），若刚滚到新消息就退出，未到窗口的最终位点会漏报（DB 未推进、对端无回执）。
     // 这里同步补发（flushReadPosition 单调幂等，无新进展即 no-op）。

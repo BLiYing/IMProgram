@@ -1,10 +1,10 @@
 #import "IMUnreadBadge.h"
 #import "IMConversation.h"
 
-NSInteger IMTabUnreadCount(NSArray<IMConversation *> *conversations) {
+NSInteger IMTabUnreadCount(NSArray<IMConversation *> *conversations, BOOL includeMuted) {
     NSInteger n = 0;
     for (IMConversation *c in conversations) {
-        if (!c.muted) { n += c.unread; }
+        if (!c.muted || includeMuted) { n += c.unread; }
         else if (c.mentionUnread) { n += 1; }
     }
     return n;

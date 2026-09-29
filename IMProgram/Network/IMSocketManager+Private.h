@@ -68,4 +68,11 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)handleSyncResp:(NSDictionary *)data;
 @end
 
+/// +Alerts category（NOTIFICATIONS_DESIGN §3）自己提供的方法，主实现在实时消息落库后调用。
+/// **线程约定与上面 queue-only 的方法组不同**：只在主线程调用（在 processIncomingMessage 的
+/// dispatch_async(main) 块内），因为要读 UIApplication.applicationState。
+@interface IMSocketManager (Alerts)
+- (void)maybeAlertForIncomingMessage:(IMMessageModel *)msg;
+@end
+
 NS_ASSUME_NONNULL_END

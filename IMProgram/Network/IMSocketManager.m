@@ -904,6 +904,11 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
         [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidReceiveMessageNotification
                                                          object:self
                                                        userInfo:@{ kIMConvIDKey: msg.convID ?: @"" }];
+        // 通知与提示音：只判**实时**入站消息（fromSync=NO）。历史回填 / 离线积压 / 窗口加载一律不判——
+        // 否则打开一个有几十条积压的会话会被当场弹一串提醒（NOTIFICATIONS_DESIGN §3.1 D4 踩过的坑）。
+        // 实现在 IMSocketManager+Alerts.m（体量门禁：本文件已挂账 1600 行上限，新分组按 CODING_STYLE §7②
+        // 走独立 category，declared in +Private.h，不往主文件里堆）。
+        if (!fromSync && saved) { [self maybeAlertForIncomingMessage:msg]; }
     });
     return saved;
 }

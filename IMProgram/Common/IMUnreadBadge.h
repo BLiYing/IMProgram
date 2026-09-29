@@ -19,10 +19,12 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// 底部「消息」Tab 蓝点的计数（>0 即亮，不显示数字）。**三端同一口径**：im-web `src/desktopNotify.ts` 的
 /// `badgeCountOf`、im-android `data/TabUnread.kt`（IMServer/docs/SYMMETRY.md 已登记）。
-/// - 免打扰的会话**不计**——为了消掉点去点开一个明确说过别打扰的会话，等于免打扰没生效；
-/// - 免打扰里 **@我 仍计 1**：@ 穿透免打扰，但不放大成条数；
-/// - 手动「标为未读」不计：那是给那一行的记号，不是新消息。
-extern NSInteger IMTabUnreadCount(NSArray<IMConversation *> *conversations);
+/// - **默认**（includeMuted=NO，即设置 ▸ 通知与提示音 ▸ 角标计数 ▸「包含免打扰会话」关闭，P0 默认值）：
+///   免打扰的会话**不计**——为了消掉点去点开一个明确说过别打扰的会话，等于免打扰没生效；
+///   免打扰里 **@我 仍计 1**：@ 穿透免打扰，但不放大成条数。
+/// - includeMuted=YES：免打扰会话也按未读数计入（NOTIFICATIONS_DESIGN §3.4，三端同改这一入参）。
+/// - 手动「标为未读」不计：那是给那一行的记号，不是新消息（与 includeMuted 无关）。
+extern NSInteger IMTabUnreadCount(NSArray<IMConversation *> *conversations, BOOL includeMuted);
 
 /// 数值紧凑化：1234 → `1.2K`，5000 → `5K`，1200000 → `1.2M`；n ≤ 0 返回 `0`。
 extern NSString *IMCompactCount(NSInteger n);

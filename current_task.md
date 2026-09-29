@@ -5,6 +5,30 @@
 
 ## 当前焦点
 
+> **设置 ▸ 通知与提示音 P0 ✅（2026-09-29，分支 `feature/notifications`，设计：
+> `../IMServer/docs/design/NOTIFICATIONS_DESIGN.md`，模拟器 XCUITest 截图验证三页）**：
+> `IMNotificationSettings`（`Common/`，`NSUserDefaults im.notif.*`，非法值/未知提示音 id 回落默认，
+> 设备本地、退出登录不清，改动广播 `IMNotificationSettingsDidChangeNotification`）+ `IMAlertDecision`
+> 纯函数（30 条共用向量 `IMServer/docs/conformance/alert_decision.json` 全过，含 desktop/browser 分支
+> 只为过向量、iOS 运行时只构造 platform=mobile）+ `IMAlertPlayer`（`AudioServicesPlaySystemSound` +
+> `UIImpactFeedbackGenerator(.light)`，1.5s 节流时钟自持，供 decide 读 `lastSoundAtMs`）。
+> **实时消息 hook**：`IMSocketManager+Alerts.m`（新分文件 category，避免把 `IMSocketManager.m` 推过 1600
+> 行体量闸——直接加进主文件会挂账超标）挂在 `processIncomingMessage:` 的 `!fromSync` 分支，历史/sync/
+> window 一律不判。`viewingConv` 靠新增 `Common/IMChatPresence`（`IMChatViewController` viewDidAppear/
+> viewWillDisappear 登记，独立类是为了不让 Network 层反向 import Modules/Chat）；`inCall` 读
+> `IMRtcCall.shared.isStarted`。三页 UI：`IMNotificationSettingsViewController`（主页）/
+> `IMNotificationTypeViewController`（私聊+群聊共用，例外列表=本机 `muted=YES` 会话，左滑取消免打扰
+> 严格回传 `pinned_at`/`marked_unread`）/ `IMNotificationSoundViewController`（选中即试听）。
+> `IMSettingsViewController` 入口 handler 从 `comingSoon:` 改 push；`IMTabUnreadCount` 加 `includeMuted`
+> 入参（默认由设置页 `badge.includeMuted` 驱动，会话列表订阅变更通知刷新蓝点）。
+> **测试**：新增 `IMAlertDecisionTests`（30 向量+2 补充）/`IMNotificationSettingsTests`（7 例）/
+> `IMAlertPlayerTests`（5 例，含资源打包回归——找不到 `.caf` 会让 `lastSoundAtMs` 不推进）/
+> `IMTabUnreadCountTests` 补 3 例；均对核心分支做过一次真实变异验红（`IMAlertDecision` 的
+> `eligible`、`IMUnreadBadge` 的 `includeMuted` 分支）。`./scripts/test.sh` **580/580 绿**。
+> **已知缺口/未做**：Web「静音→免打扰」文案统一（§9-5，属 im-web）、`CLIENT_PARITY.md`/
+> `IMServer/docs/i18n/strings.json` 收口（按 call-history 先例留给协调者统一登记三端）、真机静音键/
+> 振动/连发节流实测（仅模拟器截图验证 UI，未验证真实声音/触感）。
+
 > **加号面板图标立体感优化 ✅（2026-09-29，用户反馈"图标好丑"，模拟器 XCUITest 截图验证）**：
 > 圆钮原先纯色块（`systemBackgroundColor`，未走语义令牌）贴着面板背景，两层灰度太接近显得扁平。
 > 征求方向后走「保留单色、加立体感」（未引入每项一个颜色——项目 `UI_COLOR.md` 是严格的语义化
