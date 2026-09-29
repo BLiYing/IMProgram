@@ -97,8 +97,6 @@
 "card.contact.unavailable" = "[个人名片] 无法显示";
 "card.record.unavailable" = "[聊天记录] 无法显示";
 "chat.archive.delete_failed_retry" = "删除失败，请重试";
-"chat.attach.audio_video_unimplemented" = "音视频通话还没做";
-"chat.attach.av" = "音视频";
 "chat.attach.camera" = "拍摄";
 "chat.attach.contact_card" = "个人名片";
 "chat.attach.friends_load_failed" = "联系人加载失败";

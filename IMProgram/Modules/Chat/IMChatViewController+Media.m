@@ -43,11 +43,15 @@
 - (void)emojiTapped { [self im_showComingSoon:IMLocalized(@"common.emoji")]; }
 
 /// 面板项（数据驱动，M4-6）：加入口 = 数组加一条。照片接真实上传，其余占位。
+///
+/// **"av" 音视频条目已删除**（六条用户报告第 5 项，2026-09-29）：呼叫/视频早已在聊天详情页
+/// （`showsMessagePill`/`IMChatDetailViewController` 那条链路）真正接通，这颗面板项一直是
+/// 打不通的占位（点了只弹"还没做"），留着反而误导——用户从面板点进去会以为这是另一条独立的路。
+/// Android 同批删除，见 `AttachItems.kt`。
 - (NSArray<NSDictionary *> *)attachItems {
     return @[
         @{ @"id": @"photo", @"title": IMLocalized(@"chat.attach.photo"), @"image": @"photo" },
         @{ @"id": @"camera", @"title": IMLocalized(@"chat.attach.camera"), @"image": @"camera" },
-        @{ @"id": @"av", @"title": IMLocalized(@"chat.attach.av"), @"image": @"video" },
         @{ @"id": @"favorite", @"title": IMLocalized(@"common.favorite"), @"image": @"bookmark" },
         @{ @"id": @"card", @"title": IMLocalized(@"chat.attach.contact_card"), @"image": @"person.crop.square" },
         @{ @"id": @"file", @"title": IMLocalized(@"common.file"), @"image": @"doc" },
@@ -103,6 +107,15 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
             [rows addArrangedSubview:currentRow];
         }
         [currentRow addArrangedSubview:[self attachItemViewFor:items[i]]];
+    }
+    // 末行不足三个时补透明占位，保持列位置对齐（同 Android AttachPanel.kt 的处理）——
+    // 否则 FillEqually 会把末行按实际项数均分，「文件」这类本该在右下角的项会被拉到中间，
+    // 破坏本文件顶部注释说的"用户靠位置记住『文件在右下角』"。
+    NSUInteger lastRowCount = items.count % 3;
+    if (lastRowCount > 0) {
+        for (NSUInteger i = lastRowCount; i < 3; i++) {
+            [currentRow addArrangedSubview:[UIView new]];
+        }
     }
     [NSLayoutConstraint activateConstraints:@[
         [panel.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
@@ -168,7 +181,9 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
         [self openFriendPickerForContactCard]; // 见 +Contact.m
         return;
     }
-    [self im_showComingSoon:IMLocalized(@"chat.attach.av")]; // 其余占位（当前只剩 av），后续按需接真实功能
+    // 上面五支已覆盖 attachItems 当前全部条目（av 占位已删，2026-09-29）——走到这里说明
+    // 数据驱动清单加了新 id 却忘了接实现，兜底断言而不是静默吞掉。
+    NSAssert(NO, @"未知的附件面板项 id：%@", itemId);
 }
 
 /// 从收藏发送（Batch 2）：模态呈现 IMFavoritesViewController 的 pick 模式；

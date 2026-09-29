@@ -97,8 +97,6 @@
 "card.contact.unavailable" = "[Contact] Unable to display";
 "card.record.unavailable" = "[Chat History] Unable to display";
 "chat.archive.delete_failed_retry" = "Delete failed, please retry";
-"chat.attach.audio_video_unimplemented" = "Voice/video calling isn't available yet";
-"chat.attach.av" = "Audio/Video";
 "chat.attach.camera" = "Camera";
 "chat.attach.contact_card" = "Contact card";
 "chat.attach.friends_load_failed" = "Couldn't load contacts";

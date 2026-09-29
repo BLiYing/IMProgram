@@ -5,7 +5,19 @@
 
 ## 当前焦点
 
-> **最近通话验收修复（2026-09-29，模拟器 libeyond 已验，未提交）**：① 群名全是「未命名群聊」——根因是只读
+> **六条用户报告第 5 项：加号面板去掉音视频占位 ✅（2026-09-29，模拟器 XCUITest 截图验证）**：
+> `attachItems` 的 "av" 一直是打不通的占位——点了只弹「还没做」，而呼叫/视频早已在聊天详情页
+> （`showsMessagePill`/`IMChatDetailViewController`）真正接通，面板这颗反而误导用户以为是
+> 另一条独立的路。删掉数组条目、`chat.attach.av`/`chat.attach.audio_video_unimplemented`
+> 两条不再被引用的本地化字符串；`attachItemTapped:` 末尾兜底从 `im_showComingSoon` 改成
+> `NSAssert`（五个已知 id 现在全部真实接通，走到兜底说明加了新项忘记接实现）。**顺手修了
+> `buildAttachPanel` 一个此前没暴露过的布局坑**：末行不足 3 个时 `UIStackViewDistributionFillEqually`
+> 会把实际项数均分，「文件」这类本该卡在右下角/固定列的项会被拉到不对的位置——补透明 `UIView`
+> 占位保持列对齐（Android `AttachPanel.kt` 本就有这层处理，这次对齐过去）。Android 同批删除。
+> `./scripts/test.sh` 561/561 绿。**验证**：写了一次性 XCUITest 截图核对面板剩 5 项、布局对齐，
+> 通过后已删除脚本（不是常规回归）。
+
+> **最近通话验收修复（2026-09-29，模拟器 libeyond 已验，已提交 `537c2b4`）**：① 群名全是「未命名群聊」——根因是只读
 > `cachedGroups`（仅进过「通讯录 ▸ 群组」页才写入），改为 `cachedConversations` 优先、`cachedGroups` 兜底；
 > 查不到的群退回「群X通话 · N人」（同 Android，设计文档 §2）。② 群行改用群会话真实头像（`im_setAvatarURL` +
 > `IMMediaFullURL`，同会话列表口径），去掉统一人形图标。③ 按 UX 稿：方向箭头 13 号次要色、日期分组头自绘 12 Bold。
