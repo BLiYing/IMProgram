@@ -14,6 +14,7 @@
 #import "IMProtocol.h"
 #import "IMDatabase.h"
 #import "IMTimeUtil.h" // IMNowMillis()：成员禁言状态判定与时长换算
+#import "IMMuteState.h" // 定时免打扰值行文案（IMIsMutedNow/IMMuteDetailValueText）
 #import "IMMessageModel.h"
 #import "IMConversation.h"
 #import "IMGroupInfo.h"
@@ -249,6 +250,7 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
         }
         self.pinnedAt = [data[@"pinned_at"] longLongValue];
         self.muted = [data[@"muted"] boolValue];
+        self.muteUntil = [data[@"mute_until"] longLongValue];
         self.markedUnread = [data[@"marked_unread"] boolValue]; // PUT 整体替换，提交时须回传
         NSString *rmk = [data[@"remark"] isKindOfClass:[NSString class]] ? data[@"remark"] : nil;
         self.convRemark = rmk.length > 0 ? rmk : nil; // 群备注（G1）：替代群名显示
@@ -267,6 +269,7 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
             if ([c.convID isEqualToString:self.convID]) {
                 self.pinnedAt = c.pinnedAt;
                 self.muted = c.muted;
+                self.muteUntil = c.muteUntil;
                 self.markedUnread = c.markedUnread;
                 self.convRemark = c.remark.length > 0 ? c.remark : nil;
                 [self reloadSettingsAndPills];
@@ -595,6 +598,11 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
     return 0;
 }
 
+/// 设置分区脚注：仅解释免打扰行为（§4.1 chat.detail.mute_footer），其余行不需要脚注文案。
+- (NSString * _Nullable)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
+    return [self sectionKindAt:section] == IMDetailSectionSettings ? IMLocalized(@"chat.detail.mute_footer") : nil;
+}
+
 - (NSInteger)tabRowCount {
     if (self.tabs.count == 0) { return 0; }
     IMChatDetailTab *t = self.tabs[self.selectedTab];
@@ -742,10 +750,11 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
             break;
         }
         case IMDetailSettingsRowMute: {
+            // 定时免打扰（P1 第二批）：开关行改值行——右值＝关闭/至.../永久，点行弹时长菜单（§4.1/§4.2）。
             cell.textLabel.text = IMLocalized(@"chat.detail.muted");
-            UISwitch *sw = [UISwitch new]; sw.on = self.muted; sw.tag = 2;
-            [sw addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
-            cell.accessoryView = sw;
+            int64_t now = IMNowMillis();
+            cell.detailTextLabel.text = IMMuteDetailValueText(IMIsMutedNow(self.muted, self.muteUntil, now), self.muteUntil, now);
+            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
             break;
         }
         case IMDetailSettingsRowMyNickname:
@@ -867,12 +876,13 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
         NSArray<NSNumber *> *kinds = [self settingsRowKinds];
         if (indexPath.row >= (NSInteger)kinds.count) { return; }
         switch ((IMDetailSettingsRow)kinds[indexPath.row].integerValue) {
+            case IMDetailSettingsRowMute:       [self presentMuteMenu]; break;
             case IMDetailSettingsRowMyNickname: [self editMyGroupNickname]; break;
             case IMDetailSettingsRowRemark:     [self editGroupRemark]; break;
             case IMDetailSettingsRowGroupQR:    [self openGroupQR]; break;
             case IMDetailSettingsRowGroupInviteLink: [self openGroupInviteLink]; break;
             case IMDetailSettingsRowManage:     [self openGroupManage]; break;
-            default: break; // 置顶/免打扰走开关，不响应行点击
+            default: break; // 置顶走开关，不响应行点击
         }
         return;
     }

@@ -24,6 +24,10 @@
 #import "IMPresence.h"
 #import "IMMediaUtil.h"
 #import "IMConversationPreview.h"
+#import "IMMuteState.h"
+#import "IMMuteDurationMenu.h"
+#import "IMMuteExpiryScheduler.h"
+#import "IMTimeUtil.h"
 #import "IMPopoverCard.h"
 #import "IMLog.h"
 #import "IMUserSearchViewController.h"
@@ -324,8 +328,9 @@ static CGFloat const kIMRowLeading = 16;
     _onlineDot.hidden = c.isGroup || !c.peerPresence.isOnline;
     _onlineDot.layer.borderColor = IMTheme.pageBackground.CGColor; // CGColor 不随主题自动更新，每次复用刷新
     // 名称 → 置顶 → 免打扰：状态图标紧跟实际显示的名称，长名称只截断文字。
+    BOOL isMutedNow = IMIsMutedNow(c.muted, c.muteUntil, IMNowMillis()); // 定时免打扰到期后铃铛/变灰须跟着消失
     _pin.hidden = c.pinnedAt <= 0;
-    _mute.hidden = !c.muted;
+    _mute.hidden = !isMutedNow;
     _pin.tintColor = IMTheme.textSecondary;
     _mute.tintColor = IMTheme.textSecondary;
     // 置顶行背景轻微区分（微信/Telegram 式，深浅色皆适配）。
@@ -342,7 +347,7 @@ static CGFloat const kIMRowLeading = 16;
     }
     // 未读计数徽标 + 手动"标未读"圆点：免打扰会话转灰（微信/Telegram 式弱提示），否则蓝色。
     // **@我 破例**（M4-8）：被 @ 时即使群设了免打扰也回到高亮色——免打扰只压普通消息，不压 @我。
-    UIColor *unreadColor = (c.muted && !c.mentionUnread) ? UIColor.systemGrayColor : IMTheme.unreadBadge;
+    UIColor *unreadColor = (isMutedNow && !c.mentionUnread) ? UIColor.systemGrayColor : IMTheme.unreadBadge;
     _badge.backgroundColor = unreadColor;
     _dot.backgroundColor = unreadColor;
     if (c.unread > 0) {
@@ -430,7 +435,8 @@ static CGFloat const kIMRowLeading = 16;
     [self refreshListIndicators];
 }
 
-/// 空态 + 「消息」Tab 蓝点。**就地改了某行的 unread / muted 而没换数组时也要调它**（设为已读、免打扰）。
+/// 空态 + 「消息」Tab 蓝点 + 定时免打扰到期定时器。**就地改了某行的 unread / muted 而没换数组时也要调它**
+/// （设为已读、免打扰）——收在这一个咽喉，新增的到期调度不必到处补调用点。
 - (void)refreshListIndicators {
     self.emptyLabel.hidden = self.conversations.count > 0 || !self.serverListed;
     // 蓝点只表「有」，由底栏容器自绘 8pt 小圆——系统 `badgeValue = @""` 那颗太大（2026-09-15 用户报）。
@@ -439,6 +445,14 @@ static CGFloat const kIMRowLeading = 16;
         [(IMMainTabBarController *)self.tabBarController
             setConversationsTabDotVisible:IMTabUnreadCount(self.conversations, IMNotificationSettings.shared.badgeIncludeMuted) > 0];
     }
+    // 定时免打扰到期刷新（NOTIFICATIONS_P1_DESIGN §4.4）：按当前列表重排「最近一个未到期 mute_until」定时器。
+    [IMMuteExpiryScheduler.shared rescheduleWithConversations:self.conversations];
+}
+
+/// 定时免打扰到期 / App 回前台：数据本身没变，纯本地重算 IMIsMutedNow 即可，不必重新拉取。
+- (void)onMuteExpiryChanged {
+    [self.tableView reloadData];
+    [self refreshListIndicators];
 }
 
 /// 蓝点要在**别的 Tab 上**也跟着变。viewWillAppear 那一大组订阅在 viewWillDisappear 全部摘掉——
@@ -456,6 +470,15 @@ static CGFloat const kIMRowLeading = 16;
                                                                            queue:NSOperationQueue.mainQueue
                                                                       usingBlock:^(NSNotification *note) {
             [ws scheduleOffscreenRefresh];
+        }]];
+    }
+    // 定时免打扰到期 / App 回前台（§4.4）：常驻订阅，不随本页是否在屏摘掉——不在屏时铃铛/变灰看不见，
+    // 但蓝点要能在别的 Tab 上跟着变，与上面几条同一理由。两者都只需本地重算，不触网。
+    for (NSNotificationName n in @[IMMuteExpiryDidChangeNotification, UIApplicationDidBecomeActiveNotification]) {
+        [tokens addObject:[NSNotificationCenter.defaultCenter addObserverForName:n object:nil
+                                                                           queue:NSOperationQueue.mainQueue
+                                                                      usingBlock:^(NSNotification *note) {
+            [ws onMuteExpiryChanged];
         }]];
     }
     self.tabDotObservers = tokens;
@@ -882,10 +905,12 @@ static CGFloat const kIMRowLeading = 16;
 - (void)openChatWithConversation:(IMConversation *)c {
     // 进会话即清手动"标未读"（IM 通行做法：打开视为已处理）；经 conv_update 多端同步，返回列表 reload 取权威态。
     if (c.markedUnread && self.token.length > 0) {
+        // muteUntil 传 nil（省略）：本操作只清「标未读」，不该碰免打扰——传 nil 让服务端保留原到期时间。
         [IMHTTPService.sharedService updateConversationSettingsWithToken:self.token convID:c.convID
-            pinnedAt:c.pinnedAt muted:c.muted markedUnread:NO completion:^(NSError *error) { /* 忽略：返回时 viewWillAppear 会 reload */ }];
-        // 本地即时镜像，避免返回瞬间闪一下旧红点。
-        [self mirrorSettingsOnto:c pinnedAt:c.pinnedAt muted:c.muted markedUnread:NO];
+            pinnedAt:c.pinnedAt muted:c.muted muteUntil:nil markedUnread:NO
+            completion:^(NSError *error) { /* 忽略：返回时 viewWillAppear 会 reload */ }];
+        // 本地即时镜像，避免返回瞬间闪一下旧红点；muteUntil 原样带回（未改）。
+        [self mirrorSettingsOnto:c pinnedAt:c.pinnedAt muted:c.muted muteUntil:c.muteUntil markedUnread:NO];
     }
     if (c.isGroup) {
         [IMChatViewController openInNavigationController:self.navigationController
@@ -947,9 +972,12 @@ static CGFloat const kIMRowLeading = 16;
                                             image:(pinned ? @"pin.slash" : @"pin") handler:^{
         [ws setConversation:c pinned:!pinned];
     }]];
-    [actions addObject:[IMMenuAction actionWithId:@"mute" title:(c.muted ? IMLocalized(@"conv.menu.unmute") : IMLocalized(@"conv.menu.mute"))
-                                            image:(c.muted ? @"bell" : @"bell.slash") handler:^{
-        [ws setConversation:c muted:!c.muted];
+    // 已在免打扰中：左滑/右键的项直接是「取消免打扰」，不弹菜单；否则弹时长菜单选时长（§4.1）。
+    BOOL isMutedNow = IMIsMutedNow(c.muted, c.muteUntil, IMNowMillis());
+    [actions addObject:[IMMenuAction actionWithId:@"mute" title:(isMutedNow ? IMLocalized(@"conv.menu.unmute") : IMLocalized(@"conv.menu.mute"))
+                                            image:(isMutedNow ? @"bell" : @"bell.slash") handler:^{
+        if (isMutedNow) { [ws setConversation:c muted:NO muteUntil:0]; }
+        else { [ws presentMuteMenuForConversation:c]; }
     }]];
     if (c.unread > 0 || c.markedUnread) {
         [actions addObject:[IMMenuAction actionWithId:@"markRead" title:IMLocalized(@"conv.menu.mark_read") image:@"checkmark.circle" handler:^{
@@ -975,8 +1003,9 @@ static CGFloat const kIMRowLeading = 16;
     // 手动"标未读"需经设置接口清除（与已读位点正交）；否则仅本地清未读数刷新该行。
     if (c.markedUnread && self.token.length > 0) {
         __weak typeof(self) ws = self;
+        // muteUntil 传 nil：本操作只清「标未读」，不碰免打扰——服务端据此保留原到期时间。
         [IMHTTPService.sharedService updateConversationSettingsWithToken:self.token convID:c.convID
-            pinnedAt:c.pinnedAt muted:c.muted markedUnread:NO completion:^(NSError *error) {
+            pinnedAt:c.pinnedAt muted:c.muted muteUntil:nil markedUnread:NO completion:^(NSError *error) {
                 if (error) { [ws im_showToast:error.localizedDescription]; return; }
                 c.markedUnread = NO;
                 c.unread = 0;
@@ -984,7 +1013,7 @@ static CGFloat const kIMRowLeading = 16;
                 if (![ws performDatabaseOperation:^(IMDatabase *database) {
                     [database markConversationFullyRead:c.convID upToConvSeq:c.latestConvSeq];
                     [database applyCachedSettingsForConversation:c.convID
-                                                         pinnedAt:c.pinnedAt muted:c.muted markedUnread:NO];
+                                                         pinnedAt:c.pinnedAt muted:c.muted muteUntil:c.muteUntil markedUnread:NO];
                 }]) { return; }
                 NSUInteger idx = [ws.conversations indexOfObject:c];
                 if (idx != NSNotFound) {
@@ -1009,7 +1038,7 @@ static CGFloat const kIMRowLeading = 16;
 
 /// 标为未读：手动置红点（不改已读位点，不计数）；成功后刷新列表。
 - (void)markConversationUnread:(IMConversation *)c {
-    [self updateSettingsForConversation:c pinnedAt:c.pinnedAt muted:c.muted markedUnread:YES fail:IMLocalized(@"conv.error.mark_failed")];
+    [self updateSettingsForConversation:c pinnedAt:c.pinnedAt muted:c.muted muteUntil:nil markedUnread:YES fail:IMLocalized(@"conv.error.mark_failed")];
 }
 
 /// 置顶/取消置顶：pinned_at=现在ms/0（服务端据此把置顶会话排列表顶）。
@@ -1017,8 +1046,9 @@ static CGFloat const kIMRowLeading = 16;
     int64_t pinnedAt = pinned ? IMNowMillis() : 0;
     if (c.convID.length == 0 || self.token.length == 0) { return; }
     __weak typeof(self) ws = self;
+    // muteUntil 传 nil：置顶不该碰免打扰。
     [IMHTTPService.sharedService updateConversationSettingsWithToken:self.token convID:c.convID
-        pinnedAt:pinnedAt muted:c.muted markedUnread:c.markedUnread completion:^(NSError *error) {
+        pinnedAt:pinnedAt muted:c.muted muteUntil:nil markedUnread:c.markedUnread completion:^(NSError *error) {
             if (error) { [ws im_showToast:error.localizedDescription ?: IMLocalized(@"conv.error.pin_failed")]; return; }
             [ws animateConversation:c pinnedAt:pinnedAt];
             // 服务端仍是最终排序来源；动画结束后静默拉取一次，收敛多端同时操作。
@@ -1043,7 +1073,7 @@ static CGFloat const kIMRowLeading = 16;
     [self performDatabaseOperation:^(IMDatabase *database) {
         [database applyCachedSettingsForConversation:conversation.convID
                                              pinnedAt:conversation.pinnedAt
-                                                muted:conversation.muted
+                                                muted:conversation.muted muteUntil:conversation.muteUntil
                                          markedUnread:conversation.markedUnread];
     }];
 
@@ -1060,35 +1090,53 @@ static CGFloat const kIMRowLeading = 16;
     }];
 }
 
-/// 免打扰/取消免打扰：muted 切换（弱提示，不改未读）。
-- (void)setConversation:(IMConversation *)c muted:(BOOL)muted {
-    [self updateSettingsForConversation:c pinnedAt:c.pinnedAt muted:muted markedUnread:c.markedUnread fail:IMLocalized(@"conv.error.settings_failed")];
+/// 免打扰/取消免打扰：muted+muteUntil 一起切换（弱提示，不改未读）。muteUntil 显式带回——
+/// 取消免打扰传 0，选了时长传对应到期时间戳，都不能省略（省略会被服务端解读成"保留原值"）。
+- (void)setConversation:(IMConversation *)c muted:(BOOL)muted muteUntil:(int64_t)muteUntil {
+    [self updateSettingsForConversation:c pinnedAt:c.pinnedAt muted:muted muteUntil:@(muteUntil)
+                            markedUnread:c.markedUnread fail:IMLocalized(@"conv.error.settings_failed")];
+}
+
+/// 弹时长菜单（§4.1/§4.2 会话列表左滑/右键入口）：仅在**未免打扰**时调用（已免打扰走上面的直接取消）。
+- (void)presentMuteMenuForConversation:(IMConversation *)c {
+    __weak typeof(self) ws = self;
+    [IMMuteDurationMenu presentFromViewController:self sourceView:self.view sourceRect:CGRectZero
+        conversationName:c.displayName showUnmuteFirst:NO
+        completion:^(BOOL unmuted, int64_t muteUntil) {
+            [ws setConversation:c muted:!unmuted muteUntil:(unmuted ? 0 : muteUntil)];
+        }];
 }
 
 /// 把置顶/免打扰/标未读三态就地镜像到内存模型 + 本地库（乐观更新）；不刷新 UI，调用方各自选刷新方式。
-/// 返回本地库写入是否成功（失败通常是账号已切换，调用方应据此中止后续刷新）。
-/// 注：markConversationRead: 需把 markConversationFullyRead 与设置写在同一事务、并清 unread，
+/// 返回本地库写入是否成功（失败通常是账号已切换，调用方应据此中止后续刷新）。muteUntil 必须由调用方
+/// 显式给出（不打算改动免打扰的调用方传 c.muteUntil 保持不变，不能传 0——同 applyCachedSettingsForConversation
+/// 的坑）。注：markConversationRead: 需把 markConversationFullyRead 与设置写在同一事务、并清 unread，
 /// animateConversation: 需在写库同时做移行动画——两者各有额外语义，不并入本 helper。
-- (BOOL)mirrorSettingsOnto:(IMConversation *)c pinnedAt:(int64_t)pinnedAt muted:(BOOL)muted markedUnread:(BOOL)markedUnread {
+- (BOOL)mirrorSettingsOnto:(IMConversation *)c pinnedAt:(int64_t)pinnedAt muted:(BOOL)muted muteUntil:(int64_t)muteUntil markedUnread:(BOOL)markedUnread {
     c.pinnedAt = pinnedAt;
     c.muted = muted;
+    c.muteUntil = muteUntil;
     c.markedUnread = markedUnread;
-    [self refreshListIndicators]; // 就地改了 muted：Tab 蓝点的口径看它
+    [self refreshListIndicators]; // 就地改了 muted/muteUntil：Tab 蓝点 + 到期定时器的口径看它
     return [self performDatabaseOperation:^(IMDatabase *database) {
-        [database applyCachedSettingsForConversation:c.convID pinnedAt:pinnedAt muted:muted markedUnread:markedUnread];
+        [database applyCachedSettingsForConversation:c.convID pinnedAt:pinnedAt muted:muted muteUntil:muteUntil markedUnread:markedUnread];
     }];
 }
 
 /// 会话设置写入的统一入口：PUT 设置 → 成功后重拉列表（服务端已含置顶排序 + 权威状态）。
+/// muteUntil 为 nil 时 PUT 省略该字段（服务端保留原值）、本地镜像沿用 c.muteUntil；
+/// 非 nil 时两处都用该值（免打扰菜单/取消免打扰走这条）。
 - (void)updateSettingsForConversation:(IMConversation *)c
-                             pinnedAt:(int64_t)pinnedAt muted:(BOOL)muted markedUnread:(BOOL)markedUnread
+                             pinnedAt:(int64_t)pinnedAt muted:(BOOL)muted muteUntil:(NSNumber * _Nullable)muteUntil
+                          markedUnread:(BOOL)markedUnread
                                  fail:(NSString *)fail {
     if (c.convID.length == 0 || self.token.length == 0) { return; }
     __weak typeof(self) ws = self;
     [IMHTTPService.sharedService updateConversationSettingsWithToken:self.token convID:c.convID
-        pinnedAt:pinnedAt muted:muted markedUnread:markedUnread completion:^(NSError *error) {
+        pinnedAt:pinnedAt muted:muted muteUntil:muteUntil markedUnread:markedUnread completion:^(NSError *error) {
             if (error) { [ws im_showToast:error.localizedDescription ?: fail]; return; }
-            if (![ws mirrorSettingsOnto:c pinnedAt:pinnedAt muted:muted markedUnread:markedUnread]) { return; }
+            int64_t effectiveMuteUntil = muteUntil ? muteUntil.longLongValue : c.muteUntil;
+            if (![ws mirrorSettingsOnto:c pinnedAt:pinnedAt muted:muted muteUntil:effectiveMuteUntil markedUnread:markedUnread]) { return; }
             [ws.tableView reloadData];
             [ws reload];
         }];

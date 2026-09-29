@@ -33,6 +33,8 @@
 #import "UIViewController+IMFriendRequest.h"
 #import "IMTheme.h"
 #import "IMTimeUtil.h"
+#import "IMMuteState.h"        // IMIsMutedNow：判「取消免打扰」要不要出现在菜单最上面
+#import "IMMuteDurationMenu.h" // 定时免打扰时长菜单（P1 第二批）
 #import "IMLog.h"
 #import "IMMessageModel.h"    // playVoiceRow: 读 content（Private.h 只有 @class 前向声明）
 #import "IMVoicePlayer.h"     // 语音 tab：点行就地播放/暂停（toggleEnsuringLocal 共享入口）
@@ -400,21 +402,54 @@ static const NSUInteger kIMRtcMaxGroupCallPick = 8;
 
 - (void)switchChanged:(UISwitch *)sw {
     if (sw.tag == 1) { self.pinnedAt = sw.on ? IMNowMillis() : 0; }
-    else if (sw.tag == 2) { self.muted = sw.on; }
     [self commitConversationSettings];
 }
+/// 置顶开关提交：muteUntil 传 nil——置顶不该碰免打扰，服务端据此保留原到期时间。
 - (void)commitConversationSettings {
     NSString *token = IMHTTPService.sharedService.currentToken; if (token.length == 0) { return; }
     __weak typeof(self) ws = self;
-    // markedUnread 必须回传当前值（PUT 整体替换）：原来硬编码 NO，在详情页拨置顶/免打扰会
+    // markedUnread 必须回传当前值（PUT 整体替换）：原来硬编码 NO，在详情页拨置顶会
     // 顺手清掉列表页设的手动标未读红点。
     [IMHTTPService.sharedService updateConversationSettingsWithToken:token convID:self.convID
-        pinnedAt:self.pinnedAt muted:self.muted markedUnread:self.markedUnread completion:^(NSError *error) {
+        pinnedAt:self.pinnedAt muted:self.muted muteUntil:nil markedUnread:self.markedUnread completion:^(NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self || !error) { return; }
         [self im_showToast:error.localizedDescription ?: IMLocalized(@"conv.error.settings_failed")];
         // 提交失败：重拉权威值并刷新开关，不让 UI 停留在"看起来成功"的失败态。
         [self loadConversationSettings];
+    }];
+}
+
+/// 免打扰值行点击：已免打扰时菜单最上面多一条红色「取消免打扰」（用于把 8 小时改成永久这类调整），
+/// 未免打扰时直接弹时长菜单（§4.1）。
+- (void)presentMuteMenu {
+    int64_t now = IMNowMillis();
+    BOOL isMutedNow = IMIsMutedNow(self.muted, self.muteUntil, now);
+    __weak typeof(self) ws = self;
+    [IMMuteDurationMenu presentFromViewController:self sourceView:nil sourceRect:CGRectZero
+        conversationName:[self displayTitle] showUnmuteFirst:isMutedNow
+        completion:^(BOOL unmuted, int64_t muteUntil) {
+            [ws applyMuteMuted:!unmuted muteUntil:(unmuted ? 0 : muteUntil)];
+        }];
+}
+
+/// 免打扰提交：与 commitConversationSettings（仅置顶用）分开——本操作必须显式带 mute_until，
+/// 省略会被服务端解读成"不改"，定时免打扰期间点了会保留旧值而不是改成新选的时长/取消（§5.2）。
+- (void)applyMuteMuted:(BOOL)muted muteUntil:(int64_t)muteUntil {
+    NSString *token = IMHTTPService.sharedService.currentToken; if (token.length == 0) { return; }
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService updateConversationSettingsWithToken:token convID:self.convID
+        pinnedAt:self.pinnedAt muted:muted muteUntil:@(muteUntil) markedUnread:self.markedUnread completion:^(NSError *error) {
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        if (error) {
+            [self im_showToast:error.localizedDescription ?: IMLocalized(@"conv.error.settings_failed")];
+            [self loadConversationSettings]; // 失败回拉权威值，别让行停在"看起来成功"的假态
+            return;
+        }
+        self.muted = muted;
+        self.muteUntil = muteUntil;
+        [self reloadSettingsAndPills];
     }];
 }
 

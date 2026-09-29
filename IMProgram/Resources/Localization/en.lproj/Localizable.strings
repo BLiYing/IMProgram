@@ -147,6 +147,7 @@
 "chat.detail.login_first" = "Please log in first";
 "chat.detail.manage_hint" = "Owner/admins only";
 "chat.detail.manage_pending_badge" = "%1$ld pending";
+"chat.detail.mute_footer" = "While muted there are no sounds and no badge count; @mentions still alert you.";
 "chat.detail.muted" = "Mute notifications";
 "chat.detail.my_group_nickname" = "My nickname in this group";
 "chat.detail.my_group_nickname_message" = "Visible to everyone in the group. Up to 20 characters; leave blank to use your default nickname.";
@@ -1068,6 +1069,8 @@
 "mute.10m" = "10 minutes";
 "mute.1d" = "1 day";
 "mute.1h" = "1 hour";
+"mute.7d" = "7 days";
+"mute.8h" = "8 hours";
 "mute.title" = "Mute duration";
 "net.error.account_switched" = "Account switched";
 "net.error.ack_timeout" = "Timed out waiting for the server";
@@ -1161,7 +1164,10 @@
 "notif.exceptions.empty_private" = "No muted private chats. Swipe a chat or open its info to mute it.";
 "notif.exceptions.muted" = "Muted";
 "notif.exceptions.muted_mention" = "Muted · mentions still alert";
+"notif.exceptions.muted_until" = "Muted %1$@";
+"notif.exceptions.muted_until_mention" = "Muted %1$@ · mentions still alert";
 "notif.exceptions.pick_empty" = "No chats to add";
+"notif.exceptions.pick_footer_all" = "Only chats that aren't muted are listed.";
 "notif.exceptions.pick_footer_group" = "Only groups that aren't muted are listed.";
 "notif.exceptions.pick_footer_private" = "Only private chats that aren't muted are listed.";
 "notif.exceptions.web_row" = "Muted chats";
@@ -1171,6 +1177,10 @@
 "notif.in_app.sound" = "In-app sounds";
 "notif.in_app.vibrate" = "In-app vibration";
 "notif.message.footer" = "Muted chats won't alert you, except when you're mentioned.";
+"notif.mute.sheet_title" = "Mute \"%1$@\" for…";
+"notif.mute.until_date" = "until %1$@";
+"notif.mute.until_today" = "until %1$@";
+"notif.mute.until_tomorrow" = "until tomorrow, %1$@";
 "notif.preview.hidden" = "New message";
 "notif.reset" = "Reset all notifications";
 "notif.reset.confirm_message" = "All switches and sounds will be restored to defaults. Muted chats stay muted.";

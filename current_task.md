@@ -5,86 +5,96 @@
 
 ## 当前焦点
 
-> **通知与提示音 P1 · 第一批 ✅ 代码 + 单测已完成，待真机验（2026-09-29，分支 `feature/notif-p1a`，
-> 设计：`../IMServer/docs/design/NOTIFICATIONS_P1_DESIGN.md` §0–§3/§6.2(iOS 列)/§7/§8，草图
-> `sketches/NOTIFICATIONS_P1_UX_SKETCH.html` 01/02 节）**：范围＝应用内横幅 + 例外「添加例外」+
-> 主页「应用内预览」真开关。**定时免打扰（第二批）未动**。
-> - **`IMAlertDecision.m`**：`banner` 从恒 `NO` 改成 `eligible && platform==mobile && settings.inApp.preview`
->   （与 sound/vibrate 同一套资格，含 appActive/通话中/免打扰@我穿透；**不看节流**、**不看提示音是不是
->   「无」**）。共用向量 `alert_decision.json` 已扩到 32 条，全过。
-> - **应用内横幅新组件**（现有 `UIViewController+IMToast` 是底部一次性吐司、`IMChatBannerStack` 是聊天页内
->   的置顶横幅，都不能复用，新写）：
->   - `Common/IMInAppBannerView.h/.m`：单例式 presenter，卡片挂在 key window（不盖状态栏、盖导航栏），
->     8pt 边距、14pt 圆角、阴影；滑入 250ms 尊重 `IMAppearance.shared.animationsEnabled`；4s 自动收起，
->     手指按住暂停计时（`UIControl` 的 touch down/up 事件），上滑手势收起；点击走 `IMConversationRouter`
->     进会话后立即收起；新消息到达时**原地换内容 + 重新计时**（不叠加、不排队）。
->   - **点击「进会话」怎么绕开 Network→Modules/Chat 反向 import**：新增 `Common/IMConversationRouter.h/.m`，
->     只存一个 `opener` block；`IMChatViewController.m` 新增 `+load` 把「统一进会话入口」注册进去（Modules/Chat
->     → Common，正常方向）；`IMSocketManager+Alerts.m`/横幅视图都只 `import` `IMConversationRouter.h`，
->     不认识 `IMChatViewController`。与既有 `IMChatPresence`（`viewingConv` 的同类反转方案）同一手法。
->   - **「打开的正是横幅那个会话就收起」怎么接**：`IMChatPresence` 新增
->     `IMChatPresenceDidChangeNotification`（`noteViewingConvID:` 同步广播），横幅订阅，convID 匹配即收起——
->     不论会话是不是靠点横幅打开的（比如从别处点开）都能收。
->   - **标题/正文纯函数**：`Common/IMInAppBannerContent.h/.m` 的 `IMInAppBannerContentBuild`——标题＝
->     `conversation.displayName`（与转发选择页/例外行同一来源）；正文＝该类型「消息预览」关时固定
->     `notif.preview.hidden`，开时私聊显摘要、群聊显「发送者: 摘要」。摘要**复用**新抽出的
->     `Common/IMConversationPreview.h/.m` 的 `IMConversationMediaPreview`（image/video/file/chat_record/
->     location/contact/call/voice 判定，从 `IMConversationListViewController` 的 cell 配置里原样搬出来，
->     两处调一份，不是照抄一份）。头像仍用 `UILabel+IMAvatar`（系统通知会话 seed=系统 uid 时组件自动出
->     应用图标，本函数不用重新判定）。
->   - **触发点**：`IMSocketManager+Alerts.m` 在 `result.banner` 为真时才多做一次 `cachedConversations`
->     全表扫描找 convID 对应的完整 `IMConversation`（平时每条实时消息只查一行 muted/isGroup，不做整表扫，
->     只有真要出横幅这个稀有分支才多付这个代价）。
-> - **`IMForwardPickerViewController` 加了四个可选配置属性**（不设＝转发流程原行为不变）：
->   `extraFilter`（附加过滤 block）、`titleOverride`、`footerText`、`emptyText`（非空时零结果/搜索无匹配
->   常驻空态标签，不再弹 toast）、`immediateSingleSelect`（单选态隐藏「多选」入口，点一行不弹确认框、
->   立即回调 `onDone` 并收起）。
-> - **`IMNotificationTypeViewController`**：`b4d9c88`「没有免打扰会话就整组不显示」按 §8 已拍板②改回——
->   「例外」组常驻，首行固定绿色（`IMTheme.accent`，即草图 `--app-accent`，非硬编码色）圆形 + 号
->   「添加例外」行（新 cell `IMNotifAddExceptionCell`）。点了用 `immediateSingleSelect` 模式 present
->   `IMForwardPickerViewController`，`extraFilter` 用新纯函数 `Common/IMNotifExceptionPickerFilter.h`
->   的 `IMNotifExceptionPickerMatches`（该类型 + 未免打扰 + 非系统通知，独立小文件方便单测）。选中后
->   `muteNewException:` 走既有 `updateConversationSettingsWithToken:...` PUT，**原样带回
->   `pinned_at`/`marked_unread`**（与 `unmute:` 对称，同一个坑）。`unmute:` 最后一个也取消时不再删整段，
->   只删那一行（组常驻）。
-> - **`IMNotificationSettingsViewController`**：「应用内预览」行从灰置占位改真开关（绑定既有
->   `IMNotificationSettings.inAppPreview`，P0 早就存了、只是没接 UI）；「应用内通知」组脚注从
->   `notif.in_app.footer` 换成 `notif.in_app.preview_footer`。
-> - **本地化**：5 个新键（`notif.exceptions.add`/`pick_footer_private`/`pick_footer_group`/`pick_empty`、
->   `notif.in_app.preview_footer`）中英文均已在（工作树进来时已生成，本批一并提交）；
->   `notif.exceptions.empty_*` 两条不再被引用（未删字符串资源本身）。
-> - **测试**：新增 `IMConversationPreviewTests`（13 例）/`IMInAppBannerContentTests`（6 例）/
->   `IMNotifExceptionPickerFilterTests`（6 例），均对核心分支做过一次真实变异验红（banner 判定改
->   `NO`、voice 时长公式加偏移、preview-off 分支改错文案、picker 的 `muted` 判断注掉，四处全部按预期
->   变红后改回）。`IMAlertDecisionTests` 改读 32 条向量。`./scripts/test.sh` **606/606 绿**（较 P0 收尾时
->   580 例新增 26 例）。
-> - **没做 / 已知限制**：定时免打扰（时长菜单/`mute_until`/`isMutedNow`，全部留第二批）；
->   `IMServer/docs/CLIENT_PARITY.md`/`SYMMETRY.md`/`docs/i18n/strings.json`/`NOTIFICATIONS_DESIGN.md` §11
->   **均未碰**（本次任务明确限定「只改 IMProgram，不改 IMServer/im-android/im-web」，留给协调者收口三端）；
->   IMProgram 本仓没有单独的 iOS UI parity 文档（`UI_PARITY_IOS.md` 只存在于 im-android，供它对齐 iOS）。
-> - **需要真机验证**（模拟器/单测测不出的部分，本次完全没做）：① 横幅滑入/滑出动效手感、阴影观感；
->   ② 4 秒自动收起的真实时长体感、按住暂停/松开恢复计时是否顺滑；③ 上滑手势收起在真实触屏上的识别率
->   （模拟器鼠标拖拽与真手指滑动手感不同）；④ 连发 5 条消息横幅原地换内容不叠加、不闪烁；⑤ 深色模式下
->   卡片背景 `IMTheme.surfaceElevated` 与阴影的可辨度；⑥ 点击横幅进会话的转场是否顺畅、横幅是否先收起
->   再转场（当前实现是先 dismiss 动画同时发起路由，两者并行，真机上可能有观感差异待评估）；⑦ 「添加例外」
->   选择页的空态/脚注文案排版、绿色圆形 + 号在浅色/深色下的对比度；⑧ VoiceOver 是否能正确读出横幅内容
->   （未加任何无障碍 label/trait，完全没有针对性适配）。
+> **通知与提示音 P1 · 第二批「定时免打扰」✅ 代码 + 单测已完成，待真机验（2026-09-29，分支
+> `feature/notif-p1b`，设计：`../IMServer/docs/design/NOTIFICATIONS_P1_DESIGN.md` §4/§5/§6.2(iOS
+> 列)/§7 点2·6，协议 `../IMServer/docs/PROTOCOL.md` §6.10「mute_until」，后端已先行落地并跑在 :8080）**：
+> 三端同名纯函数 `IMIsMutedNow` + 时长菜单 + 三个入口（会话列表/聊天详情页/添加例外）+ 到期本地定时刷新。
+> - **`Common/IMMuteState.h/.m`**（新，与 im-android `MuteState.kt`/im-web `muteState.ts` 对端）：
+>   `IMIsMutedNow(muted,muteUntil,now)` = `muted && (muteUntil==0 || now<muteUntil)`（`now==until` 视为
+>   已解除）；`IMMuteUntilLabelMake` 到期文案分类器（today/tomorrow/date/forever，按 tzOffsetMinutes 纯
+>   毫秒运算比日历日，不经 NSCalendar 本地时区/DST，向量可测）；`IMMuteDetailValueText`/
+>   `IMMuteExceptionSubtitle` 是详情页右值/例外副标题的展示拼装（未进向量，纯 UI 层）。共用向量
+>   `IMServer/docs/conformance/mute_state.json`（isMutedNow 6 例 + untilLabel 8 例）。
+> - **`Common/IMMuteDurationMenu.h/.m`**（新）：ActionSheet，标题 `notif.mute.sheet_title` 代入会话名；
+>   1 小时/8 小时/1 天/7 天/永久 + 取消；`showUnmuteFirst=YES` 时顶部多一条红色「取消免打扰」（聊天详情页
+>   已免打扰时用，列表左滑/右键已免打扰时不弹本菜单、直接单条取消）。纯函数
+>   `IMMuteUntilForDurationOption(option, nowMs)` 单独可测（不依赖真实时钟）。
+> - **`Common/IMMuteExpiryScheduler.h/.m`**（新）：单例，按当前会话集合算「最近一个未到期 mute_until」
+>   挂一次性 `NSTimer`，到点广播 `IMMuteExpiryDidChangeNotification`（不发请求，服务端同一时刻自然也判
+>   过期）。会话列表 `refreshListIndicators`（setConversations 的唯一咽喉）与例外列表 `reloadExceptions`
+>   都会顺路重排；列表页 + 例外页常驻订阅该通知与 `UIApplicationDidBecomeActiveNotification`（App 回前台
+>   兜底），收到后只 `reloadData`/重算，不触网。
+> - **模型/存储**：`IMConversation` 加 `muteUntil`（列表 JSON `mute_until` 解析）；`IMDatabase`
+>   `im_conversation_local` 加列 `mute_until`（新库建表 + 老库 `ALTER`，迁移逻辑放新 category
+>   `Database/IMDatabase+MuteState.h/.m`——`IMDatabase.m` 改动前已 1499/1500，只留一行迁移调用口子
+>   `[self migrateMuteUntilColumnDB:db]`，改完恰好卡在 1500，一行不多）；`cachedConversation:isGroup:
+>   muted:` 加 `muteUntil:` 出参、`applyCachedSettingsForConversation:...` 加 `muteUntil:` 入参（两个方法
+>   全部调用点已同步改）。
+> - **写入**：`IMHTTPService updateConversationSettingsWithToken:...` 加 `muteUntil:(nullable NSNumber*)`
+>   ——传 `nil` 即省略该字段（服务端保留未到期的原到期时间），传值即照写；置顶/标未读等不碰免打扰的调用
+>   一律传 `nil`，选时长/取消免打扰的调用显式传值。所有调用点（会话列表 4 处、聊天详情页、例外页 2 处）
+>   已按此口径过一遍。
+> - **三个入口**：① 会话列表左滑/右键「免打扰」——未免打扰弹 `IMMuteDurationMenu`（`presentMuteMenu
+>   ForConversation:`），已免打扰直接单条「取消免打扰」；② 聊天详情页「免打扰」行从开关变值行（右值
+>   `common.off`/`至...`/`common.permanent`，`IMDetailSettingsRowMute` 点击走 `presentMuteMenu`），脚注
+>   `chat.detail.mute_footer`（新增 `titleForFooterInSection:`，Settings 分区专属）；③ 「添加例外」选择页
+>   ——选完会话先弹 `IMMuteDurationMenu`（`presentMuteMenuForNewException:`）再真正 PUT，picker 的
+>   `extraFilter` 改用 `IMNotifExceptionPickerMatches(isGroup, IMIsMutedNow(...), peer, wantGroup)`（签名
+>   本身没变，调用方喂有效值）。
+> - **读取 → `IMIsMutedNow` 全部改完**：会话列表铃铛 + 未读变灰（`IMConversationCell configureWith
+>   Conversation:`）、`IMUnreadBadge.m` `IMTabUnreadCount`、`IMSocketManager+Alerts.m` 拼 `ctx.muted`
+>   （复用同一个 `nowMs` 变量，避免与 `ctx.nowMs` 用两次不同的 `IMNowMillis()`）、
+>   `IMNotificationTypeViewController` 例外过滤（`reloadExceptions`）与「添加例外」选择页过滤、聊天详情页
+>   状态。**刻意没改**（不是遗漏，是不同的「免打扰」概念）：`IMChatViewController+PinnedBanner.m` 的
+>   `refreshComposerMuteState`、`IMGroupInfoViewController.m`/`IMChatDetailViewController.m` 的群成员/全员
+>   禁言（`myMuteUntil`/`group.muteUntil`）——那是管理员禁言，不是本人的通知免打扰。
+> - **本地化**：任务给定的 10 个新键（`mute.8h`/`mute.7d`/`notif.mute.sheet_title{name}`/
+>   `notif.mute.until_today{time}`/`_tomorrow{time}`/`_date{date}`/`notif.exceptions.muted_until{until}`/
+>   `_mention{until}`/`chat.detail.mute_footer`；`notif.exceptions.pick_footer_all` web-only 未接）进来时
+>   已生成，本批一并提交，未改文案本身。
+> - **测试**：新增 `IMMuteStateTests`（读 `mute_state.json` 两段 14 例 + 2 补充边界）、
+>   `IMMuteDurationMenuTests`（时长→`mute_until` 映射 5 例）；`IMConversationCacheTests` 补
+>   `applyCachedSettingsForConversation:...muteUntil:...` 与 `cachedConversation:isGroup:muted:muteUntil:`
+>   往返断言。三处核心逻辑（`IMIsMutedNow`、`IMMuteUntilLabelMake` 的 day-diff 分类、
+>   `IMMuteUntilForDurationOption`）均做过一次真实变异验红（分别改错「已解除」判据、把「明天」判成
+>   「后天」、把 8 小时挪成 9 小时），全部按预期变红后改回。`./scripts/test.sh` **616/616 绿**（较第一批
+>   收尾时 606 例新增 10 例）。
+> - **没做 / 已知限制**：`IMServer/docs/CLIENT_PARITY.md`/`SYMMETRY.md` 本批未碰（任务明确限定「只改
+>   IMProgram」，留给协调者收口三端）；桌面 Dock 角标/favicon 不在 iOS 范围。
+> - **需要真机验证**（模拟器/单测测不出，本次完全没做）：① 时长菜单 ActionSheet 在真机上的呈现/交互
+>   手感（模拟器已过一遍编译但未跑起来看）；② 列表左滑「免打扰」弹出菜单后 swipe 动画收起与菜单呈现是否
+>   顺畅（`done(YES)` 与 present 几乎同时发生，和第一批横幅记录的「dismiss 动画与路由并行」是同一类风险）；
+>   ③ 聊天详情页免打扰行从开关变值行后，点击态/disclosure 箭头视觉是否符合预期；④ 到期定时器真实等到点
+>   触发（1 小时起，真机长时间挂起/低电量模式下 `NSTimer` 是否被系统延后未验，App 回前台兜底逻辑理论上能
+>   补上但没有真机实测过）；⑤ 深色模式、英文界面下「Until tomorrow, 18:30」等较长文案的排版。
+>
+> **通知与提示音 P1 · 第一批**（应用内横幅/添加例外/应用内预览开关）已合并进 main（`8796fc5`），详情见
+> `current_task.archive.md` 顶部归档块。
 
 ## 下一步
-1. **通知 P1 批一真机验证**（清单见上「当前焦点」最后一条）。
-2. **通知 P1 第二批**（定时免打扰，`../IMServer/docs/design/NOTIFICATIONS_P1_DESIGN.md` §4/§5）：三端
-   `isMutedNow` 纯函数 + 共用向量 `mute_state.json`（尚未创建）、协议加 `mute_until`（后端改动）、
-   三端各入口的时长菜单。**后端先行**，iOS 侧等协议落地后再接。
+1. **通知 P1 批一 + 批二真机验证**（清单见上「当前焦点」两条「需要真机验证」）——批一横幅/批二时长菜单
+   都还只过了模拟器编译，没有真机跑过。
+2. **`feature/notif-p1b` 推上去之后**：三端收口协调者需要补 `IMServer/docs/CLIENT_PARITY.md`（通知与提示音
+   行按 P1 各项拆三端状态）与 `SYMMETRY.md`（`IMMuteState`/`IMMuteDurationMenu` 对端行，本批只写了 iOS 这
+   一侧的实现，Android/Web 若也已落地要在 SYMMETRY 里互相点名）——本次任务明确限定「只改 IMProgram」，
+   这两份 IMServer 文档故意没碰。
 3. **「设置 ▸ 最近通话」真机验证**（call-history v1 遗留）：真机走一遍拨打→挂断→回到本页看 `callEnd`
    是否自动刷新；1v1 行回拨、群聊行跳转是否真的可用。
 4. **先验真机能否连通后端**：重装 App → 弹「允许查找并连接本地网络设备」点允许 → 登录页填 Mac 当前 LAN IP。
 5. **拆 `IMProgram/Network/IMSocketManager.m`（1593 行，已在体量门禁登记欠账，上限 1600「只准降不准升」，
-   本批横幅触发代码特意放进已有的 `+Alerts.m` category 没有再往主文件里加）**：方向按 CODING_STYLE §7
+   本批 conv_update 解析 mute_until 特意就地扩展现有行、没有再往主文件里加行）**：方向按 CODING_STYLE §7
    三档——帧编解码 / 重连退避 / 各业务 send-recv 分组各自成协作对象或 category。
-6. 选好友页缺「全选」；`setupUI` 抽 `IMComposerBar`；「从收藏发送」入口开放；遗留 P2（听筒切换/接力连播停止条/
+6. **`IMDatabase.m` 已卡在体量门禁上限（1500/1500，一行不剩）**：下次再要给 `im_conversation_local`/
+   `im_message_local` 加列，必须先拆（参考本批 `IMDatabase+MuteState.m` 的路子：新老库迁移单独开
+   category，主文件只留一行调用口子），不能再直接往主文件塞。
+7. 选好友页缺「全选」；`setupUI` 抽 `IMComposerBar`；「从收藏发送」入口开放；遗留 P2（听筒切换/接力连播停止条/
    Web 转文字/语音发送接入 IMMediaSendService 常驻队列等，细节见 `current_task.archive.md`）。
 
 ## 已知坑 / 限制
+- **会话列表左滑「免打扰」在 swipe action 的 `done(YES)` 之后同步 present `IMMuteDurationMenu`**
+  （本批新记，与横幅那条同一类风险）：`UIContextualAction` 的 handler 里先调用 `presentMuteMenuForConversation:`
+  再 `done(YES)` 收起 swipe，present 与 swipe 收起动画同时发生，没有等 swipe 完全收起再弹菜单。模拟器编译
+  能过、没跑起来看过；真机如果两个动画叠加显得突兀，把 present 挪到 `done(YES)` 之后（或加一个短延时）即可。
 - **通知横幅点击进会话与自身 dismiss 动画并行发起**（本批新记）：`handleTouchUpInside` 里先起 dismiss
   动画、同一时刻调 `IMConversationRouter openConversation:`——没有等横幅完全收起再转场。模拟器上看不出
   问题，真机上如果转场与横幅收起动画叠加显得突兀，改成 dismiss 完成回调里再路由即可（一行改动）。

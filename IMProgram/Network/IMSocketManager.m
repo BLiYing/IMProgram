@@ -964,7 +964,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
         contextIsCurrent = [self performDatabaseOperation:^(IMDatabase *database) {
             [database applyCachedSettingsForConversation:convID
                                                  pinnedAt:[data[@"pinned_at"] longLongValue]
-                                                    muted:[data[@"muted"] boolValue]
+                                                    muted:[data[@"muted"] boolValue] muteUntil:[data[@"mute_until"] longLongValue]
                                              markedUnread:[data[@"marked_unread"] boolValue]];
             // 备注随 settings 帧同步（多端）：payload 恒带 remark 全值，落缓存，避免本地刷新闪回真实群名。
             [database applyCachedRemarkForConversation:convID remark:remark];

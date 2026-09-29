@@ -19,6 +19,7 @@
 #import "IMMessageModel.h"
 #import "IMConversation.h"
 #import "IMTimeUtil.h"
+#import "IMMuteState.h" // ctx.muted 必须喂 IMIsMutedNow 算出的有效值，不能是原始 muted（P1 §4.3）
 #import "IMInAppBannerView.h" // P1 §1.1：result.banner 为真时弹应用内横幅（Common/，避免反向 import Modules/Chat）
 
 @implementation IMSocketManager (Alerts)
@@ -33,8 +34,9 @@
     // （查不到即从未设置过免打扰，默认值本来就是 NO，不算猜）。
     // 按主键查一行（不走 cachedConversations：那是整表读 + 每行建对象，每条实时消息都跑一遍会卡主线程）。
     __block BOOL found = NO, isGroup = NO, muted = NO;
+    __block int64_t muteUntil = 0;
     [self performDatabaseOperation:^(IMDatabase *database) {
-        found = [database cachedConversation:msg.convID isGroup:&isGroup muted:&muted];
+        found = [database cachedConversation:msg.convID isGroup:&isGroup muted:&muted muteUntil:&muteUntil];
     }];
     if (!found) { isGroup = [msg.convID hasPrefix:@"g_"]; }
 
@@ -48,6 +50,7 @@
             && IMCallRecordRender(msg.content, NO, isGroup, nil).tone == IMCallRecordToneMissed;
     }
 
+    int64_t nowMs = IMNowMillis();
     IMAlertContext *ctx = [IMAlertContext new];
     ctx.platform = IMAlertPlatformMobile;
     ctx.isLive = YES; // 本方法只在实时路径调用（见调用点的 !fromSync 守卫）
@@ -57,13 +60,13 @@
     ctx.isCallRecord = isCallRecord;
     ctx.missedCallForMe = missedCallForMe;
     ctx.convType = isGroup ? IMAlertConvTypeGroup : IMAlertConvTypePrivate;
-    ctx.muted = muted;
+    ctx.muted = IMIsMutedNow(muted, muteUntil, nowMs); // 定时免打扰到期后必须照常响，不能再读原始 muted
     ctx.mentionsMe = msg.mentionAll || (msg.mentions.count > 0 && [msg.mentions containsObject:selfUID]);
     ctx.appActive = UIApplication.sharedApplication.applicationState == UIApplicationStateActive;
     ctx.windowFocused = ctx.appActive; // 移动端无独立窗口焦点概念；判据仅在 platform=desktop 时读这个字段
     ctx.viewingConv = msg.convID.length > 0 && [msg.convID isEqualToString:IMChatPresence.currentViewingConvID];
     ctx.inCall = IMRtcCall.shared.isStarted;
-    ctx.nowMs = IMNowMillis();
+    ctx.nowMs = nowMs;
     ctx.lastSoundAtMs = IMAlertPlayer.shared.lastSoundAtMs;
     ctx.settings = IMNotificationSettings.shared.alertSnapshot;
 

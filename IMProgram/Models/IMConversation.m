@@ -55,6 +55,7 @@ static BOOL IMBoolFromJSON(id value) {
     c.unreadCapped = IMBoolFromJSON(dict[@"unread_capped"]);
     c.pinnedAt = [dict[@"pinned_at"] respondsToSelector:@selector(longLongValue)] ? [dict[@"pinned_at"] longLongValue] : 0;
     c.muted = IMBoolFromJSON(dict[@"muted"]);
+    c.muteUntil = [dict[@"mute_until"] respondsToSelector:@selector(longLongValue)] ? [dict[@"mute_until"] longLongValue] : 0;
     c.markedUnread = IMBoolFromJSON(dict[@"marked_unread"]);
     c.remark = [self stringForKey:@"remark" in:dict]; // 会话备注（G1，仅本人可见）；非空替代显示名
     c.mentionUnread = IMBoolFromJSON(dict[@"mention_unread"]);

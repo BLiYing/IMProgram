@@ -147,6 +147,7 @@
 "chat.detail.login_first" = "请先登录";
 "chat.detail.manage_hint" = "仅群主/管理员";
 "chat.detail.manage_pending_badge" = "%1$ld 待审";
+"chat.detail.mute_footer" = "免打扰期间不响铃、不计入角标；有人 @你时仍会提醒。";
 "chat.detail.muted" = "消息免打扰";
 "chat.detail.my_group_nickname" = "我在本群的昵称";
 "chat.detail.my_group_nickname_message" = "群内所有人可见，最多 20 字；留空恢复默认昵称。";
@@ -1068,6 +1069,8 @@
 "mute.10m" = "10 分钟";
 "mute.1d" = "1 天";
 "mute.1h" = "1 小时";
+"mute.7d" = "7 天";
+"mute.8h" = "8 小时";
 "mute.title" = "禁言时长";
 "net.error.account_switched" = "账号已切换";
 "net.error.ack_timeout" = "ack 超时";
@@ -1161,7 +1164,10 @@
 "notif.exceptions.empty_private" = "暂无免打扰的私聊。在会话里左滑或进入聊天信息即可设置免打扰。";
 "notif.exceptions.muted" = "免打扰";
 "notif.exceptions.muted_mention" = "免打扰 · @我仍提醒";
+"notif.exceptions.muted_until" = "免打扰%1$@";
+"notif.exceptions.muted_until_mention" = "免打扰%1$@ · @我仍提醒";
 "notif.exceptions.pick_empty" = "没有可添加的会话";
+"notif.exceptions.pick_footer_all" = "只列还没有免打扰的会话。";
 "notif.exceptions.pick_footer_group" = "只列群聊中还没有免打扰的会话。";
 "notif.exceptions.pick_footer_private" = "只列私聊中还没有免打扰的会话。";
 "notif.exceptions.web_row" = "免打扰的会话";
@@ -1171,6 +1177,10 @@
 "notif.in_app.sound" = "应用内提示音";
 "notif.in_app.vibrate" = "应用内振动";
 "notif.message.footer" = "免打扰的会话不会提醒；@我 的消息仍会提醒。";
+"notif.mute.sheet_title" = "「%1$@」免打扰多久？";
+"notif.mute.until_date" = "至 %1$@";
+"notif.mute.until_today" = "至今天 %1$@";
+"notif.mute.until_tomorrow" = "至明天 %1$@";
 "notif.preview.hidden" = "新消息";
 "notif.reset" = "重置所有通知设置";
 "notif.reset.confirm_message" = "本页所有开关与提示音将恢复默认。不会取消会话的免打扰。";

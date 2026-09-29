@@ -1,10 +1,14 @@
 #import "IMUnreadBadge.h"
 #import "IMConversation.h"
+#import "IMMuteState.h"
+#import "IMTimeUtil.h"
 
 NSInteger IMTabUnreadCount(NSArray<IMConversation *> *conversations, BOOL includeMuted) {
     NSInteger n = 0;
+    int64_t now = IMNowMillis();
     for (IMConversation *c in conversations) {
-        if (!c.muted || includeMuted) { n += c.unread; }
+        BOOL isMutedNow = IMIsMutedNow(c.muted, c.muteUntil, now); // 定时免打扰到期后照常计入未读数
+        if (!isMutedNow || includeMuted) { n += c.unread; }
         else if (c.mentionUnread) { n += 1; }
     }
     return n;

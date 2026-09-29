@@ -459,12 +459,22 @@
     [database replaceCachedConversations:@[conversation]];
 
     [database markConversation:conversation.convID peerReadUpToConvSeq:6];
-    [database applyCachedSettingsForConversation:conversation.convID pinnedAt:99 muted:YES markedUnread:YES];
+    [database applyCachedSettingsForConversation:conversation.convID pinnedAt:99 muted:YES muteUntil:123456 markedUnread:YES];
     IMConversation *loaded = database.cachedConversations.firstObject;
     XCTAssertEqual(loaded.peerReadSeq, 6);
     XCTAssertEqual(loaded.pinnedAt, 99);
     XCTAssertTrue(loaded.muted);
+    XCTAssertEqual(loaded.muteUntil, 123456);
     XCTAssertTrue(loaded.markedUnread);
+
+    // 单行读取变体（cachedConversation:isGroup:muted:muteUntil:）与整表读取同一份列，须一致。
+    BOOL isGroup = YES, muted = NO;
+    int64_t muteUntil = -1;
+    BOOL found = [database cachedConversation:conversation.convID isGroup:&isGroup muted:&muted muteUntil:&muteUntil];
+    XCTAssertTrue(found);
+    XCTAssertFalse(isGroup);
+    XCTAssertTrue(muted);
+    XCTAssertEqual(muteUntil, 123456);
 
     [database deleteCachedConversation:conversation.convID];
     XCTAssertEqual(database.cachedConversations.count, 0);
