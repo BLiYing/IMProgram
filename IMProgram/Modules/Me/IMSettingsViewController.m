@@ -14,6 +14,7 @@
 #import "IMPrivacySecurityViewController.h"
 #import "IMDeviceListViewController.h"
 #import "IMFavoritesViewController.h"
+#import "IMCallHistoryViewController.h"
 #import "IMLoginViewController.h"
 #import "IMSocketManager.h"
 #import "IMSessionStore.h"
@@ -504,7 +505,7 @@
                          handler:^{ [ws openFavorites]; }],
         [IMSettingsRow rowWithId:@"recentCalls" title:IMLocalized(@"ios.settings.row.recent_calls") image:@"phone.fill"
                           iconBg:UIColor.systemGreenColor right:nil destructive:NO
-                         handler:^{ [ws comingSoon:IMLocalized(@"ios.settings.row.recent_calls")]; }],
+                         handler:^{ [ws openRecentCalls]; }],
         [IMSettingsRow rowWithId:@"devices" title:IMLocalized(@"settings.row.devices") image:@"laptopcomputer"
                           iconBg:UIColor.systemOrangeColor right:nil destructive:NO
                          handler:^{ [ws openDevices]; }],
@@ -555,6 +556,11 @@
 - (void)openFavorites {
     IMFavoritesViewController *fav = [IMFavoritesViewController new];
     [self.navigationController pushViewController:fav animated:YES];
+}
+
+- (void)openRecentCalls {
+    IMCallHistoryViewController *vc = [[IMCallHistoryViewController alloc] initWithHost:self.host userID:self.userID];
+    [self.navigationController pushViewController:vc animated:YES];
 }
 
 - (void)openProfile {

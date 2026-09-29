@@ -2,11 +2,13 @@
 #import "IMLocalization.h"
 #import "IMDeviceIdentity.h"
 #import "IMGroupInfo.h"
+#import "IMHTTPService+RTC.h"
 #import "IMLog.h"
 #import "IMRtcCallRecordSender.h"
 #import "IMRtcConfig.h"
 #import "IMRtcInviteProvider.h"
 #import "IMRtcProfileResolver.h"
+#import "IMProgram-Swift.h" // IMRtcCallHistoryBridge（fetchCallHistory 的 Swift 桥接，见该文件头注释）
 @import IMCallEngine;
 @import IMCallEngineWebRTC;
 @import IMCallKit;
@@ -24,7 +26,6 @@ static IMLocale IMLocaleFromLanguage(NSString *language) {
     NSUUID *_observer;
     id _languageObserver;
     NSString *_uid;
-    IMRtcConfig *_config;
     /// 每次 start / stop 加一：旧引擎迟到的回调一律不算数，别改动新一代的状态。
     NSUInteger _generation;
 }
@@ -55,7 +56,6 @@ static IMLocale IMLocaleFromLanguage(NSString *language) {
     if (problem) { IMLogWarnWithTag(IMLogTagRTC, @"rtc_disabled reason=%@", problem); return; }
 
     [self installSDKLog];
-    _config = config;
     _uid = [uid copy];
     NSUInteger gen = _generation;
     _engine = [IMCallEngine webRTCEngineWithURL:url deviceID:deviceID];
@@ -82,11 +82,14 @@ static IMLocale IMLocaleFromLanguage(NSString *language) {
         strongSelf->_kit.config.locale = IMLocaleFromLanguage(IMLocalization.shared.language);
     }];
 
-    NSString *token = [self signToken];
-    IMLogWithTag(IMLogTagRTC, @"rtc_start uid=%@ app=%@ url=%@", uid, config.appID, config.wsURL);
-    if (token.length == 0) { return; }
-    [_engine login:token completionHandler:^(NSError *_Nullable error) {
-        if (error) { IMLogWarnWithTag(IMLogTagRTC, @"rtc_login_failed code=%ld %@", (long)error.code, error.localizedDescription); }
+    IMLogWithTag(IMLogTagRTC, @"rtc_start uid=%@ url=%@", uid, config.wsURL);
+    [self signTokenWithCompletion:^(NSString *token) {
+        // 换票是异步网络请求：这段时间里可能又 stop 了（登出/切账号），generation 变了就不该
+        // 再对一个已经被销毁的 _engine 发 login（同 handleEvent:generation: 的防护思路）。
+        if (gen != self->_generation || token.length == 0) { return; }
+        [self->_engine login:token completionHandler:^(NSError *_Nullable error) {
+            if (error) { IMLogWarnWithTag(IMLogTagRTC, @"rtc_login_failed code=%ld %@", (long)error.code, error.localizedDescription); }
+        }];
     }];
 }
 
@@ -131,6 +134,74 @@ static IMLocale IMLocaleFromLanguage(NSString *language) {
     [_resolver putGroup:group];
 }
 
+#pragma mark - 通话历史（设置 ▸ 最近通话）
+
+- (void)fetchCallHistoryWithLimit:(NSInteger)limit cursor:(NSNumber *)cursor
+                       completion:(void (^)(NSArray<IMCallHistoryRecord *> *_Nullable records,
+                                             NSNumber *_Nullable nextCursor, NSError *_Nullable error))completion {
+    if (!_engine) {
+        completion(nil, nil, [NSError errorWithDomain:@"IMRtcCall" code:-1
+                                              userInfo:@{ NSLocalizedDescriptionKey: [self unavailableReason] ?: @"通话未启动" }]);
+        return;
+    }
+    NSUInteger gen = _generation;
+    __weak typeof(self) ws = self;
+    [IMRtcCallHistoryBridge fetchCallHistoryWithEngine:_engine limit:limit cursor:cursor
+        completion:^(NSArray<NSDictionary *> *dicts, NSNumber *nextCursor, NSError *error) {
+        typeof(self) self = ws;
+        if (!self) { return; }
+        // 换票以外的另一处 generation 防护：拉取在途时若 stop/重新 start 过（登出/切账号），
+        // 这批结果已经对不上当前引擎，一律当失败处理，不回填到新状态里。
+        if (gen != self->_generation) {
+            completion(nil, nil, [NSError errorWithDomain:@"IMRtcCall" code:-2
+                                                  userInfo:@{ NSLocalizedDescriptionKey: @"通话服务已重启，本次查询作废" }]);
+            return;
+        }
+        if (error) { completion(nil, nil, error); return; }
+        NSMutableArray<IMCallHistoryRecord *> *records = [NSMutableArray arrayWithCapacity:dicts.count];
+        for (NSDictionary *d in dicts) { [records addObject:[IMRtcCall historyRecordFromDictionary:d]]; }
+        completion(records, nextCursor, nil);
+    }];
+}
+
++ (IMCallHistoryRecord *)historyRecordFromDictionary:(NSDictionary *)d {
+    IMCallHistoryRecord *r = [IMCallHistoryRecord new];
+    r.callID = [d[@"call_id"] isKindOfClass:NSString.class] ? d[@"call_id"] : @"";
+    r.roomID = [d[@"room_id"] isKindOfClass:NSString.class] ? d[@"room_id"] : @"";
+    r.caller = [d[@"caller"] isKindOfClass:NSString.class] ? d[@"caller"] : @"";
+    r.video = [d[@"media_type"] isEqual:@"video"];
+    r.group = [d[@"is_group"] respondsToSelector:@selector(boolValue)] && [d[@"is_group"] boolValue];
+    r.reason = [d[@"reason"] isKindOfClass:NSString.class] ? d[@"reason"] : @"";
+    r.endedBy = [d[@"ended_by"] isKindOfClass:NSString.class] ? d[@"ended_by"] : @"";
+    r.durationSec = [d[@"duration_sec"] respondsToSelector:@selector(integerValue)] ? [d[@"duration_sec"] integerValue] : 0;
+    r.startedAtMs = [d[@"started_at_ms"] respondsToSelector:@selector(longLongValue)] ? [d[@"started_at_ms"] longLongValue] : 0;
+    r.connectedAtMs = [d[@"connected_at_ms"] respondsToSelector:@selector(longLongValue)] ? [d[@"connected_at_ms"] longLongValue] : 0;
+    r.endedAtMs = [d[@"ended_at_ms"] respondsToSelector:@selector(longLongValue)] ? [d[@"ended_at_ms"] longLongValue] : 0;
+    r.userData = [d[@"user_data"] isKindOfClass:NSString.class] ? d[@"user_data"] : @"";
+    r.chatGroupID = [d[@"chat_group_id"] isKindOfClass:NSString.class] ? d[@"chat_group_id"] : @"";
+    NSMutableArray<NSString *> *members = [NSMutableArray array];
+    if ([d[@"members"] isKindOfClass:NSArray.class]) {
+        for (NSDictionary *m in d[@"members"]) {
+            NSString *uid = [m isKindOfClass:NSDictionary.class] && [m[@"uid"] isKindOfClass:NSString.class] ? m[@"uid"] : nil;
+            if (uid.length > 0) { [members addObject:uid]; }
+        }
+    }
+    r.memberUIDs = members;
+    return r;
+}
+
+- (nullable NSUUID *)addEventObserver:(void (^)(IMCallEvent *event))block {
+    if (!_engine || !block) { return nil; }
+    void (^wrapped)(IMCallEvent *) = ^(IMCallEvent *event) {
+        dispatch_async(dispatch_get_main_queue(), ^{ block(event); });
+    };
+    return [_engine addEventObserver:wrapped];
+}
+
+- (void)removeEventObserver:(NSUUID *)token {
+    if (_engine && token) { [_engine removeEventObserver:token]; }
+}
+
 - (nullable NSString *)unavailableReason {
     if (_engine) { return nil; }
     IMRtcConfig *config = IMRtcConfig.load;
@@ -142,18 +213,26 @@ static IMLocale IMLocaleFromLanguage(NSString *language) {
 
 #pragma mark - 票
 
-/// 票的唯一来源。联调期本机签调试票；接了后台换票接口之后这里改成调接口。
-- (NSString *)signToken {
-#if DEBUG
-    NSError *error = nil;
-    NSString *token = [IMDebugToken tokenWithAppID:_config.appID keyID:_config.keyID secret:_config.debugSecret
-                                               uid:_uid deviceID:IMDeviceIdentity.deviceID ttlSec:0 error:&error];
-    if (!token) { IMLogWarnWithTag(IMLogTagRTC, @"rtc_sign_failed %@", error.localizedDescription); }
-    return token ?: @"";
-#else
-    IMLogWarnWithTag(IMLogTagRTC, @"rtc_disabled reason=Release 构建没有调试签票，需要接后台换票接口");
-    return @"";
-#endif
+/// 票的唯一来源：调 IMServer 代为向 im-rtc-server 换票，本端不需要也不该知道任何签名密钥。
+/// `token` 取自当前 IM 会话（`IMHTTPService.currentToken`，与项目里其它业务接口取 token 同一个
+/// 入口）；未登录 IM 或换票失败都只记日志、回调 nil——调用方据此静默把通话入口当"不可用"处理，
+/// 不打扰主流程。
+- (void)signTokenWithCompletion:(void (^)(NSString *_Nullable token))completion {
+    NSString *authToken = IMHTTPService.sharedService.currentToken;
+    if (authToken.length == 0) {
+        IMLogWarnWithTag(IMLogTagRTC, @"rtc_sign_failed reason=尚未登录IM，无法换取接入票");
+        completion(nil);
+        return;
+    }
+    [IMHTTPService.sharedService rtcTokenWithToken:authToken completion:^(NSDictionary *data, NSError *error) {
+        NSString *token = [data[@"token"] isKindOfClass:NSString.class] ? data[@"token"] : nil;
+        if (error || token.length == 0) {
+            IMLogWarnWithTag(IMLogTagRTC, @"rtc_sign_failed code=%ld %@", (long)error.code, error.localizedDescription ?: @"响应缺少 token");
+            completion(nil);
+            return;
+        }
+        completion(token);
+    }];
 }
 
 #pragma mark - 引擎事件
@@ -171,9 +250,13 @@ static IMLocale IMLocaleFromLanguage(NSString *language) {
             break;
         case IMCallEventNameKickedOut: [self handleKickedOut:event]; break;
         case IMCallEventNameTokenWillExpire: {
-            // 下一次重连生效，不打断当前通话。
-            [_engine updateToken:[self signToken] expiresAtMS:0];
-            IMLogWithTag(IMLogTagRTC, @"rtc_token_renewed");
+            // 下一次重连生效，不打断当前通话。换票是异步的，回来时可能已经 stop 过（同上方
+            // startWithUserID: 的 generation 防护）。
+            [self signTokenWithCompletion:^(NSString *token) {
+                if (gen != self->_generation || token.length == 0) { return; }
+                [self->_engine updateToken:token expiresAtMS:0];
+                IMLogWithTag(IMLogTagRTC, @"rtc_token_renewed");
+            }];
             break;
         }
         case IMCallEventNameCallReceived: {

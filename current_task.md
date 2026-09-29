@@ -5,115 +5,75 @@
 
 ## 当前焦点
 
-> **贴底收消息时「↓N」箭头闪一下的真实 bug 修复（2026-09-28，用户真机报——Android 发语音过来，
-> 已贴底的 iOS 聊天页会闪一下↓N 箭头+未读角标才落定；Web 端无此问题）**：`appendReloadAndScroll`
-> （自己发消息）早就为这个坑打了 0.5s 抑制窗口（`selfSendScrollGuardUntil`，防 `reloadData` 让
-> `contentSize` 骤增到滚动收敛之间那段 `isNearBottom` 短暂 false 时 `updateJumpButton` 弹出箭头），
-> 但 `IMChatViewController+Socket.m` 的 `didReceiveMessage:`（对端消息、贴底时用 `scrollToBottomAnimated:`
-> 而非精确贴底、动画耗时更长更易被看见）漏了同一个抑制——两条路径同一个坑，只有一条打了补丁。
-> 属性改名 `selfSendScrollGuardUntil`→`scrollToBottomGuardUntil`（语义已不止"自己发消息"），
-> `didReceiveMessage:` 里 `wasNearBottom` 分支贴底滚动前也设一次同样的 0.5s 窗口。
-> `./scripts/test.sh` 全量 **530/530 绿**。**未做**：真机/模拟器上实测"Android 发语音、iOS 贴底态接收"
-> 这条跨端路径肉眼确认箭头不再闪——本轮只连上了模拟器（idb 未配好，没法自动化点击登录+进对应会话），
-> 走查代码 + 编译 + 现有单测全绿，逻辑与自己发消息那条已验证过的修法完全同构，但没有肉眼二次确认。
+> **设置 ▸ 最近通话 v1 ✅ 代码 + 单测已完成，待真机验（2026-09-29，分支 `feature/call-history`，
+> worktree `IMProgram-wt-call-history`，未提交前的开发态；设计：`../IMServer/docs/design/CALL_HISTORY_DESIGN.md` +
+> 配套 UX 稿）**：设置「我」页 groupA 早已有的 `recentCalls` 占位行（`IMSettingsViewController.m` 的
+> `openRecentCalls`）现在 push 新列表页 `IMCallHistoryViewController`（`Modules/Me/`），只读浏览自己参与过的
+> 通话历史（含群通话），单聊行点了直接回拨、群聊行跳转群会话。
+> - **SDK 桥接是本次最大的技术活**：im-rtc iOS SDK 的 `IMCallEngine.fetchCallHistory`（`async throws`）
+>   **没有标 `@objc`**（返回体 `IMCallHistoryPage`/`IMCallHistoryRecord` 是纯 Swift struct，天生不能进 ObjC 签名），
+>   `IMRtcCall.m` 原有的「调 SDK」套路（直接 `@import IMCallEngine;` 调方法）在这里走不通。新增
+>   `Modules/RTC/IMRtcCallHistoryBridge.swift`（`@objc(IMRtcCallHistoryBridge)`，仿现有 `IMLiquidNavigationBar.swift`/
+>   `IMTelegramAvatarMaskView.swift` 的 `@objcMembers @objc(Name) : NSObject` 套路）：`Task { try await
+>   engine.fetchCallHistory(...) }`，把 struct 拍平成字典（键沿用 `IMRtcCallRecordSender.m` 已经在用的
+>   snake_case：`call_id`/`media_type`/`duration_sec`…），显式 `@objc(fetchCallHistoryWithEngine:limit:cursor:completion:)`
+>   钉死 selector（不依赖 Swift→ObjC 自动改名）。`IMRtcCall.h/.m` 新增两个公开方法：
+>   `fetchCallHistoryWithLimit:cursor:completion:`（经桥接转 `IMCallHistoryRecord*` 数组，带 generation 防护——
+>   在途请求期间若 `stop`/`startWithUserID:` 被调用过，结果一律当失败处理，不回填到已销毁的引擎状态里）、
+>   `addEventObserver:`/`removeEventObserver:`（`_engine addEventObserver:` 的公开透传，供页面级消费者订阅
+>   `IMCallEventNameCallEnd` 而不用碰 `_engine` 私有 ivar；沿用同一套「回调恒转主线程」约定）。
+> - **纯函数层**（可测、与网络/UI 解耦）：`Common/IMCallHistoryRecord.h/.m`——`IMCallHistoryRecordIsMissed`
+>   （未接判定：`caller != selfUID && durationSec==0`）、`IMCallHistoryGroupPeerCount`（群通话人数：
+>   `max(members.length,1) + (caller 在 members 里?0:1)`，对齐 im-rtc Demo `peerText`）、
+>   `IMCallHistoryRecordPeerUID`（1v1 对方 uid，caller 为空等脏数据兜底 nil 不崩溃）、`IMCallHistoryGroupByDate`
+>   （按自然日分组，标题**复用** `IMTheme dayHeaderStringFromMillis:`——找了一圈发现聊天页日期分隔胶囊已经有
+>   这个函数，不用新写）、`IMCallHistoryApplyFilter`（全部/未接过滤谓词）。行的 reason 文案**复用**
+>   `IMCallRecord.h` 的 `IMCallRecordBuild`+`IMCallRecordRender`（把本记录字段拼回 `{"cid","m","r","d"}` 再走同一套
+>   渲染，不重新实现判定顺序）——但**红字判定刻意不用** `IMCallRecordRender` 的 tone（那套规则对被叫侧
+>   `reject` 有例外不算未接，是聊天气泡级别的细规则），列表页红字统一用 `IMCallHistoryRecordIsMissed` 的
+>   简单公式（设计文档 §1/§4 原文只给了这一条，不含 reject 例外），这样「未接」筛选 tab 里的行与红字视觉
+>   保证一致，不会出现"在未接列表里却不是红字"的观感矛盾——这是本次一个需要留意的判断取舍，非文档明文拍板。
+> - **翻页/筛选状态机单开一个类**：`Modules/Me/IMCallHistoryPaginator.h/.m`，注入 fetcher block（与网络解耦，
+>   可用假数据单测，不用起模拟器）。`generation` 计数器作废在途旧请求（`callEnd` 触发重拉首页时用得上）；
+>   「未接」视图的翻页是自动连续的——过滤后新增数量不够 `minVisible` 就接着拉下一页，直到凑够或
+>   `nextCursor==nil`；「全部」视图每次只拉一页。两个视图共用同一份 `allRecords`，切换只换过滤谓词不发请求。
+>   `cursor`/`nextCursor` 类型是 `id`（不是 `NSString*`）——SDK 实际游标是 `Int64`（`NSNumber` 装），本类只透传
+>   从不解析，写测试时才发现这个坑（最初想当然写成 NSString，读 SDK 源码才知道是数字）。
+> - **身份解析全部复用现成基础设施，没有新写一套**：1v1 对方名字/头像走 `IMUserProfileCache.sharedCache
+>   cardForUserID:` + `IMUserCard.displayName`（备注>昵称>@handle>"未命名用户"），命中 `IMUserProfileCacheDidResolveNotification`
+>   时整页 `reloadData`；群名走 `[IMDatabase.sharedDatabase cachedGroups]` 按 `convID` 建索引（找不到落回
+>   "未命名群聊"）；群聊跳转走 `IMChatViewController` 的统一群聊入口（`openInNavigationController:...groupConvID:...`），
+>   **没有**直接 alloc+push（头文件明文禁止）；单聊回拨复用 `IMRtcCall placeSingleCallToPeer:video:`——与聊天
+>   气泡回拨同一入口，没有新造判断。
+> - **三态**：`IMCallHistoryStateView`（自绘，非满屏用 `_stateView` 就是底部 footer 条）覆盖加载中 / 空 /
+>   出错（含 `IMRTCErrorInfo.domain` 判定→复用既有 `common.login_expired` 文案，不单独造一套 401 提示）；
+>   已有数据在屏时翻页失败**不清空整页**，只在底部条显示「加载失败 · 重试」可点重试（UX 稿 §04-B）。
+> - 新增本地化键（只加进本 worktree 两个 `.lproj`，**没有**跑 `IMServer/scripts/i18n/gen-i18n.mjs`——那个脚本
+>   同时写 `../IMProgram`/`../im-web`/`../im-android` **主 checkout**，会动到其他并行 worktree 的文件，
+>   有意避开；`call.history.*` 四个键需要在收口阶段补进 `IMServer/docs/i18n/strings.json` 让生成器接管）：
+>   `call.history.empty`/`filter_all`/`filter_missed`/`group_subtitle`。
+> - 测试：`IMProgramTests/IMCallHistoryRecordTests.m`（14 例，纯函数：未接判定/对方 uid/群人数/按日期分组/
+>   全部-未接过滤）+ `IMCallHistoryPaginatorTests.m`（5 例，假 fetcher 驱动：首页到底/翻页到底后不再发请求/
+>   未接自动续页/全部视图不自动续页/generation 作废在途旧请求不覆盖新首页），均对 `IMCallHistoryRecordIsMissed`
+>   做过一次真实变异验红（临时改反判定，3 条测试正确地变红，改回后绿）。`./scripts/test.sh` 全量
+>   **560/560 绿**（较之前 541 例新增 19 例，与新增测试数一致）。
+> - **没做 / 已知限制**（v1 刻意不做，见设计文档 §0）：删除、长按菜单、未接数量角标——均未实现、未预留接口；
+>   Web 端入口（`accountRows` 新增一行）不在本次范围，属 im-web worktree 的活；`docs/CLIENT_PARITY.md` 未碰
+>   （按任务要求留给协调者统一收口登记三端状态）。
+> - **需要真机验证**（模拟器测不出的部分，本次未做）：① 真机上实际打一通电话再回到「最近通话」页，确认
+>   `callEnd` 事件触发了重拉且列表顶部出现新记录；② 真机网络切换/后台唤醒场景下的翻页体验（模拟器网络
+>   稳定，测不出真实分页时延/失败率）；③ 群通话行点击跳转群会话、1v1 行点击直接回拨的**真实拨打**链路
+>   （本次只走查代码复用了聊天气泡同款入口方法，没有真的拨通验证）；④ 深色模式下 `IMTheme.danger`/
+>   `avatarColorForSeed:` 在真实设备上的对比度；⑤ VoiceOver：方向箭头 `↗`/`↙` 目前是纯文本 unicode 符号，
+>   没有单独配无障碍 label，理论上 VoiceOver 会把箭头符号也读出来，体验待评估（不影响功能，纯打磨项）。
 
-> **im-rtc 2.1.0 通话 Kit 多语言接线到「设置 ▸ 语言」（三端，2026-09-27，已提交待真机验）**：
-> SDK 2.1.0 的 `IMCallKitConfig.locale` 默认恒中文、不跟任何东西，此前升级后一直是"能用但没打开"。
-> `Modules/RTC/IMRtcCall.m` 加了 `IMLocaleFromLanguage()`（把 `IMLocalization.shared.language` 已解析结果
-> 映射到 SDK 的 `IMLocale`，**不用** SDK 自带的 `IMLocale.system()`，避免两套"跟系统"判据打架），
-> `startWithUserID:` 建 `kitConfig` 时设置 `.locale`；新增监听 `IMLanguageDidChangeNotification`，
-> 通话中途切语言直接改 `_kit.config.locale`（SDK 确认 `config` 是 `start()` 传入的同一实例，不用重建 Kit），
-> `stop` 里对称移除观察者。`IMLocalization` 本身不用动，它已是权威实现。`BUILD_ONLY=1 ./scripts/test.sh` 编译过；
-> **未做**：真机切一次语言后实际发起/接听通话看 Kit 文案是否跟着变。三端对称改动见 `../IMServer/docs/SYMMETRY.md`
-> 新增的 `IMRtcCall.m`/`RtcCall.kt`/`RtcHost.tsx` 那三行；Android 同批顺手补了「设置 ▸ 语言」入口本身
-> （此前只是占位符），细节见 im-android 的 `current_task.md`。
-
-> **通话记录：被叫侧 `cancel` 文案「未接来电」→「对方已取消」（三端 + 设计文档，2026-09-27，与用户讨论后拍板）**：
-> `cancel`（主叫主动撤回）跟真正错过（`no_answer`/`busy`/`offline`）不是一回事，只改这一种 reason 的措辞，其余三种
-> 与推送文案不变；`tone`（红/计未读/推送）完全不变，纯文案改动。本端改动：`Common/IMCallRecord.m` 的
-> `table` 里 `cancel` 行被叫键从 `call.record.missed` 改成新键 `call.record.cancelled_by_peer`
-> （`../IMServer/docs/i18n/strings.json` 新增，已 `node scripts/i18n/gen-i18n.mjs` 重新生成
-> `Resources/Localization/*.lproj/Localizable.strings`）；`missed` 判定
-> （`*missed = !viewerIsSender && ![k isEqualToString:@"reject"]`）本就结构化、不依赖文案字符串，未受影响
-> （这点 Android 那边不同，见其 `current_task.md` 记的一个真实隐患）。三端共用向量
-> `../IMServer/docs/conformance/call_record.json` 改的那条用例，`IMCallRecordTests.m` 按相对路径直接读
-> 该文件（不像 Android/Web 需要拷贝副本），无需额外同步。`./scripts/test.sh` 全量 **530/530 绿**。
-> **未做**：真机上实际走一遍"A 呼叫 B、A 取消"看气泡文案。
-
-> **多语言 P1+P2+P3 ✅ 已完成（2026-09-22，中文 + 英文；已 commit 37f1d2f 推送、未真机）**：P1 基础设施（`Common/IMLocalization` + `Modules/Me/IMLanguageViewController` 设置 ▸ 语言）+ **P2 全部业务模块迁完**：Contacts/Conversation/Group/Login/Me（15 文件）/QR/Network/Detail（16 文件）/Chat（含 `Cells/`，46 文件）+ `IMPresence.subtitleText`。**P3 客户端消费**（未提交，另一次会话完成）：新增 `Common/IMSysEventFormatter.{h,m}`（`IMSegmentsForSysEvent`/`IMTextForNoticeSysEvent`，消费服务端 `sys_event`/`sys_args` 渲染群系统消息与系统通知，占位符分词 + 哨兵定位切分，兼容 iOS `%N$@` 位置格式与任意语言词序）+ `IMMediaUtil.m` 的 `IMRenderReplySnapshot`（消费 `reply_snapshot_kind`/`_args`）；接入点 `IMBubbleCell.m`/`IMLinkCardCell.m`/`IMChatViewController+DataSource.m`；`IMMessageModel`/`IMConversation`/`IMDatabase` 三处补齐新字段解析/落库/会话列表预览。**顺手修了两个真实 bug**：`IMLocalizeReplySnippet` 硬编码中文（不跟随 App 语言）、`IMMediaGlyphForSnippet` 图标判定比较的是本地化后文本（英文模式下会失效）。`./scripts/test.sh` 全量 **527/527 绿**。文案表现有 **1386 键**（跨三端共用，见 `../IMServer/docs/i18n/strings.json`）。
-> ⚠️ 已知缺口（详见 `../IMServer/docs/design/I18N_DESIGN.md` §6.1）：`IMChatRecordSnippet`/`IMCallRecordNeutralPreview`/`IMContactCardPreview` 仍硬编码中文（服务面更广，未纳入本批）；系统通知单聊的会话列表预览未接结构化渲染（聊天页内气泡已修）。
-> **P2 范围内刻意 DEFERRED（不是漏改）**：消息内容预览占位符（`[图片]`/`[视频]`/`[聊天记录]`等，`IMChatMessageLogic.m`/`IMBubbleCell.m` 等，会烧进 `content` JSON 发给对端）、@全员 mention token（`+Mention.m`，与解析逻辑强绑定）、合并转发/群聊兜底标题——均待 P3 服务端结构化后处理。
-> ⚠️ Detail 批次发现「月日+时分」这类 `NSDateFormatter` 硬编码中文格式（如 `@"M月d日 HH:mm"`）**尚未纳入 `time.*` 体系**（现有 `time.*` 只有 today/yesterday/month_day/full_date），全仓至少 6 处（`IMGroupTextViewController.m`/`IMChatViewController+Search.m`/`IMChatRecordViewController.m`/`IMTheme.m`/`IMMediaUtil.m`/`IMDeviceModels.m`）都是这个模式，DEFERRED，需要专门扩展 `time.*` 键位后统一处理，不要零散改一两处。
-> ⚠️ 单测由 `IMProgramTests/IMTestBootstrap.m` 固定简体中文（模拟器系统语言常是 en）；**它会把偏好写进模拟器里 App 的 defaults**，手测发现界面是中文别奇怪。`IMMainTabBarController` 里找「消息」tab 标题 label 是**按文字匹配**的（`IMFindTabTitleLabel`），已改成取本地化后的词——再动底栏标题要一起改。
-> ⚠️ P2 迁移子代理**曾因周额度限流失败两次**（batch I3/W3，2026-09-21）——失败前的代码改动与文案片段合并均已正常完成，只是收尾报告被打断；每次继续迁移前先核实 git diff 与片段合并状态，别假设失败=没做完，也别假设失败=都做完，务必重新跑一遍 `test.sh`/`check-i18n.mjs` 确认。
->
-> **接入 im-rtc 音视频（2026-09-19，代码已写、模拟器编译通过，未上真机、未提交）**：本地 SPM 依赖 `../im-rtc/im-rtc-ios`
-> （`IMCallEngine` / `IMCallKit` / `IMCallEngineWebRTC`），调试密钥本机签票，SDKAppID 10000002 / kid `dbg-1`。
-> 代码在 `Modules/RTC/`：`IMRtcCall`（起停、票、引擎事件）、`IMRtcProfileResolver`（读 IM 已有数据：备注 > 群昵称 > 昵称，
-> 头像走 `IMImageLoader`；不为通话另建缓存）、`IMRtcConfig`。配置在 `IMRtcConfig.local.plist`（gitignored，模板见 `.example.plist`，
-> `wsUrl` 填本机局域网 IP）。入口：单聊资料页「呼叫 / 视频」、群资料页新增「群通话」（先选人，最多 8 人）；主界面出现时起服务，登出 / 被踢时停。
-> `Info.plist` 补了通话用途文案与 `UIBackgroundModes=audio`。**待真机验**：单聊 / 群通话、名字头像、退出登录后重登不出现两条连接。
-> 限制：超级群只能选已翻出来的成员；来电的群成员表只有打开过该群资料页才有，否则退回全局名片。
-
-> **修：聊天页点图片打开的查看器从来不能翻页（2026-09-16 用户报，未提交、未上模拟器）**：
-> 翻页容器与「整会话媒体时间线」2026-08-12 就落地了（`IMMediaPagerViewController` + `conversationMediaMessages`），
-> 但 `presentMediaViewerForMessage:` 取起始下标用的是 `indexOfObjectIdenticalTo:`（**指针相等**）——
-> 时间线是现查库得到的**另一批对象**，故恒 `NSNotFound`，每次都走「找不到就单开一个查看器」的兜底分支。
-> 媒体库那条路直接按下标开，所以一直正常，用户问的正是「媒体库的翻页不是有吗，不能共用吗」。
-> 判据抽成 `Common/IMMediaTimeline.h`（`conv_seq` 优先、未确认才用 `clientMsgID`、空串不认，与 im-web `album.ts`
-> 的 `msgKey` 同源，已登记 SYMMETRY），`IMMediaTimelineTests` 8 例 + 变异验红；`./scripts/test.sh` 487 例全绿。
-> **同根因的第二处**（`/code-review` 抓出）：同一函数 `pageProvider` 里的 `mm == m` 也是跨批次指针比较、恒假，
-> 于是「仅初始那条带气泡预载图」这个优化**从来没生效过**——每次打开都先显模糊占位再按 URL 重拉。改按下标判
-> （`index == start`）。这一条没有单测，要在模拟器上看：点一张已经渲染过的图，应当**瞬时**显示、不闪占位。
-> **要模拟器看**：点聊天里的图能左右翻、i/N 对得上、翻到的那张上「更多」作用在它身上。
-
-> **第四批用户报告（iOS 部分）✅ 2026-09-15（用户自测通过，已提交）**：「消息」Tab 蓝点太大——系统 `badgeValue = @""` 尺寸不可调，
-> 改 `IMMainTabBarController` 的 `setConversationsTabDotVisible:` 自绘 8pt（按标题 label 找图标、挂在图标右上角；找不到退回系统空角标）。
-> ⚠️ 找图标依赖系统底栏私有层级，iOS 大版本升级后先看这颗点。
-
-> **第三批用户报告（iOS 部分）✅ 2026-09-15（用户复测通过，已提交；`ONLY=IMTabUnreadCountTests` 5 例通过 + 变异验红）**：
-> ① 页面标题与 Tab「会话」→「消息」（`IMMainTabBarController.m` 两处 + 列表页 `self.title` 两处 + UI 测试 `IMContactsPerfUITests`）；
-> ② 「消息」Tab 补未读蓝点（此前只有 Android 有）：判据 `Common/IMUnreadBadge.h` 的 `IMTabUnreadCount`（免打扰不计、免打扰里 @ 计 1、
->    标未读不计，与 Web badgeCountOf / Android TabUnread 同口径）；列表页 `setConversations:` 一个咽喉算空态 + 蓝点，就地改
->    unread/muted 处手动调 `refreshListIndicators`；**离屏也要变**——viewWillDisappear 会摘掉 self 全部订阅，故另挂一组常驻
->    block token（`startTabDotObservers`，只在用户停在别的 Tab 时每秒最多补读一次本地库）；
-> ③ 顺带修同一个洞：新装包首登时缓存为空先闪「还没有会话」→ `serverListed`（服务端拉成过一次才画空态）。
-> **要模拟器看**：`badgeValue = @""` 在 iOS 26 UITab 上是否画成小圆点（没看过）；切到通讯录后来消息，约 1s 内点亮。
-
-> **第二批用户报告 ✅ 2026-09-15（未提交；单测 + 变异验红 + iPhone 17 Pro Max 模拟器截图实测）**，逐条见 IMServer `docs/CLIENT_PARITY.md` 顶部：
-> ① 「新的朋友」角标数字偏右：UILabel 居中不计行尾空格，`"  %@  "` 撑宽必偏——改显式 `_badgeWidth`（同会话列表）；
-> ② 角标统一蓝：入口角标 `IMTheme.unreadBadge`，Tab 角标走 `UITabBarAppearance.badgeBackgroundColor`（iOS 18 起 UITab 没有 badgeColor）；
-> ③ 文本 / 引用消息时间挪到气泡右下角：`IMBubbleCell` 右下角独立 `_textMeta` + 正文末尾透明占位 `IMBubbleMetaPlaceholder`
->    让位（链接卡展开时时间落卡片下方）；④ **改昵称后老消息仍显旧名**：`senderPublicNameForMessage:` 原为快照优先，
->    改「成员表 > 本窗最新快照 > 本条快照」（`Common/IMGroupSenderName.h`，4 例单测）+ 来消息昵称对不上成员表节流重拉。
-> 实测：通讯录两处角标蓝且居中；「1002群」里改名后的 user3005 旧消息显示新名（本地库快照仍是旧名）；链接 / 引用消息时间在右下角。
-> 模拟器没覆盖到：文件文 / 长文本折叠 / 链接卡展开这几种气泡的时间位置；会话开着时对方改名再发消息的重拉。
-
-> **三个聊天页 bug ✅ 2026-09-15（用户报，未提交；只跑单测 + 变异验红，未上模拟器）**：
-> ① **进单聊一片空白、对方发新消息才出历史**（2026-09-13 libeyond↔user1001，13 万条积压、本地 0 条）：
-> `requestServerTailWindowIfBehind` 只认内存 head，改密被踢 → 重登后 `IMBacklogTracker` reset、head=0 → 直接 return。
-> 改为内存 head 未知退回**落库** head、两者都未知且空窗也问（`IMChatTailTip` / `IMChatShouldRequestTail`，4 例单测）；
-> 与 Web「tip 未知一律问」的差异已登记 SYMMETRY。② **文件文（文件 + caption）时间悬在气泡中段**：`IMBubbleCell`
-> 的 `_fileMetaLabel` 改挂气泡，有 caption 时落到 caption 下方（约束两组互斥，行高改「贴状态行但不矮于图标位」）。
-> ③ **纯链接消息没有时间**：`IMLinkCardCell` 加时间行 + configure 带 `peerReadSeq`。
-> **要真机/模拟器看**：②文件名一行/两行 × 有无 caption × 上传/下载进度中 的行高；③OG 卡片异步展开前后的间距。
-
-> **通讯录大名单（好友列表空白 + 切 Tab 卡顿 + 剩余主线程开销）✅ 2026-09-12 手测通过**（`e5cbac8` + `f57816a`）：
-> 细节已移入 [current_task.archive.md](current_task.archive.md)「2026-09-11~12 通讯录大名单」。遗留的 `reload` 并发覆盖见「已知坑」。
-
-> **会话内搜索服务端命中翻页 ✅ 2026-09-11**（与 im-web `b30bed6` 对齐）：有缺口的会话走服务端检索，
-> 原先只取一页（计数写「/ 50+ 条」却翻不过去）。▲ 翻过最旧命中带 `next_cursor` 取下一页，判据在
-> `Common/IMChatSearchPaging`（8 例单测），调用点 `IMChatViewController+Search.m` 的 `loadOlderSearchHitsAttempt:`。
-> 模拟器实测过（20000人大群 10 万条命中翻过第一页），脚本 `IMProgramUITests/IMChatSearchPagingUITests`
-> 需 `:8099` 积压副本库（IMServer `docs/ops/LOAD_TESTING.md` §10.5），默认跳过。
->
-> **C4 ✅ 2026-09-11**（`c6d2015`，同步 im-web）：`requestServerTailWindowIfBehind` 改问区间清单（收掉 C3 残留①「无未读那条路
-> `head <= localMax`」）、实时消息落库后登记 [seq, seq]、bump 贴底跟随才补（补法与 Web 刻意不同，见 `IMChatBumpShouldCatchUp`）。
-> **只跑了单测 + 变异，未上模拟器**；实时登记区间与 onConvBump 的 following 取值没有测试覆盖。
-
-> 更早的已完成块已移入 [current_task.archive.md](current_task.archive.md)（只读归档）。
+> 更早的已完成块（im-rtc 换票迁移、多语言 P1-P3、通话记录文案细化等）已移入
+> [current_task.archive.md](current_task.archive.md)「归档于 2026-09-29」（只读归档）。
 
 ## 下一步
+0. **「设置 ▸ 最近通话」真机验证**（本次新落地，清单见上「当前焦点」最后一条）：真机走一遍拨打→挂断→
+   回到本页看 `callEnd` 是否自动刷新；1v1 行回拨、群聊行跳转是否真的可用；`docs/CLIENT_PARITY.md` 与
+   `IMServer/docs/i18n/strings.json` 待协调者统一收口登记三端状态（本端未碰这两个跨端共用文档）。
 1. **先验真机能否连通后端**：重装 App → 弹「允许查找并连接本地网络设备」点允许 → 登录页填 Mac 当前 LAN IP，
    免密/密码登录现在都会真发请求，失败会直接显示「无法连接服务器…」；Mac 侧核对 `grep -a '"remote_ip":"192.168' ../IMServer/imserver.log | tail`。
 2. **真机手测回归（重启后端后）**：按住大圆钮跟手→上滑磁吸锁定→锁定行删/停/发；来电中断→回来停在锁定暂停；发送后长按有菜单、气泡稳定；转发语音真的送达；详情页语音 tab；收藏语音播放 + 从收藏发送；scrub/倍速/转文字/接力。异常记回本文件。

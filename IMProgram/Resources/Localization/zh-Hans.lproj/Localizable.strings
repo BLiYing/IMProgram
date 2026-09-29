@@ -62,6 +62,11 @@
 "blocked.title" = "已屏蔽的用户";
 "blocked.unblock" = "取消屏蔽";
 "blocked.unblock_failed" = "取消屏蔽失败：%1$@";
+"call.history.empty" = "暂无通话记录";
+"call.history.group_subtitle" = "群%1$@通话 · %2$ld人";
+"call.history.load_failed" = "加载失败，点击重试";
+"call.history.tab_all" = "全部";
+"call.history.tab_missed" = "未接";
 "call.record.cancelled" = "已取消";
 "call.record.cancelled_by_peer" = "对方已取消";
 "call.record.declined" = "已拒绝";
@@ -1397,6 +1402,7 @@
 "rtc.error.id_too_long" = "%1$@ 超过 %2$ld 字节";
 "rtc.error.no_callees" = "请选择要呼叫的成员";
 "rtc.error.not_started" = "通话服务未启动（请重新登录）";
+"rtc.error.token_fetch_failed" = "获取通话凭证失败";
 "rtc.invite.in_call" = "已在通话中";
 "rtc.kind.group_id" = "群号";
 "rtc.kind.peer_id" = "对方 id";

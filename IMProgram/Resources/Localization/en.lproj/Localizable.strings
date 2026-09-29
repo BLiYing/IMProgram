@@ -62,6 +62,11 @@
 "blocked.title" = "Blocked users";
 "blocked.unblock" = "Unblock";
 "blocked.unblock_failed" = "Couldn’t unblock: %1$@";
+"call.history.empty" = "No call history";
+"call.history.group_subtitle" = "Group %1$@ call · %2$ld people";
+"call.history.load_failed" = "Failed to load, tap to retry";
+"call.history.tab_all" = "All";
+"call.history.tab_missed" = "Missed";
 "call.record.cancelled" = "Cancelled";
 "call.record.cancelled_by_peer" = "Cancelled";
 "call.record.declined" = "Declined";
@@ -1397,6 +1402,7 @@
 "rtc.error.id_too_long" = "%1$@ exceeds %2$ld bytes";
 "rtc.error.no_callees" = "Select members to call";
 "rtc.error.not_started" = "The call service isn’t running. Please log in again.";
+"rtc.error.token_fetch_failed" = "Failed to fetch the call credential";
 "rtc.invite.in_call" = "In a call";
 "rtc.kind.group_id" = "Group ID";
 "rtc.kind.peer_id" = "Peer ID";
