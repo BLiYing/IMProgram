@@ -57,7 +57,9 @@ IMAlertResult *IMAlertDecide(IMAlertContext *ctx) {
 
     BOOL eligible = !blockedByContent && !blockedByPresence && platformGate && typeEnabled && !muteBlocks;
 
-    BOOL throttled = (ctx.nowMs - ctx.lastSoundAtMs) < kIMAlertThrottleMs;
+    // 差值为负 = 系统时钟往回拨过：当没响过，否则回拨多久就静音多久（/code-review 2026-09-29，三端同改）
+    int64_t sinceLast = ctx.nowMs - ctx.lastSoundAtMs;
+    BOOL throttled = sinceLast >= 0 && sinceLast < kIMAlertThrottleMs;
 
     NSString *resolvedSoundId = [typeSettings.sound isEqualToString:IMNotificationSoundIDNone]
         ? nil : IMNotificationSoundIDNormalize(typeSettings.sound);
