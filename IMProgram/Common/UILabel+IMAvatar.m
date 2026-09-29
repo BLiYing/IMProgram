@@ -11,6 +11,17 @@
 static const void *kIMAvatarImageViewKey = &kIMAvatarImageViewKey;
 static const void *kIMAvatarTokenKey = &kIMAvatarTokenKey;
 
+/// 系统通知头像 = 当前桌面图标（外观 ▸ 应用图标选了哪个就跟哪个）。备用图标名 → 外观页同款 256px 缩略图；
+/// 默认图标（alternateIconName=nil）仍用 LaunchLogo。每次渲染现读，会话列表 viewWillAppear 重刷即生效。
+static UIImage *IMSystemAvatarImage(void) {
+    NSString *alt = UIApplication.sharedApplication.alternateIconName;
+    NSDictionary<NSString *, NSString *> *map = @{@"AppIconOcean": @"AppearanceIconOcean",
+                                                  @"AppIconViolet": @"AppearanceIconViolet",
+                                                  @"AppIconMidnight": @"AppearanceIconMidnight"};
+    NSString *name = alt.length > 0 ? map[alt] : nil;
+    return [UIImage imageNamed:name ?: @"LaunchLogo"];
+}
+
 NSString *IMAvatarInitials(NSString *_Nullable name) {
     return name.length >= 2 ? [name substringFromIndex:name.length - 2] : (name ?: @"");
 }
@@ -39,7 +50,7 @@ NSString *IMAvatarInitials(NSString *_Nullable name) {
             objc_setAssociatedObject(self, kIMAvatarImageViewKey, iv, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
         iv.layer.cornerRadius = self.layer.cornerRadius;
-        iv.image = [UIImage imageNamed:@"LaunchLogo"];
+        iv.image = IMSystemAvatarImage();
         iv.hidden = NO;
         // token 前进，避免旧异步回调（若之前是普通头像）覆盖上来。
         NSUInteger token = [objc_getAssociatedObject(self, kIMAvatarTokenKey) unsignedIntegerValue] + 1;
