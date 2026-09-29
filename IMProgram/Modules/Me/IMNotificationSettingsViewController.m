@@ -299,11 +299,9 @@
                                                                      message:IMLocalized(@"notif.reset.confirm_message")
                                                               preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
-    __weak typeof(self) ws = self;
     [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.reset") style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
-        [IMNotificationSettings.shared resetToDefaults]; // 不取消任何会话的免打扰（§3.6，与 Telegram 刻意不同）
-        [ws buildGroups];
-        [ws.tableView reloadData];
+        // 不取消任何会话的免打扰（§3.6，与 Telegram 刻意不同）。不再手动刷新：setter 同步发变更通知，settingsChanged 已刷
+        [IMNotificationSettings.shared resetToDefaults];
     }]];
     [self presentViewController:alert animated:YES completion:nil];
 }

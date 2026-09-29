@@ -9,6 +9,8 @@
     id _nextCursor;
     /// 每次 reload 加一：迟到的旧翻页请求回调一律不算数（同 IMRtcCall 的 generation 防护思路）。
     NSUInteger _generation;
+    /// reload 发出、首页还没回来：旧列表/游标先不动，首页成功才整体替换（失败就原样保留，同 Android/Web）。
+    BOOL _reloadPending;
 }
 
 - (instancetype)initWithSelfUID:(NSString *)selfUID pageSize:(NSInteger)pageSize fetcher:(IMCallHistoryFetchBlock)fetcher {
@@ -29,9 +31,7 @@
 - (void)reloadWithMinVisible:(NSInteger)minVisible completion:(void (^)(NSError *_Nullable))completion {
     _generation++;
     NSUInteger gen = _generation;
-    _allRecords = @[];
-    _nextCursor = nil;
-    _reachedEnd = NO;
+    _reloadPending = YES;
     _loading = YES;
     [self continueFetchGeneration:gen minVisible:minVisible completion:completion];
 }
@@ -50,15 +50,18 @@
 /// 不回调（更新的 reload/loadMore 已经接管，旧调用方不该再收到一次回调覆盖新状态）。
 - (void)continueFetchGeneration:(NSUInteger)gen minVisible:(NSInteger)minVisible completion:(void (^)(NSError *_Nullable))completion {
     __weak typeof(self) ws = self;
-    _fetcher(_nextCursor, _pageSize, ^(NSArray<IMCallHistoryRecord *> *records, id nextCursor, NSError *error) {
+    _fetcher(_reloadPending ? nil : _nextCursor, _pageSize, ^(NSArray<IMCallHistoryRecord *> *records, id nextCursor, NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self || gen != self->_generation) { return; }
         if (error) {
+            self->_reloadPending = NO; // 旧列表与游标原样保留：页面只显示底部错误，不整屏变「加载失败」
             self->_loading = NO;
             if (completion) { completion(error); }
             return;
         }
-        self->_allRecords = [self->_allRecords arrayByAddingObjectsFromArray:records ?: @[]];
+        self->_allRecords = self->_reloadPending ? (records ?: @[])
+            : [self->_allRecords arrayByAddingObjectsFromArray:records ?: @[]];
+        self->_reloadPending = NO;
         self->_nextCursor = nextCursor;
         self->_reachedEnd = (self->_nextCursor == nil);
         // 续拉判据用**当前**过滤后的总量，不是本轮拉取的增量（/code-review 2026-09-29 发现两个问题：

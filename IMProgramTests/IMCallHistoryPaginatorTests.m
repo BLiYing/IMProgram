@@ -39,6 +39,44 @@
     XCTAssertFalse(p.loading);
 }
 
+/// reload 失败不得清空已显示的记录与游标（/code-review 2026-09-29：原先 reload 先清空，通话结束触发的
+/// 刷新一失败，整页就变成「加载失败」；Android CallHistoryList / Web useCallHistory 都是成功才替换）。
+- (void)testReloadFailureKeepsExistingRecordsAndCursor {
+    IMCallHistoryRecord *a = [self recordWithCaller:@"1001" duration:9];
+    IMCallHistoryRecord *b = [self recordWithCaller:@"1002" duration:0];
+    __block BOOL fail = NO;
+    __block id seenCursor = @"unset";
+    IMCallHistoryFetchBlock fetcher = ^(id cursor, NSInteger limit, IMCallHistoryFetchCompletion completion) {
+        seenCursor = cursor;
+        if (fail) { completion(nil, nil, [NSError errorWithDomain:@"t" code:1 userInfo:nil]); return; }
+        completion(cursor ? @[b] : @[a], cursor ? nil : @"c1", nil);
+    };
+    IMCallHistoryPaginator *p = [[IMCallHistoryPaginator alloc] initWithSelfUID:@"1001" pageSize:1 fetcher:fetcher];
+    XCTestExpectation *e1 = [self expectationWithDescription:@"reload ok"];
+    [p reloadWithMinVisible:0 completion:^(NSError *error) { [e1 fulfill]; }];
+    [self waitForExpectationsWithTimeout:1 handler:nil];
+
+    fail = YES;
+    XCTestExpectation *e2 = [self expectationWithDescription:@"reload fail"];
+    [p reloadWithMinVisible:0 completion:^(NSError *error) { XCTAssertNotNil(error); [e2 fulfill]; }];
+    [self waitForExpectationsWithTimeout:1 handler:nil];
+    XCTAssertNil(seenCursor);                     // reload 仍从首页拉
+    XCTAssertEqualObjects(p.allRecords, @[a]);   // 失败后旧列表还在
+    XCTAssertFalse(p.reachedEnd);
+
+    fail = NO;
+    XCTestExpectation *e3 = [self expectationWithDescription:@"load more"];
+    [p loadMoreWithMinVisible:0 completion:^(NSError *error) { [e3 fulfill]; }];
+    [self waitForExpectationsWithTimeout:1 handler:nil];
+    XCTAssertEqualObjects(seenCursor, @"c1");     // 游标也还在：不会从首页重拉造成重复
+    XCTAssertEqualObjects(p.allRecords, (@[a, b]));
+
+    XCTestExpectation *e4 = [self expectationWithDescription:@"reload replaces"];
+    [p reloadWithMinVisible:0 completion:^(NSError *error) { [e4 fulfill]; }];
+    [self waitForExpectationsWithTimeout:1 handler:nil];
+    XCTAssertEqualObjects(p.allRecords, @[a]);   // 成功则整体替换，不是追加
+}
+
 - (void)testLoadMoreNoOpWhenReachedEnd {
     IMCallHistoryFetchBlock fetcher = ^(id cursor, NSInteger limit, IMCallHistoryFetchCompletion completion) {
         completion(@[], nil, nil);
