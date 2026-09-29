@@ -35,3 +35,8 @@ temp_verify.*
 
 # im-rtc 调试密钥（仅本机联调，不要提交）
 IMProgram/Modules/RTC/IMRtcConfig.local.plist
+
+# xcodebuild -workspace 构建时在 .xcodeproj 内部派生的重复缓存，
+# 内容与 IMProgram.xcworkspace/xcshareddata/swiftpm/Package.resolved（应提交、锁定依赖版本）完全一致，
+# 不要提交，否则两处各改一次容易漏改
+IMProgram.xcodeproj/project.xcworkspace/xcshareddata/
