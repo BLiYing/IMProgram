@@ -33,7 +33,7 @@
 }
 
 - (void)testDefaultsAllOnExceptBadgeIncludeMuted {
-    // §3.7 默认值：私聊/群聊显示通知+预览=开、提示音=默认；应用内提示音/振动=开；角标含免打扰=关。
+    // §3.7 默认值：私聊/群聊显示通知+预览=开、提示音=默认；应用内提示音/振动/预览=关（2026-09-29 用户改）；角标含免打扰=关。
     IMNotificationSettings *s = [IMNotificationSettings new];
     XCTAssertTrue(s.privateType.enabled);
     XCTAssertTrue(s.privateType.preview);
@@ -41,9 +41,9 @@
     XCTAssertTrue(s.groupType.enabled);
     XCTAssertTrue(s.groupType.preview);
     XCTAssertEqualObjects(s.groupType.sound, IMNotificationSoundIDDefault);
-    XCTAssertTrue(s.inAppSound);
-    XCTAssertTrue(s.inAppVibrate);
-    XCTAssertTrue(s.inAppPreview);
+    XCTAssertFalse(s.inAppSound);
+    XCTAssertFalse(s.inAppVibrate);
+    XCTAssertFalse(s.inAppPreview);
     XCTAssertFalse(s.badgeIncludeMuted);
 }
 
@@ -97,8 +97,9 @@
 - (void)testResetToDefaultsRestoresEverythingAndNotifies {
     IMNotificationSettings *s = [IMNotificationSettings new];
     [s setEnabled:NO preview:NO sound:@"chord" forGroup:NO];
-    s.inAppSound = NO;
-    s.inAppVibrate = NO;
+    s.inAppSound = YES; // 与默认值相反，重置后应回到默认（关）
+    s.inAppVibrate = YES;
+    s.inAppPreview = YES;
     s.badgeIncludeMuted = YES;
 
     XCTestExpectation *expectation = [self expectationWithDescription:@"reset-notified"];
@@ -112,8 +113,9 @@
 
     XCTAssertTrue(s.privateType.enabled);
     XCTAssertEqualObjects(s.privateType.sound, IMNotificationSoundIDDefault);
-    XCTAssertTrue(s.inAppSound);
-    XCTAssertTrue(s.inAppVibrate);
+    XCTAssertFalse(s.inAppSound);
+    XCTAssertFalse(s.inAppVibrate);
+    XCTAssertFalse(s.inAppPreview);
     XCTAssertFalse(s.badgeIncludeMuted);
 }
 
