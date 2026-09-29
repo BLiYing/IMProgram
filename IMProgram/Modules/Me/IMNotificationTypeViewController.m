@@ -242,10 +242,12 @@ typedef NS_ENUM(NSInteger, IMNotifTypeSection) {
         NSMutableArray<IMConversation *> *mutable = [self.exceptions mutableCopy];
         [mutable removeObject:conversation];
         self.exceptions = mutable;
-        [self.tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
         if (mutable.count == 0) {
-            [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:IMNotifTypeSectionExceptions]
-                           withRowAnimation:UITableViewRowAnimationNone];
+            // 最后一个也取消了：整组消失（numberOfSections 随之变 2），不能只删行
+            [self.tableView deleteSections:[NSIndexSet indexSetWithIndex:IMNotifTypeSectionExceptions]
+                          withRowAnimation:UITableViewRowAnimationAutomatic];
+        } else {
+            [self.tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
         }
     }];
 }
@@ -266,13 +268,14 @@ typedef NS_ENUM(NSInteger, IMNotifTypeSection) {
 
 #pragma mark - UITableView
 
-- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return 3; }
+// 没有免打扰的会话时整组「例外」不画（2026-09-29 用户要求：空列表只剩一句空态说明，没有意义）。
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return self.exceptions.count > 0 ? 3 : 2; }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     switch ((IMNotifTypeSection)section) {
         case IMNotifTypeSectionToggles: return 2;
         case IMNotifTypeSectionSound: return 1;
-        case IMNotifTypeSectionExceptions: return MAX(self.exceptions.count, (NSUInteger)1); // 至少一行空态占位
+        case IMNotifTypeSectionExceptions: return (NSInteger)self.exceptions.count;
     }
     return 0;
 }
@@ -285,9 +288,6 @@ typedef NS_ENUM(NSInteger, IMNotifTypeSection) {
 
 - (nullable NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     if (section == IMNotifTypeSectionToggles) { return IMLocalized(@"notif.type.preview_footer"); }
-    if (section == IMNotifTypeSectionExceptions && self.exceptions.count == 0) {
-        return IMLocalized(self.isGroup ? @"notif.exceptions.empty_group" : @"notif.exceptions.empty_private");
-    }
     return nil;
 }
 
@@ -313,15 +313,7 @@ typedef NS_ENUM(NSInteger, IMNotifTypeSection) {
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         return cell;
     }
-    // 例外
-    if (self.exceptions.count == 0) {
-        UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"disclosure" forIndexPath:indexPath];
-        cell.textLabel.text = nil;
-        cell.detailTextLabel.text = nil;
-        cell.accessoryType = UITableViewCellAccessoryNone;
-        cell.selectionStyle = UITableViewCellSelectionStyleNone;
-        return cell;
-    }
+    // 例外（只有 exceptions 非空时才有这一组）
     IMNotifExceptionCell *cell = [tableView dequeueReusableCellWithIdentifier:@"exception" forIndexPath:indexPath];
     [cell configureWithConversation:self.exceptions[indexPath.row]];
     return cell;
