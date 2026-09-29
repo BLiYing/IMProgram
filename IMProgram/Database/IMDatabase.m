@@ -390,6 +390,23 @@ static NSDictionary<NSString *, NSString *> *IMDecodeStringDict(NSString *raw);
     }];
 }
 
+- (BOOL)cachedConversation:(NSString *)convID isGroup:(BOOL *)isGroup muted:(BOOL *)muted {
+    if (convID.length == 0) { return NO; }
+    NSString *owner = [self ownerUserID];
+    __block BOOL found = NO;
+    [_queue inDatabase:^(FMDatabase *db) {
+        FMResultSet *rs = [db executeQuery:@"SELECT is_group,muted FROM im_conversation_local WHERE owner_uid=? AND conv_id=? LIMIT 1", owner, convID];
+        if (!rs) { IMLogDatabase(@"读取会话提醒信息失败 conv=%@: %@", convID, db.lastErrorMessage); return; }
+        if ([rs next]) {
+            found = YES;
+            if (isGroup) { *isGroup = [rs boolForColumn:@"is_group"]; }
+            if (muted) { *muted = [rs boolForColumn:@"muted"]; }
+        }
+        [rs close];
+    }];
+    return found;
+}
+
 - (NSArray<IMConversation *> *)cachedConversations {
     NSString *owner = [self ownerUserID];
     NSMutableArray<IMConversation *> *out = [NSMutableArray array];

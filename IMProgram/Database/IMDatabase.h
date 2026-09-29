@@ -42,6 +42,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// 当前账号的本地会话快照（服务不可用时用于离线首屏）。
 - (NSArray<IMConversation *> *)cachedConversations;
 
+/// 单个会话的「类型 + 免打扰」（实时来消息判提醒用，每条消息一次，不能整表读）。
+/// 本地没有这一行时返回 NO，出参不动。
+- (BOOL)cachedConversation:(NSString *)convID isGroup:(BOOL *)isGroup muted:(BOOL *)muted;
+
 /// 当前账号已发送文件的本地缓存（按时间倒序）；用于文件面板离线首屏。
 - (NSArray<NSDictionary *> *)cachedSentFiles;
 

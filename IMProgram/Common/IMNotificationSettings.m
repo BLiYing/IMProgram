@@ -2,6 +2,7 @@
 
 #import "IMNotificationSettings.h"
 #import "IMAlertDecision.h"
+#import "IMLocalization.h"
 
 NSNotificationName const IMNotificationSettingsDidChangeNotification = @"IMNotificationSettingsDidChangeNotification";
 
@@ -20,6 +21,19 @@ static NSArray<NSString *> *IMAllSoundIDs(void) {
 NSString *IMNotificationSoundIDNormalize(NSString *soundID) {
     if (soundID.length > 0 && [IMAllSoundIDs() containsObject:soundID]) { return soundID; }
     return IMNotificationSoundIDDefault;
+}
+
+NSString *IMNotificationSoundDisplayName(NSString *soundID) {
+    NSString *sid = [soundID isEqualToString:IMNotificationSoundIDNone] ? soundID : IMNotificationSoundIDNormalize(soundID);
+    NSDictionary<NSString *, NSString *> *keys = @{
+        IMNotificationSoundIDNone: @"notif.sound.none",
+        IMNotificationSoundIDDefault: @"notif.sound.default",
+        IMNotificationSoundIDChord: @"notif.sound.chord",
+        IMNotificationSoundIDChime: @"notif.sound.chime",
+        IMNotificationSoundIDRise: @"notif.sound.rise",
+        IMNotificationSoundIDDrop: @"notif.sound.drop",
+    };
+    return IMLocalized(keys[sid] ?: @"notif.sound.default");
 }
 
 static NSString * const kIMNotifPrivateEnabledKey = @"im.notif.private.enabled";

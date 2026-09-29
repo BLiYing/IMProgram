@@ -30,13 +30,12 @@
     // 会话是私聊/群聊、是否免打扰：查本地会话摘要缓存（权威来源，服务端已同步过来）；
     // 极端情况下（全新会话的第一条消息，摘要尚未落地）查不到，按 convID 前缀兜底判类型、muted 默认 NO
     // （查不到即从未设置过免打扰，默认值本来就是 NO，不算猜）。
-    __block IMConversation *conv = nil;
+    // 按主键查一行（不走 cachedConversations：那是整表读 + 每行建对象，每条实时消息都跑一遍会卡主线程）。
+    __block BOOL found = NO, isGroup = NO, muted = NO;
     [self performDatabaseOperation:^(IMDatabase *database) {
-        for (IMConversation *c in database.cachedConversations) {
-            if ([c.convID isEqualToString:msg.convID]) { conv = c; break; }
-        }
+        found = [database cachedConversation:msg.convID isGroup:&isGroup muted:&muted];
     }];
-    BOOL isGroup = conv ? conv.isGroup : [msg.convID hasPrefix:@"g_"];
+    if (!found) { isGroup = [msg.convID hasPrefix:@"g_"]; }
 
     BOOL isCallRecord = [msg.contentType isEqualToString:IMContentTypeCall];
     BOOL missedCallForMe = NO;
@@ -57,7 +56,7 @@
     ctx.isCallRecord = isCallRecord;
     ctx.missedCallForMe = missedCallForMe;
     ctx.convType = isGroup ? IMAlertConvTypeGroup : IMAlertConvTypePrivate;
-    ctx.muted = conv.muted;
+    ctx.muted = muted;
     ctx.mentionsMe = msg.mentionAll || (msg.mentions.count > 0 && [msg.mentions containsObject:selfUID]);
     ctx.appActive = UIApplication.sharedApplication.applicationState == UIApplicationStateActive;
     ctx.windowFocused = ctx.appActive; // 移动端无独立窗口焦点概念；判据仅在 platform=desktop 时读这个字段

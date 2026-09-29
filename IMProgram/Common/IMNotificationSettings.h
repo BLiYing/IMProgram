@@ -20,6 +20,8 @@ extern NSString * const IMNotificationSoundIDDrop;
 
 /// 合法性校验 + 回落：非法/未知 id → default；nil/空 → default。"none" 本身合法（显式无提示音）。
 FOUNDATION_EXPORT NSString *IMNotificationSoundIDNormalize(NSString *_Nullable soundID);
+/// 提示音 id → 本地化显示名（三个设置页共用，唯一一份映射；未知 id 按 default 显示）。
+FOUNDATION_EXPORT NSString *IMNotificationSoundDisplayName(NSString *_Nullable soundID);
 
 @class IMAlertSettingsSnapshot;
 

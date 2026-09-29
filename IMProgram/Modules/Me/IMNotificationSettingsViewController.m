@@ -190,16 +190,7 @@
 /// 「开 · <提示音名>」/「关」右值（§2.2）。
 - (NSString *)summaryForType:(IMNotificationTypeSettings *)type {
     if (!type.enabled) { return IMLocalized(@"notif.value.off"); }
-    NSDictionary<NSString *, NSString *> *names = @{
-        IMNotificationSoundIDNone: IMLocalized(@"notif.sound.none"),
-        IMNotificationSoundIDDefault: IMLocalized(@"notif.sound.default"),
-        IMNotificationSoundIDChord: IMLocalized(@"notif.sound.chord"),
-        IMNotificationSoundIDChime: IMLocalized(@"notif.sound.chime"),
-        IMNotificationSoundIDRise: IMLocalized(@"notif.sound.rise"),
-        IMNotificationSoundIDDrop: IMLocalized(@"notif.sound.drop"),
-    };
-    NSString *soundName = names[type.sound] ?: IMLocalized(@"notif.sound.default");
-    return IMLocalizedFormat(@"notif.value.on_sound", soundName);
+    return IMLocalizedFormat(@"notif.value.on_sound", IMNotificationSoundDisplayName(type.sound));
 }
 
 - (void)buildGroups {

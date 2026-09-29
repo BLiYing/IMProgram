@@ -46,15 +46,6 @@
     [IMAlertPlayer.shared stopPreview]; // 见 IMAlertPlayer.h：系统音效无停止 API，此调用为接口完整性预留
 }
 
-- (NSString *)nameForSoundID:(NSString *)soundID {
-    if ([soundID isEqualToString:IMNotificationSoundIDNone]) { return IMLocalized(@"notif.sound.none"); }
-    if ([soundID isEqualToString:IMNotificationSoundIDChord]) { return IMLocalized(@"notif.sound.chord"); }
-    if ([soundID isEqualToString:IMNotificationSoundIDChime]) { return IMLocalized(@"notif.sound.chime"); }
-    if ([soundID isEqualToString:IMNotificationSoundIDRise]) { return IMLocalized(@"notif.sound.rise"); }
-    if ([soundID isEqualToString:IMNotificationSoundIDDrop]) { return IMLocalized(@"notif.sound.drop"); }
-    return IMLocalized(@"notif.sound.default");
-}
-
 #pragma mark - UITableView
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return (NSInteger)self.soundIDs.count; }
@@ -66,7 +57,7 @@
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"sound" forIndexPath:indexPath];
     NSString *soundID = self.soundIDs[indexPath.row];
-    cell.textLabel.text = [self nameForSoundID:soundID];
+    cell.textLabel.text = IMNotificationSoundDisplayName(soundID);
     cell.textLabel.textColor = IMTheme.textPrimary;
     cell.accessoryType = [soundID isEqualToString:self.selectedSoundID] ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
     cell.tintColor = IMTheme.accent;

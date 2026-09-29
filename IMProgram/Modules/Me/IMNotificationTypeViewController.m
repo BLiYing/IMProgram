@@ -208,9 +208,8 @@ typedef NS_ENUM(NSInteger, IMNotifTypeSection) {
 
 - (void)enabledChanged:(BOOL)on {
     IMNotificationTypeSettings *type = self.typeSettings;
+    // 不再手动 reload：setter 同步发变更通知，本页的 settingsChanged 已整表刷新（再刷一遍是重复功）
     [IMNotificationSettings.shared setEnabled:on preview:type.preview sound:type.sound forGroup:self.isGroup];
-    [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:IMNotifTypeSectionToggles]
-                   withRowAnimation:UITableViewRowAnimationNone];
 }
 
 - (void)previewChanged:(BOOL)on {
@@ -310,7 +309,7 @@ typedef NS_ENUM(NSInteger, IMNotifTypeSection) {
         UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"disclosure" forIndexPath:indexPath];
         cell.textLabel.text = IMLocalized(@"notif.type.sound");
         cell.textLabel.textColor = type.enabled ? IMTheme.textPrimary : IMTheme.textSecondary;
-        cell.detailTextLabel.text = [self soundDisplayName:type.sound];
+        cell.detailTextLabel.text = IMNotificationSoundDisplayName(type.sound);
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         return cell;
     }
@@ -326,18 +325,6 @@ typedef NS_ENUM(NSInteger, IMNotifTypeSection) {
     IMNotifExceptionCell *cell = [tableView dequeueReusableCellWithIdentifier:@"exception" forIndexPath:indexPath];
     [cell configureWithConversation:self.exceptions[indexPath.row]];
     return cell;
-}
-
-- (NSString *)soundDisplayName:(NSString *)soundID {
-    NSDictionary<NSString *, NSString *> *names = @{
-        IMNotificationSoundIDNone: IMLocalized(@"notif.sound.none"),
-        IMNotificationSoundIDDefault: IMLocalized(@"notif.sound.default"),
-        IMNotificationSoundIDChord: IMLocalized(@"notif.sound.chord"),
-        IMNotificationSoundIDChime: IMLocalized(@"notif.sound.chime"),
-        IMNotificationSoundIDRise: IMLocalized(@"notif.sound.rise"),
-        IMNotificationSoundIDDrop: IMLocalized(@"notif.sound.drop"),
-    };
-    return names[soundID] ?: IMLocalized(@"notif.sound.default");
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
