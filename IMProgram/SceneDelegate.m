@@ -13,6 +13,7 @@
 #import "IMSessionStore.h"
 #import "IMServerEndpoint.h"
 #import "IMSocketManager.h"
+#import "IMSocketManager+Push.h"
 #import "UIViewController+IMToast.h"
 #import "IMLog.h"
 #import "IMAppearance.h"
@@ -141,6 +142,9 @@
 
 
 - (void)sceneWillEnterForeground:(UIScene *)scene {
+    // M5：标记「App 现在前台」+ 若已连接立即补发一次 app_state=foreground（PROTOCOL §6.12）；
+    // 若这时连接还没恢复，等下面 reconnectNowWithReason: 重连成功后由握手成功处自动补发。
+    [[IMSocketManager sharedManager] noteAppDidBecomeActive];
     // 回到前台立即重连/探活，不等指数退避那一档（最长 30s）。
     // 后台期间系统会挂起 socket，多数情况下回来时连接其实已经死了但本端还不知道；
     // 已连接时 reconnectNowWithReason: 只发一次 ping 探活，写失败才走既有断线重连路径。
@@ -149,9 +153,8 @@
 
 
 - (void)sceneDidEnterBackground:(UIScene *)scene {
-    // Called as the scene transitions from the foreground to the background.
-    // Use this method to save data, release shared resources, and store enough scene-specific state information
-    // to restore the scene back to its current state.
+    // M5：已连接则上报 app_state=background（PROTOCOL §6.12），服务端据此判定该不该推离线推送。
+    [[IMSocketManager sharedManager] noteAppDidEnterBackground];
 }
 
 

@@ -34,6 +34,12 @@ extern NSString * const kIMTypeCapabilitiesUpdate; ///< 账号级配置版本变
 extern NSString * const kIMTypeConvBump;
 extern NSString * const kIMTypeMsgHidden; ///< 「仅为我删除」多设备同步（任务2）：本人另一端删了某条 → 本端物理移除
 extern NSString * const kIMTypeVoiceTranscript; ///< 语音转文字结果（服务端识别；只推给请求者，见 IMServer docs/design/VOICE_TRANSCRIBE_DESIGN.md §3.2）
+/// 前后台状态上报（M5，上行，无回执）：App 切到后台 / 回到前台，服务端据此判定该不该推离线推送。
+/// 见 IMServer/docs/PROTOCOL.md §6.12、IMSocketManager+Push.h。
+extern NSString * const kIMTypeAppState;
+/// 账号级通知设置版本变更（M5，下行）：只带 version，客户端据此判断是否重拉 GET /notify-settings。
+/// 见 IMServer/docs/PROTOCOL.md §6.13、IMSocketManager+Push.h。
+extern NSString * const kIMTypeNotifySettingsUpdate;
 extern NSString * const kIMTypeError;
 
 #pragma mark - 消息操作 op（msg_op，M4）

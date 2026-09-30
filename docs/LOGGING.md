@@ -12,6 +12,7 @@
   - `IMLogDatabase`
   - `IMLogUI`
   - `IMLogMedia`（媒体全链路：探测/转码/上传/渲染/播放，Tag `IM.MEDIA`）
+  - `IMLogPush`（离线推送 M5：令牌注册/上报、系统通知授权、账号级通知设置同步，Tag `IM.PUSH`）
   - 对应的 Debug/Warn/Error 宏
 - 禁止业务代码直接调用 `NSLog` 或 `DDLog*`。
 

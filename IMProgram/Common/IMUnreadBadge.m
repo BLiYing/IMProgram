@@ -2,6 +2,8 @@
 #import "IMConversation.h"
 #import "IMMuteState.h"
 #import "IMTimeUtil.h"
+#import <UIKit/UIKit.h>
+#import <UserNotifications/UserNotifications.h>
 
 NSInteger IMTabUnreadCount(NSArray<IMConversation *> *conversations, BOOL includeMuted) {
     NSInteger n = 0;
@@ -32,4 +34,13 @@ NSString *IMCompactCount(NSInteger n) {
 NSString *IMUnreadBadgeText(NSInteger n, BOOL capped) {
     if (n <= 0) { return @""; }
     return capped ? [IMCompactCount(n) stringByAppendingString:@"+"] : IMCompactCount(n);
+}
+
+void IMApplyAppIconBadge(NSInteger n) {
+    NSInteger clamped = MAX(0, n);
+    if (@available(iOS 16.0, *)) {
+        [UNUserNotificationCenter.currentNotificationCenter setBadgeCount:clamped withCompletionHandler:nil];
+    } else {
+        UIApplication.sharedApplication.applicationIconBadgeNumber = clamped;
+    }
 }

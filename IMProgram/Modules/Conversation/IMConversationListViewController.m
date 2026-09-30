@@ -441,10 +441,14 @@ static CGFloat const kIMRowLeading = 16;
     self.emptyLabel.hidden = self.conversations.count > 0 || !self.serverListed;
     // 蓝点只表「有」，由底栏容器自绘 8pt 小圆——系统 `badgeValue = @""` 那颗太大（2026-09-15 用户报）。
     // 此前这颗点根本没画，只有 Android 有（同日用户报）。口径见 IMTabUnreadCount（三端同口径）
+    NSInteger unread = IMTabUnreadCount(self.conversations, IMNotificationSettings.shared.badgeIncludeMuted);
     if ([self.tabBarController isKindOfClass:IMMainTabBarController.class]) {
-        [(IMMainTabBarController *)self.tabBarController
-            setConversationsTabDotVisible:IMTabUnreadCount(self.conversations, IMNotificationSettings.shared.badgeIncludeMuted) > 0];
+        [(IMMainTabBarController *)self.tabBarController setConversationsTabDotVisible:unread > 0];
     }
+    // App 图标角标与 Tab 未读数同一口径（M5，PUSH_M5_DESIGN §3.2）：服务端 APNs payload 的 badge 用同一
+    // 算法算出来，本地也据此保持一致，避免"点开清了未读、角标还留着旧数字"。这是本页数据变更的唯一咽喉，
+    // 也覆盖了「回到前台刷新」——本方法已挂在 UIApplicationDidBecomeActiveNotification 上（见 onMuteExpiryChanged）。
+    IMApplyAppIconBadge(unread);
     // 定时免打扰到期刷新（NOTIFICATIONS_P1_DESIGN §4.4）：按当前列表重排「最近一个未到期 mute_until」定时器。
     [IMMuteExpiryScheduler.shared rescheduleWithConversations:self.conversations];
 }

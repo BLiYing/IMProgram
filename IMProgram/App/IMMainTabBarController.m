@@ -13,6 +13,8 @@
 #import "IMDatabase.h"
 #import "IMTheme.h"
 #import "IMRtcCall.h"
+#import "IMPushTokenManager.h"
+#import "IMPendingNotificationRoute.h"
 #import <objc/runtime.h>
 
 CGFloat const kIMLiquidBarHeight = 56;
@@ -302,12 +304,22 @@ static void IMCollectTabIcons(UIView *root, NSMutableArray<UIImageView *> *out) 
     UIView *_conversationsDot;
     BOOL _conversationsDotVisible;
     NSString *_rtcUserID;
+    NSString *_host;
+    BOOL _didRequestNotifAuthorization; // M5：登录后第一次进主页才请求系统通知授权，一个实例只问一次
 }
 
 /// 进入主界面才起通话服务（Kit 要挂在已上屏的 window 上）。幂等：同一账号重复进入是空操作。
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
     if (_rtcUserID.length) { [IMRtcCall.shared startWithUserID:_rtcUserID]; }
+    if (!_didRequestNotifAuthorization) {
+        _didRequestNotifAuthorization = YES;
+        // M5：登录后第一次进主页直接请求系统通知授权（PUSH_M5_DESIGN §5/§8-4）；已决定过的话系统
+        // 直接回原结果、不重复弹框，故这里不必额外判断"是不是真的第一次登录"。
+        [IMPushTokenManager.shared requestAuthorizationOnFirstMainScreen];
+    }
+    // 冷启动点通知进来的：主界面刚建好，尝试把之前记下的 conv_id 路由过去（PROTOCOL §6.14 payload conv_id）。
+    [IMPendingNotificationRoute.shared tryRouteWithHost:_host userID:_rtcUserID];
 }
 
 - (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID {
@@ -316,6 +328,7 @@ static void IMCollectTabIcons(UIView *root, NSMutableArray<UIImageView *> *out) 
         // 必须先切换账号命名空间，再创建任何会读取本地消息/会话的子页面。
         [IMDatabase.sharedDatabase useOwnerUserID:userID];
         _rtcUserID = [userID copy];
+        _host = [host copy];
         IMConversationListViewController *convList =
             [[IMConversationListViewController alloc] initWithHost:host userID:userID];
         UINavigationController *convNav = [[IMMainNavigationController alloc] initWithRootViewController:convList];

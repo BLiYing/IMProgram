@@ -18,6 +18,8 @@ FOUNDATION_EXPORT NSString * const IMLogTagUI;
 FOUNDATION_EXPORT NSString * const IMLogTagMedia;
 /// 音视频通话（im-rtc 接入层与 SDK 日志）。事件名 `rtc_*`，SDK 自己的日志带 `rtc-sdk` 前缀。
 FOUNDATION_EXPORT NSString * const IMLogTagRTC;
+/// 离线推送（M5）：推送令牌注册/上报、系统通知授权、账号级通知设置同步。事件名 `push_*`/`notify_settings_*`。
+FOUNDATION_EXPORT NSString * const IMLogTagPush;
 
 /// App 启动时调用一次：注册系统控制台与滚动文件 Logger。
 FOUNDATION_EXPORT void IMLogConfigure(void);
@@ -41,5 +43,6 @@ FOUNDATION_EXPORT void IMLogConfigure(void);
 #define IMLogDatabase(fmt, ...) IMLogWithTag(IMLogTagDatabase, fmt, ##__VA_ARGS__)
 #define IMLogUI(fmt, ...) IMLogWithTag(IMLogTagUI, fmt, ##__VA_ARGS__)
 #define IMLogMedia(fmt, ...) IMLogWithTag(IMLogTagMedia, fmt, ##__VA_ARGS__)
+#define IMLogPush(fmt, ...) IMLogWithTag(IMLogTagPush, fmt, ##__VA_ARGS__)
 
 NS_ASSUME_NONNULL_END

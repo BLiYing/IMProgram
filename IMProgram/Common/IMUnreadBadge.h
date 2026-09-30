@@ -33,4 +33,10 @@ extern NSString *IMCompactCount(NSInteger n);
 /// n ≤ 0 返回空串，调用方据此不渲染角标。
 extern NSString *IMUnreadBadgeText(NSInteger n, BOOL capped);
 
+/// 把 App 图标角标设为 n（M5：与 IMTabUnreadCount 同一口径——服务端 APNs payload 的 badge 用同一算法，
+/// PUSH_M5_DESIGN §3.2，见 IMConversationListViewController `refreshListIndicators` 的调用点）。
+/// 负数按 0 处理。iOS 16+ 走 `UNUserNotificationCenter.setBadgeCount:`（新 API，避免过时警告）；
+/// 15 走 `UIApplication.applicationIconBadgeNumber`（部署目标仍是 iOS 15）。
+FOUNDATION_EXPORT void IMApplyAppIconBadge(NSInteger n);
+
 NS_ASSUME_NONNULL_END

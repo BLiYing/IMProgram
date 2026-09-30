@@ -36,6 +36,7 @@ NS_ASSUME_NONNULL_BEGIN
                                                              // 整页处理完位点没动（落库持续失败/页内空洞）时热重试只会烧 CPU
     NSMutableSet<NSString *> *_pendingOps;                   // 已发出、待确认的消息操作 client_msg_id（撤回/编辑/置顶），供失败回滚
     NSArray<NSString *> *_watchedUsers;                      // 在线态关注全集：连接级易失态，重连成功后由本类自动重发（PROTOCOL §5.5）
+    BOOL _appActive;                                          // App 当前是否前台（M5 app_state 上报用，默认 YES：登录/连接通常发生在前台）
 }
 
 @property (nonatomic, assign) IMSocketState state;
@@ -73,6 +74,17 @@ NS_ASSUME_NONNULL_BEGIN
 /// dispatch_async(main) 块内），因为要读 UIApplication.applicationState。
 @interface IMSocketManager (Alerts)
 - (void)maybeAlertForIncomingMessage:(IMMessageModel *)msg;
+@end
+
+/// +Push category（PROTOCOL §6.12/§6.13，M5）自己提供的方法，主实现在握手成功后 / handleFrame 兜底分支调用
+/// （仅在 _queue 调用，与上面 Sync 同线程约定）。公开的 noteAppDidEnterBackground/noteAppDidBecomeActive
+/// 声明在 IMSocketManager+Push.h。
+@interface IMSocketManager (Push)
+/// 握手成功后调用：仅当 App 当前处于前台时补发一次 foreground（新连接服务端本就默认 foreground，
+/// 这里是"确保对齐"，见 PROTOCOL §6.12）。
+- (void)sendAppStateAfterHandshake;
+/// 分派主 handleFrame: 识别不了的信封类型（目前只有 notify_settings_update）；仍未识别则按老路径记日志。
+- (void)handleAdditionalFrameType:(NSString *)type payload:(NSDictionary *)payload;
 @end
 
 NS_ASSUME_NONNULL_END

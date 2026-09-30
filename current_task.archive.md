@@ -2,6 +2,76 @@
 
 ---
 
+# 归档于 2026-09-30（M5 离线推送第一批落地前，把「定时免打扰」第二批的「当前焦点」详情块从活快照转入）
+
+> **通知与提示音 P1 · 第二批「定时免打扰」✅ 代码 + 单测已完成，待真机验（2026-09-29，分支
+> `feature/notif-p1b`，设计：`../IMServer/docs/design/NOTIFICATIONS_P1_DESIGN.md` §4/§5/§6.2(iOS
+> 列)/§7 点2·6，协议 `../IMServer/docs/PROTOCOL.md` §6.10「mute_until」，后端已先行落地并跑在 :8080）**：
+> 三端同名纯函数 `IMIsMutedNow` + 时长菜单 + 三个入口（会话列表/聊天详情页/添加例外）+ 到期本地定时刷新。
+> - **`Common/IMMuteState.h/.m`**（新，与 im-android `MuteState.kt`/im-web `muteState.ts` 对端）：
+>   `IMIsMutedNow(muted,muteUntil,now)` = `muted && (muteUntil==0 || now<muteUntil)`（`now==until` 视为
+>   已解除）；`IMMuteUntilLabelMake` 到期文案分类器（today/tomorrow/date/forever，按 tzOffsetMinutes 纯
+>   毫秒运算比日历日，不经 NSCalendar 本地时区/DST，向量可测）；`IMMuteDetailValueText`/
+>   `IMMuteExceptionSubtitle` 是详情页右值/例外副标题的展示拼装（未进向量，纯 UI 层）。共用向量
+>   `IMServer/docs/conformance/mute_state.json`（isMutedNow 6 例 + untilLabel 8 例）。
+> - **`Common/IMMuteDurationMenu.h/.m`**（新）：ActionSheet，标题 `notif.mute.sheet_title` 代入会话名；
+>   1 小时/8 小时/1 天/7 天/永久 + 取消；`showUnmuteFirst=YES` 时顶部多一条红色「取消免打扰」（聊天详情页
+>   已免打扰时用，列表左滑/右键已免打扰时不弹本菜单、直接单条取消）。纯函数
+>   `IMMuteUntilForDurationOption(option, nowMs)` 单独可测（不依赖真实时钟）。
+> - **`Common/IMMuteExpiryScheduler.h/.m`**（新）：单例，按当前会话集合算「最近一个未到期 mute_until」
+>   挂一次性 `NSTimer`，到点广播 `IMMuteExpiryDidChangeNotification`（不发请求，服务端同一时刻自然也判
+>   过期）。会话列表 `refreshListIndicators`（setConversations 的唯一咽喉）与例外列表 `reloadExceptions`
+>   都会顺路重排；列表页 + 例外页常驻订阅该通知与 `UIApplicationDidBecomeActiveNotification`（App 回前台
+>   兜底），收到后只 `reloadData`/重算，不触网。
+> - **模型/存储**：`IMConversation` 加 `muteUntil`（列表 JSON `mute_until` 解析）；`IMDatabase`
+>   `im_conversation_local` 加列 `mute_until`（新库建表 + 老库 `ALTER`，迁移逻辑放新 category
+>   `Database/IMDatabase+MuteState.h/.m`——`IMDatabase.m` 改动前已 1499/1500，只留一行迁移调用口子
+>   `[self migrateMuteUntilColumnDB:db]`，改完恰好卡在 1500，一行不多）；`cachedConversation:isGroup:
+>   muted:` 加 `muteUntil:` 出参、`applyCachedSettingsForConversation:...` 加 `muteUntil:` 入参（两个方法
+>   全部调用点已同步改）。
+> - **写入**：`IMHTTPService updateConversationSettingsWithToken:...` 加 `muteUntil:(nullable NSNumber*)`
+>   ——传 `nil` 即省略该字段（服务端保留未到期的原到期时间），传值即照写；置顶/标未读等不碰免打扰的调用
+>   一律传 `nil`，选时长/取消免打扰的调用显式传值。所有调用点（会话列表 4 处、聊天详情页、例外页 2 处）
+>   已按此口径过一遍。
+> - **三个入口**：① 会话列表左滑/右键「免打扰」——未免打扰弹 `IMMuteDurationMenu`（`presentMuteMenu
+>   ForConversation:`），已免打扰直接单条「取消免打扰」；② 聊天详情页「免打扰」行从开关变值行（右值
+>   `common.off`/`至...`/`common.permanent`，`IMDetailSettingsRowMute` 点击走 `presentMuteMenu`），脚注
+>   `chat.detail.mute_footer`（新增 `titleForFooterInSection:`，Settings 分区专属）；③ 「添加例外」选择页
+>   ——选完会话先弹 `IMMuteDurationMenu`（`presentMuteMenuForNewException:`）再真正 PUT，picker 的
+>   `extraFilter` 改用 `IMNotifExceptionPickerMatches(isGroup, IMIsMutedNow(...), peer, wantGroup)`（签名
+>   本身没变，调用方喂有效值）。
+> - **读取 → `IMIsMutedNow` 全部改完**：会话列表铃铛 + 未读变灰（`IMConversationCell configureWith
+>   Conversation:`）、`IMUnreadBadge.m` `IMTabUnreadCount`、`IMSocketManager+Alerts.m` 拼 `ctx.muted`
+>   （复用同一个 `nowMs` 变量，避免与 `ctx.nowMs` 用两次不同的 `IMNowMillis()`）、
+>   `IMNotificationTypeViewController` 例外过滤（`reloadExceptions`）与「添加例外」选择页过滤、聊天详情页
+>   状态。**刻意没改**（不是遗漏，是不同的「免打扰」概念）：`IMChatViewController+PinnedBanner.m` 的
+>   `refreshComposerMuteState`、`IMGroupInfoViewController.m`/`IMChatDetailViewController.m` 的群成员/全员
+>   禁言（`myMuteUntil`/`group.muteUntil`）——那是管理员禁言，不是本人的通知免打扰。
+> - **本地化**：任务给定的 10 个新键（`mute.8h`/`mute.7d`/`notif.mute.sheet_title{name}`/
+>   `notif.mute.until_today{time}`/`_tomorrow{time}`/`_date{date}`/`notif.exceptions.muted_until{until}`/
+>   `_mention{until}`/`chat.detail.mute_footer`；`notif.exceptions.pick_footer_all` web-only 未接）进来时
+>   已生成，本批一并提交，未改文案本身。
+> - **测试**：新增 `IMMuteStateTests`（读 `mute_state.json` 两段 14 例 + 2 补充边界）、
+>   `IMMuteDurationMenuTests`（时长→`mute_until` 映射 5 例）；`IMConversationCacheTests` 补
+>   `applyCachedSettingsForConversation:...muteUntil:...` 与 `cachedConversation:isGroup:muted:muteUntil:`
+>   往返断言。三处核心逻辑（`IMIsMutedNow`、`IMMuteUntilLabelMake` 的 day-diff 分类、
+>   `IMMuteUntilForDurationOption`）均做过一次真实变异验红（分别改错「已解除」判据、把「明天」判成
+>   「后天」、把 8 小时挪成 9 小时），全部按预期变红后改回。`./scripts/test.sh` **616/616 绿**（较第一批
+>   收尾时 606 例新增 10 例）。
+> - **没做 / 已知限制**：`IMServer/docs/CLIENT_PARITY.md`/`SYMMETRY.md` 本批未碰（任务明确限定「只改
+>   IMProgram」，留给协调者收口三端）；桌面 Dock 角标/favicon 不在 iOS 范围。
+> - **需要真机验证**（模拟器/单测测不出，本次完全没做）：① 时长菜单 ActionSheet 在真机上的呈现/交互
+>   手感（模拟器已过一遍编译但未跑起来看）；② 列表左滑「免打扰」弹出菜单后 swipe 动画收起与菜单呈现是否
+>   顺畅（`done(YES)` 与 present 几乎同时发生，和第一批横幅记录的「dismiss 动画与路由并行」是同一类风险）；
+>   ③ 聊天详情页免打扰行从开关变值行后，点击态/disclosure 箭头视觉是否符合预期；④ 到期定时器真实等到点
+>   触发（1 小时起，真机长时间挂起/低电量模式下 `NSTimer` 是否被系统延后未验，App 回前台兜底逻辑理论上能
+>   补上但没有真机实测过）；⑤ 深色模式、英文界面下「Until tomorrow, 18:30」等较长文案的排版。
+>
+> **通知与提示音 P1 · 第一批**（应用内横幅/添加例外/应用内预览开关）已合并进 main（`8796fc5`），详情见
+> 上一归档块。
+
+---
+
 # 归档于 2026-09-29（通知第二期第二批「定时免打扰」落地前，把第一批的「当前焦点」详情块从活快照转入 —— 从此往下继续「就地覆盖、不追加」）
 
 > **通知与提示音 P1 · 第一批 ✅ 代码 + 单测已完成，待真机验（2026-09-29，分支 `feature/notif-p1a`，

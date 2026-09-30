@@ -3,9 +3,11 @@
 #import "IMNotificationSettingsViewController.h"
 #import "IMNotificationTypeViewController.h"
 #import "IMNotificationSettings.h"
-#import "UIViewController+IMToast.h"
 #import "IMTheme.h"
 #import "IMLocalization.h"
+#import "IMPushSettings.h"
+#import "IMPushTokenManager.h"
+#import <UserNotifications/UserNotifications.h>
 
 #pragma mark - 行模型（数据驱动，同 IMSettingsViewController/IMPrivacySecurityViewController 先例）
 
@@ -142,6 +144,7 @@
 @property (nonatomic, copy) NSString *userID;
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, copy) NSArray<IMNSGroup *> *groups;
+@property (nonatomic, assign) UNAuthorizationStatus notifAuthStatus; // M5：系统通知权限，refreshPermissionStatus 异步刷新
 @end
 
 @implementation IMNotificationSettingsViewController
@@ -169,6 +172,12 @@
 
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(settingsChanged)
                                                name:IMNotificationSettingsDidChangeNotification object:nil];
+    // M5：接收离线推送开关变化时刷新（跨设置页/别处改的话本页也要跟着变）+ 系统通知权限可能在
+    // 系统设置里被用户改动，回到前台时重新查一次（见 refreshPermissionStatus）。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(settingsChanged)
+                                               name:IMPushSettingsDidChangeNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(refreshPermissionStatus)
+                                               name:UIApplicationDidBecomeActiveNotification object:nil];
     [self buildGroups];
 }
 
@@ -180,6 +189,21 @@
     [super viewWillAppear:animated];
     [self buildGroups]; // 从子页返回：私聊/群聊右值（开·默认 / 关）可能已改
     [self.tableView reloadData];
+    [self refreshPermissionStatus]; // 系统通知权限可能在系统设置页被改过（M5）
+}
+
+/// 异步查系统通知权限并刷新本页（M5）：已开启/未开启/未设置三态，见 `permissionValueText`。
+- (void)refreshPermissionStatus {
+    __weak typeof(self) ws = self;
+    [UNUserNotificationCenter.currentNotificationCenter getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *settings) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(ws) self = ws;
+            if (!self) { return; }
+            self.notifAuthStatus = settings.authorizationStatus;
+            [self buildGroups];
+            [self.tableView reloadData];
+        });
+    }];
 }
 
 - (void)settingsChanged {
@@ -257,23 +281,22 @@
     badgeGroup.footer = IMLocalized(@"notif.badge.footer");
     badgeGroup.rows = @[includeMutedRow];
 
-    // P2 占位组：锁屏与后台通知（整组画成灰置，点了「即将上线」，见 §0/§2.2）。
-    IMNSRow *showRow = [IMNSRow new];
-    showRow.title = IMLocalized(@"notif.system.show");
-    showRow.isPlaceholder = YES;
-    showRow.rightValue = IMLocalized(@"ps.coming_soon_hint");
-    showRow.handler = ^{ [ws im_showComingSoon:IMLocalized(@"notif.system.show")]; };
-
+    // 锁屏与后台通知（M5 做实，不再是占位）：通知权限 + 接收离线推送（本设备）。
     IMNSRow *permissionRow = [IMNSRow new];
     permissionRow.title = IMLocalized(@"notif.system.permission");
-    permissionRow.isPlaceholder = YES;
-    permissionRow.rightValue = IMLocalized(@"notif.system.permission_off");
-    permissionRow.handler = ^{ [ws im_showComingSoon:IMLocalized(@"notif.system.permission")]; };
+    permissionRow.rightValue = [self permissionValueText];
+    permissionRow.handler = ^{ [ws handlePermissionRowTap]; };
+
+    IMNSRow *receivePushRow = [IMNSRow new];
+    receivePushRow.title = IMLocalized(@"notif.system.receive_push");
+    receivePushRow.isSwitch = YES;
+    receivePushRow.switchValue = IMPushSettings.shared.receiveOfflinePush;
+    receivePushRow.switchHandler = ^(BOOL on) { [ws applyReceiveOfflinePushToggle:on]; };
 
     IMNSGroup *systemGroup = [IMNSGroup new];
     systemGroup.header = IMLocalized(@"notif.section.system");
-    systemGroup.footer = IMLocalized(@"notif.system.footer");
-    systemGroup.rows = @[showRow, permissionRow];
+    systemGroup.footer = IMLocalized(@"notif.system.footer_apns");
+    systemGroup.rows = @[permissionRow, receivePushRow];
 
     IMNSRow *resetRow = [IMNSRow new];
     resetRow.title = IMLocalized(@"notif.reset");
@@ -292,6 +315,70 @@
 - (void)openType:(BOOL)isGroup {
     IMNotificationTypeViewController *vc = [[IMNotificationTypeViewController alloc] initWithHost:self.host userID:self.userID isGroup:isGroup];
     [self.navigationController pushViewController:vc animated:YES];
+}
+
+#pragma mark - 锁屏与后台通知（M5）
+
+/// 「通知权限」右值：已开启/未开启/未设置三态（notif.system.permission_on/off/undetermined）。
+- (NSString *)permissionValueText {
+    switch (self.notifAuthStatus) {
+        case UNAuthorizationStatusAuthorized:
+        case UNAuthorizationStatusProvisional:
+        case UNAuthorizationStatusEphemeral:
+            return IMLocalized(@"notif.system.permission_on");
+        case UNAuthorizationStatusDenied:
+            return IMLocalized(@"notif.system.permission_off");
+        case UNAuthorizationStatusNotDetermined:
+        default:
+            return IMLocalized(@"notif.system.permission_undetermined");
+    }
+}
+
+/// 点「通知权限」行：未决定→请求系统授权；已拒绝→弹提示引导去系统设置；已开启→直接跳系统设置
+/// （PUSH_M5_DESIGN §5）。
+- (void)handlePermissionRowTap {
+    __weak typeof(self) ws = self;
+    switch (self.notifAuthStatus) {
+        case UNAuthorizationStatusNotDetermined: {
+            UNAuthorizationOptions options = UNAuthorizationOptionAlert | UNAuthorizationOptionSound | UNAuthorizationOptionBadge;
+            [UNUserNotificationCenter.currentNotificationCenter requestAuthorizationWithOptions:options
+                                                                               completionHandler:^(BOOL granted, NSError *error) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [ws refreshPermissionStatus];
+                    if (granted) { [IMPushTokenManager.shared registerIfEligible]; }
+                });
+            }];
+            break;
+        }
+        case UNAuthorizationStatusDenied: {
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:nil
+                message:IMLocalized(@"notif.system.permission_denied_hint") preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
+            [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"notif.system.open_settings") style:UIAlertActionStyleDefault
+                                                     handler:^(UIAlertAction *action) { [ws openSystemSettings]; }]];
+            [self presentViewController:alert animated:YES completion:nil];
+            break;
+        }
+        default:
+            [self openSystemSettings];
+            break;
+    }
+}
+
+- (void)openSystemSettings {
+    NSURL *url = [NSURL URLWithString:UIApplicationOpenSettingsURLString];
+    if (url) { [UIApplication.sharedApplication openURL:url options:@{} completionHandler:nil]; }
+}
+
+/// 「接收离线推送（本设备）」开关：开→若已授权立即注册+上报令牌；关→删除本机已登记的令牌
+/// （PUSH_M5_DESIGN §1.1/§5）。
+- (void)applyReceiveOfflinePushToggle:(BOOL)on {
+    IMPushSettings.shared.receiveOfflinePush = on;
+    if (on) {
+        [IMPushTokenManager.shared enableAndRegisterIfAuthorized];
+    } else {
+        [IMPushTokenManager.shared disableAndDeleteToken];
+    }
 }
 
 - (void)confirmReset {

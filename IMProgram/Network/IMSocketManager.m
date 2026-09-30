@@ -102,6 +102,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
         _syncStalledUntil = [NSMutableDictionary dictionary];
         _pendingOps = [NSMutableSet set];
         _state = IMSocketStateDisconnected;
+        _appActive = YES; // M5：默认前台（登录/建连通常发生在前台），回/离前台由 SceneDelegate 更新
         // 网络恢复即立即重连（跳过指数退避）。观察者放在这里而不是 UI 层：任何页面在前台都该生效，
         // 且这本就是纯网络层的事。回到前台那一路由 SceneDelegate 调 reconnectNowWithReason:。
         [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onNetworkReachable:)
@@ -470,7 +471,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
             IMLogSocket(@"服务端 error: %@", payload);
         }
     } else {
-        IMLogSocket(@"未处理类型: %@", type);
+        [self handleAdditionalFrameType:type payload:payload]; // M5：app_state/notify_settings_update 等新类型，见 IMSocketManager+Push.m
     }
 }
 
@@ -1566,6 +1567,7 @@ didOpenWithProtocol:(NSString *)protocol {
             IMLogSocket(@"watch 重发 %lu 个（连接级易失态）", (unsigned long)watched.count);
             [self sendEnvelopeType:kIMTypeWatch data:@{ @"set": watched } completion:nil];
         }
+        [self sendAppStateAfterHandshake]; // M5：握手成功后，按当前前后台补报一次 app_state（PROTOCOL §6.12）
         IMLogSocket(@"connected as uid=%@", self.userID);
     });
 }
