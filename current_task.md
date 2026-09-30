@@ -5,7 +5,7 @@
 
 ## 当前焦点
 
-> **2026-09-30 修：应用内提示音 / 振动 / 横幅全部不出（未 commit）**。根因：`IMSocketManager+Alerts.m` 给通知判定喂的
+> **2026-09-30 修：应用内提示音 / 振动 / 横幅全部不出（已 commit+push）**。根因：`IMSocketManager+Alerts.m` 给通知判定喂的
 > `inCall` 读的是 `IMRtcCall.isStarted`（= 通话引擎已建好，登录后只要通话服务配置齐全就恒 YES），不是"正在通话"，
 > 于是 `IMAlertDecide` 永远判「通话中→静默」。没配通话服务的环境里 `isStarted` 恒 NO，所以一直没暴露。
 > 改为新增 `IMRtcCall.isInCall`（读 Kit `controller.objcPhase`：来电/拨出/接通中/通话中算，空闲与结束页不算，
