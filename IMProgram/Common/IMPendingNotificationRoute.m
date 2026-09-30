@@ -77,13 +77,18 @@ IMConversation *IMPlaceholderConversationForPush(NSString *convID, NSString *sel
         conversation = IMPlaceholderConversationForPush(_pendingConvID, userID, _pendingTitle);
         placeholder = conversation != nil;
     }
-    if (conversation) {
-        NSString *convID = _pendingConvID;
+    // 凑出了会话对象只是够格去 push，不代表真的 push 成功了——冷启动早期这里调用时窗口/
+    // 导航控制器可能还没建好，opener 会原样报 NO。**只有 openConversation: 真返回 YES 才算数**，
+    // 否则和"本地库还没查到这个会话"一样，落进下面的退避重试；不然会出现"日志说已打开、
+    // 屏幕上其实什么也没跳"——`setPendingConvID:` 里那次早触发的尝试正是撞在这个窗口上
+    // （IMSessionStore 已有 host/userID，但 SceneDelegate 还没把 window.rootViewController
+    // 换成真正的主界面），过去因为没检查返回值就当场清掉了 pending，之后 viewDidAppear
+    // 兜底那次发现 pending 已经空了，什么都不做（/code-review 之后手测发现的真根因）。
+    if (conversation && [IMConversationRouter openConversation:conversation host:host userID:userID]) {
+        IMLogPush(@"push_tap_route_opened conv_id=%@ placeholder=%d", _pendingConvID, placeholder);
         _pendingConvID = nil;
         _pendingTitle = nil;
         _attempts = 0;
-        IMLogPush(@"push_tap_route_opened conv_id=%@ placeholder=%d", convID, placeholder);
-        [IMConversationRouter openConversation:conversation host:host userID:userID];
         return;
     }
     _attempts++;

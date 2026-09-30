@@ -6,6 +6,7 @@
 //
 
 #import "SceneDelegate.h"
+#import <UserNotifications/UserNotifications.h>
 #import "IMRtcCall.h"
 #import "IMLoginViewController.h"
 #import "IMMainTabBarController.h"
@@ -130,8 +131,11 @@
 
 
 - (void)sceneDidBecomeActive:(UIScene *)scene {
-    // Called when the scene has moved from an inactive state to an active state.
-    // Use this method to restart any tasks that were paused (or not yet started) when the scene was inactive.
+    // M5：人已经在看 App 了，通知中心/锁屏上再挂着这几条就是重复——未读数本就同步在
+    // App 内（标签角标/图标角标），System 通知已经没有信息增量，一律清空。不管这次激活是
+    // 点了某一条通知、还是自己点图标进来的，都清**全部**：只清被点的那一条会留下同一批消息
+    // 里的其余几条通知继续躺在通知中心，用户进来看过一遍了，那几条同样是重复信息。
+    [UNUserNotificationCenter.currentNotificationCenter removeAllDeliveredNotifications];
 }
 
 
