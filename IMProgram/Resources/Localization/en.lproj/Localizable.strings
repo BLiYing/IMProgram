@@ -1202,8 +1202,14 @@
 "notif.sound.rise" = "Rise";
 "notif.sound.title" = "Sound";
 "notif.system.footer" = "Push notifications are coming soon. For now you're alerted only while the app is open.";
+"notif.system.footer_apns" = "When the app is in the background or closed, new messages arrive as Apple push notifications. Notification content passes through Apple's servers; to hide it, turn off “Message preview” for private and group chats.";
+"notif.system.open_settings" = "Open Settings";
 "notif.system.permission" = "Notification permission";
+"notif.system.permission_denied_hint" = "Notifications are off. Allow them in system Settings.";
 "notif.system.permission_off" = "Off";
+"notif.system.permission_on" = "On";
+"notif.system.permission_undetermined" = "Not set";
+"notif.system.receive_push" = "Push notifications";
 "notif.system.show" = "Show notifications";
 "notif.type.enabled" = "Show notifications";
 "notif.type.group_title" = "Group chats";
@@ -1292,6 +1298,8 @@
 "ps.section.data" = "Data";
 "ps.section.who_can_see" = "Who can see";
 "ps.who_can_see_footer" = "These settings control how much others can see on your profile.";
+"push.group_body" = "%1$@: %2$@";
+"push.mention_body" = "[Mentioned] %1$@";
 "qr.action.add_contact" = "Add to contacts";
 "qr.action.admin_only_note" = "This group now allows invites from admins only, so this invite is no longer valid.";
 "qr.action.apply" = "Request to join";

@@ -1202,8 +1202,14 @@
 "notif.sound.rise" = "上扬";
 "notif.sound.title" = "提示音";
 "notif.system.footer" = "推送通知正在开发中。目前只有 App 打开时会提醒。";
+"notif.system.footer_apns" = "App 在后台或关闭时，新消息会通过苹果推送提醒你。通知内容会经过苹果服务器；不想显示内容，可关闭私聊和群聊里的「消息预览」。";
+"notif.system.open_settings" = "去设置";
 "notif.system.permission" = "通知权限";
+"notif.system.permission_denied_hint" = "通知权限已关闭，请到系统设置里允许通知";
 "notif.system.permission_off" = "未开启";
+"notif.system.permission_on" = "已开启";
+"notif.system.permission_undetermined" = "未设置";
+"notif.system.receive_push" = "接收离线推送";
 "notif.system.show" = "显示通知";
 "notif.type.enabled" = "显示通知";
 "notif.type.group_title" = "群聊通知";
@@ -1292,6 +1298,8 @@
 "ps.section.data" = "数据";
 "ps.section.who_can_see" = "谁能看到";
 "ps.who_can_see_footer" = "这些设置决定他人在你的资料页看到多少。";
+"push.group_body" = "%1$@: %2$@";
+"push.mention_body" = "[有人@我] %1$@";
 "qr.action.add_contact" = "添加到通讯录";
 "qr.action.admin_only_note" = "该群已改为仅管理员可邀请，此邀请已失效";
 "qr.action.apply" = "申请加入";
