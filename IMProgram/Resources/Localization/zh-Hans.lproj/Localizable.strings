@@ -1300,6 +1300,7 @@
 "ps.who_can_see_footer" = "这些设置决定他人在你的资料页看到多少。";
 "push.group_body" = "%1$@: %2$@";
 "push.mention_body" = "[有人@我] %1$@";
+"push.message_deleted" = "一条消息已被删除";
 "qr.action.add_contact" = "添加到通讯录";
 "qr.action.admin_only_note" = "该群已改为仅管理员可邀请，此邀请已失效";
 "qr.action.apply" = "申请加入";

@@ -5,6 +5,13 @@
 
 ## 当前焦点
 
+> **2026-09-30 撤回 / 删除后收回通知（iOS 侧）**：设计 `../IMServer/docs/design/PUSH_M5_DESIGN.md` §3.4。
+> App 没在跑时由服务端用同一个 `apns-collapse-id` 把原通知替换成「对方撤回了一条消息」，本端无代码；
+> App 活着时 `IMSocketManager applyMsgOpPayload:`（实时帧与 sync 补到的事件行都走它）调
+> `Common/IMPushRetract`，按通知 userInfo 的 `conv_id`+`conv_seq` 把通知中心里那条（含替换后的撤回提示）移除。
+> 纯判据 `IMPushUserInfoMatchesMessage` + `IMPushRetractTests`。`IMSocketManager.m` 现 1597 行（上限 1600）。
+> 「点通知定位到具体消息」评估后不做：进会话本来停在首条未读，跳过去会把前面的未读标成已读。
+
 > **2026-09-30 修：应用内提示音 / 振动 / 横幅全部不出（已 commit+push）**。根因：`IMSocketManager+Alerts.m` 给通知判定喂的
 > `inCall` 读的是 `IMRtcCall.isStarted`（= 通话引擎已建好，登录后只要通话服务配置齐全就恒 YES），不是"正在通话"，
 > 于是 `IMAlertDecide` 永远判「通话中→静默」。没配通话服务的环境里 `isStarted` 恒 NO，所以一直没暴露。

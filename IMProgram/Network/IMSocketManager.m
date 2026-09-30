@@ -14,6 +14,7 @@
 #import "IMHTTPService.h"
 #import "IMLog.h"
 #import "IMNetworkMonitor.h"   // IMNetworkDidBecomeReachableNotification（网络恢复即刻重连）
+#import "IMPushRetract.h"
 #import "IMRemarkStore.h"
 #import "IMTimeUtil.h"
 
@@ -1091,6 +1092,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
 
     NSString *cmid = [payload[@"client_msg_id"] isKindOfClass:[NSString class]] ? payload[@"client_msg_id"] : nil;
     if (cmid.length > 0) { [_pendingOps removeObject:cmid]; } // 我方操作成功回执
+    if ([op isEqualToString:kIMMsgOpDelete] || [op isEqualToString:kIMMsgOpRecall]) { IMPushRetractDeliveredNotification(convID, target); } // 通知中心里还挂着原文的话一并收回
 
     // 为所有人删除（任务2）：物理移除该条（不走 patch，区别于 recall 的改状态显墓碑）。
     if ([op isEqualToString:kIMMsgOpDelete]) {
