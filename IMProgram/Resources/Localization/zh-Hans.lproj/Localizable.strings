@@ -1201,7 +1201,7 @@
 "notif.sound.none" = "无";
 "notif.sound.rise" = "上扬";
 "notif.sound.title" = "提示音";
-"notif.system.footer" = "推送通知正在开发中。目前只有 App 打开时会提醒。";
+"notif.system.footer_android" = "App 在后台或关闭时，新消息会通过系统推送提醒你。通知内容会经过推送服务商（Google 或手机厂商）的服务器；不想显示内容，可关闭私聊和群聊里的「消息预览」。";
 "notif.system.footer_apns" = "App 在后台或关闭时，新消息会通过苹果推送提醒你。通知内容会经过苹果服务器；不想显示内容，可关闭私聊和群聊里的「消息预览」。";
 "notif.system.open_settings" = "去设置";
 "notif.system.permission" = "通知权限";

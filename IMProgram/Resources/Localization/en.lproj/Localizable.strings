@@ -1201,7 +1201,7 @@
 "notif.sound.none" = "None";
 "notif.sound.rise" = "Rise";
 "notif.sound.title" = "Sound";
-"notif.system.footer" = "Push notifications are coming soon. For now you're alerted only while the app is open.";
+"notif.system.footer_android" = "When the app is in the background or closed, new messages arrive as push notifications. Notification content passes through the push provider's servers (Google or your phone maker); to hide it, turn off “Message preview” for private and group chats.";
 "notif.system.footer_apns" = "When the app is in the background or closed, new messages arrive as Apple push notifications. Notification content passes through Apple's servers; to hide it, turn off “Message preview” for private and group chats.";
 "notif.system.open_settings" = "Open Settings";
 "notif.system.permission" = "Notification permission";
