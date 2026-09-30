@@ -20,6 +20,7 @@
 #import "IMConversation.h"
 #import "IMTimeUtil.h"
 #import "IMMuteState.h" // ctx.muted 必须喂 IMIsMutedNow 算出的有效值，不能是原始 muted（P1 §4.3）
+#import "IMLog.h"
 #import "IMInAppBannerView.h" // P1 §1.1：result.banner 为真时弹应用内横幅（Common/，避免反向 import Modules/Chat）
 
 @implementation IMSocketManager (Alerts)
@@ -65,12 +66,16 @@
     ctx.appActive = UIApplication.sharedApplication.applicationState == UIApplicationStateActive;
     ctx.windowFocused = ctx.appActive; // 移动端无独立窗口焦点概念；判据仅在 platform=desktop 时读这个字段
     ctx.viewingConv = msg.convID.length > 0 && [msg.convID isEqualToString:IMChatPresence.currentViewingConvID];
-    ctx.inCall = IMRtcCall.shared.isStarted;
+    ctx.inCall = IMRtcCall.shared.isInCall; // 不是 isStarted：那是「通话服务已就绪」，登录后恒 YES
     ctx.nowMs = nowMs;
     ctx.lastSoundAtMs = IMAlertPlayer.shared.lastSoundAtMs;
     ctx.settings = IMNotificationSettings.shared.alertSnapshot;
 
     IMAlertResult *result = IMAlertDecide(ctx);
+    // 判定输入与结果留一行 debug：「为什么没响」此前在日志里完全无迹可查（2026-09-30 inCall 误判排查时补）。
+    // 只记布尔与会话号，不含消息内容。
+    IMLogDebugWithTag(IMLogTagSocket, @"alert_decision conv=%@ sound=%d vibrate=%d banner=%d active=%d viewing=%d in_call=%d muted=%d self=%d",
+                      msg.convID, result.sound, result.vibrate, result.banner, ctx.appActive, ctx.viewingConv, ctx.inCall, ctx.muted, ctx.isSelf);
     if (result.sound && result.soundId.length > 0) { [IMAlertPlayer.shared playSoundNamed:result.soundId]; }
     if (result.vibrate) { [IMAlertPlayer.shared vibrate]; }
     if (result.banner) { [self showBannerForIncomingMessage:msg selfUID:selfUID]; }

@@ -16,12 +16,24 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+/// 通话界面阶段（SDK `IMCallKitPhase` 的原始值）算不算「正在通话」：来电 / 拨出 / 接通中 / 通话中算，
+/// 空闲与「已结束」（纯展示的结束页）不算。抽成纯函数是为了能单测，`isInCall` 只是把当前阶段喂给它。
+FOUNDATION_EXPORT BOOL IMRtcCallPhaseCountsAsInCall(NSInteger kitPhase);
+
 @interface IMRtcCall : NSObject
 
 + (instancetype)shared;
 
-/// 引擎已建好（不代表握手已成功，连接态看日志）。
+/// 引擎已建好（不代表握手已成功，连接态看日志）。**不是「正在通话」**——登录后只要通话服务配置齐全
+/// 它就恒为 YES；要问"是不是在通话"用 `isInCall`。
 @property (nonatomic, readonly) BOOL isStarted;
+
+/// 正在音视频通话中（来电响铃 / 拨出中 到 挂断之间）。**通知判定 `IMAlertDecide` 的 `inCall` 读它**
+/// （NOTIFICATIONS_DESIGN §3.1：通话中不响不振不弹横幅）。对端：im-android `RtcCall.inCall`。
+///
+/// 2026-09-30 之前 `inCall` 误读的是 `isStarted`：通话服务一配好，应用内提示音 / 振动 / 横幅就
+/// 全部永久静默（没配通话服务的环境里 `isStarted` 恒 NO，所以一直没暴露）。
+@property (nonatomic, readonly) BOOL isInCall;
 
 /// 配置不全或 uid 不合规只记日志，入口点击时会给出原因。同一账号重复调用是空操作。
 - (void)startWithUserID:(NSString *)uid;

@@ -5,6 +5,15 @@
 
 ## 当前焦点
 
+> **2026-09-30 修：应用内提示音 / 振动 / 横幅全部不出（未 commit）**。根因：`IMSocketManager+Alerts.m` 给通知判定喂的
+> `inCall` 读的是 `IMRtcCall.isStarted`（= 通话引擎已建好，登录后只要通话服务配置齐全就恒 YES），不是"正在通话"，
+> 于是 `IMAlertDecide` 永远判「通话中→静默」。没配通话服务的环境里 `isStarted` 恒 NO，所以一直没暴露。
+> 改为新增 `IMRtcCall.isInCall`（读 Kit `controller.objcPhase`：来电/拨出/接通中/通话中算，空闲与结束页不算，
+> 对齐 im-android `RtcCall.inCall`），纯判据 `IMRtcCallPhaseCountsAsInCall` + `IMRtcCallInCallTests`。
+> 顺带给判定加了一行 debug 日志 `alert_decision …`（只有布尔与会话号）。真机已验：`sound=1 vibrate=1 banner=1 in_call=0`。
+> 同时报的「未读角标出现后立刻消失」不是代码问题：同一账号在**模拟器**上一直停在那个会话页里，来一条它就读一条，
+> 已读同步把真机的未读清掉了（日志 dev=CBE171A0，CoreSimulator 路径）。
+
 > **M5 离线推送 · 第一批 ✅ 代码 + 单测已完成，待真机验（2026-09-30，未开分支——直接在 IMProgram 工作树，
 > 设计 `../IMServer/docs/design/PUSH_M5_DESIGN.md`（§8 全部按推荐），协议 `../IMServer/docs/PROTOCOL.md`
 > §6.12 app_state / §6.13 notify_settings_update / §6.14 APNs payload / §11 push/token·notify-settings，

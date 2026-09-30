@@ -86,7 +86,8 @@
     // 只手动驱动一次；后续两次交给内部的 dispatch_after 退避定时器自动补——与真机上
     // "opener 第一次报 NO"完全同一条路径，不是靠测试代码硬凑次数。
     [IMPendingNotificationRoute.shared tryRouteWithHost:@"h" userID:@"1001"];
-    [self waitForExpectations:@[opened] timeout:3.0];
+    // 退避名义上 0.5s + 1.0s；全量串行跑时主队列很挤，3s 偶发超时（2026-09-30 全量红过一次、单跑必绿），放宽到 8s。
+    [self waitForExpectations:@[opened] timeout:8.0];
     XCTAssertGreaterThanOrEqual(calls, 3); // 第 1、2 次都失败过，不是侥幸第一次就"成功"
     NSInteger callsAfterSuccess = calls;
     // 已成功过一次：pending 已清空，再调用不该又触发 opener。

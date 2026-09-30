@@ -19,6 +19,20 @@ static IMLocale IMLocaleFromLanguage(NSString *language) {
     return [language isEqualToString:IMLanguagePrefEnglish] ? IMLocaleEn : IMLocaleZhCN;
 }
 
+BOOL IMRtcCallPhaseCountsAsInCall(NSInteger kitPhase) {
+    switch ((IMCallKitPhase)kitPhase) {
+        case IMCallKitPhaseIncoming:
+        case IMCallKitPhaseOutgoing:
+        case IMCallKitPhaseConnecting:
+        case IMCallKitPhaseActive:
+            return YES;
+        case IMCallKitPhaseIdle:
+        case IMCallKitPhaseEnded:
+            return NO;
+    }
+    return NO; // SDK 以后新增的阶段：宁可多响一声，不可把提醒全部吞掉
+}
+
 @implementation IMRtcCall {
     IMCallEngine *_engine;
     IMCallKit *_kit;
@@ -38,6 +52,8 @@ static IMLocale IMLocaleFromLanguage(NSString *language) {
 }
 
 - (BOOL)isStarted { return _engine != nil; }
+
+- (BOOL)isInCall { return _kit != nil && IMRtcCallPhaseCountsAsInCall(_kit.controller.objcPhase); }
 
 #pragma mark - 生命周期
 
