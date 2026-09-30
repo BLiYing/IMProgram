@@ -5,6 +5,15 @@
 
 ## 当前焦点
 
+> **2026-09-30 多选删除补齐两档（未真机）**：`IMChatViewController+Selection.m`。
+> 「仅删除自己」此前 `performDeleteSelected` **只删本机库 + 内存**（换设备/重装消息全回来），现逐条走
+> `IMSocketManager hideMessageInConv:`（与单条长按同一条路），失败弹「N 条删除失败」；所选**全部**有权时气泡多一档
+> 「为所有人删除」（`performDeleteSelectedForEveryone`，未连接先拦、留在多选态）。整批判据
+> `IMChatSelectionAllDeletableForEveryone`（全有或全无）+ `IMChatSelectionTests` 4 例（先看红）。
+> `-onMessageRemoved:` 改为只在命中置顶横幅时才重拉置顶（批量删除不再逐条发请求）。test.sh 664/664。
+> **真机待验**：① 多选含九宫格若干格 → 仅删除自己 → 另一台设备同步消失；② 全选自己发的 → 出现第二档 → 对方也消失；
+> ③ 混选别人的消息 → 只有一档；④ 群主/管理员选别人的消息 → 有第二档；⑤ 断网点第二档 → 提示且不退出多选。
+
 > **2026-09-30 撤回 / 删除后收回通知（iOS 侧）**：设计 `../IMServer/docs/design/PUSH_M5_DESIGN.md` §3.4。
 > App 没在跑时由服务端用同一个 `apns-collapse-id` 把原通知替换成「对方撤回了一条消息」，本端无代码；
 > App 活着时 `IMSocketManager applyMsgOpPayload:`（实时帧与 sync 补到的事件行都走它）调

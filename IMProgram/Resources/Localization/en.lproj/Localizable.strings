@@ -343,7 +343,6 @@
 "chat.search.prev_month" = "Previous month";
 "chat.search.today_jump_nearest" = "No messages today. Jumped to %1$@.";
 "chat.search.today_no_messages_jumped_latest" = "No messages today — jumped to the most recent one";
-"chat.select.delete_confirm_message" = "This only deletes from this device. Other devices and the other person aren't affected.";
 "chat.select.delete_for_me" = "Delete for me";
 "chat.select.none_favoritable" = "None of the selected messages can be added to favorites";
 "chat.select.report_multi" = "You can only report messages from one person at a time";

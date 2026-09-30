@@ -5,6 +5,7 @@
 // IMChatViewController+Selection.m 里的文件级纯函数（同 IMChatEntryWindowAnchor 的套路：
 // 判据抽出来单测，免构造依赖数据库与 UIKit 的真 VC）。
 FOUNDATION_EXPORT NSArray<IMMessageModel *> *IMChatSelectedMessages(NSDictionary<NSNumber *, IMMessageModel *> *selected);
+FOUNDATION_EXPORT BOOL IMChatSelectionAllDeletableForEveryone(NSArray<IMMessageModel *> *msgs, BOOL (^canDelete)(IMMessageModel *));
 
 /// 多选态勾选集的契约（2026-09-06，起因是用户实测报出的丢勾选）。
 ///
@@ -79,6 +80,39 @@ static IMMessageModel *msg(int64_t seq, NSString *from) {
     sel[@7] = msg(7, @"u2");
     sel[@7] = msg(7, @"u2"); // 覆盖，不新增
     XCTAssertEqual(IMChatSelectedMessages(sel).count, 1u);
+}
+
+#pragma mark - 多选删除给不给「为所有人删除」（2026-09-30，与 im-web selectDelete.ts 同口径）
+
+/// 规则本体（我发的 / 群主·管理员）在 VC 的 -canDeleteForEveryone:，这里用同形状的 block 代入。
+static BOOL (^mineOnly(NSString *uid))(IMMessageModel *) {
+    return ^BOOL(IMMessageModel *m) { return [m.from isEqualToString:uid]; };
+}
+
+/// 全是我发的 → 给第二档。
+- (void)testAllMineIsDeletableForEveryone {
+    NSArray *msgs = @[msg(1, @"me"), msg(2, @"me")];
+    XCTAssertTrue(IMChatSelectionAllDeletableForEveryone(msgs, mineOnly(@"me")));
+}
+
+/// 混选了别人的一条 → 整批不给（全有或全无，不做"能删几条删几条"）。
+- (void)testMixedSelectionIsNotDeletableForEveryone {
+    NSArray *msgs = @[msg(1, @"me"), msg(2, @"u2"), msg(3, @"me")];
+    XCTAssertFalse(IMChatSelectionAllDeletableForEveryone(msgs, mineOnly(@"me")));
+}
+
+/// 群主/管理员：规则对谁发的都放行 → 别人的消息也给第二档。
+- (void)testManagerCanDeleteOthersForEveryone {
+    NSArray *msgs = @[msg(1, @"u2"), msg(2, @"u3")];
+    XCTAssertTrue(IMChatSelectionAllDeletableForEveryone(msgs, ^BOOL(IMMessageModel *m) { return YES; }));
+}
+
+/// 空选不给；本地未落库件（conv_seq<=0，服务器上没有这条）不给；缺规则不给。
+- (void)testEmptyOrUnsentOrNoRuleIsNotDeletable {
+    XCTAssertFalse(IMChatSelectionAllDeletableForEveryone(@[], mineOnly(@"me")));
+    XCTAssertFalse(IMChatSelectionAllDeletableForEveryone(nil, mineOnly(@"me")));
+    XCTAssertFalse(IMChatSelectionAllDeletableForEveryone((@[msg(1, @"me"), msg(0, @"me")]), mineOnly(@"me")));
+    XCTAssertFalse(IMChatSelectionAllDeletableForEveryone(@[msg(1, @"me")], nil));
 }
 
 @end

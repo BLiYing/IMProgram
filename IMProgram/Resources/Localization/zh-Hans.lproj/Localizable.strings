@@ -343,7 +343,6 @@
 "chat.search.prev_month" = "上个月";
 "chat.search.today_jump_nearest" = "今天无消息，已跳到 %1$@";
 "chat.search.today_no_messages_jumped_latest" = "今天暂无消息，已跳到最近一条";
-"chat.select.delete_confirm_message" = "只从本机删除，其他设备与对方仍能看到。";
 "chat.select.delete_for_me" = "仅为我删除";
 "chat.select.none_favoritable" = "所选消息都无法收藏";
 "chat.select.report_multi" = "一次只能举报同一个人的消息";

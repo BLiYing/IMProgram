@@ -225,7 +225,11 @@
     if (idx == NSNotFound) { return; }
     [self.windowState.messages removeObjectAtIndex:idx];
     [self.tableView reloadData];
-    [self reloadPinnedBanner]; // 删掉的可能正是一条置顶消息，别让横幅指向已消失的消息
+    // 删掉的若正是一条置顶消息，别让横幅指向已消失的消息。只在命中横幅里的置顶项时才重拉：
+    // 多选批量删除一次会来上百条移除通知，逐条无条件重拉就是上百个请求（im-web onMessageRemoved 同口径）。
+    for (IMPinnedMessage *pm in self.bannerStack.pinnedItems) {
+        if (pm.convSeq == target) { [self reloadPinnedBanner]; break; }
+    }
 }
 
 /// 合并刷新入口：消息/已读通知成批到达时，每 0.12s 至多刷一次徽标（避免每条一次全表 SUM）。

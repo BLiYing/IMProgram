@@ -34,6 +34,9 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
 /// 服务端另有独立上限（举报 100 条/单、收藏 300 次/分），那是脚本也绕不过的约束，与本常量互不依赖。
 static const NSUInteger kIMSelectionMaxCount = 100;
 
+/// 多选「仅删除自己」同时在途的请求数（见 -performDeleteSelected）。
+static const NSUInteger kIMBatchHideLanes = 4;
+
 /// 从勾选集导出「已选消息」，**按 conv_seq 升序**（= 会话时序）。
 ///
 /// 抽成文件级纯函数是为了能单测（同 IMChatEntryWindowAnchor 的套路）：这里要钉住的不是它算得对，
@@ -48,6 +51,20 @@ NSArray<IMMessageModel *> *IMChatSelectedMessages(NSDictionary<NSNumber *, IMMes
         if (m) { [out addObject:m]; }
     }
     return out;
+}
+
+/// 这批已选消息能否**整批**「为所有人删除」：非空，且逐条都过 canDelete（规则本身的唯一出处仍是
+/// `-canDeleteForEveryone:`，这里只定「整批」的口径）。
+///
+/// 全有或全无，不做"能删几条删几条"：用户点的是「为所有人删除」，却有一部分只是没删掉，
+/// 结果要靠数气泡才知道。混选了别人的消息就只给「仅删除自己」。与 im-web `selectDelete.ts`
+/// 的 `planBatchDelete`、im-android `ChatSelection.allDeletableForEveryone` 同口径。
+BOOL IMChatSelectionAllDeletableForEveryone(NSArray<IMMessageModel *> *msgs, BOOL (^canDelete)(IMMessageModel *)) {
+    if (msgs.count == 0 || !canDelete) { return NO; }
+    for (IMMessageModel *m in msgs) {
+        if (m.convSeq <= 0 || !canDelete(m)) { return NO; }
+    }
+    return YES;
 }
 
 @implementation IMChatViewController (Selection)
@@ -197,13 +214,21 @@ NSArray<IMMessageModel *> *IMChatSelectedMessages(NSDictionary<NSNumber *, IMMes
     [self updateSelectionBarBottomAnchor]; // 底边：搜索开着=贴搜索栏顶（上下堆叠）/否则=安全区底
 }
 
-/// 删除钮点击 → 在钮**上方**弹「仅为我删除」确认气泡（复用详情页「更多」同款 IMPopoverCard，不与按钮重叠）。
+/// 删除钮点击 → 在钮**上方**弹确认气泡（复用详情页「更多」同款 IMPopoverCard，不与按钮重叠）。
+/// 两档与单条长按的子菜单同口径：「仅删除自己」恒有；所选**全部**有权时多一档「为所有人删除」。
 - (void)deleteButtonTapped:(UIButton *)sender {
-    if ([self selectedMessages].count == 0) { return; } // 兜底：此时按钮本应已禁用
+    NSArray<IMMessageModel *> *msgs = [self selectedMessages];
+    if (msgs.count == 0) { return; } // 兜底：此时按钮本应已禁用
     __weak typeof(self) ws = self;
-    IMPopoverCardItem *item = [IMPopoverCardItem itemWithTitle:IMLocalized(@"delete_sheet.only_me") symbol:@"trash" destructive:YES
-                                                       handler:^{ [ws performDeleteSelected]; }];
-    [IMPopoverCard presentFromAnchor:sender inHostView:self.view items:@[item]];
+    NSMutableArray<IMPopoverCardItem *> *items = [NSMutableArray arrayWithObject:
+        [IMPopoverCardItem itemWithTitle:IMLocalized(@"delete_sheet.only_me") symbol:@"trash" destructive:YES
+                                 handler:^{ [ws performDeleteSelected]; }]];
+    if (IMChatSelectionAllDeletableForEveryone(msgs, ^BOOL(IMMessageModel *m) { return [ws canDeleteForEveryone:m]; })) {
+        // 破坏性重的放最后（destructive-last，与长按子菜单一致）。
+        [items addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"delete_sheet.everyone") symbol:@"trash" destructive:YES
+                                                  handler:^{ [ws performDeleteSelectedForEveryone]; }]];
+    }
+    [IMPopoverCard presentFromAnchor:sender inHostView:self.view items:items];
 }
 
 /// 选择栏底边定位：搜索底部导航开着时,选择栏钉在其**上方**（两排按钮堆叠、互不重叠）；否则钉安全区底。
@@ -641,19 +666,55 @@ NSArray<IMMessageModel *> *IMChatSelectedMessages(NSDictionary<NSNumber *, IMMes
     [self exitSelection];
 }
 
-/// 直接执行删除（确认已由删除钮上方的「仅为我删除」菜单完成，此处不再二次确认）。仅删本端。
+/// 多选「仅删除自己」（确认已由删除钮上方的气泡完成，此处不再二次确认）：逐条走 hide——
+/// 落服务端 per-user 隐藏表 + 同步本人其它设备，与单条长按那一档是同一条路（`-hideMessageForSelf:`）。
+///
+/// 此前这里只删本机库 + 内存（按钮却与单条那档同名）：换台设备、或重装后消息全回来了。
+/// 本地移除统一交给 IMSocketManager 成功后发的 IMSocketDidRemoveMessageNotification（`-onMessageRemoved:`），
+/// 这里不先抹——失败的那几条因此原样留在屏上，与提示的失败条数对得上。
+/// 服务端暂无批量接口，逐条发；上限沿用多选闸 kIMSelectionMaxCount。
+/// **限并发 kIMBatchHideLanes**（同 im-web `runBatch` 的 4）：一口气放出上百个请求，回来时每条各触发一次
+/// 库删除 + 整表 reloadData，主线程会明显卡一下。
 - (void)performDeleteSelected {
     NSArray<IMMessageModel *> *msgs = [self selectedMessages];
     if (msgs.count == 0) { return; } // 按钮禁用兜底：0 选中不弹吐司（a4）
-    for (IMMessageModel *m in msgs) {
-        [self performDatabaseOperation:^(IMDatabase *database) {
-            [database deleteMessage:m];
-        }];
-        [self.windowState.messages removeObject:m];
-        if (m.convSeq > 0) { [self.windowState.seenConvSeqs removeObject:@(m.convSeq)]; }
-    }
-    [self.tableView reloadData];
+    NSString *fallbackConvID = self.convID;
     [self exitSelection];
+    __weak typeof(self) ws = self;
+    // 以下计数只在主线程读写（completion 回主线程）。
+    __block NSUInteger next = 0, pending = msgs.count, failed = 0;
+    __block void (^pump)(void) = nil; // 一条"车道"：取下一条去删，回来后接着取；没得取了自然停
+    void (^step)(void) = ^{
+        if (next >= msgs.count) { return; }
+        IMMessageModel *m = msgs[next++];
+        [[IMSocketManager sharedManager] hideMessageInConv:(m.convID ?: fallbackConvID) targetConvSeq:m.convSeq
+                                                completion:^(NSError *error) {
+            if (error) { failed++; }
+            if (--pending == 0) {
+                if (failed > 0) { [ws im_showToast:IMLocalizedFormat(@"chat.select.delete_failed_count", (long)failed)]; }
+                pump = nil; // 全部回来了：断开 block 自引用
+                return;
+            }
+            if (pump) { pump(); }
+        }];
+    };
+    pump = step;
+    for (NSUInteger i = 0; i < MIN(kIMBatchHideLanes, msgs.count); i++) { step(); }
+}
+
+/// 多选「为所有人删除」：逐条发 msg_op delete，成功由服务端广播回帧移除，被拒走 reject 通知 → toast。
+/// 未连接时帧会被静默丢掉——先拦住并**留在多选态**，别让用户以为删掉了。
+- (void)performDeleteSelectedForEveryone {
+    NSArray<IMMessageModel *> *msgs = [self selectedMessages];
+    __weak typeof(self) ws = self;
+    // 弹气泡到点下去之间权限可能变了（被撤管理员）：再判一次，不满足就什么都不做（服务端也会拒）。
+    if (!IMChatSelectionAllDeletableForEveryone(msgs, ^BOOL(IMMessageModel *m) { return [ws canDeleteForEveryone:m]; })) { return; }
+    if ([IMSocketManager sharedManager].state != IMSocketStateConnected) {
+        [self im_showToast:IMLocalizedFormat(@"conv.error.delete_failed_detail", IMLocalized(@"conn.state.disconnected"))];
+        return;
+    }
+    [self exitSelection];
+    for (IMMessageModel *m in msgs) { [self deleteMessageForEveryone:m]; }
 }
 
 #pragma mark 合并转发数据
