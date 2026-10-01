@@ -5,6 +5,7 @@
 
 ## 当前焦点
 
+> **2026-10-01 通知显示发送人头像**（PUSH_M5_DESIGN §3.6/§3.7）：新增通知扩展 target `IMNotificationService`（Xcode 同步文件夹 `IMNotificationService/`，共享 `Common/IMPushSender.m`、`Common/IMPushAvatarCache.m` 靠 pbxproj 里的成员例外）；主 App 加 App Group + 通信通知 entitlement、`NSUserActivityTypes`。扩展不链接 Pods，日志用 os_log。看扩展日志：`idevicesyslog -u <udid>` grep IMNotificationService。
 > **2026-10-01 别的端已读后清手机通知/角标**（PUSH_M5_DESIGN §3.5，真机验证通过）：`Common/IMPushRetract` 加 `IMPushClearDeliveredNotificationsReadThrough`；`AppDelegate` 收 `clear_up_to` 推送（Info.plist 新增 `remote-notification` 后台模式）；`handleReceipt` 收本人回执时同样清。`IMSocketManager.m` 现 1596/1600。
 
 > **2026-09-30 多选删除两档·改批量接口（2026-10-01 模拟器实测通过，已提交并推送 `74d8ecd`）**：`IMChatViewController+Selection.m` 的

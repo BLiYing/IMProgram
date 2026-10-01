@@ -398,6 +398,17 @@
       <key>other</key><string>%1$ld items selected</string>
     </dict>
   </dict>
+  <key>notif.new_messages_count</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
+    <key>count</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>ld</string>
+      <key>one</key><string>%1$ld new message</string>
+      <key>other</key><string>%1$ld new messages</string>
+    </dict>
+  </dict>
   <key>presence.days_ago</key>
   <dict>
     <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>

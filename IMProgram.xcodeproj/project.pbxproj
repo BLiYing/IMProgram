@@ -9,6 +9,8 @@
 /* Begin PBXBuildFile section */
 		76C6719819B7D76F5BECAB52 /* IMCallEngine in Frameworks */ = {isa = PBXBuildFile; productRef = BD6B606EDC9BD0697BE0FC93 /* IMCallEngine */; };
 		A471FB1DF55740310DF72BBB /* IMCallKit in Frameworks */ = {isa = PBXBuildFile; productRef = 71C30990714612F17C67B180 /* IMCallKit */; };
+		B2AB1DA7B2D5B95541C65AF4 /* IMNotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 073FE8C32E5F985EEE548BB3 /* IMNotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		BA2914899E91C93F6B56D306 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FC6D130C93EABD818B1A6B5C /* Foundation.framework */; };
 		C47EE36D054FD4C008F05233 /* IMCallEngineWebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 465715510A42A1A9E63F6EDF /* IMCallEngineWebRTC */; };
 		E5E7F79FA2808C353D86BD74 /* Pods_IMProgramTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C0D6EE28067E07E29A97AD33 /* Pods_IMProgramTests.framework */; };
 		F503133B41F37979B409778D /* Pods_IMProgram.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7291A8548425E35ADCB62603 /* Pods_IMProgram.framework */; };
@@ -29,9 +31,31 @@
 			remoteGlobalIDString = B2853AD52FDD41A500896F20;
 			remoteInfo = IMProgram;
 		};
+		E1A2ED812C6EBF81C548A40A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B2853ACE2FDD41A500896F20 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AF88718851E8C1109B336F79;
+			remoteInfo = IMNotificationService;
+		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		EF1A3F7329EB329EAFA48617 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				B2AB1DA7B2D5B95541C65AF4 /* IMNotificationService.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		073FE8C32E5F985EEE548BB3 /* IMNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = IMNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		500F6E6E179DF79C407FD02E /* Pods-IMProgram.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-IMProgram.release.xcconfig"; path = "Target Support Files/Pods-IMProgram/Pods-IMProgram.release.xcconfig"; sourceTree = "<group>"; };
 		7291A8548425E35ADCB62603 /* Pods_IMProgram.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_IMProgram.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		B2853AD62FDD41A500896F20 /* IMProgram.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = IMProgram.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -41,9 +65,25 @@
 		D7D612AE64D08FDF5CC26108 /* Pods-IMProgramTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-IMProgramTests.debug.xcconfig"; path = "Target Support Files/Pods-IMProgramTests/Pods-IMProgramTests.debug.xcconfig"; sourceTree = "<group>"; };
 		E60547904A7757F39E78DBCF /* Pods-IMProgram.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-IMProgram.debug.xcconfig"; path = "Target Support Files/Pods-IMProgram/Pods-IMProgram.debug.xcconfig"; sourceTree = "<group>"; };
 		EF55B98D4B12A66B57D9765E /* Pods-IMProgramTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-IMProgramTests.release.xcconfig"; path = "Target Support Files/Pods-IMProgramTests/Pods-IMProgramTests.release.xcconfig"; sourceTree = "<group>"; };
+		FC6D130C93EABD818B1A6B5C /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		45595E8538DD653BEEB2CA9C /* Exceptions for "IMProgram" folder in "IMNotificationService" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Common/IMPushAvatarCache.m,
+				Common/IMPushSender.m,
+			);
+			target = AF88718851E8C1109B336F79 /* IMNotificationService */;
+		};
+		7044C8BE0BC302235EA39A15 /* Exceptions for "IMNotificationService" folder in "IMNotificationService" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = AF88718851E8C1109B336F79 /* IMNotificationService */;
+		};
 		B2853B032FDD41A800896F20 /* Exceptions for "IMProgram" folder in "IMProgram" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -54,27 +94,48 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		5E0FF66791ABC6E304A47C5A /* IMNotificationService */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				7044C8BE0BC302235EA39A15 /* Exceptions for "IMNotificationService" folder in "IMNotificationService" target */,
+			);
+			path = IMNotificationService;
+			sourceTree = "<group>";
+		};
 		B2853AD82FDD41A500896F20 /* IMProgram */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				B2853B032FDD41A800896F20 /* Exceptions for "IMProgram" folder in "IMProgram" target */,
+				45595E8538DD653BEEB2CA9C /* Exceptions for "IMProgram" folder in "IMNotificationService" target */,
 			);
 			path = IMProgram;
 			sourceTree = "<group>";
 		};
 		B2853AF42FDD41A800896F20 /* IMProgramTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = IMProgramTests;
 			sourceTree = "<group>";
 		};
 		B2853AFE2FDD41A800896F20 /* IMProgramUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = IMProgramUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		24422B160B6FF48AAE0259E8 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BA2914899E91C93F6B56D306 /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		B2853AD32FDD41A500896F20 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -104,11 +165,20 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		29AED326313A3A8992371B64 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				FC6D130C93EABD818B1A6B5C /* Foundation.framework */,
+			);
+			name = iOS;
+			sourceTree = "<group>";
+		};
 		596EC5FA09FB0CC76B30A35C /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
 				7291A8548425E35ADCB62603 /* Pods_IMProgram.framework */,
 				C0D6EE28067E07E29A97AD33 /* Pods_IMProgramTests.framework */,
+				29AED326313A3A8992371B64 /* iOS */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -117,6 +187,7 @@
 			isa = PBXGroup;
 			children = (
 				B2853AD82FDD41A500896F20 /* IMProgram */,
+				5E0FF66791ABC6E304A47C5A /* IMNotificationService */,
 				B2853AF42FDD41A800896F20 /* IMProgramTests */,
 				B2853AFE2FDD41A800896F20 /* IMProgramUITests */,
 				B2853AD72FDD41A500896F20 /* Products */,
@@ -131,6 +202,7 @@
 				B2853AD62FDD41A500896F20 /* IMProgram.app */,
 				B2853AF12FDD41A800896F20 /* IMProgramTests.xctest */,
 				B2853AFB2FDD41A800896F20 /* IMProgramUITests.xctest */,
+				073FE8C32E5F985EEE548BB3 /* IMNotificationService.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -149,6 +221,26 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		AF88718851E8C1109B336F79 /* IMNotificationService */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F4E8A228FE6ED724DFFD5AFB /* Build configuration list for PBXNativeTarget "IMNotificationService" */;
+			buildPhases = (
+				D9AB4E3BD18FADD249082FFE /* Sources */,
+				24422B160B6FF48AAE0259E8 /* Frameworks */,
+				170555B40D7D207724D36320 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				5E0FF66791ABC6E304A47C5A /* IMNotificationService */,
+			);
+			name = IMNotificationService;
+			productName = IMNotificationService;
+			productReference = 073FE8C32E5F985EEE548BB3 /* IMNotificationService.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		B2853AD52FDD41A500896F20 /* IMProgram */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = B2853B042FDD41A800896F20 /* Build configuration list for PBXNativeTarget "IMProgram" */;
@@ -158,10 +250,12 @@
 				B2853AD32FDD41A500896F20 /* Frameworks */,
 				B2853AD42FDD41A500896F20 /* Resources */,
 				3C88624FD9484DB5E05BA104 /* [CP] Copy Pods Resources */,
+				EF1A3F7329EB329EAFA48617 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				28AEBF2ACBBFCFE071C3297F /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				B2853AD82FDD41A500896F20 /* IMProgram */,
@@ -262,11 +356,19 @@
 				B2853AD52FDD41A500896F20 /* IMProgram */,
 				B2853AF02FDD41A800896F20 /* IMProgramTests */,
 				B2853AFA2FDD41A800896F20 /* IMProgramUITests */,
+				AF88718851E8C1109B336F79 /* IMNotificationService */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		170555B40D7D207724D36320 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		B2853AD42FDD41A500896F20 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -380,9 +482,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D9AB4E3BD18FADD249082FFE /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		28AEBF2ACBBFCFE071C3297F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = IMNotificationService;
+			target = AF88718851E8C1109B336F79 /* IMNotificationService */;
+			targetProxy = E1A2ED812C6EBF81C548A40A /* PBXContainerItemProxy */;
+		};
 		B2853AF32FDD41A800896F20 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = B2853AD52FDD41A500896F20 /* IMProgram */;
@@ -396,6 +511,67 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		1F2811736599D4756DB21ABC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = IMNotificationService/IMNotificationService.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = G247R2HSZ7;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = IMNotificationService/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = IMNotificationService;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.libeyond.IMProgram.NotificationService;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/IMProgram/Common";
+			};
+			name = Debug;
+		};
+		2163FC4E992097C01376C6F5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = IMNotificationService/IMNotificationService.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = G247R2HSZ7;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = IMNotificationService/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = IMNotificationService;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.libeyond.IMProgram.NotificationService;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/IMProgram/Common";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 		B2853B052FDD41A800896F20 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = E60547904A7757F39E78DBCF /* Pods-IMProgram.debug.xcconfig */;
@@ -695,6 +871,15 @@
 			buildConfigurations = (
 				B2853B0D2FDD41A800896F20 /* Debug */,
 				B2853B0E2FDD41A800896F20 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F4E8A228FE6ED724DFFD5AFB /* Build configuration list for PBXNativeTarget "IMNotificationService" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2163FC4E992097C01376C6F5 /* Release */,
+				1F2811736599D4756DB21ABC /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -32,6 +32,12 @@
 	<string>用于发送语音消息、拍摄视频时录制声音，以及音视频通话。</string>
 	<!-- audio：通话中切到后台不断音（im-rtc）。remote-notification：别的设备读过后，
 	     「已读清通知」推送唤醒挂起中的 App 删掉已读的通知（PUSH_M5_DESIGN §3.5）。 -->
+	<!-- 通信通知（发送人头像，PUSH_M5_DESIGN §3.6）：通知扩展用 INSendMessageIntent 改写通知，
+	     主 App 须声明支持这种 intent，系统才按通信通知样式展示。 -->
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>INSendMessageIntent</string>
+	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

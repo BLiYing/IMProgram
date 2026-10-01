@@ -1,6 +1,7 @@
 //  IMSessionStore.m
 
 #import "IMSessionStore.h"
+#import "IMPushSender.h"
 
 static NSString * const kIMSessionHostKey     = @"im_session_host";
 static NSString * const kIMSessionUserIDKey   = @"im_session_uid";      // 内部 ID（业务用）
@@ -24,6 +25,7 @@ static NSString * const kIMSessionRefreshKey  = @"im_session_refresh"; // 续期
     [d setObject:userID forKey:kIMSessionUserIDKey];
     [d setObject:(username ?: @"") forKey:kIMSessionUsernameKey];
     [d synchronize];
+    IMPushSharedSaveServer([self scheme] ?: @"http", host); // 通知扩展补全头像 URL 用
 }
 
 + (BOOL)hasSession {
@@ -41,6 +43,7 @@ static NSString * const kIMSessionRefreshKey  = @"im_session_refresh"; // 续期
 + (void)saveScheme:(NSString *)scheme {
     if (scheme.length == 0) { return; }
     [NSUserDefaults.standardUserDefaults setObject:scheme forKey:kIMSessionSchemeKey];
+    IMPushSharedSaveServer(scheme, [self host]);
 }
 
 + (NSString *)userID {

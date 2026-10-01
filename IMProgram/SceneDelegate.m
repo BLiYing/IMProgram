@@ -12,6 +12,7 @@
 #import "IMMainTabBarController.h"
 #import "IMHTTPService.h"
 #import "IMSessionStore.h"
+#import "IMPushSender.h"
 #import "IMServerEndpoint.h"
 #import "IMSocketManager.h"
 #import "IMSocketManager+Push.h"
@@ -47,6 +48,8 @@
     // 协议要在任何网络调用之前恢复：IMServerEndpoint 默认 http，晚一步恢复就会有请求走错协议。
     // 没存过（老版本升上来）时 saveScheme: 的空值保护让它保持默认 http，行为与改造前一致。
     IMServerEndpoint.shared.scheme = IMSessionStore.scheme ?: IMServerSchemeHTTP;
+    // 升级上来、没重新登录过的安装也要让通知扩展知道服务器地址（发送人头像，PUSH_M5_DESIGN §3.6）。
+    IMPushSharedSaveServer(IMServerEndpoint.shared.scheme, IMSessionStore.host);
     IMLog(@"launch hasSession=%d uid=%@ host=%@ scheme=%@", [IMSessionStore hasSession],
           IMSessionStore.userID, IMSessionStore.host, IMServerEndpoint.shared.scheme);
     if ([IMSessionStore hasSession]) {

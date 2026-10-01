@@ -4,5 +4,13 @@
 <dict>
 	<key>aps-environment</key>
 	<string>development</string>
+	<!-- 与通知扩展 IMNotificationService 共享服务器地址（扩展据此补全发送人头像 URL，PUSH_M5_DESIGN §3.6）。 -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.libeyond.IMProgram</string>
+	</array>
+	<!-- 通信通知：通知左侧显示发送人头像（INSendMessageIntent），专注模式可按联系人放行。 -->
+	<key>com.apple.developer.usernotifications.communication</key>
+	<true/>
 </dict>
 </plist>

@@ -363,6 +363,16 @@
       <key>other</key><string>已选 %1$ld 项</string>
     </dict>
   </dict>
+  <key>notif.new_messages_count</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
+    <key>count</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>ld</string>
+      <key>other</key><string>%1$ld 条新消息</string>
+    </dict>
+  </dict>
   <key>presence.days_ago</key>
   <dict>
     <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
