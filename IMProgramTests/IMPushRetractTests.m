@@ -1,5 +1,6 @@
 //  IMPushRetractTests.m
 //  纯函数 IMPushUserInfoMatchesMessage：消息被撤回/删除时，通知中心里哪条通知该拿掉（M5）。
+//  IMPushUserInfoMatchesAnyMessage：批量版（多选），一次扫描对一个 seq 集合。
 //  IMPushUserInfoReadThrough / IMPushReadClearFromPayload：别的设备读过后清哪些（PUSH_M5_DESIGN §3.5）。
 
 #import <XCTest/XCTest.h>
@@ -48,6 +49,28 @@
     XCTAssertFalse(IMPushUserInfoMatchesMessage([self userInfoWithConv:@"u_1_u_2" seq:@0], @"u_1_u_2", 0));
     XCTAssertFalse(IMPushUserInfoMatchesMessage([self userInfoWithConv:@"" seq:@812], @"", 812));
     XCTAssertFalse(IMPushUserInfoMatchesMessage([self userInfoWithConv:@"u_1_u_2" seq:@812], nil, 812));
+}
+
+#pragma mark - 批量撤回/删除（多选）
+
+/// 批量版：seq 在集合里就算匹配，不逐条比较——多选删除/撤回一次扫描通知中心用这个。
+- (void)testMatchesAnyMessageInTheSet {
+    NSSet<NSNumber *> *seqs = [NSSet setWithArray:@[ @811, @812, @813 ]];
+    XCTAssertTrue(IMPushUserInfoMatchesAnyMessage([self userInfoWithConv:@"u_1_u_2" seq:@812], @"u_1_u_2", seqs));
+    XCTAssertFalse(IMPushUserInfoMatchesAnyMessage([self userInfoWithConv:@"u_1_u_2" seq:@900], @"u_1_u_2", seqs));
+}
+
+- (void)testMatchesAnyMessageOnlyWithinThatConversation {
+    NSSet<NSNumber *> *seqs = [NSSet setWithArray:@[ @5 ]];
+    XCTAssertFalse(IMPushUserInfoMatchesAnyMessage([self userInfoWithConv:@"g_9" seq:@5], @"u_1_u_2", seqs));
+}
+
+- (void)testMatchesAnyMessageHandlesEmptyOrInvalidInput {
+    NSSet<NSNumber *> *seqs = [NSSet setWithArray:@[ @812 ]];
+    XCTAssertFalse(IMPushUserInfoMatchesAnyMessage([self userInfoWithConv:@"u_1_u_2" seq:@812], @"", seqs));
+    XCTAssertFalse(IMPushUserInfoMatchesAnyMessage([self userInfoWithConv:@"u_1_u_2" seq:@812], @"u_1_u_2", nil));
+    XCTAssertFalse(IMPushUserInfoMatchesAnyMessage([self userInfoWithConv:@"u_1_u_2" seq:@812], @"u_1_u_2", [NSSet set]));
+    XCTAssertFalse(IMPushUserInfoMatchesAnyMessage(nil, @"u_1_u_2", seqs));
 }
 
 #pragma mark - 已读清通知

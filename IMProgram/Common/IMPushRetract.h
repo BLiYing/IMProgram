@@ -29,12 +29,22 @@ FOUNDATION_EXPORT BOOL IMPushUserInfoMatchesMessage(NSDictionary *_Nullable user
 FOUNDATION_EXPORT BOOL IMPushUserInfoReadThrough(NSDictionary *_Nullable userInfo,
                                                  NSString *_Nullable convID, int64_t upTo);
 
+/// 纯函数：这条通知的 userInfo 指的消息，seq 在不在 convSeqs 这个集合里（多选批量撤回/删除用）。
+FOUNDATION_EXPORT BOOL IMPushUserInfoMatchesAnyMessage(NSDictionary *_Nullable userInfo,
+                                                       NSString *_Nullable convID,
+                                                       NSSet<NSNumber *> *_Nullable convSeqs);
+
 /// 纯函数：解析服务端「已读清通知」推送（`conv_id` + `clear_up_to`，PROTOCOL §6.14）。不是这类推送返回 NO。
 FOUNDATION_EXPORT BOOL IMPushReadClearFromPayload(NSDictionary *_Nullable userInfo,
                                                   NSString *_Nullable *_Nonnull convID, int64_t *upTo);
 
 /// 从通知中心移除指向这条消息的已展示通知（异步，任意线程可调；没有匹配的就是空操作）。
 FOUNDATION_EXPORT void IMPushRetractDeliveredNotification(NSString *convID, int64_t convSeq);
+
+/// 批量版：一次扫描通知中心移除指向 convSeqs 里任意一条消息的已展示通知（多选批量撤回/删除用）——
+/// 不要循环调 [IMPushRetractDeliveredNotification]，那是逐条各发一次
+/// `getDeliveredNotificationsWithCompletionHandler:`，选 100 条就是 100 次全量异步扫描。
+FOUNDATION_EXPORT void IMPushRetractDeliveredNotifications(NSString *convID, NSArray<NSNumber *> *convSeqs);
 
 /// 从通知中心移除 convID 里 seq ≤ upTo 的已展示通知（异步，任意线程可调）。
 /// completion 在移除请求发出后调（后台唤醒时据此结束 fetchCompletionHandler），可为 nil。

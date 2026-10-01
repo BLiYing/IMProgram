@@ -30,6 +30,14 @@ BOOL IMPushUserInfoReadThrough(NSDictionary *userInfo, NSString *convID, int64_t
     return [conv isEqualToString:convID] && seq > 0 && seq <= upTo;
 }
 
+BOOL IMPushUserInfoMatchesAnyMessage(NSDictionary *userInfo, NSString *convID, NSSet<NSNumber *> *convSeqs) {
+    if (convID.length == 0 || convSeqs.count == 0) { return NO; }
+    NSString *conv = nil;
+    int64_t seq = 0;
+    if (!IMPushUserInfoTarget(userInfo, &conv, &seq)) { return NO; }
+    return [conv isEqualToString:convID] && [convSeqs containsObject:@(seq)];
+}
+
 BOOL IMPushReadClearFromPayload(NSDictionary *userInfo, NSString **convID, int64_t *upTo) {
     id conv = userInfo[@"conv_id"];
     id seq = userInfo[@"clear_up_to"];
@@ -64,6 +72,14 @@ void IMPushRetractDeliveredNotification(NSString *convID, int64_t convSeq) {
     IMPushRemoveDelivered(^BOOL(NSDictionary *userInfo) {
         return IMPushUserInfoMatchesMessage(userInfo, convID, convSeq);
     }, @"push_notification_retracted", convID, convSeq, nil);
+}
+
+void IMPushRetractDeliveredNotifications(NSString *convID, NSArray<NSNumber *> *convSeqs) {
+    if (convID.length == 0 || convSeqs.count == 0) { return; }
+    NSSet<NSNumber *> *seqSet = [NSSet setWithArray:convSeqs];
+    IMPushRemoveDelivered(^BOOL(NSDictionary *userInfo) {
+        return IMPushUserInfoMatchesAnyMessage(userInfo, convID, seqSet);
+    }, @"push_notifications_retracted_batch", convID, (int64_t)convSeqs.count, nil);
 }
 
 void IMPushClearDeliveredNotificationsReadThrough(NSString *convID, int64_t upTo, void (^completion)(void)) {

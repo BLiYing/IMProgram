@@ -84,8 +84,8 @@ NSArray<NSNumber *> *IMMsgOpBatchDeleteSeqs(NSDictionary *payload) {
     if (!seqs) { return NO; }
     NSString *convID = [payload[@"conv_id"] isKindOfClass:NSString.class] ? payload[@"conv_id"] : @"";
     if (convID.length == 0) { return YES; }
-    // 与单条 applyMsgOpPayload: 同：被删的若还挂在通知中心里，一并收回。
-    for (NSNumber *s in seqs) { IMPushRetractDeliveredNotification(convID, s.longLongValue); }
+    // 与单条 applyMsgOpPayload: 同：被删的若还挂在通知中心里，一并收回；批量版一次扫描，不逐条各扫一遍。
+    IMPushRetractDeliveredNotifications(convID, seqs);
     [self removeLocalMessagesOnQueueInConv:convID seqs:seqs];
     return YES;
 }
@@ -121,8 +121,9 @@ NSArray<NSNumber *> *IMMsgOpBatchDeleteSeqs(NSDictionary *payload) {
                completion:(IMBatchDeleteCompletion)completion {
     NSArray<NSNumber *> *okSeqs = error ? @[] : IMBatchOKSeqs(convSeqs, results);
     if ([kind isEqualToString:@"delete"]) {
-        // 与广播帧同：为所有人删除的那条若还挂在通知中心，一并收回（WS 断着时广播帧要等 sync 才到）。
-        for (NSNumber *s in okSeqs) { IMPushRetractDeliveredNotification(convID, s.longLongValue); }
+        // 与广播帧同：为所有人删除的那条若还挂在通知中心，一并收回（WS 断着时广播帧要等 sync 才到）；
+        // 批量版一次扫描，不逐条各扫一遍。
+        IMPushRetractDeliveredNotifications(convID, okSeqs);
     }
     if (okSeqs.count > 0) {
         dispatch_async(self->_queue, ^{ [self removeLocalMessagesOnQueueInConv:convID seqs:okSeqs]; });
