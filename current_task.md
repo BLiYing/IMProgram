@@ -5,104 +5,13 @@
 
 ## 当前焦点
 
-> **2026-09-30 多选删除两档·改批量接口（2026-10-01 模拟器实测通过，未提交）**：`IMChatViewController+Selection.m` 的
+> **2026-09-30 多选删除两档·改批量接口（2026-10-01 模拟器实测通过，已提交并推送 `74d8ecd`）**：`IMChatViewController+Selection.m` 的
 > `performDeleteSelected` / `performDeleteSelectedForEveryone` → `-runBatchDelete:everyone:`，经新 category
 > `Network/IMSocketManager+BatchDelete`（+ `IMHTTPService+BatchDelete`）一次请求 `POST /messages/hide|delete`，
 > 成功项本地移除、失败汇总一句「N 条删除失败」；走 REST，断线也能删（不再先拦）。`msg_hidden` 批量帧读 `conv_seqs`
 > （`IMMsgHiddenSeqs`）。批量删除广播帧（一帧 `targets`，2026-10-01）走 `applyBatchDeleteFrameOnQueue:`，整批移除只发一次通知（`kIMMsgOpTargetSeqsKey`），聊天页/媒体页一次删完只刷新一次。置顶横幅：`-onMessageRemoved:` 改为无条件调 `-schedulePinnedBannerReload`（+PinnedBanner.m，
 > 0.3s 尾沿合并，代数存关联对象——Private.h 已 72 条到闸），批量结束再触发一次。`IMBatchDeleteTests` 3 例（先看红）；test.sh 667/667。
 > **2026-10-01 模拟器已验**：单聊两档批量、收/发整批一帧、混选只一档、断服务「2 条删除失败」、删置顶消息横幅即消（服务端旁听确认每成员只收一帧）。九宫格逐格选、群主选别人的消息有第二档也已验（2026-10-01）。**已无待验项**（iOS 真机未测，仅模拟器）。
-
-> **2026-09-30 撤回 / 删除后收回通知（iOS 侧）**：设计 `../IMServer/docs/design/PUSH_M5_DESIGN.md` §3.4。
-> App 没在跑时由服务端用同一个 `apns-collapse-id` 把原通知替换成「对方撤回了一条消息」，本端无代码；
-> App 活着时 `IMSocketManager applyMsgOpPayload:`（实时帧与 sync 补到的事件行都走它）调
-> `Common/IMPushRetract`，按通知 userInfo 的 `conv_id`+`conv_seq` 把通知中心里那条（含替换后的撤回提示）移除。
-> 纯判据 `IMPushUserInfoMatchesMessage` + `IMPushRetractTests`。`IMSocketManager.m` 现 1597 行（上限 1600）。
-> 「点通知定位到具体消息」评估后不做：进会话本来停在首条未读，跳过去会把前面的未读标成已读。
-
-> **2026-09-30 修：应用内提示音 / 振动 / 横幅全部不出（已 commit+push）**。根因：`IMSocketManager+Alerts.m` 给通知判定喂的
-> `inCall` 读的是 `IMRtcCall.isStarted`（= 通话引擎已建好，登录后只要通话服务配置齐全就恒 YES），不是"正在通话"，
-> 于是 `IMAlertDecide` 永远判「通话中→静默」。没配通话服务的环境里 `isStarted` 恒 NO，所以一直没暴露。
-> 改为新增 `IMRtcCall.isInCall`（读 Kit `controller.objcPhase`：来电/拨出/接通中/通话中算，空闲与结束页不算，
-> 对齐 im-android `RtcCall.inCall`），纯判据 `IMRtcCallPhaseCountsAsInCall` + `IMRtcCallInCallTests`。
-> 顺带给判定加了一行 debug 日志 `alert_decision …`（只有布尔与会话号）。真机已验：`sound=1 vibrate=1 banner=1 in_call=0`。
-> 同时报的「未读角标出现后立刻消失」不是代码问题：同一账号在**模拟器**上一直停在那个会话页里，来一条它就读一条，
-> 已读同步把真机的未读清掉了（日志 dev=CBE171A0，CoreSimulator 路径）。
-
-> **M5 离线推送 · 第一批 ✅ 代码 + 单测已完成，待真机验（2026-09-30，未开分支——直接在 IMProgram 工作树，
-> 设计 `../IMServer/docs/design/PUSH_M5_DESIGN.md`（§8 全部按推荐），协议 `../IMServer/docs/PROTOCOL.md`
-> §6.12 app_state / §6.13 notify_settings_update / §6.14 APNs payload / §11 push/token·notify-settings，
-> 服务端与安卓/Web 由其他并行 agent 同步实现，本仓只改 iOS）**：
-> - **推送令牌注册**：`Network/IMPushTokenManager.h/.m`（新）——`start` 订阅 socket 连接态，每次
->   (重)连成功即 `registerIfEligible`（已登录 + 系统通知已授权 + 本机「接收离线推送」开 → 调
->   `registerForRemoteNotifications`，幂等廉价，符合"每次启动/登录都上报"的要求）；
->   `didRegisterForRemoteNotificationsWithDeviceToken:` 转 hex、读 `embedded.mobileprovision` 判环境
->   （development→sandbox，缺失/production/解析失败→production）、取 `IMLocalization.shared.language`
->   当 locale，`PUT /api/v1/push/token`。纯函数 `IMPushTokenHexFromData`/`IMPushEnvironmentFromMobileProvisionData`
->   可单测（后者用构造的「类 CMS」样例数据，不依赖真机签名包）。
-> - **`Common/IMPushSettings.h/.m`**（新）：「接收离线推送（本设备）」开关，`NSUserDefaults` 本地偏好，
->   默认开；与账号级 `IMNotificationSettings` 是两类不同的东西（这个只管"这台设备要不要注册令牌"）。
-> - **app_state 上行帧**：`Network/IMSocketManager+Push.h/.m`（新 category，主实现 `IMSocketManager.m`
->   已在体量门禁登记欠账、1600 行封顶只准降不准升，新逻辑一律不进主文件——本批净增 2 行：
->   握手成功处补一次 `sendForegroundAppStateIfActive` 调用、`handleFrame` 未识别分支改派发到本
->   category 的 `handleAdditionalFrameType:payload:`）。`SceneDelegate` 的 `sceneDidEnterBackground`/
->   `sceneWillEnterForeground` 各调一次 `noteAppDidEnterBackground`/`noteAppDidBecomeActive`。
-> - **notify_settings_update 下行帧**：同一 category 里 `handleAdditionalFrameType:` 识别并广播
->   `IMSocketDidReceiveNotifySettingsUpdateNotification`（带 version），`IMAccountNotifySettingsSync` 订阅。
-> - **通知点击进会话（含冷启动）**：`AppDelegate` 早设 `UNUserNotificationCenter.delegate`，实现
->   `willPresentNotification`（前台收到时不弹系统横幅——应用内横幅已覆盖）与
->   `didReceiveNotificationResponse`（纯函数 `IMPushConvIDFromUserInfo` 取 `conv_id` → 记入
->   `Common/IMPendingNotificationRoute.h/.m`（新）。`IMMainTabBarController.viewDidAppear:` 建好即
->   `tryRouteWithHost:userID:`——本地库暂时查不到该会话（冷启动会话列表还没同步下来）时线性退避重试
->   最多 6 次（约 10.5s 窗口）后放弃，避免无限占着）。
-> - **App 图标角标**：`IMUnreadBadge.h/.m` 新增 `IMApplyAppIconBadge(n)`（iOS 16+ 走
->   `UNUserNotificationCenter.setBadgeCount:`，15 走 `applicationIconBadgeNumber`），挂在
->   `IMConversationListViewController.refreshListIndicators`（本页数据变更/回前台的唯一咽喉）——与
->   Tab 未读蓝点同一口径同一入参 `IMNotificationSettings.shared.badgeIncludeMuted`。
-> - **设置页「锁屏与后台通知」做实**（`Modules/Me/IMNotificationSettingsViewController.m`，移除
->   `im_showComingSoon` 占位）：「通知权限」行异步查 `UNUserNotificationCenter` 三态（已开启/未开启/
->   未设置），`viewWillAppear`/`UIApplicationDidBecomeActiveNotification` 都刷新；点击按状态分支
->   （未决定→请求系统授权；已拒绝→弹 `permission_denied_hint`+`open_settings` 引导；已开启→直接跳
->   `UIApplicationOpenSettingsURLString`）。「接收离线推送」真开关，脚注换 `notif.system.footer_apns`。
->   登录后第一次进主页（`IMMainTabBarController.viewDidAppear:` 首次）直接请求系统通知授权
->   （`IMPushTokenManager.requestAuthorizationOnFirstMainScreen`）。
-> - **账号级通知设置迁移/同步**（私聊/群聊 `{enabled,preview,sound}` + `badge.include_muted` 从每设备
->   本地迁到账号级）：纯逻辑 `Common/IMNotifySettingsMigration.h/.m`（`IMNotifySettingsSyncDecideAction`
->   判定 Push/ApplyServer——`dirty` 优先于 `serverExists`；`IMNotifySettingsShouldRefetchForVersion`；
->   JSON↔值对象互转，容错回默认、提示音复用 `IMNotificationSoundIDNormalize`）+ 编排
->   `Network/IMAccountNotifySettingsSync.h/.m`（写法照抄 `IMDownloadSettingsStore`：socket 连上/收到
->   `notify_settings_update` 都 `refresh`；`exists=false`→PUT 本地现值迁移，`exists=true`→覆盖本地
->   `IMNotificationSettings` 私聊/群聊/角标三项；本地任一改动广播 `IMNotificationSettingsDidChangeNotification`
->   →立即 PUT，失败置 `im.notify.sync.dirty`，下次 `refresh` 优先重推而不是被服务端旧值覆盖）。
->   **应用内三项（声音/振动/横幅）与桌面音量仍是每设备本地，不受影响**。安卓/Web 实现同一套迁移语义，
->   互相对齐见 `IMNotifySettingsMigration.h` 头注释（本批未碰 `SYMMETRY.md`，留给协调者登记）。
-> - **新增 HTTP 端点**：`Network/IMHTTPService+Push.h/.m`（新 category）——
->   `PUT/DELETE /api/v1/push/token`、`GET/PUT /api/v1/notify-settings`。
-> - **`IMProtocol.h/.m`** 加 `kIMTypeAppState`("app_state")、`kIMTypeNotifySettingsUpdate`("notify_settings_update")。
-> - **新日志 Tag**：`IMLogTagPush`/`IMLogPush`（`IM.PUSH`，事件名 `push_*`/`notify_settings_*`），已按
->   `docs/LOGGING.md` 规则登记该文档（新领域、长期存在）。
-> - **测试**（新增 `IMProgramTests/IMPushTokenManagerTests.m`/`IMPendingNotificationRouteTests.m`/
->   `IMNotifySettingsMigrationTests.m`，共约 20 例纯函数用例）：hex 转换、mobileprovision 环境解析（含
->   development/production/缺字段/空数据/无 plist 标记/标记间内容损坏六种边界）、通知 userInfo→conv_id
->   解析、同步动作判定（dirty 优先级）、版本比较、设置 JSON 往返。均做过一次真实变异验红后改回
->   （改错 hex 大小写、development/production 映射对调、conv_id 类型校验去掉、忽略 dirty 优先级、
->   sound 字段名拼错）。`./scripts/test.sh` 输出见下方「测试结果」，跑绿后填入本节。
-> - **没做 / 已知限制**：
->   1. **冷启动路由查不到会话的极端情况**：若推送对应的会话是「本机从未见过」的全新会话（如新联系人
->      第一条消息、App 恰好在这条消息落库前就被杀），`IMPendingNotificationRoute` 重试 10.5s 后放弃，
->      用户点通知会进主页而不是直接进会话——之后手动点会话列表能看到。真机验证清单第 5 条。
->   2. **`GET /api/v1/notify-settings` 首次迁移与「本地 dirty 值」的极端并发**未做更细的时序保护：
->      若迁移 PUT 与用户几乎同时在设置页改了值，理论上有一次写入被覆盖的窗口（概率极低，未做锁）。
->   3. **推送权限被拒后的「已拒绝」态没有引导去开『消息预览』等替代方案**，只按设计给了系统设置跳转。
->   4. `IMServer/docs/CLIENT_PARITY.md`/`SYMMETRY.md` 本批未碰（任务明确限定「只改 IMProgram」）。
-> - **需要真机验证**（模拟器/单测测不出）：
->   1. 登录后首次进主页系统授权弹窗的时机与文案；
->   2. App 切后台/回前台时抓包确认 `app_state` 帧确实发出（模拟器无法真实触发 App Store 级挂起）；
->   3. 真实收到 APNs 推送：后台/被上划杀掉/锁屏三态下点击通知能否冷启动直接进对应会话；
->   4. App 图标角标与 Tab 未读蓝点是否始终一致（含免打扰/@我穿透场景）；
->   5. 冷启动点通知但本地会话未同步完成时的重试体验（见上「没做」第 1 条）；
->   6. 设置页「通知权限」三态在系统设置里切换后回到本页是否及时刷新；
->   7. 关闭「接收离线推送」后确认服务端令牌被删、且此后不再收到推送。
 
 ## 下一步
 1. **M5 第一批真机验证**（清单见上「当前焦点」）——服务端/安卓/Web 并行实现完成后，协调者统一在真机上
