@@ -3,12 +3,9 @@
 //  立即画首字母+稳定取色底（无空白闪烁），随后异步加载图片覆盖；cell 复用安全。
 
 #import <UIKit/UIKit.h>
+#import "IMAvatarPlaceholder.h" // IMAvatarInitials：头像圈 / 导航头像 / 详情头图 / 通知扩展共用同一规则
 
 NS_ASSUME_NONNULL_BEGIN
-
-/// 首字母圈的显示字符：取名字末两位（中文名去姓留名/英文名取尾），不足两位原样。
-/// 头像圈（本 category）/ 聊天页导航头像 / 详情头图共用同一规则，改动只此一处。
-FOUNDATION_EXPORT NSString *IMAvatarInitials(NSString *_Nullable name);
 
 @interface UILabel (IMAvatar)
 

@@ -72,6 +72,7 @@
 		45595E8538DD653BEEB2CA9C /* Exceptions for "IMProgram" folder in "IMNotificationService" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				Common/IMAvatarPlaceholder.m,
 				Common/IMPushAvatarCache.m,
 				Common/IMPushSender.m,
 			);
@@ -113,15 +114,11 @@
 		};
 		B2853AF42FDD41A800896F20 /* IMProgramTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = IMProgramTests;
 			sourceTree = "<group>";
 		};
 		B2853AFE2FDD41A800896F20 /* IMProgramUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = IMProgramUITests;
 			sourceTree = "<group>";
 		};

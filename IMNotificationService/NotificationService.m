@@ -7,7 +7,9 @@
 //
 //  头像先查缓存（IMPushAvatarCache，按内容寻址的地址存，换头像自动换）；没命中才下载，发送人与群头像
 //  **同时**下，整体最多等 kIMAvatarDeadline。下载失败（手机连不上 IM 服务器——开发期服务器在局域网，
-//  手机锁屏切到蜂窝时最常见）退回这个人 / 群「最近一次的头像」，再没有才不带头像。群没设群头像时用发送人头像。
+//  手机锁屏切到蜂窝时最常见）退回这个人 / 群「最近一次的头像」。群没设群头像时用发送人头像。
+//  还是没有（对方没设头像，或新人头一回发消息、缓存里没有又下载不到）就画 App 内同款首字母头像——
+//  通信通知没图时系统会退回 App 图标，看不出是谁。
 //  任何一步失败都退回原样展示——头像是锦上添花，绝不能让通知因此丢掉或晚到。系统给扩展约 30 秒，
 //  超时会调 serviceExtensionTimeWillExpire，同样原样交出。
 //
@@ -18,9 +20,12 @@
 #import <os/log.h>
 #import "IMPushSender.h"
 #import "IMPushAvatarCache.h"
+#import "IMAvatarPlaceholder.h"
 
 /// 取头像（两张并行）的总时限：头像 ≤256px、几十 KB，连得上时远够；连不上时宁可用旧头像也别拖住通知。
 static const NSTimeInterval kIMAvatarDeadline = 3;
+/// 首字母占位头像的边长（像素），与服务端头像同档。
+static const CGFloat kIMPlaceholderSide = 256;
 
 @interface NotificationService : UNNotificationServiceExtension
 @property (nonatomic, copy) void (^contentHandler)(UNNotificationContent *content);
@@ -69,9 +74,17 @@ static os_log_t IMExtLog(void) {
         [lock lock];
         BOOL first = !done;
         done = YES;
-        NSData *a = avatar, *g = groupAvatar ?: avatar; // 群没设群头像：用发送人头像，别让系统退回 App 图标
+        NSData *a = avatar, *g = groupAvatar ?: avatar; // 群没设群头像：用发送人头像
         [lock unlock];
         if (!first) { return; }
+        NSString *groupTitle = weakSelf.original.title;
+        // 都没有（没设头像 / 新人头一回、没缓存又下载不到）：画 App 内同款首字母头像，别让系统退回 App 图标
+        BOOL senderPlaceholder = a == nil, groupPlaceholder = sender.isGroup && g == nil;
+        if (senderPlaceholder) { a = IMAvatarPlaceholderPNG(sender.senderName, sender.senderID, kIMPlaceholderSide); }
+        if (groupPlaceholder) { g = IMAvatarPlaceholderPNG(groupTitle, sender.convID, kIMPlaceholderSide); }
+        if (senderPlaceholder || groupPlaceholder) {
+            os_log(IMExtLog(), "push_avatar_placeholder sender=%d group=%d", senderPlaceholder, groupPlaceholder);
+        }
         [weakSelf finishWithSender:sender
                             avatar:a ? [INImage imageWithImageData:a] : nil
                         groupImage:(sender.isGroup && g) ? [INImage imageWithImageData:g] : nil];

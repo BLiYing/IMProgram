@@ -22,10 +22,6 @@ static UIImage *IMSystemAvatarImage(void) {
     return [UIImage imageNamed:name ?: @"LaunchLogo"];
 }
 
-NSString *IMAvatarInitials(NSString *_Nullable name) {
-    return name.length >= 2 ? [name substringFromIndex:name.length - 2] : (name ?: @"");
-}
-
 @implementation UILabel (IMAvatar)
 
 - (void)im_setAvatarURL:(nullable NSString *)url seed:(NSString *)seed displayName:(nullable NSString *)displayName {
