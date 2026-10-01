@@ -55,4 +55,23 @@
     XCTAssertNotNil(IMAvatarPlaceholderPNG(nil, @"1000156391", 32));
 }
 
+/// 结尾是 emoji（辅助平面字符，UTF-16 用一对代理对表示，不是汉字）：退回取首字母，
+/// 且取组合字符序列时不会把代理对拆成半个（拆了会是无效字符甚至抛异常）。
+- (void)testTrailingEmojiFallsBackToFirstGraphemeSafely {
+    NSString *name = @"小😀"; // 😀 = U+1F600，两个 UTF-16 code unit
+    XCTAssertEqualObjects(IMAvatarInitials(name), @"小");
+}
+
+/// 扩展区汉字（辅助平面，代理对表示）同样要识别成汉字、取末字整体，不是半个代理对。
+- (void)testSupplementaryPlaneHanCharacterIsRecognized {
+    NSString *name = [@"小" stringByAppendingString:@"\U00020000"]; // U+20000，CJK 扩展 B 的第一个字
+    XCTAssertEqualObjects(IMAvatarInitials(name), @"\U00020000");
+}
+
+/// 扩展 C 起更冷门的辅助平面汉字（如 U+2A700）同样要识别——范围覆盖到整个辅助表意平面，不只 B。
+- (void)testSupplementaryPlaneExtensionCHanCharacterIsRecognized {
+    NSString *name = [@"小" stringByAppendingString:@"\U0002A700"]; // U+2A700，CJK 扩展 C 的第一个字
+    XCTAssertEqualObjects(IMAvatarInitials(name), @"\U0002A700");
+}
+
 @end

@@ -2,8 +2,31 @@
 
 #import "IMAvatarPlaceholder.h"
 
+/// 组合字符序列（NSString 的「一个字」，含变体选择符/组合标记，emoji 不会被切半）首个 Unicode 标量，
+/// 用来判断这个字是不是汉字。surrogate pair（辅助平面字符，如扩展区汉字）按一对 UTF-16 代码单元解码。
+static UInt32 IMFirstScalar(NSString *s) {
+    if (s.length == 0) { return 0; }
+    unichar c0 = [s characterAtIndex:0];
+    if (s.length > 1 && CFStringIsSurrogateHighCharacter(c0) && CFStringIsSurrogateLowCharacter([s characterAtIndex:1])) {
+        return CFStringGetLongCharacterForSurrogatePair(c0, [s characterAtIndex:1]);
+    }
+    return c0;
+}
+
+/// CJK 统一表意文字：基本区 + 兼容区 + 全部辅助平面扩展区（B 起，含 C/D/E/F/G…，该平面几乎全部留给 CJK 扩展）。
+static BOOL IMIsHanScalar(UInt32 u) {
+    return (u >= 0x4E00 && u <= 0x9FFF) || (u >= 0x3400 && u <= 0x4DBF)
+        || (u >= 0xF900 && u <= 0xFAFF) || (u >= 0x20000 && u <= 0x3FFFD);
+}
+
 NSString *IMAvatarInitials(NSString *_Nullable name) {
-    return name.length >= 2 ? [name substringFromIndex:name.length - 2] : (name ?: @"");
+    NSString *t = [name stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (t.length == 0) { return @""; }
+    NSRange lastRange = [t rangeOfComposedCharacterSequenceAtIndex:t.length - 1];
+    NSString *last = [t substringWithRange:lastRange];
+    if (IMIsHanScalar(IMFirstScalar(last))) { return last; } // 中文名：取末字
+    NSRange firstRange = [t rangeOfComposedCharacterSequenceAtIndex:0];
+    return [[t substringWithRange:firstRange] uppercaseString]; // 英文名/用户名：取首字母，大写
 }
 
 UIColor *IMAvatarSeedColor(NSString *_Nullable seed) {

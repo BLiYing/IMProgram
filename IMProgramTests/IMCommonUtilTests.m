@@ -19,9 +19,11 @@
 }
 
 - (void)testAvatarInitialsRule {
-    XCTAssertEqualObjects(IMAvatarInitials(@"张三丰"), @"三丰", @"取末两位");
-    XCTAssertEqualObjects(IMAvatarInitials(@"Bob"), @"ob");
-    XCTAssertEqualObjects(IMAvatarInitials(@"甲"), @"甲", @"不足两位原样");
+    // 2026-10-01 改：中文名取末字，英文名/用户名取首字母并转大写（三端同口径，见 IMAvatarPlaceholder.h）。
+    XCTAssertEqualObjects(IMAvatarInitials(@"张三丰"), @"丰", @"中文名取末字");
+    XCTAssertEqualObjects(IMAvatarInitials(@"bob"), @"B", @"英文名取首字母并转大写");
+    XCTAssertEqualObjects(IMAvatarInitials(@"甲"), @"甲", @"单字中文名原样");
+    XCTAssertEqualObjects(IMAvatarInitials(@"用户1001"), @"用", @"中文开头+数字：末字不是汉字，退回取首字母");
     XCTAssertEqualObjects(IMAvatarInitials(@""), @"");
     XCTAssertEqualObjects(IMAvatarInitials(nil), @"", @"nil 安全");
 }

@@ -9,7 +9,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface UILabel (IMAvatar)
 
-/// url：data:/http(s)，可空（空=只显首字母圈）。seed：稳定取色种子（一般 uid）。displayName：取末两位作首字母。
+/// url：data:/http(s)，可空（空=只显首字母圈）。seed：稳定取色种子（一般 uid）。displayName：取首字母（见 IMAvatarInitials）。
 - (void)im_setAvatarURL:(nullable NSString *)url seed:(NSString *)seed displayName:(nullable NSString *)displayName;
 
 /// 复用为「非图片头像」（如 @所有人 的纯色 @ 圆）前调用：隐藏并清掉覆盖用 UIImageView，

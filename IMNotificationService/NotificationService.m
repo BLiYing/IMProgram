@@ -5,11 +5,15 @@
 //  群聊另有 group_avatar / bare_body）。系统先把通知交给这里：下载头像 → 组一个 INSendMessageIntent
 //  → 用它把通知改成「通信通知」样式（左边是发送人头像，App 图标缩到右下角），同 iMessage / WhatsApp。
 //
-//  头像先查缓存（IMPushAvatarCache，按内容寻址的地址存，换头像自动换）；没命中才下载，发送人与群头像
-//  **同时**下，整体最多等 kIMAvatarDeadline。下载失败（手机连不上 IM 服务器——开发期服务器在局域网，
-//  手机锁屏切到蜂窝时最常见）退回这个人 / 群「最近一次的头像」。群没设群头像时用发送人头像。
-//  还是没有（对方没设头像，或新人头一回发消息、缓存里没有又下载不到）就画 App 内同款首字母头像——
-//  通信通知没图时系统会退回 App 图标，看不出是谁。
+//  头像先查缓存（IMPushAvatarCache，按内容寻址的地址存，换头像自动换）；没命中才下载。下载失败
+//  （手机连不上 IM 服务器——开发期服务器在局域网，手机锁屏切到蜂窝时最常见）退回这个人 / 群
+//  「最近一次的头像」。还是没有（没设头像，或新人头一回发消息、缓存里没有又下载不到）就画 App 内
+//  同款首字母头像——通信通知没图时系统会退回 App 图标，看不出是谁。
+//
+//  **群聊通知固定显示群头像（2026-10-02 改），不管谁发的消息**：同 App 内会话列表（群头像 /
+//  群首字母圈，与发消息的人是谁无关），也同主流 IM。之前「群没设群头像时退回发送人头像」会导致
+//  同一个群的通知忽而显示这个人、忽而显示那个人，像是来自不同的群；且群聊干脆不下载发送人头像，
+//  省一次网络请求。私聊仍是对方头像 → 对方最近一次的头像 → 对方首字母头像。
 //  任何一步失败都退回原样展示——头像是锦上添花，绝不能让通知因此丢掉或晚到。系统给扩展约 30 秒，
 //  超时会调 serviceExtensionTimeWillExpire，同样原样交出。
 //
@@ -52,19 +56,21 @@ static os_log_t IMExtLog(void) {
     }
     [IMPushAvatarCache.shared evictIfNeeded];
 
-    // 两张头像并行取；到点还没回来的当没有。结果只在 lock 内读写，finish 只交一次（finishWith: 自己保证）。
+    // 群聊只取群头像；私聊只取对方头像——不是对方发的群消息，不该拿它的头像顶群的位置。
+    // 两张头像从不同时取（本来也是互斥的），到点还没回来的当没有。
     NSLock *lock = [NSLock new];
     __block NSData *avatar = nil, *groupAvatar = nil;
     dispatch_group_t group = dispatch_group_create();
-    dispatch_group_enter(group);
-    [self loadAvatarAtPath:sender.avatarPath owner:[@"u:" stringByAppendingString:sender.senderID] completion:^(NSData *data) {
-        [lock lock]; avatar = data; [lock unlock];
-        dispatch_group_leave(group);
-    }];
     if (sender.isGroup) {
         dispatch_group_enter(group);
         [self loadAvatarAtPath:sender.groupAvatarPath owner:[@"g:" stringByAppendingString:sender.convID] completion:^(NSData *data) {
             [lock lock]; groupAvatar = data; [lock unlock];
+            dispatch_group_leave(group);
+        }];
+    } else {
+        dispatch_group_enter(group);
+        [self loadAvatarAtPath:sender.avatarPath owner:[@"u:" stringByAppendingString:sender.senderID] completion:^(NSData *data) {
+            [lock lock]; avatar = data; [lock unlock];
             dispatch_group_leave(group);
         }];
     }
@@ -74,12 +80,12 @@ static os_log_t IMExtLog(void) {
         [lock lock];
         BOOL first = !done;
         done = YES;
-        NSData *a = avatar, *g = groupAvatar ?: avatar; // 群没设群头像：用发送人头像
+        NSData *a = avatar, *g = groupAvatar;
         [lock unlock];
         if (!first) { return; }
         NSString *groupTitle = weakSelf.original.title;
         // 都没有（没设头像 / 新人头一回、没缓存又下载不到）：画 App 内同款首字母头像，别让系统退回 App 图标
-        BOOL senderPlaceholder = a == nil, groupPlaceholder = sender.isGroup && g == nil;
+        BOOL senderPlaceholder = !sender.isGroup && a == nil, groupPlaceholder = sender.isGroup && g == nil;
         if (senderPlaceholder) { a = IMAvatarPlaceholderPNG(sender.senderName, sender.senderID, kIMPlaceholderSide); }
         if (groupPlaceholder) { g = IMAvatarPlaceholderPNG(groupTitle, sender.convID, kIMPlaceholderSide); }
         if (senderPlaceholder || groupPlaceholder) {
