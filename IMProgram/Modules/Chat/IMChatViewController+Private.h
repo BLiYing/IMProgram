@@ -257,6 +257,8 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 
 // 顶部三横幅栈（G0 置顶 / G1 公告 / G2 禁言锁 / G3 入群申请，+PinnedBanner.m）：主实现与 +Menu 互调：
 - (void)reloadPinnedBanner;
+/// 合并重拉置顶横幅（0.3s 尾沿防抖）：批量删除 / 连续「消息被移除」只拉一次。
+- (void)schedulePinnedBannerReload;
 - (NSInteger)approvalPendingCount;
 - (void)maybeAutoPopAnnouncement;
 - (void)refreshComposerMuteState;

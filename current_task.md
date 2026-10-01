@@ -5,14 +5,13 @@
 
 ## 当前焦点
 
-> **2026-09-30 多选删除补齐两档（未真机）**：`IMChatViewController+Selection.m`。
-> 「仅删除自己」此前 `performDeleteSelected` **只删本机库 + 内存**（换设备/重装消息全回来），现逐条走
-> `IMSocketManager hideMessageInConv:`（与单条长按同一条路），失败弹「N 条删除失败」；所选**全部**有权时气泡多一档
-> 「为所有人删除」（`performDeleteSelectedForEveryone`，未连接先拦、留在多选态）。整批判据
-> `IMChatSelectionAllDeletableForEveryone`（全有或全无）+ `IMChatSelectionTests` 4 例（先看红）。
-> `-onMessageRemoved:` 改为只在命中置顶横幅时才重拉置顶（批量删除不再逐条发请求）。test.sh 664/664。
-> **真机待验**：① 多选含九宫格若干格 → 仅删除自己 → 另一台设备同步消失；② 全选自己发的 → 出现第二档 → 对方也消失；
-> ③ 混选别人的消息 → 只有一档；④ 群主/管理员选别人的消息 → 有第二档；⑤ 断网点第二档 → 提示且不退出多选。
+> **2026-09-30 多选删除两档·改批量接口（2026-10-01 模拟器实测通过，未提交）**：`IMChatViewController+Selection.m` 的
+> `performDeleteSelected` / `performDeleteSelectedForEveryone` → `-runBatchDelete:everyone:`，经新 category
+> `Network/IMSocketManager+BatchDelete`（+ `IMHTTPService+BatchDelete`）一次请求 `POST /messages/hide|delete`，
+> 成功项本地移除、失败汇总一句「N 条删除失败」；走 REST，断线也能删（不再先拦）。`msg_hidden` 批量帧读 `conv_seqs`
+> （`IMMsgHiddenSeqs`）。批量删除广播帧（一帧 `targets`，2026-10-01）走 `applyBatchDeleteFrameOnQueue:`，整批移除只发一次通知（`kIMMsgOpTargetSeqsKey`），聊天页/媒体页一次删完只刷新一次。置顶横幅：`-onMessageRemoved:` 改为无条件调 `-schedulePinnedBannerReload`（+PinnedBanner.m，
+> 0.3s 尾沿合并，代数存关联对象——Private.h 已 72 条到闸），批量结束再触发一次。`IMBatchDeleteTests` 3 例（先看红）；test.sh 667/667。
+> **2026-10-01 模拟器已验**：单聊两档批量、收/发整批一帧、混选只一档、断服务「2 条删除失败」、删置顶消息横幅即消（服务端旁听确认每成员只收一帧）。九宫格逐格选、群主选别人的消息有第二档也已验（2026-10-01）。**已无待验项**（iOS 真机未测，仅模拟器）。
 
 > **2026-09-30 撤回 / 删除后收回通知（iOS 侧）**：设计 `../IMServer/docs/design/PUSH_M5_DESIGN.md` §3.4。
 > App 没在跑时由服务端用同一个 `apns-collapse-id` 把原通知替换成「对方撤回了一条消息」，本端无代码；

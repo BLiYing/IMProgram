@@ -4,6 +4,7 @@
 #import "IMLocalization.h"
 #import "IMServerEndpoint.h"
 #import "IMSocketManager+Private.h"
+#import "IMSocketManager+BatchDelete.h"
 #import "IMDatabase+Ranges.h"   // 区间清单：window_resp 落库后登记本窗覆盖段
 #import "IMBacklogTracker.h"
 #import "IMChatWindowPlan.h"
@@ -391,14 +392,11 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
     } else if ([type isEqualToString:kIMTypeGroup]) {
         [self handleGroupEvent:payload];
     } else if ([type isEqualToString:kIMTypeMsgOp]) {
-        [self applyMsgOpPayload:payload];
+        if (![self applyBatchDeleteFrameOnQueue:payload]) { [self applyMsgOpPayload:payload]; } // 批量删除一帧带 targets（§6.7.2）
     } else if ([type isEqualToString:kIMTypeMsgHidden]) {
-        // 「仅为我删除」多设备同步（任务2）：本人另一端删了 → 本端物理移除。
+        // 「仅为我删除」多设备同步（任务2）：本人另一端删了 → 本端物理移除。批量隐藏合成一帧带 conv_seqs（PROTOCOL §6.7.1）。
         NSString *convID = [payload[@"conv_id"] isKindOfClass:[NSString class]] ? payload[@"conv_id"] : @"";
-        int64_t convSeq = [payload[@"conv_seq"] longLongValue];
-        if (convID.length > 0 && convSeq > 0) {
-            [self removeLocalMessageOnQueueInConv:convID targetConvSeq:convSeq advancingSyncedConvSeq:0];
-        }
+        [self removeLocalMessagesOnQueueInConv:convID seqs:IMMsgHiddenSeqs(payload)];
     } else if ([type isEqualToString:kIMTypeVoiceTranscript]) {
         // 语音转文字结果（服务端识别）：只广播，由聊天页的转写面板消费。
         NSString *convID = [payload[@"conv_id"] isKindOfClass:NSString.class] ? payload[@"conv_id"] : @"";

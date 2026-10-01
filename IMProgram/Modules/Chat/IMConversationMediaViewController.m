@@ -10,6 +10,7 @@
 #import "IMMenuAction.h"
 #import "IMPopoverCard.h"
 #import "IMSocketManager.h" // IMSocketDidRemoveMessageNotification：长按删除后就地移除该格
+#import "IMSocketManager+BatchDelete.h" // IMRemovedMessageSeqs
 #import "IMLocalization.h"
 
 @implementation IMMediaItem
@@ -123,13 +124,14 @@
 /// 某条消息被物理移除（为所有人删除 / 仅为我删除）→ 按 convID+convSeq 从快照删格并刷新；删到空显空态。
 - (void)onMessageRemoved:(NSNotification *)note {
     NSString *convID = note.userInfo[kIMConvIDKey];
-    int64_t seq = [note.userInfo[kIMMsgOpTargetSeqKey] longLongValue];
-    if (convID.length == 0 || seq <= 0) { return; }
+    // 批量删除只来一次通知，带全部 seq（IMRemovedMessageSeqs）；单条就是一元集合。
+    NSSet<NSNumber *> *gone = [NSSet setWithArray:IMRemovedMessageSeqs(note.userInfo)];
+    if (convID.length == 0 || gone.count == 0) { return; }
     // 观察者按 object:nil 注册（任何会话的删除都会进来），绝大多数命不中本页快照——
     // 先只读扫一遍，无命中直接返回，别为不相干的通知白付两次全量 mutableCopy。
     BOOL hit = NO;
     for (IMMessageModel *m in _messages) {
-        if (m.convSeq == seq && (m.convID.length == 0 || [m.convID isEqualToString:convID])) { hit = YES; break; }
+        if ([gone containsObject:@(m.convSeq)] && (m.convID.length == 0 || [m.convID isEqualToString:convID])) { hit = YES; break; }
     }
     if (!hit) { return; }
     NSMutableArray<IMMediaItem *> *items = [_items mutableCopy];
@@ -138,7 +140,7 @@
     for (NSInteger i = (NSInteger)msgs.count - 1; i >= 0; i--) {
         IMMessageModel *m = msgs[(NSUInteger)i];
         // 本页快照全部来自同一会话：convID 缺失（个别本地模型未回填）时按 seq 匹配即可，不至跨会话误删。
-        if (m.convSeq == seq && (m.convID.length == 0 || [m.convID isEqualToString:convID])) {
+        if ([gone containsObject:@(m.convSeq)] && (m.convID.length == 0 || [m.convID isEqualToString:convID])) {
             [msgs removeObjectAtIndex:(NSUInteger)i];
             if (i < (NSInteger)items.count) { [items removeObjectAtIndex:(NSUInteger)i]; }
             changed = YES;

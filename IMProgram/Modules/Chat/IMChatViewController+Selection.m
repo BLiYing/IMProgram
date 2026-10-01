@@ -4,6 +4,7 @@
 
 #import "IMCallRecord.h"
 #import "IMChatViewController+Private.h"
+#import "IMSocketManager+BatchDelete.h"
 #import "IMMessageModel.h"
 #import "IMChatMessageLogic.h"
 #import "IMConversation.h"
@@ -33,9 +34,6 @@ static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索�
 /// 三套阈值＝三套文案，用户记不住、我们也难维护。不限的话「选 200 条 × 9 个会话」会串行发出 1800 条。
 /// 服务端另有独立上限（举报 100 条/单、收藏 300 次/分），那是脚本也绕不过的约束，与本常量互不依赖。
 static const NSUInteger kIMSelectionMaxCount = 100;
-
-/// 多选「仅删除自己」同时在途的请求数（见 -performDeleteSelected）。
-static const NSUInteger kIMBatchHideLanes = 4;
 
 /// 从勾选集导出「已选消息」，**按 conv_seq 升序**（= 会话时序）。
 ///
@@ -666,55 +664,48 @@ BOOL IMChatSelectionAllDeletableForEveryone(NSArray<IMMessageModel *> *msgs, BOO
     [self exitSelection];
 }
 
-/// 多选「仅删除自己」（确认已由删除钮上方的气泡完成，此处不再二次确认）：逐条走 hide——
-/// 落服务端 per-user 隐藏表 + 同步本人其它设备，与单条长按那一档是同一条路（`-hideMessageForSelf:`）。
+/// 多选「仅删除自己」（确认已由删除钮上方的气泡完成，此处不再二次确认）：一次批量 hide（PROTOCOL §6.7.1）——
+/// 落服务端 per-user 隐藏表 + 同步本人其它设备，与单条长按那一档同一张表（`-hideMessageForSelf:`）。
 ///
-/// 此前这里只删本机库 + 内存（按钮却与单条那档同名）：换台设备、或重装后消息全回来了。
-/// 本地移除统一交给 IMSocketManager 成功后发的 IMSocketDidRemoveMessageNotification（`-onMessageRemoved:`），
-/// 这里不先抹——失败的那几条因此原样留在屏上，与提示的失败条数对得上。
-/// 服务端暂无批量接口，逐条发；上限沿用多选闸 kIMSelectionMaxCount。
-/// **限并发 kIMBatchHideLanes**（同 im-web `runBatch` 的 4）：一口气放出上百个请求，回来时每条各触发一次
-/// 库删除 + 整表 reloadData，主线程会明显卡一下。
+/// 本地移除统一交给成功后发的 IMSocketDidRemoveMessageNotification（`-onMessageRemoved:`），这里不先抹——
+/// 服务端逐条回成败，失败的那几条原样留在屏上，与提示的失败条数对得上。上限沿用多选闸 kIMSelectionMaxCount（=服务端 100）。
 - (void)performDeleteSelected {
     NSArray<IMMessageModel *> *msgs = [self selectedMessages];
     if (msgs.count == 0) { return; } // 按钮禁用兜底：0 选中不弹吐司（a4）
-    NSString *fallbackConvID = self.convID;
     [self exitSelection];
-    __weak typeof(self) ws = self;
-    // 以下计数只在主线程读写（completion 回主线程）。
-    __block NSUInteger next = 0, pending = msgs.count, failed = 0;
-    __block void (^pump)(void) = nil; // 一条"车道"：取下一条去删，回来后接着取；没得取了自然停
-    void (^step)(void) = ^{
-        if (next >= msgs.count) { return; }
-        IMMessageModel *m = msgs[next++];
-        [[IMSocketManager sharedManager] hideMessageInConv:(m.convID ?: fallbackConvID) targetConvSeq:m.convSeq
-                                                completion:^(NSError *error) {
-            if (error) { failed++; }
-            if (--pending == 0) {
-                if (failed > 0) { [ws im_showToast:IMLocalizedFormat(@"chat.select.delete_failed_count", (long)failed)]; }
-                pump = nil; // 全部回来了：断开 block 自引用
-                return;
-            }
-            if (pump) { pump(); }
-        }];
-    };
-    pump = step;
-    for (NSUInteger i = 0; i < MIN(kIMBatchHideLanes, msgs.count); i++) { step(); }
+    [self runBatchDelete:msgs everyone:NO];
 }
 
-/// 多选「为所有人删除」：逐条发 msg_op delete，成功由服务端广播回帧移除，被拒走 reject 通知 → toast。
-/// 未连接时帧会被静默丢掉——先拦住并**留在多选态**，别让用户以为删掉了。
+/// 多选「为所有人删除」：一次批量 delete（PROTOCOL §6.7.2），服务端逐条回成败，被拒的汇总成一句「N 条删除失败」
+/// （不再逐条吐司）。走 REST，WS 断着也删得掉，不必先判连接态。
 - (void)performDeleteSelectedForEveryone {
     NSArray<IMMessageModel *> *msgs = [self selectedMessages];
     __weak typeof(self) ws = self;
     // 弹气泡到点下去之间权限可能变了（被撤管理员）：再判一次，不满足就什么都不做（服务端也会拒）。
     if (!IMChatSelectionAllDeletableForEveryone(msgs, ^BOOL(IMMessageModel *m) { return [ws canDeleteForEveryone:m]; })) { return; }
-    if ([IMSocketManager sharedManager].state != IMSocketStateConnected) {
-        [self im_showToast:IMLocalizedFormat(@"conv.error.delete_failed_detail", IMLocalized(@"conn.state.disconnected"))];
-        return;
-    }
     [self exitSelection];
-    for (IMMessageModel *m in msgs) { [self deleteMessageForEveryone:m]; }
+    [self runBatchDelete:msgs everyone:YES];
+}
+
+/// 两档共用：发一次批量请求 → 失败条数汇总吐司 → **无条件**重拉一次置顶横幅
+/// （删掉的可能正是置顶项，而置顶列表此刻未必已加载完；旧做法只在命中横幅时才拉，会晚一拍）。
+- (void)runBatchDelete:(NSArray<IMMessageModel *> *)msgs everyone:(BOOL)everyone {
+    NSMutableArray<NSNumber *> *seqs = [NSMutableArray arrayWithCapacity:msgs.count];
+    for (IMMessageModel *m in msgs) {
+        if (m.convSeq > 0) { [seqs addObject:@(m.convSeq)]; } // 本地未落库件（≤0）服务端不认识
+    }
+    if (seqs.count == 0) { return; }
+    __weak typeof(self) ws = self;
+    IMBatchDeleteCompletion done = ^(NSUInteger failed) {
+        if (failed > 0) { [ws im_showToast:IMLocalizedFormat(@"chat.select.delete_failed_count", (long)failed)]; }
+        [ws schedulePinnedBannerReload];
+    };
+    IMSocketManager *sock = [IMSocketManager sharedManager];
+    if (everyone) {
+        [sock deleteMessagesForEveryoneInConv:self.convID convSeqs:seqs completion:done];
+    } else {
+        [sock hideMessagesInConv:self.convID convSeqs:seqs completion:done];
+    }
 }
 
 #pragma mark 合并转发数据

@@ -14,6 +14,11 @@
 #import "IMTimeUtil.h"                    // IMNowMillis
 #import "IMAccountIdentity.h"
 #import "IMLocalization.h"
+#import <objc/runtime.h>
+
+/// 置顶横幅重拉合并窗口（见 -schedulePinnedBannerReload）。
+static const NSTimeInterval kIMPinnedReloadCoalesce = 0.3;
+static const void *kIMPinnedReloadGenKey = &kIMPinnedReloadGenKey;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -48,6 +53,21 @@ NS_ASSUME_NONNULL_END
         if (!self || error) { return; }
         self.bannerStack.pinnedItems = items ?: @[]; // setter 内部夹紧索引 + 收起态判定 + 顶开 tableView
     }];
+}
+
+/// 置顶横幅重拉的合并入口：kIMPinnedReloadCoalesce 秒内多次调用只在最后一次之后拉一次（尾沿防抖）。
+/// 批量删除会带来上百条「消息被移除」，逐条重拉就是上百个请求；尾沿（而非 backBadge 那种首沿窗口）
+/// 是因为要的是**删完之后**的置顶集合，首沿那一拉多半落在删除中途。与 im-web `keyedDebounce` 同口径。
+/// 代数存关联对象：Private.h 的 @property 已到体量闸上限（check-file-size.sh PRIVATE_H_MAX）。
+- (void)schedulePinnedBannerReload {
+    NSUInteger gen = [objc_getAssociatedObject(self, kIMPinnedReloadGenKey) unsignedIntegerValue] + 1;
+    objc_setAssociatedObject(self, kIMPinnedReloadGenKey, @(gen), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    __weak typeof(self) ws = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kIMPinnedReloadCoalesce * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        __strong typeof(ws) self = ws;
+        if (!self || [objc_getAssociatedObject(self, kIMPinnedReloadGenKey) unsignedIntegerValue] != gen) { return; }
+        [self reloadPinnedBanner];
+    });
 }
 
 /// 待审批人数：仅群聊且我是群主/管理员才计，其余 0。喂给横幅栈决定是否显 G3 蓝条。

@@ -4,6 +4,7 @@
 //  由主实现 viewDidLoad 用 @selector 接线（观察者身份仍是 VC）。从 IMChatViewController.m 平移，未改行为。
 
 #import "IMChatViewController+Private.h"  // 含 IMSocketManager.h（kIMConvIDKey / kIMMsgOp* 键）
+#import "IMSocketManager+BatchDelete.h"   // IMRemovedMessageSeqs
 #import "IMMediaSendService.h"            // kIMMediaSend* 通知键
 #import "IMMessageModel.h"
 #import "IMPinnedMessage.h"
@@ -212,24 +213,24 @@
     [self im_showToast:msg.length > 0 ? msg : IMLocalized(@"common.action_failed")];
 }
 
-/// 任务2：某条消息被物理移除（为所有人删除 / 仅为我删除）→ 本会话则从消息列表删掉并刷新。
+/// 任务2：消息被物理移除（为所有人删除 / 仅为我删除）→ 本会话则从消息列表删掉并刷新。
+/// 批量删除只来**一次**通知（IMRemovedMessageSeqs 取全集），一次删完、只 reloadData 一次。
 - (void)onMessageRemoved:(NSNotification *)note {
     NSString *convID = note.userInfo[kIMConvIDKey];
     if (![convID isEqualToString:self.convID]) { return; }
-    int64_t target = [note.userInfo[kIMMsgOpTargetSeqKey] longLongValue];
-    if (target <= 0) { return; }
-    NSUInteger idx = NSNotFound;
-    for (NSUInteger i = 0; i < self.windowState.messages.count; i++) {
-        if (self.windowState.messages[i].convSeq == target) { idx = i; break; }
-    }
-    if (idx == NSNotFound) { return; }
-    [self.windowState.messages removeObjectAtIndex:idx];
+    NSArray<NSNumber *> *seqs = IMRemovedMessageSeqs(note.userInfo);
+    if (seqs.count == 0) { return; }
+    // 删掉的若正是一条置顶消息，别让横幅指向已消失的消息。**不看是否命中横幅**（置顶列表还没加载完时会漏判、
+    // 横幅晚一拍），改成合并重拉：短时间内多次移除只拉一次（im-web 同口径）。
+    // 排在「窗口里有没有这条」之前：置顶项完全可能不在当前窗口里。
+    [self schedulePinnedBannerReload];
+    NSSet<NSNumber *> *gone = [NSSet setWithArray:seqs];
+    NSIndexSet *idx = [self.windowState.messages indexesOfObjectsPassingTest:^BOOL(IMMessageModel *m, NSUInteger i, BOOL *stop) {
+        return [gone containsObject:@(m.convSeq)];
+    }];
+    if (idx.count == 0) { return; }
+    [self.windowState.messages removeObjectsAtIndexes:idx];
     [self.tableView reloadData];
-    // 删掉的若正是一条置顶消息，别让横幅指向已消失的消息。只在命中横幅里的置顶项时才重拉：
-    // 多选批量删除一次会来上百条移除通知，逐条无条件重拉就是上百个请求（im-web onMessageRemoved 同口径）。
-    for (IMPinnedMessage *pm in self.bannerStack.pinnedItems) {
-        if (pm.convSeq == target) { [self reloadPinnedBanner]; break; }
-    }
 }
 
 /// 合并刷新入口：消息/已读通知成批到达时，每 0.12s 至多刷一次徽标（避免每条一次全表 SUM）。
