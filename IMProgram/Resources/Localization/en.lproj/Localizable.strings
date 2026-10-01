@@ -1300,6 +1300,7 @@
 "push.group_body" = "%1$@: %2$@";
 "push.mention_body" = "[Mentioned] %1$@";
 "push.message_deleted" = "A message was deleted";
+"push.message_recalled_bare" = "recalled a message";
 "qr.action.add_contact" = "Add to contacts";
 "qr.action.admin_only_note" = "This group now allows invites from admins only, so this invite is no longer valid.";
 "qr.action.apply" = "Request to join";

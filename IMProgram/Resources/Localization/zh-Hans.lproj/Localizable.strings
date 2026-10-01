@@ -1300,6 +1300,7 @@
 "push.group_body" = "%1$@: %2$@";
 "push.mention_body" = "[有人@我] %1$@";
 "push.message_deleted" = "一条消息已被删除";
+"push.message_recalled_bare" = "撤回了一条消息";
 "qr.action.add_contact" = "添加到通讯录";
 "qr.action.admin_only_note" = "该群已改为仅管理员可邀请，此邀请已失效";
 "qr.action.apply" = "申请加入";
