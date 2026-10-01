@@ -74,4 +74,12 @@
     XCTAssertEqualObjects(IMAvatarInitials(name), @"\U0002A700");
 }
 
+/// 大写不能把一个字拆成两个——`-uppercaseString` 的完整 Unicode 大小写折叠会把德语 ß 变成两个字符
+/// "SS"，画到头像圆里就是挤进两个字母。改用简单大写映射，没有大写形式就原样返回。
+- (void)testUppercaseDoesNotSplitOneCharacterIntoTwo {
+    NSString *result = IMAvatarInitials(@"ßtraße99");
+    XCTAssertEqual(result.length, 1u);
+    XCTAssertEqualObjects(result, @"ß"); // ß 没有「简单大写映射」，原样返回，不是 "SS"
+}
+
 @end
