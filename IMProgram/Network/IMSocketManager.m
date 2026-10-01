@@ -1220,6 +1220,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
     if (convID.length == 0) { return; }
     BOOL contextIsCurrent = NO;
     if ([from isEqualToString:self.userID]) {
+        IMPushClearDeliveredNotificationsReadThrough(convID, upTo, nil); // 别的端读过：本机这段的通知也清掉（PUSH_M5 §3.5）
         contextIsCurrent = [self performDatabaseOperation:^(IMDatabase *database) {
             [database markConversation:convID readUpToConvSeq:upTo];
         }];

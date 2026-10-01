@@ -5,6 +5,8 @@
 
 ## 当前焦点
 
+> **2026-10-01 别的端已读后清手机通知/角标**（PUSH_M5_DESIGN §3.5，真机验证通过）：`Common/IMPushRetract` 加 `IMPushClearDeliveredNotificationsReadThrough`；`AppDelegate` 收 `clear_up_to` 推送（Info.plist 新增 `remote-notification` 后台模式）；`handleReceipt` 收本人回执时同样清。`IMSocketManager.m` 现 1596/1600。
+
 > **2026-09-30 多选删除两档·改批量接口（2026-10-01 模拟器实测通过，已提交并推送 `74d8ecd`）**：`IMChatViewController+Selection.m` 的
 > `performDeleteSelected` / `performDeleteSelectedForEveryone` → `-runBatchDelete:everyone:`，经新 category
 > `Network/IMSocketManager+BatchDelete`（+ `IMHTTPService+BatchDelete`）一次请求 `POST /messages/hide|delete`，

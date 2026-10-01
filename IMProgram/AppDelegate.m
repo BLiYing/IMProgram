@@ -13,6 +13,7 @@
 #import "IMPushTokenManager.h"
 #import "IMAccountNotifySettingsSync.h"
 #import "IMPendingNotificationRoute.h"
+#import "IMPushRetract.h"
 #import <UserNotifications/UserNotifications.h>
 
 @interface AppDelegate () <UNUserNotificationCenterDelegate>
@@ -46,6 +47,23 @@
 
 - (void)application:(UIApplication *)application didFailToRegisterForRemoteNotificationsWithError:(NSError *)error {
     [IMPushTokenManager.shared didFailToRegisterForRemoteNotificationsWithError:error];
+}
+
+/// 带 content-available 的推送把挂起中的 App 唤醒（M5，PUSH_M5_DESIGN §3.5）：目前只有「已读清通知」一种——
+/// 本人在别的设备上读过了，删掉通知中心里该会话已读的那几条（角标已由推送本身改好）。
+/// 前台收到的普通推送也会走到这里，认不出是清通知就什么都不做。
+- (void)application:(UIApplication *)application didReceiveRemoteNotification:(NSDictionary *)userInfo
+    fetchCompletionHandler:(void (^)(UIBackgroundFetchResult result))completionHandler {
+    NSString *convID = nil;
+    int64_t upTo = 0;
+    if (!IMPushReadClearFromPayload(userInfo, &convID, &upTo)) {
+        completionHandler(UIBackgroundFetchResultNoData);
+        return;
+    }
+    IMLogPush(@"push_read_clear_received conv_id=%@ up_to=%lld", convID, upTo);
+    IMPushClearDeliveredNotificationsReadThrough(convID, upTo, ^{
+        completionHandler(UIBackgroundFetchResultNoData);
+    });
 }
 
 #pragma mark - UNUserNotificationCenterDelegate（M5）
