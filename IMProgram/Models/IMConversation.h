@@ -70,6 +70,9 @@ NS_ASSUME_NONNULL_BEGIN
 /// 会话备注（G1，PUT …/remark）与好友备注（POST /friends/remark）是两件事：前者只改"这个会话"
 /// 的标题（群聊也能用），后者跟人走（通讯录/选人页也变）。同时存在时按会话备注为准——它更"就近"。
 @property (nonatomic, readonly) NSString *displayName;
+/// 同 displayName，但**兜底的「未命名用户」返回 nil**——传给聊天页/详情页当 peerNickname 用：
+/// 占位文案一旦当昵称传下去就被冻结，下游再也回退不到 peerID，也分不出「没有昵称」和「真叫未命名用户」。
+@property (nonatomic, readonly, nullable) NSString *knownDisplayName;
 
 /// 最后一条消息在列表里的预览正文。系统消息按 lastSysSegments 逐段拼接、名字换成**本机显示名**
 /// （备注 > 昵称），使列表与聊天页里的同一句话一致；无分段（历史消息/非系统消息）回退 lastContent。

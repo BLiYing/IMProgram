@@ -63,4 +63,21 @@
     XCTAssertNil(IMSessionStore.legacyPassword, @"遗留明文密码残留");
 }
 
+/// 本人资料副本：存→读、换号读不到、值类型脏数据被滤掉、clear 擦掉。
+- (void)testMyProfileCacheRoundTrip {
+    XCTAssertNil([IMSessionStore myProfileForUserID:@"1"]);
+    [IMSessionStore saveMyProfile:@{ @"nickname": @"蓝", @"username": @"lan" } userID:@"1"];
+    XCTAssertEqualObjects([IMSessionStore myProfileForUserID:@"1"][@"nickname"], @"蓝");
+    XCTAssertNil([IMSessionStore myProfileForUserID:@"2"], @"换号不能读到上一个账号的资料");
+
+    [NSUserDefaults.standardUserDefaults setObject:@{ @"uid": @"1", @"nickname": @123, @"username": @"lan" }
+                                            forKey:@"im_session_my_profile"];
+    NSDictionary *p = [IMSessionStore myProfileForUserID:@"1"];
+    XCTAssertNil(p[@"nickname"], @"非字符串值必须被滤掉");
+    XCTAssertEqualObjects(p[@"username"], @"lan");
+
+    [IMSessionStore clear];
+    XCTAssertNil([IMSessionStore myProfileForUserID:@"1"], @"退出登录必须擦掉资料副本");
+}
+
 @end

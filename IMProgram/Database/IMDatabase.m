@@ -814,7 +814,7 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
         BOOL ok = [db executeUpdate:
             @"INSERT INTO im_conversation_local (owner_uid,conv_id,sort_order,is_group,name,avatar_url,member_count,peer,peer_nickname,peer_avatar_url,last_content,last_from,last_from_nickname,last_sys_segments,last_sys_event,last_sys_args,last_recalled,last_content_type,last_caption,latest_conv_seq,read_seq,peer_read_seq,timestamp,unread,pinned_at,muted,marked_unread,server_snapshot_seq,mute_until) VALUES (?,?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,0,0,0)",
             owner, message.convID, @(isGroup), isGroup ? @"群聊" : @"", @"", @0,
-            isGroup ? @"" : (peer ?: @""), isGroup ? @"" : (peer ?: @""), @"",
+            isGroup ? @"" : (peer ?: @""), @"", @"", // peer_nickname 留空：壳行不知道昵称，别拿内部 uid 冒充（显示名走兜底链）
             message.content ?: @"", message.from ?: @"", message.fromNickname ?: @"",
             IMEncodeSysSegments(message.sysSegments), message.sysEvent ?: @"", IMEncodeStringDict(message.sysArgs),
             @(message.recalledAt > 0), message.contentType ?: @"text", message.caption ?: @"", @(message.convSeq), @0, @0,

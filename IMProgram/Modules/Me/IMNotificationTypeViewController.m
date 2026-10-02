@@ -389,7 +389,7 @@ typedef NS_ENUM(NSInteger, IMNotifTypeSection) {
         [IMChatViewController openInNavigationController:self.navigationController host:self.host userID:self.userID
                                                     peerID:conversation.peer readSeq:conversation.readSeq
                                                     unread:conversation.unread peerReadSeq:conversation.peerReadSeq
-                                              peerNickname:conversation.displayName peerAvatarURL:conversation.peerAvatarURL];
+                                              peerNickname:conversation.knownDisplayName peerAvatarURL:conversation.peerAvatarURL];
     }
 }
 

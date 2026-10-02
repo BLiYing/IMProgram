@@ -59,7 +59,13 @@ NS_ASSUME_NONNULL_BEGIN
 /// 擦掉迁移垫片里的明文密码（换到 refreshToken 之后立即调用）。
 + (void)clearLegacyPassword;
 
-/// 退出登录 / 鉴权失效时清除（userID / username / refreshToken / 遗留明文密码；host 与 scheme 保留）。
+/// 本人资料的本地副本（「我」页头部用）：断网/断连时 `GET /users/me` 拿不到，头部不能退回
+/// 「未命名用户」+ 首字母圈。键为 userID，**换号读不到上一个账号的**；每次拉取成功覆盖一份。
+/// 字典键：nickname / avatar_url / username（不存手机号：PII，离线显示价值低）。取不到（从未拉成功过 / 账号不符）→ nil。
++ (nullable NSDictionary<NSString *, NSString *> *)myProfileForUserID:(NSString *)userID;
++ (void)saveMyProfile:(NSDictionary<NSString *, NSString *> *)profile userID:(NSString *)userID;
+
+/// 退出登录 / 鉴权失效时清除（userID / username / refreshToken / 遗留明文密码 / 本人资料副本；host 与 scheme 保留）。
 + (void)clear;
 
 @end

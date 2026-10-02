@@ -1,4 +1,5 @@
 #import <XCTest/XCTest.h>
+#import "IMLocalization.h"
 
 #import "IMChatMessageLogic.h"
 #import "IMConversation.h"
@@ -151,7 +152,10 @@
     XCTAssertEqualObjects(c.displayName, @"鲍勃", @"清除备注后必须回落昵称，不能留旧备注");
 
     c.peerNickname = @"";
-    XCTAssertEqualObjects(c.displayName, @"bob", @"昵称也没有 → uid");
+    XCTAssertEqualObjects(c.displayName, IMLocalized(@"common.unnamed_user"), @"昵称也没有 → 「未命名用户」，绝不露内部 uid（UI.md 用户标识）");
+    XCTAssertNil(c.knownDisplayName, @"占位文案不能当昵称传给聊天页");
+    c.peerNickname = @"鲍勃";
+    XCTAssertEqualObjects(c.knownDisplayName, @"鲍勃");
 }
 
 - (void)testGroupConversationDisplayNameIgnoresFriendRemark {

@@ -89,7 +89,12 @@ static BOOL IMBoolFromJSON(id value) {
     // 读快照会闪回旧名。store 未被喂过该 uid 时回退昵称（宁可显真名，不显过期备注）。
     NSString *nick = [self.peerNickname stringByTrimmingCharactersInSet:ws];
     return [IMRemarkStore.sharedStore displayNameForUser:self.peer
-                                                fallback:(nick.length > 0 ? nick : self.peer)];
+                                                fallback:(nick.length > 0 ? nick : IMLocalized(@"common.unnamed_user"))];
+}
+
+- (NSString *)knownDisplayName {
+    NSString *name = self.displayName;
+    return [name isEqualToString:IMLocalized(@"common.unnamed_user")] ? nil : name;
 }
 
 - (NSString *)lastPreviewText { return [self lastPreviewTextForSelfUID:nil]; }

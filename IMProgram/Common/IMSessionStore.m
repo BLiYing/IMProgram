@@ -9,6 +9,7 @@ static NSString * const kIMSessionUsernameKey  = @"im_session_username"; // 公�
 static NSString * const kIMSessionPasswordKey = @"im_session_pwd";     // **遗留**：仅供一次性迁移读取后删除
 static NSString * const kIMSessionSchemeKey   = @"im_session_scheme";  // http / https
 static NSString * const kIMSessionRefreshKey  = @"im_session_refresh"; // 续期凭据（替代明文密码）
+static NSString * const kIMSessionMyProfileKey = @"im_session_my_profile"; // 本人资料副本（昵称/头像/手机/句柄 + uid）
 
 // 说明：这里存的是**续期凭据**而非账号明文密码（2026-09-03 起，理由见 .h 头注释）。
 // 仍落 NSUserDefaults 而非 Keychain：未签名装机（CODE_SIGNING_ALLOWED=NO）下 Keychain 无
@@ -79,8 +80,27 @@ static NSString * const kIMSessionRefreshKey  = @"im_session_refresh"; // 续期
     [NSUserDefaults.standardUserDefaults synchronize];
 }
 
++ (NSDictionary<NSString *, NSString *> *)myProfileForUserID:(NSString *)userID {
+    NSDictionary *d = [NSUserDefaults.standardUserDefaults dictionaryForKey:kIMSessionMyProfileKey];
+    if (userID.length == 0 || ![d[@"uid"] isEqual:userID]) { return nil; }
+    // 值类型不可信（旧版本/被改写）：只放行 NSString，免得赋给 NSString 属性后在字符串调用上崩
+    NSMutableDictionary<NSString *, NSString *> *clean = [NSMutableDictionary dictionary];
+    [d enumerateKeysAndObjectsUsingBlock:^(id k, id v, BOOL *stop) {
+        if ([k isKindOfClass:NSString.class] && [v isKindOfClass:NSString.class]) { clean[k] = v; }
+    }];
+    return clean;
+}
+
++ (void)saveMyProfile:(NSDictionary<NSString *, NSString *> *)profile userID:(NSString *)userID {
+    if (userID.length == 0 || !profile) { return; }
+    NSMutableDictionary *d = [profile mutableCopy];
+    d[@"uid"] = userID;
+    [NSUserDefaults.standardUserDefaults setObject:d forKey:kIMSessionMyProfileKey];
+}
+
 + (void)clear {
     NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
+    [d removeObjectForKey:kIMSessionMyProfileKey];
     [d removeObjectForKey:kIMSessionUserIDKey];
     [d removeObjectForKey:kIMSessionUsernameKey];
     [d removeObjectForKey:kIMSessionRefreshKey];

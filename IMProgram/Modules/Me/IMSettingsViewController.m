@@ -322,6 +322,13 @@
     self.profileMeta.font = [UIFont systemFontOfSize:17 weight:UIFontWeightRegular];
     self.profileMeta.textColor = IMTheme.textSecondary;
     [self.view addSubview:self.profileMeta];
+    // 先用本地副本画头部：断网/断连时 loadMyProfile 拿不到，头部不能掉成「未命名用户」+ 首字母圈。
+    NSDictionary<NSString *, NSString *> *cached = [IMSessionStore myProfileForUserID:self.userID];
+    if (cached) {
+        self.myNickname = cached[@"nickname"];
+        self.myAvatarURL = cached[@"avatar_url"];
+        self.myUsername = cached[@"username"];
+    }
     [self refreshProfileHeader];
     [self applyProfileHeaderMorph];
 
@@ -490,6 +497,9 @@
             ss.myAvatarURL = profile.avatarURL;
             ss.myPhone = profile.phone;
             ss.myUsername = profile.username;
+            [IMSessionStore saveMyProfile:@{ @"nickname": ss.myNickname ?: @"", @"avatar_url": ss.myAvatarURL ?: @"",
+                                             @"username": ss.myUsername ?: @"" } // 不存手机号：PII，离线显示价值低
+                                   userID:ss.userID];
             [ss refreshProfileHeader];
         });
     }];

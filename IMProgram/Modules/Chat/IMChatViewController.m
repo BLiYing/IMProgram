@@ -99,7 +99,7 @@ NSNotificationName const IMChatConversationClearedNotification = @"IMChatConvers
             [self openInNavigationController:nav host:host userID:userID
                                        peerID:conversation.peer readSeq:conversation.readSeq
                                        unread:conversation.unread peerReadSeq:conversation.peerReadSeq
-                                 peerNickname:conversation.displayName peerAvatarURL:conversation.peerAvatarURL];
+                                 peerNickname:conversation.knownDisplayName peerAvatarURL:conversation.peerAvatarURL];
         }
         return YES;
     };
