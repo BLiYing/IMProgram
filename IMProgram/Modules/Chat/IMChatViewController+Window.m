@@ -16,6 +16,7 @@
 
 #import "IMChatViewController+Private.h"
 #import "IMDatabase+Ranges.h"
+#import "IMDatabase+ClearFloor.h"   // clearedUpToForConv:（本机清空位点，OFFLINE_BACKLOG_DESIGN §6.7）
 #import "IMChatWindowPlan.h"
 #import "IMMessageModel.h"
 #import "IMDatabase.h"
@@ -104,15 +105,22 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
     __block int64_t localMax = 0;
     __block BOOL complete = YES;
     __block BOOL entrySegmentLocal = NO;
+    __block int64_t floor = 0;   // 有效可见下界 = max(服务端 historyFloor, 清空位点+1)，包含口径（IMChatEffectiveFloor）
+    __block int64_t tip = 0;     // 会话最新位点：内存 head 优先，退回落库 head
     int64_t readSeq = self.entryReadSeq;
     BOOL hasUnread = IMChatEntryHasUnread(self.entryUnread);   // 判据见函数注释（别在这里内联条件）
     NSString *convID = self.convID;
+    // 这两个读网络层（dispatch_sync 进 socket 队列），**放在 DB 块外面**：块里持着账号锁，反向等锁会死。
+    int64_t serverFloor = [IMSocketManager.sharedManager historyFloorForConv:convID];
+    int64_t liveHead = [IMSocketManager.sharedManager headConvSeqForConv:convID];
     [self performDatabaseOperation:^(IMDatabase *database) {
+        floor = IMChatEffectiveFloor(serverFloor, [database clearedUpToForConv:convID]);
+        tip = IMChatTailTip(liveHead, [database headConvSeqForConv:convID]);
         msgs = hasUnread
             ? [database messagesForConv:convID aroundConvSeq:readSeq before:page / 4 after:page]
             : [database latestContiguousMessagesForConv:convID limit:page];
         localMax = [database maxConvSeqForConv:convID];
-        complete = [database isConvComplete:convID];
+        complete = [database isConvComplete:convID floor:floor];
         // 读位点的**下一格**是否落在某个已下载的区间里。见下方 hasUnread 分支的注释：
         // 这是"本地这一窗真的跨在读位点上"与"around 查询捞回了缺口另一侧的旧岛"的唯一分界。
         if (hasUnread) { entrySegmentLocal = [database localSegmentStartInConv:convID containingSeq:readSeq + 1] > 0; }
@@ -124,7 +132,10 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
     // **但"齐全且一条都没有"不算数**：isConvComplete: 在 head 未知（=0）时一律判齐全，
     // 而首次登录正是 head 还没落库的那一刻——就此早退会留下一个永远空白的会话页，
     // 且没有任何重试入口。空窗一律往下走，让服务端那一步去要。
-    if (complete && msgs.count > 0) { return; }
+    // **唯一例外：tip 已知且在有效可见下界之下**（清空聊天记录后重进 / 入群前历史不可见）——可见范围里服务端
+    // 本来就一条没有，local 开窗、空就空，不问（否则刚清掉的历史整页拉回来；OFFLINE_BACKLOG_DESIGN §6.7）。
+    // 即「齐全且一条没有」只在 head > floor 时才继续问服务端。判据在 IMChatEntryStaysLocal。
+    if (IMChatEntryStaysLocal(complete, msgs.count > 0, tip, floor)) { return; }
 
     // 本地不齐（离线积压留了缺口；超级群尤甚：max_gap=0，正文只在打开会话时取）。
     // **要哪一窗取决于有没有未读**，这一步分错方向的代价很实在：
@@ -208,12 +219,17 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
     // 这也是 C3 iOS 记着的残留①（「无未读那条路 head <= localMax 误判已是最新」）。
     __block int64_t tip = liveHead;
     __block BOOL covered = NO;
+    __block int64_t floor = 0;   // 有效可见下界（含清空位点）：tip 落在它之下 = 可见范围内一条没有，不问
     NSInteger page = IMWindowPage();
+    int64_t serverFloor = [IMSocketManager.sharedManager historyFloorForConv:convID];   // 块外读，理由见 loadInitialWindow
     [self performDatabaseOperation:^(IMDatabase *database) {
+        floor = IMChatEffectiveFloor(serverFloor, [database clearedUpToForConv:convID]);
         if (liveHead <= 0) { tip = IMChatTailTip(liveHead, [database headConvSeqForConv:convID]); }
-        if (tip > 0) { covered = [database conv:convID coversFrom:IMChatLatestPageLow(tip, page) to:tip]; }
+        if (tip > 0 && tip >= floor) {
+            covered = [database conv:convID coversFrom:IMChatLatestPageLowAboveFloor(tip, page, floor) to:tip];
+        }
     }];
-    if (!IMChatShouldRequestTail(tip, covered, [self latestLoadedConvSeq])) { return; }
+    if (!IMChatShouldRequestTail(tip, covered, [self latestLoadedConvSeq], floor)) { return; }
     self.windowState.pendingTail = YES;
     IMLogDebugWithTag(IMLogTagUI, @"chat_window_tail_request conv_id=%@ head=%lld live_head=%lld", convID, tip, liveHead);
     [IMSocketManager.sharedManager requestWindowForConv:convID anchor:0 before:IMWindowPage() after:0];
@@ -269,8 +285,11 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
     if (lo <= 0) { self.windowState.hasMoreAbove = NO; return; } // 窗口里全是待发消息，没有可作边界的位点
     NSInteger page = IMWindowPage();
     __block NSArray<IMMessageModel *> *older = @[];
+    __block int64_t floor = 0;
     NSString *convID = self.convID;
+    int64_t serverFloor = [IMSocketManager.sharedManager historyFloorForConv:convID];   // 块外读，理由见 loadInitialWindow
     [self performDatabaseOperation:^(IMDatabase *database) {
+        floor = IMChatEffectiveFloor(serverFloor, [database clearedUpToForConv:convID]);
         // **段内取**（OFFLINE_BACKLOG_DESIGN §4.7）：只要与 lo 同属一段的更早消息。
         // 光判"这一段里还有更早的"不够——段内剩余不足一页时，无下界的查询会径直翻过缺口，
         // 把旧岛接到窗口顶部。下界收在 contiguousMessagesForConv: 里，返回空即本段到头。
@@ -284,7 +303,7 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
     // 这道闸只放在这里、不放进 hasMoreAbove：那是本地展开与服务端请求共用的总闸，
     // 并进去会连**本地已经存着的**更早历史一起挡掉（退群再入群会抬高下界，而入群前
     // 下载过的行还在库里）。与 im-web 的结构一致：atHistoryFloor 只出现在"本地展不出来"之后。
-    if (IMChatAtHistoryFloor([IMSocketManager.sharedManager historyFloorForConv:self.convID], lo)) {
+    if (IMChatAtHistoryFloor(floor, lo)) {   // 有效下界 = max(服务端下界, 清空位点+1)，两个各自独立存、用时取大
         // 置 NO 是为了让随后每一帧滚动短路掉，不必每帧再查一次本地库。
         self.windowState.hasMoreAbove = NO;
         IMLogDebugWithTag(IMLogTagUI, @"chat_window_at_floor conv_id=%@ oldest=%lld", self.convID, lo);
@@ -852,8 +871,9 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
     // 代价是把本人消息与系统消息也算进去，在"缺口"这个场景下（积压成千上万）这点偏差无意义。
     __block BOOL complete = YES;
     __block NSInteger n = 0;
+    int64_t serverFloor = [IMSocketManager.sharedManager historyFloorForConv:convID];   // 块外读，理由见 loadInitialWindow
     [self performDatabaseOperation:^(IMDatabase *database) {
-        complete = [database isConvComplete:convID];
+        complete = [database isConvComplete:convID floor:serverFloor];   // 清空位点由库内部取大
         n = [database countIncomingInConv:convID afterConvSeq:frontier]; // 两条分支都可能用到（见下）
     }];
     if (complete) { return n; }
@@ -903,8 +923,14 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
 ///
 /// ⚠️ 本方法不是 `hasMoreAbove` 的唯一写入点：裁窗两处（丢掉的那段仍在本地）与离线翻页失败
 /// 那一处仍直接赋值，方向都是安全的（往"还有"倒）。
+///
+/// **清空位点这一半的下界放得进来**（服务端 historyFloor 那一半仍不放，理由同上）：清空时位点之下的行已经删了，
+/// 并进总闸不会挡掉任何本地已存的历史，反而让「清空后上沿恰好在位点之上」时滚到顶不必再进一次 loadOlderPage 才收敛。
 - (void)refreshHasMoreAbove {
-    self.windowState.hasMoreAbove = IMChatWindowHasMoreAbove([self earliestLoadedConvSeq]);
+    __block int64_t cleared = 0;
+    NSString *convID = self.convID;
+    [self performDatabaseOperation:^(IMDatabase *database) { cleared = [database clearedUpToForConv:convID]; }];
+    self.windowState.hasMoreAbove = IMChatWindowHasMoreAboveFloor([self earliestLoadedConvSeq], IMChatEffectiveFloor(0, cleared));
 }
 
 /// 窗口里最早的已上号 conv_seq（待发消息 conv_seq==0 不算）；窗口里没有已上号消息时返回 0。

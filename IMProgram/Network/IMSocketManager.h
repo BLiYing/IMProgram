@@ -357,4 +357,13 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
 
 @end
 
+@interface IMSocketManager (BacklogClear)
+
+/// 本机「清空聊天记录」落了位点之后通知网络层（OFFLINE_BACKLOG_DESIGN §6.7）：把**内存**同步游标推到位点
+/// （库里 synced_conv_seq 已由清空事务推过去，内存这份不跟，下一个 sync_req 就会从旧游标重拉一遍再被落库闸丢掉），
+/// 并在位点已追上已知 head 时撤销「有缺口」标记。内存 head / historyFloor 不动（它们是服务端的事，不是本机清空的事）。
+- (void)noteConvClearedUpTo:(int64_t)clearedUpTo forConv:(NSString *)convID;
+
+@end
+
 NS_ASSUME_NONNULL_END

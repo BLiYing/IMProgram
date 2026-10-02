@@ -18,6 +18,8 @@
 #import "IMAccountIdentity.h"
 #import "IMConvQuerySource.h"          // 「整会话问题」问本地还是问服务端（三端同一份判据）
 #import "IMDatabase+Ranges.h"          // isConvComplete:（本地齐不齐）
+#import "IMDatabase+ClearFloor.h"      // clearedUpToForConv:（服务端结果里滤掉已清空的那一段，§6.7）
+#import "IMChatWindowPlan.h"           // IMChatEffectiveFloor / IMChatDropClearedSeqs / IMChatEarliestJumpNeedsServer
 #import "IMHTTPService+ConvQueries.h"  // 会话内检索 / 日历聚合的服务端接口
 #import "IMNetworkMonitor.h"
 #import "IMChatSearchPaging.h"          // 服务端命中翻页的拼接与 ▲ 可点判据（与 im-web searchPaging.ts 同口径）
@@ -339,9 +341,19 @@ static const CGFloat kIMSearchFromRowH = 52;
     NSString *convID = self.convID;
     if (convID.length == 0) { return IMConvQuerySourceLocal; }
     __block BOOL complete = YES;
-    [self performDatabaseOperation:^(IMDatabase *database) { complete = [database isConvComplete:convID]; }];
+    int64_t serverFloor = [IMSocketManager.sharedManager historyFloorForConv:convID];   // 块外读（块里持账号锁，反向等锁会死）
+    [self performDatabaseOperation:^(IMDatabase *database) { complete = [database isConvComplete:convID floor:serverFloor]; }];
     BOOL online = IMNetworkMonitor.shared.currentType != IMNetworkTypeNone;
     return IMPickConvQuerySource(complete, online);
+}
+
+/// 本会话的清空位点（OFFLINE_BACKLOG_DESIGN §6.7）。服务端搜索 / 日历的结果里 `conv_seq <= 它` 的要滤掉——
+/// 服务端还存着那些消息，不滤就搜得到刚清掉的东西。
+- (int64_t)searchClearedUpTo {
+    __block int64_t cleared = 0;
+    NSString *convID = self.convID;
+    [self performDatabaseOperation:^(IMDatabase *database) { cleared = [database clearedUpToForConv:convID]; }];
+    return cleared;
 }
 
 /// 同一次搜索会话里降级提示只弹一次——每敲一个字弹一次 toast 是骚扰。
@@ -409,7 +421,7 @@ static const CGFloat kIMSearchFromRowH = 52;
         if (error) { return; }  // 失败就留着本地那份，不清空——有总比没有强，且已在本地结果上
         self.searchState.searchNextCursor = nextCursor;
         self.searchState.searchHitsTruncated = hasMore && nextCursor > 0;
-        [self applySearchHits:seqs jumpToNewest:jumpToNewest];
+        [self applySearchHits:IMChatDropClearedSeqs(seqs, [self searchClearedUpTo]) jumpToNewest:jumpToNewest];
     }];
 }
 
@@ -442,7 +454,8 @@ static const CGFloat kIMSearchFromRowH = 52;
         s.searchNextCursor = nextCursor;
         BOOL more = hasMore && nextCursor > 0;
         NSInteger added = 0;
-        NSArray<NSNumber *> *merged = IMChatSearchPrependOlderHits(s.searchHits ?: @[], seqs, &added);
+        NSArray<NSNumber *> *merged = IMChatSearchPrependOlderHits(s.searchHits ?: @[],
+                                                                   IMChatDropClearedSeqs(seqs, [self searchClearedUpTo]), &added);
         if (added == 0 && more && attempt < IMChatSearchMaxEmptyPages) {
             [self loadOlderSearchHitsAttempt:attempt + 1];   // 服务端过滤出空页但还有更早的：接着翻
             return;
@@ -573,7 +586,10 @@ static const CGFloat kIMSearchFromRowH = 52;
         NSCalendar *cal = [NSCalendar currentCalendar];
         NSMutableSet<NSDate *> *merged = [localDays mutableCopy];
         NSMutableDictionary<NSNumber *, NSNumber *> *firstSeq = [NSMutableDictionary dictionaryWithCapacity:days.count];
+        int64_t cleared = [self searchClearedUpTo];
         for (IMConvCalendarDay *d in days) {
+            // 当天第一条就在清空位点之下 → 这一天服务端虽有消息，本机已主动不要（位点之后才来的消息，本地打点那一版已含）。
+            if (IMChatCalendarDayIsCleared(d.firstConvSeq, cleared)) { continue; }
             // 再过一次 startOfDayForDate:：服务端按固定偏移整除分桶，夏令时下可能差一小时。
             NSDate *day = [cal startOfDayForDate:[NSDate dateWithTimeIntervalSince1970:d.dayStartMs / 1000.0]];
             [merged addObject:day];
@@ -612,7 +628,10 @@ static const CGFloat kIMSearchFromRowH = 52;
         // 故：本地已经拿到 1 号才直接跳；否则以 1 为锚点向服务端开一窗（earliest=YES，理由见该方法）。
         int64_t earliest = [self firstConvSeqAtOrAfter:0];
         if (earliest <= 0) { [self im_showToast:IMLocalized(@"chat.search.no_messages")]; return; }
-        if (!IMEarliestJumpNeedsServer(earliest)) { [self jumpToConvSeq:earliest]; return; }
+        int64_t serverFloor = [IMSocketManager.sharedManager historyFloorForConv:self.convID];
+        if (!IMChatEarliestJumpNeedsServer(earliest, IMChatEffectiveFloor(serverFloor, [self searchClearedUpTo]))) {
+            [self jumpToConvSeq:earliest]; return;   // 本地最早一条已是可见范围的第一条（含清空后的第一条）
+        }
         if (IMSocketManager.sharedManager.state != IMSocketStateConnected) {
             // 离线拿不到更早的，但跳到"已下载的最早一条"仍有用——只是必须说清楚这不是会话开头。
             [self jumpToConvSeq:earliest];

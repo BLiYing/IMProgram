@@ -102,8 +102,10 @@ extern int64_t IMChatTailTip(int64_t liveHead, int64_t storedHead);
  @param tip               IMChatTailTip 的结果（0 = 未知）。
  @param latestPageCovered 区间清单是否盖住最新一页；tip 未知时不看。
  @param windowTailHi      窗口里最新一条已上号消息的 conv_seq（0 = 空窗，或只有待发消息）。
+ @param visibleFrom       有效可见下界（`IMChatEffectiveFloor`，含「本机清空位点」）；`tip` 已知且落在它之下 = 可见范围内一条没有，
+                          **不问**（OFFLINE_BACKLOG_DESIGN §6.7：清空后重进不拉回）。0 = 无下界。
  */
-extern BOOL IMChatShouldRequestTail(int64_t tip, BOOL latestPageCovered, int64_t windowTailHi);
+extern BOOL IMChatShouldRequestTail(int64_t tip, BOOL latestPageCovered, int64_t windowTailHi, int64_t visibleFrom);
 
 /**
  超级群 conv_bump 到了、会话正开着：该不该补。与 im-web `windowPlan.planBumpCatchUp` 的**不变式**一致：
@@ -119,5 +121,58 @@ extern BOOL IMChatShouldRequestTail(int64_t tip, BOOL latestPageCovered, int64_t
  @param tailHi    窗口里最新一条的 conv_seq（0 = 窗口里没有已上号的消息）。
  */
 extern BOOL IMChatBumpShouldCatchUp(BOOL following, int64_t head, int64_t tailHi);
+
+#pragma mark - 本机清空位点（OFFLINE_BACKLOG_DESIGN §6.7，三端统一，Android 先行）
+
+// **两个下界各自独立存、用时取大，不要混成一个变量**：
+//   · `historyFloor`  = 服务端 `has_before=false` 时记下的「我能看到的最早一条」，**包含**（oldest <= floor 即到底），
+//                       记在 IMBacklogTracker 里、每次连上清掉（它会变小）；
+//   · `clearedUpTo`   = 用户「清空聊天记录」时落的本机位点，**≤ 它的都不要了**（不含它自己之上），记在
+//                       im_conversation_local.cleared_up_to 里、只增不减、永不清。
+// 下面所有「有效可见下界」一律是 **包含** 口径（= 最低可见 conv_seq），与 `IMChatAtHistoryFloor` 同一个约定，
+// 所以 clearedUpTo 要 +1 才能与 historyFloor 比大小。
+
+/// 有效可见下界 = `max(historyFloor, clearedUpTo+1)`（clearedUpTo<=0 视为没清过）。**包含**口径，0 = 无下界。
+extern int64_t IMChatEffectiveFloor(int64_t historyFloor, int64_t clearedUpTo);
+
+/**
+ 区间清单在可见范围 `[floor, head]` 内是否齐全（`IMDatabase isConvComplete:floor:` 的纯代数部分）。
+
+ · head 未知（<=0）→ YES（沿用旧口径；「齐全但一条没有」由调用方 `IMChatEntryStaysLocal` 另行排除）；
+ · head < floor → YES：可见范围内一条没有（入群前历史不可见 / 用户清空过），没什么好补的；
+ · 否则要求**同一段**完整盖住 `[max(1,floor), head]`（跨两段说明中间有缺口，seq 连不连号不作数）。
+
+ @param ranges 升序、互不相交的 `[lo, hi]` 闭区间，元素是 `@[@lo, @hi]`。
+ */
+extern BOOL IMChatRangesComplete(NSArray<NSArray<NSNumber *> *> *ranges, int64_t head, int64_t floor);
+
+/**
+ 进会话：本地开窗的结果是不是最终结果（不必再问服务端）。
+
+ · `tip`（服务端最新位点，未知 0）已知且 < floor ⇒ 可见范围里一条都没有，**local 开窗、空就空**，不问服务端；
+ · 否则 `complete && hasLocalRows`（旧口径：「齐全且一条都没有」不算数——首次登录 head 未落库时 isConvComplete 恒真，
+   就此早退会留下永久空白页）。
+ 即「齐全且一条都没有」只在 **head > floor**（可见范围内服务端确实有东西）时才继续问服务端。
+ */
+extern BOOL IMChatEntryStaysLocal(BOOL complete, BOOL hasLocalRows, int64_t tip, int64_t floor);
+
+/// 「最新一页」的下沿再收到可见下界之上：`max(IMChatLatestPageLow(tip,page), floor)`。清空后判「最新一页盖不盖得住」不能把已清掉的号算进去。
+extern int64_t IMChatLatestPageLowAboveFloor(int64_t tip, NSInteger page, int64_t floor);
+
+/// 上滚粗闸的清空位点版：`oldest > max(1, floor)`。**floor 只传 clearedUpTo 派生的下界**（本地展开不会被它挡：
+/// 清空时那些行已经删了），不要传服务端 historyFloor——理由见 `IMChatWindowHasMoreAbove`。
+extern BOOL IMChatWindowHasMoreAboveFloor(int64_t oldestRendered, int64_t floor);
+
+/// 「跳到最早」要不要问服务端：本地最早一条之下，在可见范围内还有没有。`localEarliest > max(1, floor)` 才问。
+extern BOOL IMChatEarliestJumpNeedsServer(int64_t localEarliest, int64_t floor);
+
+/// 服务端日历的「某天」要不要丢：当天第一条（`firstConvSeq`，>0 才有意义）就在清空位点之内 → 丢
+/// （位点之后才来的消息，本地打点那一版已含，所以这天不会因此消失）。
+extern BOOL IMChatCalendarDayIsCleared(int64_t firstConvSeq, int64_t clearedUpTo);
+
+/// 服务端搜索 / 日历 / 窗口等「问服务端」的结果里，丢掉 `conv_seq <= clearedUpTo` 的（刚清掉的东西不能搜得到）。
+/// clearedUpTo<=0 原样返回；元素是 NSNumber(conv_seq)。
+extern NSArray<NSNumber *> *IMChatDropClearedSeqs(NSArray<NSNumber *> *seqs, int64_t clearedUpTo);
+
 
 NS_ASSUME_NONNULL_END

@@ -67,6 +67,11 @@ NS_ASSUME_NONNULL_BEGIN
 /// 而这种重复实现在运行期谁生效是未定义的——今天靠链接顺序碰巧对，明天加个文件就换人。
 @interface IMSocketManager (Sync)
 - (void)handleSyncResp:(NSDictionary *)data;
+/// 本会话的本机清空位点（读库；仅在 queue 调用，**别在 performDatabaseOperation 块里调**）。无会话行 / 账号失效 = 0。
+- (int64_t)clearedUpToForConv:(NSString *)convID;
+/// 这条入站消息是否落在清空位点之内（`0 < convSeq <= 位点`）。是 → 调用方整条丢弃：不落库、不投递、不回执、不提醒
+/// （落库 / UI / 回执 / 提醒共用同一份「实际保留集合」，CONVENTIONS §4.7；与库里的落库闸是同一条口径）。
+- (BOOL)incomingIsCleared:(IMMessageModel *)msg;
 @end
 
 /// +Alerts category（NOTIFICATIONS_DESIGN §3）自己提供的方法，主实现在实时消息落库后调用。

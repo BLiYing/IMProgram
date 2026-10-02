@@ -5,20 +5,25 @@
 
 ## 当前焦点
 
-无进行中的开发任务。最近收口（细节见 archive 顶部与 `git log`）：
-2026-10-02 「我」页头部断网兜底（`IMSessionStore` 资料副本）/ 会话壳不再把 uid 当昵称（`IMConversation.knownDisplayName`），真机验证通过；
-2026-10-01 通知显示发送人头像（通知扩展 target `IMNotificationService`）、别端已读清手机通知/角标（真机通过）、多选删除两档改批量接口（仅模拟器验证，iOS 真机未测）。
+**本机清空位点 `cleared_up_to`（OFFLINE_BACKLOG_DESIGN §6.7，iOS 侧 2026-10-02 已实现，待审、未提交）**：
+独立小表 `im_conv_clear_floor_local.cleared_up_to`（只增不减，不随会话行删除）；`clearMessagesForConv:` 改一个事务（删消息 + 清区间 + 抬位点 + 游标推到位点，实现在 `Database/IMDatabase+ClearFloor.m`）；
+落库闸在 `writeIncomingMessage:`（sync 页 / window 页 / 实时一并挡）；有效可见下界 = `IMChatEffectiveFloor(服务端 historyFloor, 位点)`（纯函数在 `Common/IMChatWindowPlan.h`），
+进会话 / 上滚 / 取最新一页 / ↓N / 跳最早 / 服务端搜索·日历都吃它；老库升级补列时一次性回填。测试：`IMClearFloorTests`（库层）+ `IMChatWindowPlanTests`（纯函数）。
+对称兄弟：Android 已 ✅（`ClearFloor.kt`）；**Web 仍是「清空后重进会拉回」，待对齐**。`SYMMETRY.md` / `CLIENT_PARITY.md` / 设计文档 §6.7 状态由 IMServer 仓维护者同步（措辞建议见交付报告）。
+
+更早的收口（细节见 archive 顶部与 `git log`）：2026-10-02 「我」页头部断网兜底 / 会话壳不再把 uid 当昵称；2026-10-01 通知显示发送人头像、别端已读清手机通知/角标、多选删除两档改批量接口（仅模拟器验证）。
 
 ## 下一步
 
 1. **真机验证欠账**：通知 P1 批一（横幅）+ 批二（定时免打扰时长菜单）只过了模拟器编译，没真机跑过，清单见 `current_task.archive.md` 里最近的归档块；「设置 ▸ 最近通话」真机走一遍拨打→挂断→回本页看 `callEnd` 是否自动刷新、1v1 回拨、群聊行跳转；批量删除两档的 iOS 真机。
 2. **核对 `IMServer/docs/CLIENT_PARITY.md` 的 M5 行是否已按 iOS/安卓/Web 拆状态**（`SYMMETRY.md` 的 `alertDecision` 四端已登记）；若没拆，补上。
-3. **拆体量欠账（下次碰就必须先拆）**：`Network/IMSocketManager.m` 1596/1600（只准降不准升；方向按 CODING_STYLE §7 三档：帧编解码 / 重连退避 / 各业务 send-recv 分组各成协作对象或 category，新逻辑优先开 category）；`Database/IMDatabase.m` 1500/1500，给 `im_conversation_local`/`im_message_local` 加列前先拆（参考 `IMDatabase+MuteState.m`）。
+3. **拆体量欠账（下次碰就必须先拆）**：`Network/IMSocketManager.m` 1596/1600（只准降不准升；方向按 CODING_STYLE §7 三档：帧编解码 / 重连退避 / 各业务 send-recv 分组各成协作对象或 category，新逻辑优先开 category）；`Database/IMDatabase.m` 1497/1500，给 `im_conversation_local`/`im_message_local` 加列前先拆（参考 `IMDatabase+MuteState.m` / `IMDatabase+ClearFloor.m`；`writeCachedConversations:` 的整行 INSERT 是下一块该搬走的）。
 4. `IMChatViewController.m` 的 `peerDisplayName` 仍有 `fallback:peerID`（会在聊天页标题露内部 uid 的边缘路径），按 UI.md「末级不是 uid」改。
 5. 小项：选好友页缺「全选」；`setupUI` 抽 `IMComposerBar`；「从收藏发送」入口开放；遗留 P2（听筒切换/接力连播停止条/Web 转文字/语音发送接入 `IMMediaSendService` 常驻队列等，细节见 archive）。
 
 ## 已知坑 / 限制
 
+- **清空位点的取舍**：① 老库回填（`migrateClearedUpToColumnDB:`）按「synced 以内本地没有的那一截 = 当年清掉的」推位点，**对「本来就没下载全」的老会话会误判**成已清空（如游标在 1000、本地只有 300..1000 → 位点 299，之后 ≤299 永不再拉）；与 Android 迁移 15→16 同规则，设计文档拍板的口径。**误伤面更大的是 ranges 时代只下过窗口附近的会话（超级群 max_gap=0 尤甚）**：游标在 head、本地只有最近一两窗 → 位点被推到「本地最小 seq − 1」，窗口之下更早的历史此后一律当「用户清掉的」、不再拉；补列与回填同一事务（失败整体回滚、下次启动重试）。② 落库 / UI 投递 / 回执 / 提醒共用同一份保留集合：sync 页落库前先 `IMDropClearedMessages`，实时先 `incomingIsCleared:`，window 页跳过位点内的行（库里的落库闸是第二道防线）。③ 位点存独立小表 `im_conv_clear_floor_local`（不随会话行删除；会话行被「删除会话」/ 列表不再返回删掉后重建，`synced_conv_seq` 取 max(旧值, 位点)，不会 since=0 重拉）。旧的 `im_conversation_local.cleared_up_to` 列（早期实现）只在迁移时拷一次，之后不再读写、没有 DROP。iOS 没有「清账号」路径（登出不抹库，靠 owner_uid 隔离）。④ 清空不动会话未读数 / 读位点（沿用旧行为）。⑤ iOS 本机没有独立的「隐藏/删除墓碑」表（本地删除是物理删行），所以「墓碑不动」在 iOS 退化为「只动该会话的消息 / 区间 / 位点」。
 - **冷启动通知路由极端情况**：全新会话的推送点击可能落空。
 - **会话列表左滑「免打扰」** 在 `done(YES)` 之前 present `IMMuteDurationMenu`、**通知横幅点击进会话** 与自身 dismiss 动画并行：真机若两个动画叠加突兀，把 present/路由挪到 `done(YES)` / dismiss 完成回调里即可（一行改动）。
 - **通讯录 `reload` 不防重入**：好友事件与切入请求并发时后发先至会让 `applyFriends:` 覆盖成较旧名单（短暂，下次刷新自愈）；补法是在途时只记「待重跑」。

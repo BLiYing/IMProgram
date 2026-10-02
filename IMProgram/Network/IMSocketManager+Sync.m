@@ -1,4 +1,5 @@
 #import "IMSocketManager+Private.h"
+#import "IMDatabase+ClearFloor.h"   // clearedUpToForConv: / IMDropClearedMessages
 #import "IMDatabase+Ranges.h"   // saveIncomingPage:advanceTo:rangeLo:rangeHi:（整页原子落库 + 区间登记）
 #import "IMMessageModel.h"
 #import "IMProtocol.h"
@@ -9,6 +10,21 @@
 // 从 hub.go 拆了出来，两端沿同一条缝切，改动时容易对照）。
 
 @implementation IMSocketManager (Sync)
+
+- (int64_t)clearedUpToForConv:(NSString *)convID {
+    if (convID.length == 0) { return 0; }
+    __block int64_t cleared = 0;
+    [self performDatabaseOperation:^(IMDatabase *database) { cleared = [database clearedUpToForConv:convID]; }];
+    return cleared;
+}
+
+- (BOOL)incomingIsCleared:(IMMessageModel *)msg {
+    if (msg.convSeq <= 0) { return NO; }
+    int64_t cleared = [self clearedUpToForConv:msg.convID];
+    if (msg.convSeq > cleared) { return NO; }
+    IMLogSocket(@"incoming message below cleared_up_to dropped conv=%@ seq=%lld cleared=%lld", msg.convID, msg.convSeq, cleared);
+    return YES;
+}
 
 /// 处理 sync_resp：按会话投递增量消息，并据服务端权威 covered_conv_seq 推进游标；has_more 时以新位点继续拉。
 /// 仅在 _queue 调用。
@@ -72,6 +88,9 @@
             }
             if (m.convSeq > 0) { [pageMsgs addObject:m]; }
         }
+        // 本机清空位点：落库**之前**先过滤，之后的落库 / 整页投递 / 回执位点都只用过滤后的这一份保留集合
+        // （CONVENTIONS §4.7）。游标与区间登记口径不变（下面 covered 那一路照旧推进）。
+        pageMsgs = [IMDropClearedMessages(pageMsgs, [self clearedUpToForConv:convID]) mutableCopy];
         int64_t pageAdvance = pageMsgs.lastObject.convSeq;
         if (pageMsgs.count > 0) {
             __block BOOL pageOK = NO;
@@ -155,6 +174,18 @@
         [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidReceiveMessageNotification
                                                           object:self
                                                         userInfo:@{ kIMConvIDKey: convID }];
+    });
+}
+
+@end
+
+@implementation IMSocketManager (BacklogClear)
+
+- (void)noteConvClearedUpTo:(int64_t)clearedUpTo forConv:(NSString *)convID {
+    if (convID.length == 0 || clearedUpTo <= 0) { return; }
+    dispatch_async(_queue, ^{
+        [self updateSyncedSeqForConv:convID seq:clearedUpTo];   // 只增不减，幂等
+        if (clearedUpTo >= [self->_backlog headForConv:convID]) { [self->_backlog clearGapForConv:convID]; }
     });
 }
 

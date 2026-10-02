@@ -1,5 +1,7 @@
 #import "IMDatabase+Ranges.h"
 #import "IMLog.h"
+#import "IMDatabase+ClearFloor.h"
+#import "IMChatWindowPlan.h"
 
 BOOL IMRegisterRangeInDB(FMDatabase *db, NSString *owner, NSString *convID, int64_t lo, int64_t hi) {
     if (owner.length == 0 || convID.length == 0 || hi < lo || hi <= 0) { return YES; } // 无效入参当无事发生
@@ -130,6 +132,10 @@ BOOL IMRegisterRangeInDB(FMDatabase *db, NSString *owner, NSString *convID, int6
 
 - (BOOL)conv:(NSString *)convID coversFrom:(int64_t)lo to:(int64_t)hi {
     if (hi < lo) { return NO; }
+    // 本机清空位点以下的号是用户主动不要的，不算缺口（§6.7）：下沿收到位点之上，整段都在位点之下 = 没什么可缺的。
+    int64_t cleared = [self clearedUpToForConv:convID];
+    if (hi <= cleared) { return YES; }
+    lo = MAX(lo, cleared + 1);
     for (NSArray<NSNumber *> *r in [self rangesForConv:convID]) {
         if (r.firstObject.longLongValue <= lo && r.lastObject.longLongValue >= hi) { return YES; }
     }
@@ -137,12 +143,13 @@ BOOL IMRegisterRangeInDB(FMDatabase *db, NSString *owner, NSString *convID, int6
 }
 
 - (BOOL)isConvComplete:(NSString *)convID {
-    int64_t head = [self headConvSeqForConv:convID];
-    if (head <= 0) { return YES; } // 上界未知 → 无从判断缺什么，保持改造前的行为（当作齐全）
-    for (NSArray<NSNumber *> *r in [self rangesForConv:convID]) {
-        if (r.firstObject.longLongValue <= 1 && r.lastObject.longLongValue >= head) { return YES; }
-    }
-    return NO;
+    return [self isConvComplete:convID floor:0];
+}
+
+- (BOOL)isConvComplete:(NSString *)convID floor:(int64_t)floor {
+    // 有效可见下界取大：调用方传的（服务端 historyFloor 派生）与本库自己存的清空位点，各自独立存、用时取大。
+    int64_t effective = IMChatEffectiveFloor(floor, [self clearedUpToForConv:convID]);
+    return IMChatRangesComplete([self rangesForConv:convID], [self headConvSeqForConv:convID], effective);
 }
 
 #pragma mark - 整页原子落库
@@ -157,10 +164,12 @@ BOOL IMRegisterRangeInDB(FMDatabase *db, NSString *owner, NSString *convID, int6
     NSString *owner = [self ownerUserID];
     __block BOOL ok = NO;
     [self.dbQueue inTransaction:^(FMDatabase *db, BOOL *rollback) {
+        // 位点整页只查一次（§6.7；每条一查在补拉 10 万条时就是 10 万次 SELECT）。
+        int64_t cleared = IMClearedUpToInDB(db, owner, convID);
         for (IMMessageModel *m in messages) {
             // 逐条写，但**游标由页尾统一推**（这里传 0）：页内任一条失败即整页回滚，
             // 于是"消息没落住"与"位点越过了"不可能同时发生。
-            if (![self writeIncomingMessage:m owner:owner advancingSyncedConvSeq:0 inDB:db]) {
+            if (![self writeIncomingMessage:m owner:owner advancingSyncedConvSeq:0 clearedUpTo:cleared inDB:db]) {
                 IMLogDatabase(@"整页落库失败，回滚 conv=%@ seq=%lld", convID, m.convSeq);
                 *rollback = YES;
                 return;

@@ -16,6 +16,7 @@
 #import "IMSocketManager.h"
 #import "IMProtocol.h"
 #import "IMDatabase.h"
+#import "IMDatabase+ClearFloor.h"      // clearedUpToForConv:（清空位点，通知网络层推内存游标）
 #import "IMConversation.h"
 #import "IMGroupInfo.h"
 #import "IMGroupAdminLogic.h"
@@ -359,9 +360,13 @@ static const NSUInteger kIMRtcMaxGroupCallPick = 8;
 - (void)confirmClearHistory {
     NSString *msg = self.isGroup ? IMLocalized(@"chat.detail.clear_history_message_group") : IMLocalized(@"chat.detail.clear_history_message_dm");
     [self confirmDestructive:IMLocalized(@"chat.detail.clear_history_confirm_title") message:msg action:IMLocalized(@"chat.clear.ok") handler:^{
+        __block int64_t clearedUpTo = 0;
         if (![self performDatabaseOperation:^(IMDatabase *database) {
             [database clearMessagesForConv:self.convID];
+            clearedUpTo = [database clearedUpToForConv:self.convID];
         }]) { return; }
+        // 位点已落库；内存同步游标要跟上，否则下一个 sync_req 会从旧游标重拉一遍再被落库闸丢掉（OFFLINE_BACKLOG_DESIGN §6.7）。
+        [IMSocketManager.sharedManager noteConvClearedUpTo:clearedUpTo forConv:self.convID];
         [self rebuildTabs];
         [self.tableView reloadData];
         // 通知底层聊天页清空内存并刷新（否则返回聊天页仍显旧消息）。

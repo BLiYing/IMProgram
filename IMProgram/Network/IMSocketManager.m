@@ -830,6 +830,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
 ///   - `syncAdvanceSeq == 0`：调用方判定本页在此之前已有失败或不希望推进（如 stall 恢复中），仅落库不动游标。
 /// fromSync=NO（实时 new_msg）：`syncAdvanceSeq` 忽略；仍走「连续则推、跳号则自愈」的原行为。
 - (BOOL)processIncomingMessage:(IMMessageModel *)msg fromSync:(BOOL)fromSync syncAdvanceSeq:(int64_t)syncAdvanceSeq {
+    if ([self incomingIsCleared:msg]) { return YES; } // 清空位点之内：不落库/不投递/不回执/不提醒（§6.7，见 incomingIsCleared:）
     int64_t prevSynced = [self syncedSeqForConv:msg.convID];
     BOOL isNextContiguous = msg.convSeq > 0 && msg.convSeq == prevSynced + 1;
     BOOL realtimeAdvance = isNextContiguous && !fromSync; // 实时路径按连续推进
@@ -1386,6 +1387,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
     // 区间断言的是"这段服务端给全了"，事件行/墓碑也算给过；而下界要跟渲染上沿比，
     // 必须落在页面真能渲染出来的号上，否则闸永远合不上（见 IMChatWindowPlan.h）。
     int64_t minKept = 0;
+    int64_t cleared = [self clearedUpToForConv:convID]; // 清空位点：≤ 它的行不进窗口内容（区间登记口径不变）
     for (NSDictionary *md in messages) {
         if (![md isKindOfClass:NSDictionary.class]) { continue; }
         int64_t sq = [md[@"conv_seq"] longLongValue];
@@ -1405,6 +1407,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
             [self removeLocalMessageOnQueueInConv:m.convID targetConvSeq:m.convSeq advancingSyncedConvSeq:0];
             continue;
         }
+        if (m.convSeq > 0 && m.convSeq <= cleared) { continue; } // 位点之内：不落库，也不当「客户端留下的行」算下界
         [self performDatabaseOperation:^(IMDatabase *database) { [database saveMessage:m]; }];
         if (m.convSeq > 0 && (minKept == 0 || m.convSeq < minKept)) { minKept = m.convSeq; }
         saved++;

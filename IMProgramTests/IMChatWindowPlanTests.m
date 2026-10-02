@@ -199,18 +199,107 @@
 
 /// 连落库的 head 也没有（新装、从没同步过这条会话）：空窗时不问就是永久空白，且没有重试入口。
 - (void)test_head未知且空窗必须问服务端 {
-    XCTAssertTrue(IMChatShouldRequestTail(0, NO, 0));
+    XCTAssertTrue(IMChatShouldRequestTail(0, NO, 0, 0));
 }
 
 /// 发消息 / 点 ↓ 都走这一步：窗口里已有内容而 head 未知时每次都问是白跑（与 Web 刻意不同，SYMMETRY 登记）。
 - (void)test_head未知但窗口有内容不白跑 {
-    XCTAssertFalse(IMChatShouldRequestTail(0, NO, 500));
+    XCTAssertFalse(IMChatShouldRequestTail(0, NO, 500, 0));
 }
 
 - (void)test_head已知时只看最新一页盖没盖住 {
-    XCTAssertTrue(IMChatShouldRequestTail(130064, NO, 0));
-    XCTAssertTrue(IMChatShouldRequestTail(130064, NO, 130064), @"尾部孤岛：最大 seq 等于 head 也不算齐（C4）");
-    XCTAssertFalse(IMChatShouldRequestTail(130064, YES, 0), @"盖住了就不问，空窗也一样（本地展开由调用方负责）");
+    XCTAssertTrue(IMChatShouldRequestTail(130064, NO, 0, 0));
+    XCTAssertTrue(IMChatShouldRequestTail(130064, NO, 130064, 0), @"尾部孤岛：最大 seq 等于 head 也不算齐（C4）");
+    XCTAssertFalse(IMChatShouldRequestTail(130064, YES, 0, 0), @"盖住了就不问，空窗也一样（本地展开由调用方负责）");
+}
+
+#pragma mark - 本机清空位点（OFFLINE_BACKLOG_DESIGN §6.7）
+
+/// 两个下界各自独立存、用时取大；clearedUpTo 是「≤ 它都不要」，换成包含口径的最低可见 seq 要 +1。
+- (void)test_有效下界取大且口径统一 {
+    XCTAssertEqual(IMChatEffectiveFloor(0, 0), 0, @"都没有 = 无下界");
+    XCTAssertEqual(IMChatEffectiveFloor(500, 0), 500, @"只有服务端下界");
+    XCTAssertEqual(IMChatEffectiveFloor(0, 1000), 1001, @"清空位点 1000 → 最低可见 1001（不是 1000）");
+    XCTAssertEqual(IMChatEffectiveFloor(500, 1000), 1001, @"取大：清空位点更高");
+    XCTAssertEqual(IMChatEffectiveFloor(2000, 1000), 2000, @"取大：服务端下界更高（入群位点抬过）");
+    XCTAssertEqual(IMChatEffectiveFloor(-3, -1), 0, @"负值当没有");
+}
+
+/// 清空位点=1000、上沿=1001（清空后来的第一条）：必须判到底。若误用「<=位点」的口径（不 +1），
+/// 1001<=1000 为假 → 滚到顶每次再空问一次服务端，永不收敛。
+- (void)test_清空后上沿恰在位点之上要判到底 {
+    int64_t floor = IMChatEffectiveFloor(0, 1000);
+    XCTAssertTrue(IMChatAtHistoryFloor(floor, 1001));
+    XCTAssertFalse(IMChatAtHistoryFloor(floor, 1002), @"1002 之上还有 1001，不是到底");
+    XCTAssertFalse(IMChatWindowHasMoreAboveFloor(1001, floor));
+    XCTAssertTrue(IMChatWindowHasMoreAboveFloor(1002, floor));
+    XCTAssertTrue(IMChatWindowHasMoreAboveFloor(2, 0), @"无下界：与旧粗闸一致，2 之上还有 1");
+    XCTAssertFalse(IMChatWindowHasMoreAboveFloor(1, 0));
+    XCTAssertFalse(IMChatWindowHasMoreAboveFloor(0, 0), @"窗口里全是待发消息：没有可作边界的位点");
+}
+
+/// 区间清单在可见范围内是否齐全：floor 抬高后不必从 1 起；head 落在 floor 之下 = 范围内没东西 = 齐全。
+- (void)test_区间齐全判据吃下界 {
+    NSArray *none = @[];
+    NSArray *tail = @[@[@1001, @1005]];
+    XCTAssertTrue(IMChatRangesComplete(none, 0, 0), @"head 未知：沿用旧口径当齐全");
+    XCTAssertFalse(IMChatRangesComplete(none, 1000, 0), @"没下界、清单空：不齐");
+    XCTAssertTrue(IMChatRangesComplete(none, 1000, 1001), @"清空后：可见范围 [1001,1000] 为空，齐全");
+    XCTAssertFalse(IMChatRangesComplete(none, 1003, 1001), @"位点之上缺 1001..1003");
+    XCTAssertTrue(IMChatRangesComplete(tail, 1005, 1001), @"[1001,1005] 盖住 [1001,1005]，不必从 1 起");
+    XCTAssertFalse(IMChatRangesComplete(tail, 1006, 1001), @"差一条也不算");
+    XCTAssertFalse(IMChatRangesComplete(tail, 1005, 0), @"没下界时 [1001,1005] 不是从 1 起的齐全");
+    XCTAssertFalse(IMChatRangesComplete((@[@[@1, @5], @[@7, @9]]), 9, 0), @"跨两段 = 有缺口");
+}
+
+/// 进会话：清空后重进（tip 在下界之下）local 开窗、空就空，不问服务端；
+/// 「齐全且一条都没有」只在 head > floor 时才继续问（首次登录 head 未落库那条老坑仍守住）。
+- (void)test_进会话何时只用本地 {
+    XCTAssertTrue(IMChatEntryStaysLocal(YES, NO, 1000, 1001), @"清空后重进：tip=1000<1001，空就空，不问");
+    XCTAssertTrue(IMChatEntryStaysLocal(NO, NO, 1000, 1001), @"即使清单不齐：可见范围内没有东西，同样不问");
+    XCTAssertFalse(IMChatEntryStaysLocal(YES, NO, 1003, 1001), @"head>floor：服务端确有位点之后的新消息，要问");
+    XCTAssertFalse(IMChatEntryStaysLocal(YES, NO, 0, 1001), @"tip 未知 + 齐全 + 空窗：照旧继续问（永久空白页那条老坑）");
+    XCTAssertFalse(IMChatEntryStaysLocal(YES, NO, 0, 0), @"没清过、首次登录 head 未知：照旧问");
+    XCTAssertTrue(IMChatEntryStaysLocal(YES, YES, 0, 0), @"齐全且有内容：旧口径早退");
+    XCTAssertFalse(IMChatEntryStaysLocal(NO, YES, 500, 0), @"有缺口：照旧继续取");
+}
+
+/// 点 ↓ / 无未读进会话取最新一页：tip<下界 = 可见范围内一条没有，不问；其余口径不变。
+- (void)test_取最新一页吃下界 {
+    XCTAssertFalse(IMChatShouldRequestTail(1000, NO, 0, 1001), @"清空后：盖不盖得住都不问");
+    XCTAssertTrue(IMChatShouldRequestTail(1003, NO, 0, 1001), @"位点之后有新的、没盖住：问");
+    XCTAssertFalse(IMChatShouldRequestTail(1003, YES, 1003, 1001));
+    XCTAssertTrue(IMChatShouldRequestTail(0, NO, 0, 1001), @"tip 未知 + 空窗：照旧问");
+    XCTAssertEqual(IMChatLatestPageLowAboveFloor(1003, 200, 1001), 1001, @"下沿不得落到已清掉的号上");
+    XCTAssertEqual(IMChatLatestPageLowAboveFloor(5000, 200, 1001), 4801, @"页远在下界之上：与旧口径一致");
+    XCTAssertEqual(IMChatLatestPageLowAboveFloor(100, 200, 0), 1);
+}
+
+/// 「跳到最早」：本地最早一条已是可见范围的第一条，就别问服务端。
+- (void)test_跳最早吃下界 {
+    XCTAssertFalse(IMChatEarliestJumpNeedsServer(1001, 1001), @"清空后本地最早=1001=可见第一条");
+    XCTAssertTrue(IMChatEarliestJumpNeedsServer(1002, 1001));
+    XCTAssertFalse(IMChatEarliestJumpNeedsServer(1, 0));
+    XCTAssertTrue(IMChatEarliestJumpNeedsServer(2, 0), @"无下界：旧口径");
+    XCTAssertFalse(IMChatEarliestJumpNeedsServer(0, 0), @"本地一条没有：调用方提示暂无消息");
+}
+
+/// 服务端搜索 / 日历结果里滤掉 ≤ 位点的；位点 0 原样。
+- (void)test_服务端结果滤掉已清空的 {
+    NSArray *hits = @[@5, @999, @1000, @1001, @1500];
+    XCTAssertEqualObjects(IMChatDropClearedSeqs(hits, 1000), (@[@1001, @1500]), @"位点本身(1000)也要滤掉：≤");
+    XCTAssertEqualObjects(IMChatDropClearedSeqs(hits, 0), hits);
+    XCTAssertEqualObjects(IMChatDropClearedSeqs(hits, 5000), @[]);
+    XCTAssertEqualObjects(IMChatDropClearedSeqs(@[], 10), @[]);
+}
+
+/// 日历：当天第一条在位点之内才丢；firstConvSeq 未知(0)或没清过都保留。
+- (void)test_日历某天是否被清空 {
+    XCTAssertTrue(IMChatCalendarDayIsCleared(900, 1000));
+    XCTAssertTrue(IMChatCalendarDayIsCleared(1000, 1000), @"位点本身也在清掉的范围里（<=）");
+    XCTAssertFalse(IMChatCalendarDayIsCleared(1001, 1000));
+    XCTAssertFalse(IMChatCalendarDayIsCleared(0, 1000), @"老服务端不带 firstConvSeq：保留");
+    XCTAssertFalse(IMChatCalendarDayIsCleared(5, 0), @"没清过：保留");
 }
 
 @end

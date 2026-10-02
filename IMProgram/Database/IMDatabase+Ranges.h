@@ -110,6 +110,8 @@ BOOL IMRegisterRangeInDB(FMDatabase *db, NSString *owner, NSString *convID, int6
 
 /// 区间清单是否**用同一段**完整覆盖 [lo, hi]（跨两段说明中间有缺口，不算覆盖）。
 ///
+/// **清空位点以下的号不算缺口**（OFFLINE_BACKLOG_DESIGN §6.7）：整段都在位点之下 → YES，否则下沿收到位点之上再判。
+///
 /// 与 `isConvComplete:` 的区别是**问的范围不同**：那个问"从 1 到 head 全有吗"，
 /// 这个问"我关心的这一段全有吗"。↓N 要的正是后者——"已滚入位点到 head 之间还缺不缺东西"，
 /// 会话开头缺几万条与这个问题无关。
@@ -118,6 +120,11 @@ BOOL IMRegisterRangeInDB(FMDatabase *db, NSString *owner, NSString *convID, int6
 /// 本地对该会话是否**齐全**：区间清单从 1 一路连续覆盖到 head。
 /// head 未知（0）时按齐全处理——没有上界就无从判断缺什么，宁可保持改造前的行为。
 - (BOOL)isConvComplete:(NSString *)convID;
+
+/// 同上，但只要求**可见范围** `[max(1,floor), head]` 内齐全（纯代数见 `IMChatRangesComplete`）。
+/// `floor` 是调用方给的可见下界（**包含**口径，通常是服务端 `historyFloor`）；本库自己存的清空位点
+/// （`clearedUpToForConv:`）会在内部与它**取大**——两个下界各自独立存、用时取大，调用方不必也不该先合并。
+- (BOOL)isConvComplete:(NSString *)convID floor:(int64_t)floor;
 @end
 
 /// 内部访问器（ivar 对 category 不可见）。仅供本类的分文件实现使用。
@@ -127,6 +134,7 @@ BOOL IMRegisterRangeInDB(FMDatabase *db, NSString *owner, NSString *convID, int6
 - (BOOL)writeIncomingMessage:(IMMessageModel *)message
                        owner:(NSString *)owner
       advancingSyncedConvSeq:(int64_t)syncedConvSeq
+                clearedUpTo:(int64_t)clearedUpTo
                         inDB:(FMDatabase *)db;
 @end
 

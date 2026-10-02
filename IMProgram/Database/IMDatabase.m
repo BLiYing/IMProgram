@@ -4,6 +4,7 @@
 #import "IMDatabase.h"
 #import "IMDatabase+Ranges.h"
 #import "IMDatabase+MuteState.h"
+#import "IMDatabase+ClearFloor.h"
 #import "IMConversation.h"
 #import "IMMessageModel.h"
 #import "IMLog.h"
@@ -267,7 +268,9 @@ static NSDictionary<NSString *, NSString *> *IMDecodeStringDict(NSString *raw);
             if (![db executeUpdate:@"ALTER TABLE im_conversation_local ADD COLUMN head_conv_seq INTEGER NOT NULL DEFAULT 0"]) {
                 IMLogDatabase(@"迁移失败：im_conversation_local 补列 head_conv_seq 未成功: %@", db.lastErrorMessage);
             }
-        } [self migrateMuteUntilColumnDB:db]; // 定时免打扰到期毫秒（P1 二批）：实现移到 IMDatabase+MuteState.m（体量门禁，本文件已贴 1500 行上限）
+        }
+        [self migrateMuteUntilColumnDB:db]; // 定时免打扰到期毫秒（P1 二批）：实现移到 IMDatabase+MuteState.m（体量门禁，本文件已贴 1500 行上限）
+        [self migrateClearedUpToColumnDB:db]; // 本机清空位点 + 老库回填：IMDatabase+ClearFloor.m（回填读 im_message_local，故须在其建表之后）
 
         // 任务5：好友/群组本地快照（断网离线首屏）。仅缓存列表渲染所需字段，按 owner_uid 隔离。
         ok = [db executeUpdate:
@@ -522,6 +525,8 @@ static IMConversation *IMConversationFromCachedRow(FMResultSet *rs) {
                 *stop = YES;
             }
         }];
+        // 位点在独立小表里不随会话行走（§6.7）；重建出来的行 synced 不得低于它，否则 since=0 把清掉的历史重拉回来。
+        if (!IMRaiseSyncedToClearFloorInDB(db, owner, nil)) { *rollback = YES; }
     }];
 }
 
@@ -663,7 +668,12 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
 - (BOOL)writeIncomingMessage:(IMMessageModel *)message
                        owner:(NSString *)owner
       advancingSyncedConvSeq:(int64_t)syncedConvSeq
+                clearedUpTo:(int64_t)clearedUpTo
                         inDB:(FMDatabase *)db {
+    // 本机清空位点闸（§6.7）：用户清掉的那一段不能被 sync / window / 实时又带回来。所有写 im_message_local 的
+    // 路径都经这里；整条丢弃（不落库、不更新会话摘要、不推游标、不登记区间），返回 YES（不是失败，整页不回滚）。
+    // 位点由调用方传入：整页路径开头只查一次（补拉 10 万条不能多 10 万次 SELECT），单条路径自己查。
+    if (message.convSeq > 0 && message.convSeq <= clearedUpTo) { return YES; }
     NSNumber *rowID = [self existingRowIDFor:message owner:owner in:db];
     BOOL inserted = rowID == nil;
     BOOL ok = NO;
@@ -762,7 +772,8 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
     NSString *owner = [self ownerUserID];
     __block BOOL saved = NO;
     [_queue inTransaction:^(FMDatabase *db, BOOL *rollback) {
-        saved = [self writeIncomingMessage:message owner:owner advancingSyncedConvSeq:syncedConvSeq inDB:db];
+        saved = [self writeIncomingMessage:message owner:owner advancingSyncedConvSeq:syncedConvSeq
+                               clearedUpTo:IMClearedUpToInDB(db, owner, message.convID) inDB:db];
         if (!saved) { *rollback = YES; }
     }];
     return saved;
@@ -823,6 +834,7 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
             IMLogDatabase(@"由消息创建会话缓存失败 owner=%@ conv=%@: %@", owner, message.convID, db.lastErrorMessage);
             return NO;
         }
+        IMRaiseSyncedToClearFloorInDB(db, owner, message.convID); // 壳行重建：游标不低于清空位点（§6.7）
     } else if (isLatest) {
         BOOL ok = [db executeUpdate:
             // last_caption / last_sys_segments 必须随每条新消息**覆写**（含空串）：漏写会把上一条的
@@ -1318,18 +1330,6 @@ const NSInteger kIMMessageWindowPageSize = 200;
             [db executeUpdate:@"DELETE FROM im_message_local WHERE row_id=?", rowID];
         }
     }];
-}
-
-- (NSInteger)clearMessagesForConv:(NSString *)convID {
-    if (convID.length == 0) { return 0; }
-    NSString *owner = [self ownerUserID];
-    __block NSInteger removed = 0;
-    [_queue inDatabase:^(FMDatabase *db) {
-        if ([db executeUpdate:@"DELETE FROM im_message_local WHERE owner_uid=? AND conv_id=?", owner, convID]) {
-            removed = (NSInteger)db.changes;
-        }
-    }];
-    return removed;
 }
 
 - (int64_t)maxConvSeqForConv:(NSString *)convID {
