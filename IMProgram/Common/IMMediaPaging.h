@@ -24,6 +24,15 @@ extern NSArray<IMMessageModel *> *IMMediaPagingPrependOlder(NSArray<IMMessageMod
                                                             int64_t clearedUpTo,
                                                             NSInteger *_Nullable outAdded);
 
+/**
+ 把更新的一页并到升序时间线**后面**（向更新方向续拉）。只收比当前最新一条**还新**的、去重的、非撤回非空的、位点之上的项。
+ 追加在末尾：当前下标不需要挪（与 `IMMediaPagingPrependOlder` 的区别）。
+ */
+extern NSArray<IMMessageModel *> *IMMediaPagingAppendNewer(NSArray<IMMessageModel *> *currentAscending,
+                                                           NSArray<IMMessageModel *> *page,
+                                                           int64_t clearedUpTo,
+                                                           NSInteger *_Nullable outAdded);
+
 /// 服务端还能不能翻出位点之上的东西：游标落到 `位点 + 1` 及以下时剩下的全在位点以内，别再翻（防清空过的大会话空翻一串页）。
 extern BOOL IMMediaPagingHasMore(BOOL hasMore, int64_t nextCursor, int64_t clearedUpTo);
 

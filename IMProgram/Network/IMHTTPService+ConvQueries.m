@@ -71,6 +71,37 @@ static NSString *IMQueryEscape(NSString *raw) {
     }];
 }
 
+/// 服务端媒体项数组 → 轻量 `IMMessageModel`（保持服务端给的顺序）。向更旧 / 向更新两个方向共用。
+static NSArray<IMMessageModel *> *IMMediaMessagesFromResponse(NSDictionary *data, NSString *convID) {
+    NSArray *raw = [data[@"items"] isKindOfClass:NSArray.class] ? data[@"items"] : @[];
+    NSMutableArray<IMMessageModel *> *out = [NSMutableArray arrayWithCapacity:raw.count];
+    for (id one in raw) {
+        if (![one isKindOfClass:NSDictionary.class]) { continue; } // 脏项跳过
+        NSDictionary *d = one;
+        int64_t seq = [d[@"conv_seq"] longLongValue];
+        if (seq <= 0) { continue; }
+        IMMessageModel *m = [IMMessageModel new];
+        m.convID = convID;
+        m.convSeq = seq;
+        m.from = [d[@"sender"] isKindOfClass:NSString.class] ? d[@"sender"] : nil;
+        m.contentType = [d[@"content_type"] isKindOfClass:NSString.class] ? d[@"content_type"] : @"";
+        m.content = [d[@"content"] isKindOfClass:NSString.class] ? d[@"content"] : @"";
+        m.caption = [d[@"caption"] isKindOfClass:NSString.class] ? d[@"caption"] : nil;
+        m.timestamp = [d[@"timestamp"] longLongValue];
+        m.thumb = [d[@"thumb"] isKindOfClass:NSString.class] ? d[@"thumb"] : nil;
+        m.poster = [d[@"poster"] isKindOfClass:NSString.class] ? d[@"poster"] : nil;
+        m.fileName = [d[@"file_name"] isKindOfClass:NSString.class] ? d[@"file_name"] : nil;
+        m.fileSize = [d[@"file_size"] longLongValue];
+        m.mediaW = [d[@"media_w"] integerValue];
+        m.mediaH = [d[@"media_h"] integerValue];
+        m.duration = [d[@"duration"] longLongValue];
+        m.groupID = [d[@"group_id"] isKindOfClass:NSString.class] && [d[@"group_id"] length] > 0 ? d[@"group_id"] : nil;
+        m.status = IMMessageStatusSent;
+        [out addObject:m];
+    }
+    return out;
+}
+
 - (void)convMediaWithToken:(NSString *)token
                     convID:(NSString *)convID
                       kind:(NSString *)kind
@@ -85,33 +116,28 @@ static NSString *IMQueryEscape(NSString *raw) {
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
     [self runDataRequest:req fallback:IMLocalized(@"net.fallback.calendar_load") completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(@[], NO, 0, error); return; }
-        NSArray *raw = [data[@"items"] isKindOfClass:NSArray.class] ? data[@"items"] : @[];
-        NSMutableArray<IMMessageModel *> *out = [NSMutableArray arrayWithCapacity:raw.count];
-        for (id one in raw) {
-            if (![one isKindOfClass:NSDictionary.class]) { continue; } // 脏项跳过
-            NSDictionary *d = one;
-            int64_t seq = [d[@"conv_seq"] longLongValue];
-            if (seq <= 0) { continue; }
-            IMMessageModel *m = [IMMessageModel new];
-            m.convID = convID;
-            m.convSeq = seq;
-            m.from = [d[@"sender"] isKindOfClass:NSString.class] ? d[@"sender"] : nil;
-            m.contentType = [d[@"content_type"] isKindOfClass:NSString.class] ? d[@"content_type"] : @"";
-            m.content = [d[@"content"] isKindOfClass:NSString.class] ? d[@"content"] : @"";
-            m.caption = [d[@"caption"] isKindOfClass:NSString.class] ? d[@"caption"] : nil;
-            m.timestamp = [d[@"timestamp"] longLongValue];
-            m.thumb = [d[@"thumb"] isKindOfClass:NSString.class] ? d[@"thumb"] : nil;
-            m.poster = [d[@"poster"] isKindOfClass:NSString.class] ? d[@"poster"] : nil;
-            m.fileName = [d[@"file_name"] isKindOfClass:NSString.class] ? d[@"file_name"] : nil;
-            m.fileSize = [d[@"file_size"] longLongValue];
-            m.mediaW = [d[@"media_w"] integerValue];
-            m.mediaH = [d[@"media_h"] integerValue];
-            m.duration = [d[@"duration"] longLongValue];
-            m.groupID = [d[@"group_id"] isKindOfClass:NSString.class] && [d[@"group_id"] length] > 0 ? d[@"group_id"] : nil;
-            m.status = IMMessageStatusSent;
-            [out addObject:m];
-        }
+        NSArray<IMMessageModel *> *out = IMMediaMessagesFromResponse(data, convID);
         completion(out, [data[@"has_more"] boolValue], [data[@"next_cursor"] longLongValue], nil);
+    }];
+}
+
+- (void)convMediaNewerWithToken:(NSString *)token
+                        convID:(NSString *)convID
+                          kind:(NSString *)kind
+                         after:(int64_t)after
+                         limit:(NSInteger)limit
+                    completion:(void (^)(NSArray<IMMessageModel *> *messagesAscending,
+                                         BOOL hasMore,
+                                         int64_t nextCursor,
+                                         NSError *_Nullable error))completion {
+    if (!completion) { return; }
+    NSMutableString *path = [NSMutableString stringWithFormat:
+        @"/api/v1/conversations/%@/media?kind=%@&after=%lld", [self pathEscape:convID], IMQueryEscape(kind ?: @"media"), after];
+    if (limit > 0) { [path appendFormat:@"&limit=%ld", (long)limit]; }
+    NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
+    [self runDataRequest:req fallback:IMLocalized(@"net.fallback.calendar_load") completion:^(NSDictionary *data, NSError *error) {
+        if (error) { completion(@[], NO, 0, error); return; }
+        completion(IMMediaMessagesFromResponse(data, convID), [data[@"has_more"] boolValue], [data[@"next_cursor"] longLongValue], nil);
     }];
 }
 

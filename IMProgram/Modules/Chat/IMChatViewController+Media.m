@@ -332,6 +332,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     IMMediaServerTimeline *timeline = [[IMMediaServerTimeline alloc] initWithConvID:self.convID kind:@"media" clearedUpTo:cleared];
     // 段的下沿已经是可见起点（或 1）就没有更旧的可问
     [timeline seedWithMessages:base hasMore:segLo > MAX((int64_t)1, floor)];
+    timeline.hasMoreNewer = YES; // 取的是缺口会话里的一段：段上沿之外服务端可能还有更新的
     NSUInteger start = IMMediaTimelineIndexOfMessage(timeline.messages, m);
     if (start == NSNotFound) {
         [self presentViewController:[self buildMediaViewerForMessage:m preloaded:image] animated:YES completion:nil];
@@ -348,6 +349,14 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
             return [self buildMediaViewerForMessage:mm preloaded:(mm.convSeq == m.convSeq ? image : nil)];
         }];
     pager.conversationTitle = [self conversationDisplayTitle];
+    pager.countProvider = ^NSUInteger{ return timeline.messages.count; }; // 前插 / 追加都以时间线真实长度为准
+    pager.hasNewer = ^BOOL{ return timeline.hasMoreNewer; };
+    pager.newerLoader = ^(void (^done)(NSInteger)) {
+        [timeline loadNewer:^(NSInteger added, NSError *error) {
+            if (error) { [[UIViewController im_topVisibleViewController] im_showToast:IMLocalized(@"media.viewer.offline_partial_notice")]; }
+            done(added);
+        }];
+    };
     pager.hasOlder = ^BOOL{ return timeline.hasMore; };
     pager.olderLoader = ^(void (^done)(NSInteger)) {
         [timeline loadOlder:^(NSInteger added, NSError *error) {

@@ -66,6 +66,25 @@ static NSArray<NSNumber *> *Seqs(NSArray<IMMessageModel *> *ms) {
     XCTAssertEqual(added, 2);
 }
 
+/// 向更新方向：只收比当前最新还新的、去重的，升序拼到后面；撤回 / 位点以内的不收。
+- (void)test_更新一页拼到后面且升序只收更新的 {
+    NSInteger added = -1;
+    NSArray *r = IMMediaPagingAppendNewer(@[M(100), M(200)], @[M(300), M(250), M(200), M(150)], 0, &added);
+    XCTAssertEqualObjects(Seqs(r), (@[@100, @200, @250, @300]));
+    XCTAssertEqual(added, 2);
+}
+
+- (void)test_更新一页重复撤回与位点以内不收 {
+    IMMessageModel *recalled = M(260); recalled.recalledAt = 1;
+    NSInteger added = -1;
+    NSArray *r = IMMediaPagingAppendNewer(@[M(200)], @[M(250), M(250), recalled, M(40)], 300, &added);
+    XCTAssertEqualObjects(Seqs(r), (@[@200]));   // 250 在位点 300 以内、260 已撤回、40 更旧
+    XCTAssertEqual(added, 0);
+    r = IMMediaPagingAppendNewer(@[M(200)], @[M(250), M(250), recalled], 0, &added);
+    XCTAssertEqualObjects(Seqs(r), (@[@200, @250]));
+    XCTAssertEqual(added, 1);
+}
+
 /// 游标落到「位点 + 1」及以下就别再翻（剩下的全在位点以内）。
 - (void)test_游标落到位点之内不再翻 {
     XCTAssertFalse(IMMediaPagingHasMore(YES, 101, 100));

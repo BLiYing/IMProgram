@@ -71,6 +71,18 @@ NS_ASSUME_NONNULL_BEGIN
                                      int64_t nextCursor,
                                      NSError *_Nullable error))completion;
 
+/// 会话媒体向**更新**方向分页（`after=<seq>`，**升序**，紧挨 after 的最近 limit 条；`nextCursor` 在 `hasMore` 时是本页最大 conv_seq，
+/// 下一次当 after 传回）。查看器在本地段上沿往更新续拉用。口径同 `convMediaWithToken:`。
+- (void)convMediaNewerWithToken:(NSString *)token
+                         convID:(NSString *)convID
+                           kind:(NSString *)kind
+                          after:(int64_t)after
+                          limit:(NSInteger)limit
+                     completion:(void (^)(NSArray<IMMessageModel *> *messagesAscending,
+                                          BOOL hasMore,
+                                          int64_t nextCursor,
+                                          NSError *_Nullable error))completion;
+
 @end
 
 NS_ASSUME_NONNULL_END

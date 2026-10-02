@@ -19,6 +19,11 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) void (^olderLoader)(void (^done)(NSInteger added));
 /// 宿主**当前真实**的时间线长度（设了就以它为准）：续拉可能由别处（媒体库网格）触发，容器自己累加会与真实条数脱节。
 @property (nonatomic, copy, nullable) NSUInteger (^countProvider)(void);
+/// 向**更新**方向的续拉（本地段上沿之外，服务端 `after=`）。靠近末尾时容器自动预取；追加在末尾，下标不挪。
+/// 宿主在 `done` 里回报新增条数；`pageProvider` 与 `countProvider` 须按调用时的时间线取数。不设则「翻到头即停」。
+@property (nonatomic, copy, nullable) void (^newerLoader)(void (^done)(NSInteger added));
+/// 还有没有更新的（nil = 恒有；不设 `newerLoader` 时无意义）。
+@property (nonatomic, copy, nullable) BOOL (^hasNewer)(void);
 /// 还有没有更旧的（nil = 恒有；不设 `olderLoader` 时无意义）。
 @property (nonatomic, copy, nullable) BOOL (^hasOlder)(void);
 /// 更旧的一头在**末尾**（媒体库新→旧排序，续拉追加在后面，下标不挪）；默认 NO = 在开头（升序，续拉前插，当前下标要后移）。

@@ -26,6 +26,7 @@
     // 沉浸态：默认显示，点按切换显隐（无自动隐藏倒计时）。
     BOOL _chromeVisible;
     BOOL _loadingOlder;
+    BOOL _loadingNewer;
 }
 
 + (instancetype)pagerWithCount:(NSUInteger)count
@@ -84,6 +85,42 @@
         [_pager setViewControllers:@[c] direction:UIPageViewControllerNavigationDirectionForward animated:NO completion:nil];
     }
     [self updateChromeForCurrent];
+}
+
+/// 下标没变、只是邻居要重问：用户正拖拽 / 减速 / 转场中就推迟（animated:NO 重设同一页会打断交互转场、复位缩放、暂停视频）。
+- (void)refreshNeighborsWhenIdle:(NSInteger)attempt {
+    UIScrollView *sv = nil;
+    for (UIView *v in _pager.view.subviews) { if ([v isKindOfClass:UIScrollView.class]) { sv = (UIScrollView *)v; break; } }
+    BOOL busy = sv && (sv.isTracking || sv.isDragging || sv.isDecelerating);
+    if (busy && attempt < 20) {
+        __weak typeof(self) ws = self;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ [ws refreshNeighborsWhenIdle:attempt + 1]; });
+        return;
+    }
+    IMMediaViewerViewController *c = self.currentViewer;
+    if (c) { [_pager setViewControllers:@[c] direction:UIPageViewControllerNavigationDirectionForward animated:NO completion:nil]; }
+}
+
+/// 靠近「更新」那一头（末尾）就预取一页：追加在末尾，当前下标不动，只要更新计数与右邻居。
+- (void)prefetchNewerIfNeeded {
+    if (!_newerLoader || _loadingNewer || (_hasNewer && !_hasNewer())) { return; }
+    IMMediaViewerViewController *cur = self.currentViewer;
+    NSUInteger idx = cur ? cur.imMediaIndex : _startIndex;
+    NSUInteger n = [self currentCount];
+    if (n == 0 || idx + 4 < n) { return; }
+    _loadingNewer = YES;
+    __weak typeof(self) ws = self;
+    _newerLoader(^(NSInteger added) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(ws) self = ws;
+            if (!self) { return; }
+            self->_loadingNewer = NO;
+            if (added <= 0) { return; }
+            if (!self.countProvider) { self->_count += (NSUInteger)added; }
+            [self refreshNeighborsWhenIdle:0]; // 让右邻居按新长度重问（避开拖拽中）
+            [self updateChromeForCurrent];
+        });
+    });
 }
 
 /// 靠近「更旧」那一头就预取一页（服务端续拉）。预取而不是到头才取：到头时 dataSource 已经回 nil，用户划不动。
@@ -207,6 +244,7 @@
     _galleryButton.hidden = !cur.hasGalleryEntry;      // stack 自动收起隐藏项
     _moreButton.hidden = cur.moreActions.count == 0;
     [self prefetchOlderIfNeeded];
+    [self prefetchNewerIfNeeded];
 }
 
 #pragma mark - 固定层按钮动作（作用于当前页）

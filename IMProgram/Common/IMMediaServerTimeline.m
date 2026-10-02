@@ -68,6 +68,29 @@ static const NSInteger kPageLimit = 60; // 与 Android / Web 同值
     }];
 }
 
+- (void)loadNewer:(void (^)(NSInteger, NSError *_Nullable))completion {
+    if (_loadingNewer || !_hasMoreNewer) { if (completion) { completion(0, nil); } return; }
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0) { _hasMoreNewer = NO; if (completion) { completion(0, [NSError errorWithDomain:@"IMMedia" code:401 userInfo:nil]); } return; }
+    _loadingNewer = YES;
+    int64_t after = _messages.lastObject.convSeq;
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService convMediaNewerWithToken:token convID:_convID kind:_kind after:after limit:kPageLimit
+                                              completion:^(NSArray<IMMessageModel *> *page, BOOL more, int64_t next, NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(ws) self = ws;
+            if (!self) { return; }
+            self->_loadingNewer = NO;
+            if (error) { self->_hasMoreNewer = NO; if (completion) { completion(0, error); } return; }
+            NSInteger added = 0;
+            NSArray<IMMessageModel *> *merged = IMMediaPagingAppendNewer(self->_messages, page, self->_cleared, &added);
+            self->_messages = [merged mutableCopy];
+            self->_hasMoreNewer = more && added > 0; // 到头 / 一条没并进来（重复页）→ 停，别空转
+            if (completion) { completion(added, nil); }
+        });
+    }];
+}
+
 - (void)removeMessagesWithConvSeqs:(NSSet<NSNumber *> *)seqs {
     NSIndexSet *idx = [_messages indexesOfObjectsPassingTest:^BOOL(IMMessageModel *m, NSUInteger i, BOOL *stop) {
         return [seqs containsObject:@(m.convSeq)];

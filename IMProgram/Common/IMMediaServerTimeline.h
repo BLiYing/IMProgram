@@ -31,6 +31,13 @@ NS_ASSUME_NONNULL_BEGIN
 /// 服务端回空页却仍 has_more（逐人隐藏过滤）时接着往前翻，最多 `IMMediaServerTimelineMaxEmptyPages` 页。
 - (void)loadOlder:(void (^)(NSInteger added, NSError *_Nullable error))completion;
 
+/// 本地段上沿之外服务端还有更新的（`after=` 方向）。`seedWithMessages:hasMore:` 之后用 `setHasMoreNewer:` 打开。
+@property (nonatomic, assign) BOOL hasMoreNewer;
+@property (nonatomic, readonly) BOOL loadingNewer;
+/// 取更新的一页并拼到**后面**（只收比当前最新还新的、去重的；追加在末尾，当前下标不挪）。`added` = 真正新增条数；
+/// 失败 = 离线降级（`hasMoreNewer` 置 NO，调用方说一句）；到头 / 一条没并进来也置 NO，别空转。
+- (void)loadNewer:(void (^)(NSInteger added, NSError *_Nullable error))completion;
+
 /// 某些消息被物理移除（为所有人删除 / 仅为我删除）后同步剔除，别让下次重派生把它们带回来。
 - (void)removeMessagesWithConvSeqs:(NSSet<NSNumber *> *)seqs;
 
