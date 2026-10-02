@@ -351,7 +351,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     pager.hasOlder = ^BOOL{ return timeline.hasMore; };
     pager.olderLoader = ^(void (^done)(NSInteger)) {
         [timeline loadOlder:^(NSInteger added, NSError *error) {
-            if (error) { [ws im_showToast:IMLocalized(@"media.viewer.offline_partial_notice")]; }
+            if (error) { [[UIViewController im_topVisibleViewController] im_showToast:IMLocalized(@"media.viewer.offline_partial_notice")]; } // 查看器盖在聊天页上：打在可见页
             done(added);
         }];
     };

@@ -64,6 +64,28 @@
     [self updateChromeForCurrent];
 }
 
+/// 前插续拉落地：正在看的那一张下标后移 `added`，并让翻页容器重新问一遍左右邻居。
+/// 用户正拖拽 / 减速 / 转场中时**推迟**（animated:NO 重设同一页会打断交互转场、复位缩放、暂停视频）；
+/// 推迟期间下标没动，邻居仍按旧下标建——所以必须等到安静了再一次性后移，不能先动下标。
+- (void)applyPrependedCount:(NSInteger)added attempt:(NSInteger)attempt {
+    UIScrollView *sv = nil;
+    for (UIView *v in _pager.view.subviews) { if ([v isKindOfClass:UIScrollView.class]) { sv = (UIScrollView *)v; break; } }
+    BOOL busy = sv && (sv.isTracking || sv.isDragging || sv.isDecelerating);
+    if (busy && attempt < 20) {
+        __weak typeof(self) ws = self;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [ws applyPrependedCount:added attempt:attempt + 1];
+        });
+        return;
+    }
+    IMMediaViewerViewController *c = self.currentViewer;
+    if (c) {
+        c.imMediaIndex += (NSUInteger)added;
+        [_pager setViewControllers:@[c] direction:UIPageViewControllerNavigationDirectionForward animated:NO completion:nil];
+    }
+    [self updateChromeForCurrent];
+}
+
 /// 靠近「更旧」那一头就预取一页（服务端续拉）。预取而不是到头才取：到头时 dataSource 已经回 nil，用户划不动。
 - (void)prefetchOlderIfNeeded {
     if (!_olderLoader || _loadingOlder || (_hasOlder && !_hasOlder())) { return; }
@@ -79,14 +101,9 @@
             if (!self) { return; }
             self->_loadingOlder = NO;
             if (added <= 0) { return; }
-            IMMediaViewerViewController *c = self.currentViewer;
-            self->_count += (NSUInteger)added;
-            if (!self.olderAtEnd && c) {
-                // 前插：正在看的那一张下标后移，并让翻页容器重新问一遍左右邻居
-                c.imMediaIndex += (NSUInteger)added;
-                [self->_pager setViewControllers:@[c] direction:UIPageViewControllerNavigationDirectionForward animated:NO completion:nil];
-            }
-            [self updateChromeForCurrent];
+            if (!self.countProvider) { self->_count += (NSUInteger)added; }
+            if (self.olderAtEnd) { [self updateChromeForCurrent]; return; }   // 追加在末尾：下标不动
+            [self applyPrependedCount:added attempt:0];
         });
     });
 }
@@ -159,12 +176,17 @@
 
 /// 按下标现建一页；越界返回 nil（供 dataSource 表示到头）。设 chromeless + delegate + imMediaIndex。
 - (IMMediaViewerViewController *)viewerAtIndex:(NSUInteger)index {
-    if (index >= _count || !_provider) { return nil; }
+    if (index >= [self currentCount] || !_provider) { return nil; }
     IMMediaViewerViewController *vc = _provider(index);
     vc.imMediaIndex = index;        // vc 可能为 nil（provider 弱引用兜底），发消息给 nil 安全
     vc.chromeless = YES;            // 内容页不画壳；壳在本容器固定层
     vc.contentDelegate = self;
     return vc;
+}
+
+- (NSUInteger)currentCount {
+    if (_countProvider) { _count = _countProvider(); }   // 以宿主真实长度为准，别自己累加
+    return _count;
 }
 
 - (IMMediaViewerViewController *)currentViewer {
@@ -173,7 +195,8 @@
 
 - (void)updateSubtitleForIndex:(NSUInteger)index {
     // 单张不显计数；多张显纯数字 i/N（挂到液态标题栏副标题）。
-    _navBar.subtitleText = _count > 1 ? [NSString stringWithFormat:@"%lu / %lu", (unsigned long)(index + 1), (unsigned long)_count] : @"";
+    NSUInteger n = [self currentCount];
+    _navBar.subtitleText = n > 1 ? [NSString stringWithFormat:@"%lu / %lu", (unsigned long)(index + 1), (unsigned long)n] : @"";
 }
 
 /// 翻页后把壳重绑到当前页：更新数目 + 媒体库/更多 是否显示（按当前页配置）。

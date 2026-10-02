@@ -49,6 +49,7 @@
     BOOL _isGroup;
     NSArray<IMMenuAction *> *(^_contextActionsProvider)(IMMessageModel *);
     NSArray<IMPopoverCardItem *> *(^_moreActionsProvider)(IMMessageModel *);
+    BOOL _loadFailed;                       // 服务端续拉失败过（首屏失败时空态要说网络问题，不说「无媒体」）
     IMMediaServerTimeline *_timeline;       // 服务端续拉模式才有；有它时 _items/_messages 都由它派生（新→旧）
 }
 
@@ -100,7 +101,12 @@
                                         timestamp:m.timestamp thumb:m.thumb]];
     }
     _messages = msgs; _items = items;
+    // 空态只在「确实没有」时显示：还能续拉不是空；首屏加载失败也不能写成「无媒体」（说的是网络问题）
     _emptyLabel.hidden = _items.count > 0 || _timeline.hasMore;
+    if (_timeline && _items.count == 0 && _loadFailed) {
+        _emptyLabel.text = IMLocalized(@"media.viewer.offline_partial_notice");
+        _emptyLabel.hidden = NO;
+    }
     [_collection reloadData];
 }
 
@@ -111,7 +117,7 @@
     [_timeline loadOlder:^(NSInteger added, NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
-        if (error) { [self im_showToast:IMLocalized(@"media.viewer.offline_partial_notice")]; }
+        if (error) { [self im_showToast:IMLocalized(@"media.viewer.offline_partial_notice")]; self->_loadFailed = YES; }
         [self rebuildFromTimeline];
     }];
 }
@@ -195,7 +201,8 @@
     _items = items;
     _messages = msgs;
     [_collection reloadData];
-    _emptyLabel.hidden = _items.count > 0;
+    _emptyLabel.hidden = _items.count > 0 || _timeline.hasMore; // 服务端模式删光已加载的、后面还有更旧的：不是空
+    if (_items.count == 0 && _timeline.hasMore) { [self loadMoreFromServer]; }
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -270,12 +277,13 @@
     pager.conversationTitle = _title;
     if (_timeline) {
         pager.olderAtEnd = YES; // 媒体库新→旧：更旧的在末尾，追加不挪下标
+        pager.countProvider = ^NSUInteger{ __strong typeof(wself) s = wself; return s ? s->_items.count : 0; }; // 网格自己也会续拉：以真实长度为准
         pager.hasOlder = ^BOOL{ return [wself isTimelineHasMore]; };
         pager.olderLoader = ^(void (^done)(NSInteger)) {
             __strong typeof(wself) s = wself;
             if (!s || !s->_timeline) { done(0); return; }
             [s->_timeline loadOlder:^(NSInteger added, NSError *error) {
-                if (error) { [wself im_showToast:IMLocalized(@"media.viewer.offline_partial_notice")]; }
+                if (error) { [[UIViewController im_topVisibleViewController] im_showToast:IMLocalized(@"media.viewer.offline_partial_notice")]; } // 查看器盖在上面：toast 要打在可见页上
                 [wself rebuildFromTimeline];
                 done(added);
             }];
