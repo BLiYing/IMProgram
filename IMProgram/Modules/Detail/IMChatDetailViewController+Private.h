@@ -23,6 +23,7 @@
 @class IMMessageModel;
 @class IMMediaDownloadCoordinator;
 @class IMDatabase;
+@class IMDetailServerArchive;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -129,6 +130,7 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 @property (nonatomic, copy, nullable) NSString *superCursor;   ///< 下一页游标
 @property (nonatomic, assign) BOOL superHasMore;               ///< 还有下一页（控制「加载更多」行）
 @property (nonatomic, assign) BOOL superLoading;               ///< 在途标记（防连点）
+@property (nonatomic, strong, nullable) IMDetailServerArchive *serverArchive; ///< 媒体/文件/语音页签的服务端分页（本地有缺口且在线才有，见 +ServerArchive）
 
 @end
 
@@ -152,6 +154,7 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 /// +Actions.m 的免打扰提交需要它刷新行文案，跨 TU 不声明会编译过、运行到才 unrecognized selector。
 - (void)reloadSettingsAndPills;
 - (void)rebuildTabs;
+- (void)recomputeTabContent;
 - (IMDetailSection)sectionKindAt:(NSInteger)index;
 - (NSInteger)indexOfSection:(IMDetailSection)kind;
 - (void)updateStickyTabs;

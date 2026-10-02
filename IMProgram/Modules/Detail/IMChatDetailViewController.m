@@ -14,6 +14,7 @@
 #import "IMProtocol.h"
 #import "IMDatabase.h"
 #import "IMDatabase+Archive.h"
+#import "IMChatDetailViewController+ServerArchive.h"
 #import "IMTimeUtil.h" // IMNowMillis()：成员禁言状态判定与时长换算
 #import "IMMuteExpiryScheduler.h" // IMMuteExpiryDidChangeNotification
 #import "IMMuteState.h" // 定时免打扰值行文案（IMIsMutedNow/IMMuteDetailValueText）
@@ -130,6 +131,7 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
     [self buildTableView];
     [self buildHeaderOverlay];
     [self rebuildTabs];
+    [self im_startServerArchiveIfNeeded]; // 本地有缺口且在线：媒体/文件/语音页签并入服务端分页（§4.9 第 5 项）
 
     // 初始数据：会话设置（置顶/免打扰）；群→群资料；单聊→拉黑态。
     [self loadConversationSettings];
@@ -415,6 +417,7 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
     [self performDatabaseOperation:^(IMDatabase *database) {
         msgs = [database archiveMessagesForConv:self.convID];
     }];
+    msgs = [self im_archiveMergedWithLocal:msgs]; // 本地有缺口且在线：并入服务端已拉到的
     self.tabs = [IMChatDetailTabs tabsForMessages:msgs isGroup:self.isGroup];
     if (self.selectedTab >= (NSInteger)self.tabs.count) { self.selectedTab = 0; }
     // 分段控件
@@ -539,7 +542,7 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
         [self performDatabaseOperation:^(IMDatabase *database) {
             loaded = [database archiveMessagesForConv:self.convID];
         }];
-        msgs = loaded;
+        msgs = [self im_archiveMergedWithLocal:loaded];
     }
     if (t.kind == IMDetailTabKindMedia) {
         NSMutableArray<IMMessageModel *> *media = [NSMutableArray array];

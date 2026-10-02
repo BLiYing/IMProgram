@@ -3,6 +3,7 @@
 //  从 IMChatDetailViewController.m 平移，未改行为；私有属性/常量经 IMChatDetailViewController+Private.h 共享。
 
 #import "IMChatDetailViewController+Private.h"
+#import "IMChatDetailViewController+ServerArchive.h"
 #import "IMDetailMemberCell.h"
 #import "IMDetailFileCell.h"
 #import "IMDetailLinkCell.h"
@@ -332,6 +333,7 @@
     [self applyHeaderMorph];
     [self updatePillsVisibility];
     [self updateStickyTabs];
+    [self im_loadMoreArchiveIfNearBottom:scrollView]; // 媒体/文件/语音页签：服务端还有更旧的就滚到底续拉
 }
 
 /// tab 贴顶时顶边。贴到标题栏底(topInset+56)之上一点，让分段控件紧贴标题栏、上方内容被磨砂栏遮住不外露。
