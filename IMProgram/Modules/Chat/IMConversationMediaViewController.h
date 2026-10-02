@@ -5,7 +5,7 @@
 
 #import <UIKit/UIKit.h>
 
-@class IMMessageModel, IMMenuAction, IMPopoverCardItem;
+@class IMMessageModel, IMMenuAction, IMPopoverCardItem, IMMediaServerTimeline;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -40,6 +40,10 @@ NS_ASSUME_NONNULL_BEGIN
                            title:(nullable NSString *)title
           contextActionsProvider:(nullable NSArray<IMMenuAction *> *(^)(IMMessageModel *m))contextActionsProvider
              moreActionsProvider:(nullable NSArray<IMPopoverCardItem *> *(^)(IMMessageModel *m))moreActionsProvider;
+
+/// 服务端续拉模式（本地有缺口且在线，OFFLINE_BACKLOG_DESIGN §4.9 第 5 项）：展示项改由时间线持有者供给（新→旧），
+/// 滚到靠近末尾自动续要更旧的一页；点开查看器的翻页也跟着续拉。必须在 push 之前调用；`items/messages` 入参可传空数组。
+- (void)attachServerTimeline:(IMMediaServerTimeline *)timeline;
 @end
 
 NS_ASSUME_NONNULL_END

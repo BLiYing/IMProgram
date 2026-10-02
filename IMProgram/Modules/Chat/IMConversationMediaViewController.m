@@ -12,6 +12,9 @@
 #import "IMSocketManager.h" // IMSocketDidRemoveMessageNotification：长按删除后就地移除该格
 #import "IMSocketManager+BatchDelete.h" // IMRemovedMessageSeqs
 #import "IMLocalization.h"
+#import "IMMediaServerTimeline.h"
+#import "IMMediaUtil.h"
+#import "UIViewController+IMToast.h"
 
 @implementation IMMediaItem
 + (instancetype)itemWithURL:(NSString *)url isVideo:(BOOL)isVideo timestamp:(int64_t)timestamp {
@@ -46,6 +49,7 @@
     BOOL _isGroup;
     NSArray<IMMenuAction *> *(^_contextActionsProvider)(IMMessageModel *);
     NSArray<IMPopoverCardItem *> *(^_moreActionsProvider)(IMMessageModel *);
+    IMMediaServerTimeline *_timeline;       // 服务端续拉模式才有；有它时 _items/_messages 都由它派生（新→旧）
 }
 
 + (instancetype)galleryWithItems:(NSArray<IMMediaItem *> *)items
@@ -75,6 +79,45 @@
     vc->_contextActionsProvider = [contextActionsProvider copy];
     vc->_moreActionsProvider = [moreActionsProvider copy];
     return vc;
+}
+
+#pragma mark - 服务端续拉模式
+
+- (void)attachServerTimeline:(IMMediaServerTimeline *)timeline {
+    _timeline = timeline;
+    [self rebuildFromTimeline];
+}
+
+/// 由时间线（升序）重派生展示项：新→旧。续拉只会在**末尾**追加，已有格的下标不动。
+- (void)rebuildFromTimeline {
+    NSArray<IMMessageModel *> *asc = _timeline.messages;
+    NSMutableArray<IMMessageModel *> *msgs = [NSMutableArray arrayWithCapacity:asc.count];
+    NSMutableArray<IMMediaItem *> *items = [NSMutableArray arrayWithCapacity:asc.count];
+    for (IMMessageModel *m in [asc reverseObjectEnumerator]) {
+        [msgs addObject:m];
+        [items addObject:[IMMediaItem itemWithURL:IMMediaFullURL(m.content, _host)
+                                          isVideo:[m.contentType isEqualToString:@"video"]
+                                        timestamp:m.timestamp thumb:m.thumb]];
+    }
+    _messages = msgs; _items = items;
+    _emptyLabel.hidden = _items.count > 0 || _timeline.hasMore;
+    [_collection reloadData];
+}
+
+/// 往更旧的续拉一页；失败 = 离线降级，停在已有的那段并说一句（不说「没有更多了」）。
+- (void)loadMoreFromServer {
+    if (!_timeline || _timeline.loading || !_timeline.hasMore) { return; }
+    __weak typeof(self) ws = self;
+    [_timeline loadOlder:^(NSInteger added, NSError *error) {
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        if (error) { [self im_showToast:IMLocalized(@"media.viewer.offline_partial_notice")]; }
+        [self rebuildFromTimeline];
+    }];
+}
+
+- (void)collectionView:(UICollectionView *)cv willDisplayCell:(UICollectionViewCell *)cell forItemAtIndexPath:(NSIndexPath *)ip {
+    if (_timeline && _timeline.hasMore && ip.item + 12 >= (NSInteger)_items.count) { [self loadMoreFromServer]; }
 }
 
 /// 自建下载协调器（与资料页一致）：autoPrefetch 关，只反映状态、下载一律由用户点；与聊天页共享同一份下载态（key=content）。
@@ -114,6 +157,7 @@
     _emptyLabel.hidden = _items.count > 0;
     [self.view addSubview:_emptyLabel];
 
+    if (_timeline) { [self loadMoreFromServer]; } // 服务端模式首屏：展示项还是空的，先要最新一页
     // 长按菜单删除（为所有人/仅自己）落地后就地移除该格——本页持快照，不监听就会残留已删消息。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onMessageRemoved:)
                                                name:IMSocketDidRemoveMessageNotification object:nil];
@@ -147,6 +191,7 @@
         }
     }
     if (!changed) { return; }
+    if (_timeline) { [_timeline removeMessagesWithConvSeqs:gone]; } // 否则下次由时间线重派生时已删的图会复活
     _items = items;
     _messages = msgs;
     [_collection reloadData];
@@ -204,12 +249,15 @@
     if (dp && dp.phase != IMDownloadPhaseDone) { if (m) { [self.downloads handleTapForMessage:m]; } return; }
 
     // 就绪：进分页查看器，翻页范围=整个媒体库，不显「媒体库」按钮（onOpenGallery=nil，避免死循环）。
-    NSArray<IMMediaItem *> *items = _items;
-    NSArray<IMMessageModel *> *msgs = _messages;
     NSArray<IMPopoverCardItem *> *(^moreProvider)(IMMessageModel *) = _moreActionsProvider;
+    __weak typeof(self) wself = self;
     IMMediaPagerViewController *pager =
-        [IMMediaPagerViewController pagerWithCount:items.count startIndex:(NSUInteger)ip.item
+        [IMMediaPagerViewController pagerWithCount:_items.count startIndex:(NSUInteger)ip.item
                                       pageProvider:^IMMediaViewerViewController *(NSUInteger index) {
+            // 按**调用时**的展示项取（服务端续拉会让它变长）
+            __strong typeof(wself) sself = wself;
+            NSArray<IMMediaItem *> *items = sself ? sself->_items : @[];
+            NSArray<IMMessageModel *> *msgs = sself ? sself->_messages : @[];
             if (index >= items.count) { return nil; }
             IMMediaItem *it = items[index];
             IMMediaViewerViewController *v = [IMMediaViewerViewController viewerWithURL:it.url isVideo:it.isVideo
@@ -220,8 +268,23 @@
             return v;
         }];
     pager.conversationTitle = _title;
+    if (_timeline) {
+        pager.olderAtEnd = YES; // 媒体库新→旧：更旧的在末尾，追加不挪下标
+        pager.hasOlder = ^BOOL{ return [wself isTimelineHasMore]; };
+        pager.olderLoader = ^(void (^done)(NSInteger)) {
+            __strong typeof(wself) s = wself;
+            if (!s || !s->_timeline) { done(0); return; }
+            [s->_timeline loadOlder:^(NSInteger added, NSError *error) {
+                if (error) { [wself im_showToast:IMLocalized(@"media.viewer.offline_partial_notice")]; }
+                [wself rebuildFromTimeline];
+                done(added);
+            }];
+        };
+    }
     [self presentViewController:pager animated:YES completion:nil];
 }
+
+- (BOOL)isTimelineHasMore { return _timeline.hasMore; }
 
 /// 逐格长按菜单（与资料 tab 一致）：本页自带「取消下载」（用自建协调器），其余（转发/定位/删除）由聊天页提供。
 - (UIContextMenuConfiguration *)collectionView:(UICollectionView *)cv

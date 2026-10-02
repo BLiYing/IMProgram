@@ -34,6 +34,14 @@
 #import "UIViewController+IMToast.h"
 #import "UIViewController+IMDeleteSheet.h"
 #import "IMLocalization.h"
+#import "IMConvQuerySource.h"          // 有缺口 + 在线才问服务端（§4.9 第 5 项）
+#import "IMDatabase+Ranges.h"
+#import "IMDatabase+ClearFloor.h"
+#import "IMChatWindowPlan.h"
+#import "IMMediaServerTimeline.h"
+#import "IMMediaPaging.h"
+#import "IMNetworkMonitor.h"
+#import "IMSocketManager.h"
 
 @implementation IMChatViewController (Media)
 
@@ -238,6 +246,43 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     return IMMediaFullURL(content, self.host);
 }
 
+/// 媒体时间线该问谁（§4.9 第 5 项）：本地齐全 → 本地；有缺口 + 在线 → 服务端续拉；有缺口 + 离线 → 本地并提示。
+/// 同时带出有效可见下界与本机清空位点（服务端结果要滤掉位点以内的）。
+- (IMConvQuerySource)mediaQuerySourceFloor:(int64_t *)outFloor cleared:(int64_t *)outCleared {
+    NSString *convID = self.convID;
+    __block BOOL complete = YES;
+    __block int64_t cleared = 0;
+    int64_t serverFloor = [IMSocketManager.sharedManager historyFloorForConv:convID]; // 块外读（块里持账号锁，反向等锁会死）
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        complete = [database isConvComplete:convID floor:serverFloor];
+        cleared = [database clearedUpToForConv:convID];
+    }];
+    if (outCleared) { *outCleared = cleared; }
+    if (outFloor) { *outFloor = IMChatEffectiveFloor(serverFloor, cleared); }
+    BOOL online = IMNetworkMonitor.shared.currentType != IMNetworkTypeNone;
+    return IMPickConvQuerySource(complete, online);
+}
+
+/// 点中那条所在**本地段**里的媒体（升序）：有缺口时不能把缺口另一侧的旧岛拼进来，否则翻页会静默跳过缺口里的图。
+/// 段之外更旧的由服务端续拉（`IMMediaServerTimeline`）；段上沿之外更新的拿不到——用「媒体库」入口看完整的（查看器带该入口）。
+- (NSArray<IMMessageModel *> *)localMediaInSegmentOfMessage:(IMMessageModel *)m segmentLo:(int64_t *)outLo {
+    NSString *convID = self.convID;
+    __block int64_t lo = 0, hi = INT64_MAX;
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        for (NSArray<NSNumber *> *r in [database rangesForConv:convID]) {
+            if (r.count == 2 && m.convSeq >= r[0].longLongValue && m.convSeq <= r[1].longLongValue) {
+                lo = r[0].longLongValue; hi = r[1].longLongValue; break;
+            }
+        }
+    }];
+    if (outLo) { *outLo = lo; }
+    NSMutableArray<IMMessageModel *> *out = [NSMutableArray array];
+    for (IMMessageModel *x in [self conversationMediaMessages]) {
+        if (x.convSeq >= lo && x.convSeq <= hi) { [out addObject:x]; }
+    }
+    return out;
+}
+
 /// 全屏查看图片/视频（点击媒体气泡）：复用 IMMediaViewerViewController，附「媒体库」入口。
 /// 任务3：在当前会话媒体时间线（口径同媒体库：image|video·未撤回·非空）里定位点中的这条，
 /// 套 IMMediaPagerViewController 支持左右翻页（混排、封面待点、翻到头即停）；仅一张时退化为单开。
@@ -245,6 +290,13 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     if (m.content.length == 0) { return; }
     // **整个会话的媒体时间线**，不是当前窗口里的那几张：分页后扫内存会让左右翻页只能翻到
     // 恰好还留在窗口里的媒体，用户看到的是"这张图前后没有别的图了"。查库（只取 image/video，量本就小）。
+    int64_t floor = 0, cleared = 0;
+    IMConvQuerySource src = [self mediaQuerySourceFloor:&floor cleared:&cleared];
+    if (src == IMConvQuerySourceServer && m.convSeq > 0) {
+        [self presentServerMediaViewerForMessage:m preloaded:image floor:floor cleared:cleared];
+        return;
+    }
+    if (src == IMConvQuerySourceLocalDegraded) { [self im_showToast:IMLocalized(@"media.viewer.offline_partial_notice")]; }
     NSArray<IMMessageModel *> *mediaMsgs = [self conversationMediaMessages];
     // **按 conv_seq / clientMsgID 认，不能用指针相等**：时间线是现查库得到的另一批对象，
     // `indexOfObjectIdenticalTo:` 在这里恒 NSNotFound，于是每次都掉进下面的兜底分支——
@@ -270,6 +322,39 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
             return [self buildMediaViewerForMessage:mm preloaded:(index == start ? image : nil)];
         }];
     pager.conversationTitle = [self conversationDisplayTitle];
+    [self presentViewController:pager animated:YES completion:nil];
+}
+
+/// 有缺口 + 在线：时间线 = 点中那条所在本地段的媒体 + 往更旧由服务端续拉。翻到最旧一头前容器自动预取。
+- (void)presentServerMediaViewerForMessage:(IMMessageModel *)m preloaded:(UIImage *)image floor:(int64_t)floor cleared:(int64_t)cleared {
+    int64_t segLo = 0;
+    NSArray<IMMessageModel *> *base = [self localMediaInSegmentOfMessage:m segmentLo:&segLo];
+    IMMediaServerTimeline *timeline = [[IMMediaServerTimeline alloc] initWithConvID:self.convID kind:@"media" clearedUpTo:cleared];
+    // 段的下沿已经是可见起点（或 1）就没有更旧的可问
+    [timeline seedWithMessages:base hasMore:segLo > MAX((int64_t)1, floor)];
+    NSUInteger start = IMMediaTimelineIndexOfMessage(timeline.messages, m);
+    if (start == NSNotFound) {
+        [self presentViewController:[self buildMediaViewerForMessage:m preloaded:image] animated:YES completion:nil];
+        return;
+    }
+    __weak typeof(self) ws = self;
+    IMMediaPagerViewController *pager =
+        [IMMediaPagerViewController pagerWithCount:timeline.messages.count startIndex:start
+                                      pageProvider:^IMMediaViewerViewController *(NSUInteger index) {
+            __strong typeof(ws) self = ws;
+            NSArray<IMMessageModel *> *msgs = timeline.messages; // 按调用时的取（续拉会让它变长）
+            if (!self || index >= msgs.count) { return nil; }
+            IMMessageModel *mm = msgs[index];
+            return [self buildMediaViewerForMessage:mm preloaded:(mm.convSeq == m.convSeq ? image : nil)];
+        }];
+    pager.conversationTitle = [self conversationDisplayTitle];
+    pager.hasOlder = ^BOOL{ return timeline.hasMore; };
+    pager.olderLoader = ^(void (^done)(NSInteger)) {
+        [timeline loadOlder:^(NSInteger added, NSError *error) {
+            if (error) { [ws im_showToast:IMLocalized(@"media.viewer.offline_partial_notice")]; }
+            done(added);
+        }];
+    };
     [self presentViewController:pager animated:YES completion:nil];
 }
 
@@ -361,6 +446,24 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
 
 /// 会话媒体库：汇总当前会话所有图片/视频消息，按时间序展示，点击复用同一查看器。
 - (void)openConversationMediaGallery {
+    int64_t floor = 0, cleared = 0;
+    IMConvQuerySource src = [self mediaQuerySourceFloor:&floor cleared:&cleared];
+    if (src == IMConvQuerySourceServer) {
+        // 有缺口 + 在线：媒体库整个由服务端分页供给（新→旧，滚到末尾续要），不拿残缺的本地当「全部」
+        IMMediaServerTimeline *timeline = [[IMMediaServerTimeline alloc] initWithConvID:self.convID kind:@"media" clearedUpTo:cleared];
+        [timeline seedWithMessages:@[] hasMore:YES];
+        __weak typeof(self) ws0 = self;
+        IMConversationMediaViewController *g =
+            [IMConversationMediaViewController galleryWithItems:@[] messages:@[]
+                                                           host:self.host myUserID:self.userID isGroup:self.isGroupChat
+                                                          title:[self conversationDisplayTitle]
+                                         contextActionsProvider:^NSArray<IMMenuAction *> *(IMMessageModel *m) { return [ws0 mediaContextActionsForMessage:m]; }
+                                            moreActionsProvider:^NSArray<IMPopoverCardItem *> *(IMMessageModel *m) { return [ws0 mediaViewerMoreActionsForMessage:m]; }];
+        [g attachServerTimeline:timeline];
+        [self.navigationController pushViewController:g animated:YES];
+        return;
+    }
+    if (src == IMConvQuerySourceLocalDegraded) { [self im_showToast:IMLocalized(@"media.viewer.offline_partial_notice")]; }
     NSMutableArray<IMMediaItem *> *items = [NSMutableArray array];
     NSMutableArray<IMMessageModel *> *msgs = [NSMutableArray array];
     for (IMMessageModel *m in [self conversationMediaMessages]) { // 同上：整会话口径，不是当前窗口

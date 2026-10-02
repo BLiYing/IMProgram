@@ -5,6 +5,8 @@
 
 ## 当前焦点
 
+**C6 补齐（2026-10-02，待审、已提交）**：媒体库/查看器本地有缺口且在线时改服务端分页续拉（`IMMediaServerTimeline` + `IMMediaPaging` + 容器 `olderLoader`；查看器时间线 = 点中那条所在本地段 + 往更旧续拉；媒体库整个由服务端供给；离线只给「只能翻已加载的部分」提示；清空位点以内的丢掉）；资料页归档页签不再读 `messagesForConv:` 全表（`IMDatabase+Archive`）。置顶判定 iOS 原本就有（`IMPinnedTargetRecalled` + 本地库探测，服务端置顶列表剔除撤回）。**没做**：资料页「媒体/文件」页签本身仍只读本地（有缺口时看不到缺口里的）；查看器向「更新」方向只到本地段上沿（用查看器上的「媒体库」按钮看完整的）。模拟器验过媒体库分页，未验离线提示。
+
 **本机清空位点 `cleared_up_to`（OFFLINE_BACKLOG_DESIGN §6.7，iOS 侧 2026-10-02 已实现，待审、未提交）**：
 独立小表 `im_conv_clear_floor_local.cleared_up_to`（只增不减，不随会话行删除）；`clearMessagesForConv:` 改一个事务（删消息 + 清区间 + 抬位点 + 游标推到位点，实现在 `Database/IMDatabase+ClearFloor.m`）；
 落库闸在 `writeIncomingMessage:`（sync 页 / window 页 / 实时一并挡）；有效可见下界 = `IMChatEffectiveFloor(服务端 historyFloor, 位点)`（纯函数在 `Common/IMChatWindowPlan.h`），

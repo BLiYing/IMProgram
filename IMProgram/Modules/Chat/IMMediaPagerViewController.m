@@ -25,6 +25,7 @@
 
     // 沉浸态：默认显示，点按切换显隐（无自动隐藏倒计时）。
     BOOL _chromeVisible;
+    BOOL _loadingOlder;
 }
 
 + (instancetype)pagerWithCount:(NSUInteger)count
@@ -61,6 +62,33 @@
     [self setupFixedChrome];
     _chromeVisible = YES;   // 默认显示；点按画面才切换显隐（无自动隐藏倒计时）
     [self updateChromeForCurrent];
+}
+
+/// 靠近「更旧」那一头就预取一页（服务端续拉）。预取而不是到头才取：到头时 dataSource 已经回 nil，用户划不动。
+- (void)prefetchOlderIfNeeded {
+    if (!_olderLoader || _loadingOlder || (_hasOlder && !_hasOlder())) { return; }
+    IMMediaViewerViewController *cur = self.currentViewer;
+    NSUInteger idx = cur ? cur.imMediaIndex : _startIndex;
+    BOOL near = self.olderAtEnd ? (idx + 4 >= _count) : (idx <= 3);
+    if (!near) { return; }
+    _loadingOlder = YES;
+    __weak typeof(self) ws = self;
+    _olderLoader(^(NSInteger added) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(ws) self = ws;
+            if (!self) { return; }
+            self->_loadingOlder = NO;
+            if (added <= 0) { return; }
+            IMMediaViewerViewController *c = self.currentViewer;
+            self->_count += (NSUInteger)added;
+            if (!self.olderAtEnd && c) {
+                // 前插：正在看的那一张下标后移，并让翻页容器重新问一遍左右邻居
+                c.imMediaIndex += (NSUInteger)added;
+                [self->_pager setViewControllers:@[c] direction:UIPageViewControllerNavigationDirectionForward animated:NO completion:nil];
+            }
+            [self updateChromeForCurrent];
+        });
+    });
 }
 
 /// 固定层：顶部液态标题栏（复用聊天页 IMLiquidNavigationBar：返回键 + 会话名 + i/N）+ 右下（更多/媒体库/下载）。
@@ -155,6 +183,7 @@
     [self updateSubtitleForIndex:cur.imMediaIndex];
     _galleryButton.hidden = !cur.hasGalleryEntry;      // stack 自动收起隐藏项
     _moreButton.hidden = cur.moreActions.count == 0;
+    [self prefetchOlderIfNeeded];
 }
 
 #pragma mark - 固定层按钮动作（作用于当前页）

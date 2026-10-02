@@ -13,6 +13,8 @@
 
 #import "IMHTTPService.h"
 
+@class IMMessageModel;
+
 NS_ASSUME_NONNULL_BEGIN
 
 /// 日历里的一天。
@@ -54,6 +56,20 @@ NS_ASSUME_NONNULL_BEGIN
                   utcOffsetMs:(int64_t)utcOffsetMs
                    completion:(void (^)(NSArray<IMConvCalendarDay *> *days,
                                         NSError *_Nullable error))completion;
+
+/// 会话媒体分页（按类型，conv_seq 倒序；媒体库 / 查看器续拉用）。`kind`：image|video|media|file|voice。
+/// `cursor` 传上页的 `nextCursor`（0 = 最新一页），拿回来的是**更旧**的一批。
+/// 回调给的 `messages` 是由服务端字段拼出的轻量 `IMMessageModel`（只有会话/序号/发送者/类型/内容/封面等展示与定位所需字段），
+/// **保持服务端的倒序**；撤回 / 删除 / 入群下界等由服务端滤掉，端上不要再判。
+- (void)convMediaWithToken:(NSString *)token
+                    convID:(NSString *)convID
+                      kind:(NSString *)kind
+                    cursor:(int64_t)cursor
+                     limit:(NSInteger)limit
+                completion:(void (^)(NSArray<IMMessageModel *> *messagesNewestFirst,
+                                     BOOL hasMore,
+                                     int64_t nextCursor,
+                                     NSError *_Nullable error))completion;
 
 @end
 

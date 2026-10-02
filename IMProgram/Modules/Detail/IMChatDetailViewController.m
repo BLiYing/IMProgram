@@ -13,6 +13,7 @@
 #import "IMSocketManager.h"
 #import "IMProtocol.h"
 #import "IMDatabase.h"
+#import "IMDatabase+Archive.h"
 #import "IMTimeUtil.h" // IMNowMillis()：成员禁言状态判定与时长换算
 #import "IMMuteExpiryScheduler.h" // IMMuteExpiryDidChangeNotification
 #import "IMMuteState.h" // 定时免打扰值行文案（IMIsMutedNow/IMMuteDetailValueText）
@@ -412,7 +413,7 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
 - (void)rebuildTabs {
     __block NSArray<IMMessageModel *> *msgs = @[];
     [self performDatabaseOperation:^(IMDatabase *database) {
-        msgs = [database messagesForConv:self.convID];
+        msgs = [database archiveMessagesForConv:self.convID];
     }];
     self.tabs = [IMChatDetailTabs tabsForMessages:msgs isGroup:self.isGroup];
     if (self.selectedTab >= (NSInteger)self.tabs.count) { self.selectedTab = 0; }
@@ -536,7 +537,7 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
     if (!msgs) {
         __block NSArray<IMMessageModel *> *loaded = @[];
         [self performDatabaseOperation:^(IMDatabase *database) {
-            loaded = [database messagesForConv:self.convID];
+            loaded = [database archiveMessagesForConv:self.convID];
         }];
         msgs = loaded;
     }
