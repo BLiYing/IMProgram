@@ -5,6 +5,8 @@
 
 ## 当前焦点
 
+> **2026-10-02 「我」页头部断网兜底 + 会话壳不再把 uid 当昵称（真机验证通过）**：`IMSessionStore` 存/读本人资料副本（昵称/头像/句柄，按 uid，不存手机号，`clear` 擦除），`IMSettingsViewController` 先读缓存再 `loadMyProfile`；`IMDatabase` 由消息造壳时 `peer_nickname` 留空，`IMConversation.displayName` 末级「未命名用户」，新增 `knownDisplayName`（聊天页/通知类型页入口用它，占位文案不当昵称冻结）。**改了旧断言** `IMRemarkStoreTests`（原「无昵称→uid」违反 UI.md）。未处理：`IMChatViewController.m` 的 `peerDisplayName` 仍有 `fallback:peerID`。状态表见 CLIENT_PARITY。
+
 > **2026-10-01 通知显示发送人头像**（PUSH_M5_DESIGN §3.6/§3.7）：新增通知扩展 target `IMNotificationService`（Xcode 同步文件夹 `IMNotificationService/`，共享 `Common/IMPushSender.m`、`Common/IMPushAvatarCache.m` 靠 pbxproj 里的成员例外）；主 App 加 App Group + 通信通知 entitlement、`NSUserActivityTypes`。扩展不链接 Pods，日志用 os_log。看扩展日志：`idevicesyslog -u <udid>` grep IMNotificationService。
 > **2026-10-01 别的端已读后清手机通知/角标**（PUSH_M5_DESIGN §3.5，真机验证通过）：`Common/IMPushRetract` 加 `IMPushClearDeliveredNotificationsReadThrough`；`AppDelegate` 收 `clear_up_to` 推送（Info.plist 新增 `remote-notification` 后台模式）；`handleReceipt` 收本人回执时同样清。`IMSocketManager.m` 现 1596/1600。
 
