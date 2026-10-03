@@ -169,9 +169,11 @@
         cell.accessoryView = stack;
     } else {
         // 已处理：只读结果文案，没有按钮
+        // 只认 approved / rejected；服务端将来加别的终态（过期/撤销）时不冒充「已拒绝」，留空
         BOOL ok = [r.status isEqualToString:@"approved"];
+        BOOL rejected = [r.status isEqualToString:@"rejected"];
         UILabel *lab = [UILabel new];
-        lab.text = ok ? IMLocalized(@"qr.join_req.approved") : IMLocalized(@"qr.join_req.rejected");
+        lab.text = ok ? IMLocalized(@"qr.join_req.approved") : (rejected ? IMLocalized(@"qr.join_req.rejected") : @"");
         lab.font = [UIFont systemFontOfSize:14];
         lab.textColor = ok ? IMTheme.textSecondary : IMTheme.textTertiary;
         [lab sizeToFit];
@@ -207,6 +209,7 @@
             if (error) { [self im_showToast:error.localizedDescription]; return; }
             r.status = accept ? @"approved" : @"rejected"; // 落到「已处理」页签，不整条消失
             [self refreshUI];
+            [self reload]; // 再拉一次校正：另一位管理员可能同时处理了别的申请（同 Android 的「无论成败都重拉」）
             if (self.onChanged) { self.onChanged(); }
             [self im_showToast:accept ? IMLocalized(@"qr.join_req.approved_toast") : IMLocalized(@"qr.join_req.rejected")];
         }];
