@@ -824,6 +824,7 @@
 "group.error.not_admin" = "你已不是群主或管理员";
 "group.event.dissolved" = "该群已被解散";
 "group.event.join_request_new" = "有新的入群申请";
+"group.event.left" = "你已退出群聊";
 "group.event.removed" = "你已被移出群聊";
 "group.info.edit_intro_label" = "修改群简介";
 "group.info.invite_all_in" = "所选的人都已在群里";

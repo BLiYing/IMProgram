@@ -824,6 +824,7 @@
 "group.error.not_admin" = "You’re no longer the group owner or an admin";
 "group.event.dissolved" = "This group has been disbanded";
 "group.event.join_request_new" = "New join request";
+"group.event.left" = "You’ve left the group";
 "group.event.removed" = "You’ve been removed from the group";
 "group.info.edit_intro_label" = "Edit group intro";
 "group.info.invite_all_in" = "Everyone you selected is already in the group";
