@@ -852,9 +852,10 @@ const NSInteger IMFavoritesPageSize = 60;
     [self runGroupInfoRequest:req fallback:IMLocalized(@"net.fallback.group_join") completion:completion];
 }
 
+// 不带 status = 全量（待处理 + 已处理），入群申请页自己按 status 分页签（对齐 Web / Android）。
 - (void)joinRequestsWithToken:(NSString *)token convID:(NSString *)convID
                    completion:(void (^)(NSArray<NSDictionary *> *, NSError *))completion {
-    NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@"/join-requests?status=pending"]
+    NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@"/join-requests"]
                                                    method:@"GET" token:token body:nil];
     [self runDataRequest:req fallback:IMLocalized(@"net.fallback.join_requests_load") completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(nil, error); return; }
