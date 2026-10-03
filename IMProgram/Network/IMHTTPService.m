@@ -642,21 +642,27 @@ const NSInteger IMFavoritesPageSize = 60;
     [self runOKRequest:req fallback:IMLocalized(@"net.fallback.unmute_failed") completion:completion];
 }
 
+static NSArray<NSString *> *IMStringArrayFrom(id raw);
+
 - (void)inviteToGroupWithToken:(NSString *)token convID:(NSString *)convID
                      memberIDs:(NSArray<NSString *> *)memberIDs
-                    completion:(void (^)(NSArray<NSString *> *, NSError *))completion {
+                 resultHandler:(void (^)(NSArray<NSString *> *, NSArray<NSString *> *, NSError *))handler {
     NSMutableURLRequest *req = [self authedRequestForPath:[self groupPathFor:convID suffix:@"/members"]
                                                    method:@"POST" token:token
                                                      body:@{ @"member_ids": memberIDs ?: @[] }];
     // 用 runDataRequest（保留业务码）而非 runOKRequest：邀请可能返 300207（被邀请者已被移出/冷却期），
-    // UI 需按码给"邀请别人"场景的第三人称文案；data 里的 added 是实际加入者（见 .h）。
+    // UI 需按码给"邀请别人"场景的第三人称文案；data.added 是实际加入者、data.pending 是转待审者（见 .h）。
     [self runDataRequest:req fallback:IMLocalized(@"net.fallback.invite_failed") completion:^(NSDictionary *data, NSError *error) {
-        if (error) { completion(@[], error); return; }
-        NSArray *raw = [data[@"added"] isKindOfClass:NSArray.class] ? data[@"added"] : @[];
-        NSMutableArray<NSString *> *added = [NSMutableArray arrayWithCapacity:raw.count];
-        for (id item in raw) { if ([item isKindOfClass:NSString.class]) { [added addObject:item]; } }
-        completion(added, nil);
+        if (error) { handler(@[], @[], error); return; }
+        handler(IMStringArrayFrom(data[@"added"]), IMStringArrayFrom(data[@"pending"]), nil);
     }];
+}
+
+static NSArray<NSString *> *IMStringArrayFrom(id raw) {
+    if (![raw isKindOfClass:NSArray.class]) { return @[]; }
+    NSMutableArray<NSString *> *out = [NSMutableArray arrayWithCapacity:[(NSArray *)raw count]];
+    for (id item in (NSArray *)raw) { if ([item isKindOfClass:NSString.class]) { [out addObject:item]; } }
+    return out;
 }
 
 - (void)leaveGroupWithToken:(NSString *)token convID:(NSString *)convID

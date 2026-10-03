@@ -844,6 +844,8 @@
 "group.info.super_note" = "Large group · 3 features are off: typing indicators, read receipts, and member online status. At 20,000 members they would flood everyone with useless updates.";
 "group.info.title" = "Group info";
 "group.info.transfer_confirm_message" = "After transferring to %1$@, you'll immediately become a regular member. This can't be undone.";
+"group.invite.pending_toast" = "Request sent. Waiting for an admin to approve.";
+"group.join_request.invited_by" = "Invited by %1$@";
 "group.list.empty" = "You haven't joined any groups yet";
 "group.list.empty_hint" = "You haven’t joined any groups. Tap + in the top right to create one.";
 "group.list.i_am_owner" = "You're the owner";
@@ -870,7 +872,7 @@
 "group.manage.intro_placeholder" = "Describe this group";
 "group.manage.invite_members" = "Invite to group";
 "group.manage.join_approval" = "Approve new members";
-"group.manage.join_speak_footer" = "Approve new members: joining by QR code requires admin approval. Mute everyone: only the owner and admins can post.";
+"group.manage.join_speak_footer" = "Approve new members: people joining by QR code or invited by regular members need admin approval. Mute everyone: only the owner and admins can post.";
 "group.manage.mute_all" = "Mute everyone";
 "group.manage.mute_all_off_confirm" = "Unmute";
 "group.manage.mute_all_off_confirm_message" = "All members will be able to post again.";

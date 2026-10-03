@@ -367,10 +367,12 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
 ///        `GET /groups/{id}` 对超级群只回我自己，端上算不出完整的"已在群里"排除集，
 ///        老成员照样会出现在候选里。UI 须按 addedIDs 与所选数量的差给反馈，
 ///        别一律报"邀请成功"。error 非空时 addedIDs 为空。
+/// 回调带 `pendingIDs`（`data.pending`：群开「进群确认」时普通成员邀请的人转待审、未入群）。
 - (void)inviteToGroupWithToken:(NSString *)token
                         convID:(NSString *)convID
                      memberIDs:(NSArray<NSString *> *)memberIDs
-                    completion:(void (^)(NSArray<NSString *> *addedIDs, NSError *_Nullable error))completion;
+                 resultHandler:(void (^)(NSArray<NSString *> *addedIDs, NSArray<NSString *> *pendingIDs,
+                                         NSError *_Nullable error))handler;
 
 /// 退群（群主须先转让，否则 300204 带服务端原因）。completion 在主线程回调。
 - (void)leaveGroupWithToken:(NSString *)token

@@ -63,6 +63,10 @@ typedef NS_ENUM(NSInteger, IMQRKind) {
 @property (nonatomic, copy) NSString *hello;
 @property (nonatomic, copy) NSString *status;
 @property (nonatomic, assign) int64_t createdAt;
+/// 邀请人昵称（`inviter_nickname`）：普通成员邀请转待审时非空；自己扫码/搜索申请为空。
+@property (nonatomic, copy) NSString *inviterNickname;
+/// 行副标题：有邀请人 →「由 X 邀请」（取代附言行）；否则 `visibleHello`；都没有 nil。
+@property (nonatomic, readonly, nullable) NSString *detailLine;
 /// status == "pending"；其余（含未知终态）一律归「已处理」（对齐 Android `JoinRequest.isPending`）。
 @property (nonatomic, readonly) BOOL isPending;
 /// 验证消息（去首尾空白）；空白时 nil——**整行不显**，不写「申请加入群聊」之类默认文案（对齐 Android）。
@@ -103,3 +107,8 @@ FOUNDATION_EXPORT NSString *_Nullable IMQRGroupActionNote(IMQRGroupCard *_Nullab
 FOUNDATION_EXPORT NSString *_Nullable IMQRUnknownDomain(NSString *_Nullable text);
 
 NS_ASSUME_NONNULL_END
+
+/// 邀请结果的统一吐司（群资料页 / 聊天详情页共用）。返回 nil = 不用提示（全部直接入群）。
+/// pending 非空（群开「进群确认」，普通成员邀请转待审）→ 待审文案；added 与 pending 都空 →「已在群里」；
+/// 其余按 selected - added - pending 报「部分已在群里」。
+FOUNDATION_EXPORT NSString *_Nullable IMInviteResultToast(NSInteger selected, NSInteger added, NSInteger pending);

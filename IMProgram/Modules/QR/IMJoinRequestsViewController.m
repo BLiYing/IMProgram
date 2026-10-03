@@ -146,8 +146,8 @@
     }
     IMJoinRequest *r = self.shown[indexPath.row];
     cell.textLabel.text = IMDisplayName(r.nickname, nil);
-    // 验证消息为空时整行不显（对齐 Android），不写默认文案
-    cell.detailTextLabel.text = r.visibleHello;
+    // 成员邀请转待审 →「由 X 邀请」取代附言行；验证消息为空时整行不显（对齐 Android），不写默认文案
+    cell.detailTextLabel.text = r.detailLine;
     cell.detailTextLabel.textColor = IMTheme.textSecondary;
     cell.imageView.image = nil;
     cell.imageView.backgroundColor = [IMTheme avatarColorForSeed:r.userID];

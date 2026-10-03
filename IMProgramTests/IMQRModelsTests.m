@@ -127,4 +127,27 @@
     XCTAssertEqualObjects(reqs[3].resultLabel, @""); // 不冒充「已拒绝」
 }
 
+- (void)testJoinRequestInviterReplacesHelloLine {
+    NSArray<IMJoinRequest *> *reqs = [IMJoinRequest fromArray:@[
+        @{ @"user_id": @"a", @"status": @"pending", @"hello": @"求带", @"inviter_nickname": @"小明" },
+        @{ @"user_id": @"b", @"status": @"pending", @"hello": @"求带", @"inviter_nickname": @"  " },
+        @{ @"user_id": @"c", @"status": @"pending" },
+    ]];
+    XCTAssertEqualObjects(reqs[0].inviterNickname, @"小明");
+    NSString *line = reqs[0].detailLine;
+    XCTAssertTrue([line containsString:@"小明"]);
+    XCTAssertFalse([line containsString:@"求带"]); // 取代附言行
+    XCTAssertFalse([line containsString:@"%"]);
+    XCTAssertEqualObjects(reqs[1].detailLine, @"求带"); // 空白邀请人 → 回落附言
+    XCTAssertNil(reqs[2].detailLine);
+}
+
+- (void)testInviteResultToast {
+    XCTAssertEqualObjects(IMInviteResultToast(2, 0, 2), IMLocalized(@"group.invite.pending_toast"));
+    XCTAssertEqualObjects(IMInviteResultToast(2, 1, 1), IMLocalized(@"group.invite.pending_toast"));
+    XCTAssertEqualObjects(IMInviteResultToast(2, 0, 0), IMLocalized(@"group.info.invite_all_in"));
+    XCTAssertNil(IMInviteResultToast(2, 2, 0));
+    XCTAssertNotNil(IMInviteResultToast(3, 2, 0)); // 部分已在群里
+}
+
 @end

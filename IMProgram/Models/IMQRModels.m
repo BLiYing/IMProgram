@@ -94,6 +94,11 @@ static BOOL IMQRBool(NSDictionary *dict, NSString *key) {
     NSString *t = [self.hello stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     return t.length ? t : nil;
 }
+- (NSString *)detailLine {
+    NSString *inv = [self.inviterNickname stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (inv.length == 0) { return self.visibleHello; }
+    return [NSString stringWithFormat:IMLocalized(@"group.join_request.invited_by"), inv]; // 文案 "由 %1$@ 邀请"（gen 自 strings.json {name}）
+}
 - (NSString *)resultLabel {
     if ([self.status isEqualToString:@"approved"]) { return IMLocalized(@"qr.join_req.approved"); }
     if ([self.status isEqualToString:@"rejected"]) { return IMLocalized(@"qr.join_req.rejected"); }
@@ -109,6 +114,7 @@ static BOOL IMQRBool(NSDictionary *dict, NSString *key) {
     r.avatarURL = IMQRString(dict, @"avatar_url");
     r.hello = IMQRString(dict, @"hello");
     r.status = IMQRString(dict, @"status");
+    r.inviterNickname = IMQRString(dict, @"inviter_nickname");
     r.createdAt = IMQRInt64(dict, @"created_at");
     return r;
 }
@@ -178,4 +184,12 @@ NSString *IMQRUnknownDomain(NSString *text) {
     if (![t hasPrefix:@"http://"] && ![t hasPrefix:@"https://"]) { return nil; }
     NSURL *url = [NSURL URLWithString:t];
     return url.host.length > 0 ? url.host : nil;
+}
+
+NSString *IMInviteResultToast(NSInteger selected, NSInteger added, NSInteger pending) {
+    if (pending > 0) { return IMLocalized(@"group.invite.pending_toast"); }
+    if (added == 0) { return IMLocalized(@"group.info.invite_all_in"); }
+    NSInteger skipped = selected - added;
+    if (skipped > 0) { return IMLocalizedFormat(@"group.info.invite_partial", (long)added, (long)skipped); }
+    return nil;
 }

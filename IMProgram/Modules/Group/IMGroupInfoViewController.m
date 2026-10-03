@@ -1,5 +1,6 @@
 //  IMGroupInfoViewController.m
 
+#import "IMQRModels.h"
 #import "IMGroupInfoViewController.h"
 #import "IMLocalization.h"
 #import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
@@ -286,10 +287,10 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
             [self runGroupAction:^(NSString *token, void (^done)(NSError *)) {
                 [IMHTTPService.sharedService inviteToGroupWithToken:token convID:self.convID
                                                           memberIDs:selectedIDs
-                                                         completion:^(NSArray<NSString *> *added, NSError *error) {
-                    // 按**实际加入数**给反馈：已在群里的人被服务端跳过（幂等，不是错误）。
+                                                      resultHandler:^(NSArray<NSString *> *added, NSArray<NSString *> *pending, NSError *error) {
+                    // 按**实际加入数 / 待审数**给反馈：已在群里的人被服务端跳过（幂等，不是错误）。
                     // 超级群下这是常态——排除集只有已翻到的那几页，老成员照样在候选里。
-                    if (!error) { [self toastForInvited:added.count selected:selectedIDs.count]; }
+                    if (!error) { [self toastForInvited:added.count pending:pending.count selected:selectedIDs.count]; }
                     done(error);
                 }];
             }];
@@ -299,11 +300,9 @@ typedef NS_ENUM(NSInteger, IMGroupInfoSection) {
 
 /// 邀请结果的统一反馈。**不能一律报"邀请成功"**：服务端会跳过已在群里的人，
 /// 而端上的排除集在超级群下必然不全（`GET /groups/{id}` 只回我自己 / 只翻到几页）。
-- (void)toastForInvited:(NSInteger)added selected:(NSInteger)selected {
-    NSInteger skipped = selected - added;
-    if (added == 0) { [self im_showToast:IMLocalized(@"group.info.invite_all_in")]; }
-    else if (skipped > 0) { [self im_showToast:IMLocalizedFormat(@"group.info.invite_partial",
-                                                (long)added, (long)skipped)]; }
+- (void)toastForInvited:(NSInteger)added pending:(NSInteger)pending selected:(NSInteger)selected {
+    NSString *msg = IMInviteResultToast(selected, added, pending);
+    if (msg) { [self im_showToast:msg]; }
 }
 
 /// 退出群聊（群主会被服务端拦：需先转让，文案透传）。

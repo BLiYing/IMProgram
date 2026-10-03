@@ -844,6 +844,8 @@
 "group.info.super_note" = "大群 · 已关闭 3 项能力：不显示「正在输入」、不显示已读双勾、不显示成员在线态。这些能力在两万人规模下会产生海量无效推送。";
 "group.info.title" = "群资料";
 "group.info.transfer_confirm_message" = "转让给「%1$@」后你将立即变为普通成员，且不可撤销。";
+"group.invite.pending_toast" = "已提交入群申请，等待群主 / 管理员审批";
+"group.join_request.invited_by" = "由 %1$@ 邀请";
 "group.list.empty" = "还没有加入任何群聊";
 "group.list.empty_hint" = "还没有加入群聊，点右上角 + 创建";
 "group.list.i_am_owner" = "我是群主";
@@ -870,7 +872,7 @@
 "group.manage.intro_placeholder" = "介绍这个群";
 "group.manage.invite_members" = "邀请入群";
 "group.manage.join_approval" = "进群确认";
-"group.manage.join_speak_footer" = "进群确认：凭二维码加入需管理员审批。全员禁言：仅群主 / 管理员可发言。";
+"group.manage.join_speak_footer" = "进群确认：凭二维码加入或被普通成员邀请的人需管理员审批。全员禁言：仅群主 / 管理员可发言。";
 "group.manage.mute_all" = "全员禁言";
 "group.manage.mute_all_off_confirm" = "解除";
 "group.manage.mute_all_off_confirm_message" = "解除后所有成员都可以发言。";

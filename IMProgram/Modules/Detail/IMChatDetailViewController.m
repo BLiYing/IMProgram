@@ -1,5 +1,6 @@
 //  IMChatDetailViewController.m
 
+#import "IMQRModels.h"
 #import "IMChatDetailViewController.h"
 #import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
 #import "IMChatDetailTabs.h"
@@ -1125,7 +1126,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
         [self.navigationController popToViewController:self animated:YES];
         NSString *token = IMHTTPService.sharedService.currentToken; if (token.length == 0) { return; }
         [IMHTTPService.sharedService inviteToGroupWithToken:token convID:self.convID memberIDs:ids
-                                                 completion:^(NSArray<NSString *> *added, NSError *error) {
+                                              resultHandler:^(NSArray<NSString *> *added, NSArray<NSString *> *pending, NSError *error) {
             if (error) {
                 // 300207 = 被邀请者已被移出/冷却期：用邀请场景第三人称文案（区别于自加群映射的第二人称）。
                 if (error.code == 300207) { [self im_showToast:IMLocalized(@"group.info.reinvite_blocked")]; }
@@ -1137,10 +1138,8 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
             }
             // 按**实际加入数**给反馈，不能一律报成功：服务端会跳过已在群里的人（幂等，不是错误），
             // 而端上的排除集在超级群下必然不全——那时 displayMembers 只有已翻到的那几页。
-            NSInteger skipped = (NSInteger)ids.count - (NSInteger)added.count;
-            if (added.count == 0) { [self im_showToast:IMLocalized(@"group.info.invite_all_in")]; }
-            else if (skipped > 0) { [self im_showToast:IMLocalizedFormat(@"group.info.invite_partial",
-                                                        (long)added.count, (long)skipped)]; }
+            NSString *msg = IMInviteResultToast((NSInteger)ids.count, (NSInteger)added.count, (NSInteger)pending.count);
+            if (msg) { [self im_showToast:msg]; }
             [self loadGroupInfo]; // 内含 resetSuperMemberPaging：超级群成员签从第一页重拉
         }];
     }];
