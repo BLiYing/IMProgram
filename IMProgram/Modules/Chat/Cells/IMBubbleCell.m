@@ -143,30 +143,6 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     }];
 }
 
-/// 正文末尾的**时间占位**：与右下角时间同字同字号、前景透明（2026-09-15 用户报：文本 / 引用消息的时间
-/// 不在气泡右下角，而是紧跟在最后一个字后面——多行或带引用条时就悬在气泡中间）。
-/// 它替右下角那个独立的 `_textMeta` 在正文里占住位置：最后一行放得下就同行、放不下自然换到新行，
-/// 气泡宽高仍由正文自己撑，Auto Layout 不必去算最后一行有多宽。
-///
-/// 为什么不用空格占位：UILabel 求尺寸与居中时**不计行尾空白**，短消息气泡不会为空格变宽，
-/// 叠上去的时间就溢出圆角被裁掉（更早那版栽过，才改成把时间直接拼进正文）。占位以可见字形结尾就没这个问题。
-/// 字与字之间用 NBSP / WORD JOINER 连住：「发送中…」「已编辑」是中文，行尾可能被拆成两截——拆开不会叠字，
-/// 但会平白多出一行空白。只在最前面留一个普通空格，作为唯一的换行点。
-static NSAttributedString *IMBubbleMetaPlaceholder(NSAttributedString *meta) {
-    if (meta.length == 0) { return nil; }
-    NSMutableString *glued = [NSMutableString stringWithString:@"   "];
-    [meta.string enumerateSubstringsInRange:NSMakeRange(0, meta.length)
-                                    options:NSStringEnumerationByComposedCharacterSequences
-                                 usingBlock:^(NSString *ch, NSRange range, NSRange enclosing, BOOL *stop) {
-        if (range.location > 0) { [glued appendString:@"⁠"]; }
-        [glued appendString:[ch isEqualToString:@" "] ? @" " : ch];
-    }];
-    // 字号与 IMMessageCell attributedMetaForMessage 的 11pt 一致：宽度必须与右下角那份逐字相同。
-    return [[NSAttributedString alloc] initWithString:glued
-                                           attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:11],
-                                                         NSForegroundColorAttributeName: UIColor.clearColor }];
-}
-
 @implementation IMBubbleCell {
     UIView  *_datePill;       // 日期分隔胶囊（居中浮于壁纸上）
     UILabel *_dateLabel;
@@ -185,10 +161,8 @@ static NSAttributedString *IMBubbleMetaPlaceholder(NSAttributedString *meta) {
     NSLayoutConstraint *_noteBottom;     // 有系统行时：系统行贴 cell 底
     NSLayoutConstraint *_failBadgeTrailing;
     NSMutableAttributedString *_bodyText;  // 当前正文富文本，**不含时间占位**（引用缩略图异步到达后经 renderBodyText 重渲，#4）
-    UILabel *_textMeta;                    // 非文件气泡的时间 + ✓/✓✓：右下角独立 label，靠正文末尾透明占位让位（IMBubbleMetaPlaceholder）
-    NSAttributedString *_textMetaPlaceholder; // 上面那份占位；文件模式为 nil
-    NSLayoutConstraint *_textMetaOnLastLine; // 链接卡片不可见：时间与正文最后一行同基线（可见时改落卡片下方）
-    BOOL _linkPreviewVisible;              // 链接卡片当前是否展开（决定正文末尾接不接占位）
+    UILabel *_textMeta;                    // 非文件气泡的时间 + ✓/✓✓：正文**下方**右对齐独立一行（对齐 Android 文本气泡；2026-10-03 起，此前是紧跟正文末尾的行内占位）
+    NSLayoutConstraint *_textMetaBelowText; // 链接卡片不可见：时间接在正文下方（可见时改落卡片下方）
     NSTextAttachment *_quoteThumbAtt;      // 引用媒体缩略图占位 attachment
     NSString *_quoteThumbKey;              // 复用防串图：URL 匹配才应用
     UILabel *_avatar;                      // 群聊对方头像（连续段末条，贴气泡底左侧）
@@ -655,8 +629,7 @@ static NSAttributedString *sIMMentionFlashOriginal = nil;
             [_sysNote.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:24],
             [_sysNote.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-24],
 
-            // 气泡内文本。时间+✓/✓✓ 不拼进正文末尾（那样它紧跟最后一个字，多行/带引用时悬在气泡中间），
-            // 而是右下角独立的 _textMeta，正文末尾接一段同宽透明占位替它让位（见 IMBubbleMetaPlaceholder）。
+            // 气泡内文本。时间+✓/✓✓ 是正文下方右对齐的独立一行 _textMeta（对齐 Android：文字在上、时间在下）。
             [_text.topAnchor constraintEqualToAnchor:_bubble.topAnchor constant:6],
             [_text.leadingAnchor constraintEqualToAnchor:_bubble.leadingAnchor constant:12],
             [_text.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor constant:-12],
@@ -681,13 +654,13 @@ static NSAttributedString *sIMMentionFlashOriginal = nil;
         _noteBottom = [_sysNote.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-6];
         _failBadgeTrailing = [_failBadge.trailingAnchor constraintEqualToAnchor:_bubble.leadingAnchor constant:-6];
         _bubbleBottom.active = YES;
-        // 气泡底：普通消息由正文撑（_textBottom），文件消息由文件行撑（_fileRowBottom），二选一。
-        _textBottom = [_text.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:-6];
+        // 气泡底：普通消息由时间行撑（_textBottom：时间底 → 气泡底），文件消息由文件行撑（_fileRowBottom），二选一。
+        _textBottom = [_textMeta.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:-6];
         _fileRowBottom = [_fileRow.bottomAnchor constraintEqualToAnchor:_bubble.bottomAnchor constant:-8];
         _textBottom.active = YES;
-        // 时间与正文最后一行同基线：占位保证最后一行右侧有它的位置（同行放不下时占位自己换行，那一行就是它）。
-        _textMetaOnLastLine = [_textMeta.lastBaselineAnchor constraintEqualToAnchor:_text.lastBaselineAnchor];
-        _textMetaOnLastLine.active = YES;
+        // 时间在正文下方（间隔 2pt，Android 同值），右对齐由 _textMeta.trailing 钉气泡右内边距保证。
+        _textMetaBelowText = [_textMeta.topAnchor constraintEqualToAnchor:_text.bottomAnchor constant:2];
+        _textMetaBelowText.active = YES;
         // 文件文 caption 整组（仅当文件消息带 caption 时激活）：文件行 → caption → 时间 → 气泡底，
         // 替下 _fileRowBottom 与 _fileMetaInRowConstraints。
         // **时间必须跟到 caption 下面**：它原先钉在文件行里（状态行下方），有 caption 时就悬在气泡中段、
@@ -782,27 +755,19 @@ static NSAttributedString *sIMMentionFlashOriginal = nil;
 - (void)applyLinkPreviewVisibleConstraints:(BOOL)visible {
     if (visible) {
         _textBottom.active = NO;
-        _textMetaOnLastLine.active = NO; // 先停旧位置再启卡片下方那组，避免复用切换时先冲突一次
+        _textMetaBelowText.active = NO; // 先停旧位置再启卡片下方那组，避免复用切换时先冲突一次
         for (NSLayoutConstraint *c in _linkPreviewConstraints) { c.active = YES; }
     } else {
         for (NSLayoutConstraint *c in _linkPreviewConstraints) { c.active = NO; }
-        _textMetaOnLastLine.active = YES;
+        _textMetaBelowText.active = YES;
         _textBottom.active = YES;
     }
-    _linkPreviewVisible = visible;
-    [self renderBodyText]; // 占位只在「时间与正文同一行」时接：卡片展开后再留着，正文末尾会平白空一截
+    [self renderBodyText];
 }
 
-/// 把正文写进 _text：卡片不可见时末尾接透明时间占位（替右下角 _textMeta 让位），可见时时间在卡片下方、不接。
-/// 引用缩略图异步回填也走这里——拼出来的新串与 _bodyText 共用同一个 NSTextAttachment，改了图重赋值即生效。
+/// 把正文写进 _text。引用缩略图异步回填也走这里——_bodyText 与 attachment 共用，改了图重赋值即生效。
 - (void)renderBodyText {
-    if (_textMetaPlaceholder.length > 0 && !_linkPreviewVisible) {
-        NSMutableAttributedString *withRoom = [_bodyText mutableCopy] ?: [NSMutableAttributedString new];
-        [withRoom appendAttributedString:_textMetaPlaceholder];
-        _text.attributedText = withRoom;
-    } else {
-        _text.attributedText = _bodyText;
-    }
+    _text.attributedText = _bodyText;
 }
 
 - (void)configureWithMessage:(IMMessageModel *)message
@@ -978,13 +943,10 @@ static NSAttributedString *sIMMentionFlashOriginal = nil;
     if (self.searchHighlightKeyword.length > 0) {
         [IMBubbleCell applySearchHighlight:self.searchHighlightKeyword toMutable:body];
     }
-    // 占位在搜索高亮**之后**另接（renderBodyText）：它是透明的时间原文，搜「12」会把高亮底色染在看不见的字上。
     _bodyText = body;
     _textMeta.attributedText = textMeta;
     _textMeta.hidden = (textMeta.length == 0);
-    _textMetaPlaceholder = IMBubbleMetaPlaceholder(textMeta);
-    // 正文此处不直接写 _text：下面两个分支都会走 applyLinkPreviewVisibleConstraints: → renderBodyText，
-    // 由它按「卡片展不展开」决定接不接占位（configureWithURL: 命中缓存时也会同步回调到那里）。
+    // 正文此处不直接写 _text：下面两个分支都会走 applyLinkPreviewVisibleConstraints: → renderBodyText。
     _fileRow.hidden = !fileMode;
     // 文件文 caption（Telegram 模型）：文件卡下方随附文本，同气泡内。iOS 只显示（不发送）。
     NSString *fileCaption = (fileMode && message.caption.length > 0) ? message.caption : nil;
@@ -1013,7 +975,7 @@ static NSAttributedString *sIMMentionFlashOriginal = nil;
     if (fileMode) {
         [self applyLinkPreviewVisibleConstraints:NO]; // 文件消息底部由 file 行/caption 撑，preview 一律隐藏
         _textBottom.active = NO;
-        _textMetaOnLastLine.active = NO; // 文件模式时间由 _fileMetaLabel 画，_textMeta 藏着，别留一条悬空的基线约束
+        _textMetaBelowText.active = NO; // 文件模式时间由 _fileMetaLabel 画，_textMeta 藏着，别留一条悬空的基线约束
         [NSLayoutConstraint activateConstraints:_fileConstraints];
         // 有 caption：文件行 → caption → 时间 → 气泡底；无 caption：时间在文件行里、文件行直接贴底。
         // **先停旧组再启新组**：两组都钉着时间的上下沿、_fileRowBottom 与 caption 组也互斥，

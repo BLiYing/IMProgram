@@ -51,25 +51,26 @@ static const NSInteger kIMPeerNotFoundOverlayTag = 91001;
 
 - (UITableViewCell *)infoCell:(UITableView *)tv row:(NSInteger)row {
     // 两行分开出池：用户名行挂了长按复制手势，与备注名行共用一个复用池会让手势跟着 cell 串到备注行上。
-    UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleSubtitle
-                                            reuseID:(row == 0 ? @"dRemark" : @"dUsername") inTable:tv];
+    UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleValue1
+                                            reuseID:(row == 0 ? @"dRemarkV1" : @"dUsernameV1") inTable:tv];
+    // 一行一项：左标签、右值（Value1），与 Android `Row2` / Web `detail-row` 同版式
+    // （此前是 Subtitle：值在上、标签在下两行叠着）。
     if (row == 0) {
         // 只显**备注本身**（不是 displayTitle）：这一行是"备注名"的编辑入口，没设过就该显"未设置"，
         // 否则会把对方昵称显示成"我给他起的备注"，用户点进去还以为已经设过了。
         BOOL hasRemark = self.peerRemark.length > 0;
-        cell.textLabel.text = hasRemark ? self.peerRemark : IMLocalized(@"settings.info.not_set");
-        cell.textLabel.textColor = hasRemark ? IMTheme.textPrimary : IMTheme.textSecondary;
-        cell.textLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightMedium];
-        cell.detailTextLabel.text = IMLocalized(@"chat.detail.remark_row_hint");
+        cell.textLabel.text = IMLocalized(@"chat.detail.remark_name");
+        cell.detailTextLabel.text = hasRemark ? self.peerRemark : IMLocalized(@"settings.info.not_set");
+        cell.detailTextLabel.textColor = hasRemark ? IMTheme.textPrimary : IMTheme.textSecondary;
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     } else {
         // 显示**公开句柄** @xxx，不是 peerID——后者是 10 位随机数字内部 ID，
         // 标签写着"用户名"却显示一串 ID 是明显的错配（docs/UI.md「用户标识」）。
         // 拿不到时（资料尚未拉回 / 对方无 username）显灰字占位，绝不回退到 ID。
         BOOL hasHandle = self.peerUsername.length > 0;
-        cell.textLabel.text = hasHandle ? [@"@" stringByAppendingString:self.peerUsername] : IMLocalized(@"settings.info.not_set");
-        cell.textLabel.textColor = hasHandle ? IMTheme.accent : IMTheme.textSecondary;
-        cell.detailTextLabel.text = IMLocalized(@"settings.info.username");
+        cell.textLabel.text = IMLocalized(@"settings.info.username");
+        cell.detailTextLabel.text = hasHandle ? [@"@" stringByAppendingString:self.peerUsername] : IMLocalized(@"settings.info.not_set");
+        cell.detailTextLabel.textColor = hasHandle ? IMTheme.accent : IMTheme.textSecondary;
         cell.accessoryType = UITableViewCellAccessoryNone;
         // 长按复制句柄：用户名是拿去搜人/发给别人的东西，看得见却复制不走等于没有。
         // 手势只装一次（cell 复用后保留），文案在触发时现取，故不怕装配时机。

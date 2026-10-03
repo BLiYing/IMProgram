@@ -89,6 +89,16 @@ static BOOL IMQRBool(NSDictionary *dict, NSString *key) {
 @end
 
 @implementation IMJoinRequest
+- (BOOL)isPending { return [self.status isEqualToString:@"pending"]; }
+- (NSString *)visibleHello {
+    NSString *t = [self.hello stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    return t.length ? t : nil;
+}
+- (NSString *)resultLabel {
+    if ([self.status isEqualToString:@"approved"]) { return IMLocalized(@"qr.join_req.approved"); }
+    if ([self.status isEqualToString:@"rejected"]) { return IMLocalized(@"qr.join_req.rejected"); }
+    return @"";
+}
 + (instancetype)fromDictionary:(NSDictionary *)dict {
     if (![dict isKindOfClass:[NSDictionary class]]) { return nil; }
     NSString *uid = IMQRString(dict, @"user_id");

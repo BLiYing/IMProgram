@@ -5,6 +5,8 @@
 
 ## 当前焦点
 
+**三端对齐小收口（2026-10-03，待审、未提交）**：① 待审入群申请页对齐 Android `JoinRequestsScreen`（验证消息空白整行不显、不再写默认文案；加载中显「加载中…」；审批中按钮禁用防连点；失败也重拉；纯属性 `IMJoinRequest.isPending/visibleHello/resultLabel` + 单测）；② 单聊资料页「备注名 / 用户名」改 Value1 一行（左标签右值，对齐 Android/Web；原 Subtitle 两行叠）；③ 文本气泡时间移到正文**下方**右对齐（对齐 Android；删除行内透明占位 `IMBubbleMetaPlaceholder`，`IMBubbleTextMetaLayoutTests` 钉位置）。未做模拟器目测；用户名为空时 iOS 仍显「未设置」行（Android/Web 整行隐藏）。
+
 **C6 补齐（2026-10-02，待审、已提交）**：媒体库/查看器本地有缺口且在线时改服务端分页续拉（`IMMediaServerTimeline` + `IMMediaPaging` + 容器 `olderLoader`；查看器时间线 = 点中那条所在本地段 + 往更旧续拉；媒体库整个由服务端供给；离线只给「只能翻已加载的部分」提示；清空位点以内的丢掉）；资料页归档页签不再读 `messagesForConv:` 全表（`IMDatabase+Archive`）。置顶判定 iOS 原本就有（`IMPinnedTargetRecalled` + 本地库探测，服务端置顶列表剔除撤回）。资料页「媒体/文件/语音」页签同样并入服务端分页（`IMDetailServerArchive` + `IMChatDetailViewController+ServerArchive`，滚到底自动续拉；链接页签服务端无索引仍只看本地）。**模拟器已验**（10 万积压大群：媒体页签滚到 426 张末尾）。**查看器向「更新」方向**已补（`IMMediaServerTimeline loadNewer` + pager 末尾预取 + 服务端 `after=`，纯函数单测+变异；未做模拟器端到端）。**没做**：离线提示未在模拟器上验。
 
 **本机清空位点 `cleared_up_to`（OFFLINE_BACKLOG_DESIGN §6.7，iOS 侧 2026-10-02 已实现，待审、未提交）**：

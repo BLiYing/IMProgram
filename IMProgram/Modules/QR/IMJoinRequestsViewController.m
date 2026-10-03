@@ -22,6 +22,7 @@
 /// 当前页签下显示的申请（待处理 / 已处理）。
 @property (nonatomic, strong) NSArray<IMJoinRequest *> *shown;
 @property (nonatomic, assign) BOOL loaded;
+@property (nonatomic, copy, nullable) NSString *busyUID; ///< 正在提交的那一条；期间两个按钮都不可点，避免连点发两次（对齐 Android `busyUid`）
 @end
 
 @implementation IMJoinRequestsViewController
@@ -67,11 +68,11 @@
     ]];
 
     self.emptyLabel = [UILabel new];
-    self.emptyLabel.text = IMLocalized(@"qr.join_req.empty_pending");
-    self.emptyLabel.textColor = IMTheme.textSecondary;
+    self.emptyLabel.text = IMLocalized(@"common.loading");
+    self.emptyLabel.textColor = IMTheme.textTertiary;
     self.emptyLabel.font = [UIFont systemFontOfSize:14];
     self.emptyLabel.textAlignment = NSTextAlignmentCenter;
-    self.emptyLabel.hidden = YES;
+    self.emptyLabel.hidden = NO;
     self.emptyLabel.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:self.emptyLabel];
     [NSLayoutConstraint activateConstraints:@[
@@ -86,7 +87,7 @@
     [IMHTTPService.sharedService joinRequestsWithToken:self.token convID:self.convID
         completion:^(NSArray<NSDictionary *> *requests, NSError *error) {
             self.loaded = YES;
-            if (error) { [self im_showToast:error.localizedDescription]; return; }
+            if (error) { [self im_showToast:error.localizedDescription]; [self refreshUI]; return; }
             self.requests = [[IMJoinRequest fromArray:requests] mutableCopy];
             [self refreshUI];
         }];
@@ -96,7 +97,7 @@
 
 - (void)updateSegmentTitles {
     NSInteger pending = 0;
-    for (IMJoinRequest *r in self.requests) { if ([r.status isEqualToString:@"pending"]) { pending++; } }
+    for (IMJoinRequest *r in self.requests) { if (r.isPending) { pending++; } }
     NSString *first = pending > 0 ? IMLocalizedFormat(@"qr.join_req.tab_pending_count", (long)pending)
                                   : IMLocalized(@"qr.join_req.tab_pending");
     self.segmented.titles = @[first, IMLocalized(@"qr.join_req.tab_done")];
@@ -117,12 +118,14 @@
     BOOL done = [self showingDone];
     NSMutableArray<IMJoinRequest *> *rows = [NSMutableArray array];
     for (IMJoinRequest *r in self.requests) {
-        if ([r.status isEqualToString:@"pending"] != done) { [rows addObject:r]; }
+        if (r.isPending != done) { [rows addObject:r]; }
     }
     self.shown = rows;
     [self updateSegmentTitles];
-    self.emptyLabel.text = done ? IMLocalized(@"qr.join_req.empty_done") : IMLocalized(@"qr.join_req.empty_pending");
-    self.emptyLabel.hidden = (rows.count > 0) || !self.loaded;
+    // 加载中显「加载中…」（对齐 Android），不留一屏空白
+    self.emptyLabel.text = !self.loaded ? IMLocalized(@"common.loading")
+        : (done ? IMLocalized(@"qr.join_req.empty_done") : IMLocalized(@"qr.join_req.empty_pending"));
+    self.emptyLabel.hidden = (rows.count > 0);
     [self.tableView reloadData];
 }
 
@@ -143,7 +146,8 @@
     }
     IMJoinRequest *r = self.shown[indexPath.row];
     cell.textLabel.text = IMDisplayName(r.nickname, nil);
-    cell.detailTextLabel.text = r.hello.length ? r.hello : IMLocalized(@"qr.join_req.default_hello");
+    // 验证消息为空时整行不显（对齐 Android），不写默认文案
+    cell.detailTextLabel.text = r.visibleHello;
     cell.detailTextLabel.textColor = IMTheme.textSecondary;
     cell.imageView.image = nil;
     cell.imageView.backgroundColor = [IMTheme avatarColorForSeed:r.userID];
@@ -158,9 +162,11 @@
         }];
     }
 
-    if ([r.status isEqualToString:@"pending"]) {
+    if (r.isPending) {
+        BOOL busy = [self.busyUID isEqualToString:r.userID];
         UIButton *accept = [self smallButton:IMLocalized(@"common.agree") filled:YES tag:indexPath.row action:@selector(acceptTapped:)];
         UIButton *reject = [self smallButton:IMLocalized(@"common.reject") filled:NO tag:indexPath.row action:@selector(rejectTapped:)];
+        accept.enabled = reject.enabled = !busy;
         UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[reject, accept]];
         stack.axis = UILayoutConstraintAxisHorizontal;
         stack.spacing = 8;
@@ -168,12 +174,10 @@
         stack.frame = CGRectMake(0, 0, 128, 32);
         cell.accessoryView = stack;
     } else {
-        // 已处理：只读结果文案，没有按钮
-        // 只认 approved / rejected；服务端将来加别的终态（过期/撤销）时不冒充「已拒绝」，留空
+        // 已处理：只读结果文案，没有按钮；只认 approved / rejected，别的终态留空不冒充「已拒绝」
         BOOL ok = [r.status isEqualToString:@"approved"];
-        BOOL rejected = [r.status isEqualToString:@"rejected"];
         UILabel *lab = [UILabel new];
-        lab.text = ok ? IMLocalized(@"qr.join_req.approved") : (rejected ? IMLocalized(@"qr.join_req.rejected") : @"");
+        lab.text = r.resultLabel;
         lab.font = [UIFont systemFontOfSize:14];
         lab.textColor = ok ? IMTheme.textSecondary : IMTheme.textTertiary;
         [lab sizeToFit];
@@ -202,14 +206,19 @@
 
 - (void)decideRow:(NSInteger)row accept:(BOOL)accept {
     if (row < 0 || row >= (NSInteger)self.shown.count) { return; }
+    if (self.busyUID.length) { return; }
     IMJoinRequest *r = self.shown[row];
+    self.busyUID = r.userID;
+    [self.tableView reloadData];
     [IMHTTPService.sharedService decideJoinRequestWithToken:self.token convID:self.convID
                                                      userID:r.userID accept:accept
         completion:^(NSError *error) {
-            if (error) { [self im_showToast:error.localizedDescription]; return; }
+            self.busyUID = nil;
+            // 无论成败都重拉（同 Android）：失败可能是别的管理员已经审过，本地那条状态已不对
+            if (error) { [self im_showToast:error.localizedDescription]; [self reload]; return; }
             r.status = accept ? @"approved" : @"rejected"; // 落到「已处理」页签，不整条消失
             [self refreshUI];
-            [self reload]; // 再拉一次校正：另一位管理员可能同时处理了别的申请（同 Android 的「无论成败都重拉」）
+            [self reload]; // 再拉一次校正：另一位管理员可能同时处理了别的申请
             if (self.onChanged) { self.onChanged(); }
             [self im_showToast:accept ? IMLocalized(@"qr.join_req.approved_toast") : IMLocalized(@"qr.join_req.rejected")];
         }];

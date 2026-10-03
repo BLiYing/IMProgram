@@ -63,6 +63,12 @@ typedef NS_ENUM(NSInteger, IMQRKind) {
 @property (nonatomic, copy) NSString *hello;
 @property (nonatomic, copy) NSString *status;
 @property (nonatomic, assign) int64_t createdAt;
+/// status == "pending"；其余（含未知终态）一律归「已处理」（对齐 Android `JoinRequest.isPending`）。
+@property (nonatomic, readonly) BOOL isPending;
+/// 验证消息（去首尾空白）；空白时 nil——**整行不显**，不写「申请加入群聊」之类默认文案（对齐 Android）。
+@property (nonatomic, readonly, nullable) NSString *visibleHello;
+/// 已处理页签右侧结果文案：只认 approved / rejected，别的终态返回 @""，不冒充「已拒绝」。
+@property (nonatomic, readonly) NSString *resultLabel;
 + (nullable instancetype)fromDictionary:(nullable NSDictionary *)dict;
 + (NSArray<IMJoinRequest *> *)fromArray:(nullable NSArray *)arr;
 @end

@@ -5,6 +5,7 @@
 #import <XCTest/XCTest.h>
 
 #import "../IMProgram/Models/IMQRModels.h"
+#import "../IMProgram/Common/IMLocalization.h"
 
 @interface IMQRModelsTests : XCTestCase
 @end
@@ -104,6 +105,26 @@
     XCTAssertEqual(reqs[0].createdAt, 100);
     XCTAssertEqualObjects(reqs[1].userID, @"u2");
     XCTAssertEqualObjects([IMJoinRequest fromArray:nil], @[]);
+}
+
+#pragma mark - 入群申请分组 / 展示（对齐 Android JoinRequestsScreen）
+
+- (void)testJoinRequestPendingAndHelloAndResultLabel {
+    NSArray<IMJoinRequest *> *reqs = [IMJoinRequest fromArray:@[
+        @{ @"user_id": @"a", @"status": @"pending", @"hello": @"  \n " },
+        @{ @"user_id": @"b", @"status": @"approved", @"hello": @" 求带 " },
+        @{ @"user_id": @"c", @"status": @"rejected" },
+        @{ @"user_id": @"d", @"status": @"expired" },
+    ]];
+    XCTAssertTrue(reqs[0].isPending);
+    XCTAssertFalse(reqs[1].isPending);
+    XCTAssertFalse(reqs[3].isPending); // 未知终态归「已处理」，不留在待处理
+    XCTAssertNil(reqs[0].visibleHello); // 空白验证消息整行不显，不写默认文案
+    XCTAssertNil(reqs[2].visibleHello);
+    XCTAssertEqualObjects(reqs[1].visibleHello, @"求带");
+    XCTAssertEqualObjects(reqs[1].resultLabel, IMLocalized(@"qr.join_req.approved"));
+    XCTAssertEqualObjects(reqs[2].resultLabel, IMLocalized(@"qr.join_req.rejected"));
+    XCTAssertEqualObjects(reqs[3].resultLabel, @""); // 不冒充「已拒绝」
 }
 
 @end
