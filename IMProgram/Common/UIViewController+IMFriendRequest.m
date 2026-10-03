@@ -60,7 +60,7 @@ static NSInteger const kIMFriendHelloMaxRunes = 50;
     __block IMFriendHelloLimiter *limiter = nil;
     [alert addTextFieldWithConfigurationHandler:^(UITextField *field) {
         field.placeholder = IMLocalized(@"friend.request.placeholder");
-        field.text = myNick.length > 0 ? [NSString stringWithFormat:@"我是%@", myNick] : @"";
+        field.text = myNick.length > 0 ? IMLocalizedFormat(@"friend.request.hello_prefill", myNick) : @"";
         field.clearButtonMode = UITextFieldViewModeWhileEditing;
         field.returnKeyType = UIReturnKeySend;
         limiter = [[IMFriendHelloLimiter alloc] initWithField:field];

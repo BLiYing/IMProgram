@@ -736,6 +736,7 @@
 "friend.request.became_friends" = "Added as a friend";
 "friend.request.hello_label" = "Message (optional, visible to them)";
 "friend.request.hello_placeholder" = "Say something so they know who you are";
+"friend.request.hello_prefill" = "I'm %1$@";
 "friend.request.no_user_found" = "Couldn't find this user";
 "friend.request.peer_fallback" = "this person";
 "friend.request.placeholder" = "Say something so they know who you are";

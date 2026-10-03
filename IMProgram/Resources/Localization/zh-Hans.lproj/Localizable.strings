@@ -736,6 +736,7 @@
 "friend.request.became_friends" = "已添加为好友";
 "friend.request.hello_label" = "验证消息（选填，对方会看到）";
 "friend.request.hello_placeholder" = "说一句，让对方知道你是谁";
+"friend.request.hello_prefill" = "我是%1$@";
 "friend.request.no_user_found" = "没找到这个用户";
 "friend.request.peer_fallback" = "对方";
 "friend.request.placeholder" = "说一句，让对方知道你是谁";
