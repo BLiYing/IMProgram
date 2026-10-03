@@ -3,6 +3,7 @@
 #import "IMMuteDurationMenu.h"
 #import "IMLocalization.h"
 #import "IMTimeUtil.h"
+#import "IMActionListSheet.h"
 
 int64_t IMMuteUntilForDurationOption(IMMuteDurationOption option, int64_t nowMs) {
     switch (option) {
@@ -24,19 +25,16 @@ int64_t IMMuteUntilForDurationOption(IMMuteDurationOption option, int64_t nowMs)
                    showUnmuteFirst:(BOOL)showUnmuteFirst
                         completion:(void (^)(BOOL unmuted, int64_t muteUntil))completion {
     if (!host) { return; }
-    UIAlertController *sheet = [UIAlertController
-        alertControllerWithTitle:IMLocalizedFormat(@"notif.mute.sheet_title", conversationName ?: @"")
-                          message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    // 自绘底部弹层（IMActionListSheet，对齐 Android ActionSheet）：不用系统 ActionSheet——
+    // 它在 iOS 26 / iOS 18 外观不同。sourceView/sourceRect 是 iPad popover 锚点，自绘弹层不需要，保留签名不动调用方。
+    NSMutableArray<IMActionListItem *> *items = [NSMutableArray array];
     if (showUnmuteFirst) {
-        [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"conv.menu.unmute")
-                                                   style:UIAlertActionStyleDestructive
-                                                 handler:^(UIAlertAction *a) {
+        [items addObject:[IMActionListItem itemWithTitle:IMLocalized(@"conv.menu.unmute") destructive:YES handler:^{
             if (completion) { completion(YES, 0); }
         }]];
     }
     void (^add)(NSString *, IMMuteDurationOption) = ^(NSString *title, IMMuteDurationOption option) {
-        [sheet addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault
-                                                 handler:^(UIAlertAction *a) {
+        [items addObject:[IMActionListItem itemWithTitle:title destructive:NO handler:^{
             if (completion) { completion(NO, IMMuteUntilForDurationOption(option, IMNowMillis())); }
         }]];
     };
@@ -45,14 +43,9 @@ int64_t IMMuteUntilForDurationOption(IMMuteDurationOption option, int64_t nowMs)
     add(IMLocalized(@"mute.1d"), IMMuteDurationOneDay);
     add(IMLocalized(@"mute.7d"), IMMuteDurationSevenDays);
     add(IMLocalized(@"common.permanent"), IMMuteDurationForever);
-    [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel")
-                                               style:UIAlertActionStyleCancel handler:nil]];
-    UIView *anchor = sourceView ?: host.view;
-    sheet.popoverPresentationController.sourceView = anchor;
-    sheet.popoverPresentationController.sourceRect = CGRectIsEmpty(sourceRect)
-        ? CGRectMake(CGRectGetMidX(host.view.bounds), CGRectGetMaxY(host.view.bounds) - 60, 1, 1)
-        : sourceRect;
-    [host presentViewController:sheet animated:YES completion:nil];
+    [IMActionListSheet presentFrom:host
+                             title:IMLocalizedFormat(@"notif.mute.sheet_title", conversationName ?: @"")
+                             items:items];
 }
 
 @end

@@ -19,7 +19,7 @@ typedef NS_ENUM(NSInteger, IMMuteDurationOption) {
 /// 时间戳再发给服务端，不是让服务端加时长）。永久固定返回 0，与协议 mute_until=0 同义。
 FOUNDATION_EXPORT int64_t IMMuteUntilForDurationOption(IMMuteDurationOption option, int64_t nowMs);
 
-/// 时长菜单（UIAlertController action sheet）。
+/// 时长菜单（自绘底部弹层 IMActionListSheet，对齐 Android；不用系统 ActionSheet，因其 iOS 26 / 18 外观不同）。
 @interface IMMuteDurationMenu : NSObject
 
 /// 弹出菜单。title = notif.mute.sheet_title 代入会话显示名。
