@@ -367,6 +367,7 @@ static const NSUInteger kIMRtcMaxGroupCallPick = 8;
         }]) { return; }
         // 位点已落库；内存同步游标要跟上，否则下一个 sync_req 会从旧游标重拉一遍再被落库闸丢掉（OFFLINE_BACKLOG_DESIGN §6.7）。
         [IMSocketManager.sharedManager noteConvClearedUpTo:clearedUpTo forConv:self.convID];
+        self.serverArchive = nil; // 已拉到的服务端条目含刚清掉的，且各 timeline 的位点是进页时的快照：整份丢，新消息走本地
         [self rebuildTabs];
         [self.tableView reloadData];
         // 通知底层聊天页清空内存并刷新（否则返回聊天页仍显旧消息）。

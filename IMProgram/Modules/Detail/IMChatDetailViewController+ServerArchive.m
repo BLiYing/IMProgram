@@ -38,9 +38,11 @@ static const CGFloat kArchiveLoadThreshold = 600;
     IMDetailServerArchive *archive = [[IMDetailServerArchive alloc] initWithConvID:convID clearedUpTo:cleared];
     self.serverArchive = archive;
     __weak typeof(self) ws = self;
-    [archive loadFirstPages:^{
+    [archive loadFirstPages:^(BOOL anyFailed) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
+        // 首页失败（离线 / 超时）：该类停在已有的、不再自动重试——静默残缺不行，说出来
+        if (anyFailed) { [self im_showToast:IMLocalized(@"media.viewer.offline_partial_notice")]; }
         [self rebuildTabs]; // 服务端带来的类型可能让语音 / 名片等页签第一次出现
         [self.tableView reloadData];
     }];

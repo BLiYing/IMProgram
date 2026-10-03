@@ -265,10 +265,11 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
 
 /// 点中那条所在**本地段**里的媒体（升序）：有缺口时不能把缺口另一侧的旧岛拼进来，否则翻页会静默跳过缺口里的图。
 /// 段之外更旧的由服务端续拉（`IMMediaServerTimeline`）；段上沿之外更新的拿不到——用「媒体库」入口看完整的（查看器带该入口）。
-- (NSArray<IMMessageModel *> *)localMediaInSegmentOfMessage:(IMMessageModel *)m segmentLo:(int64_t *)outLo {
+- (NSArray<IMMessageModel *> *)localMediaInSegmentOfMessage:(IMMessageModel *)m segmentLo:(int64_t *)outLo segmentHi:(int64_t *)outHi head:(int64_t *)outHead {
     NSString *convID = self.convID;
-    __block int64_t lo = 0, hi = INT64_MAX;
+    __block int64_t lo = 0, hi = INT64_MAX, head = 0;
     [self performDatabaseOperation:^(IMDatabase *database) {
+        head = [database headConvSeqForConv:convID];
         for (NSArray<NSNumber *> *r in [database rangesForConv:convID]) {
             if (r.count == 2 && m.convSeq >= r[0].longLongValue && m.convSeq <= r[1].longLongValue) {
                 lo = r[0].longLongValue; hi = r[1].longLongValue; break;
@@ -276,6 +277,8 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
         }
     }];
     if (outLo) { *outLo = lo; }
+    if (outHi) { *outHi = hi; }
+    if (outHead) { *outHead = head; }
     NSMutableArray<IMMessageModel *> *out = [NSMutableArray array];
     for (IMMessageModel *x in [self conversationMediaMessages]) {
         if (x.convSeq >= lo && x.convSeq <= hi) { [out addObject:x]; }
@@ -327,12 +330,13 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
 
 /// 有缺口 + 在线：时间线 = 点中那条所在本地段的媒体 + 往更旧由服务端续拉。翻到最旧一头前容器自动预取。
 - (void)presentServerMediaViewerForMessage:(IMMessageModel *)m preloaded:(UIImage *)image floor:(int64_t)floor cleared:(int64_t)cleared {
-    int64_t segLo = 0;
-    NSArray<IMMessageModel *> *base = [self localMediaInSegmentOfMessage:m segmentLo:&segLo];
+    int64_t segLo = 0, segHi = INT64_MAX, head = 0;
+    NSArray<IMMessageModel *> *base = [self localMediaInSegmentOfMessage:m segmentLo:&segLo segmentHi:&segHi head:&head];
     IMMediaServerTimeline *timeline = [[IMMediaServerTimeline alloc] initWithConvID:self.convID kind:@"media" clearedUpTo:cleared];
     // 段的下沿已经是可见起点（或 1）就没有更旧的可问
     [timeline seedWithMessages:base hasMore:segLo > MAX((int64_t)1, floor)];
-    timeline.hasMoreNewer = YES; // 取的是缺口会话里的一段：段上沿之外服务端可能还有更新的
+    // 取的是缺口会话里的一段：段上沿还没到会话最新位点才可能有更新的（已是最新段就别白发一次必然为空的请求）；head 未知按「可能有」
+    timeline.hasMoreNewer = (head <= 0 || segHi < head);
     NSUInteger start = IMMediaTimelineIndexOfMessage(timeline.messages, m);
     if (start == NSNotFound) {
         [self presentViewController:[self buildMediaViewerForMessage:m preloaded:image] animated:YES completion:nil];

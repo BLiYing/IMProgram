@@ -92,7 +92,8 @@
     UIScrollView *sv = nil;
     for (UIView *v in _pager.view.subviews) { if ([v isKindOfClass:UIScrollView.class]) { sv = (UIScrollView *)v; break; } }
     BOOL busy = sv && (sv.isTracking || sv.isDragging || sv.isDecelerating);
-    if (busy && attempt < 20) {
+    if (busy) {
+        if (attempt >= 20) { return; } // 约 5 秒还在拖 / 播：放弃这次刷新，下次翻页时 dataSource 自然会按新长度重问邻居——不强行打断
         __weak typeof(self) ws = self;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ [ws refreshNeighborsWhenIdle:attempt + 1]; });
         return;

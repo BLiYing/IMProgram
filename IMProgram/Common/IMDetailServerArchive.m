@@ -47,13 +47,18 @@ NSArray<IMMessageModel *> *IMDetailArchiveUnion(NSArray<IMMessageModel *> *local
     return self;
 }
 
-- (void)loadFirstPages:(void (^)(void))completion {
+- (void)loadFirstPages:(void (^)(BOOL))completion {
     dispatch_group_t g = dispatch_group_create();
+    __block BOOL anyFailed = NO;
     for (IMMediaServerTimeline *t in _timelines.allValues) {
         dispatch_group_enter(g);
-        [t loadOlder:^(NSInteger added, NSError *error) { dispatch_group_leave(g); }];
+        [t loadOlder:^(NSInteger added, NSError *error) { if (error) { anyFailed = YES; } dispatch_group_leave(g); }];
     }
-    dispatch_group_notify(g, dispatch_get_main_queue(), ^{ if (completion) { completion(); } });
+    dispatch_group_notify(g, dispatch_get_main_queue(), ^{ if (completion) { completion(anyFailed); } });
+}
+
+- (void)removeMessagesWithConvSeqs:(NSSet<NSNumber *> *)seqs {
+    for (IMMediaServerTimeline *t in _timelines.allValues) { [t removeMessagesWithConvSeqs:seqs]; }
 }
 
 - (NSArray<IMMessageModel *> *)mergedWithLocal:(NSArray<IMMessageModel *> *)local {

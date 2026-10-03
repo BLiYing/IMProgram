@@ -22,7 +22,10 @@ extern NSArray<IMMessageModel *> *IMDetailArchiveUnion(NSArray<IMMessageModel *>
 - (instancetype)initWithConvID:(NSString *)convID clearedUpTo:(int64_t)clearedUpTo;
 
 /// 三类各要第一页；全部回来（或失败）后回调一次（主线程）。
-- (void)loadFirstPages:(void (^)(void))completion;
+- (void)loadFirstPages:(void (^)(BOOL anyFailed))completion;
+
+/// 某些消息被物理移除（为所有人删除 / 仅为我删除）后同步剔除：否则下次并集时「本地没有就收服务端」会让它们复活。
+- (void)removeMessagesWithConvSeqs:(NSSet<NSNumber *> *)seqs;
 
 /// 本地 ∪ 服务端已拉到的。
 - (NSArray<IMMessageModel *> *)mergedWithLocal:(NSArray<IMMessageModel *> *)local;

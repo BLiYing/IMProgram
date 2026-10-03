@@ -14,7 +14,9 @@
 #import "IMProtocol.h"
 #import "IMDatabase.h"
 #import "IMDatabase+Archive.h"
+#import "IMSocketManager+BatchDelete.h" // IMRemovedMessageSeqs
 #import "IMChatDetailViewController+ServerArchive.h"
+#import "IMDetailServerArchive.h"
 #import "IMTimeUtil.h" // IMNowMillis()：成员禁言状态判定与时长换算
 #import "IMMuteExpiryScheduler.h" // IMMuteExpiryDidChangeNotification
 #import "IMMuteState.h" // 定时免打扰值行文案（IMIsMutedNow/IMMuteDetailValueText）
@@ -406,6 +408,8 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
 /// 任务2：某条消息被物理移除（为所有人删除 / 仅为我删除）→ 本会话则重建页签（文件列表去掉该行）。
 - (void)onMessageRemoved:(NSNotification *)note {
     if (![note.userInfo[kIMConvIDKey] isEqualToString:self.convID]) { return; }
+    // 服务端分页拉到的那份也要剔（批量删除一次通知带全部 seq）：否则并集会把刚删的复活
+    [self.serverArchive removeMessagesWithConvSeqs:[NSSet setWithArray:IMRemovedMessageSeqs(note.userInfo)]];
     [self rebuildTabs];
     [self.tableView reloadData];
 }
@@ -418,7 +422,15 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
         msgs = [database archiveMessagesForConv:self.convID];
     }];
     msgs = [self im_archiveMergedWithLocal:msgs]; // 本地有缺口且在线：并入服务端已拉到的
+    // 选中项按**类型**保住，不按下标：服务端首页回来可能让语音 / 名片页签出现在它前面，按下标会漂到别的页签
+    BOOL hadSelection = self.tabs.count > 0 && self.selectedTab >= 0 && self.selectedTab < (NSInteger)self.tabs.count;
+    IMDetailTabKind keptKind = hadSelection ? self.tabs[self.selectedTab].kind : IMDetailTabKindMembers;
     self.tabs = [IMChatDetailTabs tabsForMessages:msgs isGroup:self.isGroup];
+    if (hadSelection) {
+        NSInteger idx = NSNotFound;
+        for (NSInteger i = 0; i < (NSInteger)self.tabs.count; i++) { if (self.tabs[(NSUInteger)i].kind == keptKind) { idx = i; break; } }
+        if (idx != NSNotFound) { self.selectedTab = idx; }
+    }
     if (self.selectedTab >= (NSInteger)self.tabs.count) { self.selectedTab = 0; }
     // 分段控件
     if (!self.segmented) {

@@ -6,6 +6,7 @@
 
 #import "IMDetailServerArchive.h"
 #import "IMMessageModel.h"
+#import "IMMediaServerTimeline.h"
 
 @interface IMDetailServerArchiveTests : XCTestCase
 @end
@@ -44,6 +45,17 @@ static NSArray<NSNumber *> *Seqs(NSArray<IMMessageModel *> *ms) {
 - (void)test_服务端为空原样返回 {
     NSArray *local = @[M(1, @"x")];
     XCTAssertTrue(IMDetailArchiveUnion(local, @[]) == local);
+}
+
+/// 删除后别让服务端那份把它复活：时间线剔除后，并集里就不会再有它。
+- (void)test_删除后时间线剔除_不再复活 {
+    IMMediaServerTimeline *t = [[IMMediaServerTimeline alloc] initWithConvID:@"g" kind:@"file" clearedUpTo:0];
+    [t seedWithMessages:@[M(3, @"a"), M(5, @"b"), M(9, @"c")] hasMore:NO];
+    [t removeMessagesWithConvSeqs:[NSSet setWithObjects:@5, @77, nil]];
+    XCTAssertEqualObjects(Seqs(t.messages), (@[@3, @9]));
+    // 并集：本地没有 5，但服务端那份也已剔除 → 不会因为「本地没有就收服务端」而复活
+    NSArray *u = IMDetailArchiveUnion(@[M(3, @"a")], t.messages);
+    XCTAssertEqualObjects(Seqs(u), (@[@3, @9]));
 }
 
 @end
