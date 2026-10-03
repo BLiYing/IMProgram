@@ -393,7 +393,7 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
     if (![note.userInfo[kIMConvIDKey] isEqualToString:self.convID]) { return; }
     NSString *event = note.userInfo[kIMGroupEventKey];
     NSString *target = note.userInfo[kIMGroupTargetKey];
-    if (([event isEqualToString:@"remove"] && [target isEqualToString:self.userID]) ||
+    if ((([event isEqualToString:@"remove"] || [event isEqualToString:@"leave"]) && [target isEqualToString:self.userID]) ||
         [event isEqualToString:@"dissolve"]) {
         [self.navigationController popViewControllerAnimated:YES];
         return;

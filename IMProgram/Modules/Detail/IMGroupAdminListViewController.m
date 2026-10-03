@@ -128,8 +128,10 @@ typedef NS_ENUM(NSInteger, IMAdminSection) {
     NSString *event = note.userInfo[kIMGroupEventKey];
     NSString *target = note.userInfo[kIMGroupTargetKey];
     BOOL removedMe = [event isEqualToString:@"remove"] && [target isEqualToString:self.userID];
-    if (removedMe || [event isEqualToString:@"dissolve"]) {
-        [self popWithToast:removedMe ? IMLocalized(@"group.manage.removed_toast") : IMLocalized(@"group.event.dissolved")];
+    BOOL leftMe = [event isEqualToString:@"leave"] && [target isEqualToString:self.userID]; // 别端退群（服务端连退群者本人也推）
+    if (removedMe || leftMe || [event isEqualToString:@"dissolve"]) {
+        [self popWithToast:leftMe ? IMLocalized(@"group.event.left")
+                                  : (removedMe ? IMLocalized(@"group.manage.removed_toast") : IMLocalized(@"group.event.dissolved"))];
         return;
     }
     [self reload];

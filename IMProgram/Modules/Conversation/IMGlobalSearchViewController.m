@@ -1,5 +1,6 @@
 //  IMGlobalSearchViewController.m
 
+#import "IMHTTPService.h"
 #import "IMGlobalSearchViewController.h"
 #import "IMLocalization.h"
 #import "IMDatabase.h"
@@ -209,6 +210,22 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
     _allConversations = [IMDatabase.sharedDatabase cachedConversations] ?: @[];
     _allFriends = [IMDatabase.sharedDatabase cachedFriends] ?: @[];
     if (_keyword.length > 0) { [self recomputeForKeyword:_keyword]; }
+    [self refreshConversationsFromServer];
+}
+
+/// 本地会话缓存只在「消息」列表页可见期间随群事件刷新（它不在前台时会取消订阅），所以别的群里有人进出/改名、
+/// 本页读到的 member_count / 群名就是旧的（2026-10-03 模拟器实测：8 人群显示「2 人」）。
+/// 出现时向服务端拉一次权威快照，只换本页内存里的结果、不写库（落库仍归列表页的 reload，避免两处同写）。失败静默。
+- (void)refreshConversationsFromServer {
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0) { return; }
+    __weak typeof(self) weakSelf = self;
+    [IMHTTPService.sharedService conversationsWithToken:token completion:^(NSArray<IMConversation *> *convs, NSError *err) {
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self || err || !convs) { return; }
+        self->_allConversations = convs;
+        if (self->_keyword.length > 0) { [self recomputeForKeyword:self->_keyword]; }
+    }];
 }
 
 - (void)viewDidAppear:(BOOL)animated {

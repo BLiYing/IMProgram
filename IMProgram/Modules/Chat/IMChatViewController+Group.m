@@ -73,8 +73,11 @@
     // 被移出（remove 且 target=自己）或群被解散（dissolve，管理端处置，对全体生效）→ 提示并退出本页。
     BOOL removedMe = [event isEqualToString:@"remove"] && [target isEqualToString:self.userID];
     BOOL dissolved = [event isEqualToString:@"dissolve"];
-    if (removedMe || dissolved) {
-        [self im_showToast:dissolved ? IMLocalized(@"group.event.dissolved") : IMLocalized(@"group.event.removed")];
+    // leave 且 target=自己：服务端连退群者本人也推，给**别的设备**移除该群（本机主动退群时本页已在退场）。
+    BOOL leftMe = [event isEqualToString:@"leave"] && [target isEqualToString:self.userID];
+    if (removedMe || leftMe || dissolved) {
+        [self im_showToast:dissolved ? IMLocalized(@"group.event.dissolved")
+                                     : (leftMe ? IMLocalized(@"group.event.left") : IMLocalized(@"group.event.removed"))];
         // 先让吐司可见，再退出本页（随页面销毁，故略作停留）。
         __weak typeof(self) weakSelf = self;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.9 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
