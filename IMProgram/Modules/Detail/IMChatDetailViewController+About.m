@@ -59,8 +59,11 @@ typedef NS_ENUM(NSInteger, IMDetailAboutRow) {
 - (UITableViewCell *)aboutCell:(UITableView *)tv row:(NSInteger)row {
     NSArray<NSNumber *> *kinds = [self aboutRowKinds];
     IMDetailAboutRow kind = (row < (NSInteger)kinds.count) ? (IMDetailAboutRow)kinds[row].integerValue : IMDetailAboutRowAnnouncement;
-    UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleSubtitle reuseID:@"dSub" inTable:tv];
+    // 一行一项：左标签、右预览（Value1），与 Android / Web 同版式（此前是 Subtitle 两行叠着）。
+    UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleValue1 reuseID:@"dAboutV1" inTable:tv];
     cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    cell.detailTextLabel.numberOfLines = 1;
+    cell.detailTextLabel.lineBreakMode = NSLineBreakByTruncatingTail;
     if (kind == IMDetailAboutRowAnnouncement) {
         cell.imageView.image = [UIImage systemImageNamed:@"megaphone"];
         cell.textLabel.text = IMLocalized(@"group.text.announcement");

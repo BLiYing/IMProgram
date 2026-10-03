@@ -663,7 +663,7 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
     IMDetailSection kind = [self sectionKindAt:indexPath.section];
-    if (kind == IMDetailSectionAbout) { return 64; } // 标题 + 一行预览（subtitle 样式）
+    if (kind == IMDetailSectionAbout) { return 52; } // 左标签 + 右一行预览（Value1 样式）
     if (kind == IMDetailSectionTabs && self.tabs.count > 0) {
         IMChatDetailTab *t = self.tabs[self.selectedTab];
         if (t.kind == IMDetailTabKindMembers) {
