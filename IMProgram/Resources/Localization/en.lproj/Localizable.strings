@@ -106,6 +106,7 @@
 "chat.attach.title" = "Attach";
 "chat.banner.all_pinned" = "All pinned messages";
 "chat.banner.collapse_announcement" = "Hide announcement";
+"chat.banner.collapse_join_request" = "Hide join requests";
 "chat.banner.collapse_pinned" = "Hide pinned message";
 "chat.banner.join_request" = "Join requests";
 "chat.banner.jump_to_message" = "Go to message";

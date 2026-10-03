@@ -106,6 +106,7 @@
 "chat.attach.title" = "附件";
 "chat.banner.all_pinned" = "全部置顶消息";
 "chat.banner.collapse_announcement" = "收起公告";
+"chat.banner.collapse_join_request" = "收起入群申请";
 "chat.banner.collapse_pinned" = "收起置顶";
 "chat.banner.join_request" = "入群申请";
 "chat.banner.jump_to_message" = "跳转到该消息";
