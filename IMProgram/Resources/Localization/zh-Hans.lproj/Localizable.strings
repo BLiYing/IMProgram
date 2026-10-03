@@ -139,7 +139,6 @@
 "chat.detail.group_call_picker_title" = "选择成员";
 "chat.detail.group_id_copied" = "已复制群 ID";
 "chat.detail.group_remark" = "群备注";
-"chat.detail.group_remark_message" = "仅自己可见，将替代群名显示，多端同步。";
 "chat.detail.invite_members_blocked" = "群主已开启「仅管理员可邀请」，你无法邀请成员";
 "chat.detail.leave_group" = "退出群组";
 "chat.detail.leave_group_confirm_title" = "退出「%1$@」？";
@@ -151,7 +150,6 @@
 "chat.detail.mute_footer" = "免打扰期间不响铃、不计入角标；有人 @你时仍会提醒。";
 "chat.detail.muted" = "消息免打扰";
 "chat.detail.my_group_nickname" = "我在本群的昵称";
-"chat.detail.my_group_nickname_message" = "群内所有人可见，最多 20 字；留空恢复默认昵称。";
 "chat.detail.no_username" = "该用户未设置用户名";
 "chat.detail.pill_group_call" = "群通话";
 "chat.detail.pill_message" = "消息";
@@ -837,7 +835,7 @@
 "group.info.load_failed" = "拉取群资料失败";
 "group.info.members_failed" = "拉取群成员失败";
 "group.info.members_title" = "成员（%1$ld）";
-"group.info.my_nickname_hint" = "留空即清除，显示你的全局昵称。";
+"group.info.my_nickname_hint" = "群内所有人可见；留空即清除，显示你的全局昵称。";
 "group.info.reinvite_blocked" = "该成员已被移出本群，暂时无法再次邀请";
 "group.info.remark_hint" = "仅你自己可见，用于区分同名群聊，不会通知其他成员。";
 "group.info.rename_hint" = "1~30 字";
@@ -939,10 +937,8 @@
 "group.ops.leave_confirm_message" = "确定退出该群聊？";
 "group.ops.leave_failed" = "退出失败：%1$@";
 "group.ops.list_load_failed" = "加载群列表失败：%1$@";
-"group.ops.my_nickname_placeholder" = "群内可见（≤20 字，留空恢复默认）";
 "group.ops.name_placeholder" = "群名（1~30 字）";
 "group.ops.name_required" = "请输入群名";
-"group.ops.remark_placeholder" = "%1$@（仅自己可见）";
 "group.ops.remark_save_failed" = "保存备注失败：%1$@";
 "group.ops.revoke_admin_confirm" = "撤销 %1$@ 的管理员身份？";
 "group.ops.revoke_admin_done" = "已撤销管理员";

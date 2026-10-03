@@ -2,6 +2,7 @@
 //  详情页「动作」分文件实现：操作排/更多菜单、置顶/免打扰/编辑/拉黑/举报、群昵称/群备注（G1）。
 //  从 IMChatDetailViewController.m 平移，未改行为；私有属性/常量经 IMChatDetailViewController+Private.h 共享。
 
+#import <objc/runtime.h>
 #import "IMChatDetailViewController+Private.h"
 #import "IMLocalization.h"
 #import "IMGroupMemberSearchViewController.h" // 成员搜索页 + IMShouldOfferMemberSearch / IMShouldAutoLoadMoreMembers
@@ -43,6 +44,82 @@
 #import "IMTimeUtil.h"        // decorateVoiceRow3Cell: IMFormatVoiceDuration
 #import "IMGroupInfo.h"       // decorateVoiceRow3Cell: 群成员昵称
 #import "IMAccountIdentity.h"
+
+/// 按 Unicode 码点数长度（与 Go 的 len([]rune(s)) 同口径）：NSString 是 UTF-16 存储，
+/// 一个增补平面字符（emoji 等）占两个单元，跳过低代理项即得码点数。
+static NSInteger IMRuneCount(NSString *s) {
+    NSInteger n = 0;
+    for (NSUInteger i = 0; i < s.length; i++) {
+        if (!CFStringIsSurrogateLowCharacter([s characterAtIndex:i])) { n++; }
+    }
+    return n;
+}
+
+/// 按码点截到 maxRunes（按字符簇走，别把 emoji / 组合字符截成半个）。
+static NSString *IMClampRunes(NSString *s, NSInteger maxRunes) {
+    if (IMRuneCount(s) <= maxRunes) { return s; }
+    __block NSInteger n = 0;
+    __block NSUInteger end = 0;
+    [s enumerateSubstringsInRange:NSMakeRange(0, s.length) options:NSStringEnumerationByComposedCharacterSequences
+                       usingBlock:^(NSString *sub, NSRange r, NSRange er, BOOL *stop) {
+        NSInteger c = IMRuneCount(sub);
+        if (n + c > maxRunes) { *stop = YES; return; }
+        n += c;
+        end = NSMaxRange(r);
+    }];
+    return [s substringToIndex:end];
+}
+
+/// 弹窗输入框的「n/max」计数 + 限长（对齐 Android `IMTextPrompt` / Web `PromptDialog` 的计数行）。
+/// 计数挂在输入框右侧（rightView），限长订阅 TextDidChange 而不是 delegate——后者会和
+/// UIAlertController 自己的校验打架（同 `IMFriendHelloLimiter` 的理由）。随输入框一起释放。
+@interface IMAlertFieldCounter : NSObject
+@property (nonatomic, weak) UITextField *field;
+@property (nonatomic, assign) NSInteger maxRunes;
+@property (nonatomic, strong) UILabel *label;
+@end
+
+@implementation IMAlertFieldCounter
++ (void)attachTo:(UITextField *)field maxRunes:(NSInteger)maxRunes {
+    IMAlertFieldCounter *c = [IMAlertFieldCounter new];
+    c.field = field;
+    c.maxRunes = maxRunes;
+    c.label = [UILabel new];
+    c.label.font = [UIFont monospacedDigitSystemFontOfSize:12 weight:UIFontWeightRegular];
+    c.label.textColor = UIColor.secondaryLabelColor;
+    field.rightView = c.label;
+    field.rightViewMode = UITextFieldViewModeAlways;
+    [NSNotificationCenter.defaultCenter addObserver:c selector:@selector(changed:)
+                                               name:UITextFieldTextDidChangeNotification object:field];
+    objc_setAssociatedObject(field, @selector(attachTo:maxRunes:), c, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    // 初始文本也要走一遍限长：库里已有的旧值若超限，不先截就会显示「35/30」、不改直接保存还会被服务端拒。
+    NSString *clamped = IMClampRunes(field.text ?: @"", maxRunes);
+    if (![clamped isEqualToString:field.text ?: @""]) { field.text = clamped; }
+    [c refresh];
+}
+- (void)changed:(NSNotification *)note {
+    UITextField *f = self.field;
+    if (!f) { return; }
+    // 有联想输入（markedTextRange 非空）时不截：拼音打到一半就截会把候选打断。
+    if (!f.markedTextRange) {
+        NSString *clamped = IMClampRunes(f.text ?: @"", self.maxRunes);
+        if (![clamped isEqualToString:f.text ?: @""]) { f.text = clamped; }
+    }
+    [self refresh];
+}
+- (void)refresh {
+    self.label.text = [NSString stringWithFormat:@"%ld/%ld", (long)IMRuneCount(self.field.text ?: @""), (long)self.maxRunes];
+    [self.label sizeToFit];
+    CGRect b = self.label.bounds;
+    self.label.bounds = CGRectMake(0, 0, b.size.width + 4, b.size.height);
+    [self.field setNeedsLayout]; // rightViewRect 在 layoutSubviews 里算，宽度变了要让它重排
+}
+- (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
+@end
+
+/// 与服务端 `conversation.MaxConvRemarkLen`（30）/ `group.MaxMemberNicknameLen`（20）对齐，按码点计。
+static NSInteger const kIMGroupRemarkMaxRunes = 30;
+static NSInteger const kIMGroupNicknameMaxRunes = 20;
 
 @implementation IMChatDetailViewController (Actions)
 
@@ -462,16 +539,6 @@ static const NSUInteger kIMRtcMaxGroupCallPick = 8;
 /// 好友备注名长度上限（Unicode 码点），与服务端 friend.MaxRemarkRunes 对齐。
 static NSInteger const kIMFriendRemarkMaxRunes = 32;
 
-/// 按 Unicode 码点数长度（与 Go 的 len([]rune(s)) 同口径）：NSString 是 UTF-16 存储，
-/// 一个增补平面字符（emoji 等）占两个单元，跳过低代理项即得码点数。
-static NSInteger IMRuneCount(NSString *s) {
-    NSInteger n = 0;
-    for (NSUInteger i = 0; i < s.length; i++) {
-        if (!CFStringIsSurrogateLowCharacter([s characterAtIndex:i])) { n++; }
-    }
-    return n;
-}
-
 /// 好友备注名（仅本人可见）：**服务端多端同步**（POST /friends/remark，存 im_friend.remark）。
 /// 2026-08-28 从本地 NSUserDefaults 改到服务端——旧实现只有本页读得到，会话列表/通讯录/选人页
 /// 全都还显真实昵称，换台设备更是完全看不到。成功后本端乐观刷新 + 落缓存，服务端把
@@ -533,9 +600,12 @@ static NSInteger IMRuneCount(NSString *s) {
 /// 我在本群的昵称（G1，任意成员）：走后端 → 成功后刷新群资料（气泡回退名随之更新）。
 - (void)editMyGroupNickname {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:IMLocalized(@"chat.detail.my_group_nickname")
-        message:IMLocalized(@"chat.detail.my_group_nickname_message") preferredStyle:UIAlertControllerStyleAlert];
+        message:IMLocalized(@"group.info.my_nickname_hint") preferredStyle:UIAlertControllerStyleAlert];
     NSString *current = self.group.myNickname ?: @"";
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) { tf.text = current; }];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
+        tf.text = current;
+        [IMAlertFieldCounter attachTo:tf maxRunes:kIMGroupNicknameMaxRunes];
+    }];
     __weak typeof(self) ws = self;
     [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
     [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.save") style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
@@ -561,9 +631,13 @@ static NSInteger IMRuneCount(NSString *s) {
 /// 成功后本端乐观刷新 + 落缓存；conv_update 会把变更同步到本人其它端与本机的会话列表/聊天页标题。
 - (void)editGroupRemark {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:IMLocalized(@"chat.detail.group_remark")
-        message:IMLocalized(@"chat.detail.group_remark_message") preferredStyle:UIAlertControllerStyleAlert];
+        message:IMLocalized(@"group.info.remark_hint") preferredStyle:UIAlertControllerStyleAlert];
     NSString *current = [self currentConvRemark];
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) { tf.text = current; tf.placeholder = self.group.name; }];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
+        tf.text = current;
+        tf.placeholder = self.group.name;
+        [IMAlertFieldCounter attachTo:tf maxRunes:kIMGroupRemarkMaxRunes];
+    }];
     __weak typeof(self) ws = self;
     [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
     [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.save") style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {

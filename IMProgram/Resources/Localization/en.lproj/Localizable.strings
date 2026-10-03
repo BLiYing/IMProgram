@@ -139,7 +139,6 @@
 "chat.detail.group_call_picker_title" = "Select members";
 "chat.detail.group_id_copied" = "Group ID copied";
 "chat.detail.group_remark" = "Group remark";
-"chat.detail.group_remark_message" = "Only visible to you. Replaces the group name in your view, synced across devices.";
 "chat.detail.invite_members_blocked" = "The owner has turned on \"Only admins can invite\", so you can't invite members";
 "chat.detail.leave_group" = "Leave group";
 "chat.detail.leave_group_confirm_title" = "Leave \"%1$@\"?";
@@ -151,7 +150,6 @@
 "chat.detail.mute_footer" = "While muted there are no sounds and no badge count; @mentions still alert you.";
 "chat.detail.muted" = "Mute notifications";
 "chat.detail.my_group_nickname" = "My nickname in this group";
-"chat.detail.my_group_nickname_message" = "Visible to everyone in the group. Up to 20 characters; leave blank to use your default nickname.";
 "chat.detail.no_username" = "This user hasn't set a username";
 "chat.detail.pill_group_call" = "Group call";
 "chat.detail.pill_message" = "Message";
@@ -837,7 +835,7 @@
 "group.info.load_failed" = "Couldn’t load group info";
 "group.info.members_failed" = "Couldn’t load members";
 "group.info.members_title" = "Members (%1$ld)";
-"group.info.my_nickname_hint" = "Leave empty to clear it and show your global nickname.";
+"group.info.my_nickname_hint" = "Visible to everyone in this group. Leave empty to clear it and show your global nickname.";
 "group.info.reinvite_blocked" = "This member was removed from the group and can’t be invited again for now";
 "group.info.remark_hint" = "Only visible to you, to tell apart chats with the same name. Other members won't be notified.";
 "group.info.rename_hint" = "1–30 characters";
@@ -939,10 +937,8 @@
 "group.ops.leave_confirm_message" = "Leave this group chat?";
 "group.ops.leave_failed" = "Couldn't leave: %1$@";
 "group.ops.list_load_failed" = "Couldn't load the group list: %1$@";
-"group.ops.my_nickname_placeholder" = "Visible in this group (up to 20 characters; leave blank to reset)";
 "group.ops.name_placeholder" = "Group name (1–30 characters)";
 "group.ops.name_required" = "Please enter a group name";
-"group.ops.remark_placeholder" = "%1$@ (visible only to you)";
 "group.ops.remark_save_failed" = "Couldn't save the remark: %1$@";
 "group.ops.revoke_admin_confirm" = "Revoke %1$@'s admin role?";
 "group.ops.revoke_admin_done" = "Admin role revoked";
