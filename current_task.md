@@ -5,6 +5,8 @@
 
 ## 当前焦点
 
+**iOS 单测欠账专项（清单与逐项进度见 `docs/TEST_DEBT.md`，覆盖率基线 21.8%）**：批 A/B 与 C1、C2 已做完，**全部未提交、待你复核**；剩 C3–C7 与批 D。改了产品行为的几处（A3 迟到 anchor=0、A9 `300208`、B2 删除返回值、B5 暂存路径、C2 开关回滚）在清单里逐条写明。已删死代码 `IMGroupInfoViewController`。**未做模拟器目测**（收消息/窗口裁剪/window_resp/msg_op 实时更新/群管理开关）。约定：测试由我逐个写，不派并行子代理改测试目标。
+
 **2026-10-03 补（已推送）**：群资料页公告/简介改一行（Value1）；免打扰时长菜单改自绘底部弹层 `Common/IMActionListSheet`（`IMMuteDurationMenu` 沿用原签名，对齐 Android；iOS 26 模拟器实测，iOS 18 未对比）；别端退群关页 + 搜索页出现时拉最新会话。
 
 **三端对齐小收口（2026-10-03，待审、未提交）**：① 待审入群申请页对齐 Android `JoinRequestsScreen`（验证消息空白整行不显、不再写默认文案；加载中显「加载中…」；审批中按钮禁用防连点；失败也重拉；纯属性 `IMJoinRequest.isPending/visibleHello/resultLabel` + 单测）；② 单聊资料页「备注名 / 用户名」改 Value1 一行（左标签右值，对齐 Android/Web；原 Subtitle 两行叠）；③ 文本气泡时间移到正文**下方**右对齐（对齐 Android；删除行内透明占位 `IMBubbleMetaPlaceholder`，`IMBubbleTextMetaLayoutTests` 钉位置）。未做模拟器目测；用户名为空时 iOS 仍显「未设置」行（Android/Web 整行隐藏）。
