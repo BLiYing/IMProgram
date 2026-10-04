@@ -8,6 +8,7 @@
 #import "IMImageLoader.h"
 #import "IMPendingMediaStore.h"
 #import "IMDownloadProgress.h"
+#import "IMPowerSaving.h"          // autoDownloadEffective（省电模式本机总闸）+ 切换时重配已展示的行
 #import "IMDownloadPolicy.h"        // IMShouldAutoDownload / IMNetworkType
 #import "IMDownloadSettingsStore.h"
 #import "IMNetworkMonitor.h"
@@ -29,6 +30,8 @@ static NSString *const IMMediaDownloadCoordinatorStateBroadcast = @"IMMediaDownl
     NSMutableSet<NSString *> *_requested;  ///< 用户已点 ↓ 的图片 content（解除门控，铁律③手动优先）
     /// key=content → 该实例见过的消息（弱引用，宿主放手即自动清）。收到别的实例广播时据此定位要刷新的行。
     NSMapTable<NSString *, IMMessageModel *> *_messagesByKey;
+    BOOL _lastAutoDownloadEffective;    ///< 省电模式生效值的上次快照：翻转时才重配已展示过的行
+    BOOL _lastVideoPreloadEffective;
 }
 
 - (instancetype)initWithHost:(NSString *)host myUserID:(NSString *)myUserID isGroup:(BOOL)isGroup {
@@ -44,6 +47,10 @@ static NSString *const IMMediaDownloadCoordinatorStateBroadcast = @"IMMediaDownl
         _autoPrefetchEnabled = YES;
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(onPeerBroadcast:)
                                                      name:IMMediaDownloadCoordinatorStateBroadcast object:nil];
+        _lastAutoDownloadEffective = IMPowerSaving.shared.autoDownloadEffective;
+        _lastVideoPreloadEffective = IMPowerSaving.shared.videoPreloadEffective;
+        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(onPowerSavingChanged:)
+                                                     name:IMPowerSavingDidChangeNotification object:nil];
     }
     return self;
 }
@@ -151,6 +158,8 @@ static NSString *const IMMediaDownloadCoordinatorStateBroadcast = @"IMMediaDownl
 }
 
 - (BOOL)shouldAutoDownload:(IMMessageModel *)m {
+    // 省电模式本机总闸（POWER_SAVING_DESIGN §4.2）：只让这台设备临时不自动下，**不写**账号级 download-settings；手动点 ↓ 照常。
+    if (!IMPowerSaving.shared.autoDownloadEffective) { return NO; }
     return IMShouldAutoDownload([IMDownloadSettingsStore shared].settings, m.contentType, m.fileSize,
                                 _isGroup, [IMNetworkMonitor shared].currentType);
 }
@@ -276,6 +285,25 @@ static NSString *const IMMediaDownloadCoordinatorStateBroadcast = @"IMMediaDownl
 /// 低频整条重配：图片解除门控 / 下载完成。
 - (void)notifyChanged:(IMMessageModel *)m {
     if (self.onStateChanged) { self.onStateChanged(m); }
+}
+
+#pragma mark - 省电模式切换
+
+/// 省电模式开关/电量让「自动下载」或「视频预加载」的生效值翻转时：本实例展示过的媒体行重跑 cellForRow，
+/// 门控态才会按新值重新判定（退出省电 → 按策略自动预取；进入省电 → 视频预览改用内嵌 thumb）。
+/// 宿主 `refreshRowForMessage:` 对不在窗口里的行是空操作，所以这里不必筛可见性。
+- (void)onPowerSavingChanged:(NSNotification *)note {
+    BOOL auto_ = IMPowerSaving.shared.autoDownloadEffective;
+    BOOL video = IMPowerSaving.shared.videoPreloadEffective;
+    BOOL autoFlipped = auto_ != _lastAutoDownloadEffective;
+    BOOL videoFlipped = video != _lastVideoPreloadEffective;
+    _lastAutoDownloadEffective = auto_;
+    _lastVideoPreloadEffective = video;
+    if (!autoFlipped && !videoFlipped) { return; }
+    for (IMMessageModel *m in _messagesByKey.objectEnumerator.allObjects) {
+        BOOL isVideo = [m.contentType isEqualToString:@"video"];
+        if (autoFlipped || (videoFlipped && isVideo)) { [self notifyChanged:m]; }
+    }
 }
 
 #pragma mark - 跨实例状态同步

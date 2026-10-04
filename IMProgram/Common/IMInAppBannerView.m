@@ -7,6 +7,7 @@
 #import "UILabel+IMAvatar.h"
 #import "IMTheme.h"
 #import "IMAppearance.h"
+#import "IMPowerSaving.h" // 动画生效值 = 外观偏好 && !省电
 #import "IMConversationRouter.h"
 #import "IMChatPresence.h"
 #import "IMRemarkStore.h"
@@ -199,7 +200,7 @@ static NSTimeInterval const kIMBannerAutoDismissDelay = 4.0;
     [hostView layoutIfNeeded];
 
     _topConstraint.constant = kIMBannerSideMargin;
-    if (IMAppearance.shared.animationsEnabled) {
+    if (IMPowerSaving.shared.animationsEffective) {
         [UIView animateWithDuration:kIMBannerSlideDuration delay:0
              usingSpringWithDamping:0.85 initialSpringVelocity:0.4
                             options:UIViewAnimationOptionCurveEaseOut
@@ -227,7 +228,7 @@ static NSTimeInterval const kIMBannerAutoDismissDelay = 4.0;
         self->_card.hidden = YES;
         self->_card.alpha = 0;
     };
-    if (animated && IMAppearance.shared.animationsEnabled && hostView) {
+    if (animated && IMPowerSaving.shared.animationsEffective && hostView) {
         _topConstraint.constant = _hiddenTopConstant;
         [UIView animateWithDuration:kIMBannerSlideDuration animations:^{
             [hostView layoutIfNeeded];

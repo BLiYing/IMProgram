@@ -13,6 +13,7 @@
 #import "IMMediaUtil.h"
 #import "UILabel+IMAvatar.h"
 #import "IMLocalization.h"
+#import "IMPowerSaving.h" // videoPreloadEffective
 #import "IMTheme.h"
 
 @interface IMAlbumTileView : UIView
@@ -541,7 +542,14 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
             if (t2 && expired && [t2.loadKey isEqualToString:imageURL]) { [t2 setExpired:YES]; }
         }];
     };
-    if (isVideo && !posterFull) { [[IMVideoThumbnailLoader shared] loadPosterForVideoURL:full completion:apply]; }
+    if (isVideo && !posterFull && !IMPowerSaving.shared.videoPreloadEffective && m.thumb.length > 0) {
+        // 省电 / 关了「视频预加载」（§4.3）：无封面的接收视频不抽远端帧，改用消息自带 thumb（不联网）。
+        __weak IMAlbumTileView *wt2 = tile;
+        [[IMImageLoader shared] loadImageURL:m.thumb completion:^(UIImage *img) {
+            __strong IMAlbumTileView *t = wt2;
+            if (t && img && [t.loadKey isEqualToString:imageURL]) { t.imageView.image = img; }
+        }];
+    } else if (isVideo && !posterFull) { [[IMVideoThumbnailLoader shared] loadPosterForVideoURL:full completion:apply]; }
     else { [[IMImageLoader shared] loadImageURL:imageURL completion:apply]; }
 }
 

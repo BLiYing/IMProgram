@@ -10,6 +10,8 @@
 #import "IMContactShare.h"
 #import "IMAppearanceViewController.h"
 #import "IMDataStorageViewController.h"
+#import "IMPowerSavingViewController.h"
+#import "IMPowerSaving.h"
 #import "IMBlockedListViewController.h"
 #import "IMPrivacySecurityViewController.h"
 #import "IMNotificationSettingsViewController.h"
@@ -250,6 +252,24 @@
     [self.tableView registerClass:IMSettingsCell.class forCellReuseIdentifier:@"row"];
     [self.view addSubview:self.tableView];
     [self buildProfileHeader];
+    // 「省电模式」行右值（关闭 / 低于 N% / 已开启）随偏好与电量实时变。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(refreshPowerSavingRow)
+                                               name:IMPowerSavingDidChangeNotification object:nil];
+}
+
+- (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
+
+- (void)refreshPowerSavingRow {
+    for (NSUInteger s = 0; s < self.groups.count; s++) {
+        for (NSUInteger r = 0; r < self.groups[s].count; r++) {
+            IMSettingsRow *row = self.groups[s][r];
+            if (![row.rowId isEqualToString:@"powerSaving"]) { continue; }
+            row.rightValue = IMPowerSaving.shared.entryRightValueText;
+            [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:(NSInteger)r inSection:(NSInteger)s]]
+                                  withRowAnimation:UITableViewRowAnimationNone];
+            return;
+        }
+    }
 }
 
 #pragma mark - 头部形变（滚动驱动，Zone① 由 IMDropletHeaderMorph 共享驱动）
@@ -545,8 +565,8 @@
                           iconBg:UIColor.systemBlueColor right:nil destructive:NO
                          handler:^{ [ws.navigationController pushViewController:[IMAppearanceViewController new] animated:YES]; }],
         [IMSettingsRow rowWithId:@"powerSaving" title:IMLocalized(@"ios.settings.row.power_saving") image:@"bolt.fill"
-                          iconBg:UIColor.systemYellowColor right:IMLocalized(@"common.off") destructive:NO
-                         handler:^{ [ws comingSoon:IMLocalized(@"ios.settings.row.power_saving")]; }],
+                          iconBg:UIColor.systemYellowColor right:IMPowerSaving.shared.entryRightValueText destructive:NO
+                         handler:^{ [ws.navigationController pushViewController:[IMPowerSavingViewController new] animated:YES]; }],
         [IMSettingsRow rowWithId:@"language" title:IMLocalized(@"settings.language.title") image:@"globe"
                           iconBg:UIColor.systemPurpleColor right:IMLocalization.shared.currentPreferenceLabel destructive:NO
                          handler:^{ [ws.navigationController pushViewController:[IMLanguageViewController new] animated:YES]; }],

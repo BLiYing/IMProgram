@@ -1249,7 +1249,7 @@
 "power_saving.follow.title" = "跟随系统省电模式";
 "power_saving.follow.title_ios" = "跟随系统低电量模式";
 "power_saving.item.animations" = "界面动画";
-"power_saving.item.animations_sub" = "页面切换、弹出等动效";
+"power_saving.item.animations_sub" = "弹出提示、消息横幅等动效";
 "power_saving.item.animations_sub_web" = "面板滑入、弹出等动效";
 "power_saving.item.auto_download" = "自动下载媒体";
 "power_saving.item.auto_download_sub" = "按「数据和存储」规则自动下载";

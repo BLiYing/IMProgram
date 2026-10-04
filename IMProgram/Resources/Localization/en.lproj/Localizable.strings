@@ -1249,7 +1249,7 @@
 "power_saving.follow.title" = "Follow Battery Saver";
 "power_saving.follow.title_ios" = "Follow Low Power Mode";
 "power_saving.item.animations" = "Interface Animations";
-"power_saving.item.animations_sub" = "Transitions and pop-ups";
+"power_saving.item.animations_sub" = "Pop-ups and message banners";
 "power_saving.item.animations_sub_web" = "Panel slides and pop-ups";
 "power_saving.item.auto_download" = "Auto-Download Media";
 "power_saving.item.auto_download_sub" = "Follows Data and Storage";

@@ -14,6 +14,7 @@
 #import "IMMediaPlaceholder.h" // 磨砂占位统一渲染器（三处共用）
 #import "IMMediaExpiryRegistry.h" // 被动展示 404 失效登记 + 复验（曾可用媒体被清理）
 #import "IMLocalization.h"
+#import "IMPowerSaving.h" // videoPreloadEffective：省电时接收侧不为预览拉视频帧
 
 /// 气泡最大盒子：宽取 240 与屏宽 62% 的较小者（窄屏也不顶满），高 320（长图不会撑满整屏）。
 static const CGFloat kIMMediaMaxWidth = 240;
@@ -396,10 +397,26 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
         [[IMImageLoader shared] loadImageURL:fullURL completion:applyOrVerify];
     } else if (posterURL.length > 0) {
         [[IMImageLoader shared] loadImageURL:posterURL completion:applyOrVerify]; // 封面是普通 JPEG，走图片缓存
+    } else if (!IMPowerSaving.shared.videoPreloadEffective && ![[IMVideoThumbnailLoader shared] cachedPosterForURL:fullURL]) {
+        // 省电模式 / 用户关了「视频预加载」（POWER_SAVING_DESIGN §4.3）：接收侧不为预览拉远端视频帧，
+        // 改显消息自带的磨砂 thumb（与未下载门控同外观）；无 thumb 留灰底。点开播放照常。
+        [self showFrostedThumbOfMessage:message wantURL:want];
     } else {
         // 没有封面（老消息/发送端抓帧失败）才回退抽帧——代价是要拉远端视频的一段数据。
         [[IMVideoThumbnailLoader shared] loadPosterForVideoURL:fullURL completion:applyOrVerify];
     }
+}
+
+/// 只显消息内嵌 thumb 的磨砂图（省电时的视频预览；不联网）。复用安全：回调时校验 _url。
+- (void)showFrostedThumbOfMessage:(IMMessageModel *)message wantURL:(NSString *)want {
+    if (message.thumb.length == 0) { return; }
+    UIImage *cached = [IMMediaPlaceholder cachedFrostedForThumb:message.thumb];
+    if (cached) { _thumb.image = cached; return; }
+    __weak typeof(self) ws = self;
+    [IMMediaPlaceholder frostedForThumb:message.thumb completion:^(UIImage *blurred) {
+        __strong typeof(ws) self = ws;
+        if (self && blurred && [self->_url isEqualToString:want]) { self->_thumb.image = blurred; }
+    }];
 }
 
 /// 失效占位（被动展示 404）：保留磨砂 thumb 作 dim 底（有则显，无则中性灰底）、去中心播放/进度键、叠加 ⊘+文案层。
