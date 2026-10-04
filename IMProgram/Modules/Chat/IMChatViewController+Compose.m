@@ -12,6 +12,7 @@
 #import "IMImageLoader.h"
 #import "IMMediaUtil.h"          // IMReplySnippet
 #import "IMMediaPlaceholder.h"
+#import "IMChatSendPlan.h"
 #import "UIViewController+IMToast.h"
 #import "IMLocalization.h"
 
@@ -22,17 +23,17 @@
 - (void)sendTapped {
     NSString *text = [self.inputField.text stringByTrimmingCharactersInSet:
                       NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    // 先发预览条里攒的粘贴图（≥2 张共享 group_id 成宫格）。
-    if (self.pendingPasteImages.count > 0) {
+    BOOL editing = self.editingMessage && self.editingMessage.convSeq > 0;
+    BOOL replying = self.replyingTo.convSeq > 0;
+    // 怎么发（图文合并 / 宫格 / 编辑 / 普通文本）由 IMChatPlanSend 决定，条件与坑见 Common/IMChatSendPlan.h。
+    IMChatSendPlan plan = IMChatPlanSend((NSInteger)self.pendingPasteImages.count, text.length > 0, editing, replying);
+    // 先发预览条里攒的粘贴图。
+    if (plan.images != IMChatSendImagesNone) {
         NSArray<UIImage *> *images = [self.pendingPasteImages copy];
         [self.pendingPasteImages removeAllObjects];
         [self refreshPasteBar];
-        BOOL editing = self.editingMessage && self.editingMessage.convSeq > 0;
-        BOOL replying = self.replyingTo.convSeq > 0;
-        // 图说合并（Telegram 模型）：**恰好单张 + 有文字 + 非编辑/非引用** → 文字作为 caption 与图**同发一条**，
-        // 配文 @ 一并解析随媒体上行；不再补发独立文本。多张（宫格）/编辑/引用走原有「图+文各发」路径
-        //（宫格不带 caption；iOS 媒体发送不带 replyTo，引用态保持文本单发以免丢引用）。
-        if (images.count == 1 && text.length > 0 && !editing && !replying) {
+        if (plan.images == IMChatSendImagesSingleWithCaption) {
+            // 图说合并：文字作为 caption 与图同发一条，配文 @ 一并解析随媒体上行；不再补发独立文本。
             NSArray<NSString *> *mentions = self.isGroupChat ? [self resolvedMentionsInText:text] : @[];
             BOOL mentionAll = self.isGroupChat && [self resolvedMentionAllInText:text];
             [self uploadAndSendPastedImage:images.firstObject groupID:nil caption:text mentions:mentions mentionAll:mentionAll];
@@ -41,14 +42,14 @@
             [self updateSendButtonVisibility];
             return; // 文字已作为 caption 随图发出，不再走下面的独立文本发送
         }
-        NSString *gid = images.count > 1 ? [@"alb-" stringByAppendingString:NSUUID.UUID.UUIDString] : nil;
+        NSString *gid = plan.imagesShareAlbumID ? [@"alb-" stringByAppendingString:NSUUID.UUID.UUIDString] : nil;
         for (UIImage *img in images) { [self uploadAndSendPastedImage:img groupID:gid]; }
         [self updateSendButtonVisibility];
     }
-    if (text.length == 0) { return; }
+    if (plan.text == IMChatSendTextNone) { return; }
 
     // 编辑态（M4-5）：发 msg_op edit 而非新消息；内容由服务端广播回 onMsgOpApplied 更新。
-    if (self.editingMessage && self.editingMessage.convSeq > 0) {
+    if (plan.text == IMChatSendTextEdit) {
         [IMSocketManager.sharedManager editMessageInConv:(self.editingMessage.convID ?: @"")
                                            targetConvSeq:self.editingMessage.convSeq content:text];
         [self cancelEdit];

@@ -87,4 +87,20 @@ typedef NS_ENUM(NSInteger, IMResendPolicy) {
 /// 这些"重发必然再次失败"的消息在重启后会重新变成可点，点了只是白等一轮超时。
 FOUNDATION_EXPORT IMResendPolicy IMResendPolicyForMessage(IMMessageModel *_Nullable message, BOOL mine);
 
+/// 这个发送失败的业务码，是否算「被服务端明确拒收」——是则把服务端友好文案挂到消息 `note`
+/// （气泡下方居中系统行），不是则只显「未发送 ✗」（如 ack 超时，仍可重发）。
+///
+/// **文本路径（IMChatViewController+MediaFlow 的 handleSendResult）与媒体路径（IMMediaSendService 的
+/// ackCompletion）必须共用这一份**。它们曾各写一份白名单，已经漂过一次：媒体路径漏了 300208（成员级禁言），
+/// 被禁言期间发媒体被拒，只显普通红❗、没有提示行。
+///
+/// 覆盖：被拉黑 200102 / 非好友 200103 / 被禁言 300004 / 非群成员 300203 / 群全员禁言 300206 /
+/// 成员级禁言 300208（G2）/ 内容过大 300001（合并转发套娃膨胀超上限，无恢复入口）。
+/// 新增「重发必然再失败」的服务端拒收码，加在这里一处，并同步 `IMResendPolicyForMessage` 的注释。
+FOUNDATION_EXPORT BOOL IMSendRejectionShowsNote(NSInteger code);
+
+/// `note` / `noteCode` 的取值：失败且业务码在白名单内 → (服务端友好文案, 业务码)，否则 (nil, 0)。
+/// noteCode 是瞬态、不落库，只决定系统行是否给恢复入口（200103 → 发好友申请）。
+FOUNDATION_EXPORT NSString *_Nullable IMSendRejectionNote(BOOL success, NSError *_Nullable error, NSInteger *_Nullable outNoteCode);
+
 NS_ASSUME_NONNULL_END

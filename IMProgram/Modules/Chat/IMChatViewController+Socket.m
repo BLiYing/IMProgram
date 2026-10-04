@@ -5,6 +5,7 @@
 #import "IMChatViewController+Private.h"
 #import "IMRemarkStore.h"
 #import "IMMessageModel.h"
+#import "IMChatInbound.h"
 #import "IMDatabase.h"
 #import "IMReadReceiptViewController.h"
 #import "IMLocalization.h"
@@ -81,23 +82,11 @@
     return isSuper ? IMLocalized(@"group.text.super") : @"";
 }
 
-/// 消息排序（**唯一入口**，与 IMDatabase.messagesForConv 的 ORDER BY 及 im-web 的渲染排序三方一致）：
-/// **时间戳主排**；同一毫秒时 conv_seq=0（待发/失败）视为最大值垫底，收到的（conv_seq>0）在前。
-///
-/// ⚠️ 曾出过的坑（2026-08-05）：这里原先与 DB 一样按 conv_seq 主排、且把 conv_seq=0 一律甩末尾。
-/// 被拒收的消息**永远** conv_seq=0，于是永久钉在最底部，之后收到的消息全插到它上面 —— 用户滚到底
-/// 只见旧的失败消息、以为新消息没收到。第一次进会话走 DB（当时已修）看着正常，Web 一发消息触发本
-/// comparator 重排，时序又坏 —— **同一个 bug 在 DB 与内存两处各写了一遍**，故收敛到这一个方法。
+/// 内存排序入口。比较规则与坑在 `IMChatMessageOrder`（Common/IMChatInbound.h），这里只负责对窗口数组套用，
+/// 与 IMDatabase 的 kIMMessageOrderAsc、im-web 的渲染排序、Android `MessageOrder.kt` 三方一致。
 - (void)sortMessagesInPlace {
     [self.windowState.messages sortUsingComparator:^NSComparisonResult(IMMessageModel *a, IMMessageModel *b) {
-        if (a.timestamp != b.timestamp) {
-            return a.timestamp < b.timestamp ? NSOrderedAscending : NSOrderedDescending;
-        }
-        // 同毫秒：conv_seq=0 视为 +∞ 垫底（等价 im-web 的 `convSeq || MAX_SAFE_INTEGER`）。
-        int64_t sa = a.convSeq > 0 ? a.convSeq : INT64_MAX;
-        int64_t sb = b.convSeq > 0 ? b.convSeq : INT64_MAX;
-        if (sa == sb) { return NSOrderedSame; }
-        return sa < sb ? NSOrderedAscending : NSOrderedDescending;
+        return IMChatMessageOrder(a, b);
     }];
 }
 
@@ -105,60 +94,50 @@
     if (![self performDatabaseOperation:^(IMDatabase *database) {
         [database saveMessage:message]; // 任何会话的消息都落库（按 conv_seq 幂等）
     }]) { return; }
-    if (![message.convID isEqualToString:self.convID]) { return; } // 非本会话不在此页显示
+    BOOL convMatches = [message.convID isEqualToString:self.convID];
     // 放在去重 / 不上屏的早退之前：哪怕这条只落库不上屏，它带的昵称也证明成员表旧了（见 IMGroupSenderName.h）。
-    if (self.isGroupChat) { [self refreshGroupInfoIfSenderRenamed:message]; }
-    // 同一条消息可能既被 new_msg 推送、又被 sync_resp 拉到，按 conv_seq 去重。
-    if (message.convSeq > 0) {
-        NSNumber *key = @(message.convSeq);
-        if ([self.windowState.seenConvSeqs containsObject:key]) {
+    if (convMatches && self.isGroupChat) { [self refreshGroupInfoIfSenderRenamed:message]; }
+    // 分流判据与各分支的来历见 IMChatInboundDispose（Common/IMChatInbound.h）。
+    // maxInMemoryConvSeq 要扫窗口，只在它会被用到（上号消息 + 窗口在末尾）时才算。
+    BOOL alreadyInWindow = convMatches && message.convSeq > 0
+        && [self.windowState.seenConvSeqs containsObject:@(message.convSeq)];
+    BOOL isFileWithSize = [message.contentType isEqualToString:@"file"] && message.fileSize > 0;
+    int64_t maxInMemory = (convMatches && message.convSeq > 0 && !alreadyInWindow && self.windowState.atTail) ? [self maxInMemoryConvSeq] : 0;
+    IMChatInboundDisposition disposition = IMChatInboundDispose(convMatches, message.convSeq, alreadyInWindow,
+                                                                isFileWithSize, self.windowState.atTail, maxInMemory);
+    switch (disposition) {
+        case IMChatInboundDropOtherConv:
+            return; // 非本会话不在此页显示
+        case IMChatInboundDedupDrop:
+            return;
+        case IMChatInboundDedupBackfillFile:
             // 完整历史校正会再次下发已经实时上屏的消息。不能重复插入，但要让权威元数据回填当前内存模型；
             // 否则 SQLite 已从 0 修复成真实 file_size，当前页面仍会一直显示 0 KB，直到重新进入会话。
-            if ([message.contentType isEqualToString:@"file"] && message.fileSize > 0) {
-                for (IMMessageModel *existing in self.windowState.messages) {
-                    if (existing.convSeq != message.convSeq) { continue; }
-                    existing.fileSize = message.fileSize;
-                    if (message.fileName.length > 0) { existing.fileName = message.fileName; }
-                    if (message.serverMsgID.length > 0) { existing.serverMsgID = message.serverMsgID; }
-                    [self.tableView reloadData];
-                    break;
-                }
+            for (IMMessageModel *existing in self.windowState.messages) {
+                if (existing.convSeq != message.convSeq) { continue; }
+                existing.fileSize = message.fileSize;
+                if (message.fileName.length > 0) { existing.fileName = message.fileName; }
+                if (message.serverMsgID.length > 0) { existing.serverMsgID = message.serverMsgID; }
+                [self.tableView reloadData];
+                break;
             }
             return;
-        }
-        [self.windowState.seenConvSeqs addObject:key];
+        case IMChatInboundDbOnlyHistoryWindow:
+        case IMChatInboundDbOnlyBelowTail:
+        case IMChatInboundAppend:
+            break;
     }
-    // 窗口不在末尾（用户正在看历史）：**只落库、不上屏**。硬插到当前窗口末尾会让一条最新消息
-    // 直接接在几个月前的历史后面（时间线断裂）；回到末尾时它自然会在那里。
-    // ↓N 此时改由本地库数（windowUnreadBelowCount），用户仍看得到"下面有新消息"。
-    if (!self.windowState.atTail) {
-        [self updateJumpButton];
-        return;
-    }
-    // 低于窗口末尾的已上号消息同样只落库不上屏（模拟器 3 万条实测抓到的坑）：
-    // 跳到比同步游标更深的历史后（如游标在 12000、跳到 20000），后台补拉会继续送 12001、12002…——
-    // 它们 seq 低于窗口末尾，按时间序会**插进当前窗口中间**，窗口从"连续一段"变成大杂烩，
-    // 且每条一次重排+reloadData。窗口内的重复投递仍由上面的 seenConvSeqs 分支负责（含元数据回填）。
-    if (message.convSeq > 0 && message.convSeq <= [self maxInMemoryConvSeq]) {
+    if (message.convSeq > 0) { [self.windowState.seenConvSeqs addObject:@(message.convSeq)]; }
+    if (disposition != IMChatInboundAppend) {
+        // 只落库不上屏：↓N 改由本地库数（windowUnreadBelowCount），用户仍看得到"下面有新消息"。
         [self updateJumpButton];
         return;
     }
     // 收到新消息：贴底才自动贴底；在上方看历史则不打断，累加到"↓N"（CHAT_UX §9）。
     BOOL wasNearBottom = [self isNearBottom];
     // 绝大多数消息按序到达：直接尾插即保持有序，省掉每条都做的 O(n log n) 全量重排。
-    // 仅当来的消息落在末条之前（乱序/补拉插队）才重排一次——判定口径与 sortMessagesInPlace 的
-    // comparator 严格一致（timestamp 主序，同毫秒时 conv_seq=0 视为 +∞ 垫底）。
-    IMMessageModel *lastMsg = self.windowState.messages.lastObject;
-    BOOL needsSort = NO;
-    if (lastMsg) {
-        if (message.timestamp < lastMsg.timestamp) {
-            needsSort = YES;
-        } else if (message.timestamp == lastMsg.timestamp) {
-            int64_t sNew = message.convSeq > 0 ? message.convSeq : INT64_MAX;
-            int64_t sLast = lastMsg.convSeq > 0 ? lastMsg.convSeq : INT64_MAX;
-            needsSort = sNew < sLast;
-        }
-    }
+    // 仅当来的消息落在末条之前（乱序/补拉插队）才重排一次——判定与 IMChatMessageOrder 同口径。
+    BOOL needsSort = IMChatInsertNeedsSort(self.windowState.messages.lastObject, message);
     [self.windowState.messages addObject:message];
     if (needsSort) { [self sortMessagesInPlace]; }
     [self checkWindowInvariantAt:@"inbound"];

@@ -40,13 +40,26 @@ NSString * const kIMPendingMediaScheme = @"im-pending://";
     }
 }
 
+/// 暂存文件名 = `clientMsgID[.ext]`；含路径分隔符 / `..` 的返回 nil（拒绝写入）。
+/// 读取侧（filePathForLocalRef:）本来就拒绝这类名字；写入侧若不对称，文件会被写到暂存目录之外、
+/// 而返回的引用又读不回来（既泄漏文件又丢了待发件）。
+static NSString *IMPendingStoredName(NSString *clientMsgID, NSString *extension) {
+    if (clientMsgID.length == 0) { return nil; }
+    NSString *name = extension.length > 0 ? [clientMsgID stringByAppendingPathExtension:extension] : clientMsgID;
+    if ([name containsString:@"/"] || [name containsString:@".."]) {
+        IMLogWarnWithTag(IMLogTagMedia, @"pending_name_rejected client_msg_id=%@ ext=%@", clientMsgID, extension ?: @"-");
+        return nil;
+    }
+    return name;
+}
+
 + (BOOL)isLocalRef:(NSString *)value {
     return value.length > kIMPendingMediaScheme.length && [value hasPrefix:kIMPendingMediaScheme];
 }
 
 - (NSString *)storeData:(NSData *)data forClientMsgID:(NSString *)clientMsgID extension:(NSString *)extension {
-    if (data.length == 0 || clientMsgID.length == 0) { return nil; }
-    NSString *name = extension.length > 0 ? [clientMsgID stringByAppendingPathExtension:extension] : clientMsgID;
+    NSString *name = IMPendingStoredName(clientMsgID, extension);
+    if (data.length == 0 || !name) { return nil; }
     NSString *path = [_dir stringByAppendingPathComponent:name];
     NSError *err = nil;
     if (![data writeToFile:path options:NSDataWritingAtomic error:&err]) {
@@ -59,8 +72,8 @@ NSString * const kIMPendingMediaScheme = @"im-pending://";
 }
 
 - (NSString *)storeFileAtURL:(NSURL *)fileURL forClientMsgID:(NSString *)clientMsgID extension:(NSString *)extension {
-    if (!fileURL || clientMsgID.length == 0) { return nil; }
-    NSString *name = extension.length > 0 ? [clientMsgID stringByAppendingPathExtension:extension] : clientMsgID;
+    NSString *name = IMPendingStoredName(clientMsgID, extension);
+    if (!fileURL || !name) { return nil; }
     NSString *path = [_dir stringByAppendingPathComponent:name];
     [NSFileManager.defaultManager removeItemAtPath:path error:NULL]; // 覆盖旧残留，copyItem 遇到已存在会失败
     NSError *err = nil;
@@ -73,8 +86,8 @@ NSString * const kIMPendingMediaScheme = @"im-pending://";
 }
 
 - (NSString *)storeByMovingFileAtURL:(NSURL *)fileURL forClientMsgID:(NSString *)clientMsgID extension:(NSString *)extension {
-    if (!fileURL || clientMsgID.length == 0) { return nil; }
-    NSString *name = extension.length > 0 ? [clientMsgID stringByAppendingPathExtension:extension] : clientMsgID;
+    NSString *name = IMPendingStoredName(clientMsgID, extension);
+    if (!fileURL || !name) { return nil; }
     NSString *path = [_dir stringByAppendingPathComponent:name];
     [NSFileManager.defaultManager removeItemAtPath:path error:NULL];
     NSError *err = nil;

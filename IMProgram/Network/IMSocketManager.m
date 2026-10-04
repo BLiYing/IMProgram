@@ -1,6 +1,7 @@
 //  IMSocketManager.m
 
 #import "IMSocketManager.h"
+#import "IMMsgOpApply.h"
 #import "IMLocalization.h"
 #import "IMServerEndpoint.h"
 #import "IMSocketManager+Private.h"
@@ -1084,62 +1085,34 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
 }
 
 - (BOOL)applyMsgOpPayload:(NSDictionary *)payload advancingSyncedConvSeq:(int64_t)syncedConvSeq {
-    NSString *op = [payload[@"op"] isKindOfClass:[NSString class]] ? payload[@"op"] : @"";
-    NSString *convID = [payload[@"conv_id"] isKindOfClass:[NSString class]] ? payload[@"conv_id"] : @"";
-    int64_t target = [payload[@"target_conv_seq"] longLongValue];
-    if (convID.length == 0 || target <= 0) { return NO; }
+    // 解析与终值规则（pinned 缺失按取消、置顶用服务端时间、未知 op 忽略）见 IMMsgOpPatch（Common/IMMsgOpApply.h）。
+    IMMsgOpPatch *patch = [IMMsgOpPatch patchFromPayload:payload nowMillis:IMNowMillis()];
+    if (!patch) { return NO; }
+    NSString *convID = patch.convID;
+    int64_t target = patch.targetConvSeq;
 
-    NSString *cmid = [payload[@"client_msg_id"] isKindOfClass:[NSString class]] ? payload[@"client_msg_id"] : nil;
-    if (cmid.length > 0) { [_pendingOps removeObject:cmid]; } // 我方操作成功回执
-    if ([op isEqualToString:kIMMsgOpDelete] || [op isEqualToString:kIMMsgOpRecall]) { IMPushRetractDeliveredNotification(convID, target); } // 通知中心里还挂着原文的话一并收回
+    if (patch.clientMsgID.length > 0) { [_pendingOps removeObject:patch.clientMsgID]; } // 我方操作成功回执
+    if (patch.kind == IMMsgOpKindDelete || patch.kind == IMMsgOpKindRecall) { IMPushRetractDeliveredNotification(convID, target); } // 通知中心里还挂着原文的话一并收回
 
     // 为所有人删除（任务2）：物理移除该条（不走 patch，区别于 recall 的改状态显墓碑）。
-    if ([op isEqualToString:kIMMsgOpDelete]) {
+    if (patch.kind == IMMsgOpKindDelete) {
         [self removeLocalMessageOnQueueInConv:convID targetConvSeq:target advancingSyncedConvSeq:syncedConvSeq];
         return YES;
     }
+    if (patch.kind == IMMsgOpKindUnknown) { return NO; } // 未知 op：忽略不崩
 
-    int64_t now = IMNowMillis();
-    NSString *newContent = nil;
-    int64_t recalledAt = 0, editedAt = 0, pinnedAt = 0;
-    if ([op isEqualToString:kIMMsgOpRecall]) {
-        recalledAt = now;
-    } else if ([op isEqualToString:kIMMsgOpEdit]) {
-        editedAt = now;
-        newContent = [payload[@"content"] isKindOfClass:[NSString class]] ? payload[@"content"] : @"";
-    } else if ([op isEqualToString:kIMMsgOpPin]) {
-        // **必须看 payload[@"pinned"]**：取消置顶与置顶是同一个 op，早先一律 `pinnedAt = now`
-        // 会把「取消置顶」也记成置顶（G0 接横幅时发现并修）。<0 = 通知数据层清零。
-        // 默认取「未置顶」：字段缺失时按取消处理，绝不误当置顶（服务端 pinned 已改非 omitempty 恒下发，
-        // 这里再兜一层——缺字段=取消，比缺字段=置顶安全，取消置顶才不会残留已置顶态）。
-        BOOL pinned = [payload[@"pinned"] respondsToSelector:@selector(boolValue)] && [payload[@"pinned"] boolValue];
-        int64_t ts = [payload[@"timestamp"] respondsToSelector:@selector(longLongValue)] ? [payload[@"timestamp"] longLongValue] : 0;
-        pinnedAt = pinned ? (ts > 0 ? ts : now) : -1; // 时间取服务端，多端一致；缺省才回退本地时钟
-    } else {
-        return NO; // 未知 op：忽略不崩
-    }
-    NSString *by = [payload[@"by"] isKindOfClass:[NSString class]] ? payload[@"by"] : nil;
     __block BOOL applied = NO;
     [self performDatabaseOperation:^(IMDatabase *database) {
         applied = [database applyMsgOpForConv:convID targetConvSeq:target
-                                    recalledAt:recalledAt recalledBy:by
-                                      editedAt:editedAt pinnedAt:pinnedAt newContent:newContent
+                                    recalledAt:patch.recalledAt recalledBy:patch.by
+                                      editedAt:patch.editedAt pinnedAt:patch.pinnedAt newContent:patch.editedContent
                           advancingSyncedConvSeq:syncedConvSeq];
     }];
     if (!applied) { return NO; }
     dispatch_async(dispatch_get_main_queue(), ^{
         // 契约（见 .h）：只下发与库一致的字段终值，收端逐字段应用、不再解读 op/pinned 协议细节。
-        NSMutableDictionary *info = [@{ kIMConvIDKey: convID, kIMMsgOpTargetSeqKey: @(target) } mutableCopy];
-        if (recalledAt > 0) {
-            info[kIMMsgOpRecalledAtKey] = @(recalledAt);
-            if (by.length > 0) { info[kIMMsgOpRecalledByKey] = by; }
-        }
-        if (editedAt > 0) {
-            info[kIMMsgOpEditedAtKey] = @(editedAt);
-            if (newContent) { info[kIMMsgOpContentKey] = newContent; }
-        }
-        if (pinnedAt != 0) { info[kIMMsgOpPinnedAtKey] = @(MAX((int64_t)0, pinnedAt)); } // -1(清零)→0=取消置顶
-        [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidApplyMsgOpNotification object:self userInfo:info];
+        [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidApplyMsgOpNotification object:self
+                                                        userInfo:[patch appliedUserInfo]];
     });
     return YES;
 }

@@ -4,7 +4,7 @@
 
 #import "IMChatViewController+Private.h"  // 含 IMSocketManager（markReadConv）
 #import "IMMessageModel.h"
-#import "IMChatMessageLogic.h"            // IMContentTypeCountsAsUnread（未读口径，与服务端一致）
+#import "IMChatReadPosition.h"            // 首条未读 / 可见行最大 seq（未读口径与服务端一致）
 #import "IMDatabase.h"
 #import "IMLog.h"
 
@@ -15,14 +15,7 @@
 /// 这里若只按 `from != 我` 找，会把分割线/进会话锚点定位到不计未读的系统行——
 /// 表现为「以下为 N 条新消息」下方实际多出几行（群改名/入群留痕都会触发）。
 - (NSInteger)firstUnreadRow {
-    if (self.entryUnread <= 0) { return -1; }
-    for (NSInteger i = 0; i < (NSInteger)self.windowState.messages.count; i++) {
-        IMMessageModel *m = self.windowState.messages[i];
-        if (m.convSeq <= self.entryReadSeq) { continue; }
-        if ([m.from isEqualToString:self.userID]) { continue; }
-        if (IMContentTypeCountsAsUnread(m.contentType)) { return i; }
-    }
-    return -1;
+    return IMChatFirstUnreadIndex(self.windowState.messages, self.entryUnread, self.entryReadSeq, self.userID);
 }
 
 /// 进会话定位（只做一次）：有未读则停在首条未读，否则到底（CHAT_UX §3）。
@@ -75,13 +68,7 @@
 /// 可见即读（CHAT_UX §6 完整语义）：扫描当前在视口内的行，取其最大 conv_seq；
 /// 若超过已滚入位点则记录并节流上报（read_seq 单调推进，对端据此显示已读双勾、列表未读递减）。
 - (void)markVisibleRowsRead {
-    int64_t maxSeq = 0;
-    for (NSIndexPath *ip in self.tableView.indexPathsForVisibleRows) {
-        if (ip.row < (NSInteger)self.windowState.messages.count) {
-            int64_t s = self.windowState.messages[ip.row].convSeq;
-            if (s > maxSeq) { maxSeq = s; }
-        }
-    }
+    int64_t maxSeq = IMChatMaxSeqOfRows(self.windowState.messages, self.tableView.indexPathsForVisibleRows);
     if (maxSeq > self.pendingReadSeq) {
         self.pendingReadSeq = maxSeq;
         [self scheduleReadFlush]; // 节流：0.3s 窗口内至多发一条 receipt，避免每像素一条

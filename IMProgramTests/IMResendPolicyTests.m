@@ -120,4 +120,54 @@ static IMMessageModel *failedText(NSString *content) {
     XCTAssertEqual(IMResendPolicyForMessage(m, YES), IMResendPolicySameID);
 }
 
+#pragma mark - 被服务端拒收的业务码白名单（文本路径与媒体路径共用）
+
+static NSError *bizError(NSInteger code) {
+    return [NSError errorWithDomain:@"im" code:code userInfo:@{ NSLocalizedDescriptionKey: @"拒收文案" }];
+}
+
+/// 七个「重发必然再次被拒」的码都必须挂 note。**300208（成员级禁言）曾只在文本路径里有**：
+/// 媒体路径漏了它，被禁言期间发媒体只显普通红❗、没有提示行。
+- (void)test_七个拒收码都挂note_含成员级禁言300208 {
+    for (NSNumber *c in @[@200102, @200103, @300004, @300203, @300206, @300208, @300001]) {
+        XCTAssertTrue(IMSendRejectionShowsNote(c.integerValue), @"%@ 应当算被拒收", c);
+        NSInteger noteCode = -1;
+        NSString *note = IMSendRejectionNote(NO, bizError(c.integerValue), &noteCode);
+        XCTAssertEqualObjects(note, @"拒收文案");
+        XCTAssertEqual(noteCode, c.integerValue);
+    }
+}
+
+/// 不在白名单的失败（ack 超时、网络错误、别的业务码）不挂 note——仍显「未发送 ✗」、仍可重发。
+/// 误加进白名单的后果：本可重发的消息被钉死成「不可重发」。
+- (void)test_其余失败不挂note仍可重发 {
+    for (NSNumber *c in @[@(-1), @0, @100001, @200101, @300201, @300207, @300209, @500]) {
+        XCTAssertFalse(IMSendRejectionShowsNote(c.integerValue), @"%@ 不该算被拒收", c);
+        NSInteger noteCode = -1;
+        XCTAssertNil(IMSendRejectionNote(NO, bizError(c.integerValue), &noteCode));
+        XCTAssertEqual(noteCode, 0);
+    }
+}
+
+/// 成功不挂 note（哪怕带着一个白名单码的 error 对象，也以 success 为准）；error 为 nil 的失败也不挂。
+- (void)test_成功或无error不挂note {
+    NSInteger noteCode = -1;
+    XCTAssertNil(IMSendRejectionNote(YES, bizError(200103), &noteCode));
+    XCTAssertEqual(noteCode, 0);
+    XCTAssertNil(IMSendRejectionNote(NO, nil, &noteCode));
+    XCTAssertEqual(noteCode, 0);
+    XCTAssertNil(IMSendRejectionNote(NO, nil, NULL), @"outNoteCode 可以不要");
+}
+
+/// 与重发判据联动：挂了 note 的失败件不可重发（恢复入口是系统行）；没挂的仍可原 ID 重发。
+- (void)test_被拒收件不可重发_ack超时件可重发 {
+    IMMessageModel *rejected = failedText(@"hello");
+    rejected.note = IMSendRejectionNote(NO, bizError(300208), NULL);
+    XCTAssertEqual(IMResendPolicyForMessage(rejected, YES), IMResendPolicyNone);
+
+    IMMessageModel *timeout = failedText(@"hello");
+    timeout.note = IMSendRejectionNote(NO, bizError(-1), NULL);
+    XCTAssertEqual(IMResendPolicyForMessage(timeout, YES), IMResendPolicySameID);
+}
+
 @end

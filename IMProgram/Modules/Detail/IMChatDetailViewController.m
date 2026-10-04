@@ -24,6 +24,7 @@
 #import "IMMessageModel.h"
 #import "IMConversation.h"
 #import "IMGroupInfo.h"
+#import "IMGroupAdminLogic.h"   // IMGroupMemberActionsFor（成员管理权限矩阵唯一出处）
 #import "IMUserCard.h"
 #import "IMRemarkStore.h"
 
@@ -942,9 +943,10 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
 
 /// 我能否移除该成员（owner 可移任何非自己；admin 可移 member）。
 - (BOOL)canRemoveMember:(IMGroupMember *)m {
-    if (!m || [m.userID isEqualToString:self.userID]) { return NO; }
-    IMGroupRole mine = self.group.myRole;
-    return mine == IMGroupRoleOwner || (mine == IMGroupRoleAdmin && m.role == IMGroupRoleMember);
+    if (!m) { return NO; }
+    // 权限矩阵唯一出处：IMGroupMemberActionsFor（与群资料页点成员的动作表共用）。
+    return (IMGroupMemberActionsFor(self.group.myRole, m.role, [m.userID isEqualToString:self.userID], NO)
+            & IMGroupMemberActionRemove) != 0;
 }
 
 #pragma mark - 成员行：左滑移除
@@ -984,21 +986,22 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
             [items addObject:[UIAction actionWithTitle:IMLocalized(@"common.add_friend") image:[UIImage systemImageNamed:@"person.badge.plus"]
                                             identifier:nil handler:^(UIAction *a) { [ws requestAddFriendUID:m.userID]; }]];
         }
-        if (ws.group.myRole == IMGroupRoleOwner && m.role == IMGroupRoleMember) {
+        IMGroupMemberAction acts = IMGroupMemberActionsFor(ws.group.myRole, m.role, NO, m.muteUntil > IMNowMillis());
+        if (acts & IMGroupMemberActionMakeAdmin) {
             [items addObject:[UIAction actionWithTitle:IMLocalized(@"group.member_action.make_admin") image:[UIImage systemImageNamed:@"person.badge.shield.checkmark"]
                                             identifier:nil handler:^(UIAction *a) { [ws runGroupRole:ws.convID user:m.userID role:@"admin"]; }]];
         }
-        if (ws.group.myRole == IMGroupRoleOwner && m.role == IMGroupRoleAdmin) {
+        if (acts & IMGroupMemberActionRevokeAdmin) {
             [items addObject:[UIAction actionWithTitle:IMLocalized(@"group.member_action.revoke_admin") image:[UIImage systemImageNamed:@"person.badge.minus"]
                                             identifier:nil handler:^(UIAction *a) { [ws runGroupRole:ws.convID user:m.userID role:@"member"]; }]];
         }
-        if (ws.group.myRole == IMGroupRoleOwner) {
+        if (acts & IMGroupMemberActionTransfer) {
             [items addObject:[UIAction actionWithTitle:IMLocalized(@"group.member_action.transfer_owner") image:[UIImage systemImageNamed:@"crown"]
                                             identifier:nil handler:^(UIAction *a) { [ws confirmTransfer:m]; }]];
         }
         // G2 禁言/解禁：权限同移除（严格高于对方）。已被禁言显「解除禁言」，否则「禁言…」（弹时长）。
-        if ([ws canRemoveMember:m]) {
-            BOOL muted = m.muteUntil > IMNowMillis();
+        if (acts & (IMGroupMemberActionMute | IMGroupMemberActionUnmute)) {
+            BOOL muted = (acts & IMGroupMemberActionUnmute) != 0;
             if (muted) {
                 [items addObject:[UIAction actionWithTitle:IMLocalized(@"group.member_action.unmute") image:[UIImage systemImageNamed:@"speaker.wave.2"]
                                                 identifier:nil handler:^(UIAction *a) {
@@ -1011,18 +1014,20 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
                 }]];
             }
         }
-        if ([ws canRemoveMember:m]) {
+        if (acts & IMGroupMemberActionRemove) {
             // 「移出群聊」= cooldown（24h 内不能再加），与旧详情页对齐；服务端 ban=cooldown 归一为 24h。
             UIAction *rm = [UIAction actionWithTitle:IMLocalized(@"group.member_action.remove") image:[UIImage systemImageNamed:@"trash"]
                                           identifier:nil handler:^(UIAction *a) { [ws removeMember:m ban:@"cooldown"]; }];
             rm.attributes = UIMenuElementAttributesDestructive;
             [items addObject:rm];
             // 「移出并不再允许加入」= forever，与 Web MemberMenu 对齐。
-            UIAction *rmBan = [UIAction actionWithTitle:IMLocalized(@"group.member_action.remove_and_ban")
-                                                 image:[UIImage systemImageNamed:@"nosign"]
-                                            identifier:nil handler:^(UIAction *a) { [ws removeMember:m ban:@"forever"]; }];
-            rmBan.attributes = UIMenuElementAttributesDestructive;
-            [items addObject:rmBan];
+            if (acts & IMGroupMemberActionRemoveAndBan) {
+                UIAction *rmBan = [UIAction actionWithTitle:IMLocalized(@"group.member_action.remove_and_ban")
+                                                      image:[UIImage systemImageNamed:@"nosign"]
+                                                 identifier:nil handler:^(UIAction *a) { [ws removeMember:m ban:@"forever"]; }];
+                rmBan.attributes = UIMenuElementAttributesDestructive;
+                [items addObject:rmBan];
+            }
         }
         return [UIMenu menuWithTitle:m.localDisplayName children:items];
     }];

@@ -16,6 +16,12 @@ NS_ASSUME_NONNULL_BEGIN
 /// 失败 NSError 的 code 即业务错误码（登录接口已带）；网络/未知为 -1。
 BOOL IMIsAuthErrorCode(NSInteger code);
 
+/// 续期（refresh_token）被服务端回了这个业务码时，该不该擦掉续期凭据并送用户回登录页。
+/// 只有「用的是续期凭据」且「回的是鉴权类错误码」才擦：凭据不存在 / 会话已被注销 / 账号被封，这枚凭据永远不会再好起来；
+/// 不擦的话每次进页面都拿同一枚废凭据重试，界面永远停在「未连接」且没有出路（密码已不落盘）。
+/// **网络错误、服务端 5xx、非鉴权业务码都不擦**——那是暂时的，擦了等于因为一次断网把用户踢下线。
+FOUNDATION_EXPORT BOOL IMShouldDropRefreshCredential(BOOL usingRefresh, NSInteger code);
+
 /// 业务错误码 → 友好中文（对齐 internal/errcode）。未收录返回 nil，回退服务端原文。
 /// HTTP 路径已在服务内部调用；WS `send_msg` 拒收路径（IMSocketManager handleSendRejected）
 /// 也需同一映射，把 300004/300206/300208 等英文默认文案改成中文，让气泡系统行/toast 有可读文本。

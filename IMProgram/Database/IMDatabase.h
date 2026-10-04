@@ -211,7 +211,11 @@ FOUNDATION_EXPORT const NSInteger kIMMessageWindowPageSize;
     advancingSyncedConvSeq:(int64_t)syncedConvSeq;
 
 /// 任务2：物理删除某会话内 conv_seq 定位的一条消息（为所有人删除 / 仅为我删除共用），
-/// 并可选原子推进连续同步位置（syncedConvSeq>0 时），避免同一批 sync 重新拉回。返回是否删到行。
+/// 并可选原子推进连续同步位置（syncedConvSeq>0 时），避免同一批 sync 重新拉回。
+/// 返回 YES 当且仅当**真的改动了持久状态**：删到了行，或位点**确实前进了**（传入值不高于当前位点不算）。
+/// 调用方据此决定是否广播刷新通知，返回错了就会白发通知、触发「remove 通知 → reload → catch-up 重删已不存在的
+/// 隐藏项 → 又发 remove 通知」的自激刷新回路。⚠️ 实现里推进位点用 `... AND synced_conv_seq<?` 而不是
+/// `SET synced_conv_seq=MAX(...)`：SQLite 的 changes() 把「匹配到但值没变」的 UPDATE 也算命中。
 - (BOOL)deleteLocalMessageForConv:(NSString *)convID
                           convSeq:(int64_t)convSeq
            advancingSyncedConvSeq:(int64_t)syncedConvSeq;

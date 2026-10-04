@@ -129,3 +129,21 @@ IMResendPolicy IMResendPolicyForMessage(IMMessageModel *message, BOOL mine) {
     if (message.content.length == 0) { return IMResendPolicyRetryUpload; }
     return IMResendPolicySameID;
 }
+
+BOOL IMSendRejectionShowsNote(NSInteger code) {
+    switch (code) {
+        case 200102: case 200103:                      // 被拉黑 / 非好友
+        case 300004: case 300208: case 300206:         // 被禁言 / 成员级禁言 / 群全员禁言
+        case 300203:                                   // 非群成员
+        case 300001:                                   // 内容过大
+            return YES;
+        default:
+            return NO;
+    }
+}
+
+NSString *IMSendRejectionNote(BOOL success, NSError *error, NSInteger *outNoteCode) {
+    NSString *note = (!success && error && IMSendRejectionShowsNote(error.code)) ? error.localizedDescription : nil;
+    if (outNoteCode) { *outNoteCode = note ? error.code : 0; }
+    return note;
+}

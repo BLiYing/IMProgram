@@ -384,11 +384,10 @@ const NSInteger kIMFlashOverlayTag = 0x1F1A5; // 跨 +Menu：光栅化预览时�
         if ([m.clientMsgID isEqualToString:clientMsgID]) {
             m.status = success ? IMMessageStatusSent : IMMessageStatusFailed;
             // 被拒收 → 把服务端友好文案挂到 note，气泡下方居中显示（微信式系统行）；其余失败（如 ack 超时）不挂 note，仍显"未发送 ✗"。
-            // 覆盖：被拉黑 200102 / 非好友 200103 / 被禁言 300004 / 非群成员 300203 / 群全员禁言 300206 / 成员级禁言 300208（G2）
-            //     / 内容过大 300001（合并转发套娃膨胀超上限，后端回「消息内容过大，无法发送」，无恢复入口）。
-            m.note = (!success && (error.code == 200102 || error.code == 200103 || error.code == 300004 ||
-                                   error.code == 300203 || error.code == 300206 || error.code == 300208 || error.code == 300001)) ? error.localizedDescription : nil;
-            m.noteCode = m.note ? error.code : 0; // 瞬态：决定系统行是否给恢复入口（200103 → 发好友申请）
+            // 白名单与媒体路径共用一份（IMSendRejectionNote）。
+            NSInteger noteCode = 0;
+            m.note = IMSendRejectionNote(success, error, &noteCode);
+            m.noteCode = noteCode; // 瞬态：决定系统行是否给恢复入口（200103 → 发好友申请）
             m.convSeq = convSeq;
             if (![self performDatabaseOperation:^(IMDatabase *database) {
                 [database saveMessage:m]; // upsert：更新状态/conv_seq/note（含被拒文案，重进会话不丢）

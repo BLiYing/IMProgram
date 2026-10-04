@@ -7,7 +7,44 @@
 
 const NSUInteger IMGroupAdminMaxBatch = 5;
 
+IMGroupMemberAction IMGroupMemberActionsFor(IMGroupRole myRole, IMGroupRole targetRole, BOOL isSelf, BOOL targetMuted) {
+    if (isSelf) { return IMGroupMemberActionNone; }
+    BOOL iAmOwner = myRole == IMGroupRoleOwner;
+    BOOL canManage = iAmOwner || (myRole == IMGroupRoleAdmin && targetRole == IMGroupRoleMember);
+    IMGroupMemberAction a = IMGroupMemberActionNone;
+    if (iAmOwner && targetRole == IMGroupRoleMember) { a |= IMGroupMemberActionMakeAdmin; }
+    if (iAmOwner && targetRole == IMGroupRoleAdmin) { a |= IMGroupMemberActionRevokeAdmin; }
+    if (iAmOwner) { a |= IMGroupMemberActionTransfer; }
+    if (canManage) {
+        a |= targetMuted ? IMGroupMemberActionUnmute : IMGroupMemberActionMute;
+        a |= IMGroupMemberActionRemove | IMGroupMemberActionRemoveAndBan;
+    }
+    return a;
+}
+
 @implementation IMGroupAdminLogic
+
++ (BOOL)valueOfField:(IMGroupSettingField)field inGroup:(IMGroupInfo *)group {
+    switch (field) {
+        case IMGroupSettingFieldJoinApproval:  return group.joinApproval;
+        case IMGroupSettingFieldPermInvite:    return group.permInvite;
+        case IMGroupSettingFieldPermEditInfo:  return group.permEditInfo;
+        case IMGroupSettingFieldPermPin:       return group.permPin;
+        case IMGroupSettingFieldHistoryVisible:return group.historyVisible;
+    }
+    return NO;
+}
+
++ (void)setValue:(BOOL)value forField:(IMGroupSettingField)field inGroup:(IMGroupInfo *)group {
+    switch (field) {
+        case IMGroupSettingFieldJoinApproval:   group.joinApproval = value; break;
+        case IMGroupSettingFieldPermInvite:     group.permInvite = value; break;
+        case IMGroupSettingFieldPermEditInfo:   group.permEditInfo = value; break;
+        case IMGroupSettingFieldPermPin:        group.permPin = value; break;
+        case IMGroupSettingFieldHistoryVisible: group.historyVisible = value; break;
+    }
+}
+
 
 + (nullable IMGroupMember *)ownerFromMembers:(NSArray<IMGroupMember *> *)members {
     for (IMGroupMember *m in members) {

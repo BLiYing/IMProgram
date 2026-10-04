@@ -13,6 +13,10 @@
 #import "IMSocketManager.h" // IMSocketDidRevokeSessionNotification（续期被拒时复用"被踢下线"通路）
 #import "IMUserCard.h"
 
+BOOL IMShouldDropRefreshCredential(BOOL usingRefresh, NSInteger code) {
+    return usingRefresh && IMIsAuthErrorCode(code);
+}
+
 @implementation IMHTTPService (Auth)
 
 - (void)obtainTokenForUserID:(NSString *)userID
@@ -74,7 +78,7 @@
             // 擦掉它，并复用"被踢下线"那条既有通路把用户送回登录页。
             // 不擦的话，每次进页面都会拿同一枚废凭据重试，界面永远停在"未连接"且没有任何出路
             // （密码已不再落盘，退不回密码登录）。
-            if (usingRefresh && IMIsAuthErrorCode(code)) {
+            if (IMShouldDropRefreshCredential(usingRefresh, code)) {
                 IMLogWarnWithTag(IMLogTagHTTP, @"refresh_rejected code=%ld → 清凭据并回登录页", (long)code);
                 self.refreshToken = nil;
                 [IMSessionStore saveRefreshToken:nil];

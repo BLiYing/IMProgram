@@ -18,6 +18,8 @@
 #import "IMDatabase+Ranges.h"
 #import "IMDatabase+ClearFloor.h"   // clearedUpToForConv:（本机清空位点，OFFLINE_BACKLOG_DESIGN §6.7）
 #import "IMChatWindowPlan.h"
+#import "IMChatWindowTrim.h"
+#import "IMChatWindowRoute.h"
 #import "IMMessageModel.h"
 #import "IMDatabase.h"
 #import "IMLog.h"
@@ -394,18 +396,10 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
 /// 向上翻页时用它：内容加在顶部，尾部那一段在视口下方，丢掉不影响用户在看的位置。
 /// 只丢已上号的行——conv_seq==0 是待发/失败的本地消息，属于"最新一段"，碰到就停。
 - (NSInteger)dropOverflowFromTailKeepingAnchorRow:(NSInteger)anchorRow {
-    NSInteger overflow = (NSInteger)self.windowState.messages.count - kIMWindowMaxPages * IMWindowPage();
-    NSInteger dropped = 0;
-    while (dropped < overflow) {
-        // 别丢到锚点身上：丢了它，随后的保位就没有参照物、只能放弃补偿 → 又是一次跳变。
-        // 上翻的触发条件是 contentOffset ≤ 300（用户在顶部附近），锚点行号很小，实际碰不到；
-        // 留这道闸是因为"碰不到"是别处的前提推出来的，不该由本方法默默依赖。
-        if (anchorRow != NSNotFound && (NSInteger)self.windowState.messages.count - 1 <= anchorRow) { break; }
-        IMMessageModel *last = self.windowState.messages.lastObject;
-        if (!last || last.convSeq <= 0) { break; }
-        [self.windowState.seenConvSeqs removeObject:@(last.convSeq)];
+    NSInteger dropped = IMChatTailDropCount(self.windowState.messages, kIMWindowMaxPages * IMWindowPage(), anchorRow);
+    for (NSInteger i = 0; i < dropped; i++) {
+        [self.windowState.seenConvSeqs removeObject:@(self.windowState.messages.lastObject.convSeq)];
         [self.windowState.messages removeLastObject];
-        dropped++;
     }
     if (dropped > 0) { self.windowState.atTail = NO; } // 窗口不再含本地最新一条
     return dropped;
@@ -418,17 +412,21 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
 /// anchorRow 落在要丢的那一段里（用户滚太快、视口已越过它）就一条都不丢：
 /// 宁可这一轮窗口超标，也不能把用户正看着的行删掉；下一次翻页还会再来一次。
 - (NSInteger)dropOverflowFromHeadKeepingAnchorRow:(NSInteger)anchorRow {
-    NSInteger overflow = (NSInteger)self.windowState.messages.count - kIMWindowMaxPages * IMWindowPage();
-    if (overflow <= 0) { return 0; }
-    if (anchorRow != NSNotFound && anchorRow < overflow) { return 0; }
-    NSRange drop = NSMakeRange(0, (NSUInteger)overflow);
-    for (NSUInteger i = 0; i < drop.length; i++) {
-        int64_t sq = self.windowState.messages[i].convSeq;
+    NSInteger overflow = IMChatHeadDropCount((NSInteger)self.windowState.messages.count,
+                                             kIMWindowMaxPages * IMWindowPage(), anchorRow);
+    [self dropHeadRows:overflow];
+    return overflow;
+}
+
+/// 无条件丢掉窗口头部 n 行（seen 集同步剔除）。判「丢几条」归 IMChatHeadDropCount，这里只执行。
+- (void)dropHeadRows:(NSInteger)n {
+    if (n <= 0) { return; }
+    for (NSInteger i = 0; i < n; i++) {
+        int64_t sq = self.windowState.messages[(NSUInteger)i].convSeq;
         if (sq > 0) { [self.windowState.seenConvSeqs removeObject:@(sq)]; }
     }
-    [self.windowState.messages removeObjectsInRange:drop];
+    [self.windowState.messages removeObjectsInRange:NSMakeRange(0, (NSUInteger)n)];
     self.windowState.hasMoreAbove = YES; // 丢掉的那段仍在本地库/服务端，往上翻能拿回来
-    return overflow;
 }
 
 #pragma mark - 定位（三层回落的实现）
@@ -537,75 +535,53 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
                 anchorFound:(BOOL)anchorFound
                   hasBefore:(BOOL)hasBefore
                    hasAfter:(BOOL)hasAfter {
-    if (![convID isEqualToString:self.convID]) { return; }
-    // 锚点回显对不上 = 这帧是回更早那次开窗的（用户翻页途中又点了置顶横幅）。用了它会把窗口拉到错误的一段。
-    // 向下翻页那一路：消息已落库，这里把它接到窗口尾部（与本地那条路同一段逻辑）。
-    if (anchor != 0 && anchor == self.windowState.pendingNewerAnchor) {
-        self.windowState.pendingNewerAnchor = 0;
-        // **不能拿 anchor 当窗口末尾**——那是**请求发出时**的末尾。这帧在途期间窗口可能已被
-        // 别的路整段换过（进会话时「按读位点开窗」与向下翻页并发），照 anchor 接就会把新窗口
-        // 里已经有的那几条再接一遍，表现为**每条消息显示两遍**（2026-09-06 大群实测）。
-        // 与向上翻页那一路对称：那边同样是应答时重新取 `earliestLoadedConvSeq` 而非用 anchor。
-        int64_t hi = [self latestLoadedConvSeq];
-        // 窗口被换到了**更早**的一段（翻页途中点了置顶横幅/搜索结果跳转）→ 这帧已过期。
-        // 消息早已落库，用户往下滚时 maybeLoadNewerOnScroll 会重新接，这里什么都不做，
-        // 尤其不能顺手改 atTail（那说的是另一段窗口的事）。
-        if (hi <= 0 || hi < anchor) { return; }
-        if (![self appendNewerFromLocalAfter:hi]) {
-            // 服务端也没有更新的可见消息 → 确实到头了，别让 ↓ 按钮一直挂着。
-            self.windowState.atTail = YES;
-            [self updateJumpButton];
-        }
-        return;
+    // 分流判据（顺序即语义）与各路的来历见 IMChatRouteWindowResp（Common/IMChatWindowRoute.h）。
+    // loadedHi 要扫窗口，只在向下翻页那一路用得到，别的路不算。
+    IMChatWindowState *st = self.windowState;
+    int64_t loadedHi = (anchor != 0 && anchor == st.pendingNewerAnchor) ? [self latestLoadedConvSeq] : 0;
+    IMChatWindowRespRoute route = IMChatRouteWindowResp([convID isEqualToString:self.convID], anchor, anchorFound,
+                                                        st.pendingNewerAnchor, st.pendingEntryAnchor, st.pendingTail,
+                                                        st.pendingAnchor, st.pendingIsJump, st.pendingJumpIsEarliest,
+                                                        loadedHi);
+    switch (route) {
+        case IMChatWindowRespIgnore:
+            // 锚点回显对不上 = 这帧是回更早那次开窗的（用户翻页途中又点了置顶横幅）。用了它会把窗口拉到错误的一段。
+            return;
+        case IMChatWindowRespNewerStale:
+            st.pendingNewerAnchor = 0;
+            // 窗口被换到了**更早**的一段（翻页途中点了置顶横幅/搜索结果跳转）→ 这帧已过期。
+            // 消息早已落库，用户往下滚时 maybeLoadNewerOnScroll 会重新接，这里什么都不做，
+            // 尤其不能顺手改 atTail（那说的是另一段窗口的事）。
+            return;
+        case IMChatWindowRespNewerAppend:
+            st.pendingNewerAnchor = 0;
+            // **不能拿 anchor 当窗口末尾**——那是**请求发出时**的末尾。这帧在途期间窗口可能已被
+            // 别的路整段换过（进会话时「按读位点开窗」与向下翻页并发），照 anchor 接就会把新窗口
+            // 里已经有的那几条再接一遍，表现为**每条消息显示两遍**（2026-09-06 大群实测）。
+            // 与向上翻页那一路对称：那边同样是应答时重新取 `earliestLoadedConvSeq` 而非用 anchor。
+            if (![self appendNewerFromLocalAfter:loadedHi]) {
+                // 服务端也没有更新的可见消息 → 确实到头了，别让 ↓ 按钮一直挂着。
+                st.atTail = YES;
+                [self updateJumpButton];
+            }
+            return;
+        case IMChatWindowRespEntryRewindow:
+            st.pendingEntryAnchor = 0;
+            [self handleEntryWindowResp:anchor];
+            return;
+        case IMChatWindowRespTailRewindow:
+            st.pendingTail = NO;
+            [self handleTailWindowResp];
+            return;
+        case IMChatWindowRespJumpEarliest:
+        case IMChatWindowRespJumpOpen:
+        case IMChatWindowRespJumpNotFound:
+        case IMChatWindowRespOlder:
+            st.pendingAnchor = 0;
+            st.pendingJumpIsEarliest = NO;
+            break;
     }
-    // 进会话「按读位点开窗」那一路：消息已落库，这里换成围绕读位点的一窗并**停在首条未读**。
-    // 与下面 anchor=0 那一路的关键差别：**不贴底、不强制标已读**——把用户按到最底再标已读，
-    // 等于替他把整段未读读完了。
-    if (anchor != 0 && anchor == self.windowState.pendingEntryAnchor) {
-        self.windowState.pendingEntryAnchor = 0;
-        NSString *cid = self.convID;
-        NSInteger page = IMWindowPage();
-        __block NSArray<IMMessageModel *> *msgs = @[];
-        __block int64_t localMax = 0;
-        [self performDatabaseOperation:^(IMDatabase *database) {
-            msgs = [database messagesForConv:cid aroundConvSeq:anchor before:page / 4 after:page];
-            localMax = [database maxConvSeqForConv:cid];
-        }];
-        if (msgs.count == 0) { return; }   // 服务端也没有可见内容 → 保持首屏，别把界面清空
-        int64_t loadedMax = 0;
-        for (IMMessageModel *m in msgs) { if (m.convSeq > loadedMax) { loadedMax = m.convSeq; } }
-        [self applyWindowMessages:msgs atTail:(localMax == 0 || loadedMax >= localMax)];
-        [self.tableView reloadData];
-        // 首屏那次若因窗口为空而早退，didInitialPosition 还是 NO；这里补上，免得随后的兜底
-        // positionInitialIfNeeded 再定位一次，把用户刚落好的位置又挪走。
-        self.didInitialPosition = YES;
-        [self applyInitialPosition];       // 停首条未读；分割线仍摆不出来时它自己回落到贴底
-        return;
-    }
-    // anchor=0 是「要最新一窗」那一路（无未读时进会话 / 点 ↓）：消息已落库，这里把窗口拉到尾段。
-    if (anchor == 0 && self.windowState.pendingTail) {
-        self.windowState.pendingTail = NO;
-        NSString *cid = self.convID;
-        NSInteger page = IMWindowPage();
-        __block NSArray<IMMessageModel *> *msgs = @[];
-        [self performDatabaseOperation:^(IMDatabase *database) {
-            msgs = [database latestContiguousMessagesForConv:cid limit:page];
-        }];
-        if (msgs.count > 0) {
-            [self applyWindowMessages:msgs atTail:YES];
-            [self.tableView reloadData];
-            [self scrollToAbsoluteBottom];
-            [self markVisibleRowsRead];
-            [self updateJumpButton];
-        }
-        return;
-    }
-    if (anchor != self.windowState.pendingAnchor) { return; }
-    BOOL wasJump = self.windowState.pendingIsJump;
-    BOOL wasEarliest = self.windowState.pendingJumpIsEarliest;
-    self.windowState.pendingAnchor = 0;
-    self.windowState.pendingJumpIsEarliest = NO;
-    if (wasJump && wasEarliest) {
+    if (route == IMChatWindowRespJumpEarliest) {
         // 「最早」的锚点写死 1，而 1 号常常不是一条消息（msg_op 事件行 / 墓碑 / 入群前对我不可见
         // 的行都占号）。此时 anchor_found=false **不代表这一窗白开**——它照样把最早那一段带回来了。
         // 故不看 anchorFound，直接落到落库后本地实际最早的那一条。
@@ -619,13 +595,13 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
         }
         return;
     }
-    if (wasJump) {
-        if (!anchorFound) {
-            // 这次是**真的**：服务端明确说这条不存在/对我不可见。
-            // 改造前只能靠"往前翻满 N 页还没见到"来猜，猜错就报出假的「原消息已被删除」。
-            [self im_showToast:IMLocalized(@"conv.error.original_deleted")];
-            return;
-        }
+    if (route == IMChatWindowRespJumpNotFound) {
+        // 这次是**真的**：服务端明确说这条不存在/对我不可见。
+        // 改造前只能靠"往前翻满 N 页还没见到"来猜，猜错就报出假的「原消息已被删除」。
+        [self im_showToast:IMLocalized(@"conv.error.original_deleted")];
+        return;
+    }
+    if (route == IMChatWindowRespJumpOpen) {
         if (![self openLocalWindowAroundConvSeq:anchor]) {
             [self im_showToast:IMLocalized(@"conv.error.original_deleted")]; // 服务端说在，落库后却查不到 ⇒ 本端「仅为我删除」过
         }
@@ -650,6 +626,47 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
     // 参数 `hasBefore` 已由网络层落成**会话级可见下界位点**（handleWindowResp → noteHistoryFloor），
     // 本方法只需重算一次，判据仍只有 refreshHasMoreAbove 一处。
     [self refreshHasMoreAbove];
+}
+
+
+/// 进会话「按读位点开窗」那一路：消息已落库，这里换成围绕读位点的一窗并**停在首条未读**。
+/// 与「取最新一窗」那一路的关键差别：**不贴底、不强制标已读**——把用户按到最底再标已读，
+/// 等于替他把整段未读读完了。
+- (void)handleEntryWindowResp:(int64_t)anchor {
+    NSString *cid = self.convID;
+    NSInteger page = IMWindowPage();
+    __block NSArray<IMMessageModel *> *msgs = @[];
+    __block int64_t localMax = 0;
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        msgs = [database messagesForConv:cid aroundConvSeq:anchor before:page / 4 after:page];
+        localMax = [database maxConvSeqForConv:cid];
+    }];
+    if (msgs.count == 0) { return; }   // 服务端也没有可见内容 → 保持首屏，别把界面清空
+    int64_t loadedMax = 0;
+    for (IMMessageModel *m in msgs) { if (m.convSeq > loadedMax) { loadedMax = m.convSeq; } }
+    [self applyWindowMessages:msgs atTail:(localMax == 0 || loadedMax >= localMax)];
+    [self.tableView reloadData];
+    // 首屏那次若因窗口为空而早退，didInitialPosition 还是 NO；这里补上，免得随后的兜底
+    // positionInitialIfNeeded 再定位一次，把用户刚落好的位置又挪走。
+    self.didInitialPosition = YES;
+    [self applyInitialPosition];       // 停首条未读；分割线仍摆不出来时它自己回落到贴底
+}
+
+/// 「要最新一窗」（anchor=0）那一路（无未读时进会话 / 点 ↓）：消息已落库，这里把窗口拉到尾段。
+- (void)handleTailWindowResp {
+    NSString *cid = self.convID;
+    NSInteger page = IMWindowPage();
+    __block NSArray<IMMessageModel *> *msgs = @[];
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        msgs = [database latestContiguousMessagesForConv:cid limit:page];
+    }];
+    if (msgs.count > 0) {
+        [self applyWindowMessages:msgs atTail:YES];
+        [self.tableView reloadData];
+        [self scrollToAbsoluteBottom];
+        [self markVisibleRowsRead];
+        [self updateJumpButton];
+    }
 }
 
 #pragma mark - 向下翻页
@@ -790,13 +807,7 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
     NSInteger page = IMWindowPage();
     if (!self.windowState.atTail || (NSInteger)self.windowState.messages.count <= kIMWindowMaxPages * page) { return; }
     if ([self isNearBottom]) {
-        NSRange drop = NSMakeRange(0, (NSUInteger)page);
-        for (NSUInteger i = 0; i < drop.length; i++) {
-            int64_t s = self.windowState.messages[i].convSeq;
-            if (s > 0) { [self.windowState.seenConvSeqs removeObject:@(s)]; }
-        }
-        [self.windowState.messages removeObjectsInRange:drop];
-        self.windowState.hasMoreAbove = YES; // 裁掉的那一段仍在本地库里，往上翻能拿回来
+        [self dropHeadRows:page];
         [self.tableView reloadData];
         [self scrollToAbsoluteBottom];
         IMLogDebugWithTag(IMLogTagUI, @"chat_window_trim conv_id=%@ dropped=%ld rows=%lu",
@@ -804,18 +815,10 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
         return;
     }
     // 从底部裁：只裁已上号的行（conv_seq==0 的待发/失败消息属于"最新一段"的一部分，
-    // 且用户此刻若有待发消息，appendReloadAndScroll 早已把窗口拉回末尾——碰到就停）。
-    NSInteger overflow = (NSInteger)self.windowState.messages.count - kIMWindowMaxPages * page;
-    NSInteger dropped = 0;
-    while (dropped < overflow) {
-        IMMessageModel *last = self.windowState.messages.lastObject;
-        if (!last || last.convSeq <= 0) { break; }
-        [self.windowState.seenConvSeqs removeObject:@(last.convSeq)];
-        [self.windowState.messages removeLastObject];
-        dropped++;
-    }
+    // 且用户此刻若有待发消息，appendReloadAndScroll 早已把窗口拉回末尾——碰到就停）。无保位参照。
+    NSInteger dropped = [self dropOverflowFromTailKeepingAnchorRow:NSNotFound];
     if (dropped == 0) { return; }
-    self.windowState.atTail = NO; // 裁掉的是最新一段：窗口不再贴着本地末尾
+    // atTail 已由 dropOverflowFromTail 置 NO：裁掉的是最新一段，窗口不再贴着本地末尾。
     [self.tableView reloadData];  // 裁的行全在视口下方，contentOffset 不动、画面无跳变
     [self updateJumpButton];
     IMLogDebugWithTag(IMLogTagUI, @"chat_window_trim_bottom conv_id=%@ dropped=%ld rows=%lu",

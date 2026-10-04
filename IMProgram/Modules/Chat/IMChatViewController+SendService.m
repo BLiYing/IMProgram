@@ -7,6 +7,7 @@
 #import "IMSocketManager+BatchDelete.h"   // IMRemovedMessageSeqs
 #import "IMMediaSendService.h"            // kIMMediaSend* 通知键
 #import "IMMessageModel.h"
+#import "IMMsgOpApply.h"
 #import "IMPinnedMessage.h"
 #import "IMChatBackgroundView.h"
 #import "IMDatabase.h"
@@ -159,52 +160,25 @@
     int64_t target = [note.userInfo[kIMMsgOpTargetSeqKey] longLongValue];
     // 契约（IMSocketManager.h）：socket 层已解析并落库，这里逐字段采用**与库一致的终值**——
     // 不再解读 op/pinned 协议细节（曾两处解析各带相反默认），也不再自造时间戳（曾与库值偏差，
-    // 重进会话后撤回/置顶时刻跳变）。
-    NSNumber *recalledAt = note.userInfo[kIMMsgOpRecalledAtKey];
-    NSNumber *editedAt   = note.userInfo[kIMMsgOpEditedAtKey];
-    NSNumber *pinnedAt   = note.userInfo[kIMMsgOpPinnedAtKey];
+    // 重进会话后撤回/置顶时刻跳变）。字段怎么落到模型上见 IMChatApplyMsgOpToMessage。
     // 撤回会把气泡替换为墓碑行（高度骤减，最后一条为图片/视频时缩水几百 pt）——需在 reload 前
     // 记住是否贴底，reload 后强制精确贴底，否则 contentOffset 会被 UIKit clamp 向上跳一段
     // （露出白底 + 一次视觉抖动）。仅撤回路径需要，编辑/置顶行高变化可忽略。
-    BOOL wasNearBottomForRecall = (recalledAt != nil) && [self isNearBottom];
+    BOOL wasNearBottomForRecall = (note.userInfo[kIMMsgOpRecalledAtKey] != nil) && [self isNearBottom];
     for (IMMessageModel *m in self.windowState.messages) {
         if (m.convSeq != target) { continue; }
-        if (recalledAt) {
-            m.recalledAt = recalledAt.longLongValue;
-            m.recalledBy = note.userInfo[kIMMsgOpRecalledByKey];
-        }
-        if (editedAt) {
-            m.editedAt = editedAt.longLongValue;
-            NSString *newContent = note.userInfo[kIMMsgOpContentKey];
-            if (newContent) { m.content = newContent; }
-            // @ 片段的偏移是相对**原文**的，正文一改就全错位 → 清掉（服务端落库时也清了，
-            // 这里是本端内存态的同步）。渲染会自动回落到按昵称扫文本，与编辑前一致。
-            m.mentionSpans = nil;
-        }
-        if (pinnedAt) { m.pinnedAt = pinnedAt.longLongValue; } // 0=取消置顶
+        IMChatApplyMsgOpToMessage(m, note.userInfo);
         break;
     }
     [self.tableView reloadData];
     if (wasNearBottomForRecall) { [self scrollToAbsoluteBottom]; } // animated:NO，无闪
-    // 横幅刷新：pin/unpin 必刷；撤回/编辑若命中横幅里的置顶项也要刷——服务端置顶列表已剔除
-    // 撤回消息、编辑改文案，不刷会留一条指向墓碑/旧文案的横幅（delete 路径同理已无条件刷）。
-    BOOL touchesPinnedBanner = NO;
-    if (recalledAt || editedAt) {
-        for (IMPinnedMessage *p in self.bannerStack.pinnedItems) {
-            if (p.convSeq == target) { touchesPinnedBanner = YES; break; }
-        }
+    // 横幅怎么办（pin/unpin 必刷；撤回/编辑命中横幅里的置顶项也要刷；撤回命中则先本地剔除再重拉）
+    // 的判据与来历见 IMChatMsgOpBannerPlan。delete 路径同理已无条件刷（onMessageRemoved:）。
+    IMChatMsgOpBannerAction banner = IMChatMsgOpBannerPlan(note.userInfo, self.bannerStack.pinnedItems);
+    if (banner.dropTargetLocally) {
+        self.bannerStack.pinnedItems = IMChatPinnedItemsDroppingSeq(self.bannerStack.pinnedItems, target); // setter 内部夹紧轮转索引 + 重新应用横幅
     }
-    // 撤回命中横幅：**先本地剔除再重拉**。reloadPinnedBanner 是 best-effort（拉失败保留旧集合），
-    // 只靠它收敛的话弱网下横幅会继续挂着一条已撤回消息的预览文案——显示态本身就该在这里收敛，
-    // 网络重拉退回成"与服务端对齐"的补充。（jumpToPinnedConvSeq: 的提示是兜底，不是主路径。）
-    if (recalledAt && touchesPinnedBanner) {
-        NSMutableArray<IMPinnedMessage *> *kept = [NSMutableArray arrayWithCapacity:self.bannerStack.pinnedItems.count];
-        for (IMPinnedMessage *p in self.bannerStack.pinnedItems) {
-            if (p.convSeq != target) { [kept addObject:p]; }
-        }
-        self.bannerStack.pinnedItems = kept; // setter 内部夹紧轮转索引 + 重新应用横幅
-    }
-    if (pinnedAt || touchesPinnedBanner) { [self reloadPinnedBanner]; }
+    if (banner.reload) { [self reloadPinnedBanner]; }
 }
 
 /// 我方发起的操作被拒（如撤回超时）：吐司提示（不改消息）。

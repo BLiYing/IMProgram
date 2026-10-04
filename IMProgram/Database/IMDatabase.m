@@ -1469,8 +1469,8 @@ const NSInteger kIMMessageWindowPageSize = 200;
         }
         BOOL deletedRow = (db.changes > 0);
         if (syncedConvSeq > 0 && ![db executeUpdate:
-            @"UPDATE im_conversation_local SET synced_conv_seq=MAX(synced_conv_seq,?) WHERE owner_uid=? AND conv_id=?",
-            @(syncedConvSeq), owner, convID]) {
+            @"UPDATE im_conversation_local SET synced_conv_seq=? WHERE owner_uid=? AND conv_id=? AND synced_conv_seq<?",
+            @(syncedConvSeq), owner, convID, @(syncedConvSeq)]) {
             IMLogDatabase(@"删除消息与连续位置原子提交失败 owner=%@ conv=%@: %@", owner, convID, db.lastErrorMessage);
             *rollback = YES;
             return;

@@ -186,4 +186,129 @@ static IMGroupMember *MakeMember(NSString *uid, NSString *nick, NSString *userna
     XCTAssertEqual([IMGroupAdminLogic adminExclusionsFromMembers:nil myUserID:nil].count, 0u);
 }
 
+#pragma mark - 开关组读写与失败回滚
+
+static NSArray<NSNumber *> *AllSettingFields(void) {
+    return @[@(IMGroupSettingFieldJoinApproval), @(IMGroupSettingFieldPermInvite), @(IMGroupSettingFieldPermEditInfo),
+             @(IMGroupSettingFieldPermPin), @(IMGroupSettingFieldHistoryVisible)];
+}
+
+/// 五个开关的当前值，按固定顺序。
+static NSArray<NSNumber *> *Flags(IMGroupInfo *g) {
+    NSMutableArray *out = [NSMutableArray array];
+    for (NSNumber *f in AllSettingFields()) {
+        [out addObject:@([IMGroupAdminLogic valueOfField:(IMGroupSettingField)f.integerValue inGroup:g])];
+    }
+    return out;
+}
+
+/// 每个枚举值必须落在**对应**的那个属性上、且不碰其它四个（映射写串了 = 拨 A 开关改了 B 设置，界面照常）。
+- (void)test_五个开关字段各自读写互不串 {
+    for (NSNumber *f in AllSettingFields()) {
+        IMGroupInfo *g = [IMGroupInfo new];
+        [IMGroupAdminLogic setValue:YES forField:(IMGroupSettingField)f.integerValue inGroup:g];
+        NSArray<NSNumber *> *flags = Flags(g);
+        for (NSUInteger i = 0; i < flags.count; i++) {
+            XCTAssertEqual(flags[i].boolValue, i == (NSUInteger)f.integerValue, @"设 %@ 后第 %lu 个字段不对", f, (unsigned long)i);
+        }
+    }
+    IMGroupInfo *g = [IMGroupInfo new];
+    [IMGroupAdminLogic setValue:YES forField:IMGroupSettingFieldJoinApproval inGroup:g];
+    XCTAssertTrue(g.joinApproval);
+    [IMGroupAdminLogic setValue:YES forField:IMGroupSettingFieldPermInvite inGroup:g];
+    XCTAssertTrue(g.permInvite);
+    [IMGroupAdminLogic setValue:YES forField:IMGroupSettingFieldPermEditInfo inGroup:g];
+    XCTAssertTrue(g.permEditInfo);
+    [IMGroupAdminLogic setValue:YES forField:IMGroupSettingFieldPermPin inGroup:g];
+    XCTAssertTrue(g.permPin);
+    [IMGroupAdminLogic setValue:YES forField:IMGroupSettingFieldHistoryVisible inGroup:g];
+    XCTAssertTrue(g.historyVisible);
+}
+
+/// 提交失败的回滚：先记旧值、乐观改、失败写回旧值——五个字段必须与改之前**完全一致**。
+/// 旧 bug：回滚去读已被乐观改过的 self.group，本地留着失败值，下一次任一开关提交会把它一并上报。
+- (void)test_乐观更新失败后写回旧值_五个字段与改之前一致 {
+    for (NSNumber *f in AllSettingFields()) {
+        IMGroupSettingField field = (IMGroupSettingField)f.integerValue;
+        IMGroupInfo *g = [IMGroupInfo new];
+        g.permInvite = YES; g.historyVisible = YES; // 非全零的起点，才能看出「写回」写对了
+        NSArray<NSNumber *> *before = Flags(g);
+
+        BOOL oldValue = [IMGroupAdminLogic valueOfField:field inGroup:g];
+        [IMGroupAdminLogic setValue:!oldValue forField:field inGroup:g]; // 乐观
+        XCTAssertNotEqualObjects(Flags(g), before, @"乐观更新应当改了本地值");
+        [IMGroupAdminLogic setValue:oldValue forField:field inGroup:g];  // 失败回滚
+        XCTAssertEqualObjects(Flags(g), before, @"字段 %@ 回滚后应与改之前完全一致", f);
+    }
+}
+
+#pragma mark - 成员管理权限矩阵
+
+static const IMGroupMemberAction kRemoveBoth = IMGroupMemberActionRemove | IMGroupMemberActionRemoveAndBan;
+
+/// 对自己：什么都没有，无论我是谁、是否被禁言。
+- (void)test_对自己没有任何动作 {
+    for (IMGroupRole me = IMGroupRoleMember; me <= IMGroupRoleOwner; me++) {
+        for (NSNumber *muted in @[@NO, @YES]) {
+            XCTAssertEqual(IMGroupMemberActionsFor(me, me, YES, muted.boolValue), IMGroupMemberActionNone);
+        }
+    }
+}
+
+/// 普通成员：对任何人都没有任何动作（含对管理员、对别的成员）。
+- (void)test_普通成员没有任何动作 {
+    for (IMGroupRole target = IMGroupRoleMember; target <= IMGroupRoleOwner; target++) {
+        XCTAssertEqual(IMGroupMemberActionsFor(IMGroupRoleMember, target, NO, NO), IMGroupMemberActionNone);
+        XCTAssertEqual(IMGroupMemberActionsFor(IMGroupRoleMember, target, NO, YES), IMGroupMemberActionNone);
+    }
+}
+
+/// 管理员：**只能管普通成员**（禁言/解禁/移出两档），不能升撤管理员、不能转让；对管理员、群主一概没有。
+- (void)test_管理员只能管普通成员 {
+    XCTAssertEqual(IMGroupMemberActionsFor(IMGroupRoleAdmin, IMGroupRoleMember, NO, NO),
+                   IMGroupMemberActionMute | kRemoveBoth);
+    XCTAssertEqual(IMGroupMemberActionsFor(IMGroupRoleAdmin, IMGroupRoleMember, NO, YES),
+                   IMGroupMemberActionUnmute | kRemoveBoth);
+    XCTAssertEqual(IMGroupMemberActionsFor(IMGroupRoleAdmin, IMGroupRoleAdmin, NO, NO), IMGroupMemberActionNone,
+                   @"管理员不能动另一位管理员（权限须严格高于对方）");
+    XCTAssertEqual(IMGroupMemberActionsFor(IMGroupRoleAdmin, IMGroupRoleOwner, NO, NO), IMGroupMemberActionNone);
+}
+
+/// 群主对普通成员：设为管理员 + 转让 + 禁言/解禁 + 移出两档；**没有**撤销管理员（对方不是管理员）。
+- (void)test_群主对普通成员 {
+    XCTAssertEqual(IMGroupMemberActionsFor(IMGroupRoleOwner, IMGroupRoleMember, NO, NO),
+                   IMGroupMemberActionMakeAdmin | IMGroupMemberActionTransfer | IMGroupMemberActionMute | kRemoveBoth);
+    XCTAssertEqual(IMGroupMemberActionsFor(IMGroupRoleOwner, IMGroupRoleMember, NO, YES),
+                   IMGroupMemberActionMakeAdmin | IMGroupMemberActionTransfer | IMGroupMemberActionUnmute | kRemoveBoth);
+}
+
+/// 群主对管理员：撤销管理员 + 转让 + 禁言/解禁 + 移出；**没有**「设为管理员」（已经是了）。
+- (void)test_群主对管理员 {
+    XCTAssertEqual(IMGroupMemberActionsFor(IMGroupRoleOwner, IMGroupRoleAdmin, NO, NO),
+                   IMGroupMemberActionRevokeAdmin | IMGroupMemberActionTransfer | IMGroupMemberActionMute | kRemoveBoth);
+}
+
+/// 禁言与解禁**二选一**：任何组合下都不会同时出现。
+- (void)test_禁言与解禁互斥 {
+    for (IMGroupRole me = IMGroupRoleMember; me <= IMGroupRoleOwner; me++) {
+        for (IMGroupRole target = IMGroupRoleMember; target <= IMGroupRoleOwner; target++) {
+            for (NSNumber *muted in @[@NO, @YES]) {
+                IMGroupMemberAction a = IMGroupMemberActionsFor(me, target, NO, muted.boolValue);
+                BOOL both = (a & IMGroupMemberActionMute) && (a & IMGroupMemberActionUnmute);
+                XCTAssertFalse(both, @"me=%ld target=%ld muted=%@", (long)me, (long)target, muted);
+            }
+        }
+    }
+}
+
+/// 移出两档永远成对出现（有一个就有另一个）。
+- (void)test_移出两档成对出现 {
+    for (IMGroupRole me = IMGroupRoleMember; me <= IMGroupRoleOwner; me++) {
+        for (IMGroupRole target = IMGroupRoleMember; target <= IMGroupRoleOwner; target++) {
+            IMGroupMemberAction a = IMGroupMemberActionsFor(me, target, NO, NO);
+            XCTAssertEqual((a & IMGroupMemberActionRemove) != 0, (a & IMGroupMemberActionRemoveAndBan) != 0);
+        }
+    }
+}
+
 @end

@@ -71,6 +71,9 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
 @property (nonatomic, strong) IMGroupAvatarHeader *header;
 /// 转让成功后本页正在自行退出：此时 my_role 已变 member，别再让刷新路径抢着报一次「你已不是群主」。
 @property (nonatomic, assign) BOOL leavingAfterTransfer;
+/// 开关组有一次提交在途。每次提交都**整体上报五个字段**，两次并发提交会各自带着对方的乐观值：
+/// 第一次失败回滚、第二次成功，服务端就留下了界面上已回滚的那个值。故一次只放一个，后拨的拨回去。
+@property (nonatomic, assign) BOOL settingsCommitInFlight;
 /// 转让流程当前可见的那一页（选人页）：确认弹窗从它 present、失败吐司挂它。weak——它随导航栈走。
 @property (nonatomic, weak, nullable) UIViewController *transferHost;
 @end
@@ -560,49 +563,40 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
 
 #pragma mark - G2 开关组（进群确认 / 三项权限 / 历史可见）
 
-/// 统一提交开关组：先本地改再发；失败回滚开关到真实值并 toast。
-/// changed 块把某个字段应用到 self.group（本地乐观），revert 块把 sw 拨回真实值。
-- (void)commitSettingsSwitch:(UISwitch *)sw apply:(void (^)(BOOL on))apply revert:(void (^)(void))revert {
-    NSString *token = IMHTTPService.sharedService.currentToken;
-    if (token.length == 0) { [self im_showToast:IMLocalized(@"common.not_logged_in")]; revert(); return; }
-    apply(sw.on); // 本地乐观更新，随后整体上报
-    __weak typeof(self) ws = self;
+/// 统一提交开关组：先本地乐观改再整体上报五个字段；失败把**改之前**的值写回本地 group 并拨回开关，再 toast。
+/// ⚠️ 旧值必须在改之前取：回滚若去读 self.group（已是新值），开关回不去、脏值还会随下一次提交上报。
+- (void)commitSettingsSwitch:(UISwitch *)sw field:(IMGroupSettingField)field {
     IMGroupInfo *g = self.group;
+    if (self.settingsCommitInFlight) { sw.on = [IMGroupAdminLogic valueOfField:field inGroup:g]; return; }
+    BOOL oldValue = [IMGroupAdminLogic valueOfField:field inGroup:g];
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0) { [self im_showToast:IMLocalized(@"common.not_logged_in")]; sw.on = oldValue; return; }
+    [IMGroupAdminLogic setValue:sw.on forField:field inGroup:g]; // 本地乐观更新，随后整体上报
+    self.settingsCommitInFlight = YES;
+    __weak typeof(self) ws = self;
     [IMHTTPService.sharedService setGroupSettingsWithToken:token convID:self.convID
                                              joinApproval:g.joinApproval permInvite:g.permInvite
                                              permEditInfo:g.permEditInfo permPin:g.permPin
                                            historyVisible:g.historyVisible completion:^(NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
+        self.settingsCommitInFlight = NO;
         if (error) {
             [self im_showToast:error.localizedDescription ?: IMLocalized(@"conv.error.settings_failed")];
-            revert();
+            // 在途期间 reloadGroup 可能已把 self.group 换成服务端的新对象：那时它就是真值，不能拿旧值覆盖。
+            if (self.group == g) { [IMGroupAdminLogic setValue:oldValue forField:field inGroup:g]; }
+            sw.on = [IMGroupAdminLogic valueOfField:field inGroup:self.group];
             return;
         }
         if (self.onChanged) { self.onChanged(); }
     }];
 }
 
-- (void)joinApprovalChanged:(UISwitch *)sw {
-    [self commitSettingsSwitch:sw apply:^(BOOL on) { self.group.joinApproval = on; }
-                        revert:^{ sw.on = self.group.joinApproval; }];
-}
-- (void)permInviteChanged:(UISwitch *)sw {
-    [self commitSettingsSwitch:sw apply:^(BOOL on) { self.group.permInvite = on; }
-                        revert:^{ sw.on = self.group.permInvite; }];
-}
-- (void)permEditInfoChanged:(UISwitch *)sw {
-    [self commitSettingsSwitch:sw apply:^(BOOL on) { self.group.permEditInfo = on; }
-                        revert:^{ sw.on = self.group.permEditInfo; }];
-}
-- (void)permPinChanged:(UISwitch *)sw {
-    [self commitSettingsSwitch:sw apply:^(BOOL on) { self.group.permPin = on; }
-                        revert:^{ sw.on = self.group.permPin; }];
-}
-- (void)historyVisibleChanged:(UISwitch *)sw {
-    [self commitSettingsSwitch:sw apply:^(BOOL on) { self.group.historyVisible = on; }
-                        revert:^{ sw.on = self.group.historyVisible; }];
-}
+- (void)joinApprovalChanged:(UISwitch *)sw { [self commitSettingsSwitch:sw field:IMGroupSettingFieldJoinApproval]; }
+- (void)permInviteChanged:(UISwitch *)sw { [self commitSettingsSwitch:sw field:IMGroupSettingFieldPermInvite]; }
+- (void)permEditInfoChanged:(UISwitch *)sw { [self commitSettingsSwitch:sw field:IMGroupSettingFieldPermEditInfo]; }
+- (void)permPinChanged:(UISwitch *)sw { [self commitSettingsSwitch:sw field:IMGroupSettingFieldPermPin]; }
+- (void)historyVisibleChanged:(UISwitch *)sw { [self commitSettingsSwitch:sw field:IMGroupSettingFieldHistoryVisible]; }
 
 /// 设置群头像：相册选 1 张图片（仅图片、选完不弹发送表）→ 上传 → 拿 URL 更新群资料。
 - (void)pickAvatar {

@@ -238,6 +238,8 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 /// 把窗口尾/首超出上限的那一段丢掉（**只改数组**，调用方须并进自己那次 reloadData + 保位）。
 - (NSInteger)dropOverflowFromTailKeepingAnchorRow:(NSInteger)anchorRow;
 - (NSInteger)dropOverflowFromHeadKeepingAnchorRow:(NSInteger)anchorRow;
+/// 无条件丢掉窗口头部 n 行（同步剔除 seen 集、置 hasMoreAbove）。
+- (void)dropHeadRows:(NSInteger)n;
 
 /// 本地已到尾、服务端还领先 → 按窗口末尾要更新的一段。
 - (void)requestServerNewerWindowAfter:(int64_t)hi;
