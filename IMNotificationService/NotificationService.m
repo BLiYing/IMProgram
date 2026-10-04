@@ -28,6 +28,9 @@
 
 /// 取头像（两张并行）的总时限：头像 ≤256px、几十 KB，连得上时远够；连不上时宁可用旧头像也别拖住通知。
 static const NSTimeInterval kIMAvatarDeadline = 3;
+/// 通话提醒（PUSH_M5_DESIGN §3.8）等头像的上限：来电横幅晚一秒就是少响一秒，到点没取到就用首字母头像，
+/// 照样是带头像的通信通知样式（不退回 App 图标）。头像多半已在缓存里（对方给你发过消息），命中是即时的。
+static const NSTimeInterval kIMCallAvatarDeadline = 1;
 /// 首字母占位头像的边长（像素），与服务端头像同档。
 static const CGFloat kIMPlaceholderSide = 256;
 
@@ -49,11 +52,11 @@ static os_log_t IMExtLog(void) {
                    withContentHandler:(void (^)(UNNotificationContent *))contentHandler {
     self.contentHandler = contentHandler;
     self.original = [request.content mutableCopy];
-    // 通话提醒（PUSH_M5_DESIGN §3.8）原样放行：来电横幅等不起头像下载，也不是一条消息、不该改成消息样式。
-    // 新服务端已不给通话提醒带 mutable-content，这里兜住旧服务端。
+    // 通话提醒也改成带对方头像的通信通知（同消息推送），只是等头像的上限短得多（kIMCallAvatarDeadline）。
     id callID = request.content.userInfo[@"call_id"];
     BOOL isCall = [callID isKindOfClass:NSString.class] && [(NSString *)callID length] > 0;
-    IMPushSender *sender = isCall ? nil : [IMPushSender senderFromUserInfo:request.content.userInfo];
+    NSTimeInterval deadline = isCall ? kIMCallAvatarDeadline : kIMAvatarDeadline;
+    IMPushSender *sender = [IMPushSender senderFromUserInfo:request.content.userInfo];
     if (sender == nil) {
         [self finishWith:self.original];
         return;
@@ -100,7 +103,7 @@ static os_log_t IMExtLog(void) {
                         groupImage:(sender.isGroup && g) ? [INImage imageWithImageData:g] : nil];
     };
     dispatch_group_notify(group, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), finish);
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kIMAvatarDeadline * NSEC_PER_SEC)),
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(deadline * NSEC_PER_SEC)),
                    dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), finish);
 }
 
