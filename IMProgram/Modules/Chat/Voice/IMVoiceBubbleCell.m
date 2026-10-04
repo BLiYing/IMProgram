@@ -7,6 +7,7 @@
 #import "IMVoicePlayer.h"
 #import "IMMessageModel.h"
 #import "IMTheme.h"
+#import "IMReadTick.h"
 #import "IMTimeUtil.h"
 #import "IMVoiceTranscriber.h" // 复用缓存自动展开转写面板（cell 复用后不丢文字，2026-08-27 修）
 #import "UILabel+IMAvatar.h"
@@ -419,7 +420,7 @@
 
 /// 右下 meta（timeLabel 富文本）：与 IMBubbleCell.attributedMetaForMessage 完全同口径——
 /// 对方 = "HH:mm"；己方发送中 = "发送中…"；己方失败 = "未发送 ✗"（红，被拒收 note 存在时只显时间）；
-/// 己方已 ack = "HH:mm ✓" 或 "HH:mm ✓✓"（✓✓ 绿）。语音时长由左侧 durationLabel 独立承载。
+/// 己方已 ack = "HH:mm ✓" 或 "HH:mm ✓✓"（双勾蓝，IMReadTick 图标）。语音时长由左侧 durationLabel 独立承载。
 - (NSAttributedString *)rightMetaAttributedForMessage:(IMMessageModel *)message mine:(BOOL)mine
                                           peerReadSeq:(int64_t)peerReadSeq isGroupContext:(BOOL)isGroupContext {
     UIFont *font = [UIFont systemFontOfSize:11];
@@ -443,14 +444,8 @@
     }
     if (message.convSeq > 0) {
         BOOL doubleTick = !isGroupContext && message.convSeq <= peerReadSeq;
-        NSString *checks = doubleTick ? @"✓✓" : @"✓";
-        NSString *plain = timeStr.length > 0 ? [NSString stringWithFormat:@"%@ %@", timeStr, checks] : checks;
-        NSMutableAttributedString *s = [[NSMutableAttributedString alloc] initWithString:plain attributes:base];
-        NSRange r = [plain rangeOfString:checks options:NSBackwardsSearch];
-        if (r.location != NSNotFound) {
-            [s addAttribute:NSForegroundColorAttributeName value:(doubleTick ? IMTheme.checkRead : secondary) range:r];
-        }
-        return s;
+        return [IMReadTick metaWithTime:timeStr read:doubleTick font:font timeColor:secondary
+                              tickColor:(doubleTick ? IMTheme.checkRead : secondary)];
     }
     return [[NSAttributedString alloc] initWithString:(timeStr ?: @"") attributes:base];
 }

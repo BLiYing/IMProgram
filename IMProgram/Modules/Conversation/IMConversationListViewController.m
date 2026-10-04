@@ -3,6 +3,7 @@
 #import "IMUnreadBadge.h"   // 未读角标格式化（与 im-web unreadBadge.ts 同源）
 #import "IMNotificationSettings.h" // badge.includeMuted（设置 ▸ 通知与提示音 ▸ 角标计数）
 #import "IMLocalization.h"
+#import "IMReadTick.h"
 #import "IMConversationListViewController.h"
 #import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
 #import "IMChatViewController.h"
@@ -58,7 +59,7 @@ static CGFloat const kIMRowLeading = 16;
     UIStackView *_deliveryTimeStack;
     UIImageView *_pin;
     UIImageView *_mute;
-    UILabel *_check;   // 最后一条是我发的 → 时间左侧显示 ✓✓（绿）
+    UILabel *_check;   // 最后一条是我发的 → 时间左侧显示已读/未读勾（IMReadTick，蓝/灰）
     UILabel *_badge;
     UILabel *_superTag; // 「大群」标记（仅超级群，群名右侧；见 SUPERGROUP_DESIGN §9）
     UIView *_dot;      // 手动"标未读"小圆点（无未读数时显示，M4.5）
@@ -160,16 +161,14 @@ static CGFloat const kIMRowLeading = 16;
 
         _check = [UILabel new];
         _check.translatesAutoresizingMaskIntoConstraints = NO;
-        _check.font = [UIFont systemFontOfSize:13];
-        _check.textColor = IMTheme.checkRead;
-        _check.text = @"✓✓";
+        _check.font = [UIFont systemFontOfSize:13]; // 与 _time 同字号：勾图高 = 字号×0.95，基线与时间齐
         [_check setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
         [_check setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
         _deliveryTimeStack = [[UIStackView alloc] initWithArrangedSubviews:@[_check, _time]];
         _deliveryTimeStack.translatesAutoresizingMaskIntoConstraints = NO;
         _deliveryTimeStack.axis = UILayoutConstraintAxisHorizontal;
         _deliveryTimeStack.alignment = UIStackViewAlignmentCenter;
-        _deliveryTimeStack.spacing = 4;
+        _deliveryTimeStack.spacing = kIMReadTickGap;
         [self.contentView addSubview:_deliveryTimeStack];
 
         _badge = [UILabel new];
@@ -336,14 +335,14 @@ static CGFloat const kIMRowLeading = 16;
     // 置顶行背景轻微区分（微信/Telegram 式，深浅色皆适配）。
     self.contentView.backgroundColor = c.pinnedAt > 0 ? [IMTheme.accent colorWithAlphaComponent:0.10] : UIColor.clearColor;
     _time.text = [IMTheme conversationTimeStringFromMillis:c.timestamp];  // 四段式，UI_SPEC §5.1
-    // 最后一条是我发的才显示勾：对端已读到该条 → 绿 ✓✓；否则 → 灰单勾 ✓（已送达/未读）。
+    // 最后一条是我发的才显示勾：对端已读到该条 → 蓝双勾；否则 → 灰单勾（已送达/未读）。
     // 已读判定用后端返回的对端已读位点 peer_read_seq（CHAT_UX §8）。群项不显示（无对端位点）。
     BOOL showCheck = !c.isGroup && mine && c.lastContent.length > 0;
     _check.hidden = !showCheck;
     if (showCheck) {
         BOOL read = c.latestConvSeq > 0 && c.latestConvSeq <= c.peerReadSeq;
-        _check.text = read ? @"✓✓" : @"✓";
-        _check.textColor = read ? IMTheme.checkRead : IMTheme.textSecondary;
+        _check.attributedText = [IMReadTick tickAttributedStringRead:read font:_check.font
+                                                              color:(read ? IMTheme.checkRead : IMTheme.textSecondary)];
     }
     // 未读计数徽标 + 手动"标未读"圆点：免打扰会话转灰（微信/Telegram 式弱提示），否则蓝色。
     // **@我 破例**（M4-8）：被 @ 时即使群设了免打扰也回到高亮色——免打扰只压普通消息，不压 @我。

@@ -59,7 +59,7 @@ NS_ASSUME_NONNULL_BEGIN
                    role:(IMGroupRole)role
             toNameLabel:(UILabel *)nameLabel;
 
-/// 气泡右下角「时间 + 状态勾」富文本：时间(灰)；自己的消息追加 已送达 ✓(灰) / 已读 ✓✓(绿) /
+/// 气泡右下角「时间 + 状态勾」富文本：时间(灰)；自己的消息追加 已送达 ✓(灰) / 已读 ✓✓(蓝，实为 IMReadTick 图标) /
 /// 「发送中…」/「未发送 ✗」(红)。原在 IMBubbleCell 私有，个人名片卡片气泡也要同一套排法，
 /// 上提到基类的**类方法**（纯函数式，只读入参与 IMTheme，不碰实例状态）。
 /// 类方法而非实例方法，是因为 IMBubbleCell **不继承本类**（它是独立的 UITableViewCell），

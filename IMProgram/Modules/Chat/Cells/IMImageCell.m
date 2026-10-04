@@ -10,6 +10,7 @@
 #import "IMMediaUtil.h" // IMFormatFileSize
 #import "UILabel+IMAvatar.h"
 #import "IMTheme.h"
+#import "IMReadTick.h"
 #import "IMLog.h" // 门控占位渲染点位日志（media_gated_render / media_gated_thumb_dropped）
 #import "IMMediaPlaceholder.h" // 磨砂占位统一渲染器（三处共用）
 #import "IMMediaExpiryRegistry.h" // 被动展示 404 失效登记 + 复验（曾可用媒体被清理）
@@ -571,37 +572,38 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     _timeText = time;
     UIColor *base = IMTheme.mediaBadgeText;
     if (!mine) {
-        [self setMetaText:time checks:nil checkColor:base];
+        [self setMetaText:time tick:nil checkColor:base];
         return;
     }
     if (message.status == IMMessageStatusSending) {
-        [self setMetaText:IMLocalized(@"common.sending") checks:nil checkColor:base];
+        [self setMetaText:IMLocalized(@"common.sending") tick:nil checkColor:base];
         return;
     }
     if (message.status == IMMessageStatusFailed) {
-        [self setMetaText:(message.note.length > 0 ? time : IMLocalized(@"chat.message.not_sent_mark")) checks:nil checkColor:base];
+        [self setMetaText:(message.note.length > 0 ? time : IMLocalized(@"chat.message.not_sent_mark")) tick:nil checkColor:base];
         return;
     }
     if (message.convSeq > 0) { // 拿到 conv_seq 即已送达，再按对端已读位点决定单勾/双勾
         BOOL read = message.convSeq <= peerReadSeq;
-        [self setMetaText:time checks:(read ? @"✓✓" : @"✓")
+        [self setMetaText:time tick:(read ? @(YES) : @(NO))
                checkColor:(read ? IMTheme.mediaBadgeCheckRead : base)];
         return;
     }
-    [self setMetaText:time checks:nil checkColor:base];
+    [self setMetaText:time tick:nil checkColor:base];
 }
 
-- (void)setMetaText:(NSString *)text checks:(NSString *)checks checkColor:(UIColor *)checkColor {
-    NSString *plain = checks.length == 0 ? text
-                    : (text.length > 0 ? [NSString stringWithFormat:@"%@ %@", text, checks] : checks);
-    NSDictionary *attrs = @{ NSFontAttributeName: _metaLabel.font, NSForegroundColorAttributeName: IMTheme.mediaBadgeText };
-    NSMutableAttributedString *s = [[NSMutableAttributedString alloc] initWithString:plain attributes:attrs];
-    if (checks.length > 0) {
-        NSRange r = [plain rangeOfString:checks options:NSBackwardsSearch];
-        if (r.location != NSNotFound) { [s addAttribute:NSForegroundColorAttributeName value:checkColor range:r]; }
+/// tick：nil = 不画勾；@NO = 单勾（已送达）；@YES = 双勾（已读）。
+- (void)setMetaText:(NSString *)text tick:(NSNumber *)tick checkColor:(UIColor *)checkColor {
+    UIFont *font = _metaLabel.font;
+    UIColor *textColor = IMTheme.mediaBadgeText;
+    NSAttributedString *s;
+    if (tick != nil) {
+        s = [IMReadTick metaWithTime:text read:tick.boolValue font:font timeColor:textColor tickColor:checkColor];
+    } else {
+        s = [[NSAttributedString alloc] initWithString:text ?: @"" attributes:@{ NSFontAttributeName: font, NSForegroundColorAttributeName: textColor }];
     }
     _metaLabel.attributedText = s;
-    _metaWrap.hidden = plain.length == 0;
+    _metaWrap.hidden = s.length == 0;
     if (!_metaWrap.hidden) { [self.contentView bringSubviewToFront:_metaWrap]; }
 }
 
@@ -655,7 +657,7 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName) {
     }
     // 右下角只在**真正传输**时显「发送中…」；暂停时回落为时间（configure 按 status=sending 写死了发送中）。
     if (!progress.failed) {
-        [self setMetaText:(paused ? (_timeText ?: @"") : IMLocalized(@"common.sending")) checks:nil checkColor:IMTheme.mediaBadgeText];
+        [self setMetaText:(paused ? (_timeText ?: @"") : IMLocalized(@"common.sending")) tick:nil checkColor:IMTheme.mediaBadgeText];
     }
     [self.contentView bringSubviewToFront:_progressWrap];
     NSString *symbol = IMUploadCenterSymbol(progress);

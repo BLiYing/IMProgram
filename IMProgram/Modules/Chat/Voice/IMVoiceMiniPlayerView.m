@@ -63,7 +63,7 @@
     [self addSubview:_metaLabel];
 
     // 布局（用户 2026-08-27 拍板）：▶ 居左 · 中央 vertical(波形/meta) 与 ▶ 垂直居中对齐。
-    // meta 在波形下方 = 时长 · 时间 · ✓/✓✓（mine 已发出才有勾）。
+    // meta 在波形下方 = 时长（当前实现不画勾；若要画走 IMReadTick）。
     [NSLayoutConstraint activateConstraints:@[
         [_playButton.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
         [_playButton.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],

@@ -3,6 +3,7 @@
 #import "IMFailBadgeView.h"
 #import "IMMessageModel.h"
 #import "IMTheme.h"
+#import "IMReadTick.h"
 #import "IMLocalization.h"
 
 @implementation IMMessageCell
@@ -159,7 +160,7 @@
     _senderRoleLabel.text = nil;
 }
 
-/// 气泡内右下角富文本：时间(灰)；自己消息追加状态勾——已送达 ✓(灰)/已读 ✓✓(绿)/发送中/失败。
+/// 气泡内右下角富文本：时间(灰)；自己消息追加状态勾——已送达 单勾(灰)/已读 双勾(蓝，IMReadTick 矢量图)/发送中/失败。
 const int64_t kIMPeerReadSeqHidden = -1;
 
 + (NSAttributedString *)attributedMetaForMessage:(IMMessageModel *)message
@@ -186,15 +187,11 @@ const int64_t kIMPeerReadSeqHidden = -1;
             attributes:@{ NSFontAttributeName: font, NSForegroundColorAttributeName: UIColor.systemRedColor }];
     }
     // 其余（Sent，或经多端抄送/同步收到的"自己消息"——其 status 为 Received）：
-    // 只要拿到了 conv_seq 即视为已送达，按对端已读位点显示 ✓/✓✓。否则只显时间。
+    // 只要拿到了 conv_seq 即视为已送达，按对端已读位点显示单勾/双勾。否则只显时间。
     if (message.convSeq > 0 && peerReadSeq != kIMPeerReadSeqHidden) {
         BOOL read = message.convSeq <= peerReadSeq;
-        NSString *checks = read ? @"✓✓" : @"✓";
-        NSString *plain = time.length > 0 ? [NSString stringWithFormat:@"%@ %@", time, checks] : checks;
-        NSMutableAttributedString *s = [[NSMutableAttributedString alloc] initWithString:plain attributes:base];
-        NSRange r = [plain rangeOfString:checks options:NSBackwardsSearch];
-        [s addAttribute:NSForegroundColorAttributeName value:(read ? IMTheme.checkRead : timeColor) range:r];
-        return s;
+        return [IMReadTick metaWithTime:time read:read font:font timeColor:timeColor
+                              tickColor:(read ? IMTheme.checkRead : timeColor)];
     }
     return [[NSAttributedString alloc] initWithString:time attributes:base];
 }
