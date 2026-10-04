@@ -308,8 +308,12 @@ BOOL IMRtcCallPhaseCountsAsInCall(NSInteger kitPhase) {
             NSString *group = event.payload[@"chat_group_id"];
             _resolver.groupID = isGroup && [group isKindOfClass:NSString.class] ? group : @"";
             _ringingCallID = event.callID;
-            // SDK 的来电界面接手了：通知中心里那条离线推送的来电横幅（如果有）就多余了。
-            IMPushCallRemoveDeliveredNotifications(event.callID);
+            // App 在前台：SDK 的来电界面接手了，通知中心里那条离线推送的来电横幅（如果有）就多余了。
+            // 不在前台就留着——那是用户唯一能点的入口（Android 真机实测：后台收到来电时系统不让弹来电界面）；
+            // 回到前台时 SceneDelegate 会把通知整体清掉。
+            if (UIApplication.sharedApplication.applicationState == UIApplicationStateActive) {
+                IMPushCallRemoveDeliveredNotifications(event.callID);
+            }
             // 用户是点着横幅上的按钮把 App 拉起来的：来电一到就替他接 / 拒。晚一拍，让 Kit 先把来电界面立起来。
             int64_t now = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
             NSNumber *accept = [IMPushCallPendingAction.shared consumeCallID:event.callID nowMS:now];
