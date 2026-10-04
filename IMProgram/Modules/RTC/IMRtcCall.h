@@ -39,6 +39,10 @@ FOUNDATION_EXPORT BOOL IMRtcCallPhaseCountsAsInCall(NSInteger kitPhase);
 - (void)startWithUserID:(NSString *)uid;
 - (void)stop;
 
+/// 来电横幅（离线推送）上点了「接听」/「拒绝」（AppDelegate 收到通知响应时调，PUSH_M5_DESIGN §3.8）。
+/// 这通已经在响就当场照做；还没到（App 刚被拉起、还没连上）就记下来，等来电到了再做。
+- (void)applyNotificationActionForCallID:(NSString *)callID accept:(BOOL)accept;
+
 /// 单聊一对一通话。返回 nil 表示已交给 Kit；否则是给用户看的原因。
 - (nullable NSString *)placeSingleCallToPeer:(NSString *)peerUID video:(BOOL)video;
 

@@ -12,5 +12,8 @@
 	<!-- 通信通知：通知左侧显示发送人头像（INSendMessageIntent），专注模式可按联系人放行。 -->
 	<key>com.apple.developer.usernotifications.communication</key>
 	<true/>
+	<!-- 时效性通知：来电横幅（interruption-level=time-sensitive，PUSH_M5_DESIGN §3.8）在专注模式下也能弹出。 -->
+	<key>com.apple.developer.usernotifications.time-sensitive</key>
+	<true/>
 </dict>
 </plist>

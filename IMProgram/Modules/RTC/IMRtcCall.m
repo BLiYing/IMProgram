@@ -4,6 +4,7 @@
 #import "IMGroupInfo.h"
 #import "IMHTTPService+RTC.h"
 #import "IMLog.h"
+#import "IMPushCall.h"
 #import "IMRtcCallRecordSender.h"
 #import "IMRtcConfig.h"
 #import "IMRtcInviteProvider.h"
@@ -42,6 +43,8 @@ BOOL IMRtcCallPhaseCountsAsInCall(NSInteger kitPhase) {
     NSString *_uid;
     /// 每次 start / stop 加一：旧引擎迟到的回调一律不算数，别改动新一代的状态。
     NSUInteger _generation;
+    /// 正在响、还没接通 / 结束的那通来电（applyNotificationActionForCallID: 用）。
+    NSString *_ringingCallID;
 }
 
 + (instancetype)shared {
@@ -251,6 +254,30 @@ BOOL IMRtcCallPhaseCountsAsInCall(NSInteger kitPhase) {
     }];
 }
 
+#pragma mark - 来电横幅上的按钮
+
+- (void)applyNotificationActionForCallID:(NSString *)callID accept:(BOOL)accept {
+    IMLogWithTag(IMLogTagRTC, @"rtc_notification_action call_id=%@ accept=%@", callID, accept ? @"YES" : @"NO");
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if ([self->_ringingCallID isEqualToString:callID]) {
+            [self actOnRingingCall:accept];
+            return;
+        }
+        int64_t now = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
+        [IMPushCallPendingAction.shared requestCallID:callID accept:accept nowMS:now];
+    });
+}
+
+/// 走 Kit 的控制器而不是直接调引擎：来电界面的状态由 Kit 维护，绕过它会让界面和通话对不上。
+- (void)actOnRingingCall:(BOOL)accept {
+    if (_kit == nil) { return; }
+    if (accept) {
+        [_kit.controller accept];
+    } else {
+        [_kit.controller reject];
+    }
+}
+
 #pragma mark - 引擎事件
 
 - (void)handleEvent:(IMCallEvent *)event generation:(NSUInteger)gen {
@@ -280,8 +307,26 @@ BOOL IMRtcCallPhaseCountsAsInCall(NSInteger kitPhase) {
             BOOL isGroup = [event.payload[@"is_group"] boolValue];
             NSString *group = event.payload[@"chat_group_id"];
             _resolver.groupID = isGroup && [group isKindOfClass:NSString.class] ? group : @"";
+            _ringingCallID = event.callID;
+            // SDK 的来电界面接手了：通知中心里那条离线推送的来电横幅（如果有）就多余了。
+            IMPushCallRemoveDeliveredNotifications(event.callID);
+            // 用户是点着横幅上的按钮把 App 拉起来的：来电一到就替他接 / 拒。晚一拍，让 Kit 先把来电界面立起来。
+            int64_t now = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
+            NSNumber *accept = [IMPushCallPendingAction.shared consumeCallID:event.callID nowMS:now];
+            if (accept != nil) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if (gen == self->_generation) { [self actOnRingingCall:accept.boolValue]; }
+                });
+            }
             break;
         }
+        case IMCallEventNameCallBegin:
+            _ringingCallID = nil;
+            break;
+        case IMCallEventNameCallEnd:
+            _ringingCallID = nil;
+            IMPushCallRemoveDeliveredNotifications(event.callID);
+            break;
         case IMCallEventNameCallSummary:
             // 每通电话终局后恰好一次；只有主叫（role=caller）发通话记录消息，被叫不发。
             [IMRtcCallRecordSender handleSummaryPayload:event.payload selfUID:_uid ?: @""];

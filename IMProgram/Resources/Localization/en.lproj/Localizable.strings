@@ -1347,6 +1347,13 @@
 "ps.section.data" = "Data";
 "ps.section.who_can_see" = "Who can see";
 "ps.who_can_see_footer" = "These settings control how much others can see on your profile.";
+"push.call.action_answer" = "Answer";
+"push.call.channel_name" = "Incoming calls";
+"push.call.ended" = "Call ended";
+"push.call.incoming_group_video" = "Invited you to a group video call";
+"push.call.incoming_group_voice" = "Invited you to a group voice call";
+"push.call.incoming_video" = "Incoming video call";
+"push.call.incoming_voice" = "Incoming voice call";
 "push.group_body" = "%1$@: %2$@";
 "push.mention_body" = "[Mentioned] %1$@";
 "push.message_deleted" = "A message was deleted";

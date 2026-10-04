@@ -15,6 +15,8 @@
 #import "IMAccountNotifySettingsSync.h"
 #import "IMPendingNotificationRoute.h"
 #import "IMPushRetract.h"
+#import "IMPushCall.h"
+#import "IMRtcCall.h"
 #import <UserNotifications/UserNotifications.h>
 
 @interface AppDelegate () <UNUserNotificationCenterDelegate>
@@ -32,6 +34,7 @@
     IMLog(@"app_launched");
     // M5：尽早设 delegate——冷启动可能在系统早期就回调 didReceiveNotificationResponse（点通知冷启）。
     UNUserNotificationCenter.currentNotificationCenter.delegate = self;
+    IMPushCallRegisterCategory();             // 来电横幅的「接听 / 拒绝」按钮（PUSH_M5_DESIGN §3.8），要先于点击回调注册
     [[IMPowerSaving shared] start];           // 省电模式：电量 / 低电量模式监听 + 自动开启提示（本机数据，与登录无关）
     [[IMNetworkMonitor shared] start];        // 网络类型实时源（自动下载决策用，M4-7）
     [[IMDownloadSettingsStore shared] start];  // 自动下载策略：拉取 + 监听 capabilities_update 重拉（登录后 token 就绪即拉）
@@ -83,6 +86,18 @@
 - (void)userNotificationCenter:(UNUserNotificationCenter *)center
  didReceiveNotificationResponse:(UNNotificationResponse *)response
           withCompletionHandler:(void (^)(void))completionHandler {
+    // 来电横幅（PUSH_M5_DESIGN §3.8）：点的是按钮就交给 IMRtcCall，等来电到了照做；点横幅本身照常进会话。
+    NSString *callID = IMPushCallIDFromUserInfo(response.notification.request.content.userInfo);
+    if (callID.length > 0) {
+        IMPushCallRemoveDeliveredNotifications(callID);
+        if ([response.actionIdentifier isEqualToString:IMPushCallActionAccept]
+            || [response.actionIdentifier isEqualToString:IMPushCallActionReject]) {
+            [IMRtcCall.shared applyNotificationActionForCallID:callID
+                                                        accept:[response.actionIdentifier isEqualToString:IMPushCallActionAccept]];
+            completionHandler();
+            return;
+        }
+    }
     NSString *convID = IMPushConvIDFromUserInfo(response.notification.request.content.userInfo);
     if (convID.length > 0) {
         IMLogPush(@"push_tap_received conv_id=%@", convID);
