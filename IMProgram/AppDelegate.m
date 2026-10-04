@@ -15,6 +15,7 @@
 #import "IMAccountNotifySettingsSync.h"
 #import "IMPendingNotificationRoute.h"
 #import "IMPushRetract.h"
+#import "IMLocalization.h"
 #import "IMPushCall.h"
 #import "IMRtcCall.h"
 #import <UserNotifications/UserNotifications.h>
@@ -35,6 +36,10 @@
     // M5：尽早设 delegate——冷启动可能在系统早期就回调 didReceiveNotificationResponse（点通知冷启）。
     UNUserNotificationCenter.currentNotificationCenter.delegate = self;
     IMPushCallRegisterCategory();             // 来电横幅的「接听 / 拒绝」按钮（PUSH_M5_DESIGN §3.8），要先于点击回调注册
+    // 按钮文字是注册那一刻的语言：App 内切换语言后重新注册，否则要等下次冷启动才换过来。
+    [NSNotificationCenter.defaultCenter addObserverForName:IMLanguageDidChangeNotification object:nil
+                                                     queue:NSOperationQueue.mainQueue
+                                                usingBlock:^(NSNotification *note) { IMPushCallRegisterCategory(); }];
     [[IMPowerSaving shared] start];           // 省电模式：电量 / 低电量模式监听 + 自动开启提示（本机数据，与登录无关）
     [[IMNetworkMonitor shared] start];        // 网络类型实时源（自动下载决策用，M4-7）
     [[IMDownloadSettingsStore shared] start];  // 自动下载策略：拉取 + 监听 capabilities_update 重拉（登录后 token 就绪即拉）

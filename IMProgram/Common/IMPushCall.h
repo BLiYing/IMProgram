@@ -20,7 +20,7 @@ FOUNDATION_EXPORT NSString *const IMPushCallActionReject;
 /// 纯函数：通知 userInfo 里的 call_id（不是通话提醒返回 nil）。
 FOUNDATION_EXPORT NSString *_Nullable IMPushCallIDFromUserInfo(NSDictionary *_Nullable userInfo);
 
-/// 注册 IM_CALL 类别（启动时调一次；会覆盖已注册的类别——本 App 目前只有这一个）。
+/// 注册 IM_CALL 类别（启动时、以及 App 内切换语言后各调一次：按钮文字是注册那一刻的语言）。与已注册的其它类别合并，不覆盖。
 FOUNDATION_EXPORT void IMPushCallRegisterCategory(void);
 
 /// 从通知中心移除这通电话的通知（来电横幅 / 结束替换后的那条；异步，任意线程可调）。

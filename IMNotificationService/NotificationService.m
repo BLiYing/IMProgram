@@ -49,7 +49,11 @@ static os_log_t IMExtLog(void) {
                    withContentHandler:(void (^)(UNNotificationContent *))contentHandler {
     self.contentHandler = contentHandler;
     self.original = [request.content mutableCopy];
-    IMPushSender *sender = [IMPushSender senderFromUserInfo:request.content.userInfo];
+    // 通话提醒（PUSH_M5_DESIGN §3.8）原样放行：来电横幅等不起头像下载，也不是一条消息、不该改成消息样式。
+    // 新服务端已不给通话提醒带 mutable-content，这里兜住旧服务端。
+    id callID = request.content.userInfo[@"call_id"];
+    BOOL isCall = [callID isKindOfClass:NSString.class] && [(NSString *)callID length] > 0;
+    IMPushSender *sender = isCall ? nil : [IMPushSender senderFromUserInfo:request.content.userInfo];
     if (sender == nil) {
         [self finishWith:self.original];
         return;

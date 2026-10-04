@@ -30,7 +30,15 @@ void IMPushCallRegisterCategory(void) {
                                                                               actions:@[reject, accept]
                                                                     intentIdentifiers:@[]
                                                                               options:UNNotificationCategoryOptionNone];
-    [UNUserNotificationCenter.currentNotificationCenter setNotificationCategories:[NSSet setWithObject:category]];
+    // set 会整组覆盖：先取已有的，换掉同名那个再写回，别把别处注册的类别冲掉。
+    UNUserNotificationCenter *center = UNUserNotificationCenter.currentNotificationCenter;
+    [center getNotificationCategoriesWithCompletionHandler:^(NSSet<UNNotificationCategory *> *existing) {
+        NSMutableSet<UNNotificationCategory *> *merged = [NSMutableSet setWithObject:category];
+        for (UNNotificationCategory *c in existing) {
+            if (![c.identifier isEqualToString:IMPushCallCategory]) { [merged addObject:c]; }
+        }
+        [center setNotificationCategories:merged];
+    }];
 }
 
 void IMPushCallRemoveDeliveredNotifications(NSString *callID) {
