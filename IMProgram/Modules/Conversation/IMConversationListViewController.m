@@ -59,7 +59,9 @@ static CGFloat const kIMRowLeading = 16;
     UIStackView *_deliveryTimeStack;
     UIImageView *_pin;
     UIImageView *_mute;
-    UILabel *_check;   // 最后一条是我发的 → 时间左侧显示已读/未读勾（IMReadTick，蓝/灰）
+    UILabel *_check;   // 最后一条是我发的 → 预览文字前显示已读/未读勾（IMReadTick，蓝/灰；对齐 Android / Telegram 列表，不挤时间）
+    NSLayoutConstraint *_lastLeadingPlain;      // 预览左缘 = 名称左缘（无勾）
+    NSLayoutConstraint *_lastLeadingAfterCheck; // 预览左缘 = 勾右缘 + 间距（有勾）
     UILabel *_badge;
     UILabel *_superTag; // 「大群」标记（仅超级群，群名右侧；见 SUPERGROUP_DESIGN §9）
     UIView *_dot;      // 手动"标未读"小圆点（无未读数时显示，M4.5）
@@ -161,14 +163,14 @@ static CGFloat const kIMRowLeading = 16;
 
         _check = [UILabel new];
         _check.translatesAutoresizingMaskIntoConstraints = NO;
-        _check.font = [UIFont systemFontOfSize:13]; // 与 _time 同字号：勾图高 = 字号×0.95，基线与时间齐
+        _check.font = [UIFont systemFontOfSize:15]; // 与预览文字同字号：勾图高 = 字号×0.95，基线与预览齐
         [_check setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
         [_check setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
-        _deliveryTimeStack = [[UIStackView alloc] initWithArrangedSubviews:@[_check, _time]];
+        [self.contentView addSubview:_check];
+        _deliveryTimeStack = [[UIStackView alloc] initWithArrangedSubviews:@[_time]];
         _deliveryTimeStack.translatesAutoresizingMaskIntoConstraints = NO;
         _deliveryTimeStack.axis = UILayoutConstraintAxisHorizontal;
         _deliveryTimeStack.alignment = UIStackViewAlignmentCenter;
-        _deliveryTimeStack.spacing = kIMReadTickGap;
         [self.contentView addSubview:_deliveryTimeStack];
 
         _badge = [UILabel new];
@@ -204,6 +206,9 @@ static CGFloat const kIMRowLeading = 16;
         [_time setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
         _badgeWidth = [_badge.widthAnchor constraintEqualToConstant:0];
 
+        _lastLeadingPlain = [_last.leadingAnchor constraintEqualToAnchor:_nameStateStack.leadingAnchor];
+        _lastLeadingAfterCheck = [_last.leadingAnchor constraintEqualToAnchor:_check.trailingAnchor constant:kIMReadTickGap + 1];
+
         UILayoutGuide *g = self.contentView.layoutMarginsGuide;
         [NSLayoutConstraint activateConstraints:@[
             [_avatar.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:kIMRowLeading],
@@ -218,7 +223,9 @@ static CGFloat const kIMRowLeading = 16;
             [_deliveryTimeStack.trailingAnchor constraintEqualToAnchor:g.trailingAnchor],
             [_deliveryTimeStack.centerYAnchor constraintEqualToAnchor:_nameStateStack.centerYAnchor],
 
-            [_last.leadingAnchor constraintEqualToAnchor:_nameStateStack.leadingAnchor],
+            _lastLeadingPlain,
+            [_check.leadingAnchor constraintEqualToAnchor:_nameStateStack.leadingAnchor],
+            [_check.centerYAnchor constraintEqualToAnchor:_last.centerYAnchor],
             [_last.topAnchor constraintEqualToAnchor:_nameStateStack.bottomAnchor constant:4],
             [_last.trailingAnchor constraintLessThanOrEqualToAnchor:_badge.leadingAnchor constant:-8],
 
@@ -339,6 +346,8 @@ static CGFloat const kIMRowLeading = 16;
     // 已读判定用后端返回的对端已读位点 peer_read_seq（CHAT_UX §8）。群项不显示（无对端位点）。
     BOOL showCheck = !c.isGroup && mine && c.lastContent.length > 0;
     _check.hidden = !showCheck;
+    _lastLeadingPlain.active = !showCheck;       // 先停后启，避免两条同时生效
+    _lastLeadingAfterCheck.active = showCheck;
     if (showCheck) {
         BOOL read = c.latestConvSeq > 0 && c.latestConvSeq <= c.peerReadSeq;
         _check.attributedText = [IMReadTick tickAttributedStringRead:read font:_check.font
