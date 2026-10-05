@@ -36,6 +36,14 @@ static IMSettingsSearchEntry *IMEntry(NSString *entryID, NSArray<NSString *> *pa
     return [IMSettingsSearchEntry entryWithID:entryID title:path.lastObject path:path systemImage:symbol iconBg:bg route:route];
 }
 
+/// 带别名的登记。TODO：别名目前只补中文口径（中文用户习惯搜「声音」，英文页标题已是 Sound），多语言待 strings.json 机制。
+static IMSettingsSearchEntry *IMEntryAliased(NSArray<NSString *> *aliases, NSString *entryID, NSArray<NSString *> *path,
+                                             NSString *symbol, UIColor *bg, NSArray<NSString *> *route) {
+    IMSettingsSearchEntry *e = IMEntry(entryID, path, symbol, bg, route);
+    e.aliases = aliases;
+    return e;
+}
+
 + (NSArray<IMSettingsSearchEntry *> *)allEntries {
     NSString *notif = IMLocalized(@"ios.settings.row.notifications");
     NSString *notifPrivate = IMLocalized(@"notif.type.private_title");
@@ -62,9 +70,9 @@ static IMSettingsSearchEntry *IMEntry(NSString *entryID, NSArray<NSString *> *pa
         // —— 通知：私聊 / 群聊通知页、各自的提示音页 ——
         IMEntry(@"notifications.private", @[notif, notifPrivate], @"person.fill", blue, @[@"notifications", @"notifications/private"]),
         IMEntry(@"notifications.group", @[notif, notifGroup], @"person.2.fill", green, @[@"notifications", @"notifications/group"]),
-        IMEntry(@"notifications.private.sound", @[notif, notifPrivate, sound], @"speaker.wave.2.fill", red,
+        IMEntryAliased(@[@"声音"], @"notifications.private.sound", @[notif, notifPrivate, sound], @"speaker.wave.2.fill", red,
                 @[@"notifications", @"notifications/private", @"notifications/private/sound"]),
-        IMEntry(@"notifications.group.sound", @[notif, notifGroup, sound], @"speaker.wave.2.fill", red,
+        IMEntryAliased(@[@"声音"], @"notifications.group.sound", @[notif, notifGroup, sound], @"speaker.wave.2.fill", red,
                 @[@"notifications", @"notifications/group", @"notifications/group/sound"]),
         // —— 隐私与安全：已屏蔽的用户 / 修改密码（账号保护等占位行不登记）——
         IMEntry(@"privacy.blocked", @[privacy, IMLocalized(@"blocked.title")], @"nosign", red, @[@"privacy", @"privacy/blocked"]),
@@ -84,10 +92,6 @@ static IMSettingsSearchEntry *IMEntry(NSString *entryID, NSArray<NSString *> *pa
                                    @[storage, net[1], cat[1]], cat[2], green,
                                    @[@"storage", netPage, [NSString stringWithFormat:@"%@/%@", netPage, cat[0]]])];
         }
-    }
-    for (IMSettingsSearchEntry *e in out) {
-        // 通知「提示音」页：中文用户习惯搜「声音」，英文页标题已是 Sound，别名只补中文口径
-        if ([e.entryID hasSuffix:@".sound"]) { e.aliases = @[@"声音"]; }
     }
     return out;
 }

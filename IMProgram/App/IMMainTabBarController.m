@@ -2,6 +2,8 @@
 
 #import "IMMainTabBarController.h"
 #import "IMLocalization.h"
+#import "IMLog.h"
+#import "UIViewController+IMToast.h"
 #import "IMConversationListViewController.h"
 #import "IMContactsViewController.h"
 #import "IMSettingsViewController.h"
@@ -78,15 +80,18 @@ static void * const kIMInjectedBarKey = (void *)&kIMInjectedBarKey;
 }
 
 - (void)pushViewController:(UIViewController *)viewController animated:(BOOL)animated {
-    if (self.viewControllers.count > 0) {
-        viewController.hidesBottomBarWhenPushed = YES;
-        // 当前页面的返回项使用图标式系统返回键；iOS 26 会自动呈现独立 Liquid Glass 圆钮。
-        // Minimal 也避免把上一级标题塞进返回按钮，保持截图中的分离式标题栏。
-        viewController.navigationItem.backButtonDisplayMode = UINavigationItemBackButtonDisplayModeMinimal;
-    }
+    if (self.viewControllers.count > 0) { [self applyPushConventions:viewController]; }
     [super pushViewController:viewController animated:animated];
     self.interactivePopGestureRecognizer.enabled = YES;
     [self syncBarForController:self.topViewController];
+}
+
+/// push 约定（push 与整栈替换共用）：非根页隐藏 TabBar、返回键图标式。
+/// 当前页面的返回项使用图标式系统返回键；iOS 26 会自动呈现独立 Liquid Glass 圆钮。
+/// Minimal 也避免把上一级标题塞进返回按钮，保持截图中的分离式标题栏。
+- (void)applyPushConventions:(UIViewController *)viewController {
+    viewController.hidesBottomBarWhenPushed = YES;
+    viewController.navigationItem.backButtonDisplayMode = UINavigationItemBackButtonDisplayModeMinimal;
 }
 
 /// 整栈替换（设置项搜索命中一次性铺好多级页面）也要走与 push 同一套约定：非根页隐藏 TabBar、返回键图标式。
@@ -94,8 +99,7 @@ static void * const kIMInjectedBarKey = (void *)&kIMInjectedBarKey;
 - (void)setViewControllers:(NSArray<UIViewController *> *)viewControllers animated:(BOOL)animated {
     [viewControllers enumerateObjectsUsingBlock:^(UIViewController *vc, NSUInteger idx, BOOL *stop) {
         if (idx == 0) { return; }
-        vc.hidesBottomBarWhenPushed = YES;
-        vc.navigationItem.backButtonDisplayMode = UINavigationItemBackButtonDisplayModeMinimal;
+        [self applyPushConventions:vc];
     }];
     [super setViewControllers:viewControllers animated:animated];
     [self syncBarForController:self.topViewController];
@@ -399,17 +403,34 @@ static void IMCollectTabIcons(UIView *root, NSMutableArray<UIImageView *> *out) 
 /// 铺栈用 setViewControllers: 而不是逐个 push：多级时只有最后一次转场带动画，不会出现连环 push 抢转场。
 - (void)openSettingsSearchEntry:(IMSettingsSearchEntry *)entry fromSearchNavigation:(nullable UINavigationController *)searchNav {
     if (!self.settingsNav || entry.route.count == 0) { return; }
-    [searchNav popToRootViewControllerAnimated:NO]; // 关闭搜索（搜索页是 push 在「消息」nav 上的）
-    self.selectedViewController = self.settingsNav;
-    UIViewController *root = self.settingsNav.viewControllers.firstObject;
     NSArray<UIViewController *> *pages = [IMSettingsRouter viewControllersForRoute:entry.route host:_host userID:_rtcUserID];
-    if (!pages) {
-        // 纯动作行（分享我的名片）：不 push 页面，回到「我」页根后触发该行动作。
-        [self.settingsNav popToRootViewControllerAnimated:NO];
-        [self.settingsVC performEntryWithID:entry.route.lastObject];
+    BOOL isAction = !pages && [IMSettingsRouter isActionRoute:entry.route];
+    if (!pages && !isAction) {
+        // 路由建不出来（登记表与路由表漂移）：不动任何导航状态，留在搜索页并提示。
+        IMLogWarnWithTag(IMLogTagUI, @"settings search: cannot build route entry=%@ route=%@", entry.entryID, [entry.route componentsJoinedByString:@","]);
+        [self presentSettingsOpenFailureOn:searchNav.topViewController ?: self];
         return;
     }
+    UIViewController *root = self.settingsNav.viewControllers.firstObject;
+    if (isAction) {
+        // 纯动作行（分享我的名片）：不 push 页面，回到「我」页根后触发该行动作。
+        // 动作（如弹分享面板）需要「我」页已在前台，所以先切 tab 再触发；动作行找不到时「我」页根是安全落点。
+        [searchNav popToRootViewControllerAnimated:NO];
+        self.selectedViewController = self.settingsNav;
+        [self.settingsNav popToRootViewControllerAnimated:NO];
+        if (![self.settingsVC performEntryWithID:entry.route.lastObject]) {
+            IMLogWarnWithTag(IMLogTagUI, @"settings search: action row not found entry=%@", entry.entryID);
+            [self presentSettingsOpenFailureOn:self.settingsVC ?: self];
+        }
+        return;
+    }
+    [searchNav popToRootViewControllerAnimated:NO]; // 关闭搜索（搜索页是 push 在「消息」nav 上的）
+    self.selectedViewController = self.settingsNav;
     [self.settingsNav setViewControllers:[@[root] arrayByAddingObjectsFromArray:pages] animated:YES];
+}
+
+- (void)presentSettingsOpenFailureOn:(UIViewController *)host {
+    [host im_showToast:IMLocalized(@"common.action_failed")];
 }
 
 /// Tab 角标（通讯录「新的朋友」待处理数）改蓝：系统默认红，三端角标统一蓝（2026-09-15 用户要求）。

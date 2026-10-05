@@ -5,6 +5,16 @@
 #import "IMSettingsSearchRegistry.h"
 #import "IMSettingsRouter.h"
 #import "IMSettingsViewController.h"
+#import "IMMainTabBarController.h"
+#import "IMNotificationSettingsViewController.h"
+#import "IMNotificationTypeViewController.h"
+#import "IMNotificationSoundViewController.h"
+#import "IMPrivacySecurityViewController.h"
+#import "IMBlockedListViewController.h"
+#import "IMChangePasswordViewController.h"
+#import "IMDataStorageViewController.h"
+#import "IMAutoDownloadNetworkViewController.h"
+#import "IMAutoDownloadCategoryViewController.h"
 
 @interface IMSettingsSearchRegistryTests : XCTestCase
 @end
@@ -170,6 +180,54 @@
     XCTAssertTrue([ids containsObject:@"notifications.private.sound"]);
     XCTAssertTrue([ids containsObject:@"notifications.group.sound"]);
     XCTAssertEqual(ids.count, 2u, @"别名只挂在提示音页，不应牵出别的条目");
+}
+
+#pragma mark - 路由与父 VC 构造一致 / 无法构建的路由
+
+/// router 构造的页面类型必须与各父 VC tap push 的一致（见 IMSettingsRouter.m 顶部「重复构造点」清单）。
+- (void)testRouterBuildsSamePageClassesAsParentPushes {
+    NSDictionary<NSString *, Class> *expected = @{
+        @"notifications": IMNotificationSettingsViewController.class,
+        @"notifications/private": IMNotificationTypeViewController.class,
+        @"notifications/group": IMNotificationTypeViewController.class,
+        @"notifications/private/sound": IMNotificationSoundViewController.class,
+        @"notifications/group/sound": IMNotificationSoundViewController.class,
+        @"privacy": IMPrivacySecurityViewController.class,
+        @"privacy/blocked": IMBlockedListViewController.class,
+        @"privacy/changePassword": IMChangePasswordViewController.class,
+        @"storage": IMDataStorageViewController.class,
+        @"storage/cellular": IMAutoDownloadNetworkViewController.class,
+        @"storage/wifi": IMAutoDownloadNetworkViewController.class,
+        @"storage/wifi/video": IMAutoDownloadCategoryViewController.class,
+        @"storage/cellular/file": IMAutoDownloadCategoryViewController.class,
+    };
+    [expected enumerateKeysAndObjectsUsingBlock:^(NSString *pageID, Class cls, BOOL *stop) {
+        NSArray *vcs = [IMSettingsRouter viewControllersForRoute:@[pageID] host:@"h" userID:@"1"];
+        XCTAssertEqual(vcs.count, 1u, @"%@", pageID);
+        XCTAssertTrue([vcs.firstObject isKindOfClass:cls], @"%@ 应建出 %@，实际 %@", pageID, cls, [vcs.firstObject class]);
+    }];
+}
+
+- (void)testActionRouteIsNotBuildableAsPage {
+    XCTAssertTrue([IMSettingsRouter isActionRoute:@[@"shareMyCard"]]);
+    XCTAssertNil([IMSettingsRouter viewControllersForRoute:@[@"shareMyCard"] host:@"h" userID:@"1"]);
+    XCTAssertFalse([IMSettingsRouter isActionRoute:@[@"nope"]]);
+    NSArray<NSString *> *multi = @[@"notifications", @"shareMyCard"];
+    XCTAssertFalse([IMSettingsRouter isActionRoute:multi]);
+}
+
+/// 无法构建的路由：不崩、不动导航状态（留在原 tab 与搜索页），而不是关掉搜索页却什么都不开。
+- (void)testUnbuildableRouteLeavesNavigationUntouched {
+    IMMainTabBarController *tab = [[IMMainTabBarController alloc] initWithHost:@"http://127.0.0.1:1" userID:@"1"];
+    [tab loadViewIfNeeded];
+    UIViewController *before = tab.selectedViewController;
+    UINavigationController *searchNav = [[UINavigationController alloc] initWithRootViewController:[UIViewController new]];
+    [searchNav pushViewController:[UIViewController new] animated:NO];
+    IMSettingsSearchEntry *bad = [IMSettingsSearchEntry entryWithID:@"bogus" title:@"Bogus" path:@[@"Bogus"]
+                                                        systemImage:@"x" iconBg:nil route:@[@"no/such/page"]];
+    [tab openSettingsSearchEntry:bad fromSearchNavigation:searchNav]; // 不崩即过第一关
+    XCTAssertEqual(tab.selectedViewController, before, @"建不出页面不应切 tab");
+    XCTAssertEqual(searchNav.viewControllers.count, 2u, @"建不出页面不应关掉搜索页");
 }
 
 @end

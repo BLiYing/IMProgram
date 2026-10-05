@@ -11,6 +11,9 @@ NS_ASSUME_NONNULL_BEGIN
 /// 页面 id 是否被识别（登记表与路由表漂移的护栏，单测用）。
 + (BOOL)canBuildPageID:(NSString *)pageID;
 
+/// route 是否是「纯动作行」（不 push 页面，如 shareMyCard，由「我」页 performEntryWithID: 执行）。
++ (BOOL)isActionRoute:(NSArray<NSString *> *)route;
+
 /// 按 route 逐级建页，返回 push 序列（不含「我」页本身）。含无法建成页面的 id（如纯动作 shareMyCard）或未知 id 时返回 nil。
 + (nullable NSArray<UIViewController *> *)viewControllersForRoute:(NSArray<NSString *> *)route
                                                              host:(NSString *)host userID:(NSString *)userID;
