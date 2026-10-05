@@ -34,6 +34,10 @@ BOOL IMRtcCallPhaseCountsAsInCall(NSInteger kitPhase) {
     return NO; // SDK 以后新增的阶段：宁可多响一声，不可把提醒全部吞掉
 }
 
+BOOL IMRtcHistoryErrorNeedsRelogin(NSError *error) {
+    return error != nil && [error.domain isEqualToString:IMRTCErrorInfo.domain] && error.code == 2007; // notLoggedIn
+}
+
 @implementation IMRtcCall {
     IMCallEngine *_engine;
     IMCallKit *_kit;
@@ -158,6 +162,13 @@ BOOL IMRtcCallPhaseCountsAsInCall(NSInteger kitPhase) {
 - (void)fetchCallHistoryWithLimit:(NSInteger)limit cursor:(NSNumber *)cursor
                        completion:(void (^)(NSArray<IMCallHistoryRecord *> *_Nullable records,
                                              NSNumber *_Nullable nextCursor, NSError *_Nullable error))completion {
+    [self fetchCallHistoryWithLimit:limit cursor:cursor allowRelogin:YES completion:completion];
+}
+
+/// allowRelogin：SDK 报「尚未登录」（启动时那次换票/连信令失败过）时，重新换票登录一次再拉；只重试一次，防死循环。
+- (void)fetchCallHistoryWithLimit:(NSInteger)limit cursor:(NSNumber *)cursor allowRelogin:(BOOL)allowRelogin
+                       completion:(void (^)(NSArray<IMCallHistoryRecord *> *_Nullable records,
+                                             NSNumber *_Nullable nextCursor, NSError *_Nullable error))completion {
     if (!_engine) {
         completion(nil, nil, [NSError errorWithDomain:@"IMRtcCall" code:-1
                                               userInfo:@{ NSLocalizedDescriptionKey: [self unavailableReason] ?: @"通话未启动" }]);
@@ -176,10 +187,38 @@ BOOL IMRtcCallPhaseCountsAsInCall(NSInteger kitPhase) {
                                                   userInfo:@{ NSLocalizedDescriptionKey: @"通话服务已重启，本次查询作废" }]);
             return;
         }
-        if (error) { completion(nil, nil, error); return; }
+        if (error) {
+            IMLogWarnWithTag(IMLogTagRTC, @"call_history_fetch_failed domain=%@ code=%ld %@",
+                             error.domain, (long)error.code, error.localizedDescription ?: @"-");
+            if (allowRelogin && IMRtcHistoryErrorNeedsRelogin(error)) {
+                [self reloginThen:^(BOOL ok) {
+                    if (!ok) { completion(nil, nil, error); return; }
+                    [self fetchCallHistoryWithLimit:limit cursor:cursor allowRelogin:NO completion:completion];
+                }];
+                return;
+            }
+            completion(nil, nil, error);
+            return;
+        }
         NSMutableArray<IMCallHistoryRecord *> *records = [NSMutableArray arrayWithCapacity:dicts.count];
         for (NSDictionary *d in dicts) { [records addObject:[IMRtcCall historyRecordFromDictionary:d]]; }
         completion(records, nextCursor, nil);
+    }];
+}
+
+/// 重新换票并登录当前引擎（启动时登录失败过的补救）。回调恒在主线程；引擎已被换代则判失败。
+- (void)reloginThen:(void (^)(BOOL ok))done {
+    NSUInteger gen = _generation;
+    IMLogWithTag(IMLogTagRTC, @"rtc_relogin_for_history");
+    [self signTokenWithCompletion:^(NSString *token) {
+        if (gen != self->_generation || token.length == 0) { done(NO); return; }
+        [self->_engine login:token completionHandler:^(NSError *_Nullable error) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (gen != self->_generation) { done(NO); return; }
+                if (error) { IMLogWarnWithTag(IMLogTagRTC, @"rtc_relogin_failed code=%ld %@", (long)error.code, error.localizedDescription ?: @"-"); }
+                done(error == nil);
+            });
+        }];
     }];
 }
 
