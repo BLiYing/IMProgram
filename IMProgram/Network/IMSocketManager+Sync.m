@@ -44,6 +44,7 @@
 /// 只是每事务多一次 im_conversation_local 主键 UPDATE，纳秒级。
 - (void)handleSyncResp:(NSDictionary *)data {
     NSArray *convs = [data[@"conversations"] isKindOfClass:[NSArray class]] ? data[@"conversations"] : @[];
+    NSMutableArray<NSDictionary *> *tooLongBumps = [NSMutableArray array];
     for (NSDictionary *conv in convs) {
         if (![conv isKindOfClass:[NSDictionary class]]) { continue; }
         NSString *convID = conv[@"conv_id"];
@@ -65,6 +66,7 @@
             [_backlog markGapForConv:convID];
             IMLogSocket(@"sync_backlog_too_long conv=%@ since=%lld head=%lld",
                         convID, [self syncedSeqForConv:convID], head);
+            if (head > 0) { [tooLongBumps addObject:@{ @"conv_id": convID, @"latest_seq": @(head) }]; }
             continue;
         }
         int64_t pageStart = [self syncedSeqForConv:convID];
@@ -151,6 +153,17 @@
             __strong typeof(weakSelf) self = weakSelf;
             if (!self) { return; }
             [self sendSyncReqForConvs:@[convID]]; // 到点重试；仍失败会再次退避，节奏 6 次/分钟
+        });
+    }
+    // too_long 的会话一条正文都没下发，head 却涨了：与超级群 conv_bump 同一种「只知道最新到哪」的信号，
+    // 走同一个通知让**正开着且贴底**的聊天页补最新一页（IMChatViewController onConvBump）。
+    // 不发的话：聊天页停在前台→切后台→对方来消息→回前台，重连 sync 判 too_long，这条既不上屏也不报已读，
+    // 对方一直停在单勾，要等用户点 ↓（2026-10-05 模拟器 ↔ Web 联调实测）。
+    if (tooLongBumps.count > 0) {
+        NSArray *items = [tooLongBumps copy];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidReceiveConvBumpNotification
+                                                              object:self userInfo:@{ @"items": items }];
         });
     }
 }

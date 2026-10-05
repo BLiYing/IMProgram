@@ -308,6 +308,8 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (void)runAfterKeyboardHidden:(void (^)(void))block;
 - (void)scrollToBottomAnimated:(BOOL)animated;
 - (void)markVisibleRowsRead;
+/// 回到前台：贴底跟随中则先补一次贴底（后台期间到的消息贴底没生效），再补扫可见即读。
+- (void)onAppDidBecomeActive;
 - (void)flushReadPosition;               // +Position.m；主实现 viewWillDisappear 退出前同步落已读（节流窗口未到也保证不丢）
 - (void)positionInitialIfNeeded;
 - (void)anchorRowToTop:(NSInteger)row;   // +Position.m；主实现 viewDidAppear 落定校正也调

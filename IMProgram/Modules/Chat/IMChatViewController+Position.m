@@ -67,9 +67,20 @@
 
 /// 可见即读（CHAT_UX §6 完整语义）：扫描当前在视口内的行，取其最大 conv_seq；
 /// 若超过已滚入位点则记录并节流上报（read_seq 单调推进，对端据此显示已读双勾、列表未读递减）。
+- (void)onAppDidBecomeActive {
+    // 后台期间收到的消息虽已尾插，但那次 scrollToBottom 在后台没落到位：新消息停在可视区下沿之外，
+    // 而距底仍在 isNearBottom 阈值内（所以 ↓ 也不出）——只补扫不贴底，它既不显示也不报已读
+    // （2026-10-05 模拟器联调：滑一下才报）。跟随中（窗口在末尾且贴底）才贴，看历史时不拽人。
+    if (self.windowState.atTail && [self isNearBottom]) { [self scrollToAbsoluteBottom]; }
+    [self markVisibleRowsRead];
+}
+
 - (void)markVisibleRowsRead {
     int64_t maxSeq = IMChatMaxSeqOfRows(self.windowState.messages, self.tableView.indexPathsForVisibleRows);
-    if (maxSeq > self.pendingReadSeq) {
+    // App 不在前台不算读过：后台期间 socket 仍连着时实时消息照样走到这里，会替用户报已读、对方误见 ✓✓
+    // （2026-10-05 模拟器联调实测）。回到前台由 onAppDidBecomeActive 再扫一次补报。
+    BOOL active = UIApplication.sharedApplication.applicationState == UIApplicationStateActive;
+    if (active && maxSeq > self.pendingReadSeq) {
         self.pendingReadSeq = maxSeq;
         [self scheduleReadFlush]; // 节流：0.3s 窗口内至多发一条 receipt，避免每像素一条
     }
