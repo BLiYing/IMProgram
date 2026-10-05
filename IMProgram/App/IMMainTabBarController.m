@@ -5,7 +5,8 @@
 #import "IMConversationListViewController.h"
 #import "IMContactsViewController.h"
 #import "IMSettingsViewController.h"
-#import "IMUserSearchViewController.h"
+#import "IMSettingsSearchRegistry.h"
+#import "IMSettingsRouter.h"
 #import "IMProgram-Swift.h"
 #import "IMChatDetailViewController.h"
 #import "IMGlobalSearchViewController.h"
@@ -85,6 +86,18 @@ static void * const kIMInjectedBarKey = (void *)&kIMInjectedBarKey;
     }
     [super pushViewController:viewController animated:animated];
     self.interactivePopGestureRecognizer.enabled = YES;
+    [self syncBarForController:self.topViewController];
+}
+
+/// 整栈替换（设置项搜索命中一次性铺好多级页面）也要走与 push 同一套约定：非根页隐藏 TabBar、返回键图标式。
+/// 否则绕过 `pushViewController:` 的页面会带着底栏、返回键显示上一级标题。
+- (void)setViewControllers:(NSArray<UIViewController *> *)viewControllers animated:(BOOL)animated {
+    [viewControllers enumerateObjectsUsingBlock:^(UIViewController *vc, NSUInteger idx, BOOL *stop) {
+        if (idx == 0) { return; }
+        vc.hidesBottomBarWhenPushed = YES;
+        vc.navigationItem.backButtonDisplayMode = UINavigationItemBackButtonDisplayModeMinimal;
+    }];
+    [super setViewControllers:viewControllers animated:animated];
     [self syncBarForController:self.topViewController];
 }
 
@@ -296,11 +309,10 @@ static void IMCollectTabIcons(UIView *root, NSMutableArray<UIImageView *> *out) 
     }
 }
 
-@interface IMMainTabBarController () <UITabBarControllerDelegate>
+@interface IMMainTabBarController ()
 @property (nonatomic, weak) UINavigationController *conversationsNav;
 @property (nonatomic, weak) UINavigationController *contactsNav;
 @property (nonatomic, weak) UINavigationController *settingsNav;
-@property (nonatomic, weak) UINavigationController *searchNav;
 @property (nonatomic, weak) IMSettingsViewController *settingsVC;
 @end
 
@@ -357,15 +369,6 @@ static void IMCollectTabIcons(UIView *root, NSMutableArray<UIImageView *> *out) 
                                                                image:[UIImage systemImageNamed:@"person.crop.circle"]
                                                                  tag:2];
 
-        // 底部「搜索」tab = 全局搜索（会话/联系人/聊天记录 + 搜索用户，与首页搜索一致，SEARCH_DESIGN §3.0）。
-        // 原「找人」页降为其中的「搜索用户「x」」次要入口（IMGlobalSearchViewController 内下钻）。
-        IMGlobalSearchViewController *search = [[IMGlobalSearchViewController alloc] initWithHost:host userID:userID];
-        UINavigationController *searchNav = [[IMMainNavigationController alloc] initWithRootViewController:search];
-        _searchNav = searchNav;
-        [self wireScopedSearch:search];
-        self.delegate = self;
-        searchNav.tabBarItem = [[UITabBarItem alloc] initWithTabBarSystemItem:UITabBarSystemItemSearch tag:3];
-
         if (@available(iOS 18.0, *)) {
             self.mode = UITabBarControllerModeTabBar;
             UITab *convTab = [[UITab alloc] initWithTitle:IMLocalized(@"ios.tab.messages") image:[UIImage systemImageNamed:@"bubble.left.and.bubble.right"]
@@ -377,58 +380,36 @@ static void IMCollectTabIcons(UIView *root, NSMutableArray<UIImageView *> *out) 
             UITab *settingsTab = [[UITab alloc] initWithTitle:IMLocalized(@"ios.tab.me") image:[UIImage systemImageNamed:@"person.crop.circle"]
                                                    identifier:@"im.tab.settings"
                                        viewControllerProvider:^UIViewController *(UITab *tab) { return settingsNav; }];
-            UITab *searchTab = [[UITab alloc] initWithTitle:IMLocalized(@"ios.tab.search") image:[UIImage systemImageNamed:@"magnifyingglass"]
-                                                 identifier:@"im.tab.search"
-                                     viewControllerProvider:^UIViewController *(UITab *tab) { return searchNav; }];
-            searchTab.preferredPlacement = UITabPlacementPinned; // iOS 26：右侧独立 Glass 搜索圆钮
-            self.tabs = @[convTab, contactsTab, settingsTab, searchTab];
+            self.tabs = @[convTab, contactsTab, settingsTab];
             if (@available(iOS 26.0, *)) {
                 self.tabBarMinimizeBehavior = UITabBarMinimizeBehaviorNever;
             }
         } else {
-            self.viewControllers = @[convNav, contactsNav, settingsNav, searchNav];
+            self.viewControllers = @[convNav, contactsNav, settingsNav];
         }
         [self applyUnreadBadgeColor];
     }
     return self;
 }
 
-#pragma mark - 搜索按来源 tab 分域
+#pragma mark - 设置项搜索命中 → 「我」tab 逐级打开
 
-/// 「我」范围：数据源取「我」页当前设置项；命中后切到「我」tab、回到根页再触发该行（与点击等价，返回即回「我」页）。
-- (void)wireScopedSearch:(IMGlobalSearchViewController *)search {
-    __weak typeof(self) ws = self;
-    search.settingsEntriesProvider = ^NSArray<IMSettingsSearchEntry *> *{ return ws.settingsVC.searchEntries ?: @[]; };
-    search.settingsEntryOpener = ^(NSString *rowId) {
-        typeof(self) ss = ws;
-        if (!ss || !ss.settingsNav) { return; }
-        ss.selectedViewController = ss.settingsNav;
-        [ss.settingsNav popToRootViewControllerAnimated:NO];
-        [ss.settingsVC performEntryWithID:rowId];
-    };
-}
-
-/// 从哪个 tab 点进「搜索」决定范围：消息=全局（现状）、通讯录=联系人+群聊、我=设置项；搜索 tab 内再点保持不变。
-- (BOOL)tabBarController:(UITabBarController *)tabBarController shouldSelectViewController:(UIViewController *)viewController {
-    [self prepareSearchIfSelecting:viewController];
-    return YES;
-}
-
-/// iOS 18+ 走 UITab 时系统改调这个（不再调上面的 shouldSelectViewController）。
-- (BOOL)tabBarController:(UITabBarController *)tabBarController shouldSelectTab:(UITab *)tab API_AVAILABLE(ios(18.0)) {
-    [self prepareSearchIfSelecting:tab.viewController];
-    return YES;
-}
-
-- (void)prepareSearchIfSelecting:(UIViewController *)viewController {
-    if (viewController != self.searchNav) { return; }
-    UIViewController *from = self.selectedViewController;
-    IMGlobalSearchViewController *search = (IMGlobalSearchViewController *)self.searchNav.viewControllers.firstObject;
-    if (![search isKindOfClass:IMGlobalSearchViewController.class] || from == self.searchNav) { return; }
-    if (from == self.settingsNav) { search.scope = IMSearchScopeMe; }
-    else if (from == self.contactsNav) { search.scope = IMSearchScopeContacts; }
-    else { search.scope = IMSearchScopeMessages; }
-    [self.searchNav popToRootViewControllerAnimated:NO];
+/// 首页全局搜索命中「设置」项：关闭搜索 → 切到「我」tab → 按 route 一次性铺好 push 栈（等同用户手点进去）。
+/// 返回键逐级回到「我」页上一级，不会回到搜索页（搜索页已随 popToRoot 出栈）。
+/// 铺栈用 setViewControllers: 而不是逐个 push：多级时只有最后一次转场带动画，不会出现连环 push 抢转场。
+- (void)openSettingsSearchEntry:(IMSettingsSearchEntry *)entry fromSearchNavigation:(nullable UINavigationController *)searchNav {
+    if (!self.settingsNav || entry.route.count == 0) { return; }
+    [searchNav popToRootViewControllerAnimated:NO]; // 关闭搜索（搜索页是 push 在「消息」nav 上的）
+    self.selectedViewController = self.settingsNav;
+    UIViewController *root = self.settingsNav.viewControllers.firstObject;
+    NSArray<UIViewController *> *pages = [IMSettingsRouter viewControllersForRoute:entry.route host:_host userID:_rtcUserID];
+    if (!pages) {
+        // 纯动作行（分享我的名片）：不 push 页面，回到「我」页根后触发该行动作。
+        [self.settingsNav popToRootViewControllerAnimated:NO];
+        [self.settingsVC performEntryWithID:entry.route.lastObject];
+        return;
+    }
+    [self.settingsNav setViewControllers:[@[root] arrayByAddingObjectsFromArray:pages] animated:YES];
 }
 
 /// Tab 角标（通讯录「新的朋友」待处理数）改蓝：系统默认红，三端角标统一蓝（2026-09-15 用户要求）。

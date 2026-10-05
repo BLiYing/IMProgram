@@ -581,23 +581,19 @@
     self.groups = @[groupA, groupB, groupC];
 }
 
-#pragma mark - 搜索（底部搜索 tab 的「我」范围）
+#pragma mark - 设置项搜索（登记表在 IMSettingsSearchRegistry，本页只提供对账与纯动作行触发）
 
-- (NSArray<IMSettingsSearchEntry *> *)searchEntries {
+- (NSArray<NSString *> *)nonDestructiveRowIDs {
     [self loadViewIfNeeded]; // 「我」tab 懒加载：没进过时 groups 还没建
-    NSMutableArray<IMSettingsSearchEntry *> *out = [NSMutableArray array];
+    NSMutableArray<NSString *> *ids = [NSMutableArray array];
     for (NSArray<IMSettingsRow *> *g in self.groups) {
-        for (IMSettingsRow *r in g) {
-            if (r.destructive) { continue; } // 退出登录不进搜索，避免误触
-            IMSettingsSearchEntry *e = [IMSettingsSearchEntry entryWithId:r.rowId title:r.title systemImage:r.systemImage];
-            e.iconBgColor = r.iconBgColor ?: IMTheme.accent; // 与 IMSettingsCell 同口径
-            [out addObject:e];
-        }
+        for (IMSettingsRow *r in g) { if (!r.destructive) { [ids addObject:r.rowId]; } }
     }
-    return out;
+    return ids;
 }
 
 - (BOOL)performEntryWithID:(NSString *)rowId {
+    [self loadViewIfNeeded];
     for (NSArray<IMSettingsRow *> *g in self.groups) {
         for (IMSettingsRow *r in g) {
             if ([r.rowId isEqualToString:rowId] && !r.destructive && r.handler) { r.handler(); return YES; }

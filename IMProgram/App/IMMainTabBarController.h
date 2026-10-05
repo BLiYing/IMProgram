@@ -1,7 +1,9 @@
 //  IMMainTabBarController.h
-//  登录后的主界面骨架：底部 Tab（消息 / 通讯录 / 我 / 搜索）。
+//  登录后的主界面骨架：底部 Tab（消息 / 通讯录 / 我，共 3 个；搜索入口收敛见 SEARCH_DESIGN §3.1）。
 
 #import <UIKit/UIKit.h>
+
+@class IMSettingsSearchEntry;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -12,6 +14,9 @@ NS_ASSUME_NONNULL_BEGIN
 /// 底栏「消息」Tab 的未读小蓝点（只表「有」，8pt，与 Android `BottomBar` / Web `.tab-dot` 同尺寸）。
 /// 不用 `badgeValue = @""`：系统空角标画出来是一颗大圆且尺寸不可调（2026-09-15 用户报「太大」）。
 - (void)setConversationsTabDotVisible:(BOOL)visible;
+
+/// 首页全局搜索命中「设置」项：关闭搜索（pop searchNav 到根）→ 切到「我」tab → 逐级 push 到目标页。
+- (void)openSettingsSearchEntry:(IMSettingsSearchEntry *)entry fromSearchNavigation:(nullable UINavigationController *)searchNav;
 
 @end
 

@@ -8,6 +8,7 @@
 #import "IMConversation.h"
 #import "IMGroupInfo.h"
 #import "IMScopedSearch.h"
+#import "IMSettingsSearchRegistry.h"
 #import "IMUserCard.h"
 #import "IMMessageModel.h"
 #import "IMChatViewController.h"
@@ -23,7 +24,7 @@ typedef NS_ENUM(NSInteger, IMSearchGroup) {
     IMSearchGroupConversation = 0,
     IMSearchGroupContact,
     IMSearchGroupRecord,
-    IMSearchGroupSetting,  // 「我」范围：设置项
+    IMSearchGroupSetting,  // 设置项（消息范围，排在聊天记录之后、搜索用户之前）
     IMSearchGroupGroup,    // 「通讯录」范围：群聊
     IMSearchGroupUser,   // 「搜索用户「x」」：下钻在线找人（uid/手机号精确、加好友）——把原找人页收成一个次要入口
 };
@@ -34,13 +35,13 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
 
 @interface IMSearchResultCell : UITableViewCell
 @property (nonatomic, strong) UILabel *avatarLabel;
-@property (nonatomic, strong) UIView *iconTile;        ///< 「我」页设置项命中行：彩色圆角底 + 白色 SF Symbol（与「我」页行同款）
+@property (nonatomic, strong) UIView *iconTile;        ///< 设置项命中行：30pt 彩色圆角底 + 白色 SF Symbol（与「我」页行同款）
 @property (nonatomic, strong) UIImageView *iconView;
 @property (nonatomic, strong) UILabel *titleLabel;
 @property (nonatomic, strong) UILabel *subtitleLabel;
 - (void)configureAvatarURL:(nullable NSString *)avatarURL seed:(NSString *)seed displayName:(NSString *)name
                      title:(NSString *)title subtitle:(nullable NSString *)subtitle keyword:(nullable NSString *)keyword;
-/// 设置项命中行：用「我」页同款图标（SF Symbol + 底色）代替首字彩色圆。
+/// 设置项命中行：用「我」页同款图标（SF Symbol + 底色）代替首字彩色圆；副标题 =「A › B」路径，命中词高亮。
 - (void)configureSettingEntry:(IMSettingsSearchEntry *)entry keyword:(nullable NSString *)keyword;
 @end
 
@@ -69,7 +70,7 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
 
         _iconTile = [UIView new];
         _iconTile.translatesAutoresizingMaskIntoConstraints = NO;
-        _iconTile.layer.cornerRadius = 8;
+        _iconTile.layer.cornerRadius = 7;  // 与「我」页行图标同规格（30pt / 7 / 字形 18）
         _iconTile.layer.masksToBounds = YES;
         _iconTile.hidden = YES;
         _iconView = [UIImageView new];
@@ -89,12 +90,12 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
             [_avatarLabel.heightAnchor constraintEqualToConstant:44],
             [_iconTile.centerXAnchor constraintEqualToAnchor:_avatarLabel.centerXAnchor],
             [_iconTile.centerYAnchor constraintEqualToAnchor:_avatarLabel.centerYAnchor],
-            [_iconTile.widthAnchor constraintEqualToConstant:36],
-            [_iconTile.heightAnchor constraintEqualToConstant:36],
+            [_iconTile.widthAnchor constraintEqualToConstant:30],
+            [_iconTile.heightAnchor constraintEqualToConstant:30],
             [_iconView.centerXAnchor constraintEqualToAnchor:_iconTile.centerXAnchor],
             [_iconView.centerYAnchor constraintEqualToAnchor:_iconTile.centerYAnchor],
-            [_iconView.widthAnchor constraintEqualToConstant:22],
-            [_iconView.heightAnchor constraintEqualToConstant:22],
+            [_iconView.widthAnchor constraintEqualToConstant:18],
+            [_iconView.heightAnchor constraintEqualToConstant:18],
             [_titleLabel.leadingAnchor constraintEqualToAnchor:_avatarLabel.trailingAnchor constant:12],
             [_titleLabel.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-16],
             [_titleLabel.topAnchor constraintEqualToAnchor:self.contentView.centerYAnchor constant:-18],
@@ -120,16 +121,16 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
 
 - (void)configureSettingEntry:(IMSettingsSearchEntry *)entry keyword:(NSString *)keyword {
     if (entry.systemImage.length == 0) { // 无图标的行退回首字圆
-        [self configureAvatarURL:nil seed:entry.rowId displayName:entry.title title:entry.title subtitle:nil keyword:keyword];
+        [self configureAvatarURL:nil seed:entry.entryID displayName:entry.title title:entry.title subtitle:entry.subtitle keyword:keyword];
         return;
     }
     self.avatarLabel.hidden = YES;
     self.iconTile.hidden = NO;
-    self.iconTile.backgroundColor = entry.iconBgColor ?: IMTheme.accent;
+    self.iconTile.backgroundColor = entry.iconBg ?: IMTheme.accent; // 与 IMSettingsCell 同口径
     self.iconView.image = [UIImage systemImageNamed:entry.systemImage];
     self.titleLabel.attributedText = IMSearchHighlighted(entry.title, keyword, self.titleLabel.font, IMTheme.textPrimary);
-    self.subtitleLabel.attributedText = nil;
-    self.subtitleLabel.hidden = YES;
+    self.subtitleLabel.attributedText = IMSearchHighlighted(entry.subtitle, keyword, self.subtitleLabel.font, IMTheme.textSecondary);
+    self.subtitleLabel.hidden = NO;
 }
 
 @end
@@ -170,10 +171,11 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
     NSArray<IMConversation *> *_convHits;
     NSArray<IMUserCard *> *_friendHits;
     NSArray<IMGroupInfo *> *_groupHits;
+    NSArray<IMSettingsSearchEntry *> *_allSettingEntries;   // 设置项登记表快照（viewWillAppear 现取，切语言后是新文案）
     NSArray<IMSettingsSearchEntry *> *_settingHits;
     IMLiquidNavigationBar *_bar;
     NSArray<NSDictionary *> *_recordGroups;  // 聊天记录命中（**不聚合**，一条命中一行）：{convID,conv,title,snippet,seq}
-    NSArray<NSNumber *> *_sections;            // 非空分组，按 会话/联系人/聊天记录 顺序
+    NSArray<NSNumber *> *_sections;            // 非空分组，按 会话/联系人/聊天记录/设置/搜索用户 顺序
 }
 
 - (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID {
@@ -183,6 +185,7 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
         _allFriends = [IMDatabase.sharedDatabase cachedFriends] ?: @[];
         _allGroups = [IMDatabase.sharedDatabase cachedGroups] ?: @[];
         _convHits = @[]; _friendHits = @[]; _recordGroups = @[]; _sections = @[]; _groupHits = @[]; _settingHits = @[];
+        _allSettingEntries = [IMSettingsSearchRegistry allEntries];
     }
     return self;
 }
@@ -272,7 +275,6 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
 
 - (NSString *)placeholderForScope {
     switch (_scope) {
-        case IMSearchScopeMe:       return IMLocalized(@"search.me.placeholder");
         case IMSearchScopeContacts: return IMLocalized(@"search.contacts.placeholder");
         case IMSearchScopeMessages: break;
     }
@@ -291,7 +293,8 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
-    // 每次出现重读会话/好友快照（作底部搜索 tab 根页长驻，切走再回来数据要最新；也顺带解决快照陈旧）。
+    // 每次出现重读会话/好友快照（从聊天页返回时数据要最新）；设置项登记表也重取，切语言后文案才是新的。
+    _allSettingEntries = [IMSettingsSearchRegistry allEntries];
     _allConversations = [IMDatabase.sharedDatabase cachedConversations] ?: @[];
     _allFriends = [IMDatabase.sharedDatabase cachedFriends] ?: @[];
     _allGroups = [IMDatabase.sharedDatabase cachedGroups] ?: @[];
@@ -346,7 +349,7 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
 #pragma mark - IMLiquidNavigationBarDelegate
 
 - (void)searchFieldChanged { [self recomputeForKeyword:(_searchField.text ?: @"")]; }
-// 「取消」：作为**独立页**（会话列表下钻）→ pop 返回；作为**底部搜索 tab 根页**（无处可退）→ 清空+收键盘。
+// 「取消」：作为 push 页 → pop 返回；万一是根页（无处可退）→ 清空+收键盘。
 - (void)liquidNavigationBarDidTapAction:(IMLiquidNavigationBar *)bar { [self cancelTapped]; }
 - (void)liquidNavigationBarDidTapLeft:(IMLiquidNavigationBar *)bar { [self cancelTapped]; }
 - (void)liquidNavigationBarDidTapBack:(IMLiquidNavigationBar *)bar { [self cancelTapped]; }
@@ -372,11 +375,6 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
     _keyword = [kw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     if (_keyword.length == 0) {
         _convHits = @[]; _friendHits = @[]; _recordGroups = @[]; _sections = @[]; _groupHits = @[]; _settingHits = @[];
-        [self reloadSectionsAndTable];
-        return;
-    }
-    if (_scope == IMSearchScopeMe) {
-        _settingHits = IMSettingsSearchFilter(self.settingsEntriesProvider ? self.settingsEntriesProvider() : @[], _keyword);
         [self reloadSectionsAndTable];
         return;
     }
@@ -424,6 +422,9 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
     }
     _recordGroups = hits;
 
+    // 设置：显式登记表（IMSettingsSearchRegistry）按 title+路径子串匹配，title 命中排前。
+    _settingHits = [IMSettingsSearchRegistry filterEntries:_allSettingEntries keyword:_keyword];
+
     [self reloadSectionsAndTable];
 }
 
@@ -448,11 +449,7 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
     NSMutableArray<NSNumber *> *secs = [NSMutableArray array];
     BOOL hasKeyword = _keyword.length > 0;
     _emptyLabel.hidden = YES;
-    if (_scope == IMSearchScopeMe) {
-        if (_settingHits.count > 0) { [secs addObject:@(IMSearchGroupSetting)]; }
-        _emptyLabel.text = IMLocalized(@"search.me.empty");
-        _emptyLabel.hidden = !(hasKeyword && _settingHits.count == 0);   // 我范围无「找人」入口
-    } else if (_scope == IMSearchScopeContacts) {
+    if (_scope == IMSearchScopeContacts) {
         if (_friendHits.count > 0) { [secs addObject:@(IMSearchGroupContact)]; }
         if (_groupHits.count > 0) { [secs addObject:@(IMSearchGroupGroup)]; }
         // 本地联系人 + 群聊都没命中时，复用「搜索用户」入口按账号找陌生人。
@@ -461,6 +458,7 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
         if (_convHits.count > 0) { [secs addObject:@(IMSearchGroupConversation)]; }
         if (_friendHits.count > 0) { [secs addObject:@(IMSearchGroupContact)]; }
         if (_recordGroups.count > 0) { [secs addObject:@(IMSearchGroupRecord)]; }
+        if (_settingHits.count > 0) { [secs addObject:@(IMSearchGroupSetting)]; }   // 仅有命中时出现
         // 有关键词就恒显「搜索用户「x」」入口（在线找人/加好友）——本地无匹配时它就是唯一结果，替代原找人页。
         if (hasKeyword) { [secs addObject:@(IMSearchGroupUser)]; }
     }
@@ -571,7 +569,7 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
             break;
         }
         case IMSearchGroupSetting: {
-            if (self.settingsEntryOpener) { self.settingsEntryOpener(_settingHits[(NSUInteger)ip.row].rowId); }
+            [self openSettingEntry:_settingHits[(NSUInteger)ip.row]];
             break;
         }
         case IMSearchGroupGroup: [self openGroup:_groupHits[(NSUInteger)ip.row]]; break;
@@ -581,6 +579,14 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
             break;
         }
     }
+}
+
+/// 设置项命中：交给主容器关闭搜索 → 切「我」tab → 逐级打开。本页是 push 在「消息」nav 上的，由容器 popToRoot 收掉。
+- (void)openSettingEntry:(IMSettingsSearchEntry *)entry {
+    UITabBarController *tab = self.tabBarController;
+    if (![tab isKindOfClass:IMMainTabBarController.class]) { return; }
+    [_searchField resignFirstResponder];
+    [(IMMainTabBarController *)tab openSettingsSearchEntry:entry fromSearchNavigation:self.navigationController];
 }
 
 /// 打开群聊：有会话行就走会话（带上已读位点/未读数），没有（没发过言的群）就按零位点进。

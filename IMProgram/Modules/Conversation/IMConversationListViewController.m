@@ -33,6 +33,7 @@
 #import "IMLog.h"
 #import "IMUserSearchViewController.h"
 #import "IMGlobalSearchViewController.h"
+#import "IMSearchEntryHeader.h"
 #import "IMGroupCreateViewController.h"
 #import "IMGroupInfo.h"
 #import "IMNavigationButton.h"
@@ -532,29 +533,8 @@ static CGFloat const kIMRowLeading = 16;
     // 顶部搜索入口：**规格与 IMLiquidNavigationBar searchMode（全局搜索页/会话内搜索）完全一致**——
     // 44pt 玻璃胶囊（IMGlassEffect + kIMSearchFieldCornerRadius=24 continuous）+ 放大镜 + 占位文字。
     // 它只是入口（点击 push 三分组结果页），不承载输入——曾用系统 UISearchBar（字段高 36/灰底），
-    // 与搜索页 44pt 玻璃胶囊肉眼不一致（2026-08-21 换自绘胶囊统一）。tableHeaderView 走 frame 布局。
-    UIView *searchHeader = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 56)];
-    UIVisualEffectView *capsule = IMGlassEffectView(NO);
-    capsule.frame = CGRectMake(16, 6, self.view.bounds.size.width - 32, 44);
-    capsule.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    capsule.layer.cornerRadius = kIMSearchFieldCornerRadius;
-    capsule.layer.cornerCurve = kCACornerCurveContinuous;
-    capsule.clipsToBounds = YES;
-    UIImageView *mag = [[UIImageView alloc] initWithImage:
-        [UIImage systemImageNamed:@"magnifyingglass"
-                withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:15 weight:UIImageSymbolWeightMedium]]];
-    mag.tintColor = IMTheme.textSecondary;
-    mag.frame = CGRectMake(14, 13, 18, 18);
-    [capsule.contentView addSubview:mag];
-    UILabel *ph = [UILabel new];
-    ph.text = IMLocalized(@"common.search");
-    ph.font = [UIFont systemFontOfSize:17];          // 同 searchMode 输入框字号
-    ph.textColor = IMTheme.textSecondary;             // 同占位色
-    ph.frame = CGRectMake(38, 0, 200, 44);
-    [capsule.contentView addSubview:ph];
-    [searchHeader addSubview:capsule];
-    UITapGestureRecognizer *searchTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(searchEntryTapped)];
-    [searchHeader addGestureRecognizer:searchTap];
+    // 与搜索页 44pt 玻璃胶囊肉眼不一致（2026-08-21 换自绘胶囊统一）。造法抽到 IMSearchEntryHeader（通讯录页共用）。
+    UIView *searchHeader = IMMakeSearchEntryHeader(self.view.bounds.size.width, IMLocalized(@"common.search"), self, @selector(searchEntryTapped));
     self.tableView.tableHeaderView = searchHeader;
     [self.view addSubview:self.tableView];
 

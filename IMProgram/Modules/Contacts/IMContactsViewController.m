@@ -3,6 +3,8 @@
 #import "IMContactsViewController.h"
 #import "IMLocalization.h"
 #import "IMUserSearchViewController.h"
+#import "IMGlobalSearchViewController.h"
+#import "IMSearchEntryHeader.h"
 #import "IMGroupListViewController.h"
 #import "IMFriendRequestListViewController.h"
 #import "IMContactCells.h"
@@ -225,6 +227,9 @@ BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt
     self.tableView.rowHeight = 68;
     [self.tableView registerClass:IMContactCell.class forCellReuseIdentifier:@"friend"];
     [self.tableView registerClass:IMContactEntryCell.class forCellReuseIdentifier:@"entry"];
+    // 页顶点按式搜索框（SEARCH_DESIGN §3.1）：只是入口，点击 push 全局搜索页、范围=联系人+群聊。
+    self.tableView.tableHeaderView = IMMakeSearchEntryHeader(self.view.bounds.size.width, IMLocalized(@"search.contacts.placeholder"),
+                                                             self, @selector(searchEntryTapped));
     [self.view addSubview:self.tableView];
 
     // 空态文案挂 tableView 的**表尾**，不再居中盖在 self.view 上：顶部入口区是 4 行 68pt 的
@@ -237,6 +242,12 @@ BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt
     self.emptyLabel.numberOfLines = 0;
     self.emptyFooter = [UIView new];
     [self.emptyFooter addSubview:self.emptyLabel];
+}
+
+- (void)searchEntryTapped {
+    IMGlobalSearchViewController *vc = [[IMGlobalSearchViewController alloc] initWithHost:self.host userID:self.userID];
+    vc.scope = IMSearchScopeContacts;
+    [self.navigationController pushViewController:vc animated:YES];
 }
 
 - (void)viewDidLayoutSubviews {
