@@ -46,7 +46,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) int64_t latestConvSeq;
 @property (nonatomic, assign) int64_t readSeq;         // 本人已读位点（首条未读 = conv_seq > readSeq）
 @property (nonatomic, assign) int64_t peerReadSeq;     // 单聊对端已读位点（判断"我发的最后一条"是否已读；群聊 0）
-@property (nonatomic, assign) int64_t groupReadSeq;    // 群聊全员已读位点=min(其他成员已读位点)；单聊 0。判断群消息是否"全员已读"→绿双勾（非实时，随列表/sync 刷新）
+@property (nonatomic, assign) int64_t groupReadSeq;    // 群聊全员已读位点=min(其他成员已读位点)；单聊 0。判断群消息是否"全员已读"→蓝双勾（随列表刷新 + group_read 帧实时取大）
 @property (nonatomic, assign) int64_t timestamp;       // 最后一条时间（毫秒）
 @property (nonatomic, assign) NSInteger unread;        // 未读数（服务端按覆盖索引精确计，撞上限见 unreadCapped）
 /// 未读数撞到了服务端计数上限 → 真实值 ≥ unread，角标补 `+`（OFFLINE_BACKLOG_DESIGN §6.1）。
@@ -87,5 +87,10 @@ NS_ASSUME_NONNULL_BEGIN
 + (NSArray<IMConversation *> *)conversationsFromArray:(nullable NSArray *)array;
 
 @end
+
+/// 会话列表从服务端刷新后广播**一次**（主线程）：userInfo[kIMGroupReadSeqsKey] = {群 conv_id: 全员已读位点}（只含 >0 的群）。
+/// 已打开的群聊页取自己那一项取大，停在页里也能随列表刷新更新双勾（对齐 Web / Android）。
+FOUNDATION_EXPORT NSString * const IMConversationListDidRefreshGroupReadNotification;
+FOUNDATION_EXPORT NSString * const kIMGroupReadSeqsKey;
 
 NS_ASSUME_NONNULL_END

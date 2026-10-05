@@ -6,9 +6,11 @@
 #import "IMRemarkStore.h"
 #import "IMMessageModel.h"
 #import "IMChatInbound.h"
+#import "IMConversation.h"   // kIMGroupReadSeqsKey（会话列表刷新带回的群全员已读位点）
 #import "IMDatabase.h"
 #import "IMReadReceiptViewController.h"
 #import "IMLocalization.h"
+#import "IMLog.h"
 
 @implementation IMChatViewController (Socket)
 
@@ -176,6 +178,18 @@
         self.peerReadSeq = convSeq;
         [self.tableView reloadData];
     }
+}
+
+- (void)onGroupReadSeq:(NSNotification *)note {
+    // 实时帧：单个 {conv_id, seq}；列表刷新：一条通知带 kIMGroupReadSeqsKey = {conv_id: seq}，只取本群那一项。
+    NSDictionary *seqs = note.userInfo[kIMGroupReadSeqsKey];
+    NSString *convID = seqs ? self.convID : note.userInfo[kIMConvIDKey];
+    int64_t seq = [(seqs ? seqs[self.convID ?: @""] : note.userInfo[kIMGroupReadSeqKey]) longLongValue];
+    // 只对群：单聊的 peerReadSeq 是对端读位点（receipt 维护），不能被群位点误写。超级群不画勾（peerReadSeqForCell 恒隐藏）。
+    if (!self.isGroupChat || ![convID isEqualToString:self.convID] || seq <= self.peerReadSeq) { return; }
+    IMLogDebugWithTag(IMLogTagUI, @"group_read_applied conv_id=%@ from=%lld to=%lld", convID, self.peerReadSeq, seq);
+    self.peerReadSeq = seq;
+    [self.tableView reloadData];
 }
 
 /// 对端正在输入 → 标题栏副标题暂显「{昵称} 正在输入」（群）或「正在输入」（单聊），3s 后恢复。

@@ -250,6 +250,8 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 
 /// 超级群轻量信号到达（IMSocketDidReceiveConvBumpNotification）：本会话则去取落后的那段。
 - (void)onConvBump:(NSNotification *)note;
+/// 群「全员已读」位点变大（group_read 帧 / 会话列表刷新带回）：本群则 peerReadSeq 取大并刷新气泡。
+- (void)onGroupReadSeq:(NSNotification *)note;
 - (void)maybeLoadOlderOnScroll;
 - (void)maybeLoadNewerOnScroll;
 - (int64_t)maxInMemoryConvSeq; ///< 窗口内已上号消息的最大 conv_seq（主实现定义；+Socket 的"低于窗口末尾不上屏"守卫用）

@@ -32,6 +32,7 @@ extern NSString * const kIMTypeCapabilitiesUpdate; ///< 账号级配置版本变
 /// 超级群不推全文 new_msg——2 万人数千在线推全文约 50MB/s，算术上不成立。
 /// 正文在打开会话时经 sync_req 拉。见 IMServer/docs/design/SUPERGROUP_DESIGN.md §5。
 extern NSString * const kIMTypeConvBump;
+extern NSString * const kIMTypeGroupRead; ///< 群「全员已读」位点变大（下行，PROTOCOL §5.3）
 extern NSString * const kIMTypeMsgHidden; ///< 「仅为我删除」多设备同步（任务2）：本人另一端删了某条 → 本端物理移除
 extern NSString * const kIMTypeVoiceTranscript; ///< 语音转文字结果（服务端识别；只推给请求者，见 IMServer docs/design/VOICE_TRANSCRIBE_DESIGN.md §3.2）
 /// 前后台状态上报（M5，上行，无回执）：App 切到后台 / 回到前台，服务端据此判定该不该推离线推送。

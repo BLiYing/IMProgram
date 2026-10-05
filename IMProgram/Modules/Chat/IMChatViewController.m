@@ -144,8 +144,8 @@ NSNotificationName const IMChatConversationClearedNotification = @"IMChatConvers
                      readSeq:(int64_t)readSeq unread:(NSInteger)unread
                 groupReadSeq:(int64_t)groupReadSeq {
     // 复用单聊指定初始化器（peerID 空），再覆写会话标识为群 topic_id。
-    // 群聊没有单一对端，用「全员已读位点」播种 peerReadSeq：仅当 conv_seq ≤ 该位点（人人都读过）
-    // 才显绿✓✓（双勾语义在群里的诚实版）。非实时——didReadConv 群聊分支直接 return，不靠回执推进。
+    // 群聊没有单一对端，用「全员已读位点」播种 peerReadSeq：仅当 conv_seq ≤ 该位点（人人都读过）才显蓝双勾。
+    // didReadConv 群聊分支照旧 return（单人回执不能点亮整群）；之后靠 group_read 帧 + 会话列表刷新取大（onGroupReadSeq:）。
     self = [self initWithHost:host userID:userID peerID:@"" readSeq:readSeq unread:unread peerReadSeq:groupReadSeq];
     if (self) {
         _isGroupChat = YES;
@@ -450,6 +450,12 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     // 要切走再切回来才看得到——最容易被当成"消息丢了"报上来（Web 侧 onConvBump 早已这么做）。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onConvBump:)
                                                name:IMSocketDidReceiveConvBumpNotification object:nil];
+    // 群「全员已读」：实时帧 + 会话列表刷新带回的快照值（一条通知带全部群），两路同一处理（只增，GROUP_READ_REALTIME_DESIGN §2.4）。
+    // 此前只在进会话时播种一次，停在群聊页里最后一个人读完也一直是单勾。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onGroupReadSeq:)
+                                               name:IMSocketDidReceiveGroupReadNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onGroupReadSeq:)
+                                               name:IMConversationListDidRefreshGroupReadNotification object:nil];
     // 回到前台补扫可见即读：后台期间到达的消息 markVisibleRowsRead 不报（见其注释），此刻它们若正在视口里就该报了。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onAppDidBecomeActive)
                                                name:UIApplicationDidBecomeActiveNotification object:nil];

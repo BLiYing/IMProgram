@@ -212,6 +212,28 @@ static NSString * const kPeer = @"frame_peer";
     XCTAssertFalse(gap);
 }
 
+#pragma mark - group_read（群「全员已读」实时帧，GROUP_READ_REALTIME_DESIGN）
+
+/// 合法帧原样广播 conv_id 与位点：聊天页 / 会话列表靠它把双勾实时点亮。
+- (void)test_group_read广播会话与位点 {
+    XCTestExpectation *posted = [self expectationForNotification:IMSocketDidReceiveGroupReadNotification object:_mgr handler:^BOOL(NSNotification *n) {
+        return [n.userInfo[kIMConvIDKey] isEqualToString:self->_conv] && [n.userInfo[kIMGroupReadSeqKey] longLongValue] == 7;
+    }];
+    [self feed:@{ @"type": kIMTypeGroupRead, @"data": @{ @"conv_id": _conv, @"group_read_seq": @7 } }];
+    [self waitForExpectations:@[posted] timeout:5];
+}
+
+/// 缺会话 id / 位点 ≤0 的脏帧不广播：0 位点广播出去没有意义，缺 id 的会让收端拿 nil 比较。
+- (void)test_group_read脏帧不广播 {
+    __block NSInteger n = 0;
+    id obs = [NSNotificationCenter.defaultCenter addObserverForName:IMSocketDidReceiveGroupReadNotification object:_mgr queue:nil
+                                                         usingBlock:^(NSNotification *note) { n++; }];
+    [self feed:@{ @"type": kIMTypeGroupRead, @"data": @{ @"group_read_seq": @7 } }];
+    [self feed:@{ @"type": kIMTypeGroupRead, @"data": @{ @"conv_id": _conv, @"group_read_seq": @0 } }];
+    [NSNotificationCenter.defaultCenter removeObserver:obs];
+    XCTAssertEqual(n, 0);
+}
+
 #pragma mark - error 帧
 
 /// 消息操作被拒（撤回超时等）：广播回滚提示，并把它从在途操作集合摘掉（否则内存泄漏、下次同 id 误判）。

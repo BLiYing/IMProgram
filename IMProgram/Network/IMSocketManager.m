@@ -38,6 +38,8 @@ NSString * const kIMGroupEventKey = @"groupEvent";
 NSString * const kIMGroupTargetKey = @"groupTarget";
 NSString * const kIMGroupResultKey = @"groupResult";
 NSString * const IMSocketDidReceiveReadNotification = @"IMSocketDidReceiveReadNotification";
+NSString * const IMSocketDidReceiveGroupReadNotification = @"IMSocketDidReceiveGroupReadNotification";
+NSString * const kIMGroupReadSeqKey = @"groupReadSeq";
 NSString * const IMSocketDidChangeStateNotification = @"IMSocketDidChangeStateNotification";
 NSString * const IMSocketDidRevokeSessionNotification = @"IMSocketDidRevokeSessionNotification";
 NSString * const kIMConvIDKey = @"convID";
@@ -384,6 +386,8 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
         [self handleWindowResp:payload];
     } else if ([type isEqualToString:kIMTypeReceipt]) {
         [self handleReceipt:payload];
+    } else if ([type isEqualToString:kIMTypeGroupRead]) {
+        [self handleGroupRead:payload];
     } else if ([type isEqualToString:kIMTypeTyping]) {
         [self handleTyping:payload];
     } else if ([type isEqualToString:kIMTypePresence]) {
@@ -1182,6 +1186,19 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
         // 诊断：在线态订阅链路的「发出」书挡，与服务端 watch_registered、下方 presence 收到对账。
         IMLogSocket(@"watch → %lu 个: [%@]", (unsigned long)set.count, [set componentsJoinedByString:@","]);
         [self sendEnvelopeType:kIMTypeWatch data:@{ @"set": set } completion:nil];
+    });
+}
+
+/// 群「全员已读」位点变大（只推变大，服务端按群节流）：不落库（会话快照每次刷新都带回权威值），
+/// 只广播给聊天页（本群则 peerReadSeq 取大并刷新气泡）与会话列表（更新内存行，下次进群按它播种）。
+- (void)handleGroupRead:(NSDictionary *)data {
+    NSString *convID = [data[@"conv_id"] isKindOfClass:[NSString class]] ? data[@"conv_id"] : nil;
+    int64_t seq = [data[@"group_read_seq"] longLongValue];
+    if (convID.length == 0 || seq <= 0) { return; }
+    IMLogDebugWithTag(IMLogTagSocket, @"group_read_received conv_id=%@ seq=%lld", convID, seq);
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidReceiveGroupReadNotification object:self
+                                                        userInfo:@{ kIMConvIDKey: convID, kIMGroupReadSeqKey: @(seq) }];
     });
 }
 

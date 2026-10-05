@@ -18,6 +18,9 @@ static BOOL IMBoolFromJSON(id value) {
     return [value isKindOfClass:NSNumber.class] && [value boolValue];
 }
 
+NSString * const IMConversationListDidRefreshGroupReadNotification = @"IMConversationListDidRefreshGroupReadNotification";
+NSString * const kIMGroupReadSeqsKey = @"groupReadSeqs";
+
 @implementation IMConversation
 
 + (NSArray<IMConversation *> *)conversationsFromArray:(NSArray *)array {

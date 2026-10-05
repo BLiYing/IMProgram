@@ -593,6 +593,9 @@ static CGFloat const kIMRowLeading = 16;
     // 不订阅的话大群那一行会一直停在旧消息上（OFFLINE_BACKLOG_DESIGN §4.5）。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketMessage:)
                                                name:IMSocketDidReceiveConvBumpNotification object:nil];
+    // 群「全员已读」实时帧：只更新内存行（列表不给群画勾），下次进群按它播种聊天页的 peerReadSeq。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onGroupRead:)
+                                               name:IMSocketDidReceiveGroupReadNotification object:nil];
     // 已读回执（对端已读→我发的✓✓；本人多端已读→未读清零）也触发列表刷新。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketMessage:)
                                                name:IMSocketDidReceiveReadNotification object:nil];
@@ -713,6 +716,14 @@ static CGFloat const kIMRowLeading = 16;
     [self.tableView reloadData];
 }
 
+- (void)onGroupRead:(NSNotification *)note {
+    NSString *convID = note.userInfo[kIMConvIDKey];
+    int64_t seq = [note.userInfo[kIMGroupReadSeqKey] longLongValue];
+    for (IMConversation *c in self.conversations) {
+        if (c.isGroup && [c.convID isEqualToString:convID]) { c.groupReadSeq = MAX(c.groupReadSeq, seq); break; }
+    }
+}
+
 - (void)onSocketMessage:(NSNotification *)note {
     // 消息已在 SQLite 事务内同步了会话摘要。此前每来一条都**同步读库 + 全量 reloadData**——群消息/
     // 批量接收时会反复阻塞主线程做磁盘 SELECT 并整表重建，肉眼可见卡顿。改为节流：一次消息风暴只做
@@ -782,7 +793,20 @@ static CGFloat const kIMRowLeading = 16;
                 return;
             }
             self.serverListed = YES; // 先置位再赋值：setter 里的空态判据要看到这一次
+            // 群「全员已读」位点与内存旧行取大：请求在 group_read 推送前发出、之后才回来的快照不能把刚推来的值退回去
+            NSMutableDictionary<NSString *, NSNumber *> *readSeqs = [NSMutableDictionary dictionary];
+            for (IMConversation *old in self.conversations) {
+                if (old.isGroup && old.groupReadSeq > 0 && old.convID) { readSeqs[old.convID] = @(old.groupReadSeq); }
+            }
+            for (IMConversation *c in convs) {
+                if (!c.isGroup || !c.convID) { continue; }
+                c.groupReadSeq = MAX(c.groupReadSeq, [readSeqs[c.convID] longLongValue]);
+                if (c.groupReadSeq > 0) { readSeqs[c.convID] = @(c.groupReadSeq); }
+            }
             self.conversations = convs ?: @[];
+            // 一条通知带全部群的值，已打开的群聊页取自己那一项（停在页里也随列表刷新更新双勾，对齐 Web / Android）
+            [NSNotificationCenter.defaultCenter postNotificationName:IMConversationListDidRefreshGroupReadNotification object:self
+                                                            userInfo:@{ kIMGroupReadSeqsKey: [readSeqs copy] }];
             if (![self performDatabaseOperation:^(IMDatabase *database) {
                 [database replaceCachedConversations:self.conversations];
             }]) { return; }
