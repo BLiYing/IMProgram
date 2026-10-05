@@ -666,4 +666,22 @@
     [NSFileManager.defaultManager removeItemAtURL:secondURL error:NULL];
 }
 
+- (void)testListRenderSignatureTracksVisibleStateOnly {
+    IMConversation *c = [IMConversation new];
+    c.convID = @"c1"; c.peer = @"u2"; c.peerNickname = @"Bob"; c.lastContent = @"hi"; c.timestamp = 100;
+    NSString *base = [c listRenderSignatureForSelfUID:@"u1"];
+    XCTAssertEqualObjects(base, [c listRenderSignatureForSelfUID:@"u1"]);
+    c.pinnedAt = 5;
+    NSString *pinned = [c listRenderSignatureForSelfUID:@"u1"];
+    XCTAssertNotEqualObjects(base, pinned);
+    c.muted = YES;
+    XCTAssertNotEqualObjects(pinned, [c listRenderSignatureForSelfUID:@"u1"]);
+    c.unread = 3;
+    NSString *unread = [c listRenderSignatureForSelfUID:@"u1"];
+    c.unread = 0;
+    XCTAssertNotEqualObjects(unread, [c listRenderSignatureForSelfUID:@"u1"]);
+    c.markedUnread = YES;
+    XCTAssertNotEqualObjects(unread, [c listRenderSignatureForSelfUID:@"u1"]);
+}
+
 @end

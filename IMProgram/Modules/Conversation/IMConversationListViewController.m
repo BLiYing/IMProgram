@@ -45,6 +45,9 @@ static CGFloat const kIMAvatarSize = 52;
 static CGFloat const kIMRowLeading = 16;
 
 @interface IMConversationCell : UITableViewCell
+/// 当前显示的会话与其渲染签名（IMConversation listRenderSignatureForSelfUID:）：刷新时据此跳过没变的行。
+@property (nonatomic, copy, nullable) NSString *shownConvID;
+@property (nonatomic, copy, nullable) NSString *shownSignature;
 - (void)configureWithConversation:(IMConversation *)c mine:(BOOL)mine host:(NSString *)host
                           selfUID:(NSString *)selfUID;
 /// 本地发送状态标（配置副标题**之后**调用）：sending → 副标题前缀 ↑ 圈；failed → 红色感叹号。
@@ -253,6 +256,8 @@ static CGFloat const kIMRowLeading = 16;
 
 - (void)configureWithConversation:(IMConversation *)c mine:(BOOL)mine host:(NSString *)host
                           selfUID:(NSString *)selfUID {
+    self.shownConvID = c.convID;
+    self.shownSignature = [c listRenderSignatureForSelfUID:selfUID];
     // 撤回预览（M4-1，后端已脱敏 content）：优先显示"撤回了一条消息"，不加"昵称:"前缀（微信式）。
     NSString *recalledPreview = nil;
     if (c.lastRecalled) {
@@ -675,6 +680,33 @@ static CGFloat const kIMRowLeading = 16;
     }
 }
 
+/// 数据源换新后的「最小重绘」：行数一致且可见行的会话顺序没变时，只就地重配签名变了的行（不重建 cell、
+/// 无动画）；否则整表 reloadData。置顶/免打扰/已读后「本地乐观更新 + 服务端回包再刷新」连刷两次，
+/// 此前每次都整表 reloadData 重建所有可见 cell → 闪烁；现在回包与本地一致时什么都不重绘。
+- (void)refreshVisibleRowsOrReload {
+    if (!self.isViewLoaded || [self.tableView numberOfRowsInSection:0] != (NSInteger)self.conversations.count) {
+        [self.tableView reloadData];
+        return;
+    }
+    NSMutableArray<NSIndexPath *> *stale = [NSMutableArray array];
+    for (NSIndexPath *ip in self.tableView.indexPathsForVisibleRows) {
+        IMConversationCell *cell = (IMConversationCell *)[self.tableView cellForRowAtIndexPath:ip];
+        IMConversation *c = ip.row < (NSInteger)self.conversations.count ? self.conversations[ip.row] : nil;
+        if (![cell isKindOfClass:IMConversationCell.class] || !c || ![cell.shownConvID isEqualToString:c.convID]) {
+            [self.tableView reloadData]; // 行序变了（新消息顶上来 / 他端置顶）：走整表
+            return;
+        }
+        if (![cell.shownSignature isEqualToString:[c listRenderSignatureForSelfUID:self.userID]]) { [stale addObject:ip]; }
+    }
+    for (NSIndexPath *ip in stale) {
+        IMConversation *c = self.conversations[ip.row];
+        IMConversationCell *cell = (IMConversationCell *)[self.tableView cellForRowAtIndexPath:ip];
+        [cell configureWithConversation:c mine:[c.lastFrom isEqualToString:self.userID] host:self.host selfUID:self.userID];
+        [cell applyOutboxSending:[IMMediaSendService.shared hasInFlightInConv:c.convID]
+                          failed:[IMMediaSendService.shared hasFailedOutboxInConv:c.convID]];
+    }
+}
+
 - (void)updateTitleForState:(IMSocketState)state {
     // 标题恒为「消息」；连接态走副标题（同聊天页「在线」位置，无括号）。见 im_navigationSubtitle。
     self.connState = state;
@@ -790,7 +822,7 @@ static CGFloat const kIMRowLeading = 16;
             if (![self performDatabaseOperation:^(IMDatabase *database) {
                 [database replaceCachedConversations:self.conversations];
             }]) { return; }
-            [self.tableView reloadData];
+            [self refreshVisibleRowsOrReload];
             [self trackConversationsForSync]; // 登记会话用于（重）连后增量同步，补拉离线消息
             [self fetchHiddenCatchUpWithToken:token]; // 任务2：拉「仅为我删除」隐藏集并本地移除（多设备同步 catch-up）
         }];
@@ -1031,11 +1063,7 @@ static CGFloat const kIMRowLeading = 16;
                     [database applyCachedSettingsForConversation:c.convID
                                                          pinnedAt:c.pinnedAt muted:c.muted muteUntil:c.muteUntil markedUnread:NO];
                 }]) { return; }
-                NSUInteger idx = [ws.conversations indexOfObject:c];
-                if (idx != NSNotFound) {
-                    [ws.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:idx inSection:0]]
-                                       withRowAnimation:UITableViewRowAnimationAutomatic];
-                }
+                [ws refreshVisibleRowsOrReload];
                 [ws reload];
             }];
         return;
@@ -1045,11 +1073,7 @@ static CGFloat const kIMRowLeading = 16;
     [self performDatabaseOperation:^(IMDatabase *database) {
         [database markConversationFullyRead:c.convID upToConvSeq:c.latestConvSeq];
     }];
-    NSUInteger idx = [self.conversations indexOfObject:c];
-    if (idx != NSNotFound) {
-        [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:idx inSection:0]]
-                              withRowAnimation:UITableViewRowAnimationAutomatic];
-    }
+    [self refreshVisibleRowsOrReload];
 }
 
 /// 标为未读：手动置红点（不改已读位点，不计数）；成功后刷新列表。
@@ -1096,7 +1120,7 @@ static CGFloat const kIMRowLeading = 16;
     NSIndexPath *from = [NSIndexPath indexPathForRow:(NSInteger)oldIndex inSection:0];
     NSIndexPath *to = [NSIndexPath indexPathForRow:(NSInteger)newIndex inSection:0];
     if (oldIndex == newIndex) {
-        [self.tableView reloadRowsAtIndexPaths:@[to] withRowAnimation:UITableViewRowAnimationAutomatic];
+        [self refreshVisibleRowsOrReload];
         return;
     }
     [self.tableView performBatchUpdates:^{
@@ -1153,7 +1177,7 @@ static CGFloat const kIMRowLeading = 16;
             if (error) { [ws im_showToast:error.localizedDescription ?: fail]; return; }
             int64_t effectiveMuteUntil = muteUntil ? muteUntil.longLongValue : c.muteUntil;
             if (![ws mirrorSettingsOnto:c pinnedAt:pinnedAt muted:muted muteUntil:effectiveMuteUntil markedUnread:markedUnread]) { return; }
-            [ws.tableView reloadData];
+            [ws refreshVisibleRowsOrReload]; // 本地已乐观镜像；就地刷新这一行，随后的权威重拉不再整表重绘
             [ws reload];
         }];
 }

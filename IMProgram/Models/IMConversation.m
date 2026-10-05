@@ -136,4 +136,21 @@ NSString * const kIMGroupReadSeqsKey = @"groupReadSeqs";
     return [v isKindOfClass:[NSString class]] ? v : @"";
 }
 
+- (NSString *)listRenderSignatureForSelfUID:(NSString *)selfUID {
+    IMPresence *pr = self.peerPresence;
+    NSArray *parts = @[
+        self.convID ?: @"", @(self.isGroup), self.displayName ?: @"", [self lastPreviewTextForSelfUID:selfUID] ?: @"",
+        self.avatarURL ?: @"", self.peerAvatarURL ?: @"", self.lastFrom ?: @"", self.lastFromNickname ?: @"",
+        @(self.memberCount), @(self.pendingCount), @(self.isSuper),
+        self.lastContent ?: @"", self.lastContentType ?: @"", self.lastCaption ?: @"", @(self.lastDuration),
+        self.lastSysEvent ?: @"", self.lastSysArgs.description ?: @"", self.lastSysSegments.description ?: @"",
+        @(self.lastRecalled), self.peer ?: @"", self.peerNickname ?: @"",
+        @(self.latestConvSeq), @(self.readSeq), @(self.peerReadSeq), @(self.groupReadSeq), @(self.timestamp),
+        @(self.unread), @(self.unreadCapped), @(self.pinnedAt), @(self.muted), @(self.muteUntil),
+        @(self.markedUnread), @(self.mentionUnread),
+        pr ? @[@(pr.level), @(pr.onlineUntil), @(pr.lastSeen)] : @"",
+    ];
+    return [parts componentsJoinedByString:@"|"];
+}
+
 @end

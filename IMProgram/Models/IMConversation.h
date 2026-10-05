@@ -83,6 +83,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// 会话列表用它；模型自身不知道当前账号，故由调用方传入。
 - (nullable NSString *)lastPreviewTextForSelfUID:(nullable NSString *)selfUID;
 
+/// 列表行「可见内容」签名：两次签名相同 = 该行渲染结果相同，刷新时可跳过重绘（避免置顶/免打扰/已读后
+/// 服务端回包再整表 reloadData 造成的闪烁）。含显示名/预览（经 IMRemarkStore 的本机口径）与全部上屏字段。
+- (NSString *)listRenderSignatureForSelfUID:(nullable NSString *)selfUID;
+
 /// 从 data.conversations 数组解析（脏数据安全）。
 + (NSArray<IMConversation *> *)conversationsFromArray:(nullable NSArray *)array;
 
