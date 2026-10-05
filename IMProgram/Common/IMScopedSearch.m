@@ -1,6 +1,7 @@
 //  IMScopedSearch.m
 
 #import "IMScopedSearch.h"
+#import "IMGroupInfo.h"
 
 @implementation IMSettingsSearchEntry
 + (instancetype)entryWithId:(NSString *)rowId title:(NSString *)title systemImage:(NSString *)image {
@@ -27,6 +28,15 @@ NSArray<IMSettingsSearchEntry *> *IMSettingsSearchFilter(NSArray<IMSettingsSearc
     NSMutableArray<IMSettingsSearchEntry *> *out = [NSMutableArray array];
     for (IMSettingsSearchEntry *e in entries) {
         if (IMScopedSearchMatches(keyword, @[e.title ?: @""])) { [out addObject:e]; }
+    }
+    return out;
+}
+
+NSArray<IMGroupInfo *> *IMScopedGroupHits(NSArray<IMGroupInfo *> *groups, NSString *keyword, NSString *fallbackName) {
+    NSMutableArray<IMGroupInfo *> *out = [NSMutableArray array];
+    for (IMGroupInfo *g in groups) {
+        NSString *title = g.name.length > 0 ? g.name : fallbackName;
+        if (IMScopedSearchMatches(keyword, @[title ?: @""])) { [out addObject:g]; }
     }
     return out;
 }

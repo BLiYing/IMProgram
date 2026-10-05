@@ -6,6 +6,8 @@
 
 #import <UIKit/UIKit.h>
 
+@class IMGroupInfo;
+
 NS_ASSUME_NONNULL_BEGIN
 
 typedef NS_ENUM(NSInteger, IMSearchScope) {
@@ -31,5 +33,11 @@ BOOL IMScopedSearchMatches(NSString *_Nullable keyword, NSArray<NSString *> *fie
 
 /// 「我」页：按 entries 原顺序返回标题命中的条目。
 NSArray<IMSettingsSearchEntry *> *IMSettingsSearchFilter(NSArray<IMSettingsSearchEntry *> *entries, NSString *_Nullable keyword);
+
+/// 「通讯录」范围的群聊命中：在**完整的我的群列表**里按群名匹配（保持原顺序），与 Android `myGroups` 同口径。
+/// 不能拿会话列表当范围——有群但没有会话行（没发过言/会话被删）的群会搜不到。
+/// 群名为空时按 `fallbackName`（界面上显示的占位名「群聊」）参与匹配，与行上显示一致。
+NSArray<IMGroupInfo *> *IMScopedGroupHits(NSArray<IMGroupInfo *> *_Nullable groups, NSString *_Nullable keyword,
+                                          NSString *fallbackName);
 
 NS_ASSUME_NONNULL_END

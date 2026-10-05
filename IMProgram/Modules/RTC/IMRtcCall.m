@@ -54,6 +54,8 @@ BOOL IMRtcHistoryErrorNeedsRelogin(NSError *error) {
 @implementation IMRtcCall {
     /// 通话历史失败后「整台引擎重启（stop → start → login）」的在途标记与排队的回调：并发的多次重试共用一次重启。
     BOOL _recovering;
+    /// 能不能自愈重启：start 置 YES；stop（登出 / 被顶号 / 配置被拒）置 NO——登出后点通话记录重试不能偷偷把引擎拉起来，被顶号也不能互相踢。
+    BOOL _recoverable;
     NSMutableArray<void (^)(BOOL)> *_recoveryWaiters;
     IMCallEngine *_engine;
     IMCallKit *_kit;
@@ -89,6 +91,7 @@ BOOL IMRtcHistoryErrorNeedsRelogin(NSError *error) {
     NSString *deviceID = IMDeviceIdentity.deviceID;
     if (_engine && [_uid isEqualToString:uid]) { if (loginDone) { loginDone(YES); } return; }
     [self stop];
+    _recoverable = YES; // stop 会清掉它；本次 start 之后才又允许自愈
     IMRtcConfig *config = IMRtcConfig.load;
     if (!config.isUsable) {
         IMLogWarnWithTag(IMLogTagRTC, @"rtc_disabled missing=%@", [config.missingKeys componentsJoinedByString:@","]);
@@ -142,6 +145,7 @@ BOOL IMRtcHistoryErrorNeedsRelogin(NSError *error) {
 
 - (void)stop {
     _generation++;
+    _recoverable = NO;
     IMCallEngine *old = _engine;
     if (!old) { return; }
     if (_observer) { [old removeEventObserver:_observer]; }
@@ -196,7 +200,7 @@ BOOL IMRtcHistoryErrorNeedsRelogin(NSError *error) {
     if (!_engine) {
         NSError *notStarted = [NSError errorWithDomain:@"IMRtcCall" code:IMRtcCallErrorEngineNotStarted
                                               userInfo:@{ NSLocalizedDescriptionKey: [self unavailableReason] ?: @"通话未启动" }];
-        if (allowRelogin && _uid.length > 0 && IMRtcHistoryErrorNeedsRelogin(notStarted)) {
+        if (allowRelogin && _recoverable && IMRtcHistoryErrorNeedsRelogin(notStarted)) {
             [self recoverEngineThen:^(BOOL ok) {
                 if (!ok) { completion(nil, nil, notStarted); return; }
                 [self fetchCallHistoryWithLimit:limit cursor:cursor allowRelogin:NO completion:completion];
@@ -242,7 +246,7 @@ BOOL IMRtcHistoryErrorNeedsRelogin(NSError *error) {
 /// 不能只重发 login：1101/2003 时连接对象还在，login 会被 SDK 拒（「已经登录了」）；重启是唯一对所有断链形态都成立的做法。
 /// 正在通话时不动（重启会挂断）；并发的多次调用共用一次重启。
 - (void)recoverEngineThen:(void (^)(BOOL ok))done {
-    if (self.isInCall || _uid.length == 0) { done(NO); return; }
+    if (self.isInCall || !_recoverable || _uid.length == 0) { done(NO); return; }
     if (!_recoveryWaiters) { _recoveryWaiters = [NSMutableArray array]; }
     [_recoveryWaiters addObject:[done copy]];
     if (_recovering) { return; }

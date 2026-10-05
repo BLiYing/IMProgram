@@ -43,4 +43,20 @@
     [self waitForExpectations:@[done] timeout:20];
 }
 
+/// 登出 / 被踢后 stop 清掉自愈许可：此后点「最近通话」重试只回错误，不能偷偷把引擎重启重登（_recoverable 保持 NO）。
+- (void)testNoRecoveryAfterStop {
+    IMRtcCall *call = IMRtcCall.shared;
+    [call stop];
+    [call setValue:@"u_stopped" forKey:@"_uid"]; // 模拟登出/被踢后 _uid 仍留着
+    XCTAssertFalse([[call valueForKey:@"_recoverable"] boolValue]);
+    XCTestExpectation *done = [self expectationWithDescription:@"completion"];
+    __block NSError *err = nil;
+    [call fetchCallHistoryWithLimit:20 cursor:nil completion:^(NSArray *r, NSNumber *n, NSError *e) { err = e; [done fulfill]; }];
+    [self waitForExpectations:@[done] timeout:5];
+    XCTAssertEqual(err.code, -1); // 引擎未启动
+    XCTAssertFalse([[call valueForKey:@"_recoverable"] boolValue], @"stop 后重试不得重新置位 / 重启");
+    XCTAssertFalse(call.isStarted);
+    [call setValue:@"" forKey:@"_uid"];
+}
+
 @end

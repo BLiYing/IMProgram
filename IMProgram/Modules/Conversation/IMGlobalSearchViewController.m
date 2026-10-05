@@ -6,6 +6,8 @@
 #import "IMDatabase.h"
 #import "IMDatabase+RosterCache.h"
 #import "IMConversation.h"
+#import "IMGroupInfo.h"
+#import "IMScopedSearch.h"
 #import "IMUserCard.h"
 #import "IMMessageModel.h"
 #import "IMChatViewController.h"
@@ -157,6 +159,7 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
     NSString *_userID;
     NSArray<IMConversation *> *_allConversations;
     NSArray<IMUserCard *> *_allFriends;
+    NSArray<IMGroupInfo *> *_allGroups;   // 完整的我的群（含没有会话行的）；「通讯录」范围搜群用它，不用 _allConversations
     UISearchTextField *_searchField;   // 标题行内搜索框（自持 IMLiquidNavigationBar searchMode）
     UITableView *_tableView;
     UILabel *_emptyLabel;
@@ -164,7 +167,7 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
     NSString *_keyword;
     NSArray<IMConversation *> *_convHits;
     NSArray<IMUserCard *> *_friendHits;
-    NSArray<IMConversation *> *_groupHits;
+    NSArray<IMGroupInfo *> *_groupHits;
     NSArray<IMSettingsSearchEntry *> *_settingHits;
     IMLiquidNavigationBar *_bar;
     NSArray<NSDictionary *> *_recordGroups;  // 聊天记录命中（**不聚合**，一条命中一行）：{convID,conv,title,snippet,seq}
@@ -176,6 +179,7 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
         _host = [host copy]; _userID = [userID copy];
         _allConversations = [IMDatabase.sharedDatabase cachedConversations] ?: @[];
         _allFriends = [IMDatabase.sharedDatabase cachedFriends] ?: @[];
+        _allGroups = [IMDatabase.sharedDatabase cachedGroups] ?: @[];
         _convHits = @[]; _friendHits = @[]; _recordGroups = @[]; _sections = @[]; _groupHits = @[]; _settingHits = @[];
     }
     return self;
@@ -276,11 +280,7 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
         if (IMScopedSearchMatches(kw, @[f.displayName ?: @"", f.nickname ?: @"", f.remark ?: @"", f.username ?: @""])) { [friends addObject:f]; }
     }
     _friendHits = friends;
-    NSMutableArray<IMConversation *> *groups = [NSMutableArray array];
-    for (IMConversation *c in _allConversations) {
-        if (c.isGroup && IMScopedSearchMatches(kw, @[[self titleForConversation:c]])) { [groups addObject:c]; }
-    }
-    _groupHits = groups;
+    _groupHits = IMScopedGroupHits(_allGroups, kw, IMLocalized(@"common.group_chat"));
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -288,8 +288,23 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
     // 每次出现重读会话/好友快照（作底部搜索 tab 根页长驻，切走再回来数据要最新；也顺带解决快照陈旧）。
     _allConversations = [IMDatabase.sharedDatabase cachedConversations] ?: @[];
     _allFriends = [IMDatabase.sharedDatabase cachedFriends] ?: @[];
+    _allGroups = [IMDatabase.sharedDatabase cachedGroups] ?: @[];
     if (_keyword.length > 0) { [self recomputeForKeyword:_keyword]; }
     [self refreshConversationsFromServer];
+    [self refreshGroupsFromServer];
+}
+
+/// 群缓存只在打开过「群聊」列表页后才落库，所以出现时拉一次权威群列表（仅换内存结果、不写库，落库仍归群列表页）。失败静默。
+- (void)refreshGroupsFromServer {
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0) { return; }
+    __weak typeof(self) weakSelf = self;
+    [IMHTTPService.sharedService groupsWithToken:token completion:^(NSArray<IMGroupInfo *> *groups, NSError *err) {
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self || err || !groups) { return; }
+        self->_allGroups = groups;
+        if (self->_keyword.length > 0) { [self recomputeForKeyword:self->_keyword]; }
+    }];
 }
 
 /// 本地会话缓存只在「消息」列表页可见期间随群事件刷新（它不在前台时会取消订阅），所以别的群里有人进出/改名、
@@ -504,10 +519,10 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
             break;
         }
         case IMSearchGroupGroup: {
-            IMConversation *c = _groupHits[(NSUInteger)ip.row];
-            NSString *title = [self titleForConversation:c];
-            [cell configureAvatarURL:c.avatarURL seed:c.convID displayName:title title:title
-                            subtitle:IMLocalizedFormat(@"search.result.member_count", (long)c.memberCount) keyword:_keyword];
+            IMGroupInfo *g = _groupHits[(NSUInteger)ip.row];
+            NSString *title = g.name.length > 0 ? g.name : IMLocalized(@"common.group_chat");
+            [cell configureAvatarURL:g.avatarURL seed:g.convID displayName:title title:title
+                            subtitle:IMLocalizedFormat(@"search.result.member_count", (long)g.memberCount) keyword:_keyword];
             break;
         }
         case IMSearchGroupUser: {
@@ -543,13 +558,23 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
             if (self.settingsEntryOpener) { self.settingsEntryOpener(_settingHits[(NSUInteger)ip.row].rowId); }
             break;
         }
-        case IMSearchGroupGroup: [self openConversation:_groupHits[(NSUInteger)ip.row] jumpToSeq:0]; break;
+        case IMSearchGroupGroup: [self openGroup:_groupHits[(NSUInteger)ip.row]]; break;
         case IMSearchGroupUser: {
             [self.navigationController pushViewController:
                 [[IMUserSearchViewController alloc] initWithHost:_host userID:_userID initialQuery:_keyword] animated:YES];
             break;
         }
     }
+}
+
+/// 打开群聊：有会话行就走会话（带上已读位点/未读数），没有（没发过言的群）就按零位点进。
+- (void)openGroup:(IMGroupInfo *)g {
+    for (IMConversation *c in _allConversations) {
+        if (c.isGroup && [c.convID isEqualToString:g.convID]) { [self openConversation:c jumpToSeq:0]; return; }
+    }
+    [IMChatViewController openInNavigationController:self.navigationController host:_host userID:_userID
+                                         groupConvID:g.convID groupName:g.name
+                                             readSeq:0 unread:0 groupReadSeq:0 groupAvatarURL:g.avatarURL];
 }
 
 /// 打开会话（单聊/群聊）；jumpSeq>0 则打开后直接定位到该 conv_seq（居中高亮，不进搜索模式）。
