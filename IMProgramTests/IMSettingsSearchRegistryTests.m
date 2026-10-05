@@ -163,4 +163,13 @@
     XCTAssertTrue([[self idsOf:viaParent] containsObject:@"notifications.private.sound"]);
 }
 
+/// 同义词：「提示音」页可被「声音」搜到，且算标题命中档（排在仅路径命中之前）。
+- (void)testSoundAliasHitsNotificationSoundPages {
+    NSArray *hits = [IMSettingsSearchRegistry filterEntries:[self all] keyword:@"声音"];
+    NSArray *ids = [self idsOf:hits];
+    XCTAssertTrue([ids containsObject:@"notifications.private.sound"]);
+    XCTAssertTrue([ids containsObject:@"notifications.group.sound"]);
+    XCTAssertEqual(ids.count, 2u, @"别名只挂在提示音页，不应牵出别的条目");
+}
+
 @end

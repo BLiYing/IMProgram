@@ -12,6 +12,7 @@ NSString *const IMSettingsSearchPathSeparator = @" › ";
                 systemImage:(NSString *)image iconBg:(UIColor *)bg route:(NSArray<NSString *> *)route {
     IMSettingsSearchEntry *e = [IMSettingsSearchEntry new];
     e.entryID = entryID; e.title = title; e.path = path; e.systemImage = image; e.iconBg = bg; e.route = route;
+    e.aliases = @[];
     return e;
 }
 
@@ -84,6 +85,10 @@ static IMSettingsSearchEntry *IMEntry(NSString *entryID, NSArray<NSString *> *pa
                                    @[@"storage", netPage, [NSString stringWithFormat:@"%@/%@", netPage, cat[0]]])];
         }
     }
+    for (IMSettingsSearchEntry *e in out) {
+        // 通知「提示音」页：中文用户习惯搜「声音」，英文页标题已是 Sound，别名只补中文口径
+        if ([e.entryID hasSuffix:@".sound"]) { e.aliases = @[@"声音"]; }
+    }
     return out;
 }
 
@@ -92,7 +97,7 @@ static IMSettingsSearchEntry *IMEntry(NSString *entryID, NSArray<NSString *> *pa
     NSMutableArray<IMSettingsSearchEntry *> *titleHits = [NSMutableArray array];
     NSMutableArray<IMSettingsSearchEntry *> *pathHits = [NSMutableArray array];
     for (IMSettingsSearchEntry *e in entries) {
-        if (IMScopedSearchMatches(keyword, @[e.title ?: @""])) { [titleHits addObject:e]; }
+        if (IMScopedSearchMatches(keyword, [@[e.title ?: @""] arrayByAddingObjectsFromArray:e.aliases ?: @[]])) { [titleHits addObject:e]; }
         else if (IMScopedSearchMatches(keyword, @[[e searchHaystack]])) { [pathHits addObject:e]; }
     }
     return [titleHits arrayByAddingObjectsFromArray:pathHits];

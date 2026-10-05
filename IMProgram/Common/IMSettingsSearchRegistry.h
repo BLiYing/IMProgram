@@ -22,6 +22,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) NSString *systemImage;
 @property (nonatomic, strong, nullable) UIColor *iconBg;     ///< 与「我」页同款系统色底
 @property (nonatomic, copy) NSArray<NSString *> *route;      ///< 逐级页面 id，与 path 等长
+/// 仅供匹配的同义词（不显示）：文案叫「提示音」但用户会搜「声音」。命中算「标题命中」档。
+@property (nonatomic, copy) NSArray<NSString *> *aliases;
 
 + (instancetype)entryWithID:(NSString *)entryID title:(NSString *)title path:(NSArray<NSString *> *)path
                 systemImage:(nullable NSString *)image iconBg:(nullable UIColor *)bg route:(NSArray<NSString *> *)route;
