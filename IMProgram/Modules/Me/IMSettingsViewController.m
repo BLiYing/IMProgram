@@ -581,6 +581,29 @@
     self.groups = @[groupA, groupB, groupC];
 }
 
+#pragma mark - 搜索（底部搜索 tab 的「我」范围）
+
+- (NSArray<IMSettingsSearchEntry *> *)searchEntries {
+    [self loadViewIfNeeded]; // 「我」tab 懒加载：没进过时 groups 还没建
+    NSMutableArray<IMSettingsSearchEntry *> *out = [NSMutableArray array];
+    for (NSArray<IMSettingsRow *> *g in self.groups) {
+        for (IMSettingsRow *r in g) {
+            if (r.destructive) { continue; } // 退出登录不进搜索，避免误触
+            [out addObject:[IMSettingsSearchEntry entryWithId:r.rowId title:r.title systemImage:r.systemImage]];
+        }
+    }
+    return out;
+}
+
+- (BOOL)performEntryWithID:(NSString *)rowId {
+    for (NSArray<IMSettingsRow *> *g in self.groups) {
+        for (IMSettingsRow *r in g) {
+            if ([r.rowId isEqualToString:rowId] && !r.destructive && r.handler) { r.handler(); return YES; }
+        }
+    }
+    return NO;
+}
+
 #pragma mark - 动作
 
 - (void)comingSoon:(NSString *)title { [self im_showComingSoon:title]; }

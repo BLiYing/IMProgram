@@ -296,8 +296,12 @@ static void IMCollectTabIcons(UIView *root, NSMutableArray<UIImageView *> *out) 
     }
 }
 
-@interface IMMainTabBarController ()
+@interface IMMainTabBarController () <UITabBarControllerDelegate>
 @property (nonatomic, weak) UINavigationController *conversationsNav;
+@property (nonatomic, weak) UINavigationController *contactsNav;
+@property (nonatomic, weak) UINavigationController *settingsNav;
+@property (nonatomic, weak) UINavigationController *searchNav;
+@property (nonatomic, weak) IMSettingsViewController *settingsVC;
 @end
 
 @implementation IMMainTabBarController {
@@ -341,12 +345,14 @@ static void IMCollectTabIcons(UIView *root, NSMutableArray<UIImageView *> *out) 
         IMContactsViewController *contacts =
             [[IMContactsViewController alloc] initWithHost:host userID:userID];
         UINavigationController *contactsNav = [[IMMainNavigationController alloc] initWithRootViewController:contacts];
+        _contactsNav = contactsNav;
         contactsNav.tabBarItem = [[UITabBarItem alloc] initWithTitle:IMLocalized(@"ios.tab.contacts")
                                                                image:[UIImage systemImageNamed:@"person.2"]
                                                                  tag:1];
 
         IMSettingsViewController *settings = [[IMSettingsViewController alloc] initWithHost:host userID:userID];
         UINavigationController *settingsNav = [[IMMainNavigationController alloc] initWithRootViewController:settings];
+        _settingsNav = settingsNav; _settingsVC = settings;
         settingsNav.tabBarItem = [[UITabBarItem alloc] initWithTitle:IMLocalized(@"ios.tab.me")
                                                                image:[UIImage systemImageNamed:@"person.crop.circle"]
                                                                  tag:2];
@@ -355,6 +361,9 @@ static void IMCollectTabIcons(UIView *root, NSMutableArray<UIImageView *> *out) 
         // 原「找人」页降为其中的「搜索用户「x」」次要入口（IMGlobalSearchViewController 内下钻）。
         IMGlobalSearchViewController *search = [[IMGlobalSearchViewController alloc] initWithHost:host userID:userID];
         UINavigationController *searchNav = [[IMMainNavigationController alloc] initWithRootViewController:search];
+        _searchNav = searchNav;
+        [self wireScopedSearch:search];
+        self.delegate = self;
         searchNav.tabBarItem = [[UITabBarItem alloc] initWithTabBarSystemItem:UITabBarSystemItemSearch tag:3];
 
         if (@available(iOS 18.0, *)) {
@@ -382,6 +391,44 @@ static void IMCollectTabIcons(UIView *root, NSMutableArray<UIImageView *> *out) 
         [self applyUnreadBadgeColor];
     }
     return self;
+}
+
+#pragma mark - 搜索按来源 tab 分域
+
+/// 「我」范围：数据源取「我」页当前设置项；命中后切到「我」tab、回到根页再触发该行（与点击等价，返回即回「我」页）。
+- (void)wireScopedSearch:(IMGlobalSearchViewController *)search {
+    __weak typeof(self) ws = self;
+    search.settingsEntriesProvider = ^NSArray<IMSettingsSearchEntry *> *{ return ws.settingsVC.searchEntries ?: @[]; };
+    search.settingsEntryOpener = ^(NSString *rowId) {
+        typeof(self) ss = ws;
+        if (!ss || !ss.settingsNav) { return; }
+        ss.selectedViewController = ss.settingsNav;
+        [ss.settingsNav popToRootViewControllerAnimated:NO];
+        [ss.settingsVC performEntryWithID:rowId];
+    };
+}
+
+/// 从哪个 tab 点进「搜索」决定范围：消息=全局（现状）、通讯录=联系人+群聊、我=设置项；搜索 tab 内再点保持不变。
+- (BOOL)tabBarController:(UITabBarController *)tabBarController shouldSelectViewController:(UIViewController *)viewController {
+    [self prepareSearchIfSelecting:viewController];
+    return YES;
+}
+
+/// iOS 18+ 走 UITab 时系统改调这个（不再调上面的 shouldSelectViewController）。
+- (BOOL)tabBarController:(UITabBarController *)tabBarController shouldSelectTab:(UITab *)tab API_AVAILABLE(ios(18.0)) {
+    [self prepareSearchIfSelecting:tab.viewController];
+    return YES;
+}
+
+- (void)prepareSearchIfSelecting:(UIViewController *)viewController {
+    if (viewController != self.searchNav) { return; }
+    UIViewController *from = self.selectedViewController;
+    IMGlobalSearchViewController *search = (IMGlobalSearchViewController *)self.searchNav.viewControllers.firstObject;
+    if (![search isKindOfClass:IMGlobalSearchViewController.class] || from == self.searchNav) { return; }
+    if (from == self.settingsNav) { search.scope = IMSearchScopeMe; }
+    else if (from == self.contactsNav) { search.scope = IMSearchScopeContacts; }
+    else { search.scope = IMSearchScopeMessages; }
+    [self.searchNav popToRootViewControllerAnimated:NO];
 }
 
 /// Tab 角标（通讯录「新的朋友」待处理数）改蓝：系统默认红，三端角标统一蓝（2026-09-15 用户要求）。

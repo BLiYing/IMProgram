@@ -1537,10 +1537,15 @@
 "rtc.kind.group_id" = "群号";
 "rtc.kind.peer_id" = "对方 id";
 "scene.kicked_logged_out" = "该账号已在其他设备退出登录，请重新登录";
+"search.contacts.placeholder" = "搜索联系人、群聊";
 "search.global.placeholder" = "搜索会话、联系人、聊天记录";
+"search.me.empty" = "未找到相关设置";
+"search.me.placeholder" = "搜索设置";
 "search.section.contacts" = "联系人";
 "search.section.conversations" = "会话";
+"search.section.groups" = "群聊";
 "search.section.records" = "聊天记录";
+"search.section.settings" = "设置";
 "search.section.users" = "用户";
 "search.user.avatar_initial" = "搜";
 "search.user.row_subtitle" = "按 uid / 手机号精确查找、加好友";
