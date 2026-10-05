@@ -19,6 +19,8 @@ typedef NS_ENUM(NSInteger, IMSearchGroup) {
     IMSearchGroupConversation = 0,
     IMSearchGroupContact,
     IMSearchGroupRecord,
+    IMSearchGroupSetting,  // 「我」范围：设置项
+    IMSearchGroupGroup,    // 「通讯录」范围：群聊
     IMSearchGroupUser,   // 「搜索用户「x」」：下钻在线找人（uid/手机号精确、加好友）——把原找人页收成一个次要入口
 };
 
@@ -122,6 +124,9 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
     NSString *_keyword;
     NSArray<IMConversation *> *_convHits;
     NSArray<IMUserCard *> *_friendHits;
+    NSArray<IMConversation *> *_groupHits;
+    NSArray<IMSettingsSearchEntry *> *_settingHits;
+    IMLiquidNavigationBar *_bar;
     NSArray<NSDictionary *> *_recordGroups;  // 聊天记录命中（**不聚合**，一条命中一行）：{convID,conv,title,snippet,seq}
     NSArray<NSNumber *> *_sections;            // 非空分组，按 会话/联系人/聊天记录 顺序
 }
@@ -131,7 +136,7 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
         _host = [host copy]; _userID = [userID copy];
         _allConversations = [IMDatabase.sharedDatabase cachedConversations] ?: @[];
         _allFriends = [IMDatabase.sharedDatabase cachedFriends] ?: @[];
-        _convHits = @[]; _friendHits = @[]; _recordGroups = @[]; _sections = @[];
+        _convHits = @[]; _friendHits = @[]; _recordGroups = @[]; _sections = @[]; _groupHits = @[]; _settingHits = @[];
     }
     return self;
 }
@@ -154,7 +159,8 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
     // 页面静态无滚动穿透，无需磨砂——去掉后栏区与页面同色，玻璃只留搜索胶囊/取消钮本体。
     bar.backgroundEffectProgress = 0;
     bar.tintColor = IMTheme.accent;
-    bar.searchPlaceholder = IMLocalized(@"search.global.placeholder");
+    _bar = bar;
+    bar.searchPlaceholder = [self placeholderForScope];
     bar.searchModeActive = YES;
     bar.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:bar];
@@ -202,6 +208,39 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
         [_emptyLabel.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:40],
         [_emptyLabel.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-40],
     ]];
+}
+
+#pragma mark - 搜索范围
+
+- (void)setScope:(IMSearchScope)scope {
+    if (_scope == scope) { return; }
+    _scope = scope;
+    _searchField.text = @"";
+    [self recomputeForKeyword:@""];
+    if (_bar) { _bar.searchPlaceholder = [self placeholderForScope]; }
+}
+
+- (NSString *)placeholderForScope {
+    switch (_scope) {
+        case IMSearchScopeMe:       return IMLocalized(@"search.me.placeholder");
+        case IMSearchScopeContacts: return IMLocalized(@"search.contacts.placeholder");
+        case IMSearchScopeMessages: break;
+    }
+    return IMLocalized(@"search.global.placeholder");
+}
+
+/// 通讯录范围：好友按 备注/昵称/@账号，群聊按群名；各自一组。
+- (void)recomputeContactsScope:(NSString *)kw {
+    NSMutableArray<IMUserCard *> *friends = [NSMutableArray array];
+    for (IMUserCard *f in _allFriends) {
+        if (IMScopedSearchMatches(kw, @[f.displayName ?: @"", f.nickname ?: @"", f.remark ?: @"", f.username ?: @""])) { [friends addObject:f]; }
+    }
+    _friendHits = friends;
+    NSMutableArray<IMConversation *> *groups = [NSMutableArray array];
+    for (IMConversation *c in _allConversations) {
+        if (c.isGroup && IMScopedSearchMatches(kw, @[[self titleForConversation:c]])) { [groups addObject:c]; }
+    }
+    _groupHits = groups;
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -261,7 +300,17 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
 - (void)recomputeForKeyword:(NSString *)kw {
     _keyword = [kw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     if (_keyword.length == 0) {
-        _convHits = @[]; _friendHits = @[]; _recordGroups = @[]; _sections = @[];
+        _convHits = @[]; _friendHits = @[]; _recordGroups = @[]; _sections = @[]; _groupHits = @[]; _settingHits = @[];
+        [self reloadSectionsAndTable];
+        return;
+    }
+    if (_scope == IMSearchScopeMe) {
+        _settingHits = IMSettingsSearchFilter(self.settingsEntriesProvider ? self.settingsEntriesProvider() : @[], _keyword);
+        [self reloadSectionsAndTable];
+        return;
+    }
+    if (_scope == IMSearchScopeContacts) {
+        [self recomputeContactsScope:_keyword];
         [self reloadSectionsAndTable];
         return;
     }
@@ -326,13 +375,25 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
 
 - (void)reloadSectionsAndTable {
     NSMutableArray<NSNumber *> *secs = [NSMutableArray array];
-    if (_convHits.count > 0) { [secs addObject:@(IMSearchGroupConversation)]; }
-    if (_friendHits.count > 0) { [secs addObject:@(IMSearchGroupContact)]; }
-    if (_recordGroups.count > 0) { [secs addObject:@(IMSearchGroupRecord)]; }
-    // 有关键词就恒显「搜索用户「x」」入口（在线找人/加好友）——本地无匹配时它就是唯一结果，替代原找人页。
-    if (_keyword.length > 0) { [secs addObject:@(IMSearchGroupUser)]; }
+    BOOL hasKeyword = _keyword.length > 0;
+    _emptyLabel.hidden = YES;
+    if (_scope == IMSearchScopeMe) {
+        if (_settingHits.count > 0) { [secs addObject:@(IMSearchGroupSetting)]; }
+        _emptyLabel.text = IMLocalized(@"search.me.empty");
+        _emptyLabel.hidden = !(hasKeyword && _settingHits.count == 0);   // 我范围无「找人」入口
+    } else if (_scope == IMSearchScopeContacts) {
+        if (_friendHits.count > 0) { [secs addObject:@(IMSearchGroupContact)]; }
+        if (_groupHits.count > 0) { [secs addObject:@(IMSearchGroupGroup)]; }
+        // 本地联系人 + 群聊都没命中时，复用「搜索用户」入口按账号找陌生人。
+        if (hasKeyword && secs.count == 0) { [secs addObject:@(IMSearchGroupUser)]; }
+    } else {
+        if (_convHits.count > 0) { [secs addObject:@(IMSearchGroupConversation)]; }
+        if (_friendHits.count > 0) { [secs addObject:@(IMSearchGroupContact)]; }
+        if (_recordGroups.count > 0) { [secs addObject:@(IMSearchGroupRecord)]; }
+        // 有关键词就恒显「搜索用户「x」」入口（在线找人/加好友）——本地无匹配时它就是唯一结果，替代原找人页。
+        if (hasKeyword) { [secs addObject:@(IMSearchGroupUser)]; }
+    }
     _sections = secs;
-    _emptyLabel.hidden = YES;  // 用户入口恒在，不再有「未找到相关内容」空态
     [_tableView reloadData];
 }
 
@@ -348,6 +409,8 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
         case IMSearchGroupConversation: return (NSInteger)_convHits.count;
         case IMSearchGroupContact:      return (NSInteger)_friendHits.count;
         case IMSearchGroupRecord:       return (NSInteger)_recordGroups.count;
+        case IMSearchGroupSetting:      return (NSInteger)_settingHits.count;
+        case IMSearchGroupGroup:        return (NSInteger)_groupHits.count;
         case IMSearchGroupUser:         return 1;
     }
     return 0;
@@ -358,6 +421,8 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
         case IMSearchGroupConversation: return IMLocalized(@"search.section.conversations");
         case IMSearchGroupContact:      return IMLocalized(@"search.section.contacts");
         case IMSearchGroupRecord:       return IMLocalized(@"search.section.records");
+        case IMSearchGroupSetting:      return IMLocalized(@"search.section.settings");
+        case IMSearchGroupGroup:        return IMLocalized(@"search.section.groups");
         case IMSearchGroupUser:         return IMLocalized(@"search.section.users");
     }
     return nil;
@@ -393,6 +458,18 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
                             subtitle:(g[@"snippet"] ?: @"") keyword:_keyword];
             break;
         }
+        case IMSearchGroupSetting: {
+            IMSettingsSearchEntry *e = _settingHits[(NSUInteger)ip.row];
+            [cell configureAvatarURL:nil seed:e.rowId displayName:e.title title:e.title subtitle:nil keyword:_keyword];
+            break;
+        }
+        case IMSearchGroupGroup: {
+            IMConversation *c = _groupHits[(NSUInteger)ip.row];
+            NSString *title = [self titleForConversation:c];
+            [cell configureAvatarURL:c.avatarURL seed:c.convID displayName:title title:title
+                            subtitle:IMLocalizedFormat(@"search.result.member_count", (long)c.memberCount) keyword:_keyword];
+            break;
+        }
         case IMSearchGroupUser: {
             [cell configureAvatarURL:nil seed:@"__user_search__" displayName:IMLocalized(@"search.user.avatar_initial")
                                title:IMLocalizedFormat(@"search.user.row_title", _keyword)
@@ -422,6 +499,11 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
             if (conv) { [self openConversation:conv jumpToSeq:[g[@"seq"] longLongValue]]; }
             break;
         }
+        case IMSearchGroupSetting: {
+            if (self.settingsEntryOpener) { self.settingsEntryOpener(_settingHits[(NSUInteger)ip.row].rowId); }
+            break;
+        }
+        case IMSearchGroupGroup: [self openConversation:_groupHits[(NSUInteger)ip.row] jumpToSeq:0]; break;
         case IMSearchGroupUser: {
             [self.navigationController pushViewController:
                 [[IMUserSearchViewController alloc] initWithHost:_host userID:_userID initialQuery:_keyword] animated:YES];

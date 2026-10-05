@@ -1537,10 +1537,15 @@
 "rtc.kind.group_id" = "Group ID";
 "rtc.kind.peer_id" = "Peer ID";
 "scene.kicked_logged_out" = "This account was logged out on another device. Please log in again.";
+"search.contacts.placeholder" = "Search contacts and groups";
 "search.global.placeholder" = "Search chats, contacts, and messages";
+"search.me.empty" = "No matching settings";
+"search.me.placeholder" = "Search settings";
 "search.section.contacts" = "Contacts";
 "search.section.conversations" = "Chats";
+"search.section.groups" = "Groups";
 "search.section.records" = "Messages";
+"search.section.settings" = "Settings";
 "search.section.users" = "Users";
 "search.user.avatar_initial" = "S";
 "search.user.row_subtitle" = "Find by exact uid or phone number and add as a friend";
