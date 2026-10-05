@@ -208,6 +208,49 @@
     }];
 }
 
+/// 构造参数不能漂移：期望值取自各父 VC 自己 push 的写法（逐项出处见注释），用字面量而非 router 的表，才能互相校验。
+/// 参数靠 KVC 读（类扩展属性 / 私有 ivar），不为测试改产品代码。
+- (id)routerPage:(NSString *)pageID {
+    NSArray *vcs = [IMSettingsRouter viewControllersForRoute:@[pageID] host:@"http://h" userID:@"u1"];
+    XCTAssertEqual(vcs.count, 1u, @"%@", pageID);
+    return vcs.firstObject;
+}
+
+- (void)testRouterPassesHostAndUserIDLikeParentPushes {
+    // 父 VC 都是 initWithHost:self.host userID:self.userID，router 须透传同一对
+    for (NSString *pageID in @[@"notifications", @"notifications/private", @"notifications/group", @"privacy",
+                               @"privacy/blocked", @"privacy/changePassword", @"recentCalls", @"devices"]) {
+        UIViewController *vc = [self routerPage:pageID];
+        XCTAssertEqualObjects([vc valueForKey:@"host"], @"http://h", @"%@ host", pageID);
+        XCTAssertEqualObjects([vc valueForKey:@"userID"], @"u1", @"%@ userID", pageID);
+    }
+}
+
+- (void)testRouterNotificationPagesCarryParentIsGroup {
+    // IMNotificationSettingsViewController：私聊行 openType:NO，群聊行 openType:YES
+    XCTAssertEqualObjects([[self routerPage:@"notifications/private"] valueForKey:@"isGroup"], @NO);
+    XCTAssertEqualObjects([[self routerPage:@"notifications/group"] valueForKey:@"isGroup"], @YES);
+    // IMNotificationTypeViewController：提示音页 initForGroup:self.isGroup（私聊页→NO，群聊页→YES）
+    XCTAssertEqualObjects([[self routerPage:@"notifications/private/sound"] valueForKey:@"isGroup"], @NO);
+    XCTAssertEqualObjects([[self routerPage:@"notifications/group/sound"] valueForKey:@"isGroup"], @YES);
+}
+
+- (void)testRouterAutoDownloadPagesCarryParentNetworkAndCategory {
+    // IMDataStorageViewController：row0 → Cellular(0)，row1 → Wifi(1)
+    NSDictionary<NSString *, NSNumber *> *nets = @{ @"cellular": @0, @"wifi": @1 };
+    // IMAutoDownloadNetworkViewController：类别 = 行号，0 图片 / 1 视频 / 2 文件，network 沿用自身 _net
+    NSDictionary<NSString *, NSNumber *> *cats = @{ @"image": @0, @"video": @1, @"file": @2 };
+    for (NSString *net in nets) {
+        XCTAssertEqualObjects([[self routerPage:[@"storage/" stringByAppendingString:net]] valueForKey:@"net"], nets[net], @"%@", net);
+        for (NSString *cat in cats) {
+            NSString *pageID = [NSString stringWithFormat:@"storage/%@/%@", net, cat];
+            UIViewController *vc = [self routerPage:pageID];
+            XCTAssertEqualObjects([vc valueForKey:@"net"], nets[net], @"%@ network", pageID);
+            XCTAssertEqualObjects([vc valueForKey:@"cat"], cats[cat], @"%@ category", pageID);
+        }
+    }
+}
+
 - (void)testActionRouteIsNotBuildableAsPage {
     XCTAssertTrue([IMSettingsRouter isActionRoute:@[@"shareMyCard"]]);
     XCTAssertNil([IMSettingsRouter viewControllersForRoute:@[@"shareMyCard"] host:@"h" userID:@"1"]);
