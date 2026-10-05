@@ -12,6 +12,8 @@
 #import "IMMessageModel.h"
 #import "IMChatViewController.h"
 #import "IMUserSearchViewController.h"   // 「搜索用户「x」」下钻在线找人（加好友）
+#import "IMRemarkStore.h"
+#import "IMAccountIdentity.h"
 #import "IMTheme.h"
 #import "IMMainTabBarController.h" // kIMLiquidBarHeight
 #import "IMProgram-Swift.h"        // IMLiquidNavigationBar（searchMode）
@@ -210,6 +212,10 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
     [self.view addSubview:bar];
     _searchField = bar.searchTextField;
     _searchField.tintColor = IMTheme.accent;
+    // 搜 uid / 账号 / 群名：系统自动更正会把关键词改坏（pendtest→Pens test），点结果还会误采纳联想词。
+    _searchField.autocorrectionType = UITextAutocorrectionTypeNo;
+    _searchField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    _searchField.spellCheckingType = UITextSpellCheckingTypeNo;
     [_searchField addTarget:self action:@selector(searchFieldChanged) forControlEvents:UIControlEventEditingChanged];
 
     _tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStyleGrouped];
@@ -320,6 +326,16 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
         self->_allConversations = convs;
         if (self->_keyword.length > 0) { [self recomputeForKeyword:self->_keyword]; }
     }];
+}
+
+/// 群列表接口（GET /groups）不带 member_count，用它的结果直接显示会恒为「0 人」。
+/// 有人数（来自会话/群资料）才显示人数，否则退回群列表页同款「群主 xxx / 我是群主」副标题。
+- (NSString *)subtitleForGroupHit:(IMGroupInfo *)g {
+    if (g.memberCount > 0) { return IMLocalizedFormat(@"search.result.member_count", (long)g.memberCount); }
+    if ([g.owner isEqualToString:_userID]) { return IMLocalized(@"group.list.i_am_owner"); }
+    NSString *ownerName = [IMRemarkStore.sharedStore displayNameForUser:g.owner
+                                                               fallback:IMDisplayName(g.ownerNickname, g.ownerUsername)];
+    return IMLocalizedFormat(@"group.list.owner", ownerName ?: @"");
 }
 
 - (void)viewDidAppear:(BOOL)animated {
@@ -522,7 +538,7 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
             IMGroupInfo *g = _groupHits[(NSUInteger)ip.row];
             NSString *title = g.name.length > 0 ? g.name : IMLocalized(@"common.group_chat");
             [cell configureAvatarURL:g.avatarURL seed:g.convID displayName:title title:title
-                            subtitle:IMLocalizedFormat(@"search.result.member_count", (long)g.memberCount) keyword:_keyword];
+                            subtitle:[self subtitleForGroupHit:g] keyword:_keyword];
             break;
         }
         case IMSearchGroupUser: {
