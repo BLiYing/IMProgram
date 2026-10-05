@@ -994,7 +994,6 @@
 "ios.tab.contacts" = "通讯录";
 "ios.tab.me" = "我";
 "ios.tab.messages" = "消息";
-"ios.tab.search" = "搜索";
 "login.button.login" = "登录";
 "login.button.register" = "注册并登录";
 "login.error.fill_credentials" = "请填写用户名与密码";
@@ -1527,6 +1526,7 @@
 "record.chat_history" = "聊天记录";
 "record.dirty_card" = "[个人名片]";
 "record.dirty_record" = "[聊天记录]";
+"rtc.connecting" = "正在连接通话服务…";
 "rtc.error.id_empty" = "%1$@ 为空";
 "rtc.error.id_has_whitespace" = "%1$@ 含空白：%2$@";
 "rtc.error.id_too_long" = "%1$@ 超过 %2$ld 字节";
@@ -1537,10 +1537,11 @@
 "rtc.kind.group_id" = "群号";
 "rtc.kind.peer_id" = "对方 id";
 "scene.kicked_logged_out" = "该账号已在其他设备退出登录，请重新登录";
+"search.alias.auto_download" = "自动下载,流量,下载";
+"search.alias.sound" = "声音,提示音,铃声";
 "search.contacts.placeholder" = "搜索联系人、群聊";
 "search.global.placeholder" = "搜索会话、联系人、聊天记录";
-"search.me.empty" = "未找到相关设置";
-"search.me.placeholder" = "搜索设置";
+"search.no_matches" = "没有找到相关结果";
 "search.section.contacts" = "联系人";
 "search.section.conversations" = "会话";
 "search.section.groups" = "群聊";

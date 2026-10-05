@@ -36,7 +36,18 @@ static IMSettingsSearchEntry *IMEntry(NSString *entryID, NSArray<NSString *> *pa
     return [IMSettingsSearchEntry entryWithID:entryID title:path.lastObject path:path systemImage:symbol iconBg:bg route:route];
 }
 
-/// 带别名的登记。TODO：别名目前只补中文口径（中文用户习惯搜「声音」，英文页标题已是 Sound），多语言待 strings.json 机制。
+/// 同义词来自文案表（`search.alias.*`，逗号分隔，半/全角均可），随界面语言切换；只补页面标题里没有的口语叫法。
+static NSArray<NSString *> *IMSplitAliases(NSString *raw) {
+    NSMutableArray<NSString *> *out = [NSMutableArray array];
+    NSCharacterSet *seps = [NSCharacterSet characterSetWithCharactersInString:@",，"];
+    for (NSString *part in [raw componentsSeparatedByCharactersInSet:seps]) {
+        NSString *t = [part stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        if (t.length > 0) { [out addObject:t]; }
+    }
+    return out;
+}
+
+/// 带别名的登记。
 static IMSettingsSearchEntry *IMEntryAliased(NSArray<NSString *> *aliases, NSString *entryID, NSArray<NSString *> *path,
                                              NSString *symbol, UIColor *bg, NSArray<NSString *> *route) {
     IMSettingsSearchEntry *e = IMEntry(entryID, path, symbol, bg, route);
@@ -45,6 +56,8 @@ static IMSettingsSearchEntry *IMEntryAliased(NSArray<NSString *> *aliases, NSStr
 }
 
 + (NSArray<IMSettingsSearchEntry *> *)allEntries {
+    NSArray<NSString *> *soundAliases = IMSplitAliases(IMLocalized(@"search.alias.sound"));
+    NSArray<NSString *> *downloadAliases = IMSplitAliases(IMLocalized(@"search.alias.auto_download"));
     NSString *notif = IMLocalized(@"ios.settings.row.notifications");
     NSString *notifPrivate = IMLocalized(@"notif.type.private_title");
     NSString *notifGroup = IMLocalized(@"notif.type.group_title");
@@ -70,17 +83,17 @@ static IMSettingsSearchEntry *IMEntryAliased(NSArray<NSString *> *aliases, NSStr
         // —— 通知：私聊 / 群聊通知页、各自的提示音页 ——
         IMEntry(@"notifications.private", @[notif, notifPrivate], @"person.fill", blue, @[@"notifications", @"notifications/private"]),
         IMEntry(@"notifications.group", @[notif, notifGroup], @"person.2.fill", green, @[@"notifications", @"notifications/group"]),
-        IMEntryAliased(@[@"声音"], @"notifications.private.sound", @[notif, notifPrivate, sound], @"speaker.wave.2.fill", red,
+        IMEntryAliased(soundAliases, @"notifications.private.sound", @[notif, notifPrivate, sound], @"speaker.wave.2.fill", red,
                 @[@"notifications", @"notifications/private", @"notifications/private/sound"]),
-        IMEntryAliased(@[@"声音"], @"notifications.group.sound", @[notif, notifGroup, sound], @"speaker.wave.2.fill", red,
+        IMEntryAliased(soundAliases, @"notifications.group.sound", @[notif, notifGroup, sound], @"speaker.wave.2.fill", red,
                 @[@"notifications", @"notifications/group", @"notifications/group/sound"]),
         // —— 隐私与安全：已屏蔽的用户 / 修改密码（账号保护等占位行不登记）——
         IMEntry(@"privacy.blocked", @[privacy, IMLocalized(@"blocked.title")], @"nosign", red, @[@"privacy", @"privacy/blocked"]),
         IMEntry(@"privacy.changePassword", @[privacy, IMLocalized(@"settings.change_password")], @"key.fill", blue,
                 @[@"privacy", @"privacy/changePassword"]),
         // —— 数据和存储：自动下载（移动数据 / Wi-Fi）及各媒体类别 ——
-        IMEntryAliased(@[@"自动下载"], @"storage.cellular", @[storage, cellular], @"antenna.radiowaves.left.and.right", green, @[@"storage", @"storage/cellular"]),
-        IMEntryAliased(@[@"自动下载"], @"storage.wifi", @[storage, wifi], @"wifi", blue, @[@"storage", @"storage/wifi"]),
+        IMEntryAliased(downloadAliases, @"storage.cellular", @[storage, cellular], @"antenna.radiowaves.left.and.right", green, @[@"storage", @"storage/cellular"]),
+        IMEntryAliased(downloadAliases, @"storage.wifi", @[storage, wifi], @"wifi", blue, @[@"storage", @"storage/wifi"]),
     ]];
     NSArray<NSArray *> *categories = @[ @[@"image", IMLocalized(@"common.image"), @"photo.fill"],
                                         @[@"video", IMLocalized(@"common.video"), @"video.fill"],

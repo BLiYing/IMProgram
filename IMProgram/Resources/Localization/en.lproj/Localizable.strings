@@ -994,7 +994,6 @@
 "ios.tab.contacts" = "Contacts";
 "ios.tab.me" = "Me";
 "ios.tab.messages" = "Messages";
-"ios.tab.search" = "Search";
 "login.button.login" = "Log in";
 "login.button.register" = "Sign up and log in";
 "login.error.fill_credentials" = "Enter your username and password";
@@ -1527,6 +1526,7 @@
 "record.chat_history" = "Chat history";
 "record.dirty_card" = "[Contact]";
 "record.dirty_record" = "[Chat History]";
+"rtc.connecting" = "Connecting to the call service…";
 "rtc.error.id_empty" = "%1$@ is empty";
 "rtc.error.id_has_whitespace" = "%1$@ contains whitespace: %2$@";
 "rtc.error.id_too_long" = "%1$@ exceeds %2$ld bytes";
@@ -1537,10 +1537,11 @@
 "rtc.kind.group_id" = "Group ID";
 "rtc.kind.peer_id" = "Peer ID";
 "scene.kicked_logged_out" = "This account was logged out on another device. Please log in again.";
+"search.alias.auto_download" = "auto download,auto-download,cellular,data";
+"search.alias.sound" = "sound,tone,ringtone,alert";
 "search.contacts.placeholder" = "Search contacts and groups";
 "search.global.placeholder" = "Search chats, contacts, and messages";
-"search.me.empty" = "No matching settings";
-"search.me.placeholder" = "Search settings";
+"search.no_matches" = "No results found";
 "search.section.contacts" = "Contacts";
 "search.section.conversations" = "Chats";
 "search.section.groups" = "Groups";
