@@ -20,9 +20,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// 空闲与「已结束」（纯展示的结束页）不算。抽成纯函数是为了能单测，`isInCall` 只是把当前阶段喂给它。
 FOUNDATION_EXPORT BOOL IMRtcCallPhaseCountsAsInCall(NSInteger kitPhase);
 
-/// 通话记录拉取失败后值不值得「重新换票登录 im-rtc 再拉一次」：只有 SDK 报「尚未登录」（2007）才值得——
-/// 这说明启动时那次登录（换票 / 连信令）失败过，连接早已被清掉，页面里点「重试」永远还是同一个错。
-/// 网络不通 / 票无效 / 服务端 5xx 等重登没用，不在此列。纯函数以便单测。
+/// 通话记录拉取失败后值不值得「整台 im-rtc 引擎重启（重新换票登录）再拉一次」：
+/// SDK 的 `fetchCallHistory` 走 HTTP GET（带登录那枚票），不走 WebSocket，所以断链后页面里点重试若不重启就永远同一个错。
+/// 值得的：2007 尚未登录、1101 票无效/过期、2003 网络不通（信令服务断过）、本类自己的「引擎未启动」(-1，被踢后被 stop)。
+/// 其余（5xx、已登录、引擎换代作废）重启没用。纯函数以便单测。
 FOUNDATION_EXPORT BOOL IMRtcHistoryErrorNeedsRelogin(NSError *_Nullable error);
 
 @interface IMRtcCall : NSObject

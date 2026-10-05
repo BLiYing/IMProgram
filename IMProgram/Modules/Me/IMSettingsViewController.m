@@ -589,7 +589,9 @@
     for (NSArray<IMSettingsRow *> *g in self.groups) {
         for (IMSettingsRow *r in g) {
             if (r.destructive) { continue; } // 退出登录不进搜索，避免误触
-            [out addObject:[IMSettingsSearchEntry entryWithId:r.rowId title:r.title systemImage:r.systemImage]];
+            IMSettingsSearchEntry *e = [IMSettingsSearchEntry entryWithId:r.rowId title:r.title systemImage:r.systemImage];
+            e.iconBgColor = r.iconBgColor ?: IMTheme.accent; // 与 IMSettingsCell 同口径
+            [out addObject:e];
         }
     }
     return out;

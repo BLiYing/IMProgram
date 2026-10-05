@@ -30,10 +30,14 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
 
 @interface IMSearchResultCell : UITableViewCell
 @property (nonatomic, strong) UILabel *avatarLabel;
+@property (nonatomic, strong) UIView *iconTile;        ///< 「我」页设置项命中行：彩色圆角底 + 白色 SF Symbol（与「我」页行同款）
+@property (nonatomic, strong) UIImageView *iconView;
 @property (nonatomic, strong) UILabel *titleLabel;
 @property (nonatomic, strong) UILabel *subtitleLabel;
 - (void)configureAvatarURL:(nullable NSString *)avatarURL seed:(NSString *)seed displayName:(NSString *)name
                      title:(NSString *)title subtitle:(nullable NSString *)subtitle keyword:(nullable NSString *)keyword;
+/// 设置项命中行：用「我」页同款图标（SF Symbol + 底色）代替首字彩色圆。
+- (void)configureSettingEntry:(IMSettingsSearchEntry *)entry keyword:(nullable NSString *)keyword;
 @end
 
 @implementation IMSearchResultCell
@@ -59,7 +63,19 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
         _subtitleLabel.textColor = IMTheme.textSecondary;
         _subtitleLabel.lineBreakMode = NSLineBreakByTruncatingTail;
 
+        _iconTile = [UIView new];
+        _iconTile.translatesAutoresizingMaskIntoConstraints = NO;
+        _iconTile.layer.cornerRadius = 8;
+        _iconTile.layer.masksToBounds = YES;
+        _iconTile.hidden = YES;
+        _iconView = [UIImageView new];
+        _iconView.translatesAutoresizingMaskIntoConstraints = NO;
+        _iconView.tintColor = UIColor.whiteColor;
+        _iconView.contentMode = UIViewContentModeScaleAspectFit;
+        [_iconTile addSubview:_iconView];
+
         [self.contentView addSubview:_avatarLabel];
+        [self.contentView addSubview:_iconTile];
         [self.contentView addSubview:_titleLabel];
         [self.contentView addSubview:_subtitleLabel];
         [NSLayoutConstraint activateConstraints:@[
@@ -67,6 +83,14 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
             [_avatarLabel.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
             [_avatarLabel.widthAnchor constraintEqualToConstant:44],
             [_avatarLabel.heightAnchor constraintEqualToConstant:44],
+            [_iconTile.centerXAnchor constraintEqualToAnchor:_avatarLabel.centerXAnchor],
+            [_iconTile.centerYAnchor constraintEqualToAnchor:_avatarLabel.centerYAnchor],
+            [_iconTile.widthAnchor constraintEqualToConstant:36],
+            [_iconTile.heightAnchor constraintEqualToConstant:36],
+            [_iconView.centerXAnchor constraintEqualToAnchor:_iconTile.centerXAnchor],
+            [_iconView.centerYAnchor constraintEqualToAnchor:_iconTile.centerYAnchor],
+            [_iconView.widthAnchor constraintEqualToConstant:22],
+            [_iconView.heightAnchor constraintEqualToConstant:22],
             [_titleLabel.leadingAnchor constraintEqualToAnchor:_avatarLabel.trailingAnchor constant:12],
             [_titleLabel.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-16],
             [_titleLabel.topAnchor constraintEqualToAnchor:self.contentView.centerYAnchor constant:-18],
@@ -81,11 +105,27 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
 - (void)configureAvatarURL:(nullable NSString *)avatarURL seed:(NSString *)seed displayName:(NSString *)name
                      title:(NSString *)title subtitle:(nullable NSString *)subtitle keyword:(nullable NSString *)keyword {
     // 头像复用全 app 统一逻辑（UILabel+IMAvatar）：先首字母取色底立即显示，异步加载真实头像覆盖；cell 复用安全。
+    self.avatarLabel.hidden = NO;
+    self.iconTile.hidden = YES;
     [self.avatarLabel im_setAvatarURL:avatarURL seed:seed displayName:name];
     self.titleLabel.attributedText = IMSearchHighlighted(title, keyword, self.titleLabel.font, IMTheme.textPrimary);
     self.subtitleLabel.attributedText = subtitle.length > 0
         ? IMSearchHighlighted(subtitle, keyword, self.subtitleLabel.font, IMTheme.textSecondary) : nil;
     self.subtitleLabel.hidden = (subtitle.length == 0);
+}
+
+- (void)configureSettingEntry:(IMSettingsSearchEntry *)entry keyword:(NSString *)keyword {
+    if (entry.systemImage.length == 0) { // 无图标的行退回首字圆
+        [self configureAvatarURL:nil seed:entry.rowId displayName:entry.title title:entry.title subtitle:nil keyword:keyword];
+        return;
+    }
+    self.avatarLabel.hidden = YES;
+    self.iconTile.hidden = NO;
+    self.iconTile.backgroundColor = entry.iconBgColor ?: IMTheme.accent;
+    self.iconView.image = [UIImage systemImageNamed:entry.systemImage];
+    self.titleLabel.attributedText = IMSearchHighlighted(entry.title, keyword, self.titleLabel.font, IMTheme.textPrimary);
+    self.subtitleLabel.attributedText = nil;
+    self.subtitleLabel.hidden = YES;
 }
 
 @end
@@ -460,7 +500,7 @@ static NSAttributedString *IMSearchHighlighted(NSString *text, NSString *keyword
         }
         case IMSearchGroupSetting: {
             IMSettingsSearchEntry *e = _settingHits[(NSUInteger)ip.row];
-            [cell configureAvatarURL:nil seed:e.rowId displayName:e.title title:e.title subtitle:nil keyword:_keyword];
+            [cell configureSettingEntry:e keyword:_keyword];
             break;
         }
         case IMSearchGroupGroup: {

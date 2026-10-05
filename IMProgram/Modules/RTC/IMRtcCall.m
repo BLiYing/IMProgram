@@ -34,11 +34,27 @@ BOOL IMRtcCallPhaseCountsAsInCall(NSInteger kitPhase) {
     return NO; // SDK 以后新增的阶段：宁可多响一声，不可把提醒全部吞掉
 }
 
+/// 「通话未启动」错误码（`fetchCallHistory…` 里 `_engine == nil`）。
+static const NSInteger IMRtcCallErrorEngineNotStarted = -1;
+
 BOOL IMRtcHistoryErrorNeedsRelogin(NSError *error) {
-    return error != nil && [error.domain isEqualToString:IMRTCErrorInfo.domain] && error.code == 2007; // notLoggedIn
+    if (error == nil) { return NO; }
+    // 引擎被拆掉了（被踢 / 配置被拒后 handleKickedOut 会 stop）：用户停在页面里点重试永远是同一个错，重启一次才有救。
+    if ([error.domain isEqualToString:@"IMRtcCall"]) { return error.code == IMRtcCallErrorEngineNotStarted; }
+    if (![error.domain isEqualToString:IMRTCErrorInfo.domain]) { return NO; }
+    switch (error.code) {
+        case 2007: // notLoggedIn：启动时换票 / 连信令失败过，连接已被清掉
+        case 1101: // tokenInvalid：REST 用的是登录那枚票，过期后只换 WS 重连的票也救不了
+        case 2003: // networkUnreachable：信令服务断过 / 重启，SDK 的重连可能已放弃或在长退避里
+            return YES;
+        default: return NO;
+    }
 }
 
 @implementation IMRtcCall {
+    /// 通话历史失败后「整台引擎重启（stop → start → login）」的在途标记与排队的回调：并发的多次重试共用一次重启。
+    BOOL _recovering;
+    NSMutableArray<void (^)(BOOL)> *_recoveryWaiters;
     IMCallEngine *_engine;
     IMCallKit *_kit;
     IMRtcProfileResolver *_resolver;
@@ -65,18 +81,24 @@ BOOL IMRtcHistoryErrorNeedsRelogin(NSError *error) {
 #pragma mark - 生命周期
 
 - (void)startWithUserID:(NSString *)uid {
+    [self startWithUserID:uid loginCompletion:nil];
+}
+
+/// loginCompletion：登录 im-rtc 的结果（主线程）；没起来（配置不全 / 换票失败 / 换代）一律 NO。nil = 不关心。
+- (void)startWithUserID:(NSString *)uid loginCompletion:(void (^)(BOOL ok))loginDone {
     NSString *deviceID = IMDeviceIdentity.deviceID;
-    if (_engine && [_uid isEqualToString:uid]) { return; }
+    if (_engine && [_uid isEqualToString:uid]) { if (loginDone) { loginDone(YES); } return; }
     [self stop];
     IMRtcConfig *config = IMRtcConfig.load;
     if (!config.isUsable) {
         IMLogWarnWithTag(IMLogTagRTC, @"rtc_disabled missing=%@", [config.missingKeys componentsJoinedByString:@","]);
+        if (loginDone) { loginDone(NO); }
         return;
     }
     NSString *problem = [IMRtcConfig problemForID:uid kind:@"uid"] ?: [IMRtcConfig problemForID:deviceID kind:@"device_id"];
     NSURL *url = [NSURL URLWithString:config.wsURL];
     if (!problem && !url) { problem = @"wsUrl 不是合法地址"; }
-    if (problem) { IMLogWarnWithTag(IMLogTagRTC, @"rtc_disabled reason=%@", problem); return; }
+    if (problem) { IMLogWarnWithTag(IMLogTagRTC, @"rtc_disabled reason=%@", problem); if (loginDone) { loginDone(NO); } return; }
 
     [self installSDKLog];
     _uid = [uid copy];
@@ -109,9 +131,11 @@ BOOL IMRtcHistoryErrorNeedsRelogin(NSError *error) {
     [self signTokenWithCompletion:^(NSString *token) {
         // 换票是异步网络请求：这段时间里可能又 stop 了（登出/切账号），generation 变了就不该
         // 再对一个已经被销毁的 _engine 发 login（同 handleEvent:generation: 的防护思路）。
-        if (gen != self->_generation || token.length == 0) { return; }
+        if (gen != self->_generation || token.length == 0) { if (loginDone) { loginDone(NO); } return; }
         [self->_engine login:token completionHandler:^(NSError *_Nullable error) {
             if (error) { IMLogWarnWithTag(IMLogTagRTC, @"rtc_login_failed code=%ld %@", (long)error.code, error.localizedDescription); }
+            if (!loginDone) { return; }
+            dispatch_async(dispatch_get_main_queue(), ^{ loginDone(error == nil && gen == self->_generation); });
         }];
     }];
 }
@@ -170,8 +194,16 @@ BOOL IMRtcHistoryErrorNeedsRelogin(NSError *error) {
                        completion:(void (^)(NSArray<IMCallHistoryRecord *> *_Nullable records,
                                              NSNumber *_Nullable nextCursor, NSError *_Nullable error))completion {
     if (!_engine) {
-        completion(nil, nil, [NSError errorWithDomain:@"IMRtcCall" code:-1
-                                              userInfo:@{ NSLocalizedDescriptionKey: [self unavailableReason] ?: @"通话未启动" }]);
+        NSError *notStarted = [NSError errorWithDomain:@"IMRtcCall" code:IMRtcCallErrorEngineNotStarted
+                                              userInfo:@{ NSLocalizedDescriptionKey: [self unavailableReason] ?: @"通话未启动" }];
+        if (allowRelogin && _uid.length > 0 && IMRtcHistoryErrorNeedsRelogin(notStarted)) {
+            [self recoverEngineThen:^(BOOL ok) {
+                if (!ok) { completion(nil, nil, notStarted); return; }
+                [self fetchCallHistoryWithLimit:limit cursor:cursor allowRelogin:NO completion:completion];
+            }];
+            return;
+        }
+        completion(nil, nil, notStarted);
         return;
     }
     NSUInteger gen = _generation;
@@ -191,7 +223,7 @@ BOOL IMRtcHistoryErrorNeedsRelogin(NSError *error) {
             IMLogWarnWithTag(IMLogTagRTC, @"call_history_fetch_failed domain=%@ code=%ld %@",
                              error.domain, (long)error.code, error.localizedDescription ?: @"-");
             if (allowRelogin && IMRtcHistoryErrorNeedsRelogin(error)) {
-                [self reloginThen:^(BOOL ok) {
+                [self recoverEngineThen:^(BOOL ok) {
                     if (!ok) { completion(nil, nil, error); return; }
                     [self fetchCallHistoryWithLimit:limit cursor:cursor allowRelogin:NO completion:completion];
                 }];
@@ -206,19 +238,24 @@ BOOL IMRtcHistoryErrorNeedsRelogin(NSError *error) {
     }];
 }
 
-/// 重新换票并登录当前引擎（启动时登录失败过的补救）。回调恒在主线程；引擎已被换代则判失败。
-- (void)reloginThen:(void (^)(BOOL ok))done {
-    NSUInteger gen = _generation;
-    IMLogWithTag(IMLogTagRTC, @"rtc_relogin_for_history");
-    [self signTokenWithCompletion:^(NSString *token) {
-        if (gen != self->_generation || token.length == 0) { done(NO); return; }
-        [self->_engine login:token completionHandler:^(NSError *_Nullable error) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                if (gen != self->_generation) { done(NO); return; }
-                if (error) { IMLogWarnWithTag(IMLogTagRTC, @"rtc_relogin_failed code=%ld %@", (long)error.code, error.localizedDescription ?: @"-"); }
-                done(error == nil);
-            });
-        }];
+/// 通话历史失败后的补救：整台引擎重启（stop → 换票 → start → login）。回调恒在主线程。
+/// 不能只重发 login：1101/2003 时连接对象还在，login 会被 SDK 拒（「已经登录了」）；重启是唯一对所有断链形态都成立的做法。
+/// 正在通话时不动（重启会挂断）；并发的多次调用共用一次重启。
+- (void)recoverEngineThen:(void (^)(BOOL ok))done {
+    if (self.isInCall || _uid.length == 0) { done(NO); return; }
+    if (!_recoveryWaiters) { _recoveryWaiters = [NSMutableArray array]; }
+    [_recoveryWaiters addObject:[done copy]];
+    if (_recovering) { return; }
+    _recovering = YES;
+    IMLogWithTag(IMLogTagRTC, @"rtc_restart_for_history");
+    NSString *uid = [_uid copy];
+    [self stop]; // 即使 _engine 已是 nil 也无副作用；先拆旧再起新，避免 start 内「同 uid 幂等」把半死的旧引擎留着
+    [self startWithUserID:uid loginCompletion:^(BOOL ok) {
+        if (!ok) { IMLogWarnWithTag(IMLogTagRTC, @"rtc_restart_failed"); }
+        NSArray<void (^)(BOOL)> *waiters = [self->_recoveryWaiters copy];
+        [self->_recoveryWaiters removeAllObjects];
+        self->_recovering = NO;
+        for (void (^w)(BOOL) in waiters) { w(ok); }
     }];
 }
 

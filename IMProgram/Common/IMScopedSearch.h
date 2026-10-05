@@ -4,7 +4,7 @@
 //   · 「通讯录」页：本地联系人（备注/昵称/@账号）+ 群聊（群名），同一套 trim + 子串匹配。
 //   · 「消息」页：保持原全局搜索，不经本文件。
 
-#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -19,6 +19,7 @@ typedef NS_ENUM(NSInteger, IMSearchScope) {
 @property (nonatomic, copy) NSString *rowId;
 @property (nonatomic, copy) NSString *title;
 @property (nonatomic, copy, nullable) NSString *systemImage;
+@property (nonatomic, strong, nullable) UIColor *iconBgColor;   ///< 「我」页该行的图标底色（命中行与「我」页一致）
 + (instancetype)entryWithId:(NSString *)rowId title:(NSString *)title systemImage:(nullable NSString *)image;
 @end
 
