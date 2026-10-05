@@ -7,6 +7,9 @@ static inline CGFloat IMHM_Clamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(M
 static inline CGFloat IMHM_Lerp(CGFloat a, CGFloat b, CGFloat t) { return a + (b - a) * t; }
 static inline CGFloat IMHM_Smooth(CGFloat x) { x = IMHM_Clamp(x, 0, 1); return x * x * (3 - 2 * x); }
 
+/// 头部名字标签距屏幕左右的最小留白（pt）。
+static const CGFloat kIMHMNameSideInset = 32;
+
 @implementation IMDropletHeaderMorph
 
 - (instancetype)init {
@@ -93,7 +96,9 @@ static inline CGFloat IMHM_Smooth(CGFloat x) { x = IMHM_Clamp(x, 0, 1); return x
     // 每帧显式设置各自 center + 纯缩放（绕自身中心）：间距由 centerDist 精确控制，锁定时与标题栏一致。
     self.name.transform = CGAffineTransformIdentity;
     self.meta.transform = CGAffineTransformIdentity;
-    self.name.frame = CGRectMake(0, nameCenterY - nameH / 2, W, nameH);
+    // 名字两侧留 kIMHMNameSideInset：长群名/昵称不贴屏幕边（单行尾部截断）；缩放绕中心，锁定态更不会碰返回/编辑按钮。
+    self.name.lineBreakMode = NSLineBreakByTruncatingTail;
+    self.name.frame = CGRectMake(kIMHMNameSideInset, nameCenterY - nameH / 2, MAX(W - 2 * kIMHMNameSideInset, 0), nameH);
     self.meta.frame = CGRectMake(0, metaCenterY - metaH / 2, W, metaH);
     self.name.transform = CGAffineTransformMakeScale(titleScale, titleScale);
     self.meta.transform = CGAffineTransformMakeScale(metaScale, metaScale);
