@@ -230,4 +230,10 @@
     XCTAssertEqual(searchNav.viewControllers.count, 2u, @"建不出页面不应关掉搜索页");
 }
 
+/// 同义词：「自动下载」命中两个网络页（页面标题里没有这几个字）。
+- (void)testAutoDownloadAliasHitsNetworkPages {
+    NSArray *ids = [self idsOf:[IMSettingsSearchRegistry filterEntries:[self all] keyword:@"自动下载"]];
+    XCTAssertEqualObjects(ids, (@[@"storage.cellular", @"storage.wifi"]));
+}
+
 @end

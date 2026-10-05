@@ -79,8 +79,8 @@ static IMSettingsSearchEntry *IMEntryAliased(NSArray<NSString *> *aliases, NSStr
         IMEntry(@"privacy.changePassword", @[privacy, IMLocalized(@"settings.change_password")], @"key.fill", blue,
                 @[@"privacy", @"privacy/changePassword"]),
         // —— 数据和存储：自动下载（移动数据 / Wi-Fi）及各媒体类别 ——
-        IMEntry(@"storage.cellular", @[storage, cellular], @"antenna.radiowaves.left.and.right", green, @[@"storage", @"storage/cellular"]),
-        IMEntry(@"storage.wifi", @[storage, wifi], @"wifi", blue, @[@"storage", @"storage/wifi"]),
+        IMEntryAliased(@[@"自动下载"], @"storage.cellular", @[storage, cellular], @"antenna.radiowaves.left.and.right", green, @[@"storage", @"storage/cellular"]),
+        IMEntryAliased(@[@"自动下载"], @"storage.wifi", @[storage, wifi], @"wifi", blue, @[@"storage", @"storage/wifi"]),
     ]];
     NSArray<NSArray *> *categories = @[ @[@"image", IMLocalized(@"common.image"), @"photo.fill"],
                                         @[@"video", IMLocalized(@"common.video"), @"video.fill"],
