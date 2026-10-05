@@ -684,4 +684,25 @@
     XCTAssertNotEqualObjects(unread, [c listRenderSignatureForSelfUID:@"u1"]);
 }
 
+- (void)testListRenderSignatureCoversDisplayFields {
+    IMConversation *c = [IMConversation new];
+    c.convID = @"g1"; c.isGroup = YES; c.name = @"G"; c.lastContent = @"hi"; c.timestamp = 100;
+    NSString *base = [c listRenderSignatureForSelfUID:@"u1"];
+    c.remark = @"R";
+    XCTAssertNotEqualObjects(base, [c listRenderSignatureForSelfUID:@"u1"]); // 群备注替代群名
+    c.remark = nil;
+    c.avatarURL = @"/a.png";
+    XCTAssertNotEqualObjects(base, [c listRenderSignatureForSelfUID:@"u1"]);
+    c.avatarURL = nil;
+    c.mentionUnread = YES;
+    XCTAssertNotEqualObjects(base, [c listRenderSignatureForSelfUID:@"u1"]);
+    c.mentionUnread = NO;
+    XCTAssertEqualObjects(base, [c listRenderSignatureForSelfUID:@"u1"]);
+    // 定时免打扰到期：muted/muteUntil 原始字段不变，渲染结果（铃铛）却由「现在」决定。
+    c.muted = YES; c.muteUntil = 1; // 早已过期
+    NSString *expired = [c listRenderSignatureForSelfUID:@"u1"];
+    c.muteUntil = 0;                 // 永久
+    XCTAssertNotEqualObjects(expired, [c listRenderSignatureForSelfUID:@"u1"]);
+}
+
 @end

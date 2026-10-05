@@ -5,6 +5,9 @@
 
 #import "IMMessageModel.h" // IMSysSegment / IMStringDictFromJSON
 #import "IMPresence.h"
+#import "IMMuteState.h"
+#import "IMTimeUtil.h"
+#import "IMTheme.h"
 #import "IMRemarkStore.h"
 #import "IMSysEventFormatter.h" // P3 i18n：sys_event → 本地化预览
 #import "IMAccountIdentity.h" // IMIsSystemUserID：系统通知单聊判定
@@ -149,6 +152,10 @@ NSString * const kIMGroupReadSeqsKey = @"groupReadSeqs";
         @(self.unread), @(self.unreadCapped), @(self.pinnedAt), @(self.muted), @(self.muteUntil),
         @(self.markedUnread), @(self.mentionUnread),
         pr ? @[@(pr.level), @(pr.onlineUntil), @(pr.lastSeen)] : @"",
+        // 随「现在」变化的渲染结果：定时免打扰到期、在线租约到期、时间文案跨天（今天 HH:mm → 昨天）。
+        // 只靠原始字段（muteUntil/onlineUntil/timestamp 没变）发现不了，会让到期后的行停在旧样子。
+        @(IMIsMutedNow(self.muted, self.muteUntil, IMNowMillis())), @(pr.isOnline),
+        [IMTheme conversationTimeStringFromMillis:self.timestamp] ?: @"",
     ];
     return [parts componentsJoinedByString:@"|"];
 }
