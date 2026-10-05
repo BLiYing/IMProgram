@@ -705,4 +705,14 @@
     XCTAssertNotEqualObjects(expired, [c listRenderSignatureForSelfUID:@"u1"]);
 }
 
+- (void)testListRenderSignatureStableAcrossFreshlyParsedSysSegments {
+    NSDictionary *dict = @{@"conv_id": @"g1", @"is_group": @YES, @"name": @"G",
+        @"last_message": @{@"from": @"u2", @"timestamp": @100, @"sys_event": @"group_created",
+            @"sys_args": @{@"a": @"1", @"b": @"2"},
+            @"sys_segments": @[@{@"uid": @"u2", @"text": @"Bob"}, @{@"text": @" 创建了群聊"}]}};
+    IMConversation *a = [IMConversation conversationsFromArray:@[dict]].firstObject;
+    IMConversation *b = [IMConversation conversationsFromArray:@[dict]].firstObject; // 新对象，段对象地址不同
+    XCTAssertEqualObjects([a listRenderSignatureForSelfUID:@"u1"], [b listRenderSignatureForSelfUID:@"u1"]);
+}
+
 @end

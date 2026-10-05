@@ -758,7 +758,7 @@ static CGFloat const kIMRowLeading = 16;
     // peerPresence 按 convID 迁移过来（租约 onlineUntil 会自然过期，迁移安全）。
     [self carryOverPeerPresenceInto:cached];
     self.conversations = cached ?: @[]; // setter 顺带刷空态与 Tab 蓝点
-    [self.tableView reloadData];
+    [self refreshVisibleRowsOrReload]; // 别端/本机设置回声也走这里：内容没变的行不重绘
 }
 
 /// 把当前列表的单聊在线态按 convID 迁移到 newConvs（仅填补 newConvs 自身没有的，不覆盖已带的）。

@@ -146,7 +146,7 @@ NSString * const kIMGroupReadSeqsKey = @"groupReadSeqs";
         self.avatarURL ?: @"", self.peerAvatarURL ?: @"", self.lastFrom ?: @"", self.lastFromNickname ?: @"",
         @(self.memberCount), @(self.pendingCount), @(self.isSuper),
         self.lastContent ?: @"", self.lastContentType ?: @"", self.lastCaption ?: @"", @(self.lastDuration),
-        self.lastSysEvent ?: @"", self.lastSysArgs.description ?: @"", self.lastSysSegments.description ?: @"",
+        self.lastSysEvent ?: @"", // sys 段/参数已体现在上面的预览文本里；不能拼 .description（IMSysSegment 无自定义 description，含对象地址，每次拉取都不同 → 永远判「变了」）
         @(self.lastRecalled), self.peer ?: @"", self.peerNickname ?: @"",
         @(self.latestConvSeq), @(self.readSeq), @(self.peerReadSeq), @(self.groupReadSeq), @(self.timestamp),
         @(self.unread), @(self.unreadCapped), @(self.pinnedAt), @(self.muted), @(self.muteUntil),
