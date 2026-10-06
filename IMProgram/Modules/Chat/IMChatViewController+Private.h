@@ -197,6 +197,8 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 // 长按菜单：构建 / 删除路径：
 - (void)attachMessageContextMenuToCell:(UITableViewCell *)cell;
 - (NSArray<IMMenuAction *> *)messageActionsForMessage:(IMMessageModel *)message mine:(BOOL)mine;
+/// 群聊自己发的消息菜单顶部「N 人已读」异步行；不适用时 nil。
+- (nullable UIMenuElement *)readReceiptMenuElementForMessage:(IMMessageModel *)message mine:(BOOL)mine;
 - (BOOL)canDeleteForEveryone:(IMMessageModel *)message;
 - (IMMenuAction *)deleteMenuActionForMessage:(IMMessageModel *)message;
 - (void)deleteMessage:(IMMessageModel *)message;

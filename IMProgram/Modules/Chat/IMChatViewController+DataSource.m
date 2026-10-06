@@ -289,8 +289,14 @@
             __strong typeof(ws) self = ws;
             if (!self) { return nil; }
             // 待发格也给长按菜单（含「取消发送」——可单独取消宫格里的某一项）。
-            return [IMMenuAction menuWithActions:[self messageActionsForMessage:mm
-                                                                           mine:[mm.from isEqualToString:self.userID]]];
+            BOOL mineTile = [mm.from isEqualToString:self.userID];
+            UIMenu *base = [IMMenuAction menuWithActions:[self messageActionsForMessage:mm mine:mineTile]];
+            // 与普通气泡一致：群聊、自己发的、convSeq>0 才在菜单顶部挂「N 人已读」。
+            UIMenuElement *readRow = [self readReceiptMenuElementForMessage:mm mine:mineTile];
+            if (!readRow) { return base; }
+            NSMutableArray<UIMenuElement *> *children = [NSMutableArray arrayWithObject:readRow];
+            [children addObjectsFromArray:base.children];
+            return [UIMenu menuWithTitle:@"" children:children];
         };
         __weak typeof(self) wsRetry_alb = self;
         alb.onRetryTap = ^{ [wsRetry_alb im_resendMessage:m]; }; // 发送失败红❗ → 重发
