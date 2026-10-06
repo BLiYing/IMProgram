@@ -12,7 +12,7 @@
 
 1. **拆体量欠账（下次碰就必须先拆）**：`Network/IMSocketManager.m` 1589/1600（只准降不准升；方向按 CODING_STYLE §7 三档：帧编解码 / 重连退避 / 各业务 send-recv 分组各成协作对象或 category，新逻辑优先开 category）；`Database/IMDatabase.m` 1500/1500（已顶满，加列或新增前必须先拆），给 `im_conversation_local`/`im_message_local` 加列前先拆（参考 `IMDatabase+MuteState.m` / `IMDatabase+ClearFloor.m`；`writeCachedConversations:` 的整行 INSERT 是下一块该搬走的）。
 2. `IMChatViewController.m` 的 `peerDisplayName` 仍有 `fallback:peerID`（会在聊天页标题露内部 uid 的边缘路径），按 UI.md「末级不是 uid」改。
-3. 小项：选好友页缺「全选」（先确认代码里是否真缺）；`setupUI` 抽 `IMComposerBar`；遗留 P2（听筒切换/接力连播停止条/Web 转文字/语音发送接入 `IMMediaSendService` 常驻队列等，细节见 archive）。
+3. 小项：好友多选页（`IMFriendPickerViewController`，建群 / 邀请 / 发名片 / 添加管理员共用）无「全选」——Web 建群第一步有（`CreateGroupModal`：只作用于当前可见行、按上限截断），iOS / Android 都没有；发名片上限 9、添加管理员上限 5 不适合全选，要做只做建群/邀请，是否做待定；`setupUI` 抽 `IMComposerBar`；遗留 P2（听筒切换/接力连播停止条/Web 转文字/语音发送接入 `IMMediaSendService` 常驻队列等，细节见 archive）。
 
 ## 已知坑 / 限制
 
