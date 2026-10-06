@@ -91,6 +91,13 @@ NS_ASSUME_NONNULL_BEGIN
 /// 置 YES 时应同时把 maxSelection 设为 1。**须在 push 前设。**
 @property (nonatomic, assign) BOOL selectsImmediately;
 
+/// 搜索框下方显示右对齐的「全选 / 取消全选」。默认 NO；**只有建群第一步开**（邀请/名片/管理员/转让不设）。
+/// 口径见 CREATE_GROUP_SELECT_ALL_DESIGN.md：只作用于当前可见行；保留已选、按可见顺序补到 `selectAllLimit`。
+/// **须在 push 前设。**
+@property (nonatomic, assign) BOOL showsSelectAll;
+/// 全选最多把选中集补到多少人（0 = 不截断）。建群 = maxGroupMembers − 1（群主占 1 席）。
+@property (nonatomic, assign) NSInteger selectAllLimit;
+
 - (instancetype)init NS_UNAVAILABLE;
 - (instancetype)initWithNibName:(nullable NSString *)nibNameOrNil bundle:(nullable NSBundle *)nibBundleOrNil NS_UNAVAILABLE;
 - (instancetype)initWithCoder:(NSCoder *)coder NS_UNAVAILABLE;

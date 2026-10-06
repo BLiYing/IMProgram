@@ -5,6 +5,7 @@
 #import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
 #import "IMContactCells.h"
 #import "IMContactSectionIndex.h"
+#import "IMFriendPickerSelectAll.h"
 #import "IMListSearch.h"
 #import "IMHTTPService.h"
 #import "IMUserCard.h"
@@ -31,6 +32,8 @@
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) UISearchBar *searchBar;
 @property (nonatomic, strong) UIView *searchHeader;   // 托住 searchBar 的表头容器（宽度随表格实时对齐）
+@property (nonatomic, strong, nullable) UIButton *selectAllButton; // showsSelectAll 时挂在 searchHeader 底部
+@property (nonatomic, copy) NSArray<NSString *> *visibleIDs;        // 当前搜索词下可见行的 uid（显示顺序）
 @property (nonatomic, strong) UILabel *emptyLabel;
 @end
 
@@ -90,6 +93,7 @@
     // 搜索框挂在容器里而不是直接当 tableHeaderView：直接挂时它的宽度停在 viewDidLoad 那一刻的
     // view.bounds，与表格真实宽度（本页右侧还有 A–Z 索引尺）对不上，整个框看起来左右都偏。
     self.searchHeader = IMListSearchHeaderMake(self.searchBar);
+    if (self.showsSelectAll) { [self installSelectAllInHeader]; }
     self.tableView.tableHeaderView = self.searchHeader;
     [self.view addSubview:self.tableView];
 
@@ -110,7 +114,70 @@
 
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
+    if (self.selectAllButton) { [self syncSelectAllHeaderWidth]; return; }
     IMListSearchHeaderSyncWidth(self.searchHeader, self.tableView); // 表头宽度对齐表格（宽度没变即空转）
+}
+
+#pragma mark - 全选
+
+static const CGFloat kSelectAllRowHeight = 32;
+static const CGFloat kSearchBarRowHeight = 56; // 与 IMListSearch 的 kIMListSearchBarHeight 同值
+
+/// 把「全选」按钮放进 searchHeader 底部：容器高 = 搜索条 56 + 32，搜索条仍贴顶（原来是居中于 56）。
+- (void)installSelectAllInHeader {
+    UIView *host = self.searchHeader;
+    host.frame = CGRectMake(0, 0, host.frame.size.width, kSearchBarRowHeight + kSelectAllRowHeight);
+    // IMListSearchHeaderMake 把搜索条垂直居中于容器；容器变高后居中会下移，改成贴顶 56 高的一行。
+    for (NSLayoutConstraint *c in [host.constraints copy]) {
+        if (c.firstItem == self.searchBar && c.firstAttribute == NSLayoutAttributeCenterY) { c.active = NO; }
+    }
+    [self.searchBar.centerYAnchor constraintEqualToAnchor:host.topAnchor constant:kSearchBarRowHeight / 2].active = YES;
+
+    UIButton *b = [UIButton buttonWithType:UIButtonTypeCustom];
+    b.translatesAutoresizingMaskIntoConstraints = NO;
+    b.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightRegular];
+    [b setTitleColor:IMTheme.accent forState:UIControlStateNormal];
+    b.contentHorizontalAlignment = UIControlContentHorizontalAlignmentRight;
+    b.contentEdgeInsets = UIEdgeInsetsMake(0, 0, 0, 16); // 右边距 16；按钮铺满整行，点击区 ≥ 44 × 32
+    [b addTarget:self action:@selector(selectAllTapped) forControlEvents:UIControlEventTouchUpInside];
+    [host addSubview:b];
+    [NSLayoutConstraint activateConstraints:@[
+        [b.leadingAnchor constraintEqualToAnchor:host.leadingAnchor],
+        [b.trailingAnchor constraintEqualToAnchor:host.trailingAnchor],
+        [b.topAnchor constraintEqualToAnchor:host.topAnchor constant:kSearchBarRowHeight],
+        [b.heightAnchor constraintEqualToConstant:kSelectAllRowHeight],
+    ]];
+    self.selectAllButton = b;
+    [self refreshSelectAllButton];
+}
+
+/// 同 IMListSearchHeaderSyncWidth，但容器高度含全选行（共享函数写死 56 高）。
+- (void)syncSelectAllHeaderWidth {
+    CGFloat width = self.tableView.bounds.size.width;
+    if (width <= 0 || fabs(CGRectGetWidth(self.searchHeader.frame) - width) < 0.5) { return; }
+    self.searchHeader.frame = CGRectMake(0, 0, width, kSearchBarRowHeight + kSelectAllRowHeight);
+    [self.searchHeader layoutIfNeeded];
+    self.tableView.tableHeaderView = self.searchHeader;
+}
+
+/// 文案与显隐：可见 0 行隐藏；可见全选中 →「取消全选」。搜索词 / 选中变化后调用。
+- (void)refreshSelectAllButton {
+    UIButton *b = self.selectAllButton;
+    if (!b) { return; }
+    b.hidden = self.visibleIDs.count == 0;
+    BOOL all = IMFriendPickerAllVisibleSelected(self.picked.array, self.visibleIDs);
+    [b setTitle:IMLocalized(all ? @"common.deselect_all" : @"common.select_all") forState:UIControlStateNormal];
+}
+
+- (void)selectAllTapped {
+    NSArray<NSString *> *cur = self.picked.array;
+    NSArray<NSString *> *next = IMFriendPickerAllVisibleSelected(cur, self.visibleIDs)
+        ? IMFriendPickerDeselectVisible(cur, self.visibleIDs)
+        : IMFriendPickerNextSelection(cur, self.visibleIDs, self.selectAllLimit);
+    [self.picked removeAllObjects];
+    [self.picked addObjectsFromArray:next];
+    [self.tableView reloadData];
+    [self updateSelectionUI];
 }
 
 + (void (^)(NSString *, void (^)(NSArray<IMUserCard *> *, NSError *)))groupMemberSearchForConvID:(NSString *)convID {
@@ -235,6 +302,8 @@
         __strong typeof(weakSelf) self = weakSelf;
         if (!self || generation != self.indexGeneration) { return; }
         self.friendIndex = index;
+        self.visibleIDs = [visible valueForKey:@"userID"] ?: @[];
+        [self refreshSelectAllButton];
         self.emptyLabel.text = emptyText;
         self.emptyLabel.hidden = visible.count > 0;
         [self.tableView reloadData];
@@ -287,6 +356,7 @@
         self.title = IMLocalizedFormat(@"friend.picker.selected", (long)self.picked.count);
     }
     self.navigationItem.rightBarButtonItem.enabled = self.picked.count > 0;
+    [self refreshSelectAllButton];
     // 标题栏按本页 navigationItem 渲染，改完必须显式请求刷新，
     // 否则「创建」按钮的 enabled 停留在初始 NO，点击被吞、无法建群。
     [self im_refreshNavigationBar];

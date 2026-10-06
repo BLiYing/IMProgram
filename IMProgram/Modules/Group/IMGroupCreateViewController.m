@@ -20,7 +20,7 @@
 #import "UIViewController+IMToast.h"
 
 /// 成员条最多画多少个头像：勾了几百人时不逐个建视图（滚动条也没人真去横滑几百格）。
-/// 超出部分点末位「＋ 添加」回第一步取消勾选，那里本来就有搜索与全选。
+/// 超出部分点末位「＋ 添加」回第一步取消勾选，那里有搜索与「全选」（只作用于可见行）。
 static const NSUInteger kIMGroupCreateMaxChips = 30;
 /// 头像上传还没回来就点了「创建」时，最多等这么久，超时就放弃头像先把群建出来。
 static const NSTimeInterval kIMGroupCreateAvatarWait = 5.0;
@@ -492,6 +492,10 @@ typedef NS_ENUM(NSInteger, IMGroupCreateSection) {
         [stack pushViewController:create animated:YES];
     }];
     weakPicker = picker;
+    // 仅建群入口开「全选」；群主占 1 席，故上限 = maxGroupMembers − 1。配置未加载就不截断（不按猜测值限）。
+    picker.showsSelectAll = YES;
+    IMServerConfigStore *cfg = IMServerConfigStore.shared;
+    picker.selectAllLimit = (cfg.loaded && cfg.maxGroupMembers > 0) ? cfg.maxGroupMembers - 1 : 0;
     [nav pushViewController:picker animated:YES];
 }
 
