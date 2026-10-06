@@ -1721,3 +1721,24 @@
 >   5. 冷启动点通知但本地会话未同步完成时的重试体验（见上「没做」第 1 条）；
 >   6. 设置页「通知权限」三态在系统设置里切换后回到本页是否及时刷新；
 >   7. 关闭「接收离线推送」后确认服务端令牌被删、且此后不再收到推送。
+
+---
+## 2026-10-06 归档自 current_task.md「当前焦点」
+**列表首行入口行对齐（LIST_ENTRY_ROW_DESIGN，iOS 2026-10-06 已提交、未推送）**：新增 `Common/IMEntryCell`（槽 40 + 间距 12 + 文字，自绘约束），替换通知例外「添加例外」、管理员页「添加管理员」、群资料成员页签四类前导行（行数/顺序/memberRowOffset 未动）；单测 `IMEntryCellTests`。模拟器已目测（浅/深）：通知例外页、成员页签（搜索/添加行，user1001 与 user1002 视角）、管理员页，圆心/文字左缘与头像行偏差 0（insetGrouped 下左边距实测 20，文字左缘 72）。满员提示行与「加载更多」未见到（本机 supergroup_enabled=false / 未滚到底），仅修了行高度量宽度（68/16→按实测 72/20）。
+
+**搜索入口收敛 + 设置项搜索（SEARCH_DESIGN §3.1，iOS 2026-10-05 已提交、未推送）**：底部「搜索」tab 与「我」范围已删（3 个 tab）；通讯录页顶点按式搜索框（`Common/IMSearchEntryHeader`，消息页共用）→ push 全局搜索 scope=Contacts；首页全局搜索新增「设置」分组（会话→联系人→聊天记录→设置→搜索用户），登记表 `Common/IMSettingsSearchRegistry`（纯逻辑，title+path 子串、title 命中优先）+ `Modules/Me/IMSettingsRouter`（route 逐级建页，`setViewControllers:` 一次铺栈）；单测 `IMSettingsSearchRegistryTests`。模拟器已验：3 tab、Wi-Fi›视频 三级铺栈逐级返回回「我」、通讯录搜索框 push。未验：中文关键词输入（axe 不能打中文）。`search.me.*` / `ios.tab.search` 文案键已无引用，键在 IMServer 的 strings.json（本次未动）。CLIENT_PARITY 对应单元格待 IMServer 仓维护者同步。
+
+
+**2026-10-03 补（已推送）**：群资料页公告/简介改一行（Value1）；免打扰时长菜单改自绘底部弹层 `Common/IMActionListSheet`（`IMMuteDurationMenu` 沿用原签名，对齐 Android；iOS 26 模拟器实测，iOS 18 未对比）；别端退群关页 + 搜索页出现时拉最新会话。
+
+**三端对齐小收口（2026-10-03，待审、未提交）**：① 待审入群申请页对齐 Android `JoinRequestsScreen`（验证消息空白整行不显、不再写默认文案；加载中显「加载中…」；审批中按钮禁用防连点；失败也重拉；纯属性 `IMJoinRequest.isPending/visibleHello/resultLabel` + 单测）；② 单聊资料页「备注名 / 用户名」改 Value1 一行（左标签右值，对齐 Android/Web；原 Subtitle 两行叠）；③ 文本气泡时间移到正文**下方**右对齐（对齐 Android；删除行内透明占位 `IMBubbleMetaPlaceholder`，`IMBubbleTextMetaLayoutTests` 钉位置）。未做模拟器目测；用户名为空时 iOS 仍显「未设置」行（Android/Web 整行隐藏）。
+
+**C6 补齐（2026-10-02，待审、已提交）**：媒体库/查看器本地有缺口且在线时改服务端分页续拉（`IMMediaServerTimeline` + `IMMediaPaging` + 容器 `olderLoader`；查看器时间线 = 点中那条所在本地段 + 往更旧续拉；媒体库整个由服务端供给；离线只给「只能翻已加载的部分」提示；清空位点以内的丢掉）；资料页归档页签不再读 `messagesForConv:` 全表（`IMDatabase+Archive`）。置顶判定 iOS 原本就有（`IMPinnedTargetRecalled` + 本地库探测，服务端置顶列表剔除撤回）。资料页「媒体/文件/语音」页签同样并入服务端分页（`IMDetailServerArchive` + `IMChatDetailViewController+ServerArchive`，滚到底自动续拉；链接页签服务端无索引仍只看本地）。**模拟器已验**（10 万积压大群：媒体页签滚到 426 张末尾）。**查看器向「更新」方向**已补（`IMMediaServerTimeline loadNewer` + pager 末尾预取 + 服务端 `after=`，纯函数单测+变异；未做模拟器端到端）。**没做**：离线提示未在模拟器上验。
+
+**本机清空位点 `cleared_up_to`（OFFLINE_BACKLOG_DESIGN §6.7，iOS 侧 2026-10-02 已实现，待审、未提交）**：
+独立小表 `im_conv_clear_floor_local.cleared_up_to`（只增不减，不随会话行删除）；`clearMessagesForConv:` 改一个事务（删消息 + 清区间 + 抬位点 + 游标推到位点，实现在 `Database/IMDatabase+ClearFloor.m`）；
+落库闸在 `writeIncomingMessage:`（sync 页 / window 页 / 实时一并挡）；有效可见下界 = `IMChatEffectiveFloor(服务端 historyFloor, 位点)`（纯函数在 `Common/IMChatWindowPlan.h`），
+进会话 / 上滚 / 取最新一页 / ↓N / 跳最早 / 服务端搜索·日历都吃它；老库升级补列时一次性回填。测试：`IMClearFloorTests`（库层）+ `IMChatWindowPlanTests`（纯函数）。
+对称兄弟：Android 已 ✅（`ClearFloor.kt`）；**Web 仍是「清空后重进会拉回」，待对齐**。`SYMMETRY.md` / `CLIENT_PARITY.md` / 设计文档 §6.7 状态由 IMServer 仓维护者同步（措辞建议见交付报告）。
+
+更早的收口（细节见 archive 顶部与 `git log`）：2026-10-02 「我」页头部断网兜底 / 会话壳不再把 uid 当昵称；2026-10-01 通知显示发送人头像、别端已读清手机通知/角标、多选删除两档改批量接口（仅模拟器验证）。
