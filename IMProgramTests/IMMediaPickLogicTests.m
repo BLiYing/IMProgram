@@ -49,9 +49,18 @@
     XCTAssertTrue([IMMediaPickLogic isSelectableWithSizeBytes:1]);
     XCTAssertTrue([IMMediaPickLogic isSelectableWithSizeBytes:2048LL * 1024 * 1024]);   // 恰好 2GB 可选
     XCTAssertFalse([IMMediaPickLogic isSelectableWithSizeBytes:2048LL * 1024 * 1024 + 1]);
-    XCTAssertFalse([IMMediaPickLogic isSelectableWithSizeBytes:0]);                       // 0 字节 = 坏资源
+    XCTAssertTrue([IMMediaPickLogic isSelectableWithSizeBytes:0]);                        // iOS 选择时判不出 0 字节坏文件，放行，发送时校验
     XCTAssertTrue([IMMediaPickLogic isTooLargeWithSizeBytes:3LL << 30]);
     XCTAssertFalse([IMMediaPickLogic isTooLargeWithSizeBytes:0]);
+}
+
+#pragma mark 视频转码结局
+
+- (void)testTranscodeOutcomeSeparatesWantedFromActuallyDone {
+    XCTAssertEqual([IMMediaPickLogic transcodeOutcomeWanted:NO exported:NO], IMVideoTranscodeOutcomeSkipped);
+    XCTAssertEqual([IMMediaPickLogic transcodeOutcomeWanted:YES exported:YES], IMVideoTranscodeOutcomeDone);
+    // 想转码但导出失败：必须是 FellBack，不能记成「转码了」（日志与告警据此区分）
+    XCTAssertEqual([IMMediaPickLogic transcodeOutcomeWanted:YES exported:NO], IMVideoTranscodeOutcomeFellBack);
 }
 
 #pragma mark 体积 / 时长文案

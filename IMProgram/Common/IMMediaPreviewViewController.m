@@ -253,11 +253,8 @@ static NSString * const kPageCellID = @"page";
         return;
     }
     if (!selected && ![_session isSelectableAsset:asset]) {
-        // 与宫格页同一套提示：超上限说「超过 2.00 GB」，读不出来才说「读不出来」。
-        BOOL tooLarge = [IMMediaPickLogic isTooLargeWithSizeBytes:[_session sizeBytesOfAsset:asset]];
-        [self im_showToast:tooLarge
-            ? IMLocalizedFormat(@"media.picker.too_large", [IMMediaPickLogic sizeLabelForBytes:kIMMaxVideoBytes])
-            : IMLocalized(@"media.picker.unreadable")];
+        // 与宫格页同一条提示：不可选的唯一原因是超上限（见 isSelectableWithSizeBytes:）。
+        [self im_showToast:IMLocalizedFormat(@"media.picker.too_large", [IMMediaPickLogic sizeLabelForBytes:kIMMaxVideoBytes])];
         return;
     }
     [_session toggleAsset:asset];

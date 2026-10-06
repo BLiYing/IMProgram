@@ -16,7 +16,17 @@ extern NSString * const kIMMediaPickAllBucketID;
 /// iOS 没有公开的文件大小 API，取不到是常态，不能因此把整个相册置灰。
 extern const long long kIMMediaSizeUnknown;
 
+/// 视频转码的实际结局（日志与告警据此区分，别拿「想转码」当「转码了」）。
+typedef NS_ENUM(NSInteger, IMVideoTranscodeOutcome) {
+    IMVideoTranscodeOutcomeSkipped = 0,  ///< 不需要转码（原图模式且已是 H.264 等）
+    IMVideoTranscodeOutcomeDone,         ///< 转码并产出了文件
+    IMVideoTranscodeOutcomeFellBack,     ///< 需要转码但导出失败/超时，回落发原文件（原编码）
+};
+
 @interface IMMediaPickLogic : NSObject
+
+/// wanted = 是否需要转码；exported = 导出是否真的产出了文件。
++ (IMVideoTranscodeOutcome)transcodeOutcomeWanted:(BOOL)wanted exported:(BOOL)exported;
 
 /// 有序选中（不是 Set）：编号 1..n 就是发送顺序，取消中间一张后后面的编号顺延。
 /// 超限返回 nil（调用方吐司，别静默丢弃）；已选则取消。
@@ -27,10 +37,11 @@ extern const long long kIMMediaSizeUnknown;
 /// 编号（1-based）；未选中返回 0。
 + (NSInteger)numberOfAssetID:(NSString *)assetID inSelection:(NSArray<NSString *> *)selected;
 
-/// 能不能选：体积未知可选；0 字节（文件已删/正在写入）与超过 2GB 不可选。
+/// 能不能选：只有超过 2GB 不可选；体积未知与 0 都可选（iOS 选择时判不出 0 字节坏文件，发送时校验标失败，
+/// 与 Android「0 = MediaStore 坏行」在选择时就置灰不同，见 docs/UI_SPEC.md §6.4）。
 + (BOOL)isSelectableWithSizeBytes:(long long)sizeBytes;
 
-/// 不可选时给用户的提示分类：YES = 超上限（「超过 2.00 GB」），NO = 读不出来。
+/// 是否超上限（「超过 2.00 GB」）。当前它是 isSelectable 的补集，单列是为了提示文案不依赖那条规则的实现。
 + (BOOL)isTooLargeWithSizeBytes:(long long)sizeBytes;
 
 /// 「原图」旁边的总字节数：只累加**已知**的选中项（>0）；全部未知返回 0（调用方据此不显示括号）。

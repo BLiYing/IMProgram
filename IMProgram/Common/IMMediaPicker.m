@@ -4,6 +4,7 @@
 #import "IMLocalization.h"
 #import "IMLog.h"
 #import "IMMediaPickerPhotos.h"
+#import "IMMediaPickLogic.h"
 #import <PhotosUI/PhotosUI.h>
 #import <AVFoundation/AVFoundation.h>
 #import <ImageIO/ImageIO.h>
@@ -596,8 +597,10 @@ static UIImage *IMPickerRequestImage(PHAsset *asset, CGFloat maxSide) {
 
     NSString *ext = _videoExt;
     NSURL *finalURL = tmpURL;
+    BOOL exported = NO;
     if (needsTranscode) {
         NSURL *outURL = [self exportVideoAtURL:tmpURL preset:preset progress:progress];
+        exported = outURL != nil;
         if (outURL) {
             ext = @"mp4";
             finalURL = outURL;
@@ -612,14 +615,16 @@ static UIImage *IMPickerRequestImage(PHAsset *asset, CGFloat maxSide) {
     if (![finalURL isEqual:tmpURL]) { [[NSFileManager defaultManager] removeItemAtURL:tmpURL error:NULL]; }
     _videoTmpURL = nil;
     return [self finishedVideoItemAtURL:finalURL ext:ext sourceCodec:sourceCodec
-                             transcoded:needsTranscode preset:preset];
+                                outcome:[IMMediaPickLogic transcodeOutcomeWanted:needsTranscode exported:exported]
+                                 preset:preset];
 }
 
 /// 视频产物收口（量尺寸/时长/编码、校验体积、打日志、包成 IMPickedMedia）。PHPicker 与 PHAsset 两条来源共用。
 /// finalURL 必须是**本进程自己的临时文件**（所有权移交调用方，发送服务会删它）。
 - (nullable IMPickedMedia *)finishedVideoItemAtURL:(NSURL *)finalURL ext:(NSString *)ext
                                        sourceCodec:(NSString *)sourceCodec
-                                        transcoded:(BOOL)needsTranscode preset:(NSString *)preset {
+                                           outcome:(IMVideoTranscodeOutcome)outcome
+                                            preset:(NSString *)preset {
     CGSize pixelSize = CGSizeZero;
     int64_t durationMillis = 0;
     IMPickerReadVideoMeta(finalURL, &pixelSize, &durationMillis); // 量**最终产物**（收端拿到的就是这份）
@@ -631,13 +636,17 @@ static UIImage *IMPickerRequestImage(PHAsset *asset, CGFloat maxSide) {
         return nil; // 读不到/超 2GB：剔除（调用方标"失败"）
     }
 
-    // 产物编码不信文档只信实测：仍是 HEVC 说明预设选错，收端照样播不了，必须能一眼看出来。
-    if (IMPickerIsHEVCCodec(outCodec)) {
+    // 产物编码不信文档只信实测：转码成功后仍是 HEVC 说明预设选错，收端照样播不了，必须能一眼看出来。
+    // 导出失败回落原文件是另一回事（不是预设错），单独一条，别把两种根因混在同一个告警名下。
+    if (outcome == IMVideoTranscodeOutcomeFellBack) {
+        IMLogWarnWithTag(IMLogTagMedia, @"video_transcode_fallback_original source_codec=%@ out_codec=%@ preset=%@ bytes=%lld",
+                         sourceCodec, outCodec, preset, byteCount);
+    } else if (IMPickerIsHEVCCodec(outCodec)) {
         IMLogWarnWithTag(IMLogTagMedia, @"video_still_hevc_after_transcode source_codec=%@ out_codec=%@ preset=%@ bytes=%lld",
                          sourceCodec, outCodec, preset, byteCount);
     } else {
         IMLogDebugWithTag(IMLogTagMedia, @"video_ready source_codec=%@ out_codec=%@ transcoded=%d bytes=%lld",
-                          sourceCodec, outCodec, needsTranscode, byteCount);
+                          sourceCodec, outCodec, outcome == IMVideoTranscodeOutcomeDone, byteCount);
     }
 
     IMPickedMedia *m = [IMPickedMedia new];
@@ -669,6 +678,7 @@ static UIImage *IMPickerRequestImage(PHAsset *asset, CGFloat maxSide) {
     BOOL needsTranscode = !_original || IMPickerIsHEVCCodec(sourceCodec) || libraryURL == nil;
 
     NSURL *finalURL = needsTranscode ? [self exportVideoAsset:av preset:preset progress:progress] : nil;
+    IMVideoTranscodeOutcome outcome = [IMMediaPickLogic transcodeOutcomeWanted:needsTranscode exported:finalURL != nil];
     NSString *ext = @"mp4";
     if (!finalURL && libraryURL) {
         ext = libraryURL.pathExtension.lowercaseString.length ? libraryURL.pathExtension.lowercaseString : @"mov";
@@ -682,8 +692,7 @@ static UIImage *IMPickerRequestImage(PHAsset *asset, CGFloat maxSide) {
         }
     }
     if (!finalURL) { return nil; }
-    return [self finishedVideoItemAtURL:finalURL ext:ext sourceCodec:sourceCodec
-                             transcoded:needsTranscode preset:preset];
+    return [self finishedVideoItemAtURL:finalURL ext:ext sourceCodec:sourceCodec outcome:outcome preset:preset];
 }
 
 /// 同步导出（本方法只在 _work 串行队列调用）：轮询 export.progress 把转码进度回给调用方。

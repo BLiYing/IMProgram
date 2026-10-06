@@ -32,9 +32,15 @@ static const NSInteger kIMMediaPickMinColumns = 4;
     return idx == NSNotFound ? 0 : (NSInteger)idx + 1;
 }
 
++ (IMVideoTranscodeOutcome)transcodeOutcomeWanted:(BOOL)wanted exported:(BOOL)exported {
+    if (!wanted) { return IMVideoTranscodeOutcomeSkipped; }
+    return exported ? IMVideoTranscodeOutcomeDone : IMVideoTranscodeOutcomeFellBack;
+}
+
 + (BOOL)isSelectableWithSizeBytes:(long long)sizeBytes {
-    if (sizeBytes == kIMMediaSizeUnknown) { return YES; }
-    return sizeBytes > 0 && sizeBytes <= kIMMediaPickMaxBytes;
+    // 只有「超上限」会不可选。体积未知与 0 都放行：PhotoKit 没有公开的大小 API，取不到（含给 0）是常态，
+    // 读到的 0 已在 IMMediaPickerPhotos 里归为「未知」；真正的 0 字节坏文件留给发送时的 byteCount 校验标失败。
+    return sizeBytes <= kIMMediaPickMaxBytes;
 }
 
 + (BOOL)isTooLargeWithSizeBytes:(long long)sizeBytes {

@@ -53,6 +53,9 @@ typedef NS_ENUM(NSInteger, IMMediaPickerEmptyMode) {
     BOOL _finished;                      // 已回调过 onFinish：发送钮连点 / 取消与发送并发不得回调两次（会把整批媒体发两遍）
     NSUInteger _bucketsGeneration;       // 相册列表重载代次：后台加载乱序返回时，只认最新一次
     dispatch_queue_t _sizeQueue;
+    NSMutableSet<NSString *> *_sizeWanted; // 还需要查体积的视频 ID（格子在屏上才算）；多线程访问，@synchronized
+    NSLayoutConstraint *_contentAboveBar;  // 内容区底边 → 底栏顶（正常态）
+    NSLayoutConstraint *_contentToBottom;  // 内容区底边 → 视图底（被拒空状态：底栏隐藏后撑满）
 }
 
 - (instancetype)init {
@@ -64,6 +67,7 @@ typedef NS_ENUM(NSInteger, IMMediaPickerEmptyMode) {
         _bucketID = kIMMediaPickAllBucketID;
         _status = PHAuthorizationStatusNotDetermined;
         _sizeQueue = dispatch_queue_create("im.media.picker.size", DISPATCH_QUEUE_SERIAL);
+        _sizeWanted = [NSMutableSet set];
     }
     return self;
 }
@@ -115,10 +119,12 @@ typedef NS_ENUM(NSInteger, IMMediaPickerEmptyMode) {
         [_bottomBar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
         [_bottomBar.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
         [_content.topAnchor constraintEqualToAnchor:_topBar.bottomAnchor],
-        [_content.bottomAnchor constraintEqualToAnchor:_bottomBar.topAnchor],
         [_content.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [_content.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
     ]];
+    _contentAboveBar = [_content.bottomAnchor constraintEqualToAnchor:_bottomBar.topAnchor];
+    _contentToBottom = [_content.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor];
+    _contentAboveBar.active = YES;
 }
 
 - (void)buildGrid {
@@ -269,6 +275,11 @@ typedef NS_ENUM(NSInteger, IMMediaPickerEmptyMode) {
 - (void)showEmptyMode:(IMMediaPickerEmptyMode)mode {
     _emptyView.hidden = mode == IMMediaPickerEmptyNone;
     _collection.hidden = mode != IMMediaPickerEmptyNone;
+    // 被拒时没有任何可选内容，「预览 / 原图 / 发送」只是摆设：隐藏底栏，内容区撑满。
+    BOOL hideBar = mode == IMMediaPickerEmptyDenied;
+    _bottomBar.hidden = hideBar;
+    _contentAboveBar.active = !hideBar; // 先停旧约束再启新的，避免瞬时冲突
+    _contentToBottom.active = hideBar;
     _emptyButton.tag = mode;
     switch (mode) {
         case IMMediaPickerEmptyDenied:
@@ -374,10 +385,7 @@ typedef NS_ENUM(NSInteger, IMMediaPickerEmptyMode) {
 
 - (void)toggleAsset:(PHAsset *)asset {
     if (![_session isSelectableAsset:asset]) {
-        long long size = [_session sizeBytesOfAsset:asset];
-        [self im_showToast:[IMMediaPickLogic isTooLargeWithSizeBytes:size]
-            ? IMLocalizedFormat(@"media.picker.too_large", [IMMediaPickLogic sizeLabelForBytes:kIMMaxVideoBytes])
-            : IMLocalized(@"media.picker.unreadable")];
+        [self im_showToast:IMLocalizedFormat(@"media.picker.too_large", [IMMediaPickLogic sizeLabelForBytes:kIMMaxVideoBytes])];
         return;
     }
     if (![_session toggleAsset:asset]) {
@@ -477,11 +485,29 @@ typedef NS_ENUM(NSInteger, IMMediaPickerEmptyMode) {
 /// 视频体积在格子出现时后台补读（用于 >2GB 置灰）；图片不需要（不可能超限）。
 - (void)loadSizeIfNeededForAsset:(PHAsset *)asset {
     if (asset.mediaType != PHAssetMediaTypeVideo || [IMMediaPickerPhotos cachedSizeBytesOfAsset:asset]) { return; }
+    NSString *assetID = asset.localIdentifier;
+    @synchronized (_sizeWanted) {
+        if ([_sizeWanted containsObject:assetID]) { return; } // 已在排队：滑动中同一个格子反复出现不重复入队
+        [_sizeWanted addObject:assetID];
+    }
     __weak typeof(self) ws = self;
     dispatch_async(_sizeQueue, ^{
+        __strong typeof(ws) self_ = ws;
+        if (!self_) { return; }
+        BOOL stillWanted;
+        @synchronized (self_->_sizeWanted) { stillWanted = [self_->_sizeWanted containsObject:assetID]; }
+        if (!stillWanted) { return; } // 排到时格子早已滑出屏幕：跳过，别白查
         [IMMediaPickerPhotos sizeBytesOfAsset:asset];
+        @synchronized (self_->_sizeWanted) { [self_->_sizeWanted removeObject:assetID]; }
         dispatch_async(dispatch_get_main_queue(), ^{ [ws refreshDimmedForAsset:asset]; });
     });
+}
+
+- (void)collectionView:(UICollectionView *)collectionView didEndDisplayingCell:(UICollectionViewCell *)cell
+    forItemAtIndexPath:(NSIndexPath *)indexPath {
+    NSString *assetID = [cell isKindOfClass:IMMediaPickerCell.class] ? ((IMMediaPickerCell *)cell).assetID : nil;
+    if (!assetID) { return; }
+    @synchronized (_sizeWanted) { [_sizeWanted removeObject:assetID]; }
 }
 
 - (void)refreshDimmedForAsset:(PHAsset *)asset {
