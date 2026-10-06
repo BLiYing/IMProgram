@@ -4,11 +4,12 @@
 > 历史流水见 `current_task.archive.md`（2026-10-02 瘦身前的全量快照在其顶部）+ `git log`。关键约定见 `CLAUDE.md` / `ARCHITECTURE.md` / `CODING_STYLE.md`。
 
 ## 当前焦点
-**三端已读/菜单/管理员一批修复（2026-10-06，已 commit + push）**：群语音已读双勾（iOS 曾无条件排除群聊）、九宫格已读勾（三端同规则，见 `IMServer/docs/design/READ_TICK_DESIGN.md` §4；Android 相册行曾不上报已读）、iOS 单字气泡 meta 被压成「…」、Android 长按菜单恒在气泡下方（气泡上移让位）、添加管理员总数 ≤ 5（上限 = 5 − 已有，客户端规则，服务端无总数上限）、会话列表搜索提示词含设置、Android 置顶/未读样式对齐 iOS、通讯录入口建群后进群、「跟随系统」改读 `LocaleManager.systemLocales`（OPPO 实测英文→跟随系统变回中文）。用户真机自测通过。管理员总数上限已补服务端（`MaxGroupAdmins=5`、`300213`，**后端需重启**：`cd ../IMServer && ./scripts/dev.sh --no-tail`）；Android 重建 Activity 后停在原 tab / 「我」二级页（`rememberSaveable`）。
-
-**iOS 单测欠账专项（清单与逐项进度见 `docs/TEST_DEBT.md`，覆盖率基线 21.8%）**：批 A/B 与 C1、C2 已做完，**全部未提交、待你复核**；剩 C3–C7 与批 D。改了产品行为的几处（A3 迟到 anchor=0、A9 `300208`、B2 删除返回值、B5 暂存路径、C2 开关回滚）在清单里逐条写明。已删死代码 `IMGroupInfoViewController`。**未做模拟器目测**（收消息/窗口裁剪/window_resp/msg_op 实时更新/群管理开关）。约定：测试由我逐个写，不派并行子代理改测试目标。
+**聊天相册选择器：iOS 自建（对齐 Android `:media-picker`）——worktree 开发完毕，未提交、未装机**（`feat/media-picker-unify`，2026-10-06；方案 `../IMServer/docs/design/MEDIA_PICKER_IOS_DESIGN.md` + 草图 `sketches/MEDIA_PICKER_UX_SKETCH.html`）。聊天「➕ → 照片」换成自建宫格（4 列 · 相册切换 · 编号多选 ≤9 · 底栏「原图 (总大小)」· 视频时长角标 · >2GB 置灰 · 长按预览）；缩略图 / 视频首帧走 `PHImageManager`，视频转码直接吃 `AVAsset`（不再先把整个视频拷出相册），根治「选完视频首帧空白几十秒」。权限三态同页处理（有限访问「管理」/ 拒绝=空状态+去设置，**无降级退路**）；旧「发送 / 发送原图」动作表与 `presentFromViewController:limit:` 已删。头像三处与「➕ → 文件 → 相册」仍用 PHPicker。新文件 `Common/IMMediaPick*.{h,m}` / `IMMediaPicker{Photos,Cell,Bars,BucketSheet,ViewController,Entry}` / `IMMediaPreviewViewController`；测试 `IMMediaPickLogicTests`（9 例，已看红过）。Android 同批在 im-android worktree（去降级改空状态 + 缩略图 / 发送优化）。
+**iOS 单测欠账专项**仍在进行（清单与逐项进度见 `docs/TEST_DEBT.md`；批 A/B、C1、C2 已做，剩 C3–C7 与批 D；约定：测试由我逐个写，不派并行子代理改测试目标）。
 
 ## 下一步
+
+0. **真机验证清单（相册选择器，待用户通知后装机）**：完全授权 / 有限访问（点「管理」改选后宫格刷新）/ 拒绝（空状态 → 去设置 → 回前台自动刷新）/ iCloud 未下载的照片与视频（发送阶段下载，失败应标失败可重试）；选视频后气泡首帧是否立刻出现；「原图」勾选总大小；慢动作视频（走转码）；HEVC 视频转 H.264；Live Photo 当静态图；第 10 张吐司；>2GB 视频置灰；深浅色对草图；头像三处与「文件→相册」不回归。**已知限制**：体积来自 `PHAssetResource` 的 `fileSize`（KVC），取不到时不置灰也不显总大小；无 VoiceOver 标签；合并后需在 IMServer 跑 `node scripts/i18n/gen-i18n.mjs` 重新生成 Android/Web/桌面文案（新键 `media.picker.*`，旧键 `send_original`/`selected_count` 已删）。
 
 1. **拆体量欠账（下次碰就必须先拆）**：`Network/IMSocketManager.m` 1589/1600（只准降不准升；方向按 CODING_STYLE §7 三档：帧编解码 / 重连退避 / 各业务 send-recv 分组各成协作对象或 category，新逻辑优先开 category）；`Database/IMDatabase.m` 1500/1500（已顶满，加列或新增前必须先拆），给 `im_conversation_local`/`im_message_local` 加列前先拆（参考 `IMDatabase+MuteState.m` / `IMDatabase+ClearFloor.m`；`writeCachedConversations:` 的整行 INSERT 是下一块该搬走的）。
 2. `IMChatViewController.m` 的 `peerDisplayName` 仍有 `fallback:peerID`（会在聊天页标题露内部 uid 的边缘路径），按 UI.md「末级不是 uid」改。

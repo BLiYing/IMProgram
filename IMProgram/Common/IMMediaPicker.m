@@ -3,6 +3,7 @@
 #import "IMMediaPicker.h"
 #import "IMLocalization.h"
 #import "IMLog.h"
+#import "IMMediaPickerPhotos.h"
 #import <PhotosUI/PhotosUI.h>
 #import <AVFoundation/AVFoundation.h>
 #import <ImageIO/ImageIO.h>
@@ -61,9 +62,9 @@ static CGSize IMPickerPixelSizeOfImageData(NSData *data) {
 }
 
 /// 读视频轨的显示像素尺寸（含 preferredTransform 旋转）与时长毫秒；读不到则保持零值。
-static void IMPickerReadVideoMeta(NSURL *url, CGSize *outSize, int64_t *outMillis) {
-    if (!url) { return; }
-    AVURLAsset *asset = [AVURLAsset URLAssetWithURL:url options:nil];
+/// AVAsset 版：相册来源的视频直接拿 AVAsset（不先拷成文件）也能量。
+static void IMPickerReadVideoMetaOfAsset(AVAsset *asset, CGSize *outSize, int64_t *outMillis) {
+    if (!asset) { return; }
     Float64 seconds = CMTimeGetSeconds(asset.duration);
     if (outMillis && isfinite(seconds) && seconds > 0) { *outMillis = (int64_t)llround(seconds * 1000); }
     AVAssetTrack *track = [asset tracksWithMediaType:AVMediaTypeVideo].firstObject;
@@ -73,11 +74,15 @@ static void IMPickerReadVideoMeta(NSURL *url, CGSize *outSize, int64_t *outMilli
     if (shown.width > 0 && shown.height > 0) { *outSize = CGSizeMake(round(fabs(shown.width)), round(fabs(shown.height))); }
 }
 
+static void IMPickerReadVideoMeta(NSURL *url, CGSize *outSize, int64_t *outMillis) {
+    if (!url) { return; }
+    IMPickerReadVideoMetaOfAsset([AVURLAsset URLAssetWithURL:url options:nil], outSize, outMillis);
+}
+
 /// 读视频轨编码的四字符码（avc1=H.264 / hvc1·hev1=HEVC）。空=读不到/无视频轨。
 /// **不能靠扩展名判断**：.mov 里可能是 H.264，.mp4 里也可能是 HEVC。
-static NSString *IMPickerVideoCodec(NSURL *url) {
-    if (!url) { return nil; }
-    AVURLAsset *asset = [AVURLAsset URLAssetWithURL:url options:nil];
+static NSString *IMPickerVideoCodecOfAsset(AVAsset *asset) {
+    if (!asset) { return nil; }
     AVAssetTrack *track = [asset tracksWithMediaType:AVMediaTypeVideo].firstObject;
     CMFormatDescriptionRef desc = (__bridge CMFormatDescriptionRef)track.formatDescriptions.firstObject;
     if (!desc) { return nil; }
@@ -85,6 +90,11 @@ static NSString *IMPickerVideoCodec(NSURL *url) {
     char chars[5] = { (char)((code >> 24) & 0xFF), (char)((code >> 16) & 0xFF),
                       (char)((code >> 8) & 0xFF), (char)(code & 0xFF), 0 };
     return [NSString stringWithUTF8String:chars];
+}
+
+static NSString *IMPickerVideoCodec(NSURL *url) {
+    if (!url) { return nil; }
+    return IMPickerVideoCodecOfAsset([AVURLAsset URLAssetWithURL:url options:nil]);
 }
 
 /// HEVC 的两种四字符码。Chrome/Firefox 解不了 → 视频消息必须转成 H.264 才发得出去。
@@ -106,15 +116,63 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
                      isVideo, (unsigned long)bytes, size.width, size.height, durationMillis);
 }
 
+#pragma mark - PHAsset 同步请求（只在句柄的 _work 串行队列上调用）
+
+/// 同步取 AVAsset：允许联网（iCloud 视频要先下载，放宽到 10 分钟）。慢动作为 AVComposition（无文件可直传）。
+static AVAsset *IMPickerRequestAVAsset(PHAsset *asset) {
+    PHVideoRequestOptions *opt = [PHVideoRequestOptions new];
+    opt.version = PHVideoRequestOptionsVersionCurrent;
+    opt.deliveryMode = PHVideoRequestOptionsDeliveryModeHighQualityFormat;
+    opt.networkAccessAllowed = YES;
+    dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+    __block AVAsset *out = nil;
+    PHImageRequestID rid = [PHImageManager.defaultManager requestAVAssetForVideo:asset options:opt
+        resultHandler:^(AVAsset *avAsset, AVAudioMix *mix, NSDictionary *info) {
+        out = avAsset;
+        dispatch_semaphore_signal(sem);
+    }];
+    if (dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(600 * NSEC_PER_SEC))) != 0) {
+        [PHImageManager.defaultManager cancelImageRequest:rid];
+        IMLogWarnWithTag(IMLogTagMedia, @"asset_video_request_timeout");
+        return nil;
+    }
+    return out;
+}
+
+/// 同步取一张**已按 EXIF 校正方向**的缩放图（最大边不超过 maxSide，不放大）；允许联网。
+static UIImage *IMPickerRequestImage(PHAsset *asset, CGFloat maxSide) {
+    CGFloat longSide = MAX(asset.pixelWidth, asset.pixelHeight);
+    CGFloat k = (longSide > 0 && longSide > maxSide) ? maxSide / longSide : 1;
+    CGSize target = CGSizeMake(MAX(1, round(asset.pixelWidth * k)), MAX(1, round(asset.pixelHeight * k)));
+    PHImageRequestOptions *opt = [PHImageRequestOptions new];
+    opt.version = PHImageRequestOptionsVersionCurrent;
+    opt.deliveryMode = PHImageRequestOptionsDeliveryModeHighQualityFormat;
+    opt.resizeMode = PHImageRequestOptionsResizeModeExact;
+    opt.networkAccessAllowed = YES;
+    opt.synchronous = YES;
+    __block UIImage *out = nil;
+    [PHImageManager.defaultManager requestImageForAsset:asset targetSize:target contentMode:PHImageContentModeAspectFit
+                                                options:opt resultHandler:^(UIImage *image, NSDictionary *info) {
+        out = image;
+        if (!image) {
+            IMLogWarnWithTag(IMLogTagMedia, @"asset_image_request_failed in_cloud=%@ error=%@",
+                             info[PHImageResultIsInCloudKey], [info[PHImageErrorKey] localizedDescription] ?: @"-");
+        }
+    }];
+    return out;
+}
+
 #pragma mark - 惰性句柄
 
 @interface IMPickedMediaHandle ()
 - (instancetype)initWithProvider:(NSItemProvider *)ip isVideo:(BOOL)isVideo original:(BOOL)original;
 - (instancetype)initWithLocalVideoURL:(NSURL *)url;
+- (instancetype)initWithPhotoAsset:(PHAsset *)asset original:(BOOL)original;
 @end
 
 @implementation IMPickedMediaHandle {
-    NSItemProvider  *_ip;          // 相册句柄的来源；**本地文件句柄（相机录制）为 nil**
+    NSItemProvider  *_ip;          // PHPicker 句柄的来源；**本地文件句柄（相机录制）与 PHAsset 句柄为 nil**
+    PHAsset         *_asset;       // 自建选择器句柄的来源（_ip 与 _videoTmpURL 均为 nil）；凡碰 _ip 的方法都要先判它
     BOOL             _original;
     dispatch_queue_t _work;        // 串行：loadThumbnail 与 loadData 互斥（共享视频临时文件）
     NSURL           *_videoTmpURL; // 视频已拷贝的临时文件（缩略图先拷则 loadData 复用，避免二次拷贝）
@@ -152,6 +210,20 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
     return self;
 }
 
+/// 自建选择器（IMMediaPickerViewController）的句柄：来源是 PHAsset，不经 NSItemProvider。
+/// 缩略图直接走 PHImageManager（毫秒级）；视频用 AVAsset 直接转码/抽帧，不先把整个视频拷出相册。
+- (instancetype)initWithPhotoAsset:(PHAsset *)asset original:(BOOL)original {
+    self = [super init];
+    if (self) {
+        _asset = asset;
+        _isVideo = asset.mediaType == PHAssetMediaTypeVideo;
+        _original = original;
+        _work = dispatch_queue_create("im.media.handle", DISPATCH_QUEUE_SERIAL);
+        _videoExt = @"mp4";
+    }
+    return self;
+}
+
 /// 句柄没走到 loadData 就被释放（用户在转码前就取消了那条乐观气泡）时，录制原件会永久留在 tmp。
 /// buildVideoItemWithProgress 移交所有权后会把 _videoTmpURL 置 nil，故这里不会误删已消费的文件。
 - (void)dealloc {
@@ -161,6 +233,7 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
 }
 
 - (void)loadThumbnail:(void (^)(UIImage *_Nullable))completion {
+    if (_asset) { [self loadThumbnailFromPhotoAsset:completion]; return; }
     // 本地文件句柄没有 _ip：给 nil 发 loadPreviewImageWithOptions: 是直接返回，**completion 永远不会被调用**，
     // 气泡缩略图就会永久空白。本地文件抽帧本来也很快（不用等相册导出），直接走慢路径。
     if (self.isVideo && !_ip) { [self loadThumbnailByExtractingFrame:completion]; return; }
@@ -190,6 +263,46 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
         UIImage *thumb = IMPickerDownscale([self loadUIImage], 600);
         dispatch_async(dispatch_get_main_queue(), ^{ completion(thumb); });
     });
+}
+
+/// 自建选择器句柄的缩略图：PHImageManager 直接出（图片与视频同一条，视频是系统海报帧），毫秒级、
+/// 不需要把视频拷出相册。取不到（iCloud 且无本地缩略）时视频再用 AVAsset 抽 0.1s 帧——同样不拷整文件。
+- (void)loadThumbnailFromPhotoAsset:(void (^)(UIImage *_Nullable))completion {
+    CFAbsoluteTime startedAt = CFAbsoluteTimeGetCurrent();
+    PHImageRequestOptions *opt = [PHImageRequestOptions new];
+    opt.version = PHImageRequestOptionsVersionCurrent;
+    opt.deliveryMode = PHImageRequestOptionsDeliveryModeHighQualityFormat; // 单次回调
+    opt.networkAccessAllowed = YES;
+    PHAsset *asset = _asset;
+    BOOL isVideo = self.isVideo;
+    [PHImageManager.defaultManager requestImageForAsset:asset targetSize:CGSizeMake(600, 600)
+                                            contentMode:PHImageContentModeAspectFit options:opt
+                                          resultHandler:^(UIImage *image, NSDictionary *info) {
+        double ms = (CFAbsoluteTimeGetCurrent() - startedAt) * 1000;
+        if (image) {
+            IMLogDebugWithTag(IMLogTagMedia, @"asset_thumb_ok is_video=%d ms=%.0f", isVideo, ms);
+            dispatch_async(dispatch_get_main_queue(), ^{ completion(IMPickerDownscale(image, 600)); });
+            return;
+        }
+        IMLogWarnWithTag(IMLogTagMedia, @"asset_thumb_miss is_video=%d ms=%.0f error=%@ fallback=%@", isVideo, ms,
+                         [info[PHImageErrorKey] localizedDescription] ?: @"-", isVideo ? @"frame_extract" : @"none");
+        if (!isVideo) {
+            dispatch_async(dispatch_get_main_queue(), ^{ completion(nil); });
+            return;
+        }
+        dispatch_async(self->_work, ^{
+            UIImage *thumb = nil;
+            AVAsset *av = IMPickerRequestAVAsset(asset);
+            if (av) {
+                AVAssetImageGenerator *gen = [[AVAssetImageGenerator alloc] initWithAsset:av];
+                gen.appliesPreferredTrackTransform = YES;
+                gen.maximumSize = CGSizeMake(600, 600);
+                CGImageRef cg = [gen copyCGImageAtTime:CMTimeMakeWithSeconds(0.1, 600) actualTime:NULL error:NULL];
+                if (cg) { thumb = [UIImage imageWithCGImage:cg]; CGImageRelease(cg); }
+            }
+            dispatch_async(dispatch_get_main_queue(), ^{ completion(thumb); });
+        });
+    }];
 }
 
 /// 慢路径兜底：等视频临时文件就绪后抽首帧（与 loadData 共享 _work 串行队列与 tmp 文件）。
@@ -236,6 +349,10 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
 }
 
 - (NSString *)suggestedFileName {
+    if (_asset) {
+        NSString *name = [IMMediaPickerPhotos primaryResourceOfAsset:_asset].originalFilename;
+        return name.length > 0 ? name : (self.isVideo ? @"video.mov" : @"photo.jpg");
+    }
     // 本地文件句柄：没有 _ip 可问，名字按暂存文件的扩展名来（最终产物名仍由 buildVideoItem 定）。
     if (!_ip) {
         NSString *ext = _videoExt.length ? _videoExt : (self.isVideo ? @"mov" : @"jpg");
@@ -253,6 +370,11 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
 - (void)loadFileURL:(void (^)(IMPickedMedia *_Nullable))completion {
     if (!completion) { return; }
     dispatch_async(_work, ^{
+        if (self->_asset) {
+            IMPickedMedia *exported = [self buildFileItemFromPhotoAsset];
+            dispatch_async(dispatch_get_main_queue(), ^{ completion(exported); });
+            return;
+        }
         // 本地文件句柄（相机录制）：文件已在手上，直接移交，不必走相册导出。
         // 相机路径当前不用这个方法（走 loadData 转码），但留空洞会在将来"相机录像当文件发"时静默返回 nil。
         if (!self->_ip) {
@@ -289,6 +411,41 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
     });
 }
 
+/// 自建选择器句柄的「原件直发」产物：PHAssetResourceManager 把主资源写到临时文件（不进内存，iCloud 先下载）。
+- (IMPickedMedia *)buildFileItemFromPhotoAsset {
+    PHAssetResource *res = [IMMediaPickerPhotos primaryResourceOfAsset:_asset];
+    if (!res) { return nil; }
+    NSString *ext = res.originalFilename.pathExtension.lowercaseString;
+    NSURL *dst = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:
+                  [[NSUUID UUID].UUIDString stringByAppendingPathExtension:(ext.length ? ext : @"bin")]]];
+    PHAssetResourceRequestOptions *opt = [PHAssetResourceRequestOptions new];
+    opt.networkAccessAllowed = YES;
+    dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+    __block NSError *writeError = nil;
+    [PHAssetResourceManager.defaultManager writeDataForAssetResource:res toFile:dst options:opt
+                                                   completionHandler:^(NSError *error) {
+        writeError = error;
+        dispatch_semaphore_signal(sem);
+    }];
+    long timedOut = dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(600 * NSEC_PER_SEC)));
+    int64_t size = (int64_t)[[[NSFileManager defaultManager] attributesOfItemAtPath:dst.path
+                                                                              error:NULL][NSFileSize] unsignedLongLongValue];
+    if (timedOut != 0 || writeError || size <= 0) {
+        IMLogWarnWithTag(IMLogTagMedia, @"asset_file_export_failed timeout=%d error=%@",
+                         timedOut != 0, writeError.localizedDescription ?: @"-");
+        [[NSFileManager defaultManager] removeItemAtURL:dst error:NULL];
+        return nil;
+    }
+    UTType *type = [UTType typeWithIdentifier:res.uniformTypeIdentifier];
+    IMPickedMedia *m = [IMPickedMedia new];
+    m.fileURL = dst;
+    m.byteCount = size;
+    m.fileName = [self suggestedFileName];
+    m.mimeType = type.preferredMIMEType ?: @"application/octet-stream";
+    m.isVideo = self.isVideo;
+    return m;
+}
+
 /// 本地文件句柄的「原件直发」产物（在 _work 串行队列上执行）：不转码不压缩，
 /// 文件所有权随 fileURL 移交调用方（置空 _videoTmpURL，dealloc 不再兜底删）。
 - (IMPickedMedia *)buildLocalFileItem {
@@ -317,6 +474,7 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
 #pragma mark 图片（在 _work 串行队列上执行）
 
 - (IMPickedMedia *)buildImageItem {
+    if (_asset) { return [self buildImageItemFromPhotoAsset]; }
     if (_original) {
         // 原图：拿原始文件字节（保留 HEIC/PNG 原格式与元数据）。
         NSData *raw = [self loadFileDataForType:UTTypeImage.identifier outExt:NULL];
@@ -346,6 +504,52 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
     m.mimeType = @"image/jpeg";
     m.isVideo = NO;
     m.pixelSize = IMPickerPixelSizeOfImage(scaled); // 上报**压缩后**尺寸（收端拿到的就是这张）
+    IMPickerLogMediaMeta(NO, jpeg.length, m.pixelSize, 0);
+    return m;
+}
+
+/// 自建选择器句柄的图片产物。口径与 PHPicker 路径一致：「发送」= 长边 ≤2048 的 JPEG 0.8；「原图」= 原始字节
+/// （保留 HEIC/PNG 原格式）。Live Photo 只取静态图。拿不到（iCloud 下载失败等）返回 nil → 调用方标失败可重试。
+- (IMPickedMedia *)buildImageItemFromPhotoAsset {
+    if (_original) {
+        PHImageRequestOptions *opt = [PHImageRequestOptions new];
+        opt.version = PHImageRequestOptionsVersionCurrent;
+        opt.networkAccessAllowed = YES;
+        opt.synchronous = YES;
+        __block NSData *raw = nil;
+        __block NSString *uti = nil;
+        [PHImageManager.defaultManager requestImageDataAndOrientationForAsset:_asset options:opt
+            resultHandler:^(NSData *data, NSString *dataUTI, CGImagePropertyOrientation orientation, NSDictionary *info) {
+            raw = data;
+            uti = dataUTI;
+        }];
+        UTType *type = uti.length > 0 ? [UTType typeWithIdentifier:uti] : nil;
+        NSString *ext = [type conformsToType:UTTypePNG] ? @"png"
+                      : [type conformsToType:UTTypeHEIC] ? @"heic"
+                      : [type conformsToType:UTTypeJPEG] ? @"jpg" : nil;
+        if (raw.length > 0 && ext) {
+            IMPickedMedia *m = [IMPickedMedia new];
+            m.data = raw;
+            m.fileName = [@"photo." stringByAppendingString:ext];
+            m.mimeType = [ext isEqualToString:@"png"] ? @"image/png"
+                       : [ext isEqualToString:@"heic"] ? @"image/heic" : @"image/jpeg";
+            m.isVideo = NO;
+            m.pixelSize = IMPickerPixelSizeOfImageData(raw); // 读文件头并按 EXIF 方向校正
+            IMPickerLogMediaMeta(NO, raw.length, m.pixelSize, 0);
+            return m;
+        } // 拿不到原始字节 / 非常见格式 → 回落压缩路径
+    }
+    UIImage *image = IMPickerRequestImage(_asset, kIMImageMaxSide); // 系统直接出 ≤2048 且方向已校正的图
+    if (!image) { return nil; }
+    UIImage *scaled = IMPickerDownscale(image, kIMImageMaxSide);
+    NSData *jpeg = UIImageJPEGRepresentation(scaled, kIMImageJPEGQuality);
+    if (jpeg.length == 0) { return nil; }
+    IMPickedMedia *m = [IMPickedMedia new];
+    m.data = jpeg;
+    m.fileName = @"photo.jpg";
+    m.mimeType = @"image/jpeg";
+    m.isVideo = NO;
+    m.pixelSize = IMPickerPixelSizeOfImage(scaled);
     IMPickerLogMediaMeta(NO, jpeg.length, m.pixelSize, 0);
     return m;
 }
@@ -383,6 +587,7 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
 ///
 /// 转码失败回落原文件（宁可发出去也不失败），但会留痕；产物编码也会打日志核对。
 - (IMPickedMedia *)buildVideoItemWithProgress:(void (^)(double))progress {
+    if (_asset) { return [self buildVideoItemFromPhotoAssetWithProgress:progress]; }
     NSURL *tmpURL = [self ensureVideoTmpURL];
     if (!tmpURL) { return nil; }
     NSString *sourceCodec = IMPickerVideoCodec(tmpURL);
@@ -402,14 +607,23 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
         IMLogDebugWithTag(IMLogTagMedia, @"video_transcode_skipped codec=%@ reason=already_h264", sourceCodec);
     }
 
-    CGSize pixelSize = CGSizeZero;
-    int64_t durationMillis = 0;
-    IMPickerReadVideoMeta(finalURL, &pixelSize, &durationMillis); // 量**最终产物**（收端拿到的就是这份）
-    NSString *outCodec = IMPickerVideoCodec(finalURL);
     // 产物留在磁盘、所有权移交给 IMPickedMedia（fileURL）——上限 2GB 后绝不能读进 NSData。
     // 只清理不再需要的那份：转码成功时删原件；产物本身由取用方（发送服务落盘后）删除。
     if (![finalURL isEqual:tmpURL]) { [[NSFileManager defaultManager] removeItemAtURL:tmpURL error:NULL]; }
     _videoTmpURL = nil;
+    return [self finishedVideoItemAtURL:finalURL ext:ext sourceCodec:sourceCodec
+                             transcoded:needsTranscode preset:preset];
+}
+
+/// 视频产物收口（量尺寸/时长/编码、校验体积、打日志、包成 IMPickedMedia）。PHPicker 与 PHAsset 两条来源共用。
+/// finalURL 必须是**本进程自己的临时文件**（所有权移交调用方，发送服务会删它）。
+- (nullable IMPickedMedia *)finishedVideoItemAtURL:(NSURL *)finalURL ext:(NSString *)ext
+                                       sourceCodec:(NSString *)sourceCodec
+                                        transcoded:(BOOL)needsTranscode preset:(NSString *)preset {
+    CGSize pixelSize = CGSizeZero;
+    int64_t durationMillis = 0;
+    IMPickerReadVideoMeta(finalURL, &pixelSize, &durationMillis); // 量**最终产物**（收端拿到的就是这份）
+    NSString *outCodec = IMPickerVideoCodec(finalURL);
     long long byteCount = (long long)[[[NSFileManager defaultManager]
         attributesOfItemAtPath:finalURL.path error:NULL][NSFileSize] unsignedLongLongValue];
     if (byteCount <= 0 || byteCount > kIMMaxVideoBytes) {
@@ -439,10 +653,46 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
     return m;
 }
 
+/// 自建选择器句柄的视频产物：AVAsset 直接转码（**不先把整个视频拷出相册**）。规则与 PHPicker 路径一致：
+/// 「发送」转 720p H.264；「原图」源是 H.264 且是文件资源才直传（此时才把库内文件拷到 tmp——
+/// 发送服务会删 fileURL，绝不能把相册里的文件交出去）；HEVC 保持分辨率转 H.264；慢动作等合成资源无文件可直传，一律转码。
+/// 转码失败回落原文件（仅文件资源）；iCloud 下载失败 / 超时 / 超 2GB 返回 nil。
+- (IMPickedMedia *)buildVideoItemFromPhotoAssetWithProgress:(void (^)(double))progress {
+    AVAsset *av = IMPickerRequestAVAsset(_asset);
+    if (!av) {
+        IMLogWarnWithTag(IMLogTagMedia, @"asset_video_unavailable");
+        return nil;
+    }
+    NSString *sourceCodec = IMPickerVideoCodecOfAsset(av);
+    NSURL *libraryURL = [av isKindOfClass:AVURLAsset.class] ? ((AVURLAsset *)av).URL : nil;
+    NSString *preset = _original ? AVAssetExportPresetHighestQuality : AVAssetExportPreset1280x720;
+    BOOL needsTranscode = !_original || IMPickerIsHEVCCodec(sourceCodec) || libraryURL == nil;
+
+    NSURL *finalURL = needsTranscode ? [self exportVideoAsset:av preset:preset progress:progress] : nil;
+    NSString *ext = @"mp4";
+    if (!finalURL && libraryURL) {
+        ext = libraryURL.pathExtension.lowercaseString.length ? libraryURL.pathExtension.lowercaseString : @"mov";
+        NSURL *copy = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:
+                       [[NSUUID UUID].UUIDString stringByAppendingPathExtension:ext]]];
+        NSError *copyError = nil;
+        if ([[NSFileManager defaultManager] copyItemAtURL:libraryURL toURL:copy error:&copyError]) {
+            finalURL = copy;
+        } else {
+            IMLogWarnWithTag(IMLogTagMedia, @"asset_video_copy_failed error=%@", copyError.localizedDescription ?: @"-");
+        }
+    }
+    if (!finalURL) { return nil; }
+    return [self finishedVideoItemAtURL:finalURL ext:ext sourceCodec:sourceCodec
+                             transcoded:needsTranscode preset:preset];
+}
+
 /// 同步导出（本方法只在 _work 串行队列调用）：轮询 export.progress 把转码进度回给调用方。
 /// 返回 nil = 导出失败/超时，调用方回落原文件。
 - (NSURL *)exportVideoAtURL:(NSURL *)sourceURL preset:(NSString *)preset progress:(void (^)(double))progress {
-    AVURLAsset *asset = [AVURLAsset URLAssetWithURL:sourceURL options:nil];
+    return [self exportVideoAsset:[AVURLAsset URLAssetWithURL:sourceURL options:nil] preset:preset progress:progress];
+}
+
+- (NSURL *)exportVideoAsset:(AVAsset *)asset preset:(NSString *)preset progress:(void (^)(double))progress {
     NSURL *outURL = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:
                      [[NSUUID UUID].UUIDString stringByAppendingPathExtension:@"mp4"]]];
     AVAssetExportSession *export = [[AVAssetExportSession alloc] initWithAsset:asset presetName:preset];
@@ -532,44 +782,33 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
 @end
 
 @implementation IMMediaPicker {
-    __weak UIViewController *_host;
     void (^_completion)(NSArray<IMPickedMediaHandle *> *);
     NSArray<PHPickerResult *> *_results;
     BOOL _imagesOnly;       // 仅图片（头像场景）
-    BOOL _skipSendPrompt;   // 选完不弹「发送 / 原图」，直接压缩回调
 }
 
 static IMMediaPicker *gActivePicker; // 会话期间自持有（PHPicker delegate 是弱引用）
 
-+ (void)presentFromViewController:(UIViewController *)host
-                            limit:(NSInteger)limit
-                handlesCompletion:(void (^)(NSArray<IMPickedMediaHandle *> *))completion {
-    [self presentFromViewController:host limit:limit imagesOnly:NO skipSendPrompt:NO preferCurrentRepresentation:NO handlesCompletion:completion];
-}
-
 + (void)presentImagePickerFromViewController:(UIViewController *)host
                                        limit:(NSInteger)limit
                            handlesCompletion:(void (^)(NSArray<IMPickedMediaHandle *> *))completion {
-    [self presentFromViewController:host limit:limit imagesOnly:YES skipSendPrompt:YES preferCurrentRepresentation:NO handlesCompletion:completion];
+    [self presentFromViewController:host limit:limit imagesOnly:YES preferCurrentRepresentation:NO handlesCompletion:completion];
 }
 
 + (void)presentFilePickerFromViewController:(UIViewController *)host
                                       limit:(NSInteger)limit
                           handlesCompletion:(void (^)(NSArray<IMPickedMediaHandle *> *))completion {
-    [self presentFromViewController:host limit:limit imagesOnly:NO skipSendPrompt:YES preferCurrentRepresentation:YES handlesCompletion:completion];
+    [self presentFromViewController:host limit:limit imagesOnly:NO preferCurrentRepresentation:YES handlesCompletion:completion];
 }
 
 + (void)presentFromViewController:(UIViewController *)host
                             limit:(NSInteger)limit
                        imagesOnly:(BOOL)imagesOnly
-                   skipSendPrompt:(BOOL)skipSendPrompt
       preferCurrentRepresentation:(BOOL)preferCurrentRepresentation
                 handlesCompletion:(void (^)(NSArray<IMPickedMediaHandle *> *))completion {
     IMMediaPicker *p = [IMMediaPicker new];
-    p->_host = host;
     p->_completion = [completion copy];
     p->_imagesOnly = imagesOnly;
-    p->_skipSendPrompt = skipSendPrompt;
     gActivePicker = p;
 
     PHPickerConfiguration *cfg = [[PHPickerConfiguration alloc] init]; // 不带 photoLibrary：免相册权限（进程外选择器）
@@ -602,27 +841,8 @@ static IMMediaPicker *gActivePicker; // 会话期间自持有（PHPicker delegat
     if (results.count == 0) { [self finishWithHandles:@[]]; return; }
     _results = results;
 
-    // 头像等单图场景：不弹「发送 / 原图」，直接压缩回调（选一张即完成设置）。
-    if (_skipSendPrompt) { [self buildHandlesOriginal:NO]; return; }
-
-    // 微信式「原图」选择：PHPicker 无内置勾选，选完后弹一次（对全部所选生效）。
-    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:nil
-        message:IMLocalizedFormat(@"media.picker.selected_count", (long)results.count)
-        preferredStyle:UIAlertControllerStyleActionSheet];
-    __weak typeof(self) ws = self;
-    [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.send") style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-        [ws buildHandlesOriginal:NO];
-    }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"media.picker.send_original") style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-        [ws buildHandlesOriginal:YES];
-    }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:^(UIAlertAction *a) {
-        [ws finishWithHandles:@[]];
-    }]];
-    UIViewController *host = _host;
-    sheet.popoverPresentationController.sourceView = host.view;
-    sheet.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(host.view.bounds), CGRectGetMaxY(host.view.bounds) - 60, 1, 1);
-    [host presentViewController:sheet animated:YES completion:nil];
+    // 头像 / 文件面板：选完直接回调，没有「发送 / 原图」动作表（聊天相册入口已换成自建选择器 IMMediaPickerEntry）。
+    [self buildHandlesOriginal:NO];
 }
 
 #pragma mark 相机
@@ -632,6 +852,10 @@ static IMMediaPicker *gActivePicker; // 会话期间自持有（PHPicker delegat
     picker.mediaTypes = @[UTTypeImage.identifier, UTTypeMovie.identifier]; // 系统相机底部自带「照片/视频」切换
     picker.videoMaximumDuration = kIMCameraVideoMaxSeconds;                 // 到点自动停止并进预览页
     picker.videoQuality = UIImagePickerControllerQualityTypeHigh;           // 取设备默认；理由见头文件
+}
+
++ (IMPickedMediaHandle *)handleForPhotoAsset:(PHAsset *)asset original:(BOOL)original {
+    return [[IMPickedMediaHandle alloc] initWithPhotoAsset:asset original:original];
 }
 
 + (nullable IMPickedMediaHandle *)handleForRecordedVideoAtURL:(nullable NSURL *)url {

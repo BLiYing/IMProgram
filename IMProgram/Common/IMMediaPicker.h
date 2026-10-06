@@ -1,11 +1,15 @@
 //  IMMediaPicker.h
-//  可复用媒体选择器（原生 PHPickerViewController，零依赖）：
-//  多选 ≤limit（聊天=9，头像=1 可复用）、图片/Live 图/视频；选完弹「发送 / 发送原图」。
+//  媒体句柄与系统选择器（PHPickerViewController，零依赖）：
+//  - 头像 / 单图（presentImagePicker…）与「➕ → 文件 → 相册」（presentFilePicker…）用系统选择器；
+//  - **聊天相册入口**已换成自建选择器（IMMediaPickerEntry，docs/design/MEDIA_PICKER_IOS_DESIGN.md），
+//    它产出的 PHAsset 句柄同样是 IMPickedMediaHandle，下游发送链路共用。
 //  M4+ 秒上屏重构：回调返回**惰性句柄**（选择器关闭即回调，不做任何重活）——
 //  压缩（图片长边≤2048 JPEG0.8）/ 转码（视频 720p mp4）/ 体积校验（≤2GB）全部延后到
 //  loadData（调用方逐项串行触发），缩略图另走 loadThumbnail 快速出图 → 聊天页可先上屏占位。
 
 #import <UIKit/UIKit.h>
+
+@class PHAsset;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -65,11 +69,9 @@ extern const NSTimeInterval kIMCameraVideoMaxSeconds;
 
 @interface IMMediaPicker : NSObject
 
-/// 弹出系统相册多选 →「发送 / 发送原图」→ **立即**回调惰性句柄（主线程；用户取消 → 空数组）。
-/// 单例持有进行中的会话，选择器消失后自动释放。
-+ (void)presentFromViewController:(UIViewController *)host
-                            limit:(NSInteger)limit
-                handlesCompletion:(void (^)(NSArray<IMPickedMediaHandle *> *handles))completion;
+/// 自建选择器用：把一个 PHAsset 包成惰性句柄（图片 / 视频自动识别，Live Photo 当静态图）。
+/// original=YES 对应底部「原图」勾选。缩略图走 PHImageManager，视频不先拷出相册。
++ (IMPickedMediaHandle *)handleForPhotoAsset:(PHAsset *)asset original:(BOOL)original;
 
 /// 头像/单图场景：**仅显示图片**（无视频）、选完**不弹「发送 / 原图」动作表**，直接回调（压缩后句柄）。
 /// limit=1 时选一张即自动关闭选择器并回调 → 调用方直接上传设头像。用户取消 → 空数组。
