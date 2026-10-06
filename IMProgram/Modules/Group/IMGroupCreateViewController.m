@@ -496,6 +496,8 @@ typedef NS_ENUM(NSInteger, IMGroupCreateSection) {
     picker.showsSelectAll = YES;
     IMServerConfigStore *cfg = IMServerConfigStore.shared;
     picker.selectAllLimit = (cfg.loaded && cfg.maxGroupMembers > 0) ? cfg.maxGroupMembers - 1 : 0;
+    // 手点与全选共用这个上限；到顶给「已达本群成员上限」（与 Android 同款文案，{max} 含群主）。
+    if (picker.selectAllLimit > 0) { picker.capToast = IMLocalizedFormat(@"group.create.limit_reached", (long)cfg.maxGroupMembers); }
     [nav pushViewController:picker animated:YES];
 }
 

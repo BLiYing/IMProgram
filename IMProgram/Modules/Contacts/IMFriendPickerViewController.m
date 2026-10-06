@@ -159,18 +159,30 @@ static const CGFloat kSearchBarRowHeight = 56; // 与 IMListSearch 的 kIMListSe
     [b setTitle:IMLocalized(all ? @"common.deselect_all" : @"common.select_all") forState:UIControlStateNormal];
 }
 
+/// 选人上限：maxSelection 与 selectAllLimit 里正数的较小者；0 = 不限。
+/// 全选与手点共用，否则「全选」被截断而手点可以一路点过上限，到创建那一步才被服务端拒。
+- (NSInteger)effectiveCap {
+    NSInteger cap = self.selectAllLimit;
+    if (self.maxSelection > 0 && (cap == 0 || (NSInteger)self.maxSelection < cap)) { cap = (NSInteger)self.maxSelection; }
+    return cap;
+}
+
 - (void)selectAllTapped {
     NSArray<NSString *> *cur = self.picked.array;
-    // 同时配了 maxSelection 时取较小者，免得全选越过 maxSelection 把页面推进「超上限」态。
-    NSInteger limit = self.selectAllLimit;
-    if (self.maxSelection > 0 && (limit == 0 || (NSInteger)self.maxSelection < limit)) { limit = (NSInteger)self.maxSelection; }
-    NSArray<NSString *> *next = IMFriendPickerAllVisibleSelected(cur, self.visibleIDs)
+    NSInteger limit = [self effectiveCap];
+    BOOL deselect = IMFriendPickerAllVisibleSelected(cur, self.visibleIDs);
+    NSArray<NSString *> *next = deselect
         ? IMFriendPickerDeselectVisible(cur, self.visibleIDs)
         : IMFriendPickerNextSelection(cur, self.visibleIDs, limit);
     [self.picked removeAllObjects];
     [self.picked addObjectsFromArray:next];
     [self.tableView reloadData];
     [self updateSelectionUI];
+    // 补到上限仍有可见行没选上：说清楚为什么（否则按钮仍写「全选」、再点没反应）。
+    if (!deselect && limit > 0 && self.capToast.length > 0
+        && !IMFriendPickerAllVisibleSelected(next, self.visibleIDs)) {
+        [self im_showToast:self.capToast];
+    }
 }
 
 + (void (^)(NSString *, void (^)(NSArray<IMUserCard *> *, NSError *)))groupMemberSearchForConvID:(NSString *)convID {
@@ -394,7 +406,8 @@ static const CGFloat kSearchBarRowHeight = 56; // 与 IMListSearch 的 kIMListSe
     [cell setChecked:checked showCheckbox:!self.selectsImmediately];
     cell.accessoryType = UITableViewCellAccessoryNone;
     // 达上限后**未选中**行置灰不可点（已选中的仍可点=取消选择，否则用户会卡死在满选态）。
-    BOOL atCap = self.maxSelection > 0 && self.picked.count >= self.maxSelection && !checked;
+    NSInteger cap = [self effectiveCap];
+    BOOL atCap = cap > 0 && (NSInteger)self.picked.count >= cap && !checked;
     cell.contentView.alpha = atCap ? 0.4 : 1.0;
     // 配了 capToast 就让灰行仍可点（点了只吐司），否则沿用原来的"点不动"。
     cell.userInteractionEnabled = !atCap || self.capToast.length > 0;
@@ -415,7 +428,8 @@ static const CGFloat kSearchBarRowHeight = 56; // 与 IMListSearch 的 kIMListSe
     if ([self.picked containsObject:uid]) {
         [self.picked removeObject:uid];
     } else {
-        if (self.maxSelection > 0 && self.picked.count >= self.maxSelection) {
+        NSInteger cap = [self effectiveCap];
+        if (cap > 0 && (NSInteger)self.picked.count >= cap) {
             // 满选：不进选中集。配了 capToast 就说清楚为什么，否则静默（行已置灰）。
             if (self.capToast.length > 0) { [self im_showToast:self.capToast]; }
             return;
