@@ -2,7 +2,7 @@
 
 #import "IMGroupAdminListViewController.h"
 #import "IMGroupAdminLogic.h"
-#import "IMGroupManageRowIcon.h"
+#import "IMEntryCell.h"
 #import "IMDetailMemberCell.h"
 #import "IMGroupInfo.h"
 #import "IMFriendPickerViewController.h"
@@ -58,6 +58,7 @@ typedef NS_ENUM(NSInteger, IMAdminSection) {
     self.tableView.translatesAutoresizingMaskIntoConstraints = NO;
     [self.tableView registerClass:IMDetailMemberCell.class forCellReuseIdentifier:@"m"];
     [self.tableView registerClass:UITableViewCell.class forCellReuseIdentifier:@"c"];
+    [self.tableView registerClass:IMEntryCell.class forCellReuseIdentifier:@"entry"];
     [self.view addSubview:self.tableView];
     [NSLayoutConstraint activateConstraints:@[
         [self.tableView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor],
@@ -183,12 +184,9 @@ typedef NS_ENUM(NSInteger, IMAdminSection) {
         return cell;
     }
     if ([self isAddRow:indexPath]) {
-        UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"c" forIndexPath:indexPath];
-        cell.textLabel.text = IMLocalized(@"group.admin_picker.title");
-        cell.textLabel.textColor = IMTheme.accent;
-        cell.imageView.image = IMGroupManageRowIcon(@"person.badge.plus");
-        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-        cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+        IMEntryCell *cell = [tableView dequeueReusableCellWithIdentifier:@"entry" forIndexPath:indexPath];
+        [cell configureWithSymbol:@"person.badge.plus" title:IMLocalized(@"group.admin_picker.title")
+                       titleColor:nil iconTint:nil disclosure:YES];
         return cell;
     }
     IMGroupMember *m = [self adminAt:indexPath];
@@ -208,8 +206,9 @@ typedef NS_ENUM(NSInteger, IMAdminSection) {
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
-    // 「添加管理员」与空态占位是普通设置行（44），成员行是 60。
-    return ([self isAddRow:indexPath] || (indexPath.section == IMAdminSecAdmins && ![self adminAt:indexPath])) ? 44 : 60;
+    // 「添加管理员」入口行 56（= 入口行规格，LIST_ENTRY_ROW_DESIGN §2.1）；空态占位是普通设置行 44，成员行 60。
+    if ([self isAddRow:indexPath]) { return IMEntryCellMinHeight; }
+    return (indexPath.section == IMAdminSecAdmins && ![self adminAt:indexPath]) ? 44 : 60;
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {

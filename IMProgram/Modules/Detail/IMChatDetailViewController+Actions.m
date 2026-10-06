@@ -9,6 +9,7 @@
 #import "IMChatDetailTabs.h"                 // IMChatDetailTab.kind（判定当前是不是成员签）
 #import "IMServerConfigStore.h"              // 部署级配额：满员告知的判据
 #import "IMDetailMemberCell.h"
+#import "IMEntryCell.h"
 #import "IMDetailFileCell.h"
 #import "IMDetailMediaContainerCell.h"
 #import "IMDetailHeaderViews.h"
@@ -764,9 +765,9 @@ static NSInteger const kIMFriendRemarkMaxRunes = 32;
 /// 看起来就是"挤成一团、上下没有留白"。故按真实文本度量：
 ///     上下留白 12×2 + 标题 22 + 标题与副文案间距 4 + 副文案实测高
 - (CGFloat)upgradeHintRowHeightForWidth:(CGFloat)tableWidth {
-    // 文本可用宽 = 表宽 - 左侧图标区(约 58) - 右侧留白(16)。宽度取不到时给个保守值，
+    // 文本可用宽 = 表宽 - insetGrouped 两侧缩进(约 2×20) - 文字左缘 68 - 右侧留白 16。宽度取不到时给个保守值，
     // 宁可高一点留白，也不要矮到截字。
-    CGFloat textWidth = tableWidth > 120 ? tableWidth - 58 - 16 : 240;
+    CGFloat textWidth = tableWidth > 160 ? tableWidth - 40 - IMEntryCellTextLeading - 16 : 240;
     NSAttributedString *detail = [self upgradeHintDetailText];
     CGRect r = [detail boundingRectWithSize:CGSizeMake(textWidth, CGFLOAT_MAX)
                                     options:NSStringDrawingUsesLineFragmentOrigin
@@ -819,6 +820,13 @@ static NSInteger const kIMFriendRemarkMaxRunes = 32;
     }
 }
 
+/// 成员签前导入口行（LIST_ENTRY_ROW_DESIGN §2）：槽 40 + 线性主色图标 + 主色文字。只管样式，不碰行序。
+- (IMEntryCell *)entryCellInTable:(UITableView *)tv symbol:(NSString *)symbol title:(NSString *)title disclosure:(BOOL)disclosure {
+    IMEntryCell *cell = [tv dequeueReusableCellWithIdentifier:@"entry"];
+    [cell configureWithSymbol:symbol title:title titleColor:nil iconTint:nil disclosure:disclosure];
+    return cell;
+}
+
 /// 成员签的行渲染。**整块住在这里而不是主文件的 tabCell:**——它和上面的分页/搜索是一件事，
 /// 分两处放，改前导行顺序时必然漏掉其中一处（行号错位的表现是"点谁都点错人"）。
 - (UITableViewCell *)memberTabCell:(UITableView *)tv row:(NSInteger)row {
@@ -826,42 +834,30 @@ static NSInteger const kIMFriendRemarkMaxRunes = 32;
     NSInteger lead = 0;
     if ([self showsMemberSearchRow]) {
         if (row == lead) {
-            UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleDefault reuseID:@"dDef" inTable:tv];
-            cell.textLabel.text = IMLocalized(@"group.member.search"); cell.textLabel.textColor = IMTheme.accent;
-            cell.imageView.image = [UIImage systemImageNamed:@"magnifyingglass"];
-            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-            return cell;
+            return [self entryCellInTable:tv symbol:@"magnifyingglass" title:IMLocalized(@"group.member.search") disclosure:YES];
         }
         lead++;
     }
     if ([self inviteEntriesVisible]) {
         if (row == lead) {
-            UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleDefault reuseID:@"dDef" inTable:tv];
-            cell.textLabel.text = IMLocalized(@"group.member.add"); cell.textLabel.textColor = IMTheme.accent;
-            cell.imageView.image = [UIImage systemImageNamed:@"person.badge.plus"];
-            return cell;
+            return [self entryCellInTable:tv symbol:@"person.badge.plus" title:IMLocalized(@"group.member.add") disclosure:NO];
         }
         lead++;
     }
     if ([self showsUpgradeHintRow] && row == lead) {
         IMServerConfigStore *cfg = IMServerConfigStore.shared;
-        UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleSubtitle reuseID:@"dSub" inTable:tv];
-        cell.textLabel.text = IMLocalizedFormat(@"group.upgrade_hint.title", (long)cfg.maxGroupMembers);
-        cell.textLabel.textColor = IMTheme.textPrimary;
-        cell.detailTextLabel.numberOfLines = 0;
-        cell.detailTextLabel.attributedText = [self upgradeHintDetailText];
-        cell.detailTextLabel.textColor = IMTheme.textSecondary;
-        cell.imageView.image = [UIImage systemImageNamed:@"person.3.sequence"];
-        cell.imageView.tintColor = IMTheme.textSecondary;
+        IMEntryCell *cell = [tv dequeueReusableCellWithIdentifier:@"entry"];
+        [cell configureWithSymbol:@"person.3.sequence"
+                            title:IMLocalizedFormat(@"group.upgrade_hint.title", (long)cfg.maxGroupMembers)
+                       titleColor:IMTheme.textPrimary iconTint:IMTheme.textSecondary disclosure:NO];
+        [cell setDetailAttributedText:[self upgradeHintDetailText]];
         return cell;
     }
     NSArray<IMGroupMember *> *list = self.displayMembers;
     if (row - offset >= (NSInteger)list.count) { // 末尾的「加载更多成员」行（仅超级群且还有下一页）
-        UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleDefault reuseID:@"dDef" inTable:tv];
-        cell.textLabel.text = self.superLoading ? IMLocalized(@"common.loading") : IMLocalized(@"group.member.load_more");
-        cell.textLabel.textColor = IMTheme.accent;
-        cell.imageView.image = [UIImage systemImageNamed:@"ellipsis.circle"];
-        return cell;
+        return [self entryCellInTable:tv symbol:@"ellipsis.circle"
+                                title:self.superLoading ? IMLocalized(@"common.loading") : IMLocalized(@"group.member.load_more")
+                           disclosure:NO];
     }
     IMDetailMemberCell *cell = [tv dequeueReusableCellWithIdentifier:@"member"];
     IMGroupMember *m = list[row - offset];

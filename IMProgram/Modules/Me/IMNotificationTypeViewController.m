@@ -16,6 +16,7 @@
 #import "UIViewController+IMToast.h"
 #import "UILabel+IMAvatar.h"
 #import "IMTheme.h"
+#import "IMEntryCell.h"
 #import "IMLocalization.h"
 #import "IMLog.h"
 
@@ -133,57 +134,6 @@ typedef NS_ENUM(NSInteger, IMNotifTypeSection) {
 }
 @end
 
-#pragma mark - 「添加例外」行 Cell（绿色圆形 + 号，§2 / 草图 02-A：常驻「例外」组的第一行）
-
-@interface IMNotifAddExceptionCell : UITableViewCell
-@end
-@implementation IMNotifAddExceptionCell {
-    UIView *_circle;
-    UILabel *_title;
-}
-- (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
-    self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
-    if (self) {
-        _circle = [UIView new];
-        _circle.translatesAutoresizingMaskIntoConstraints = NO;
-        _circle.backgroundColor = IMTheme.accent; // 草图 --app-accent：本端主题绿，非硬编码颜色
-        _circle.layer.cornerRadius = 14;
-        _circle.layer.masksToBounds = YES;
-        [self.contentView addSubview:_circle];
-
-        UIImageView *plus = [UIImageView new];
-        plus.translatesAutoresizingMaskIntoConstraints = NO;
-        plus.image = [UIImage systemImageNamed:@"plus"];
-        plus.tintColor = UIColor.whiteColor;
-        plus.contentMode = UIViewContentModeCenter;
-        [_circle addSubview:plus];
-
-        _title = [UILabel new];
-        _title.translatesAutoresizingMaskIntoConstraints = NO;
-        _title.font = [UIFont systemFontOfSize:17];
-        _title.textColor = IMTheme.accent;
-        _title.text = IMLocalized(@"notif.exceptions.add");
-        [self.contentView addSubview:_title];
-
-        UILayoutGuide *g = self.contentView.layoutMarginsGuide;
-        [NSLayoutConstraint activateConstraints:@[
-            [_circle.leadingAnchor constraintEqualToAnchor:g.leadingAnchor],
-            [_circle.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
-            [_circle.widthAnchor constraintEqualToConstant:28],
-            [_circle.heightAnchor constraintEqualToConstant:28],
-            [plus.centerXAnchor constraintEqualToAnchor:_circle.centerXAnchor],
-            [plus.centerYAnchor constraintEqualToAnchor:_circle.centerYAnchor],
-            [_title.leadingAnchor constraintEqualToAnchor:_circle.trailingAnchor constant:IMTheme.space3],
-            [_title.trailingAnchor constraintEqualToAnchor:g.trailingAnchor],
-            [_title.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
-            [self.contentView.heightAnchor constraintGreaterThanOrEqualToConstant:44],
-        ]];
-        self.accessoryType = UITableViewCellAccessoryNone;
-    }
-    return self;
-}
-@end
-
 #pragma mark - 控制器
 
 @interface IMNotificationTypeViewController () <UITableViewDataSource, UITableViewDelegate>
@@ -222,7 +172,7 @@ typedef NS_ENUM(NSInteger, IMNotifTypeSection) {
     [self.tableView registerClass:IMNotifSwitchCell.class forCellReuseIdentifier:@"switch"];
     [self.tableView registerClass:IMNotifValueCell.class forCellReuseIdentifier:@"disclosure"];
     [self.tableView registerClass:IMNotifExceptionCell.class forCellReuseIdentifier:@"exception"];
-    [self.tableView registerClass:IMNotifAddExceptionCell.class forCellReuseIdentifier:@"addException"];
+    [self.tableView registerClass:IMEntryCell.class forCellReuseIdentifier:@"addException"];
     [self.view addSubview:self.tableView];
 
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(settingsChanged)
@@ -443,7 +393,9 @@ typedef NS_ENUM(NSInteger, IMNotifTypeSection) {
     }
     // 例外组：row 0 固定「添加例外」，其余是本类型下 muted=YES 的会话（row-1 对应 exceptions 下标）。
     if (indexPath.row == 0) {
-        return [tableView dequeueReusableCellWithIdentifier:@"addException" forIndexPath:indexPath];
+        IMEntryCell *entry = [tableView dequeueReusableCellWithIdentifier:@"addException" forIndexPath:indexPath];
+        [entry configureAddCircleWithTitle:IMLocalized(@"notif.exceptions.add")]; // 圆 32 + 槽 40（LIST_ENTRY_ROW_DESIGN §2）
+        return entry;
     }
     IMNotifExceptionCell *cell = [tableView dequeueReusableCellWithIdentifier:@"exception" forIndexPath:indexPath];
     [cell configureWithConversation:self.exceptions[indexPath.row - 1]];

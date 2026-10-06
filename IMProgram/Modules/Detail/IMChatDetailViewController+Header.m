@@ -16,6 +16,7 @@
 #import "IMDropletHeaderMorph.h"
 #import "IMGroupInfo.h"
 #import "IMTheme.h"
+#import "IMEntryCell.h"
 #import "IMGlass.h"
 #import "UILabel+IMAvatar.h"
 #import "IMLog.h"
@@ -41,6 +42,7 @@
     self.tableView.estimatedSectionFooterHeight = 0;
     [self.tableView registerClass:UITableViewCell.class forCellReuseIdentifier:@"plain"];
     [self.tableView registerClass:IMDetailMemberCell.class forCellReuseIdentifier:@"member"];
+    [self.tableView registerClass:IMEntryCell.class forCellReuseIdentifier:@"entry"]; // 成员签前导入口行
     [self.tableView registerClass:IMDetailMediaContainerCell.class forCellReuseIdentifier:@"mediagrid"];
     [self.tableView registerClass:IMDetailFileCell.class forCellReuseIdentifier:@"detailfile"];
     [self.tableView registerClass:IMDetailLinkCell.class forCellReuseIdentifier:@"detaillink"];

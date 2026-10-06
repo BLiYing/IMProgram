@@ -5,6 +5,8 @@
 
 ## 当前焦点
 
+**列表首行入口行对齐（LIST_ENTRY_ROW_DESIGN，iOS 2026-10-06 已提交、未推送）**：新增 `Common/IMEntryCell`（槽 40 + 间距 12 + 文字，自绘约束），替换通知例外「添加例外」、管理员页「添加管理员」、群资料成员页签四类前导行（行数/顺序/memberRowOffset 未动）；单测 `IMEntryCellTests`。模拟器只目测了通知例外页（insetGrouped 下左边距实测 20 非规格 16，文字左缘 72；与头像同 guide 故仍对齐）；管理员页 / 成员页签需有群数据，未目测。
+
 **搜索入口收敛 + 设置项搜索（SEARCH_DESIGN §3.1，iOS 2026-10-05 已提交、未推送）**：底部「搜索」tab 与「我」范围已删（3 个 tab）；通讯录页顶点按式搜索框（`Common/IMSearchEntryHeader`，消息页共用）→ push 全局搜索 scope=Contacts；首页全局搜索新增「设置」分组（会话→联系人→聊天记录→设置→搜索用户），登记表 `Common/IMSettingsSearchRegistry`（纯逻辑，title+path 子串、title 命中优先）+ `Modules/Me/IMSettingsRouter`（route 逐级建页，`setViewControllers:` 一次铺栈）；单测 `IMSettingsSearchRegistryTests`。模拟器已验：3 tab、Wi-Fi›视频 三级铺栈逐级返回回「我」、通讯录搜索框 push。未验：中文关键词输入（axe 不能打中文）。`search.me.*` / `ios.tab.search` 文案键已无引用，键在 IMServer 的 strings.json（本次未动）。CLIENT_PARITY 对应单元格待 IMServer 仓维护者同步。
 
 **iOS 单测欠账专项（清单与逐项进度见 `docs/TEST_DEBT.md`，覆盖率基线 21.8%）**：批 A/B 与 C1、C2 已做完，**全部未提交、待你复核**；剩 C3–C7 与批 D。改了产品行为的几处（A3 迟到 anchor=0、A9 `300208`、B2 删除返回值、B5 暂存路径、C2 开关回滚）在清单里逐条写明。已删死代码 `IMGroupInfoViewController`。**未做模拟器目测**（收消息/窗口裁剪/window_resp/msg_op 实时更新/群管理开关）。约定：测试由我逐个写，不派并行子代理改测试目标。
