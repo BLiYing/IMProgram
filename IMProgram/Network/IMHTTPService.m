@@ -88,6 +88,7 @@ NSString *IMFriendlyMessageForCode(NSInteger code) {
         case 300208: return IMLocalized(@"chat.input.disabled_muted");                    // member muted（G2）
         // 300210 不映射：入群申请已提交，UI 走"待审批"分支而非错误提示。
         case 300211: return IMLocalized(@"err.300211");    // join cooldown（拒后再扫码，语义单一可安全映射）
+        case 300213: return IMLocalized(@"err.300213");                      // group admin limit
         case 300212: return IMLocalized(@"qr.action.admin_only_note"); // invite revoked（perm_invite，竞态兜底）
         case 100002: return IMLocalized(@"err.100002");              // rate limited（全站通用码）
         case 500101: return IMLocalized(@"err.500101"); // transcribe disabled

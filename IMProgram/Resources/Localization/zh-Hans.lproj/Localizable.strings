@@ -653,6 +653,7 @@
 "err.300203" = "你不在该群中";
 "err.300205" = "群成员已达上限";
 "err.300211" = "你的入群申请刚被拒绝，请稍后再试";
+"err.300213" = "群管理员最多 5 位";
 "err.500101" = "转文字暂未开启（服务端未配置识别引擎）";
 "err.500102" = "识别失败，请稍后重试";
 "err.500103" = "转文字服务繁忙，请稍后再试";
@@ -792,8 +793,8 @@
 "group.admin_list.revoke_done" = "已撤销管理员";
 "group.admin_picker.add_count" = "添加（%1$ld/%2$ld）";
 "group.admin_picker.empty" = "没有可设为管理员的普通成员";
-"group.admin_picker.limit_note" = "一次最多添加 %1$ld 位管理员。";
-"group.admin_picker.limit_toast" = "一次最多添加 %1$ld 位管理员";
+"group.admin_picker.limit_note" = "最多还能添加 %1$ld 位管理员。";
+"group.admin_picker.limit_toast" = "最多还能添加 %1$ld 位管理员";
 "group.admin_picker.selected_subtitle" = "已勾选%1$ld/%2$ld人";
 "group.admin_picker.title" = "添加管理员";
 "group.announcement.published_at" = "%1$@ 发布";

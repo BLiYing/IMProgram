@@ -653,6 +653,7 @@
 "err.300203" = "You’re not in this group";
 "err.300205" = "The group has reached its member limit";
 "err.300211" = "Your join request was just declined. Try again later.";
+"err.300213" = "A group can have at most 5 admins";
 "err.500101" = "Voice-to-text isn’t enabled (the server has no speech engine configured)";
 "err.500102" = "Recognition failed. Try again later.";
 "err.500103" = "Voice-to-text is busy. Try again later.";
@@ -792,8 +793,8 @@
 "group.admin_list.revoke_done" = "Admin revoked";
 "group.admin_picker.add_count" = "Add (%1$ld/%2$ld)";
 "group.admin_picker.empty" = "No regular members available to make admin";
-"group.admin_picker.limit_note" = "You can add up to %1$ld admins at a time.";
-"group.admin_picker.limit_toast" = "You can add up to %1$ld admins at a time";
+"group.admin_picker.limit_note" = "You can add up to %1$ld more admins.";
+"group.admin_picker.limit_toast" = "You can add up to %1$ld more admins";
 "group.admin_picker.selected_subtitle" = "%1$ld/%2$ld selected";
 "group.admin_picker.title" = "Add admins";
 "group.announcement.published_at" = "Posted %1$@";
