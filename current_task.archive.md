@@ -1742,3 +1742,9 @@
 对称兄弟：Android 已 ✅（`ClearFloor.kt`）；**Web 仍是「清空后重进会拉回」，待对齐**。`SYMMETRY.md` / `CLIENT_PARITY.md` / 设计文档 §6.7 状态由 IMServer 仓维护者同步（措辞建议见交付报告）。
 
 更早的收口（细节见 archive 顶部与 `git log`）：2026-10-02 「我」页头部断网兜底 / 会话壳不再把 uid 当昵称；2026-10-01 通知显示发送人头像、别端已读清手机通知/角标、多选删除两档改批量接口（仅模拟器验证）。
+
+---
+## 2026-10-06 归档自 current_task.md「下一步 / 已知坑」（核对后已完成或用户确认）
+1. **真机验证欠账**：通知 P1 批一（横幅）+ 批二（定时免打扰时长菜单）只过了模拟器编译，没真机跑过，清单见 `current_task.archive.md` 里最近的归档块；「设置 ▸ 最近通话」真机走一遍拨打→挂断→回本页看 `callEnd` 是否自动刷新、1v1 回拨、群聊行跳转；批量删除两档的 iOS 真机。
+2. **核对 `IMServer/docs/CLIENT_PARITY.md` 的 M5 行是否已按 iOS/安卓/Web 拆状态**（`SYMMETRY.md` 的 `alertDecision` 四端已登记）；若没拆，补上。
+- 聊天页「从收藏发送」暂不支持：`attachItemTapped:` 的 `favorite` 分支仍走 `im_showComingSoon`（`../IMServer/docs/FAVORITES_DESIGN.md` §5.5 标 ⏸）。
