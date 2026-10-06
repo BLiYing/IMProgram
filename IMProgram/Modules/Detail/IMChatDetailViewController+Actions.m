@@ -765,9 +765,9 @@ static NSInteger const kIMFriendRemarkMaxRunes = 32;
 /// 看起来就是"挤成一团、上下没有留白"。故按真实文本度量：
 ///     上下留白 12×2 + 标题 22 + 标题与副文案间距 4 + 副文案实测高
 - (CGFloat)upgradeHintRowHeightForWidth:(CGFloat)tableWidth {
-    // 文本可用宽 = 表宽 - insetGrouped 两侧缩进(约 2×20) - 文字左缘 68 - 右侧留白 16。宽度取不到时给个保守值，
-    // 宁可高一点留白，也不要矮到截字。
-    CGFloat textWidth = tableWidth > 160 ? tableWidth - 40 - IMEntryCellTextLeading - 16 : 240;
+    // 文本可用宽 = 表宽 - insetGrouped 两侧缩进(2×20) - 行 layoutMargins(左右各 20，模拟器实测文字左缘 = 表左 + 72)
+    // - 槽 40 - 间距 12。曾按 68/16 算，比实际宽 8pt，临界折行会少算一行而截字。宽度取不到时给保守值。
+    CGFloat textWidth = tableWidth > 160 ? tableWidth - 40 - 20 - (IMEntryCellSlotWidth + 12) - 20 : 240;
     NSAttributedString *detail = [self upgradeHintDetailText];
     CGRect r = [detail boundingRectWithSize:CGSizeMake(textWidth, CGFLOAT_MAX)
                                     options:NSStringDrawingUsesLineFragmentOrigin
