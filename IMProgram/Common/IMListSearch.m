@@ -37,7 +37,8 @@ void IMListSearchHeaderSyncWidth(UIView *header, UITableView *table) {
     CGFloat width = table.bounds.size.width;
     // 宽度已一致就早退：viewDidLayoutSubviews 每次布局都会调它，不早退则「改 frame → 触发布局」自激。
     if (width <= 0 || fabs(CGRectGetWidth(header.frame) - width) < 0.5) { return; }
-    header.frame = CGRectMake(0, 0, width, kIMListSearchBarHeight);
+    // 只改宽度、保留表头现有高度：搜索条表头默认 56，调用方给表头加了附加行（如选人页「全选」）时高度不被冲回 56。
+    header.frame = CGRectMake(0, 0, width, CGRectGetHeight(header.frame));
     [header layoutIfNeeded];
     table.tableHeaderView = header;
 }

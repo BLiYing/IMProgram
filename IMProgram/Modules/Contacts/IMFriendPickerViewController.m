@@ -114,7 +114,6 @@
 
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
-    if (self.selectAllButton) { [self syncSelectAllHeaderWidth]; return; }
     IMListSearchHeaderSyncWidth(self.searchHeader, self.tableView); // 表头宽度对齐表格（宽度没变即空转）
 }
 
@@ -151,15 +150,6 @@ static const CGFloat kSearchBarRowHeight = 56; // 与 IMListSearch 的 kIMListSe
     [self refreshSelectAllButton];
 }
 
-/// 同 IMListSearchHeaderSyncWidth，但容器高度含全选行（共享函数写死 56 高）。
-- (void)syncSelectAllHeaderWidth {
-    CGFloat width = self.tableView.bounds.size.width;
-    if (width <= 0 || fabs(CGRectGetWidth(self.searchHeader.frame) - width) < 0.5) { return; }
-    self.searchHeader.frame = CGRectMake(0, 0, width, kSearchBarRowHeight + kSelectAllRowHeight);
-    [self.searchHeader layoutIfNeeded];
-    self.tableView.tableHeaderView = self.searchHeader;
-}
-
 /// 文案与显隐：可见 0 行隐藏；可见全选中 →「取消全选」。搜索词 / 选中变化后调用。
 - (void)refreshSelectAllButton {
     UIButton *b = self.selectAllButton;
@@ -171,9 +161,12 @@ static const CGFloat kSearchBarRowHeight = 56; // 与 IMListSearch 的 kIMListSe
 
 - (void)selectAllTapped {
     NSArray<NSString *> *cur = self.picked.array;
+    // 同时配了 maxSelection 时取较小者，免得全选越过 maxSelection 把页面推进「超上限」态。
+    NSInteger limit = self.selectAllLimit;
+    if (self.maxSelection > 0 && (limit == 0 || (NSInteger)self.maxSelection < limit)) { limit = (NSInteger)self.maxSelection; }
     NSArray<NSString *> *next = IMFriendPickerAllVisibleSelected(cur, self.visibleIDs)
         ? IMFriendPickerDeselectVisible(cur, self.visibleIDs)
-        : IMFriendPickerNextSelection(cur, self.visibleIDs, self.selectAllLimit);
+        : IMFriendPickerNextSelection(cur, self.visibleIDs, limit);
     [self.picked removeAllObjects];
     [self.picked addObjectsFromArray:next];
     [self.tableView reloadData];
@@ -302,7 +295,9 @@ static const CGFloat kSearchBarRowHeight = 56; // 与 IMListSearch 的 kIMListSe
         __strong typeof(weakSelf) self = weakSelf;
         if (!self || generation != self.indexGeneration) { return; }
         self.friendIndex = index;
-        self.visibleIDs = [visible valueForKey:@"userID"] ?: @[];
+        NSMutableArray<NSString *> *ids = [NSMutableArray arrayWithCapacity:visible.count];
+        for (IMUserCard *c in visible) { if (c.userID.length > 0) { [ids addObject:c.userID]; } } // 不用 valueForKey:，nil uid 会变 NSNull
+        self.visibleIDs = ids;
         [self refreshSelectAllButton];
         self.emptyLabel.text = emptyText;
         self.emptyLabel.hidden = visible.count > 0;
