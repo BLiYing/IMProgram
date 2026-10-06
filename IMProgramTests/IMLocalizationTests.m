@@ -135,13 +135,13 @@
 - (void)testI1PluralAndFormatKeys {
     IMLocalization *loc = [self isolatedWithSystem:@[@"en-US"] suite:@"im.test.loc_i1"];
     [loc setPreference:@"en"];
-    XCTAssertEqualObjects(([loc formattedStringForKey:@"media.picker.selected_count", (long)1]), @"1 item selected");
-    XCTAssertEqualObjects(([loc formattedStringForKey:@"media.picker.selected_count", (long)3]), @"3 items selected");
+    XCTAssertEqualObjects(([loc formattedStringForKey:@"common.people_count", (long)1]), @"1 person");
+    XCTAssertEqualObjects(([loc formattedStringForKey:@"common.people_count", (long)3]), @"3 people");
     XCTAssertEqualObjects(([loc formattedStringForKey:@"common.sent_to_chats", (long)2]), @"Sent to 2 chats");
     XCTAssertEqualObjects(([loc formattedStringForKey:@"search.user.row_title", @"abc"]), @"Search for user \u201cabc\u201d");
     XCTAssertEqualObjects(([loc formattedStringForKey:@"preview.voice_duration", @"0:07"]), @"[Voice] 0:07");
     [loc setPreference:@"zh-Hans"];
-    XCTAssertEqualObjects(([loc formattedStringForKey:@"media.picker.selected_count", (long)3]), @"已选 3 项");
+    XCTAssertEqualObjects(([loc formattedStringForKey:@"common.people_count", (long)3]), @"3 人");
     XCTAssertEqualObjects(([loc formattedStringForKey:@"search.user.row_title", @"abc"]), @"搜索用户「abc」");
     XCTAssertEqualObjects(([loc formattedStringForKey:@"preview.voice_duration", @"0:07"]), @"[语音] 0:07");
 }

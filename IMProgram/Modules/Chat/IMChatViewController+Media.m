@@ -24,6 +24,8 @@
 #import "IMChunkedUploader.h"
 #import "IMFilePickerViewController.h"
 #import "IMMediaPicker.h"
+#import "IMMediaPickerEntry.h"
+#import "IMMediaPickLogic.h"
 #import "IMPendingMediaStore.h"
 #import "IMPendingMediaThumbnail.h"
 #import "IMImageLoader.h"
@@ -501,13 +503,13 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     [self.navigationController pushViewController:vc animated:YES];
 }
 
-/// 相册多选（PHPicker，≤9，图片/Live 图/视频）→ **选完秒上屏**（≥2 张=一个宫格 cell，1 张=普通媒体气泡）
-/// → 缩略图逐格异步补上 → 逐项 压缩/转码 + 带进度上传（每格环形进度）→ 传完一张转正式发送一张。
-/// PHPicker 是进程外选择器，无需相册读权限（保存到相册的权限仍在下载路径申请）。
+/// 相册多选（自建选择器 IMMediaPickerEntry，≤9，图片/视频；Live 图当静态图）→ **选完秒上屏**
+/// （≥2 张=一个宫格 cell，1 张=普通媒体气泡）→ 缩略图逐格异步补上 → 逐项 压缩/转码 + 带进度上传
+/// （每格环形进度）→ 传完一张转正式发送一张。「原图」在选择器底栏勾选，不再有选完后的动作表。
+/// 需要相册读权限；被拒 = 选择器内空状态（去设置），没有降级到系统选择器（见 MEDIA_PICKER_IOS_DESIGN.md §1）。
 - (void)openPhotoPicker {
     __weak typeof(self) ws = self;
-    [IMMediaPicker presentFromViewController:self limit:9
-                           handlesCompletion:^(NSArray<IMPickedMediaHandle *> *handles) {
+    [IMMediaPickerEntry presentFromViewController:self handlesCompletion:^(NSArray<IMPickedMediaHandle *> *handles) {
         [ws sendMediaHandles:handles];
     }];
 }
@@ -721,7 +723,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
 /// 大视频等几分钟毫无反馈），导出/落盘/上传/发送全程活在常驻服务，≥8MB 分片可暂停续传。
 - (void)openPhotoFilePicker {
     __weak typeof(self) ws = self;
-    [IMMediaPicker presentFilePickerFromViewController:self limit:9
+    [IMMediaPicker presentFilePickerFromViewController:self limit:kIMMediaPickLimit
                            handlesCompletion:^(NSArray<IMPickedMediaHandle *> *handles) {
         [ws sendPhotoFileHandles:handles];
     }];
