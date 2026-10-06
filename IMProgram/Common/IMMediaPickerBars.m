@@ -140,10 +140,17 @@ static const CGFloat kCheckSize = 18;       // 原图勾选圆
     _checkCircle.translatesAutoresizingMaskIntoConstraints = NO;
 
     _send = [UIButton buttonWithType:UIButtonTypeCustom];
-    _send.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
-    [_send setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    UIButtonConfiguration *sendConfig = [UIButtonConfiguration plainButtonConfiguration];
+    sendConfig.contentInsets = NSDirectionalEdgeInsetsMake(0, 16, 0, 16);
+    // 字体 / 前景色走 transformer：configuration 下 titleLabel.font 无效，且禁用态会自动再压暗文字（底色已带 0.4 透明度）。
+    sendConfig.titleTextAttributesTransformer = ^NSDictionary<NSAttributedStringKey, id> *(NSDictionary<NSAttributedStringKey, id> *attrs) {
+        NSMutableDictionary *out = [attrs mutableCopy];
+        out[NSFontAttributeName] = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
+        out[NSForegroundColorAttributeName] = UIColor.whiteColor;
+        return out;
+    };
+    _send.configuration = sendConfig;
     _send.layer.cornerRadius = 6;
-    _send.contentEdgeInsets = UIEdgeInsetsMake(0, 16, 0, 16);
     [_send addTarget:self action:@selector(sendTapped) forControlEvents:UIControlEventTouchUpInside];
 
     UIView *flex = [UIView new];

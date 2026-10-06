@@ -25,6 +25,11 @@ NSNotificationName const IMSocketDidReceiveNotifySettingsUpdateNotification = @"
     });
 }
 
+@end
+
+/// 与 IMSocketManager+Private.h 的 (PushInternal) 声明配对（不能与公开的 (Push) 同名，会触发重复 category 警告）。
+@implementation IMSocketManager (PushInternal)
+
 #pragma mark - 主实现调用（仅在 _queue 调用）
 
 /// 握手成功后按 App 当前真实前后台补报一次（PROTOCOL §6.12）。**后台里重连也要报 background**：

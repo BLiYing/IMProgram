@@ -84,7 +84,7 @@ NS_ASSUME_NONNULL_BEGIN
 /// +Push category（PROTOCOL §6.12/§6.13，M5）自己提供的方法，主实现在握手成功后 / handleFrame 兜底分支调用
 /// （仅在 _queue 调用，与上面 Sync 同线程约定）。公开的 noteAppDidEnterBackground/noteAppDidBecomeActive
 /// 声明在 IMSocketManager+Push.h。
-@interface IMSocketManager (Push)
+@interface IMSocketManager (PushInternal)
 /// 握手成功后调用：仅当 App 当前处于前台时补发一次 foreground（新连接服务端本就默认 foreground，
 /// 这里是"确保对齐"，见 PROTOCOL §6.12）。
 - (void)sendAppStateAfterHandshake;

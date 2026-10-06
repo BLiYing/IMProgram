@@ -134,10 +134,16 @@ static const CGFloat kSearchBarRowHeight = 56; // 与 IMListSearch 的 kIMListSe
 
     UIButton *b = [UIButton buttonWithType:UIButtonTypeCustom];
     b.translatesAutoresizingMaskIntoConstraints = NO;
-    b.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightRegular];
-    [b setTitleColor:IMTheme.accent forState:UIControlStateNormal];
+    UIButtonConfiguration *cfg = [UIButtonConfiguration plainButtonConfiguration];
+    cfg.contentInsets = NSDirectionalEdgeInsetsMake(0, 0, 0, 16); // 右边距 16；按钮铺满整行，点击区 ≥ 44 × 32
+    cfg.titleTextAttributesTransformer = ^NSDictionary<NSAttributedStringKey, id> *(NSDictionary<NSAttributedStringKey, id> *attrs) {
+        NSMutableDictionary *out = [attrs mutableCopy];
+        out[NSFontAttributeName] = [UIFont systemFontOfSize:15 weight:UIFontWeightRegular];
+        out[NSForegroundColorAttributeName] = IMTheme.accent;
+        return out;
+    };
+    b.configuration = cfg;
     b.contentHorizontalAlignment = UIControlContentHorizontalAlignmentRight;
-    b.contentEdgeInsets = UIEdgeInsetsMake(0, 0, 0, 16); // 右边距 16；按钮铺满整行，点击区 ≥ 44 × 32
     [b addTarget:self action:@selector(selectAllTapped) forControlEvents:UIControlEventTouchUpInside];
     [host addSubview:b];
     [NSLayoutConstraint activateConstraints:@[
