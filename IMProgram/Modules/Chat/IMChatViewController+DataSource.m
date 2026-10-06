@@ -260,7 +260,8 @@
         };
         [alb configureWithMembers:members mine:mineAlb host:self.host
                          previews:self.outboxPreviews progress:self.outboxProgress senderName:senderNameAlb
-                       senderRole:senderRoleAlb];
+                       senderRole:senderRoleAlb
+                      peerReadSeq:[self peerReadSeqForCell]];
         [alb applyGroupAvatarURL:(grpAlb ? [self senderAvatarURLForMessage:m] : nil)
                             seed:(m.from ?: @"") name:(grpAlb ? [self senderNameForMessage:m] : nil)
                       showAvatar:lastAlb gutter:grpAlb];

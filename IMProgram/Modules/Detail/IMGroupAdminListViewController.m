@@ -308,6 +308,11 @@ typedef NS_ENUM(NSInteger, IMAdminSection) {
 - (void)openAdminPicker {
     // 普通群：端上有全量成员，直接筛出候选。
     // **超级群：候选在服务端**（2 万人，端上只有治理集）——改为远端搜索 + 排除治理集与我。
+    NSUInteger slots = [IMGroupAdminLogic remainingAdminSlotsFromMembers:self.group.members];
+    if (slots == 0) { // 管理员已满 5 位（maxSelection=0 在选人页意为不限，不能带 0 进去）
+        [self im_showToast:IMLocalizedFormat(@"group.admin_picker.limit_toast", (long)IMGroupAdminMaxBatch)];
+        return;
+    }
     BOOL super_ = self.group.isSuper;
     NSArray<IMGroupMember *> *candidates = super_ ? @[]
         : [IMGroupAdminLogic adminCandidatesFromMembers:self.group.members myUserID:self.userID];
@@ -323,11 +328,12 @@ typedef NS_ENUM(NSInteger, IMAdminSection) {
                                                      title:IMLocalized(@"group.admin_picker.title")
                                               confirmTitle:IMLocalized(@"common.confirm")
                                                     onDone:^(NSArray<NSString *> *selectedIDs) {
-        [ws addAdmins:[IMGroupAdminLogic clampBatchSelection:selectedIDs] host:wsPicker];
+        [ws addAdmins:(selectedIDs.count > slots ? [selectedIDs subarrayWithRange:NSMakeRange(0, slots)] : selectedIDs) host:wsPicker];
     }];
     wsPicker = picker;
-    picker.maxSelection = IMGroupAdminMaxBatch;
-    picker.capToast = IMLocalizedFormat(@"group.admin_picker.limit_toast", (long)IMGroupAdminMaxBatch);
+    picker.maxSelection = slots; // 总管理员 ≤ 5：上限 = 5 − 现有管理员数
+    picker.showsSelectionInSubtitle = YES; // 标题「添加管理员」+ 副标题「已勾选x/5人」
+    picker.capToast = IMLocalizedFormat(@"group.admin_picker.limit_toast", (long)slots);
     picker.searchPlaceholder = IMLocalized(@"group.picker.search_placeholder");
     picker.emptyText = IMLocalized(@"group.picker.no_others");
     if (super_) { picker.remoteCandidateSearch = [IMFriendPickerViewController groupMemberSearchForConvID:self.convID]; }

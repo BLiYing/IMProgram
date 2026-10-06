@@ -95,6 +95,8 @@ typedef NS_ENUM(NSInteger, IMGroupSettingField) {
 + (NSArray<IMUserCard *> *)pickerCardsFromMembers:(nullable NSArray<IMGroupMember *> *)members;
 
 /// 批量添加的选中集截断到 IMGroupAdminMaxBatch（选人页已拦，这里是兜底）。
+/// 还能再设几位管理员：总管理员数 ≤ IMGroupAdminMaxBatch（5，含现有），余量 = max(0, 5 − 现有管理员数)。
++ (NSUInteger)remainingAdminSlotsFromMembers:(nullable NSArray<IMGroupMember *> *)members;
 + (NSArray<NSString *> *)clampBatchSelection:(nullable NSArray<NSString *> *)selectedIDs;
 
 /// 业务错误 → 中文 toast（设计 §4.4）。

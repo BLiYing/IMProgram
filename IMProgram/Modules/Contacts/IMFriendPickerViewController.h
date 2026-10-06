@@ -43,6 +43,13 @@ NS_ASSUME_NONNULL_BEGIN
 /// 加法式参数：既有 4 个调用点不传即保持原行为。**须在 present 前设。**
 @property (nonatomic, assign) NSUInteger maxSelection;
 
+/// YES 且 maxSelection>0：标题恒为 baseTitle，已选人数改走导航栏副标题「已勾选x/N人」（添加管理员页；Android/Web 同款）。
+/// 默认 NO＝沿用「标题里显示已选 N」。**须在 push 前设。**
+@property (nonatomic, assign) BOOL showsSelectionInSubtitle;
+
+/// 导航栏副标题（IMMainTabBarController 的 im_navigationSubtitle 约定）；仅 showsSelectionInSubtitle 时非空。
+- (NSString *)im_navigationSubtitle;
+
 /// 搜索框占位（默认「搜索好友」；候选是群成员时传「搜索群成员」）。**须在 push 前设。**
 @property (nonatomic, copy, nullable) NSString *searchPlaceholder;
 

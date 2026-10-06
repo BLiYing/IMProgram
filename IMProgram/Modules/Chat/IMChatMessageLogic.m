@@ -147,3 +147,16 @@ NSString *IMSendRejectionNote(BOOL success, NSError *error, NSInteger *outNoteCo
     if (outNoteCode) { *outNoteCode = note ? error.code : 0; }
     return note;
 }
+
+IMAlbumTickState IMAlbumTickStateForMembers(NSArray<IMMessageModel *> *members, BOOL mine, int64_t peerReadSeq) {
+    if (!mine || members.count == 0) { return IMAlbumTickNone; }
+    BOOL allSent = YES;
+    for (IMMessageModel *m in members) {
+        if (m.status == IMMessageStatusFailed) { return IMAlbumTickNone; } // 失败由宫格左侧红❗表达
+        if (m.status != IMMessageStatusSent) { allSent = NO; }
+    }
+    if (!allSent) { return IMAlbumTickSending; }
+    if (peerReadSeq < 0) { return IMAlbumTickNone; } // kIMPeerReadSeqHidden（-1）：超级群不画勾
+    int64_t lastSeq = members.lastObject.convSeq;
+    return (lastSeq > 0 && lastSeq <= peerReadSeq) ? IMAlbumTickRead : IMAlbumTickSent;
+}

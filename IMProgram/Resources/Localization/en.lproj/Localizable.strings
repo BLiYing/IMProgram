@@ -794,6 +794,7 @@
 "group.admin_picker.empty" = "No regular members available to make admin";
 "group.admin_picker.limit_note" = "You can add up to %1$ld admins at a time.";
 "group.admin_picker.limit_toast" = "You can add up to %1$ld admins at a time";
+"group.admin_picker.selected_subtitle" = "%1$ld/%2$ld selected";
 "group.admin_picker.title" = "Add admins";
 "group.announcement.published_at" = "Posted %1$@";
 "group.avatar.add" = "Add group photo";
@@ -1540,7 +1541,7 @@
 "search.alias.auto_download" = "auto download,auto-download,cellular,data";
 "search.alias.sound" = "sound,tone,ringtone,alert";
 "search.contacts.placeholder" = "Search contacts and groups";
-"search.global.placeholder" = "Search chats, contacts, and messages";
+"search.global.placeholder" = "Search chats, contacts, messages, and settings";
 "search.no_matches" = "No results found";
 "search.section.contacts" = "Contacts";
 "search.section.conversations" = "Chats";

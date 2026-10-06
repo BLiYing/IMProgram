@@ -794,6 +794,7 @@
 "group.admin_picker.empty" = "没有可设为管理员的普通成员";
 "group.admin_picker.limit_note" = "一次最多添加 %1$ld 位管理员。";
 "group.admin_picker.limit_toast" = "一次最多添加 %1$ld 位管理员";
+"group.admin_picker.selected_subtitle" = "已勾选%1$ld/%2$ld人";
 "group.admin_picker.title" = "添加管理员";
 "group.announcement.published_at" = "%1$@ 发布";
 "group.avatar.add" = "添加群头像";
@@ -1540,7 +1541,7 @@
 "search.alias.auto_download" = "自动下载,流量,下载";
 "search.alias.sound" = "声音,提示音,铃声";
 "search.contacts.placeholder" = "搜索联系人、群聊";
-"search.global.placeholder" = "搜索会话、联系人、聊天记录";
+"search.global.placeholder" = "搜索会话、联系人、聊天记录、设置";
 "search.no_matches" = "没有找到相关结果";
 "search.section.contacts" = "联系人";
 "search.section.conversations" = "会话";

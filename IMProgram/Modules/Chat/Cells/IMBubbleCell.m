@@ -495,6 +495,7 @@ static NSAttributedString *sIMMentionFlashOriginal = nil;
         _textMeta = [UILabel new];
         _textMeta.translatesAutoresizingMaskIntoConstraints = NO;
         _textMeta.hidden = YES;
+        [_textMeta setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
         [_bubble addSubview:_textMeta];
 
         _failBadge = [IMFailBadgeView new];
@@ -635,6 +636,9 @@ static NSAttributedString *sIMMentionFlashOriginal = nil;
             [_text.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor constant:-12],
             [_textMeta.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor constant:-12],
             [_textMeta.leadingAnchor constraintGreaterThanOrEqualToAnchor:_bubble.leadingAnchor constant:12],
+            // 正文只有一两个字时气泡会比「时间 + 勾」还窄，meta 被压成「…」、勾也看不到——
+            // 正文行宽至少撑到 meta 的宽度（气泡随之变宽），meta 本身绝不压缩。
+            [_text.widthAnchor constraintGreaterThanOrEqualToAnchor:_textMeta.widthAnchor],
 
             // 头像：30×30 贴 cell 左、底对齐气泡底（连续段末条才 show）。
             [_avatar.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12],

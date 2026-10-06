@@ -15,6 +15,8 @@
 #import "IMLocalization.h"
 #import "IMPowerSaving.h" // videoPreloadEffective
 #import "IMTheme.h"
+#import "IMReadTick.h"
+#import "IMMessageCell.h"
 
 @interface IMAlbumTileView : UIView
 @property (nonatomic, strong) UIImageView *imageView;
@@ -299,6 +301,7 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
 @implementation IMAlbumCell {
     UIView *_container;                        // 固定宽 240，圆角裁切
     NSMutableArray<IMAlbumTileView *> *_tiles; // 复用池（按需增建）
+    int64_t _peerReadSeq;                      // 最近一次 configure 传入的已读位点（refreshWithPreviews 就地刷新时复用）
     UILabel *_metaChip;                        // 右下角 时间+状态 小胶囊
     UILabel *_senderLabel;                     // 群聊对方昵称（宫格上方）
     // _avatar 由 IMMessageCell 基类持有（贴宫格底左侧，约束在本类补）。
@@ -418,7 +421,9 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
                     previews:(NSDictionary<NSString *, UIImage *> *)previews
                     progress:(NSDictionary<NSString *, IMUploadProgress *> *)progress
                   senderName:(NSString *)senderName
-                  senderRole:(IMGroupRole)senderRole {
+                  senderRole:(IMGroupRole)senderRole
+                 peerReadSeq:(int64_t)peerReadSeq {
+    _peerReadSeq = peerReadSeq;
     _container.layer.cornerRadius = IMTheme.radiusBubble;
     _senderLabel.font = [UIFont systemFontOfSize:MAX(12, IMTheme.chatFontSize - 4) weight:UIFontWeightSemibold];
     _host = host;
@@ -473,7 +478,7 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
         y += tileH + kIMAlbumGap;
     }
     [_container bringSubviewToFront:_metaChip];
-    [self updateMetaWithMembers:members mine:mine];
+    [self updateMetaWithMembers:members mine:mine peerReadSeq:peerReadSeq];
 }
 
 /// 单块绑定：本地预览优先（上传中/防闪），否则按 URL 异步加载（复用防串图）。
@@ -577,32 +582,39 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
             tile.durationChip.hidden = tile.durationChip.text.length == 0;
         }
     }
-    [self updateMetaWithMembers:members mine:mine];
+    [self updateMetaWithMembers:members mine:mine peerReadSeq:_peerReadSeq];
 }
 
 /// 右下角小胶囊：末条成员时间 + 自己消息的状态（… 发送中 / ✓ 全部送达 / ! 有失败）。
-- (void)updateMetaWithMembers:(NSArray<IMMessageModel *> *)members mine:(BOOL)mine {
+- (void)updateMetaWithMembers:(NSArray<IMMessageModel *> *)members mine:(BOOL)mine peerReadSeq:(int64_t)peerReadSeq {
     IMMessageModel *last = members.lastObject;
     if (!last) { _metaChip.hidden = YES; return; }
     NSDateFormatter *fmt = [NSDateFormatter new];
     fmt.dateFormat = @"HH:mm";
     NSString *time = last.timestamp > 0
         ? [fmt stringFromDate:[NSDate dateWithTimeIntervalSince1970:last.timestamp / 1000.0]] : @"";
-    NSString *suffix = @"";
-    if (mine) {
-        BOOL anyFailed = NO, allSent = YES;
-        for (IMMessageModel *m in members) {
-            if (m.status == IMMessageStatusFailed) { anyFailed = YES; }
-            if (m.status != IMMessageStatusSent) { allSent = NO; }
-        }
-        // 失败**不在时间胶囊里标 "!"**：整条消息的失败由宫格左侧红❗表达（被拒收还有下方系统行），
-        // 胶囊里再标一个感叹号是重复噪声。胶囊只负责时间 + 已发/发送中。
-        suffix = anyFailed ? @"" : (allSent ? @" ✓" : @" …");
+    // 状态规则见 IMAlbumTickStateForMembers（READ_TICK_DESIGN §4）；失败不在胶囊标 "!"，由宫格左侧红❗表达。
+    UIFont *font = _metaChip.font;
+    UIColor *white = IMTheme.mediaBadgeText;
+    NSAttributedString *meta;
+    switch (IMAlbumTickStateForMembers(members, mine, peerReadSeq)) {
+        case IMAlbumTickSending:
+            meta = [[NSAttributedString alloc] initWithString:[time stringByAppendingString:@" …"]
+                                                   attributes:@{ NSFontAttributeName: font, NSForegroundColorAttributeName: white }];
+            break;
+        case IMAlbumTickSent:
+            meta = [IMReadTick metaWithTime:time read:NO font:font timeColor:white tickColor:white];
+            break;
+        case IMAlbumTickRead:
+            meta = [IMReadTick metaWithTime:time read:YES font:font timeColor:white tickColor:IMTheme.mediaBadgeCheckRead];
+            break;
+        default:
+            meta = [[NSAttributedString alloc] initWithString:time attributes:@{ NSFontAttributeName: font, NSForegroundColorAttributeName: white }];
     }
     _metaChip.hidden = NO;
-    _metaChip.text = [NSString stringWithFormat:@" %@%@ ", time, suffix];
-    [_metaChip sizeToFit];
-    CGSize s = CGSizeMake(_metaChip.bounds.size.width + 8, 18);
+    _metaChip.attributedText = meta;
+    CGFloat textW = ceil([meta boundingRectWithSize:CGSizeMake(CGFLOAT_MAX, 18) options:NSStringDrawingUsesLineFragmentOrigin context:nil].size.width);
+    CGSize s = CGSizeMake(textW + 16, 18);
     _metaChip.frame = CGRectMake(kIMAlbumWidth - s.width - 6, _containerHeight.constant - s.height - 6, s.width, s.height);
 }
 

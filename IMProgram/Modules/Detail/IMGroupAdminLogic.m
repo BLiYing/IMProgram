@@ -115,6 +115,12 @@ IMGroupMemberAction IMGroupMemberActionsFor(IMGroupRole myRole, IMGroupRole targ
     return cards;
 }
 
++ (NSUInteger)remainingAdminSlotsFromMembers:(NSArray<IMGroupMember *> *)members {
+    NSUInteger admins = 0;
+    for (IMGroupMember *m in members) { if (m.role == IMGroupRoleAdmin) { admins++; } }
+    return admins >= IMGroupAdminMaxBatch ? 0 : IMGroupAdminMaxBatch - admins;
+}
+
 + (NSArray<NSString *> *)clampBatchSelection:(NSArray<NSString *> *)selectedIDs {
     if (selectedIDs.count <= IMGroupAdminMaxBatch) { return selectedIDs ?: @[]; }
     return [selectedIDs subarrayWithRange:NSMakeRange(0, IMGroupAdminMaxBatch)];

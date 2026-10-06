@@ -103,4 +103,15 @@ FOUNDATION_EXPORT BOOL IMSendRejectionShowsNote(NSInteger code);
 /// noteCode 是瞬态、不落库，只决定系统行是否给恢复入口（200103 → 发好友申请）。
 FOUNDATION_EXPORT NSString *_Nullable IMSendRejectionNote(BOOL success, NSError *_Nullable error, NSInteger *_Nullable outNoteCode);
 
+/// 相册（九宫格）右下角胶囊的状态勾（READ_TICK_DESIGN §4）。相册 = 多条同 group_id 消息，整组只画一个状态。
+typedef NS_ENUM(NSInteger, IMAlbumTickState) {
+    IMAlbumTickNone = 0,   ///< 不画勾：对方的相册 / 有成员失败 / 已关闭已读语义（peerReadSeq 为 kIMPeerReadSeqHidden）
+    IMAlbumTickSending,    ///< 仍有成员未发送成功：显「…」
+    IMAlbumTickSent,       ///< 全部发送成功、末条未被已读：灰单勾
+    IMAlbumTickRead,       ///< 全部发送成功且**末条** convSeq <= peerReadSeq：蓝双勾
+};
+/// 规则：任一失败 → None；任一非 Sent → Sending；全部 Sent → 看**末条成员**（members 按序，末条 convSeq 最大）
+/// 的 convSeq 与 peerReadSeq（与单条图片/文本同一判据，群聊 peerReadSeq = 全员已读位点）。
+FOUNDATION_EXPORT IMAlbumTickState IMAlbumTickStateForMembers(NSArray<IMMessageModel *> *members, BOOL mine, int64_t peerReadSeq);
+
 NS_ASSUME_NONNULL_END

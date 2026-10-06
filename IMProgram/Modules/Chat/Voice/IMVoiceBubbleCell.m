@@ -442,8 +442,9 @@
                                               attributes:@{ NSFontAttributeName: font,
                                                             NSForegroundColorAttributeName: UIColor.systemRedColor }];
     }
-    if (message.convSeq > 0) {
-        BOOL doubleTick = !isGroupContext && message.convSeq <= peerReadSeq;
+    if (message.convSeq > 0 && peerReadSeq != kIMPeerReadSeqHidden) { // 超级群（Hidden）不画勾
+        // 群聊同样按位点判（peerReadSeq = 群全员已读位点，onGroupReadSeq 实时更新）；此前误排除群聊 → 群里语音永远单勾。
+        BOOL doubleTick = message.convSeq <= peerReadSeq;
         return [IMReadTick metaWithTime:timeStr read:doubleTick font:font timeColor:secondary
                               tickColor:(doubleTick ? IMTheme.checkRead : secondary)];
     }

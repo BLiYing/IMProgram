@@ -271,9 +271,14 @@
     if (self.onDone) { self.onDone(self.picked.array); }
 }
 
+- (NSString *)im_navigationSubtitle {
+    if (!self.showsSelectionInSubtitle || self.maxSelection == 0) { return @""; }
+    return IMLocalizedFormat(@"group.admin_picker.selected_subtitle", (long)self.picked.count, (long)self.maxSelection);
+}
+
 /// 更新标题与确认按钮态（已选 N）。
 - (void)updateSelectionUI {
-    if (self.picked.count == 0) {
+    if (self.picked.count == 0 || self.showsSelectionInSubtitle) {
         self.title = self.baseTitle;
     } else if (self.maxSelection > 0) {
         self.title = IMLocalizedFormat(@"friend.picker.selected_of_max",
