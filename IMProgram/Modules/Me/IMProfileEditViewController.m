@@ -31,6 +31,9 @@
 // 默认**只读**——大头像 + 昵称 + 在线态 + 信息卡；点右上角「编辑」才切到可修改的表单。
 // 从「我」页点头像/昵称/句柄进来的用户多数只是想看一眼，直接给一屏输入框既突兀又容易误改。
 @property (nonatomic, assign) BOOL editingMode;
+/// GET /users/me 回来了没有。没回来之前编辑框不可输、不许保存：表单此时是空的，
+/// 保存（PUT 整体替换）会把手机号 / 标签清掉，迟到的回包也会盖掉用户已输入的内容。直进编辑态时这个窗口最明显。
+@property (nonatomic, assign) BOOL profileLoaded;
 @property (nonatomic, strong) UIStackView *readonlyStack;  ///< 只读态根容器
 @property (nonatomic, strong) UIStackView *editStack;      ///< 编辑态根容器（原有表单）
 @property (nonatomic, strong) UIImageView *roAvatar;       ///< 只读态大头像（不可点换）
@@ -91,7 +94,8 @@
         ]];
     }
 
-    [self applyEditingMode:NO];  // 进页默认只读
+    [self setFieldsEnabled:NO];                  // 资料回来前不可输（见 profileLoaded）
+    [self applyEditingMode:self.startsEditing];  // 默认只读；设置页「编辑」进来直接编辑态
     [self load];
 }
 
@@ -163,6 +167,7 @@
 
 // 选图 → 圆形裁切 → 头像专用上传 → 更新 avatarURL + 预览。
 - (void)pickAvatar {
+    if (!self.profileLoaded) { [self im_showToast:IMLocalized(@"common.loading")]; return; } // 回包会盖掉刚选的头像
     __weak typeof(self) ws = self;
     [IMMediaPicker presentImagePickerFromViewController:self limit:1 handlesCompletion:^(NSArray<IMPickedMediaHandle *> *handles) {
         IMPickedMediaHandle *h = handles.firstObject;
@@ -300,6 +305,7 @@
 /// 取消编辑：丢弃未保存的输入，用最后一次载入/保存的值重填表单，回只读态。
 - (void)cancelEditing {
     [self.view endEditing:YES];
+    if (self.startsEditing) { [self.navigationController popViewControllerAnimated:YES]; return; }
     [self fillFieldsFromReadonly];
     [self applyEditingMode:NO];
 }
@@ -312,7 +318,13 @@
 }
 
 /// 把一份权威资料同时铺进只读态与编辑态（载入后、保存成功后都走这里，避免两处各填一遍而漂移）。
+- (void)setFieldsEnabled:(BOOL)enabled {
+    for (UITextField *f in @[self.nicknameField, self.usernameField, self.phoneField, self.tagsField]) { f.enabled = enabled; }
+}
+
 - (void)applyProfile:(IMUserCard *)profile {
+    self.profileLoaded = YES;
+    [self setFieldsEnabled:YES];
     self.nicknameField.text = profile.nickname;
     self.usernameField.text = profile.username;
     self.loadedUsername = profile.username;
@@ -374,6 +386,7 @@
 
 - (void)saveTapped {
     if (self.token.length == 0) { [self showMessage:IMLocalized(@"profile.not_logged_in_retry")]; return; }
+    if (!self.profileLoaded) { [self im_showToast:IMLocalized(@"common.loading")]; return; } // 见 profileLoaded
     [self.view endEditing:YES];
     // 昵称必填：它是全端显示名回退链的终点，清空会让各处露出 10 位数字内部 ID。后端也会拒，这里前置提示。
     if ([self trimmed:self.nicknameField.text].length == 0) {
@@ -435,6 +448,15 @@
 /// 重拉而非就地拼：改名走的是独立接口，updateProfile 回的 profile 里 username 还是旧值，
 /// 两处各拼一份迟早漂移——多一次 GET /users/me 换取"只读态显示的一定是服务端认的值"。
 - (void)exitEditingAfterSave {
+    if (self.startsEditing) {
+        // 直进编辑的一趟：保存即完成，退回设置页（它在 viewWillAppear 重拉资料刷新头部），吐司落在设置页上
+        UINavigationController *nav = self.navigationController;
+        NSArray<UIViewController *> *stack = nav.viewControllers;
+        UIViewController *back = stack.count >= 2 ? stack[stack.count - 2] : nil;
+        [nav popViewControllerAnimated:YES];
+        [back im_showToast:IMLocalized(@"profile.saved_toast")];
+        return;
+    }
     [self applyEditingMode:NO];
     [self load];
     [self im_showToast:IMLocalized(@"profile.saved_toast")];

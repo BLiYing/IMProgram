@@ -292,7 +292,7 @@
     self.navigationItem.leftBarButtonItem.accessibilityLabel = IMLocalized(@"settings.info.my_qr");
     self.navigationItem.rightBarButtonItem =
         [[UIBarButtonItem alloc] initWithTitle:IMLocalized(@"common.edit") style:UIBarButtonItemStylePlain
-                                        target:self action:@selector(openProfile)];
+                                        target:self action:@selector(openProfileEditing)];
 
     self.profileOverlay = [[UIView alloc] initWithFrame:self.view.bounds];
     self.profileOverlay.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -393,7 +393,7 @@
 
 - (void)liquidNavigationBarDidTapLeft:(IMLiquidNavigationBar *)bar { [self showQRCode]; }
 - (void)liquidNavigationBarDidTapBack:(IMLiquidNavigationBar *)bar { [self showQRCode]; }
-- (void)liquidNavigationBarDidTapAction:(IMLiquidNavigationBar *)bar { [self openProfile]; }
+- (void)liquidNavigationBarDidTapAction:(IMLiquidNavigationBar *)bar { [self openProfileEditing]; }
 
 - (void)refreshProfileHeader {
     // 回退链止于昵称：userID 是 10 位内部数字 ID，露出来对用户毫无意义（见 ACCOUNT_IDENTITY_REDESIGN.md §5.2）。
@@ -618,6 +618,13 @@
 
 - (void)openProfile {
     IMProfileEditViewController *edit = [[IMProfileEditViewController alloc] initWithHost:self.host userID:self.userID];
+    [self.navigationController pushViewController:edit animated:YES];
+}
+
+/// 右上角「编辑」：直进编辑态（点头部才是只读资料页；见 IMProfileEditViewController.startsEditing）。
+- (void)openProfileEditing {
+    IMProfileEditViewController *edit = [[IMProfileEditViewController alloc] initWithHost:self.host userID:self.userID];
+    edit.startsEditing = YES;
     [self.navigationController pushViewController:edit animated:YES];
 }
 
