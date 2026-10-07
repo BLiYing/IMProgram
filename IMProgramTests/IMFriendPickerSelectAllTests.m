@@ -43,4 +43,16 @@
     XCTAssertEqualObjects(IMFriendPickerDeselectVisible(@[@"a"], @[]), (@[@"a"]));
 }
 
+- (void)testShowsDeselectWhenFilledToCap {
+    NSArray *vis = @[@"a", @"b", @"c", @"d"];
+    NSArray *filled = IMFriendPickerNextSelection(@[], vis, 2);           // 全选被上限截在 a,b
+    XCTAssertFalse(IMFriendPickerAllVisibleSelected(filled, vis));
+    XCTAssertTrue(IMFriendPickerShowsDeselect(filled, vis, 2));           // 仍要给「取消全选」
+    XCTAssertEqualObjects(IMFriendPickerDeselectVisible(filled, vis), (@[]));
+    XCTAssertFalse(IMFriendPickerShowsDeselect(@[@"a"], vis, 2));         // 没满：仍是「全选」
+    XCTAssertFalse(IMFriendPickerShowsDeselect(@[@"x", @"y"], vis, 2));   // 满了但可见行一个没选：取消也无对象
+    XCTAssertFalse(IMFriendPickerShowsDeselect(@[@"a", @"b"], vis, 0));   // 不限上限
+    XCTAssertTrue(IMFriendPickerShowsDeselect(vis, vis, 0));
+}
+
 @end

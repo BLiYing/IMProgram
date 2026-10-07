@@ -331,9 +331,8 @@ static const NSInteger kModeRowCount = 3;       // 关闭 / 自动 / 始终；au
     cell.selectionStyle = UITableViewCellSelectionStyleNone;
     switch (ip.section) {
         case IMPSSectionStatus: {
-            NSString *value = ps.batteryLevel ? [NSString stringWithFormat:@"%ld%%", (long)ps.batteryLevel.integerValue] : nil;
             [cell configureTitle:IMLocalized(ps.active ? @"power_saving.status.on" : @"power_saving.status.off")
-                      titleColor:IMTheme.textPrimary subtitle:[self statusSubtitle] value:value
+                      titleColor:IMTheme.textPrimary subtitle:[self statusSubtitle] value:nil
                           symbol:@"bolt.fill" tile:UIColor.systemYellowColor side:30 glyph:18];
             break;
         }

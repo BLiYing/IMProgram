@@ -9,6 +9,11 @@ NS_ASSUME_NONNULL_BEGIN
 /// 可见行（搜索过滤后的 uid，按显示顺序）是否已**全部**选中。可见为空返回 NO（此时按钮本就隐藏）。
 FOUNDATION_EXPORT BOOL IMFriendPickerAllVisibleSelected(NSArray<NSString *> *selected, NSArray<NSString *> *visible);
 
+/// 按钮该不该是「取消全选」：可见行已全部选中，**或**已选满上限（`limit` > 0）且可见行里有已选的。
+/// 后一条是 2026-10-07 补的：好友数超过上限时「全选」只补到上限，可见行永远选不全，
+/// 按钮若仍写「全选」、再点又没反应（满了补不进），用户就没有一键撤回的路。
+FOUNDATION_EXPORT BOOL IMFriendPickerShowsDeselect(NSArray<NSString *> *selected, NSArray<NSString *> *visible, NSInteger limit);
+
 /// 点「全选」后的选中集：**保留已选**（含不可见的），再按可见顺序补，补到 `limit` 为止（0 = 不截断）。
 /// 已选数本身已 >= limit 时不再补。结果保持「已选在前、新补在后」的顺序。
 FOUNDATION_EXPORT NSArray<NSString *> *IMFriendPickerNextSelection(NSArray<NSString *> *selected,

@@ -33,6 +33,10 @@
 @property (nonatomic, strong) UISearchBar *searchBar;
 @property (nonatomic, strong) UIView *searchHeader;   // 托住 searchBar 的表头容器（宽度随表格实时对齐）
 @property (nonatomic, strong, nullable) UIButton *selectAllButton; // showsSelectAll 时挂在 searchHeader 底部
+/// 选满上限时的常驻提示行（文案 = capToast），挂在 searchHeader 顶部、搜索条之上（对齐 Android `CreateGroupScreen`）。
+@property (nonatomic, strong, nullable) UILabel *capHintLabel;
+@property (nonatomic, strong, nullable) NSLayoutConstraint *searchCenterY;  // 搜索条位置随提示行高度下移
+@property (nonatomic, strong, nullable) NSLayoutConstraint *selectAllTop;
 @property (nonatomic, copy) NSArray<NSString *> *visibleIDs;        // 当前搜索词下可见行的 uid（显示顺序）
 @property (nonatomic, strong) UILabel *emptyLabel;
 @end
@@ -115,12 +119,15 @@
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
     IMListSearchHeaderSyncWidth(self.searchHeader, self.tableView); // 表头宽度对齐表格（宽度没变即空转）
+    [self refreshCapHint]; // 提示行折行高度随宽度变（高度没变即空转）
 }
 
 #pragma mark - 全选
 
 static const CGFloat kSelectAllRowHeight = 32;
 static const CGFloat kSearchBarRowHeight = 56; // 与 IMListSearch 的 kIMListSearchBarHeight 同值
+static const CGFloat kCapHintInsetH = 16;      // 与 Android space4 同
+static const CGFloat kCapHintInsetV = 8;       // 与 Android space2 同
 
 /// 把「全选」按钮放进 searchHeader 底部：容器高 = 搜索条 56 + 32，搜索条仍贴顶（原来是居中于 56）。
 - (void)installSelectAllInHeader {
@@ -130,7 +137,24 @@ static const CGFloat kSearchBarRowHeight = 56; // 与 IMListSearch 的 kIMListSe
     for (NSLayoutConstraint *c in [host.constraints copy]) {
         if (c.firstItem == self.searchBar && c.firstAttribute == NSLayoutAttributeCenterY) { c.active = NO; }
     }
-    [self.searchBar.centerYAnchor constraintEqualToAnchor:host.topAnchor constant:kSearchBarRowHeight / 2].active = YES;
+    self.searchCenterY = [self.searchBar.centerYAnchor constraintEqualToAnchor:host.topAnchor constant:kSearchBarRowHeight / 2];
+    self.searchCenterY.active = YES;
+
+    // 选满提示行：默认隐藏、高 0；选满时在 refreshCapHint 里撑开（Android 同位置常驻，iOS 此前只弹一次吐司）
+    UILabel *hint = [UILabel new];
+    hint.translatesAutoresizingMaskIntoConstraints = NO;
+    hint.numberOfLines = 0;
+    hint.font = [UIFont systemFontOfSize:14];
+    hint.textColor = IMTheme.textTertiary;
+    hint.text = self.capToast;
+    hint.hidden = YES;
+    [host addSubview:hint];
+    [NSLayoutConstraint activateConstraints:@[
+        [hint.leadingAnchor constraintEqualToAnchor:host.leadingAnchor constant:kCapHintInsetH],
+        [hint.trailingAnchor constraintEqualToAnchor:host.trailingAnchor constant:-kCapHintInsetH],
+        [hint.topAnchor constraintEqualToAnchor:host.topAnchor constant:kCapHintInsetV],
+    ]];
+    self.capHintLabel = hint;
 
     UIButton *b = [UIButton buttonWithType:UIButtonTypeCustom];
     b.translatesAutoresizingMaskIntoConstraints = NO;
@@ -149,9 +173,10 @@ static const CGFloat kSearchBarRowHeight = 56; // 与 IMListSearch 的 kIMListSe
     [NSLayoutConstraint activateConstraints:@[
         [b.leadingAnchor constraintEqualToAnchor:host.leadingAnchor],
         [b.trailingAnchor constraintEqualToAnchor:host.trailingAnchor],
-        [b.topAnchor constraintEqualToAnchor:host.topAnchor constant:kSearchBarRowHeight],
         [b.heightAnchor constraintEqualToConstant:kSelectAllRowHeight],
     ]];
+    self.selectAllTop = [b.topAnchor constraintEqualToAnchor:host.topAnchor constant:kSearchBarRowHeight];
+    self.selectAllTop.active = YES;
     self.selectAllButton = b;
     [self refreshSelectAllButton];
 }
@@ -161,8 +186,30 @@ static const CGFloat kSearchBarRowHeight = 56; // 与 IMListSearch 的 kIMListSe
     UIButton *b = self.selectAllButton;
     if (!b) { return; }
     b.hidden = self.visibleIDs.count == 0;
-    BOOL all = IMFriendPickerAllVisibleSelected(self.picked.array, self.visibleIDs);
+    BOOL all = IMFriendPickerShowsDeselect(self.picked.array, self.visibleIDs, [self effectiveCap]);
     [b setTitle:IMLocalized(all ? @"common.deselect_all" : @"common.select_all") forState:UIControlStateNormal];
+    [self refreshCapHint];
+}
+
+/// 选满上限 → 顶部常驻提示行；否则收起。表头高度变了才重设 tableHeaderView（UITableView 不会自己跟）。
+- (void)refreshCapHint {
+    UILabel *hint = self.capHintLabel;
+    if (!hint) { return; }
+    NSInteger cap = [self effectiveCap];
+    BOOL atCap = cap > 0 && self.capToast.length > 0 && (NSInteger)self.picked.count >= cap;
+    CGFloat width = CGRectGetWidth(self.searchHeader.frame) - kCapHintInsetH * 2;
+    CGFloat hintH = (atCap && width > 0)
+        ? ceil([hint sizeThatFits:CGSizeMake(width, CGFLOAT_MAX)].height) + kCapHintInsetV * 2 : 0;
+    hint.hidden = !atCap;
+    CGFloat total = hintH + kSearchBarRowHeight + kSelectAllRowHeight;
+    if (fabs(CGRectGetHeight(self.searchHeader.frame) - total) < 0.5) { return; }
+    self.searchCenterY.constant = hintH + kSearchBarRowHeight / 2;
+    self.selectAllTop.constant = hintH + kSearchBarRowHeight;
+    CGRect f = self.searchHeader.frame;
+    f.size.height = total;
+    self.searchHeader.frame = f;
+    [self.searchHeader layoutIfNeeded];
+    self.tableView.tableHeaderView = self.searchHeader;
 }
 
 /// 选人上限：maxSelection 与 selectAllLimit 里正数的较小者；0 = 不限。
@@ -176,19 +223,14 @@ static const CGFloat kSearchBarRowHeight = 56; // 与 IMListSearch 的 kIMListSe
 - (void)selectAllTapped {
     NSArray<NSString *> *cur = self.picked.array;
     NSInteger limit = [self effectiveCap];
-    BOOL deselect = IMFriendPickerAllVisibleSelected(cur, self.visibleIDs);
+    BOOL deselect = IMFriendPickerShowsDeselect(cur, self.visibleIDs, limit);
     NSArray<NSString *> *next = deselect
         ? IMFriendPickerDeselectVisible(cur, self.visibleIDs)
         : IMFriendPickerNextSelection(cur, self.visibleIDs, limit);
     [self.picked removeAllObjects];
     [self.picked addObjectsFromArray:next];
     [self.tableView reloadData];
-    [self updateSelectionUI];
-    // 补到上限仍有可见行没选上：说清楚为什么（否则按钮仍写「全选」、再点没反应）。
-    if (!deselect && limit > 0 && self.capToast.length > 0
-        && !IMFriendPickerAllVisibleSelected(next, self.visibleIDs)) {
-        [self im_showToast:self.capToast];
-    }
+    [self updateSelectionUI]; // 补到上限时：顶部常驻提示行 + 按钮变「取消全选」（不再弹一次性吐司）
 }
 
 + (void (^)(NSString *, void (^)(NSArray<IMUserCard *> *, NSError *)))groupMemberSearchForConvID:(NSString *)convID {

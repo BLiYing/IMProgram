@@ -11,6 +11,16 @@ BOOL IMFriendPickerAllVisibleSelected(NSArray<NSString *> *selected, NSArray<NSS
     return YES;
 }
 
+BOOL IMFriendPickerShowsDeselect(NSArray<NSString *> *selected, NSArray<NSString *> *visible, NSInteger limit) {
+    if (IMFriendPickerAllVisibleSelected(selected, visible)) { return YES; }
+    if (limit <= 0 || (NSInteger)selected.count < limit) { return NO; }
+    NSSet<NSString *> *sel = [NSSet setWithArray:selected];
+    for (NSString *uid in visible) {
+        if ([sel containsObject:uid]) { return YES; }
+    }
+    return NO;
+}
+
 NSArray<NSString *> *IMFriendPickerNextSelection(NSArray<NSString *> *selected,
                                                   NSArray<NSString *> *visible,
                                                   NSInteger limit) {
