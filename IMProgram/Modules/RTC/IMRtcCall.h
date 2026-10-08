@@ -1,11 +1,12 @@
 //  IMRtcCall.h
 //  im-rtc 通话的宿主侧接入点（**只在主线程调用**）。
 //
-//  · startWithUserID:  进入主界面（IM 已登录）时调用——建引擎、向 IMServer 换票、登录 im-rtc，此后能拨也能接。幂等。
+//  · startWithUserID:  进入主界面（IM 已登录）时调用——建引擎、接 Kit；登录由 Kit 负责（`IMCallKitConfig.tokenProvider`，
+//                      im-rtc 2.2.0：取票登录、失败退避重试、拨号前补登录、续票、票失效重登）。幂等。
 //  · stop              退出 / 被踢离开主界面时调用——销毁引擎、断开 im-rtc。不停的话换账号会有两条连接，服务端踢掉其中一条。
 //  · placeSingle… / placeGroup…  业务入口，界面全部由 Kit 接管。
 //
-//  票从哪来只在 -signTokenWithCompletion: 一处（调 IMServer POST /api/v1/rtc/token 代为向
+//  票从哪来只在 +signTokenWithCompletion: 一处（交给 Kit 的 tokenProvider 调）（调 IMServer POST /api/v1/rtc/token 代为向
 //  im-rtc-server 换票，本端不知道任何签名密钥）。对端：im-android `rtc/RtcCall.kt`、im-web `src/rtc/rtcEngine.ts`。
 
 #import <Foundation/Foundation.h>
@@ -20,11 +21,6 @@ NS_ASSUME_NONNULL_BEGIN
 /// 空闲与「已结束」（纯展示的结束页）不算。抽成纯函数是为了能单测，`isInCall` 只是把当前阶段喂给它。
 FOUNDATION_EXPORT BOOL IMRtcCallPhaseCountsAsInCall(NSInteger kitPhase);
 
-/// 通话记录拉取失败后值不值得「整台 im-rtc 引擎重启（重新换票登录）再拉一次」：
-/// SDK 的 `fetchCallHistory` 走 HTTP GET（带登录那枚票），不走 WebSocket，所以断链后页面里点重试若不重启就永远同一个错。
-/// 值得的：2007 尚未登录、1101 票无效/过期、2003 网络不通（信令服务断过）、本类自己的「引擎未启动」(-1，被踢后被 stop)。
-/// 其余（5xx、已登录、引擎换代作废）重启没用。纯函数以便单测。
-FOUNDATION_EXPORT BOOL IMRtcHistoryErrorNeedsRelogin(NSError *_Nullable error);
 
 @interface IMRtcCall : NSObject
 

@@ -3,7 +3,7 @@
 #
 # 用法（在 IMProgram 仓根目录；切完要重新解析依赖，脚本会顺手做）:
 #   ./scripts/switch-rtc-sdk.sh remote [版本]   # 默认档：GitHub 正式版，Exact 版本（默认 2.0.0）
-#   ./scripts/switch-rtc-sdk.sh local           # 本地源码：../im-rtc/im-rtc-ios，改 SDK 源码立刻生效
+#   ./scripts/switch-rtc-sdk.sh local           # 本地源码：../../im-rtc/im-rtc-ios，改 SDK 源码立刻生效
 #   ./scripts/switch-rtc-sdk.sh status          # 看当前是哪一档
 #
 # 原理：只改 IMProgram.xcodeproj/project.pbxproj 里那一个包引用——
@@ -17,7 +17,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 PBX="IMProgram.xcodeproj/project.pbxproj"
 REPO_URL="https://github.com/BLiYing/im-rtc-ios.git"
-LOCAL_PATH="../im-rtc/im-rtc-ios"
+LOCAL_PATH="../../im-rtc/im-rtc-ios"   # 相对 IMProgram/（.xcodeproj 所在目录）：im-rtc 与 im-client 同级
 PKG_ID="8AD0F3F3A92D9C4CFD6B5E29"
 
 usage() { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
