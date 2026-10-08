@@ -307,7 +307,8 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
         return; // 已处理过，避免重复
     }
     // 握手 401 ≠ 普通断线：token 过期 / 失效与 sid 被吊销都回 401，先续期再判（+AuthRecovery）；续期被拒才算被踢。
-    // 被踢若也盲目重连，缓存过期后会用稳定 device_id 静默重登，把"被踢下线"退化成临时抖动（伪自愈）。
+    // 被踢若也盲目重连，缓存过期后会用稳定 device_id 静默重登，把"被踢下线"退化成临时抖动（伪自愈）。注意：Hub 踢**当前活连接**
+    // 走 WS close（握手是成功的 101，authRejected=NO，不误判）；401 只出现在随后拿被吊销 token 重新握手的那次。
     IMLogSocket(@"disconnected: %@%@", error.localizedDescription ?: @"(closed)", authRejected ? @" [鉴权被拒 401]" : @"");
     [self teardownSocket];
     [_syncingConvs removeAllObjects]; // 未收到的 sync_resp 已失效；重连后从已持久化连续位置重发
@@ -1546,7 +1547,6 @@ didOpenWithProtocol:(NSString *)protocol {
     dispatch_async(_queue, ^{
         if (webSocketTask != self->_task) { return; }
         self->_reconnectAttempts = 0;
-        self->_retriedAfterRefresh = NO; // 续期后的新 token 握手成功：下次再 401 还能再续一次
         // **可见下界每次连上都清掉**（2026-09-10 /code-review）：它是会变小的——群主关掉
         // 「新成员仅可见入群后历史」后服务端的 `visibleFloorFor` 当即返回 0，而端上还缓存着旧值，
         // 那条会话就在本 App 生命周期内再也翻不上去、且没有任何提示。head / 缺口标记不受影响

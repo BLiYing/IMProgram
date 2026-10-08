@@ -113,6 +113,10 @@ BOOL IMShouldDropRefreshCredential(BOOL usingRefresh, NSInteger code) {
     }];
 }
 
+- (void)expireCachedToken {
+    self.tokenFetchedAt = 0;
+}
+
 /// 收束一次登录：owner=YES 时把共享队列里排队的 completion 全部 fan-out（并清空在途状态）；
 /// owner=NO（独立请求）只回 soloCompletion。全部切主线程回调，与旧行为一致。
 - (void)finishLogin:(BOOL)owner userID:(NSString *)userID token:(nullable NSString *)token

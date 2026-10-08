@@ -86,6 +86,11 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
 /// 不动持久化会话（那由 IMSessionStore 负责）；下次 loginWithUserID 会强制重新 POST /login。
 - (void)invalidateToken;
 
+/// 只让 token 缓存**过期**：下次 loginWithUserID 必定重新换票（续期），但 `currentToken` / 昵称原样保留，
+/// 直到新票回来覆盖。用于同账号的「握手 401 → 续期」：`invalidateToken` 会清空 currentToken 与昵称，
+/// 续期窗口里直接读 currentToken 的各处（推送令牌上报、下载设置、媒体发送…）会拿到 nil 而静默失败（/code-review 2026-10-08）。
+- (void)expireCachedToken;
+
 /// 注册账号：POST /api/v1/register {username, password, nickname}。三者必填，规则由后端权威校验
 /// （username `^[a-z0-9_]{5,32}$` 且大小写不敏感唯一；password ≥6；nickname ≤32 字）。
 /// **nickname 必填**：全端显示名回退链止于它，留空会让界面露出 10 位数字内部 ID。

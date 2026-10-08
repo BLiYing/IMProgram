@@ -4,7 +4,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// 握手 401 之后该做什么（与 Android `ws/WakeAction.kt#unauthorizedActionFor` 同一口径）。
 typedef NS_ENUM(NSInteger, IMSocketUnauthorizedAction) {
-    IMSocketUnauthorizedActionRefresh = 0, ///< 丢掉缓存 token、续期一次再连
+    IMSocketUnauthorizedActionRefresh = 0, ///< 让 token 缓存过期、续期一次再连
     IMSocketUnauthorizedActionRevoked,     ///< 按被踢处理：停重连、回登录页
 };
 
@@ -15,8 +15,14 @@ typedef NS_ENUM(NSInteger, IMSocketUnauthorizedAction) {
 /// 2026-10-08 实测：服务端换签名密钥重启后，本端拿 10 分钟缓存里的旧 token 重连撞 401，被直接送回登录页——
 /// 续期其实能成功。
 ///
-/// 这条连接本身就是续期之后开的（`retriedAfterRefresh`）还 401 → 不再续，按被踢处理（防死循环）。
-FOUNDATION_EXPORT IMSocketUnauthorizedAction IMSocketUnauthorizedActionFor(BOOL retriedAfterRefresh);
+/// 按被踢处理的两种情况：
+///  · 本机没有续期凭据（`hasRefreshCredential` = NO）：续不了。此时若照常重连，换票会退回空密码 POST /login——
+///    生产环境失败但不发被踢通知、无限重试；开发环境（-dev-login）直接登上，把吊销的设备「复活」（/code-review 2026-10-08）；
+///  · 撞 401 的正是**续期之后开的那条连接**（`failedGeneration == refreshRetryGeneration`）：防死循环。
+///    记代次而不记布尔——之后的重连 / 重新登录都会开新代次，照样能续，不必在各入口清零。
+FOUNDATION_EXPORT IMSocketUnauthorizedAction IMSocketUnauthorizedActionFor(BOOL hasRefreshCredential,
+                                                                          NSUInteger failedGeneration,
+                                                                          NSUInteger refreshRetryGeneration);
 
 @interface IMSocketManager (AuthRecovery)
 
