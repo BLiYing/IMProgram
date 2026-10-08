@@ -36,6 +36,7 @@ NS_ASSUME_NONNULL_BEGIN
                                                              // 整页处理完位点没动（落库持续失败/页内空洞）时热重试只会烧 CPU
     NSMutableSet<NSString *> *_pendingOps;                   // 已发出、待确认的消息操作 client_msg_id（撤回/编辑/置顶），供失败回滚
     NSArray<NSString *> *_watchedUsers;                      // 在线态关注全集：连接级易失态，重连成功后由本类自动重发（PROTOCOL §5.5）
+    BOOL _retriedAfterRefresh;                               // 当前这轮连接是握手 401 续期之后开的：再 401 就按被踢（见 +AuthRecovery）
     BOOL _appActive;                                          // App 当前是否前台（M5 app_state 上报用，默认 YES：登录/连接通常发生在前台）
 }
 
@@ -43,6 +44,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable)   NSString *userID;
 
 - (void)cancelAllPendingSendsWithMessage:(NSString *)message;
+/// 开一条新连接（换 token → 握手）。由主实现提供，被 +AuthRecovery 复用（仅在 queue 调用）。
+- (void)openSocket;
 - (BOOL)applyMsgOpPayload:(NSDictionary *)payload advancingSyncedConvSeq:(int64_t)syncedConvSeq;
 - (BOOL)performDatabaseOperation:(void (^)(IMDatabase *database))operation;
 
