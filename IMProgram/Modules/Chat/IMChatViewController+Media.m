@@ -598,6 +598,9 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"chat.msg_menu.cancel_send") style:UIAlertActionStyleDestructive
                                             handler:^(UIAlertAction *a) { [ws cancelPendingMessage:m]; }]];
     [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"chat.media.continue_send") style:UIAlertActionStyleCancel handler:nil]];
+    sheet.popoverPresentationController.sourceView = self.view; // iPad 锚点兜底（居中），缺省会抛异常崩溃
+    sheet.popoverPresentationController.sourceRect = CGRectMake(self.view.bounds.size.width / 2,
+                                                                self.view.bounds.size.height / 2, 0, 0);
     [self presentViewController:sheet animated:YES completion:nil];
 }
 
