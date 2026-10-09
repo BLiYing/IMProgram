@@ -16,7 +16,7 @@
 @end
 
 @implementation IMDeviceCell {
-    UILabel *_iconLabel;
+    UIImageView *_iconView;
     UILabel *_nameLabel;
     UILabel *_pillLabel;
     UIView *_dotView;
@@ -36,11 +36,12 @@
     iconBox.translatesAutoresizingMaskIntoConstraints = NO;
     [self.contentView addSubview:iconBox];
 
-    _iconLabel = [UILabel new];
-    _iconLabel.font = [UIFont systemFontOfSize:19];
-    _iconLabel.textAlignment = NSTextAlignmentCenter;
-    _iconLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    [iconBox addSubview:_iconLabel];
+    _iconView = [UIImageView new];
+    _iconView.contentMode = UIViewContentModeScaleAspectFit;
+    _iconView.tintColor = IMTheme.textPrimary;
+    _iconView.preferredSymbolConfiguration = [UIImageSymbolConfiguration configurationWithPointSize:18 weight:UIImageSymbolWeightRegular];
+    _iconView.translatesAutoresizingMaskIntoConstraints = NO;
+    [iconBox addSubview:_iconView];
 
     _nameLabel = [UILabel new];
     _nameLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
@@ -81,8 +82,8 @@
         [iconBox.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
         [iconBox.widthAnchor constraintEqualToConstant:36],
         [iconBox.heightAnchor constraintEqualToConstant:36],
-        [_iconLabel.centerXAnchor constraintEqualToAnchor:iconBox.centerXAnchor],
-        [_iconLabel.centerYAnchor constraintEqualToAnchor:iconBox.centerYAnchor],
+        [_iconView.centerXAnchor constraintEqualToAnchor:iconBox.centerXAnchor],
+        [_iconView.centerYAnchor constraintEqualToAnchor:iconBox.centerYAnchor],
 
         [_nameLabel.leadingAnchor constraintEqualToAnchor:iconBox.trailingAnchor constant:11],
         [_nameLabel.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:11],
@@ -105,7 +106,7 @@
 }
 
 - (void)configureWithDevice:(IMDeviceSession *)device {
-    _iconLabel.text = device.platformEmoji;
+    _iconView.image = [UIImage systemImageNamed:device.platformSymbol];
     _nameLabel.text = device.deviceName.length ? device.deviceName : IMLocalized(@"device.platform.unknown");
     _pillLabel.hidden = !device.current;
     _dotView.backgroundColor = device.online ? IMTheme.onlineDot : IMTheme.textTertiary;

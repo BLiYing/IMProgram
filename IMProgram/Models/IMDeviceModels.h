@@ -23,6 +23,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// 平台图标（emoji，与交互草图一致）。
 - (NSString *)platformEmoji;
+/// 平台图标（SF Symbol 名）；列表/详情用它画，避免个别系统 emoji 字体缺字显示成「？」框。
+- (NSString *)platformSymbol;
 /// 平台展示名："iOS / Android / 网页版 / 桌面端 / 未知设备"。
 - (NSString *)platformLabel;
 /// 副标题（列表行）："在线 · iOS · 深圳 · 113.88.xx.xx" / "3 天前活跃 · 广州"（不含 ●，圆点由 cell 上色绘制）。

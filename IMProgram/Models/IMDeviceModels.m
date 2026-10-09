@@ -76,6 +76,14 @@ static NSString *IMDevRelativeActive(int64_t ms) {
     return @"📟";
 }
 
+- (NSString *)platformSymbol {
+    if ([self.platform isEqualToString:@"ios"]) { return @"iphone"; }
+    if ([self.platform isEqualToString:@"android"]) { return @"candybarphone"; }
+    if ([self.platform isEqualToString:@"web"]) { return @"laptopcomputer"; }
+    if ([self.platform isEqualToString:@"desktop"]) { return @"desktopcomputer"; }
+    return @"display";
+}
+
 - (NSString *)platformLabel { return IMDevPlatformLabel(self.platform); }
 
 - (NSString *)statusLine {

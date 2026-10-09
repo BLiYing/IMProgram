@@ -33,10 +33,11 @@
     self.title = IMLocalized(@"device.detail.title");
     self.view.backgroundColor = IMTheme.groupedBackground;
 
-    UILabel *icon = [UILabel new];
-    icon.text = self.device.platformEmoji;
-    icon.font = [UIFont systemFontOfSize:34];
-    icon.textAlignment = NSTextAlignmentCenter;
+    UIImageView *icon = [UIImageView new];
+    icon.image = [UIImage systemImageNamed:self.device.platformSymbol];
+    icon.tintColor = IMTheme.textPrimary;
+    icon.contentMode = UIViewContentModeScaleAspectFit;
+    icon.preferredSymbolConfiguration = [UIImageSymbolConfiguration configurationWithPointSize:34 weight:UIImageSymbolWeightRegular];
     icon.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:icon];
 
