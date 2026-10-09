@@ -43,6 +43,10 @@
 		<string>audio</string>
 		<string>remote-notification</string>
 	</array>
+	<!-- 出口合规：只用标准协议加密（TLS/WSS、WebRTC DTLS-SRTP），无自研/非标准算法，声明为豁免，
+	     TestFlight/App Store Connect 不再每个构建都弹「缺少出口合规证明」。 -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>用于将聊天中的图片或视频保存到你的相册。</string>
 	<key>UIApplicationSceneManifest</key>
