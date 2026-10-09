@@ -348,6 +348,9 @@
 "chat.select.report_own" = "You can't report your own messages";
 "chat.select.unsent_blocked" = "Messages that are sending or failed can't be selected";
 "chat.send.failed_tap_retry" = "Failed to send, tap to retry";
+"chat.reject.blocked" = "Message sent, but it was declined by the recipient";
+"chat.reject.too_large" = "This message is too large to send";
+"chat.reject.not_friend" = "Message sent, but it was declined by the recipient. Please send a friend request first.";
 "chat.system.send_friend_request" = "Send friend request";
 "chat.text.approx_chars" = "About %1$@ characters";
 "chat.text.collapse" = "Collapse";

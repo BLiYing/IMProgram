@@ -348,6 +348,9 @@
 "chat.select.report_own" = "不能举报自己的消息";
 "chat.select.unsent_blocked" = "发送中/失败的消息不可选择";
 "chat.send.failed_tap_retry" = "发送失败，点击可重试";
+"chat.reject.blocked" = "消息已发出，但被对方拒收了";
+"chat.reject.too_large" = "消息内容过大，无法发送";
+"chat.reject.not_friend" = "消息已发出，但被对方拒收了。请先发送好友申请。";
 "chat.system.send_friend_request" = "发送好友申请";
 "chat.text.approx_chars" = "约 %1$@ 字";
 "chat.text.collapse" = "收起";

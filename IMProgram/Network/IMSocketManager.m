@@ -810,7 +810,12 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
     [self cancelAckTimer:p];
     [_pending removeObjectForKey:clientMsgID];
     if (code == 0) { code = 200102; } // 兜底：缺 code 按拒收处理
-    NSString *friendly = IMFriendlyMessageForCode(code);
+    // 单聊被拒收（拉黑 200102 / 非好友 200103）：微信式模糊文案，不能走 err.2001xx（那是「加好友」场景的措辞，
+    // 且拉黑与非好友必须读起来一样「被拒收」，不泄露被拉黑，见 CHAT_UX.md 被拒收一节）。
+    NSString *friendly = (code == 200102) ? IMLocalized(@"chat.reject.blocked")
+        : (code == 200103) ? IMLocalized(@"chat.reject.not_friend")
+        : (code == 300001) ? IMLocalized(@"chat.reject.too_large")
+        : IMFriendlyMessageForCode(code);
     NSString *msg = friendly.length > 0
         ? friendly
         : (([message isKindOfClass:[NSString class]] && message.length > 0) ? message : IMLocalized(@"common.send_failed"));
