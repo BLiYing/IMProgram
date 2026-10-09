@@ -35,4 +35,13 @@
     XCTAssertFalse(IMRtcCall.shared.isInCall);
 }
 
+/// 被服务端踢下线后引擎收掉、账号还记着：呼叫入口要现场重启一次（否则永远停在"通话服务未启动"）。
+/// 退出登录（账号已忘）不能重启；引擎还在跑不用重启。
+- (void)testRestartOnlyWhenKickedAndAccountRemembered {
+    XCTAssertTrue(IMRtcCallShouldRestart(NO, @"5205766476"));  // 被踢：引擎停了、账号在
+    XCTAssertFalse(IMRtcCallShouldRestart(YES, @"5205766476")); // 正常运行
+    XCTAssertFalse(IMRtcCallShouldRestart(NO, nil));            // 从没起过 / 已退出登录
+    XCTAssertFalse(IMRtcCallShouldRestart(NO, @""));
+}
+
 @end

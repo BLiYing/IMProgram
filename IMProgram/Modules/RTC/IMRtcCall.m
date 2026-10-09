@@ -34,6 +34,10 @@ BOOL IMRtcCallPhaseCountsAsInCall(NSInteger kitPhase) {
     return NO; // SDK 以后新增的阶段：宁可多响一声，不可把提醒全部吞掉
 }
 
+BOOL IMRtcCallShouldRestart(BOOL engineRunning, NSString *wantedUID) {
+    return !engineRunning && wantedUID.length > 0;
+}
+
 /// 「通话未启动」错误码（`fetchCallHistory…` 里 `_engine == nil` 或 Kit 补登录没登上）。
 static const NSInteger IMRtcCallErrorEngineNotStarted = -1;
 
@@ -44,6 +48,9 @@ static const NSInteger IMRtcCallErrorEngineNotStarted = -1;
     NSUUID *_observer;
     id _languageObserver;
     NSString *_uid;
+    /// 想要在线的账号：`startWithUserID:` 记下，只有公开的 `stop`（退出登录 / 换账号）才清。
+    /// 被踢收掉引擎时保留它，呼叫入口据此现场重启（IMRtcCallShouldRestart）。
+    NSString *_wantedUID;
     /// 每次 start / stop 加一：旧引擎迟到的回调一律不算数，别改动新一代的状态。
     NSUInteger _generation;
     /// 正在响、还没接通 / 结束的那通来电（applyNotificationActionForCallID: 用）。
@@ -79,6 +86,9 @@ static const NSInteger IMRtcCallErrorEngineNotStarted = -1;
 
     [self installSDKLog];
     _uid = [uid copy];
+    // 配置 / id 校验都过了、引擎真的要建了才记：校验没过就 return 的情况不能被当成「被踢后待恢复」。
+    // 必须在 stop 之后记（stop 会清它）。
+    _wantedUID = [uid copy];
     NSUInteger gen = _generation;
     _engine = [IMCallEngine webRTCEngineWithURL:url deviceID:deviceID];
     _resolver = [IMRtcProfileResolver new];
@@ -116,7 +126,14 @@ static const NSInteger IMRtcCallErrorEngineNotStarted = -1;
 }
 
 - (void)stop {
+    _wantedUID = nil;
+    [self tearDown];
+}
+
+/// 收掉引擎但不忘账号：`stop` 与"被踢"共用。
+- (void)tearDown {
     _generation++;
+    _ringingCallID = nil; // 旧引擎的响铃状态随引擎作废，否则通知上的接听 / 拒绝会被它吞掉
     IMCallEngine *old = _engine;
     if (!old) { return; }
     [_kit stop]; // 登出 Engine、作废在途的取票与重试（Kit 取票登录，im-rtc 2.2.0）
@@ -135,6 +152,7 @@ static const NSInteger IMRtcCallErrorEngineNotStarted = -1;
 #pragma mark - 入口
 
 - (NSString *)placeSingleCallToPeer:(NSString *)peerUID video:(BOOL)video {
+    [self restartIfStopped];
     NSString *reason = [self unavailableReason] ?: [IMRtcConfig problemForID:peerUID kind:@"对方 id"];
     if (reason) { return reason; }
     _resolver.groupID = @"";
@@ -144,6 +162,7 @@ static const NSInteger IMRtcCallErrorEngineNotStarted = -1;
 }
 
 - (NSString *)placeGroupCallInGroup:(NSString *)groupID callees:(NSArray<NSString *> *)calleeUIDs {
+    [self restartIfStopped];
     NSString *reason = [self unavailableReason] ?: [IMRtcConfig problemForID:groupID kind:@"群号"];
     if (reason) { return reason; }
     if (calleeUIDs.count == 0) { return IMLocalized(@"rtc.error.no_callees"); }
@@ -231,6 +250,16 @@ static const NSInteger IMRtcCallErrorEngineNotStarted = -1;
 
 - (void)removeEventObserver:(NSUUID *)token {
     if (_engine && token) { [_engine removeEventObserver:token]; }
+}
+
+/// 被服务端踢下线后引擎收掉了，账号还记着：用户**主动呼叫**时现场重启一次。
+/// 只挂在呼叫入口，不挂在「最近通话」这类被动页面：打开页面就重登会把顶掉自己的那台设备再顶回去。
+/// 重启后若仍登不上（比如服务端还在拒绝），Kit 在拨号时会给出笼统提示，不会再回到永久的"未启动"。
+- (void)restartIfStopped {
+    if (!IMRtcCallShouldRestart(_engine != nil, _wantedUID)) { return; }
+    NSString *uid = [_wantedUID copy]; // startWithUserID: 开头的 stop 会清 _wantedUID，先拷一份当参数
+    IMLogWithTag(IMLogTagRTC, @"rtc_restart_after_kick uid=%@", uid);
+    [self startWithUserID:uid];
 }
 
 - (nullable NSString *)unavailableReason {
@@ -353,7 +382,7 @@ static const NSInteger IMRtcCallErrorEngineNotStarted = -1;
             break;
         // 别处登录 / 被吊销 / 参数被拒：换票救不了，也不自动重连，停下来等人看日志。
         default:
-            [self stop];
+            [self tearDown]; // 不是 stop：账号还记着，下次呼叫时现场重启
             break;
     }
 }

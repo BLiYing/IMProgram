@@ -3,7 +3,9 @@
 //
 //  · startWithUserID:  进入主界面（IM 已登录）时调用——建引擎、接 Kit；登录由 Kit 负责（`IMCallKitConfig.tokenProvider`，
 //                      im-rtc 2.2.0：取票登录、失败退避重试、拨号前补登录、续票、票失效重登）。幂等。
-//  · stop              退出 / 被踢离开主界面时调用——销毁引擎、断开 im-rtc。不停的话换账号会有两条连接，服务端踢掉其中一条。
+//  · stop              退出登录 / 换账号时调用——销毁引擎、断开 im-rtc，并忘掉"当前账号"。不停的话换账号会有两条连接，服务端踢掉其中一条。
+//                      被服务端踢下线（换设备登录等）不走这里：引擎会收掉，但账号还记着，下一次**主动呼叫**时现场重启一次（被动页面如最近通话不重启，免得互相顶号），
+//                      重启后登不上由 Kit 给出笼统提示（不再停在"通话服务未启动（请重新登录）"——重新登录救不了被踢）。
 //  · placeSingle… / placeGroup…  业务入口，界面全部由 Kit 接管。
 //
 //  票从哪来只在 +signTokenWithCompletion: 一处（交给 Kit 的 tokenProvider 调）（调 IMServer POST /api/v1/rtc/token 代为向
@@ -20,6 +22,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// 通话界面阶段（SDK `IMCallKitPhase` 的原始值）算不算「正在通话」：来电 / 拨出 / 接通中 / 通话中算，
 /// 空闲与「已结束」（纯展示的结束页）不算。抽成纯函数是为了能单测，`isInCall` 只是把当前阶段喂给它。
 FOUNDATION_EXPORT BOOL IMRtcCallPhaseCountsAsInCall(NSInteger kitPhase);
+
+/// 呼叫入口发现引擎没在跑时，要不要现场重启一次：引擎已在跑不用；`wantedUID` 为空（从没起过 / 已退出登录）
+/// 不能重启——否则退出登录后点呼叫会凭空把通话服务拉起来；只有"被踢收掉、账号还在"才重启。纯函数，便于单测。
+FOUNDATION_EXPORT BOOL IMRtcCallShouldRestart(BOOL engineRunning, NSString *_Nullable wantedUID);
 
 
 @interface IMRtcCall : NSObject
