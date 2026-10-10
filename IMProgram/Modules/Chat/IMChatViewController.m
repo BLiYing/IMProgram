@@ -670,8 +670,16 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
         BOOL wasNearBottom = [self isNearBottom]; // 输入栏增高会压缩 tableView，贴底的最新消息要跟着重锚（同 keyboardWillChange）
         inputFieldHeight.constant = h;
         inputBarHeight.constant = h + 20;
-        [self.view layoutIfNeeded];
-        if (wasNearBottom) { [self scrollToAbsoluteBottom]; }
+        [self.view setNeedsLayout];
+        // 不能同步重锚：发送时是「先 addObject 再清输入框」，此刻 tableView 行数与数据源暂不一致，
+        // 同步布局/滚动会触发 UITableView 一致性异常（崩溃）；也避免在文本框 layoutSubviews 里嵌套整页布局。
+        // 推迟到下一轮 runloop，等本次发送流程把列表刷完。
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(wsH) self2 = wsH;
+            if (!self2) { return; }
+            [self2.view layoutIfNeeded];
+            if (wasNearBottom) { [self2 scrollToAbsoluteBottom]; }
+        });
     };
     self.inputField.translatesAutoresizingMaskIntoConstraints = NO;
     self.inputField.placeholder = IMLocalized(@"chat.input.placeholder");
@@ -863,7 +871,8 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
 /// 键盘 Return = 发送（与此前单行输入框一致）；输入法组字（marked text）期间的回车是确认候选，不能当发送。
 - (BOOL)textView:(UITextView *)textView shouldChangeTextInRange:(NSRange)range replacementText:(NSString *)text {
     if ([text isEqualToString:@"\n"] && textView.markedTextRange == nil) {
-        [self sendTapped];
+        // 不在 shouldChange 回调里改 text（sendTapped 会清空输入框）：UITextView 在此处同步改文本会撞内部状态，下一轮再发。
+        dispatch_async(dispatch_get_main_queue(), ^{ [self sendTapped]; });
         return NO;
     }
     return YES;

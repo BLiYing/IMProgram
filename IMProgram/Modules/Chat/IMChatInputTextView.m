@@ -80,7 +80,7 @@ static const CGFloat kInsetRight = 38; // 右侧给内嵌的 😀 按钮让位
 - (void)updateHeight {
     CGFloat w = self.bounds.size.width;
     if (w <= 0) { return; }   // 尚未布局：layoutSubviews 里宽度确定后再算
-    CGFloat fit = ceil([self sizeThatFits:CGSizeMake(w, CGFLOAT_MAX)].height);
+    CGFloat fit = round([self sizeThatFits:CGSizeMake(w, CGFLOAT_MAX)].height); // round 而非 ceil：单行 36.3 取 ceil 会变 37，空/非空之间抖动
     CGFloat h = MIN(MAX(fit, kIMChatInputMinHeight), [self maxHeight]);
     BOOL capped = fit > h;
     if (self.scrollEnabled != capped) {
