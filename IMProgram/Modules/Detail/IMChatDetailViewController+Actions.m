@@ -23,6 +23,7 @@
 #import "IMGroupInfo.h"
 #import "IMGroupAdminLogic.h"
 #import "IMFriendPickerViewController.h"
+#import "IMFriendRequestListViewController.h" // IMPostFriendRelationDidChangeLocally（通讯录立即刷新）
 #import "IMRtcCall.h"
 #import "IMUserCard.h"
 #import "IMRemarkStore.h"
@@ -412,6 +413,7 @@ static const NSUInteger kIMRtcMaxGroupCallPick = 8;
             if (!self) { return; }
             if (error) { [self im_showToast:error.localizedDescription ?: IMLocalized(@"net.fallback.delete_failed")]; return; }
             [self im_showToast:IMLocalized(@"friend.delete.done")];
+            IMPostFriendRelationDidChangeLocally();
             // 重拉关系：校正 peerIsFriend → 重建操作排 + 隐藏备注名/设置/页签三张卡。
             // 同一次 /friends 也会刷新 IMFriendStateStore，故下次再进本页起步值就是"非好友"。
             [self loadPeerBlockState];
@@ -677,6 +679,7 @@ static NSInteger const kIMFriendRemarkMaxRunes = 32;
             if (!self) { return; }
             if (error) { [self im_showToast:error.localizedDescription ?: IMLocalized(@"common.action_failed")]; return; }
             self.peerBlocked = toBlock;
+            IMPostFriendRelationDidChangeLocally();
             [self im_showToast:toBlock ? IMLocalized(@"common.blocked") : IMLocalized(@"friend.block.undone")];
         }];
     };

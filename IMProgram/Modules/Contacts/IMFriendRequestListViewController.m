@@ -5,6 +5,7 @@
 #import "IMLocalization.h"
 #import "IMContactCells.h"
 #import "IMUserCard.h"
+#import "IMFriendRequestSections.h"
 #import "IMHTTPService.h"
 #import "IMReconnectReloader.h"
 #import "IMChatDetailViewController.h"
@@ -12,12 +13,22 @@
 #import "IMTheme.h"
 #import "IMLog.h"
 
+NSString * const IMFriendRelationDidChangeLocallyNotification = @"IMFriendRelationDidChangeLocallyNotification";
+
+void IMPostFriendRelationDidChangeLocally(void) {
+    dispatch_block_t post = ^{
+        [NSNotificationCenter.defaultCenter postNotificationName:IMFriendRelationDidChangeLocallyNotification object:nil];
+    };
+    if (NSThread.isMainThread) { post(); } else { dispatch_async(dispatch_get_main_queue(), post); }
+}
+
 @interface IMFriendRequestListViewController () <UITableViewDataSource, UITableViewDelegate>
 @property (nonatomic, copy) NSString *host;
 @property (nonatomic, copy) NSString *userID;
 @property (nonatomic, copy, nullable) NSString *token;
 @property (nonatomic, strong) NSArray<IMUserCard *> *incoming;  // 别人申请我（pending）
 @property (nonatomic, strong) NSArray<IMUserCard *> *outgoing;  // 我申请别人（requested）
+@property (nonatomic, strong) NSArray<IMUserCard *> *added;     // 最近 30 天内已添加（accepted，最多 50）
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) UILabel *emptyLabel;
 @property (nonatomic, strong) IMReconnectReloader *reconnectReloader;
@@ -32,6 +43,7 @@
         _userID = [userID copy];
         _incoming = @[];
         _outgoing = @[];
+        _added = @[];
         self.hidesBottomBarWhenPushed = YES;
         __weak typeof(self) ws = self;
         _reconnectReloader = [[IMReconnectReloader alloc] initWithReloadBlock:^{ [ws reload]; }];
@@ -52,6 +64,7 @@
     self.tableView.rowHeight = 68;
     [self.tableView registerClass:IMContactRequestCell.class forCellReuseIdentifier:@"request"];
     [self.tableView registerClass:IMContactCell.class forCellReuseIdentifier:@"sent"];
+    [self.tableView registerClass:IMContactCell.class forCellReuseIdentifier:@"added"];
     [self.view addSubview:self.tableView];
 
     self.emptyLabel = [UILabel new];
@@ -101,15 +114,12 @@
                 IMLog(@"新的朋友刷新失败（保留当前内容）：%@", err.localizedDescription ?: @"未知错误");
                 return;
             }
-            NSMutableArray<IMUserCard *> *incoming = [NSMutableArray array];
-            NSMutableArray<IMUserCard *> *outgoing = [NSMutableArray array];
-            for (IMUserCard *c in friends ?: @[]) {
-                if (c.status == IMFriendStatusPending) { [incoming addObject:c]; }
-                else if (c.status == IMFriendStatusRequested) { [outgoing addObject:c]; }
-            }
-            self.incoming = incoming;
-            self.outgoing = outgoing;
-            self.emptyLabel.hidden = (incoming.count + outgoing.count) > 0;
+            int64_t nowMs = (int64_t)([NSDate date].timeIntervalSince1970 * 1000);
+            IMFriendRequestSections *sections = [IMFriendRequestSections sectionsWithCards:friends nowMs:nowMs];
+            self.incoming = sections.incoming;
+            self.outgoing = sections.outgoing;
+            self.added = sections.added;
+            self.emptyLabel.hidden = !sections.isEmpty;
             [self.tableView reloadData];
         }];
     }];
@@ -123,31 +133,59 @@
         __strong typeof(ws) self = ws;
         if (!self) { return; }
         if (error) { [self im_showToast:error.localizedDescription ?: IMLocalized(@"common.action_failed")]; return; }
+        // 服务端 Accept 只推申请方：本机通讯录页收不到事件，靠本地通知立即刷新（绕过 30s 切入节流）。
+        IMPostFriendRelationDidChangeLocally();
         [self reload];
     }];
 }
 
 #pragma mark - 分区
 
-/// section 0 = 待我确认；section 1 = 已发出。空的那一节整节不出现（不摆一个空标题）。
-- (BOOL)isIncomingSection:(NSInteger)section { return self.incoming.count > 0 && section == 0; }
+/// 段顺序固定：待我确认 → 已发出 → 已添加；空段整段不出现（不摆空标题）。
+typedef NS_ENUM(NSInteger, IMRequestSectionKind) { IMRequestSectionIncoming, IMRequestSectionOutgoing, IMRequestSectionAdded };
+
+- (NSArray<NSNumber *> *)visibleSectionKinds {
+    NSMutableArray<NSNumber *> *kinds = [NSMutableArray arrayWithCapacity:3];
+    if (self.incoming.count > 0) { [kinds addObject:@(IMRequestSectionIncoming)]; }
+    if (self.outgoing.count > 0) { [kinds addObject:@(IMRequestSectionOutgoing)]; }
+    if (self.added.count > 0) { [kinds addObject:@(IMRequestSectionAdded)]; }
+    return kinds;
+}
+
+- (IMRequestSectionKind)kindForSection:(NSInteger)section {
+    NSArray<NSNumber *> *kinds = [self visibleSectionKinds];
+    return (IMRequestSectionKind)(section < (NSInteger)kinds.count ? kinds[section].integerValue : IMRequestSectionAdded);
+}
+
+- (NSArray<IMUserCard *> *)cardsForKind:(IMRequestSectionKind)kind {
+    switch (kind) {
+        case IMRequestSectionIncoming: return self.incoming;
+        case IMRequestSectionOutgoing: return self.outgoing;
+        case IMRequestSectionAdded: return self.added;
+    }
+    return @[];
+}
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return (self.incoming.count > 0 ? 1 : 0) + (self.outgoing.count > 0 ? 1 : 0);
+    return (NSInteger)[self visibleSectionKinds].count;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    return (NSInteger)([self isIncomingSection:section] ? self.incoming.count : self.outgoing.count);
+    return (NSInteger)[self cardsForKind:[self kindForSection:section]].count;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    return [self isIncomingSection:section]
-        ? IMLocalizedFormat(@"friend.requests.incoming", (long)self.incoming.count)
-        : IMLocalizedFormat(@"friend.requests.outgoing", (long)self.outgoing.count);
+    switch ([self kindForSection:section]) {
+        case IMRequestSectionIncoming: return IMLocalizedFormat(@"friend.requests.incoming", (long)self.incoming.count);
+        case IMRequestSectionOutgoing: return IMLocalizedFormat(@"friend.requests.outgoing", (long)self.outgoing.count);
+        case IMRequestSectionAdded: return IMLocalizedFormat(@"friend.requests.added", (long)self.added.count);
+    }
+    return nil;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if ([self isIncomingSection:indexPath.section]) {
+    IMRequestSectionKind kind = [self kindForSection:indexPath.section];
+    if (kind == IMRequestSectionIncoming) {
         IMContactRequestCell *cell = [tableView dequeueReusableCellWithIdentifier:@"request" forIndexPath:indexPath];
         IMUserCard *c = self.incoming[indexPath.row];
         NSString *peer = c.userID;
@@ -155,6 +193,15 @@
         [cell configureWithCard:c
                        onAccept:^{ [ws performAction:@"accept" onPeer:peer]; }
                        onReject:^{ [ws performAction:@"reject" onPeer:peer]; }];
+        return cell;
+    }
+    if (kind == IMRequestSectionAdded) {
+        // 已添加：副标题 = @句柄（无句柄的系统账号等 → 隐藏副标题行）；右侧禁用「已添加」标记；
+        // 刻意不提供删除/左滑（服务端只有「删好友关系」，没有「删记录」，见设计稿 §2）。
+        IMContactCell *cell = [tableView dequeueReusableCellWithIdentifier:@"added" forIndexPath:indexPath];
+        IMUserCard *c = self.added[indexPath.row];
+        [cell configureWithCard:c subtitle:(c.username.length > 0 ? [@"@" stringByAppendingString:c.username] : nil)];
+        [cell setActionTitle:IMLocalized(@"friend.requests.added_tag") enabled:NO action:nil];
         return cell;
     }
     // 已发出：不给动作按钮，只显「等待验证」+ 自己当时写的验证消息（让人知道这件事的下文）。
@@ -169,7 +216,7 @@
 /// 点行 → 进对方资料页（全端统一：点人先进资料页，不直接进聊天，见 [[improgram-tap-member-opens-detail]]）。
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    IMUserCard *c = [self isIncomingSection:indexPath.section] ? self.incoming[indexPath.row] : self.outgoing[indexPath.row];
+    IMUserCard *c = [self cardsForKind:[self kindForSection:indexPath.section]][indexPath.row];
     if (c.userID.length == 0 || [c.userID isEqualToString:self.userID]) { return; }
     IMChatDetailViewController *detail =
         [[IMChatDetailViewController alloc] initSingleWithHost:self.host userID:self.userID

@@ -1748,3 +1748,11 @@
 1. **真机验证欠账**：通知 P1 批一（横幅）+ 批二（定时免打扰时长菜单）只过了模拟器编译，没真机跑过，清单见 `current_task.archive.md` 里最近的归档块；「设置 ▸ 最近通话」真机走一遍拨打→挂断→回本页看 `callEnd` 是否自动刷新、1v1 回拨、群聊行跳转；批量删除两档的 iOS 真机。
 2. **核对 `IMServer/docs/CLIENT_PARITY.md` 的 M5 行是否已按 iOS/安卓/Web 拆状态**（`SYMMETRY.md` 的 `alertDecision` 四端已登记）；若没拆，补上。
 - 聊天页「从收藏发送」暂不支持：`attachItemTapped:` 的 `favorite` 分支仍走 `im_showComingSoon`（`../IMServer/docs/FAVORITES_DESIGN.md` §5.5 标 ⏸）。
+
+### 2026-10-09 归档：当前焦点（收口前快照）
+**通话被踢后现场重启（2026-10-09，未 commit）**：`IMRtcCall` 记 `_wantedUID`，被踢只 `tearDown` 不清账号，呼叫 / 查通话记录入口 `restartIfStopped`；纯函数 `IMRtcCallShouldRestart` 有单测。服务端口径与验证见 `IMServer/docs/design/CALL_ACCESS_CONTROL_DESIGN.md`。
+
+- **10-08 握手 401 先续期再判被踢**（`Network/IMSocketManager+AuthRecovery.{h,m}`，与 Android `ws/WakeAction.kt` 同表）：401 → 作废 10 分钟 token 缓存、立即重连（openSocket 内续期）；续期被拒走既有 `IMSocketDidRevokeSessionNotification`；续期后的新 token 还 401 才按被踢；didOpen 清「已续过」。起因：服务端换密钥重启，iPhoneWork 拿缓存旧 token 重连被送回登录页。模拟器（iPhone 17 Pro Max）× Pixel × OPPO 两轮换密钥重启均自动续上。/code-review 后补：只让缓存过期（`expireCachedToken`，不清 currentToken/昵称）；无续期凭据直接按被踢（否则退回空密码 /login：生产无限重试、dev-login 复活吊销设备）；「续过一次」按连接代次记；恢复 WS close≠401 的注释。test.sh 1049 绿；`IMSocketAuthRecoveryTests` 6 例已变异看红（宿主 SceneDelegate 异步登出会串到下一条，setUp/tearDown 先排空主线程）。
+- 10-08 接 im-rtc Kit tokenProvider，SDK 2.2.1（`remote 2.2.1`）：`IMRtcCall` 登录交给 Kit，通话记录先 `[_kit ensureReady:]`。
+**聊天相册选择器：iOS 自建（对齐 Android `:media-picker`）——已合入 main，用户真机自测通过（2026-10-07）**（方案 `../IMServer/docs/design/MEDIA_PICKER_IOS_DESIGN.md` + 草图 `sketches/MEDIA_PICKER_UX_SKETCH.html`）。聊天「➕ → 照片」换成自建宫格（4 列 · 相册切换 · 编号多选 ≤9 · 底栏「原图 (总大小)」· 视频时长角标 · >2GB 置灰 · 长按预览）；缩略图 / 视频首帧走 `PHImageManager`，视频转码直接吃 `AVAsset`（不再先把整个视频拷出相册），根治「选完视频首帧空白几十秒」。权限三态同页处理（有限访问「管理」/ 拒绝=空状态+去设置，**无降级退路**）；旧「发送 / 发送原图」动作表与 `presentFromViewController:limit:` 已删。头像三处与「➕ → 文件 → 相册」仍用 PHPicker。新文件 `Common/IMMediaPick*.{h,m}` / `IMMediaPicker{Photos,Cell,Bars,BucketSheet,ViewController,Entry}` / `IMMediaPreviewViewController`；测试 `IMMediaPickLogicTests`（10 例，含转码结局判定，已看红过）。合入后收尾 5 项已做：被拒隐藏底栏、视频体积查询按 ID 去重、删不可达的「0 字节不可选」、转码回落单独告警 `video_transcode_fallback_original`。Android 同批已合入（去降级改空状态；另修发送方视频磨砂 / 先横后竖，见 im-android）。
+**iOS 单测欠账专项**仍在进行（清单与逐项进度见 `docs/TEST_DEBT.md`；批 A/B、C1、C2 已做，剩 C3–C7 与批 D；约定：测试由我逐个写，不派并行子代理改测试目标）。

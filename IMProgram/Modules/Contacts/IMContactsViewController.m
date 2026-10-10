@@ -172,6 +172,9 @@ BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt
                                                    name:IMSocketDidReceiveFriendEventNotification object:nil];
         // 备注名变更（本机详情页改 / 其它设备改）：显示名与首字母分组都会变，就地重排即可，
         // 不必回服务端——displayName 读的是 IMRemarkStore，本地数据已是最新。
+        // 本机主动改好友关系（同意/拒绝/拉黑/删好友）：服务端不回推本机，立即重拉（绕过切入节流）。
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onLocalFriendRelationChanged)
+                                                   name:IMFriendRelationDidChangeLocallyNotification object:nil];
         [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onRemarkChanged)
                                                    name:IMRemarkStoreDidChangeNotification object:nil];
         // 重连即取权威资料（断网期间看的是缓存种子）。仅可见时刷新，避免离屏空跑登录+HTTP。
@@ -205,6 +208,11 @@ BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt
 /// 备注名变更 → 按新显示名重排分桶并刷新（纯本地，零请求）。
 - (void)onRemarkChanged {
     [self rebuildFriendIndexWithReason:@"remark"];
+}
+
+- (void)onLocalFriendRelationChanged {
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(reload) object:nil];
+    [self reload];
 }
 
 - (void)onFriendEvent {

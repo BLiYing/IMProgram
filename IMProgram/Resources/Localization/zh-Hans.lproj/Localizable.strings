@@ -746,6 +746,8 @@
 "friend.request.sending" = "发送中…";
 "friend.request.sent" = "已发送好友申请";
 "friend.request.title" = "添加好友";
+"friend.requests.added" = "已添加（%1$ld）";
+"friend.requests.added_tag" = "已添加";
 "friend.requests.default_hello" = "请求加你为好友";
 "friend.requests.empty" = "没有待处理的好友申请";
 "friend.requests.incoming" = "待我确认（%1$ld）";

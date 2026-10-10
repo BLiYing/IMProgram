@@ -746,6 +746,8 @@
 "friend.request.sending" = "Sending…";
 "friend.request.sent" = "Friend request sent";
 "friend.request.title" = "Add friend";
+"friend.requests.added" = "Added (%1$ld)";
+"friend.requests.added_tag" = "Added";
 "friend.requests.default_hello" = "Wants to be your friend";
 "friend.requests.empty" = "No pending friend requests";
 "friend.requests.incoming" = "Awaiting your response (%1$ld)";

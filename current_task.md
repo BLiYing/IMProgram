@@ -4,12 +4,14 @@
 > 历史流水见 `current_task.archive.md`（2026-10-02 瘦身前的全量快照在其顶部）+ `git log`。关键约定见 `CLAUDE.md` / `ARCHITECTURE.md` / `CODING_STYLE.md`。
 
 ## 当前焦点
-**通话被踢后现场重启（2026-10-09，未 commit）**：`IMRtcCall` 记 `_wantedUID`，被踢只 `tearDown` 不清账号，呼叫 / 查通话记录入口 `restartIfStopped`；纯函数 `IMRtcCallShouldRestart` 有单测。服务端口径与验证见 `IMServer/docs/design/CALL_ACCESS_CONTROL_DESIGN.md`。
+**「新的朋友」已添加段 + 同意后角标不减修复（2026-10-09，未 commit，设计 `../IMServer/docs/design/NEW_FRIENDS_DESIGN.md`）**：① 新增 `IMFriendRelationDidChangeLocallyNotification`（声明在 `IMFriendRequestListViewController.h`，`IMPostFriendRelationDidChangeLocally()` 保证主线程）；新的朋友页 accept/reject、详情页 block/unblock/删好友成功后发出，`IMContactsViewController` 收到即取消待发 reload 并立即 `reload`（切入 30s 节流原样保留）。② 「已添加」段：纯逻辑 `Modules/Contacts/IMFriendRequestSections.{h,m}`（accepted 且 updatedAt 在 30 天内、倒序、≤50；常量 `kIMRecentAddedDays/Max`），段序 incoming→outgoing→added、空段不出现；行复用 `IMContactCell` + 禁用「已添加」标记，点行进资料页，无删除/左滑。测试 `IMFriendRequestSectionsTests` 6 例（已变异看红）。待真机目测：同意后返回通讯录角标即减；已添加段样式。
 
-- **10-08 握手 401 先续期再判被踢**（`Network/IMSocketManager+AuthRecovery.{h,m}`，与 Android `ws/WakeAction.kt` 同表）：401 → 作废 10 分钟 token 缓存、立即重连（openSocket 内续期）；续期被拒走既有 `IMSocketDidRevokeSessionNotification`；续期后的新 token 还 401 才按被踢；didOpen 清「已续过」。起因：服务端换密钥重启，iPhoneWork 拿缓存旧 token 重连被送回登录页。模拟器（iPhone 17 Pro Max）× Pixel × OPPO 两轮换密钥重启均自动续上。/code-review 后补：只让缓存过期（`expireCachedToken`，不清 currentToken/昵称）；无续期凭据直接按被踢（否则退回空密码 /login：生产无限重试、dev-login 复活吊销设备）；「续过一次」按连接代次记；恢复 WS close≠401 的注释。test.sh 1049 绿；`IMSocketAuthRecoveryTests` 6 例已变异看红（宿主 SceneDelegate 异步登出会串到下一条，setUp/tearDown 先排空主线程）。
-- 10-08 接 im-rtc Kit tokenProvider，SDK 2.2.1（`remote 2.2.1`）：`IMRtcCall` 登录交给 Kit，通话记录先 `[_kit ensureReady:]`。
-**聊天相册选择器：iOS 自建（对齐 Android `:media-picker`）——已合入 main，用户真机自测通过（2026-10-07）**（方案 `../IMServer/docs/design/MEDIA_PICKER_IOS_DESIGN.md` + 草图 `sketches/MEDIA_PICKER_UX_SKETCH.html`）。聊天「➕ → 照片」换成自建宫格（4 列 · 相册切换 · 编号多选 ≤9 · 底栏「原图 (总大小)」· 视频时长角标 · >2GB 置灰 · 长按预览）；缩略图 / 视频首帧走 `PHImageManager`，视频转码直接吃 `AVAsset`（不再先把整个视频拷出相册），根治「选完视频首帧空白几十秒」。权限三态同页处理（有限访问「管理」/ 拒绝=空状态+去设置，**无降级退路**）；旧「发送 / 发送原图」动作表与 `presentFromViewController:limit:` 已删。头像三处与「➕ → 文件 → 相册」仍用 PHPicker。新文件 `Common/IMMediaPick*.{h,m}` / `IMMediaPicker{Photos,Cell,Bars,BucketSheet,ViewController,Entry}` / `IMMediaPreviewViewController`；测试 `IMMediaPickLogicTests`（10 例，含转码结局判定，已看红过）。合入后收尾 5 项已做：被拒隐藏底栏、视频体积查询按 ID 去重、删不可达的「0 字节不可选」、转码回落单独告警 `video_transcode_fallback_original`。Android 同批已合入（去降级改空状态；另修发送方视频磨砂 / 先横后竖，见 im-android）。
-**iOS 单测欠账专项**仍在进行（清单与逐项进度见 `docs/TEST_DEBT.md`；批 A/B、C1、C2 已做，剩 C3–C7 与批 D；约定：测试由我逐个写，不派并行子代理改测试目标）。
+**2026-10-09 全部已提交（工作区干净）**：已登录设备页平台图标改 SF Symbols（`IMDeviceSession.platformSymbol`，d2e0dd8；`platformEmoji` 仍在、只剩单测用）；iPad 取消发送确认 ActionSheet 补 popover 锚点（008446c）；发送被拒微信式文案 + 300001 本地化（94980d2 / 304de89）；通话被踢后现场重启（1f0b9b5，`IMRtcCall` 记 `_wantedUID`，`IMRtcCallShouldRestart` 有单测）。
+
+- **10-08 握手 401 先续期再判被踢**（`Network/IMSocketManager+AuthRecovery.{h,m}`，与 Android `ws/WakeAction.kt` 同表）：401 → 作废 10 分钟 token 缓存、立即重连；续期被拒才按被踢；续期后新 token 还 401 才按被踢。`IMSocketAuthRecoveryTests` 6 例，宿主 SceneDelegate 异步登出会串到下一条，setUp/tearDown 先排空主线程。
+- 10-08 接 im-rtc Kit tokenProvider（SDK 2.2.1）：`IMRtcCall` 登录交给 Kit，通话记录先 `[_kit ensureReady:]`。
+- **聊天相册选择器 iOS 自建**（10-07，已合入、用户真机自测通过，细节见 archive）。
+- **iOS 单测欠账专项**仍在进行（清单见 `docs/TEST_DEBT.md`；批 A/B、C1、C2 已做，剩 C3–C7 与批 D；测试由我逐个写，不派并行子代理改测试目标）。
 
 ## 下一步
 
