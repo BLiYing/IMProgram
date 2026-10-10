@@ -63,7 +63,8 @@ static CGFloat const kIMRowLeading = 16;
     UIStackView *_deliveryTimeStack;
     UIImageView *_pin;
     UIImageView *_mute;
-    UILabel *_check;   // 最后一条是我发的 → 预览文字前显示已读/未读勾（IMReadTick，蓝/灰；对齐 Android / Telegram 列表，不挤时间）
+    UIImageView *_check;   // 最后一条是我发的 → 预览文字前显示已读/未读勾（IMReadTick，蓝/灰；对齐 Android / Telegram 列表，不挤时间）
+    NSLayoutConstraint *_checkWidth;            // 勾图宽（单/双勾不同，configure 里按图尺寸更新）
     NSLayoutConstraint *_lastLeadingPlain;      // 预览左缘 = 名称左缘（无勾）
     NSLayoutConstraint *_lastLeadingAfterCheck; // 预览左缘 = 勾右缘 + 间距（有勾）
     UILabel *_badge;
@@ -165,10 +166,12 @@ static CGFloat const kIMRowLeading = 16;
         _nameStateStack.spacing = 4;
         [self.contentView addSubview:_nameStateStack];
 
-        _check = [UILabel new];
-        _check.lineBreakMode = NSLineBreakByClipping; // 纯附件文本，禁止被截断成「…」
+        // 勾用 UIImageView 而非「纯附件文本的 UILabel」：真机 iOS 18 上后者按文本排版量宽，双勾右端会被裁掉一截
+        // （第二笔显示不全）；图片视图宽高由勾图尺寸直接决定，不经文本排版。
+        _check = [UIImageView new];
         _check.translatesAutoresizingMaskIntoConstraints = NO;
-        _check.font = [UIFont systemFontOfSize:15]; // 与预览文字同字号：勾图高 = 字号×0.95，基线与预览齐
+        _check.contentMode = UIViewContentModeScaleAspectFit;
+        _checkWidth = [_check.widthAnchor constraintEqualToConstant:0];
         [_check setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
         [_check setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
         [self.contentView addSubview:_check];
@@ -230,7 +233,8 @@ static CGFloat const kIMRowLeading = 16;
 
             _lastLeadingPlain,
             [_check.leadingAnchor constraintEqualToAnchor:_nameStateStack.leadingAnchor],
-            [_check.centerYAnchor constraintEqualToAnchor:_last.centerYAnchor],
+            [_check.bottomAnchor constraintEqualToAnchor:_last.lastBaselineAnchor], // 勾底边 = 预览文字基线
+            _checkWidth,
             [_last.topAnchor constraintEqualToAnchor:_nameStateStack.bottomAnchor constant:4],
             [_last.trailingAnchor constraintLessThanOrEqualToAnchor:_badge.leadingAnchor constant:-8],
 
@@ -357,8 +361,10 @@ static CGFloat const kIMRowLeading = 16;
     _lastLeadingAfterCheck.active = showCheck;
     if (showCheck) {
         BOOL read = c.latestConvSeq > 0 && c.latestConvSeq <= c.peerReadSeq;
-        _check.attributedText = [IMReadTick tickAttributedStringRead:read font:_check.font
-                                                              color:(read ? IMTheme.checkRead : IMTheme.textSecondary)];
+        UIImage *tick = [IMReadTick imageDouble:read height:15 * 0.95]; // 高 = 预览字号 × 0.95，同 IMReadTick
+        _check.image = tick;
+        _check.tintColor = read ? IMTheme.checkRead : IMTheme.textSecondary;
+        _checkWidth.constant = ceil(tick.size.width);
     }
     // 未读计数徽标 + 手动"标未读"圆点：免打扰会话转灰（微信/Telegram 式弱提示），否则蓝色。
     // **@我 破例**（M4-8）：被 @ 时即使群设了免打扰也回到高亮色——免打扰只压普通消息，不压 @我。

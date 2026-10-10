@@ -20,7 +20,10 @@ static const CGFloat kInsetRight = 38; // 右侧给内嵌的 😀 按钮让位
     if (self) {
         self.textContainerInset = UIEdgeInsetsMake(kInsetV, kInsetLeft, kInsetV, kInsetRight);
         self.textContainer.lineFragmentPadding = 0;
-        self.scrollEnabled = NO;            // 未封顶时靠自增高显示全部；封顶后再打开
+        // 始终 scrollEnabled=YES：NO 时 UITextView 的文本容器不随框增高重排，新折出的最后一行（光标所在行）
+        // 要到下一次输入才画出来。未封顶时内容恰好装下，不会真的滚动（见 layoutSubviews 里的偏移归零）。
+        self.scrollEnabled = YES;
+        self.alwaysBounceVertical = NO;
         self.showsVerticalScrollIndicator = NO;
         self.backgroundColor = UIColor.clearColor;
         self.returnKeyType = UIReturnKeySend;
@@ -82,11 +85,7 @@ static const CGFloat kInsetRight = 38; // 右侧给内嵌的 😀 按钮让位
     if (w <= 0) { return; }   // 尚未布局：layoutSubviews 里宽度确定后再算
     CGFloat fit = round([self sizeThatFits:CGSizeMake(w, CGFLOAT_MAX)].height); // round 而非 ceil：单行 36.3 取 ceil 会变 37，空/非空之间抖动
     CGFloat h = MIN(MAX(fit, kIMChatInputMinHeight), [self maxHeight]);
-    BOOL capped = fit > h;
-    if (self.scrollEnabled != capped) {
-        self.scrollEnabled = capped;
-        if (capped) { [self scrollRangeToVisible:self.selectedRange]; }
-    }
+    if (fit > h) { [self scrollRangeToVisible:self.selectedRange]; } // 封顶：让光标行始终可见
     if (fabs(h - _lastHeight) < 0.5) { return; }
     _lastHeight = h;
     if (self.onHeightChange) { self.onHeightChange(h); }
@@ -96,6 +95,9 @@ static const CGFloat kInsetRight = 38; // 右侧给内嵌的 😀 按钮让位
     [super layoutSubviews];
     CGSize s = [_placeholderLabel sizeThatFits:CGSizeMake(self.bounds.size.width - kInsetLeft - kInsetRight, CGFLOAT_MAX)];
     _placeholderLabel.frame = CGRectMake(kInsetLeft, kInsetV, MAX(0, self.bounds.size.width - kInsetLeft - kInsetRight), s.height);
+    // 框刚长高时，UIKit 之前为在矮框里露出光标已把内容上推过；内容装得下就回到顶部，否则首行被顶出框外。
+    CGFloat maxOffset = MAX(0, self.contentSize.height - self.bounds.size.height);
+    if (self.contentOffset.y > maxOffset + 0.5) { self.contentOffset = CGPointMake(0, maxOffset); }
     if (fabs(self.bounds.size.width - _lastWidth) > 0.5) {
         _lastWidth = self.bounds.size.width;
         [self updateHeight];
