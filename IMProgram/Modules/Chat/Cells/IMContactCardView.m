@@ -64,6 +64,7 @@ const CGFloat IMContactCardViewWidth = 240;
         [self addSubview:_footText];
 
         _meta = [UILabel new];   // 时间 + 勾（气泡右下角），确认 sheet 里为空
+        _meta.lineBreakMode = NSLineBreakByClipping;
         _meta.translatesAutoresizingMaskIntoConstraints = NO;
         _meta.font = [UIFont systemFontOfSize:11];
         [_meta setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];

@@ -129,6 +129,7 @@
 
     // 右下时间 + 勾（2026-08-27 修：与 IMBubbleCell 口径统一——语音气泡右下角必须显消息 HH:mm）。
     _timeLabel = [UILabel new];
+    _timeLabel.lineBreakMode = NSLineBreakByClipping;
     _timeLabel.translatesAutoresizingMaskIntoConstraints = NO;
     _timeLabel.font = [UIFont systemFontOfSize:11];
     _timeLabel.textColor = IMTheme.textSecondary;

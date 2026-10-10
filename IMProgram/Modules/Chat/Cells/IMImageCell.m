@@ -255,7 +255,7 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     label.translatesAutoresizingMaskIntoConstraints = NO;
     label.font = [UIFont monospacedDigitSystemFontOfSize:11 weight:UIFontWeightMedium];
     label.textColor = IMTheme.mediaBadgeText;
-    label.lineBreakMode = NSLineBreakByTruncatingTail; // 极端宽高比：裁剪而非溢出气泡
+    label.lineBreakMode = NSLineBreakByClipping; // 极端宽高比：裁剪而非溢出气泡
     [wrap addSubview:label];
     [NSLayoutConstraint activateConstraints:@[
         [wrap.heightAnchor constraintEqualToConstant:kIMBadgeHeight],

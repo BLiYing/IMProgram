@@ -61,7 +61,7 @@ static UIBezierPath *IMTickPath(BOOL isDouble) {
     UIImage *img = [self imageDouble:read height:h];
     NSTextAttachment *att = [NSTextAttachment new];
     att.image = img;
-    att.bounds = CGRectMake(0, 0, img.size.width, img.size.height); // 底边 = 基线
+    att.bounds = CGRectMake(0, 0, ceil(img.size.width), img.size.height); // 宽取整：小数宽会让 UILabel 量出的宽度略窄而截断成「…」 // 底边 = 基线
     NSMutableAttributedString *s = [[NSMutableAttributedString alloc] initWithAttributedString:
         [NSAttributedString attributedStringWithAttachment:att]];
     [s addAttributes:@{ NSForegroundColorAttributeName: color, NSFontAttributeName: font }

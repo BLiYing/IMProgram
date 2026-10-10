@@ -71,6 +71,7 @@
         // 放进卡片内而不是卡片下方另起一行：卡片就是气泡本身（_card 直接套 applyBubbleDirectionStyle），
         // 下方再挂一行会多出一截空白，也和 IMContactCardView 的同款布局分叉。
         _meta = [UILabel new];
+        _meta.lineBreakMode = NSLineBreakByClipping;
         _meta.translatesAutoresizingMaskIntoConstraints = NO;
         _meta.font = [UIFont systemFontOfSize:11];
         [_meta setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];

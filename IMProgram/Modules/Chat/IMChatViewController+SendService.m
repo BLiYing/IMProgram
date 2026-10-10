@@ -144,7 +144,7 @@
     self.inputBar.backgroundColor = IMTheme.surface;
     self.inputField.backgroundColor = IMTheme.pageBackground;
     self.inputField.font = [UIFont systemFontOfSize:MAX(15, IMTheme.chatFontSize - 1)];
-    self.inputField.layer.cornerRadius = IMAppearance.shared.bubbleRadius;
+    self.inputField.layer.cornerRadius = MIN(IMAppearance.shared.bubbleRadius, 18);
     self.inputField.layer.borderColor =
         [IMTheme.separator resolvedColorWithTraitCollection:self.traitCollection].CGColor;
     if ([self.tableView.backgroundView isKindOfClass:IMChatBackgroundView.class]) {

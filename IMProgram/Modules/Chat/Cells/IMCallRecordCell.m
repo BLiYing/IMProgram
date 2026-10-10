@@ -48,6 +48,7 @@
         [_bubble addSubview:_label];
 
         _meta = [UILabel new];
+        _meta.lineBreakMode = NSLineBreakByClipping;
         _meta.translatesAutoresizingMaskIntoConstraints = NO;
         [_meta setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
         [_meta setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];

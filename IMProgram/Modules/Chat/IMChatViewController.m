@@ -2,7 +2,7 @@
 
 #import "IMChatViewController.h"
 #import "IMChatViewController+Private.h" // 私有类扩展（属性/协议）——与分文件 category 共享
-#import "IMPasteImageTextField.h"     // 支持粘贴图片的输入框（#2）
+#import "IMChatInputTextView.h"       // 多行自增高 + 支持粘贴图片的输入框（#2）
 #import "IMPendingMediaThumbnail.h"   // 本地待发媒体缩略图生成
 #import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
 #import "IMChatBackgroundView.h"
@@ -656,24 +656,32 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     inputBar.backgroundColor = UIColor.secondarySystemBackgroundColor;
     [self.view addSubview:inputBar];
 
-    IMPasteImageTextField *pasteField = [IMPasteImageTextField new];
+    IMChatInputTextView *pasteField = [IMChatInputTextView new];
     __weak typeof(self) wsPaste = self;
     pasteField.onPasteImage = ^(UIImage *image) { [wsPaste appendPastedImage:image]; }; // 粘贴图片→预览条攒批→发送键统一发（#2）
     self.inputField = pasteField;
+    // 输入框随内容增高（≤5 行，之后内部滚动）；输入栏高度 = 框高 + 上下各 10。
+    NSLayoutConstraint *inputFieldHeight = [pasteField.heightAnchor constraintEqualToConstant:kIMChatInputMinHeight];
+    NSLayoutConstraint *inputBarHeight = [inputBar.heightAnchor constraintEqualToConstant:kIMChatInputMinHeight + 20];
+    __weak typeof(self) wsH = self;
+    pasteField.onHeightChange = ^(CGFloat h) {
+        __strong typeof(wsH) self = wsH;
+        if (!self) { return; }
+        BOOL wasNearBottom = [self isNearBottom]; // 输入栏增高会压缩 tableView，贴底的最新消息要跟着重锚（同 keyboardWillChange）
+        inputFieldHeight.constant = h;
+        inputBarHeight.constant = h + 20;
+        [self.view layoutIfNeeded];
+        if (wasNearBottom) { [self scrollToAbsoluteBottom]; }
+    };
     self.inputField.translatesAutoresizingMaskIntoConstraints = NO;
     self.inputField.placeholder = IMLocalized(@"chat.input.placeholder");
     self.inputField.font = [UIFont systemFontOfSize:MAX(15, IMTheme.chatFontSize - 1)];
-    self.inputField.returnKeyType = UIReturnKeySend;
     self.inputField.delegate = self;
     // 圆角胶囊输入框（Telegram 风格）。
     self.inputField.backgroundColor = UIColor.systemBackgroundColor;
-    self.inputField.layer.cornerRadius = IMAppearance.shared.bubbleRadius;
+    self.inputField.layer.cornerRadius = MIN(IMAppearance.shared.bubbleRadius, 18); // 多行时圆角封顶，避免胶囊变形
     self.inputField.layer.borderWidth = 1;
     self.inputField.layer.borderColor = UIColor.separatorColor.CGColor;
-    UIView *pad = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 12, 0)];
-    self.inputField.leftView = pad;
-    self.inputField.leftViewMode = UITextFieldViewModeAlways;
-    [self.inputField addTarget:self action:@selector(inputChanged) forControlEvents:UIControlEventEditingChanged];
     [inputBar addSubview:self.inputField];
 
     // Telegram 布局（v2.3 拍板）：＋（左）| 输入框（内嵌 😀 表情，rightView）| 🎙 / ➤（右缘，同槽互斥）。
@@ -694,8 +702,8 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     [emojiButton setImage:[UIImage systemImageNamed:@"face.smiling" withConfiguration:emojiCfg] forState:UIControlStateNormal];
     emojiButton.tintColor = IMTheme.textSecondary;
     [emojiButton addTarget:self action:@selector(emojiTapped) forControlEvents:UIControlEventTouchUpInside];
-    self.inputField.rightView = emojiButton;
-    self.inputField.rightViewMode = UITextFieldViewModeAlways;
+    emojiButton.translatesAutoresizingMaskIntoConstraints = NO;
+    [inputBar addSubview:emojiButton]; // UITextView 无 rightView：叠在输入框右下角（框内右侧已留出 38pt 内边距）
 
     UIButton *plusButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.plusButton = plusButton;
@@ -774,23 +782,27 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
         [inputBar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [inputBar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
         self.inputBottom,
-        [inputBar.heightAnchor constraintEqualToConstant:56],
+        inputBarHeight,
 
         // Telegram 布局（v2.3）：＋（最左）| 输入框（内嵌 😀，rightView）| 🎙 语音 / ➤ 发送（右缘，同槽互斥）。
         [plusButton.leadingAnchor constraintEqualToAnchor:inputBar.leadingAnchor constant:8],
-        [plusButton.centerYAnchor constraintEqualToAnchor:inputBar.centerYAnchor],
+        [plusButton.bottomAnchor constraintEqualToAnchor:inputBar.bottomAnchor constant:-10], // 输入框增高时按钮贴底（微信式）
         [plusButton.widthAnchor constraintEqualToConstant:34],
         [plusButton.heightAnchor constraintEqualToConstant:36],
         [self.inputField.leadingAnchor constraintEqualToAnchor:plusButton.trailingAnchor constant:6],
-        [self.inputField.centerYAnchor constraintEqualToAnchor:inputBar.centerYAnchor],
-        [self.inputField.heightAnchor constraintEqualToConstant:36],
+        [self.inputField.bottomAnchor constraintEqualToAnchor:inputBar.bottomAnchor constant:-10],
+        inputFieldHeight,
+        [emojiButton.trailingAnchor constraintEqualToAnchor:self.inputField.trailingAnchor constant:-3],
+        [emojiButton.bottomAnchor constraintEqualToAnchor:self.inputField.bottomAnchor constant:-2],
+        [emojiButton.widthAnchor constraintEqualToConstant:32],
+        [emojiButton.heightAnchor constraintEqualToConstant:32],
         // 右缘：voice / send 同槽位（updateSendButtonVisibility 互斥切换 hidden）。
         [voiceButton.trailingAnchor constraintEqualToAnchor:inputBar.trailingAnchor constant:-8],
-        [voiceButton.centerYAnchor constraintEqualToAnchor:inputBar.centerYAnchor],
+        [voiceButton.bottomAnchor constraintEqualToAnchor:inputBar.bottomAnchor constant:-10],
         [voiceButton.widthAnchor constraintEqualToConstant:36],
         [voiceButton.heightAnchor constraintEqualToConstant:36],
         [sendButton.trailingAnchor constraintEqualToAnchor:inputBar.trailingAnchor constant:-8],
-        [sendButton.centerYAnchor constraintEqualToAnchor:inputBar.centerYAnchor],
+        [sendButton.bottomAnchor constraintEqualToAnchor:inputBar.bottomAnchor constant:-10],
         [sendButton.widthAnchor constraintEqualToConstant:36],
         [sendButton.heightAnchor constraintEqualToConstant:36],
 
@@ -842,11 +854,19 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     }
 }
 
-#pragma mark - UITextFieldDelegate
+#pragma mark - UITextViewDelegate
 
-- (BOOL)textFieldShouldReturn:(UITextField *)textField {
-    [self sendTapped];
-    return NO;
+- (void)textViewDidChange:(UITextView *)textView {
+    [self inputChanged];
+}
+
+/// 键盘 Return = 发送（与此前单行输入框一致）；输入法组字（marked text）期间的回车是确认候选，不能当发送。
+- (BOOL)textView:(UITextView *)textView shouldChangeTextInRange:(NSRange)range replacementText:(NSString *)text {
+    if ([text isEqualToString:@"\n"] && textView.markedTextRange == nil) {
+        [self sendTapped];
+        return NO;
+    }
+    return YES;
 }
 
 #pragma mark - 辅助

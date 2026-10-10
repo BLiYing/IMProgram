@@ -49,6 +49,7 @@
 }
 
 - (void)scrollViewDidScroll:(UIScrollView *)scrollView {
+    if (scrollView != self.tableView) { return; } // 输入框（UITextView）的 delegate 也是本 VC：它的滚动不该触发已读 / 翻页
     if (self.tableView.contentSize.height <= 0) { return; }
     [self markVisibleRowsRead];   // 可见即读：滚到哪、读到哪（先推进 pendingReadSeq）
     [self updateJumpButton];      // 再据新位点刷新 ↓N 计数
@@ -58,10 +59,12 @@
 
 // 滚动中媒体尺寸落定被延迟的行高重排：拖拽/惯性结束后统一补一次（滚动期间做会肉眼可见地弹跳）。
 - (void)scrollViewDidEndDragging:(UIScrollView *)scrollView willDecelerate:(BOOL)decelerate {
+    if (scrollView != self.tableView) { return; }
     if (!decelerate) { [self settleRowHeightsIfNeeded]; }
 }
 
 - (void)scrollViewDidEndDecelerating:(UIScrollView *)scrollView {
+    if (scrollView != self.tableView) { return; }
     [self settleRowHeightsIfNeeded];
 }
 

@@ -70,6 +70,7 @@
         [self.contentView addSubview:_bubble];
 
         _meta = [UILabel new];
+        _meta.lineBreakMode = NSLineBreakByClipping;
         _meta.font = [UIFont systemFontOfSize:11];
         _meta.textAlignment = NSTextAlignmentRight;
 

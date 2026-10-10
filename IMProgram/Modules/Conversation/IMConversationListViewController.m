@@ -166,6 +166,7 @@ static CGFloat const kIMRowLeading = 16;
         [self.contentView addSubview:_nameStateStack];
 
         _check = [UILabel new];
+        _check.lineBreakMode = NSLineBreakByClipping; // 纯附件文本，禁止被截断成「…」
         _check.translatesAutoresizingMaskIntoConstraints = NO;
         _check.font = [UIFont systemFontOfSize:15]; // 与预览文字同字号：勾图高 = 字号×0.95，基线与预览齐
         [_check setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];

@@ -12,6 +12,7 @@
 #import "IMChatBannerStack.h"    // IMChatBannerStackDelegate
 
 #import "IMGroupInfo.h"          // IMGroupInfo / IMGroupRole（senderRoleForMessage: 返回枚举）
+#import "IMChatInputTextView.h"
 #import "IMChatWindowState.h"    // 当前这一窗（messages/seenConvSeqs/边界）——各 category 直接点出来用，故整头引入
 
 @class IMMediaDownloadCoordinator;
@@ -30,7 +31,7 @@ NS_ASSUME_NONNULL_BEGIN
 // UIContextMenuInteractionDelegate）的 conformance 不放这里，而是挂到**真正实现其必需方法的那个 category**
 // 上（见文末），否则主实现 @implementation 所在 TU 看不到那些方法体、会报 -Wprotocol「does not conform」。
 // 这里只留**纯可选方法**协议（无必需方法，不触发该告警）。
-@interface IMChatViewController () <IMSocketManagerDelegate, UITableViewDelegate, UITextFieldDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIDocumentPickerDelegate>
+@interface IMChatViewController () <IMSocketManagerDelegate, UITableViewDelegate, UITextViewDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIDocumentPickerDelegate>
 
 // 指定初始化器收进类扩展（原在 .h）：外部只能走 +openInNavigationController: 统一入口，
 // 无法直接 alloc+push，从结构上杜绝绕过导航去重/折叠的回归（曾靠头注释约束、无强制）。
@@ -93,7 +94,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) NSTimeInterval lastTypingSent; // typing 节流
 @property (nonatomic, copy, nullable) NSString *peerTypingUid; // 对端 typing 发送方 uid（覆盖式，最新一位）；空=无人打字。副标题渲染时群聊拼「{昵称} 正在输入」，单聊拼「正在输入」
 @property (nonatomic, strong) UITableView *tableView;
-@property (nonatomic, strong) UITextField *inputField;
+@property (nonatomic, strong) IMChatInputTextView *inputField;
 @property (nonatomic, strong) NSLayoutConstraint *inputBottom;
 @property (nonatomic, strong) UIButton *jumpButton;   // 右下角"↓N"回到最新
 @property (nonatomic, strong) UILabel *jumpBadge;     // 按钮上的未读计数（=视口下方未读数）
@@ -359,7 +360,7 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (BOOL)resolvedMentionAllInText:(NSString *)text;
 - (void)clearPendingMentions;
 
-// 文本发送（发送按钮 / 回车触发；主实现 setupUI 接线，textFieldShouldReturn 也调）：
+// 文本发送（发送按钮 / 回车触发；主实现 setupUI 接线，textView:shouldChangeTextInRange: 回车也调）：
 - (void)sendTapped;
 
 // —— 发送失败重发（IMChatViewController+Resend.m）——

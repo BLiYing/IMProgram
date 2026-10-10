@@ -493,6 +493,7 @@ static NSAttributedString *sIMMentionFlashOriginal = nil;
         [_bubble addSubview:_text];
 
         _textMeta = [UILabel new];
+        _textMeta.lineBreakMode = NSLineBreakByClipping; // 宽度差一丝时 UILabel 默认尾部截断会把「时间+勾」整个替成「…」
         _textMeta.translatesAutoresizingMaskIntoConstraints = NO;
         _textMeta.hidden = YES;
         [_textMeta setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
@@ -561,6 +562,7 @@ static NSAttributedString *sIMMentionFlashOriginal = nil;
         [_fileRow addSubview:_fileStatusLabel];
 
         _fileMetaLabel = [UILabel new];
+        _fileMetaLabel.lineBreakMode = NSLineBreakByClipping;
         _fileMetaLabel.translatesAutoresizingMaskIntoConstraints = NO;
         // 挂**气泡**而不是文件行：有 caption 时它要落到 caption 下方（气泡右下角），出了文件行的范围。
         // 跨层级约束照样成立（共同祖先 _bubble）；代价是不再随 _fileRow.hidden 一起藏，configure 里自己藏。
