@@ -19,6 +19,10 @@
 @property (nonatomic, strong) IMWaveformView *waveform;
 @property (nonatomic, strong) UILabel *durationLabel;  ///< 底行左：仅时长 "0:12"（播放中显剩余）
 @property (nonatomic, strong) UILabel *timeLabel;      ///< 底行右：消息时间 "HH:mm ✓/✓✓"（对齐 IMBubbleCell 口径）
+@property (nonatomic, strong) UIImageView *tickView;  ///< 时间右侧的已送达/已读勾（独立 UIImageView：UILabel 末尾挂 NSTextAttachment 在真机上会量窄、第二笔被裁）
+@property (nonatomic, strong) NSLayoutConstraint *timeTrailingPlain; ///< 无勾：时间右缘贴气泡
+@property (nonatomic, strong) NSLayoutConstraint *timeTrailingTick;  ///< 有勾：时间右缘 = 勾左缘 - 间距
+@property (nonatomic, strong) NSLayoutConstraint *tickWidth;
 @property (nonatomic, strong) UIView *unplayedDot;
 @property (nonatomic, strong) UILabel *senderLabel;
 @property (nonatomic, strong) UILabel *dayHeader;
@@ -136,6 +140,11 @@
     _timeLabel.textAlignment = NSTextAlignmentRight;
     [_bubble addSubview:_timeLabel];
 
+    _tickView = [UIImageView new];
+    _tickView.translatesAutoresizingMaskIntoConstraints = NO;
+    _tickView.hidden = YES;
+    [_bubble addSubview:_tickView];
+
     _unplayedDot = [UIView new];
     _unplayedDot.translatesAutoresizingMaskIntoConstraints = NO;
     _unplayedDot.backgroundColor = UIColor.systemRedColor;
@@ -223,6 +232,11 @@
     _bubbleMaxTrailing = [_bubble.trailingAnchor constraintLessThanOrEqualToAnchor:cv.trailingAnchor constant:-60];
     _bubbleMinLeading = [_bubble.leadingAnchor constraintGreaterThanOrEqualToAnchor:cv.leadingAnchor constant:60];
 
+    _timeTrailingPlain = [_timeLabel.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor constant:-10];
+    _timeTrailingTick = [_timeLabel.trailingAnchor constraintEqualToAnchor:_tickView.leadingAnchor constant:-kIMReadTickGap];
+    _timeTrailingTick.active = NO;
+    _tickWidth = [_tickView.widthAnchor constraintEqualToConstant:0];
+
     [NSLayoutConstraint activateConstraints:@[
         // 未读分割线（基类）：顶到 contentView 顶。
         [_unreadDivider.topAnchor constraintEqualToAnchor:cv.topAnchor],
@@ -281,7 +295,11 @@
         [_durationLabel.heightAnchor constraintEqualToConstant:14],
         [_durationLabel.trailingAnchor constraintLessThanOrEqualToAnchor:_speedPill.leadingAnchor constant:-4],
         // 时间行（2026-08-27 用户拍板独立一行，iOS/Web 拉齐）：右对齐 "HH:mm ✓/✓✓"。
-        [_timeLabel.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor constant:-10],
+        _timeTrailingPlain,
+        [_tickView.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor constant:-10],
+        [_tickView.bottomAnchor constraintEqualToAnchor:_timeLabel.lastBaselineAnchor], // 勾底边 = 时间基线
+        [_tickView.heightAnchor constraintEqualToConstant:(11 * 0.95)],
+        _tickWidth,
         [_timeLabel.topAnchor constraintEqualToAnchor:_durationLabel.bottomAnchor constant:3],
         [_timeLabel.heightAnchor constraintEqualToConstant:14],
         [_unplayedDot.trailingAnchor constraintEqualToAnchor:_bubble.trailingAnchor constant:-10],
@@ -407,6 +425,7 @@
     self.timeLabel.attributedText = [self rightMetaAttributedForMessage:message mine:mine
                                                              peerReadSeq:peerReadSeq
                                                           isGroupContext:isGroupContext];
+    [self applyTickForMessage:message mine:mine peerReadSeq:peerReadSeq];
     // 未播红点仅对方消息 + 本机未播过时显；hasPlayed 由宿主传入（已 mine || 查询 IMVoicePlayer 已播集合）。
     self.unplayedDot.hidden = mine || hasPlayed;
     // 发送失败红 !（§5.5「不静默失败」）：曾 ack 失败置 Failed 落库但气泡外观与成功完全一致（2026-08-26 修）。
@@ -443,13 +462,24 @@
                                               attributes:@{ NSFontAttributeName: font,
                                                             NSForegroundColorAttributeName: UIColor.systemRedColor }];
     }
-    if (message.convSeq > 0 && peerReadSeq != kIMPeerReadSeqHidden) { // 超级群（Hidden）不画勾
-        // 群聊同样按位点判（peerReadSeq = 群全员已读位点，onGroupReadSeq 实时更新）；此前误排除群聊 → 群里语音永远单勾。
-        BOOL doubleTick = message.convSeq <= peerReadSeq;
-        return [IMReadTick metaWithTime:timeStr read:doubleTick font:font timeColor:secondary
-                              tickColor:(doubleTick ? IMTheme.checkRead : secondary)];
-    }
+    // 勾不进富文本（见 applyTickForMessage:…），此处只出时间。
     return [[NSAttributedString alloc] initWithString:(timeStr ?: @"") attributes:base];
+}
+
+/// 已送达单勾 / 已读双勾（IMReadTick 图，独立 UIImageView）。显示条件同 IMBubbleCell：己方已落库有 conv_seq、非超级群。
+/// 群聊同样按位点判（peerReadSeq = 群全员已读位点，onGroupReadSeq 实时更新）。
+- (void)applyTickForMessage:(IMMessageModel *)message mine:(BOOL)mine peerReadSeq:(int64_t)peerReadSeq {
+    BOOL shows = mine && message.status != IMMessageStatusSending && message.status != IMMessageStatusFailed
+              && message.convSeq > 0 && peerReadSeq != kIMPeerReadSeqHidden;
+    self.tickView.hidden = !shows;
+    self.timeTrailingTick.active = shows;
+    self.timeTrailingPlain.active = !shows;
+    if (!shows) { return; }
+    BOOL read = message.convSeq <= peerReadSeq;
+    UIImage *tick = [IMReadTick imageDouble:read height:(11 * 0.95)];
+    self.tickView.image = tick;
+    self.tickView.tintColor = read ? IMTheme.checkRead : IMTheme.textSecondary;
+    self.tickWidth.constant = ceil(tick.size.width);
 }
 
 - (void)applyGroupAvatarURL:(NSString *)url seed:(NSString *)seed name:(NSString *)name showAvatar:(BOOL)showAvatar gutter:(BOOL)gutter {

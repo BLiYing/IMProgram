@@ -35,7 +35,7 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     UIView  *_durationWrap;    // 左上角时长胶囊（视频，非上传中）
     UILabel *_durationLabel;
     UIView  *_metaWrap;        // 右下角时间 + 已读态胶囊
-    UILabel *_metaLabel;
+    IMTickMetaView *_metaLabel; // 时间 + 勾（勾独立 UIImageView，见 IMTickMetaView）
     UILabel *_senderLabel;     // 群聊对方昵称（缩略图上方）
     // _avatar 由 IMMessageCell 基类持有（贴缩略图底左侧，约束在本类补）。
     NSLayoutConstraint *_leading;
@@ -102,7 +102,9 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
 
         _progressWrap = [self makeBadgeWrapWithLabel:&_progressLabel];
         _durationWrap = [self makeBadgeWrapWithLabel:&_durationLabel];
-        _metaWrap = [self makeBadgeWrapWithLabel:&_metaLabel];
+        _metaLabel = [IMTickMetaView new];
+        _metaLabel.translatesAutoresizingMaskIntoConstraints = NO;
+        _metaWrap = [self makeBadgeWrapWithContent:_metaLabel];
 
         _senderLabel = [UILabel new];
         _senderLabel.translatesAutoresizingMaskIntoConstraints = NO;
@@ -264,6 +266,26 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
         [label.centerYAnchor constraintEqualToAnchor:wrap.centerYAnchor],
     ]];
     *outLabel = label;
+    return wrap;
+}
+
+/// 胶囊底 + 任意内容视图（时间+勾用 IMTickMetaView）：与 makeBadgeWrapWithLabel 同一套内边距与高度。
+- (UIView *)makeBadgeWrapWithContent:(UIView *)content {
+    UIView *wrap = [UIView new];
+    wrap.translatesAutoresizingMaskIntoConstraints = NO;
+    wrap.backgroundColor = IMTheme.mediaBadgeBackground;
+    wrap.layer.cornerRadius = kIMBadgeHeight / 2;
+    wrap.layer.cornerCurve = kCACornerCurveContinuous;
+    wrap.hidden = YES;
+    wrap.userInteractionEnabled = NO;
+    [self.contentView addSubview:wrap];
+    [wrap addSubview:content];
+    [NSLayoutConstraint activateConstraints:@[
+        [wrap.heightAnchor constraintEqualToConstant:kIMBadgeHeight],
+        [content.leadingAnchor constraintEqualToAnchor:wrap.leadingAnchor constant:6],
+        [content.trailingAnchor constraintEqualToAnchor:wrap.trailingAnchor constant:-6],
+        [content.centerYAnchor constraintEqualToAnchor:wrap.centerYAnchor],
+    ]];
     return wrap;
 }
 
@@ -594,15 +616,11 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
 
 /// tick：nil = 不画勾；@NO = 单勾（已送达）；@YES = 双勾（已读）。
 - (void)setMetaText:(NSString *)text tick:(NSNumber *)tick checkColor:(UIColor *)checkColor {
-    UIFont *font = _metaLabel.font;
-    UIColor *textColor = IMTheme.mediaBadgeText;
-    NSAttributedString *s;
-    if (tick != nil) {
-        s = [IMReadTick metaWithTime:text read:tick.boolValue font:font timeColor:textColor tickColor:checkColor];
-    } else {
-        s = [[NSAttributedString alloc] initWithString:text ?: @"" attributes:@{ NSFontAttributeName: font, NSForegroundColorAttributeName: textColor }];
-    }
-    _metaLabel.attributedText = s;
+    UIFont *font = [UIFont monospacedDigitSystemFontOfSize:11 weight:UIFontWeightMedium];
+    NSAttributedString *s = [[NSAttributedString alloc] initWithString:text ?: @""
+        attributes:@{ NSFontAttributeName: font, NSForegroundColorAttributeName: IMTheme.mediaBadgeText }];
+    IMReadTickKind kind = tick == nil ? IMReadTickKindNone : (tick.boolValue ? IMReadTickKindRead : IMReadTickKindSent);
+    [_metaLabel setAttributedText:s tick:kind tickColor:checkColor];
     _metaWrap.hidden = s.length == 0;
     if (!_metaWrap.hidden) { [self.contentView bringSubviewToFront:_metaWrap]; }
 }

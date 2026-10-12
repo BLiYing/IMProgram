@@ -12,6 +12,13 @@ NS_ASSUME_NONNULL_BEGIN
 /// 勾与时间文字的间距（pt）。
 FOUNDATION_EXPORT const CGFloat kIMReadTickGap;
 
+/// 勾的种类：无 / 单勾（已送达）/ 双勾（已读）。
+typedef NS_ENUM(NSInteger, IMReadTickKind) {
+    IMReadTickKindNone = 0,
+    IMReadTickKindSent,
+    IMReadTickKindRead,
+};
+
 @interface IMReadTick : NSObject
 
 /// 单勾(13×10)/双勾(18×10) 的 template 图，高度 height pt（宽按 viewBox 比例），按 scale 缓存。
@@ -26,6 +33,21 @@ FOUNDATION_EXPORT const CGFloat kIMReadTickGap;
                                 font:(UIFont *)font
                            timeColor:(UIColor *)timeColor
                            tickColor:(UIColor *)tickColor;
+
+@end
+
+/// 「时间文字 + 勾」一行：文字走 UILabel、勾走独立 UIImageView（底边落在文字基线）。
+/// 不能把勾做成 UILabel 富文本末尾的 NSTextAttachment——真机上 UILabel 对「以附件结尾」的文本量出的宽度偏窄，
+/// 双勾第二笔会被裁（会话列表 / 语音气泡 / 各媒体气泡都踩过）。尺寸由内部约束撑出，外部像普通 label 一样约束即可。
+@interface IMTickMetaView : UIView
+
+/// 仅文字部分（时间 / 发送中… / 未发送 ✗）；字体与颜色由富文本属性给出。
+@property (nonatomic, copy, nullable) NSAttributedString *attributedText;
+/// 字号基准（勾高 = 字号 × 0.95，同 IMReadTick）。默认 11。
+@property (nonatomic, assign) CGFloat tickFontSize;
+
+/// 一次设定文字与勾；kind=None 时不画勾、tickColor 忽略。
+- (void)setAttributedText:(nullable NSAttributedString *)text tick:(IMReadTickKind)kind tickColor:(nullable UIColor *)tickColor;
 
 @end
 

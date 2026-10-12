@@ -1,4 +1,5 @@
 #import <UIKit/UIKit.h>
+#import "IMReadTick.h"
 #import "IMGroupInfo.h"
 #import "IMFailBadgeView.h"  // 失败红❗（各消息 cell 共用同一款；子类要拿它的 anchor 补约束）
 
@@ -77,6 +78,20 @@ FOUNDATION_EXPORT const int64_t kIMPeerReadSeqHidden;
 + (NSAttributedString *)attributedMetaForMessage:(IMMessageModel *)message
                                             mine:(BOOL)mine
                                      peerReadSeq:(int64_t)peerReadSeq;
+
+/// 同口径，但勾不进富文本：文字 + 勾种类/颜色分开给，交 IMTickMetaView 用独立 UIImageView 画勾
+/// （UILabel 末尾挂 NSTextAttachment 在真机上会量窄、裁掉双勾第二笔）。outTick/outTickColor 可传 NULL。
++ (NSAttributedString *)metaTextForMessage:(IMMessageModel *)message
+                                      mine:(BOOL)mine
+                               peerReadSeq:(int64_t)peerReadSeq
+                                      tick:(nullable IMReadTickKind *)outTick
+                                 tickColor:(UIColor * _Nullable * _Nullable)outTickColor;
+
+/// 上一方法 + 直接灌进 IMTickMetaView（各气泡时间行的统一入口）。
++ (void)applyMetaForMessage:(IMMessageModel *)message
+                       mine:(BOOL)mine
+                peerReadSeq:(int64_t)peerReadSeq
+                     toView:(IMTickMetaView *)view;
 
 /// 发送者昵称截断规则（各类气泡共用，含文本气泡的富文本首行）：最多约 12 个中文字，
 /// 超出按「书写字符簇」计数尾部截断并加省略号。空串原样返回。

@@ -163,37 +163,60 @@
 /// 气泡内右下角富文本：时间(灰)；自己消息追加状态勾——已送达 单勾(灰)/已读 双勾(蓝，IMReadTick 矢量图)/发送中/失败。
 const int64_t kIMPeerReadSeqHidden = -1;
 
-+ (NSAttributedString *)attributedMetaForMessage:(IMMessageModel *)message
-                                            mine:(BOOL)mine
-                                     peerReadSeq:(int64_t)peerReadSeq {
++ (NSAttributedString *)metaTextForMessage:(IMMessageModel *)message
+                                       mine:(BOOL)mine
+                                peerReadSeq:(int64_t)peerReadSeq
+                                       tick:(IMReadTickKind *)outTick
+                                  tickColor:(UIColor **)outTickColor {
     UIFont *font = [UIFont systemFontOfSize:11];
     NSString *time = [IMTheme timeStringFromMillis:message.timestamp];
     if (message.editedAt > 0) { time = [IMLocalized(@"chat.message.edited_prefix") stringByAppendingString:time ?: @""]; } // M4-5
     UIColor *timeColor = IMTheme.bubbleMetaTime;
     NSDictionary *base = @{ NSFontAttributeName: font, NSForegroundColorAttributeName: timeColor };
+    if (outTick) { *outTick = IMReadTickKindNone; }
 
-    if (!mine) {
-        return [[NSAttributedString alloc] initWithString:time attributes:base];
-    }
-    if (message.status == IMMessageStatusSending) {
+    if (mine && message.status == IMMessageStatusSending) {
         return [[NSAttributedString alloc] initWithString:IMLocalized(@"common.sending") attributes:base];
     }
-    if (message.status == IMMessageStatusFailed) {
+    if (mine && message.status == IMMessageStatusFailed) {
         // 被拒收（有系统行）→ 气泡内只显时间，失败由红❗+下方系统行表达；其余失败仍显"未发送 ✗"。
         if (message.note.length > 0) {
-            return [[NSAttributedString alloc] initWithString:time attributes:base];
+            return [[NSAttributedString alloc] initWithString:time ?: @"" attributes:base];
         }
         return [[NSAttributedString alloc] initWithString:IMLocalized(@"chat.message.not_sent_mark")
             attributes:@{ NSFontAttributeName: font, NSForegroundColorAttributeName: UIColor.systemRedColor }];
     }
     // 其余（Sent，或经多端抄送/同步收到的"自己消息"——其 status 为 Received）：
     // 只要拿到了 conv_seq 即视为已送达，按对端已读位点显示单勾/双勾。否则只显时间。
-    if (message.convSeq > 0 && peerReadSeq != kIMPeerReadSeqHidden) {
+    if (mine && message.convSeq > 0 && peerReadSeq != kIMPeerReadSeqHidden && outTick) {
         BOOL read = message.convSeq <= peerReadSeq;
-        return [IMReadTick metaWithTime:time read:read font:font timeColor:timeColor
-                              tickColor:(read ? IMTheme.checkRead : timeColor)];
+        *outTick = read ? IMReadTickKindRead : IMReadTickKindSent;
+        if (outTickColor) { *outTickColor = read ? IMTheme.checkRead : timeColor; }
     }
-    return [[NSAttributedString alloc] initWithString:time attributes:base];
+    return [[NSAttributedString alloc] initWithString:time ?: @"" attributes:base];
+}
+
++ (NSAttributedString *)attributedMetaForMessage:(IMMessageModel *)message
+                                            mine:(BOOL)mine
+                                     peerReadSeq:(int64_t)peerReadSeq {
+    IMReadTickKind kind = IMReadTickKindNone;
+    UIColor *tickColor = nil;
+    NSAttributedString *text = [self metaTextForMessage:message mine:mine peerReadSeq:peerReadSeq
+                                                   tick:&kind tickColor:&tickColor];
+    if (kind == IMReadTickKindNone) { return text; }
+    return [IMReadTick metaWithTime:text.string read:(kind == IMReadTickKindRead) font:[UIFont systemFontOfSize:11]
+                          timeColor:IMTheme.bubbleMetaTime tickColor:tickColor];
+}
+
++ (void)applyMetaForMessage:(IMMessageModel *)message
+                       mine:(BOOL)mine
+                peerReadSeq:(int64_t)peerReadSeq
+                     toView:(IMTickMetaView *)view {
+    IMReadTickKind kind = IMReadTickKindNone;
+    UIColor *tickColor = nil;
+    NSAttributedString *text = [self metaTextForMessage:message mine:mine peerReadSeq:peerReadSeq
+                                                   tick:&kind tickColor:&tickColor];
+    [view setAttributedText:text tick:kind tickColor:tickColor];
 }
 
 @end

@@ -302,7 +302,8 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
     UIView *_container;                        // 固定宽 240，圆角裁切
     NSMutableArray<IMAlbumTileView *> *_tiles; // 复用池（按需增建）
     int64_t _peerReadSeq;                      // 最近一次 configure 传入的已读位点（refreshWithPreviews 就地刷新时复用）
-    UILabel *_metaChip;                        // 右下角 时间+状态 小胶囊
+    IMTickMetaView *_metaContent;              // 胶囊内的时间 + 勾
+    UIView *_metaChip;                        // 右下角 时间+状态 小胶囊
     UILabel *_senderLabel;                     // 群聊对方昵称（宫格上方）
     // _avatar 由 IMMessageCell 基类持有（贴宫格底左侧，约束在本类补）。
     NSLayoutConstraint *_containerHeight;
@@ -331,13 +332,18 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
         _container.clipsToBounds = YES;
         [self.contentView addSubview:_container];
 
-        _metaChip = [UILabel new];
-        _metaChip.font = [UIFont systemFontOfSize:11];
-        _metaChip.textColor = UIColor.whiteColor;
+        _metaChip = [UIView new];
         _metaChip.backgroundColor = [UIColor colorWithWhite:0 alpha:0.45];
         _metaChip.layer.cornerRadius = 9;
         _metaChip.clipsToBounds = YES;
-        _metaChip.textAlignment = NSTextAlignmentCenter;
+        // 时间文字 + 勾（勾独立 UIImageView：UILabel 末尾挂 NSTextAttachment 真机会量窄、裁掉双勾第二笔）。
+        _metaContent = [IMTickMetaView new];
+        _metaContent.translatesAutoresizingMaskIntoConstraints = NO;
+        [_metaChip addSubview:_metaContent];
+        [NSLayoutConstraint activateConstraints:@[
+            [_metaContent.leadingAnchor constraintEqualToAnchor:_metaChip.leadingAnchor constant:8],
+            [_metaContent.centerYAnchor constraintEqualToAnchor:_metaChip.centerYAnchor],
+        ]];
         [_container addSubview:_metaChip];
 
         _senderLabel = [UILabel new];
@@ -594,27 +600,32 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
     NSString *time = last.timestamp > 0
         ? [fmt stringFromDate:[NSDate dateWithTimeIntervalSince1970:last.timestamp / 1000.0]] : @"";
     // 状态规则见 IMAlbumTickStateForMembers（READ_TICK_DESIGN §4）；失败不在胶囊标 "!"，由宫格左侧红❗表达。
-    UIFont *font = _metaChip.font;
+    UIFont *font = [UIFont systemFontOfSize:11];
     UIColor *white = IMTheme.mediaBadgeText;
-    NSAttributedString *meta;
+    NSString *text = time;
+    IMReadTickKind kind = IMReadTickKindNone;
+    UIColor *tickColor = white;
     switch (IMAlbumTickStateForMembers(members, mine, peerReadSeq)) {
         case IMAlbumTickSending:
-            meta = [[NSAttributedString alloc] initWithString:[time stringByAppendingString:@" …"]
-                                                   attributes:@{ NSFontAttributeName: font, NSForegroundColorAttributeName: white }];
+            text = [time stringByAppendingString:@" …"];
             break;
         case IMAlbumTickSent:
-            meta = [IMReadTick metaWithTime:time read:NO font:font timeColor:white tickColor:white];
+            kind = IMReadTickKindSent;
             break;
         case IMAlbumTickRead:
-            meta = [IMReadTick metaWithTime:time read:YES font:font timeColor:white tickColor:IMTheme.mediaBadgeCheckRead];
+            kind = IMReadTickKindRead;
+            tickColor = IMTheme.mediaBadgeCheckRead;
             break;
         default:
-            meta = [[NSAttributedString alloc] initWithString:time attributes:@{ NSFontAttributeName: font, NSForegroundColorAttributeName: white }];
+            break;
     }
     _metaChip.hidden = NO;
-    _metaChip.attributedText = meta;
-    CGFloat textW = ceil([meta boundingRectWithSize:CGSizeMake(CGFLOAT_MAX, 18) options:NSStringDrawingUsesLineFragmentOrigin context:nil].size.width);
-    CGSize s = CGSizeMake(textW + 16, 18);
+    [_metaContent setAttributedText:[[NSAttributedString alloc] initWithString:text ?: @""
+        attributes:@{ NSFontAttributeName: font, NSForegroundColorAttributeName: white }]
+                               tick:kind tickColor:tickColor];
+    // 胶囊是 frame 布局：用内部约束撑出的内容宽 + 左右各 8 的内边距。
+    CGFloat contentW = ceil([_metaContent systemLayoutSizeFittingSize:UILayoutFittingCompressedSize].width);
+    CGSize s = CGSizeMake(contentW + 16, 18);
     _metaChip.frame = CGRectMake(kIMAlbumWidth - s.width - 6, _containerHeight.constant - s.height - 6, s.width, s.height);
 }
 

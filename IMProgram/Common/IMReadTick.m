@@ -83,3 +83,66 @@ static UIBezierPath *IMTickPath(BOOL isDouble) {
 }
 
 @end
+
+@implementation IMTickMetaView {
+    UILabel *_label;
+    UIImageView *_tick;
+    NSLayoutConstraint *_labelTrailingPlain;
+    NSLayoutConstraint *_labelTrailingTick;
+    NSLayoutConstraint *_tickWidth;
+    NSLayoutConstraint *_tickHeight;
+}
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        _tickFontSize = 11;
+        _label = [UILabel new];
+        _label.translatesAutoresizingMaskIntoConstraints = NO;
+        _label.lineBreakMode = NSLineBreakByClipping; // 宽度差一丝时默认尾部截断会把整段替成「…」
+        [_label setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+        [_label setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+        [self addSubview:_label];
+        _tick = [UIImageView new];
+        _tick.translatesAutoresizingMaskIntoConstraints = NO;
+        _tick.hidden = YES;
+        [self addSubview:_tick];
+
+        _labelTrailingPlain = [_label.trailingAnchor constraintEqualToAnchor:self.trailingAnchor];
+        _labelTrailingTick = [_label.trailingAnchor constraintEqualToAnchor:_tick.leadingAnchor constant:-kIMReadTickGap];
+        _labelTrailingTick.active = NO;
+        _tickWidth = [_tick.widthAnchor constraintEqualToConstant:0];
+        _tickHeight = [_tick.heightAnchor constraintEqualToConstant:0];
+        [NSLayoutConstraint activateConstraints:@[
+            [_label.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
+            [_label.topAnchor constraintEqualToAnchor:self.topAnchor],
+            [_label.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
+            _labelTrailingPlain,
+            [_tick.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
+            [_tick.bottomAnchor constraintEqualToAnchor:_label.lastBaselineAnchor], // 勾底边 = 文字基线
+            _tickWidth, _tickHeight,
+        ]];
+    }
+    return self;
+}
+
+- (NSAttributedString *)attributedText { return _label.attributedText; }
+- (void)setAttributedText:(NSAttributedString *)text { [self setAttributedText:text tick:IMReadTickKindNone tickColor:nil]; }
+
+- (void)setAttributedText:(NSAttributedString *)text tick:(IMReadTickKind)kind tickColor:(UIColor *)tickColor {
+    _label.attributedText = text;
+    BOOL shows = kind != IMReadTickKindNone;
+    _tick.hidden = !shows;
+    _labelTrailingTick.active = shows;
+    _labelTrailingPlain.active = !shows;
+    if (shows) {
+        UIImage *img = [IMReadTick imageDouble:(kind == IMReadTickKindRead) height:_tickFontSize * kHeightRatio];
+        _tick.image = img;
+        _tick.tintColor = tickColor ?: UIColor.grayColor;
+        _tickWidth.constant = ceil(img.size.width);
+        _tickHeight.constant = img.size.height;
+    }
+    [self invalidateIntrinsicContentSize];
+}
+
+@end

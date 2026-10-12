@@ -161,7 +161,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     NSLayoutConstraint *_noteBottom;     // 有系统行时：系统行贴 cell 底
     NSLayoutConstraint *_failBadgeTrailing;
     NSMutableAttributedString *_bodyText;  // 当前正文富文本，**不含时间占位**（引用缩略图异步到达后经 renderBodyText 重渲，#4）
-    UILabel *_textMeta;                    // 非文件气泡的时间 + ✓/✓✓：正文**下方**右对齐独立一行（对齐 Android 文本气泡；2026-10-03 起，此前是紧跟正文末尾的行内占位）
+    IMTickMetaView *_textMeta;                    // 非文件气泡的时间 + ✓/✓✓：正文**下方**右对齐独立一行（对齐 Android 文本气泡；2026-10-03 起，此前是紧跟正文末尾的行内占位）
     NSLayoutConstraint *_textMetaBelowText; // 链接卡片不可见：时间接在正文下方（可见时改落卡片下方）
     NSTextAttachment *_quoteThumbAtt;      // 引用媒体缩略图占位 attachment
     NSString *_quoteThumbKey;              // 复用防串图：URL 匹配才应用
@@ -178,7 +178,7 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     CAShapeLayer *_fileDisc;               // 未下载态：与圆环等大的实心圆底（accent 填充，中间白色 ↓）
     UILabel *_fileNameLabel;               // 文件名：最多两行、中间截断保扩展名
     UILabel *_fileStatusLabel;             // 第二行：大小 / 准备中… / 已传 x/y / 已暂停 / 发送失败
-    UILabel *_fileMetaLabel;               // 时间 + ✓/✓✓：挂气泡上。无 caption 在文件行状态行下方靠右，有 caption 落到 caption 下方（气泡右下角）
+    IMTickMetaView *_fileMetaLabel;               // 时间 + ✓/✓✓：挂气泡上。无 caption 在文件行状态行下方靠右，有 caption 落到 caption 下方（气泡右下角）
     int64_t _fileSizeBytes;                // 记住文件字节数：进度就地更新时未下载/就绪态拼"尺寸 · …"用
     UITapGestureRecognizer *_fileTap;
     NSLayoutConstraint *_fileRowBottom;    // 文件消息：文件行贴气泡底（无 caption 时）
@@ -492,11 +492,9 @@ static NSAttributedString *sIMMentionFlashOriginal = nil;
         _text.font = [UIFont systemFontOfSize:IMTheme.chatFontSize];
         [_bubble addSubview:_text];
 
-        _textMeta = [UILabel new];
-        _textMeta.lineBreakMode = NSLineBreakByClipping; // 宽度差一丝时 UILabel 默认尾部截断会把「时间+勾」整个替成「…」
+        _textMeta = [IMTickMetaView new]; // 时间文字 UILabel + 勾 UIImageView（UILabel 末尾挂附件真机会裁勾）
         _textMeta.translatesAutoresizingMaskIntoConstraints = NO;
         _textMeta.hidden = YES;
-        [_textMeta setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
         [_bubble addSubview:_textMeta];
 
         _failBadge = [IMFailBadgeView new];
@@ -561,8 +559,7 @@ static NSAttributedString *sIMMentionFlashOriginal = nil;
         _fileStatusLabel.font = [UIFont systemFontOfSize:12];
         [_fileRow addSubview:_fileStatusLabel];
 
-        _fileMetaLabel = [UILabel new];
-        _fileMetaLabel.lineBreakMode = NSLineBreakByClipping;
+        _fileMetaLabel = [IMTickMetaView new];
         _fileMetaLabel.translatesAutoresizingMaskIntoConstraints = NO;
         // 挂**气泡**而不是文件行：有 caption 时它要落到 caption 下方（气泡右下角），出了文件行的范围。
         // 跨层级约束照样成立（共同祖先 _bubble）；代价是不再随 _fileRow.hidden 一起藏，configure 里自己藏。
@@ -801,7 +798,9 @@ static NSAttributedString *sIMMentionFlashOriginal = nil;
     [IMTheme applyBubbleDirectionStyle:_bubble mine:mine]; // 底色+圆角+尾角（收发方向样式，四类气泡 cell 共用）
     _text.font = [UIFont systemFontOfSize:IMTheme.chatFontSize];
     NSMutableAttributedString *body = [NSMutableAttributedString new];
-    NSAttributedString *textMeta = nil; // 非文件气泡右下角的时间/✓/✓✓（文件模式由文件行里的 _fileMetaLabel 画）
+    NSAttributedString *textMeta = nil; // 非文件气泡右下角的时间文字（文件模式由文件行里的 _fileMetaLabel 画）
+    IMReadTickKind textTick = IMReadTickKindNone; // 与 textMeta 配套的勾（独立 UIImageView 画）
+    UIColor *textTickColor = nil;
     // 群聊对方昵称 + 角色徽标：移到气泡**外**上方独立 _senderLabel（与图片/相册/链接/记录气泡统一风格），
     // 不再拼进气泡富文本。昵称≤12 中文字截断 + 群主/管理员徽标（IMRoleBadgeAttachment 内联小图，随深浅色）。
     BOOL showSender = senderName.length > 0;
@@ -937,7 +936,8 @@ static NSAttributedString *sIMMentionFlashOriginal = nil;
                     attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:14],
                                   NSForegroundColorAttributeName: IMTheme.textSecondary }]];
         }
-        textMeta = [IMMessageCell attributedMetaForMessage:message mine:mine peerReadSeq:peerReadSeq];
+        textMeta = [IMMessageCell metaTextForMessage:message mine:mine peerReadSeq:peerReadSeq
+                                                tick:&textTick tickColor:&textTickColor];
     }
     // 文件模式：头部（昵称/转发/引用）各段都以 \n 收尾（原本为衔接正文），此处已无正文跟随，
     // 裁掉尾随换行避免头部与文件行之间多出一行空白。
@@ -950,7 +950,7 @@ static NSAttributedString *sIMMentionFlashOriginal = nil;
         [IMBubbleCell applySearchHighlight:self.searchHighlightKeyword toMutable:body];
     }
     _bodyText = body;
-    _textMeta.attributedText = textMeta;
+    [_textMeta setAttributedText:textMeta tick:textTick tickColor:textTickColor];
     _textMeta.hidden = (textMeta.length == 0);
     // 正文此处不直接写 _text：下面两个分支都会走 applyLinkPreviewVisibleConstraints: → renderBodyText。
     _fileRow.hidden = !fileMode;
@@ -1010,7 +1010,7 @@ static NSAttributedString *sIMMentionFlashOriginal = nil;
         _fileNameLabel.text = nil;
         _fileStatusLabel.text = nil;
         _fileStatusLabel.attributedText = nil;
-        _fileMetaLabel.attributedText = nil;
+        _fileMetaLabel.attributedText = nil; // 同时清勾
         _fileIcon.image = nil;
         _fileDisc.hidden = _fileRingTrack.hidden = _fileRing.hidden = YES; // 复用回非文件消息：清掉圆底/圆环残留
     }
@@ -1041,7 +1041,7 @@ static NSAttributedString *sIMMentionFlashOriginal = nil;
     _fileNameLabel.text = message.fileName.length > 0 ? message.fileName : IMLocalized(@"common.file");
     _fileSizeBytes = message.fileSize; // 记住：进度就地更新时未下载/就绪态要拼"尺寸 · 点击下载"
     [self applyFileStatusLine];
-    _fileMetaLabel.attributedText = [IMMessageCell attributedMetaForMessage:message mine:mine peerReadSeq:peerReadSeq];
+    [IMMessageCell applyMetaForMessage:message mine:mine peerReadSeq:peerReadSeq toView:_fileMetaLabel];
     [self applyFileControlStateWithFileName:_fileNameLabel.text];
 }
 
