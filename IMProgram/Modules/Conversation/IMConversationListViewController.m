@@ -331,16 +331,19 @@ static CGFloat const kIMRowLeading = 16;
                    range:NSMakeRange(0, tag.length)];
         _last.attributedText = s;
     }
-    // 群「待审入群申请」红字前缀（G3，仅群主/管理员下发 pendingCount）：进群管理才发现太深，顶到会话列表。
+    // 群「待审入群申请」（G3，仅群主/管理员下发 pendingCount）：有待审时**整行只显红字提示**（可带 [有人@我]），
+    // 不再接上一条消息——待审是「当前待办」，上一条是「历史」，拼在一起读不通（还会叠在旧系统提示上）。
+    // 审批清零后 pendingCount=0，自然回到最后一条消息预览。
     if (c.isGroup && c.pendingCount > 0) {
-        NSString *tag = [IMLocalizedFormat(@"conv.list.pending_tag", (long)c.pendingCount) stringByAppendingString:@" "];
-        NSAttributedString *body = _last.attributedText.length ? _last.attributedText
-            : [[NSAttributedString alloc] initWithString:(_last.text ?: @"")
-                  attributes:@{ NSForegroundColorAttributeName: IMTheme.textSecondary, NSFontAttributeName: _last.font }];
-        NSMutableAttributedString *s = [[NSMutableAttributedString alloc] initWithString:tag
-            attributes:@{ NSForegroundColorAttributeName: IMTheme.danger,
-                          NSFontAttributeName: [UIFont systemFontOfSize:_last.font.pointSize weight:UIFontWeightSemibold] }];
-        [s appendAttributedString:body];
+        NSDictionary *attrs = @{ NSForegroundColorAttributeName: IMTheme.danger,
+                                 NSFontAttributeName: [UIFont systemFontOfSize:_last.font.pointSize weight:UIFontWeightSemibold] };
+        NSMutableAttributedString *s = [NSMutableAttributedString new];
+        if (c.mentionUnread) {
+            [s appendAttributedString:[[NSAttributedString alloc]
+                initWithString:[IMLocalized(@"conv.list.mention_tag") stringByAppendingString:@" "] attributes:attrs]];
+        }
+        [s appendAttributedString:[[NSAttributedString alloc]
+            initWithString:IMLocalizedFormat(@"conv.list.pending_tag", (long)c.pendingCount) attributes:attrs]];
         _last.attributedText = s;
     }
     // 在线态绿点：仅单聊且对端在线时显示（快照版；isOnline 按 onlineUntil 实时判，租约到期即隐）。群聊不显示。

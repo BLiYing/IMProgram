@@ -29,13 +29,10 @@
 static NSString *IMRecordItemTimeText(int64_t timestampMillis) {
     if (timestampMillis <= 0) { return @""; }
     NSDate *d = [NSDate dateWithTimeIntervalSince1970:(NSTimeInterval)timestampMillis / 1000.0];
-    NSCalendar *cal = NSCalendar.currentCalendar;
-    static NSDateFormatter *hm = nil, *mdhm = nil;
-    static dispatch_once_t once; dispatch_once(&once, ^{
-        hm = [NSDateFormatter new]; hm.locale = [NSLocale localeWithLocaleIdentifier:@"zh_CN"]; hm.dateFormat = @"HH:mm";
-        mdhm = [NSDateFormatter new]; mdhm.locale = [NSLocale localeWithLocaleIdentifier:@"zh_CN"]; mdhm.dateFormat = @"M月d日 HH:mm";
-    });
-    return [cal isDateInToday:d] ? [hm stringFromDate:d] : [mdhm stringFromDate:d];
+    NSString *hm = [IMTheme timeStringFromMillis:timestampMillis];
+    if ([NSCalendar.currentCalendar isDateInToday:d]) { return hm; }
+    // 日期走统一词汇（time.month_day / time.full_date，随 App 语言），不再写死 zh_CN 的「M月d日」。
+    return [NSString stringWithFormat:@"%@ %@", [IMTheme dateLabelForDate:d], hm];
 }
 
 #pragma mark - 单条记录 Cell

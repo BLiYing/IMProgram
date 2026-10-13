@@ -567,8 +567,8 @@
 "conv.list.empty_find_contacts" = "No chats yet. Find someone in Contacts to start one.";
 "conv.list.mention_tag" = "[Someone mentioned you]";
 "conv.list.no_message" = "(No messages)";
-"conv.list.pending_badge" = "Pending %1$@";
-"conv.list.pending_tag" = "[%1$ld pending]";
+"conv.list.pending_badge" = "Join requests %1$@";
+"conv.list.pending_tag" = "[Join requests %1$ld]";
 "conv.list.recalled_member" = "%1$@ recalled a message";
 "conv.list.recalled_peer" = "The other person recalled a message";
 "conv.list.recalled_self" = "You recalled a message";

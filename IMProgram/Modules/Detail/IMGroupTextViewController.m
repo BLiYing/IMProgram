@@ -34,14 +34,8 @@
 
 + (nullable NSString *)announceSubtitleForMillis:(int64_t)ms {
     if (ms <= 0) { return nil; }
-    static NSDateFormatter *f;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        f = [NSDateFormatter new];
-        f.locale = [NSLocale localeWithLocaleIdentifier:@"zh_CN"];
-        f.dateFormat = @"M月d日 HH:mm";
-    });
-    NSString *s = [f stringFromDate:[NSDate dateWithTimeIntervalSince1970:(NSTimeInterval)ms / 1000.0]];
+    NSDate *date = [NSDate dateWithTimeIntervalSince1970:(NSTimeInterval)ms / 1000.0];
+    NSString *s = [NSString stringWithFormat:@"%@ %@", [IMTheme dateLabelForDate:date], [IMTheme timeStringFromMillis:ms]];
     return IMLocalizedFormat(@"group.announcement.published_at", s);
 }
 

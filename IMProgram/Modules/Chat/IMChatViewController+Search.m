@@ -669,11 +669,7 @@ static const CGFloat kIMSearchFromRowH = 52;
     if (!hit) { return; }
     NSDate *hitDay = [cal startOfDayForDate:[NSDate dateWithTimeIntervalSince1970:hit.timestamp / 1000.0]];
     if (![cal isDate:hitDay inSameDayAsDate:day]) {
-        // DEFERRED（与全仓其它 NSDateFormatter 硬编码中文格式同一坑，见 current_task.md）：
-        // "M月d日" 尚未纳入 time.* 体系，此处只迁提示句本身，日期格式暂留原样。
-        NSDateFormatter *fmt = [NSDateFormatter new];
-        fmt.dateFormat = @"M月d日";
-        [self im_showToast:IMLocalizedFormat(@"chat.search.day_no_messages_jumped", [fmt stringFromDate:hitDay])];
+        [self im_showToast:IMLocalizedFormat(@"chat.search.day_no_messages_jumped", [IMTheme dateLabelForDate:hitDay])];
     }
 }
 

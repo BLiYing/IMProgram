@@ -567,8 +567,8 @@
 "conv.list.empty_find_contacts" = "还没有会话，去「通讯录」找人发起一个吧";
 "conv.list.mention_tag" = "[有人@我]";
 "conv.list.no_message" = "（无消息）";
-"conv.list.pending_badge" = "待审 %1$@";
-"conv.list.pending_tag" = "[%1$ld 待审]";
+"conv.list.pending_badge" = "入群申请 %1$@";
+"conv.list.pending_tag" = "[入群申请 %1$ld]";
 "conv.list.recalled_member" = "%1$@撤回了一条消息";
 "conv.list.recalled_peer" = "对方撤回了一条消息";
 "conv.list.recalled_self" = "你撤回了一条消息";
