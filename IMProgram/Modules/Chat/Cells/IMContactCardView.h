@@ -7,6 +7,8 @@
 
 @class IMContactCard;
 
+#import "IMReadTick.h"
+
 NS_ASSUME_NONNULL_BEGIN
 
 /// 卡片定宽（与 IMChatRecordCell 的 240 同族：不随内容伸缩，避免"张三"和"欧阳建国先生"两张卡宽度打架）。
@@ -15,10 +17,13 @@ FOUNDATION_EXPORT const CGFloat IMContactCardViewWidth;
 @interface IMContactCardView : UIView
 
 /// card：解析后的名片；displayName：**收方本地**显示名（备注 > 快照昵称 > uid），由调用方按 IMRemarkStore 解析。
-/// metaText：右下角时间/状态富文本（气泡用；确认 sheet 传 nil 则整块隐藏）。
+/// metaText + tick/tickColor：右下角时间/状态（气泡用，来自 `+[IMMessageCell metaTextForMessage:...]`；
+/// 确认 sheet 传 nil / IMReadTickKindNone 则整块隐藏）。勾由独立 UIImageView 画，不进富文本。
 - (void)configureWithCard:(IMContactCard *)card
               displayName:(nullable NSString *)displayName
-                     meta:(nullable NSAttributedString *)metaText;
+                 metaText:(nullable NSAttributedString *)metaText
+                     tick:(IMReadTickKind)tick
+                tickColor:(nullable UIColor *)tickColor;
 
 /// 脏名片（JSON 非法 / 缺 u）降级：把卡片内容整块隐藏，让调用方在其上盖一行灰字。
 /// 不这么做的话空头像圈与分隔线仍会绘在降级文案背后（cell 复用时还会残留上一行的头像）。

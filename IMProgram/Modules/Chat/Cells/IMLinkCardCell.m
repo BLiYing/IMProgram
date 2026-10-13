@@ -19,7 +19,8 @@
     UILabel *_title;
     UILabel *_desc;
     UILabel *_host;
-    UILabel *_meta;           // 时间 + ✓/✓✓：stack 最后一行、靠右 = 气泡右下角（与其余气泡同一套判据）
+    IMTickMetaView *_meta;    // 时间 + ✓/✓✓
+    UIView *_metaRow;         // _meta 的靠右容器（stack 为 Fill 对齐）：stack 最后一行、靠右 = 气泡右下角（与其余气泡同一套判据）
     NSLayoutConstraint *_leading;
     NSLayoutConstraint *_trailing;
     NSString *_url;
@@ -69,12 +70,19 @@
         [_bubble addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tapped)]];
         [self.contentView addSubview:_bubble];
 
-        _meta = [UILabel new];
-        _meta.lineBreakMode = NSLineBreakByClipping;
-        _meta.font = [UIFont systemFontOfSize:11];
-        _meta.textAlignment = NSTextAlignmentRight;
+        _meta = [IMTickMetaView new];
+        // stack 是 Fill 对齐，会把子视图撑满整宽；时间行要靠右 = 套一层容器、meta 贴容器右边。
+        _metaRow = [UIView new];
+        _meta.translatesAutoresizingMaskIntoConstraints = NO;
+        [_metaRow addSubview:_meta];
+        [NSLayoutConstraint activateConstraints:@[
+            [_meta.trailingAnchor constraintEqualToAnchor:_metaRow.trailingAnchor],
+            [_meta.leadingAnchor constraintGreaterThanOrEqualToAnchor:_metaRow.leadingAnchor],
+            [_meta.topAnchor constraintEqualToAnchor:_metaRow.topAnchor],
+            [_meta.bottomAnchor constraintEqualToAnchor:_metaRow.bottomAnchor],
+        ]];
 
-        _stack = [[UIStackView alloc] initWithArrangedSubviews:@[_quote, _link, _card, _meta]];
+        _stack = [[UIStackView alloc] initWithArrangedSubviews:@[_quote, _link, _card, _metaRow]];
         _stack.axis = UILayoutConstraintAxisVertical;
         _stack.spacing = 6;
         _stack.alignment = UIStackViewAlignmentFill;
@@ -170,8 +178,7 @@
     _card.layer.cornerRadius = IMTheme.radiusBubble;
     // 右下角时间/状态：与其余气泡共用基类的同一套判据（发送中…/未发送 ✗/时间 + ✓✓）。
     // 此前本 cell 完全没有这一块（IMChatRecordCell 早先同病、已补），纯链接消息收发两端都看不出时间。
-    _meta.attributedText = [IMMessageCell attributedMetaForMessage:message mine:mine peerReadSeq:peerReadSeq];
-    _meta.textAlignment = NSTextAlignmentRight; // 赋 attributedText 会重置对齐，串里没有段落样式，靠 label 再设一次
+    [IMMessageCell applyMetaForMessage:message mine:mine peerReadSeq:peerReadSeq toView:_meta];
     [_stack setCustomSpacing:2 afterView:_link]; // 先按「仅链接 → 时间」排；抓到 OG 卡片时 applyPreview 改回 6
     _quote.font = [UIFont systemFontOfSize:MAX(12, IMTheme.chatFontSize - 4)];
     _title.font = [UIFont systemFontOfSize:MAX(14, IMTheme.chatFontSize - 2) weight:UIFontWeightSemibold];

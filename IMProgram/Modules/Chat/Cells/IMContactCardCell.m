@@ -90,9 +90,12 @@
     IMContactCard *card = IMContactCardParse(message.content);
     _tappable = card != nil;
     _fallback.hidden = _tappable;
-    NSAttributedString *meta = [IMMessageCell attributedMetaForMessage:message mine:mine peerReadSeq:peerReadSeq];
+    IMReadTickKind tick = IMReadTickKindNone;
+    UIColor *tickColor = nil;
+    NSAttributedString *meta = [IMMessageCell metaTextForMessage:message mine:mine peerReadSeq:peerReadSeq
+                                                            tick:&tick tickColor:&tickColor];
     if (card) {
-        [_card configureWithCard:card displayName:displayName meta:meta];
+        [_card configureWithCard:card displayName:displayName metaText:meta tick:tick tickColor:tickColor];
     } else {
         [_card configureAsUnparsable];   // 只留降级灰字，卡片内容整块隐藏（含作废在途头像加载）
     }

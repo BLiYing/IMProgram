@@ -14,7 +14,7 @@
     UIView *_bubble;
     UIImageView *_icon;
     UILabel *_label;
-    UILabel *_meta;
+    IMTickMetaView *_meta;
     NSLayoutConstraint *_iconSize;
     NSLayoutConstraint *_leading;
     NSLayoutConstraint *_trailing;
@@ -47,8 +47,7 @@
         [_label setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
         [_bubble addSubview:_label];
 
-        _meta = [UILabel new];
-        _meta.lineBreakMode = NSLineBreakByClipping;
+        _meta = [IMTickMetaView new];
         _meta.translatesAutoresizingMaskIntoConstraints = NO;
         [_meta setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
         [_meta setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
@@ -115,7 +114,7 @@
     _icon.hidden = !d.supported;                       // 兜底：只留灰字
     _icon.image = [UIImage systemImageNamed:d.video ? @"video.fill" : @"phone.fill"];
     _icon.tintColor = textColor;
-    _meta.attributedText = [IMMessageCell attributedMetaForMessage:message mine:mine peerReadSeq:peerReadSeq];
+    [IMMessageCell applyMetaForMessage:message mine:mine peerReadSeq:peerReadSeq toView:_meta];
 
     _leading.active = !mine;
     _trailing.active = mine;

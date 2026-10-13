@@ -196,18 +196,6 @@ const int64_t kIMPeerReadSeqHidden = -1;
     return [[NSAttributedString alloc] initWithString:time ?: @"" attributes:base];
 }
 
-+ (NSAttributedString *)attributedMetaForMessage:(IMMessageModel *)message
-                                            mine:(BOOL)mine
-                                     peerReadSeq:(int64_t)peerReadSeq {
-    IMReadTickKind kind = IMReadTickKindNone;
-    UIColor *tickColor = nil;
-    NSAttributedString *text = [self metaTextForMessage:message mine:mine peerReadSeq:peerReadSeq
-                                                   tick:&kind tickColor:&tickColor];
-    if (kind == IMReadTickKindNone) { return text; }
-    return [IMReadTick metaWithTime:text.string read:(kind == IMReadTickKindRead) font:[UIFont systemFontOfSize:11]
-                          timeColor:IMTheme.bubbleMetaTime tickColor:tickColor];
-}
-
 + (void)applyMetaForMessage:(IMMessageModel *)message
                        mine:(BOOL)mine
                 peerReadSeq:(int64_t)peerReadSeq

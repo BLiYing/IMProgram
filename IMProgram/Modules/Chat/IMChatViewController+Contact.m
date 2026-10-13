@@ -115,7 +115,7 @@ static const NSUInteger kIMContactMaxSelection = 9;
     preview.translatesAutoresizingMaskIntoConstraints = NO;
     preview.backgroundColor = IMTheme.bubbleThem;
     preview.layer.cornerRadius = IMTheme.radiusBubble;
-    [preview configureWithCard:cards.firstObject displayName:nil meta:nil];
+    [preview configureWithCard:cards.firstObject displayName:nil metaText:nil tick:IMReadTickKindNone tickColor:nil];
     [sheet.view addSubview:preview];
 
     UILabel *rest = [UILabel new];

@@ -41,10 +41,8 @@ typedef NS_ENUM(NSInteger, IMReadTickKind) {
 /// 双勾第二笔会被裁（会话列表 / 语音气泡 / 各媒体气泡都踩过）。尺寸由内部约束撑出，外部像普通 label 一样约束即可。
 @interface IMTickMetaView : UIView
 
-/// 仅文字部分（时间 / 发送中… / 未发送 ✗）；字体与颜色由富文本属性给出。
+/// 仅文字部分（时间 / 发送中… / 未发送 ✗）；字体与颜色由富文本属性给出。勾高按 11pt 字号算（各气泡时间行统一 11）。
 @property (nonatomic, copy, nullable) NSAttributedString *attributedText;
-/// 字号基准（勾高 = 字号 × 0.95，同 IMReadTick）。默认 11。
-@property (nonatomic, assign) CGFloat tickFontSize;
 
 /// 一次设定文字与勾；kind=None 时不画勾、tickColor 忽略。
 - (void)setAttributedText:(nullable NSAttributedString *)text tick:(IMReadTickKind)kind tickColor:(nullable UIColor *)tickColor;

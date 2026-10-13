@@ -438,7 +438,7 @@
 
 - (NSString *)formatDur:(int64_t)ms { return IMFormatVoiceDuration(ms); }
 
-/// 右下 meta（timeLabel 富文本）：与 IMBubbleCell.attributedMetaForMessage 完全同口径——
+/// 右下 meta（timeLabel 富文本）：与 IMMessageCell metaTextForMessage: 完全同口径——
 /// 对方 = "HH:mm"；己方发送中 = "发送中…"；己方失败 = "未发送 ✗"（红，被拒收 note 存在时只显时间）；
 /// 己方已 ack = "HH:mm ✓" 或 "HH:mm ✓✓"（双勾蓝，IMReadTick 图标）。语音时长由左侧 durationLabel 独立承载。
 - (NSAttributedString *)rightMetaAttributedForMessage:(IMMessageModel *)message mine:(BOOL)mine

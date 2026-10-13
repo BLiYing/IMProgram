@@ -75,11 +75,8 @@ NS_ASSUME_NONNULL_BEGIN
 /// 而"该不该显示已读"只有会话级一个来源（IMChatViewController 的 peerReadSeqForCell）。
 FOUNDATION_EXPORT const int64_t kIMPeerReadSeqHidden;
 
-+ (NSAttributedString *)attributedMetaForMessage:(IMMessageModel *)message
-                                            mine:(BOOL)mine
-                                     peerReadSeq:(int64_t)peerReadSeq;
 
-/// 同口径，但勾不进富文本：文字 + 勾种类/颜色分开给，交 IMTickMetaView 用独立 UIImageView 画勾
+/// 气泡右下角时间/状态（发送中… / 未发送 ✗ / 时间 + 单双勾）。勾不进富文本：文字 + 勾种类/颜色分开给，交 IMTickMetaView 用独立 UIImageView 画勾
 /// （UILabel 末尾挂 NSTextAttachment 在真机上会量窄、裁掉双勾第二笔）。outTick/outTickColor 可传 NULL。
 + (NSAttributedString *)metaTextForMessage:(IMMessageModel *)message
                                       mine:(BOOL)mine

@@ -15,7 +15,7 @@
     UILabel *_title;
     UILabel *_preview;
     UILabel *_footer;
-    UILabel *_meta;                // 时间 + 勾（卡片右下角，与 _footer 同排）
+    IMTickMetaView *_meta;         // 时间 + 勾（卡片右下角，与 _footer 同排）
     NSLayoutConstraint *_leading;
     NSLayoutConstraint *_trailing;
     UILabel *_senderLabel;         // 群聊对方消息：发送者昵称（连续段首条显示，主色小字，卡片上方）
@@ -70,10 +70,8 @@
         // 别的气泡都在右下角显时间，唯独合并转发卡片没有，看不出这条是什么时候发/收的。
         // 放进卡片内而不是卡片下方另起一行：卡片就是气泡本身（_card 直接套 applyBubbleDirectionStyle），
         // 下方再挂一行会多出一截空白，也和 IMContactCardView 的同款布局分叉。
-        _meta = [UILabel new];
-        _meta.lineBreakMode = NSLineBreakByClipping;
+        _meta = [IMTickMetaView new];   // 勾走独立 UIImageView，不挂在 UILabel 末尾（真机会量窄裁第二笔）
         _meta.translatesAutoresizingMaskIntoConstraints = NO;
-        _meta.font = [UIFont systemFontOfSize:11];
         [_meta setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
         [_card addSubview:_meta];
 
@@ -152,7 +150,7 @@
                   senderRole:(IMGroupRole)senderRole {
     [IMTheme applyBubbleDirectionStyle:_card mine:mine]; // 底色+圆角+尾角（收发方向样式，四类气泡 cell 共用）
     // 右下角时间/状态：与其余气泡共用基类的同一套判据（发送中…/未发送 ✗/时间 + ✓✓）。
-    _meta.attributedText = [IMMessageCell attributedMetaForMessage:message mine:mine peerReadSeq:peerReadSeq];
+    [IMMessageCell applyMetaForMessage:message mine:mine peerReadSeq:peerReadSeq toView:_meta];
     _title.font = [UIFont systemFontOfSize:MAX(14, IMTheme.chatFontSize - 2) weight:UIFontWeightSemibold];
     _preview.font = [UIFont systemFontOfSize:MAX(12, IMTheme.chatFontSize - 5)];
     NSString *title = nil; NSArray<NSString *> *lines = nil;

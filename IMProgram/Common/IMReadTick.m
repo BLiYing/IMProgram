@@ -96,7 +96,6 @@ static UIBezierPath *IMTickPath(BOOL isDouble) {
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
     if (self) {
-        _tickFontSize = 11;
         _label = [UILabel new];
         _label.translatesAutoresizingMaskIntoConstraints = NO;
         _label.lineBreakMode = NSLineBreakByClipping; // 宽度差一丝时默认尾部截断会把整段替成「…」
@@ -126,6 +125,11 @@ static UIBezierPath *IMTickPath(BOOL isDouble) {
     return self;
 }
 
+/// 对外的基线 = 时间文字的基线：外部用 lastBaselineAnchor / firstBaselineAnchor 对齐本视图时（通话记录气泡等）按文字对，
+/// 否则 UIView 默认把下边缘当基线，会比旁边的 label 偏低一点。
+- (UIView *)viewForFirstBaselineLayout { return _label; }
+- (UIView *)viewForLastBaselineLayout { return _label; }
+
 - (NSAttributedString *)attributedText { return _label.attributedText; }
 - (void)setAttributedText:(NSAttributedString *)text { [self setAttributedText:text tick:IMReadTickKindNone tickColor:nil]; }
 
@@ -136,13 +140,12 @@ static UIBezierPath *IMTickPath(BOOL isDouble) {
     _labelTrailingTick.active = shows;
     _labelTrailingPlain.active = !shows;
     if (shows) {
-        UIImage *img = [IMReadTick imageDouble:(kind == IMReadTickKindRead) height:_tickFontSize * kHeightRatio];
+        UIImage *img = [IMReadTick imageDouble:(kind == IMReadTickKindRead) height:11 * kHeightRatio];
         _tick.image = img;
         _tick.tintColor = tickColor ?: UIColor.grayColor;
         _tickWidth.constant = ceil(img.size.width);
         _tickHeight.constant = img.size.height;
     }
-    [self invalidateIntrinsicContentSize];
 }
 
 @end

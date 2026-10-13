@@ -15,7 +15,7 @@ const CGFloat IMContactCardViewWidth = 240;
     UIView  *_sep;
     UIImageView *_footIcon;
     UILabel *_footText;
-    UILabel *_meta;
+    IMTickMetaView *_meta;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -63,10 +63,8 @@ const CGFloat IMContactCardViewWidth = 240;
         _footText.text = IMLocalized(@"contact.card.footer");
         [self addSubview:_footText];
 
-        _meta = [UILabel new];   // 时间 + 勾（气泡右下角），确认 sheet 里为空
-        _meta.lineBreakMode = NSLineBreakByClipping;
+        _meta = [IMTickMetaView new];   // 时间 + 勾（气泡右下角），确认 sheet 里为空
         _meta.translatesAutoresizingMaskIntoConstraints = NO;
-        _meta.font = [UIFont systemFontOfSize:11];
         [_meta setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
         [self addSubview:_meta];
 
@@ -106,7 +104,8 @@ const CGFloat IMContactCardViewWidth = 240;
     _avatar.text = nil;
 }
 
-- (void)configureWithCard:(IMContactCard *)card displayName:(NSString *)displayName meta:(NSAttributedString *)metaText {
+- (void)configureWithCard:(IMContactCard *)card displayName:(NSString *)displayName
+                 metaText:(NSAttributedString *)metaText tick:(IMReadTickKind)tick tickColor:(UIColor *)tickColor {
     for (UIView *v in @[_avatar, _name, _sub, _sep, _footIcon, _footText]) { v.hidden = NO; }
     // 主标题走**收方本地**显示名（备注优先）；副行恒显内部 ID，两者同源于 §9 的口径。
     NSString *shown = displayName.length > 0 ? displayName
@@ -119,7 +118,7 @@ const CGFloat IMContactCardViewWidth = 240;
     _sub.text = card.username.length > 0 ? [@"@" stringByAppendingString:card.username] : @"";
     // 头像：有 URL 走图片，无则首字母圈（seed=uid，取色稳定）。加载失败由 category 自行回退。
     [_avatar im_setAvatarURL:card.avatarURL seed:(card.userID ?: @"") displayName:shown];
-    _meta.attributedText = metaText;
+    [_meta setAttributedText:metaText tick:tick tickColor:tickColor];
     _meta.hidden = metaText.length == 0;
 }
 

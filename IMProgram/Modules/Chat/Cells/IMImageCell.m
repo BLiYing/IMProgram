@@ -20,7 +20,7 @@
 /// 气泡最大盒子：宽取 240 与屏宽 62% 的较小者（窄屏也不顶满），高 320（长图不会撑满整屏）。
 static const CGFloat kIMMediaMaxWidth = 240;
 static const CGFloat kIMMediaMaxHeight = 320;
-static const CGFloat kIMMediaMinSide = 80;   // 极端长条的短边下限（保证可点按）
+static const CGFloat kIMMediaMinSide = 96;   // 极端长条的短边下限（保证可点按；也要容得下右下角「时间 + 双勾」胶囊，80 时 12 小时制长时间串会撑破）
 static const CGFloat kIMBadgeInset = 6;      // 角标距缩略图边缘
 static const CGFloat kIMBadgeHeight = 18;
 static const CGFloat kIMDownloadRingSide = 56; // 下载进度环外接方形边长（绕 44pt 中心圆钮一圈）
@@ -209,11 +209,19 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
             [_durationWrap.trailingAnchor constraintLessThanOrEqualToAnchor:_thumb.trailingAnchor constant:-kIMBadgeInset],
             [_metaWrap.trailingAnchor constraintEqualToAnchor:_thumb.trailingAnchor constant:-kIMBadgeInset],
             [_metaWrap.bottomAnchor constraintEqualToAnchor:_thumb.bottomAnchor constant:-kIMBadgeInset],
-            [_metaWrap.leadingAnchor constraintGreaterThanOrEqualToAnchor:_thumb.leadingAnchor constant:kIMBadgeInset],
+            // 时间胶囊的宽由内容撑出（文字 required 不可压）。极窄缩略图 + 长时间串（「已编辑 下午12:30」）时放不下，
+            // 此条用 999 让位：宁可胶囊向左略探出，也不让 Auto Layout 在运行时随机打断别的 required 约束。
+            [self priority:UILayoutPriorityRequired - 1 of:[_metaWrap.leadingAnchor constraintGreaterThanOrEqualToAnchor:_thumb.leadingAnchor constant:kIMBadgeInset]],
         ]];
         [self applyAlignmentMine:NO showName:NO];
     }
     return self;
+}
+
+/// 返回同一条约束并设置优先级（数组字面量里内联用）。
+- (NSLayoutConstraint *)priority:(UILayoutPriority)p of:(NSLayoutConstraint *)c {
+    c.priority = p;
+    return c;
 }
 
 /// 靠**优先级**切换左右贴边与顶部锚点（四条约束始终激活）。生效侧 999，让位侧最低优先级。
@@ -244,32 +252,16 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
 
 /// 造一个「半透明黑底 + 白字」的悬浮角标胶囊（浅色图上也读得清，不靠文字阴影）。
 - (UIView *)makeBadgeWrapWithLabel:(UILabel *__strong *)outLabel {
-    UIView *wrap = [UIView new];
-    wrap.translatesAutoresizingMaskIntoConstraints = NO;
-    wrap.backgroundColor = IMTheme.mediaBadgeBackground;
-    wrap.layer.cornerRadius = kIMBadgeHeight / 2;
-    wrap.layer.cornerCurve = kCACornerCurveContinuous;
-    wrap.hidden = YES;
-    wrap.userInteractionEnabled = NO;
-    [self.contentView addSubview:wrap];
-
     UILabel *label = [UILabel new];
     label.translatesAutoresizingMaskIntoConstraints = NO;
     label.font = [UIFont monospacedDigitSystemFontOfSize:11 weight:UIFontWeightMedium];
     label.textColor = IMTheme.mediaBadgeText;
     label.lineBreakMode = NSLineBreakByClipping; // 极端宽高比：裁剪而非溢出气泡
-    [wrap addSubview:label];
-    [NSLayoutConstraint activateConstraints:@[
-        [wrap.heightAnchor constraintEqualToConstant:kIMBadgeHeight],
-        [label.leadingAnchor constraintEqualToAnchor:wrap.leadingAnchor constant:6],
-        [label.trailingAnchor constraintEqualToAnchor:wrap.trailingAnchor constant:-6],
-        [label.centerYAnchor constraintEqualToAnchor:wrap.centerYAnchor],
-    ]];
     *outLabel = label;
-    return wrap;
+    return [self makeBadgeWrapWithContent:label];
 }
 
-/// 胶囊底 + 任意内容视图（时间+勾用 IMTickMetaView）：与 makeBadgeWrapWithLabel 同一套内边距与高度。
+/// 胶囊底 + 任意内容视图（文字角标是 UILabel，时间+勾是 IMTickMetaView）：统一内边距 6 与高度。
 - (UIView *)makeBadgeWrapWithContent:(UIView *)content {
     UIView *wrap = [UIView new];
     wrap.translatesAutoresizingMaskIntoConstraints = NO;
