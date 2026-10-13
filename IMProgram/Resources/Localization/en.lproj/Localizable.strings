@@ -1317,6 +1317,9 @@
 "presence.recently" = "Recently online";
 "presence.today_at" = "Last seen today at %1$@";
 "presence.yesterday_at" = "Last seen yesterday at %1$@";
+"preview.album_images" = "[%1$ld photos]";
+"preview.album_media" = "[%1$ld photos/videos]";
+"preview.album_videos" = "[%1$ld videos]";
 "preview.chat_record" = "[Chat history]";
 "preview.empty_message" = "(Empty message)";
 "preview.file" = "[File]";

@@ -1317,6 +1317,9 @@
 "presence.recently" = "最近在线";
 "presence.today_at" = "今天 %1$@ 在线";
 "presence.yesterday_at" = "昨天 %1$@ 在线";
+"preview.album_images" = "[%1$ld张图片]";
+"preview.album_media" = "[%1$ld个图片/视频]";
+"preview.album_videos" = "[%1$ld个视频]";
 "preview.chat_record" = "[聊天记录]";
 "preview.empty_message" = "（空消息）";
 "preview.file" = "[文件]";

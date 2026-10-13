@@ -2,8 +2,9 @@
 //  通知扩展：给离线推送加上发送人头像（M5，IMServer/docs/design/PUSH_M5_DESIGN.md §3.6）。
 //
 //  服务端每条消息推送都带 `mutable-content: 1` 和发送人资料（sender_id / sender_name / sender_avatar，
-//  群聊另有 group_avatar / bare_body）。系统先把通知交给这里：下载头像 → 组一个 INSendMessageIntent
+//  群聊另有 group_avatar；bare_body 现已不用）。系统先把通知交给这里：下载头像 → 组一个 INSendMessageIntent
 //  → 用它把通知改成「通信通知」样式（左边是发送人头像，App 图标缩到右下角），同 iMessage / WhatsApp。
+//  群聊把群当作「发送人」（群名 + 群头像，正文「发送人: 内容」），标题一行、正文一行，见 finishWithSender。
 //
 //  头像先查缓存（IMPushAvatarCache，按内容寻址的地址存，换头像自动换）；没命中才下载。下载失败
 //  （手机连不上 IM 服务器——开发期服务器在局域网，手机锁屏切到蜂窝时最常见）退回这个人 / 群
@@ -149,34 +150,25 @@ static os_log_t IMExtLog(void) {
 }
 
 - (void)finishWithSender:(IMPushSender *)sender avatar:(INImage *)avatar groupImage:(INImage *)groupImage {
-    INPersonHandle *handle = [[INPersonHandle alloc] initWithValue:sender.senderID type:INPersonHandleTypeUnknown];
-    INPerson *person = [[INPerson alloc] initWithPersonHandle:handle nameComponents:nil displayName:sender.senderName
-                                                        image:avatar contactIdentifier:nil
-                                             customIdentifier:sender.senderID];
-    INSpeakableString *groupName = nil;
-    NSArray<INPerson *> *recipients = nil;
-    if (sender.isGroup) {
-        groupName = [[INSpeakableString alloc] initWithSpokenPhrase:self.original.title];
-        // 群聊要有「我」以外的收件人系统才按群展示；收件人的具体身份通知里不显示，占位即可。
-        INPerson *me = [[INPerson alloc] initWithPersonHandle:[[INPersonHandle alloc] initWithValue:@"me" type:INPersonHandleTypeUnknown]
-                                               nameComponents:nil displayName:nil image:nil
-                                            contactIdentifier:nil customIdentifier:nil isMe:YES];
-        INPerson *other = [[INPerson alloc] initWithPersonHandle:[[INPersonHandle alloc] initWithValue:sender.convID type:INPersonHandleTypeUnknown]
-                                                  nameComponents:nil displayName:self.original.title image:nil
-                                               contactIdentifier:nil customIdentifier:nil];
-        recipients = @[ me, other ];
-    }
-    INSendMessageIntent *intent = [[INSendMessageIntent alloc] initWithRecipients:recipients
+    // **群聊也按「一对一」画（2026-10-13）**：把群当成「发送人」——显示名 = 群名、头像 = 群头像，正文保留
+    // 「发送人: 内容」。不用 speakableGroupName / recipients：那条路径下系统把发送人当标题、群名放副标题，
+    // 成了「发送人 / 群名 / 内容」三行，iOS 26 还不认通过 speakableGroupName 参数设的群头像（只剩 App logo）。
+    // 头像走 INPerson.image（私聊同一路径，iOS 26 实测正常）。
+    BOOL isGroup = sender.isGroup;
+    NSString *handleValue = isGroup ? sender.convID : sender.senderID;
+    NSString *displayName = isGroup ? self.original.title : sender.senderName;
+    INPersonHandle *handle = [[INPersonHandle alloc] initWithValue:handleValue type:INPersonHandleTypeUnknown];
+    INPerson *person = [[INPerson alloc] initWithPersonHandle:handle nameComponents:nil displayName:displayName
+                                                        image:(isGroup ? groupImage : avatar) contactIdentifier:nil
+                                             customIdentifier:handleValue];
+    INSendMessageIntent *intent = [[INSendMessageIntent alloc] initWithRecipients:nil
                                                               outgoingMessageType:INOutgoingMessageTypeOutgoingMessageText
                                                                           content:self.original.body
-                                                               speakableGroupName:groupName
+                                                               speakableGroupName:nil
                                                            conversationIdentifier:sender.convID
                                                                       serviceName:nil
                                                                            sender:person
                                                                       attachments:nil];
-    if (groupImage != nil) {
-        [intent setImage:groupImage forParameterNamed:@"speakableGroupName"];
-    }
     INInteraction *interaction = [[INInteraction alloc] initWithIntent:intent response:nil];
     interaction.direction = INInteractionDirectionIncoming;
     __weak typeof(self) weakSelf = self;
@@ -184,10 +176,8 @@ static os_log_t IMExtLog(void) {
         if (donateError != nil) {
             os_log_error(IMExtLog(), "push_intent_donate_failed error=%{public}@", donateError.localizedDescription);
         }
+        // 正文保持服务端给的「发送人: 内容」（群聊）/ 内容（私聊），不再换成 bare_body。
         UNMutableNotificationContent *base = [weakSelf.original mutableCopy];
-        if (sender.isGroup && sender.bareBody.length > 0) {
-            base.body = sender.bareBody; // 通信通知单独显示发送人，正文不再带「名字: 」
-        }
         NSError *updateError = nil;
         UNNotificationContent *updated = [base contentByUpdatingWithProvider:intent error:&updateError];
         if (updated == nil) {

@@ -4,6 +4,7 @@
 > 历史流水见 `current_task.archive.md`（2026-10-02 瘦身前的全量快照在其顶部）+ `git log`。关键约定见 `CLAUDE.md` / `ARCHITECTURE.md` / `CODING_STYLE.md`。
 
 ## 当前焦点
+- **群通知两行（2026-10-13，已真机验证）**：通知扩展 `NotificationService.m` 群聊把群当「发送人」（群名 + 群头像走 `INPerson.image`，不用 `speakableGroupName`），修 iOS 26 群通知只显示 logo；`bare_body` 不再使用。相册合并由服务端同 collapse-id 原地替换，扩展无需处理。
 **「新的朋友」已添加段 + 同意后角标不减修复（2026-10-09，未 commit，设计 `../IMServer/docs/design/NEW_FRIENDS_DESIGN.md`）**：① 新增 `IMFriendRelationDidChangeLocallyNotification`（声明在 `IMFriendRequestListViewController.h`，`IMPostFriendRelationDidChangeLocally()` 保证主线程）；新的朋友页 accept/reject、详情页 block/unblock/删好友成功后发出，`IMContactsViewController` 收到即取消待发 reload 并立即 `reload`（切入 30s 节流原样保留）。② 「已添加」段：纯逻辑 `Modules/Contacts/IMFriendRequestSections.{h,m}`（accepted 且 updatedAt 在 30 天内、倒序、≤50；常量 `kIMRecentAddedDays/Max`），段序 incoming→outgoing→added、空段不出现；行复用 `IMContactCell` + 禁用「已添加」标记，点行进资料页，无删除/左滑。测试 `IMFriendRequestSectionsTests` 6 例（已变异看红）。待真机目测：同意后返回通讯录角标即减；已添加段样式。
 
 **2026-10-09 全部已提交（工作区干净）**：已登录设备页平台图标改 SF Symbols（`IMDeviceSession.platformSymbol`，d2e0dd8；`platformEmoji` 仍在、只剩单测用）；iPad 取消发送确认 ActionSheet 补 popover 锚点（008446c）；发送被拒微信式文案 + 300001 本地化（94980d2 / 304de89）；通话被踢后现场重启（1f0b9b5，`IMRtcCall` 记 `_wantedUID`，`IMRtcCallShouldRestart` 有单测）。
