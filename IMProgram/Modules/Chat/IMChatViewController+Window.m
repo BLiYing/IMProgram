@@ -17,6 +17,7 @@
 #import "IMChatViewController+Private.h"
 #import "IMDatabase+Ranges.h"
 #import "IMDatabase+ClearFloor.h"   // clearedUpToForConv:（本机清空位点，OFFLINE_BACKLOG_DESIGN §6.7）
+#import "IMChatMessageLogic.h"      // IMContentTypeCountsAsUnread
 #import "IMChatWindowPlan.h"
 #import "IMChatWindowTrim.h"
 #import "IMChatWindowRoute.h"
@@ -858,7 +859,8 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
         NSInteger n = 0;
         for (IMMessageModel *m in self.windowState.messages) {
             if (m.convSeq > windowMax) { windowMax = m.convSeq; }
-            if (![m.from isEqualToString:self.userID] && m.convSeq > frontier) { n++; }
+            if (![m.from isEqualToString:self.userID] && m.convSeq > frontier
+                && IMContentTypeCountsAsUnread(m.contentType)) { n++; } // 系统消息（sender 为空）不计
         }
         // **`atTail` 只说明「窗口含本地最新一条」，不等于「含会话最新一条」**。
         // 有缺口时本地尾巴可能落后服务端上万条，此时数内存必然偏小——1 万条未读实测显示成

@@ -1611,6 +1611,7 @@
 "storage.reset_confirm.message" = "恢复为出厂默认（移动数据中档、Wi-Fi 高档）。";
 "storage.row.reset" = "重置自动下载设置";
 "storage.row.usage" = "存储用量";
+"sys.friend.accepted" = "你们已成为好友，现在可以开始聊天了";
 "sys.group.announcement" = "%1$@ 发布了群公告";
 "sys.group.avatar" = "%1$@ 更新了群头像";
 "sys.group.create" = "%1$@ 创建了群聊「%2$@」";

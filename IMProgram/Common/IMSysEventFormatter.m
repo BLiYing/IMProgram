@@ -31,6 +31,8 @@ static NSDictionary<NSString *, NSArray *> *IMSysEventTable(void) {
             @"mute_all_off":       @[@"sys.group.mute_all_off",       @0, NSNull.null],
             @"mute_member":        @[@"sys.group.mute_member",        @2, NSNull.null],
             @"unmute_member":      @[@"sys.group.unmute_member",      @2, NSNull.null],
+            // 单聊系统消息：好友关系新建立（sender 为空、无人名、无参数；见 PROTOCOL §6.6）。
+            @"friend_accepted":    @[@"sys.friend.accepted",          @0, NSNull.null],
         };
     });
     return t;

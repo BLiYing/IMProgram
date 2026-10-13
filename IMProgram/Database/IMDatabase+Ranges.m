@@ -266,7 +266,8 @@ BOOL IMRegisterRangeInDB(FMDatabase *db, NSString *owner, NSString *convID, int6
     [self.dbQueue inDatabase:^(FMDatabase *db) {
         FMResultSet *rs = [db executeQuery:
             @"SELECT COUNT(*) AS n FROM im_message_local "
-             "WHERE owner_uid=? AND conv_id=? AND sender<>? AND conv_seq>?",
+             "WHERE owner_uid=? AND conv_id=? AND sender<>? AND conv_seq>? "
+             "AND COALESCE(content_type,'')<>'system'", // 系统消息（sender 常为空）不是「对方发来的」，不计 ↓N
             owner, convID, owner, @(afterConvSeq)];
         if ([rs next]) { n = (NSInteger)[rs longForColumn:@"n"]; }
         [rs close];

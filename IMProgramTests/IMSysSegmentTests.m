@@ -3,7 +3,9 @@
 #import "IMAccountIdentity.h"
 #import "IMConversation.h"
 #import "IMDatabase.h"
+#import "IMDatabase+Ranges.h"
 #import "IMGroupInfo.h"
+#import "IMLocalization.h"
 #import "IMMessageModel.h"
 #import "IMRemarkStore.h"
 
@@ -13,7 +15,100 @@
 @interface IMSysSegmentTests : XCTestCase
 @end
 
-@implementation IMSysSegmentTests
+@implementation IMSysSegmentTests {
+    NSMutableArray<NSURL *> *_tempDBURLs; // freshDatabaseForOwner: 建的临时库，tearDown 删掉
+}
+
+- (void)tearDown {
+    [IMLocalization.shared setPreference:IMLanguagePrefZhHans]; // 还原 bootstrap 默认
+    for (NSURL *url in _tempDBURLs) {
+        for (NSString *suffix in @[@"", @"-wal", @"-shm"]) {
+            NSURL *f = [NSURL fileURLWithPath:[url.path stringByAppendingString:suffix]];
+            [NSFileManager.defaultManager removeItemAtURL:f error:NULL];
+        }
+    }
+    [_tempDBURLs removeAllObjects];
+    [super tearDown];
+}
+
+- (IMDatabase *)freshDatabaseForOwner:(NSString *)owner {
+    NSString *name = [NSString stringWithFormat:@"im-friendsys-%@.sqlite", NSUUID.UUID.UUIDString];
+    NSURL *url = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:name]];
+    if (!_tempDBURLs) { _tempDBURLs = [NSMutableArray array]; }
+    [_tempDBURLs addObject:url];
+    IMDatabase *db = [[IMDatabase alloc] initWithFileURL:url];
+    [db useOwnerUserID:owner];
+    return db;
+}
+
+/// 单聊 friend_accepted：sender 为空、无分段。会话行预览按 sys_event 随 App 语言本地化，不落到 lastContent 中文兜底。
+- (void)testConversationPreviewRendersFriendAcceptedLocalized {
+    IMConversation *c = [IMConversation new];
+    c.convID = @"u_1001_u_1002"; c.isGroup = NO;
+    c.lastContentType = @"system";
+    c.lastFrom = @"";
+    c.lastSysEvent = @"friend_accepted";
+    c.lastContent = @"你们已成为好友，现在可以开始聊天了";
+    XCTAssertEqualObjects([c lastPreviewTextForSelfUID:@"1001"], @"你们已成为好友，现在可以开始聊天了");
+    [IMLocalization.shared setPreference:IMLanguagePrefEnglish];
+    XCTAssertEqualObjects([c lastPreviewTextForSelfUID:@"1001"], @"You are now friends. You can start chatting.");
+    c.lastSysEvent = @"some_future_event";
+    XCTAssertEqualObjects([c lastPreviewTextForSelfUID:@"1001"], c.lastContent, @"未知事件回退 content");
+}
+
+/// 会话列表里原本没有该会话、new_msg 先到：本地创建壳行（peer 由 convID 推出）、置为最新、不计未读；
+/// 之后对方真消息照常 +1，标已读时不会被系统消息多扣。
+- (void)testEmptySenderFriendAcceptedCreatesConversationWithoutUnread {
+    IMDatabase *db = [self freshDatabaseForOwner:@"1001"];
+    IMMessageModel *sys = [IMMessageModel new];
+    sys.convID = @"u_1001_u_1002";
+    sys.serverMsgID = @"sys-friend-1";
+    sys.contentType = @"system";
+    sys.from = @"";
+    sys.content = @"你们已成为好友，现在可以开始聊天了";
+    sys.sysEvent = @"friend_accepted";
+    sys.convSeq = 1;
+    sys.timestamp = 1000;
+    XCTAssertTrue([db saveIncomingMessage:sys advancingSyncedConvSeq:0]);
+
+    IMConversation *c = [db cachedConversationWithID:@"u_1001_u_1002"];
+    XCTAssertNotNil(c, @"会话行必须被创建，才会出现在列表");
+    XCTAssertFalse(c.isGroup);
+    XCTAssertEqualObjects(c.peer, @"1002", @"peer 由 convID 推出，不能依赖 sender");
+    XCTAssertEqual(c.unread, 0, @"系统消息不计未读");
+    XCTAssertEqualObjects(c.lastSysEvent, @"friend_accepted");
+    XCTAssertEqual(c.timestamp, 1000);
+    XCTAssertEqual([db countIncomingInConv:@"u_1001_u_1002" afterConvSeq:0], 0, @"↓N 不把系统消息当对方消息");
+
+    IMMessageModel *text = [IMMessageModel new];
+    text.convID = @"u_1001_u_1002"; text.serverMsgID = @"m-2"; text.contentType = @"text";
+    text.from = @"1002"; text.to = @"1001"; text.content = @"hi"; text.convSeq = 2; text.timestamp = 2000;
+    XCTAssertTrue([db saveIncomingMessage:text advancingSyncedConvSeq:0]);
+    XCTAssertEqual([db cachedConversationWithID:@"u_1001_u_1002"].unread, 1);
+
+    // 读到 seq=2：系统消息(seq=1)与真消息(seq=2)都在区间内，只应扣 1。
+    [db markConversation:@"u_1001_u_1002" readUpToConvSeq:2];
+    XCTAssertEqual([db cachedConversationWithID:@"u_1001_u_1002"].unread, 0);
+}
+
+/// 已有未读时标已读到系统消息之后：区间里的系统消息不能多扣（否则吃掉区间之外的真未读）。
+- (void)testMarkReadDoesNotOverDecrementForSystemMessage {
+    IMDatabase *db = [self freshDatabaseForOwner:@"1001"];
+    NSString *conv = @"u_1001_u_1002";
+    void (^put)(NSString *, NSString *, NSString *, int64_t) = ^(NSString *sid, NSString *type, NSString *from, int64_t seq) {
+        IMMessageModel *m = [IMMessageModel new];
+        m.convID = conv; m.serverMsgID = sid; m.contentType = type; m.from = from; m.to = @"1001";
+        m.content = @"x"; m.convSeq = seq; m.timestamp = seq * 100;
+        if ([type isEqualToString:@"system"]) { m.sysEvent = @"friend_accepted"; }
+        XCTAssertTrue([db saveIncomingMessage:m advancingSyncedConvSeq:0]);
+    };
+    put(@"a", @"text", @"1002", 1);
+    put(@"s", @"system", @"", 2);
+    put(@"b", @"text", @"1002", 3);
+    XCTAssertEqual([db cachedConversationWithID:conv].unread, 2);
+    [db markConversation:conv readUpToConvSeq:2]; // 区间 (0,2]：1 条真消息 + 1 条系统消息
+    XCTAssertEqual([db cachedConversationWithID:conv].unread, 1, @"seq=3 仍未读");
+}
 
 - (void)testParsesNamedAndPlainSegments {
     NSArray<IMSysSegment *> *segs = [IMSysSegment segmentsFromArray:@[

@@ -4,6 +4,7 @@
 > 历史流水见 `current_task.archive.md`（2026-10-02 瘦身前的全量快照在其顶部）+ `git log`。关键约定见 `CLAUDE.md` / `ARCHITECTURE.md` / `CODING_STYLE.md`。
 
 ## 当前焦点
+- **单聊系统消息 friend_accepted（2026-10-13，未 commit）**：服务端在好友新建立时往单聊落 `content_type=system`、sender 空的系统消息。iOS 侧：`IMSysEventFormatter` 事件表加 `friend_accepted`（键 `sys.friend.accepted`，0 人名槽位）；会话列表单聊行预览改走 `lastPreviewTextForSelfUID:`（按 sys_event 本地化，未知回退 lastContent；顺带让系统通知单聊列表首行也本地化）；↓N 窗口计数 / `countIncomingInConv:` / 标已读扣数（`markConversation:readUpToConvSeq:`）排除 system（此前 sender 空会被当「对方消息」）。核实无需改：落库/peer 由 convID 推（壳行建会话、`unreadDelta` 排除 system）、`IMAlertDecide` 对 system 全静默、通知扩展只处理服务端推送（不推）。测试：`IMSysSegmentTests` / `IMSysEventFormatterTests` 新增。待真机：互加好友后单聊出现居中灰字、列表置顶且无红点/无提示音；会话列表原无该会话时 new_msg 到达后行名在下一次 /conversations 刷新前先显「未命名」（壳行不知昵称，见已知限制）。
 - **群通知两行（2026-10-13，已真机验证）**：通知扩展 `NotificationService.m` 群聊把群当「发送人」（群名 + 群头像走 `INPerson.image`，不用 `speakableGroupName`），修 iOS 26 群通知只显示 logo；`bare_body` 不再使用。相册合并由服务端同 collapse-id 原地替换，扩展无需处理。
 **「新的朋友」已添加段 + 同意后角标不减修复（2026-10-09，未 commit，设计 `../IMServer/docs/design/NEW_FRIENDS_DESIGN.md`）**：① 新增 `IMFriendRelationDidChangeLocallyNotification`（声明在 `IMFriendRequestListViewController.h`，`IMPostFriendRelationDidChangeLocally()` 保证主线程）；新的朋友页 accept/reject、详情页 block/unblock/删好友成功后发出，`IMContactsViewController` 收到即取消待发 reload 并立即 `reload`（切入 30s 节流原样保留）。② 「已添加」段：纯逻辑 `Modules/Contacts/IMFriendRequestSections.{h,m}`（accepted 且 updatedAt 在 30 天内、倒序、≤50；常量 `kIMRecentAddedDays/Max`），段序 incoming→outgoing→added、空段不出现；行复用 `IMContactCell` + 禁用「已添加」标记，点行进资料页，无删除/左滑。测试 `IMFriendRequestSectionsTests` 6 例（已变异看红）。待真机目测：同意后返回通讯录角标即减；已添加段样式。
 
@@ -23,6 +24,7 @@
 3. 小项：`setupUI` 抽 `IMComposerBar`；遗留 P2（听筒切换/接力连播停止条/Web 转文字/语音发送接入 `IMMediaSendService` 常驻队列等，细节见 archive）。
 
 ## 已知坑 / 限制
+- **新单聊壳行昵称/头像延后**：会话列表原无该 conv 时 new_msg 只建壳行（peer 由 convID 推、昵称空），名片与头像等下次 `/conversations`（列表在屏 0.4s 内、不在屏则等回到列表）才补；`IMDatabase.m` 恰 1500 行，该处不能再加行。
 
 - **清空位点的取舍**：① 老库回填（`migrateClearedUpToColumnDB:`）按「synced 以内本地没有的那一截 = 当年清掉的」推位点，**对「本来就没下载全」的老会话会误判**成已清空（如游标在 1000、本地只有 300..1000 → 位点 299，之后 ≤299 永不再拉）；与 Android 迁移 15→16 同规则，设计文档拍板的口径。**误伤面更大的是 ranges 时代只下过窗口附近的会话（超级群 max_gap=0 尤甚）**：游标在 head、本地只有最近一两窗 → 位点被推到「本地最小 seq − 1」，窗口之下更早的历史此后一律当「用户清掉的」、不再拉；补列与回填同一事务（失败整体回滚、下次启动重试）。② 落库 / UI 投递 / 回执 / 提醒共用同一份保留集合：sync 页落库前先 `IMDropClearedMessages`，实时先 `incomingIsCleared:`，window 页跳过位点内的行（库里的落库闸是第二道防线）。③ 位点存独立小表 `im_conv_clear_floor_local`（不随会话行删除；会话行被「删除会话」/ 列表不再返回删掉后重建，`synced_conv_seq` 取 max(旧值, 位点)，不会 since=0 重拉）。旧的 `im_conversation_local.cleared_up_to` 列（早期实现）只在迁移时拷一次，之后不再读写、没有 DROP。iOS 没有「清账号」路径（登出不抹库，靠 owner_uid 隔离）。④ 清空不动会话未读数 / 读位点（沿用旧行为）。⑤ iOS 本机没有独立的「隐藏/删除墓碑」表（本地删除是物理删行），所以「墓碑不动」在 iOS 退化为「只动该会话的消息 / 区间 / 位点」。
 - **冷启动通知路由极端情况**：全新会话的推送点击可能落空。

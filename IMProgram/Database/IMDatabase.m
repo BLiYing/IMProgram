@@ -888,7 +888,7 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
         if (convSeq <= oldReadSeq) { return; }
 
         FMResultSet *countRS = [db executeQuery:
-            @"SELECT COUNT(*) AS n FROM im_message_local WHERE owner_uid=? AND conv_id=? AND conv_seq>? AND conv_seq<=? AND sender<>?",
+            @"SELECT COUNT(*) AS n FROM im_message_local WHERE owner_uid=? AND conv_id=? AND conv_seq>? AND conv_seq<=? AND sender<>? AND COALESCE(content_type,'')<>'system'", // 系统消息从不计入 unread，不能扣
             owner, convID, @(oldReadSeq), @(convSeq), owner];
         NSInteger newlyRead = [countRS next] ? [countRS longForColumn:@"n"] : 0;
         [countRS close];

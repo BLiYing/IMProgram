@@ -54,6 +54,19 @@
     XCTAssertEqualObjects([self joinedText:outEn], @"张三 removed 李四 from the group");
 }
 
+#pragma mark - friend_accepted：单聊系统消息，无人名槽位、无参数
+
+- (void)testFriendAcceptedRendersLocalizedWithoutSegmentsOrArgs {
+    NSArray<IMSysSegment *> *out = IMSegmentsForSysEvent(@"friend_accepted", nil, nil, nil);
+    XCTAssertEqual(out.count, 1u, @"整句一段固定文案，不挂 uid");
+    XCTAssertNil(out.firstObject.uid);
+    XCTAssertEqualObjects(out.firstObject.text, @"你们已成为好友，现在可以开始聊天了");
+
+    [IMLocalization.shared setPreference:IMLanguagePrefEnglish];
+    NSArray<IMSysSegment *> *outEn = IMSegmentsForSysEvent(@"friend_accepted", nil, nil, nil);
+    XCTAssertEqualObjects([self joinedText:outEn], @"You are now friends. You can start chatting.");
+}
+
 #pragma mark - group_rename：纯 args 无人名槽位
 
 - (void)testGroupRenameNoNameSlots {

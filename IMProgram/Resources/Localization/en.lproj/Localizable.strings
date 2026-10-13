@@ -1611,6 +1611,7 @@
 "storage.reset_confirm.message" = "Restore to factory defaults (Medium for cellular, High for Wi-Fi).";
 "storage.row.reset" = "Reset auto-download settings";
 "storage.row.usage" = "Storage usage";
+"sys.friend.accepted" = "You are now friends. You can start chatting.";
 "sys.group.announcement" = "%1$@ posted an announcement";
 "sys.group.avatar" = "%1$@ updated the group photo";
 "sys.group.create" = "%1$@ created the group \"%2$@\"";

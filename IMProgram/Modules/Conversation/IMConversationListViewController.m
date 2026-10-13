@@ -314,7 +314,9 @@ static CGFloat const kIMRowLeading = 16;
         [_avatar im_setAvatarURL:IMMediaFullURL(c.peerAvatarURL, host) seed:c.peer displayName:display]; // 有头像渲图，否则首字母圈
         _name.text = display;
         _superTag.hidden = YES; // 单聊无此概念；cell 复用，必须显式关掉
-        _last.text = recalledPreview ?: (mediaPreview.length > 0 ? mediaPreview : (c.lastContent.length > 0 ? c.lastContent : IMLocalized(@"conv.list.no_message")));
+        // 预览走 lastPreviewTextForSelfUID:：按 sys_event 本地化（单聊 friend_accepted / 系统通知首行），否则回退 lastContent。
+        NSString *previewText = mediaPreview.length > 0 ? nil : [c lastPreviewTextForSelfUID:selfUID]; // 只算一次（分段渲染不便宜）
+        _last.text = recalledPreview ?: (mediaPreview.length > 0 ? mediaPreview : (previewText.length > 0 ? previewText : IMLocalized(@"conv.list.no_message")));
     }
     if (callMissed) { _last.textColor = IMTheme.danger; }
     // 群「@我」红字前缀（M4-8）：未读区间内被 @（含 @所有人）时，预览行前挂 [有人@我]。
