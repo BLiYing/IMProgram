@@ -51,6 +51,17 @@ extern const int64_t IMSyncMaxGap;
 /// 缓存陈旧的代价只是每条会话多问一次服务端，方向是安全的；反过来则是无声地少给用户看东西。
 - (void)clearHistoryFloors;
 
+/// 只清**一个会话**的可见下界：该会话的 group 帧（退群 / 被邀请 / 群设置变更）一到就丢。
+/// 退群再被邀请、或群主翻转「仅可见入群后」，下界都会变（变小）；而 `IMChatMergeHistoryFloor` 只往小里收、
+/// 不会自己抬起来，缓存里留着旧下界就是「再也翻不上去」——重连才清等于把这条缝留到下次断线。
+- (void)clearHistoryFloorForConv:(NSString *)convID;
+
+/// 收到一帧 `group`：若它会改变**我**在该群的可见下界（入群位点 × 群设置）就丢该群缓存的下界。
+/// 只列「确定不影响」的事件（资料/公告/角色/转让/单人禁言，以及别人的邀请·退群·移出），未知事件按会影响处理——
+/// 宁可多问一次服务端，也不让陈旧下界把会话封死。与 Android `GroupEventData.changesMyHistoryFloor`、
+/// Web `groupEventKeepsFloor` 同一张表。
+- (void)noteGroupFrame:(NSDictionary *)payload myUserID:(nullable NSString *)myUserID;
+
 /// 缺口标记：收到 `too_long`（或 bump 显示本地落后）时置位；追平后消位。
 /// 缺口只会收窄不会扩大，所以消位条件必须是"确实追平了"，不能只看单页拉成功。
 - (void)markGapForConv:(NSString *)convID;

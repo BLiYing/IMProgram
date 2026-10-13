@@ -57,6 +57,20 @@ const int64_t IMSyncMaxGap = 400;
     [_historyFloor removeAllObjects];
 }
 
+- (void)clearHistoryFloorForConv:(NSString *)convID {
+    if (convID.length > 0) { [_historyFloor removeObjectForKey:convID]; }
+}
+
+- (void)noteGroupFrame:(NSDictionary *)payload myUserID:(NSString *)myUserID {
+    NSString *convID = [payload[@"conv_id"] isKindOfClass:[NSString class]] ? payload[@"conv_id"] : @"";
+    NSString *event = [payload[@"event"] isKindOfClass:[NSString class]] ? payload[@"event"] : @"";
+    NSString *target = [payload[@"target"] isKindOfClass:[NSString class]] ? payload[@"target"] : @"";
+    if ([@[@"profile", @"announcement", @"role", @"transfer", @"member_mute"] containsObject:event]) { return; }
+    if ([@[@"invite", @"leave", @"remove"] containsObject:event]
+        && target.length > 0 && ![target isEqualToString:myUserID ?: @""]) { return; }
+    [self clearHistoryFloorForConv:convID];
+}
+
 - (void)markGapForConv:(NSString *)convID {
     if (convID.length > 0) { [_gappedConvs addObject:convID]; }
 }

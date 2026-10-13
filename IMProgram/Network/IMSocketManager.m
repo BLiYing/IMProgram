@@ -395,6 +395,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
     } else if ([type isEqualToString:kIMTypeFriend]) {
         [self handleFriendEvent:payload];
     } else if ([type isEqualToString:kIMTypeGroup]) {
+        [_backlog noteGroupFrame:payload myUserID:self.userID]; // 影响我可见下界的群帧 → 丢该群缓存的下界
         [self handleGroupEvent:payload];
     } else if ([type isEqualToString:kIMTypeMsgOp]) {
         if (![self applyBatchDeleteFrameOnQueue:payload]) { [self applyMsgOpPayload:payload]; } // 批量删除一帧带 targets（§6.7.2）
