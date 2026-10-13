@@ -39,7 +39,8 @@
     NSTextAttachment *att = [s attribute:NSAttachmentAttributeName atIndex:5 effectiveRange:NULL];
     XCTAssertNotNil(att);
     XCTAssertEqualWithAccuracy(att.bounds.size.height, 9.5, 0.4);
-    XCTAssertEqualWithAccuracy(att.bounds.size.width, 17.1, 0.4);
+    // 宽取整（IMReadTick.m：小数宽会让 UILabel 量窄而截断成「…」）：17.1 → 18
+    XCTAssertEqual(att.bounds.size.width, ceil(17.1));
     XCTAssertEqualObjects([s attribute:NSKernAttributeName atIndex:4 effectiveRange:NULL], @(kIMReadTickGap));
     XCTAssertNil([s attribute:NSKernAttributeName atIndex:0 effectiveRange:NULL]);
 }

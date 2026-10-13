@@ -8,6 +8,7 @@
 #import "../IMProgram/Modules/Chat/Cells/IMBubbleCell.h"
 #import "../IMProgram/Models/IMMessageModel.h"
 #import "../IMProgram/Common/IMTheme.h"
+#import "../IMProgram/Common/IMReadTick.h"
 
 @interface IMBubbleTextMetaLayoutTests : XCTestCase
 @end
@@ -48,7 +49,11 @@ static void IMCollectLabels(UIView *v, NSMutableArray<UILabel *> *out) {
     }
     XCTAssertNotNil(body); XCTAssertNotNil(meta);
     CGRect bf = [body convertRect:body.bounds toView:cell.contentView];
-    CGRect mf = [meta convertRect:meta.bounds toView:cell.contentView];
+    // 勾是 IMTickMetaView 内独立的 UIImageView、在时间 label 右侧：右对齐看整个 meta 容器而不是内层 label
+    UIView *metaBox = meta;
+    while (metaBox && ![metaBox isKindOfClass:IMTickMetaView.class]) { metaBox = metaBox.superview; }
+    XCTAssertNotNil(metaBox);
+    CGRect mf = [(metaBox ?: meta) convertRect:(metaBox ?: meta).bounds toView:cell.contentView];
     // 时间整体在正文下方（不与正文最后一行同行）
     XCTAssertGreaterThanOrEqual(CGRectGetMinY(mf), CGRectGetMaxY(bf) - 0.5, @"time must sit below the text: %@", text);
     // 右对齐：时间右缘 = 正文容器右缘（两者都钉气泡右内边距 12）
