@@ -10,6 +10,7 @@
 #import "IMDownloadProgress.h"
 #import "IMPowerSaving.h"          // autoDownloadEffective（省电模式本机总闸）+ 切换时重配已展示的行
 #import "IMDownloadPolicy.h"        // IMShouldAutoDownload / IMNetworkType
+#import "IMViewedMediaStore.h"      // 查看器里看过 → 解门控（进程内共享）
 #import "IMDownloadSettingsStore.h"
 #import "IMNetworkMonitor.h"
 #import "IMLog.h"
@@ -51,6 +52,8 @@ static NSString *const IMMediaDownloadCoordinatorStateBroadcast = @"IMMediaDownl
         _lastVideoPreloadEffective = IMPowerSaving.shared.videoPreloadEffective;
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(onPowerSavingChanged:)
                                                      name:IMPowerSavingDidChangeNotification object:nil];
+        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(onViewedMediaChanged:)
+                                                     name:IMViewedMediaDidChangeNotification object:nil];
     }
     return self;
 }
@@ -126,7 +129,7 @@ static NSString *const IMMediaDownloadCoordinatorStateBroadcast = @"IMMediaDownl
     [self rememberMessage:m];                            // 记下,供别实例广播时反查刷新
 
     if (![self usesDownloaderForMessage:m]) {           // 图片：只有"未下载 / 就绪"两档
-        if ([_requested containsObject:key]) { return nil; }
+        if ([_requested containsObject:key] || [self isViewedInViewer:m]) { return nil; }
         if ([self shouldAutoDownload:m]) { return nil; } // 策略放行 → 直接由 cell 正常加载
         return [IMDownloadProgress notStartedWithTotalBytes:m.fileSize];
     }
@@ -144,7 +147,10 @@ static NSString *const IMMediaDownloadCoordinatorStateBroadcast = @"IMMediaDownl
         return live;
     }
     IMDownloadProgress *kept = _states[key]; // 失败态（任务已注销，但要留 ↻ 给用户）
-    if (kept) { return kept; }
+    // 在查看器里看过的视频：已失效仍要显失效；其余（含没下完的失败态）按「看过」放行，不再画 ↓
+    BOOL viewed = [self isViewedInViewer:m];
+    if (kept && (kept.expired || !viewed)) { return kept; }
+    if (viewed) { return nil; }
     // 未下载：按策略**异步**自动预取（每条只试一次；异步是为了不在 cellForRow 里递归 reload）。
     if (_autoPrefetchEnabled && ![_autoTried containsObject:key] && [self shouldAutoDownload:m]) {
         [_autoTried addObject:key];
@@ -162,6 +168,29 @@ static NSString *const IMMediaDownloadCoordinatorStateBroadcast = @"IMMediaDownl
     if (!IMPowerSaving.shared.autoDownloadEffective) { return NO; }
     return IMShouldAutoDownload([IMDownloadSettingsStore shared].settings, m.contentType, m.fileSize,
                                 _isGroup, [IMNetworkMonitor shared].currentType);
+}
+
+#pragma mark - 查看器解门控（IMViewedMediaStore）
+
+/// 用户是否在查看器里看过这条（图片/视频）。**已失效不豁免**：失效是终态，仍要显失效。
+- (BOOL)isViewedInViewer:(IMMessageModel *)m {
+    NSString *t = m.contentType;
+    if (![t isEqualToString:@"image"] && ![t isEqualToString:@"video"]) { return NO; }
+    return [IMViewedMediaStore.shared isViewedURL:[self fullURLForMessage:m]];
+}
+
+/// 登记有变化：对本实例见过、且这次变化涉及的行重配（磨砂 + ↓ → 真帧 / ▶）。清空（无 url）= 全部重配。
+/// 已失效 / 出作用域的行门控判定不会变，跳过以免白 reload。
+/// **不能**因 isCached 跳过：查看器加载过的图已进 IMImageLoader 缓存（isCached=YES），
+/// 但这一行仍是之前画的磨砂 + ↓，正需要重配。
+- (void)onViewedMediaChanged:(NSNotification *)note {
+    NSString *url = note.userInfo[@"url"];
+    for (IMMessageModel *m in _messagesByKey.objectEnumerator.allObjects) {
+        if (url.length > 0 && ![[self fullURLForMessage:m] isEqualToString:url]) { continue; }
+        if ([self isOutOfScope:m] || _states[[self keyForMessage:m]].expired) { continue; }
+        IMLogDebugWithTag(IMLogTagMedia, @"download_gate_viewer_changed %@", [self logContextForMessage:m]);
+        [self notifyChanged:m];
+    }
 }
 
 #pragma mark - 点击路由

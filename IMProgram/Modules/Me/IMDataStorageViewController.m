@@ -6,6 +6,7 @@
 #import "IMDownloadSettingsStore.h"
 #import "IMMediaUtil.h" // IMFormatFileSize
 #import "IMImageLoader.h"
+#import "IMViewedMediaStore.h"
 #import "IMLog.h"
 #import "IMLocalization.h"
 
@@ -131,6 +132,8 @@ static UIImage *IMSettingsIconSpacer(void) {
     for (NSURL *dir in [self ownedCacheDirs]) { [NSFileManager.defaultManager removeItemAtURL:dir error:NULL]; }
     // 图片缓存交给 owner：连**内存**一起清（否则 hasCachedImageForURL 仍回 YES、图片退不回"未下载"）+ 重置记账。
     [[IMImageLoader shared] clearCache];
+    // 「看过」登记一并清：回到没看过，门控按策略重判（与 Web `clearMediaCache` 同）
+    [IMViewedMediaStore.shared clearCurrentUser];
     _cacheBytes = 0;
     [self.tableView reloadData];
 }

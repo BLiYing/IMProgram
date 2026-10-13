@@ -4,6 +4,7 @@
 #import "IMImageLoader.h"
 #import "IMVideoThumbnailLoader.h"
 #import "IMOriginalVideoCache.h"
+#import "IMViewedMediaStore.h"
 #import "IMMediaExpiryRegistry.h" // 被动展示 404 失效登记 + 复验
 #import "IMMediaPlaceholder.h"    // 失效占位覆盖层
 #import "UIViewController+IMToast.h"
@@ -771,6 +772,13 @@ didFinishDownloadingToURL:(NSURL *)location {
 /// 退出页面即停播 + 取消原视频下载。不能只依赖 dealloc：NSURLSession 以 delegate 模式**强持有**
 /// 本控制器，下载不结束 dealloc 永远不来——曾导致退出后下载完成、switchToLocalOriginal 里的
 /// play 把声音在后台拉起来（幽灵播放）。invalidateAndCancel 同时打破这条保活链。
+/// 本页**真正显示出来**才登记「用户看过」（翻页容器会预建相邻页，不能在建页时记）。
+/// 所有入口（聊天页 / 详情 / 媒体库 / 收藏 / 聊天记录）共用这一处，登记后各页同一条媒体都不再磨砂 + ↓。
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    [IMViewedMediaStore.shared markViewedURL:_url];
+}
+
 - (void)viewDidDisappear:(BOOL)animated {
     [super viewDidDisappear:animated];
     [_player pause];

@@ -1093,7 +1093,7 @@
 "net.error.ack_timeout" = "Timed out waiting for the server";
 "net.error.avatar_upload_failed" = "Couldn't upload the avatar";
 "net.error.bad_response" = "Unexpected server response (HTTP %1$@)";
-"net.error.cannot_connect" = "Can't connect to the server. Check that the backend is running.";
+"net.error.cannot_connect" = "Connection failed. Check your network and try again.";
 "net.error.connection_closed" = "Connection closed";
 "net.error.file_empty" = "The file is empty or unreadable";
 "net.error.file_read_failed" = "Couldn’t read the local file";
@@ -1101,12 +1101,12 @@
 "net.error.file_write_failed" = "Couldn’t write the local file";
 "net.error.generic" = "Network error";
 "net.error.invalid_server" = "Invalid server address";
-"net.error.no_response" = "The server isn’t responding. Check that the backend is running.";
+"net.error.no_response" = "No response right now. Please try again later.";
 "net.error.offline" = "No network connection. Check your network.";
 "net.error.renew_failed" = "Couldn't renew the session";
 "net.error.send_cancelled" = "Sending cancelled";
 "net.error.serialize_failed" = "Couldn’t encode the message";
-"net.error.unreachable" = "Can’t reach the server. Check that the backend is running and the address and port are correct.";
+"net.error.unreachable" = "Network unavailable. Check your connection and try again.";
 "net.error.upload_bad_response" = "Unexpected upload response";
 "net.error.upload_cancelled" = "Sending cancelled";
 "net.error.upload_failed" = "Upload failed";

@@ -46,6 +46,9 @@ NS_ASSUME_NONNULL_BEGIN
 /// 门控态下的点击路由：未下载/失败 → 开始/重试；下载中 ↔ 暂停/继续；图片 → 解除门控（交给 cell 加载）。
 - (void)handleTapForMessage:(IMMessageModel *)message;
 
+/// 「用户在查看器里看过」不在这里登记：查看器自己写进 `IMViewedMediaStore`（进程内共享 + 按账号落盘），
+/// 本类读它并在它变化时对已记住的行 `onStateChanged`。看过的图片/视频不再门控（看过 ≠ 已下载）。
+
 /// 取消下载（✕）：掐断在飞请求、丢弃已下字节、回到"未下载"。无进行中任务时是空操作。
 - (void)cancelDownloadForMessage:(IMMessageModel *)message;
 
