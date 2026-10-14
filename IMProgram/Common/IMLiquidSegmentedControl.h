@@ -36,6 +36,9 @@ NS_ASSUME_NONNULL_BEGIN
 /// 控件坐标系内某点落在哪一段（含滚动偏移）；不在任何段上返回 NSNotFound。用于长按某个 Tab 弹菜单。
 - (NSInteger)segmentIndexAtPoint:(CGPoint)point;
 
+/// 第 index 段在控件坐标系内的矩形（含滚动偏移、未按控件边界裁剪）；越界返回 CGRectNull。用于把长按菜单贴在该 Tab 下方。
+- (CGRect)segmentFrameAtIndex:(NSInteger)index;
+
 @end
 
 NS_ASSUME_NONNULL_END

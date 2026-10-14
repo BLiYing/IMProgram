@@ -165,6 +165,15 @@ static CGFloat const kIMContextMenuMargin = 8;
     [overlay show];
 }
 
++ (void)presentFromRect:(CGRect)anchorRect inHostView:(UIView *)host items:(NSArray<IMPopoverCardItem *> *)items {
+    if (items.count == 0 || !host || [self isPresentingInHostView:host]) { return; }
+    // overlay 以锚点右缘对齐菜单右缘；这里把锚点拉宽到菜单宽度，等价于左缘对齐。
+    CGRect left = CGRectMake(CGRectGetMinX(anchorRect), anchorRect.origin.y, kIMContextMenuWidth, anchorRect.size.height);
+    IMContextMenuOverlay *overlay = [[IMContextMenuOverlay alloc] initWithHost:host anchorRect:left items:items];
+    [host addSubview:overlay];
+    [overlay show];
+}
+
 + (void)presentFromBarButtonItem:(UIBarButtonItem *)barButtonItem
                       inHostView:(UIView *)host
                            items:(NSArray<IMPopoverCardItem *> *)items {

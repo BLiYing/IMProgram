@@ -3,6 +3,7 @@
 //  长按菜单「添加到文件夹 / 移出」、Tab 长按菜单。设计 IMServer/docs/design/CHAT_FOLDERS_DESIGN.md §4。
 //  状态在 `+Private.h` 的类扩展里（selectedFolderID / displayedConversations / folderTabs …）。
 
+#import "IMPopoverCard.h"
 #import "IMConversationListViewController+Private.h"
 #import "IMChatFolderStore.h"
 #import "IMChatFolderLogic.h"
@@ -300,20 +301,19 @@ static CGFloat const kIMFolderSwipeThreshold = 64;
     if (folderIndex < 0 || folderIndex >= (NSInteger)folders.count) { return; }
     IMChatFolder *folder = folders[(NSUInteger)folderIndex];
     __weak typeof(self) ws = self;
-    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:folder.name message:nil
-                                                            preferredStyle:UIAlertControllerStyleActionSheet];
-    [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"folder.tab.menu_edit") style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-        IMChatFolderEditViewController *vc = [[IMChatFolderEditViewController alloc] initWithFolderID:folder.folderID
-                                                                                                 host:ws.host token:ws.token userID:ws.userID];
-        [ws.navigationController pushViewController:vc animated:YES];
-    }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"folder.tab.menu_delete") style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
-        [ws confirmDeleteFolder:folder];
-    }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
-    sheet.popoverPresentationController.sourceView = self.folderTabs; // iPad：ActionSheet 必须有锚点，否则崩
-    sheet.popoverPresentationController.sourceRect = rect;
-    [self presentViewController:sheet animated:YES completion:nil];
+    NSArray<IMPopoverCardItem *> *items = @[
+        [IMPopoverCardItem itemWithTitle:IMLocalized(@"folder.tab.menu_edit") symbol:@"pencil" destructive:NO handler:^{
+            IMChatFolderEditViewController *vc = [[IMChatFolderEditViewController alloc] initWithFolderID:folder.folderID
+                                                                                                     host:ws.host token:ws.token userID:ws.userID];
+            [ws.navigationController pushViewController:vc animated:YES];
+        }],
+        [IMPopoverCardItem itemWithTitle:IMLocalized(@"folder.tab.menu_delete") symbol:@"trash" destructive:YES handler:^{
+            [ws confirmDeleteFolder:folder];
+        }],
+    ];
+    // 锚点：该 Tab 在本页 view 坐标系内的矩形，菜单贴在其正下方（与 Android / Web 一致，不再是底部 ActionSheet）。
+    CGRect anchor = [self.folderTabs convertRect:rect toView:self.view];
+    [IMPopoverCard presentFromRect:anchor inHostView:self.view items:items];
 }
 
 - (void)confirmDeleteFolder:(IMChatFolder *)folder {

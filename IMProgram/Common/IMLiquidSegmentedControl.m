@@ -266,6 +266,11 @@ static CGFloat const kSegBadgeGap = 5;
     return NSNotFound;
 }
 
+- (CGRect)segmentFrameAtIndex:(NSInteger)index {
+    if (index < 0 || index >= (NSInteger)self.buttons.count) { return CGRectNull; }
+    return [self convertRect:self.buttons[(NSUInteger)index].frame fromView:self.scroll];
+}
+
 - (void)layoutPill {
     if (self.selectedIndex >= (NSInteger)self.buttons.count) { self.pill.hidden = YES; return; }
     self.pill.hidden = NO;

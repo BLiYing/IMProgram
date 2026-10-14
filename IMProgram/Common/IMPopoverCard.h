@@ -20,6 +20,8 @@ NS_ASSUME_NONNULL_BEGIN
 + (BOOL)isPresentingInHostView:(UIView *)host;
 /// 在 host 内锚定 anchor 展示 Telegram 式上下文菜单。
 + (void)presentFromAnchor:(UIView *)anchor inHostView:(UIView *)host items:(NSArray<IMPopoverCardItem *> *)items;
+/// 以 host 坐标系内的矩形为锚点展示（如长按 Tab：菜单在该 Tab 正下方，左缘与 Tab 左缘对齐；右侧放不下时自动内缩）。
++ (void)presentFromRect:(CGRect)anchorRect inHostView:(UIView *)host items:(NSArray<IMPopoverCardItem *> *)items;
 /// 导航栏按钮入口；使用导航栏右上按钮的屏幕位置作为锚点。
 + (void)presentFromBarButtonItem:(UIBarButtonItem *)barButtonItem
                       inHostView:(UIView *)host

@@ -75,7 +75,7 @@ const CGFloat kIMChatFolderTabsHeight = 46;
     if (idx == NSNotFound || idx <= 0) { return; } // 「全部」不可编辑 / 删除
     NSInteger folderIndex = idx - 1;
     if (folderIndex >= (NSInteger)_folders.count) { return; }
-    CGRect r = CGRectMake([gr locationInView:self].x - 1, 0, 2, kIMChatFolderTabsHeight - 6);
+    CGRect r = [self convertRect:[_segmented segmentFrameAtIndex:idx] fromView:_segmented];
     if (self.onLongPressFolder) { self.onLongPressFolder(folderIndex, r); }
 }
 
