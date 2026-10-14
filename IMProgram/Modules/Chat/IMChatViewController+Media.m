@@ -440,10 +440,11 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     __weak typeof(self) ws = self;
     NSMutableArray<IMMenuAction *> *acts = [NSMutableArray array];
     // 全屏媒体库长按：同为相册视角看不到 caption，转发不带（对齐单张查看器"更多"入口）。
-    [acts addObject:[IMMenuAction actionWithId:@"forward" title:IMLocalized(@"common.forward") image:@"arrowshape.turn.up.right"
-                                       handler:^{ [ws forwardMediaFromViewerMessage:m]; }]];
+    // 定位到聊天放第一位（与 Web / Android 同序，2026-10-14）
     [acts addObject:[IMMenuAction actionWithId:@"locate" title:IMLocalized(@"chat.menu.locate") image:@"text.bubble"
                                        handler:^{ [ws jumpToConvSeq:m.convSeq]; }]];
+    [acts addObject:[IMMenuAction actionWithId:@"forward" title:IMLocalized(@"common.forward") image:@"arrowshape.turn.up.right"
+                                       handler:^{ [ws forwardMediaFromViewerMessage:m]; }]];
     [acts addObject:[self deleteMenuActionForMessage:m]]; // actionId=@"delete"（媒体库据此在其前插「取消下载」）
     return acts;
 }

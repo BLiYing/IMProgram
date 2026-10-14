@@ -60,6 +60,7 @@
 #import "IMDetailFileCell.h"
 #import "IMDetailLinkCell.h"
 #import "IMDetailContactCell.h"
+#import "IMChatViewController+Private.h" // favoriteMessage: / copyMessageToPasteboard:（查看器「更多」复用聊天页实现）
 #import "IMChatDetailViewController+Private.h" // 私有类扩展（属性/协议/常量/enum）——与分文件 category 共享
 #import "IMVoicePlayer.h"                      // 离页暂停语音（pauseOnLeavingScreen）
 #import "IMLocalization.h"
@@ -1301,10 +1302,11 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil
         actionProvider:^UIMenu *(NSArray<UIMenuElement *> *sug) {
         NSMutableArray<UIMenuElement *> *items = [NSMutableArray array];
-        [items addObject:[UIAction actionWithTitle:IMLocalized(@"common.forward") image:[UIImage systemImageNamed:@"arrowshape.turn.up.right"]
-                                        identifier:nil handler:^(UIAction *a) { [ws forwardFileMessage:m]; }]];
+        // 定位到聊天放第一位（与 Web / Android 长按菜单同序，2026-10-14）
         [items addObject:[UIAction actionWithTitle:IMLocalized(@"chat.menu.locate") image:[UIImage systemImageNamed:@"bubble.left.and.text.bubble.right"]
                                         identifier:nil handler:^(UIAction *a) { [ws locateFileMessageInChat:m]; }]];
+        [items addObject:[UIAction actionWithTitle:IMLocalized(@"common.forward") image:[UIImage systemImageNamed:@"arrowshape.turn.up.right"]
+                                        identifier:nil handler:^(UIAction *a) { [ws forwardFileMessage:m]; }]];
         IMDownloadProgress *dp = [ws.downloads stateForMessage:m];
         if (dp.phase == IMDownloadPhaseDownloading || dp.phase == IMDownloadPhasePaused) {
             [items addObject:[UIAction actionWithTitle:IMLocalized(@"file.menu.cancel_download") image:[UIImage systemImageNamed:@"xmark.circle"]
@@ -1426,13 +1428,32 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     [self presentViewController:pager animated:YES completion:nil];
 }
 
-/// 查看器「更多」外部动作（定位/转发）：与本页媒体格长按菜单同源，作用在正确的消息上。
+/// 查看器「更多」外部动作（定位/收藏/复制/转发/删除，与聊天页查看器同项同序）：作用在正确的消息上。
 - (NSArray<IMPopoverCardItem *> *)viewerMoreActionsForMessage:(IMMessageModel *)m {
     if (!m || m.convSeq <= 0) { return @[]; }
     __weak typeof(self) ws = self;
+    BOOL isVideo = [m.contentType isEqualToString:@"video"];
     NSMutableArray<IMPopoverCardItem *> *acts = [NSMutableArray array];
-    [acts addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"chat.menu.locate") symbol:@"text.bubble" destructive:NO
+    // 项与顺序和聊天页查看器同一份：（内置「下载」由查看器排最前）定位 · 收藏 · 复制 · 转发 · 删除（2026-10-14 三端对齐）。
+    [acts addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"media.viewer.locate") symbol:@"text.bubble" destructive:NO
                                              handler:^{ [ws locateFileMessageInChat:m]; }]];
+    IMPopoverCardItem *fav = [IMPopoverCardItem itemWithTitle:IMLocalized(@"common.favorite") symbol:@"bookmark" destructive:NO
+                                                      handler:^{
+        IMChatViewController *chat = [ws originChatInStack];
+        if (chat) { [chat favoriteMessage:m]; } else { [ws im_showToast:IMLocalized(@"chat.detail.forward_no_chat")]; }
+    }];
+    fav.needsMediaBytes = YES;
+    [acts addObject:fav];
+    // 视频不提供复制（无"复制字节"语义，与聊天页查看器同）
+    if (!isVideo) {
+        IMPopoverCardItem *cp = [IMPopoverCardItem itemWithTitle:IMLocalized(@"common.copy") symbol:@"doc.on.doc" destructive:NO
+                                                         handler:^{
+            IMChatViewController *chat = [ws originChatInStack];
+            if (chat) { [chat copyMessageToPasteboard:m]; } else { [ws im_showToast:IMLocalized(@"chat.detail.forward_no_chat")]; }
+        }];
+        cp.needsMediaBytes = YES;
+        [acts addObject:cp];
+    }
     IMPopoverCardItem *fw = [IMPopoverCardItem itemWithTitle:IMLocalized(@"common.forward") symbol:@"arrowshape.turn.up.right" destructive:NO
                                                      handler:^{ [ws forwardFileMessage:m]; }];
     fw.needsMediaBytes = YES;

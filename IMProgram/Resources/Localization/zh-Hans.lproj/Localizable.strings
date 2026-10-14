@@ -265,7 +265,7 @@
 "chat.menu.edit_contact" = "编辑联系人";
 "chat.menu.group_info" = "群资料";
 "chat.menu.invite" = "邀请成员";
-"chat.menu.locate" = "定位到聊天";
+"chat.menu.locate" = "定位到聊天位置";
 "chat.menu.no_reads" = "暂无人已读";
 "chat.menu.select_messages" = "选择消息";
 "chat.menu.unblock" = "取消拉黑";
