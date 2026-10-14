@@ -73,7 +73,7 @@
         };
         // P3 i18n：sys_event 非空且识别 → 按 App 当前语言重渲染分段；为空/未识别 → 回退服务端原始
         // sysSegments 整句（老消息/管理后台发的/未来新增事件），**不改变**这条回退路径。
-        NSArray<IMSysSegment *> *segments = IMSegmentsForSysEvent(m.sysEvent, m.sysArgs, m.sysSegments, displayNameForUID) ?: m.sysSegments;
+        NSArray<IMSysSegment *> *segments = IMSegmentsForSysEvent(m.sysEvent, m.sysArgs, m.sysSegments) ?: m.sysSegments;
         [sys configureWithSegments:segments
                       fallbackText:m.content
                  displayNameForUID:displayNameForUID

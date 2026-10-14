@@ -38,18 +38,21 @@ static NSDictionary<NSString *, NSArray *> *IMSysEventTable(void) {
     return t;
 }
 
-/// 按当前 App 语言拼接一组人名（§1.3）：zh-Hans 用「、」，其余（en）用「, 」。
+/// 人名分隔符（§1.3）：zh-Hans 用「、」，其余（en）用「, 」。
 /// 不做 "A, B and C" 的语法优化——`, ` 简单拼接是本批既定取舍，不是遗漏。
+static NSString *IMNameSeparator(void) {
+    return [IMLocalization.shared.language isEqualToString:IMLanguagePrefZhHans] ? @"、" : @", ";
+}
+
+/// 按当前 App 语言拼接一组人名（仅 new_device 的 familiars 用；member_invite 逐名出段，见 IMSegmentsForSysEvent）。
 static NSString *IMJoinLocalizedNames(NSArray<NSString *> *names) {
     if (names.count == 0) { return @""; }
-    NSString *sep = [IMLocalization.shared.language isEqualToString:IMLanguagePrefZhHans] ? @"、" : @", ";
-    return [names componentsJoinedByString:sep];
+    return [names componentsJoinedByString:IMNameSeparator()];
 }
 
 NSArray<IMSysSegment *> *IMSegmentsForSysEvent(NSString *event,
                                                 NSDictionary<NSString *, NSString *> *sysArgs,
-                                                NSArray<IMSysSegment *> *sysSegments,
-                                                NSString *(^displayNameForUID)(NSString *, NSString *)) {
+                                                NSArray<IMSysSegment *> *sysSegments) {
     if (event.length == 0) { return nil; }
     NSArray *spec = IMSysEventTable()[event];
     if (!spec) { return nil; } // 未识别事件（老消息/未来新增）→ 回退老路径
@@ -74,17 +77,14 @@ NSArray<IMSysSegment *> *IMSegmentsForSysEvent(NSString *event,
         [sentinels addObject:s];
         [varargs addObject:s];
     }
+    // member_invite 的 {names}：被邀请者逐个出名字段（各自高亮、可点，对齐 Android），
+    // 与 actor 一样用哨兵占位，切分时再展开成「名字段 + 分隔符」序列。
+    BOOL namesAsSegments = [event isEqualToString:@"member_invite"] && extraArgKey != nil;
     if (extraArgKey) {
         NSString *val;
-        if ([event isEqualToString:@"member_invite"]) {
-            // §1.3：actor 之外其余带 uid 的段是被邀请者，提前本地解析显示名再按语言拼接。
-            NSMutableArray<NSString *> *invitees = [NSMutableArray array];
-            for (NSUInteger i = (NSUInteger)nameSlotCount; i < uidSegs.count; i++) {
-                IMSysSegment *seg = uidSegs[i];
-                NSString *name = displayNameForUID ? displayNameForUID(seg.uid, seg.text) : seg.text;
-                if (name.length > 0) { [invitees addObject:name]; }
-            }
-            val = IMJoinLocalizedNames(invitees);
+        if (namesAsSegments) {
+            val = [NSString stringWithFormat:@"\U0010FFF9%08x%ld\U0010FFFA", nonce, (long)nameSlotCount];
+            [sentinels addObject:val];
         } else {
             val = sysArgs[extraArgKey] ?: @"";
         }
@@ -113,6 +113,7 @@ NSArray<IMSysSegment *> *IMSegmentsForSysEvent(NSString *event,
     for (NSNumber *n in order) {
         NSUInteger idx = n.unsignedIntegerValue;
         NSRange r = ((NSValue *)ranges[idx]).rangeValue;
+        if (r.location < cursor) { continue; } // 防御：占位符重叠（不应发生）
         if (r.location > cursor) {
             NSString *text = [formatted substringWithRange:NSMakeRange(cursor, r.location - cursor)];
             if (text.length > 0) {
@@ -120,6 +121,21 @@ NSArray<IMSysSegment *> *IMSegmentsForSysEvent(NSString *event,
                 fixed.text = text;
                 [out addObject:fixed];
             }
+        }
+        if (namesAsSegments && (NSInteger)idx == nameSlotCount) {
+            for (NSUInteger k = (NSUInteger)nameSlotCount; k < uidSegs.count; k++) {
+                if (k > (NSUInteger)nameSlotCount) {
+                    IMSysSegment *sep = [IMSysSegment new];
+                    sep.text = IMNameSeparator();
+                    [out addObject:sep];
+                }
+                IMSysSegment *inv = [IMSysSegment new];
+                inv.uid = uidSegs[k].uid;
+                inv.text = uidSegs[k].text;
+                [out addObject:inv];
+            }
+            cursor = NSMaxRange(r);
+            continue;
         }
         IMSysSegment *nameSeg = [IMSysSegment new];
         nameSeg.uid = uidSegs[idx].uid;

@@ -112,7 +112,7 @@ NSString * const kIMGroupReadSeqsKey = @"groupReadSeqs";
     };
     // P3 i18n（§3）：sys_event 非空且识别 → 按 App 当前语言重渲染；否则回退服务端原始 lastSysSegments
     // 整句（老消息/未识别事件），与聊天页系统行同一份算法（IMSegmentsForSysEvent）。
-    NSArray<IMSysSegment *> *segments = IMSegmentsForSysEvent(self.lastSysEvent, self.lastSysArgs, self.lastSysSegments, resolve) ?: self.lastSysSegments;
+    NSArray<IMSysSegment *> *segments = IMSegmentsForSysEvent(self.lastSysEvent, self.lastSysArgs, self.lastSysSegments) ?: self.lastSysSegments;
     if (segments.count > 0) {
         NSMutableString *out = [NSMutableString string];
         for (IMSysSegment *seg in segments) {

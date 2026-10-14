@@ -26,11 +26,6 @@
     return s;
 }
 
-/// 测试不关心备注/群昵称解析，直接回传服务端字面（fallback），与真实 displayNameForUID 签名一致。
-- (NSString *(^)(NSString *, NSString *))identityResolver {
-    return ^NSString *(NSString *uid, NSString *fallback) { return fallback; };
-}
-
 - (NSString *)joinedText:(NSArray<IMSysSegment *> *)segments {
     NSMutableString *out = [NSMutableString string];
     for (IMSysSegment *s in segments) { [out appendString:s.text ?: @""]; }
@@ -41,7 +36,7 @@
 
 - (void)testMemberRemoveTwoNameSlots {
     NSArray<IMSysSegment *> *segs = @[[self segWithUID:@"u1" text:@"张三"], [self segWithUID:@"u2" text:@"李四"]];
-    NSArray<IMSysSegment *> *out = IMSegmentsForSysEvent(@"member_remove", nil, segs, [self identityResolver]);
+    NSArray<IMSysSegment *> *out = IMSegmentsForSysEvent(@"member_remove", nil, segs);
     XCTAssertEqualObjects([self joinedText:out], @"张三 将 李四 移出群聊");
     NSArray<NSString *> *uids = [out valueForKeyPath:@"uid"];
     // 过滤掉固定文案段（uid 为 nil，valueForKeyPath 会收进 NSNull）
@@ -50,73 +45,73 @@
     XCTAssertEqualObjects(nonNilUIDs, (@[@"u1", @"u2"]), @"人名槽位顺序=actor,target，且保留 uid 供点击");
 
     [IMLocalization.shared setPreference:IMLanguagePrefEnglish];
-    NSArray<IMSysSegment *> *outEn = IMSegmentsForSysEvent(@"member_remove", nil, segs, [self identityResolver]);
+    NSArray<IMSysSegment *> *outEn = IMSegmentsForSysEvent(@"member_remove", nil, segs);
     XCTAssertEqualObjects([self joinedText:outEn], @"张三 removed 李四 from the group");
 }
 
 #pragma mark - friend_accepted：单聊系统消息，无人名槽位、无参数
 
 - (void)testFriendAcceptedRendersLocalizedWithoutSegmentsOrArgs {
-    NSArray<IMSysSegment *> *out = IMSegmentsForSysEvent(@"friend_accepted", nil, nil, nil);
+    NSArray<IMSysSegment *> *out = IMSegmentsForSysEvent(@"friend_accepted", nil, nil);
     XCTAssertEqual(out.count, 1u, @"整句一段固定文案，不挂 uid");
     XCTAssertNil(out.firstObject.uid);
     XCTAssertEqualObjects(out.firstObject.text, @"你们已成为好友，现在可以开始聊天了");
 
     [IMLocalization.shared setPreference:IMLanguagePrefEnglish];
-    NSArray<IMSysSegment *> *outEn = IMSegmentsForSysEvent(@"friend_accepted", nil, nil, nil);
+    NSArray<IMSysSegment *> *outEn = IMSegmentsForSysEvent(@"friend_accepted", nil, nil);
     XCTAssertEqualObjects([self joinedText:outEn], @"You are now friends. You can start chatting.");
 }
 
 #pragma mark - group_rename：纯 args 无人名槽位
 
 - (void)testGroupRenameNoNameSlots {
-    NSArray<IMSysSegment *> *out = IMSegmentsForSysEvent(@"group_rename", @{ @"name": @"摸鱼小组" }, nil, nil);
+    NSArray<IMSysSegment *> *out = IMSegmentsForSysEvent(@"group_rename", @{ @"name": @"摸鱼小组" }, nil);
     XCTAssertEqual(out.count, 1u);
     XCTAssertNil(out[0].uid);
     XCTAssertEqualObjects(out[0].text, @"群名已改为「摸鱼小组」");
 
     [IMLocalization.shared setPreference:IMLanguagePrefEnglish];
-    NSArray<IMSysSegment *> *outEn = IMSegmentsForSysEvent(@"group_rename", @{ @"name": @"摸鱼小组" }, nil, nil);
+    NSArray<IMSysSegment *> *outEn = IMSegmentsForSysEvent(@"group_rename", @{ @"name": @"摸鱼小组" }, nil);
     XCTAssertEqualObjects(outEn[0].text, @"Group name changed to \"摸鱼小组\"");
 }
 
 #pragma mark - mute_all_on：无参数纯静态串
 
 - (void)testMuteAllOnStaticNoParams {
-    NSArray<IMSysSegment *> *out = IMSegmentsForSysEvent(@"mute_all_on", nil, nil, nil);
+    NSArray<IMSysSegment *> *out = IMSegmentsForSysEvent(@"mute_all_on", nil, nil);
     XCTAssertEqual(out.count, 1u);
     XCTAssertEqualObjects(out[0].text, @"管理员开启了全员禁言");
 
     [IMLocalization.shared setPreference:IMLanguagePrefEnglish];
-    NSArray<IMSysSegment *> *outEn = IMSegmentsForSysEvent(@"mute_all_on", nil, nil, nil);
+    NSArray<IMSysSegment *> *outEn = IMSegmentsForSysEvent(@"mute_all_on", nil, nil);
     XCTAssertEqualObjects(outEn[0].text, @"An admin turned on mute-all");
 }
 
-#pragma mark - member_invite：多人名拼接（§1.3，仅 actor 可点）
+#pragma mark - member_invite：被邀请者逐个出名字段（§1.3，全部可点）
 
 - (void)testMemberInviteJoinsInviteeNames {
     NSArray<IMSysSegment *> *segs = @[[self segWithUID:@"u1" text:@"张三"],
                                        [self segWithUID:@"u2" text:@"李四"],
                                        [self segWithUID:@"u3" text:@"王五"]];
-    NSArray<IMSysSegment *> *out = IMSegmentsForSysEvent(@"member_invite", nil, segs, [self identityResolver]);
+    NSArray<IMSysSegment *> *out = IMSegmentsForSysEvent(@"member_invite", nil, segs);
     XCTAssertEqualObjects([self joinedText:out], @"张三 邀请 李四、王五 加入群聊");
     NSMutableArray<NSString *> *clickableUIDs = [NSMutableArray array];
     for (IMSysSegment *s in out) { if (s.uid.length > 0) { [clickableUIDs addObject:s.uid]; } }
-    XCTAssertEqualObjects(clickableUIDs, (@[@"u1"]), @"只有 actor 可点，被邀请者拼进纯文本（刻意取舍）");
+    XCTAssertEqualObjects(clickableUIDs, (@[@"u1", @"u2", @"u3"]), @"actor 与每个被邀请者都是可点名字段");
 
     [IMLocalization.shared setPreference:IMLanguagePrefEnglish];
-    NSArray<IMSysSegment *> *outEn = IMSegmentsForSysEvent(@"member_invite", nil, segs, [self identityResolver]);
+    NSArray<IMSysSegment *> *outEn = IMSegmentsForSysEvent(@"member_invite", nil, segs);
     XCTAssertEqualObjects([self joinedText:outEn], @"张三 invited 李四, 王五 to the group");
 }
 
 #pragma mark - 回退路径钉住：事件为空/未识别/数据不齐 → 必须返回 nil，交由调用方回退老消息展示
 
 - (void)testUnrecognizedOrIncompleteEventFallsBackToNil {
-    XCTAssertNil(IMSegmentsForSysEvent(nil, nil, nil, nil));
-    XCTAssertNil(IMSegmentsForSysEvent(@"", nil, nil, nil));
-    XCTAssertNil(IMSegmentsForSysEvent(@"some_future_event_not_yet_known", nil, nil, nil), @"未识别事件（未来新增）必须回退，不能崩溃/乱渲染");
+    XCTAssertNil(IMSegmentsForSysEvent(nil, nil, nil));
+    XCTAssertNil(IMSegmentsForSysEvent(@"", nil, nil));
+    XCTAssertNil(IMSegmentsForSysEvent(@"some_future_event_not_yet_known", nil, nil), @"未识别事件（未来新增）必须回退，不能崩溃/乱渲染");
     NSArray<IMSysSegment *> *onlyOneUID = @[[self segWithUID:@"u1" text:@"张三"]];
-    XCTAssertNil(IMSegmentsForSysEvent(@"member_remove", nil, onlyOneUID, [self identityResolver]), @"member_remove 需要 2 个人名槽位，候选不够时防御性回退");
+    XCTAssertNil(IMSegmentsForSysEvent(@"member_remove", nil, onlyOneUID), @"member_remove 需要 2 个人名槽位，候选不够时防御性回退");
 }
 
 #pragma mark - 系统通知单聊（§1.4）：new_device_login 正常态

@@ -22,14 +22,12 @@ NS_ASSUME_NONNULL_BEGIN
 ///   **服务端字面**（未做本地显示名替换）——真正的本地显示名解析交给调用方现有的
 ///   `displayNameForUID` 回调在渲染时统一做（与老 sysSegments 路径同一份逻辑，不重复实现、
 ///   也因此天然会跟着备注变化实时刷新，不会因为这里提前烘焙进 text 而变成快照）。
-/// - `member_invite` 事件例外（§1.3）：除 actor 外其余带 uid 的段是被邀请者，本函数会**提前**用
-///   `displayNameForUID` 把它们解析成本地显示名、按当前语言的分隔符拼成一句纯文本代入模板
-///   （多人各自可点的 UX 在这个场景下放弃，是刻意取舍，不是遗漏）。
+/// - `member_invite` 事件（§1.3）：除 actor 外其余带 uid 的段是被邀请者，逐个输出为带 uid 的名字段
+///   （各自高亮、可点，与 Android 一致），段间插入当前语言的分隔符文案段（zh「、」/ en「, 」）。
 FOUNDATION_EXPORT NSArray<IMSysSegment *> *_Nullable
 IMSegmentsForSysEvent(NSString *_Nullable event,
                       NSDictionary<NSString *, NSString *> *_Nullable sysArgs,
-                      NSArray<IMSysSegment *> *_Nullable sysSegments,
-                      NSString *_Nonnull (^_Nullable displayNameForUID)(NSString *uid, NSString *fallback));
+                      NSArray<IMSysSegment *> *_Nullable sysSegments);
 
 /// 系统通知单聊（sender=777000/IMSystemUserID，content_type=text）：`sys_event`+`sys_args` → 本地
 /// 拼装的多行文本（`\n` 连接，无 uid/点击需求，直接喂给普通文本气泡）。
