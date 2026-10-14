@@ -35,6 +35,7 @@ NS_ASSUME_NONNULL_BEGIN
 #pragma mark 供翻页容器固定层驱动/查询当前页（chromeless 下使用）
 @property (nonatomic, readonly) BOOL isVideoContent;   ///< 当前页是否视频
 @property (nonatomic, readonly) BOOL isVideoPlaying;    ///< 视频是否正在播放（暂停/未开播=NO）
+@property (nonatomic, readonly) BOOL isExpiredState;      ///< 当前页已进失效终态
 @property (nonatomic, readonly) BOOL hasGalleryEntry;   ///< 是否配了「媒体库」入口（决定容器是否显示媒体库键）
 - (void)togglePlayback;                                 ///< 容器中央播放键调用
 - (void)invokeOpenGallery;                              ///< 容器媒体库键调用（先关查看器再回调）
@@ -59,6 +60,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)mediaViewerContentDidSingleTap:(IMMediaViewerViewController *)vc;
 /// 视频播放态变化：容器据此管理 3s 自动隐藏（播放中才隐藏；暂停常显）。
 - (void)mediaViewerContent:(IMMediaViewerViewController *)vc playingChanged:(BOOL)playing;
+/// 本页进入「已失效」终态（无字节可存）：容器据此收起下载键 / 菜单里的「下载」。
+- (void)mediaViewerContentDidEnterExpired:(IMMediaViewerViewController *)vc;
 @end
 
 NS_ASSUME_NONNULL_END

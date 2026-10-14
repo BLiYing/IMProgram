@@ -79,6 +79,16 @@
     self.view.backgroundColor = UIColor.blackColor;
     _speeds = @[@1.0, @1.5, @2.0];
     if (_isVideo) { [self setupVideo]; } else { [self setupImage]; }
+    // 本机有缓存/原件时加载不会 404：进查看器主动复验一次（已知失效则上面已画失效页）。命中 → 切失效终态。
+    if (_url.length > 0 && !_expiredOverlay) {
+        __weak typeof(self) wsx = self;
+        NSString *wantX = _url;
+        [IMMediaExpiryRegistry.shared verifyExpiredForURL:wantX completion:^(BOOL expired) {
+            __strong typeof(wsx) sx = wsx;
+            if (!sx || !expired || ![sx->_url isEqualToString:wantX] || sx->_expiredOverlay) { return; }
+            if (sx->_isVideo) { [sx enterExpiredVideoState]; } else { [sx hideLoadingSpinner]; [sx showExpiredOverlayForVideo:NO]; }
+        }];
+    }
     [self setupCommonControls];
 }
 
@@ -121,8 +131,8 @@
     [_imageView addGestureRecognizer:single];
     [_imageView addGestureRecognizer:dbl];
 
-    // 已知失效**且本机无缓存**：直接画失效占位、不回源。本机已缓存则照显真图（铁律 A），交给下方 loadImageURL 同步命中。
-    if (![[IMImageLoader shared] hasCachedImageForURL:_url] && [IMMediaExpiryRegistry.shared isExpiredURL:_url]) {
+    // 已知失效：直接画失效占位、不回源。**不看本机有没有缓存**（2026-10-14 起取代铁律 A「缓存过的照显」）。
+    if ([IMMediaExpiryRegistry.shared isExpiredURL:_url]) {
         [self hideLoadingSpinner];
         [self showExpiredOverlayForVideo:NO]; return;
     }
@@ -135,7 +145,6 @@
         if (image) { self->_imageView.image = image; self->_fullImage = image; [self hideLoadingSpinner]; return; }
         [self hideLoadingSpinner];
         // 无 preload 兜底且加载失败 → 复验 404，命中画失效占位（非空屏）。
-        if (self->_preloaded) { return; } // 有本地预览就不判失效（缓存过的照显，铁律 A）
         [IMMediaExpiryRegistry.shared verifyExpiredForURL:want completion:^(BOOL expired) {
             __strong typeof(ws) self2 = ws;
             if (self2 && expired && [self2->_url isEqualToString:want]) { [self2 showExpiredOverlayForVideo:NO]; }
@@ -185,6 +194,11 @@
 - (void)showExpiredOverlayForVideo:(BOOL)isVideo {
     if (_expiredOverlay) { return; }
     _downloadButton.hidden = YES; // 失效无字节可存：藏掉保存钮，别留一个点了只弹 toast 的死按钮
+    // 失效页是「黑底 + 八角 ✕ + 文案」：覆盖层只有 28% 压暗，缓存里的真图 / 预载图 / 已出帧的视频不清掉就会透出来。
+    _imageView.image = nil; _fullImage = nil; _preloaded = nil;
+    _scroll.maximumZoomScale = 1.0; [_scroll setZoomScale:1.0 animated:NO];
+    _playerLayer.hidden = YES;
+    [self.contentDelegate mediaViewerContentDidEnterExpired:self]; // 翻页容器的固定层下载键同样要收
     _expiredOverlay = [IMMediaPlaceholder expiredOverlayWithCaption:(isVideo ? IMLocalized(@"media.video_expired") : IMLocalized(@"media.image_expired"))];
     _expiredOverlay.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:_expiredOverlay];
@@ -214,10 +228,10 @@
     [self.view addSubview:_videoContainer];
 
     BOOL hasLocalOriginal = [IMOriginalVideoCache hasCacheForFullURL:_url];
-    // 已知失效**且本机无原件**（铁律 A：缓存过的照放，无视 404）→ 只画失效占位、**不建播放器/控件就 return**：
+    // 已知失效（**不看本机有无原件**，2026-10-14 起取代铁律 A）→ 只画失效占位、**不建播放器/控件就 return**：
     // 否则播放键/进度条/「查看原视频」等控件后加、浮在占位之上还可点，且 AVPlayer 仍连 404（code-review #2）。
     // 实时探测「正在播放中」的 404 需 KVO AVPlayer.status，留待后续。
-    if (!hasLocalOriginal && [IMMediaExpiryRegistry.shared isExpiredURL:_url]) {
+    if ([IMMediaExpiryRegistry.shared isExpiredURL:_url]) {
         [self showExpiredOverlayForVideo:YES];
         [self.view addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self
             action:(_chromeless ? @selector(handleContentSingleTap) : @selector(dismissSelf))]];
@@ -297,12 +311,36 @@
     AVPlayerItem *item = object;
     if (item.status != AVPlayerItemStatusFailed) { return; }
     IMLogWarnWithTag(IMLogTagMedia, @"video_playback_failed error=%@", item.error.localizedDescription ?: @"(nil)");
-    dispatch_async(dispatch_get_main_queue(), ^{ [self showPlaybackUnsupported]; });
+    dispatch_async(dispatch_get_main_queue(), ^{ [self handleVideoPlaybackFailure]; });
+}
+
+/// 播放失败先复验是不是服务端已清理（404/410）：是 → 与 Android 同一张失效页（黑底 + 八角 ✕ + 「视频已失效」，无控件、不给保存）；
+/// 否才是编解码/网络问题 → 走「无法播放」降级说明。本机有原件时不会 404，直接降级。
+- (void)handleVideoPlaybackFailure {
+    if (_usingLocalOriginal || [IMOriginalVideoCache hasCacheForFullURL:_url]) { [self showPlaybackUnsupported]; return; }
+    __weak typeof(self) ws = self;
+    NSString *want = _url;
+    [IMMediaExpiryRegistry.shared verifyExpiredForURL:want completion:^(BOOL expired) {
+        __strong typeof(ws) self = ws;
+        if (!self || ![self->_url isEqualToString:want]) { return; }
+        if (expired) { [self enterExpiredVideoState]; } else { [self showPlaybackUnsupported]; }
+    }];
+}
+
+/// 视频失效终态：停播、收掉播放键/进度/倍速/「查看原视频」/封面/菊花，只留失效页 + 返回（对齐 Android `ExpiredViewerPage`）。
+- (void)enterExpiredVideoState {
+    [_player pause];
+    [self hideLoadingSpinner];
+    _playButton.hidden = YES; _scrubber.hidden = YES; _timeLabel.hidden = YES; _speedButton.hidden = YES;
+    _originalChip.hidden = YES; _originalChipVisible = NO;
+    _poster.hidden = YES;
+    _unplayableLabel.hidden = YES;
+    [self showExpiredOverlayForVideo:YES]; // 内部会收起 _playerLayer（别让已出的帧透出）
 }
 
 /// 播放失败降级：盖一层说明 + 「保存到相册」，封面继续显示（封面是 JPEG，与视频编码无关）。
 - (void)showPlaybackUnsupported {
-    if (_unplayableLabel) { return; }
+    if (_unplayableLabel || _expiredOverlay) { return; } // 已进失效终态：别再叠「无法播放」
     [self hideLoadingSpinner];
     _playButton.hidden = YES;
     _poster.hidden = NO;
@@ -326,6 +364,7 @@
 }
 
 - (void)togglePlayback {
+    if (_expiredOverlay) { return; } // 失效终态：不再起播（点画面/中央键都不该复活播放）
     if (!_started) {
         _started = YES;
         _poster.hidden = YES;
@@ -366,11 +405,13 @@
 - (BOOL)isVideoContent { return _isVideo; }
 - (BOOL)isVideoPlaying { return _player != nil && _player.rate > 0; }
 - (BOOL)hasGalleryEntry { return _onOpenGallery != nil; }
+- (BOOL)isExpiredState { return _expiredOverlay != nil; }
 - (void)invokeOpenGallery { [self openGallery]; }
 
 /// 沉浸态（随 chrome 显隐）：隐藏中央播放/暂停键 + 倍速 + 「查看原视频」chip；
 /// **进度条 _scrubber / 时间 _timeLabel 常驻不隐**（用户要求保留）。
 - (void)setAuxControlsHidden:(BOOL)hidden {
+    if (_expiredOverlay) { _playButton.hidden = YES; _speedButton.hidden = YES; _originalChip.hidden = YES; return; } // 失效终态：chrome 切换不得把控件翻回来
     _playButton.hidden = hidden;
     _speedButton.hidden = hidden;
     _originalChip.hidden = hidden ? YES : !_originalChipVisible; // 恢复到其"本应可见"状态（下载完/本地原件时恒隐）
@@ -526,6 +567,7 @@ didFinishDownloadingToURL:(NSURL *)location {
     _downloadButton = [self circleButtonWithSymbol:@"arrow.down.to.line" pointSize:16];
     [_downloadButton addTarget:self action:@selector(saveToAlbum) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:_downloadButton];
+    _downloadButton.hidden = _expiredOverlay != nil; // 已知失效页在 setup 阶段就画了覆盖层，此时按钮还没建
     [NSLayoutConstraint activateConstraints:@[
         [_downloadButton.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-16],
         [_downloadButton.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor constant:-16],
@@ -567,7 +609,7 @@ didFinishDownloadingToURL:(NSURL *)location {
 /// 进度条随视频页（无壳时也在页内、翻页时随内容，沉浸态保留）。锚点在有 ✕/下载壳时贴其上方，
 /// 无壳（翻页容器）时用等价的固定常量，使容器画在同位的下载/更多键与本行不重叠、对齐。
 - (void)setupVideoBottomRowIfNeeded:(UILayoutGuide *)safe {
-    if (!_isVideo) { return; }
+    if (!_isVideo || _expiredOverlay) { return; } // 已知失效：只有失效页，不建进度条/倍速/「查看原视频」
 
     _timeLabel = [UILabel new];
     _timeLabel.textColor = UIColor.whiteColor;
@@ -680,10 +722,14 @@ didFinishDownloadingToURL:(NSURL *)location {
 - (void)showMoreSheet {
     __weak typeof(self) ws = self;
     NSMutableArray<IMPopoverCardItem *> *items = [NSMutableArray array];
-    [items addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"common.download") symbol:@"arrow.down.to.line" destructive:NO handler:^{
-        [ws saveToAlbum];
-    }]];
+    BOOL expired = _expiredOverlay != nil; // 失效页：与翻页容器同口径，滤掉下载 / 依赖字节的复制·收藏·转发
+    if (!expired) {
+        [items addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"common.download") symbol:@"arrow.down.to.line" destructive:NO handler:^{
+            [ws saveToAlbum];
+        }]];
+    }
     for (IMPopoverCardItem *ext in self.moreActions) {
+        if (expired && ext.needsMediaBytes) { continue; }
         void (^inner)(void) = ext.handler;
         [items addObject:[IMPopoverCardItem itemWithTitle:ext.title symbol:ext.symbol destructive:ext.destructive handler:^{
             __strong typeof(ws) self = ws;
@@ -702,8 +748,7 @@ didFinishDownloadingToURL:(NSURL *)location {
 
 - (void)saveToAlbum {
     if (_saving) { return; }
-    // 失效守卫：曾可用媒体被服务端清理(404) → 无字节可存。铁律A（本机有缓存/原件则仍可存）天然成立：
-    // 有缓存/原件时加载不会 404、URL 不会被登记失效，故命中 isExpiredURL 即代表无本机字节，直接拦。
+    // 失效守卫：曾可用媒体被服务端清理(404) → 不再提供保存（2026-10-14 起不看本机有无缓存/原件，与失效页口径一致）。
     if ([IMMediaExpiryRegistry.shared isExpiredURL:_url]) {
         [self im_showToast:IMLocalized(@"chat.media.file_expired_cant_save")];
         return;

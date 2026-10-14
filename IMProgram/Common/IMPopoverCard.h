@@ -9,6 +9,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy) NSString *title;
 @property (nonatomic, copy) NSString *symbol;        ///< SF Symbol 名
 @property (nonatomic, assign) BOOL destructive;      ///< 红色项
+@property (nonatomic, assign) BOOL needsMediaBytes;  ///< 依赖媒体字节（下载/复制/收藏/转发）：查看器处于「已失效」时容器会滤掉
 @property (nonatomic, copy) void (^handler)(void);
 + (instancetype)itemWithTitle:(NSString *)title symbol:(NSString *)symbol
                   destructive:(BOOL)destructive handler:(void (^)(void))handler;

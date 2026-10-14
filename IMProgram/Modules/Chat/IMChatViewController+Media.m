@@ -399,16 +399,22 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
             [ws jumpToConvSeq:m.convSeq];
         }]];
     }
-    [acts addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"common.favorite") symbol:@"bookmark" destructive:NO handler:^{ [ws favoriteMessage:m]; }]];
+    IMPopoverCardItem *fav = [IMPopoverCardItem itemWithTitle:IMLocalized(@"common.favorite") symbol:@"bookmark" destructive:NO handler:^{ [ws favoriteMessage:m]; }];
+    fav.needsMediaBytes = YES;
+    [acts addObject:fav];
     // 视频不提供复制：无"复制字节"语义，复制链接意义不大，产品上禁止复制视频消息（与 Web 对齐）。
     if (!isVideo) {
-        [acts addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"common.copy") symbol:@"doc.on.doc" destructive:NO handler:^{
+        IMPopoverCardItem *cp = [IMPopoverCardItem itemWithTitle:IMLocalized(@"common.copy") symbol:@"doc.on.doc" destructive:NO handler:^{
             [ws copyMessageToPasteboard:m]; // 图片→复制图片字节（可粘贴回输入框发图）
-        }]];
+        }];
+        cp.needsMediaBytes = YES;
+        [acts addObject:cp];
     }
     if (m.recalledAt == 0 && m.convSeq > 0) {
         // 相册查看器"更多"：看不到 caption/附言，转发时不带（对齐 forwardFileMessage: 语义）。
-        [acts addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"common.forward") symbol:@"arrowshape.turn.up.right" destructive:NO handler:^{ [ws forwardMediaFromViewerMessage:m]; }]];
+        IMPopoverCardItem *fw = [IMPopoverCardItem itemWithTitle:IMLocalized(@"common.forward") symbol:@"arrowshape.turn.up.right" destructive:NO handler:^{ [ws forwardMediaFromViewerMessage:m]; }];
+        fw.needsMediaBytes = YES;
+        [acts addObject:fw];
     }
     // 删除（与 Web 查看器「更多」对齐）：可为所有人删则弹两档 sheet，否则=仅删除自己 / 本地删。
     [acts addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"common.delete") symbol:@"trash" destructive:YES handler:^{ [ws confirmDeleteMediaMessage:m]; }]];

@@ -297,8 +297,11 @@ static UIBezierPath *IMBubbleOutlinePath(CGRect rect, CGFloat radius, CACornerMa
     //（后者会把整段 JSON 拷进剪贴板）；发送中的图片 content 还是本地引用，复制无意义。与 Web 对齐。
     // 图说消息（image/video/file 带 caption）也可复制——复制的是**文本**（caption），故三类都放开。
     // voice 不可复制（没有可复制文本，音频用「转文字」独立入口）。
+    // 已失效的图片/视频（服务端已清理）：没有字节可复制/转发/收藏，这三项直接不出现——只留引用/撤回/多选/删除等不依赖字节的项。
+    BOOL expiredMedia = ([message.contentType isEqualToString:@"image"] || [message.contentType isEqualToString:@"video"])
+                     && [self isMediaExpiredForForward:message];
     BOOL copyable = ([message.contentType isEqualToString:@"text"] && message.content.length > 0 && message.recalledAt == 0)
-                 || ([message.contentType isEqualToString:@"image"] && message.convSeq > 0 && message.recalledAt == 0)
+                 || ([message.contentType isEqualToString:@"image"] && !expiredMedia && message.convSeq > 0 && message.recalledAt == 0)
                  || (message.caption.length > 0 && message.convSeq > 0 && message.recalledAt == 0);
     if (copyable) {
         [actions addObject:[IMMenuAction actionWithId:@"copy" title:IMLocalized(@"common.copy") image:@"doc.on.doc" handler:^{
@@ -310,14 +313,14 @@ static UIBezierPath *IMBubbleOutlinePath(CGRect rect, CGFloat radius, CACornerMa
             [ws beginReplyTo:message];
         }]];
     }
-    if (message.recalledAt == 0 && message.convSeq > 0) {
+    if (message.recalledAt == 0 && message.convSeq > 0 && !expiredMedia) {
         [actions addObject:[IMMenuAction actionWithId:@"forward" title:IMLocalized(@"common.forward") image:@"arrowshape.turn.up.right" handler:^{
             [ws forwardMessage:message];
         }]];
     }
     // 收藏：文本/图片/视频/文件/链接均可（快照存 content+content_type，后端通用；system/撤回除外）。
     // 必须 convSeq>0：发送中的行 content 是 im-pending:// 本地引用，收藏它是一条别端永远打不开的死链（与 Web 对齐）。
-    if (message.convSeq > 0 && message.content.length > 0 && message.recalledAt == 0 && ![message.contentType isEqualToString:@"system"]) {
+    if (message.convSeq > 0 && message.content.length > 0 && message.recalledAt == 0 && !expiredMedia && ![message.contentType isEqualToString:@"system"]) {
         [actions addObject:[IMMenuAction actionWithId:@"favorite" title:IMLocalized(@"common.favorite") image:@"bookmark" handler:^{
             [ws favoriteMessage:message];
         }]];

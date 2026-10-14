@@ -65,6 +65,11 @@
     [self updateChromeForCurrent];
 }
 
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    [self updateExpiredChromeForCurrent]; // 首屏页的子视图此时才全部加载完：失效态（下载键）在这里兜底再算一次
+}
+
 /// 前插续拉落地：正在看的那一张下标后移 `added`，并让翻页容器重新问一遍左右邻居。
 /// 用户正拖拽 / 减速 / 转场中时**推迟**（animated:NO 重设同一页会打断交互转场、复位缩放、暂停视频）；
 /// 推迟期间下标没动，邻居仍按旧下标建——所以必须等到安静了再一次性后移，不能先动下标。
@@ -244,8 +249,17 @@
     [self updateSubtitleForIndex:cur.imMediaIndex];
     _galleryButton.hidden = !cur.hasGalleryEntry;      // stack 自动收起隐藏项
     _moreButton.hidden = cur.moreActions.count == 0;
+    [self updateExpiredChromeForCurrent];
     [self prefetchOlderIfNeeded];
     [self prefetchNewerIfNeeded];
+}
+
+/// 只重算依赖「当前页是否失效」的壳（下载键）。失效回调 / viewDidAppear 只走这条，
+/// 不连带重跑前后续拉（邻页异步复验命中时每页回调一次，别每次都去碰加载器）。
+- (void)updateExpiredChromeForCurrent {
+    IMMediaViewerViewController *cur = self.currentViewer;
+    if (!cur) { return; }
+    _downloadButton.hidden = cur.isExpiredState; // 失效页无字节可存（对齐 Android：保留 ✕ / ⋯ / 媒体库）
 }
 
 #pragma mark - 固定层按钮动作（作用于当前页）
@@ -262,10 +276,13 @@
     __weak typeof(self) ws = self;
     NSMutableArray<IMPopoverCardItem *> *items = [NSMutableArray array];
     // 内置「下载」（不关查看器）+ 外部动作（先关查看器再执行，回到聊天页上下文）。
-    [items addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"common.download") symbol:@"arrow.down.to.line" destructive:NO handler:^{
-        [ws.currentViewer saveToAlbum];
-    }]];
+    if (!cur.isExpiredState) {
+        [items addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"common.download") symbol:@"arrow.down.to.line" destructive:NO handler:^{
+            [ws.currentViewer saveToAlbum];
+        }]];
+    }
     for (IMPopoverCardItem *ext in cur.moreActions) {
+        if (cur.isExpiredState && ext.needsMediaBytes) { continue; } // 失效页：复制/收藏/转发无字节可用（与 Android 同）
         void (^inner)(void) = ext.handler;
         [items addObject:[IMPopoverCardItem itemWithTitle:ext.title symbol:ext.symbol destructive:ext.destructive handler:^{
             [ws dismissViewControllerAnimated:YES completion:^{ if (inner) { inner(); } }];
@@ -299,6 +316,10 @@
 
 - (void)mediaViewerContentDidSingleTap:(IMMediaViewerViewController *)vc {
     [self setChromeVisible:!_chromeVisible]; // 显示时点击→隐藏；隐藏时点击→显示
+}
+
+- (void)mediaViewerContentDidEnterExpired:(IMMediaViewerViewController *)vc {
+    [self updateExpiredChromeForCurrent]; // 无条件重算：此刻 currentViewer 可能还没指到它（首屏），下方按当前页取状态
 }
 
 - (void)mediaViewerContent:(IMMediaViewerViewController *)vc playingChanged:(BOOL)playing {

@@ -28,11 +28,14 @@
     UIImageView *_thumb; UIImageView *_play; NSString *_url;
     UIView *_dim; CAShapeLayer *_ringBG; CAShapeLayer *_ring; UILabel *_sizeChip; UILabel *_durChip;
     UIImageView *_expiredBadge; // 中心 ⊘（曾可用、被服务端清理）
+    IMMediaItem *_lastItem; IMDownloadProgress *_lastDp; NSString *_lastThumb; // 主动探测命中失效时据此原样重配
     UIButton *_checkbox;        // 收藏 pick 模式勾选框（右上角）；平时 hidden
     void (^_checkboxTap)(void); // 勾选框点击回调（每次 configure 覆盖）
 }
 - (instancetype)initWithFrame:(CGRect)frame {
     if ((self = [super initWithFrame:frame])) {
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(expiryDidChange:)
+                                                   name:IMMediaExpiryDidChangeNotification object:nil];
         _thumb = [UIImageView new];
         _thumb.contentMode = UIViewContentModeScaleAspectFill; _thumb.clipsToBounds = YES;
         _thumb.backgroundColor = UIColor.tertiarySystemFillColor;
@@ -76,7 +79,7 @@
         _durChip.hidden = YES;
         [self.contentView addSubview:_durChip]; // 就绪视频格右下角时长角标
 
-        _expiredBadge = [[UIImageView alloc] initWithImage:[IMMediaPlaceholder expiredGlyphImage]];
+        _expiredBadge = [[UIImageView alloc] initWithImage:[IMMediaPlaceholder expiredTileGlyphImage]];
         _expiredBadge.translatesAutoresizingMaskIntoConstraints = NO;
         _expiredBadge.hidden = YES;
         [self.contentView addSubview:_expiredBadge];
@@ -148,7 +151,16 @@
     [CATransaction commit];
 }
 
+- (void)expiryDidChange:(NSNotification *)note {
+    NSString *u = note.userInfo[@"url"];
+    if (u.length == 0 || !_lastItem || ![u isEqualToString:_url]) { return; }
+    [self configureWithItem:_lastItem download:_lastDp thumb:_lastThumb];
+}
+
+- (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
+
 - (void)configureWithItem:(IMMediaItem *)item download:(IMDownloadProgress *)dp thumb:(NSString *)thumb {
+    _lastItem = item; _lastDp = dp; _lastThumb = thumb;
     _url = item.url; _thumb.image = nil;
     __weak typeof(self) ws = self; NSString *want = item.url;
     void (^applyFrost)(NSString *) = ^(NSString *t) {
@@ -163,21 +175,26 @@
         }];
     };
 
-    // 失效（曾可用、被服务端清理）**且本机无原件**（铁律 A：缓存过的照显真图，不叠 ⊘）→ dim 磨砂 + ⊘，无下载/播放入口。
+    // 失效（曾可用、被服务端清理）→ dim 磨砂 + ⊘，无下载/播放入口。**不看本机有没有缓存**（2026-10-14 起，取代铁律 A）。
     BOOL hasLocal = item.isVideo ? [IMOriginalVideoCache hasCacheForFullURL:item.url]
                                  : [[IMImageLoader shared] hasCachedImageForURL:item.url];
-    BOOL expired = !hasLocal && [IMMediaExpiryRegistry.shared isExpiredURL:item.url];
+    BOOL expired = [IMMediaExpiryRegistry.shared isExpiredURL:item.url];
     if (expired) {
         [self applyGate:nil isVideo:NO]; // 清掉门控层（环/尺寸/播放键）
         _play.hidden = YES;
         _expiredBadge.hidden = NO;
         _durChip.hidden = YES;
-        _thumb.alpha = 0.5;
+        // 压暗 + 磨砂缩略（原先只把缩略图调到 0.5 透明、不压暗：浅色底上白色 ✕ 看不清；无 thumb 时更是一片白）。
+        _thumb.alpha = 1.0;
+        _dim.hidden = NO;
         applyFrost(thumb);
         return;
     }
     _expiredBadge.hidden = YES;
     _thumb.alpha = 1.0;
+    // 进页就探一次（门控/只拉封面的格子不请求原件）：命中登记并广播，宿主据通知刷新本格。
+    // 本机有副本的不在宫格里批量探（省请求、免跳变）；进查看器那一次再复验，命中经通知回刷宫格。
+    if (!hasLocal) { [IMMediaExpiryRegistry.shared probeExpiredForURL:item.url]; }
 
     BOOL gated = dp != nil && dp.phase != IMDownloadPhaseDone;
     void (^apply)(UIImage *) = ^(UIImage *img) {
@@ -237,6 +254,7 @@
     [super prepareForReuse];
     _thumb.image = nil;
     _thumb.alpha = 1.0;
+    _lastItem = nil; _lastDp = nil; _lastThumb = nil;
     _expiredBadge.hidden = YES;
     _checkbox.hidden = YES;
     _checkboxTap = nil;

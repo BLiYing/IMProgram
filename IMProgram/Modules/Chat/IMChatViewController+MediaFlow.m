@@ -34,7 +34,7 @@
 #pragma mark - 转发（M4-3）
 
 /// 该消息是否为"曾可用、被服务端清理"的媒体（image/video/file）。转发透传的是 content URL 本身、不重传字节，
-/// 故本机有无缓存都救不了对端——命中即拦，与保存(看铁律A)语义不同。key 必须用查看器/气泡同款 fullMediaURL: 解析。
+/// 故本机有无缓存都救不了对端——命中即拦（2026-10-14 起保存/查看也不再看本机缓存，口径一致）。key 必须用查看器/气泡同款 fullMediaURL: 解析。
 - (BOOL)isMediaExpiredForForward:(IMMessageModel *)m {
     NSString *ct = m.contentType ?: @"";
     if (!([ct isEqualToString:@"image"] || [ct isEqualToString:@"video"] || [ct isEqualToString:@"file"])) { return NO; }

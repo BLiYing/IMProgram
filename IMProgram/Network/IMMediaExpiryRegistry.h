@@ -31,6 +31,11 @@ extern NSString * const IMMediaExpiryDidChangeNotification;
 /// 已知失效 / 非 http(s) → 立即回调、不重复联网。completion 恒在**主线程**回调。
 - (void)verifyExpiredForURL:(nullable NSString *)url completion:(void (^)(BOOL expired))completion;
 
+/// **进页主动探测**：门控挡着的格子 / 只拉封面的视频不会去请求原件，等不到加载失败就不会知道已被清理——
+/// 这里对地址发一次 ranged GET（`bytes=0-0`），404/410 登记失效并广播。**每个地址每进程只探一次**（探过且可达的不再打）；
+/// 网络错会撤掉记号、下次再探。已知失效 / 非 http(s) / 在途 → 直接返回。无回调：结果走 IMMediaExpiryDidChangeNotification。
+- (void)probeExpiredForURL:(nullable NSString *)url;
+
 /// 清空（设置页「清除缓存」/ 退出登录）。
 - (void)clear;
 

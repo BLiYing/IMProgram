@@ -32,8 +32,11 @@ NS_ASSUME_NONNULL_BEGIN
 /// 调用方把它盖在自己的 imageView 上、复用时移除。`userInteractionEnabled=NO`，点击穿透到底层（终态不重试）。
 + (UIView *)expiredOverlayWithCaption:(nullable NSString *)caption;
 
-/// 失效 ⊘ 字形（`xmark.octagon.fill` 白色、pt 24）：宫格/相册的中心徽章与上面的覆盖层共用同一枚，避免多处复制粘贴漂移。
+/// 失效字形·**覆盖层/查看器用**（`xmark.octagon` 描边八角 ✕，白色、pt 28）：对齐 Android `Lucide.OctagonX`。
 + (UIImage *)expiredGlyphImage;
+
+/// 失效字形·**宫格小格用**（`nosign` 圆圈斜杠 ⊘，白色、pt 22）：对齐 Android `AlbumTileGate` 的 `Lucide.Ban`。
++ (UIImage *)expiredTileGlyphImage;
 
 @end
 

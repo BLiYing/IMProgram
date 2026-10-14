@@ -103,8 +103,14 @@ static const CGFloat kIMFrostedBlurSigma = 4.0;
 }
 
 + (UIImage *)expiredGlyphImage {
-    UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:24 weight:UIImageSymbolWeightSemibold];
-    UIImage *sym = [UIImage systemImageNamed:@"xmark.octagon.fill" withConfiguration:cfg];
+    UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:28 weight:UIImageSymbolWeightMedium];
+    UIImage *sym = [UIImage systemImageNamed:@"xmark.octagon" withConfiguration:cfg];
+    return [sym imageWithTintColor:UIColor.whiteColor renderingMode:UIImageRenderingModeAlwaysOriginal];
+}
+
++ (UIImage *)expiredTileGlyphImage {
+    UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:22 weight:UIImageSymbolWeightMedium];
+    UIImage *sym = [UIImage systemImageNamed:@"nosign" withConfiguration:cfg];
     return [sym imageWithTintColor:UIColor.whiteColor renderingMode:UIImageRenderingModeAlwaysOriginal];
 }
 
@@ -115,7 +121,7 @@ static const CGFloat kIMFrostedBlurSigma = 4.0;
 
     UIImageView *icon = [UIImageView new];
     icon.translatesAutoresizingMaskIntoConstraints = NO;
-    icon.image = [self expiredGlyphImage]; // 与宫格/相册徽章共用同一枚 ⊘
+    icon.image = [self expiredGlyphImage]; // 覆盖层/查看器版（八角 ✕）；宫格小格另用 expiredTileGlyphImage
     icon.contentMode = UIViewContentModeCenter;
     [v addSubview:icon];
 

@@ -1433,8 +1433,10 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     NSMutableArray<IMPopoverCardItem *> *acts = [NSMutableArray array];
     [acts addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"chat.menu.locate") symbol:@"text.bubble" destructive:NO
                                              handler:^{ [ws locateFileMessageInChat:m]; }]];
-    [acts addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"common.forward") symbol:@"arrowshape.turn.up.right" destructive:NO
-                                             handler:^{ [ws forwardFileMessage:m]; }]];
+    IMPopoverCardItem *fw = [IMPopoverCardItem itemWithTitle:IMLocalized(@"common.forward") symbol:@"arrowshape.turn.up.right" destructive:NO
+                                                     handler:^{ [ws forwardFileMessage:m]; }];
+    fw.needsMediaBytes = YES;
+    [acts addObject:fw];
     [acts addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"common.delete") symbol:@"trash" destructive:YES
                                              handler:^{ [ws confirmDeleteMediaMessage:m]; }]];
     return acts;

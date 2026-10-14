@@ -13,6 +13,7 @@
 #import "IMReadTick.h"
 #import "IMLog.h" // 门控占位渲染点位日志（media_gated_render / media_gated_thumb_dropped）
 #import "IMMediaPlaceholder.h" // 磨砂占位统一渲染器（三处共用）
+#import "IMOriginalVideoCache.h"
 #import "IMMediaExpiryRegistry.h" // 被动展示 404 失效登记 + 复验（曾可用媒体被清理）
 #import "IMLocalization.h"
 #import "IMPowerSaving.h" // videoPreloadEffective：省电时接收侧不为预览拉视频帧
@@ -64,12 +65,16 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     int64_t _gatedSizeBytes;   // 门控态左上角"未下载尺寸"用（供进度就地更新复用，免重传 message）
     NSString *_gatedDurationText; // 门控态左上角时长（视频）
     UIView *_expiredOverlay;   // 失效占位覆盖层（被动展示 404：曾可用媒体被服务端清理）；复用时移除
+    IMMessageModel *_expiryMessage; // 门控态下记住：主动探测命中失效时据此就地换成失效层（IMMediaExpiryDidChangeNotification）
+    BOOL _expiryIsVideo;
     // _unreadDivider / _unreadDividerHeight 由 IMMessageCell 基类持有。
 }
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
     self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
     if (self) {
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(expiryDidChange:)
+                                                   name:IMMediaExpiryDidChangeNotification object:nil];
         self.backgroundColor = UIColor.clearColor;
         self.selectionStyle = UITableViewCellSelectionStyleNone;
         _thumb = [UIImageView new];
@@ -351,12 +356,14 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     _noteBottom.active = hasNote;
 
     [self hideExpiredOverlay]; // 复用防残留：先清掉上一条的失效层
+    _expiryMessage = nil;      // 同上：仅门控分支会重新记下，避免旧消息被通知误套到本次配置
     if (fullURL.length == 0) { return; } // 尚未上传完成：只显本地预览，不发起网络加载
     __weak typeof(self) ws = self;
     NSString *want = fullURL;
     void (^apply)(UIImage *) = ^(UIImage *image) {
         __strong typeof(ws) self = ws;
         if (!self || !image || ![self->_url isEqualToString:want]) { return; } // 复用安全
+        if (self->_expiredOverlay) { return; } // 已被主动探测/复验判失效：迟到的真图别再盖回失效层下
         self->_thumb.image = image;
         // 尺寸原先未知（老消息/无预览）→ 用真实图重排一次，避免长图被塞进方框。
         if (!self->_sizeFromMedia) { [self resizeToImageSize:image.size]; }
@@ -380,6 +387,10 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
     // 图片、视频一视同仁。此前视频走 `isVideo && poster` 优先取服务器封面，使内嵌 thumb 对**带封面的视频**
     // 成了死代码 —— 视频必现不显示模糊占位（本次修复的根因）。现改为 thumb 优先，仅当无 thumb（老消息）才回退封面。
     if (self.gated) {
+        _expiryMessage = message; _expiryIsVideo = isVideo;
+        // 门控挡着不请求原件，加载失败这条路等不到 → 进页主动探一次；已知失效则直接画失效层。
+        if ([IMMediaExpiryRegistry.shared isExpiredURL:fullURL]) { [self applyExpiredWhileGated]; return; }
+        [IMMediaExpiryRegistry.shared probeExpiredForURL:fullURL];
         [self applyGatedBadgesForMessage:message isVideo:isVideo];
         BOOL hasThumb = message.thumb.length > 0;
         IMLogDebugWithTag(IMLogTagMedia, @"media_gated_render conv=%@ seq=%lld is_video=%d has_thumb=%d source=%@",
@@ -403,11 +414,16 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
         // 无 thumb（极老消息）：留 init 的中性灰底（方案 A·纯净门控——绝不为占位联网拉封面/原图）。
         return;
     }
-    // 已知失效：直接画失效占位、不再回源（掐 404 风暴）。
+    // 已知失效：直接画失效占位、不再回源（掐 404 风暴）。**服务端清理即标记，不看本机有没有缓存**（2026-10-14 起，
+    // 取代 2026-08-07 的「铁律 A：缓存过的照显」）——否则后台标记了失效，用户在缓存命中的面上看不到。
+    _expiryMessage = message; _expiryIsVideo = isVideo;
     if ([IMMediaExpiryRegistry.shared isExpiredURL:fullURL]) {
         [self showExpiredForVideo:isVideo message:message];
         return;
     }
+    // 视频只拉封面、不请求视频本体 → 进页探一次（本机已有原件的不探）。图片自己会加载，失败走复验；
+    // 本机缓存命中的图**不**在气泡里探，进查看器那一次再复验（命中经通知回刷本格）。
+    if (isVideo && ![IMOriginalVideoCache hasCacheForFullURL:fullURL]) { [IMMediaExpiryRegistry.shared probeExpiredForURL:fullURL]; }
     if (!isVideo) {
         [[IMImageLoader shared] loadImageURL:fullURL completion:applyOrVerify];
     } else if (posterURL.length > 0) {
@@ -420,6 +436,20 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
         // 没有封面（老消息/发送端抓帧失败）才回退抽帧——代价是要拉远端视频的一段数据。
         [[IMVideoThumbnailLoader shared] loadPosterForVideoURL:fullURL completion:applyOrVerify];
     }
+}
+
+/// 门控态命中失效：藏掉 ↓/尺寸角标/进度环，画失效层（磨砂 thumb 作底 + 压暗 + 八角 ✕ + 文案）。
+- (void)applyExpiredWhileGated {
+    _progressWrap.hidden = YES; _durationWrap.hidden = YES; _ringBG.hidden = YES; _ring.hidden = YES;
+    _thumb.isAccessibilityElement = NO; _thumb.accessibilityLabel = nil;
+    [self showExpiredForVideo:_expiryIsVideo message:_expiryMessage];
+}
+
+/// 主动探测命中失效的广播：本格（同一 full URL，门控或已显示均可）→ 就地换失效层。
+- (void)expiryDidChange:(NSNotification *)note {
+    NSString *u = note.userInfo[@"url"];
+    if (u.length == 0 || !_url || ![u isEqualToString:_url] || !_expiryMessage) { return; }
+    [self applyExpiredWhileGated];
 }
 
 /// 只显消息内嵌 thumb 的磨砂图（省电时的视频预览；不联网）。复用安全：回调时校验 _url。
@@ -451,6 +481,7 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
             }];
         }
     }
+    else { _thumb.image = nil; } // 无磨砂 thumb：别让已加载的真图透出失效层
     [self showExpiredOverlayWithCaption:(isVideo ? IMLocalized(@"media.video_expired") : IMLocalized(@"media.image_expired"))];
 }
 
@@ -484,6 +515,7 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName); // 中心按钮图标�
 
 /// 只依据 `self.downloadProgress` + 记住的尺寸/时长渲染门控 UI。**进度高频回调就走这条**（不碰布局约束、不 reload）。
 - (void)renderGatedDownloadUI {
+    if (_expiredOverlay) { return; } // 失效层在位：进度回调别把 ↓/环/尺寸角标重新画到失效层之上
     IMDownloadProgress *dp = self.downloadProgress;
     NSString *symbol = dp ? IMDownloadCenterSymbolName(dp) : @"arrow.down.circle.fill";
     // symbol 为 nil 只可能是「失败·文件已失效」（服务端已清理）→ 不给按钮，无从重试（草图 §02-B）。
@@ -707,8 +739,11 @@ static UIImage *IMCenterBadgeImage(NSString *symbolName) {
     }
 }
 
+- (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
+
 - (void)prepareForReuse {
     [super prepareForReuse];
+    _expiryMessage = nil;
     _thumb.image = nil; _playBadge.hidden = YES;
     _progressWrap.hidden = YES; _progressWrap.backgroundColor = IMTheme.mediaBadgeBackground;
     _durationWrap.hidden = YES; _durationLabel.text = nil;

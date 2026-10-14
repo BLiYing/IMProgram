@@ -8,6 +8,7 @@
 #import "IMMediaFormat.h"
 #import "IMImageLoader.h"
 #import "IMVideoThumbnailLoader.h"
+#import "IMOriginalVideoCache.h"
 #import "IMMediaExpiryRegistry.h" // 被动展示 404 失效登记 + 复验
 #import "IMMediaPlaceholder.h" // 共用失效 ⊘ 字形
 #import "IMMediaUtil.h"
@@ -30,6 +31,8 @@
 - (void)setDownloadState:(nullable IMDownloadProgress *)dp sizeBytes:(int64_t)sizeBytes;
 /// 被动展示失效（曾可用图/视频被服务端清理，404）：YES=dim 底 + 中心 ⊘、不重试；NO=清除。格子小，只显 ⊘ 不带文案。
 - (void)setExpired:(BOOL)expired;
+/// 记下本格内容 full URL（供 IMMediaExpiryDidChangeNotification 匹配）；nil = 不关心。
+- (void)setExpiryURL:(nullable NSString *)url;
 /// 多选态逐格勾选框（2a）：右上角圆勾选框，selecting 时显示、selected 反映选中。
 - (void)setSelecting:(BOOL)selecting selected:(BOOL)selected;
 @end
@@ -41,11 +44,26 @@
     UILabel      *_failBadge;
     UIImageView  *_stateBadge; // 环中心小图标：⏸ 可暂停 / ↑ 已暂停(点击续传) / ✕ 排队压缩(点击取消)
     UIImageView  *_expiredBadge; // 中心 ⊘（被动展示 404 失效）
+    BOOL          _dlExpired;    // 下载路径判定的失效（点下载 404/410）：与被动失效同一外观，且不被复用清理冲掉
+    NSString     *_expiryURL;    // 本格内容 full URL：主动探测命中失效的广播据此就地换失效外观
     UIImageView  *_checkbox;   // 多选态右上角勾选框（2a）
 }
+- (void)setExpiryURL:(NSString *)url { _expiryURL = [url copy]; }
+
+- (void)expiryDidChange:(NSNotification *)note {
+    NSString *u = note.userInfo[@"url"];
+    if (u.length == 0 || !_expiryURL || ![u isEqualToString:_expiryURL]) { return; }
+    if (!_gated) { self.imageView.image = nil; self.loadKey = nil; } // 已显示真图的格：命中失效后别让原图透出（loadKey 置空，在飞加载的迟到回调即被丢弃）
+    [self setExpired:YES]; // 命中失效：压暗 + ⊘，无 ↓ / 尺寸 / 时长
+}
+
+- (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
+
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
     if (self) {
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(expiryDidChange:)
+                                                   name:IMMediaExpiryDidChangeNotification object:nil];
         self.clipsToBounds = YES;
         self.backgroundColor = UIColor.tertiarySystemFillColor;
         _imageView = [[UIImageView alloc] initWithFrame:self.bounds];
@@ -67,7 +85,7 @@
         _playBadge.hidden = YES;
         [self addSubview:_playBadge];
 
-        _expiredBadge = [[UIImageView alloc] initWithImage:[IMMediaPlaceholder expiredGlyphImage]];
+        _expiredBadge = [[UIImageView alloc] initWithImage:[IMMediaPlaceholder expiredTileGlyphImage]];
         _expiredBadge.hidden = YES;
         [self addSubview:_expiredBadge];
 
@@ -153,7 +171,9 @@
 /// 与上传态互斥——门控只对**收到的**消息成立，收到的消息不可能同时在上传。
 - (void)setDownloadState:(IMDownloadProgress *)dp sizeBytes:(int64_t)sizeBytes {
     _gated = dp != nil && dp.phase != IMDownloadPhaseDone;
+    _dlExpired = NO;
     if (!_gated) {
+        _expiredBadge.hidden = YES;
         _dim.hidden = YES; _ringBG.hidden = YES; _ring.hidden = YES;
         _stateBadge.hidden = YES; _failBadge.hidden = YES;
         _playBadge.hidden = ![self.member.contentType isEqualToString:@"video"];
@@ -162,6 +182,15 @@
     }
     _playBadge.hidden = YES; _failBadge.hidden = YES;
     _dim.hidden = NO;
+    // 点下载命中 404/410（dp.expired）：与被动失效统一成「压暗 + 中心八角 ✕」，**不留文字角标**
+    // （对齐 Android AlbumTileGate「失效只剩 ⊘」与 Web 相册格）；此前这里只留一枚「File expired」文字，与被动路径外观不一致。
+    if (dp.phase == IMDownloadPhaseFailed && dp.expired) {
+        _dlExpired = YES;
+        [self setExpired:YES];
+        _gated = YES;
+        return;
+    }
+    _expiredBadge.hidden = YES;
     // 中心图标沿用上传宫格的「小一号纯字形」口径（气泡用 .circle.fill 版本，这里去掉圆底）。
     NSString *symbol = @"arrow.down";
     if (dp.phase == IMDownloadPhaseDownloading) { symbol = dp.pausable ? @"pause.fill" : @"xmark"; }
@@ -202,6 +231,7 @@
         self.accessibilityLabel = IMLocalized(@"media.placeholder.expired");
         [self setNeedsLayout];
     } else {
+        if (_dlExpired) { return; }       // 下载路径的失效由 setDownloadState: 管，复用清理别冲掉
         _expiredBadge.hidden = YES;       // dim 由 setDownloadState:/setProgress: 各自决定，这里不强关
     }
 }
@@ -506,7 +536,15 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
     [tile setDownloadState:dl sizeBytes:m.fileSize];
     [tile setProgress:progress[m.clientMsgID ?: @""]];
     [tile setExpired:NO]; // 复用防残留：先清上一条的失效外观
+    [tile setExpiryURL:nil];
     if (tile.gated) {
+        // 进页就探一次是否已被服务端清理（门控格不请求原件，不探就要等点开才显失效）；命中经通知刷新。
+        if (remote) {
+            NSString *fullG = IMMediaFullURL(m.content, _host);
+            [tile setExpiryURL:fullG];
+            if ([IMMediaExpiryRegistry.shared isExpiredURL:fullG]) { [tile setExpired:YES]; } // 已知失效：压暗 + ⊘（无 ↓）
+            else { [IMMediaExpiryRegistry.shared probeExpiredForURL:fullG]; }
+        }
         // 门控格不拉原图/封面：只显 thumb 模糊占位（~200B data URI），没有就留灰底。
         tile.loadKey = nil;
         tile.imageView.image = nil;
@@ -537,6 +575,10 @@ static CGFloat IMAlbumHeightForCount(NSUInteger n) {
     // 否则同一条消息在各面 key 不一致、失效状态互不传播（code-review #1）。
     // 已知失效：直接画 ⊘、不回源（掐 404 风暴）。
     if ([IMMediaExpiryRegistry.shared isExpiredURL:full]) { tile.imageView.image = nil; [tile setExpired:YES]; return; }
+    // 订阅失效广播（进查看器那一次复验命中时，本格就地换失效外观）。视频只拉封面 → 进页探一次（本机有原件的不探）；
+    // 图片自己加载、缓存命中的不在宫格里批量探。
+    [tile setExpiryURL:full];
+    if (isVideo && ![IMOriginalVideoCache hasCacheForFullURL:full]) { [IMMediaExpiryRegistry.shared probeExpiredForURL:full]; }
     // 同步命中缓存直接出图，不置 nil —— 否则每次滚进可视区都闪一下（与气泡同款问题）。
     UIImage *cached = (isVideo && !posterFull) ? [[IMVideoThumbnailLoader shared] cachedPosterForURL:imageURL]
                                               : [[IMImageLoader shared] cachedImageForURL:imageURL];
