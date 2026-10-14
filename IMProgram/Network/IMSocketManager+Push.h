@@ -12,6 +12,9 @@ NS_ASSUME_NONNULL_BEGIN
 /// 按版本判断是否重拉 GET /notify-settings。userInfo[@"version"] = NSNumber(int64_t)。
 extern NSNotificationName const IMSocketDidReceiveNotifySettingsUpdateNotification;
 
+/// 会话文件夹整表快照（PROTOCOL §6.15）广播（主线程）：IMChatFolderStore 据此整表替换。userInfo 为帧 data 原样（version / folders）。
+extern NSNotificationName const IMSocketDidReceiveFolderUpdateNotification;
+
 @interface IMSocketManager (Push)
 
 /// App 进入后台（SceneDelegate `sceneDidEnterBackground` 调用一次）：已连接则发

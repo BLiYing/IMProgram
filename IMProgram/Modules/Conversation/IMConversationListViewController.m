@@ -38,6 +38,10 @@
 #import "IMGroupInfo.h"
 #import "IMNavigationButton.h"
 #import "IMMediaSendService.h"
+#import "IMChatFolderStore.h"
+#import "IMChatFolderLogic.h"
+#import "IMChatFolderTabsView.h"
+#import "IMChatFolderEditViewController.h"
 
 #pragma mark - 会话 Cell（Telegram 风格：圆形头像 + 名称/最后一条 + 时间 + 未读蓝胶囊）
 
@@ -406,26 +410,8 @@ static CGFloat const kIMRowLeading = 16;
 
 @end
 
-@interface IMConversationListViewController () <UITableViewDataSource, UITableViewDelegate>
-@property (nonatomic, copy) NSString *host;
-@property (nonatomic, copy) NSString *userID;
-@property (nonatomic, copy) NSString *token;
-@property (nonatomic, strong) IMDatabaseAccountContext *databaseContext;
-@property (nonatomic, strong) NSArray<IMConversation *> *conversations;
-@property (nonatomic, strong) UITableView *tableView;
-@property (nonatomic, strong) UILabel *emptyLabel;
-/// 本次登录后拉成过一次服务端会话列表。**空态是结论**：新装包首登时本地缓存必空，只凭缓存就会先闪
-/// 「还没有会话」再改口（Android 同一个洞，2026-09-15 用户报；对端判据 im-android `ConversationListPhase`）。
-@property (nonatomic, assign) BOOL serverListed;
-/// 常驻订阅的 block token（见 startTabDotObservers）。**必须是 block token、不能 addObserver:self**：
-/// viewWillDisappear 按 name 摘 self 的订阅，会连这组一起摘掉。
-@property (nonatomic, copy) NSArray<id<NSObject>> *tabDotObservers;
-@property (nonatomic, assign) BOOL offscreenRefreshPending;
-@property (nonatomic, assign) BOOL visible; // 在屏时才响应新消息刷新（避免进聊天页时无谓拉取）
-@property (nonatomic, strong) NSMutableSet<NSString *> *trackedConvIDs; // 已登记增量同步的会话（每会话只登记一次）
-@property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *outboxStates; // conv → 0无/1发送中/2失败（去抖用）
-@property (nonatomic, assign) IMSocketState connState; // 连接态（走副标题，同聊天页「在线」位置）
-@end
+#import "IMConversationListViewController+Private.h"
+
 
 @implementation IMConversationListViewController
 
@@ -445,7 +431,10 @@ static CGFloat const kIMRowLeading = 16;
             cached = database.cachedConversations;
         }];
         _conversations = cached;
+        _displayedConversations = cached;
         _trackedConvIDs = [NSMutableSet set];
+        _folderScrollOffsets = [NSMutableDictionary dictionary];
+        [IMChatFolderStore.shared adoptUserID:userID];
     }
     return self;
 }
@@ -458,13 +447,30 @@ static CGFloat const kIMRowLeading = 16;
 /// 在五个赋值点后各抄一遍，蓝点若也照那样散写，下一个新增的赋值点必漏（SYMMETRY「兄弟没跟」那一类）。
 - (void)setConversations:(NSArray<IMConversation *> *)conversations {
     _conversations = conversations;
+    [self rebuildDisplayedConversations];
     [self refreshListIndicators];
+}
+
+/// 当前选中的文件夹；已被删（或别的设备删了）则回落「全部」。
+- (nullable IMChatFolder *)selectedFolder {
+    if (self.selectedFolderID.length == 0) { return nil; }
+    IMChatFolder *f = [IMChatFolderStore.shared folderWithID:self.selectedFolderID];
+    if (!f) { _selectedFolderID = nil; }
+    return f;
+}
+
+/// 表格数据源 = 当前范围内的会话（「全部」时即 conversations 本身，零额外开销）。
+- (void)rebuildDisplayedConversations {
+    _displayedConversations = [IMChatFolderLogic conversations:_conversations inFolder:[self selectedFolder]];
 }
 
 /// 空态 + 「消息」Tab 蓝点 + 定时免打扰到期定时器。**就地改了某行的 unread / muted 而没换数组时也要调它**
 /// （设为已读、免打扰）——收在这一个咽喉，新增的到期调度不必到处补调用点。
 - (void)refreshListIndicators {
-    self.emptyLabel.hidden = self.conversations.count > 0 || !self.serverListed;
+    BOOL inFolder = self.selectedFolderID.length > 0;
+    self.emptyLabel.text = IMLocalized(inFolder ? @"folder.list.empty" : @"conv.list.empty");
+    self.emptyLabel.hidden = self.displayedConversations.count > 0 || (!inFolder && !self.serverListed);
+    [self refreshFolderTabs]; // 角标随会话未读 / 免打扰变化同步（本方法是列表数据变更的唯一咽喉）
     // 蓝点只表「有」，由底栏容器自绘 8pt 小圆——系统 `badgeValue = @""` 那颗太大（2026-09-15 用户报）。
     // 此前这颗点根本没画，只有 Android 有（同日用户报）。口径见 IMTabUnreadCount（三端同口径）
     NSInteger unread = IMTabUnreadCount(self.conversations, IMNotificationSettings.shared.badgeIncludeMuted);
@@ -539,10 +545,13 @@ static CGFloat const kIMRowLeading = 16;
                                         target:self action:@selector(plusTapped:)];
 
     self.tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStylePlain];
-    self.tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    self.tableView.translatesAutoresizingMaskIntoConstraints = NO; // 顶端挂在固定搜索入口下方（见下）
     self.tableView.dataSource = self;
     self.tableView.delegate = self;
     self.tableView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentAutomatic;
+    // iOS 15+ 的 plain 表格默认给 section header 上方留一截 sectionHeaderTopPadding（≈22pt）：Tab 条是首个 section
+    // header，不清零的话它与固定的搜索入口之间平白多出这一截（2026-10-14 用户报「间距太大」）。
+    self.tableView.sectionHeaderTopPadding = 0;
     self.tableView.rowHeight = 76;
     // 分隔线左缩进对齐文字（不压头像下方），Telegram/微信式。
     self.tableView.separatorInset = UIEdgeInsetsMake(0, kIMRowLeading + kIMAvatarSize + 12, 0, 0);
@@ -551,9 +560,36 @@ static CGFloat const kIMRowLeading = 16;
     // 44pt 玻璃胶囊（IMGlassEffect + kIMSearchFieldCornerRadius=24 continuous）+ 放大镜 + 占位文字。
     // 它只是入口（点击 push 三分组结果页），不承载输入——曾用系统 UISearchBar（字段高 36/灰底），
     // 与搜索页 44pt 玻璃胶囊肉眼不一致（2026-08-21 换自绘胶囊统一）。造法抽到 IMSearchEntryHeader（通讯录页共用）。
+    //
+    // 聊天文件夹（设计 §4.1）：搜索入口**固定**在列表上方、不再随列表滚走；文件夹 Tab 条是表格第一个 section
+    // header（plain 样式自带吸顶：静止时紧贴搜索入口，上滑后吸住不动，下拉回弹时随列表下移）。
+    self.searchContainer = [UIView new];
+    self.searchContainer.translatesAutoresizingMaskIntoConstraints = NO;
+    self.searchContainer.backgroundColor = UIColor.systemBackgroundColor;
     UIView *searchHeader = IMMakeSearchEntryHeader(self.view.bounds.size.width, IMLocalized(@"common.search"), self, @selector(searchEntryTapped));
-    self.tableView.tableHeaderView = searchHeader;
+    // 容器此刻 bounds 为零（约束布局尚未解算）：不能靠 autoresizing 跟随，否则容器从 0 撑到屏宽时会把增量
+    // 再叠加到 header 上、搜索胶囊右缘溢出。用约束钉住容器四边；胶囊在 header 内的 autoresizing 仍按 header 宽度变化走。
+    searchHeader.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.searchContainer addSubview:searchHeader];
+    [NSLayoutConstraint activateConstraints:@[
+        [searchHeader.topAnchor constraintEqualToAnchor:self.searchContainer.topAnchor],
+        [searchHeader.bottomAnchor constraintEqualToAnchor:self.searchContainer.bottomAnchor],
+        [searchHeader.leadingAnchor constraintEqualToAnchor:self.searchContainer.leadingAnchor],
+        [searchHeader.trailingAnchor constraintEqualToAnchor:self.searchContainer.trailingAnchor],
+    ]];
     [self.view addSubview:self.tableView];
+    [self.view addSubview:self.searchContainer];
+    [NSLayoutConstraint activateConstraints:@[
+        [self.searchContainer.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor],
+        [self.searchContainer.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [self.searchContainer.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [self.searchContainer.heightAnchor constraintEqualToConstant:kIMSearchEntryHeaderHeight],
+        [self.tableView.topAnchor constraintEqualToAnchor:self.searchContainer.bottomAnchor],
+        [self.tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [self.tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [self.tableView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
+    ]];
+    [self setUpFolderTabs];
 
     self.emptyLabel = [UILabel new];
     self.emptyLabel.translatesAutoresizingMaskIntoConstraints = NO;
@@ -620,6 +656,9 @@ static CGFloat const kIMRowLeading = 16;
     // presence 帧 → 就地点亮/更新对应单聊行的在线绿点（对端上线即时可见，不必等重拉 /conversations）。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onPresenceChanged:)
                                                name:IMSocketDidReceivePresenceNotification object:nil];
+    // 聊天文件夹整表变化（本机操作 / 别的设备的 folder_update 帧 / 退群清理）→ Tab 条与过滤结果刷新。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onFoldersChanged)
+                                               name:IMChatFoldersDidChangeNotification object:nil];
     // 通知设置变更（角标计数 ▸ 包含免打扰会话）→ Tab 蓝点口径跟着变，无需重拉列表。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(refreshListIndicators)
                                                name:IMNotificationSettingsDidChangeNotification object:nil];
@@ -634,6 +673,9 @@ static CGFloat const kIMRowLeading = 16;
     // 必须先监听再发起连接，避免快速连接时错过 Connecting/Connected 通知。
     [IMSocketManager.sharedManager connectToHost:self.host userID:self.userID];
     [self updateTitleForState:IMSocketManager.sharedManager.state];
+    [IMChatFolderStore.shared adoptUserID:self.userID];
+    [self onFoldersChanged]; // 离开期间文件夹可能变了（管理页里改的）：回到列表先对齐
+    [IMChatFolderStore.shared refresh];
     [self reload];
 }
 
@@ -646,6 +688,7 @@ static CGFloat const kIMRowLeading = 16;
                                    IMSocketDidApplyMsgOpNotification, IMSocketDidRemoveMessageNotification,
                                    IMSocketDidChangeStateNotification, IMSocketDidReceivePresenceNotification,
                                    IMRemarkStoreDidChangeNotification, IMNotificationSettingsDidChangeNotification,
+                                   IMChatFoldersDidChangeNotification,
                                    IMMediaSendProgressDidChangeNotification, IMMediaSendMetaDidChangeNotification,
                                    IMMediaSendDidDispatchNotification, IMMediaSendDidFailNotification,
                                    IMMediaSendDidCancelNotification]) {
@@ -682,12 +725,14 @@ static CGFloat const kIMRowLeading = 16;
     NSString *user = note.userInfo[kIMPresenceUserKey];
     IMPresence *presence = note.userInfo[kIMPresenceKey];
     if (user.length == 0 || !presence) { return; }
-    for (NSUInteger i = 0; i < self.conversations.count; i++) {
-        IMConversation *c = self.conversations[i];
+    for (IMConversation *c in self.conversations) {
         if (c.isGroup || ![c.peer isEqualToString:user]) { continue; }
         c.peerPresence = presence;
-        [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:i inSection:0]]
-                              withRowAnimation:UITableViewRowAnimationNone];
+        NSUInteger i = [self.displayedConversations indexOfObject:c]; // 不在当前文件夹范围内则只更新模型
+        if (i != NSNotFound) {
+            [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:(NSInteger)i inSection:0]]
+                                  withRowAnimation:UITableViewRowAnimationNone];
+        }
         break; // 单聊对端唯一，命中即止
     }
 }
@@ -696,14 +741,14 @@ static CGFloat const kIMRowLeading = 16;
 /// 无动画）；否则整表 reloadData。置顶/免打扰/已读后「本地乐观更新 + 服务端回包再刷新」连刷两次，
 /// 此前每次都整表 reloadData 重建所有可见 cell → 闪烁；现在回包与本地一致时什么都不重绘。
 - (void)refreshVisibleRowsOrReload {
-    if (!self.isViewLoaded || [self.tableView numberOfRowsInSection:0] != (NSInteger)self.conversations.count) {
+    if (!self.isViewLoaded || [self.tableView numberOfRowsInSection:0] != (NSInteger)self.displayedConversations.count) {
         [self.tableView reloadData];
         return;
     }
     NSMutableArray<NSIndexPath *> *stale = [NSMutableArray array];
     for (NSIndexPath *ip in self.tableView.indexPathsForVisibleRows) {
         IMConversationCell *cell = (IMConversationCell *)[self.tableView cellForRowAtIndexPath:ip];
-        IMConversation *c = ip.row < (NSInteger)self.conversations.count ? self.conversations[ip.row] : nil;
+        IMConversation *c = ip.row < (NSInteger)self.displayedConversations.count ? self.displayedConversations[ip.row] : nil;
         if (![cell isKindOfClass:IMConversationCell.class] || !c || ![cell.shownConvID isEqualToString:c.convID]) {
             [self.tableView reloadData]; // 行序变了（新消息顶上来 / 他端置顶）：走整表
             return;
@@ -711,7 +756,7 @@ static CGFloat const kIMRowLeading = 16;
         if (![cell.shownSignature isEqualToString:[c listRenderSignatureForSelfUID:self.userID]]) { [stale addObject:ip]; }
     }
     for (NSIndexPath *ip in stale) {
-        IMConversation *c = self.conversations[ip.row];
+        IMConversation *c = self.displayedConversations[ip.row];
         IMConversationCell *cell = (IMConversationCell *)[self.tableView cellForRowAtIndexPath:ip];
         [cell configureWithConversation:c mine:[c.lastFrom isEqualToString:self.userID] host:self.host selfUID:self.userID];
         [cell applyOutboxSending:[IMMediaSendService.shared hasInFlightInConv:c.convID]
@@ -1001,12 +1046,12 @@ static CGFloat const kIMRowLeading = 16;
 #pragma mark - UITableView
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    return self.conversations.count;
+    return self.displayedConversations.count;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     IMConversationCell *cell = [tableView dequeueReusableCellWithIdentifier:@"conv" forIndexPath:indexPath];
-    IMConversation *c = self.conversations[indexPath.row];
+    IMConversation *c = self.displayedConversations[indexPath.row];
     [cell configureWithConversation:c mine:[c.lastFrom isEqualToString:self.userID] host:self.host
                             selfUID:self.userID];
     // 本地发送状态（常驻发送服务）：发送中 ↑ / 失败红 !，随服务通知刷新（onMediaSendStateChange）。
@@ -1017,7 +1062,7 @@ static CGFloat const kIMRowLeading = 16;
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    [self openChatWithConversation:self.conversations[indexPath.row]];
+    [self openChatWithConversation:self.displayedConversations[indexPath.row]];
 }
 
 #pragma mark - 行操作（左滑 + 长按菜单，共用同一动作源避免漂移）
@@ -1110,7 +1155,7 @@ static CGFloat const kIMRowLeading = 16;
 
 /// 服务端确认置顶后，先按与服务端一致的规则在本地移动这一行，避免整表 reload 造成的突跳。
 - (void)animateConversation:(IMConversation *)conversation pinnedAt:(int64_t)pinnedAt {
-    NSUInteger oldIndex = [self.conversations indexOfObject:conversation];
+    NSUInteger oldIndex = [self.displayedConversations indexOfObject:conversation]; // 行号在当前显示范围内取
     if (oldIndex == NSNotFound) { [self reload]; return; }
 
     conversation.pinnedAt = pinnedAt;
@@ -1120,8 +1165,9 @@ static CGFloat const kIMRowLeading = 16;
         if (a.timestamp == b.timestamp) { return NSOrderedSame; }
         return a.timestamp > b.timestamp ? NSOrderedAscending : NSOrderedDescending;
     }];
-    NSUInteger newIndex = [sorted indexOfObject:conversation];
-    self.conversations = sorted;
+    self.conversations = sorted; // setter 重算 displayedConversations
+    NSUInteger newIndex = [self.displayedConversations indexOfObject:conversation];
+    if (newIndex == NSNotFound) { [self.tableView reloadData]; return; }
     [self performDatabaseOperation:^(IMDatabase *database) {
         [database applyCachedSettingsForConversation:conversation.convID
                                              pinnedAt:conversation.pinnedAt
@@ -1205,7 +1251,7 @@ static CGFloat const kIMRowLeading = 16;
         __strong typeof(ws) self = ws;
         if (!self) { return; }
         // 取旧位置须在替换数据源之前；期间若有新消息重排导致 c 已不在列表，回退整表刷新。
-        NSUInteger idx = [self.conversations indexOfObject:c];
+        NSUInteger idx = [self.displayedConversations indexOfObject:c];
         NSMutableArray<IMConversation *> *remaining = [self.conversations mutableCopy];
         [remaining removeObject:c];
         self.conversations = remaining;
@@ -1226,8 +1272,10 @@ static CGFloat const kIMRowLeading = 16;
 
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView
     trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (indexPath.row >= (NSInteger)self.conversations.count) { return nil; }
-    IMConversation *c = self.conversations[indexPath.row];
+    if (indexPath.row >= (NSInteger)self.displayedConversations.count) { return nil; }
+    // 横滑冲突（设计 §4.3）：起手落在「尾部区域」之外的向左滑 = 切到下一个 Tab，不给行按钮（返回 nil 则系统行滑动不起）。
+    if ([self leftSwipeBelongsToTabsAtStartX:[self folderSwipeStartX]]) { return nil; }
+    IMConversation *c = self.displayedConversations[indexPath.row];
     NSMutableArray<UIContextualAction *> *contextual = [NSMutableArray array];
     for (IMMenuAction *action in [self conversationActionsFor:c]) {
         UIContextualActionStyle style = action.destructive ? UIContextualActionStyleDestructive
@@ -1248,13 +1296,17 @@ static CGFloat const kIMRowLeading = 16;
 
 - (UIContextMenuConfiguration *)tableView:(UITableView *)tableView
     contextMenuConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath point:(CGPoint)point {
-    if (indexPath.row >= (NSInteger)self.conversations.count) { return nil; }
-    IMConversation *c = self.conversations[indexPath.row];
-    NSArray<IMMenuAction *> *actions = [self conversationActionsFor:c];
+    if (indexPath.row >= (NSInteger)self.displayedConversations.count) { return nil; }
+    IMConversation *c = self.displayedConversations[indexPath.row];
+    // 文件夹项放第一位（设计 §4.4）：只进长按 / 右键菜单，不进左滑（左滑与长按共用 conversationActionsFor:，
+    // 加进去会让左滑多出一颗按钮、撑宽尾部区域）。
+    NSMutableArray<IMMenuAction *> *actions = [[self folderMenuActionsFor:c] mutableCopy];
+    [actions addObjectsFromArray:[self conversationActionsFor:c]];
     return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil
         actionProvider:^UIMenu *(NSArray<UIMenuElement *> *suggested) {
             return [IMMenuAction menuWithActions:actions];
         }];
 }
+
 
 @end

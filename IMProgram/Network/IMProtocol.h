@@ -41,6 +41,7 @@ extern NSString * const kIMTypeAppState;
 /// 账号级通知设置版本变更（M5，下行）：只带 version，客户端据此判断是否重拉 GET /notify-settings。
 /// 见 IMServer/docs/PROTOCOL.md §6.13、IMSocketManager+Push.h。
 extern NSString * const kIMTypeNotifySettingsUpdate;
+extern NSString * const kIMTypeFolderUpdate;          ///< 会话文件夹整表快照（下行，PROTOCOL §6.15）
 extern NSString * const kIMTypeError;
 
 #pragma mark - 消息操作 op（msg_op，M4）

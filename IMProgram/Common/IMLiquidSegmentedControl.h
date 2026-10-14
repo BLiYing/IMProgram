@@ -21,10 +21,20 @@ NS_ASSUME_NONNULL_BEGIN
 /// 仅用户点击才发；越界写入按 clamp 处理。
 @property (nonatomic, assign) NSInteger selectedIndex;
 
+/// 每段标题右侧的角标文案（与 titles 一一对应；空串 / 越界 = 不显示）。**不触发**选中变化。
+/// muted 与 texts 一一对应：YES=灰色（静音会话的未读）。用于会话列表的文件夹 Tab 未读数。
+- (void)setBadgeTexts:(NSArray<NSString *> *)texts muted:(nullable NSArray<NSNumber *> *)muted;
+
+/// 底轨宽度 = min(各段宽度之和, 控件宽)，**居中**；段不再均分富余宽度（Tab 少时不再被拉成半屏一个）。
+/// 对齐 Android `SegTabBar`（贴合内容、居中、放不下才横向滚动）。
+
 /// 药丸相对底轨的四周内缩，默认 4。
 @property (nonatomic, assign) CGFloat pillInset;
 
 - (void)setSelectedIndex:(NSInteger)selectedIndex animated:(BOOL)animated;
+
+/// 控件坐标系内某点落在哪一段（含滚动偏移）；不在任何段上返回 NSNotFound。用于长按某个 Tab 弹菜单。
+- (NSInteger)segmentIndexAtPoint:(CGPoint)point;
 
 @end
 

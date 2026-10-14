@@ -6,6 +6,7 @@
 #import "IMLog.h"
 
 NSNotificationName const IMSocketDidReceiveNotifySettingsUpdateNotification = @"IMSocketDidReceiveNotifySettingsUpdateNotification";
+NSNotificationName const IMSocketDidReceiveFolderUpdateNotification = @"IMSocketDidReceiveFolderUpdateNotification";
 
 @implementation IMSocketManager (Push)
 
@@ -49,6 +50,14 @@ NSNotificationName const IMSocketDidReceiveNotifySettingsUpdateNotification = @"
         dispatch_async(dispatch_get_main_queue(), ^{
             [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidReceiveNotifySettingsUpdateNotification
                                                               object:self userInfo:@{ @"version": @(version) }];
+        });
+    } else if ([type isEqualToString:kIMTypeFolderUpdate]) {
+        // 会话文件夹整表快照（PROTOCOL §6.15）：本身就是最终状态，直接广播给 IMChatFolderStore 整表替换。
+        NSDictionary *data = [payload isKindOfClass:NSDictionary.class] ? payload : @{};
+        IMLogSocket(@"folder_update_received version=%lld", [data[@"version"] longLongValue]);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidReceiveFolderUpdateNotification
+                                                              object:self userInfo:data];
         });
     } else {
         IMLogSocket(@"未处理类型: %@", type);

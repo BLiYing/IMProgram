@@ -18,6 +18,7 @@
 #import "IMDeviceListViewController.h"
 #import "IMFavoritesViewController.h"
 #import "IMCallHistoryViewController.h"
+#import "IMChatFoldersViewController.h"
 #import "IMLoginViewController.h"
 #import "IMSocketManager.h"
 #import "IMSessionStore.h"
@@ -542,7 +543,7 @@
                          handler:^{ [ws openDevices]; }],
         [IMSettingsRow rowWithId:@"folders" title:IMLocalized(@"settings.row.folders") image:@"folder.fill"
                           iconBg:UIColor.systemBlueColor right:nil destructive:NO
-                         handler:^{ [ws comingSoon:IMLocalized(@"settings.row.folders")]; }],
+                         handler:^{ [ws openChatFolders]; }],
         // 入口 ③「分享我的名片」（CONTACT_CARD_DESIGN §4.4）：与左上角的「我的二维码」并列——
         // 二维码给**面对面**，名片消息给**线上**。
         [IMSettingsRow rowWithId:@"shareMyCard" title:IMLocalized(@"settings.info.share_card") image:@"person.crop.square"
@@ -609,6 +610,11 @@
 - (void)openFavorites {
     IMFavoritesViewController *fav = [IMFavoritesViewController new];
     [self.navigationController pushViewController:fav animated:YES];
+}
+
+- (void)openChatFolders {
+    IMChatFoldersViewController *vc = [[IMChatFoldersViewController alloc] initWithHost:self.host userID:self.userID];
+    [self.navigationController pushViewController:vc animated:YES];
 }
 
 - (void)openRecentCalls {

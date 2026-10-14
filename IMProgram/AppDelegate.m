@@ -13,6 +13,7 @@
 #import "IMServerConfigStore.h"
 #import "IMPushTokenManager.h"
 #import "IMAccountNotifySettingsSync.h"
+#import "IMChatFolderStore.h"
 #import "IMPendingNotificationRoute.h"
 #import "IMPushRetract.h"
 #import "IMLocalization.h"
@@ -46,6 +47,7 @@
     [[IMServerConfigStore shared] start];      // 部署级配额/能力（群上限、是否提供超级群）：登录后拉一次
     [[IMPushTokenManager shared] start];             // M5：登录/每次(重)连即尝试注册推送令牌
     [[IMAccountNotifySettingsSync shared] start];    // M5：账号级通知设置迁移/多端同步
+    [[IMChatFolderStore shared] start];              // 聊天文件夹：folder_update 帧 / 重连补拉
     return YES;
 }
 
