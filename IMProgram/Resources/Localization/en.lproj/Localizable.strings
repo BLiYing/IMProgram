@@ -1118,6 +1118,7 @@
 "media.viewer.download_open_local" = "Download and open in a local app";
 "media.viewer.download_open_player" = "Download and open in a local player";
 "media.viewer.gallery" = "Media gallery";
+"media.viewer.image_decoding" = "Converting image format…";
 "media.viewer.image_unsupported" = "This browser can't preview this image format (e.g. HEIC).";
 "media.viewer.locate" = "Show in chat";
 "media.viewer.next" = "Next (→)";

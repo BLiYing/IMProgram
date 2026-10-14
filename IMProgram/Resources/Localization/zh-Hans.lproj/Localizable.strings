@@ -1118,6 +1118,7 @@
 "media.viewer.download_open_local" = "下载后用本地程序打开";
 "media.viewer.download_open_player" = "下载后用本地播放器打开";
 "media.viewer.gallery" = "媒体库";
+"media.viewer.image_decoding" = "正在转换图片格式…";
 "media.viewer.image_unsupported" = "当前浏览器无法预览该图片格式（如 HEIC）。";
 "media.viewer.locate" = "定位到聊天位置";
 "media.viewer.next" = "下一张（→）";

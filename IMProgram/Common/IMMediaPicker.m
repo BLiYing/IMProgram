@@ -47,6 +47,26 @@ static CGSize IMPickerPixelSizeOfImage(UIImage *image) {
     return CGSizeMake(round(image.size.width * s), round(image.size.height * s));
 }
 
+/// 「原图」里的 HEIC → 高质量 JPEG（0.95，原分辨率，EXIF / 方向 / 色彩空间随源带过去）。
+/// 为什么不直传 HEIC：网页 / 桌面端（Chromium）解不了 HEIC，气泡与大图都成降级卡；
+/// 微信 / WhatsApp / Telegram 的「图片」入口同样在发送端转 JPEG（要保留 HEIC 请走「文件」入口）。
+/// 失败返回 nil，调用方退回直传原字节（宁可对端看不了也不丢图）。
+static NSData *IMPickerJPEGFromHEIC(NSData *heic) {
+    if (heic.length == 0) { return nil; }
+    CGImageSourceRef src = CGImageSourceCreateWithData((__bridge CFDataRef)heic, NULL);
+    if (!src) { return nil; }
+    NSMutableData *out = [NSMutableData data];
+    CGImageDestinationRef dst = CGImageDestinationCreateWithData((__bridge CFMutableDataRef)out,
+                                                                 (__bridge CFStringRef)UTTypeJPEG.identifier, 1, NULL);
+    if (!dst) { CFRelease(src); return nil; }
+    NSDictionary *opts = @{ (__bridge NSString *)kCGImageDestinationLossyCompressionQuality: @0.95 };
+    CGImageDestinationAddImageFromSource(dst, src, 0, (__bridge CFDictionaryRef)opts);
+    BOOL ok = CGImageDestinationFinalize(dst);
+    CFRelease(dst);
+    CFRelease(src);
+    return (ok && out.length > 0) ? out : nil;
+}
+
 /// 从图片字节读像素尺寸：只解文件头，不整图解码（原图直传路径没有 UIImage 可用）。
 /// EXIF 方向 ≥5 表示旋转 90°，需交换宽高才是**显示尺寸**——否则收端会把竖图当横图排版。
 static CGSize IMPickerPixelSizeOfImageData(NSData *data) {
@@ -115,6 +135,23 @@ static void IMPickerLogMediaMeta(BOOL isVideo, NSUInteger bytes, CGSize size, in
     }
     IMLogWarnWithTag(IMLogTagMedia, @"media_probe_incomplete is_video=%d bytes=%lu media_w=%.0f media_h=%.0f duration_ms=%lld",
                      isVideo, (unsigned long)bytes, size.width, size.height, durationMillis);
+}
+
+/// 「原图」字节 + 扩展名 → IMPickedMedia；ext 为 heic 时先转 JPEG（失败才保留 HEIC 直传）。两条原图路径共用。
+static IMPickedMedia *IMPickerOriginalMedia(NSData *raw, NSString *ext) {
+    if ([ext isEqualToString:@"heic"]) {
+        NSData *jpeg = IMPickerJPEGFromHEIC(raw);
+        if (jpeg) { raw = jpeg; ext = @"jpg"; }
+    }
+    IMPickedMedia *m = [IMPickedMedia new];
+    m.data = raw;
+    m.fileName = [@"photo." stringByAppendingString:ext];
+    m.mimeType = [ext isEqualToString:@"png"] ? @"image/png"
+               : [ext isEqualToString:@"heic"] ? @"image/heic" : @"image/jpeg";
+    m.isVideo = NO;
+    m.pixelSize = IMPickerPixelSizeOfImageData(raw); // 从文件头取尺寸（按 EXIF 方向校正），不整图解码
+    IMPickerLogMediaMeta(NO, raw.length, m.pixelSize, 0);
+    return m;
 }
 
 #pragma mark - PHAsset 同步请求（只在句柄的 _work 串行队列上调用）
@@ -477,21 +514,13 @@ static UIImage *IMPickerRequestImage(PHAsset *asset, CGFloat maxSide) {
 - (IMPickedMedia *)buildImageItem {
     if (_asset) { return [self buildImageItemFromPhotoAsset]; }
     if (_original) {
-        // 原图：拿原始文件字节（保留 HEIC/PNG 原格式与元数据）。
+        // 原图：拿原始文件字节（PNG/JPEG 原样保留元数据；HEIC 转 JPEG 0.95，见 IMPickerJPEGFromHEIC）。
         NSData *raw = [self loadFileDataForType:UTTypeImage.identifier outExt:NULL];
         if (raw) {
             NSString *ext = @"jpg";
             if ([_ip hasItemConformingToTypeIdentifier:UTTypePNG.identifier]) { ext = @"png"; }
             else if ([_ip hasItemConformingToTypeIdentifier:UTTypeHEIC.identifier]) { ext = @"heic"; }
-            IMPickedMedia *m = [IMPickedMedia new];
-            m.data = raw;
-            m.fileName = [@"photo." stringByAppendingString:ext];
-            m.mimeType = [ext isEqualToString:@"png"] ? @"image/png"
-                       : [ext isEqualToString:@"heic"] ? @"image/heic" : @"image/jpeg";
-            m.isVideo = NO;
-            m.pixelSize = IMPickerPixelSizeOfImageData(raw); // 原图直传：从文件头取尺寸，不整图解码
-            IMPickerLogMediaMeta(NO, raw.length, m.pixelSize, 0);
-            return m;
+            return IMPickerOriginalMedia(raw, ext);
         } // 拿不到原始文件 → 回落压缩路径
     }
     UIImage *image = [self loadUIImage];
@@ -510,7 +539,7 @@ static UIImage *IMPickerRequestImage(PHAsset *asset, CGFloat maxSide) {
 }
 
 /// 自建选择器句柄的图片产物。口径与 PHPicker 路径一致：「发送」= 长边 ≤2048 的 JPEG 0.8；「原图」= 原始字节
-/// （保留 HEIC/PNG 原格式）。Live Photo 只取静态图。拿不到（iCloud 下载失败等）返回 nil → 调用方标失败可重试。
+/// （PNG/JPEG 原样；HEIC 转 JPEG 0.95，见 IMPickerJPEGFromHEIC）。Live Photo 只取静态图。拿不到（iCloud 下载失败等）返回 nil → 调用方标失败可重试。
 - (IMPickedMedia *)buildImageItemFromPhotoAsset {
     if (_original) {
         PHImageRequestOptions *opt = [PHImageRequestOptions new];
@@ -529,15 +558,7 @@ static UIImage *IMPickerRequestImage(PHAsset *asset, CGFloat maxSide) {
                       : [type conformsToType:UTTypeHEIC] ? @"heic"
                       : [type conformsToType:UTTypeJPEG] ? @"jpg" : nil;
         if (raw.length > 0 && ext) {
-            IMPickedMedia *m = [IMPickedMedia new];
-            m.data = raw;
-            m.fileName = [@"photo." stringByAppendingString:ext];
-            m.mimeType = [ext isEqualToString:@"png"] ? @"image/png"
-                       : [ext isEqualToString:@"heic"] ? @"image/heic" : @"image/jpeg";
-            m.isVideo = NO;
-            m.pixelSize = IMPickerPixelSizeOfImageData(raw); // 读文件头并按 EXIF 方向校正
-            IMPickerLogMediaMeta(NO, raw.length, m.pixelSize, 0);
-            return m;
+            return IMPickerOriginalMedia(raw, ext);
         } // 拿不到原始字节 / 非常见格式 → 回落压缩路径
     }
     UIImage *image = IMPickerRequestImage(_asset, kIMImageMaxSide); // 系统直接出 ≤2048 且方向已校正的图
