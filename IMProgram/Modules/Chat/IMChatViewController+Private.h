@@ -233,6 +233,8 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 
 /// 从本地库往窗口尾部接一段（> hi 的最多一页）；返回是否真的接上了。
 - (BOOL)appendNewerFromLocalAfter:(int64_t)hi;
+/// 把一批消息从窗口摘掉并保位（删除 / 隐藏后用，避免 reloadData 打回估高导致列表跳走）。返回是否摘掉了行。
+- (BOOL)removeWindowMessagesWithSeqs:(NSSet<NSNumber *> *)gone;
 
 /// 改完窗口自检不变式（同一 conv_seq 不得在窗口里出现两次）。DEBUG 才真跑，Release 是空操作。
 /// **凡是往 windowState.messages 里塞东西的地方，改完都该调一次**——site 随便起个短名，用于日志定位。

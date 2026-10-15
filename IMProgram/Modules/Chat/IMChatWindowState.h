@@ -57,6 +57,14 @@ NS_ASSUME_NONNULL_BEGIN
 /// 于是不向服务端要就永远翻不过去（实测：进会话停在首条未读后往下滑，到窗口末尾就撞墙）。
 @property (nonatomic, assign) int64_t pendingNewerAnchor;
 
+/// 向下翻页问过服务端、且**确认 loadedHi 之后没有可见消息**的那个位点（0=无）。
+///
+/// 会话尾部若全是 msg_op 事件行（置顶/取消置顶/撤回/编辑，占 conv_seq 却不成消息），head(=最大 conv_seq)
+/// 永远大于「窗口里最新一条真消息」。只拿 `head > hi` 判「服务端还领先」就会一直向服务端要「更新的一窗」，
+/// 回来仍是空 → 再要……（实测每 ~50ms 一次，滚动条闪烁、窗口反复 reload）。记下这个位点：hi 没变就不再问；
+/// 来了真消息 hi 自然变大，该位点即失效。
+@property (nonatomic, assign) int64_t newerExhaustedAfter;
+
 /// 进会话「按读位点开窗」（anchor=entryReadSeq）在途的那个位点（0=无）。
 ///
 /// 与 pendingTail **必须分开**：两者回来后的动作正相反——按读位点开窗是为了把未读分割线

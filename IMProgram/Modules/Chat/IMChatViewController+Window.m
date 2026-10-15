@@ -389,6 +389,35 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
     return y;
 }
 
+/// 把一批消息从窗口里摘掉（为所有人删除 / 仅为我删除）并**保位**。
+///
+/// 此前直接 `removeObjectsAtIndexes:` + `reloadData`：reloadData 把全部行高缓存打回估高，用户停在底部时
+/// contentOffset 不变而 contentSize 变了，列表就「跳到前面去」（2026-10-15：发一个字再删，列表回到几十条之前）。
+/// 与 prepend / append 同一套：记第一条**可见且不被删**的行与其屏幕位置，改完摆回同一个屏幕位置。
+/// 返回是否真的摘掉了行。
+- (BOOL)removeWindowMessagesWithSeqs:(NSSet<NSNumber *> *)gone {
+    NSIndexSet *idx = [self.windowState.messages indexesOfObjectsPassingTest:^BOOL(IMMessageModel *m, NSUInteger i, BOOL *stop) {
+        return [gone containsObject:@(m.convSeq)];
+    }];
+    if (idx.count == 0) { return NO; }
+    UITableView *table = self.tableView;
+    NSIndexPath *anchor = nil;
+    for (NSIndexPath *ip in [table.indexPathsForVisibleRows sortedArrayUsingSelector:@selector(compare:)]) {
+        if (![idx containsIndex:(NSUInteger)ip.row]) { anchor = ip; break; }
+    }
+    CGFloat anchorScreenY = anchor ? [table rectForRowAtIndexPath:anchor].origin.y - table.contentOffset.y : 0;
+    NSInteger newRow = NSNotFound;
+    if (anchor) {
+        NSUInteger before = [idx countOfIndexesInRange:NSMakeRange(0, (NSUInteger)anchor.row)];
+        newRow = anchor.row - (NSInteger)before;
+    }
+    [self.windowState.messages removeObjectsAtIndexes:idx];
+    [table reloadData];
+    [self restoreWindowAnchorRow:newRow toScreenY:anchorScreenY];
+    [self updateJumpButton];
+    return YES;
+}
+
 /// 把窗口尾部超出上限的那一段丢掉，返回丢弃条数。**只改数组，不碰表格、不动 offset**。
 ///
 /// 调用方须把它并进自己那一次 `reloadData` + 保位里（见 prependMessages: 的注释）。
@@ -562,6 +591,8 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
             // 与向上翻页那一路对称：那边同样是应答时重新取 `earliestLoadedConvSeq` 而非用 anchor。
             if (![self appendNewerFromLocalAfter:loadedHi]) {
                 // 服务端也没有更新的可见消息 → 确实到头了，别让 ↓ 按钮一直挂着。
+                // 同时记下「hi 之后已问空」：尾部全是 msg_op 事件行时 head > hi 恒成立，不记就会无限重问。
+                st.newerExhaustedAfter = loadedHi;
                 st.atTail = YES;
                 [self updateJumpButton];
             }
@@ -695,6 +726,7 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
     // 窗口已含本地最新一条、且服务端也没有更新的 → 真到头了。
     int64_t head = [IMSocketManager.sharedManager headConvSeqForConv:self.convID];
     if (self.windowState.atTail && head <= hi) { return; }
+    if (self.windowState.newerExhaustedAfter == hi) { return; } // 已向服务端确认 hi 之后没有可见消息（尾部是事件行）
     UIScrollView *sv = self.tableView;
     CGFloat distance = sv.contentSize.height - sv.contentOffset.y - sv.bounds.size.height;
     if (distance > kIMWindowLoadOlderThreshold) { return; }

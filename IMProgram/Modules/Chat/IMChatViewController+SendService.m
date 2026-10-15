@@ -200,13 +200,7 @@
     // 横幅晚一拍），改成合并重拉：短时间内多次移除只拉一次（im-web 同口径）。
     // 排在「窗口里有没有这条」之前：置顶项完全可能不在当前窗口里。
     [self schedulePinnedBannerReload];
-    NSSet<NSNumber *> *gone = [NSSet setWithArray:seqs];
-    NSIndexSet *idx = [self.windowState.messages indexesOfObjectsPassingTest:^BOOL(IMMessageModel *m, NSUInteger i, BOOL *stop) {
-        return [gone containsObject:@(m.convSeq)];
-    }];
-    if (idx.count == 0) { return; }
-    [self.windowState.messages removeObjectsAtIndexes:idx];
-    [self.tableView reloadData];
+    [self removeWindowMessagesWithSeqs:[NSSet setWithArray:seqs]]; // 保位摘除（见 +Window.m），别直接 reloadData
 }
 
 /// 合并刷新入口：消息/已读通知成批到达时，每 0.12s 至多刷一次徽标（避免每条一次全表 SUM）。
