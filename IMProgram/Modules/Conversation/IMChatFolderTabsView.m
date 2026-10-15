@@ -20,7 +20,11 @@ const CGFloat kIMChatFolderTabsHeight = 46;
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
     if (self) {
-        self.backgroundColor = UIColor.systemBackgroundColor; // 吸顶时盖住下面滚动的会话行
+        // 吸顶时盖住下面滚动的会话行。不用 systemBackgroundColor：iOS 26 上它在吸顶 header 里被渲染成偏灰的半透明
+        // （实测 ≈240 且带下方行色，整行横带发灰），改用不透明的纯白 / 纯黑动态色。
+        self.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *tc) {
+            return tc.userInterfaceStyle == UIUserInterfaceStyleDark ? UIColor.blackColor : UIColor.whiteColor;
+        }];
         _segmented = [IMLiquidSegmentedControl new];
         [_segmented addTarget:self action:@selector(segmentChanged:) forControlEvents:UIControlEventValueChanged];
         [self addSubview:_segmented];

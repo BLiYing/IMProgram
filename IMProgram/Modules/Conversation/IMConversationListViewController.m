@@ -552,12 +552,6 @@ static CGFloat const kIMRowLeading = 16;
     // iOS 15+ 的 plain 表格默认给 section header 上方留一截 sectionHeaderTopPadding（≈22pt）：Tab 条是首个 section
     // header，不清零的话它与固定的搜索入口之间平白多出这一截（2026-10-14 用户报「间距太大」）。
     self.tableView.sectionHeaderTopPadding = 0;
-    // iOS 26 起 UIScrollView 在滚动边缘自动叠一层「scroll edge effect」（柔和模糊 + 渐隐）。本表顶端不贴导航栏，
-    // 而是贴在固定搜索入口下沿；列表上滑后这层效果会盖在吸顶的 Tab 条上，把它染成与上方搜索区（纯 systemBackground）
-    // 明显不同的灰紫色（2026-10-15 用户报）。上方已有不透明的搜索容器做视觉分隔，这里不需要它，直接关掉。
-    if (@available(iOS 26.0, *)) {
-        self.tableView.topEdgeEffect.hidden = YES;
-    }
     self.tableView.rowHeight = 76;
     // 分隔线左缩进对齐文字（不压头像下方），Telegram/微信式。
     self.tableView.separatorInset = UIEdgeInsetsMake(0, kIMRowLeading + kIMAvatarSize + 12, 0, 0);
