@@ -111,7 +111,6 @@
 "chat.banner.join_request" = "入群申请";
 "chat.banner.jump_to_message" = "跳转到该消息";
 "chat.banner.pinned" = "置顶消息";
-"chat.banner.unpin_current" = "取消置顶当前这条";
 "chat.block.hint" = "已将对方加入黑名单（TA 发来的消息会被拒收）";
 "chat.bubble.forward_from" = "转发自 %1$@";
 "chat.clear.confirm" = "清空聊天记录？将删除此会话在本机的全部消息，且无法恢复。";
@@ -1301,8 +1300,14 @@
 "password.footer.security_note" = "为保护账号安全，修改密码后你在其它设备上的登录会被自动下线，需用新密码重新登录；当前设备保持登录。";
 "password.helper.min_length_hint" = "新密码至少 6 位，与旧密码不同。";
 "password.success_toast" = "✓ 密码已修改，其它设备已下线";
+"pinned.locate" = "定位到聊天位置";
+"pinned.long_press_hint" = "长按消息可取消置顶";
+"pinned.long_press_hint_readonly" = "长按消息可复制或定位";
 "pinned.title" = "置顶消息（%1$ld）";
 "pinned.unpin" = "取消置顶";
+"pinned.unpin_all" = "取消所有置顶";
+"pinned.unpin_all_confirm" = "全部取消";
+"pinned.unpin_all_title" = "取消所有置顶消息？";
 "power_saving.auto_on_toast" = "电量低于 %1$ld%%，已自动开启省电模式";
 "power_saving.follow.sub" = "系统开省电模式时一起开启";
 "power_saving.follow.sub_ios" = "系统开低电量模式时一起开启";

@@ -1,7 +1,7 @@
 //  IMChatViewController+PinnedBanner.m
 //  聊天页顶部三横幅栈（G0 置顶 / G1 公告 / G2 禁言锁 / G3 入群申请）分文件实现：拉取/刷新置顶集合、
-//  横幅栈 IMChatBannerStackDelegate 回调（顶开表、跳转、公告卡、入群审批、置顶列表）与输入栏禁言锁。
-//  从 IMChatViewController.m 平移，未改行为。
+//  横幅栈 IMChatBannerStackDelegate 回调（顶开表、置顶面板、公告卡、入群审批）与输入栏禁言锁；
+//  置顶面板（IMPinnedPanelViewController）的宿主入口也在这里（present 一行 + 两个回写方法）。
 
 #import "IMChatViewController+Private.h" // 含 IMChatBannerStack / IMSocketManager / IMGroupInfo
 #import "IMHTTPService.h"
@@ -14,6 +14,7 @@
 #import "IMTimeUtil.h"                    // IMNowMillis
 #import "IMAccountIdentity.h"
 #import "IMLocalization.h"
+#import "IMPinnedPanelViewController.h"
 #import <objc/runtime.h>
 
 /// 置顶横幅重拉合并窗口（见 -schedulePinnedBannerReload）。
@@ -27,6 +28,12 @@ NS_ASSUME_NONNULL_BEGIN
 @interface IMChatViewController (PinnedBannerInternal)
 - (void)setComposerLocked:(BOOL)locked reason:(nullable NSString *)reason;
 - (void)jumpToPinnedConvSeq:(int64_t)convSeq;
+@end
+
+/// 置顶面板宿主：协议里除两个 pinnedPanel: 回写外，其余都是本页**已有**方法（散在各 category，见 +Private.h）。
+/// 只做编译期声明、不配 @implementation——conformance 检查会因方法体分散在别的 TU 误报；
+/// 「每个方法都真有实现」由 IMPinnedMessageTests 的 testChatPageImplementsPinnedPanelHost 兜住。
+@interface IMChatViewController (PinnedPanelHost) <IMPinnedPanelHost>
 @end
 
 NS_ASSUME_NONNULL_END
@@ -87,11 +94,6 @@ NS_ASSUME_NONNULL_END
     self.tableView.contentInset = inset;
 }
 
-/// 点置顶横幅主体：跳到当前那条（轮转已在横幅栈内部处理）。
-- (void)bannerStack:(IMChatBannerStack *)stack didRequestJumpToConvSeq:(int64_t)convSeq {
-    [self jumpToPinnedConvSeq:convSeq];
-}
-
 /// 置顶跳转前的「原消息还在吗」判定（纯函数，便于回归：IMProgramTests/IMPinnedJumpTests.m）。
 /// YES = 本地这条已是撤回墓碑，应提示而非跳转；NO = 正常跳（含"本地压根没有这条"，
 /// 那种由 jumpToConvSeq: 自己分辨"不在本地/已被删除"）。
@@ -103,7 +105,7 @@ BOOL IMPinnedTargetRecalled(NSArray<IMMessageModel *> *messages, int64_t convSeq
     return NO;
 }
 
-/// 置顶项跳转（横幅主体 / 置顶列表行共用）：先判目标是不是**已被撤回**。
+/// 置顶项跳转（置顶面板的点气泡 / 定位图标 / 菜单「定位到消息」共用）：先判目标是不是**已被撤回**。
 /// 服务端置顶列表本就剔除撤回消息（store.PinnedMessages 带 recalled_at = 0），但横幅是快照——
 /// reloadPinnedBanner 是 best-effort（拉失败就留旧集合）、msg_op 帧还没到、半屏列表开着时对方撤回，
 /// 都可能停在旧集合上。此时直接 jumpToConvSeq: 会滚到一条「撤回了一条消息」的系统行并高亮一闪，
@@ -206,37 +208,28 @@ BOOL IMPinnedTargetRecalled(NSArray<IMMessageModel *> *messages, int64_t convSeq
     if (locked) { [self.inputField resignFirstResponder]; }
 }
 
-/// 点右侧列表键：半屏列出全部置顶消息，点行跳转；有权限者可就地取消置顶。
+#pragma mark 置顶面板（IMPinnedPanelViewController，PINNED_PANEL_DESIGN）
+
+/// 点置顶横幅（整条或 ≡）：打开置顶面板。
 - (void)bannerStackDidTapPinnedList:(IMChatBannerStack *)stack {
-    NSArray<IMPinnedMessage *> *items = stack.pinnedItems;
-    if (items.count == 0) { return; }
-    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:IMLocalized(@"chat.banner.pinned")
-                                                                  message:nil
-                                                           preferredStyle:UIAlertControllerStyleActionSheet];
-    __weak typeof(self) ws = self;
-    BOOL canPin = [self canPinMessages];
-    for (IMPinnedMessage *item in items) {
-        NSString *sender = [item senderLabelForGroup:self.isGroupChat];
-        NSString *title = sender.length > 0
-            ? [NSString stringWithFormat:@"%@：%@", sender, item.previewText]
-            : item.previewText;
-        [sheet addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault
-                                               handler:^(UIAlertAction *action) {
-            [ws jumpToPinnedConvSeq:item.convSeq];
-        }]];
-    }
-    IMPinnedMessage *shown = stack.currentPinnedItem;
-    if (canPin && shown) {
-        [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"chat.banner.unpin_current") style:UIAlertActionStyleDestructive
-                                               handler:^(UIAlertAction *action) {
-            [IMSocketManager.sharedManager pinMessageInConv:(ws.convID ?: @"")
-                                              targetConvSeq:shown.convSeq pinned:NO];
-        }]];
-    }
-    [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
-    sheet.popoverPresentationController.sourceView = stack.pinnedBannerView;
-    sheet.popoverPresentationController.sourceRect = stack.pinnedBannerView.bounds;
-    [self presentViewController:sheet animated:YES completion:nil];
+    if (stack.pinnedItems.count == 0 || self.presentedViewController) { return; }
+    [self.view endEditing:YES];
+    [self presentViewController:[[IMPinnedPanelViewController alloc] initWithHost:self items:stack.pinnedItems] animated:YES completion:nil];
+}
+
+/// 置顶集合变了：推给开着的面板（实时刷新；空集合由面板自己收起）。
+- (void)bannerStackDidChangePinnedItems:(IMChatBannerStack *)stack {
+    UIViewController *top = self.presentedViewController;
+    if ([top isKindOfClass:IMPinnedPanelViewController.class]) { [(IMPinnedPanelViewController *)top applyPinnedItems:stack.pinnedItems]; }
+}
+
+/// 面板长按「取消置顶」：只发所长按那条的 pin(false)；本地摘除由面板随后经 didChangeItems: 回写。
+- (void)pinnedPanel:(IMPinnedPanelViewController *)panel unpinConvSeq:(int64_t)convSeq {
+    [IMSocketManager.sharedManager pinMessageInConv:(self.convID ?: @"") targetConvSeq:convSeq pinned:NO];
+}
+
+- (void)pinnedPanel:(IMPinnedPanelViewController *)panel didChangeItems:(NSArray<IMPinnedMessage *> *)items {
+    self.bannerStack.pinnedItems = items ?: @[];
 }
 
 @end

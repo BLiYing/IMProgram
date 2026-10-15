@@ -5,6 +5,15 @@
 #import "IMContactCard.h"
 #import "IMCallRecord.h"
 #import "IMMediaUtil.h"   // IMChatRecordSnippet：聊天记录卡片 → 「[聊天记录] 标题」
+#import "IMMessageModel.h"
+
+IMPinnedMessage *IMPinnedLatestItem(NSArray<IMPinnedMessage *> *items) {
+    IMPinnedMessage *best = nil;
+    for (IMPinnedMessage *p in items) {
+        if (!best || p.pinnedAt > best.pinnedAt) { best = p; }
+    }
+    return best;
+}
 
 @implementation IMPinnedMessage
 
@@ -28,7 +37,32 @@
     p.timestamp = [ts respondsToSelector:@selector(longLongValue)] ? [ts longLongValue] : 0;
     id pinnedAt = json[@"pinned_at"];
     p.pinnedAt = [pinnedAt respondsToSelector:@selector(longLongValue)] ? [pinnedAt longLongValue] : 0;
+    p.message = [self messageFromJSON:json[@"message"] convSeq:convSeq];
     return p;
+}
+
+/// 完整消息对象：与 new_msg 同形，走同一个解析入口；位点对不上（脏数据）就当没带，退回兜底档。
++ (nullable IMMessageModel *)messageFromJSON:(id)raw convSeq:(int64_t)convSeq {
+    if (![raw isKindOfClass:[NSDictionary class]]) { return nil; }
+    IMMessageModel *m = [IMMessageModel receivedMessageWithNewMsgData:raw];
+    if (m.convSeq != convSeq) { return nil; }
+    return m;
+}
+
+- (IMMessageModel *)fallbackMessageModelInConv:(NSString *)convID {
+    IMMessageModel *m = [IMMessageModel new];
+    m.convID = convID ?: @"";
+    m.convSeq = self.convSeq;
+    m.serverMsgID = self.serverMsgID;
+    m.from = self.from;
+    m.fromNickname = self.fromNickname;
+    m.timestamp = self.timestamp;
+    m.pinnedAt = self.pinnedAt;
+    m.status = IMMessageStatusReceived;
+    m.contentType = @"text";
+    BOOL isText = [self.contentType isEqualToString:@"text"] && self.content.length > 0;
+    m.content = isText ? self.content : [self previewText];
+    return m;
 }
 
 - (NSString *)previewText {

@@ -94,17 +94,36 @@ NSArray<IMPinnedMessage *> *IMChatPinnedItemsDroppingSeq(NSArray<IMPinnedMessage
     return kept;
 }
 
+NSArray<NSDictionary *> *IMMsgOpPinTargetPayloads(NSDictionary *payload) {
+    id targets = payload[@"targets"];
+    if (![payload[@"op"] isEqual:kIMMsgOpPin] || ![targets isKindOfClass:NSArray.class]) { return nil; }
+    NSMutableDictionary *base = [payload mutableCopy];
+    [base removeObjectForKey:@"targets"];
+    NSMutableArray<NSDictionary *> *out = [NSMutableArray array];
+    for (id t in (NSArray *)targets) {
+        if (![t isKindOfClass:NSDictionary.class]) { continue; }
+        id seq = t[@"target_conv_seq"];
+        if (![seq respondsToSelector:@selector(longLongValue)] || [seq longLongValue] <= 0) { continue; }
+        NSMutableDictionary *one = [base mutableCopy];
+        one[@"target_conv_seq"] = @([seq longLongValue]);
+        if ([t[@"op_conv_seq"] respondsToSelector:@selector(longLongValue)]) { one[@"op_conv_seq"] = t[@"op_conv_seq"]; }
+        [out addObject:one];
+    }
+    return out;
+}
+
 IMChatMsgOpBannerAction IMChatMsgOpBannerPlan(NSDictionary *info, NSArray<IMPinnedMessage *> *items) {
     int64_t target = [info[kIMMsgOpTargetSeqKey] longLongValue];
     BOOL recalled = info[kIMMsgOpRecalledAtKey] != nil;
     BOOL edited = info[kIMMsgOpEditedAtKey] != nil;
     BOOL pinChanged = info[kIMMsgOpPinnedAtKey] != nil;
+    BOOL unpinned = pinChanged && [info[kIMMsgOpPinnedAtKey] longLongValue] == 0;
     BOOL touches = NO;
-    if (recalled || edited) {
+    if (recalled || edited || unpinned) {
         for (IMPinnedMessage *p in items) { if (p.convSeq == target) { touches = YES; break; } }
     }
     IMChatMsgOpBannerAction a;
-    a.dropTargetLocally = recalled && touches;
+    a.dropTargetLocally = (recalled || unpinned) && touches;
     a.reload = pinChanged || touches;
     return a;
 }

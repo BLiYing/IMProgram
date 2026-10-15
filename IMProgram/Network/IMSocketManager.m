@@ -398,7 +398,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
         [_backlog noteGroupFrame:payload myUserID:self.userID]; // 影响我可见下界的群帧 → 丢该群缓存的下界
         [self handleGroupEvent:payload];
     } else if ([type isEqualToString:kIMTypeMsgOp]) {
-        if (![self applyBatchDeleteFrameOnQueue:payload]) { [self applyMsgOpPayload:payload]; } // 批量删除一帧带 targets（§6.7.2）
+        if (![self applyBatchDeleteFrameOnQueue:payload] && ![self applyBatchPinFrameOnQueue:payload]) { [self applyMsgOpPayload:payload]; } // 批量删除 / 批量取消置顶一帧带 targets（§6.7.2）
     } else if ([type isEqualToString:kIMTypeMsgHidden]) {
         // 「仅为我删除」多设备同步（任务2）：本人另一端删了 → 本端物理移除。批量隐藏合成一帧带 conv_seqs（PROTOCOL §6.7.1）。
         NSString *convID = [payload[@"conv_id"] isKindOfClass:[NSString class]] ? payload[@"conv_id"] : @"";

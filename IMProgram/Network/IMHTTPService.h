@@ -299,6 +299,13 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
                          convID:(NSString *)convID
                      completion:(void (^)(NSArray<IMPinnedMessage *> *_Nullable items, NSError *_Nullable error))completion;
 
+/// 一键取消本会话**全部**置顶：POST /conversations/{id}/pinned/clear → data.{conv_id,cleared}（一次请求，不在客户端循环发 pin）。
+/// 权限同置顶（群读 perm_pin；单聊双方可，否则 300006）；无置顶幂等回 0。成功后服务端广播一帧
+/// msg_op{op:pin,pinned:false,targets}（IMSocketManager 拆单落库）。completion 在主线程回调。
+- (void)clearPinnedMessagesWithToken:(NSString *)token
+                              convID:(NSString *)convID
+                          completion:(void (^)(NSInteger cleared, NSError *_Nullable error))completion;
+
 /// 群消息已读/未读名单（M4-8）：GET /conversations/{id}/messages/{seq}/read-by。
 /// **仅消息发送者本人**可调（他人调用服务端回 403）。`enabled=NO` 表示群规模超上限（>2000 人），
 /// 此时 read/unread 为空，调用方应隐藏入口而非报错。completion 在主线程回调。

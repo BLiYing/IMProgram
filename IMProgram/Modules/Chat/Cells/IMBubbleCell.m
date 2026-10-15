@@ -143,6 +143,8 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     }];
 }
 
+const NSInteger kIMBubbleReadOnlyMaxLines = 8;
+
 @implementation IMBubbleCell {
     UIView  *_datePill;       // 日期分隔胶囊（居中浮于壁纸上）
     UILabel *_dateLabel;
@@ -192,6 +194,11 @@ static UIImage *IMSquareThumb(UIImage *src, CGFloat side) {
     IMLinkPreviewView *_linkPreview;
     NSArray<NSLayoutConstraint *> *_linkPreviewConstraints;
     NSString *_linkPreviewURL;             // 当前正在配置的 URL（onContentSizeResolved 回调时用于比对防串图）
+}
+
+- (void)setReadOnly:(BOOL)readOnly {
+    _readOnly = readOnly;
+    self.contentView.userInteractionEnabled = !readOnly; // 内容手势全关；点/长按由宿主表级手势按气泡命中处理
 }
 
 + (IMBubbleTextTier)textTierForContent:(NSString *)content {
@@ -884,7 +891,10 @@ static NSAttributedString *sIMMentionFlashOriginal = nil;
         NSString *contentText = noticeText.length > 0 ? noticeText : (message.content ?: @"");
         BOOL isURL = IMLooksLikeURL(contentText);
         // URL 不参与长文本分档（纯 URL 不会超长）；其余按 chars/lines 双判据分档（与 Web longtext.ts 一致）。
-        IMBubbleTextTier tier = isURL ? IMBubbleTextTierShort : [IMBubbleCell textTierForContent:contentText];
+        // 只读（置顶面板）：不出折叠 / 摘要卡，整段交给 label 按 kIMBubbleReadOnlyMaxLines 行尾部截断。
+        IMBubbleTextTier tier = (isURL || self.readOnly) ? IMBubbleTextTierShort : [IMBubbleCell textTierForContent:contentText];
+        _text.numberOfLines = self.readOnly ? kIMBubbleReadOnlyMaxLines : 0;
+        _text.lineBreakMode = NSLineBreakByTruncatingTail;
         NSDictionary *contentAttr = @{ NSFontAttributeName: [UIFont systemFontOfSize:IMTheme.chatFontSize],
                                        NSForegroundColorAttributeName: IMTheme.textPrimary };
         NSDictionary *urlAttr = @{ NSFontAttributeName: [UIFont systemFontOfSize:IMTheme.chatFontSize],

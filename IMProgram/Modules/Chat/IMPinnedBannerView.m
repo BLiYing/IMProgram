@@ -15,7 +15,7 @@ static CGFloat const kSideInset  = 8;
 @property (nonatomic, strong) UIView *card;         ///< 圆角卡片（内缩于 self，四周留间隔；承载所有内容）
 @property (nonatomic, strong) UIView *bar;          ///< 左侧竖条（多条置顶时上亮下暗，暗示还有别的）
 @property (nonatomic, strong) CAGradientLayer *barGradient;
-@property (nonatomic, strong) UILabel *kicker;      ///< 「📌 置顶消息 2/3 · 小刚」
+@property (nonatomic, strong) UILabel *kicker;      ///< 「📌 置顶消息 · 3 条 · 小刚」
 @property (nonatomic, strong) UILabel *preview;     ///< 单行预览
 @property (nonatomic, strong) UIButton *tapButton;  ///< 覆盖主体区域的透明按钮（整条可点）
 @property (nonatomic, strong) UIButton *listButton;
@@ -84,6 +84,7 @@ static CGFloat const kSideInset  = 8;
         [_listButton setImage:[UIImage systemImageNamed:@"list.bullet"] forState:UIControlStateNormal];
         _listButton.tintColor = IMTheme.textSecondary;
         _listButton.translatesAutoresizingMaskIntoConstraints = NO;
+        _listButton.accessibilityLabel = IMLocalized(@"chat.banner.all_pinned");
         [_listButton addTarget:self action:@selector(listTapped) forControlEvents:UIControlEventTouchUpInside];
         [_card addSubview:_listButton];
 
@@ -117,7 +118,7 @@ static CGFloat const kSideInset  = 8;
             [_bar.widthAnchor constraintEqualToConstant:3],
             [_bar.heightAnchor constraintEqualToConstant:26],
 
-            // 右侧按钮簇：关闭在最右，列表键在其左（仅多条置顶时显示，隐藏时仍占位——与旧版一致）。
+            // 右侧按钮簇：关闭在最右，列表键在其左（置顶恒显；公告 / 申请样式隐藏但仍占位——与旧版一致）。
             [_closeButton.trailingAnchor constraintEqualToAnchor:_card.trailingAnchor constant:-6],
             [_closeButton.centerYAnchor constraintEqualToAnchor:_card.centerYAnchor],
             [_closeButton.widthAnchor constraintEqualToConstant:30],
@@ -155,6 +156,11 @@ static CGFloat const kSideInset  = 8;
 /// 用 SF Symbol（染成强调色）+ 文字拼 kicker——**不用 emoji**：emoji 依赖系统字体、iOS 26 横幅内不渲染，
 /// 且无法随主题/强调色染色（决策 15）。symbol 走 `NSTextAttachment`，预先 `imageWithTintColor:` 上色。
 - (void)setKickerSymbol:(NSString *)symbolName text:(NSString *)text {
+    [self setKickerSymbol:symbolName text:text suffix:nil];
+}
+
+/// suffix（「 · 3 条 · 张三」）用次要文字色、medium 字重，与稿 `.banner .k i` 一致；主标题仍是强调色。
+- (void)setKickerSymbol:(NSString *)symbolName text:(NSString *)text suffix:(nullable NSString *)suffix {
     UIColor *accent = [self accentColor];
     NSMutableAttributedString *s = [NSMutableAttributedString new];
     UIImage *img = [UIImage systemImageNamed:symbolName];
@@ -170,21 +176,27 @@ static CGFloat const kSideInset  = 8;
     [s appendAttributedString:[[NSAttributedString alloc] initWithString:(text ?: @"")
                                                              attributes:@{NSForegroundColorAttributeName: accent,
                                                                           NSFontAttributeName: self.kicker.font}]];
+    if (suffix.length > 0) {
+        [s appendAttributedString:[[NSAttributedString alloc] initWithString:suffix attributes:@{
+            NSForegroundColorAttributeName: IMTheme.textSecondary,
+            NSFontAttributeName: [UIFont systemFontOfSize:self.kicker.font.pointSize weight:UIFontWeightMedium]}]];
+    }
     self.kicker.attributedText = s;
 }
 
-- (void)applyItem:(IMPinnedMessage *)item index:(NSInteger)index total:(NSInteger)total isGroup:(BOOL)isGroup {
+- (void)applyItem:(IMPinnedMessage *)item total:(NSInteger)total isGroup:(BOOL)isGroup {
     if (!item) {
         self.hidden = YES;
         return;
     }
     self.hidden = NO;
 
-    NSMutableString *kicker = [NSMutableString stringWithString:IMLocalized(@"chat.banner.pinned")];
-    if (total > 1) { [kicker appendFormat:@" %ld/%ld", (long)(index + 1), (long)total]; }
+    // 多条：「 · 3 条」（不再是 2/3 轮转角标）；群聊再接「 · 发送者」。
+    NSMutableString *suffix = [NSMutableString string];
+    if (total > 1) { [suffix appendFormat:@" · %@", IMLocalizedFormat(@"chat.banner.pinned_count", (long)total)]; }
     NSString *sender = [item senderLabelForGroup:isGroup];
-    if (sender.length > 0) { [kicker appendFormat:@" · %@", sender]; }
-    [self setKickerSymbol:@"pin.fill" text:kicker];
+    if (sender.length > 0) { [suffix appendFormat:@" · %@", sender]; }
+    [self setKickerSymbol:@"pin.fill" text:IMLocalized(@"chat.banner.pinned") suffix:suffix];
     self.preview.text = [item previewText];
 
     // 单条=整条实色；多条=上亮下暗的两段，一眼看出还有别的置顶（对齐 Telegram 与 Web）。
@@ -201,7 +213,7 @@ static CGFloat const kSideInset  = 8;
         self.barGradient.hidden = YES;
         self.bar.backgroundColor = accent;
     }
-    self.listButton.hidden = (total <= 1);
+    self.listButton.hidden = NO; // ≡ 恒显（单条也显）：点它与点主体等价，都开面板
 }
 
 - (void)applyAnnouncement:(nullable NSString *)text {

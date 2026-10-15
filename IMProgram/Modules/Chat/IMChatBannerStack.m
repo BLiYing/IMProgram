@@ -16,7 +16,6 @@
 @property (nonatomic, strong) NSLayoutConstraint *announcementBannerHeight;
 @property (nonatomic, strong) NSLayoutConstraint *approvalBannerHeight;
 
-@property (nonatomic, assign) NSInteger pinnedIndex;   ///< 横幅当前显示第几条（点条轮转）
 @property (nonatomic, assign) NSInteger approvalPending; ///< 最近一次 applyApprovalPending 的原始人数（收起持久化用）
 @end
 
@@ -76,14 +75,8 @@
     self.pinnedBanner = [[IMPinnedBannerView alloc] initWithStyle:IMBannerStylePinned];
     self.pinnedBanner.translatesAutoresizingMaskIntoConstraints = NO;
     self.pinnedBanner.hidden = YES;
-    self.pinnedBanner.onTap = ^{
-        __strong typeof(ws) self = ws; if (!self) { return; }
-        NSInteger total = (NSInteger)self.pinnedItems.count;
-        if (total == 0) { return; }
-        IMPinnedMessage *shown = self.pinnedItems[MIN(MAX(self.pinnedIndex, 0), total - 1)];
-        [self.delegate bannerStack:self didRequestJumpToConvSeq:shown.convSeq];
-        [self advancePinnedIndex];
-    };
+    // 整条点击 = 打开置顶面板（不再「直接跳转 + 轮转」）；≡ 与主体等价（PINNED_PANEL_DESIGN §1）。
+    self.pinnedBanner.onTap = ^{ [ws.delegate bannerStackDidTapPinnedList:ws]; };
     self.pinnedBanner.onList = ^{ [ws.delegate bannerStackDidTapPinnedList:ws]; };
     self.pinnedBanner.onClose = ^{
         __strong typeof(ws) self = ws; if (!self) { return; }
@@ -113,11 +106,12 @@
 
 #pragma mark - 收起态持久化
 
-/// 置顶横幅「内容签名」（条数 + 首条 conv_seq）：收起态按此记忆，签名变化即视为新内容、自动复现。
+/// 置顶横幅「内容签名」（条数 + 最新置顶的 conv_seq，三端同口径）：收起态按此记忆，签名变化即视为新内容、自动复现。
 /// 收起处与刷新处共用同一算法，避免两处格式串分叉。
 - (nullable NSString *)currentPinnedSig {
     NSInteger total = (NSInteger)self.pinnedItems.count;
-    return total > 0 ? [NSString stringWithFormat:@"%ld:%lld", (long)total, (long long)self.pinnedItems.firstObject.convSeq] : nil;
+    IMPinnedMessage *latest = IMPinnedLatestItem(self.pinnedItems);
+    return (total > 0 && latest) ? [NSString stringWithFormat:@"%ld:%lld", (long)total, (long long)latest.convSeq] : nil;
 }
 
 /// 横幅收起状态的 NSUserDefaults 键：含 userID + convID，换账号/换会话互不影响。
@@ -130,36 +124,22 @@
 - (void)setPinnedItems:(NSArray<IMPinnedMessage *> *)pinnedItems {
     _pinnedItems = [pinnedItems copy] ?: @[];
     [self applyPinnedBanner];
-}
-
-- (nullable IMPinnedMessage *)currentPinnedItem {
-    NSInteger total = (NSInteger)self.pinnedItems.count;
-    if (total == 0) { return nil; }
-    return self.pinnedItems[MIN(MAX(self.pinnedIndex, 0), total - 1)];
-}
-
-- (void)advancePinnedIndex {
-    NSInteger total = (NSInteger)self.pinnedItems.count;
-    if (total == 0) { return; }
-    self.pinnedIndex = (self.pinnedIndex + 1) % total;
-    [self applyPinnedBanner];
+    [self.delegate bannerStackDidChangePinnedItems:self];
 }
 
 - (UIView *)pinnedBannerView {
     return self.pinnedBanner;
 }
 
-/// 把当前 pinnedItems/pinnedIndex 应用到横幅，并同步顶部内边距。
+/// 把当前 pinnedItems 应用到横幅（恒显最新置顶一条），并同步顶部内边距。
 - (void)applyPinnedBanner {
     NSInteger total = (NSInteger)self.pinnedItems.count;
-    // 别人取消置顶会让列表变短，旧索引可能越界（横幅空白）→ 夹紧回 0。
-    if (self.pinnedIndex < 0 || self.pinnedIndex >= total) { self.pinnedIndex = 0; }
-    IMPinnedMessage *shown = total > 0 ? self.pinnedItems[self.pinnedIndex] : nil;
+    IMPinnedMessage *shown = IMPinnedLatestItem(self.pinnedItems);
     // 收起态持久化：仅当当前内容签名与"收起时记下的签名"一致才隐藏；新置顶签名不同 → 自动复现。
     NSString *sig = [self currentPinnedSig];
     NSString *dismissedSig = [NSUserDefaults.standardUserDefaults stringForKey:[self bannerDismissKey:@"pin"]];
     if (sig.length > 0 && [sig isEqualToString:dismissedSig]) { shown = nil; }
-    [self.pinnedBanner applyItem:shown index:self.pinnedIndex total:total isGroup:self.isGroup];
+    [self.pinnedBanner applyItem:shown total:total isGroup:self.isGroup];
     self.pinnedBannerHeight.constant = shown ? [IMPinnedBannerView bannerHeight] : 0;
     [self notifyHeightChanged];
 }

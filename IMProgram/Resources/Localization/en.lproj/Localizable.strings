@@ -111,7 +111,6 @@
 "chat.banner.join_request" = "Join requests";
 "chat.banner.jump_to_message" = "Go to message";
 "chat.banner.pinned" = "Pinned message";
-"chat.banner.unpin_current" = "Unpin this message";
 "chat.block.hint" = "You've blocked this person. Messages from them will be rejected.";
 "chat.bubble.forward_from" = "Forwarded from %1$@";
 "chat.clear.confirm" = "Clear chat history? All messages in this chat will be deleted from this device. This can’t be undone.";
@@ -1301,8 +1300,14 @@
 "password.footer.security_note" = "For account security, other devices will be logged out after you change your password and will need the new password to log in again; this device stays logged in.";
 "password.helper.min_length_hint" = "New password must be at least 6 characters and different from the old one.";
 "password.success_toast" = "✓ Password changed. Other devices have been logged out.";
-"pinned.title" = "Pinned messages (%1$ld)";
+"pinned.locate" = "Show in chat";
+"pinned.long_press_hint" = "Long-press to unpin";
+"pinned.long_press_hint_readonly" = "Long-press to copy or locate";
+"pinned.title" = "Pinned (%1$ld)";
 "pinned.unpin" = "Unpin";
+"pinned.unpin_all" = "Unpin all messages";
+"pinned.unpin_all_confirm" = "Unpin all";
+"pinned.unpin_all_title" = "Unpin all messages?";
 "power_saving.auto_on_toast" = "Battery below %1$ld%%. Power Saving is on.";
 "power_saving.follow.sub" = "Turns on with the system";
 "power_saving.follow.sub_ios" = "Turns on with Low Power Mode";

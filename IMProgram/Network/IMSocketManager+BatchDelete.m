@@ -7,6 +7,7 @@
 #import "IMLog.h"
 #import "IMPushRetract.h"
 #import "IMProtocol.h"
+#import "IMMsgOpApply.h"   // IMMsgOpPinTargetPayloads：批量取消置顶帧拆单
 
 NSArray<NSNumber *> *IMBatchOKSeqs(NSArray<NSNumber *> *seqs, id results) {
     NSMutableSet<NSNumber *> *ok = [NSMutableSet set];
@@ -87,6 +88,13 @@ NSArray<NSNumber *> *IMMsgOpBatchDeleteSeqs(NSDictionary *payload) {
     // 与单条 applyMsgOpPayload: 同：被删的若还挂在通知中心里，一并收回；批量版一次扫描，不逐条各扫一遍。
     IMPushRetractDeliveredNotifications(convID, seqs);
     [self removeLocalMessagesOnQueueInConv:convID seqs:seqs];
+    return YES;
+}
+
+- (BOOL)applyBatchPinFrameOnQueue:(NSDictionary *)payload {
+    NSArray<NSDictionary *> *each = IMMsgOpPinTargetPayloads(payload);
+    if (!each) { return NO; }
+    for (NSDictionary *one in each) { [self applyMsgOpPayload:one advancingSyncedConvSeq:0]; }
     return YES;
 }
 

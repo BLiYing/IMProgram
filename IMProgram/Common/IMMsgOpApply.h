@@ -71,10 +71,16 @@ typedef NS_ENUM(NSInteger, IMMsgOpKind) {
 /// 渲染自动回落到按昵称扫文本，与编辑前一致）；置顶 → pinnedAt（0=取消置顶）。userInfo 里没有的字段不动。
 extern void IMChatApplyMsgOpToMessage(IMMessageModel *message, NSDictionary *appliedUserInfo);
 
+/// 批量取消置顶的实时广播帧（`POST /conversations/{id}/pinned/clear`，PROTOCOL §6.7.2）：
+/// 一帧 `msg_op{op:pin, pinned:false, targets:[{target_conv_seq, op_conv_seq}…]}`，**没有** target_conv_seq 单值。
+/// 拆成逐条单目标负载（其余字段原样带上），交给单条 `patchFromPayload:` 路径——等价逐条取消置顶。
+/// 不是批量 pin 帧（不是 pin / 没有 targets 数组）返回 nil；数组里位点非正的项跳过。与 im-web / Android 同口径。
+extern NSArray<NSDictionary *> *_Nullable IMMsgOpPinTargetPayloads(NSDictionary *payload);
+
 /// 一条 msg_op 到达后，置顶横幅该怎么办。
 typedef struct {
-    /// 撤回命中横幅里的置顶项：**先本地剔除再重拉**——重拉是 best-effort（拉失败保留旧集合），
-    /// 弱网下只靠它会让横幅继续挂着一条已撤回消息的预览。
+    /// 撤回 / 取消置顶命中横幅里的置顶项：**先本地剔除再重拉**——重拉是 best-effort（拉失败保留旧集合），
+    /// 弱网下只靠它会让横幅 / 置顶面板继续挂着一条已撤回 / 已取消置顶的消息。
     BOOL dropTargetLocally;
     /// 要重拉横幅：pin/unpin 必拉；撤回/编辑命中横幅里的置顶项也要拉（服务端置顶列表已剔除撤回、编辑改文案）。
     BOOL reload;

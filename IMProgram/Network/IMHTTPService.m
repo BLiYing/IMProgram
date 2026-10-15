@@ -531,6 +531,18 @@ const NSInteger IMFavoritesPageSize = 60;
     }];
 }
 
+- (void)clearPinnedMessagesWithToken:(NSString *)token
+                              convID:(NSString *)convID
+                          completion:(void (^)(NSInteger, NSError *))completion {
+    NSString *path = [NSString stringWithFormat:@"/api/v1/conversations/%@/pinned/clear", [self pathEscape:convID]];
+    NSMutableURLRequest *req = [self authedRequestForPath:path method:@"POST" token:token body:@{}];
+    [self runDataRequest:req fallback:IMLocalized(@"common.action_failed") completion:^(NSDictionary *data, NSError *error) {
+        if (error) { completion(0, error); return; }
+        id n = data[@"cleared"];
+        completion([n respondsToSelector:@selector(integerValue)] ? [n integerValue] : 0, nil);
+    }];
+}
+
 - (void)readReceiptsWithToken:(NSString *)token
                        convID:(NSString *)convID
                       convSeq:(int64_t)convSeq

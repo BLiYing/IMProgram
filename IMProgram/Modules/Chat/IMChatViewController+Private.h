@@ -430,7 +430,7 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 /// UIContextMenuInteractionDelegate 必需的 configurationForMenuAtLocation 与 initWithDelegate:self 都在 +Menu.m。
 @interface IMChatViewController (Menu) <UIContextMenuInteractionDelegate>
 @end
-/// IMChatBannerStackDelegate 的 5 个方法均为**必需**（无 @optional），实现全在 +PinnedBanner.m，故 conformance
+/// IMChatBannerStackDelegate 的方法均为**必需**（无 @optional），实现全在 +PinnedBanner.m，故 conformance
 /// 挂这里而非类扩展（否则主 @implementation 所在 TU 看不到方法体，报 -Wprotocol「does not conform」）。
 @interface IMChatViewController (PinnedBanner) <IMChatBannerStackDelegate>
 @end

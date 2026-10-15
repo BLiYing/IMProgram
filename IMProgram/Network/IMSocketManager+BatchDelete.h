@@ -49,6 +49,11 @@ typedef void (^IMBatchDeleteCompletion)(NSUInteger failed);
 /// 收帧分发处调用（仅在 socket 队列）：是批量删除广播帧就整批处理并返回 YES，否则返回 NO 交给单条 applyMsgOpPayload:。
 - (BOOL)applyBatchDeleteFrameOnQueue:(NSDictionary *)payload;
 
+/// 同上，「一键取消所有置顶」的批量帧 msg_op{op:pin, pinned:false, targets}（IMMsgOpPinTargetPayloads 拆单）：
+/// 逐条走单条 applyMsgOpPayload:（落库 + 各发一次 IMSocketDidApplyMsgOpNotification，聊天页按 300ms 尾沿合并重拉）。
+/// 不是批量 pin 帧返回 NO。与批量删除同形同处分发（PROTOCOL §6.7.2）。
+- (BOOL)applyBatchPinFrameOnQueue:(NSDictionary *)payload;
+
 @end
 
 NS_ASSUME_NONNULL_END

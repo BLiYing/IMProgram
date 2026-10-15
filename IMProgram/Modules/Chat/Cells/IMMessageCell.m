@@ -55,6 +55,11 @@
 
 - (void)handleAvatarTap { if (self.onAvatarTap) { self.onAvatarTap(); } }
 
+- (void)setReadOnly:(BOOL)readOnly {
+    _readOnly = readOnly;
+    self.contentView.userInteractionEnabled = !readOnly;
+}
+
 - (void)installFailBadgeAnchor:(NSLayoutConstraint *)anchor {
     _failBadgeAnchor = anchor; // 仅失败时激活（见 applyFailBadgeForMessage:mine:）
 }

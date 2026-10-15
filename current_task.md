@@ -4,22 +4,19 @@
 > 历史流水见 `current_task.archive.md`（2026-10-02 瘦身前的全量快照在其顶部）+ `git log`。关键约定见 `CLAUDE.md` / `ARCHITECTURE.md` / `CODING_STYLE.md`。
 
 ## 当前焦点
+- **置顶消息底部面板（2026-10-15，未提交，未真机目测；设计 `../IMServer/docs/design/PINNED_PANEL_DESIGN.md` + `sketches/PINNED_PANEL_UX_SKETCH.html`）**：横幅整条 / ≡ 恒开面板、恒显最新置顶（`IMPinnedLatestItem`）、kicker「· N 条」（`chat.banner.pinned_count`），轮转与 `UIAlertController` 旧列表 / `chat.banner.unpin_current` 已删。新文件：`Modules/Chat/IMPinnedPanelViewController`（PageSheet medium+large + grabber + 自持液态栏，宿主协议 `IMPinnedPanelHost` 绝大多数是聊天页已有方法，编译期声明在 +PinnedBanner.m、运行期由单测兜）、`IMPinnedPanelCellFactory`（复用聊天页真 cell + `readOnly`、定位圆钮挂 cell 本身）、`IMPinnedPanelLogic`（兜底顺序 / 日期胶囊 / 菜单允许项 / 权限外框）、`Common/IMLocateInChatIcon`（UIBezierPath template 图）。`IMMessageCell`/`IMBubbleCell` 加 `readOnly`（contentView 不接触摸；文本 8 行尾截断）。网络：`IMPinnedMessage.message`（完整对象）、`clearPinnedMessagesWithToken:`（POST …/pinned/clear）、批量帧 `IMMsgOpPinTargetPayloads` 拆单（`IMSocketManager+BatchDelete` 的 `applyBatchPinFrameOnQueue:`）；取消置顶命中集合本地先摘、pin 变化改走 300ms 尾沿重拉、msg_op 被拒也重拉。测试 `IMPinnedMessageTests` +10 例（4 条核心已变异看红）。**待真机**：iOS 18 / 26 各看 medium / large、各消息类型置顶一条、长按菜单锚点、底栏胶囊（iOS 18 毛玻璃回退）、深色。
 - **iOS 26 会话列表上滑后 Tab 条被染灰（2026-10-15，未提交，未滚动实测）**：`IMConversationListViewController.m` 创建 tableView 处对 `topEdgeEffect.hidden = YES`（`@available(iOS 26.0, *)`）。根因判断：iOS 26 的 scroll edge effect 贴在表顶（搜索容器下沿），盖住吸顶的 Tab 条；Tab 条自身与搜索容器都是 `systemBackgroundColor`，色值本无差异。已编译并装 iOS 26.3 模拟器，静止态正常；**上滑态待你在真机/模拟器目测**，若仍灰则改查 `IMChatFolderTabsView` 吸顶时是否被表格 header 背景材质包裹。
 - **聊天文件夹（2026-10-14，已提交 2757f52；Tab 长按菜单锚定 5d47081；桌面/iOS 26·18 导航栏边缘待验）**：`IMChatFolder`/`IMChatFolderStore`/`IMChatFolderLogic`/`IMHTTPService+Folders`、会话列表拆出 `IMConversationListViewController+Folders.m`（Tab 条=首个 section header 吸顶、横滑与行滑动判定、长按菜单文件夹项第一位）、管理/编辑/选择三页；`IMLiquidSegmentedControl` 改居中贴合内容 + Tab 角标；设计见 IMServer `docs/design/CHAT_FOLDERS_DESIGN.md`。
 - **失效媒体口径对齐（2026-10-14，已提交并推送 adf2d14，真机已装；iOS 界面未目测）**：服务端已清理即标失效，**不看本机缓存**（取代 2026-08-07「铁律 A」）；`IMMediaExpiryRegistry` 探测与复验共用一段 ranged-GET（`bytes=0-0`，只认 404/410），在途请求会被复验等待、失败 30s 冷却。宫格/气泡：有本机副本的图不批量探，视频无原件才探，**进查看器那一次**复验，命中经 `IMMediaExpiryDidChangeNotification` 回刷。查看器失效页：黑底 + 八角 ✕、清掉底下真图/画面、无进度条/下载键，「更多」滤掉 `needsMediaBytes` 项（复制/收藏/转发/下载）；长按菜单对失效图/视频隐藏复制图片/转发/收藏。**三端对齐（2026-10-14，未提交）**：群资料/详情查看器「更多」补收藏/复制并与聊天页同序（定位用 `media.viewer.locate`）；详情 tab 与全屏媒体库长按「定位到聊天」第一位。**欠账**：探测去重/冷却/复验等待/菜单过滤缺 XCTest（需 NSURLProtocol 桩，见下一步）；门控失效格点击仍会走到下载处理（不画下载 UI，但会起一个 404 的下载）。
 - **2026-10-13 修复一批（未提交）**：① 合并转发详情/群公告副标题/搜索跳日期提示的日期不再写死 zh_CN「M月d日」，改走 `IMTheme dateLabelForDate:`+`timeStringFromMillis:`（英文界面实测 `Oct 6 21:27`）；② 会话列表群「待审」改为整行只显红字 `[入群申请 N]`（可带 `[有人@我]`），不再接上一条消息，清零后恢复预览。文案 `conv.list.pending_tag/pending_badge` 已改、三端已重新生成。
 - **单聊系统消息 friend_accepted（2026-10-13，未 commit）**：服务端在好友新建立时往单聊落 `content_type=system`、sender 空的系统消息。iOS 侧：`IMSysEventFormatter` 事件表加 `friend_accepted`（键 `sys.friend.accepted`，0 人名槽位）；会话列表单聊行预览改走 `lastPreviewTextForSelfUID:`（按 sys_event 本地化，未知回退 lastContent；顺带让系统通知单聊列表首行也本地化）；↓N 窗口计数 / `countIncomingInConv:` / 标已读扣数（`markConversation:readUpToConvSeq:`）排除 system（此前 sender 空会被当「对方消息」）。核实无需改：落库/peer 由 convID 推（壳行建会话、`unreadDelta` 排除 system）、`IMAlertDecide` 对 system 全静默、通知扩展只处理服务端推送（不推）。测试：`IMSysSegmentTests` / `IMSysEventFormatterTests` 新增。待真机：互加好友后单聊出现居中灰字、列表置顶且无红点/无提示音；会话列表原无该会话时 new_msg 到达后行名在下一次 /conversations 刷新前先显「未命名」（壳行不知昵称，见已知限制）。
 - **群通知两行（2026-10-13，已真机验证）**：通知扩展 `NotificationService.m` 群聊把群当「发送人」（群名 + 群头像走 `INPerson.image`，不用 `speakableGroupName`），修 iOS 26 群通知只显示 logo；`bare_body` 不再使用。相册合并由服务端同 collapse-id 原地替换，扩展无需处理。
-**「新的朋友」已添加段 + 同意后角标不减修复（2026-10-09，未 commit，设计 `../IMServer/docs/design/NEW_FRIENDS_DESIGN.md`）**：① 新增 `IMFriendRelationDidChangeLocallyNotification`（声明在 `IMFriendRequestListViewController.h`，`IMPostFriendRelationDidChangeLocally()` 保证主线程）；新的朋友页 accept/reject、详情页 block/unblock/删好友成功后发出，`IMContactsViewController` 收到即取消待发 reload 并立即 `reload`（切入 30s 节流原样保留）。② 「已添加」段：纯逻辑 `Modules/Contacts/IMFriendRequestSections.{h,m}`（accepted 且 updatedAt 在 30 天内、倒序、≤50；常量 `kIMRecentAddedDays/Max`），段序 incoming→outgoing→added、空段不出现；行复用 `IMContactCell` + 禁用「已添加」标记，点行进资料页，无删除/左滑。测试 `IMFriendRequestSectionsTests` 6 例（已变异看红）。待真机目测：同意后返回通讯录角标即减；已添加段样式。
-
-**2026-10-09 全部已提交（工作区干净）**：已登录设备页平台图标改 SF Symbols（`IMDeviceSession.platformSymbol`，d2e0dd8；`platformEmoji` 仍在、只剩单测用）；iPad 取消发送确认 ActionSheet 补 popover 锚点（008446c）；发送被拒微信式文案 + 300001 本地化（94980d2 / 304de89）；通话被踢后现场重启（1f0b9b5，`IMRtcCall` 记 `_wantedUID`，`IMRtcCallShouldRestart` 有单测）。
-
-- **10-08 握手 401 先续期再判被踢**（`Network/IMSocketManager+AuthRecovery.{h,m}`，与 Android `ws/WakeAction.kt` 同表）：401 → 作废 10 分钟 token 缓存、立即重连；续期被拒才按被踢；续期后新 token 还 401 才按被踢。`IMSocketAuthRecoveryTests` 6 例，宿主 SceneDelegate 异步登出会串到下一条，setUp/tearDown 先排空主线程。
-- 10-08 接 im-rtc Kit tokenProvider（SDK 2.2.1）：`IMRtcCall` 登录交给 Kit，通话记录先 `[_kit ensureReady:]`。
 - **聊天相册选择器 iOS 自建**（10-07，已合入、用户真机自测通过，细节见 archive）。
 - **iOS 单测欠账专项**仍在进行（清单见 `docs/TEST_DEBT.md`；批 A/B、C1、C2 已做，剩 C3–C7 与批 D；测试由我逐个写，不派并行子代理改测试目标）。
 
 ## 下一步
+
+- **置顶面板收尾**：`../IMServer/docs/CLIENT_PARITY.md` 置顶面板 iOS 格待更新（本次按要求未改别的仓）；真机清单见「当前焦点」。二期（设计 §2.2）：图片 / 视频单条预览、语音就地播放。
 
 0. **相册选择器**：用户 2026-10-07 真机自测通过，无待办。**已知限制**：体积来自 `PHAssetResource` 的 `fileSize`（KVC），取不到时不置灰也不显总大小；无 VoiceOver 标签；Android/Web/桌面文案已重新生成（2026-10-07）。
 
@@ -28,6 +25,7 @@
 3. 小项：`setupUI` 抽 `IMComposerBar`；遗留 P2（听筒切换/接力连播停止条/Web 转文字/语音发送接入 `IMMediaSendService` 常驻队列等，细节见 archive）。
 
 ## 已知坑 / 限制
+- **置顶面板**：图 / 视频按下载策略门控时显 ↓ 占位但点了是「定位」（只读，不下载）；引用条不取被引用消息的缩略图（退回类型小图标）；相册成员置顶按单张图渲染（非宫格）；`IMSocketAckTests` 三条与 `IMMediaDownloadCoordinatorTests testImageNotGatedWhenPolicyOn` 在本机并发负载下全量跑偶发红、单类跑与重跑全绿（与本改动无关，未定位）。
 - **新单聊壳行昵称/头像延后**：会话列表原无该 conv 时 new_msg 只建壳行（peer 由 convID 推、昵称空），名片与头像等下次 `/conversations`（列表在屏 0.4s 内、不在屏则等回到列表）才补；`IMDatabase.m` 恰 1500 行，该处不能再加行。
 
 - **清空位点的取舍**：① 老库回填（`migrateClearedUpToColumnDB:`）按「synced 以内本地没有的那一截 = 当年清掉的」推位点，**对「本来就没下载全」的老会话会误判**成已清空（如游标在 1000、本地只有 300..1000 → 位点 299，之后 ≤299 永不再拉）；与 Android 迁移 15→16 同规则，设计文档拍板的口径。**误伤面更大的是 ranges 时代只下过窗口附近的会话（超级群 max_gap=0 尤甚）**：游标在 head、本地只有最近一两窗 → 位点被推到「本地最小 seq − 1」，窗口之下更早的历史此后一律当「用户清掉的」、不再拉；补列与回填同一事务（失败整体回滚、下次启动重试）。② 落库 / UI 投递 / 回执 / 提醒共用同一份保留集合：sync 页落库前先 `IMDropClearedMessages`，实时先 `incomingIsCleared:`，window 页跳过位点内的行（库里的落库闸是第二道防线）。③ 位点存独立小表 `im_conv_clear_floor_local`（不随会话行删除；会话行被「删除会话」/ 列表不再返回删掉后重建，`synced_conv_seq` 取 max(旧值, 位点)，不会 since=0 重拉）。旧的 `im_conversation_local.cleared_up_to` 列（早期实现）只在迁移时拷一次，之后不再读写、没有 DROP。iOS 没有「清账号」路径（登出不抹库，靠 owner_uid 隔离）。④ 清空不动会话未读数 / 读位点（沿用旧行为）。⑤ iOS 本机没有独立的「隐藏/删除墓碑」表（本地删除是物理删行），所以「墓碑不动」在 iOS 退化为「只动该会话的消息 / 区间 / 位点」。

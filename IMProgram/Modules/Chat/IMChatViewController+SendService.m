@@ -178,13 +178,15 @@
     if (banner.dropTargetLocally) {
         self.bannerStack.pinnedItems = IMChatPinnedItemsDroppingSeq(self.bannerStack.pinnedItems, target); // setter 内部夹紧轮转索引 + 重新应用横幅
     }
-    if (banner.reload) { [self reloadPinnedBanner]; }
+    // 尾沿合并：「取消所有置顶」的批量帧会拆成 N 条逐条到达，只拉一次（与移除路径同口径，300ms）。
+    if (banner.reload) { [self schedulePinnedBannerReload]; }
 }
 
 /// 我方发起的操作被拒（如撤回超时）：吐司提示（不改消息）。
 - (void)onMsgOpRejected:(NSNotification *)note {
     NSString *msg = note.userInfo[@"message"];
     [self im_showToast:msg.length > 0 ? msg : IMLocalized(@"common.action_failed")];
+    [self schedulePinnedBannerReload]; // 面板里乐观摘掉的取消置顶若被拒，重拉让横幅 / 面板回到真值
 }
 
 /// 任务2：消息被物理移除（为所有人删除 / 仅为我删除）→ 本会话则从消息列表删掉并刷新。

@@ -24,6 +24,12 @@ NS_ASSUME_NONNULL_BEGIN
     NSLayoutConstraint *_failBadgeAnchor;      ///< 子类登记的"贴到自己内容区左侧"约束：仅失败时激活，避免恒占位挤压内容。
 }
 
+/// 只读模式（置顶面板等「聊天的只读视图」用，聊天页本身从不设置）：整片 contentView 不接触摸——
+/// 图片/视频不开查看器、语音不播放、链接 / @ / 名片 / 文件 / 头像都不响应，文本不可选；
+/// 「点气泡」「长按气泡」由宿主在表级手势里按 previewTargetView 命中自行处理（PINNED_PANEL_DESIGN §2.2）。
+/// 是宿主级配置（整张表一致），不在 prepareForReuse 里复位。
+@property (nonatomic, assign) BOOL readOnly;
+
 /// 群聊对方头像点击 → 进该成员资料页（微信式）。头像隐藏时点击无效。
 @property (nonatomic, copy, nullable) void (^onAvatarTap)(void);
 

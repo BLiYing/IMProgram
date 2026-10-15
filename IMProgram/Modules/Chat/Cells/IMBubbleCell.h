@@ -19,6 +19,9 @@ typedef NS_ENUM(NSInteger, IMBubbleTextTier) {
     IMBubbleTextTierHuge,
 };
 
+/// 只读模式下文本气泡最多显示的行数（置顶面板：超出即尾部「…」，点气泡去聊天里看全文）。
+FOUNDATION_EXPORT const NSInteger kIMBubbleReadOnlyMaxLines;
+
 @interface IMBubbleCell : UITableViewCell
 
 /// 纯文本内容的显示分档（URL 由调用方另判，不走此分档）。VC 与 cell 共用同一判据。
@@ -43,6 +46,13 @@ typedef NS_ENUM(NSInteger, IMBubbleTextTier) {
                              mentionColor:(UIColor *)color
                                  mentions:(nullable NSDictionary<NSString *, NSString *> *)mentions
                                     spans:(nullable NSArray<IMMentionSpan *> *)spans;
+
+/// 只读模式（置顶面板等「聊天的只读视图」用，聊天页本身从不设置）：整片 contentView 不接触摸——
+/// 图片/视频不开查看器、语音不播放、链接 / @ / 名片 / 文件 / 头像都不响应，文本不可选；
+/// 「点气泡」「长按气泡」由宿主在表级手势里按 previewTargetView 命中自行处理（PINNED_PANEL_DESIGN §2.2）。
+/// 文本另按 kIMBubbleReadOnlyMaxLines 行截断（尾部省略号，不出「展开全文 / 查看全文」）。
+/// 是宿主级配置（整张表一致），不在 prepareForReuse 里复位。
+@property (nonatomic, assign) BOOL readOnly;
 
 /// 长按菜单高亮/收起动画的目标视图（=气泡本体）：系统默认会截整行全宽快照，露出难看的底色托盘。
 @property (nonatomic, strong, readonly) UIView *previewTargetView;

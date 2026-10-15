@@ -14,6 +14,17 @@
       <key>other</key><string>%1$ld people requested to join · Tap to review</string>
     </dict>
   </dict>
+  <key>chat.banner.pinned_count</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
+    <key>count</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>ld</string>
+      <key>one</key><string>%1$ld message</string>
+      <key>other</key><string>%1$ld messages</string>
+    </dict>
+  </dict>
   <key>chat.contact.rest_more_count</key>
   <dict>
     <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
@@ -407,6 +418,17 @@
       <key>NSStringFormatValueTypeKey</key><string>ld</string>
       <key>one</key><string>%1$ld new message</string>
       <key>other</key><string>%1$ld new messages</string>
+    </dict>
+  </dict>
+  <key>pinned.unpin_all_message</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
+    <key>count</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>ld</string>
+      <key>one</key><string>This will unpin %1$ld message in this chat for all members.</string>
+      <key>other</key><string>This will unpin all %1$ld messages in this chat for all members.</string>
     </dict>
   </dict>
   <key>presence.days_ago</key>

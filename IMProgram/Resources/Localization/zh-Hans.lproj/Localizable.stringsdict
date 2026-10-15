@@ -13,6 +13,16 @@
       <key>other</key><string>%1$ld 人申请加入本群 · 点击审批</string>
     </dict>
   </dict>
+  <key>chat.banner.pinned_count</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
+    <key>count</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>ld</string>
+      <key>other</key><string>%1$ld 条</string>
+    </dict>
+  </dict>
   <key>chat.contact.rest_more_count</key>
   <dict>
     <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
@@ -371,6 +381,16 @@
       <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
       <key>NSStringFormatValueTypeKey</key><string>ld</string>
       <key>other</key><string>%1$ld 条新消息</string>
+    </dict>
+  </dict>
+  <key>pinned.unpin_all_message</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
+    <key>count</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>ld</string>
+      <key>other</key><string>将取消本会话全部 %1$ld 条置顶，所有成员都不再看到。</string>
     </dict>
   </dict>
   <key>presence.days_ago</key>
