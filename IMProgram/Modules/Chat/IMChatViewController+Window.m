@@ -726,11 +726,12 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
     // 窗口已含本地最新一条、且服务端也没有更新的 → 真到头了。
     int64_t head = [IMSocketManager.sharedManager headConvSeqForConv:self.convID];
     if (self.windowState.atTail && head <= hi) { return; }
-    if (self.windowState.newerExhaustedAfter == hi) { return; } // 已向服务端确认 hi 之后没有可见消息（尾部是事件行）
     UIScrollView *sv = self.tableView;
     CGFloat distance = sv.contentSize.height - sv.contentOffset.y - sv.bounds.size.height;
     if (distance > kIMWindowLoadOlderThreshold) { return; }
     if ([self appendNewerFromLocalAfter:hi]) { return; }
+    // 已向服务端确认 hi 之后没有可见消息（尾部是事件行）：只拦服务端重问，本地 append 上面已试过。
+    if (self.windowState.newerExhaustedAfter == hi) { return; }
     // 本地到头了。服务端还领先就去要一段；否则记下"真到头"，让 ↓ 按钮收起来。
     if (head > hi) { [self requestServerNewerWindowAfter:hi]; return; }
     self.windowState.atTail = YES;
@@ -807,6 +808,7 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
     // 不是滚动热路径——那条路是 maybeLoadNewerOnScroll，那里一个字都没加。
     IMLogUI(@"jump_bottom_begin conv_id=%@ at_tail=%d", self.convID, self.windowState.atTail);
     BOOL replaced = !self.windowState.atTail;
+    self.windowState.newerExhaustedAfter = 0; // 换窗重来：之前「已问空」的结论作废
     if (replaced) {
         __block NSArray<IMMessageModel *> *msgs = @[];
         NSString *convID = self.convID;
