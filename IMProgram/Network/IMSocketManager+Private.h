@@ -54,6 +54,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)updateSyncedSeqForConv:(NSString *)convID seq:(int64_t)seq;
 - (BOOL)processIncomingMessage:(IMMessageModel *)msg fromSync:(BOOL)fromSync syncAdvanceSeq:(int64_t)syncAdvanceSeq;
 - (void)sendSyncReqForConvs:(NSArray<NSString *> *)convIDs;
+/// 服务端拒收某条 send_msg（主实现提供，被 +ErrorFrame 复用；仅在 queue 调用）。
+- (void)handleSendRejected:(NSString *)clientMsgID code:(NSInteger)code message:(nullable NSString *)message;
 
 /// 排队一个 delivered 回执（同会话取最大位点，短窗口合批发一帧）。由主实现提供。
 - (void)sendReceiptForConv:(NSString *)convID upTo:(int64_t)convSeq;
@@ -75,6 +77,11 @@ NS_ASSUME_NONNULL_BEGIN
 /// 这条入站消息是否落在清空位点之内（`0 < convSeq <= 位点`）。是 → 调用方整条丢弃：不落库、不投递、不回执、不提醒
 /// （落库 / UI / 回执 / 提醒共用同一份「实际保留集合」，CONVENTIONS §4.7；与库里的落库闸是同一条口径）。
 - (BOOL)incomingIsCleared:(IMMessageModel *)msg;
+@end
+
+/// +ErrorFrame category 自己提供的方法：主 handleFrame: 对 `error` 帧的分派（仅在 _queue 调用）。
+@interface IMSocketManager (ErrorFrame)
+- (void)handleErrorFrame:(NSDictionary *)payload;
 @end
 
 /// +Alerts category（NOTIFICATIONS_DESIGN §3）自己提供的方法，主实现在实时消息落库后调用。

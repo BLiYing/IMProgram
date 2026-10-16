@@ -1,5 +1,6 @@
 //  IMFriendPickerViewController.m
 
+#import "IMRemarkStore.h"
 #import "IMFriendPickerViewController.h"
 #import "IMLocalization.h"
 #import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
@@ -252,6 +253,7 @@ static const CGFloat kCapHintInsetV = 8;       // 与 Android space2 同
                 c.nickname = m.displayName;
                 c.username = m.username ?: @"";
                 c.avatarURL = m.avatarURL ?: @"";
+                c.deleted = m.deleted;
                 [cards addObject:c];
             }
             done(cards, nil);
@@ -295,7 +297,9 @@ static const CGFloat kCapHintInsetV = 8;       // 与 Android space2 同
                 IMLog(@"picker 拉好友失败：%@", err.localizedDescription);
                 return;
             }
-            [self applyCandidates:friends];
+            // 冷静期内的好友仍在 /friends 里（deleted=true）：选人页用来邀请 / 转发 / 建群，服务端一律拒（200001），不列出。
+            NSPredicate *alive = [NSPredicate predicateWithBlock:^BOOL(IMUserCard *c, NSDictionary *b) { return !c.deleted && ![IMRemarkStore.sharedStore isDeletedUser:c.userID]; }];
+            [self applyCandidates:[friends filteredArrayUsingPredicate:alive]];
         }];
     }];
 }

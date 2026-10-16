@@ -37,6 +37,7 @@ IMFriendStatus IMFriendStatusFromString(NSString *s) {
     c.blocked = [dict[@"blocked"] respondsToSelector:@selector(boolValue)] ? [dict[@"blocked"] boolValue] : NO;
     c.updatedAt = [dict[@"updated_at"] respondsToSelector:@selector(longLongValue)] ? [dict[@"updated_at"] longLongValue] : 0;
     c.deleted = [dict[@"deleted"] respondsToSelector:@selector(boolValue)] ? [dict[@"deleted"] boolValue] : NO;
+    [IMRemarkStore.sharedStore setUser:c.userID deleted:c.deleted]; // 每次解析都登记（含 NO：恢复账号后要撤销）
     c.hello = [self stringForKey:@"hello" in:dict]; // 仅好友申请行带；其余为空串
     // 在线态快照：找人/好友列表不带这些键，解析出的是空态（level=Unknown，副标题为空串）。
     c.presence = [IMPresence presenceFromProfileDictionary:dict];
@@ -52,7 +53,7 @@ IMFriendStatus IMFriendStatusFromString(NSString *s) {
 }
 
 - (NSString *)displayName {
-    if (self.deleted) { return IMLocalized(@"delete_account.deleted_user"); }
+    if (self.deleted || [IMRemarkStore.sharedStore isDeletedUser:self.userID]) { return IMLocalized(@"delete_account.deleted_user"); }
     // 备注取 IMRemarkStore 的实时值而非本对象的 remark 快照：列表里的卡片常比"刚改完的备注"旧
     // 一拍，读快照会闪回旧名；store 没见过该 uid（如陌生人搜索结果）时回退昵称。
     // self.remark 的职责是把服务端值**喂进** store（见 IMRemarkStore.ingestFriends:）。

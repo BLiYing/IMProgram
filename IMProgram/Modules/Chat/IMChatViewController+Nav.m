@@ -3,6 +3,7 @@
 //  以及点头像进群资料页 / 单聊资料页 / 群成员资料页、拒收系统行的「发送好友申请」恢复入口。
 //  从 IMChatViewController.m 平移，未改行为。
 
+#import "IMRemarkStore.h"
 #import "IMChatViewController+Private.h"  // 含 IMGroupInfo（self.groupInfo 成员昵称/头像）
 #import "IMChatDetailViewController.h"
 #import "IMImageLoader.h"
@@ -69,6 +70,7 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     // 内圈头像直径。外圈=标题栏 44pt 玻璃圆钮；间隔/侧 = (44 - avatarD)/2。
     // 30→间隔 7pt；37→间隔 3.5pt（间隔减半）。想更贴边继续调大（≤44）。
     CGFloat avatarD = 37;
+    if ([IMRemarkStore.sharedStore isDeletedUser:seed]) { url = nil; name = IMLocalized(@"delete_account.deleted_user"); } // 已注销：默认头像
     UIBarButtonItem *item = [[UIBarButtonItem alloc] initWithImage:IMChatAvatarImage(nil, seed, name, avatarD)
                                                               style:UIBarButtonItemStylePlain
                                                              target:self action:action];

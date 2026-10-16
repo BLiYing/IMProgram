@@ -1,5 +1,6 @@
 //  IMChatRecordViewController.m
 
+#import "IMRemarkStore.h"
 #import "IMChatRecordViewController.h"
 #import "IMContactCard.h"
 #import "IMChatDetailViewController.h"
@@ -300,7 +301,8 @@ static NSString *IMRecordItemTimeText(int64_t timestampMillis) {
         return;
     }
     if (showsCard) {
-        NSString *shown = IMDisplayName(card.nickname, card.username);
+        NSString *shown = [IMRemarkStore.sharedStore isDeletedUser:card.userID]
+            ? IMLocalized(@"delete_account.deleted_user") : IMDisplayName(card.nickname, card.username);
         _cardName.text = shown;
         _cardHandle.text = card.username.length > 0 ? [@"@" stringByAppendingString:card.username] : @"";
         [_cardAvatar im_setAvatarURL:card.avatarURL seed:(card.userID ?: @"") displayName:shown];

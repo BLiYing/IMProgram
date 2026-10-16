@@ -27,6 +27,9 @@ NS_ASSUME_NONNULL_BEGIN
 /// 我给对端起的好友备注名（仅单聊；仅自己可见，显示优先级高于 peerNickname）。对应后端 peer_remark。
 /// 权威值同时进 IMRemarkStore（跨页统一取显示名的地方），这里保留一份是为了列表能直接渲染。
 @property (nonatomic, copy, nullable) NSString *peerRemark;
+/// 单聊对端账号已注销（会话列表 `peer_deleted`，PROTOCOL §6.16.3）。为 YES 时 displayName 恒为「已注销用户」，压过会话备注与好友备注。
+/// 仅解析期带；本机 SQLite 不存此列，冷启动靠 IMRemarkStore 持久化的已注销集合判定。
+@property (nonatomic, assign) BOOL peerDeleted;
 @property (nonatomic, strong, nullable) IMPresence *peerPresence; // 单聊对端在线态快照（列表绿点；群聊为 nil，在线与否按 onlineUntil 实时判）
 @property (nonatomic, copy, nullable) NSString *lastContent;
 @property (nonatomic, copy, nullable) NSString *lastFrom;

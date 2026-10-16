@@ -2,6 +2,7 @@
 //  详情页「头部」分文件实现：构建 UI（表格/头像/液态标题栏/页签）与头部形变（滚动驱动 morph）。
 //  从 IMChatDetailViewController.m 平移，未改行为；私有属性/常量经 IMChatDetailViewController+Private.h 共享。
 
+#import "IMRemarkStore.h"
 #import "IMChatDetailViewController+Private.h"
 #import "IMChatDetailViewController+ServerArchive.h"
 #import "IMDetailMemberCell.h"
@@ -308,6 +309,7 @@
         if (remark.length) { return remark; }
         return self.group.name.length ? self.group.name : (self.groupName.length ? self.groupName : IMLocalized(@"common.group_chat"));
     }
+    if ([IMRemarkStore.sharedStore isDeletedUser:self.peerID]) { return IMLocalized(@"delete_account.deleted_user"); } // 压过备注
     // 单聊：好友备注（仅本人可见）优先于对端昵称——与会话列表/聊天页标题同一口径。
     if (self.peerRemark.length) { return self.peerRemark; }
     return self.peerNickname.length ? self.peerNickname : (self.peerID ?: @"");

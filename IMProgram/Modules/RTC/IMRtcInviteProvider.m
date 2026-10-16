@@ -34,7 +34,8 @@ static const NSInteger kPageSize = 50;
         NSMutableArray<IMInviteCandidate *> *out = [NSMutableArray array];
         for (IMGroupMember *m in members) {
             if (m.userID.length == 0 || [m.userID isEqualToString:ws.selfUID]) { continue; }
-            NSString *name = [IMRemarkStore.sharedStore remarkForUser:m.userID];
+            NSString *name = [IMRemarkStore.sharedStore isDeletedUser:m.userID] ? IMLocalized(@"delete_account.deleted_user")
+                : [IMRemarkStore.sharedStore remarkForUser:m.userID];
             if (name.length == 0) { name = m.groupNickname; }
             if (name.length == 0) { name = m.nickname; }
             if (name.length == 0 && m.username.length) { name = [@"@" stringByAppendingString:m.username]; }

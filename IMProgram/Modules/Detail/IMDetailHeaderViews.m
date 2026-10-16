@@ -1,5 +1,7 @@
 //  IMDetailHeaderViews.m
 
+#import "IMRemarkStore.h"
+#import "IMLocalization.h"
 #import "IMDetailHeaderViews.h"
 #import "IMImageLoader.h"
 #import "IMTheme.h"
@@ -30,6 +32,7 @@
     _letter.font = [UIFont systemFontOfSize:MAX(10, self.bounds.size.width * 0.4) weight:UIFontWeightSemibold];
 }
 - (void)setAvatarURL:(NSString *)url seed:(NSString *)seed name:(NSString *)name {
+    if ([IMRemarkStore.sharedStore isDeletedUser:seed]) { url = nil; name = IMLocalized(@"delete_account.deleted_user"); } // 已注销：默认头像
     _letter.text = IMAvatarInitials(name.length ? name : seed);
     self.backgroundColor = [IMTheme avatarColorForSeed:seed];
     _photo.image = nil; _photo.hidden = YES;

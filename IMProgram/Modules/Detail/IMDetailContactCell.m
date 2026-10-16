@@ -1,5 +1,6 @@
 //  IMDetailContactCell.m
 
+#import "IMRemarkStore.h"
 #import "IMDetailContactCell.h"
 #import "IMContactCard.h"
 #import "IMMediaUtil.h"        // IMFormatFileDateTime（与详情页文件/链接 tab 同一时间口径）
@@ -103,7 +104,8 @@ const CGFloat IMDetailContactCellHeightWithSource = 82;
           timestampMillis:(int64_t)timestampMillis {
     if (!card) { [self clearContent]; return; }
     // 末级不落 userID（10 位随机数字内部 ID），统一走 IMDisplayName 的兜底链。
-    NSString *shown = displayName.length > 0 ? displayName : IMDisplayName(card.nickname, card.username);
+    NSString *shown = [IMRemarkStore.sharedStore isDeletedUser:card.userID] ? IMLocalized(@"delete_account.deleted_user")
+        : (displayName.length > 0 ? displayName : IMDisplayName(card.nickname, card.username));
     _name.text = shown;
     // 副标题 = @句柄。绝不显示 userID。来源另起一行（见 _source）。
     _sub.text = card.username.length > 0 ? [@"@" stringByAppendingString:card.username] : @"";

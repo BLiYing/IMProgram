@@ -7,6 +7,8 @@
 #import "IMTheme.h"
 #import <objc/runtime.h>
 #import "IMAccountIdentity.h"
+#import "IMRemarkStore.h"
+#import "IMLocalization.h"
 
 static const void *kIMAvatarImageViewKey = &kIMAvatarImageViewKey;
 static const void *kIMAvatarTokenKey = &kIMAvatarTokenKey;
@@ -54,6 +56,11 @@ static UIImage *IMSystemAvatarImage(void) {
         return;
     }
 
+    // 已注销用户：不显示（可能是旧缓存里的）头像图，首字母圈用「已注销用户」——名字与头像在每个调用点都自动一致。
+    if ([IMRemarkStore.sharedStore isDeletedUser:seed]) {
+        url = nil;
+        displayName = IMLocalized(@"delete_account.deleted_user");
+    }
     // 1) 立即渲染首字母 + 稳定取色底（回退态，无空白闪烁）。
     NSString *name = displayName.length ? displayName : seed;
     self.text = IMAvatarInitials(name);

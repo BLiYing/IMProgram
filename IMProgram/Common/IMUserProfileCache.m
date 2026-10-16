@@ -125,6 +125,7 @@ static const NSUInteger kMaxCached = 2000;
         // 塞进来会让 A 群的群昵称漏到 B 群的气泡上。群昵称仍由各群自己的成员表覆盖。
         c.nickname = m.nickname ?: @"";
         c.avatarURL = m.avatarURL ?: @"";
+        c.deleted = m.deleted;
         [cards addObject:c];
     }
     [self ingestCards:cards];

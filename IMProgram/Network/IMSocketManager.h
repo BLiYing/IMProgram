@@ -68,6 +68,9 @@ extern NSString * const IMSocketDidChangeStateNotification;
 /// 与"网络断开"严格区分：网络抖动只重连、不发此通知；此通知**只在鉴权被拒时发**，上层（SceneDelegate）
 /// 据此清登录态并跳回登录页——否则 socket 会在 token 缓存 TTL 过后静默重登，"被踢"退化成 ≤10min 的临时抖动。
 extern NSString * const IMSocketDidRevokeSessionNotification;
+/// 收到 `error{reason:"account_deleted"}`（本账号在别的设备被注销，PROTOCOL §6.16.2）时广播（主线程）。
+/// 上层须清本机聊天缓存 + 走被踢路径回登录页；本机自己发起的注销由 IMSessionTeardown.accountDeletionInProgress 让路。
+extern NSString * const IMSocketDidReceiveAccountDeletedNotification;
 extern NSString * const kIMConvIDKey;
 /// 收到 presence 帧（某用户在线态变化）时广播（主线程）：presence 只喂给单个 delegate（打开的聊天页），
 /// 此通知让非 delegate 页（如会话列表）也能就地刷新在线绿点，无需重拉 /conversations。服务端只推上线，

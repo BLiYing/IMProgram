@@ -4,6 +4,7 @@
 
 #import "IMRemarkStore.h"
 #import "IMAccountIdentity.h"
+#import "IMLocalization.h"
 
 IMGroupRole IMGroupRoleFromString(NSString *s) {
     if ([s isEqualToString:@"owner"]) { return IMGroupRoleOwner; }
@@ -32,6 +33,7 @@ static BOOL IMGroupBool(NSDictionary *dict, NSString *key) {
 @implementation IMGroupMember
 
 - (NSString *)displayName {
+    if (self.deleted || [IMRemarkStore.sharedStore isDeletedUser:self.userID]) { return IMLocalized(@"delete_account.deleted_user"); }
     if (self.groupNickname.length > 0) { return self.groupNickname; } // 群昵称优先（G1）
     // 末级不落 userID（10 位随机内部 ID）；统一走 IMDisplayName 的兜底链。
     return IMDisplayName(self.nickname, self.username);
@@ -52,6 +54,8 @@ static BOOL IMGroupBool(NSDictionary *dict, NSString *key) {
     NSString *gn = IMGroupString(dict, @"group_nickname");
     m.groupNickname = gn.length > 0 ? gn : nil;
     m.avatarURL = IMGroupString(dict, @"avatar_url");
+    m.deleted = IMGroupBool(dict, @"deleted");
+    [IMRemarkStore.sharedStore setUser:m.userID deleted:m.deleted]; // 含 NO：恢复后撤销
     m.role = IMGroupRoleFromString(IMGroupString(dict, @"role"));
     m.joinedAt = IMGroupInt64(dict, @"joined_at");
     m.muteUntil = IMGroupInt64(dict, @"mute_until");
@@ -121,6 +125,7 @@ static BOOL IMGroupBool(NSDictionary *dict, NSString *key) {
     if (userID.length == 0) { return nil; }
     for (IMGroupMember *m in self.members) {
         if ([m.userID isEqualToString:userID]) {
+            if (m.deleted || [IMRemarkStore.sharedStore isDeletedUser:userID]) { return IMLocalized(@"delete_account.deleted_user"); }
             // 群昵称优先（G1），回退全局昵称；都无返回 nil 让调用方回退 uid。
             if (m.groupNickname.length > 0) { return m.groupNickname; }
             return m.nickname.length > 0 ? m.nickname : nil;

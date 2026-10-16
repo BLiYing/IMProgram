@@ -1,3 +1,4 @@
+#import "IMLocalization.h"
 #import "IMRtcProfileResolver.h"
 #import "IMGroupInfo.h"
 #import "IMHTTPService.h"
@@ -59,6 +60,7 @@
 
 /// 备注 > 群昵称 > 昵称 > @句柄。取不到返回 nil（Kit 退回 uid），并让 IMUserProfileCache 排队兜底取一次。
 - (nullable NSString *)resolveNameForUID:(NSString *)uid {
+    if ([IMRemarkStore.sharedStore isDeletedUser:uid]) { return IMLocalized(@"delete_account.deleted_user"); }
     NSString *remark = [IMRemarkStore.sharedStore remarkForUser:uid];
     if (remark.length) { return remark; }
     IMGroupMember *member = [self memberForUID:uid];

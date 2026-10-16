@@ -1,19 +1,20 @@
 //  IMHTTPService+Account.h
 //  账号注销 / 恢复（IMServer/docs/design/DELETE_ACCOUNT_DESIGN.md §3 §5）。
-//  契约来源：设计稿 §5；PROTOCOL.md 的「账号注销」章节落地后须对账（尤其 owned_groups / delete_at 的字段形态与
-//  AccountPendingDeletion 的码值）。
+//  契约：IMServer/docs/PROTOCOL.md §6.16（已定稿并与后端对账）：delete 成功 data.purge_at（毫秒）；群主阻断
+//  100103 + data.owned_groups:[{conv_id,name}]；登录冷静期 200005 + data.delete_at（毫秒）；restore 不签 token，
+//  成功后再用同一凭据 /login。下面的解析器对形态仍做容错（秒/毫秒/ISO、多种群 id 键），只是防脏数据，不是契约未定。
 
 #import "IMHTTPService.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
-/// 冷静期内登录返回的业务码（设计稿建议 200005；CONVENTIONS §2 一经发布永不改）。待与 PROTOCOL.md 对账。
+/// 冷静期内登录返回的业务码 200005 AccountPendingDeletion（PROTOCOL §6.16.1；业务码一经发布永不改）。
 FOUNDATION_EXPORT NSInteger const IMErrCodeAccountPendingDeletion;
 /// 通用无权限；注销时附 owned_groups 表示「你还是群主」。
 FOUNDATION_EXPORT NSInteger const IMErrCodeNoPermission;
 /// NSError.userInfo 键：删除生效时间（NSDate），来自响应 data.delete_at。
 FOUNDATION_EXPORT NSString * const IMErrorDeleteAtKey;
-/// NSError.userInfo 键：我是群主的群，NSArray<NSDictionary>，每项 @{@"id": 群 topic_id, @"name": 群名}。
+/// NSError.userInfo 键：我是群主的群，NSArray<NSDictionary>，每项 @{@"id": 群 conv_id, @"name": 群名}。
 FOUNDATION_EXPORT NSString * const IMErrorOwnedGroupsKey;
 
 /// 解析 delete_at：数字（秒或毫秒，>1e11 视为毫秒）或 ISO8601 字符串；无法解析返回 nil。

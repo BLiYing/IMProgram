@@ -49,6 +49,8 @@ NSString * const kIMGroupReadSeqsKey = @"groupReadSeqs";
     c.peerNickname = [self stringForKey:@"peer_nickname" in:dict];
     c.peerAvatarURL = [self stringForKey:@"peer_avatar_url" in:dict];
     c.peerRemark = [self stringForKey:@"peer_remark" in:dict]; // 好友备注（仅本人可见）；非空替代对端昵称
+    c.peerDeleted = !c.isGroup && IMBoolFromJSON(dict[@"peer_deleted"]);
+    if (!c.isGroup) { [IMRemarkStore.sharedStore setUser:c.peer deleted:c.peerDeleted]; } // 含 NO：恢复后撤销
     // 单聊对端在线态快照（peer_presence/peer_online_until/peer_last_seen）；群聊/老响应无这些键 → nil，不显绿点。
     if (!c.isGroup && dict[@"peer_presence"]) {
         c.peerPresence = [IMPresence presenceFromConversationDictionary:dict];
@@ -85,6 +87,9 @@ NSString * const kIMGroupReadSeqsKey = @"groupReadSeqs";
 
 - (NSString *)displayName {
     NSCharacterSet *ws = NSCharacterSet.whitespaceAndNewlineCharacterSet;
+    if (!self.isGroup && (self.peerDeleted || [IMRemarkStore.sharedStore isDeletedUser:self.peer])) {
+        return IMLocalized(@"delete_account.deleted_user"); // 压过会话备注 / 好友备注
+    }
     NSString *convRemark = [self.remark stringByTrimmingCharactersInSet:ws];
     if (convRemark.length > 0) { return convRemark; } // 会话备注（G1）最"就近"，群/单聊通用
     if (self.isGroup) {

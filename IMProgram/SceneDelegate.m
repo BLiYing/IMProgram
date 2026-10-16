@@ -41,6 +41,10 @@
     [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidRevokeSessionNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(handleSessionRevoked)
                                                name:IMSocketDidRevokeSessionNotification object:nil];
+    // 本账号在别的设备被注销（WS error reason=account_deleted）：清聊天缓存后走同一条被踢路径（PROTOCOL §6.16.2）。
+    [NSNotificationCenter.defaultCenter removeObserver:self name:IMSocketDidReceiveAccountDeletedNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(handleAccountDeletedElsewhere)
+                                               name:IMSocketDidReceiveAccountDeletedNotification object:nil];
     // 界面语言变了 → 重建根控制器（I18N_DESIGN §5.1：不逐个 VC 监听，漏一个就是半中半英）。
     [NSNotificationCenter.defaultCenter removeObserver:self name:IMLanguageDidChangeNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(handleLanguageChanged)
@@ -108,16 +112,30 @@
 /// 通知在主线程发；幂等——已在登录页则只补一次提示。
 - (void)handleSessionRevoked {
     if (IMSessionTeardown.accountDeletionInProgress) { return; } // 本机正在注销：由注销页自己收尾（清缓存 + 提示）
+    [self forceLogoutToLogin:NO];
+}
+
+/// 别的设备注销了本账号：先清本机聊天缓存（须在清会话之前，还要靠当前 owner 定位数据），再走被踢路径。
+/// 本机自己发起的注销让路；已无会话（已在登录页）时不清——此时没有 owner 可清。
+- (void)handleAccountDeletedElsewhere {
+    if (IMSessionTeardown.accountDeletionInProgress || ![IMSessionStore hasSession]) { return; }
+    IMLog(@"account deleted elsewhere → 清本机聊天缓存并回登录页");
+    [IMSessionTeardown wipeLocalChatCache];
+    [self forceLogoutToLogin:YES];
+}
+
+/// accountDeleted=YES：登录页顶部显示与主动注销一致的「7 天后永久删除，期间重新登录可恢复」提示条，替代被踢 toast。
+- (void)forceLogoutToLogin:(BOOL)accountDeleted {
     if ([self.window.rootViewController isKindOfClass:UINavigationController.class]
         && [((UINavigationController *)self.window.rootViewController).topViewController isKindOfClass:IMLoginViewController.class]) {
         return;
     }
     IMLog(@"session revoked → 强制登出回登录页");
-    [IMRtcCall.shared stop];
-    [IMSocketManager.sharedManager disconnect];
-    [IMHTTPService.sharedService invalidateToken];
-    IMHTTPService.sharedService.refreshToken = nil; // invalidateToken 刻意不动它（长效凭据），登出这里必须清
-    [IMSessionStore clear]; // 清持久化会话：下次启动直接回登录页，不再静默重登
+    [IMSessionTeardown tearDownLocalSession]; // 停通话 / 断 WS / 作废 token / 擦续期凭据 / 清持久化会话（不再静默重登）
+    if (accountDeleted) {
+        [IMSessionTeardown showLoginInWindow:self.window notice:IMLocalized(@"delete_account.done_hint")];
+        return;
+    }
     [self showLogin];
     [UIViewController im_showGlobalToast:IMLocalized(@"scene.kicked_logged_out")];
 }

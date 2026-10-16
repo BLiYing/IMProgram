@@ -110,6 +110,7 @@ IMGroupMemberAction IMGroupMemberActionsFor(IMGroupRole myRole, IMGroupRole targ
         c.nickname = m.displayName; // 群内公开名（群昵称优先）；备注由 IMUserCard.displayName 就地叠加
         c.username = m.username ?: @"";
         c.avatarURL = m.avatarURL ?: @"";
+        c.deleted = m.deleted;
         [cards addObject:c];
     }
     return cards;

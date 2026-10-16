@@ -29,8 +29,17 @@ extern NSString * const kIMRemarkPeerIDKey;
 /// 我给 uid 起的备注；无备注返回 nil（空串按"无备注"归一化，调用方不必再判空串）。
 - (nullable NSString *)remarkForUser:(nullable NSString *)userID;
 
-/// 显示名：备注 > fallback（一般传昵称）> uid。各页取显示名的统一口径。
+/// 显示名：**已注销 > 备注** > fallback（一般传昵称）> uid。各页取显示名的统一口径。
+/// 已注销用户（`isDeletedUser:`）恒显「已注销用户」(delete_account.deleted_user)，压过备注 / 群昵称 / 服务端昵称
+/// （PROTOCOL §6.16.3：服务端虽已把 nickname 置成中文「已注销用户」、清了 remark，但那是固定中文，且旧缓存里还留着原名）。
 - (NSString *)displayNameForUser:(nullable NSString *)userID fallback:(nullable NSString *)fallback;
+
+/// 该 uid 是否已知为「已注销用户」（冷静期内与匿名化后一视同仁）。账号级隔离 + 落 UserDefaults（冷启动先于网络就显示对）。
+- (BOOL)isDeletedUser:(nullable NSString *)userID;
+
+/// 登记 / 撤销「已注销」标记。由各解析点（用户名片 / 群成员 / 会话行 peer_deleted）在**每次**解析时调用——
+/// 恢复账号后服务端不再带 `deleted`，所以 NO 也要传，才能撤销。值真的变了才发通知（带 peerID）。线程安全。
+- (void)setUser:(nullable NSString *)userID deleted:(BOOL)deleted;
 
 /// 单点更新（本端改备注的乐观更新 / WS friend(event=remark) 帧）。remark 传 nil 或空串=清除。
 /// 值真的变了才发通知，故可安全地在每次列表刷新里重复调用。

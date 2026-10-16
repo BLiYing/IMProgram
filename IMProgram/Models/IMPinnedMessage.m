@@ -6,6 +6,7 @@
 #import "IMCallRecord.h"
 #import "IMMediaUtil.h"   // IMChatRecordSnippet：聊天记录卡片 → 「[聊天记录] 标题」
 #import "IMMessageModel.h"
+#import "IMRemarkStore.h"
 
 IMPinnedMessage *IMPinnedLatestItem(NSArray<IMPinnedMessage *> *items) {
     IMPinnedMessage *best = nil;
@@ -100,6 +101,7 @@ IMPinnedMessage *IMPinnedLatestItem(NSArray<IMPinnedMessage *> *items) {
 
 - (NSString *)senderLabelForGroup:(BOOL)isGroup {
     if (!isGroup) { return @""; }
+    if ([IMRemarkStore.sharedStore isDeletedUser:self.from]) { return IMLocalized(@"delete_account.deleted_user"); }
     return self.fromNickname.length > 0 ? self.fromNickname : (self.from ?: @"");
 }
 

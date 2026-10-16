@@ -1,5 +1,6 @@
 //  IMGroupBanListViewController.m
 
+#import "IMRemarkStore.h"
 #import "IMGroupBanListViewController.h"
 #import "IMHTTPService.h"
 #import "UIViewController+IMToast.h"
@@ -83,7 +84,8 @@
     int64_t expires = [b[@"expires_at"] respondsToSelector:@selector(longLongValue)] ? [b[@"expires_at"] longLongValue] : 0;
     // 主标题=显示名（末级不落 uid），副标题=@句柄 + 封禁档位。管理员要认得出拉黑的是谁，
     // 而 uid 是 10 位随机数字（docs/UI.md「用户标识」）。
-    cell.textLabel.text = IMDisplayName(nick, uname);
+    cell.textLabel.text = [IMRemarkStore.sharedStore isDeletedUser:b[@"user_id"]]
+        ? IMLocalized(@"delete_account.deleted_user") : IMDisplayName(nick, uname);
     NSString *state = expires == 0 ? IMLocalized(@"common.permanent") : IMLocalized(@"group.bans.cooling");
     cell.detailTextLabel.text = uname.length > 0
         ? [NSString stringWithFormat:@"@%@ · %@", uname, state]

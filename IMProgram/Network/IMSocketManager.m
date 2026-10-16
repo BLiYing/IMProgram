@@ -460,21 +460,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
     } else if ([type isEqualToString:kIMTypePong]) {
         // 心跳回应，无需处理
     } else if ([type isEqualToString:kIMTypeError]) {
-        NSString *cmid = [payload[@"client_msg_id"] isKindOfClass:[NSString class]] ? payload[@"client_msg_id"] : nil;
-        // 消息操作被拒（如撤回超时 300008）：不动消息，主线程广播回滚提示。
-        if (cmid.length > 0 && [_pendingOps containsObject:cmid]) {
-            [_pendingOps removeObject:cmid];
-            NSString *msg = [payload[@"message"] isKindOfClass:[NSString class]] ? payload[@"message"] : IMLocalized(@"common.action_failed");
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidRejectMsgOpNotification
-                                                                  object:self userInfo:@{ @"message": msg }];
-            });
-        } else if (cmid.length > 0) {
-            // 带 client_msg_id 的 error = 对某条 send_msg 的拒绝（如被拉黑）→ 立刻判该条发送失败。
-            [self handleSendRejected:cmid code:[payload[@"code"] integerValue] message:payload[@"message"]];
-        } else {
-            IMLogSocket(@"服务端 error: %@", payload);
-        }
+        [self handleErrorFrame:payload]; // 见 IMSocketManager+ErrorFrame.m
     } else {
         [self handleAdditionalFrameType:type payload:payload]; // M5：app_state/notify_settings_update 等新类型，见 IMSocketManager+Push.m
     }
@@ -816,6 +802,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
     NSString *friendly = (code == 200102) ? IMLocalized(@"chat.reject.blocked")
         : (code == 200103) ? IMLocalized(@"chat.reject.not_friend")
         : (code == 300001) ? IMLocalized(@"chat.reject.too_large")
+        : (code == 300003) ? IMLocalized(@"chat.reject.recipient_deleted") // 对方已注销（PROTOCOL §6.16.3）
         : IMFriendlyMessageForCode(code);
     NSString *msg = friendly.length > 0
         ? friendly

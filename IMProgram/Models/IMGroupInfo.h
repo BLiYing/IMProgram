@@ -26,6 +26,8 @@ IMGroupRole IMGroupRoleFromString(NSString *_Nullable s);
 @property (nonatomic, copy) NSString *avatarURL;
 @property (nonatomic, assign) IMGroupRole role;
 @property (nonatomic, assign) int64_t joinedAt;
+/// 该成员账号已注销（成员对象 `deleted=true`）：displayName / nicknameOfMember 恒为「已注销用户」，压过群昵称。
+@property (nonatomic, assign) BOOL deleted;
 @property (nonatomic, assign) int64_t muteUntil;                       ///< 成员级禁言到期毫秒（G2；0=未禁言）
 /// **群内公开名**：群昵称优先 → 全局昵称 → uid（G1；与后端 from_nickname 下发口径一致）。
 /// 会被写进要发出去的内容时用它（@提及插入的 token、@昵称 反查、合并转发条目名）——**不含好友备注**。

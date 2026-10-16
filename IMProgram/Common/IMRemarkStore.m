@@ -6,6 +6,7 @@
 #import "IMDatabase.h"
 #import "IMLog.h"
 #import "IMUserCard.h"
+#import "IMLocalization.h"
 
 NSString * const IMRemarkStoreDidChangeNotification = @"IMRemarkStoreDidChangeNotification";
 NSString * const kIMRemarkPeerIDKey = @"peerID";
@@ -13,6 +14,7 @@ NSString * const kIMRemarkPeerIDKey = @"peerID";
 @implementation IMRemarkStore {
     NSMutableDictionary<NSString *, NSString *> *_remarks; // uid → 备注（恒非空串）
     NSString *_ownerUserID;                                // 记账用：换号即整表清空
+    NSMutableSet<NSString *> *_deletedUsers;               // 已注销用户 uid（持久化在 UserDefaults，按 owner 分键）
 }
 
 + (instancetype)sharedStore {
@@ -26,6 +28,7 @@ NSString * const kIMRemarkPeerIDKey = @"peerID";
     if ((self = [super init])) {
         _remarks = [NSMutableDictionary dictionary];
         _ownerUserID = @"";
+        _deletedUsers = [NSMutableSet set];
     }
     return self;
 }
@@ -42,12 +45,35 @@ NSString * const kIMRemarkPeerIDKey = @"peerID";
 }
 
 - (NSString *)displayNameForUser:(NSString *)userID fallback:(NSString *)fallback {
+    if ([self isDeletedUser:userID]) { return IMLocalized(@"delete_account.deleted_user"); }
     NSString *remark = [self remarkForUser:userID];
     if (remark.length > 0) { return remark; }
     return fallback.length > 0 ? fallback : (userID ?: @"");
 }
 
+- (BOOL)isDeletedUser:(NSString *)userID {
+    if (userID.length == 0) { return NO; }
+    NSString *owner = [self currentOwner];
+    @synchronized (self) {
+        [self syncOwnerLocked:owner];
+        return [_deletedUsers containsObject:userID];
+    }
+}
+
 #pragma mark - 写
+
+- (void)setUser:(NSString *)userID deleted:(BOOL)deleted {
+    if (userID.length == 0) { return; }
+    NSString *owner = [self currentOwner];
+    BOOL changed = NO;
+    @synchronized (self) {
+        [self syncOwnerLocked:owner];
+        if (deleted && ![_deletedUsers containsObject:userID]) { [_deletedUsers addObject:userID]; changed = YES; }
+        if (!deleted && [_deletedUsers containsObject:userID]) { [_deletedUsers removeObject:userID]; changed = YES; }
+        if (changed) { [self persistDeletedLocked]; }
+    }
+    if (changed) { [self postChangeForPeer:userID]; }
+}
 
 - (void)applyRemark:(NSString *)remark forUser:(NSString *)userID {
     if (userID.length == 0) { return; }
@@ -125,6 +151,11 @@ NSString * const kIMRemarkPeerIDKey = @"peerID";
 /// 账号自愈：与传入的当前 owner 不一致即整表清空。备注是每账号私有的，串号显示等于泄露。
 - (void)syncOwnerLocked:(NSString *)owner {
     if ([owner isEqualToString:_ownerUserID]) { return; }
+    [_deletedUsers removeAllObjects];
+    if (owner.length > 0) {
+        NSArray *saved = [NSUserDefaults.standardUserDefaults arrayForKey:[self deletedDefaultsKeyForOwner:owner]];
+        for (id uid in saved) { if ([uid isKindOfClass:NSString.class]) { [_deletedUsers addObject:uid]; } }
+    }
     if (_remarks.count > 0) {
         IMLogUI(@"账号切换，清空备注名缓存 old_uid=%@ new_uid=%@ count=%lu",
                 _ownerUserID.length ? _ownerUserID : @"(none)", owner.length ? owner : @"(none)",
@@ -132,6 +163,16 @@ NSString * const kIMRemarkPeerIDKey = @"peerID";
         [_remarks removeAllObjects];
     }
     _ownerUserID = [owner copy];
+}
+
+- (NSString *)deletedDefaultsKeyForOwner:(NSString *)owner {
+    return [@"im.deleted_users." stringByAppendingString:owner];
+}
+
+/// 落盘当前 owner 的已注销集合（锁内调用：只碰 UserDefaults，不碰 IMDatabase，符合叶子锁约定）。
+- (void)persistDeletedLocked {
+    if (_ownerUserID.length == 0) { return; }
+    [NSUserDefaults.standardUserDefaults setObject:_deletedUsers.allObjects forKey:[self deletedDefaultsKeyForOwner:_ownerUserID]];
 }
 
 - (void)postChangeForPeer:(nullable NSString *)peerID {
