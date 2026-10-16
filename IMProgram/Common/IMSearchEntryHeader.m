@@ -24,7 +24,9 @@ UIView *IMMakeSearchEntryHeader(CGFloat width, NSString *placeholder, id target,
     ph.text = placeholder;
     ph.font = [UIFont systemFontOfSize:17];          // 同 searchMode 输入框字号
     ph.textColor = IMTheme.textSecondary;             // 同占位色
-    ph.frame = CGRectMake(38, 0, 240, 44);
+    ph.frame = CGRectMake(38, 0, width - 32 - 38 - 14, 44);   // 随胶囊宽度铺满（原固定 240 会把长占位符截断）
+    ph.adjustsFontSizeToFitWidth = YES;               // 窄屏仍放不下时缩字号，保证「设置」二字可见
+    ph.minimumScaleFactor = 0.75;
     ph.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     [capsule.contentView addSubview:ph];
     [header addSubview:capsule];
