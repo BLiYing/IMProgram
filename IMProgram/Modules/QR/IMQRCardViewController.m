@@ -28,6 +28,7 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
 @property (nonatomic, assign) BOOL canReset;
 @property (nonatomic, assign) BOOL asLink; ///< 群码页按「群邀请链接」呈现（仅改标题/文案，码一致）
 
+@property (nonatomic, strong) UIScrollView *scrollView;  ///< 小屏（SE）装不下整页时可滚
 @property (nonatomic, strong) IMQRCardView *cardView;
 @property (nonatomic, strong) UIButton *saveButton;
 @property (nonatomic, strong) UIButton *shareButton;
@@ -102,8 +103,20 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
     [self restoreBrightness]; // 异常路径（未走 viewWillDisappear）兜底，别把用户屏幕留在满亮度
 }
 
+- (void)updateMyProfileWithUsername:(NSString *)username nickname:(NSString *)nickname avatarURL:(NSString *)avatarURL {
+    if (self.mode != IMQRCardModeUser) { return; }
+    self.username = username;
+    self.displayName = IMDisplayName(nickname, username);
+    self.avatarURL = avatarURL;
+    if (self.isViewLoaded) { [self renderCard]; }
+}
+
+- (void)reloadCodeIfNeeded {
+    if (self.isViewLoaded && self.codeString.length == 0) { [self reloadCode]; }
+}
+
 - (void)boostBrightness {
-    if (self.brightnessBoosted) { return; }
+    if (self.brightnessBoosted || [self isLinkPage]) { return; } // 链接页不出示二维码，不必拉满亮度
     self.previousBrightness = UIScreen.mainScreen.brightness;
     self.brightnessBoosted = YES;
     UIScreen.mainScreen.brightness = 1.0;
@@ -117,28 +130,46 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
 
 #pragma mark - UI
 
+/// 群邀请链接页：链接是主角（不画二维码），按钮换成「分享链接 / 复制链接」，二维码入口退到页底。
+- (BOOL)isLinkPage { return self.mode == IMQRCardModeGroup && self.asLink; }
+
 - (void)setupUI {
+    BOOL linkPage = [self isLinkPage];
+    self.scrollView = [UIScrollView new];
+    self.scrollView.translatesAutoresizingMaskIntoConstraints = NO;
+    self.scrollView.alwaysBounceVertical = NO;
+    self.scrollView.showsVerticalScrollIndicator = NO;
+    [self.view addSubview:self.scrollView];
+
     self.cardView = [IMQRCardView new];
     self.cardView.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.view addSubview:self.cardView];
+    self.cardView.linkMode = linkPage;
+    [self.scrollView addSubview:self.cardView];
 
-    self.saveButton = [self makeButtonWithTitle:IMLocalized(@"qr.card.save_to_album") primary:NO action:@selector(saveToAlbum)];
-    self.shareButton = [self makeButtonWithTitle:IMLocalized(@"common.share") primary:YES action:@selector(shareCode)];
+    self.saveButton = [self makeButtonWithTitle:(linkPage ? IMLocalized(@"qr.card.share_link") : IMLocalized(@"qr.card.save_to_album"))
+                                        primary:NO action:(linkPage ? @selector(shareCode) : @selector(saveToAlbum))];
+    self.shareButton = [self makeButtonWithTitle:(linkPage ? IMLocalized(@"qr.copy_link") : IMLocalized(@"common.share"))
+                                         primary:YES action:(linkPage ? @selector(shareLinkCopy) : @selector(shareCode))];
     UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:@[ self.saveButton, self.shareButton ]];
     row.translatesAutoresizingMaskIntoConstraints = NO;
     row.axis = UILayoutConstraintAxisHorizontal;
     row.distribution = UIStackViewDistributionFillEqually;
     row.spacing = IMTheme.space3;
-    [self.view addSubview:row];
+    [self.scrollView addSubview:row];
 
-    // 复制链接：码内容串本身就是邀请/名片链接（/q/g|u/<token>），二级文字按钮，不挤主行两键布局。
+    // 二级文字按钮：二维码页＝复制链接（码内容串本身就是 /q/g|u/<token> 链接）；链接页＝查看二维码。
     self.linkCopyButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.linkCopyButton.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.linkCopyButton setTitle:(self.mode == IMQRCardModeGroup ? IMLocalized(@"qr.card.copy_group_link") : IMLocalized(@"qr.copy_link")) forState:UIControlStateNormal];
+    if (linkPage) {
+        [self.linkCopyButton setTitle:IMLocalized(@"qr.card.view_code") forState:UIControlStateNormal];
+        [self.linkCopyButton addTarget:self action:@selector(openCodePage) forControlEvents:UIControlEventTouchUpInside];
+    } else {
+        [self.linkCopyButton setTitle:IMLocalized(@"qr.copy_link") forState:UIControlStateNormal];
+        [self.linkCopyButton addTarget:self action:@selector(shareLinkCopy) forControlEvents:UIControlEventTouchUpInside];
+    }
     [self.linkCopyButton setTitleColor:IMTheme.accent forState:UIControlStateNormal];
     self.linkCopyButton.titleLabel.font = [UIFont systemFontOfSize:15];
-    [self.linkCopyButton addTarget:self action:@selector(shareLinkCopy) forControlEvents:UIControlEventTouchUpInside];
-    [self.view addSubview:self.linkCopyButton];
+    [self.scrollView addSubview:self.linkCopyButton];
 
     self.resetButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.resetButton.translatesAutoresizingMaskIntoConstraints = NO;
@@ -148,15 +179,25 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
     self.resetButton.titleLabel.font = [UIFont systemFontOfSize:14];
     [self.resetButton addTarget:self action:@selector(confirmReset) forControlEvents:UIControlEventTouchUpInside];
     // 群码重置限群主/管理员：无权限时整个入口不渲染（服务端仍二次校验，隐藏不算鉴权）。
-    self.resetButton.hidden = (self.mode == IMQRCardModeGroup && !self.canReset);
-    [self.view addSubview:self.resetButton];
+    // 链接页也不放重置（同一枚 token，重置入口只在二维码页，经「查看二维码」到达）。
+    self.resetButton.hidden = (self.mode == IMQRCardModeGroup && (!self.canReset || linkPage));
+    [self.scrollView addSubview:self.resetButton];
 
     UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
+    UILayoutGuide *content = self.scrollView.contentLayoutGuide;
+    UILayoutGuide *frame = self.scrollView.frameLayoutGuide;
     CGFloat pad = IMTheme.space4;
     [NSLayoutConstraint activateConstraints:@[
-        [self.cardView.topAnchor constraintEqualToAnchor:safe.topAnchor constant:IMTheme.space3],
-        [self.cardView.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:pad],
-        [self.cardView.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-pad],
+        [self.scrollView.topAnchor constraintEqualToAnchor:safe.topAnchor],
+        [self.scrollView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
+        [self.scrollView.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor],
+        [self.scrollView.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor],
+        // 内容宽度钉死为可视宽度：否则 contentLayoutGuide 横向无约束（content size 歧义），只竖向滚动。
+        [content.widthAnchor constraintEqualToAnchor:frame.widthAnchor],
+
+        [self.cardView.topAnchor constraintEqualToAnchor:content.topAnchor constant:IMTheme.space3],
+        [self.cardView.leadingAnchor constraintEqualToAnchor:frame.leadingAnchor constant:pad],
+        [self.cardView.trailingAnchor constraintEqualToAnchor:frame.trailingAnchor constant:-pad],
 
         [row.topAnchor constraintEqualToAnchor:self.cardView.bottomAnchor constant:pad],
         [row.leadingAnchor constraintEqualToAnchor:self.cardView.leadingAnchor],
@@ -164,10 +205,11 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
         [row.heightAnchor constraintEqualToConstant:44],
 
         [self.linkCopyButton.topAnchor constraintEqualToAnchor:row.bottomAnchor constant:IMTheme.space3],
-        [self.linkCopyButton.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
+        [self.linkCopyButton.centerXAnchor constraintEqualToAnchor:frame.centerXAnchor],
 
         [self.resetButton.topAnchor constraintEqualToAnchor:self.linkCopyButton.bottomAnchor constant:IMTheme.space2],
-        [self.resetButton.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
+        [self.resetButton.centerXAnchor constraintEqualToAnchor:frame.centerXAnchor],
+        [self.resetButton.bottomAnchor constraintEqualToAnchor:content.bottomAnchor constant:-24],
     ]];
     [self renderCard];
 }
@@ -191,9 +233,10 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
     NSString *hint;
     if (self.mode == IMQRCardModeGroup) {
         subtitle = IMLocalizedFormat(@"qr.branch.group_meta", (long)self.memberCount);
+        BOOL link = self.asLink;
         hint = self.expiresAt > 0
-            ? IMLocalizedFormat(@"qr.card.group_hint_expiry", [self dateStringFromMillis:self.expiresAt])
-            : IMLocalized(@"qr.card.group_subtitle_code");
+            ? IMLocalizedFormat(link ? @"qr.card.group_link_hint_expiry" : @"qr.card.group_hint_expiry", [self dateStringFromMillis:self.expiresAt])
+            : IMLocalized(link ? @"group.qr.hint_link" : @"group.qr.hint_code");
     } else {
         // 副标题显示公开句柄，不是 userID（10 位随机数字内部 ID）——这张卡是给别人看的，
         // 显示一串随机数字对方认不出是谁（docs/UI.md「用户标识」）。没有句柄就留空。
@@ -280,6 +323,14 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
 
 #pragma mark - 保存 / 分享
 
+/// 链接页底部「查看二维码」：同一枚 token 的二维码呈现，推入群二维码页。
+- (void)openCodePage {
+    IMQRCardViewController *vc = [[IMQRCardViewController alloc] initGroupCardWithHost:self.host userID:self.userID convID:self.convID
+                                                                             groupName:self.displayName avatarURL:self.avatarURL
+                                                                           memberCount:self.memberCount canReset:self.canReset asLink:NO];
+    [self.navigationController pushViewController:vc animated:YES];
+}
+
 - (void)saveToAlbum {
     UIImage *image = self.cardView.qrImage;
     if (!image) { [self im_showToast:IMLocalized(@"qr.card.not_ready")]; return; }
@@ -293,11 +344,15 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
 
 - (void)shareCode {
     UIImage *image = self.cardView.qrImage;
-    if (!image || self.codeString.length == 0) { [self im_showToast:IMLocalized(@"qr.card.not_ready")]; return; }
+    BOOL linkPage = [self isLinkPage];
+    if (self.codeString.length == 0 || (!image && !linkPage)) { [self im_showToast:IMLocalized(@"qr.card.not_ready")]; return; }
+    // 链接页只分享文字链接，不带图。
+    NSArray *items = linkPage ? @[ self.codeString ] : @[ image, self.codeString ];
     UIActivityViewController *share =
-        [[UIActivityViewController alloc] initWithActivityItems:@[ image, self.codeString ] applicationActivities:nil];
-    share.popoverPresentationController.sourceView = self.shareButton;      // iPad 必须给锚点，否则崩
-    share.popoverPresentationController.sourceRect = self.shareButton.bounds;
+        [[UIActivityViewController alloc] initWithActivityItems:items applicationActivities:nil];
+    UIView *anchor = linkPage ? self.saveButton : self.shareButton;
+    share.popoverPresentationController.sourceView = anchor;                // iPad 必须给锚点，否则崩
+    share.popoverPresentationController.sourceRect = anchor.bounds;
     [self presentViewController:share animated:YES completion:nil];
 }
 

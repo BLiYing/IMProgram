@@ -26,6 +26,16 @@ NS_ASSUME_NONNULL_BEGIN
                              canReset:(BOOL)canReset
                                asLink:(BOOL)asLink;
 
+/// 嵌入扫一扫页时由宿主补正资料（名片码模式；群码模式忽略）。码本身不依赖资料，先能扫要紧。
+- (void)updateMyProfileWithUsername:(nullable NSString *)username
+                           nickname:(nullable NSString *)nickname
+                          avatarURL:(nullable NSString *)avatarURL;
+/// 展示给别人扫期间拉满亮度 / 还原（幂等）。嵌入页签切换时宿主手动调；独立页走自身 appear/disappear。
+/// 嵌入页签每次切回时调：码还没取到（上次失败/未登录）就重取，已有码则无操作。
+- (void)reloadCodeIfNeeded;
+- (void)boostBrightness;
+- (void)restoreBrightness;
+
 - (instancetype)init NS_UNAVAILABLE;
 - (instancetype)initWithNibName:(nullable NSString *)nib bundle:(nullable NSBundle *)bundle NS_UNAVAILABLE;
 - (instancetype)initWithCoder:(NSCoder *)coder NS_UNAVAILABLE;

@@ -1000,7 +1000,7 @@
 "group.picker.search_hint" = "Type to search group members";
 "group.picker.search_placeholder" = "Search members";
 "group.qr.hint_code" = "Invite friends to scan the QR code to join this group.\nThe code is valid for 7 days; resetting it invalidates the old one.";
-"group.qr.hint_link" = "Copy the link to share with friends — scanning or tapping it joins this group.\nThe link is valid for 7 days; resetting it invalidates the old one.";
+"group.qr.hint_link" = "Copy the link to share with friends — tapping it joins the group\nThis link is valid for 7 days; resetting it invalidates the old one";
 "group.role.admin" = "Admin";
 "group.role.owner" = "Owner";
 "group.text.announcement" = "Group announcement";
@@ -1442,12 +1442,12 @@
 "qr.branch.via_scan" = "Via scan";
 "qr.branch.view_profile" = "View profile";
 "qr.card.copied_group_link" = "Group invite link copied";
-"qr.card.copy_group_link" = "Copy group invite link";
 "qr.card.fetch_failed" = "Couldn’t get the QR code";
 "qr.card.fetch_my_failed" = "Couldn’t get your contact code";
 "qr.card.gen_failed" = "Couldn’t generate the QR code";
 "qr.card.group_default_name" = "Group";
-"qr.card.group_hint_expiry" = "Scan the QR code to join the group\nThis code is valid until %1$@";
+"qr.card.group_hint_expiry" = "Scan the QR code to join the group\nThis code is valid until %1$@; resetting it invalidates the old one";
+"qr.card.group_link_hint_expiry" = "Copy the link to share with friends — tapping it joins the group\nThis link is valid until %1$@; resetting it invalidates the old one";
 "qr.card.group_subtitle_code" = "Scan the QR code to join the group";
 "qr.card.group_subtitle_link" = "Copy or share the link to invite friends to the group";
 "qr.card.group_title_code" = "Group QR code";
@@ -1466,6 +1466,8 @@
 "qr.card.save_failed" = "Couldn’t save. Check photo library access.";
 "qr.card.save_to_album" = "Save to Photos";
 "qr.card.saved" = "Saved to Photos";
+"qr.card.share_link" = "Share link";
+"qr.card.view_code" = "View QR code";
 "qr.confirm_reset" = "Confirm reset";
 "qr.copy_link" = "Copy link";
 "qr.download_png" = "Download PNG";

@@ -1000,7 +1000,7 @@
 "group.picker.search_hint" = "输入关键词搜索群成员";
 "group.picker.search_placeholder" = "搜索群成员";
 "group.qr.hint_code" = "邀请好友扫描二维码加入本群\n该码 7 天内有效，重置后旧码立即失效";
-"group.qr.hint_link" = "复制链接分享给好友，扫描/点击即可加入本群\n该链接 7 天内有效，重置后旧链接立即失效";
+"group.qr.hint_link" = "复制链接分享给好友，点击即可加入群聊\n该链接 7 天内有效，重置后旧链接立即失效";
 "group.role.admin" = "管理员";
 "group.role.owner" = "群主";
 "group.text.announcement" = "群公告";
@@ -1442,12 +1442,12 @@
 "qr.branch.via_scan" = "通过扫一扫";
 "qr.branch.view_profile" = "查看资料";
 "qr.card.copied_group_link" = "已复制群邀请链接";
-"qr.card.copy_group_link" = "复制群邀请链接";
 "qr.card.fetch_failed" = "获取二维码失败";
 "qr.card.fetch_my_failed" = "获取名片码失败";
 "qr.card.gen_failed" = "二维码生成失败";
 "qr.card.group_default_name" = "群聊";
-"qr.card.group_hint_expiry" = "扫描二维码，加入群聊\n该二维码 %1$@ 前有效";
+"qr.card.group_hint_expiry" = "扫描二维码，加入群聊\n该二维码 %1$@ 前有效，重置后旧码立即失效";
+"qr.card.group_link_hint_expiry" = "复制链接分享给好友，点击即可加入群聊\n该链接 %1$@ 前有效，重置后旧链接立即失效";
 "qr.card.group_subtitle_code" = "扫描二维码，加入群聊";
 "qr.card.group_subtitle_link" = "复制或分享链接，邀请好友加入群聊";
 "qr.card.group_title_code" = "群二维码";
@@ -1466,6 +1466,8 @@
 "qr.card.save_failed" = "保存失败，请检查相册权限";
 "qr.card.save_to_album" = "保存到相册";
 "qr.card.saved" = "已保存到相册";
+"qr.card.share_link" = "分享链接";
+"qr.card.view_code" = "查看二维码";
 "qr.confirm_reset" = "确认重置";
 "qr.copy_link" = "复制链接";
 "qr.download_png" = "下载 PNG";

@@ -17,6 +17,9 @@ NS_ASSUME_NONNULL_BEGIN
                       qrString:(nullable NSString *)qrString
                           hint:(nullable NSString *)hint;
 
+/// YES＝链接模式：不画二维码，改在圆角框里展示 qrString（群邀请链接页）。须在 configure 前设置。
+@property (nonatomic, assign) BOOL linkMode;
+
 /// 当前二维码图片（供保存到相册/分享）；未取到码时为 nil。
 @property (nonatomic, strong, readonly, nullable) UIImage *qrImage;
 

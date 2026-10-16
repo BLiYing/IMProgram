@@ -9,7 +9,7 @@
 #import "IMAnimator.h"
 #import "IMHTTPService.h"
 #import "IMLog.h"
-#import "IMQRCardView.h"
+#import "IMQRCardViewController.h"
 #import "IMQRImage.h"
 #import "IMQRModels.h"
 #import "IMUserCard.h"
@@ -29,12 +29,8 @@ static const CGFloat kIMReticleSide = 220;
 
 @property (nonatomic, strong) UIView *scanPage;                ///< 「扫码」页签内容（取景框 + 提示 + 工具）
 @property (nonatomic, strong) UIView *cardPage;                ///< 「我的二维码」页签内容
-@property (nonatomic, strong) IMQRCardView *cardView;
-@property (nonatomic, assign) BOOL cardLoaded;
-@property (nonatomic, copy, nullable) NSString *myCardURL;   ///< 名片码内容串
-@property (nonatomic, copy, nullable) NSString *myNickname;  ///< 卡片展示名（拉到资料后补正）
-@property (nonatomic, copy, nullable) NSString *myUsername;  ///< 公开句柄：副标题显 @xxx，绝不显内部 ID
-@property (nonatomic, copy, nullable) NSString *myAvatarURL;
+@property (nonatomic, strong, nullable) IMQRCardViewController *cardVC;  ///< 「我的二维码」页签＝嵌入的名片码页（与「我」页同一套布局，对齐 Android）
+@property (nonatomic, assign) BOOL profileRequested;
 @property (nonatomic, strong) UIView *deniedView;              ///< 相机权限被拒的页面内引导
 @property (nonatomic, strong) UIView *reticle;
 @property (nonatomic, strong) UIView *scanLine;
@@ -84,6 +80,12 @@ static const CGFloat kIMReticleSide = 220;
             output.rectOfInterest = [self.preview metadataOutputRectOfInterestForRect:self.reticle.frame];
         }
     }
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    // 子 VC（名片码页）的 viewWillAppear 会随父级转发并拉满亮度；从推入页返回时若停在「扫码」页签要还原。
+    if (!self.scanPage.hidden) { [self.cardVC restoreBrightness]; }
 }
 
 - (void)viewWillDisappear:(BOOL)animated {
@@ -260,30 +262,25 @@ static const CGFloat kIMReticleSide = 220;
 #pragma mark - 我的二维码页签
 
 - (void)setupCardPage {
+    // 底色黑（与相机页一致，顶栏/页签是白字），内容区夹在顶栏与页签之间（Android：top 52 / bottom 56）。
     self.cardPage = [UIView new];
     self.cardPage.translatesAutoresizingMaskIntoConstraints = NO;
     self.cardPage.backgroundColor = UIColor.blackColor;
     self.cardPage.hidden = YES;
     [self.view insertSubview:self.cardPage aboveSubview:self.scanPage];
 
-    self.cardView = [IMQRCardView new];
-    self.cardView.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.cardPage addSubview:self.cardView];
-
     [NSLayoutConstraint activateConstraints:@[
         [self.cardPage.topAnchor constraintEqualToAnchor:self.view.topAnchor],
         [self.cardPage.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
         [self.cardPage.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [self.cardPage.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-        [self.cardView.centerYAnchor constraintEqualToAnchor:self.cardPage.centerYAnchor],
-        [self.cardView.leadingAnchor constraintEqualToAnchor:self.cardPage.leadingAnchor constant:24],
-        [self.cardView.trailingAnchor constraintEqualToAnchor:self.cardPage.trailingAnchor constant:-24],
     ]];
 }
 
 - (void)showScanPage {
     self.scanPage.hidden = NO;
     self.cardPage.hidden = YES;
+    [self.cardVC restoreBrightness];
     [self updateTabs];
     [self startSession];
 }
@@ -297,50 +294,41 @@ static const CGFloat kIMReticleSide = 220;
     [self loadMyCardIfNeeded];
 }
 
+/// 首次切到「我的二维码」时才挂名片码页（取码由页自己做）；资料另拉一次补昵称/头像。
 - (void)loadMyCardIfNeeded {
-    if (self.cardLoaded) { return; }
-    NSString *token = IMHTTPService.sharedService.currentToken;
-    if (token.length == 0) { [self im_showToast:IMLocalized(@"common.login_expired")]; return; }
-    self.cardLoaded = YES;
-    __weak typeof(self) ws = self;
-    [IMHTTPService.sharedService qrMyCardWithToken:token completion:^(NSDictionary *card, NSError *error) {
-        __strong typeof(ws) self = ws;
-        if (!self) { return; }
-        if (error) {
-            self.cardLoaded = NO; // 允许切回来重试
-            [self im_showToast:error.localizedDescription ?: IMLocalized(@"qr.card.fetch_my_failed")];
-            return;
-        }
-        NSString *url = [card[@"url"] isKindOfClass:NSString.class] ? card[@"url"] : nil;
-        self.myCardURL = url;
-        [self renderMyCard];
-        [self loadMyProfileForCard]; // 昵称/头像另拉一次，慢到也只是先显 uid 再补正
-    }];
+    if (!self.cardVC) {
+        IMQRCardViewController *vc = [[IMQRCardViewController alloc] initMyCardWithHost:self.host userID:self.userID
+                                                                               username:nil nickname:nil avatarURL:nil];
+        self.cardVC = vc;
+        [self addChildViewController:vc];
+        vc.view.translatesAutoresizingMaskIntoConstraints = NO;
+        [self.cardPage addSubview:vc.view];
+        UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
+        [NSLayoutConstraint activateConstraints:@[
+            [vc.view.topAnchor constraintEqualToAnchor:safe.topAnchor constant:52],
+            [vc.view.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor constant:-56],
+            [vc.view.leadingAnchor constraintEqualToAnchor:self.cardPage.leadingAnchor],
+            [vc.view.trailingAnchor constraintEqualToAnchor:self.cardPage.trailingAnchor],
+        ]];
+        [vc didMoveToParentViewController:self];
+    } else {
+        [self.cardVC reloadCodeIfNeeded]; // 上次取码失败时，切回来允许重试（原 cardLoaded 重试语义）
+    }
+    [self.cardVC boostBrightness];
+    [self loadMyProfileForCard];
 }
 
-/// 把当前已知的昵称/头像/码串灌进卡片。资料未回来时先用 uid 占位——码本身不依赖资料，先能扫要紧。
-- (void)renderMyCard {
-    NSString *display = IMDisplayName(self.myNickname, self.myUsername);
-    // 副标题显示公开句柄，不是 userID——这张卡是给别人扫的，一串随机数字对方认不出是谁。
-    NSString *sub = self.myUsername.length > 0 ? [@"@" stringByAppendingString:self.myUsername] : @"";
-    [self.cardView configureWithAvatarURL:self.myAvatarURL seed:self.userID name:display
-                                 subtitle:sub
-                                 qrString:self.myCardURL hint:IMLocalized(@"qr.card.my_subtitle")];
-}
-
-/// 拉本人资料补齐卡片的昵称+头像：这张卡是给对方看的，只显 uid 对方认不出是谁
-/// （与「我」页进入的名片码页保持一致）。失败静默回退 uid。
+/// 拉本人资料补齐卡片的昵称+头像：这张卡是给对方看的，只显 uid 对方认不出是谁。失败静默，允许切回来重试。
 - (void)loadMyProfileForCard {
     NSString *token = IMHTTPService.sharedService.currentToken;
-    if (token.length == 0 || self.myNickname.length > 0) { return; }
+    if (token.length == 0 || self.profileRequested) { return; } // 登录过期的吐司由名片码页取码时统一给，避免叠两条
+    self.profileRequested = YES;
     __weak typeof(self) ws = self;
     [IMHTTPService.sharedService myProfileWithToken:token completion:^(IMUserCard *profile, NSError *error) {
         __strong typeof(ws) self = ws;
-        if (!self || error || !profile) { return; }
-        self.myNickname = profile.displayName;
-        self.myUsername = profile.username;
-        self.myAvatarURL = profile.avatarURL;
-        [self renderMyCard];
+        if (!self) { return; }
+        if (error || !profile) { self.profileRequested = NO; return; }
+        [self.cardVC updateMyProfileWithUsername:profile.username nickname:profile.displayName avatarURL:profile.avatarURL];
     }];
 }
 
