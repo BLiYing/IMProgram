@@ -566,7 +566,7 @@ static CGFloat const kIMRowLeading = 16;
     self.searchContainer = [UIView new];
     self.searchContainer.translatesAutoresizingMaskIntoConstraints = NO;
     self.searchContainer.backgroundColor = UIColor.systemBackgroundColor;
-    UIView *searchHeader = IMMakeSearchEntryHeader(self.view.bounds.size.width, IMLocalized(@"common.search"), self, @selector(searchEntryTapped));
+    UIView *searchHeader = IMMakeSearchEntryHeader(self.view.bounds.size.width, IMLocalized(@"search.global.placeholder"), self, @selector(searchEntryTapped));
     // 容器此刻 bounds 为零（约束布局尚未解算）：不能靠 autoresizing 跟随，否则容器从 0 撑到屏宽时会把增量
     // 再叠加到 header 上、搜索胶囊右缘溢出。用约束钉住容器四边；胶囊在 header 内的 autoresizing 仍按 header 宽度变化走。
     searchHeader.translatesAutoresizingMaskIntoConstraints = NO;
