@@ -35,6 +35,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, strong) UIView *searchContainer;                     // 固定的搜索入口（不随列表滚动）
 @property (nonatomic, strong) UIPanGestureRecognizer *folderPan;           // 横滑切 Tab（IMFolderSwipePanRecognizer，起点见 folderSwipeStartX）
 @property (nonatomic, assign) BOOL folderHeaderShown;                       // 表格当前是否带 Tab 条 section header
+@property (nonatomic, assign) BOOL movingRow;                              // 置顶/取消置顶的行移动动画进行中：期间推迟 refreshVisibleRowsOrReload，动画完再补一次
 @property (nonatomic, assign) BOOL rowSwipeOpen;                           // 某行的滑动按钮已展开
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSValue *> *folderScrollOffsets; // Tab → 滚动位置
 @end

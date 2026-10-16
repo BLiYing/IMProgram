@@ -741,6 +741,9 @@ static CGFloat const kIMRowLeading = 16;
 /// 无动画）；否则整表 reloadData。置顶/免打扰/已读后「本地乐观更新 + 服务端回包再刷新」连刷两次，
 /// 此前每次都整表 reloadData 重建所有可见 cell → 闪烁；现在回包与本地一致时什么都不重绘。
 - (void)refreshVisibleRowsOrReload {
+    // 行移动动画进行中不重绘：设置回声（refreshLocalConversations，~0.12s 后到）在动画途中看到「可见行顺序≠数据顺序」，
+    // 会走整表 reloadData，把正在滑动的途经行换掉 → 取消置顶时第 3 行空一下再冒出来。动画完成回调里补刷。
+    if (self.movingRow) { return; }
     if (!self.isViewLoaded || [self.tableView numberOfRowsInSection:0] != (NSInteger)self.displayedConversations.count) {
         [self.tableView reloadData];
         return;
@@ -1147,9 +1150,9 @@ static CGFloat const kIMRowLeading = 16;
     [IMHTTPService.sharedService updateConversationSettingsWithToken:self.token convID:c.convID
         pinnedAt:pinnedAt muted:c.muted muteUntil:nil markedUnread:c.markedUnread completion:^(NSError *error) {
             if (error) { [ws im_showToast:error.localizedDescription ?: IMLocalized(@"conv.error.pin_failed")]; return; }
+            // 服务端仍是最终排序来源：动画**结束后**由 animateConversation 静默拉取一次收敛（不再定时 0.42s——
+            // 与 ~0.3s 的移动动画尾声重叠，回包若触发整表 reloadData 会把途经的行一起重建 → 闪烁）。
             [ws animateConversation:c pinnedAt:pinnedAt];
-            // 服务端仍是最终排序来源；动画结束后静默拉取一次，收敛多端同时操作。
-            [ws performSelector:@selector(reload) withObject:nil afterDelay:0.42];
         }];
 }
 
@@ -1158,7 +1161,16 @@ static CGFloat const kIMRowLeading = 16;
     NSUInteger oldIndex = [self.displayedConversations indexOfObject:conversation]; // 行号在当前显示范围内取
     if (oldIndex == NSNotFound) { [self reload]; return; }
 
+    // 动画前就地把这一行配成目标态（置顶图标 / 淡色底）：行一边滑动一边已是新样式。
+    // 此前是动画结束后 reloadRows 换新 cell，样式在落位那一刻突变 → 被移动的行闪一下。
     conversation.pinnedAt = pinnedAt;
+    IMConversationCell *movingCell = (IMConversationCell *)[self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:(NSInteger)oldIndex inSection:0]];
+    if ([movingCell isKindOfClass:IMConversationCell.class]) {
+        [movingCell configureWithConversation:conversation mine:[conversation.lastFrom isEqualToString:self.userID]
+                                         host:self.host selfUID:self.userID];
+        [movingCell applyOutboxSending:[IMMediaSendService.shared hasInFlightInConv:conversation.convID]
+                                failed:[IMMediaSendService.shared hasFailedOutboxInConv:conversation.convID]];
+    }
     NSArray<IMConversation *> *sorted = [self.conversations sortedArrayUsingComparator:^NSComparisonResult(IMConversation *a, IMConversation *b) {
         if ((a.pinnedAt > 0) != (b.pinnedAt > 0)) { return a.pinnedAt > 0 ? NSOrderedAscending : NSOrderedDescending; }
         if (a.pinnedAt > 0 && a.pinnedAt != b.pinnedAt) { return a.pinnedAt > b.pinnedAt ? NSOrderedAscending : NSOrderedDescending; }
@@ -1175,16 +1187,21 @@ static CGFloat const kIMRowLeading = 16;
                                          markedUnread:conversation.markedUnread];
     }];
 
-    NSIndexPath *from = [NSIndexPath indexPathForRow:(NSInteger)oldIndex inSection:0];
-    NSIndexPath *to = [NSIndexPath indexPathForRow:(NSInteger)newIndex inSection:0];
+    __weak typeof(self) ws = self;
     if (oldIndex == newIndex) {
         [self refreshVisibleRowsOrReload];
+        [self reload];
         return;
     }
+    NSIndexPath *from = [NSIndexPath indexPathForRow:(NSInteger)oldIndex inSection:0];
+    NSIndexPath *to = [NSIndexPath indexPathForRow:(NSInteger)newIndex inSection:0];
+    self.movingRow = YES;
     [self.tableView performBatchUpdates:^{
         [self.tableView moveRowAtIndexPath:from toIndexPath:to];
     } completion:^(BOOL finished) {
-        if (finished) { [self.tableView reloadRowsAtIndexPaths:@[to] withRowAnimation:UITableViewRowAnimationNone]; }
+        ws.movingRow = NO;
+        [ws refreshVisibleRowsOrReload]; // 补上动画期间被推迟的刷新（数据已就位，顺序一致时只重配签名变了的行）
+        [ws reload]; // 动画走完再向服务端收敛；顺序一致时 refreshVisibleRowsOrReload 什么都不重绘
     }];
 }
 
