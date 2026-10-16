@@ -1,6 +1,7 @@
 //  IMGroupAdminListViewController.m
 
 #import "IMGroupAdminListViewController.h"
+#import "NSObject+IMCoalescedPerform.h"
 #import "IMGroupAdminLogic.h"
 #import "IMEntryCell.h"
 #import "IMDetailMemberCell.h"
@@ -131,11 +132,14 @@ typedef NS_ENUM(NSInteger, IMAdminSection) {
     BOOL removedMe = [event isEqualToString:@"remove"] && [target isEqualToString:self.userID];
     BOOL leftMe = [event isEqualToString:@"leave"] && [target isEqualToString:self.userID]; // 别端退群（服务端连退群者本人也推）
     if (removedMe || leftMe || [event isEqualToString:@"dissolve"]) {
+        // 终态事件：撤销先前排队的重拉，免得页面退场后（群已解散 / 我已被移出）重拉吃 300201 再弹一次。
+        [self im_cancelCoalescedPerform:@selector(reload)];
         [self popWithToast:leftMe ? IMLocalized(@"group.event.left")
                                   : (removedMe ? IMLocalized(@"group.manage.removed_toast") : IMLocalized(@"group.event.dissolved"))];
         return;
     }
-    [self reload];
+    // 群帧可能连发（一批邀请）：合并成一次重拉，别每帧一轮整份 GET + 整表刷新。
+    [self im_coalescedPerform:@selector(reload) afterDelay:IMGroupEventCoalesceDelay];
 }
 
 #pragma mark - 表格

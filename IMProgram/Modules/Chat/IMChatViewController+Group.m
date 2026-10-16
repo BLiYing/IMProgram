@@ -4,6 +4,7 @@
 //  （昵称/角色/引用显示名/头像 URL）。从 IMChatViewController.m 平移，未改行为。
 
 #import "IMChatViewController+Private.h"
+#import "NSObject+IMCoalescedPerform.h"
 #import "IMRemarkStore.h"  // 含 IMGroupInfo / IMSocketManager（kIMConvID/Group* 键、IMGroupRole）
 #import "IMHTTPService.h"
 #import "IMMessageModel.h"
@@ -76,6 +77,8 @@
     // leave 且 target=自己：服务端连退群者本人也推，给**别的设备**移除该群（本机主动退群时本页已在退场）。
     BOOL leftMe = [event isEqualToString:@"leave"] && [target isEqualToString:self.userID];
     if (removedMe || leftMe || dissolved) {
+        // 终态事件：撤销先前排队的重拉，免得页面退场后（群已解散 / 我已被移出）重拉吃 300201 再弹一次。
+        [self im_cancelCoalescedPerform:@selector(reloadGroupInfo)];
         [self im_showToast:dissolved ? IMLocalized(@"group.event.dissolved")
                                      : (leftMe ? IMLocalized(@"group.event.left") : IMLocalized(@"group.event.removed"))];
         // 先让吐司可见，再退出本页（随页面销毁，故略作停留）。
@@ -85,7 +88,8 @@
         });
         return;
     }
-    [self reloadGroupInfo];
+    // 群帧可能连发（一批邀请）：合并成一次重拉，别每帧一轮整份 GET + 整表刷新。
+    [self im_coalescedPerform:@selector(reloadGroupInfo) afterDelay:IMGroupEventCoalesceDelay];
 }
 
 /// 群内**公开名**：群成员表（群昵称 / 全局昵称）> 本窗该发送者最新快照 > 本条 from_nickname 快照 > 全局资料缓存。

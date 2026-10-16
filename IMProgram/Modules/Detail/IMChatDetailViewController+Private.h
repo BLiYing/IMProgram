@@ -4,6 +4,7 @@
 //  的约定：跨 category 互调的私有方法在文末 (Private) 分类登记；ivar 直接访问只在主实现文件。
 
 #import <UIKit/UIKit.h>
+#import "NSObject+IMCoalescedPerform.h" // 群帧重拉合并（onGroupEvent:）
 #import "IMChatDetailViewController.h"
 #import "IMProgram-Swift.h"   // IMLiquidNavigationBar / IMLiquidNavigationBarDelegate（Swift 桥接）
 #import "IMPresence.h"

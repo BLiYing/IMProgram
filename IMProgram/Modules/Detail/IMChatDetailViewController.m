@@ -397,10 +397,10 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
     NSString *target = note.userInfo[kIMGroupTargetKey];
     if ((([event isEqualToString:@"remove"] || [event isEqualToString:@"leave"]) && [target isEqualToString:self.userID]) ||
         [event isEqualToString:@"dissolve"]) {
-        [self.navigationController popViewControllerAnimated:YES];
+        [self im_cancelCoalescedPerform:@selector(loadGroupInfo)]; [self.navigationController popViewControllerAnimated:YES]; // 终态：先撤销排队的重拉
         return;
     }
-    [self loadGroupInfo];
+    [self im_coalescedPerform:@selector(loadGroupInfo) afterDelay:IMGroupEventCoalesceDelay];
 }
 
 - (void)onConvUpdate:(NSNotification *)note {
