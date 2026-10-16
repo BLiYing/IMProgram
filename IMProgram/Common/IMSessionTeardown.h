@@ -15,9 +15,13 @@ NS_ASSUME_NONNULL_BEGIN
 /// 否则会抢先回登录页（无「账号将在 7 天后删除」提示、也没清聊天缓存）。主线程读写。
 @property (class, nonatomic, assign) BOOL accountDeletionInProgress;
 
-/// 清本机属于当前账号的聊天缓存：本地库全部 owner 行 + 下载文件 / 视频原件 / 图片缓存 + 「看过」登记。
-/// **必须在 tearDownLocalSession 之前调**（还要靠当前 owner / 当前 uid 定位数据）。
-+ (void)wipeLocalChatCache;
+/// 清本机属于当前账号的聊天缓存：本地库全部 owner 行 + 下载文件 / 视频原件 / 待发暂存 / 图片缓存 + 「看过」登记
+/// + 文件夹快照 + 已注销登记。库与文件的删除在后台队列做（大库的整库 DELETE 事务不能卡主线程），做完回主线程调
+/// completion——**tearDownLocalSession 必须放进 completion**（清库还要靠当前 owner 定位数据）。主线程调用。
++ (void)wipeLocalChatCacheThen:(void (^)(void))completion;
+
+/// 本类与「设置 ▸ 数据与存储」共用的、由我们自己删的缓存目录（下载文件 + 视频原件）。图片缓存归 IMImageLoader，不在此列。
++ (NSArray<NSURL *> *)ownedMediaCacheDirectories;
 
 /// 把 window 的根换成登录页；notice 非空时登录页顶部显示非红色提示条。
 + (void)showLoginInWindow:(nullable UIWindow *)window notice:(nullable NSString *)notice;

@@ -3,6 +3,7 @@
 //  横幅栈 IMChatBannerStackDelegate 回调（顶开表、置顶面板、公告卡、入群审批）与输入栏禁言锁；
 //  置顶面板（IMPinnedPanelViewController）的宿主入口也在这里（present 一行 + 两个回写方法）。
 
+#import "IMRemarkStore.h"
 #import "IMChatViewController+Private.h" // 含 IMChatBannerStack / IMSocketManager / IMGroupInfo
 #import "IMHTTPService.h"
 #import "IMPinnedMessage.h"
@@ -193,6 +194,11 @@ BOOL IMPinnedTargetRecalled(NSArray<IMMessageModel *> *messages, int64_t convSeq
 - (void)refreshComposerMuteState {
     if (!self.isGroupChat && IMIsSystemUserID(self.peerID)) {
         [self setComposerLocked:YES reason:IMLocalized(@"chat.input.disabled_system")];
+        return;
+    }
+    // 对端已注销（PROTOCOL §6.16.3：客户端应禁用发消息入口；服务端也会拒 300003）：与系统会话同一把锁，只读。
+    if (!self.isGroupChat && [IMRemarkStore.sharedStore isDeletedUser:self.peerID]) {
+        [self setComposerLocked:YES reason:IMLocalized(@"chat.detail.deleted_user")];
         return;
     }
     if (!self.isGroupChat || !self.groupInfo) {

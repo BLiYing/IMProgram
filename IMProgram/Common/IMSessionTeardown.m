@@ -10,6 +10,9 @@
 #import "IMImageLoader.h"
 #import "IMViewedMediaStore.h"
 #import "IMLoginViewController.h"
+#import "IMPendingMediaStore.h"
+#import "IMChatFolderStore.h"
+#import "IMRemarkStore.h"
 #import "IMLog.h"
 
 static BOOL sAccountDeletionInProgress = NO;
@@ -27,18 +30,30 @@ static BOOL sAccountDeletionInProgress = NO;
     [IMSessionStore clear]; // 清持久化会话，下次启动回登录页
 }
 
-+ (void)wipeLocalChatCache {
-    if (![IMDatabase.sharedDatabase wipeAllDataForCurrentOwner]) {
-        IMLogWarnWithTag(IMLogTagDatabase, @"account_wipe_db_failed（继续清文件缓存并回登录页）");
-    }
++ (NSArray<NSURL *> *)ownedMediaCacheDirectories {
     NSURL *caches = [NSFileManager.defaultManager URLForDirectory:NSCachesDirectory inDomain:NSUserDomainMask
                                                 appropriateForURL:nil create:NO error:NULL];
-    for (NSString *name in @[@"IMDownloads", @"im_original_videos"]) {
-        NSURL *dir = [caches URLByAppendingPathComponent:name isDirectory:YES];
-        if (dir) { [NSFileManager.defaultManager removeItemAtURL:dir error:NULL]; }
-    }
-    [[IMImageLoader shared] clearCache];
-    [IMViewedMediaStore.shared clearCurrentUser];
+    if (!caches) { return @[]; }
+    return @[[caches URLByAppendingPathComponent:@"IMDownloads" isDirectory:YES],
+             [caches URLByAppendingPathComponent:@"im_original_videos" isDirectory:YES]];
+}
+
++ (void)wipeLocalChatCacheThen:(void (^)(void))completion {
+    NSArray<NSURL *> *dirs = [self ownedMediaCacheDirectories];
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        if (![IMDatabase.sharedDatabase wipeAllDataForCurrentOwner]) {
+            IMLogWarnWithTag(IMLogTagDatabase, @"account_wipe_db_failed（继续清文件缓存并回登录页）");
+        }
+        for (NSURL *dir in dirs) { [NSFileManager.defaultManager removeItemAtURL:dir error:NULL]; }
+        [IMPendingMediaStore.shared removeAllStoredFiles];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [[IMImageLoader shared] clearCache];
+            [IMViewedMediaStore.shared clearCurrentUser];
+            [IMChatFolderStore.shared wipeLocalState];
+            [IMRemarkStore.sharedStore wipeDeletedMarksForCurrentOwner];
+            completion();
+        });
+    });
 }
 
 + (void)showLoginInWindow:(UIWindow *)window notice:(NSString *)notice {

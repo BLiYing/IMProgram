@@ -237,7 +237,9 @@ static NSInteger const kDefaultMaxName = 12;
     return error.localizedDescription.length > 0 ? error.localizedDescription : IMLocalized(@"folder.toast.failed");
 }
 
-- (void)resetForTesting {
+- (void)resetForTesting { [self wipeLocalState]; }
+
+- (void)wipeLocalState {
     if (_ownerUID.length > 0) { [NSUserDefaults.standardUserDefaults removeObjectForKey:[self defaultsKey]]; }
     _ownerUID = nil; _folders = @[]; _version = 0;
     _maxFolders = kDefaultMaxFolders; _maxConvs = kDefaultMaxConvs; _maxName = kDefaultMaxName;

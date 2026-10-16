@@ -294,7 +294,7 @@
 "chat.reader.title" = "全文 · %1$@";
 "chat.reject.blocked" = "消息已发出，但被对方拒收了";
 "chat.reject.not_friend" = "消息已发出，但被对方拒收了。请先发送好友申请。";
-"chat.reject.recipient_deleted" = "消息未发出：对方账号已注销";
+"chat.reject.recipient_deleted" = "对方账号已注销，无法发送消息";
 "chat.reject.too_large" = "消息内容过大，无法发送";
 "chat.reply.cancel" = "取消引用";
 "chat.reply.cancel_a11y" = "取消回复";

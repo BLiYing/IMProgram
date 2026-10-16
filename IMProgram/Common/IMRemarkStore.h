@@ -35,6 +35,8 @@ extern NSString * const kIMRemarkPeerIDKey;
 - (NSString *)displayNameForUser:(nullable NSString *)userID fallback:(nullable NSString *)fallback;
 
 /// 该 uid 是否已知为「已注销用户」（冷静期内与匿名化后一视同仁）。账号级隔离 + 落 UserDefaults（冷启动先于网络就显示对）。
+/// 注销账号清本机缓存：清掉当前账号的已注销登记（含 UserDefaults 落盘）。
+- (void)wipeDeletedMarksForCurrentOwner;
 - (BOOL)isDeletedUser:(nullable NSString *)userID;
 
 /// 登记 / 撤销「已注销」标记。由各解析点（用户名片 / 群成员 / 会话行 peer_deleted）在**每次**解析时调用——

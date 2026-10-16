@@ -38,6 +38,7 @@ static NSString * const kOwnedGroupScheme = @"imgroup";
 @property (nonatomic, strong) UITextView *ownedView;     ///< 群主阻断提示（红）；仅阻断态显示
 @property (nonatomic, assign) BOOL blocked;
 @property (nonatomic, assign) BOOL busy;
+@property (nonatomic, weak, nullable) UIWindow *deletionWindow; ///< 提交时的宿主窗口（页面被 pop 后 view.window 为 nil，收尾要用）
 @end
 
 @implementation IMDeleteAccountViewController
@@ -362,14 +363,13 @@ static NSString * const kOwnedGroupScheme = @"imgroup";
     [self showError:@""];
     IMSessionTeardown.accountDeletionInProgress = YES;
     IMHTTPService.sharedService.host = self.host;
-    __weak typeof(self) ws = self;
+    // 回调里**强持有** self：请求在途时用户可能侧滑返回导致页面释放，若用 weak 早退，
+    // accountDeletionInProgress 会永远停在 YES（被踢通路被永久屏蔽），且服务端已注销而本机会话没清。
+    // 请求有超时，强持有的生命周期有限。窗口在点击时先取好：页面被 pop 后 self.view.window 为 nil。
+    self.deletionWindow = self.view.window;
     [IMHTTPService.sharedService loginWithUserID:self.userID completion:^(NSString *token, NSError *loginErr) {
-        __strong typeof(ws) self = ws;
-        if (!self) { return; }
         if (token.length == 0) { [self failWithError:loginErr]; return; }
         [IMHTTPService.sharedService deleteAccountWithToken:token password:password completion:^(NSError *err) {
-            __strong typeof(ws) self = ws;
-            if (!self) { return; }
             if (err) { [self failWithError:err]; return; }
             [self finishDeletion];
         }];
@@ -391,11 +391,12 @@ static NSString * const kOwnedGroupScheme = @"imgroup";
 /// 成功：先清本机聊天缓存（还要靠当前 owner 定位），再走与退出登录同一条清会话路径，回登录页并提示。
 - (void)finishDeletion {
     IMLogWithTag(IMLogTagHTTP, @"account_deleted → 清本机会话与聊天缓存");
-    UIWindow *window = self.view.window;
-    [IMSessionTeardown wipeLocalChatCache];
-    [IMSessionTeardown tearDownLocalSession];
-    [IMSessionTeardown showLoginInWindow:window notice:IMLocalized(@"delete_account.done_hint")];
-    IMSessionTeardown.accountDeletionInProgress = NO;
+    UIWindow *window = self.view.window ?: self.deletionWindow;
+    [IMSessionTeardown wipeLocalChatCacheThen:^{ // 清库在后台队列；回主线程后才清会话（清库要靠当前 owner）
+        [IMSessionTeardown tearDownLocalSession];
+        [IMSessionTeardown showLoginInWindow:window notice:IMLocalized(@"delete_account.done_hint")];
+        IMSessionTeardown.accountDeletionInProgress = NO;
+    }];
 }
 
 #pragma mark - 交互杂项

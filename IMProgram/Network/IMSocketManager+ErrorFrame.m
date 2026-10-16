@@ -13,10 +13,10 @@ NSString * const IMSocketDidReceiveAccountDeletedNotification = @"IMSocketDidRec
 /// ③ 其余连接级错误只记日志。
 - (void)handleErrorFrame:(NSDictionary *)payload {
     if ([payload[@"reason"] isEqual:@"account_deleted"]) {
-        // 服务端紧接着会断开连接：先置 _manualClose，避免退避重连去撞 401 再走一遍「续期 → 被踢」；
-        // 上层收到通知后清聊天缓存（普通被踢保留缓存，注销踢不保留）并回登录页。
+        // 上层收到通知后清聊天缓存（普通被踢保留缓存，注销踢不保留）并回登录页，其 tearDown 里 disconnect 才会停重连。
+        // 这里**刻意不置 _manualClose**：本机自己正在注销时上层会忽略此通知，若注销请求随后失败（超时等），
+        // 一个被永久关掉的 socket 就再也连不回来。
         IMLogSocket(@"account_deleted_frame_received");
-        _manualClose = YES;
         dispatch_async(dispatch_get_main_queue(), ^{
             [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidReceiveAccountDeletedNotification object:self];
         });

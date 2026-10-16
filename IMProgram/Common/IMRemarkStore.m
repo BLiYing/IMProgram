@@ -51,6 +51,15 @@ NSString * const kIMRemarkPeerIDKey = @"peerID";
     return fallback.length > 0 ? fallback : (userID ?: @"");
 }
 
+- (void)wipeDeletedMarksForCurrentOwner {
+    NSString *owner = [self currentOwner];
+    @synchronized (self) {
+        [self syncOwnerLocked:owner];
+        [_deletedUsers removeAllObjects];
+        if (owner.length > 0) { [NSUserDefaults.standardUserDefaults removeObjectForKey:[self deletedDefaultsKeyForOwner:owner]]; }
+    }
+}
+
 - (BOOL)isDeletedUser:(NSString *)userID {
     if (userID.length == 0) { return NO; }
     NSString *owner = [self currentOwner];

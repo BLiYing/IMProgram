@@ -145,6 +145,12 @@ static NSString *IMPendingStoredName(NSString *clientMsgID, NSString *extension)
     return path ? [NSData dataWithContentsOfFile:path] : nil;
 }
 
+- (void)removeAllStoredFiles {
+    [NSFileManager.defaultManager removeItemAtPath:_dir error:NULL];
+    [NSFileManager.defaultManager createDirectoryAtPath:_dir withIntermediateDirectories:YES attributes:nil error:NULL];
+    [self excludeFromBackup];
+}
+
 - (void)removeLocalRef:(NSString *)localRef {
     NSString *sidecar = [self uploadIDSidecarPathForLocalRef:localRef]; // 必须先取：删了主文件就找不到路径了
     NSString *path = [self filePathForLocalRef:localRef];

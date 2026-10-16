@@ -9,6 +9,8 @@
 NS_ASSUME_NONNULL_BEGIN
 
 @interface IMConversation : NSObject
+/// 会话列表响应解析后调用：按 `peer_deleted` 真实值登记 / 撤销已注销标记。
++ (void)reconcileDeletedFlags:(NSArray<IMConversation *> *)conversations;
 
 @property (nonatomic, copy) NSString *convID;
 @property (nonatomic, assign) BOOL isGroup;            // YES=群聊（用 name/avatarURL/memberCount），NO=单聊（用 peer*）

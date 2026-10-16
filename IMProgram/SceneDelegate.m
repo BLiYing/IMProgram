@@ -120,8 +120,7 @@
 - (void)handleAccountDeletedElsewhere {
     if (IMSessionTeardown.accountDeletionInProgress || ![IMSessionStore hasSession]) { return; }
     IMLog(@"account deleted elsewhere → 清本机聊天缓存并回登录页");
-    [IMSessionTeardown wipeLocalChatCache];
-    [self forceLogoutToLogin:YES];
+    [IMSessionTeardown wipeLocalChatCacheThen:^{ [self forceLogoutToLogin:YES]; }]; // 清库在后台，完成后再清会话 / 回登录页
 }
 
 /// accountDeleted=YES：登录页顶部显示与主动注销一致的「7 天后永久删除，期间重新登录可恢复」提示条，替代被踢 toast。

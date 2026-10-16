@@ -210,6 +210,7 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     [self runDataRequest:req fallback:IMLocalized(@"net.fallback.convs_load") completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(nil, error); return; }
         NSArray<IMConversation *> *convs = [IMConversation conversationsFromArray:data[@"conversations"]];
+        [IMConversation reconcileDeletedFlags:convs];
         // 备注名喂进全局缓存放在这一层（而非各调用方）：会话列表/转发选择/详情页都走这个方法，
         // 逐个 VC 去 ingest 早晚漏一个，漏了那页就显真实昵称、与别处不一致。
         // peer_remark 只覆盖出现过的对端（会话列表不是好友全集），故非权威全集。
@@ -265,7 +266,9 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     [self runDataRequest:req fallback:IMLocalized(@"net.fallback.user_resolve_failed") completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(nil, nil, error); return; }
         NSArray *missing = [data[@"missing"] isKindOfClass:NSArray.class] ? data[@"missing"] : @[];
-        completion([IMUserCard cardsFromArray:data[@"users"]], missing, nil);
+        NSArray<IMUserCard *> *cards = [IMUserCard cardsFromArray:data[@"users"]];
+        [IMUserCard reconcileDeletedFlags:cards];
+        completion(cards, missing, nil);
     }];
 }
 
@@ -288,6 +291,7 @@ BOOL IMIsTransientNetworkError(NSError *error) {
         // 主线程发，先于下面的 completion 入队，顺序与原先相同。串行队列：多次拉取按响应到达顺序灌缓存与回调。
         dispatch_async([IMHTTPService friendsParseQueue], ^{
             NSArray<IMUserCard *> *friends = [IMUserCard cardsFromArray:rawFriends];
+            [IMUserCard reconcileDeletedFlags:friends];
             [IMRemarkStore.sharedStore ingestFriends:friends authoritative:authoritative];
             // 同一批数据顺路刷新「谁是我的好友」进程内快照：资料页 init 那一刻据此决定显示
             // 好友视图还是「加好友」视图，不必先猜一个再被网络结果推翻（见 IMFriendStateStore.h）。
@@ -509,6 +513,7 @@ const NSInteger IMFavoritesPageSize = 60;
             IMGroupMember *m = [IMGroupMember memberFromDictionary:item];
             if (m) { [out addObject:m]; }
         }
+        [IMGroupMember reconcileDeletedFlags:out];
         NSString *next = [data[@"next_cursor"] isKindOfClass:NSString.class] ? data[@"next_cursor"] : @"";
         completion(out, next, [data[@"has_more"] boolValue], nil);
     }];
@@ -783,7 +788,9 @@ static NSArray<NSString *> *IMStringArrayFrom(id raw) {
             return;
         }
         NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : nil;
-        completion([IMGroupInfo groupFromDictionary:data], nil);
+        IMGroupInfo *info = [IMGroupInfo groupFromDictionary:data];
+        [IMGroupMember reconcileDeletedFlags:info.members];
+        completion(info, nil);
     }];
 }
 
@@ -956,7 +963,9 @@ static NSArray<NSString *> *IMStringArrayFrom(id raw) {
                   fallback:(NSString *)fallback
                 completion:(void (^)(IMUserCard *, NSError *))completion {
     [self runDataRequest:req fallback:fallback completion:^(NSDictionary *data, NSError *error) {
-        completion(error || data.count == 0 ? nil : [IMUserCard cardsFromArray:@[data]].firstObject, error);
+        IMUserCard *card = error || data.count == 0 ? nil : [IMUserCard cardsFromArray:@[data]].firstObject;
+        if (card) { [IMUserCard reconcileDeletedFlags:@[card]]; }
+        completion(card, error);
     }];
 }
 

@@ -36,6 +36,13 @@ NSString * const kIMGroupReadSeqsKey = @"groupReadSeqs";
     return out;
 }
 
+/// GET /conversations 收尾：单聊对端按 `peer_deleted` 真实值登记 / 撤销（恢复账号后不再带它）。
++ (void)reconcileDeletedFlags:(NSArray<IMConversation *> *)conversations {
+    for (IMConversation *c in conversations) {
+        if (!c.isGroup && c.peer.length > 0) { [IMRemarkStore.sharedStore setUser:c.peer deleted:c.peerDeleted]; }
+    }
+}
+
 + (instancetype)conversationFromDictionary:(NSDictionary *)dict {
     IMConversation *c = [IMConversation new];
     c.convID = [self stringForKey:@"conv_id" in:dict];
@@ -50,7 +57,7 @@ NSString * const kIMGroupReadSeqsKey = @"groupReadSeqs";
     c.peerAvatarURL = [self stringForKey:@"peer_avatar_url" in:dict];
     c.peerRemark = [self stringForKey:@"peer_remark" in:dict]; // 好友备注（仅本人可见）；非空替代对端昵称
     c.peerDeleted = !c.isGroup && IMBoolFromJSON(dict[@"peer_deleted"]);
-    if (!c.isGroup) { [IMRemarkStore.sharedStore setUser:c.peer deleted:c.peerDeleted]; } // 含 NO：恢复后撤销
+    if (c.peerDeleted) { [IMRemarkStore.sharedStore setUser:c.peer deleted:YES]; } // 撤销见 +reconcileDeletedFlags:
     // 单聊对端在线态快照（peer_presence/peer_online_until/peer_last_seen）；群聊/老响应无这些键 → nil，不显绿点。
     if (!c.isGroup && dict[@"peer_presence"]) {
         c.peerPresence = [IMPresence presenceFromConversationDictionary:dict];

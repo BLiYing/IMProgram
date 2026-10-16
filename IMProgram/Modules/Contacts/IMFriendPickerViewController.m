@@ -297,9 +297,7 @@ static const CGFloat kCapHintInsetV = 8;       // 与 Android space2 同
                 IMLog(@"picker 拉好友失败：%@", err.localizedDescription);
                 return;
             }
-            // 冷静期内的好友仍在 /friends 里（deleted=true）：选人页用来邀请 / 转发 / 建群，服务端一律拒（200001），不列出。
-            NSPredicate *alive = [NSPredicate predicateWithBlock:^BOOL(IMUserCard *c, NSDictionary *b) { return !c.deleted && ![IMRemarkStore.sharedStore isDeletedUser:c.userID]; }];
-            [self applyCandidates:[friends filteredArrayUsingPredicate:alive]];
+            [self applyCandidates:friends];
         }];
     }];
 }
@@ -308,6 +306,8 @@ static const CGFloat kCapHintInsetV = 8;       // 与 Android space2 同
 - (void)applyCandidates:(NSArray<IMUserCard *> *)candidates {
     NSMutableArray<IMUserCard *> *usable = [NSMutableArray array];
     for (IMUserCard *c in candidates) {
+        // 已注销的人（冷静期内仍在 /friends 与成员表里，deleted=true）不进选人页：邀请 / 转发 / 建群 / 转让一律被服务端拒（200001）。
+        if (c.deleted || [IMRemarkStore.sharedStore isDeletedUser:c.userID]) { continue; }
         if (![self.excludedIDs containsObject:c.userID]) { [usable addObject:c]; }
     }
     self.usable = usable;

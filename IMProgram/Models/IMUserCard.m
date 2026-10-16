@@ -25,6 +25,12 @@ IMFriendStatus IMFriendStatusFromString(NSString *s) {
     return out;
 }
 
+/// 权威端点（GET /users/{id}、/users/batch、/friends）的收尾：这些响应对每个用户都如实带 / 不带 `deleted`，
+/// 所以此处按 `deleted` 的真实值登记**或撤销**（账号在冷静期内被恢复后，下一次拉到的名片不再带它）。
++ (void)reconcileDeletedFlags:(NSArray<IMUserCard *> *)cards {
+    for (IMUserCard *c in cards) { [IMRemarkStore.sharedStore setUser:c.userID deleted:c.deleted]; }
+}
+
 + (instancetype)cardFromDictionary:(NSDictionary *)dict {
     IMUserCard *c = [IMUserCard new];
     c.userID = [self stringForKey:@"user_id" in:dict];
@@ -37,7 +43,7 @@ IMFriendStatus IMFriendStatusFromString(NSString *s) {
     c.blocked = [dict[@"blocked"] respondsToSelector:@selector(boolValue)] ? [dict[@"blocked"] boolValue] : NO;
     c.updatedAt = [dict[@"updated_at"] respondsToSelector:@selector(longLongValue)] ? [dict[@"updated_at"] longLongValue] : 0;
     c.deleted = [dict[@"deleted"] respondsToSelector:@selector(boolValue)] ? [dict[@"deleted"] boolValue] : NO;
-    [IMRemarkStore.sharedStore setUser:c.userID deleted:c.deleted]; // 每次解析都登记（含 NO：恢复账号后要撤销）
+    if (c.deleted) { [IMRemarkStore.sharedStore setUser:c.userID deleted:YES]; } // 只登记；撤销见 +reconcileDeletedFlags:（并非每个端点都带 deleted，缺席不等于未注销）
     c.hello = [self stringForKey:@"hello" in:dict]; // 仅好友申请行带；其余为空串
     // 在线态快照：找人/好友列表不带这些键，解析出的是空态（level=Unknown，副标题为空串）。
     c.presence = [IMPresence presenceFromProfileDictionary:dict];

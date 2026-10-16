@@ -18,6 +18,8 @@ IMGroupRole IMGroupRoleFromString(NSString *_Nullable s);
 
 /// 群内一个成员。
 @interface IMGroupMember : NSObject
+/// 成员列表响应解析后调用：按 `deleted` 真实值登记 / 撤销已注销标记。
++ (void)reconcileDeletedFlags:(NSArray<IMGroupMember *> *)members;
 @property (nonatomic, copy) NSString *userID;
 @property (nonatomic, copy) NSString *nickname;                        ///< 全局昵称
 /// 公开句柄（成员行副标题显示 @xxx）。副标题此前显示 userID——那是 10 位随机数字内部 ID。

@@ -48,7 +48,9 @@
     IMUserCard *c = [IMUserCard cardsFromArray:@[@{ @"user_id": @"u1", @"nickname": @"已注销用户", @"deleted": @YES }]].firstObject;
     XCTAssertTrue(c.deleted);
     XCTAssertTrue([IMRemarkStore.sharedStore isDeletedUser:@"u1"]);
-    [IMUserCard cardsFromArray:@[@{ @"user_id": @"u1", @"nickname": @"小明" }]].firstObject;
+    NSArray<IMUserCard *> *back = [IMUserCard cardsFromArray:@[@{ @"user_id": @"u1", @"nickname": @"小明" }]];
+    XCTAssertTrue([IMRemarkStore.sharedStore isDeletedUser:@"u1"], @"只解析不撤销：不是每个端点都带 deleted，缺席不等于未注销");
+    [IMUserCard reconcileDeletedFlags:back]; // 权威端点（batch / friends / users/{id}）收尾才撤销
     XCTAssertFalse([IMRemarkStore.sharedStore isDeletedUser:@"u1"]);
 }
 
@@ -64,8 +66,9 @@
     XCTAssertFalse(g.peerDeleted);
     XCTAssertEqualObjects(g.displayName, @"群");
     // 恢复：下一次列表不带 peer_deleted → 回到备注
-    IMConversation *back = [IMConversation conversationsFromArray:@[@{ @"conv_id": @"c1", @"peer": @"u1", @"peer_nickname": @"小明", @"remark": @"会话备注" }]].firstObject;
-    XCTAssertEqualObjects(back.displayName, @"会话备注");
+    NSArray<IMConversation *> *backList = [IMConversation conversationsFromArray:@[@{ @"conv_id": @"c1", @"peer": @"u1", @"peer_nickname": @"小明", @"remark": @"会话备注" }]];
+    [IMConversation reconcileDeletedFlags:backList];
+    XCTAssertEqualObjects(backList.firstObject.displayName, @"会话备注");
 }
 
 /// 群成员：deleted 压过群昵称；nicknameOfMember 同口径（气泡 / 系统行都经它取名）。
@@ -87,18 +90,18 @@
     [self waitForExpectations:@[e] timeout:2];
 }
 
-/// error{reason:account_deleted}：广播通知 + 停自动重连；没有 reason 的 error 不广播。
-- (void)testAccountDeletedFramePostsNotificationAndStopsReconnect {
+/// error{reason:account_deleted}：广播通知；**不**置 _manualClose（本机自己注销失败时 socket 还要能重连）。没有 reason 的 error 不广播。
+- (void)testAccountDeletedFramePostsNotificationWithoutClosingSocketForGood {
     IMSocketManager *mgr = IMSocketManager.sharedManager;
     dispatch_queue_t q = [mgr valueForKey:@"_queue"];
-    __block BOOL manualBefore = NO;
-    dispatch_sync(q, ^{ manualBefore = [[mgr valueForKey:@"_manualClose"] boolValue]; });
+    __block BOOL before = NO;
+    dispatch_sync(q, ^{ before = [[mgr valueForKey:@"_manualClose"] boolValue]; });
     XCTestExpectation *posted = [self expectationForNotification:IMSocketDidReceiveAccountDeletedNotification object:nil handler:nil];
     dispatch_sync(q, ^{ [mgr handleErrorFrame:@{ @"code": @200005, @"reason": @"account_deleted", @"delete_at": @1760600000000 }]; });
     [self waitForExpectations:@[posted] timeout:2];
-    __block BOOL manualAfter = NO;
-    dispatch_sync(q, ^{ manualAfter = [[mgr valueForKey:@"_manualClose"] boolValue]; [mgr setValue:@(manualBefore) forKey:@"_manualClose"]; });
-    XCTAssertTrue(manualAfter, @"注销帧后必须停自动重连");
+    __block BOOL after = NO;
+    dispatch_sync(q, ^{ after = [[mgr valueForKey:@"_manualClose"] boolValue]; });
+    XCTAssertEqual(after, before);
 
     id obs = [NSNotificationCenter.defaultCenter addObserverForName:IMSocketDidReceiveAccountDeletedNotification object:nil queue:nil
                                                          usingBlock:^(NSNotification *n) { XCTFail(@"普通 error 不应触发注销通知"); }];

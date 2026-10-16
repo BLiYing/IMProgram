@@ -323,6 +323,7 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     NSString *peerID = note.userInfo[kIMRemarkPeerIDKey];
     if (peerID.length > 0 && ![peerID isEqualToString:self.peerID]) { return; }
     [self refreshDisplayIdentity];
+    [self refreshComposerMuteState]; // 对端注销 / 恢复会翻转输入栏只读态
 }
 
 /// 一批 uid 的资料解析回来了（IMUserProfileCache）。只在群聊注册，纯本地重绘。
@@ -430,7 +431,7 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     [self setupUI];
     // 系统通知会话（peerID=system）：进页即锁定输入栏（无群资料触发路径）。
     // 见 docs/design/SYSTEM_NOTICE_SESSION_DESIGN.md §5.2 / +PinnedBanner.m refreshComposerMuteState。
-    if (!self.isGroupChat && IMIsSystemUserID(self.peerID)) {
+    if (!self.isGroupChat) { // 系统会话 / 对端已注销：进页即只读
         [self refreshComposerMuteState];
     }
     [self reloadPinnedBanner]; // 置顶横幅（G0）：进会话拉一次，之后靠 msg_op 帧增量维护，不轮询

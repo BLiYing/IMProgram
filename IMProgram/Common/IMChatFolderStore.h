@@ -53,7 +53,9 @@ extern NSNotificationName const IMChatFoldersDidChangeNotification;
 /// 面向用户的错误文案：文件夹业务码（300301–300305）查 `err.<code>`；其余用 error 自带文案，兜底「操作失败，请重试」。
 + (NSString *)userMessageForError:(NSError *)error;
 
-/// 仅测试：清空内存与落盘。
+/// 清空内存与本账号的落盘快照（注销账号清本机缓存用；测试也用它）。
+- (void)wipeLocalState;
+/// 仅测试：同 wipeLocalState。
 - (void)resetForTesting;
 
 @end

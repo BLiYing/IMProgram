@@ -20,6 +20,8 @@ typedef NS_ENUM(NSInteger, IMFriendStatus) {
 IMFriendStatus IMFriendStatusFromString(NSString *_Nullable s);
 
 @interface IMUserCard : NSObject
+/// 权威端点响应解析后调用：按 `deleted` 真实值登记 / 撤销 IMRemarkStore 的已注销标记（解析器本身只会登记，不会撤销）。
++ (void)reconcileDeletedFlags:(NSArray<IMUserCard *> *)cards;
 
 /// 内部 ID（10 位数字，服务端分配）。是接口参数与本地键，**不展示给用户**。
 @property (nonatomic, copy) NSString *userID;

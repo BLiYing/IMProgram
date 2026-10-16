@@ -294,7 +294,7 @@
 "chat.reader.title" = "Full text · %1$@";
 "chat.reject.blocked" = "Message sent, but it was declined by the recipient";
 "chat.reject.not_friend" = "Message sent, but it was declined by the recipient. Please send a friend request first.";
-"chat.reject.recipient_deleted" = "Message not sent: this account has been deleted";
+"chat.reject.recipient_deleted" = "This account has been deleted. You can't send messages to it.";
 "chat.reject.too_large" = "This message is too large to send";
 "chat.reply.cancel" = "Cancel reply";
 "chat.reply.cancel_a11y" = "Cancel reply";

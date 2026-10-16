@@ -1,5 +1,6 @@
 //  IMDataStorageViewController.m
 
+#import "IMSessionTeardown.h"
 #import "IMDataStorageViewController.h"
 #import "IMAutoDownloadNetworkViewController.h"
 #import "IMDownloadSettingsUI.h"
@@ -87,12 +88,7 @@ static UIImage *IMSettingsIconSpacer(void) {
 
 /// 本 VC **自己删**的目录：下载文件 + 视频原件。图片缓存 `im_image_cache` 归 IMImageLoader 所有，
 /// 只经它 `clearCache`（同时清内存 + 重置记账），不在这里直删——直删会与其 `_diskQueue` 抢同一目录。
-- (NSArray<NSURL *> *)ownedCacheDirs {
-    NSURL *caches = [self cachesRoot];
-    if (!caches) { return @[]; }
-    return @[[caches URLByAppendingPathComponent:@"IMDownloads" isDirectory:YES],
-             [caches URLByAppendingPathComponent:@"im_original_videos" isDirectory:YES]];
-}
+- (NSArray<NSURL *> *)ownedCacheDirs { return IMSessionTeardown.ownedMediaCacheDirectories; } // 与注销账号清缓存共用同一份目录清单
 
 /// 计**用量**的全部目录（含图片缓存）。少算一个就会「显示 0 B 却清出几百 MB」。
 - (NSArray<NSURL *> *)sizeDirs {

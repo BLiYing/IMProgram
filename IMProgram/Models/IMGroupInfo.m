@@ -43,6 +43,11 @@ static BOOL IMGroupBool(NSDictionary *dict, NSString *key) {
     return [IMRemarkStore.sharedStore displayNameForUser:self.userID fallback:self.displayName];
 }
 
+/// 成员目录 / 群资料响应解析后调用：按 `deleted` 真实值登记 / 撤销。
++ (void)reconcileDeletedFlags:(NSArray<IMGroupMember *> *)members {
+    for (IMGroupMember *m in members) { [IMRemarkStore.sharedStore setUser:m.userID deleted:m.deleted]; }
+}
+
 + (nullable instancetype)memberFromDictionary:(NSDictionary *)dict {
     if (![dict isKindOfClass:[NSDictionary class]]) { return nil; }
     IMGroupMember *m = [IMGroupMember new];
@@ -55,7 +60,7 @@ static BOOL IMGroupBool(NSDictionary *dict, NSString *key) {
     m.groupNickname = gn.length > 0 ? gn : nil;
     m.avatarURL = IMGroupString(dict, @"avatar_url");
     m.deleted = IMGroupBool(dict, @"deleted");
-    [IMRemarkStore.sharedStore setUser:m.userID deleted:m.deleted]; // 含 NO：恢复后撤销
+    if (m.deleted) { [IMRemarkStore.sharedStore setUser:m.userID deleted:YES]; } // 撤销见 +reconcileDeletedFlags:
     m.role = IMGroupRoleFromString(IMGroupString(dict, @"role"));
     m.joinedAt = IMGroupInt64(dict, @"joined_at");
     m.muteUntil = IMGroupInt64(dict, @"mute_until");

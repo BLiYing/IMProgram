@@ -33,7 +33,7 @@ static const NSInteger kPageSize = 50;
         }
         NSMutableArray<IMInviteCandidate *> *out = [NSMutableArray array];
         for (IMGroupMember *m in members) {
-            if (m.userID.length == 0 || [m.userID isEqualToString:ws.selfUID]) { continue; }
+            if (m.userID.length == 0 || [m.userID isEqualToString:ws.selfUID] || m.deleted) { continue; } // 已注销者不可邀请
             NSString *name = [IMRemarkStore.sharedStore isDeletedUser:m.userID] ? IMLocalized(@"delete_account.deleted_user")
                 : [IMRemarkStore.sharedStore remarkForUser:m.userID];
             if (name.length == 0) { name = m.groupNickname; }
