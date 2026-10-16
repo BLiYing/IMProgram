@@ -136,6 +136,7 @@
     self.windowState.atTail = YES;
     self.windowState.hasMoreAbove = NO;
     [self.tableView reloadData];
+    [self refilterPinnedBannerByClearFloor]; // 位点已抬高：位点以内的置顶随之摘掉（纯本地，离线 / 重拉失败也生效）
 }
 
 /// 外观设置实时生效：刷新壁纸、消息 Cell、输入框与当前主题色，不需要重新进入聊天。

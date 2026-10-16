@@ -93,4 +93,8 @@ extern IMChatMsgOpBannerAction IMChatMsgOpBannerPlan(NSDictionary *appliedUserIn
 extern NSArray<IMPinnedMessage *> *IMChatPinnedItemsDroppingSeq(NSArray<IMPinnedMessage *> *items,
                                                                 int64_t targetConvSeq);
 
+/// 去掉 `convSeq <= clearedUpTo`（本机「清空聊天记录」位点以内）的置顶项，保持原序；位点 <=0 原样返回。
+extern NSArray<IMPinnedMessage *> *IMChatPinnedItemsAboveFloor(NSArray<IMPinnedMessage *> *items,
+                                                               int64_t clearedUpTo);
+
 NS_ASSUME_NONNULL_END

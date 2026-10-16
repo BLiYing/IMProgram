@@ -238,4 +238,13 @@ static IMPinnedMessage *Pinned(int64_t seq) {
     XCTAssertEqual(IMChatPinnedItemsDroppingSeq(@[], 7).count, 0u);
 }
 
+- (void)test_清空位点以内的置顶被摘掉_位点非正原样返回 {
+    NSArray *items = @[Pinned(9), Pinned(7), Pinned(3)];
+    NSArray<IMPinnedMessage *> *kept = IMChatPinnedItemsAboveFloor(items, 7);
+    XCTAssertEqual(kept.count, 1u, @"<= 位点的（含等于）都不可见");
+    XCTAssertEqual(kept[0].convSeq, 9);
+    XCTAssertEqual(IMChatPinnedItemsAboveFloor(items, 0).count, 3u);
+    XCTAssertEqual(IMChatPinnedItemsAboveFloor(items, 100).count, 0u);
+}
+
 @end

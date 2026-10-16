@@ -17,6 +17,25 @@
 static CGFloat const kIMContextMenuWidth = 230;
 static CGFloat const kIMContextMenuRowHeight = 50;
 static CGFloat const kIMContextMenuMargin = 8;
+// 行内布局：图标 x / 宽、图标与文字间距、文字右内边距（行 layoutSubviews 与宽度估算共用，防两处漂移）。
+static CGFloat const kIMContextMenuIconX = 16;
+static CGFloat const kIMContextMenuIconWidth = 24;
+static CGFloat const kIMContextMenuIconGap = 12;
+static CGFloat const kIMContextMenuTrailing = 14;
+
+// 菜单宽度：不低于 230，最长标题（图标 + 文字 + 左右内边距）放不下就加宽，封顶到屏宽减边距。
+// 英文长文案（如 "Recommend to a friend"）在定宽 230 下会被截断。
+static CGFloat IMContextMenuWidthForItems(NSArray<IMPopoverCardItem *> *items, UIView *host) {
+    UIFont *font = [UIFont systemFontOfSize:16];
+    CGFloat widest = 0;
+    for (IMPopoverCardItem *item in items) {
+        widest = MAX(widest, ceil([item.title sizeWithAttributes:@{NSFontAttributeName: font}].width));
+    }
+    CGFloat needed = kIMContextMenuIconX + kIMContextMenuIconWidth + kIMContextMenuIconGap + widest + kIMContextMenuTrailing;
+    UIEdgeInsets safe = host.safeAreaInsets;
+    CGFloat cap = host.bounds.size.width - safe.left - safe.right - 2 * kIMContextMenuMargin;
+    return MAX(kIMContextMenuWidth, MIN(needed, cap));
+}
 
 @interface IMContextMenuRow : UIControl
 @property (nonatomic, strong) IMPopoverCardItem *item;
@@ -31,6 +50,8 @@ static CGFloat const kIMContextMenuMargin = 8;
         _titleLabel = [UILabel new];
         _titleLabel.font = [UIFont systemFontOfSize:16];
         _titleLabel.text = item.title;
+        _titleLabel.adjustsFontSizeToFitWidth = YES;   // 宽度封顶（窄屏 / 超长文案）时缩字兜底，不截断
+        _titleLabel.minimumScaleFactor = 0.8;
         _titleLabel.textColor = item.destructive ? IMTheme.danger : IMTheme.textPrimary;
         [self addSubview:_titleLabel];
 
@@ -49,9 +70,9 @@ static CGFloat const kIMContextMenuMargin = 8;
 - (void)layoutSubviews {
     [super layoutSubviews];
     // 图标在左、文字在右（对齐系统长按 UIMenu 与微信式菜单）。
-    self.iconView.frame = CGRectMake(16, 0, 24, self.bounds.size.height);
-    CGFloat titleX = 16 + 24 + 12;
-    self.titleLabel.frame = CGRectMake(titleX, 0, self.bounds.size.width - titleX - 14, self.bounds.size.height);
+    self.iconView.frame = CGRectMake(kIMContextMenuIconX, 0, kIMContextMenuIconWidth, self.bounds.size.height);
+    CGFloat titleX = kIMContextMenuIconX + kIMContextMenuIconWidth + kIMContextMenuIconGap;
+    self.titleLabel.frame = CGRectMake(titleX, 0, self.bounds.size.width - titleX - kIMContextMenuTrailing, self.bounds.size.height);
 }
 - (void)setHighlighted:(BOOL)highlighted {
     [super setHighlighted:highlighted];
@@ -89,28 +110,29 @@ static CGFloat const kIMContextMenuMargin = 8;
         _card.layer.borderColor = [IMTheme.separator colorWithAlphaComponent:0.55].CGColor;
         [self addSubview:_card];
 
+        CGFloat width = IMContextMenuWidthForItems(items, host);
         CGFloat height = kIMContextMenuRowHeight * items.count;
         UIEdgeInsets safe = host.safeAreaInsets;
-        CGFloat x = MIN(CGRectGetMaxX(anchorRect) - kIMContextMenuWidth,
-                        self.bounds.size.width - safe.right - kIMContextMenuMargin - kIMContextMenuWidth);
+        CGFloat x = MIN(CGRectGetMaxX(anchorRect) - width,
+                        self.bounds.size.width - safe.right - kIMContextMenuMargin - width);
         x = MAX(safe.left + kIMContextMenuMargin, x);
         CGFloat belowY = CGRectGetMaxY(anchorRect) + 6;
         CGFloat maximumY = self.bounds.size.height - safe.bottom - kIMContextMenuMargin - height;
         CGFloat y = belowY <= maximumY ? belowY : CGRectGetMinY(anchorRect) - 6 - height;
         y = MAX(safe.top + kIMContextMenuMargin, MIN(y, maximumY));
-        _card.frame = CGRectMake(x, y, kIMContextMenuWidth, height);
+        _card.frame = CGRectMake(x, y, width, height);
 
         [items enumerateObjectsUsingBlock:^(IMPopoverCardItem *item, NSUInteger index, BOOL *stop) {
             IMContextMenuRow *row = [[IMContextMenuRow alloc] initWithItem:item];
             row.frame = CGRectMake(0, index * kIMContextMenuRowHeight,
-                                   kIMContextMenuWidth, kIMContextMenuRowHeight);
+                                   width, kIMContextMenuRowHeight);
             row.tag = index;
             [row addTarget:self action:@selector(rowTapped:) forControlEvents:UIControlEventTouchUpInside];
             [self.card.contentView addSubview:row];
             if (index + 1 < items.count) {
                 UIView *separator = [[UIView alloc] initWithFrame:CGRectMake(16,
                     CGRectGetMaxY(row.frame) - 1.0 / UIScreen.mainScreen.scale,
-                    kIMContextMenuWidth - 16, 1.0 / UIScreen.mainScreen.scale)];
+                    width - 16, 1.0 / UIScreen.mainScreen.scale)];
                 separator.backgroundColor = IMTheme.separator;
                 [self.card.contentView addSubview:separator];
             }
@@ -168,7 +190,7 @@ static CGFloat const kIMContextMenuMargin = 8;
 + (void)presentFromRect:(CGRect)anchorRect inHostView:(UIView *)host items:(NSArray<IMPopoverCardItem *> *)items {
     if (items.count == 0 || !host || [self isPresentingInHostView:host]) { return; }
     // overlay 以锚点右缘对齐菜单右缘；这里把锚点拉宽到菜单宽度，等价于左缘对齐。
-    CGRect left = CGRectMake(CGRectGetMinX(anchorRect), anchorRect.origin.y, kIMContextMenuWidth, anchorRect.size.height);
+    CGRect left = CGRectMake(CGRectGetMinX(anchorRect), anchorRect.origin.y, IMContextMenuWidthForItems(items, host), anchorRect.size.height);
     IMContextMenuOverlay *overlay = [[IMContextMenuOverlay alloc] initWithHost:host anchorRect:left items:items];
     [host addSubview:overlay];
     [overlay show];

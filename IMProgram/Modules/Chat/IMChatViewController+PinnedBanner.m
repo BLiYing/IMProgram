@@ -6,8 +6,10 @@
 #import "IMChatViewController+Private.h" // 含 IMChatBannerStack / IMSocketManager / IMGroupInfo
 #import "IMHTTPService.h"
 #import "IMPinnedMessage.h"
+#import "IMMsgOpApply.h"          // IMChatPinnedItemsAboveFloor
 #import "IMMessageModel.h"
 #import "IMDatabase.h"            // 跳转前判目标是否已撤回（recalledAt）
+#import "IMDatabase+ClearFloor.h" // clearedUpToForConv:（本机清空位点）
 #import "UIViewController+IMToast.h"  // im_showToast:
 #import "IMJoinRequestsViewController.h"
 #import "IMGroupTextViewController.h"
@@ -58,8 +60,22 @@ NS_ASSUME_NONNULL_END
                                              completion:^(NSArray<IMPinnedMessage *> *items, NSError *error) {
         __strong typeof(weakSelf) self = weakSelf;
         if (!self || error) { return; }
-        self.bannerStack.pinnedItems = items ?: @[]; // setter 内部夹紧索引 + 收起态判定 + 顶开 tableView
+        self.bannerStack.pinnedItems = [self pinnedItemsAboveClearFloor:items ?: @[]]; // setter 内部夹紧索引 + 收起态判定 + 顶开 tableView
     }];
+}
+
+/// 「清空聊天记录」只记本机位点（服务端不知道）：位点以内的置顶消息本体已不可见，横幅不能再指向它们
+/// （清空 → 删好友 → 重新加回后，否则仍显示清空前的旧置顶）。
+- (NSArray<IMPinnedMessage *> *)pinnedItemsAboveClearFloor:(NSArray<IMPinnedMessage *> *)items {
+    NSString *convID = self.convID;
+    __block int64_t cleared = 0;
+    [self performDatabaseOperation:^(IMDatabase *database) { cleared = [database clearedUpToForConv:convID]; }];
+    return IMChatPinnedItemsAboveFloor(items, cleared);
+}
+
+/// 位点刚抬高（清空聊天记录）：就地把当前横幅集合按新位点过滤——纯本地、不依赖网络（重拉失败会留着旧置顶）。
+- (void)refilterPinnedBannerByClearFloor {
+    self.bannerStack.pinnedItems = [self pinnedItemsAboveClearFloor:self.bannerStack.pinnedItems];
 }
 
 /// 置顶横幅重拉的合并入口：kIMPinnedReloadCoalesce 秒内多次调用只在最后一次之后拉一次（尾沿防抖）。

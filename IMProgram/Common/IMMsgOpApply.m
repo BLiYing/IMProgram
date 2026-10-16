@@ -94,6 +94,13 @@ NSArray<IMPinnedMessage *> *IMChatPinnedItemsDroppingSeq(NSArray<IMPinnedMessage
     return kept;
 }
 
+NSArray<IMPinnedMessage *> *IMChatPinnedItemsAboveFloor(NSArray<IMPinnedMessage *> *items, int64_t clearedUpTo) {
+    if (clearedUpTo <= 0) { return items; }
+    NSMutableArray<IMPinnedMessage *> *kept = [NSMutableArray arrayWithCapacity:items.count];
+    for (IMPinnedMessage *p in items) { if (p.convSeq > clearedUpTo) { [kept addObject:p]; } }
+    return kept;
+}
+
 NSArray<NSDictionary *> *IMMsgOpPinTargetPayloads(NSDictionary *payload) {
     id targets = payload[@"targets"];
     if (![payload[@"op"] isEqual:kIMMsgOpPin] || ![targets isKindOfClass:NSArray.class]) { return nil; }
