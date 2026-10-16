@@ -6,6 +6,8 @@
 #import "IMHTTPService.h"
 #import "IMSessionStore.h"
 #import "IMServerEndpoint.h"
+#import "IMHTTPService+Account.h"
+#import "IMTheme.h"
 
 static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过的 host
 
@@ -29,6 +31,7 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
     self.title = IMLocalized(@"login.title");
     self.view.backgroundColor = UIColor.systemBackgroundColor;
     [self setupUI];
+    if (self.initialNotice.length > 0) { [self showNotice:self.initialNotice]; }
 }
 
 /// 默认 host：模拟器恒用 127.0.0.1（避免 localhost DNS 解析在 iOS 模拟器偶发失败——
@@ -191,10 +194,51 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
         if (!self) { return; }
         [self setBusy:NO activeButton:activeButton];
         if (token.length == 0 || userID.length == 0) {
+            if (error.code == IMErrCodeAccountPendingDeletion) {
+                [self promptRestoreForHost:host username:username password:password fallback:fallback
+                              activeButton:activeButton deleteAt:error.userInfo[IMErrorDeleteAtKey]];
+                return;
+            }
             [self showError:error.localizedDescription.length > 0 ? error.localizedDescription : fallback];
             return;
         }
         [self enterAppWithHost:host userID:userID username:username];
+    }];
+}
+
+/// 冷静期内登录（AccountPendingDeletion）：弹「恢复账号」确认；确认后调 restore，成功再按原凭据继续登录。
+/// 取消则留在登录页、不留红字（用户是主动选择不恢复）。
+- (void)promptRestoreForHost:(NSString *)host
+                    username:(NSString *)username
+                    password:(NSString *)password
+                    fallback:(NSString *)fallback
+                activeButton:(UIButton *)activeButton
+                    deleteAt:(nullable NSDate *)deleteAt {
+    NSString *message = IMLocalizedFormat(@"delete_account.restore_message", IMDeleteAtDisplayString(deleteAt));
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:IMLocalized(@"delete_account.restore_title")
+                                                                message:message preferredStyle:UIAlertControllerStyleAlert];
+    [ac addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
+    __weak typeof(self) weakSelf = self;
+    [ac addAction:[UIAlertAction actionWithTitle:IMLocalized(@"delete_account.restore_action") style:UIAlertActionStyleDefault
+                                         handler:^(UIAlertAction *a) {
+        [weakSelf restoreThenLoginHost:host username:username password:password fallback:fallback activeButton:activeButton];
+    }]];
+    [self presentViewController:ac animated:YES completion:nil];
+}
+
+- (void)restoreThenLoginHost:(NSString *)host username:(NSString *)username password:(NSString *)password
+                    fallback:(NSString *)fallback activeButton:(UIButton *)activeButton {
+    [self setBusy:YES activeButton:activeButton];
+    __weak typeof(self) weakSelf = self;
+    [IMHTTPService.sharedService restoreAccountWithUsername:username password:password completion:^(NSError *error) {
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self) { return; }
+        if (error) {
+            [self setBusy:NO activeButton:activeButton];
+            [self showError:error.localizedDescription.length > 0 ? error.localizedDescription : fallback];
+            return;
+        }
+        [self loginWithHost:host username:username password:password fallback:fallback activeButton:activeButton];
     }];
 }
 
@@ -266,6 +310,14 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
 }
 
 - (void)showError:(NSString *)message {
+    self.errorLabel.textColor = UIColor.systemRedColor;
+    self.errorLabel.text = message;
+    self.errorLabel.hidden = (message.length == 0);
+}
+
+/// 非错误提示（沿用错误行位置，改用 accent 色，非红）。下一次 showError: 会恢复红色并覆盖它。
+- (void)showNotice:(NSString *)message {
+    self.errorLabel.textColor = IMTheme.accent;
     self.errorLabel.text = message;
     self.errorLabel.hidden = (message.length == 0);
 }

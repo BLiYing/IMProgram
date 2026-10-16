@@ -12,6 +12,7 @@
 #import "IMMainTabBarController.h"
 #import "IMHTTPService.h"
 #import "IMSessionStore.h"
+#import "IMSessionTeardown.h"
 #import "IMPushSender.h"
 #import "IMServerEndpoint.h"
 #import "IMSocketManager.h"
@@ -106,6 +107,7 @@
 /// 会话被服务端吊销（在其他设备"退出该设备/退出其他所有设备"把本机踢了）：清登录态 + 回登录页。
 /// 通知在主线程发；幂等——已在登录页则只补一次提示。
 - (void)handleSessionRevoked {
+    if (IMSessionTeardown.accountDeletionInProgress) { return; } // 本机正在注销：由注销页自己收尾（清缓存 + 提示）
     if ([self.window.rootViewController isKindOfClass:UINavigationController.class]
         && [((UINavigationController *)self.window.rootViewController).topViewController isKindOfClass:IMLoginViewController.class]) {
         return;

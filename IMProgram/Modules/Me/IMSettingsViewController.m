@@ -22,6 +22,7 @@
 #import "IMLoginViewController.h"
 #import "IMSocketManager.h"
 #import "IMSessionStore.h"
+#import "IMSessionTeardown.h"
 #import "IMAnimator.h"
 #import "UIViewController+IMToast.h"
 #import "IMTheme.h"
@@ -71,6 +72,8 @@
     UIView *_iconBg;
     UILabel *_titleLabel;
     UILabel *_valueLabel;
+    NSLayoutConstraint *_titleLeading;  ///< 常规行：标题锚在图标之后
+    NSLayoutConstraint *_titleCenterX;  ///< destructive 行：标题水平居中（设计 DELETE_ACCOUNT_DESIGN §1）
 }
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
@@ -102,6 +105,8 @@
         [self.contentView addSubview:_valueLabel];
         [_valueLabel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
 
+        _titleLeading = [_titleLabel.leadingAnchor constraintEqualToAnchor:_iconBg.trailingAnchor constant:IMTheme.space3];
+        _titleCenterX = [_titleLabel.centerXAnchor constraintEqualToAnchor:self.contentView.centerXAnchor];
         [NSLayoutConstraint activateConstraints:@[
             [_iconBg.leadingAnchor constraintEqualToAnchor:self.contentView.layoutMarginsGuide.leadingAnchor],
             [_iconBg.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
@@ -113,7 +118,7 @@
             [_iconView.widthAnchor constraintEqualToConstant:18],
             [_iconView.heightAnchor constraintEqualToConstant:18],
 
-            [_titleLabel.leadingAnchor constraintEqualToAnchor:_iconBg.trailingAnchor constant:IMTheme.space3],
+            _titleLeading,
             [_titleLabel.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
 
             [_valueLabel.leadingAnchor constraintGreaterThanOrEqualToAnchor:_titleLabel.trailingAnchor constant:IMTheme.space2],
@@ -129,7 +134,13 @@
     _titleLabel.textColor = row.destructive ? UIColor.systemRedColor : IMTheme.textPrimary;
     _valueLabel.text = row.rightValue;
 
-    BOOL hasIcon = row.systemImage.length > 0;
+    // destructive 行（退出登录）：隐藏图标并让标题 centerX = contentView.centerX；其余行恢复锚在图标之后。
+    // 先停旧约束再启新约束，避免复用 cell 时两条同时生效。
+    _titleLeading.active = !row.destructive;
+    _titleCenterX.active = row.destructive;
+    _titleLabel.textAlignment = row.destructive ? NSTextAlignmentCenter : NSTextAlignmentNatural;
+
+    BOOL hasIcon = row.systemImage.length > 0 && !row.destructive;
     _iconBg.hidden = !hasIcon;
     _iconView.image = hasIcon ? [UIImage systemImageNamed:row.systemImage] : nil;
     _iconBg.backgroundColor = row.iconBgColor ?: IMTheme.accent;
@@ -659,14 +670,8 @@
             if (error) { IMLogWarnWithTag(IMLogTagHTTP, @"logout_revoke_failed: %@", error.localizedDescription ?: @"-"); }
         }];
     }
-    [IMRtcCall.shared stop]; // 通话服务跟着账号走，否则换号后同一设备会有两条 im-rtc 连接
-    [IMSocketManager.sharedManager disconnect];
-    [IMHTTPService.sharedService invalidateToken];
-    IMHTTPService.sharedService.refreshToken = nil; // 内存里的续期凭据也要清，否则本进程内还能换到 token
-    [IMSessionStore clear]; // 退出登录：清持久化会话，下次启动回登录页
-    UIWindow *window = self.view.window;
-    IMLoginViewController *login = [IMLoginViewController new];
-    window.rootViewController = [[UINavigationController alloc] initWithRootViewController:login];
+    [IMSessionTeardown tearDownLocalSession]; // 与「注销账号」成功后共用同一条清会话路径
+    [IMSessionTeardown showLoginInWindow:self.view.window notice:nil];
 }
 
 #pragma mark - UITableView

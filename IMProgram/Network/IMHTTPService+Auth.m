@@ -12,6 +12,7 @@
 #import "IMSessionStore.h"
 #import "IMSocketManager.h" // IMSocketDidRevokeSessionNotification（续期被拒时复用"被踢下线"通路）
 #import "IMUserCard.h"
+#import "IMHTTPService+Account.h" // 冷静期登录：错误附 delete_at
 
 BOOL IMShouldDropRefreshCredential(BOOL usingRefresh, NSInteger code) {
     return usingRefresh && IMIsAuthErrorCode(code);
@@ -85,8 +86,10 @@ BOOL IMShouldDropRefreshCredential(BOOL usingRefresh, NSInteger code) {
                 [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidRevokeSessionNotification object:nil];
             }
             // 带上业务码，便于调用方区分"鉴权失败(退登录)"与"网络问题(重试)"。
+            NSError *loginErr = [self errorWithCode:code message:[self messageFrom:body fallback:IMLocalized(@"login.error.login_failed")]];
+            // 冷静期账号（AccountPendingDeletion）带回 delete_at，登录页据此弹「恢复账号」。
             [self finishLogin:owner userID:userID token:nil
-                        error:[self errorWithCode:code message:[self messageFrom:body fallback:IMLocalized(@"login.error.login_failed")]]
+                        error:IMErrorByAttachingAccountInfo(loginErr, body)
                soloCompletion:completion];
             return;
         }

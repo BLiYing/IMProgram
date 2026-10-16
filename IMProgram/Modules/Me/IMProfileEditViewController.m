@@ -14,6 +14,7 @@
 #import "IMSessionStore.h"
 #import "IMAccountIdentity.h"
 #import "IMLocalization.h"
+#import "IMDeleteAccountViewController.h"
 
 @interface IMProfileEditViewController ()
 @property (nonatomic, copy) NSString *host;
@@ -42,6 +43,7 @@
 @property (nonatomic, strong) UILabel *roPhoneValue;
 @property (nonatomic, strong) UILabel *roUsernameValue;
 @property (nonatomic, strong) UIView *roPhoneRow;          ///< 手机号为空时整行隐藏
+@property (nonatomic, strong) UIButton *deleteAccountRow;  ///< 「注销账号」入口行（只读态底部；随 readonlyStack 在编辑态隐藏）
 @end
 
 @implementation IMProfileEditViewController
@@ -252,13 +254,68 @@
     card.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
     card.layer.cornerRadius = 12;
 
-    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[avatarWrap, self.roName, self.roStatus, card]];
+    UIView *deleteGroup = [self buildDeleteAccountGroup];
+    UIView *deleteFooter = [self buildDeleteAccountFooter];
+    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[avatarWrap, self.roName, self.roStatus, card, deleteGroup, deleteFooter]];
     stack.translatesAutoresizingMaskIntoConstraints = NO;
     stack.axis = UILayoutConstraintAxisVertical;
     stack.spacing = 8;
     [stack setCustomSpacing:14 afterView:avatarWrap];
     [stack setCustomSpacing:24 afterView:self.roStatus];
+    [stack setCustomSpacing:24 afterView:card];          // 分组间距（设计 §2.1：沿用设置页分组间距）
+    [stack setCustomSpacing:6 afterView:deleteGroup];    // 脚注顶 6
     return stack;
+}
+
+/// 「注销账号」入口组：单行卡片，红字居中（与设置页 destructive 行同款：17pt Regular systemRed、行高 50）。
+/// 只在只读态的 readonlyStack 里，编辑态随 readonlyStack 整体隐藏；**不登记 IMSettingsSearchRegistry**。
+- (UIView *)buildDeleteAccountGroup {
+    UIButton *row = [UIButton buttonWithType:UIButtonTypeCustom];
+    row.translatesAutoresizingMaskIntoConstraints = NO;
+    row.accessibilityIdentifier = @"profile.delete_account.row";
+    [row setTitle:IMLocalized(@"profile.delete_account.row") forState:UIControlStateNormal];
+    [row setTitleColor:UIColor.systemRedColor forState:UIControlStateNormal];
+    row.titleLabel.font = [UIFont systemFontOfSize:17];
+    row.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
+    [row addTarget:self action:@selector(openDeleteAccount) forControlEvents:UIControlEventTouchUpInside];
+    UIView *card = [UIView new];
+    card.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
+    card.layer.cornerRadius = 12;
+    card.clipsToBounds = YES;
+    [card addSubview:row];
+    [NSLayoutConstraint activateConstraints:@[
+        [row.topAnchor constraintEqualToAnchor:card.topAnchor],
+        [row.bottomAnchor constraintEqualToAnchor:card.bottomAnchor],
+        [row.leadingAnchor constraintEqualToAnchor:card.leadingAnchor],
+        [row.trailingAnchor constraintEqualToAnchor:card.trailingAnchor],
+        [row.heightAnchor constraintEqualToConstant:50],
+    ]];
+    self.deleteAccountRow = row;
+    return card;
+}
+
+/// 脚注：13pt textSecondary，左右 20（外层 stack 已留 16，再内缩 4）。
+- (UIView *)buildDeleteAccountFooter {
+    UILabel *l = [UILabel new];
+    l.translatesAutoresizingMaskIntoConstraints = NO;
+    l.font = [UIFont systemFontOfSize:13];
+    l.textColor = IMTheme.textSecondary;
+    l.numberOfLines = 0;
+    l.text = IMLocalized(@"profile.delete_account.footer");
+    UIView *wrap = [UIView new];
+    [wrap addSubview:l];
+    [NSLayoutConstraint activateConstraints:@[
+        [l.topAnchor constraintEqualToAnchor:wrap.topAnchor],
+        [l.bottomAnchor constraintEqualToAnchor:wrap.bottomAnchor],
+        [l.leadingAnchor constraintEqualToAnchor:wrap.leadingAnchor constant:4],
+        [l.trailingAnchor constraintEqualToAnchor:wrap.trailingAnchor constant:-4],
+    ]];
+    return wrap;
+}
+
+- (void)openDeleteAccount {
+    IMDeleteAccountViewController *vc = [[IMDeleteAccountViewController alloc] initWithHost:self.host userID:self.userID];
+    [self.navigationController pushViewController:vc animated:YES];
 }
 
 /// 信息卡里的值（蓝色，对齐 Telegram 的可点感；本项目暂不挂点击动作）。

@@ -39,6 +39,10 @@ IMFriendStatus IMFriendStatusFromString(NSString *_Nullable s);
 /// 老服务端/老数据不带它 → 空串，端上按"没写理由"渲染（别显示占位引号或编造内容）。
 @property (nonatomic, copy) NSString *hello;
 
+/// 账号已注销/匿名化（用户对象 `deleted=true`）。为 YES 时 displayName 恒为 `delete_account.deleted_user`
+/// 「已注销用户」（不再用昵称/备注——服务端此时昵称也已置同名），头像由调用方按空头像走默认圈。
+@property (nonatomic, assign) BOOL deleted;
+
 /// 展示名：备注名 > 昵称（全端统一口径）。**回退链止于昵称**——昵称是必填字段，
 /// 再往下回退到内部 ID 只会在界面上露出一串 10 位数字（见 ACCOUNT_IDENTITY_REDESIGN.md §5.2）。
 /// 备注取 IMRemarkStore 实时值，不读本对象的 remark 快照——后者只负责把服务端值喂进 store。
