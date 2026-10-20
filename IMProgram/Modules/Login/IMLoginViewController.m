@@ -22,14 +22,19 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
 @property (nonatomic, strong) UIButton *registerButton;
 @property (nonatomic, strong) UIButton *devButton;
 @property (nonatomic, assign) BOOL submitting;
+// 页面结构对齐 Android LoginScreen：Logo + 「登录 / 注册」页签 + 折叠的服务器地址行。
+@property (nonatomic, strong) UIButton *loginTabButton;
+@property (nonatomic, strong) UIButton *registerTabButton;
+@property (nonatomic, strong) UILabel *registerHintLabel;
+@property (nonatomic, strong) UIButton *hostToggleButton;
+@property (nonatomic, assign) BOOL registerMode;
 @end
 
 @implementation IMLoginViewController
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = IMLocalized(@"login.title");
-    self.view.backgroundColor = UIColor.systemBackgroundColor;
+    self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
     [self setupUI];
     if (self.initialNotice.length > 0) { [self showNotice:self.initialNotice]; }
 }
@@ -65,25 +70,49 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
     self.errorLabel.numberOfLines = 0;
     self.errorLabel.hidden = YES;
 
+    self.registerHintLabel = [UILabel new];
+    self.registerHintLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    self.registerHintLabel.font = [UIFont systemFontOfSize:13];
+    self.registerHintLabel.textColor = UIColor.tertiaryLabelColor;
+    self.registerHintLabel.numberOfLines = 0;
+    self.registerHintLabel.text = IMLocalized(@"login.register_format_hint");
+
     self.loginButton = [self buttonTitle:IMLocalized(@"login.button.login") config:[UIButtonConfiguration filledButtonConfiguration] action:@selector(loginTapped)];
-    self.registerButton = [self buttonTitle:IMLocalized(@"login.button.register") config:[UIButtonConfiguration tintedButtonConfiguration] action:@selector(registerTapped)];
-    self.devButton = [self buttonTitle:@"免密登录（开发）" config:[UIButtonConfiguration plainButtonConfiguration] action:@selector(devLoginTapped)];
+    self.registerButton = [self buttonTitle:IMLocalized(@"login.button.register") config:[UIButtonConfiguration filledButtonConfiguration] action:@selector(registerTapped)];
+    self.devButton = [self buttonTitle:IMLocalized(@"login.dev_login") config:[UIButtonConfiguration tintedButtonConfiguration] action:@selector(devLoginTapped)];
+#ifndef DEBUG
+    self.devButton.hidden = YES; // 仅 Debug 包显示免密入口（Android 同口径：release 不显示）
+#endif
+
+    // —— 服务器地址（开发期常要改，收在一个可折叠行里）——
+    self.hostToggleButton = [self buttonTitle:@"" config:[UIButtonConfiguration plainButtonConfiguration] action:@selector(hostToggleTapped)];
+    self.hostField.hidden = YES;
+    [self refreshHostToggleTitle];
+
+    self.loginTabButton = [self buttonTitle:IMLocalized(@"login.button.login") config:[UIButtonConfiguration plainButtonConfiguration] action:@selector(loginTabTapped)];
+    self.registerTabButton = [self buttonTitle:IMLocalized(@"login.tab_register") config:[UIButtonConfiguration plainButtonConfiguration] action:@selector(registerTabTapped)];
+    UIStackView *tabs = [[UIStackView alloc] initWithArrangedSubviews:@[self.loginTabButton, self.registerTabButton]];
+    tabs.axis = UILayoutConstraintAxisHorizontal;
+    tabs.distribution = UIStackViewDistributionFillEqually;
+    tabs.spacing = 8;
 
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
-        self.hostField, self.userIDField, self.nicknameField, self.passwordField, self.errorLabel,
-        self.loginButton, self.registerButton, self.devButton
+        [self logoView], [self titleLabelView], tabs,
+        self.userIDField, self.passwordField, self.nicknameField, self.registerHintLabel, self.errorLabel,
+        self.loginButton, self.registerButton, self.devButton, self.hostToggleButton, self.hostField
     ]];
     stack.axis = UILayoutConstraintAxisVertical;
-    stack.spacing = 14;
+    stack.spacing = 12;
     stack.translatesAutoresizingMaskIntoConstraints = NO;
     [stack setCustomSpacing:8 afterView:self.errorLabel];
     [self.view addSubview:stack];
+    [self applyMode];
 
     UILayoutGuide *guide = self.view.safeAreaLayoutGuide;
     [NSLayoutConstraint activateConstraints:@[
         [stack.leadingAnchor constraintEqualToAnchor:guide.leadingAnchor constant:24],
         [stack.trailingAnchor constraintEqualToAnchor:guide.trailingAnchor constant:-24],
-        [stack.topAnchor constraintEqualToAnchor:guide.topAnchor constant:40],
+        [stack.topAnchor constraintEqualToAnchor:guide.topAnchor constant:32],
     ]];
 }
 
@@ -108,6 +137,84 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
     [b setTitle:title forState:UIControlStateNormal];
     [b addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
     return b;
+}
+
+#pragma mark - 页面结构（对齐 Android）
+
+/// 80pt 圆角 accent 方块 + 白色气泡图标，居中（Android 登录页 Logo）。
+- (UIView *)logoView {
+    UIView *holder = [UIView new];
+    holder.translatesAutoresizingMaskIntoConstraints = NO;
+    UIView *box = [UIView new];
+    box.translatesAutoresizingMaskIntoConstraints = NO;
+    box.backgroundColor = IMTheme.accent;
+    box.layer.cornerRadius = 20;
+    UIImageView *icon = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"message"
+        withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:36 weight:UIImageSymbolWeightRegular]]];
+    icon.translatesAutoresizingMaskIntoConstraints = NO;
+    icon.tintColor = UIColor.whiteColor;
+    [box addSubview:icon];
+    [holder addSubview:box];
+    [NSLayoutConstraint activateConstraints:@[
+        [box.widthAnchor constraintEqualToConstant:80], [box.heightAnchor constraintEqualToConstant:80],
+        [box.topAnchor constraintEqualToAnchor:holder.topAnchor], [box.bottomAnchor constraintEqualToAnchor:holder.bottomAnchor],
+        [box.centerXAnchor constraintEqualToAnchor:holder.centerXAnchor],
+        [icon.centerXAnchor constraintEqualToAnchor:box.centerXAnchor], [icon.centerYAnchor constraintEqualToAnchor:box.centerYAnchor],
+    ]];
+    return holder;
+}
+
+- (UILabel *)titleLabelView {
+    UILabel *label = [UILabel new];
+    label.text = @"IM";
+    label.font = [UIFont systemFontOfSize:24 weight:UIFontWeightRegular];
+    label.textAlignment = NSTextAlignmentCenter;
+    return label;
+}
+
+- (void)loginTabTapped { if (self.registerMode) { self.registerMode = NO; [self applyMode]; } }
+- (void)registerTabTapped { if (!self.registerMode) { self.registerMode = YES; [self applyMode]; } }
+
+/// 按当前页签显隐控件并刷新页签选中态（选中 accentSoft 底 + accent 字，未选中卡片底 + 次要字）。
+- (void)applyMode {
+    BOOL reg = self.registerMode;
+    // 括号里的格式说明只在注册页签需要；登录页签用简短占位（同 Android 的 label）
+    self.userIDField.placeholder = IMLocalized(reg ? @"login.username.placeholder" : @"settings.info.username");
+    self.passwordField.placeholder = IMLocalized(reg ? @"login.password.placeholder" : @"login.password");
+    self.nicknameField.hidden = !reg;
+    self.registerHintLabel.hidden = !reg;
+    self.registerButton.hidden = !reg;
+    self.loginButton.hidden = reg;
+#ifdef DEBUG
+    self.devButton.hidden = reg;
+#endif
+    [self styleTab:self.loginTabButton selected:!reg];
+    [self styleTab:self.registerTabButton selected:reg];
+}
+
+- (void)styleTab:(UIButton *)button selected:(BOOL)selected {
+    UIButtonConfiguration *config = button.configuration;
+    config.baseBackgroundColor = selected ? IMTheme.accentSoft : UIColor.secondarySystemGroupedBackgroundColor;
+    config.baseForegroundColor = selected ? IMTheme.accent : UIColor.secondaryLabelColor;
+    config.background.cornerRadius = 10;
+    config.background.backgroundColor = config.baseBackgroundColor;
+    button.configuration = config;
+}
+
+- (void)hostToggleTapped {
+    self.hostField.hidden = !self.hostField.hidden;
+    [self refreshHostToggleTitle];
+}
+
+- (void)refreshHostToggleTitle {
+    NSString *host = [self trimmed:self.hostField.text];
+    NSString *title = self.hostField.hidden ? IMLocalizedFormat(@"login.server_summary", host) : IMLocalized(@"login.server_address");
+    UIButtonConfiguration *config = [UIButtonConfiguration plainButtonConfiguration];
+    config.baseForegroundColor = UIColor.secondaryLabelColor;
+    self.hostToggleButton.configuration = config;
+    // 必须走 setTitle:——buttonTitle: 里设过的空串会覆盖 configuration.title
+    [self.hostToggleButton setTitle:title forState:UIControlStateNormal];
+    [self.hostToggleButton invalidateIntrinsicContentSize];
 }
 
 #pragma mark - 交互

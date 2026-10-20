@@ -1060,6 +1060,7 @@
 "ios.tab.messages" = "消息";
 "login.button.login" = "登录";
 "login.button.register" = "注册并登录";
+"login.dev_login" = "免密登录（开发）";
 "login.error.dev_login_failed" = "免密登录失败（后端需以 -dev-login 启动）";
 "login.error.fill_credentials" = "请填写用户名与密码";
 "login.error.host_invalid" = "服务器地址格式不对（示例：192.168.1.12:8080 或 https://im.example.com）";
@@ -1083,6 +1084,8 @@
 "login.relogin" = "重新登录";
 "login.restoring" = "正在恢复登录…";
 "login.revoked_notice" = "你的账号已在别处登录，或该设备已被移除";
+"login.server_address" = "服务器地址";
+"login.server_summary" = "服务器：%1$@";
 "login.session_revoked" = "此设备的登录已被移除，请重新登录";
 "login.submitting" = "登录中…";
 "login.tab_password" = "密码登录";

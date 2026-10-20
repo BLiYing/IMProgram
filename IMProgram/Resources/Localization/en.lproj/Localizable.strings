@@ -1060,6 +1060,7 @@
 "ios.tab.messages" = "Messages";
 "login.button.login" = "Log in";
 "login.button.register" = "Sign up and log in";
+"login.dev_login" = "Passwordless login (dev)";
 "login.error.dev_login_failed" = "Passwordless sign-in failed (the backend must run with -dev-login)";
 "login.error.fill_credentials" = "Enter your username and password";
 "login.error.host_invalid" = "Invalid server address (for example: 192.168.1.12:8080 or https://im.example.com)";
@@ -1083,6 +1084,8 @@
 "login.relogin" = "Log in again";
 "login.restoring" = "Restoring your session…";
 "login.revoked_notice" = "Your account was logged in elsewhere, or this device was removed.";
+"login.server_address" = "Server address";
+"login.server_summary" = "Server: %1$@";
 "login.session_revoked" = "This device has been signed out. Please log in again.";
 "login.submitting" = "Logging in…";
 "login.tab_password" = "Password login";
