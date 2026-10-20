@@ -255,7 +255,7 @@ static const NSUInteger kIMRtcMaxGroupCallPick = 8;
 - (void)pickMembersForGroupCall {
     NSArray<IMGroupMember *> *members = self.displayMembers;
     NSMutableArray<IMGroupMember *> *others = [NSMutableArray array];
-    for (IMGroupMember *m in members) { if (![m.userID isEqualToString:self.userID]) { [others addObject:m]; } }
+    for (IMGroupMember *m in members) { if (![m.userID isEqualToString:self.userID] && !m.deleted && ![IMRemarkStore.sharedStore isDeletedUser:m.userID]) { [others addObject:m]; } } // 已注销成员不可呼叫
     if (others.count == 0) { [self im_showToast:IMLocalized(@"chat.detail.group_call_no_members")]; return; }
     NSString *groupID = self.convID;
     __weak typeof(self) ws = self;

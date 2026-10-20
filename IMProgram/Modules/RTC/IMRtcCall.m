@@ -9,6 +9,7 @@
 #import "IMRtcConfig.h"
 #import "IMRtcInviteProvider.h"
 #import "IMRtcProfileResolver.h"
+#import "IMRemarkStore.h"
 #import "IMProgram-Swift.h" // IMRtcCallHistoryBridge（fetchCallHistory 的 Swift 桥接，见该文件头注释）
 @import IMCallEngine;
 @import IMCallEngineWebRTC;
@@ -152,6 +153,8 @@ static const NSInteger IMRtcCallErrorEngineNotStarted = -1;
 #pragma mark - 入口
 
 - (NSString *)placeSingleCallToPeer:(NSString *)peerUID video:(BOOL)video {
+    // 对端已注销（冷静期 / 已匿名化）：入口处先拦，给明确原因（服务端 invite-check 也会拒，但 Kit 只提示「对方暂时无法被邀请」）
+    if ([IMRemarkStore.sharedStore isDeletedUser:peerUID]) { return IMLocalized(@"rtc.call.peer_deleted"); }
     [self restartIfStopped];
     NSString *reason = [self unavailableReason] ?: [IMRtcConfig problemForID:peerUID kind:@"对方 id"];
     if (reason) { return reason; }
@@ -165,9 +168,11 @@ static const NSInteger IMRtcCallErrorEngineNotStarted = -1;
     [self restartIfStopped];
     NSString *reason = [self unavailableReason] ?: [IMRtcConfig problemForID:groupID kind:@"群号"];
     if (reason) { return reason; }
-    if (calleeUIDs.count == 0) { return IMLocalized(@"rtc.error.no_callees"); }
+    NSMutableArray<NSString *> *live = [NSMutableArray arrayWithCapacity:calleeUIDs.count]; // 已注销成员不呼叫
+    for (NSString *uid in calleeUIDs) { if (![IMRemarkStore.sharedStore isDeletedUser:uid]) { [live addObject:uid]; } }
+    if (live.count == 0) { return IMLocalized(@"rtc.error.no_callees"); }
     _resolver.groupID = groupID;
-    [_kit.controller placeCall:calleeUIDs mediaType:@"video"
+    [_kit.controller placeCall:live mediaType:@"video"
                        isGroup:YES chatGroupID:groupID userData:@"" timeoutSec:0];
     return nil;
 }

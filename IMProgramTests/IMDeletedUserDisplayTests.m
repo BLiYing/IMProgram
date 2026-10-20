@@ -10,6 +10,7 @@
 #import "IMGroupInfo.h"
 #import "IMLocalization.h"
 #import "IMRemarkStore.h"
+#import "IMRtcCall.h"
 #import "IMSocketManager.h"
 #import "IMSocketManager+Private.h"
 #import "IMUserCard.h"
@@ -149,6 +150,12 @@
     __block id left = nil;
     dispatch_sync(q, ^{ left = pending[@"cmid-300003"]; });
     XCTAssertNil(left, @"拒收后待确认项必须清掉，否则一直转圈");
+}
+
+/// 通话入口：对端已注销 → 返回明确原因、不进引擎（所有单聊入口汇到 placeSingleCallToPeer）；恢复后不再被它拦。
+- (void)testPlaceSingleCallBlockedForDeletedPeer {
+    [IMRemarkStore.sharedStore setUser:@"u1" deleted:YES];
+    XCTAssertEqualObjects([IMRtcCall.shared placeSingleCallToPeer:@"u1" video:NO], IMLocalized(@"rtc.call.peer_deleted"));
 }
 
 @end

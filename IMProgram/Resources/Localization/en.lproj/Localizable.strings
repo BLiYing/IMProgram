@@ -662,6 +662,7 @@
 "err.200002" = "Wrong password";
 "err.200003" = "This account has been banned";
 "err.200004" = "This username is already taken";
+"err.200005" = "This account is scheduled for deletion. Sign in with your password to restore it.";
 "err.200101" = "You’re already friends";
 "err.200102" = "Can’t add this person as a friend right now";
 "err.200103" = "This person isn’t your friend";
@@ -1059,6 +1060,7 @@
 "ios.tab.messages" = "Messages";
 "login.button.login" = "Log in";
 "login.button.register" = "Sign up and log in";
+"login.error.dev_login_failed" = "Passwordless sign-in failed (the backend must run with -dev-login)";
 "login.error.fill_credentials" = "Enter your username and password";
 "login.error.host_invalid" = "Invalid server address (for example: 192.168.1.12:8080 or https://im.example.com)";
 "login.error.host_required" = "Enter the server address";
@@ -1618,6 +1620,7 @@
 "record.chat_history" = "Chat history";
 "record.dirty_card" = "[Contact]";
 "record.dirty_record" = "[Chat History]";
+"rtc.call.peer_deleted" = "This account has been deleted. You can't call it.";
 "rtc.connecting" = "Connecting to the call service…";
 "rtc.error.id_empty" = "%1$@ is empty";
 "rtc.error.id_has_whitespace" = "%1$@ contains whitespace: %2$@";

@@ -173,7 +173,7 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
         [self showError:@"请填写用户名（uid）"];
         return;
     }
-    [self loginWithHost:host username:userID password:@"" fallback:@"免密登录失败（后端需以 -dev-login 启动）" activeButton:self.devButton];
+    [self loginWithHost:host username:userID password:@"" fallback:IMLocalized(@"login.error.dev_login_failed") activeButton:self.devButton];
 }
 
 /// 登录入口共用：host/密码设入服务层 → 真发一次 POST /login → 成功才进主界面，失败把文案留在登录页。
@@ -194,6 +194,11 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
         if (!self) { return; }
         [self setBusy:NO activeButton:activeButton];
         if (token.length == 0 || userID.length == 0) {
+            if (error.code == IMErrCodeAccountPendingDeletion && password.length == 0) {
+                // 免密路径没有密码可交给 /account/restore：给本地化指引，不显示服务端英文原文
+                [self showError:IMLocalized(@"err.200005")];
+                return;
+            }
             if (error.code == IMErrCodeAccountPendingDeletion) {
                 [self promptRestoreForHost:host username:username password:password fallback:fallback
                               activeButton:activeButton deleteAt:error.userInfo[IMErrorDeleteAtKey]];

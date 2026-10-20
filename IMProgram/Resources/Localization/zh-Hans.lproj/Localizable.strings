@@ -662,6 +662,7 @@
 "err.200002" = "密码错误";
 "err.200003" = "账号已被封禁";
 "err.200004" = "用户名已被注册";
+"err.200005" = "该账号已申请注销，请使用密码登录以恢复";
 "err.200101" = "你们已经是好友了";
 "err.200102" = "暂时无法添加对方为好友";
 "err.200103" = "对方不是你的好友";
@@ -1059,6 +1060,7 @@
 "ios.tab.messages" = "消息";
 "login.button.login" = "登录";
 "login.button.register" = "注册并登录";
+"login.error.dev_login_failed" = "免密登录失败（后端需以 -dev-login 启动）";
 "login.error.fill_credentials" = "请填写用户名与密码";
 "login.error.host_invalid" = "服务器地址格式不对（示例：192.168.1.12:8080 或 https://im.example.com）";
 "login.error.host_required" = "请填写服务器地址";
@@ -1618,6 +1620,7 @@
 "record.chat_history" = "聊天记录";
 "record.dirty_card" = "[个人名片]";
 "record.dirty_record" = "[聊天记录]";
+"rtc.call.peer_deleted" = "对方账号已注销，无法发起通话";
 "rtc.connecting" = "正在连接通话服务…";
 "rtc.error.id_empty" = "%1$@ 为空";
 "rtc.error.id_has_whitespace" = "%1$@ 含空白：%2$@";
