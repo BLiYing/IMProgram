@@ -76,7 +76,9 @@
         [specs addObject:@{@"t": IMLocalized(@"common.more"), @"s": @"ellipsis", @"a": @"more"}];
         return specs;
     }
-    if (!self.isGroup) {
+    // 对端已注销（PROTOCOL §6.16.3：应禁用发消息 / 加好友 / 通话入口）：只留搜索 / 更多（查本机聊天记录、清空等仍有意义）。
+    BOOL peerDeleted = !self.isGroup && [IMRemarkStore.sharedStore isDeletedUser:self.peerID];
+    if (!self.isGroup && !peerDeleted) {
         if (!self.peerIsFriend) {
             [specs addObject:@{@"t": IMLocalized(@"contacts.search.action_add"), @"s": @"person.badge.plus", @"a": @"addfriend"}];
             return specs; // 非好友：到此为止（搜索/更多都不适用）

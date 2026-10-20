@@ -67,6 +67,7 @@
     NSString *conn = IMSocketStateSubtitle(self.connState);
     if (conn.length > 0) { return conn; }
     if (!self.isGroupChat) {
+        if ([IMRemarkStore.sharedStore isDeletedUser:self.peerID]) { return @""; } // 已注销：没有「很久未上线」这种在线态
         // 单聊：在线态走副标题（原先的 🟢 已去掉）。
         return self.peerPresence.subtitleText ?: @"";
     }
