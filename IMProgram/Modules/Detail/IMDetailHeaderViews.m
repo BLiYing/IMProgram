@@ -32,7 +32,13 @@
     _letter.font = [UIFont systemFontOfSize:MAX(10, self.bounds.size.width * 0.4) weight:UIFontWeightSemibold];
 }
 - (void)setAvatarURL:(NSString *)url seed:(NSString *)seed name:(NSString *)name {
-    if ([IMRemarkStore.sharedStore isDeletedUser:seed]) { url = nil; name = IMLocalized(@"delete_account.deleted_user"); } // 已注销：默认头像
+    if ([IMRemarkStore.sharedStore isDeletedUser:seed]) { // 已注销：灰底人形默认头像
+        _letter.text = @"";
+        self.backgroundColor = [UIColor colorWithWhite:0.62 alpha:1];
+        _photo.image = IMDeletedUserAvatarImage(); _photo.hidden = NO;
+        ++_token; // 作废在途的旧头像加载
+        return;
+    }
     _letter.text = IMAvatarInitials(name.length ? name : seed);
     self.backgroundColor = [IMTheme avatarColorForSeed:seed];
     _photo.image = nil; _photo.hidden = YES;

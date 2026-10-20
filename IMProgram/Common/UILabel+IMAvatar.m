@@ -24,6 +24,24 @@ static UIImage *IMSystemAvatarImage(void) {
     return [UIImage imageNamed:name ?: @"LaunchLogo"];
 }
 
+UIImage *IMDeletedUserAvatarImage(void) {
+    static UIImage *image;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        CGFloat side = 160;
+        UIGraphicsImageRenderer *r = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(side, side)];
+        image = [r imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
+            [[UIColor colorWithWhite:0.62 alpha:1] setFill];
+            UIRectFill(CGRectMake(0, 0, side, side));
+            UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:side * 0.56 weight:UIImageSymbolWeightRegular];
+            UIImage *glyph = [[UIImage systemImageNamed:@"person.fill" withConfiguration:cfg] imageWithTintColor:UIColor.whiteColor
+                                                                                                renderingMode:UIImageRenderingModeAlwaysOriginal];
+            [glyph drawAtPoint:CGPointMake((side - glyph.size.width) / 2, (side - glyph.size.height) / 2 + side * 0.03)];
+        }];
+    });
+    return image;
+}
+
 @implementation UILabel (IMAvatar)
 
 - (void)im_setAvatarURL:(nullable NSString *)url seed:(NSString *)seed displayName:(nullable NSString *)displayName {
@@ -58,8 +76,8 @@ static UIImage *IMSystemAvatarImage(void) {
 
     // 已注销用户：不显示（可能是旧缓存里的）头像图，首字母圈用「已注销用户」——名字与头像在每个调用点都自动一致。
     if ([IMRemarkStore.sharedStore isDeletedUser:seed]) {
-        url = nil;
-        displayName = IMLocalized(@"delete_account.deleted_user");
+        [self im_showDeletedUserAvatar];
+        return;
     }
     // 1) 立即渲染首字母 + 稳定取色底（回退态，无空白闪烁）。
     NSString *name = displayName.length ? displayName : seed;
@@ -109,6 +127,30 @@ static UIImage *IMSystemAvatarImage(void) {
         cur.image = img;
         cur.hidden = NO;
     }];
+}
+
+/// 已注销：灰底人形默认头像，覆盖在首字母圈上；token 前进以作废在途的旧头像加载。
+- (void)im_showDeletedUserAvatar {
+    self.text = @"";
+    self.backgroundColor = [UIColor colorWithWhite:0.62 alpha:1];
+    UIImageView *iv = objc_getAssociatedObject(self, kIMAvatarImageViewKey);
+    if (!iv) {
+        iv = [UIImageView new];
+        iv.translatesAutoresizingMaskIntoConstraints = NO;
+        iv.contentMode = UIViewContentModeScaleAspectFill;
+        iv.clipsToBounds = YES;
+        [self addSubview:iv];
+        [NSLayoutConstraint activateConstraints:@[
+            [iv.leadingAnchor constraintEqualToAnchor:self.leadingAnchor], [iv.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
+            [iv.topAnchor constraintEqualToAnchor:self.topAnchor], [iv.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
+        ]];
+        objc_setAssociatedObject(self, kIMAvatarImageViewKey, iv, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    iv.layer.cornerRadius = self.layer.cornerRadius;
+    iv.image = IMDeletedUserAvatarImage();
+    iv.hidden = NO;
+    NSUInteger token = [objc_getAssociatedObject(self, kIMAvatarTokenKey) unsignedIntegerValue] + 1;
+    objc_setAssociatedObject(self, kIMAvatarTokenKey, @(token), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 - (void)im_clearAvatarImage {

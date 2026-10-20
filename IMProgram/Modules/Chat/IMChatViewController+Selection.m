@@ -617,8 +617,7 @@ BOOL IMChatSelectionAllDeletableForEveryone(NSArray<IMMessageModel *> *msgs, BOO
         NSMutableDictionary<NSString *, NSString *> *newGidForOld = [NSMutableDictionary dictionary]; // 原 group_id → 本会话新 group_id
         for (IMMessageModel *m in msgs) {
             if (![self isForwardableMessage:m]) { continue; } // 撤回/空/系统/发送中失败/失效 一律跳过
-            NSString *origin = m.forwardFrom.length > 0 ? m.forwardFrom
-                : (m.fromNickname.length > 0 ? m.fromNickname : (m.from ?: @""));
+            NSString *origin = IMForwardOriginName(m);
             // 主消息流多选批量转发：用户在气泡上勾选，看得到 caption，按 Telegram 语义保留一起转过去。
             IMMediaAttributes *attrs = [self forwardAttributesForMessage:m stripCaption:NO];
             if (m.groupID.length > 0 && [self isAlbumMember:m] && [albumCount countForObject:m.groupID] >= 2) {

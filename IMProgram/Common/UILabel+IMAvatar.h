@@ -7,6 +7,9 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+/// 「已注销用户」的默认头像：灰底 + 白色人形（对齐 Android IMAvatar）。方形位图（调用方按圆裁剪），进程内缓存。
+FOUNDATION_EXPORT UIImage *IMDeletedUserAvatarImage(void);
+
 @interface UILabel (IMAvatar)
 
 /// url：data:/http(s)，可空（空=只显首字母圈）。seed：稳定取色种子（一般 uid）。displayName：取首字母（见 IMAvatarInitials）。

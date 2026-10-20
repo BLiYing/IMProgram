@@ -77,8 +77,7 @@
     }
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0) { return; }
-    NSString *origin = message.forwardFrom.length > 0 ? message.forwardFrom
-        : (message.fromNickname.length > 0 ? message.fromNickname : (message.from ?: @"")); // 转发链保留最初作者
+    NSString *origin = IMForwardOriginName(message); // 转发链保留最初作者；已注销者用「已注销用户」
     NSString *content = message.content;
     NSString *contentType = message.contentType ?: @"text";
     NSString *fileName = message.fileName;

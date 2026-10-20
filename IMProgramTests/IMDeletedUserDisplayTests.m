@@ -4,13 +4,16 @@
 
 #import <XCTest/XCTest.h>
 
+#import "IMChatMessageLogic.h"
 #import "IMConversation.h"
+#import "IMMessageModel.h"
 #import "IMGroupInfo.h"
 #import "IMLocalization.h"
 #import "IMRemarkStore.h"
 #import "IMSocketManager.h"
 #import "IMSocketManager+Private.h"
 #import "IMUserCard.h"
+#import "UILabel+IMAvatar.h"
 
 @interface IMDeletedUserDisplayTests : XCTestCase
 @end
@@ -80,6 +83,22 @@
     IMGroupInfo *g = [IMGroupInfo new];
     g.members = @[m];
     XCTAssertEqualObjects([g nicknameOfMember:@"u1"], [self label]);
+}
+
+/// 转发条目作者：已注销发送者写「已注销用户」；已有转发链原样保留；正常发送者仍取昵称快照。
+- (void)testForwardOriginNameForDeletedSender {
+    IMMessageModel *m = [IMMessageModel new];
+    m.from = @"u1"; m.fromNickname = @"小明";
+    XCTAssertEqualObjects(IMForwardOriginName(m), @"小明");
+    [IMRemarkStore.sharedStore setUser:@"u1" deleted:YES];
+    XCTAssertEqualObjects(IMForwardOriginName(m), [self label]);
+    m.forwardFrom = @"最初作者";
+    XCTAssertEqualObjects(IMForwardOriginName(m), @"最初作者");
+}
+
+/// 默认头像：非空位图（灰底人形，不依赖首字母规则）。
+- (void)testDeletedAvatarImageExists {
+    XCTAssertNotNil(IMDeletedUserAvatarImage());
 }
 
 #pragma mark - WS

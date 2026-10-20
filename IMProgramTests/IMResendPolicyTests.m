@@ -128,8 +128,8 @@ static NSError *bizError(NSInteger code) {
 
 /// 七个「重发必然再次被拒」的码都必须挂 note。**300208（成员级禁言）曾只在文本路径里有**：
 /// 媒体路径漏了它，被禁言期间发媒体只显普通红❗、没有提示行。
-- (void)test_七个拒收码都挂note_含成员级禁言300208 {
-    for (NSNumber *c in @[@200102, @200103, @300004, @300203, @300206, @300208, @300001]) {
+- (void)test_八个拒收码都挂note_含成员级禁言300208与已注销300003 {
+    for (NSNumber *c in @[@200102, @200103, @300003, @300004, @300203, @300206, @300208, @300001]) {
         XCTAssertTrue(IMSendRejectionShowsNote(c.integerValue), @"%@ 应当算被拒收", c);
         NSInteger noteCode = -1;
         NSString *note = IMSendRejectionNote(NO, bizError(c.integerValue), &noteCode);

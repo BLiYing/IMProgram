@@ -99,6 +99,10 @@ FOUNDATION_EXPORT IMResendPolicy IMResendPolicyForMessage(IMMessageModel *_Nulla
 /// 新增「重发必然再失败」的服务端拒收码，加在这里一处，并同步 `IMResendPolicyForMessage` 的注释。
 FOUNDATION_EXPORT BOOL IMSendRejectionShowsNote(NSInteger code);
 
+/// 转发时写进 `forward_from` 的「最初作者」名：已有转发链原样保留；否则取发送者昵称快照，
+/// 发送者已注销时用「已注销用户」（本机语言冻结进内容；不带备注——备注仅本人可见）。
+FOUNDATION_EXPORT NSString *IMForwardOriginName(IMMessageModel *message);
+
 /// `note` / `noteCode` 的取值：失败且业务码在白名单内 → (服务端友好文案, 业务码)，否则 (nil, 0)。
 /// noteCode 是瞬态、不落库，只决定系统行是否给恢复入口（200103 → 发好友申请）。
 FOUNDATION_EXPORT NSString *_Nullable IMSendRejectionNote(BOOL success, NSError *_Nullable error, NSInteger *_Nullable outNoteCode);

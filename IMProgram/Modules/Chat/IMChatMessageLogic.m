@@ -3,6 +3,8 @@
 #import "IMChatMessageLogic.h"
 
 #import "IMMessageModel.h"
+#import "IMRemarkStore.h"
+#import "IMLocalization.h"
 #import "IMPendingMediaStore.h"
 
 BOOL IMChatTextContainsMentionToken(NSString *_Nullable text, NSString *_Nullable displayName) {
@@ -130,12 +132,19 @@ IMResendPolicy IMResendPolicyForMessage(IMMessageModel *message, BOOL mine) {
     return IMResendPolicySameID;
 }
 
+NSString *IMForwardOriginName(IMMessageModel *message) {
+    if (message.forwardFrom.length > 0) { return message.forwardFrom; }
+    if ([IMRemarkStore.sharedStore isDeletedUser:message.from]) { return IMLocalized(@"delete_account.deleted_user"); }
+    return message.fromNickname.length > 0 ? message.fromNickname : (message.from ?: @"");
+}
+
 BOOL IMSendRejectionShowsNote(NSInteger code) {
     switch (code) {
         case 200102: case 200103:                      // 被拉黑 / 非好友
         case 300004: case 300208: case 300206:         // 被禁言 / 成员级禁言 / 群全员禁言
         case 300203:                                   // 非群成员
         case 300001:                                   // 内容过大
+        case 300003:                                   // 对方账号已注销（无恢复入口，灰字说明即可；不给红❗重发）
             return YES;
         default:
             return NO;

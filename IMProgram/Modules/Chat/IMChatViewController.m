@@ -312,6 +312,15 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
                                                 fallback:(self.peerNickname.length ? self.peerNickname : self.peerID)];
 }
 
+/// 对端已注销：把本会话里「非好友 200103 → 发好友申请」的恢复入口撤掉（noteCode 是瞬态，清零后系统行只剩灰字、不可点）。
+- (void)dropFriendRequestNoteActions {
+    BOOL changed = NO;
+    for (IMMessageModel *m in self.windowState.messages) {
+        if (m.noteCode == 200103) { m.noteCode = 0; changed = YES; }
+    }
+    if (changed) { [self.tableView reloadData]; }
+}
+
 /// 备注名变更（本端改 / 其它设备改）。
 /// 单聊只关心本会话对端；群聊里**任何一个成员**的备注变了都要重绘可见气泡与系统消息
 /// （发送者名/头像首字母/系统消息里的名字都按备注渲染）。批量刷新（无 peerID 键）一律刷。
@@ -324,6 +333,7 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     if (peerID.length > 0 && ![peerID isEqualToString:self.peerID]) { return; }
     [self refreshDisplayIdentity];
     [self refreshComposerMuteState]; // 对端注销 / 恢复会翻转输入栏只读态
+    if ([IMRemarkStore.sharedStore isDeletedUser:self.peerID]) { [self dropFriendRequestNoteActions]; }
 }
 
 /// 一批 uid 的资料解析回来了（IMUserProfileCache）。只在群聊注册，纯本地重绘。

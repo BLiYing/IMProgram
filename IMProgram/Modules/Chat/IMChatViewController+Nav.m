@@ -70,8 +70,11 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     // 内圈头像直径。外圈=标题栏 44pt 玻璃圆钮；间隔/侧 = (44 - avatarD)/2。
     // 30→间隔 7pt；37→间隔 3.5pt（间隔减半）。想更贴边继续调大（≤44）。
     CGFloat avatarD = 37;
-    if ([IMRemarkStore.sharedStore isDeletedUser:seed]) { url = nil; name = IMLocalized(@"delete_account.deleted_user"); } // 已注销：默认头像
-    UIBarButtonItem *item = [[UIBarButtonItem alloc] initWithImage:IMChatAvatarImage(nil, seed, name, avatarD)
+    UIImage *deletedAvatar = nil;
+    if ([IMRemarkStore.sharedStore isDeletedUser:seed]) { // 已注销：灰底人形默认头像
+        url = nil; name = IMLocalized(@"delete_account.deleted_user"); deletedAvatar = IMDeletedUserAvatarImage();
+    }
+    UIBarButtonItem *item = [[UIBarButtonItem alloc] initWithImage:IMChatAvatarImage(deletedAvatar, seed, name, avatarD)
                                                               style:UIBarButtonItemStylePlain
                                                              target:self action:action];
     item.accessibilityLabel = name.length ? IMLocalizedFormat(@"chat.detail.a11y_with_name", name) : IMLocalized(@"chat.detail.a11y_title");
@@ -136,7 +139,7 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
 /// 点拒收系统行的「发送好友申请」（非好友 200103 的恢复入口，微信式）。
 /// 服务端 Request 对「我侧陈旧 accepted」已放行（单向删除后被删方的唯一恢复路径）。
 - (void)sendFriendRequestFromRejectedNote {
-    if (self.peerID.length == 0) { return; }
+    if (self.peerID.length == 0 || [IMRemarkStore.sharedStore isDeletedUser:self.peerID]) { return; } // 已注销对端不可加好友（§6.16.3）
     // 与其余三个入口一样走统一的「添加好友」弹窗填验证消息（吐司在那里打）。
     [self im_askFriendRequestForUID:self.peerID name:self.peerNickname onSent:nil];
 }
