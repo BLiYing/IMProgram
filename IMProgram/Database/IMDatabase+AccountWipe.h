@@ -15,6 +15,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// 返回是否成功；失败整体回滚（调用方应记日志但不阻塞回登录页）。
 - (BOOL)wipeAllDataForCurrentOwner;
 
+/// 当前 owner 的消息里仍指向本地待发暂存文件的 localRef（`im-pending://…`）。暂存目录各账号共用，注销只能删自己的，
+/// 所以须在 wipeAllDataForCurrentOwner 之前取。
+- (NSArray<NSString *> *)pendingMediaLocalRefsForCurrentOwner;
+
 @end
 
 NS_ASSUME_NONNULL_END

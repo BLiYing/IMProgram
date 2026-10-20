@@ -40,12 +40,16 @@ static BOOL sAccountDeletionInProgress = NO;
 
 + (void)wipeLocalChatCacheThen:(void (^)(void))completion {
     NSArray<NSURL *> *dirs = [self ownedMediaCacheDirectories];
+    // 先断 WS：清库期间服务端仍在推帧，落库会把刚清掉的 owner 行又写回来（此时 owner 还在，tearDown 在 completion 里）。
+    [IMSocketManager.sharedManager disconnect];
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        // 待发暂存目录各账号共用：只删本账号消息引用的文件（须在清库前取），别的账号的待发媒体不动。
+        NSArray<NSString *> *pendingRefs = [IMDatabase.sharedDatabase pendingMediaLocalRefsForCurrentOwner];
         if (![IMDatabase.sharedDatabase wipeAllDataForCurrentOwner]) {
             IMLogWarnWithTag(IMLogTagDatabase, @"account_wipe_db_failed（继续清文件缓存并回登录页）");
         }
         for (NSURL *dir in dirs) { [NSFileManager.defaultManager removeItemAtURL:dir error:NULL]; }
-        [IMPendingMediaStore.shared removeAllStoredFiles];
+        for (NSString *ref in pendingRefs) { [IMPendingMediaStore.shared removeLocalRef:ref]; }
         dispatch_async(dispatch_get_main_queue(), ^{
             [[IMImageLoader shared] clearCache];
             [IMViewedMediaStore.shared clearCurrentUser];

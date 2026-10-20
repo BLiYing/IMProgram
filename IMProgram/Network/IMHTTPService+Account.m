@@ -81,7 +81,9 @@ NSError *IMErrorByAttachingAccountInfo(NSError *error, NSDictionary *body) {
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) { return; }
         NSError *result = error;
-        NSInteger code = [body[@"code"] respondsToSelector:@selector(integerValue)] ? [body[@"code"] integerValue] : 0;
+        // 信封缺 code（网关/代理回了别的 JSON）不能当成功：注销成功会触发本机清库 + 登出，必须有明确的 code=0。
+        BOOL hasCode = [body[@"code"] isKindOfClass:NSNumber.class] || [body[@"code"] isKindOfClass:NSString.class];
+        NSInteger code = hasCode ? [body[@"code"] integerValue] : -1;
         if (!error && code != 0) {
             result = IMErrorByAttachingAccountInfo(
                 [self errorWithCode:code message:[self messageFrom:body fallback:fallback]], body);

@@ -120,7 +120,13 @@
 - (void)handleAccountDeletedElsewhere {
     if (IMSessionTeardown.accountDeletionInProgress || ![IMSessionStore hasSession]) { return; }
     IMLog(@"account deleted elsewhere → 清本机聊天缓存并回登录页");
-    [IMSessionTeardown wipeLocalChatCacheThen:^{ [self forceLogoutToLogin:YES]; }]; // 清库在后台，完成后再清会话 / 回登录页
+    // 清库期间让被踢通路让路：服务端随后断连，重连的 401 会触发 handleSessionRevoked，
+    // 它抢先 tearDown 会让清库拿不到当前 owner（缓存没清掉，还显示普通被踢 toast）。
+    IMSessionTeardown.accountDeletionInProgress = YES;
+    [IMSessionTeardown wipeLocalChatCacheThen:^{ // 清库在后台，完成后再清会话 / 回登录页
+        IMSessionTeardown.accountDeletionInProgress = NO;
+        [self forceLogoutToLogin:YES];
+    }];
 }
 
 /// accountDeleted=YES：登录页顶部显示与主动注销一致的「7 天后永久删除，期间重新登录可恢复」提示条，替代被踢 toast。

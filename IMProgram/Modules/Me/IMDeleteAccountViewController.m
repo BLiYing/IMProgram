@@ -321,6 +321,20 @@ static NSString * const kOwnedGroupScheme = @"imgroup";
     [self refreshSubmitEnabled];
 }
 
+/// 从群页（转让 / 解散群主身份）返回时退出阻断态：名单已过时，服务端在下一次提交时重新判定。
+/// 否则按钮与密码框一直置灰，只能退出本页再进。首次出现时 blocked 为 NO，不受影响。
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    if (!self.blocked) { return; }
+    self.blocked = NO;
+    self.ownedView.hidden = YES;
+    self.consequenceCard.hidden = NO;
+    self.cooldownTip.hidden = NO;
+    self.passwordField.enabled = YES;
+    self.passwordCard.alpha = 1;
+    [self refreshSubmitEnabled];
+}
+
 #pragma mark - 提交
 
 - (void)submitTapped {

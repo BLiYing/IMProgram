@@ -214,7 +214,9 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
                     fallback:(NSString *)fallback
                 activeButton:(UIButton *)activeButton
                     deleteAt:(nullable NSDate *)deleteAt {
-    NSString *message = IMLocalizedFormat(@"delete_account.restore_message", IMDeleteAtDisplayString(deleteAt));
+    // 服务端没给 delete_at 时不渲染「-」占位日期（Android / Web 同口径：退回标题文案）
+    NSString *message = deleteAt ? IMLocalizedFormat(@"delete_account.restore_message", IMDeleteAtDisplayString(deleteAt))
+                                 : IMLocalized(@"delete_account.restore_title");
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:IMLocalized(@"delete_account.restore_title")
                                                                 message:message preferredStyle:UIAlertControllerStyleAlert];
     [ac addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];

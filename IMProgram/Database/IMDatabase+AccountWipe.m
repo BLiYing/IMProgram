@@ -4,6 +4,7 @@
 #import "IMDatabase+AccountWipe.h"
 #import "IMDatabase+Ranges.h"   // dbQueue / ownerUserID 内部访问器
 #import "IMLog.h"
+#import "IMPendingMediaStore.h"
 
 /// 带 owner_uid 列的全部用户表名（排除 sqlite_ 内部表）。
 static NSArray<NSString *> *IMOwnerScopedTables(FMDatabase *db) {
@@ -23,6 +24,22 @@ static NSArray<NSString *> *IMOwnerScopedTables(FMDatabase *db) {
 }
 
 @implementation IMDatabase (AccountWipe)
+
+- (NSArray<NSString *> *)pendingMediaLocalRefsForCurrentOwner {
+    NSString *owner = [self ownerUserID];
+    if (owner.length == 0 || [owner isEqualToString:@"__default__"]) { return @[]; }
+    NSMutableArray<NSString *> *refs = [NSMutableArray array];
+    [self.dbQueue inDatabase:^(FMDatabase *db) {
+        FMResultSet *rs = [db executeQuery:@"SELECT content FROM im_message_local WHERE owner_uid=? AND content LIKE ?",
+                           owner, [kIMPendingMediaScheme stringByAppendingString:@"%"]];
+        while ([rs next]) {
+            NSString *c = [rs stringForColumnIndex:0];
+            if (c.length > 0) { [refs addObject:c]; }
+        }
+        [rs close];
+    }];
+    return refs;
+}
 
 - (BOOL)wipeAllDataForCurrentOwner {
     NSString *owner = [self ownerUserID];

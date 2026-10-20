@@ -50,9 +50,6 @@ extern NSString * const kIMPendingMediaScheme;
 /// 发送成功/用户删除后清理。
 - (void)removeLocalRef:(nullable NSString *)localRef;
 
-/// 删掉整个暂存目录（注销账号清本机缓存用）；之后仍可继续 store*（目录会重建）。
-- (void)removeAllStoredFiles;
-
 /// 是否本地待发标识。
 + (BOOL)isLocalRef:(nullable NSString *)value;
 

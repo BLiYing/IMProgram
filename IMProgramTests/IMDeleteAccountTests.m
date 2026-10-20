@@ -288,6 +288,23 @@ static NSDictionary *sAcctResp; static NSString *sAcctPath;
     [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
 }
 
+- (void)test_注销清库_待发暂存引用只取当前账号的 {
+    NSURL *url = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:
+        [NSString stringWithFormat:@"im-wipe-pending-%@.sqlite", NSUUID.UUID.UUIDString]]];
+    IMDatabase *db = [[IMDatabase alloc] initWithFileURL:url];
+    IMMessageModel *(^msg)(NSString *, NSString *) = ^IMMessageModel *(NSString *conv, NSString *content) {
+        return [IMMessageModel receivedMessageWithNewMsgData:@{ @"server_msg_id": [conv stringByAppendingString:@"-1"], @"conv_id": conv,
+            @"from": @"peer", @"content": content, @"content_type": @"text", @"conv_seq": @1, @"timestamp": @1788000000001 }];
+    };
+    [db useOwnerUserID:@"owner_a"];
+    [db saveIncomingMessage:msg(@"g_a", @"im-pending://a1.jpg") advancingSyncedConvSeq:1];
+    [db useOwnerUserID:@"owner_b"];
+    [db saveIncomingMessage:msg(@"g_b", @"im-pending://b1.jpg") advancingSyncedConvSeq:1];
+    [db useOwnerUserID:@"owner_a"];
+    XCTAssertEqualObjects([db pendingMediaLocalRefsForCurrentOwner], (@[ @"im-pending://a1.jpg" ]));
+    [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
+}
+
 - (void)test_注销清库_未选账号时拒绝执行 {
     NSURL *url = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:
         [NSString stringWithFormat:@"im-wipe-guard-%@.sqlite", NSUUID.UUID.UUIDString]]];
