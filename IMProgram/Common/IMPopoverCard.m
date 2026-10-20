@@ -41,6 +41,7 @@ static CGFloat IMContextMenuWidthForItems(NSArray<IMPopoverCardItem *> *items, U
 @property (nonatomic, strong) IMPopoverCardItem *item;
 @property (nonatomic, strong) UILabel *titleLabel;
 @property (nonatomic, strong) UIImageView *iconView;
+@property (nonatomic, assign) CGFloat opticalOffsetX;
 @end
 
 @implementation IMContextMenuRow
@@ -59,7 +60,9 @@ static CGFloat IMContextMenuWidthForItems(NSArray<IMPopoverCardItem *> *items, U
             [UIImageSymbolConfiguration configurationWithPointSize:18 weight:UIImageSymbolWeightRegular];
         _iconView = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:item.symbol
                                                                   withConfiguration:configuration]];
-        _iconView.contentMode = UIViewContentModeCenter;
+        // 退出图标左边是实心方框、右边只有细箭头，几何居中时视觉重心偏左：右移 2pt 做光学补偿。
+        _opticalOffsetX = [item.symbol isEqualToString:@"rectangle.portrait.and.arrow.right"] ? 2 : 0;
+        _iconView.contentMode = UIViewContentModeScaleAspectFit; // 宽符号（如退出图标）缩进 24pt 框内，各行图标轴线一致
         _iconView.tintColor = item.destructive ? IMTheme.danger : IMTheme.textPrimary;
         [self addSubview:_iconView];
         self.accessibilityLabel = item.title;
@@ -70,7 +73,7 @@ static CGFloat IMContextMenuWidthForItems(NSArray<IMPopoverCardItem *> *items, U
 - (void)layoutSubviews {
     [super layoutSubviews];
     // 图标在左、文字在右（对齐系统长按 UIMenu 与微信式菜单）。
-    self.iconView.frame = CGRectMake(kIMContextMenuIconX, 0, kIMContextMenuIconWidth, self.bounds.size.height);
+    self.iconView.frame = CGRectMake(kIMContextMenuIconX + self.opticalOffsetX, 0, kIMContextMenuIconWidth, self.bounds.size.height);
     CGFloat titleX = kIMContextMenuIconX + kIMContextMenuIconWidth + kIMContextMenuIconGap;
     self.titleLabel.frame = CGRectMake(titleX, 0, self.bounds.size.width - titleX - kIMContextMenuTrailing, self.bounds.size.height);
 }

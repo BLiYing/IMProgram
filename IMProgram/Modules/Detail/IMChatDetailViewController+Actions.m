@@ -333,7 +333,7 @@ static const NSUInteger kIMRtcMaxGroupCallPick = 8;
         [items addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"chat.detail.clear_history") symbol:@"trash" destructive:NO handler:^{ [ws confirmClearHistory]; }]];
         [items addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"chat.detail.leave_group") symbol:@"rectangle.portrait.and.arrow.right" destructive:YES handler:^{ [ws confirmLeaveGroup]; }]];
         if (self.group && self.group.myRole == IMGroupRoleOwner) {
-            [items addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"chat.detail.dissolve_group") symbol:@"trash.fill" destructive:YES handler:^{ [ws confirmDissolve]; }]];
+            [items addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"chat.detail.dissolve_group") symbol:@"person.crop.circle.badge.xmark" destructive:YES handler:^{ [ws confirmDissolve]; }]];
         }
     } else if (IMIsSystemUserID(self.peerID)) {
         // 系统通知会话：只保留清空聊天记录（拉黑/举报 不适用；护栏也会拒）。

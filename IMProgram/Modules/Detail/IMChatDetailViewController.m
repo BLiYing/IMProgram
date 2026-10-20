@@ -20,6 +20,7 @@
 #import "IMDetailServerArchive.h"
 #import "IMTimeUtil.h" // IMNowMillis()：成员禁言状态判定与时长换算
 #import "IMMuteExpiryScheduler.h" // IMMuteExpiryDidChangeNotification
+#import "IMActionListSheet.h"
 #import "IMMuteState.h" // 定时免打扰值行文案（IMIsMutedNow/IMMuteDetailValueText）
 #import "IMMessageModel.h"
 #import "IMConversation.h"
@@ -1089,26 +1090,19 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
 
 /// 禁言时长弹窗：10 分钟 / 1 小时 / 1 天 / 永久（与旧 IMGroupInfoViewController 完全对齐）。
 - (void)pickMuteDurationForMember:(IMGroupMember *)m {
-    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:IMLocalized(@"mute.title")
-                                                                   message:m.localDisplayName
-                                                            preferredStyle:UIAlertControllerStyleActionSheet];
+    // 自绘底部弹层（与资料页「Mute notifications」同一套 IMActionListSheet），不用系统 ActionSheet。
+    NSMutableArray<IMActionListItem *> *items = [NSMutableArray array];
     __weak typeof(self) ws = self;
     NSString *target = m.userID;
     void (^add)(NSString *, int64_t) = ^(NSString *title, int64_t untilMs) {
-        [sheet addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault
-                                                handler:^(UIAlertAction *a) { [ws muteMember:target until:untilMs]; }]];
+        [items addObject:[IMActionListItem itemWithTitle:title destructive:NO handler:^{ [ws muteMember:target until:untilMs]; }]];
     };
     int64_t now = IMNowMillis();
     add(IMLocalized(@"mute.10m"), now + 10 * 60 * 1000);
     add(IMLocalized(@"mute.1h"),  now + 60 * 60 * 1000);
-    add(IMLocalized(@"mute.1d"),    now + 24 * 60 * 60 * 1000);
+    add(IMLocalized(@"mute.1d"),  now + 24 * 60 * 60 * 1000);
     add(IMLocalized(@"common.permanent"), -1); // 服务端把 <0 归一为永久
-    [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
-    // iPad 兜底锚点
-    sheet.popoverPresentationController.sourceView = self.view;
-    sheet.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(self.view.bounds),
-                                                                CGRectGetMidY(self.view.bounds), 1, 1);
-    [self presentViewController:sheet animated:YES completion:nil];
+    [IMActionListSheet presentFrom:self title:[NSString stringWithFormat:@"%@ · %@", IMLocalized(@"mute.title"), m.localDisplayName] items:items];
 }
 
 #pragma mark - 动作：群成员管理（成员页签）
