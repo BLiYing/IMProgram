@@ -555,7 +555,6 @@
 "contacts.search.title" = "添加朋友";
 "contacts.title" = "通讯录";
 "conv.edit.delete_body" = "将从你的列表移除，不影响对方；对方再发消息时会话会重新出现。";
-"conv.edit.delete_body_folder" = "会话会同时从「全部」和所有文件夹中消失。";
 "conv.edit.mark_read" = "已读";
 "conv.error.delete_failed" = "删除失败";
 "conv.error.delete_failed_detail" = "删除失败：%1$@";

@@ -278,12 +278,11 @@ static NSUInteger const kIMConvBatchConcurrency = 4;
 
 #pragma mark - 批量删除
 
-/// 删除确认：标题「删除 N 个会话？」+ 正文（同 Android / Web 对话框，同一组文案键）；文件夹 Tab 内追加「同时从全部和所有文件夹消失」。
+/// 删除确认：标题「删除 N 个会话？」+ 正文（同 Android / Web 对话框，同一组文案键）。
 - (void)deleteTapped:(UIButton *)sender {
     NSUInteger n = self.editSelection.count;
     if (n == 0) { return; }
     NSString *body = IMLocalized(@"conv.edit.delete_body");
-    if (self.selectedFolder) { body = [body stringByAppendingString:IMLocalized(@"conv.edit.delete_body_folder")]; }
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:IMLocalizedFormat(@"conv.edit.delete_title", (long)n)
                                                                 message:body preferredStyle:UIAlertControllerStyleAlert];
     __weak typeof(self) ws = self;

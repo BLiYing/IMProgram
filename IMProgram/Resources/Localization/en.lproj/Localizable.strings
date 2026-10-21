@@ -555,7 +555,6 @@
 "contacts.search.title" = "Add friends";
 "contacts.title" = "Contacts";
 "conv.edit.delete_body" = "Removed from your list only. The other side isn't affected, and if they send a new message the conversation will reappear.";
-"conv.edit.delete_body_folder" = "Also removed from All and every folder.";
 "conv.edit.mark_read" = "Read";
 "conv.error.delete_failed" = "Couldn’t delete the chat";
 "conv.error.delete_failed_detail" = "Couldn’t delete: %1$@";
