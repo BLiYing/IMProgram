@@ -19,6 +19,7 @@
 #import "IMDownloadProgress.h"
 #import "IMBubbleCell.h"
 #import "IMSystemCell.h"
+#import "IMMessageCell.h"
 #import "IMRemarkStore.h"
 #import "IMImageCell.h"
 #import "IMAlbumCell.h"
@@ -49,7 +50,17 @@
     return self.windowState.messages.count;
 }
 
+/// 日期胶囊统一在这里补：各类型 cell 分支里有大量提前 return，逐支手加曾漏掉整天的日期（新群首条系统消息）。
+/// 气泡 / 语音 cell 自带 dayHeader 参数（在各自 configure 里画），不走这里。
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    UITableViewCell *cell = [self im_cellForRowAtIndexPath:indexPath tableView:tableView];
+    BOOL pillCell = [cell isKindOfClass:IMSystemCell.class]
+        || ([cell isKindOfClass:IMMessageCell.class] && ![cell isKindOfClass:IMVoiceBubbleCell.class]);
+    if (pillCell) { [(id)cell applyDayHeader:[self dayHeaderForRow:indexPath.row]]; }
+    return cell;
+}
+
+- (UITableViewCell *)im_cellForRowAtIndexPath:(NSIndexPath *)indexPath tableView:(UITableView *)tableView {
     IMMessageModel *m = self.windowState.messages[indexPath.row];
     // 首条未读行只算一次（firstUnreadRow 是 O(k) 扫描且各 cell 分支都要用），各分支复用。
     // 相册部分已读：首条未读可能落在被折叠的 follower 行，映射到其 leader 行，保证分割线画在可见行上。
@@ -585,6 +596,13 @@
 ///（=「滚到某处突然卡一下/弹跳」的另一半根因；主因是媒体尺寸此前不落库，见 onMediaSizeResolved）。
 - (CGFloat)tableView:(UITableView *)tableView estimatedHeightForRowAtIndexPath:(NSIndexPath *)indexPath {
     if (indexPath.row >= (NSInteger)self.windowState.messages.count) { return 56; }
+    CGFloat base = [self im_baseEstimatedHeightForRowAtIndexPath:indexPath];
+    if (base <= 0) { return base; } // 相册零高从行
+    return base + ([self dayHeaderForRow:indexPath.row].length > 0 ? 32 : 0); // 日期胶囊：上边距 8 + 24
+}
+
+- (CGFloat)im_baseEstimatedHeightForRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (indexPath.row >= (NSInteger)self.windowState.messages.count) { return 56; }
     IMMessageModel *m = self.windowState.messages[(NSUInteger)indexPath.row];
     if ([self isAlbumFollowerAtRow:indexPath.row]) { return 0; }
     if ([self isAlbumMember:m]) { return 240; } // 宫格 leader：整格粗估
@@ -632,7 +650,10 @@
     IMMessageModel *m = self.windowState.messages[row];
     if (m.timestamp <= 0) { return nil; } // 发送中（未拿到服务端时间）不显示日期
     if (row == 0) { return [IMTheme dayHeaderStringFromMillis:m.timestamp]; }
-    IMMessageModel *prev = self.windowState.messages[row - 1];
+    // 与上一「可见行」比：相册从行零高不画，跨午夜的相册（leader 23:59 / 从行 00:01）不能把下一条的日期吃掉。
+    NSInteger p = [self prevVisibleRow:row];
+    if (p < 0) { return [IMTheme dayHeaderStringFromMillis:m.timestamp]; }
+    IMMessageModel *prev = self.windowState.messages[(NSUInteger)p];
     if ([IMTheme isMillis:m.timestamp sameDayAsMillis:prev.timestamp]) { return nil; }
     return [IMTheme dayHeaderStringFromMillis:m.timestamp];
 }

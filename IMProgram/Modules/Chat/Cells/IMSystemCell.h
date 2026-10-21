@@ -15,6 +15,11 @@ NS_ASSUME_NONNULL_BEGIN
                  fallbackText:(NSString *)fallbackText
              displayNameForUID:(NSString *_Nonnull (^_Nullable)(NSString *uid, NSString *fallbackName))displayNameForUID
                      onTapUID:(nullable void (^)(NSString *uid))onTapUID;
+
+/// 日期分隔胶囊（与 `IMBubbleCell` 同款：今天/昨天/M月d日）。非空 = 在系统行上方多画一枚；nil/空 = 不画。
+/// 系统消息可能就是当天首条（新建群的「xx 创建了群聊」），不画则整天没有日期分隔。
+/// 与 configure 系列互不影响（先后顺序无关）；复用时 prepareForReuse 自动复位。
+- (void)applyDayHeader:(nullable NSString *)dayHeader;
 @end
 
 NS_ASSUME_NONNULL_END

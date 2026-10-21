@@ -238,8 +238,8 @@
     _tickWidth = [_tickView.widthAnchor constraintEqualToConstant:0];
 
     [NSLayoutConstraint activateConstraints:@[
-        // 未读分割线（基类）：顶到 contentView 顶。
-        [_unreadDivider.topAnchor constraintEqualToAnchor:cv.topAnchor],
+        // 未读分割线（基类）：顶已由基类锚在 _dayPill.bottom（本 cell 不用基类日期胶囊，其高恒 0 = contentView 顶），
+        // 这里不再重复加 top==cv.top，免得有人对本 cell 调 applyDayHeader: 时两条 required 约束打架。
         [_unreadDivider.leadingAnchor constraintEqualToAnchor:cv.leadingAnchor],
         [_unreadDivider.trailingAnchor constraintEqualToAnchor:cv.trailingAnchor],
         // 日期分隔：贴在未读分割线下。

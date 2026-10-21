@@ -1,11 +1,14 @@
 #import "IMSystemCell.h"
 
+#import "IMDayPillView.h"
 #import "IMBubbleCell.h"   // IMMentionUIDAttributeName + TextKit 反查（与 @昵称 点击同一套）
 #import "IMMessageModel.h" // IMSysSegment
 #import "IMTheme.h"
 #import "IMLocalization.h"
 
 @implementation IMSystemCell {
+    IMDayPillView *_dayPill;  // 日期分隔胶囊（无文案时高 0）
+    NSLayoutConstraint *_pillTop;
     UIView  *_pill;
     UILabel *_label;
     UIButton *_reeditButton;
@@ -18,6 +21,8 @@
     if (self) {
         self.backgroundColor = UIColor.clearColor;
         self.selectionStyle = UITableViewCellSelectionStyleNone;
+        _dayPill = [IMDayPillView new];
+        [self.contentView addSubview:_dayPill];
         _pill = [UIView new];
         _pill.translatesAutoresizingMaskIntoConstraints = NO;
         _pill.backgroundColor = IMTheme.datePillBg;
@@ -31,8 +36,12 @@
         _label.textAlignment = NSTextAlignmentCenter;
         _label.numberOfLines = 0;
         [_pill addSubview:_label];
+        _pillTop = [_pill.topAnchor constraintEqualToAnchor:_dayPill.bottomAnchor constant:6];
         [NSLayoutConstraint activateConstraints:@[
-            [_pill.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:6],
+            _pillTop,
+            [_dayPill.topAnchor constraintEqualToAnchor:self.contentView.topAnchor],
+            [_dayPill.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor],
+            [_dayPill.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor],
             [_pill.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-6],
             [_pill.centerXAnchor constraintEqualToAnchor:self.contentView.centerXAnchor],
             [_pill.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.contentView.leadingAnchor constant:40],
@@ -58,6 +67,11 @@
 }
 - (void)configureWithText:(NSString *)text {
     [self configureWithText:text reeditHandler:nil];
+}
+
+- (void)applyDayHeader:(NSString *)dayHeader {
+    [_dayPill applyText:dayHeader];
+    _pillTop.constant = dayHeader.length > 0 ? 8 : 6;
 }
 - (void)configureWithText:(NSString *)text reeditHandler:(void (^)(void))reeditHandler {
     _label.attributedText = nil;
@@ -126,6 +140,7 @@
     _reeditHandler = nil;
     _tapUIDHandler = nil;
     _reeditButton.hidden = YES;
+    [self applyDayHeader:nil];
     // 富文本残留会让下一条纯文本系统行继承上一条的强调色名字段（复用池的经典坑）。
     _label.attributedText = nil;
     _label.text = @"";

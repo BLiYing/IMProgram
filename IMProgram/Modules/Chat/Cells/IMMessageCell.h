@@ -4,6 +4,7 @@
 #import "IMFailBadgeView.h"  // 失败红❗（各消息 cell 共用同一款；子类要拿它的 anchor 补约束）
 
 @class IMMessageModel;
+@class IMDayPillView;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -16,6 +17,7 @@ NS_ASSUME_NONNULL_BEGIN
 @interface IMMessageCell : UITableViewCell {
   @protected
     UILabel *_avatar;                          ///< 群聊对方头像（连续段末条显示）。子类补 leading/bottom/size 约束。
+    IMDayPillView *_dayPill;                   ///< 日期分隔胶囊（当天首条才显示，无文案时高 0），在未读分割线之上。
     UILabel *_unreadDivider;                   ///< 「未读消息」分割线。默认高 0（bottom==contentView.top，与无分割线布局等价）。
     NSLayoutConstraint *_unreadDividerHeight;  ///< 0=隐藏 / 28=显示。
     UIView  *_senderRoleBadge;                 ///< 群主/管理员角色徽标（胶囊，默认隐藏），锚在发送者昵称右侧同一行。
@@ -51,6 +53,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// 相册宫格专用：一条"消息"是一整组成员，显隐/可点要按**整组**算（哪一格失败由格内 "!" 表达），
 /// 故由调用方算好再传进来。普通 cell 一律用上面那个按消息判的版本。
 - (void)applyFailBadgeShows:(BOOL)shows tappable:(BOOL)tappable;
+
+/// 日期分隔胶囊（今天/昨天/M月d日）：当天首条消息传文案，其余传 nil。复用时自动复位。
+/// IMVoiceBubbleCell 自带一份历史实现，不走这里。
+- (void)applyDayHeader:(nullable NSString *)dayHeader;
 
 /// 「未读消息」分割线开关：仅首条未读那行传 YES。
 - (void)applyUnreadDivider:(BOOL)shows;

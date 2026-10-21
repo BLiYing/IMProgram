@@ -1,5 +1,6 @@
 #import "IMMessageCell.h"
 #import "IMChatMessageLogic.h"
+#import "IMDayPillView.h"
 #import "IMFailBadgeView.h"
 #import "IMMessageModel.h"
 #import "IMTheme.h"
@@ -26,6 +27,9 @@
 
         // 「未读消息」分割线：贴 contentView 顶、默认高 0（此时 bottom==contentView.top，布局与无分割线逐像素等价）；
         // 仅首条未读行展开到 28。子类把自身顶部内容改锚 _unreadDivider.bottomAnchor 即随之下移。
+        // 日期胶囊在分割线之上（贴 contentView 顶、无文案时高 0）；分割线改锚它的底，子类仍只认 _unreadDivider.bottomAnchor。
+        _dayPill = [IMDayPillView new];
+        [self.contentView addSubview:_dayPill];
         _unreadDivider = [UILabel new];
         _unreadDivider.translatesAutoresizingMaskIntoConstraints = NO;
         _unreadDivider.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
@@ -44,7 +48,10 @@
 
         _unreadDividerHeight = [_unreadDivider.heightAnchor constraintEqualToConstant:0];
         [NSLayoutConstraint activateConstraints:@[
-            [_unreadDivider.topAnchor constraintEqualToAnchor:self.contentView.topAnchor],
+            [_dayPill.topAnchor constraintEqualToAnchor:self.contentView.topAnchor],
+            [_dayPill.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor],
+            [_dayPill.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor],
+            [_unreadDivider.topAnchor constraintEqualToAnchor:_dayPill.bottomAnchor],
             [_unreadDivider.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor],
             [_unreadDivider.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor],
             _unreadDividerHeight,
@@ -74,6 +81,10 @@
     _failBadge.hidden = !shows;
     _failBadge.tappable = shows && tappable;
     _failBadgeAnchor.active = shows;
+}
+
+- (void)applyDayHeader:(NSString *)dayHeader {
+    [_dayPill applyText:dayHeader];
 }
 
 - (void)applyUnreadDivider:(BOOL)shows {
@@ -161,6 +172,7 @@
     _avatar.hidden = YES;
     _unreadDivider.hidden = YES;
     _unreadDividerHeight.constant = 0;
+    [_dayPill applyText:nil];
     _senderRoleBadge.hidden = YES;
     _senderRoleLabel.text = nil;
 }
