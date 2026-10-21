@@ -37,6 +37,15 @@
 "appearance.wallpaper.doodle" = "Doodle";
 "appearance.wallpaper.gradient" = "Gradient";
 "appearance.wallpaper.plain" = "Plain";
+"autodel.confirm.action" = "Turn on and delete";
+"autodel.confirm.message" = "Messages in this chat older than %1$@ will be deleted from your device right away and can't be recovered.";
+"autodel.confirm.title" = "Turn on auto-delete?";
+"autodel.conv.footer" = "Messages are timed from when they are sent and are removed from your device afterwards. The other person's copy is not affected.";
+"autodel.day" = "1 day";
+"autodel.default.footer" = "New chats will use this by default; existing chats are unaffected. Messages are timed from when they are sent and disappear from your device afterwards. The other person's copy is not affected.";
+"autodel.month" = "1 month";
+"autodel.save_failed" = "Couldn't save. Please try again.";
+"autodel.week" = "1 week";
 "autodl.cat.header_prefix" = "Auto-download %1$@";
 "autodl.cat.image_footer" = "Images are small — we recommend keeping auto-download on (no size limit).";
 "autodl.cat.limit_prefix" = "Limit %1$@";
@@ -1424,7 +1433,7 @@
 "profile.username_invalid_format" = "Username can only contain lowercase letters, numbers, and underscores, 5–32 characters";
 "profile.username_required" = "Username can't be empty";
 "ps.account_protection_footer" = "With a second factor enabled, your account stays safe even if your password leaks.";
-"ps.chat_privacy_footer" = "New chats you start will have disappearing messages on by default.";
+"ps.chat_privacy_footer" = "New chats will have this on by default. It only affects what you see, not the other person.";
 "ps.coming_soon_hint" = "Coming soon";
 "ps.group_a_footer" = "Blocked users can't message you or see your profile.";
 "ps.row.auto_delete_messages" = "Auto-delete messages";

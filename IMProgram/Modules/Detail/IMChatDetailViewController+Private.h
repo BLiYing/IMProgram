@@ -91,6 +91,7 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 /// 判定，不直接读 muted（NOTIFICATIONS_P1_DESIGN §4.3）。
 @property (nonatomic, assign) int64_t muteUntil;
 @property (nonatomic, assign) BOOL markedUnread; ///< 手动标未读态：PUT 是整体替换，提交时必须回传，否则会清掉列表页设的红点
+@property (nonatomic, assign) int64_t autoDeleteSec; ///< 本会话自动删除档位（秒，0=关）；PUT 整体替换时随 settings 回传
 @property (nonatomic, copy, nullable) NSString *convRemark; ///< 会话备注（G1，仅本人可见、多端同步）：从服务端读，非空替代群名显示
 // UI
 @property (nonatomic, strong) UITableView *tableView;
@@ -167,6 +168,8 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 - (UIView *)buildPillsView;
 // 动作 / 设置 / 群昵称备注（+Actions.m）：
 - (void)commitConversationSettings;
+- (void)configureAutoDeleteCell:(UITableViewCell *)cell;  ///< +Settings.m：自动删除消息值行
+- (void)openAutoDeleteTier;                                ///< +Settings.m：档位选择页（含开启/缩短确认）
 - (void)loadConversationSettings; ///< 拉取会话设置（提交失败时 +Actions 回拉权威值刷新开关）
 - (void)confirmClearHistory;
 - (void)confirmDestructive:(NSString *)title message:(NSString *)message action:(NSString *)action handler:(void (^)(void))handler;

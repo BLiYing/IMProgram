@@ -37,6 +37,15 @@
 "appearance.wallpaper.doodle" = "涂鸦";
 "appearance.wallpaper.gradient" = "渐变";
 "appearance.wallpaper.plain" = "纯色";
+"autodel.confirm.action" = "开启并删除";
+"autodel.confirm.message" = "此会话中早于 %1$@ 的消息会立即从你的设备上删除，且无法恢复。";
+"autodel.confirm.title" = "开启自动删除？";
+"autodel.conv.footer" = "消息自发出起计时，满时间后从你的设备上自动删除；对方的聊天记录不受影响。";
+"autodel.day" = "1 天";
+"autodel.default.footer" = "新开始的会话将默认采用此设置，已有会话不受影响。消息自发出起计时，满时间后从你的设备上消失；对方的聊天记录不受影响。";
+"autodel.month" = "1 个月";
+"autodel.save_failed" = "设置失败，请稍后重试";
+"autodel.week" = "1 周";
 "autodl.cat.header_prefix" = "自动下载%1$@";
 "autodl.cat.image_footer" = "图片体积小，建议保持自动下载（无大小上限）。";
 "autodl.cat.limit_prefix" = "上限 %1$@";
@@ -1424,7 +1433,7 @@
 "profile.username_invalid_format" = "用户名只能是小写字母、数字、下划线，5–32 位";
 "profile.username_required" = "用户名不能为空";
 "ps.account_protection_footer" = "绑定第二因子后，即使密码泄露也无法登录你的账号。";
-"ps.chat_privacy_footer" = "为你开始的每个新会话默认开启阅后自删。";
+"ps.chat_privacy_footer" = "新会话默认开启此设置；只影响你自己看到的消息，不影响对方。";
 "ps.coming_soon_hint" = "即将上线";
 "ps.group_a_footer" = "已屏蔽的用户不能给你发消息，也看不到你的资料。";
 "ps.row.auto_delete_messages" = "自动删除消息";

@@ -91,6 +91,9 @@ static IMSettingsSearchEntry *IMEntryAliased(NSArray<NSString *> *aliases, NSStr
         IMEntry(@"privacy.blocked", @[privacy, IMLocalized(@"blocked.title")], @"nosign", red, @[@"privacy", @"privacy/blocked"]),
         IMEntry(@"privacy.changePassword", @[privacy, IMLocalized(@"settings.change_password")], @"key.fill", blue,
                 @[@"privacy", @"privacy/changePassword"]),
+        // 自动删除消息（账号默认档位）：与 Android `privacy_auto_delete` 同位（改密码之后、数据和存储之前）
+        IMEntry(@"privacy.autoDelete", @[privacy, IMLocalized(@"ps.row.auto_delete_messages")], @"timer", UIColor.systemOrangeColor,
+                @[@"privacy", @"privacy/autoDelete"]),
         // —— 数据和存储：自动下载（移动数据 / Wi-Fi）及各媒体类别 ——
         IMEntryAliased(downloadAliases, @"storage.cellular", @[storage, cellular], @"antenna.radiowaves.left.and.right", green, @[@"storage", @"storage/cellular"]),
         IMEntryAliased(downloadAliases, @"storage.wifi", @[storage, wifi], @"wifi", blue, @[@"storage", @"storage/wifi"]),

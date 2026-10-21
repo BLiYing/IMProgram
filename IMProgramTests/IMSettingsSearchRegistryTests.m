@@ -12,6 +12,7 @@
 #import "IMPrivacySecurityViewController.h"
 #import "IMBlockedListViewController.h"
 #import "IMChangePasswordViewController.h"
+#import "IMAutoDeleteTierViewController.h"
 #import "IMDataStorageViewController.h"
 #import "IMAutoDownloadNetworkViewController.h"
 #import "IMAutoDownloadCategoryViewController.h"
@@ -86,7 +87,7 @@
 - (void)testScopeCoversRequiredSecondLevelPages {
     NSArray *ids = [self idsOf:[self all]];
     for (NSString *want in @[@"notifications.private", @"notifications.group", @"notifications.private.sound", @"notifications.group.sound",
-                             @"privacy.blocked", @"privacy.changePassword", @"storage.cellular", @"storage.wifi",
+                             @"privacy.blocked", @"privacy.changePassword", @"privacy.autoDelete", @"storage.cellular", @"storage.wifi",
                              @"storage.cellular.image", @"storage.cellular.video", @"storage.cellular.file",
                              @"storage.wifi.image", @"storage.wifi.video", @"storage.wifi.file",
                              @"appearance", @"powerSaving", @"language", @"devices"]) {
@@ -195,6 +196,7 @@
         @"privacy": IMPrivacySecurityViewController.class,
         @"privacy/blocked": IMBlockedListViewController.class,
         @"privacy/changePassword": IMChangePasswordViewController.class,
+        @"privacy/autoDelete": IMAutoDeleteTierViewController.class,
         @"storage": IMDataStorageViewController.class,
         @"storage/cellular": IMAutoDownloadNetworkViewController.class,
         @"storage/wifi": IMAutoDownloadNetworkViewController.class,

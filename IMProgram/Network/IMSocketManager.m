@@ -7,6 +7,7 @@
 #import "IMSocketManager+Private.h"
 #import "IMSocketManager+AuthRecovery.h"
 #import "IMSocketManager+BatchDelete.h"
+#import "IMSocketManager+AutoDelete.h"
 #import "IMDatabase+Ranges.h"   // 区间清单：window_resp 落库后登记本窗覆盖段
 #import "IMBacklogTracker.h"
 #import "IMChatWindowPlan.h"
@@ -967,6 +968,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
                                              markedUnread:[data[@"marked_unread"] boolValue]];
             // 备注随 settings 帧同步（多端）：payload 恒带 remark 全值，落缓存，避免本地刷新闪回真实群名。
             [database applyCachedRemarkForConversation:convID remark:remark];
+            [self applyAutoDeleteFromConvUpdate:data convID:convID database:database]; // 自动删除档位落库；变了/开着就立即扫（+AutoDelete）
         }];
     } else if ([action isEqualToString:@"delete"]) {
         contextIsCurrent = [self performDatabaseOperation:^(IMDatabase *database) {
@@ -1390,6 +1392,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
             [self removeLocalMessageOnQueueInConv:m.convID targetConvSeq:m.convSeq advancingSyncedConvSeq:0];
             continue;
         }
+        if ([self incomingIsCleared:m]) { continue; } // 自动删除已过期：不落库（清空位点由 cleared 判，下一行）
         if (m.convSeq > 0 && m.convSeq <= cleared) { continue; } // 位点之内：不落库，也不当「客户端留下的行」算下界
         [self performDatabaseOperation:^(IMDatabase *database) { [database saveMessage:m]; }];
         if (m.convSeq > 0 && (minKept == 0 || m.convSeq < minKept)) { minKept = m.convSeq; }

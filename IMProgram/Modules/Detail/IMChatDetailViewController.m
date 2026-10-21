@@ -247,54 +247,6 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
 
 #pragma mark - 数据加载
 
-- (void)loadConversationSettings {
-    NSString *token = IMHTTPService.sharedService.currentToken;
-    if (token.length == 0) { return; }
-    __weak typeof(self) ws = self;
-    // 单会话设置端点（GET …/{id}/settings）：只要几个布尔，不再拉整张会话列表遍历查找。
-    [IMHTTPService.sharedService conversationSettingsWithToken:token convID:self.convID
-                                                    completion:^(NSDictionary *data, NSError *error) {
-        __strong typeof(ws) self = ws;
-        if (!self) { return; }
-        if (error) {
-            // 兜底走老路（全量会话列表）：新 GET 端点是 2026-08-18 才加的，连到未重启的旧后端会 404。
-            // **不能**静默保留 0/NO 默认——开关会渲染错，且随后的提交是整体替换 PUT，会拿错误基线
-            // 悄悄清掉服务端的置顶/标未读（PUT 路由旧后端就有，写得进去）。
-            [self loadConversationSettingsViaListFallback:token];
-            return;
-        }
-        self.pinnedAt = [data[@"pinned_at"] longLongValue];
-        self.muted = [data[@"muted"] boolValue];
-        self.muteUntil = [data[@"mute_until"] longLongValue];
-        self.markedUnread = [data[@"marked_unread"] boolValue]; // PUT 整体替换，提交时须回传
-        NSString *rmk = [data[@"remark"] isKindOfClass:[NSString class]] ? data[@"remark"] : nil;
-        self.convRemark = rmk.length > 0 ? rmk : nil; // 群备注（G1）：替代群名显示
-        [self reloadSettingsAndPills];
-        [self refreshHeaderTexts]; // 备注变化 → 头部标题即时跟随
-    }];
-}
-
-/// 旧后端兼容：按老方式拉全量会话列表找本会话的设置（仅在单会话端点失败时走）。
-- (void)loadConversationSettingsViaListFallback:(NSString *)token {
-    __weak typeof(self) ws = self;
-    [IMHTTPService.sharedService conversationsWithToken:token completion:^(NSArray<IMConversation *> *convs, NSError *error) {
-        __strong typeof(ws) self = ws;
-        if (!self || error) { return; }
-        for (IMConversation *c in convs) {
-            if ([c.convID isEqualToString:self.convID]) {
-                self.pinnedAt = c.pinnedAt;
-                self.muted = c.muted;
-                self.muteUntil = c.muteUntil;
-                self.markedUnread = c.markedUnread;
-                self.convRemark = c.remark.length > 0 ? c.remark : nil;
-                [self reloadSettingsAndPills];
-                [self refreshHeaderTexts];
-                break;
-            }
-        }
-    }];
-}
-
 - (void)loadGroupInfo {
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0) { return; }
@@ -740,6 +692,7 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
 typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
     IMDetailSettingsRowPin = 0,     ///< 置顶聊天
     IMDetailSettingsRowMute,        ///< 消息免打扰
+    IMDetailSettingsRowAutoDelete,  ///< 自动删除消息（本会话档位，AUTO_DELETE_DESIGN §3.3 C）
     IMDetailSettingsRowMyNickname,  ///< 我在本群的昵称（群聊，任意成员，G1）
     IMDetailSettingsRowRemark,      ///< 群备注（群聊，仅本人可见，G1）
     IMDetailSettingsRowGroupQR,     ///< 群二维码（群聊，QRCODE P0；perm_invite=1 时对非管理员隐藏）
@@ -749,7 +702,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
 
 /// 组装设置区当前应显示的行（避免硬编码 0/1/2 造成群/单聊分叉 bug）。
 - (NSArray<NSNumber *> *)settingsRowKinds {
-    NSMutableArray<NSNumber *> *rows = [NSMutableArray arrayWithObjects:@(IMDetailSettingsRowPin), @(IMDetailSettingsRowMute), nil];
+    NSMutableArray<NSNumber *> *rows = [NSMutableArray arrayWithObjects:@(IMDetailSettingsRowPin), @(IMDetailSettingsRowMute), @(IMDetailSettingsRowAutoDelete), nil];
     if (self.isGroup) {
         [rows addObject:@(IMDetailSettingsRowMyNickname)]; // 任意成员可改自己的群昵称
         [rows addObject:@(IMDetailSettingsRowRemark)];     // 群备注（仅本人可见）
@@ -783,6 +736,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
             cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
             break;
         }
+        case IMDetailSettingsRowAutoDelete: [self configureAutoDeleteCell:cell]; break;
         case IMDetailSettingsRowMyNickname:
             cell.textLabel.text = IMLocalized(@"chat.detail.my_group_nickname");
             cell.detailTextLabel.text = self.group.myNickname.length ? self.group.myNickname : IMLocalized(@"settings.info.not_set");
@@ -903,6 +857,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
         if (indexPath.row >= (NSInteger)kinds.count) { return; }
         switch ((IMDetailSettingsRow)kinds[indexPath.row].integerValue) {
             case IMDetailSettingsRowMute:       [self presentMuteMenu]; break;
+            case IMDetailSettingsRowAutoDelete: [self openAutoDeleteTier]; break;
             case IMDetailSettingsRowMyNickname: [self editMyGroupNickname]; break;
             case IMDetailSettingsRowRemark:     [self editGroupRemark]; break;
             case IMDetailSettingsRowGroupQR:    [self openGroupQR]; break;

@@ -10,6 +10,7 @@
 #import "IMMsgOpApply.h"          // IMChatPinnedItemsAboveFloor
 #import "IMMessageModel.h"
 #import "IMDatabase.h"            // 跳转前判目标是否已撤回（recalledAt）
+#import "IMDatabase+AutoDelete.h"  // 置顶项剔除已过期（自动删除）
 #import "IMDatabase+ClearFloor.h" // clearedUpToForConv:（本机清空位点）
 #import "UIViewController+IMToast.h"  // im_showToast:
 #import "IMJoinRequestsViewController.h"
@@ -70,8 +71,12 @@ NS_ASSUME_NONNULL_END
 - (NSArray<IMPinnedMessage *> *)pinnedItemsAboveClearFloor:(NSArray<IMPinnedMessage *> *)items {
     NSString *convID = self.convID;
     __block int64_t cleared = 0;
-    [self performDatabaseOperation:^(IMDatabase *database) { cleared = [database clearedUpToForConv:convID]; }];
-    return IMChatPinnedItemsAboveFloor(items, cleared);
+    __block NSArray<IMPinnedMessage *> *live = items;
+    [self performDatabaseOperation:^(IMDatabase *database) {
+        cleared = [database clearedUpToForConv:convID];
+        live = [database pinnedItemsDroppingAutoDeleteExpired:items convID:convID]; // 自动删除：过期的置顶项不再指向已消失的消息
+    }];
+    return IMChatPinnedItemsAboveFloor(live, cleared);
 }
 
 /// 位点刚抬高（清空聊天记录）：就地把当前横幅集合按新位点过滤——纯本地、不依赖网络（重拉失败会留着旧置顶）。

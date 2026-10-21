@@ -5,6 +5,8 @@
 #import "IMMessageModel.h"
 #import "IMHTTPService.h"
 #import "IMHTTPService+ConvQueries.h"
+#import "IMDatabase.h"
+#import "IMDatabase+AutoDelete.h"
 
 const NSInteger IMMediaServerTimelineMaxEmptyPages = 5;
 static const NSInteger kPageLimit = 60; // 与 Android / Web 同值
@@ -56,7 +58,9 @@ static const NSInteger kPageLimit = 60; // 与 Android / Web 同值
             self->_cursor = next;
             BOOL moreAbove = IMMediaPagingHasMore(more, next, self->_cleared);
             NSInteger added = 0;
-            NSArray<IMMessageModel *> *merged = IMMediaPagingPrependOlder(self->_messages, page, self->_cleared, &added);
+            // 自动删除：服务端分页不过滤过期消息，这里按本会话档位丢掉（口径同入库闸）
+            NSArray<IMMessageModel *> *live = [IMDatabase.sharedDatabase messagesDroppingAutoDeleteExpired:page];
+            NSArray<IMMessageModel *> *merged = IMMediaPagingPrependOlder(self->_messages, live, self->_cleared, &added);
             if (added == 0 && moreAbove && attempt < IMMediaServerTimelineMaxEmptyPages) {
                 [self fetchAttempt:attempt + 1 token:token completion:completion];
                 return;
@@ -95,7 +99,8 @@ static const NSInteger kPageLimit = 60; // 与 Android / Web 同值
             }
             if (more && next > 0) { self->_newerCursor = next; }
             NSInteger added = 0;
-            NSArray<IMMessageModel *> *merged = IMMediaPagingAppendNewer(self->_messages, page, self->_cleared, &added);
+            NSArray<IMMessageModel *> *live = [IMDatabase.sharedDatabase messagesDroppingAutoDeleteExpired:page];
+            NSArray<IMMessageModel *> *merged = IMMediaPagingAppendNewer(self->_messages, live, self->_cleared, &added);
             self->_messages = [merged mutableCopy];
             if (added == 0 && more && attempt < IMMediaServerTimelineMaxEmptyPages) {
                 [self fetchNewerAttempt:attempt + 1 token:token totalAdded:total completion:completion];

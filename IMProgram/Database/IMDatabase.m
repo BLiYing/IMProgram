@@ -5,7 +5,7 @@
 #import "IMDatabase+Ranges.h"
 #import "IMDatabase+MuteState.h"
 #import "IMDatabase+ClearFloor.h"
-#import "IMConversation.h"
+#import "IMDatabase+AutoDelete.h" // 另带入 IMConversation.h（体量门禁 1500 行，省一行）
 #import "IMMessageModel.h"
 #import "IMLog.h"
 #import "IMRemarkStore.h"
@@ -269,7 +269,7 @@ static NSDictionary<NSString *, NSString *> *IMDecodeStringDict(NSString *raw);
                 IMLogDatabase(@"迁移失败：im_conversation_local 补列 head_conv_seq 未成功: %@", db.lastErrorMessage);
             }
         }
-        [self migrateMuteUntilColumnDB:db]; // 定时免打扰到期毫秒（P1 二批）：实现移到 IMDatabase+MuteState.m（体量门禁，本文件已贴 1500 行上限）
+        [self migrateAutoDeleteTableDB:db]; [self migrateMuteUntilColumnDB:db]; // 定时免打扰到期毫秒（P1 二批）：实现移到 IMDatabase+MuteState.m（体量门禁，本文件已贴 1500 行上限）
         [self migrateClearedUpToColumnDB:db]; // 本机清空位点 + 老库回填：IMDatabase+ClearFloor.m（回填读 im_message_local，故须在其建表之后）
 
         // 任务5：好友/群组本地快照（断网离线首屏）。仅缓存列表渲染所需字段，按 owner_uid 隔离。
@@ -481,7 +481,7 @@ static IMConversation *IMConversationFromCachedRow(FMResultSet *rs) {
 }
 
 - (void)replaceCachedConversations:(NSArray<IMConversation *> *)conversations {
-    [self writeCachedConversations:conversations];
+    [self writeCachedConversations:conversations]; [self persistAutoDeleteFromConversations:conversations]; // 自动删除档位：独立小表（+AutoDelete）
 }
 
 - (void)writeCachedConversations:(NSArray<IMConversation *> *)conversations {
@@ -673,7 +673,7 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
     // 本机清空位点闸（§6.7）：用户清掉的那一段不能被 sync / window / 实时又带回来。所有写 im_message_local 的
     // 路径都经这里；整条丢弃（不落库、不更新会话摘要、不推游标、不登记区间），返回 YES（不是失败，整页不回滚）。
     // 位点由调用方传入：整页路径开头只查一次（补拉 10 万条不能多 10 万次 SELECT），单条路径自己查。
-    if (message.convSeq > 0 && message.convSeq <= clearedUpTo) { return YES; }
+    if ((message.convSeq > 0 && message.convSeq <= clearedUpTo) || IMAutoDeleteDropsMessage(db, owner, message)) { return YES; } // 清空位点闸 + 自动删除过期闸
     NSNumber *rowID = [self existingRowIDFor:message owner:owner in:db];
     BOOL inserted = rowID == nil;
     BOOL ok = NO;

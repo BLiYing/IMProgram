@@ -2,6 +2,7 @@
 
 #import "IMHTTPService+Private.h" // 类扩展（私有存储属性）与分文件 category 的共享内部接口
 #import "IMLocalization.h"
+#import "IMHTTPService+AutoDelete.h"
 #import "IMServerEndpoint.h"
 #import "IMConversation.h"
 #import "IMUserCard.h"
@@ -748,11 +749,9 @@ static NSArray<NSString *> *IMStringArrayFrom(id raw) {
                                    pinnedAt:(int64_t)pinnedAt muted:(BOOL)muted muteUntil:(NSNumber *)muteUntil
                                markedUnread:(BOOL)markedUnread
                                  completion:(void (^)(NSError *))completion {
-    NSString *path = [NSString stringWithFormat:@"/api/v1/conversations/%@/settings", [self pathEscape:convID]];
-    NSMutableDictionary *body = [@{ @"pinned_at": @(pinnedAt), @"muted": @(muted), @"marked_unread": @(markedUnread) } mutableCopy];
-    if (muteUntil) { body[@"mute_until"] = muteUntil; } // 省略即让服务端保留未到期的原值（PROTOCOL.md §6.10）
-    NSMutableURLRequest *req = [self authedRequestForPath:path method:@"PUT" token:token body:body];
-    [self runOKRequest:req fallback:IMLocalized(@"conv.error.settings_failed") completion:completion];
+    // 实现见 IMHTTPService+AutoDelete.m（autoDeleteSec 传 nil = 请求不带该字段，服务端保留原值）。
+    [self updateConversationSettingsWithToken:token convID:convID pinnedAt:pinnedAt muted:muted muteUntil:muteUntil
+                                 markedUnread:markedUnread autoDeleteSec:nil completion:completion];
 }
 
 - (void)deleteConversationWithToken:(NSString *)token convID:(NSString *)convID

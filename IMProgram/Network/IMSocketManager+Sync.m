@@ -1,5 +1,6 @@
 #import "IMSocketManager+Private.h"
 #import "IMDatabase+ClearFloor.h"   // clearedUpToForConv: / IMDropClearedMessages
+#import "IMDatabase+AutoDelete.h"   // 自动删除：过期消息入库前过滤
 #import "IMDatabase+Ranges.h"   // saveIncomingPage:advanceTo:rangeLo:rangeHi:（整页原子落库 + 区间登记）
 #import "IMMessageModel.h"
 #import "IMProtocol.h"
@@ -20,6 +21,13 @@
 
 - (BOOL)incomingIsCleared:(IMMessageModel *)msg {
     if (msg.convSeq <= 0) { return NO; }
+    // 自动删除：入库即过期的消息不进库也不展示（AUTO_DELETE_DESIGN §3.2；与库里 writeIncomingMessage: 的过期闸同口径）。
+    __block BOOL expired = NO;
+    [self performDatabaseOperation:^(IMDatabase *database) { expired = [database autoDeleteDropsIncoming:msg]; }];
+    if (expired) {
+        IMLogSocket(@"incoming message auto-delete expired, dropped conv=%@ seq=%lld ts=%lld", msg.convID, msg.convSeq, msg.timestamp);
+        return YES;
+    }
     int64_t cleared = [self clearedUpToForConv:msg.convID];
     if (msg.convSeq > cleared) { return NO; }
     IMLogSocket(@"incoming message below cleared_up_to dropped conv=%@ seq=%lld cleared=%lld", msg.convID, msg.convSeq, cleared);
@@ -173,7 +181,10 @@
 /// 逐条派发在补拉 10 万条时就是 10 万个主线程 block + 10 万条通知。会话列表侧本就有节流
 /// （0.12s/0.4s 合并），但 block 本身还是要过主线程——这一条与"每条一个事务""每条一个回执"
 /// 并列，是补拉卡顿的三个固定成本之一（§2.3）。
-- (void)deliverSyncedPage:(NSArray<IMMessageModel *> *)msgs {
+- (void)deliverSyncedPage:(NSArray<IMMessageModel *> *)allMsgs {
+    // 落库闸已丢掉过期消息（游标/区间照常推进）；UI 投递也要用同一份保留集合，免得过期消息闪一下。
+    __block NSArray<IMMessageModel *> *msgs = allMsgs;
+    [self performDatabaseOperation:^(IMDatabase *database) { msgs = [database messagesDroppingAutoDeleteExpired:allMsgs]; }];
     if (msgs.count == 0) { return; }
     NSString *convID = msgs.firstObject.convID ?: @"";
     __weak typeof(self) weakSelf = self;

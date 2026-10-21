@@ -8,6 +8,9 @@
 #import "UIViewController+IMToast.h"
 #import "IMLog.h"
 #import "IMLocalization.h"
+#import "IMAutoDelete.h"
+#import "IMAutoDeleteTierViewController.h"
+#import "IMHTTPService+AutoDelete.h"
 
 #pragma mark - 行模型
 
@@ -121,6 +124,8 @@
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, copy) NSArray<IMPSGroup *> *groups;
 @property (nonatomic, strong) IMPSRow *blockedRow; ///< 引用留着，count 拉回后就地更新 rightValue
+@property (nonatomic, strong) IMPSRow *autoDeleteRow; ///< 自动删除消息（账号默认档位）活行：GET /users/me/privacy 回来后就地更新右值
+@property (nonatomic, assign) int64_t autoDeleteDefaultSec;
 @end
 
 @implementation IMPrivacySecurityViewController
@@ -152,6 +157,7 @@
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     [self refreshBlockedCount];
+    [self refreshAutoDeleteDefault];
 }
 
 #pragma mark - 数据
@@ -185,13 +191,17 @@
         [self placeholder:IMLocalized(@"ps.row.email_login") symbol:@"envelope.fill" bg:UIColor.systemTealColor value:nil],
     ];
 
-    // 组 C · 会话隐私（占位）
+    // 组 C · 会话隐私：自动删除消息（活行，右值 = 账号默认档位，AUTO_DELETE_DESIGN §3.3 A）
+    IMPSRow *autoDelete = [IMPSRow new];
+    autoDelete.rowId = @"autoDelete"; autoDelete.title = IMLocalized(@"ps.row.auto_delete_messages"); autoDelete.systemImage = @"timer";
+    autoDelete.iconBgColor = UIColor.systemOrangeColor;
+    autoDelete.rightValue = IMAutoDeleteTierTitle(self.autoDeleteDefaultSec);
+    autoDelete.handler = ^{ [ws openAutoDelete]; };
+    self.autoDeleteRow = autoDelete;
     IMPSGroup *groupC = [IMPSGroup new];
     groupC.header = IMLocalized(@"ps.section.chat_privacy");
     groupC.footer = IMLocalized(@"ps.chat_privacy_footer");
-    groupC.rows = @[
-        [self placeholder:IMLocalized(@"ps.row.auto_delete_messages") symbol:@"timer" bg:UIColor.systemOrangeColor value:IMLocalized(@"common.off")],
-    ];
+    groupC.rows = @[autoDelete];
 
     // 组 D · 谁能看到（占位，一整组 P2）
     IMPSGroup *groupD = [IMPSGroup new];
@@ -244,7 +254,33 @@
     }];
 }
 
+/// 取一次账号默认档位（进页 / 选择页返回时）。best-effort：失败保留旧值。
+- (void)refreshAutoDeleteDefault {
+    NSString *token = IMHTTPService.sharedService.currentToken;
+    if (token.length == 0) { return; }
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService fetchAutoDeleteDefaultWithToken:token completion:^(int64_t sec, NSError *error) {
+        __strong typeof(ws) self = ws;
+        if (!self || error) { return; }
+        [self applyAutoDeleteDefault:sec];
+    }];
+}
+
+- (void)applyAutoDeleteDefault:(int64_t)sec {
+    self.autoDeleteDefaultSec = sec;
+    self.autoDeleteRow.rightValue = IMAutoDeleteTierTitle(sec);
+    [self.tableView reloadData];
+}
+
 #pragma mark - 动作
+
+/// 档位选择页（账号默认）：选中即保存、不弹确认；失败 toast + ✓ 回滚（逻辑在选择页的账号默认工厂里，设置搜索直达共用）。
+- (void)openAutoDelete {
+    __weak typeof(self) ws = self;
+    IMAutoDeleteTierViewController *vc = [IMAutoDeleteTierViewController
+        accountDefaultPickerWithInitialSec:self.autoDeleteDefaultSec onSaved:^(int64_t sec) { [ws applyAutoDeleteDefault:sec]; }];
+    [self.navigationController pushViewController:vc animated:YES];
+}
 
 - (void)openBlocked {
     IMBlockedListViewController *vc = [[IMBlockedListViewController alloc] initWithHost:self.host userID:self.userID];

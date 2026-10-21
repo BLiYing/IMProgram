@@ -41,6 +41,7 @@
 #import "IMChatFolderStore.h"
 #import "IMChatFolderLogic.h"
 #import "IMChatFolderTabsView.h"
+#import "IMAutoDeleteScheduler.h"
 #import "IMChatFolderEditViewController.h"
 
 #pragma mark - 会话 Cell（Telegram 风格：圆形头像 + 名称/最后一条 + 时间 + 未读蓝胶囊）
@@ -677,6 +678,7 @@ static CGFloat const kIMRowLeading = 16;
     [IMSocketManager.sharedManager connectToHost:self.host userID:self.userID];
     [self updateTitleForState:IMSocketManager.sharedManager.state];
     [IMChatFolderStore.shared adoptUserID:self.userID];
+    [IMAutoDeleteScheduler.shared start]; // 自动删除：启动补扫 + 前台每 30 秒 + 回前台（幂等）
     [self onFoldersChanged]; // 离开期间文件夹可能变了（管理页里改的）：回到列表先对齐
     [IMChatFolderStore.shared refresh];
     [self reload];
@@ -891,6 +893,7 @@ static CGFloat const kIMRowLeading = 16;
             if (![self performDatabaseOperation:^(IMDatabase *database) {
                 [database replaceCachedConversations:self.conversations];
             }]) { return; }
+            [IMAutoDeleteScheduler.shared requestSweepForConv:nil]; // 档位可能被别的端改过：落库后扫一遍（自动删除）
             [self refreshVisibleRowsOrReload];
             [self trackConversationsForSync]; // 登记会话用于（重）连后增量同步，补拉离线消息
             [self fetchHiddenCatchUpWithToken:token]; // 任务2：拉「仅为我删除」隐藏集并本地移除（多设备同步 catch-up）
