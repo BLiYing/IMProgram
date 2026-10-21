@@ -71,6 +71,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)editingDidToggleRowAtIndexPath:(NSIndexPath *)indexPath selected:(BOOL)selected;
 /// 离开页面时安静退出编辑（无动画）。
 - (void)exitEditingIfNeeded;
+- (void)updateEditBarInset;
 @end
 
 /// `+Folders.m` 实现、主文件要调用的方法（聊天文件夹，设计 CHAT_FOLDERS_DESIGN.md §4）。

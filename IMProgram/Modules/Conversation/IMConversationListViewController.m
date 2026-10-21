@@ -682,6 +682,11 @@ static CGFloat const kIMRowLeading = 16;
     [self reload];
 }
 
+- (void)viewSafeAreaInsetsDidChange {
+    [super viewSafeAreaInsetsDidChange];
+    if (self.listEditing) { [self updateEditBarInset]; } // TabBar 隐藏完 / 旋转后安全区变了，栏底留白跟着更新
+}
+
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
     self.visible = NO;

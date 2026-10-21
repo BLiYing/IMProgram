@@ -58,6 +58,7 @@ static NSUInteger const kIMConvBatchConcurrency = 4;
     self.searchContainer.userInteractionEnabled = NO; // 搜索入口置灰
     self.searchContainer.alpha = 0.5;
     [self buildEditBarIfNeeded];
+    [self updateEditBarInset];
     self.editBar.hidden = NO;
     self.editBar.alpha = 0;
     self.tableBottomConstraint.active = NO;
@@ -115,6 +116,12 @@ static NSUInteger const kIMConvBatchConcurrency = 4;
     } else {
         tbc.tabBar.hidden = hidden;
     }
+}
+
+/// 栏底留白 = 窗口底部安全区（只含 home 条）。不用页面安全区：TabBar 隐藏动画期间页面安全区还含 TabBar 高度，栏会悬空。
+- (void)updateEditBarInset {
+    UIWindow *w = self.view.window;
+    self.editBar.bottomInset = w ? w.safeAreaInsets.bottom : self.view.safeAreaInsets.bottom;
 }
 
 - (void)buildEditBarIfNeeded {

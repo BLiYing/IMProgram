@@ -9,7 +9,9 @@ const CGFloat kIMConversationEditBarContentHeight = 48;
 static CGFloat const kIMEditBarButtonHeight = 36;
 static CGFloat const kIMEditBarDisabledAlpha = 0.35;
 
-@implementation IMConversationEditBar
+@implementation IMConversationEditBar {
+    NSLayoutConstraint *_bottomConstraint;
+}
 
 - (instancetype)initWithFrame:(CGRect)frame {
     if ((self = [super initWithFrame:frame])) {
@@ -42,10 +44,16 @@ static CGFloat const kIMEditBarDisabledAlpha = 0.35;
             [row.heightAnchor constraintEqualToConstant:kIMConversationEditBarContentHeight],
             [row.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:16],
             [row.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-16],
-            [row.bottomAnchor constraintEqualToAnchor:self.safeAreaLayoutGuide.bottomAnchor],
         ]];
+        _bottomConstraint = [row.bottomAnchor constraintEqualToAnchor:self.bottomAnchor];
+        _bottomConstraint.active = YES;
     }
     return self;
+}
+
+- (void)setBottomInset:(CGFloat)bottomInset {
+    _bottomInset = bottomInset;
+    _bottomConstraint.constant = -bottomInset;
 }
 
 /// 36pt 高玻璃胶囊文字钮：iOS 26 = glassButtonConfiguration，旧系统 = grayButtonConfiguration（经 IMGlass.h）。
