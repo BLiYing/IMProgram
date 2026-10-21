@@ -449,6 +449,7 @@ static CGFloat const kIMRowLeading = 16;
     _conversations = conversations;
     [self rebuildDisplayedConversations];
     [self refreshListIndicators];
+    [self editingDataDidChange];
 }
 
 /// 当前选中的文件夹；已被删（或别的设备删了）则回落「全部」。
@@ -471,6 +472,7 @@ static CGFloat const kIMRowLeading = 16;
     self.emptyLabel.text = IMLocalized(inFolder ? @"folder.list.empty" : @"conv.list.empty");
     self.emptyLabel.hidden = self.displayedConversations.count > 0 || (!inFolder && !self.serverListed);
     [self refreshFolderTabs]; // 角标随会话未读 / 免打扰变化同步（本方法是列表数据变更的唯一咽喉）
+    [self refreshEditEntry]; // 左上角「编辑」：空列表隐藏 / 有会话显示（编辑模式会话编辑入口，设计 CONV_LIST_EDIT_MODE_DESIGN §1）
     // 蓝点只表「有」，由底栏容器自绘 8pt 小圆——系统 `badgeValue = @""` 那颗太大（2026-09-15 用户报）。
     // 此前这颗点根本没画，只有 Android 有（同日用户报）。口径见 IMTabUnreadCount（三端同口径）
     NSInteger unread = IMTabUnreadCount(self.conversations, IMNotificationSettings.shared.badgeIncludeMuted);
@@ -587,8 +589,9 @@ static CGFloat const kIMRowLeading = 16;
         [self.tableView.topAnchor constraintEqualToAnchor:self.searchContainer.bottomAnchor],
         [self.tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [self.tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-        [self.tableView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
     ]];
+    self.tableBottomConstraint = [self.tableView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor]; // 编辑模式时改接选择栏顶
+    self.tableBottomConstraint.active = YES;
     [self setUpFolderTabs];
 
     self.emptyLabel = [UILabel new];
@@ -682,6 +685,7 @@ static CGFloat const kIMRowLeading = 16;
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
     self.visible = NO;
+    [self exitEditingIfNeeded]; // 被通知路由等推走：别带着隐藏的 TabBar 与选择栏离开
     for (NSNotificationName n in @[IMSocketDidReceiveMessageNotification, IMSocketDidReceiveConvBumpNotification,
                                    IMSocketDidReceiveReadNotification,
                                    IMSocketDidReceiveGroupEventNotification, IMSocketDidUpdateConversationNotification,
@@ -770,7 +774,7 @@ static CGFloat const kIMRowLeading = 16;
 - (void)updateTitleForState:(IMSocketState)state {
     // 标题恒为「消息」；连接态走副标题（同聊天页「在线」位置，无括号）。见 im_navigationSubtitle。
     self.connState = state;
-    self.title = IMLocalized(@"ios.tab.messages");
+    self.title = [self currentListTitle];
     // 当前工程隐藏了 UINavigationBar，标题实际由 IMMainNavigationController 的 Liquid Bar 绘制；
     // 只改 self.title/副标题不会触发其同步，必须显式请求刷新。
     [self im_refreshNavigationBar];
@@ -1064,6 +1068,7 @@ static CGFloat const kIMRowLeading = 16;
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (self.listEditing) { [self editingDidToggleRowAtIndexPath:indexPath selected:YES]; return; } // 编辑模式：勾选，不进聊天
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     [self openChatWithConversation:self.displayedConversations[indexPath.row]];
 }
@@ -1289,7 +1294,7 @@ static CGFloat const kIMRowLeading = 16;
 
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView
     trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (indexPath.row >= (NSInteger)self.displayedConversations.count) { return nil; }
+    if (self.listEditing || indexPath.row >= (NSInteger)self.displayedConversations.count) { return nil; }
     // 横滑冲突（设计 §4.3）：起手落在「尾部区域」之外的向左滑 = 切到下一个 Tab，不给行按钮（返回 nil 则系统行滑动不起）。
     if ([self leftSwipeBelongsToTabsAtStartX:[self folderSwipeStartX]]) { return nil; }
     IMConversation *c = self.displayedConversations[indexPath.row];
@@ -1313,7 +1318,7 @@ static CGFloat const kIMRowLeading = 16;
 
 - (UIContextMenuConfiguration *)tableView:(UITableView *)tableView
     contextMenuConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath point:(CGPoint)point {
-    if (indexPath.row >= (NSInteger)self.displayedConversations.count) { return nil; }
+    if (self.listEditing || indexPath.row >= (NSInteger)self.displayedConversations.count) { return nil; }
     IMConversation *c = self.displayedConversations[indexPath.row];
     // 文件夹项放第一位（设计 §4.4）：只进长按 / 右键菜单，不进左滑（左滑与长按共用 conversationActionsFor:，
     // 加进去会让左滑多出一颗按钮、撑宽尾部区域）。

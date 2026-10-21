@@ -5,7 +5,7 @@
 #import "IMConversationListViewController.h"
 #import "IMSocketManager.h"
 
-@class IMDatabaseAccountContext, IMConversation, IMChatFolder, IMChatFolderTabsView, IMMenuAction;
+@class IMDatabaseAccountContext, IMConversation, IMChatFolder, IMChatFolderTabsView, IMMenuAction, IMConversationSelection, IMConversationEditBar, IMDatabase;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -38,6 +38,12 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) BOOL movingRow;                              // 置顶/取消置顶的行移动动画进行中：期间推迟 refreshVisibleRowsOrReload，动画完再补一次
 @property (nonatomic, assign) BOOL rowSwipeOpen;                           // 某行的滑动按钮已展开
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSValue *> *folderScrollOffsets; // Tab → 滚动位置
+// —— 编辑模式（批量已读 / 删除，设计 CONV_LIST_EDIT_MODE_DESIGN.md）：状态收在选择集 + 底栏两个协作对象里，VC 只持引用。
+@property (nonatomic, assign) BOOL listEditing;                                      // 处于编辑模式
+@property (nonatomic, strong, nullable) IMConversationSelection *editSelection;      // 已选会话（按 convID，切 Tab 清空）
+@property (nonatomic, strong, nullable) IMConversationEditBar *editBar;              // 底部选择栏（进入编辑时才建）
+@property (nonatomic, strong, nullable) NSLayoutConstraint *tableBottomConstraint;   // 表底约束（编辑时改接栏顶，退出还原）
+@property (nonatomic, strong, nullable) UIBarButtonItem *savedRightItem;             // 编辑期间隐藏的右上「＋」
 @end
 
 /// 主文件里实现、`+Folders.m` 要调用的内部方法。
@@ -48,6 +54,23 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)refreshVisibleRowsOrReload;
 - (NSArray<IMMenuAction *> *)conversationActionsFor:(IMConversation *)c;
 - (void)reload;
+- (BOOL)performDatabaseOperation:(void (^)(IMDatabase *database))operation;
+@end
+
+/// `+Editing.m` 实现、主文件 / `+Folders.m` 要调用的方法（会话列表编辑模式）。
+@interface IMConversationListViewController (Editing)
+/// 左上角入口（编辑 / 完成）与空列表隐藏；跟着 refreshListIndicators 走，幂等、便宜。
+- (void)refreshEditEntry;
+/// 数据换新（新消息重排 / 他端删除 / 退群）：剔除已不存在的已选项并刷新栏与标题；不退出编辑。
+- (void)editingDataDidChange;
+/// 切文件夹 Tab：清空选择、保持编辑模式（设计 §2）。
+- (void)editingScopeDidChange;
+/// 标题：编辑中且已选 ≥1 项为「已选择 N 项」，否则「消息」。
+- (NSString *)currentListTitle;
+/// 编辑模式下的行点击 / 取消点击（勾选切换）。
+- (void)editingDidToggleRowAtIndexPath:(NSIndexPath *)indexPath selected:(BOOL)selected;
+/// 离开页面时安静退出编辑（无动画）。
+- (void)exitEditingIfNeeded;
 @end
 
 /// `+Folders.m` 实现、主文件要调用的方法（聊天文件夹，设计 CHAT_FOLDERS_DESIGN.md §4）。

@@ -41,7 +41,10 @@ static CGFloat const kIMFolderSwipeThreshold = 64;
     self.folderHeaderShown = IMChatFolderStore.shared.folders.count > 0;
     self.folderTabs = [[IMChatFolderTabsView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, kIMChatFolderTabsHeight)];
     self.folderTabs.onSelect = ^(NSInteger index) { [ws selectTabIndex:index]; };
-    self.folderTabs.onLongPressFolder = ^(NSInteger folderIndex, CGRect rect) { [ws presentTabMenuForFolderIndex:folderIndex sourceRect:rect]; };
+    self.folderTabs.onLongPressFolder = ^(NSInteger folderIndex, CGRect rect) {
+        if (ws.listEditing) { return; } // 编辑模式：Tab 只用来切换范围，长按菜单关闭
+        [ws presentTabMenuForFolderIndex:folderIndex sourceRect:rect];
+    };
 
     self.folderPan = [[IMFolderSwipePanRecognizer alloc] initWithTarget:self action:@selector(folderPanChanged:)];
     self.folderPan.delegate = self;
@@ -68,6 +71,8 @@ static CGFloat const kIMFolderSwipeThreshold = 64;
     [self refreshListIndicators]; // 空态 + Tab 条
     BOOL shouldShow = IMChatFolderStore.shared.folders.count > 0;
     BOOL sameScope = (oldFolder.length == 0 && self.selectedFolderID.length == 0) || [oldFolder isEqualToString:self.selectedFolderID];
+    if (!sameScope) { [self editingScopeDidChange]; } // 当前 Tab 被删 / 回落「全部」：选择集清空（保持编辑）
+    else { [self editingDataDidChange]; } // 同范围内成员变化（他端把会话移出当前文件夹）：剔除已看不见的已选项
     if (shouldShow != self.folderHeaderShown || !sameScope || !self.view.window) {
         self.folderHeaderShown = shouldShow;
         [self.tableView reloadData];
@@ -110,6 +115,7 @@ static CGFloat const kIMFolderSwipeThreshold = 64;
     self.selectedFolderID = newID;
     [self rebuildDisplayedConversations];
     [self refreshListIndicators];
+    [self editingScopeDidChange]; // 编辑中切 Tab：清空选择、保持编辑
     [self.folderTabs setSelectedIndex:index animated:YES];
     // 切换动画：只淡入表格内容（吸顶的 Tab 条是 section header，随表格走，不宜整体横移）。
     CATransition *fade = [CATransition animation];
@@ -140,7 +146,7 @@ static CGFloat const kIMFolderSwipeThreshold = 64;
 
 - (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gr {
     if (gr != self.folderPan) { return YES; }
-    if (IMChatFolderStore.shared.folders.count == 0 || self.rowSwipeOpen) { return NO; }
+    if (self.listEditing || IMChatFolderStore.shared.folders.count == 0 || self.rowSwipeOpen) { return NO; } // 编辑模式：左右滑切 Tab 关闭
     CGPoint v = [self.folderPan velocityInView:self.tableView];
     if (fabs(v.x) < fabs(v.y) * 1.5) { return NO; } // 竖向为主：交给列表滚动
     NSInteger idx = [self currentTabIndex];

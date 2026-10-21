@@ -233,6 +233,46 @@
       <key>other</key><string>发送 %1$ld 张名片给「%2$@」</string>
     </dict>
   </dict>
+  <key>conv.edit.delete_failed</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
+    <key>count</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>ld</string>
+      <key>other</key><string>%1$ld 个会话删除失败</string>
+    </dict>
+  </dict>
+  <key>conv.edit.delete_n</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
+    <key>count</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>ld</string>
+      <key>other</key><string>删除 %1$ld 个会话</string>
+    </dict>
+  </dict>
+  <key>conv.edit.delete_title</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
+    <key>count</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>ld</string>
+      <key>other</key><string>删除 %1$ld 个会话？</string>
+    </dict>
+  </dict>
+  <key>conv.edit.selected_count</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
+    <key>count</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>ld</string>
+      <key>other</key><string>已选择 %1$ld 项</string>
+    </dict>
+  </dict>
   <key>device.active.days_ago</key>
   <dict>
     <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
