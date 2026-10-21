@@ -157,6 +157,9 @@ static CGFloat const kSegBadgeGap = 5;
     if (clamped == _selectedIndex && self.pill.frame.size.width > 0) { return; }
     _selectedIndex = clamped;
     [self applyFonts];
+    // 选中/未选中字重不同 → 标题宽度不同（英文 "All" Medium 18 / Semibold 19）；label frame 按旧字重量的，
+    // 不重排会被截成 "…"。
+    [self setNeedsLayout];
     if (!animated) {
         [self layoutPill];
         [self scrollSelectedToVisibleAnimated:NO];
