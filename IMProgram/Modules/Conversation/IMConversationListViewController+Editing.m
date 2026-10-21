@@ -10,7 +10,6 @@
 #import "IMConversationSelection.h"
 #import "IMConversationEditBar.h"
 #import "IMBatchRunner.h"
-#import "IMPopoverCard.h"
 #import "IMMainTabBarController.h" // im_refreshNavigationBar（注入式液态标题栏不监听 navigationItem）
 #import "IMDatabase.h"
 #import "IMHTTPService.h"
@@ -279,15 +278,19 @@ static NSUInteger const kIMConvBatchConcurrency = 4;
 
 #pragma mark - 批量删除
 
-/// 删除钮 → 在钮上方弹确认（复用聊天多选删除同款 IMPopoverCard）。
+/// 删除确认：标题「删除 N 个会话？」+ 正文（同 Android / Web 对话框，同一组文案键）；文件夹 Tab 内追加「同时从全部和所有文件夹消失」。
 - (void)deleteTapped:(UIButton *)sender {
     NSUInteger n = self.editSelection.count;
     if (n == 0) { return; }
+    NSString *body = IMLocalized(@"conv.edit.delete_body");
+    if (self.selectedFolder) { body = [body stringByAppendingString:IMLocalized(@"conv.edit.delete_body_folder")]; }
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:IMLocalizedFormat(@"conv.edit.delete_title", (long)n)
+                                                                message:body preferredStyle:UIAlertControllerStyleAlert];
     __weak typeof(self) ws = self;
-    IMPopoverCardItem *item = [IMPopoverCardItem itemWithTitle:IMLocalizedFormat(@"conv.edit.delete_n", (long)n)
-                                                        symbol:@"trash" destructive:YES
-                                                       handler:^{ [ws performBatchDelete]; }];
-    [IMPopoverCard presentFromAnchor:sender inHostView:self.view items:@[item]];
+    [ac addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
+    [ac addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.delete") style:UIAlertActionStyleDestructive
+                                         handler:^(UIAlertAction *a) { [ws performBatchDelete]; }]];
+    [self presentViewController:ac animated:YES completion:nil];
 }
 
 - (void)performBatchDelete {

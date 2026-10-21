@@ -266,17 +266,6 @@
       <key>other</key><string>%1$ld conversations couldn't be deleted</string>
     </dict>
   </dict>
-  <key>conv.edit.delete_n</key>
-  <dict>
-    <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
-    <key>count</key>
-    <dict>
-      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
-      <key>NSStringFormatValueTypeKey</key><string>ld</string>
-      <key>one</key><string>Delete %1$ld conversation</string>
-      <key>other</key><string>Delete %1$ld conversations</string>
-    </dict>
-  </dict>
   <key>conv.edit.delete_title</key>
   <dict>
     <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
