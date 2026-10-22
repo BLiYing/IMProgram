@@ -1062,7 +1062,6 @@
 "group.upgrade_hint.item_2" = "升级后已读回执、「正在输入」、成员在线态不再显示";
 "group.upgrade_hint.item_3" = "升级后成员进出不再产生群消息（「X 加入了群聊」等）";
 "group.upgrade_hint.item_4" = "单向操作，升级后不可撤销；需联系管理员办理";
-"group.upgrade_hint.item_4_short" = "单向操作，升级后不可撤销";
 "group.upgrade_hint.tap_copy_id" = "点此复制群 ID";
 "group.upgrade_hint.title" = "成员已达上限 %1$ld";
 "home.search.empty" = "未找到相关内容";

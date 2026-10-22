@@ -20,6 +20,7 @@
 #import "IMDetailServerArchive.h"
 #import "IMTimeUtil.h" // IMNowMillis()：成员禁言状态判定与时长换算
 #import "IMMuteExpiryScheduler.h" // IMMuteExpiryDidChangeNotification
+#import "IMServerConfigStore.h" // IMServerConfigDidLoadNotification
 #import "IMActionListSheet.h"
 #import "IMMuteState.h" // 定时免打扰值行文案（IMIsMutedNow/IMMuteDetailValueText）
 #import "IMMessageModel.h"
@@ -157,7 +158,8 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
                                                name:IMSocketDidUpdateConversationNotification object:nil];
     // 定时免打扰到期不推帧：跟会话列表挂同一个到期广播（计时器由常驻的会话列表维护）+ 回前台，重算「消息免打扰」右值
     //（/code-review 2026-09-29：否则本页开着过了到期点，仍显示「至 xx:xx」直到重进）。
-    for (NSNotificationName n in @[IMMuteExpiryDidChangeNotification, UIApplicationDidBecomeActiveNotification]) {
+    // 部署配置晚于页面到达（冷启动后立刻进群资料）：满员告知依赖它，到了要重绘
+    for (NSNotificationName n in @[IMMuteExpiryDidChangeNotification, UIApplicationDidBecomeActiveNotification, IMServerConfigDidLoadNotification]) {
         [NSNotificationCenter.defaultCenter addObserver:self.tableView selector:@selector(reloadData) name:n object:nil];
     }
     // 任务2：消息被物理移除（为所有人删除 / 仅为我删除）→ 重建页签内容（文件列表随之更新）。

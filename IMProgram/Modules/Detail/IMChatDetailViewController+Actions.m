@@ -745,7 +745,7 @@ static NSInteger const kIMFriendRemarkMaxRunes = 32;
         IMLocalizedFormat(@"group.upgrade_hint.item_1", (long)cfg.maxSupergroupMembers),
         IMLocalized(@"group.upgrade_hint.item_2"),
         IMLocalized(@"group.upgrade_hint.item_3"),
-        IMLocalized(@"group.upgrade_hint.item_4_short"),
+        IMLocalized(@"group.upgrade_hint.item_4"),
         IMLocalized(@"group.upgrade_hint.tap_copy_id")];
     NSMutableParagraphStyle *ps = [[NSMutableParagraphStyle alloc] init];
     ps.lineSpacing = 4; // 分条之间撑开一点；系统默认几乎贴着，正是「上下间隔太小」的观感来源

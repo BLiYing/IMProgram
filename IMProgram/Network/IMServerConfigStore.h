@@ -16,6 +16,9 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+/// 配置拉到（loaded 由 NO→YES）时在主线程发出；依赖它的页面（群资料满员告知）据此重绘。
+FOUNDATION_EXPORT NSNotificationName const IMServerConfigDidLoadNotification;
+
 @interface IMServerConfigStore : NSObject
 
 + (instancetype)shared;

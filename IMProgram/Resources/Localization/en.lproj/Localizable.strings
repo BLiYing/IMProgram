@@ -1062,7 +1062,6 @@
 "group.upgrade_hint.item_2" = "After upgrading, read receipts, typing indicators, and member online status will no longer show";
 "group.upgrade_hint.item_3" = "After upgrading, members joining or leaving will no longer post group messages (such as “X joined the group”)";
 "group.upgrade_hint.item_4" = "This is a one-way operation and can't be undone after upgrading; contact an administrator";
-"group.upgrade_hint.item_4_short" = "One-way operation. Can't be undone after upgrading.";
 "group.upgrade_hint.tap_copy_id" = "Tap to copy the group ID";
 "group.upgrade_hint.title" = "Member limit reached (%1$ld)";
 "home.search.empty" = "No results found";

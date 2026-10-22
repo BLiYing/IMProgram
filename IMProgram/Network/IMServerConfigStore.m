@@ -7,6 +7,8 @@
 #import "IMSocketManager.h"
 #import "IMLog.h"
 
+NSNotificationName const IMServerConfigDidLoadNotification = @"IMServerConfigDidLoadNotification";
+
 @implementation IMServerConfigStore {
     BOOL _started;
 }
@@ -53,6 +55,7 @@
         self->_supergroupEnabled = supergroupEnabled;
         self->_maxSupergroupMembers = maxSupergroupMembers;
         self->_loaded = YES;
+        [NSNotificationCenter.defaultCenter postNotificationName:IMServerConfigDidLoadNotification object:nil];
     }];
 }
 
