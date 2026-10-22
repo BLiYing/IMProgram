@@ -2,6 +2,7 @@
 
 #import "IMSysEventFormatter.h"
 #import "IMLocalization.h"
+#import "IMAutoDelete.h"   // auto_delete：sec -> 时长文案
 #import "IMMessageModel.h"  // IMSysSegment
 #import "IMTimeUtil.h"      // IMFormatRFC3339LocalDateTime
 
@@ -38,6 +39,18 @@ static NSDictionary<NSString *, NSArray *> *IMSysEventTable(void) {
     return t;
 }
 
+/// auto_delete（会话级自动删除设置变更，AUTO_DELETE_DESIGN §7）：文案键与 {period} 由 sys_args.sec（字符串 "N"，"0"=关闭）决定，
+/// 不在静态事件表里。返回 spec 同事件表行格式，并把算好的 period 写进 *args；sec 缺失 / 非数字 / 非白名单 → nil（回退 content 整句）。
+static NSArray *IMAutoDeleteSysSpec(NSDictionary<NSString *, NSString *> *sysArgs, NSDictionary<NSString *, NSString *> **args) {
+    NSString *raw = [sysArgs[@"sec"] isKindOfClass:NSString.class] ? sysArgs[@"sec"] : nil;
+    if (raw.length == 0 || [raw rangeOfCharacterFromSet:NSCharacterSet.decimalDigitCharacterSet.invertedSet].location != NSNotFound) { return nil; }
+    int64_t sec = raw.longLongValue;
+    if (!IMAutoDeleteIsValidSec(sec)) { return nil; }
+    if (sec == 0) { return @[@"sys.auto_delete.off", @1, NSNull.null]; }
+    *args = @{ @"period": IMAutoDeletePeriodWord(sec) };
+    return @[@"sys.auto_delete.on", @1, @"period"];
+}
+
 /// 人名分隔符（§1.3）：zh-Hans 用「、」，其余（en）用「, 」。
 /// 不做 "A, B and C" 的语法优化——`, ` 简单拼接是本批既定取舍，不是遗漏。
 static NSString *IMNameSeparator(void) {
@@ -55,7 +68,8 @@ NSArray<IMSysSegment *> *IMSegmentsForSysEvent(NSString *event,
                                                 NSArray<IMSysSegment *> *sysSegments) {
     if (event.length == 0) { return nil; }
     NSArray *spec = IMSysEventTable()[event];
-    if (!spec) { return nil; } // 未识别事件（老消息/未来新增）→ 回退老路径
+    if ([event isEqualToString:@"auto_delete"]) { spec = IMAutoDeleteSysSpec(sysArgs, &sysArgs); }
+    if (!spec) { return nil; } // 未识别事件（老消息/未来新增）/ auto_delete 缺字段 → 回退老路径
     NSString *key = spec[0];
     NSInteger nameSlotCount = [spec[1] integerValue];
     NSString *extraArgKey = (spec[2] == (id)NSNull.null) ? nil : spec[2];

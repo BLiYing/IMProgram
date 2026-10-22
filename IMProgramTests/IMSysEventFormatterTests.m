@@ -62,6 +62,35 @@
     XCTAssertEqualObjects([self joinedText:outEn], @"You are now friends. You can start chatting.");
 }
 
+#pragma mark - auto_delete：按 sys_args.sec 选 on/off，{period} 折算
+
+- (void)testAutoDeleteOnAndOff {
+    NSArray<IMSysSegment *> *segs = @[[self segWithUID:@"u1" text:@"张三"], [self segWithUID:nil text:@" 开启了自动删除"]];
+    NSArray<IMSysSegment *> *on = IMSegmentsForSysEvent(@"auto_delete", @{ @"sec": @"86400" }, segs);
+    XCTAssertEqualObjects([self joinedText:on], @"张三 开启了自动删除，消息将在1 天后自动删除");
+    XCTAssertEqualObjects(on.firstObject.uid, @"u1", @"{actor} 取首个带 uid 的段，可点");
+    XCTAssertEqualObjects([self joinedText:IMSegmentsForSysEvent(@"auto_delete", @{ @"sec": @"2592000" }, segs)],
+                          @"张三 开启了自动删除，消息将在1 个月后自动删除", @"30 天=1 个月");
+    NSArray<IMSysSegment *> *off = IMSegmentsForSysEvent(@"auto_delete", @{ @"sec": @"0" }, segs);
+    XCTAssertEqualObjects([self joinedText:off], @"张三 关闭了自动删除");
+
+    [IMLocalization.shared setPreference:IMLanguagePrefEnglish];
+    XCTAssertEqualObjects([self joinedText:IMSegmentsForSysEvent(@"auto_delete", @{ @"sec": @"604800" }, segs)],
+                          @"张三 turned on auto-delete. Messages will be deleted 1 week after they are sent");
+    XCTAssertEqualObjects([self joinedText:IMSegmentsForSysEvent(@"auto_delete", @{ @"sec": @"0" }, segs)], @"张三 turned off auto-delete");
+}
+
+/// 缺字段 / 非数字 / 非白名单 / 没有 uid 段 → nil，调用方回退 content 整句。
+- (void)testAutoDeleteMissingFieldsFallBack {
+    NSArray<IMSysSegment *> *segs = @[[self segWithUID:@"u1" text:@"张三"]];
+    XCTAssertNil(IMSegmentsForSysEvent(@"auto_delete", nil, segs));
+    XCTAssertNil(IMSegmentsForSysEvent(@"auto_delete", @{}, segs));
+    XCTAssertNil(IMSegmentsForSysEvent(@"auto_delete", @{ @"sec": @"abc" }, segs));
+    XCTAssertNil(IMSegmentsForSysEvent(@"auto_delete", @{ @"sec": @"-1" }, segs));
+    XCTAssertNil(IMSegmentsForSysEvent(@"auto_delete", @{ @"sec": @"7" }, segs));
+    XCTAssertNil(IMSegmentsForSysEvent(@"auto_delete", @{ @"sec": @"86400" }, nil));
+}
+
 #pragma mark - group_rename：纯 args 无人名槽位
 
 - (void)testGroupRenameNoNameSlots {

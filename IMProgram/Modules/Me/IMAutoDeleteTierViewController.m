@@ -4,6 +4,7 @@
 #import "IMAutoDeleteTierViewController.h"
 #import "IMAutoDelete.h"
 #import "IMLocalization.h"
+#import "IMActionListSheet.h"
 #import "IMHTTPService.h"
 #import "IMHTTPService+AutoDelete.h"
 #import "UIViewController+IMToast.h"
@@ -74,12 +75,23 @@
 }
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return 1; }
-- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return (NSInteger)IMAutoDeleteTiers().count; }
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return (NSInteger)IMAutoDeleteTiers().count + 1; } // +1 = 自定义行
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section { return self.footerText; }
 
+- (BOOL)isCustomRow:(NSIndexPath *)indexPath { return indexPath.row == (NSInteger)IMAutoDeleteTiers().count; }
+
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:nil];
+    if (self.onReadOnlyTap) { cell.textLabel.textColor = UIColor.secondaryLabelColor; } // 只读：置灰
+    if ([self isCustomRow:indexPath]) {
+        BOOL on = IMAutoDeleteIsCustomSelection(self.currentSec);
+        cell.textLabel.text = IMLocalized(@"autodel.custom");
+        cell.detailTextLabel.text = on ? IMAutoDeleteTierTitle(self.currentSec) : nil; // 如「3 天」
+        cell.accessoryType = on ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryDisclosureIndicator;
+        cell.accessibilityIdentifier = @"autodel.tier.custom";
+        return cell;
+    }
     int64_t sec = IMAutoDeleteTiers()[indexPath.row].longLongValue;
-    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
     cell.textLabel.text = IMAutoDeleteTierTitle(sec);
     cell.accessoryType = sec == self.currentSec ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
     cell.accessibilityIdentifier = [NSString stringWithFormat:@"autodel.tier.%lld", sec];
@@ -88,8 +100,27 @@
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    if (self.onReadOnlyTap) { self.onReadOnlyTap(); return; }
     if (self.saving) { return; }
-    int64_t sec = IMAutoDeleteTiers()[indexPath.row].longLongValue;
+    if ([self isCustomRow:indexPath]) { [self presentCustomSheet]; return; }
+    [self chooseSec:IMAutoDeleteTiers()[indexPath.row].longLongValue];
+}
+
+/// 自定义底部弹窗：18 档升序，当前档 ✓；点行等同在列表里选了该档位（同一套确认 / 保存流程）。
+- (void)presentCustomSheet {
+    NSMutableArray<IMActionListItem *> *items = [NSMutableArray array];
+    __weak typeof(self) ws = self;
+    for (NSNumber *n in IMAutoDeleteCustomTiers()) {
+        int64_t sec = n.longLongValue;
+        [items addObject:[IMActionListItem itemWithTitle:IMAutoDeleteTierTitle(sec) selected:sec == self.currentSec handler:^{
+            [ws chooseSec:sec];
+        }]];
+    }
+    [IMActionListSheet presentFrom:self title:IMLocalized(@"autodel.custom.title") items:items];
+}
+
+- (void)chooseSec:(int64_t)sec {
+    if (self.saving) { return; }
     if (sec == self.currentSec) { [self.navigationController popViewControllerAnimated:YES]; return; }
     int64_t previous = self.currentSec;
     self.saving = YES;

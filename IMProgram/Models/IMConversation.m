@@ -73,7 +73,8 @@ NSString * const kIMGroupReadSeqsKey = @"groupReadSeqs";
     c.muted = IMBoolFromJSON(dict[@"muted"]);
     c.muteUntil = [dict[@"mute_until"] respondsToSelector:@selector(longLongValue)] ? [dict[@"mute_until"] longLongValue] : 0;
     c.markedUnread = IMBoolFromJSON(dict[@"marked_unread"]);
-    c.autoDeleteSec = IMAutoDeleteSecFromJSON(dict[@"auto_delete_sec"]);
+    IMAutoDeleteConfig *adCfg = IMAutoDeleteConfigFromJSON(dict[@"auto_delete_sec"], dict[@"auto_delete_from"]);
+    c.autoDeleteSec = adCfg.sec; c.autoDeleteFrom = adCfg.from;
     c.remark = [self stringForKey:@"remark" in:dict]; // 会话备注（G1，仅本人可见）；非空替代显示名
     c.mentionUnread = IMBoolFromJSON(dict[@"mention_unread"]);
 

@@ -751,7 +751,7 @@ static NSArray<NSString *> *IMStringArrayFrom(id raw) {
                                  completion:(void (^)(NSError *))completion {
     // 实现见 IMHTTPService+AutoDelete.m（autoDeleteSec 传 nil = 请求不带该字段，服务端保留原值）。
     [self updateConversationSettingsWithToken:token convID:convID pinnedAt:pinnedAt muted:muted muteUntil:muteUntil
-                                 markedUnread:markedUnread autoDeleteSec:nil completion:completion];
+                                 markedUnread:markedUnread autoDeleteSec:nil completion:^(NSDictionary *d, NSError *e) { completion(e); }];
 }
 
 - (void)deleteConversationWithToken:(NSString *)token convID:(NSString *)convID

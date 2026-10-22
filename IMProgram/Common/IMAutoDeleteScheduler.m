@@ -61,9 +61,14 @@ static const NSTimeInterval kCoalesceDelay = 0.25;
     [_pending removeAllObjects];
     _pendingAll = NO;
     dispatch_async(_queue, ^{
-        NSDictionary<NSString *, NSArray<NSNumber *> *> *removed = [self sweepConvs:convs nowMs:IMNowMillis()];
-        if (removed.count == 0) { return; }
+        NSMutableArray<NSString *> *summaryOnly = [NSMutableArray array];
+        NSDictionary<NSString *, NSArray<NSNumber *> *> *removed = [self sweepConvs:convs nowMs:IMNowMillis() summaryOnly:summaryOnly];
+        if (removed.count == 0 && summaryOnly.count == 0) { return; }
         dispatch_async(dispatch_get_main_queue(), ^{
+            for (NSString *convID in summaryOnly) { // 没有可删的消息行，但会话行预览 / 未读变了：通知列表（与聊天页）按库刷新
+                [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidUpdateConversationNotification
+                    object:IMSocketManager.sharedManager userInfo:@{ kIMConvIDKey: convID }];
+            }
             for (NSString *convID in removed) {
                 NSArray<NSNumber *> *seqs = removed[convID];
                 [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidRemoveMessageNotification
@@ -75,20 +80,27 @@ static const NSTimeInterval kCoalesceDelay = 0.25;
 }
 
 - (NSDictionary<NSString *, NSArray<NSNumber *> *> *)sweepConvs:(NSArray<NSString *> *)convIDs nowMs:(int64_t)nowMs {
+    return [self sweepConvs:convIDs nowMs:nowMs summaryOnly:nil];
+}
+
+- (NSDictionary<NSString *, NSArray<NSNumber *> *> *)sweepConvs:(NSArray<NSString *> *)convIDs nowMs:(int64_t)nowMs
+                                                    summaryOnly:(NSMutableArray<NSString *> *)summaryOnly {
     IMDatabase *db = IMDatabase.sharedDatabase;
-    NSMutableDictionary<NSString *, NSNumber *> *targets = [NSMutableDictionary dictionary];
+    NSMutableDictionary<NSString *, IMAutoDeleteConfig *> *targets = [NSMutableDictionary dictionary];
     if (convIDs) {
         for (NSString *c in convIDs) {
-            int64_t sec = [db autoDeleteSecForConv:c];
-            if (sec > 0) { targets[c] = @(sec); }
+            IMAutoDeleteConfig *cfg = [db autoDeleteConfigForConv:c];
+            if (cfg.active) { targets[c] = cfg; }
         }
     } else {
         [targets addEntriesFromDictionary:[db autoDeleteActiveConvs]];
     }
     NSMutableDictionary<NSString *, NSArray<NSNumber *> *> *out = [NSMutableDictionary dictionary];
     for (NSString *convID in targets) {
-        NSArray<NSNumber *> *seqs = [db deleteExpiredMessagesForConv:convID floorTs:IMAutoDeleteFloorTs(targets[convID].longLongValue, nowMs)];
+        IMAutoDeleteConfig *cfg = targets[convID];
+        NSArray<NSNumber *> *seqs = [db deleteExpiredMessagesForConv:convID config:cfg nowMs:nowMs];
         if (seqs.count > 0) { out[convID] = seqs; }
+        else if ([db refreshAutoDeleteSummaryForConv:convID config:cfg nowMs:nowMs]) { [summaryOnly addObject:convID]; }
     }
     return out;
 }

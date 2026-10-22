@@ -91,7 +91,8 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 /// 判定，不直接读 muted（NOTIFICATIONS_P1_DESIGN §4.3）。
 @property (nonatomic, assign) int64_t muteUntil;
 @property (nonatomic, assign) BOOL markedUnread; ///< 手动标未读态：PUT 是整体替换，提交时必须回传，否则会清掉列表页设的红点
-@property (nonatomic, assign) int64_t autoDeleteSec; ///< 本会话自动删除档位（秒，0=关）；PUT 整体替换时随 settings 回传
+@property (nonatomic, assign) int64_t autoDeleteSec;  ///< 本会话自动删除档位（秒，0=关；v2 会话级共享）。**不**随置顶/免打扰 PUT 回传，只在用户主动改档位那一处带
+@property (nonatomic, assign) int64_t autoDeleteFrom; ///< 本会话自动删除起点（毫秒；ts<from 的消息永不过期），与 autoDeleteSec 成对覆盖
 @property (nonatomic, copy, nullable) NSString *convRemark; ///< 会话备注（G1，仅本人可见、多端同步）：从服务端读，非空替代群名显示
 // UI
 @property (nonatomic, strong) UITableView *tableView;
@@ -169,6 +170,7 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 // 动作 / 设置 / 群昵称备注（+Actions.m）：
 - (void)commitConversationSettings;
 - (void)configureAutoDeleteCell:(UITableViewCell *)cell;  ///< +Settings.m：自动删除消息值行
+- (BOOL)canManageGroup;                                    ///< 群主 / 管理员（本地群成员角色，IMChatDetailViewController.m）
 - (void)openAutoDeleteTier;                                ///< +Settings.m：档位选择页（含开启/缩短确认）
 - (void)loadConversationSettings; ///< 拉取会话设置（提交失败时 +Actions 回拉权威值刷新开关）
 - (void)confirmClearHistory;

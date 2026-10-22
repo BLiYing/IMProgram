@@ -8,7 +8,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-/// 系统消息（content_type=system，群聊 + 单聊 friend_accepted）：`sys_event`+`sys_args` → 按 App 当前语言重渲染的分段数组
+/// 系统消息（content_type=system，群聊 + 单聊 friend_accepted / auto_delete）：`sys_event`+`sys_args` → 按 App 当前语言重渲染的分段数组
 /// （与 IMSysSegment/sysSegments 同构，可直接喂给 IMSystemCell.configureWithSegments:...）。
 ///
 /// **不在代码里拼句子结构**：不手写"{actor} removed {target}"这种词序进 ObjC——本函数用"哨兵占位符

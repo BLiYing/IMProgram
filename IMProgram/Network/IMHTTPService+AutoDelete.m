@@ -10,7 +10,7 @@
 - (void)updateConversationSettingsWithToken:(NSString *)token convID:(NSString *)convID
                                    pinnedAt:(int64_t)pinnedAt muted:(BOOL)muted muteUntil:(NSNumber *)muteUntil
                                markedUnread:(BOOL)markedUnread autoDeleteSec:(NSNumber *)autoDeleteSec
-                                 completion:(void (^)(NSError *))completion {
+                                 completion:(void (^)(NSDictionary *, NSError *))completion {
     NSString *path = [NSString stringWithFormat:@"/api/v1/conversations/%@/settings",
                       [convID stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet] ?: @""];
     NSMutableDictionary *body = [@{ @"pinned_at": @(pinnedAt), @"muted": @(muted), @"marked_unread": @(markedUnread) } mutableCopy];
@@ -19,7 +19,7 @@
     // 缓存（升级后小表还是空的 / 别端刚改而本机还没收到 conv_update）盖掉别端刚设的档位。只有显式改档位才带。
     if (autoDeleteSec) { body[@"auto_delete_sec"] = autoDeleteSec; }
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"PUT" token:token body:body];
-    [self runOKRequest:req fallback:IMLocalized(@"conv.error.settings_failed") completion:completion];
+    [self runDataRequest:req fallback:IMLocalized(@"conv.error.settings_failed") completion:completion];
 }
 
 - (void)fetchAutoDeleteDefaultWithToken:(NSString *)token completion:(void (^)(int64_t, NSError *))completion {

@@ -38,7 +38,7 @@
         self.muted = [data[@"muted"] boolValue];
         self.muteUntil = [data[@"mute_until"] longLongValue];
         self.markedUnread = [data[@"marked_unread"] boolValue]; // PUT 整体替换，提交时须回传
-        [self adoptAutoDeleteSec:IMAutoDeleteSecFromJSON(data[@"auto_delete_sec"])];
+        [self adoptAutoDeleteConfig:IMAutoDeleteConfigFromJSON(data[@"auto_delete_sec"], data[@"auto_delete_from"])];
         NSString *rmk = [data[@"remark"] isKindOfClass:[NSString class]] ? data[@"remark"] : nil;
         self.convRemark = rmk.length > 0 ? rmk : nil; // 群备注（G1）：替代群名显示
         [self reloadSettingsAndPills];
@@ -58,7 +58,7 @@
                 self.muted = c.muted;
                 self.muteUntil = c.muteUntil;
                 self.markedUnread = c.markedUnread;
-                [self adoptAutoDeleteSec:c.autoDeleteSec];
+                [self adoptAutoDeleteConfig:[IMAutoDeleteConfig configWithSec:c.autoDeleteSec from:c.autoDeleteFrom]];
                 self.convRemark = c.remark.length > 0 ? c.remark : nil;
                 [self reloadSettingsAndPills];
                 [self refreshHeaderTexts];
@@ -68,11 +68,12 @@
     }];
 }
 
-/// 采纳服务端权威档位：落本机小表；变了（别的设备改的）就立即清理本会话。
-- (void)adoptAutoDeleteSec:(int64_t)sec {
-    self.autoDeleteSec = sec;
-    BOOL changed = [IMDatabase.sharedDatabase setAutoDeleteSec:sec forConv:self.convID];
-    if (changed && sec > 0) { [IMAutoDeleteScheduler.shared requestSweepForConv:self.convID]; }
+/// 采纳服务端权威设置（sec + from 成对）：落本机小表；变了（别的成员 / 设备改的，或本机刚改）且 sec>0 就立即清理本会话。
+- (void)adoptAutoDeleteConfig:(IMAutoDeleteConfig *)cfg {
+    self.autoDeleteSec = cfg.sec;
+    self.autoDeleteFrom = cfg.from;
+    BOOL changed = [IMDatabase.sharedDatabase setAutoDeleteConfig:cfg forConv:self.convID];
+    if (changed && cfg.active) { [IMAutoDeleteScheduler.shared requestSweepForConv:self.convID]; }
 }
 
 #pragma mark - 自动删除消息行
@@ -84,29 +85,39 @@
     cell.accessibilityIdentifier = @"detail.autodel";
 }
 
+/// 群聊里本机已知不是群主 / 管理员 → 只读。群资料还没加载到（角色未知）先放行，权限以服务端 300204 为准。
+- (BOOL)autoDeleteIsReadOnly {
+    return self.isGroup && self.group != nil && ![self canManageGroup];
+}
+
 - (void)openAutoDeleteTier {
     __weak typeof(self) ws = self;
+    NSString *footer = IMLocalized(self.isGroup ? @"autodel.conv.footer_group" : @"autodel.conv.footer");
     IMAutoDeleteTierViewController *vc = [[IMAutoDeleteTierViewController alloc]
-        initWithCurrentSec:self.autoDeleteSec footer:IMLocalized(@"autodel.conv.footer") optimistic:NO
+        initWithCurrentSec:self.autoDeleteSec footer:footer optimistic:NO
         onSelect:^(int64_t sec, void (^done)(BOOL)) {
             __strong typeof(ws) self = ws;
             if (!self) { done(NO); return; }
             if (!IMAutoDeleteNeedsConfirm(self.autoDeleteSec, sec)) { [self saveAutoDeleteSec:sec done:done]; return; }
             [self confirmAutoDeleteSec:sec done:done];
         }];
+    if ([self autoDeleteIsReadOnly]) {
+        vc.onReadOnlyTap = ^{ [ws im_showToast:IMLocalized(@"autodel.group_admin_only")]; }; // 只读：不发 PUT
+    }
     [self.navigationController pushViewController:vc animated:YES];
 }
 
-/// 开启 / 缩短：destructive 确认（取消不改任何东西）。
+/// 开启 / 改档位：说明性确认框（v2 不追溯，确认后不会删任何历史消息，主按钮「开启」非 destructive；取消不改任何东西）。
 - (void)confirmAutoDeleteSec:(int64_t)sec done:(void (^)(BOOL))done {
+    NSString *messageKey = self.isGroup ? @"autodel.confirm.message_group" : @"autodel.confirm.message";
     UIAlertController *alert = [UIAlertController
         alertControllerWithTitle:IMLocalized(@"autodel.confirm.title")
-        message:IMLocalizedFormat(@"autodel.confirm.message", IMAutoDeletePeriodWord(sec))
+        message:IMLocalizedFormat(messageKey, IMAutoDeletePeriodWord(sec))
         preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel
                                             handler:^(UIAlertAction *a) { done(NO); }]];
     __weak typeof(self) ws = self;
-    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"autodel.confirm.action") style:UIAlertActionStyleDestructive
+    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"autodel.confirm.action") style:UIAlertActionStyleDefault
                                             handler:^(UIAlertAction *a) {
         __strong typeof(ws) self = ws;
         if (!self) { done(NO); return; }
@@ -115,23 +126,35 @@
     [self.navigationController.topViewController presentViewController:alert animated:YES completion:nil];
 }
 
-/// 保存本会话档位：整体替换 PUT（其余字段原样回传，muteUntil 传 nil 让服务端保留未到期定时免打扰）；
-/// 成功后落本机并立即清理，失败 toast + 回滚。
+/// 保存本会话档位：整体替换 PUT（其余字段原样回传，muteUntil 传 nil 让服务端保留未到期定时免打扰；只有这里带 auto_delete_sec）；
+/// 成功后用回包 sec+from 落本机并立即清理（通常无事可清），失败 toast + 回滚（300204 = 无权限）。
 - (void)saveAutoDeleteSec:(int64_t)sec done:(void (^)(BOOL))done {
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0) { [self im_showToast:IMLocalized(@"autodel.save_failed")]; done(NO); return; }
     __weak typeof(self) ws = self;
     [IMHTTPService.sharedService updateConversationSettingsWithToken:token convID:self.convID
         pinnedAt:self.pinnedAt muted:self.muted muteUntil:nil markedUnread:self.markedUnread autoDeleteSec:@(sec)
-        completion:^(NSError *error) {
+        completion:^(NSDictionary *data, NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self) { done(NO); return; }
-        if (error) { [self im_showToast:IMLocalized(@"autodel.save_failed")]; done(NO); return; }
-        [self adoptAutoDeleteSec:sec];
-        if (sec > 0) { [IMAutoDeleteScheduler.shared requestSweepForConv:self.convID]; }
+        if (error) {
+            [self im_showToast:IMLocalized(error.code == 300204 ? @"autodel.group_admin_only" : @"autodel.save_failed")];
+            done(NO); return;
+        }
+        [self adoptSavedAutoDeleteReply:data requestedSec:sec];
         [self reloadSettingsAndPills];
         done(YES);
     }];
+}
+
+/// PUT 回包带 sec+from 就直接采纳；回包缺字段（老服务端）时先按所选档位显示，并重拉设置取权威 from。
+- (void)adoptSavedAutoDeleteReply:(NSDictionary *)data requestedSec:(int64_t)sec {
+    if ([data[@"auto_delete_sec"] isKindOfClass:NSNumber.class] && [data[@"auto_delete_from"] isKindOfClass:NSNumber.class]) {
+        [self adoptAutoDeleteConfig:IMAutoDeleteConfigFromJSON(data[@"auto_delete_sec"], data[@"auto_delete_from"])];
+        return;
+    }
+    self.autoDeleteSec = sec;
+    [self loadConversationSettings];
 }
 
 @end

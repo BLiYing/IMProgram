@@ -8,6 +8,8 @@ static const CGFloat kRowH = 56;
 static const CGFloat kTitleH = 44;
 static const CGFloat kSideMargin = 10;
 static const CGFloat kRadius = 20;
+static const NSInteger kCheckTag = 0x4348;
+static const CGFloat kMaxListFraction = 0.6; ///< 选项区最高占屏高比例，超出滚动
 
 @implementation IMActionListItem
 + (instancetype)itemWithTitle:(NSString *)title destructive:(BOOL)destructive handler:(void (^)(void))handler {
@@ -15,9 +17,15 @@ static const CGFloat kRadius = 20;
     it.title = title; it.destructive = destructive; it.handler = handler;
     return it;
 }
++ (instancetype)itemWithTitle:(NSString *)title selected:(BOOL)selected handler:(void (^)(void))handler {
+    IMActionListItem *it = [self itemWithTitle:title destructive:NO handler:handler];
+    it.selected = selected;
+    return it;
+}
 @end
 
 @implementation IMActionListSheet {
+    UIScrollView *_scroll;
     NSString *_sheetTitle;
     NSArray<IMActionListItem *> *_items;
     UIView *_dim;
@@ -66,10 +74,10 @@ static const CGFloat kRadius = 20;
         [t.heightAnchor constraintEqualToConstant:kTitleH].active = YES;
         [stack addArrangedSubview:t];
     }
-    for (NSUInteger i = 0; i < _items.count; i++) {
-        [stack addArrangedSubview:[self rowWithTitle:_items[i].title destructive:_items[i].destructive tag:(NSInteger)i]];
-    }
-    [stack addArrangedSubview:[self rowWithTitle:IMLocalized(@"common.cancel") destructive:NO tag:-1]];
+    [stack addArrangedSubview:[self scrollableItemList]];
+    // 与 self.view 比高必须等 _scroll 入层级（卡片 -> stack）后才能激活，否则 "no common ancestor" 直接抛异常
+    [_scroll.heightAnchor constraintLessThanOrEqualToAnchor:self.view.heightAnchor multiplier:kMaxListFraction].active = YES;
+    [stack addArrangedSubview:[self rowWithTitle:IMLocalized(@"common.cancel") destructive:NO selected:NO tag:-1]];
 
     UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
     _cardBottom = [_card.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor constant:0];
@@ -88,7 +96,42 @@ static const CGFloat kRadius = 20;
     ]];
 }
 
-- (UIView *)rowWithTitle:(NSString *)title destructive:(BOOL)destructive tag:(NSInteger)tag {
+/// 选项区：行叠在 scrollView 里；高度 = 内容高，但不超过屏高 * kMaxListFraction（短列表如免打扰 5 行不滚）。
+- (UIScrollView *)scrollableItemList {
+    _scroll = [UIScrollView new];
+    _scroll.translatesAutoresizingMaskIntoConstraints = NO;
+    UIStackView *rows = [UIStackView new];
+    rows.axis = UILayoutConstraintAxisVertical;
+    rows.translatesAutoresizingMaskIntoConstraints = NO;
+    [_scroll addSubview:rows];
+    for (NSUInteger i = 0; i < _items.count; i++) {
+        IMActionListItem *it = _items[i];
+        [rows addArrangedSubview:[self rowWithTitle:it.title destructive:it.destructive selected:it.selected tag:(NSInteger)i]];
+    }
+    NSLayoutConstraint *fit = [_scroll.heightAnchor constraintEqualToAnchor:rows.heightAnchor];
+    fit.priority = UILayoutPriorityDefaultHigh;
+    [NSLayoutConstraint activateConstraints:@[
+        [rows.topAnchor constraintEqualToAnchor:_scroll.contentLayoutGuide.topAnchor],
+        [rows.bottomAnchor constraintEqualToAnchor:_scroll.contentLayoutGuide.bottomAnchor],
+        [rows.leadingAnchor constraintEqualToAnchor:_scroll.contentLayoutGuide.leadingAnchor],
+        [rows.trailingAnchor constraintEqualToAnchor:_scroll.contentLayoutGuide.trailingAnchor],
+        [rows.widthAnchor constraintEqualToAnchor:_scroll.frameLayoutGuide.widthAnchor],
+        fit,
+    ]];
+    return _scroll;
+}
+
+- (void)scrollToSelectedRow {
+    for (NSUInteger i = 0; i < _items.count; i++) {
+        if (!_items[i].selected) { continue; }
+        CGFloat y = i * kRowH - (_scroll.bounds.size.height - kRowH) / 2;
+        CGFloat maxY = MAX(0, _scroll.contentSize.height - _scroll.bounds.size.height);
+        _scroll.contentOffset = CGPointMake(0, MIN(MAX(0, y), maxY));
+        return;
+    }
+}
+
+- (UIView *)rowWithTitle:(NSString *)title destructive:(BOOL)destructive selected:(BOOL)selected tag:(NSInteger)tag {
     UIButton *b = [UIButton buttonWithType:UIButtonTypeCustom];
     b.tag = tag;
     [b setTitle:title forState:UIControlStateNormal];
@@ -107,6 +150,21 @@ static const CGFloat kRadius = 20;
         [line.trailingAnchor constraintEqualToAnchor:b.trailingAnchor],
         [line.heightAnchor constraintEqualToConstant:1.0 / UIScreen.mainScreen.scale],
     ]];
+    if (selected) {
+        UILabel *check = [UILabel new];
+        check.translatesAutoresizingMaskIntoConstraints = NO;
+        check.text = @"✓";
+        check.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
+        check.tag = kCheckTag;
+        check.textColor = b.tintColor; // 构建时还没入窗，取到的是系统默认蓝；viewWillAppear 里按窗口 tint 重取
+        check.isAccessibilityElement = NO;
+        [b addSubview:check];
+        [NSLayoutConstraint activateConstraints:@[
+            [check.trailingAnchor constraintEqualToAnchor:b.trailingAnchor constant:-20],
+            [check.centerYAnchor constraintEqualToAnchor:b.centerYAnchor],
+        ]];
+        b.accessibilityTraits |= UIAccessibilityTraitSelected;
+    }
     return b;
 }
 
@@ -119,6 +177,13 @@ static const CGFloat kRadius = 20;
     [super viewWillAppear:animated];
     // 卡片先放到屏幕下方，再随转场上滑进来。
     [self.view layoutIfNeeded];
+    // viewWillAppear 时 overFullScreen 的 view 还没挂进窗口（自身 tintColor 仍是系统默认蓝），故取 presenting 的 tint（= 窗口 tint，与列表页系统 ✓ 同色）
+    UIColor *tint = self.presentingViewController.view.tintColor ?: self.view.tintColor;
+    for (UIView *v in _scroll.subviews.firstObject.subviews) { // 重取 ✓ 色
+        UILabel *l = (UILabel *)[v viewWithTag:kCheckTag];
+        if ([l isKindOfClass:UILabel.class]) { l.textColor = tint; }
+    }
+    [self scrollToSelectedRow];
     _cardBottom.constant = _card.bounds.size.height + 40;
     [self.view layoutIfNeeded];
     _cardBottom.constant = 0;
