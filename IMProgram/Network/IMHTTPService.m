@@ -171,6 +171,10 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     self.tokenFetchedAt = 0;
 }
 
+- (void)expireCachedToken {
+    self.tokenFetchedAt = 0;
+}
+
 - (void)loginWithUsername:(NSString *)username
                completion:(void (^)(NSString *, NSString *, NSError *))completion {
     self.username = username;

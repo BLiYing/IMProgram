@@ -50,7 +50,7 @@ extern NSNotificationName const IMChatFoldersDidChangeNotification;
 - (void)changeConvsInFolder:(NSString *)folderID add:(NSArray<NSString *> *)add remove:(NSArray<NSString *> *)remove
                  completion:(void (^)(NSError *_Nullable error))completion;
 
-/// 面向用户的错误文案：文件夹业务码（300301–300305）查 `err.<code>`；其余用 error 自带文案，兜底「操作失败，请重试」。
+/// 面向用户的错误文案：文件夹业务码（300301–300305）查 `err.300301`…`err.300305`；其余用 error 自带文案，兜底「操作失败，请重试」。
 + (NSString *)userMessageForError:(NSError *)error;
 
 /// 清空内存与本账号的落盘快照（注销账号清本机缓存用；测试也用它）。
