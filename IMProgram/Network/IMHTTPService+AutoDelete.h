@@ -2,6 +2,7 @@
 //  自动删除消息的 REST（PROTOCOL §6.8.1）：会话设置 PUT 带 auto_delete_sec + 账号默认档位 GET/PUT /users/me/privacy。
 
 #import "IMHTTPService.h"
+#import "IMPrivacyVisibility.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -27,6 +28,14 @@ NS_ASSUME_NONNULL_BEGIN
 /// PUT /api/v1/users/me/privacy {auto_delete_default_sec}。completion 主线程。
 - (void)saveAutoDeleteDefault:(int64_t)sec token:(NSString *)token
                    completion:(void (^)(NSError *_Nullable error))completion;
+
+/// GET /api/v1/users/me/privacy 完整对象（自动删除默认档 + 谁能看到两项）。completion 主线程；失败时 settings 为 nil。
+- (void)fetchPrivacySettingsWithToken:(NSString *)token
+                           completion:(void (^)(IMPrivacySettings *_Nullable settings, NSError *_Nullable error))completion;
+
+/// PUT /api/v1/users/me/privacy，**只带被改的那一项**（部分更新，不覆盖 auto_delete_default_sec 与另一项）。completion 主线程。
+- (void)saveVisibility:(NSString *)level forKind:(IMPrivacyVisibilityKind)kind token:(NSString *)token
+            completion:(void (^)(NSError *_Nullable error))completion;
 
 @end
 

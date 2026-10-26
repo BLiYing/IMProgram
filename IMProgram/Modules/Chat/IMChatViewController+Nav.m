@@ -123,10 +123,12 @@ static UIImage *IMChatAvatarImage(UIImage *photo, NSString *seed, NSString *name
     NSString *avatar = [self.groupInfo avatarURLOfMember:uid];
     // 成员表兜底（超级群不下发成员集 / 发送者已退群）：资料页自己也会 GET /users/{id} 拉全量，
     // 这里只是让**推进去的第一帧**就有名字和头像，不闪一下"未命名用户 + 首字母圈"。
-    if (nick.length == 0 || avatar.length == 0) {
+    BOOL inMemberTable = NO; // 在成员表里时空头像是权威值（无头像 / 不可见），不回退身份缓存
+    for (IMGroupMember *m in self.groupInfo.members) { if ([m.userID isEqualToString:uid]) { inMemberTable = YES; break; } }
+    if (nick.length == 0 || (avatar.length == 0 && !inMemberTable)) {
         IMUserCard *card = [IMUserProfileCache.sharedCache cardForUserID:uid];
         if (nick.length == 0) { nick = card.nickname; }
-        if (avatar.length == 0) { avatar = card.avatarURL; }
+        if (avatar.length == 0 && !inMemberTable) { avatar = card.avatarURL; }
     }
     IMChatDetailViewController *vc = [[IMChatDetailViewController alloc] initSingleWithHost:self.host userID:self.userID
                                                                                     peerID:uid

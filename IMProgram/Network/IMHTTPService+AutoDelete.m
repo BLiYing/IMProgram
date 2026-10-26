@@ -35,4 +35,18 @@
     [self runOKRequest:req fallback:IMLocalized(@"autodel.save_failed") completion:completion];
 }
 
+- (void)fetchPrivacySettingsWithToken:(NSString *)token completion:(void (^)(IMPrivacySettings *, NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/users/me/privacy" method:@"GET" token:token body:nil];
+    [self runDataRequest:req fallback:IMLocalized(@"ps.visibility.save_failed") completion:^(NSDictionary *data, NSError *error) {
+        completion(error ? nil : [IMPrivacySettings settingsFromJSON:data], error);
+    }];
+}
+
+- (void)saveVisibility:(NSString *)level forKind:(IMPrivacyVisibilityKind)kind token:(NSString *)token
+            completion:(void (^)(NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/users/me/privacy" method:@"PUT" token:token
+                                                     body:IMPrivacyVisibilityPutBody(kind, level)];
+    [self runOKRequest:req fallback:IMLocalized(@"ps.visibility.save_failed") completion:completion];
+}
+
 @end

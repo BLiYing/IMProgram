@@ -391,7 +391,7 @@ static const NSUInteger kIMRtcMaxGroupCallPick = 8;
         }
         self.peerNickname = card.nickname.length ? card.nickname : self.peerNickname;
         self.peerUsername = card.username.length ? card.username : self.peerUsername;
-        self.peerAvatarURL = card.avatarURL.length ? card.avatarURL : self.peerAvatarURL;
+        self.peerAvatarURL = card.avatarURL; // 权威资料：空串即无头像，不保留旧缓存
         self.peerProfileLoaded = YES;
         [IMContactShare presentPickerFrom:self selfUID:self.userID userID:self.peerID
                                  username:self.peerUsername

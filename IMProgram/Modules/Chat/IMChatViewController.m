@@ -259,7 +259,7 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
         // 单聊与群相反：非空即覆盖。聊天页对 peer 昵称/头像没有任何服务端刷新（页内值只来自
         // 更早的播种，可能过期），caller 的成员表/会话行快照永远 ≥ 页内值，覆盖才能修「对方改名」。
         if (peerNickname.length > 0) { chat.peerNickname = peerNickname; }
-        if (peerAvatarURL.length > 0) { chat.peerAvatarURL = peerAvatarURL; }
+        if (peerAvatarURL) { chat.peerAvatarURL = peerAvatarURL; } // nil=caller 不知道；@""=权威「无头像」，要清掉页内旧头像
     }];
 }
 

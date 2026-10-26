@@ -1455,6 +1455,12 @@
 "ps.section.chat_privacy" = "Chat privacy";
 "ps.section.data" = "Data";
 "ps.section.who_can_see" = "Who can see";
+"ps.visibility.avatar.footer" = "Choose who can see your profile photo. Others will see a default avatar instead. You can always see your own.";
+"ps.visibility.contacts" = "My contacts";
+"ps.visibility.everyone" = "Everyone";
+"ps.visibility.last_seen.footer" = "Choose who can see your online status and when you were last online. You can always see your own.";
+"ps.visibility.nobody" = "Nobody";
+"ps.visibility.save_failed" = "Couldn't save. Please try again.";
 "ps.who_can_see_footer" = "These settings control how much others can see on your profile.";
 "push.call.action_answer" = "Answer";
 "push.call.channel_name" = "Incoming calls";

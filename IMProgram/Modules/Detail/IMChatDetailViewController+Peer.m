@@ -113,7 +113,7 @@ static const NSInteger kIMPeerNotFoundOverlayTag = 91001;
         self.peerUsername = card.username;                                     // 公开句柄，供「用户名」行显示 @xxx
         self.peerPresence = card.presence;                                     // 头部副标题（在线/最近在线）
         self.peerProfileLoaded = YES;                                          // 此后 peerNickname 可用于名片快照
-        if (card.avatarURL.length > 0) { self.peerAvatarURL = card.avatarURL; }
+        self.peerAvatarURL = card.avatarURL; // 权威资料：服务端给空串（对方设了头像不可见 / 清了头像）就清掉旧头像，走首字母圈
         // 服务端的备注是权威值，喂回全局表让各页一起收敛（本页标题随 displayTitle 自然生效）。
         if (card.remark) { [IMRemarkStore.sharedStore applyRemark:card.remark forUser:self.peerID]; }
         [self.avatarView setAvatarURL:[self headerAvatarURL] seed:(self.peerID ?: @"") name:self.displayTitle];

@@ -75,8 +75,10 @@
 }
 
 - (nullable NSString *)avatarURLForUID:(NSString *)uid {
-    NSString *raw = [self memberForUID:uid].avatarURL;
-    if (raw.length == 0) { raw = [IMUserProfileCache.sharedCache peekCardForUserID:uid].avatarURL; }
+    IMGroupMember *member = [self memberForUID:uid];
+    NSString *raw = member.avatarURL;
+    // 成员表里有这个人时它的头像是权威值：空串 = 无头像 / 对方设了不可见，不能再回退到可能过期的身份缓存。
+    if (!member && raw.length == 0) { raw = [IMUserProfileCache.sharedCache peekCardForUserID:uid].avatarURL; }
     if (raw.length == 0) { return nil; }
     NSString *full = IMMediaFullURL(raw, IMHTTPService.sharedService.host);
     return full.length ? full : nil;

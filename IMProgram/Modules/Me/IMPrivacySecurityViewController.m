@@ -11,6 +11,8 @@
 #import "IMAutoDelete.h"
 #import "IMAutoDeleteTierViewController.h"
 #import "IMHTTPService+AutoDelete.h"
+#import "IMPrivacyVisibility.h"
+#import "IMPrivacyVisibilityViewController.h"
 
 #pragma mark - 行模型
 
@@ -126,6 +128,10 @@
 @property (nonatomic, strong) IMPSRow *blockedRow; ///< 引用留着，count 拉回后就地更新 rightValue
 @property (nonatomic, strong) IMPSRow *autoDeleteRow; ///< 自动删除消息（账号默认档位）活行：GET /users/me/privacy 回来后就地更新右值
 @property (nonatomic, assign) int64_t autoDeleteDefaultSec;
+@property (nonatomic, strong) IMPSRow *lastSeenRow; ///< 谁能看到 ▸ 上次上线（活行）
+@property (nonatomic, strong) IMPSRow *avatarRow;   ///< 谁能看到 ▸ 头像（活行）
+@property (nonatomic, copy) NSString *lastSeenLevel; ///< 当前档位，GET 回来前用服务端默认值
+@property (nonatomic, copy) NSString *avatarLevel;
 @end
 
 @implementation IMPrivacySecurityViewController
@@ -144,6 +150,8 @@
     self.title = IMLocalized(@"settings.row.privacy"); // 与设置页入口 title 完全一致（§0）
     self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
 
+    self.lastSeenLevel = IMPrivacyVisibilityDefault(IMPrivacyVisibilityKindLastSeen);
+    self.avatarLevel = IMPrivacyVisibilityDefault(IMPrivacyVisibilityKindAvatar);
     [self buildGroups];
 
     self.tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStyleInsetGrouped];
@@ -157,7 +165,7 @@
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     [self refreshBlockedCount];
-    [self refreshAutoDeleteDefault];
+    [self refreshPrivacySettings];
 }
 
 #pragma mark - 数据
@@ -203,14 +211,16 @@
     groupC.footer = IMLocalized(@"ps.chat_privacy_footer");
     groupC.rows = @[autoDelete];
 
-    // 组 D · 谁能看到（占位，一整组 P2）
+    // 组 D · 谁能看到：上次上线 / 头像为活行（PRIVACY_VISIBILITY_DESIGN §4），其余三行仍灰置
+    self.lastSeenRow = [self visibilityRow:IMPrivacyVisibilityKindLastSeen symbol:@"eye.fill" bg:UIColor.systemBlueColor];
+    self.avatarRow = [self visibilityRow:IMPrivacyVisibilityKindAvatar symbol:@"person.crop.circle.fill" bg:UIColor.systemPurpleColor];
     IMPSGroup *groupD = [IMPSGroup new];
     groupD.header = IMLocalized(@"ps.section.who_can_see");
     groupD.footer = IMLocalized(@"ps.who_can_see_footer");
     groupD.rows = @[
         [self placeholder:IMLocalized(@"ps.row.phone_number") symbol:@"phone.fill" bg:UIColor.systemGreenColor value:IMLocalized(@"common.my_contacts")],
-        [self placeholder:IMLocalized(@"ps.row.last_seen") symbol:@"eye.fill" bg:UIColor.systemBlueColor value:IMLocalized(@"common.my_contacts")],
-        [self placeholder:IMLocalized(@"ps.row.avatar") symbol:@"person.crop.circle.fill" bg:UIColor.systemPurpleColor value:IMLocalized(@"common.everyone")],
+        self.lastSeenRow,
+        self.avatarRow,
         [self placeholder:IMLocalized(@"ps.row.bio") symbol:@"text.alignleft" bg:UIColor.systemYellowColor value:IMLocalized(@"common.everyone")],
         [self placeholder:IMLocalized(@"ps.row.birthday") symbol:@"gift.fill" bg:UIColor.systemPinkColor value:IMLocalized(@"common.my_contacts")],
     ];
@@ -235,6 +245,16 @@
     return r;
 }
 
+- (IMPSRow *)visibilityRow:(IMPrivacyVisibilityKind)kind symbol:(NSString *)symbol bg:(UIColor *)bg {
+    __weak typeof(self) ws = self;
+    IMPSRow *r = [IMPSRow new];
+    r.rowId = IMPrivacyVisibilityJSONKey(kind); r.title = IMLocalized(IMPrivacyVisibilityRowTitleKey(kind));
+    r.systemImage = symbol; r.iconBgColor = bg;
+    r.rightValue = IMPrivacyVisibilityTitle(kind == IMPrivacyVisibilityKindLastSeen ? self.lastSeenLevel : self.avatarLevel);
+    r.handler = ^{ [ws openVisibility:kind]; };
+    return r;
+}
+
 /// 拉一次黑名单，右值显数量。best-effort：失败保留旧值不刷新，避免抖动闪。
 - (void)refreshBlockedCount {
     IMHTTPService.sharedService.host = self.host;
@@ -254,16 +274,27 @@
     }];
 }
 
-/// 取一次账号默认档位（进页 / 选择页返回时）。best-effort：失败保留旧值。
-- (void)refreshAutoDeleteDefault {
+/// 取一次隐私设置（进页 / 子页返回时）：自动删除默认档 + 谁能看到两项同一个 GET。best-effort：失败保留旧值。
+- (void)refreshPrivacySettings {
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0) { return; }
     __weak typeof(self) ws = self;
-    [IMHTTPService.sharedService fetchAutoDeleteDefaultWithToken:token completion:^(int64_t sec, NSError *error) {
+    [IMHTTPService.sharedService fetchPrivacySettingsWithToken:token completion:^(IMPrivacySettings *settings, NSError *error) {
         __strong typeof(ws) self = ws;
-        if (!self || error) { return; }
-        [self applyAutoDeleteDefault:sec];
+        if (!self || error || !settings) { return; }
+        self.autoDeleteDefaultSec = settings.autoDeleteDefaultSec;
+        self.autoDeleteRow.rightValue = IMAutoDeleteTierTitle(settings.autoDeleteDefaultSec);
+        [self applyVisibility:settings.lastSeenVisibility kind:IMPrivacyVisibilityKindLastSeen reload:NO];
+        [self applyVisibility:settings.avatarVisibility kind:IMPrivacyVisibilityKindAvatar reload:NO];
+        [self.tableView reloadData];
     }];
+}
+
+- (void)applyVisibility:(NSString *)level kind:(IMPrivacyVisibilityKind)kind reload:(BOOL)reload {
+    BOOL lastSeen = kind == IMPrivacyVisibilityKindLastSeen;
+    if (lastSeen) { self.lastSeenLevel = level; } else { self.avatarLevel = level; }
+    (lastSeen ? self.lastSeenRow : self.avatarRow).rightValue = IMPrivacyVisibilityTitle(level);
+    if (reload) { [self.tableView reloadData]; }
 }
 
 - (void)applyAutoDeleteDefault:(int64_t)sec {
@@ -279,6 +310,15 @@
     __weak typeof(self) ws = self;
     IMAutoDeleteTierViewController *vc = [IMAutoDeleteTierViewController
         accountDefaultPickerWithInitialSec:self.autoDeleteDefaultSec onSaved:^(int64_t sec) { [ws applyAutoDeleteDefault:sec]; }];
+    [self.navigationController pushViewController:vc animated:YES];
+}
+
+/// 档位单选页（上次上线 / 头像）：选中即存、不弹确认；失败 toast + ✓ 回滚在选择页里，成功后回写行右值。
+- (void)openVisibility:(IMPrivacyVisibilityKind)kind {
+    __weak typeof(self) ws = self;
+    NSString *level = kind == IMPrivacyVisibilityKindLastSeen ? self.lastSeenLevel : self.avatarLevel;
+    IMPrivacyVisibilityViewController *vc = [[IMPrivacyVisibilityViewController alloc]
+        initWithKind:kind currentLevel:level onSaved:^(NSString *saved) { [ws applyVisibility:saved kind:kind reload:YES]; }];
     [self.navigationController pushViewController:vc animated:YES];
 }
 
