@@ -47,6 +47,15 @@ extern NSArray<IMMessageModel *> *IMDropClearedMessages(NSArray<IMMessageModel *
 /// `im_conv_clear_floor_local`（不依赖会话行：会话行会被「删除会话」/ 列表不再返回而删掉，位点不能跟着没）。
 - (NSInteger)clearMessagesForConv:(NSString *)convID;
 
+/// 「删除会话」＝ 清空 + 隐藏（OFFLINE_BACKLOG_DESIGN §6.7.1）用的变体。`serverClearedAt` = 服务端删除位点（conv_seq）：
+/// >0 时位点 = max(既有位点, serverClearedAt)，**只删 conv_seq <= 位点的行**（之后到的新消息保留；待发消息保留），区间清单清空；
+/// <=0 时与 `clearMessagesForConv:` 完全一致（位点取本机所知最新）。返回删除条数。
+- (NSInteger)clearMessagesForConv:(NSString *)convID toServerClearedAt:(int64_t)serverClearedAt;
+
+/// 会话在 `clearedAt`（服务端删除位点）之后「复活」了吗：会话行 latest/head 或本机最大 conv_seq 超过它。
+/// `clearedAt`<=0 恒 NO（无服务端位点 = 本机 head 口径，一律移除）。对应 Android `ClearFloor.revivedAfter`。
+- (BOOL)convRevivedAfterClearedAt:(int64_t)clearedAt forConv:(NSString *)convID;
+
 /// 该会话的本机清空位点；没清过 / 无会话行 = 0。
 - (int64_t)clearedUpToForConv:(NSString *)convID;
 

@@ -14,6 +14,7 @@
 #import "IMDatabase.h"
 #import "IMHTTPService.h"
 #import "IMSocketManager.h"
+#import "IMSocketManager+ConvClear.h"
 #import "IMTheme.h"
 #import "IMLocalization.h"
 #import "UIViewController+IMToast.h"
@@ -299,18 +300,23 @@ static NSUInteger const kIMConvBatchConcurrency = 4;
     __weak typeof(self) ws = self;
     NSString *token = self.token;
     IMConversationSelection *session = self.editSelection;
+    NSMutableDictionary<NSString *, NSNumber *> *clearedAts = [NSMutableDictionary dictionary]; // 回调均在主线程
     [IMBatchRunner forEach:items concurrency:kIMConvBatchConcurrency
         work:^(IMConversation *c, void (^done)(NSError *)) {
-            [IMHTTPService.sharedService deleteConversationWithToken:token convID:c.convID completion:done];
+            [IMHTTPService.sharedService deleteConversationWithToken:token convID:c.convID completion:^(int64_t clearedAt, NSError *error) {
+                if (!error) { clearedAts[c.convID] = @(clearedAt); }
+                done(error);
+            }];
         }
         completion:^(NSArray *succeeded, NSArray *failed) {
             __strong typeof(ws) self = ws;
             if (!self) { return; }
-            [self finishBatchDelete:succeeded failedCount:failed.count session:session];
+            [self finishBatchDelete:succeeded failedCount:failed.count session:session clearedAts:clearedAts];
         }];
 }
 
-- (void)finishBatchDelete:(NSArray<IMConversation *> *)succeeded failedCount:(NSUInteger)failedCount session:(IMConversationSelection *)session {
+- (void)finishBatchDelete:(NSArray<IMConversation *> *)succeeded failedCount:(NSUInteger)failedCount session:(IMConversationSelection *)session
+                clearedAts:(NSDictionary<NSString *, NSNumber *> *)clearedAts {
     self.editBar.userInteractionEnabled = YES;
     BOOL sameSession = self.listEditing && self.editSelection == session;
     NSMutableSet<NSString *> *gone = [NSMutableSet set];
@@ -325,9 +331,16 @@ static NSUInteger const kIMConvBatchConcurrency = 4;
         NSMutableArray<IMConversation *> *remaining = [NSMutableArray array];
         for (IMConversation *c in self.conversations) { if (![gone containsObject:c.convID]) { [remaining addObject:c]; } }
         self.conversations = remaining;
-        [self performDatabaseOperation:^(IMDatabase *database) {
-            for (NSString *convID in gone) { [database deleteCachedConversation:convID]; }
-        }];
+        // 清消息可能很大：离开主线程（FMDB 队列串行，之后的列表快照落库排在它后面；账号锁由 performDatabaseOperation 保证）。
+        NSDictionary<NSString *, NSNumber *> *ats = [clearedAts copy];
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+            [self performDatabaseOperation:^(IMDatabase *database) {
+                for (NSString *convID in gone) {
+                    [IMSocketManager.sharedManager clearConvToFloor:convID serverClearedAt:ats[convID].longLongValue database:database]; // §6.7.1，先于删行
+                    [database deleteCachedConversation:convID];
+                }
+            }];
+        });
         if ((NSInteger)self.displayedConversations.count == [self.tableView numberOfRowsInSection:0] - (NSInteger)rows.count) {
             [self.tableView deleteRowsAtIndexPaths:rows withRowAnimation:UITableViewRowAnimationAutomatic];
         } else {

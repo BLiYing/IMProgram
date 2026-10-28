@@ -527,9 +527,10 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
                                  completion:(void (^)(NSError *_Nullable error))completion;
 
 /// 删除会话（仅本人，记 cleared_at 不删消息）：DELETE /api/v1/conversations/{id}。completion 主线程回调。
+/// `clearedAt` = 回包 data.cleared_at（删除位点，conv_seq；缺省 / 失败 = 0）。客户端据此做「清除到位点」（OFFLINE_BACKLOG_DESIGN §6.7.1）。
 - (void)deleteConversationWithToken:(NSString *)token
                              convID:(NSString *)convID
-                         completion:(void (^)(NSError *_Nullable error))completion;
+                         completion:(void (^)(int64_t clearedAt, NSError *_Nullable error))completion;
 
 #pragma mark - 举报（AG-3）
 

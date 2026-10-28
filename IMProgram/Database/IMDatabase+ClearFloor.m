@@ -102,6 +102,25 @@ static BOOL IMClearFloorTableExists(FMDatabase *db) {
 /// 一个事务里：删消息、清区间清单、抬位点、游标推到位点。**不动**别的会话、会话行本身（预览/置顶/免打扰）
 /// 与任何「隐藏/删除」记录（iOS 本机没有独立墓碑表：本地删除是物理删行，随消息一起走）。
 - (NSInteger)clearMessagesForConv:(NSString *)convID {
+    return [self clearMessagesForConv:convID toServerClearedAt:0];
+}
+
+- (BOOL)convRevivedAfterClearedAt:(int64_t)clearedAt forConv:(NSString *)convID {
+    if (clearedAt <= 0 || convID.length == 0) { return NO; }
+    NSString *owner = [self ownerUserID];
+    __block int64_t top = 0;
+    [self.dbQueue inDatabase:^(FMDatabase *db) {
+        FMResultSet *rs = [db executeQuery:@"SELECT MAX(head_conv_seq,latest_conv_seq) AS m FROM im_conversation_local WHERE owner_uid=? AND conv_id=? LIMIT 1", owner, convID];
+        if ([rs next]) { top = [rs longLongIntForColumn:@"m"]; }
+        [rs close];
+        rs = [db executeQuery:@"SELECT MAX(conv_seq) AS m FROM im_message_local WHERE owner_uid=? AND conv_id=?", owner, convID];
+        if ([rs next]) { top = MAX(top, [rs longLongIntForColumn:@"m"]); }
+        [rs close];
+    }];
+    return top > clearedAt;
+}
+
+- (NSInteger)clearMessagesForConv:(NSString *)convID toServerClearedAt:(int64_t)serverClearedAt {
     if (convID.length == 0) { return 0; }
     NSString *owner = [self ownerUserID];
     __block NSInteger removed = 0;
@@ -120,9 +139,14 @@ static BOOL IMClearFloorTableExists(FMDatabase *db) {
         rs = [db executeQuery:@"SELECT MAX(conv_seq) AS m FROM im_message_local WHERE owner_uid=? AND conv_id=?", owner, convID];
         if ([rs next]) { maxLocal = [rs longLongIntForColumn:@"m"]; }
         [rs close];
-        int64_t floor = IMClearFloorAtClear(head, latest, synced, maxLocal, existing);
+        // 服务端给了位点 = 以它为准（不超出它，免得清掉服务端仍可见的新消息）；没给 = 本机所知最新。
+        int64_t floor = serverClearedAt > 0 ? MAX(existing, serverClearedAt)
+                                            : IMClearFloorAtClear(head, latest, synced, maxLocal, existing);
 
-        if (![db executeUpdate:@"DELETE FROM im_message_local WHERE owner_uid=? AND conv_id=?", owner, convID]) {
+        BOOL deleted = serverClearedAt > 0
+            ? [db executeUpdate:@"DELETE FROM im_message_local WHERE owner_uid=? AND conv_id=? AND conv_seq>0 AND conv_seq<=?", owner, convID, @(floor)]
+            : [db executeUpdate:@"DELETE FROM im_message_local WHERE owner_uid=? AND conv_id=?", owner, convID];
+        if (!deleted) {
             IMLogDatabase(@"清空消息失败 conv=%@: %@", convID, db.lastErrorMessage);
             *rollback = YES; return;
         }

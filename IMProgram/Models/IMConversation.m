@@ -18,6 +18,11 @@
 /// 不能用 `respondsToSelector:@selector(boolValue)` —— NSString 也响应它，于是任何脏字符串
 /// （`@"yes"`/`@"true"`/`@"1"`）都会被当成 YES。对 mention_unread 这类字段尤其危险：
 /// 一个脏值就会让会话行常驻「[有人@我]」红字、并让免打扰群的未读数持续红底，用户无从消除。
+int64_t IMClearedAtFromJSON(id value) {
+    if (![value isKindOfClass:NSNumber.class] && ![value isKindOfClass:NSString.class]) { return 0; }
+    return MAX((int64_t)0, [value longLongValue]);
+}
+
 static BOOL IMBoolFromJSON(id value) {
     return [value isKindOfClass:NSNumber.class] && [value boolValue];
 }
@@ -75,6 +80,7 @@ NSString * const kIMGroupReadSeqsKey = @"groupReadSeqs";
     c.markedUnread = IMBoolFromJSON(dict[@"marked_unread"]);
     IMAutoDeleteConfig *adCfg = IMAutoDeleteConfigFromJSON(dict[@"auto_delete_sec"], dict[@"auto_delete_from"]);
     c.autoDeleteSec = adCfg.sec; c.autoDeleteFrom = adCfg.from;
+    c.clearedAt = IMClearedAtFromJSON(dict[@"cleared_at"]);
     c.remark = [self stringForKey:@"remark" in:dict]; // 会话备注（G1，仅本人可见）；非空替代显示名
     c.mentionUnread = IMBoolFromJSON(dict[@"mention_unread"]);
 

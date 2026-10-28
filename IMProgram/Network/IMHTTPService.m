@@ -761,10 +761,12 @@ static NSArray<NSString *> *IMStringArrayFrom(id raw) {
 }
 
 - (void)deleteConversationWithToken:(NSString *)token convID:(NSString *)convID
-                         completion:(void (^)(NSError *))completion {
+                         completion:(void (^)(int64_t, NSError *))completion {
     NSString *path = [NSString stringWithFormat:@"/api/v1/conversations/%@", [self pathEscape:convID]];
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"DELETE" token:token body:nil];
-    [self runOKRequest:req fallback:IMLocalized(@"net.fallback.conv_delete") completion:completion];
+    [self runDataRequest:req fallback:IMLocalized(@"net.fallback.conv_delete") completion:^(NSDictionary *data, NSError *error) {
+        completion(error ? 0 : IMClearedAtFromJSON([data isKindOfClass:NSDictionary.class] ? data[@"cleared_at"] : nil), error);
+    }];
 }
 
 /// 群接口路径：/api/v1/groups/{convID}{suffix}（convID 经 path 转义）。

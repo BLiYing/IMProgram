@@ -12,6 +12,7 @@
 #import "IMQRModels.h"
 #import "IMHTTPService.h"
 #import "IMSocketManager.h"
+#import "IMSocketManager+ConvClear.h"
 #import "IMDatabase.h"
 #import "IMConversation.h"
 #import "IMRemarkStore.h"
@@ -891,6 +892,7 @@ static CGFloat const kIMRowLeading = 16;
             [NSNotificationCenter.defaultCenter postNotificationName:IMConversationListDidRefreshGroupReadNotification object:self
                                                             userInfo:@{ kIMGroupReadSeqsKey: [readSeqs copy] }];
             if (![self performDatabaseOperation:^(IMDatabase *database) {
+                [IMSocketManager.sharedManager alignClearFloorsFromConversations:self.conversations database:database]; // §6.7.1
                 [database replaceCachedConversations:self.conversations];
             }]) { return; }
             [IMAutoDeleteScheduler.shared requestSweepForConv:nil]; // 档位可能被别的端改过：落库后扫一遍（自动删除）
@@ -1276,7 +1278,7 @@ static CGFloat const kIMRowLeading = 16;
 - (void)deleteConversation:(IMConversation *)c {
     if (c.convID.length == 0 || self.token.length == 0) { return; }
     __weak typeof(self) ws = self;
-    [IMHTTPService.sharedService deleteConversationWithToken:self.token convID:c.convID completion:^(NSError *error) {
+    [IMHTTPService.sharedService deleteConversationWithToken:self.token convID:c.convID completion:^(int64_t clearedAt, NSError *error) {
         if (error) { [ws im_showToast:error.localizedDescription ?: IMLocalized(@"conv.error.delete_failed")]; return; }
         __strong typeof(ws) self = ws;
         if (!self) { return; }
@@ -1286,6 +1288,7 @@ static CGFloat const kIMRowLeading = 16;
         [remaining removeObject:c];
         self.conversations = remaining;
         if (![self performDatabaseOperation:^(IMDatabase *database) {
+            [IMSocketManager.sharedManager clearConvToFloor:c.convID serverClearedAt:clearedAt database:database]; // §6.7.1，先于删行
             [database deleteCachedConversation:c.convID];
         }]) { return; }
         if (idx != NSNotFound) {

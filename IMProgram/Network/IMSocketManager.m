@@ -8,6 +8,7 @@
 #import "IMSocketManager+AuthRecovery.h"
 #import "IMSocketManager+BatchDelete.h"
 #import "IMSocketManager+AutoDelete.h"
+#import "IMSocketManager+ConvClear.h"
 #import "IMDatabase+Ranges.h"   // 区间清单：window_resp 落库后登记本窗覆盖段
 #import "IMBacklogTracker.h"
 #import "IMChatWindowPlan.h"
@@ -971,9 +972,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
             [self applyAutoDeleteFromConvUpdate:data convID:convID database:database]; // 自动删除档位落库；变了/开着就立即扫（+AutoDelete）
         }];
     } else if ([action isEqualToString:@"delete"]) {
-        contextIsCurrent = [self performDatabaseOperation:^(IMDatabase *database) {
-            [database deleteCachedConversation:convID];
-        }];
+        contextIsCurrent = [self applyConvDeleteFrame:data convID:convID]; // 清到位点 + 删会话行（+ConvClear，§6.7.1）
     }
     if (!contextIsCurrent) { return; }
     dispatch_async(dispatch_get_main_queue(), ^{

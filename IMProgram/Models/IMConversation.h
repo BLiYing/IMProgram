@@ -8,6 +8,9 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+/// JSON 里的 `cleared_at`（删除位点）→ int64：数字 / 数字串取值，负数、NSNull、其它类型一律 0（= 没给）。
+FOUNDATION_EXPORT int64_t IMClearedAtFromJSON(id _Nullable value);
+
 @interface IMConversation : NSObject
 /// 会话列表响应解析后调用：按 `peer_deleted` 真实值登记 / 撤销已注销标记。
 + (void)reconcileDeletedFlags:(NSArray<IMConversation *> *)conversations;
@@ -69,6 +72,9 @@ NS_ASSUME_NONNULL_BEGIN
 /// 两个字段成对解析、成对覆盖；只解析服务端列表，落库在独立小表 IMDatabase+AutoDelete，不进会话行。
 @property (nonatomic, assign) int64_t autoDeleteSec;
 @property (nonatomic, assign) int64_t autoDeleteFrom;
+/// 服务端删除位点（conv_seq，GET /conversations 每项 `cleared_at`，>0 才有；OFFLINE_BACKLOG_DESIGN §6.7.1）。
+/// 列表快照里它大于本机清空位点 = 本机还留着该清掉的历史，需「清除到位点」。不落会话行。
+@property (nonatomic, assign) int64_t clearedAt;
 @property (nonatomic, copy, nullable) NSString *remark; // 会话备注（G1，仅本人可见、多端同步）：非空即替代 name/群名显示
 /// 未读区间内有人 @我（含 @所有人），仅群聊（M4-8）。列表显「[有人@我]」红字前缀，
 /// 且**穿透免打扰**：免打扰群命中时未读数仍显红底、照常计入角标。读过那条 @ 后服务端自动转 NO。
