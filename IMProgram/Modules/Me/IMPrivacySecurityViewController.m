@@ -3,6 +3,7 @@
 #import "IMPrivacySecurityViewController.h"
 #import "IMBlockedListViewController.h"
 #import "IMChangePasswordViewController.h"
+#import "IMExportDataViewController.h"
 #import "IMHTTPService.h"
 #import "IMUserCard.h"
 #import "UIViewController+IMToast.h"
@@ -225,12 +226,16 @@
         [self placeholder:IMLocalized(@"ps.row.birthday") symbol:@"gift.fill" bg:UIColor.systemPinkColor value:IMLocalized(@"common.my_contacts")],
     ];
 
-    // 组 E · 数据（占位）
+    // 组 E · 数据：导出我的数据为活行（DATA_EXPORT_DESIGN §5），清除所有对话仍灰置（另文）
+    IMPSRow *exportData = [IMPSRow new];
+    exportData.rowId = @"exportData"; exportData.title = IMLocalized(@"ps.row.export_data");
+    exportData.systemImage = @"arrow.up.doc.fill"; exportData.iconBgColor = UIColor.systemBlueColor;
+    exportData.handler = ^{ [ws openExportData]; };
     IMPSGroup *groupE = [IMPSGroup new];
     groupE.header = IMLocalized(@"ps.section.data");
     groupE.rows = @[
         [self placeholder:IMLocalized(@"ps.row.clear_all_chats") symbol:@"trash.fill" bg:UIColor.systemGrayColor value:nil],
-        [self placeholder:IMLocalized(@"ps.row.export_data") symbol:@"arrow.up.doc.fill" bg:UIColor.systemBlueColor value:nil],
+        exportData,
     ];
 
     self.groups = @[groupA, groupB, groupC, groupD, groupE];
@@ -324,6 +329,11 @@
 
 - (void)openBlocked {
     IMBlockedListViewController *vc = [[IMBlockedListViewController alloc] initWithHost:self.host userID:self.userID];
+    [self.navigationController pushViewController:vc animated:YES];
+}
+
+- (void)openExportData {
+    IMExportDataViewController *vc = [[IMExportDataViewController alloc] initWithHost:self.host userID:self.userID];
     [self.navigationController pushViewController:vc animated:YES];
 }
 

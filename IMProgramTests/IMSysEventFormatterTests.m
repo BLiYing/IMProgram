@@ -159,6 +159,19 @@
     XCTAssertTrue([textEn containsString:@"iPhone 15"]);
 }
 
+- (void)testNoticeExportReadyRendersSummaryAndExpiry {
+    NSDictionary *args = @{ @"size_bytes": @"1000000", @"conv_count": @"12", @"msg_count": @"8431", @"expires_at": @"2026-10-28T06:30:00Z" };
+    NSString *text = IMTextForNoticeSysEvent(@"export_ready", args);
+    XCTAssertNotNil(text);
+    XCTAssertTrue([text hasPrefix:IMLocalized(@"sys.notice.export_ready.headline")]);
+    NSString *digits = [text stringByReplacingOccurrencesOfString:@"," withString:@""]; // 千分位随语言
+    XCTAssertTrue([digits containsString:@"12"] && [digits containsString:@"8431"], @"%@", text);
+    XCTAssertEqual([text componentsSeparatedByString:@"\n"].count, 3u);
+    // 无 expires_at → 不带页脚
+    NSString *noExpiry = IMTextForNoticeSysEvent(@"export_ready", @{ @"size_bytes": @"1", @"conv_count": @"1", @"msg_count": @"1" });
+    XCTAssertEqual([noExpiry componentsSeparatedByString:@"\n"].count, 2u);
+}
+
 - (void)testNoticeUnrecognizedOrEmptyEventReturnsNil {
     XCTAssertNil(IMTextForNoticeSysEvent(nil, nil));
     XCTAssertNil(IMTextForNoticeSysEvent(@"", nil));

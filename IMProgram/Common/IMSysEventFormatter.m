@@ -220,6 +220,16 @@ NSString *IMTextForNoticeSysEvent(NSString *event, NSDictionary<NSString *, NSSt
             [lines addObject:IMLocalizedFormatArgs(@"sys.notice.device_kicked.time_line", @[at])];
         }
         [lines addObject:IMLocalized(@"sys.notice.device_kicked.footer")];
+    } else if ([event isEqualToString:@"export_ready"]) {
+        // 导出完成（PROTOCOL §6.18）：size_bytes / conv_count / msg_count / expires_at(RFC3339)，与 Android SysEvents 同构。
+        [lines addObject:IMLocalized(@"sys.notice.export_ready.headline")];
+        NSString *size = [NSByteCountFormatter stringFromByteCount:sysArgs[@"size_bytes"].longLongValue
+                                                        countStyle:NSByteCountFormatterCountStyleFile];
+        [lines addObject:IMLocalizedFormat(@"sys.notice.export_ready.summary", size,
+                                           (long)sysArgs[@"conv_count"].integerValue, (long)sysArgs[@"msg_count"].integerValue)];
+        if (sysArgs[@"expires_at"].length > 0) {
+            [lines addObject:IMLocalizedFormatArgs(@"sys.notice.export_ready.footer", @[IMFormatRFC3339LocalDateTime(sysArgs[@"expires_at"])])];
+        }
     } else {
         return nil; // 未识别事件 → 回退 content
     }

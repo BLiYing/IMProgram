@@ -118,4 +118,23 @@
     XCTAssertEqualObjects(IMHTTPPollResponseSummary([NSData data]), @"<empty>");
 }
 
+// 导出下载令牌：download_url 响应里的 `?t=` 是一次性凭据，不得进日志。
+- (void)testDownloadURLResponseMasksOneTimeToken {
+    NSDictionary *body = @{ @"code": @0, @"data": @{ @"url": @"/api/v1/exports/download?t=SECRETPAYLOAD.SIG-abc_9", @"expires_in": @600 } };
+    NSData *data = [NSJSONSerialization dataWithJSONObject:body options:0 error:NULL];
+    NSString *logged = [IMHTTPLogBody(data, @"application/json", YES) stringByReplacingOccurrencesOfString:@"\\" withString:@""]; // 去掉 JSON 的 \/ 转义
+    XCTAssertFalse([logged containsString:@"SECRETPAYLOAD"], @"令牌泄露：%@", logged);
+    XCTAssertTrue([logged containsString:@"/exports/download?t=***"], @"应遮成 t=***：%@", logged);
+    XCTAssertTrue([logged containsString:@"600"]);
+}
+
+- (void)testDownloadTokenMaskedWithOtherQueryParamsAndKeepsOthers {
+    NSDictionary *body = @{ @"a": @"/api/v1/exports/download?x=1&t=TOK123&y=2", @"b": @"/api/v1/other?t=KEEPME" };
+    NSData *data = [NSJSONSerialization dataWithJSONObject:body options:0 error:NULL];
+    NSString *logged = [IMHTTPLogBody(data, @"application/json", NO) stringByReplacingOccurrencesOfString:@"\\" withString:@""];
+    XCTAssertFalse([logged containsString:@"TOK123"], @"%@", logged);
+    XCTAssertTrue([logged containsString:@"x=1&t=***&y=2"], @"%@", logged);
+    XCTAssertTrue([logged containsString:@"/api/v1/other?t=KEEPME"], @"其它 ?t= 不受影响：%@", logged);
+}
+
 @end

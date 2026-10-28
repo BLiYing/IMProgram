@@ -11,6 +11,7 @@
 #import "IMLocalization.h"
 #import "IMRemarkStore.h"
 #import "IMRtcCall.h"
+#import "IMSessionTeardown.h"
 #import "IMSocketManager.h"
 #import "IMSocketManager+Private.h"
 #import "IMUserCard.h"
@@ -112,6 +113,9 @@
 
 /// error{reason:account_deleted}：广播通知；**不**置 _manualClose（本机自己注销失败时 socket 还要能重连）。没有 reason 的 error 不广播。
 - (void)testAccountDeletedFramePostsNotificationWithoutClosingSocketForGood {
+    // 测试宿主就是真 App：模拟器里有已登录会话时，SceneDelegate 会真的响应这条通知（清缓存 → disconnect → _manualClose=YES），
+    // 与下面的前后读数竞态（偶发红）。用「本机正在注销」让 SceneDelegate 让路；不碰会话存储，不影响模拟器里 App 的登录态。
+    IMSessionTeardown.accountDeletionInProgress = YES;
     IMSocketManager *mgr = IMSocketManager.sharedManager;
     dispatch_queue_t q = [mgr valueForKey:@"_queue"];
     __block BOOL before = NO;
@@ -119,6 +123,8 @@
     XCTestExpectation *posted = [self expectationForNotification:IMSocketDidReceiveAccountDeletedNotification object:nil handler:nil];
     dispatch_sync(q, ^{ [mgr handleErrorFrame:@{ @"code": @200005, @"reason": @"account_deleted", @"delete_at": @1760600000000 }]; });
     [self waitForExpectations:@[posted] timeout:2];
+    [self drainMain]; // SceneDelegate 的响应在主线程，等它跑完（已让路）再恢复标志
+    IMSessionTeardown.accountDeletionInProgress = NO;
     __block BOOL after = NO;
     dispatch_sync(q, ^{ after = [[mgr valueForKey:@"_manualClose"] boolValue]; });
     XCTAssertEqual(after, before);

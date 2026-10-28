@@ -61,6 +61,20 @@ static NSString *IMHTTPDataURIMetadata(NSString *value) {
             mediaType, (unsigned long)value.length];
 }
 
+/// 导出下载链接 `/api/v1/exports/download?t=<一次性令牌>`：令牌即凭据，日志里遮成 `t=***`。
+/// 只认 `/exports/download` 路径，其它 `?t=` 不动。
+static NSString *IMHTTPMaskedDownloadToken(NSString *value) {
+    if ([value rangeOfString:@"/exports/download"].location == NSNotFound) { return value; }
+    static NSRegularExpression *re;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        re = [NSRegularExpression regularExpressionWithPattern:@"(/exports/download\\?(?:[^\"\\s#]*&)?t=)[^&\"\\s#]*"
+                                                       options:0 error:NULL];
+    });
+    return [re stringByReplacingMatchesInString:value options:0 range:NSMakeRange(0, value.length)
+                                   withTemplate:@"$1***"];
+}
+
 id IMHTTPSanitizedJSONObject(id object, BOOL includeBusinessContent) {
     if ([object isKindOfClass:NSDictionary.class]) {
         NSMutableDictionary *result = [NSMutableDictionary dictionary];
@@ -86,7 +100,7 @@ id IMHTTPSanitizedJSONObject(id object, BOOL includeBusinessContent) {
         NSString *meta = IMHTTPDataURIMetadata(object);
         if (meta) { return meta; }
         // 逐值截断：单个字段值过长时就地截短，避免它把同层其它字段挤出整体上限。
-        return IMHTTPTruncatedToLimit(object, kIMHTTPLogMaxValueCharacters);
+        return IMHTTPTruncatedToLimit(IMHTTPMaskedDownloadToken(object), kIMHTTPLogMaxValueCharacters);
     }
     if ([object isKindOfClass:NSNumber.class] ||
         object == NSNull.null) {
@@ -119,7 +133,7 @@ NSString *IMHTTPLogBody(NSData *data, NSString *contentType, BOOL includeBusines
         return [NSString stringWithFormat:@"<non-json redacted %lu bytes>", (unsigned long)data.length];
     }
     NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-    return text ? IMHTTPTruncatedString(text) :
+    return text ? IMHTTPTruncatedString(IMHTTPMaskedDownloadToken(text)) :
         [NSString stringWithFormat:@"<binary %lu bytes>", (unsigned long)data.length];
 }
 

@@ -76,6 +76,8 @@ NSString *IMFriendlyMessageForCode(NSInteger code) {
         case 200101: return IMLocalized(@"err.200101");                    // already friends
         case 200102: return IMLocalized(@"err.200102");              // blocked by peer（不暴露拉黑）
         case 200103: return IMLocalized(@"err.200103");                    // not friend
+        case 200010: return IMLocalized(@"err.200010");                    // export busy（DATA_EXPORT_DESIGN §2）
+        case 200011: return IMLocalized(@"err.200011");                    // export cooldown
         case 200104: return IMLocalized(@"err.200104");                  // cannot add yourself
         case 200105: return IMLocalized(@"err.200105");            // request pending
         case 200106: return IMLocalized(@"friend.requests.empty");                // no pending request
