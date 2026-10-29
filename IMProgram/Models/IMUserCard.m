@@ -39,6 +39,7 @@ IMFriendStatus IMFriendStatusFromString(NSString *s) {
     c.remark = [self stringForKey:@"remark" in:dict]; // 好友列表 / 资料卡带；找人结果无此键 → 空串
     c.avatarURL = [self stringForKey:@"avatar_url" in:dict];
     c.phone = [self stringForKey:@"phone" in:dict];
+    c.bio = [self stringForKey:@"bio" in:dict];
     c.status = IMFriendStatusFromString([self stringForKey:@"status" in:dict]);
     c.blocked = [dict[@"blocked"] respondsToSelector:@selector(boolValue)] ? [dict[@"blocked"] boolValue] : NO;
     c.updatedAt = [dict[@"updated_at"] respondsToSelector:@selector(longLongValue)] ? [dict[@"updated_at"] longLongValue] : 0;

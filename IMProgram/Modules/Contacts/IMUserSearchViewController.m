@@ -202,14 +202,9 @@
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     IMContactCell *cell = [tableView dequeueReusableCellWithIdentifier:@"user" forIndexPath:indexPath];
     IMUserCard *c = self.results[indexPath.row];
-    // 副标题 = @句柄（+ 标签）。绝不显示 userID——那是 10 位随机数字内部 ID。
+    // 副标题 = @句柄。绝不显示 userID——那是 10 位随机数字内部 ID。标签已不再是用户概念（PROFILE_BIO_DESIGN）。
     NSString *handle = c.username.length > 0 ? [@"@" stringByAppendingString:c.username] : @"";
-    NSString *subtitle = handle;
-    if (c.tags.count > 0) {
-        NSString *tags = [c.tags componentsJoinedByString:@" "];
-        subtitle = handle.length > 0 ? [NSString stringWithFormat:@"%@ · %@", handle, tags] : tags;
-    }
-    [cell configureWithCard:c subtitle:subtitle];
+    [cell configureWithCard:c subtitle:handle];
 
     NSString *peer = c.userID;
     __weak typeof(self) weakSelf = self;

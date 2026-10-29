@@ -47,15 +47,32 @@ static const NSInteger kIMPeerNotFoundOverlayTag = 91001;
     return known ? known.boolValue : YES;
 }
 
-#pragma mark - 单聊信息行（备注名 / 用户名）
+#pragma mark - 单聊信息行（个性签名 / 备注名 / 用户名 / 手机号）
+
+- (NSArray<NSNumber *> *)infoRowKinds {
+    NSMutableArray<NSNumber *> *kinds = [NSMutableArray array];
+    if (self.peerBio.length > 0) { [kinds addObject:@(IMDetailInfoRowBio)]; }
+    [kinds addObject:@(IMDetailInfoRowRemark)];
+    [kinds addObject:@(IMDetailInfoRowUsername)];
+    if (self.peerPhone.length > 0) { [kinds addObject:@(IMDetailInfoRowPhone)]; }
+    return kinds;
+}
+
+- (void)handleInfoTapAtRow:(NSInteger)row {
+    NSArray<NSNumber *> *kinds = [self infoRowKinds];
+    if (row >= 0 && row < (NSInteger)kinds.count && kinds[row].integerValue == IMDetailInfoRowRemark) { [self editRemark]; }
+}
 
 - (UITableViewCell *)infoCell:(UITableView *)tv row:(NSInteger)row {
-    // 两行分开出池：用户名行挂了长按复制手势，与备注名行共用一个复用池会让手势跟着 cell 串到备注行上。
-    UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleValue1
-                                            reuseID:(row == 0 ? @"dRemarkV1" : @"dUsernameV1") inTable:tv];
+    NSArray<NSNumber *> *kinds = [self infoRowKinds];
+    IMDetailInfoRow kind = row < (NSInteger)kinds.count ? (IMDetailInfoRow)kinds[row].integerValue : IMDetailInfoRowRemark;
+    if (kind == IMDetailInfoRowBio) { return [self bioCell:tv]; }
+    // 各行分开出池：用户名 / 手机号行挂了长按复制手势，与备注名行共用一个复用池会让手势跟着 cell 串到别的行上。
+    NSString *reuse = kind == IMDetailInfoRowRemark ? @"dRemarkV1" : (kind == IMDetailInfoRowUsername ? @"dUsernameV1" : @"dPhoneV1");
+    UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleValue1 reuseID:reuse inTable:tv];
     // 一行一项：左标签、右值（Value1），与 Android `Row2` / Web `detail-row` 同版式
     // （此前是 Subtitle：值在上、标签在下两行叠着）。
-    if (row == 0) {
+    if (kind == IMDetailInfoRowRemark) {
         // 只显**备注本身**（不是 displayTitle）：这一行是"备注名"的编辑入口，没设过就该显"未设置"，
         // 否则会把对方昵称显示成"我给他起的备注"，用户点进去还以为已经设过了。
         BOOL hasRemark = self.peerRemark.length > 0;
@@ -63,6 +80,15 @@ static const NSInteger kIMPeerNotFoundOverlayTag = 91001;
         cell.detailTextLabel.text = hasRemark ? self.peerRemark : IMLocalized(@"settings.info.not_set");
         cell.detailTextLabel.textColor = hasRemark ? IMTheme.textPrimary : IMTheme.textSecondary;
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    } else if (kind == IMDetailInfoRowPhone) {
+        // 手机号：只在对方档位允许且填了才有这一行；右值主文字色（不可点，不用 accent），长按复制。
+        cell.textLabel.text = IMLocalized(@"chat.detail.phone");
+        cell.detailTextLabel.text = self.peerPhone;
+        cell.detailTextLabel.textColor = IMTheme.textPrimary;
+        if (cell.gestureRecognizers.count == 0) {
+            [cell addGestureRecognizer:[[UILongPressGestureRecognizer alloc]
+                initWithTarget:self action:@selector(copyPeerPhone:)]];
+        }
     } else {
         // 显示**公开句柄** @xxx，不是 peerID——后者是 10 位随机数字内部 ID，
         // 标签写着"用户名"却显示一串 ID 是明显的错配（docs/UI.md「用户标识」）。
@@ -80,6 +106,54 @@ static const NSInteger kIMPeerNotFoundOverlayTag = 91001;
         }
     }
     return cell;
+}
+
+- (CGFloat)infoRowHeightAtRow:(NSInteger)row forWidth:(CGFloat)tableWidth {
+    NSArray<NSNumber *> *kinds = [self infoRowKinds];
+    if (row < 0 || row >= (NSInteger)kinds.count || kinds[row].integerValue != IMDetailInfoRowBio) { return 52; }
+    // 文本可用宽 = 表宽 - insetGrouped 两侧缩进(2×20) - 行 layoutMargins(左右各 20)；取不到宽度时给保守值。
+    CGFloat textWidth = tableWidth > 160 ? tableWidth - 40 - 40 : 280;
+    CGRect r = [self.peerBio boundingRectWithSize:CGSizeMake(textWidth, CGFLOAT_MAX)
+                                          options:NSStringDrawingUsesLineFragmentOrigin
+                                       attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:16] } context:nil];
+    // 上下留白 12×2 + 标签 16 + 间距 2 + 正文实测高
+    return MAX(52, 12 + 16 + 2 + ceil(r.size.height) + 12 + 2); // +2：宽度估算与真实排版的误差余量，宁可多 2pt 也别截最后一行
+}
+
+/// 个性签名行：上灰小字标签（13）、下主文字色值（16，多行换行不截断）；长按复制整段签名。
+/// 用 Subtitle 版式 + 专用复用池，字号覆盖不会串到别的信息行。
+- (UITableViewCell *)bioCell:(UITableView *)tv {
+    UITableViewCell *cell = [self dequeueStyledCell:UITableViewCellStyleSubtitle reuseID:@"dBioSub" inTable:tv];
+    cell.textLabel.text = IMLocalized(@"profile.readonly.bio_label");
+    cell.textLabel.font = [UIFont systemFontOfSize:13];
+    cell.textLabel.textColor = IMTheme.textSecondary;
+    cell.detailTextLabel.text = self.peerBio;
+    cell.detailTextLabel.font = [UIFont systemFontOfSize:16];
+    cell.detailTextLabel.textColor = IMTheme.textPrimary;
+    cell.detailTextLabel.numberOfLines = 0;
+    cell.detailTextLabel.lineBreakMode = NSLineBreakByWordWrapping;
+    cell.accessibilityIdentifier = @"detail.peer.bio";
+    if (cell.gestureRecognizers.count == 0) {
+        [cell addGestureRecognizer:[[UILongPressGestureRecognizer alloc]
+            initWithTarget:self action:@selector(copyPeerBio:)]];
+    }
+    return cell;
+}
+
+/// 长按「手机号」行 → 复制手机号 + 轻触感 + 吐司。
+- (void)copyPeerPhone:(UILongPressGestureRecognizer *)gesture {
+    if (gesture.state != UIGestureRecognizerStateBegan || self.peerPhone.length == 0) { return; }
+    UIPasteboard.generalPasteboard.string = self.peerPhone;
+    [[[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight] impactOccurred];
+    [self im_showToast:IMLocalized(@"chat.detail.phone_copied")];
+}
+
+/// 长按「个性签名」行 → 复制整段签名。
+- (void)copyPeerBio:(UILongPressGestureRecognizer *)gesture {
+    if (gesture.state != UIGestureRecognizerStateBegan || self.peerBio.length == 0) { return; }
+    UIPasteboard.generalPasteboard.string = self.peerBio;
+    [[[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight] impactOccurred];
+    [self im_showToast:IMLocalized(@"profile.bio.copied")];
 }
 
 /// 长按「用户名」行 → 复制**裸句柄**（不带 @，粘到搜索框即可用）+ 轻触感 + 吐司。
@@ -111,6 +185,8 @@ static const NSInteger kIMPeerNotFoundOverlayTag = 91001;
         }
         if (card.nickname.length > 0) { self.peerNickname = card.nickname; }   // 真实昵称，非备注
         self.peerUsername = card.username;                                     // 公开句柄，供「用户名」行显示 @xxx
+        self.peerBio = card.bio;                                               // 服务端按对方档位裁剪；空串＝不可见 / 没填，行不占位
+        self.peerPhone = card.phone;
         self.peerPresence = card.presence;                                     // 头部副标题（在线/最近在线）
         self.peerProfileLoaded = YES;                                          // 此后 peerNickname 可用于名片快照
         self.peerAvatarURL = card.avatarURL; // 权威资料：服务端给空串（对方设了头像不可见 / 清了头像）就清掉旧头像，走首字母圈
@@ -118,6 +194,7 @@ static const NSInteger kIMPeerNotFoundOverlayTag = 91001;
         if (card.remark) { [IMRemarkStore.sharedStore applyRemark:card.remark forUser:self.peerID]; }
         [self.avatarView setAvatarURL:[self headerAvatarURL] seed:(self.peerID ?: @"") name:self.displayTitle];
         [self refreshHeaderTexts];
+        [self.tableView reloadData]; // 信息区行数随签名 / 手机号有无变化；与本页其它异步回填同口径（按组刷新在组布局同时变化时会触发 UIKit 断言）
     }];
 }
 

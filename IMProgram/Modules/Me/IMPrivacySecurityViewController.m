@@ -132,8 +132,10 @@
 @property (nonatomic, assign) int64_t autoDeleteDefaultSec;
 @property (nonatomic, strong) IMPSRow *lastSeenRow; ///< 谁能看到 ▸ 上次上线（活行）
 @property (nonatomic, strong) IMPSRow *avatarRow;   ///< 谁能看到 ▸ 头像（活行）
-@property (nonatomic, copy) NSString *lastSeenLevel; ///< 当前档位，GET 回来前用服务端默认值
-@property (nonatomic, copy) NSString *avatarLevel;
+@property (nonatomic, strong) IMPSRow *bioRow;      ///< 谁能看到 ▸ 个人简介（活行）
+@property (nonatomic, strong) IMPSRow *phoneRow;    ///< 谁能看到 ▸ 手机号码（活行）
+/// 当前档位（GET 回来前用服务端默认值），按 IMPrivacyVisibilityKind 下标存取。
+@property (nonatomic, strong) NSMutableArray<NSString *> *levels;
 @end
 
 @implementation IMPrivacySecurityViewController
@@ -152,8 +154,10 @@
     self.title = IMLocalized(@"settings.row.privacy"); // 与设置页入口 title 完全一致（§0）
     self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
 
-    self.lastSeenLevel = IMPrivacyVisibilityDefault(IMPrivacyVisibilityKindLastSeen);
-    self.avatarLevel = IMPrivacyVisibilityDefault(IMPrivacyVisibilityKindAvatar);
+    self.levels = [NSMutableArray array];
+    for (IMPrivacyVisibilityKind k = IMPrivacyVisibilityKindLastSeen; k < IMPrivacyVisibilityKindCount; k++) {
+        [self.levels addObject:IMPrivacyVisibilityDefault(k)];
+    }
     [self buildGroups];
 
     self.tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStyleInsetGrouped];
@@ -213,19 +217,15 @@
     groupC.footer = IMLocalized(@"ps.chat_privacy_footer");
     groupC.rows = @[autoDelete];
 
-    // 组 D · 谁能看到：上次上线 / 头像为活行（PRIVACY_VISIBILITY_DESIGN §4），其余三行仍灰置
+    // 组 D · 谁能看到：四行均为活行（PRIVACY_VISIBILITY_DESIGN §4 + PROFILE_BIO_DESIGN §2.4）；生日不做，已删
+    self.phoneRow = [self visibilityRow:IMPrivacyVisibilityKindPhone symbol:@"phone.fill" bg:UIColor.systemGreenColor];
     self.lastSeenRow = [self visibilityRow:IMPrivacyVisibilityKindLastSeen symbol:@"eye.fill" bg:UIColor.systemBlueColor];
     self.avatarRow = [self visibilityRow:IMPrivacyVisibilityKindAvatar symbol:@"person.crop.circle.fill" bg:UIColor.systemPurpleColor];
+    self.bioRow = [self visibilityRow:IMPrivacyVisibilityKindBio symbol:@"text.alignleft" bg:UIColor.systemYellowColor];
     IMPSGroup *groupD = [IMPSGroup new];
     groupD.header = IMLocalized(@"ps.section.who_can_see");
     groupD.footer = IMLocalized(@"ps.who_can_see_footer");
-    groupD.rows = @[
-        [self placeholder:IMLocalized(@"ps.row.phone_number") symbol:@"phone.fill" bg:UIColor.systemGreenColor value:IMLocalized(@"common.my_contacts")],
-        self.lastSeenRow,
-        self.avatarRow,
-        [self placeholder:IMLocalized(@"ps.row.bio") symbol:@"text.alignleft" bg:UIColor.systemYellowColor value:IMLocalized(@"common.everyone")],
-        [self placeholder:IMLocalized(@"ps.row.birthday") symbol:@"gift.fill" bg:UIColor.systemPinkColor value:IMLocalized(@"common.my_contacts")],
-    ];
+    groupD.rows = @[self.phoneRow, self.lastSeenRow, self.avatarRow, self.bioRow];
 
     // 组 E · 数据：清除所有对话（CLEAR_ALL_CONVERSATIONS_DESIGN，红底活行）与导出我的数据（DATA_EXPORT_DESIGN §5）均为活行；破坏性行不登记设置搜索
     IMPSRow *exportData = [IMPSRow new];
@@ -257,7 +257,7 @@
     IMPSRow *r = [IMPSRow new];
     r.rowId = IMPrivacyVisibilityJSONKey(kind); r.title = IMLocalized(IMPrivacyVisibilityRowTitleKey(kind));
     r.systemImage = symbol; r.iconBgColor = bg;
-    r.rightValue = IMPrivacyVisibilityTitle(kind == IMPrivacyVisibilityKindLastSeen ? self.lastSeenLevel : self.avatarLevel);
+    r.rightValue = IMPrivacyVisibilityTitle(self.levels[kind]);
     r.handler = ^{ [ws openVisibility:kind]; };
     return r;
 }
@@ -291,16 +291,30 @@
         if (!self || error || !settings) { return; }
         self.autoDeleteDefaultSec = settings.autoDeleteDefaultSec;
         self.autoDeleteRow.rightValue = IMAutoDeleteTierTitle(settings.autoDeleteDefaultSec);
-        [self applyVisibility:settings.lastSeenVisibility kind:IMPrivacyVisibilityKindLastSeen reload:NO];
-        [self applyVisibility:settings.avatarVisibility kind:IMPrivacyVisibilityKindAvatar reload:NO];
+        for (IMPrivacyVisibilityKind k = IMPrivacyVisibilityKindLastSeen; k < IMPrivacyVisibilityKindCount; k++) {
+            [self applyVisibility:[settings visibilityForKind:k] kind:k reload:NO];
+        }
         [self.tableView reloadData];
     }];
 }
 
+/// 按 kind 取活行（switch 穷举，新增项目漏写会在编译期给 -Wswitch 警告，而不是悄悄写到别的行）。
+- (IMPSRow *)visibilityRowForKind:(IMPrivacyVisibilityKind)kind {
+    switch (kind) {
+        case IMPrivacyVisibilityKindLastSeen: return self.lastSeenRow;
+        case IMPrivacyVisibilityKindAvatar:   return self.avatarRow;
+        case IMPrivacyVisibilityKindBio:      return self.bioRow;
+        case IMPrivacyVisibilityKindPhone:    return self.phoneRow;
+        case IMPrivacyVisibilityKindCount:    break;
+    }
+    NSAssert(NO, @"未知的隐私项目 %ld", (long)kind);
+    return self.avatarRow;
+}
+
 - (void)applyVisibility:(NSString *)level kind:(IMPrivacyVisibilityKind)kind reload:(BOOL)reload {
-    BOOL lastSeen = kind == IMPrivacyVisibilityKindLastSeen;
-    if (lastSeen) { self.lastSeenLevel = level; } else { self.avatarLevel = level; }
-    (lastSeen ? self.lastSeenRow : self.avatarRow).rightValue = IMPrivacyVisibilityTitle(level);
+    self.levels[kind] = level;
+    IMPSRow *row = [self visibilityRowForKind:kind];
+    row.rightValue = IMPrivacyVisibilityTitle(level);
     if (reload) { [self.tableView reloadData]; }
 }
 
@@ -320,10 +334,10 @@
     [self.navigationController pushViewController:vc animated:YES];
 }
 
-/// 档位单选页（上次上线 / 头像）：选中即存、不弹确认；失败 toast + ✓ 回滚在选择页里，成功后回写行右值。
+/// 档位单选页（上次上线 / 头像 / 个人简介 / 手机号码）：选中即存、不弹确认；失败 toast + ✓ 回滚在选择页里，成功后回写行右值。
 - (void)openVisibility:(IMPrivacyVisibilityKind)kind {
     __weak typeof(self) ws = self;
-    NSString *level = kind == IMPrivacyVisibilityKindLastSeen ? self.lastSeenLevel : self.avatarLevel;
+    NSString *level = self.levels[kind];
     IMPrivacyVisibilityViewController *vc = [[IMPrivacyVisibilityViewController alloc]
         initWithKind:kind currentLevel:level onSaved:^(NSString *saved) { [ws applyVisibility:saved kind:kind reload:YES]; }];
     [self.navigationController pushViewController:vc animated:YES];

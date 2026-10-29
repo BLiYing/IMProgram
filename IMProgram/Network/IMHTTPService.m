@@ -996,10 +996,10 @@ static NSArray<NSString *> *IMStringArrayFrom(id raw) {
                       nickname:(NSString *)nickname
                      avatarURL:(NSString *)avatarURL
                          phone:(NSString *)phone
-                          tags:(NSArray<NSString *> *)tags
+                           bio:(NSString *)bio
                     completion:(void (^)(IMUserCard *, NSError *))completion {
     NSDictionary *bodyDict = @{ @"nickname": nickname ?: @"", @"avatar_url": avatarURL ?: @"",
-                                @"phone": phone ?: @"", @"tags": tags ?: @[] };
+                                @"phone": phone ?: @"", @"bio": bio ?: @"" };
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/users/me" method:@"PUT" token:token body:bodyDict];
     [self runUserCardRequest:req fallback:IMLocalized(@"net.fallback.profile_save") completion:completion];
 }

@@ -13,11 +13,23 @@ NSArray<NSString *> *IMPrivacyVisibilityLevels(void) {
 }
 
 NSString *IMPrivacyVisibilityJSONKey(IMPrivacyVisibilityKind kind) {
-    return kind == IMPrivacyVisibilityKindLastSeen ? @"last_seen_visibility" : @"avatar_visibility";
+    switch (kind) {
+        case IMPrivacyVisibilityKindLastSeen: return @"last_seen_visibility";
+        case IMPrivacyVisibilityKindAvatar:   return @"avatar_visibility";
+        case IMPrivacyVisibilityKindBio:      return @"bio_visibility";
+        case IMPrivacyVisibilityKindPhone:    return @"phone_visibility";
+        case IMPrivacyVisibilityKindCount:    break;
+    }
+    NSCAssert(NO, @"未知的隐私项目 %ld", (long)kind);
+    return @"";
 }
 
 NSString *IMPrivacyVisibilityDefault(IMPrivacyVisibilityKind kind) {
-    return kind == IMPrivacyVisibilityKindLastSeen ? IMPrivacyVisibilityContacts : IMPrivacyVisibilityEveryone;
+    switch (kind) {
+        case IMPrivacyVisibilityKindLastSeen: return IMPrivacyVisibilityContacts;
+        case IMPrivacyVisibilityKindPhone:    return IMPrivacyVisibilityNobody;
+        default:                              return IMPrivacyVisibilityEveryone;
+    }
 }
 
 NSString *IMPrivacyVisibilityParse(IMPrivacyVisibilityKind kind, id raw) {
@@ -32,11 +44,27 @@ NSString *IMPrivacyVisibilityTitle(NSString *level) {
 }
 
 NSString *IMPrivacyVisibilityRowTitleKey(IMPrivacyVisibilityKind kind) {
-    return kind == IMPrivacyVisibilityKindLastSeen ? @"ps.row.last_seen" : @"ps.row.avatar";
+    switch (kind) {
+        case IMPrivacyVisibilityKindLastSeen: return @"ps.row.last_seen";
+        case IMPrivacyVisibilityKindAvatar:   return @"ps.row.avatar";
+        case IMPrivacyVisibilityKindBio:      return @"ps.row.bio";
+        case IMPrivacyVisibilityKindPhone:    return @"ps.row.phone_number";
+        case IMPrivacyVisibilityKindCount:    break;
+    }
+    NSCAssert(NO, @"未知的隐私项目 %ld", (long)kind);
+    return @"";
 }
 
 NSString *IMPrivacyVisibilityFooterKey(IMPrivacyVisibilityKind kind) {
-    return kind == IMPrivacyVisibilityKindLastSeen ? @"ps.visibility.last_seen.footer" : @"ps.visibility.avatar.footer";
+    switch (kind) {
+        case IMPrivacyVisibilityKindLastSeen: return @"ps.visibility.last_seen.footer";
+        case IMPrivacyVisibilityKindAvatar:   return @"ps.visibility.avatar.footer";
+        case IMPrivacyVisibilityKindBio:      return @"ps.visibility.bio.footer";
+        case IMPrivacyVisibilityKindPhone:    return @"ps.visibility.phone.footer";
+        case IMPrivacyVisibilityKindCount:    break;
+    }
+    NSCAssert(NO, @"未知的隐私项目 %ld", (long)kind);
+    return @"";
 }
 
 NSDictionary *IMPrivacyVisibilityPutBody(IMPrivacyVisibilityKind kind, NSString *level) {
@@ -51,15 +79,31 @@ NSDictionary *IMPrivacyVisibilityPutBody(IMPrivacyVisibilityKind kind, NSString 
     s.autoDeleteDefaultSec = IMAutoDeleteSecFromJSON(d[@"auto_delete_default_sec"]);
     s.lastSeenVisibility = IMPrivacyVisibilityParse(IMPrivacyVisibilityKindLastSeen, d[@"last_seen_visibility"]);
     s.avatarVisibility = IMPrivacyVisibilityParse(IMPrivacyVisibilityKindAvatar, d[@"avatar_visibility"]);
+    s.bioVisibility = IMPrivacyVisibilityParse(IMPrivacyVisibilityKindBio, d[@"bio_visibility"]);
+    s.phoneVisibility = IMPrivacyVisibilityParse(IMPrivacyVisibilityKindPhone, d[@"phone_visibility"]);
     return s;
 }
 
 - (NSString *)visibilityForKind:(IMPrivacyVisibilityKind)kind {
-    return kind == IMPrivacyVisibilityKindLastSeen ? self.lastSeenVisibility : self.avatarVisibility;
+    switch (kind) {
+        case IMPrivacyVisibilityKindLastSeen: return self.lastSeenVisibility;
+        case IMPrivacyVisibilityKindAvatar:   return self.avatarVisibility;
+        case IMPrivacyVisibilityKindBio:      return self.bioVisibility;
+        case IMPrivacyVisibilityKindPhone:    return self.phoneVisibility;
+        case IMPrivacyVisibilityKindCount:    break;
+    }
+    NSAssert(NO, @"未知的隐私项目 %ld", (long)kind);
+    return IMPrivacyVisibilityDefault(IMPrivacyVisibilityKindAvatar);
 }
 
 - (void)setVisibility:(NSString *)level forKind:(IMPrivacyVisibilityKind)kind {
-    if (kind == IMPrivacyVisibilityKindLastSeen) { self.lastSeenVisibility = level; } else { self.avatarVisibility = level; }
+    switch (kind) {
+        case IMPrivacyVisibilityKindLastSeen: self.lastSeenVisibility = level; break;
+        case IMPrivacyVisibilityKindAvatar:   self.avatarVisibility = level; break;
+        case IMPrivacyVisibilityKindBio:      self.bioVisibility = level; break;
+        case IMPrivacyVisibilityKindPhone:    self.phoneVisibility = level; break;
+        case IMPrivacyVisibilityKindCount:    NSAssert(NO, @"未知的隐私项目 %ld", (long)kind); break;
+    }
 }
 
 @end

@@ -549,7 +549,7 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
     // 非好友（单聊）：只保留头像 + 操作排（加好友/更多），隐藏备注名·设置·页签三张卡——
     // 尚未建立关系时这些设置无意义。仅隐藏，数据加载逻辑不动（加为好友后 reloadData 即恢复）。
     if (!self.isGroup && !self.peerIsFriend) { return s; }
-    if (!self.isGroup) { [s addObject:@(IMDetailSectionInfo)]; } // 单聊：备注名/用户名
+    if (!self.isGroup) { [s addObject:@(IMDetailSectionInfo)]; } // 单聊：签名?/备注名/用户名/手机号?
     // 公告/简介/大群说明卡（Pills 下）。条件走 aboutRowKinds 而不是逐个判字段——
     // 大群说明恒显，正是靠这一点让"没公告也没简介的大群"照样有卡（那是最需要解释的场景）。
     if (self.isGroup && [self aboutRowKinds].count > 0) { [s addObject:@(IMDetailSectionAbout)]; }
@@ -570,7 +570,7 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     switch ([self sectionKindAt:section]) {
-        case IMDetailSectionInfo:     return 2; // 备注名 + 用户名
+        case IMDetailSectionInfo:     return (NSInteger)[self infoRowKinds].count; // 签名? + 备注名 + 用户名 + 手机号?
         case IMDetailSectionAbout:    return (NSInteger)[self aboutRowKinds].count;
         case IMDetailSectionSettings: return (NSInteger)[self settingsRowKinds].count;
         case IMDetailSectionTabs:     return [self tabRowCount];
@@ -621,6 +621,7 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
     IMDetailSection kind = [self sectionKindAt:indexPath.section];
     if (kind == IMDetailSectionAbout) { return 52; } // 左标签 + 右一行预览（Value1 样式）
+    if (kind == IMDetailSectionInfo) { return [self infoRowHeightAtRow:indexPath.row forWidth:tableView.bounds.size.width]; } // 签名行随文本折行
     if (kind == IMDetailSectionTabs && self.tabs.count > 0) {
         IMChatDetailTab *t = self.tabs[self.selectedTab];
         if (t.kind == IMDetailTabKindMembers) {
@@ -852,7 +853,7 @@ typedef NS_ENUM(NSInteger, IMDetailSettingsRow) {
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     IMDetailSection kind = [self sectionKindAt:indexPath.section];
-    if (kind == IMDetailSectionInfo && indexPath.row == 0) { [self editRemark]; return; }
+    if (kind == IMDetailSectionInfo) { [self handleInfoTapAtRow:indexPath.row]; return; }
     if (kind == IMDetailSectionAbout) { [self handleAboutTapAtRow:indexPath.row]; return; }
     if (kind == IMDetailSectionSettings) {
         NSArray<NSNumber *> *kinds = [self settingsRowKinds];

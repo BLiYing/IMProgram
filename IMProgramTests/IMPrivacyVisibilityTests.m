@@ -21,7 +21,10 @@
 @property (nonatomic, copy, nullable) NSString *peerAvatarURL;
 @property (nonatomic, strong, nullable) IMPresence *peerPresence;
 @property (nonatomic, assign) BOOL peerProfileLoaded;
+@property (nonatomic, copy, nullable) NSString *peerBio;
+@property (nonatomic, copy, nullable) NSString *peerPhone;
 - (void)loadPeerProfile;
+- (NSArray<NSNumber *> *)infoRowKinds;
 @end
 
 static NSString *const kPVPeer = @"pv-test-peer-9917";
@@ -37,7 +40,7 @@ static NSDictionary *sPVPrivacyReply, *sPVProfileReply;
 }
 + (BOOL)canInitWithRequest:(NSURLRequest *)r {
     NSString *p = r.URL.path;
-    return [p isEqualToString:@"/api/v1/users/me/privacy"] || [p hasSuffix:[@"/api/v1/users/" stringByAppendingString:kPVPeer]];
+    return [p isEqualToString:@"/api/v1/users/me/privacy"] || [p isEqualToString:@"/api/v1/users/me"] || [p hasSuffix:[@"/api/v1/users/" stringByAppendingString:kPVPeer]];
 }
 + (NSURLRequest *)canonicalRequestForRequest:(NSURLRequest *)r { return r; }
 - (void)startLoading {
@@ -243,6 +246,90 @@ static NSDictionary *sPVPrivacyReply, *sPVProfileReply;
     [vc loadPeerProfile];
     [self spinUntil:^BOOL{ return vc.peerProfileLoaded; }];
     XCTAssertEqualObjects(vc.peerPresence.subtitleText ?: @"", @"");
+}
+
+#pragma mark - 个人简介 / 手机号码档位（PROFILE_BIO_DESIGN）
+
+- (void)test_解析_个人简介默认所有人_手机号码默认无人 {
+    XCTAssertEqualObjects(IMPrivacyVisibilityParse(IMPrivacyVisibilityKindBio, nil), @"everyone");
+    XCTAssertEqualObjects(IMPrivacyVisibilityParse(IMPrivacyVisibilityKindPhone, nil), @"nobody");
+    XCTAssertEqualObjects(IMPrivacyVisibilityParse(IMPrivacyVisibilityKindPhone, @"friends"), @"nobody");
+    XCTAssertEqualObjects(IMPrivacyVisibilityParse(IMPrivacyVisibilityKindPhone, @"contacts"), @"contacts");
+}
+
+- (void)test_字段名_行名_页脚键_覆盖两项新档位 {
+    XCTAssertEqualObjects(IMPrivacyVisibilityJSONKey(IMPrivacyVisibilityKindBio), @"bio_visibility");
+    XCTAssertEqualObjects(IMPrivacyVisibilityJSONKey(IMPrivacyVisibilityKindPhone), @"phone_visibility");
+    XCTAssertEqualObjects(IMPrivacyVisibilityRowTitleKey(IMPrivacyVisibilityKindBio), @"ps.row.bio");
+    XCTAssertEqualObjects(IMPrivacyVisibilityRowTitleKey(IMPrivacyVisibilityKindPhone), @"ps.row.phone_number");
+    XCTAssertEqualObjects(IMPrivacyVisibilityFooterKey(IMPrivacyVisibilityKindBio), @"ps.visibility.bio.footer");
+    XCTAssertEqualObjects(IMPrivacyVisibilityFooterKey(IMPrivacyVisibilityKindPhone), @"ps.visibility.phone.footer");
+    XCTAssertEqualObjects(IMPrivacyVisibilityPutBody(IMPrivacyVisibilityKindPhone, @"contacts"), @{ @"phone_visibility": @"contacts" });
+}
+
+- (void)test_设置对象_读出简介与手机号档位 {
+    IMPrivacySettings *s = [IMPrivacySettings settingsFromJSON:@{ @"bio_visibility": @"nobody", @"phone_visibility": @"contacts" }];
+    XCTAssertEqualObjects([s visibilityForKind:IMPrivacyVisibilityKindBio], @"nobody");
+    XCTAssertEqualObjects([s visibilityForKind:IMPrivacyVisibilityKindPhone], @"contacts");
+    IMPrivacySettings *d = [IMPrivacySettings settingsFromJSON:nil];
+    XCTAssertEqualObjects(d.bioVisibility, @"everyone");
+    XCTAssertEqualObjects(d.phoneVisibility, @"nobody");
+    [s setVisibility:@"everyone" forKind:IMPrivacyVisibilityKindPhone];
+    XCTAssertEqualObjects(s.phoneVisibility, @"everyone");
+}
+
+#pragma mark - 保存资料：发 bio、不再发 tags
+
+- (void)test_保存资料_请求体带bio_不含tags {
+    [IMPVStub reset:@{ @"code": @0, @"data": @{ @"user_id": @"pv-me", @"nickname": @"N", @"bio": @"签名" } } profile:nil];
+    XCTestExpectation *e = [self expectationWithDescription:@"put"];
+    [IMHTTPService.sharedService updateProfileWithToken:@"t" nickname:@"N" avatarURL:@"" phone:@"138" bio:@"签名"
+                                             completion:^(IMUserCard *p, NSError *err) {
+        XCTAssertNil(err);
+        XCTAssertEqualObjects(p.bio, @"签名");
+        [e fulfill];
+    }];
+    [self waitForExpectationsWithTimeout:5 handler:nil];
+    NSDictionary *req = self.requests.lastObject;
+    XCTAssertEqualObjects(req[@"method"], @"PUT");
+    XCTAssertEqualObjects(req[@"body"][@"bio"], @"签名");
+    XCTAssertNil(req[@"body"][@"tags"]); // 缺省 tags＝服务端保持原值，端上不能再发空数组把旧标签清掉
+}
+
+#pragma mark - 单聊详情：签名 / 手机号行
+
+- (void)test_单聊详情_信息区行_按签名与手机号有无增减 {
+    IMChatDetailViewController *vc = [[IMChatDetailViewController alloc] initSingleWithHost:@"127.0.0.1:59391" userID:@"pv-me"
+        peerID:kPVPeer peerNickname:@"Peer" peerAvatarURL:nil];
+    [vc loadViewIfNeeded];
+    XCTAssertEqualObjects([vc infoRowKinds], (@[@1, @2]), @"无签名无手机号：备注名 + 用户名");
+    vc.peerBio = @"hi";
+    XCTAssertEqualObjects([vc infoRowKinds], (@[@0, @1, @2]), @"签名在最上");
+    vc.peerPhone = @"139";
+    XCTAssertEqualObjects([vc infoRowKinds], (@[@0, @1, @2, @3]), @"手机号在用户名之后");
+    vc.peerBio = @"";
+    XCTAssertEqualObjects([vc infoRowKinds], (@[@1, @2, @3]));
+}
+
+- (void)test_单聊详情_权威资料带签名手机号_落到属性且清空可收敛 {
+    [IMPVStub reset:nil profile:@{ @"code": @0, @"data": @{ @"user_id": kPVPeer, @"nickname": @"Peer", @"bio": @"慢慢来", @"phone": @"139" } }];
+    IMChatDetailViewController *vc = [[IMChatDetailViewController alloc] initSingleWithHost:@"127.0.0.1:59391" userID:@"pv-me"
+        peerID:kPVPeer peerNickname:@"Peer" peerAvatarURL:nil];
+    [vc loadViewIfNeeded];
+    [vc loadPeerProfile];
+    [self spinUntil:^BOOL{ return vc.peerProfileLoaded; }];
+    XCTAssertEqualObjects(vc.peerBio, @"慢慢来");
+    XCTAssertEqualObjects(vc.peerPhone, @"139");
+    // viewDidLoad 也会拉一次（同一份旧回包）：等两次请求都落地再切换回包，免得迟到的旧回包把新状态盖回去
+    [self spinUntil:^BOOL{ return self.requests.count >= 2; }];
+    [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.3]];
+    // 对方改成不可见：下次拉到的名片不带这两键 → 行消失（不残留旧值）
+    [IMPVStub reset:nil profile:@{ @"code": @0, @"data": @{ @"user_id": kPVPeer, @"nickname": @"Peer" } }];
+    vc.peerProfileLoaded = NO;
+    [vc loadPeerProfile];
+    [self spinUntil:^BOOL{ return vc.peerProfileLoaded; }];
+    XCTAssertEqual(vc.peerBio.length, 0u);
+    XCTAssertEqual(vc.peerPhone.length, 0u);
 }
 
 @end

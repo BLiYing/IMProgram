@@ -35,9 +35,17 @@ static inline CGFloat IMClamp(CGFloat x, CGFloat a, CGFloat b) { return MIN(MAX(
 /// label 留给读屏念标题，分派只认它（+Header.m 赋值、+Actions.m 的 pillTapped: 比对，两处共用这一个拼法）。
 static inline NSString *IMDetailPillIdentifier(NSString *action) { return [@"detail.pill." stringByAppendingString:action ?: @""]; }
 
+/// 单聊信息区的行种类（顺序由 -infoRowKinds 决定）。
+typedef NS_ENUM(NSInteger, IMDetailInfoRow) {
+    IMDetailInfoRowBio = 0,
+    IMDetailInfoRowRemark,
+    IMDetailInfoRowUsername,
+    IMDetailInfoRowPhone,
+};
+
 /// 页面分区（动态组装到 _sections）。
 typedef NS_ENUM(NSInteger, IMDetailSection) {
-    IMDetailSectionInfo = 0,   ///< 单聊：备注名 / 用户名
+    IMDetailSectionInfo = 0,   ///< 单聊：个性签名 / 备注名 / 用户名 / 手机号
     IMDetailSectionAbout,      ///< 群公告 / 群简介（群聊·全员只读·非空才显，G1 修·决策 17）
     IMDetailSectionSettings,   ///< 置顶 / 免打扰（+群主管理员：群管理）
     IMDetailSectionTabs,       ///< 分类页签内容（header=分段控件）
@@ -62,6 +70,9 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 /// 对端的**公开句柄**（UI 显示为 @xxx）。由 +Peer.m 从 GET /users/{id} 取得。
 /// 「用户名」行显示它——绝不能显示 peerID，那是 10 位随机数字内部 ID（见 docs/UI.md「用户标识」）。
 @property (nonatomic, copy, nullable) NSString *peerUsername;
+/// 对端个性签名 / 手机号：GET /users/{id} 按对方「个人简介」「手机号码」档位下发，空串＝不可见或没填，对应行整行不占位。
+@property (nonatomic, copy, nullable) NSString *peerBio;
+@property (nonatomic, copy, nullable) NSString *peerPhone;
 /// 对端在线态快照（GET /users/{id} 带回）。头部副标题显示它——**不是** peerID，也不是 @句柄
 /// （句柄已在下方「用户名」行显示，头部再显一次是重复）。对齐 Telegram：标题=名字、副标题=在线态。
 @property (nonatomic, strong, nullable) IMPresence *peerPresence;
@@ -216,7 +227,13 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 /// 进页那一刻的好友态起步值：本地已知关系（IMFriendStateStore）优先，不知道才乐观 YES。
 /// **在 init 里调用**（此时 self.databaseContext 已就位），故不依赖任何 viewDidLoad 之后才有的东西。
 - (BOOL)initialPeerIsFriendGuess:(nullable NSString *)peerID;
-/// 单聊「备注名 / 用户名」两行（row 0/1）。放 +Peer.m 是体量门禁拆分——主实现文件贴着 1500 行红线。
+/// 单聊信息区的行种类（NSNumber 装 IMDetailInfoRow），顺序：个性签名（有才有）→ 备注名 → 用户名 → 手机号（有才有）。
+/// 放 +Peer.m 是体量门禁拆分——主实现文件贴着 1500 行红线。
+- (NSArray<NSNumber *> *)infoRowKinds;
+/// 点信息区第 row 行：备注名 → 编辑备注，其余行无点击动作。
+- (void)handleInfoTapAtRow:(NSInteger)row;
+/// 信息区行高：签名行按文本折行度量（本表 estimatedRowHeight = 0，行高必须精确给出），其余 52。
+- (CGFloat)infoRowHeightAtRow:(NSInteger)row forWidth:(CGFloat)tableWidth;
 - (UITableViewCell *)infoCell:(UITableView *)tv row:(NSInteger)row;
 
 // —— 成员页签的超级群分页（loader 在 +Actions.m，主文件贴着 1500 行红线）——

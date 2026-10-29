@@ -6,10 +6,13 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-/// 「谁能看到」的项目（本期两项）。
+/// 「谁能看到」的项目（PROFILE_BIO_DESIGN：个人简介 / 手机号码已转活）。
 typedef NS_ENUM(NSInteger, IMPrivacyVisibilityKind) {
     IMPrivacyVisibilityKindLastSeen = 0, ///< 上次上线（整个在线态）
     IMPrivacyVisibilityKindAvatar,       ///< 头像
+    IMPrivacyVisibilityKindBio,          ///< 个人简介（个性签名）
+    IMPrivacyVisibilityKindPhone,        ///< 手机号码
+    IMPrivacyVisibilityKindCount,        ///< 哨兵：项目总数（遍历 / 数组下标用，新增项目放它前面）
 };
 
 extern NSString *const IMPrivacyVisibilityEveryone; ///< @"everyone"
@@ -18,9 +21,9 @@ extern NSString *const IMPrivacyVisibilityNobody;   ///< @"nobody"
 
 /// 三档，展示顺序：所有人 / 我的联系人 / 无人。
 NSArray<NSString *> *IMPrivacyVisibilityLevels(void);
-/// 服务端字段名：last_seen_visibility / avatar_visibility。
+/// 服务端字段名：last_seen_visibility / avatar_visibility / bio_visibility / phone_visibility。
 NSString *IMPrivacyVisibilityJSONKey(IMPrivacyVisibilityKind kind);
-/// 默认档位（= 设置上线前的既有行为）：上次上线 contacts，头像 everyone。
+/// 默认档位：上次上线 contacts、头像 everyone（= 设置上线前的既有行为）；个人简介 everyone；手机号码 nobody（= 既有行为：从不对他人展示）。
 NSString *IMPrivacyVisibilityDefault(IMPrivacyVisibilityKind kind);
 /// 解析服务端值：三值之一原样返回，其余（缺失 / 空串 / 未知 / 非字符串）落到该项默认档。
 NSString *IMPrivacyVisibilityParse(IMPrivacyVisibilityKind kind, id _Nullable raw);
@@ -37,6 +40,8 @@ NSDictionary *IMPrivacyVisibilityPutBody(IMPrivacyVisibilityKind kind, NSString 
 @property (nonatomic, assign) int64_t autoDeleteDefaultSec;
 @property (nonatomic, copy) NSString *lastSeenVisibility;
 @property (nonatomic, copy) NSString *avatarVisibility;
+@property (nonatomic, copy) NSString *bioVisibility;
+@property (nonatomic, copy) NSString *phoneVisibility;
 + (instancetype)settingsFromJSON:(nullable NSDictionary *)data;
 - (NSString *)visibilityForKind:(IMPrivacyVisibilityKind)kind;
 - (void)setVisibility:(NSString *)level forKind:(IMPrivacyVisibilityKind)kind;

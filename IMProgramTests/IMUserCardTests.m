@@ -39,6 +39,15 @@
     XCTAssertEqual(c.status, IMFriendStatusNone);
 }
 
+#pragma mark - 个性签名
+
+- (void)testParseBio {
+    IMUserCard *c = [IMUserCard cardsFromArray:@[ @{ @"user_id": @"1002", @"nickname": @"n", @"bio": @"慢慢来" } ]].firstObject;
+    XCTAssertEqualObjects(c.bio, @"慢慢来");
+    IMUserCard *none = [IMUserCard cardsFromArray:@[ @{ @"user_id": @"1003", @"nickname": @"n" } ]].firstObject;
+    XCTAssertEqualObjects(none.bio, @"", @"对方档位不可见＝服务端不下发 → 空串，不是 nil");
+}
+
 #pragma mark - username / 显示名回退链
 
 /// username 是公开句柄，与内部 ID 是两个字段——解析不能串。

@@ -16,7 +16,32 @@
 #import "IMLocalization.h"
 #import "IMDeleteAccountViewController.h"
 
-@interface IMProfileEditViewController ()
+/// 个性签名上限（Unicode 码点，与服务端 profile.MaxBioRunes 一致）。
+static const NSUInteger kIMBioMaxRunes = 70;
+/// 计数 ≥ 此值变 danger 色。
+static const NSUInteger kIMBioWarnRunes = 60;
+
+/// 按 Unicode 码点数（代理对算一个）截断到 limit；返回的串不会劈开代理对。
+static NSString *IMBioTruncated(NSString *s, NSUInteger limit) {
+    NSUInteger count = 0, i = 0;
+    while (i < s.length) {
+        unichar c = [s characterAtIndex:i];
+        NSUInteger step = (CFStringIsSurrogateHighCharacter(c) && i + 1 < s.length) ? 2 : 1;
+        if (count == limit) { return [s substringToIndex:i]; }
+        count++; i += step;
+    }
+    return s;
+}
+
+static NSUInteger IMBioRuneCount(NSString *s) {
+    NSUInteger n = 0;
+    for (NSUInteger i = 0; i < s.length; i++) {
+        if (!CFStringIsSurrogateLowCharacter([s characterAtIndex:i])) { n++; }
+    }
+    return n;
+}
+
+@interface IMProfileEditViewController () <UITextViewDelegate>
 @property (nonatomic, copy) NSString *host;
 @property (nonatomic, copy) NSString *userID;
 @property (nonatomic, copy, nullable) NSString *token;
@@ -26,22 +51,27 @@
 @property (nonatomic, strong) UITextField *usernameField; ///< 公开句柄（@xxx），与昵称是两回事
 @property (nonatomic, copy, nullable) NSString *loadedUsername; ///< 载入时的原值，未改动就不发改名请求
 @property (nonatomic, strong) UITextField *phoneField;
-@property (nonatomic, strong) UITextField *tagsField;
+@property (nonatomic, strong) UITextView *bioView;          ///< 个性签名（多行输入，替换原「标签」）
+@property (nonatomic, strong) UILabel *bioPlaceholder;
+@property (nonatomic, strong) UILabel *bioCounter;          ///< 右下角 n/70
 
 // 双态（2026-08-30，对齐 Telegram iOS 个人资料页）：
 // 默认**只读**——大头像 + 昵称 + 在线态 + 信息卡；点右上角「编辑」才切到可修改的表单。
 // 从「我」页点头像/昵称/句柄进来的用户多数只是想看一眼，直接给一屏输入框既突兀又容易误改。
 @property (nonatomic, assign) BOOL editingMode;
 /// GET /users/me 回来了没有。没回来之前编辑框不可输、不许保存：表单此时是空的，
-/// 保存（PUT 整体替换）会把手机号 / 标签清掉，迟到的回包也会盖掉用户已输入的内容。直进编辑态时这个窗口最明显。
+/// 保存（PUT 整体替换）会把手机号 / 签名清掉，迟到的回包也会盖掉用户已输入的内容。直进编辑态时这个窗口最明显。
 @property (nonatomic, assign) BOOL profileLoaded;
 @property (nonatomic, strong) UIStackView *readonlyStack;  ///< 只读态根容器
-@property (nonatomic, strong) UIStackView *editStack;      ///< 编辑态根容器（原有表单）
+@property (nonatomic, strong) UIStackView *editStack;      ///< 编辑态表单
+@property (nonatomic, strong) UIScrollView *editScroll;    ///< 编辑态根容器：装 editStack，键盘弹出时顶起输入框（个性签名在表单最下面，不滚会被键盘盖住）
 @property (nonatomic, strong) UIImageView *roAvatar;       ///< 只读态大头像（不可点换）
 @property (nonatomic, strong) UILabel *roName;             ///< 只读态昵称（大字）
 @property (nonatomic, strong) UILabel *roStatus;           ///< 只读态在线态（本人恒「在线」）
 @property (nonatomic, strong) UILabel *roPhoneValue;
 @property (nonatomic, strong) UILabel *roUsernameValue;
+@property (nonatomic, strong) UILabel *roBioValue;
+@property (nonatomic, strong) UIView *roBioRow;            ///< 签名为空时整行隐藏
 @property (nonatomic, strong) UIView *roPhoneRow;          ///< 手机号为空时整行隐藏
 @property (nonatomic, strong) UIButton *deleteAccountRow;  ///< 「注销账号」入口行（只读态底部；随 readonlyStack 在编辑态隐藏）
 @end
@@ -69,39 +99,187 @@
     self.usernameField.keyboardType = UIKeyboardTypeASCIICapable;
     self.phoneField = [self fieldWithPlaceholder:IMLocalized(@"settings.info.phone")];
     self.phoneField.keyboardType = UIKeyboardTypePhonePad;
-    self.tagsField = [self fieldWithPlaceholder:IMLocalized(@"profile.field.tags_placeholder")];
-    self.tagsField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    UIView *bioBox = [self buildBioInput];
 
     self.editStack = [[UIStackView alloc] initWithArrangedSubviews:@[
         [self avatarHeader],
         [self labeledRow:IMLocalized(@"login.nickname") field:self.nicknameField],
         [self labeledRow:IMLocalized(@"settings.info.username") field:self.usernameField],
         [self labeledRow:IMLocalized(@"settings.info.phone") field:self.phoneField],
-        [self labeledRow:IMLocalized(@"profile.field.tags_label") field:self.tagsField],
+        [self labeledRowWithView:IMLocalized(@"profile.field.bio_label") content:bioBox],
     ]];
     self.editStack.translatesAutoresizingMaskIntoConstraints = NO;
     self.editStack.axis = UILayoutConstraintAxisVertical;
     self.editStack.spacing = IMTheme.space4;
-    [self.view addSubview:self.editStack];
+    self.editScroll = [UIScrollView new];
+    self.editScroll.translatesAutoresizingMaskIntoConstraints = NO;
+    self.editScroll.alwaysBounceVertical = YES;
+    self.editScroll.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
+    self.editScroll.accessibilityIdentifier = @"profile.edit.scroll";
+    [self.editScroll addSubview:self.editStack];
+    [self.view addSubview:self.editScroll];
 
     self.readonlyStack = [self buildReadonlyStack];
     [self.view addSubview:self.readonlyStack];
 
     UILayoutGuide *guide = self.view.safeAreaLayoutGuide;
-    for (UIStackView *stack in @[self.editStack, self.readonlyStack]) {
-        [NSLayoutConstraint activateConstraints:@[
-            [stack.topAnchor constraintEqualToAnchor:guide.topAnchor constant:IMTheme.space4 * 2],
-            [stack.leadingAnchor constraintEqualToAnchor:guide.leadingAnchor constant:IMTheme.space4],
-            [stack.trailingAnchor constraintEqualToAnchor:guide.trailingAnchor constant:-IMTheme.space4],
-        ]];
-    }
+    [NSLayoutConstraint activateConstraints:@[
+        [self.readonlyStack.topAnchor constraintEqualToAnchor:guide.topAnchor constant:IMTheme.space4 * 2],
+        [self.readonlyStack.leadingAnchor constraintEqualToAnchor:guide.leadingAnchor constant:IMTheme.space4],
+        [self.readonlyStack.trailingAnchor constraintEqualToAnchor:guide.trailingAnchor constant:-IMTheme.space4],
+        // 编辑态：滚动容器铺满安全区上沿到屏幕底；表单在内容区里（上 32 / 左右 16 / 下 16），宽度跟 frame 走
+        [self.editScroll.topAnchor constraintEqualToAnchor:guide.topAnchor],
+        [self.editScroll.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [self.editScroll.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [self.editScroll.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
+        [self.editStack.topAnchor constraintEqualToAnchor:self.editScroll.contentLayoutGuide.topAnchor constant:IMTheme.space4 * 2],
+        [self.editStack.bottomAnchor constraintEqualToAnchor:self.editScroll.contentLayoutGuide.bottomAnchor constant:-IMTheme.space4],
+        [self.editStack.leadingAnchor constraintEqualToAnchor:self.editScroll.frameLayoutGuide.leadingAnchor constant:IMTheme.space4],
+        [self.editStack.trailingAnchor constraintEqualToAnchor:self.editScroll.frameLayoutGuide.trailingAnchor constant:-IMTheme.space4],
+        [self.editStack.widthAnchor constraintEqualToAnchor:self.editScroll.frameLayoutGuide.widthAnchor constant:-IMTheme.space4 * 2],
+    ]];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyboardWillChange:)
+                                               name:UIKeyboardWillChangeFrameNotification object:nil];
 
     [self setFieldsEnabled:NO];                  // 资料回来前不可输（见 profileLoaded）
     [self applyEditingMode:self.startsEditing];  // 默认只读；设置页「编辑」进来直接编辑态
     [self load];
 }
 
+#pragma mark - 键盘
+
+/// 键盘弹出 / 收起：给滚动容器底部让出键盘高度，并把正在输入的那一格滚进可见区。
+/// 个性签名是表单最后一格，不处理的话（尤其小屏）输入框被键盘盖住，看不到自己在写什么。
+- (void)keyboardWillChange:(NSNotification *)note {
+    if (!self.isViewLoaded || self.view.window == nil) { return; }
+    CGRect end = [note.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
+    CGRect local = [self.view convertRect:[self.view.window convertRect:end fromWindow:nil] fromView:nil];
+    CGFloat overlap = MAX(0, CGRectGetMaxY(self.view.bounds) - CGRectGetMinY(local));
+    UIEdgeInsets inset = self.editScroll.contentInset;
+    inset.bottom = overlap;
+    NSTimeInterval dur = [note.userInfo[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
+    [UIView animateWithDuration:dur animations:^{
+        self.editScroll.contentInset = inset;
+        self.editScroll.verticalScrollIndicatorInsets = inset;
+        if (overlap > 0) { [self scrollFirstResponderIntoView]; }
+    }];
+}
+
+- (void)scrollFirstResponderIntoView {
+    UIView *target = nil;
+    for (UIView *v in @[self.bioView, self.phoneField, self.usernameField, self.nicknameField]) {
+        if (v.isFirstResponder) { target = v; break; }
+    }
+    if (!target) { return; }
+    // 不用 scrollRectToVisible:：它按 bounds 判断「已可见」，不扣 contentInset（键盘让位量），键盘盖住时也算可见而不滚。
+    CGRect r = [self.editScroll convertRect:target.bounds fromView:target];
+    UIScrollView *sv = self.editScroll;
+    CGFloat visibleH = sv.bounds.size.height - sv.contentInset.bottom;
+    CGFloat y = sv.contentOffset.y;
+    if (CGRectGetMaxY(r) + 12 > y + visibleH) { y = CGRectGetMaxY(r) + 12 - visibleH; }
+    if (CGRectGetMinY(r) - 12 < y) { y = CGRectGetMinY(r) - 12; }
+    CGFloat maxY = MAX(-sv.contentInset.top, sv.contentSize.height + sv.contentInset.bottom - sv.bounds.size.height);
+    y = MIN(MAX(y, -sv.contentInset.top), maxY);
+    [sv setContentOffset:CGPointMake(sv.contentOffset.x, y) animated:NO];
+}
+
 #pragma mark - 构建
+
+/// 个性签名输入：圆角 8 的多行框（最小高 80、内边距 8/12、16pt），占位 + 右下角 n/70 计数。
+/// 回车键收起键盘而不换行（签名是单段文字，服务端也会把换行折成空格）。
+- (UIView *)buildBioInput {
+    UIView *box = [UIView new];
+    box.translatesAutoresizingMaskIntoConstraints = NO;
+    box.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
+    box.layer.cornerRadius = 8;
+    box.layer.borderWidth = 0.5;
+    box.layer.borderColor = IMTheme.separator.CGColor;
+    box.accessibilityIdentifier = @"profile.edit.bio";
+
+    self.bioView = [UITextView new];
+    self.bioView.translatesAutoresizingMaskIntoConstraints = NO;
+    self.bioView.delegate = self;
+    self.bioView.font = [UIFont systemFontOfSize:16];
+    self.bioView.textColor = IMTheme.textPrimary;
+    self.bioView.backgroundColor = UIColor.clearColor;
+    self.bioView.returnKeyType = UIReturnKeyDone;
+    self.bioView.textContainerInset = UIEdgeInsetsMake(8, 8, 22, 8); // 底部给计数留位
+    self.bioView.accessibilityIdentifier = @"profile.edit.bio.text";
+    [box addSubview:self.bioView];
+
+    self.bioPlaceholder = [UILabel new];
+    self.bioPlaceholder.translatesAutoresizingMaskIntoConstraints = NO;
+    self.bioPlaceholder.text = IMLocalized(@"profile.field.bio_placeholder");
+    self.bioPlaceholder.font = [UIFont systemFontOfSize:16];
+    self.bioPlaceholder.textColor = IMTheme.textSecondary;
+    self.bioPlaceholder.userInteractionEnabled = NO;
+    [box addSubview:self.bioPlaceholder];
+
+    self.bioCounter = [UILabel new];
+    self.bioCounter.translatesAutoresizingMaskIntoConstraints = NO;
+    self.bioCounter.font = [UIFont systemFontOfSize:12];
+    self.bioCounter.userInteractionEnabled = NO;
+    [box addSubview:self.bioCounter];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [box.heightAnchor constraintGreaterThanOrEqualToConstant:80],
+        [self.bioView.topAnchor constraintEqualToAnchor:box.topAnchor],
+        [self.bioView.bottomAnchor constraintEqualToAnchor:box.bottomAnchor],
+        [self.bioView.leadingAnchor constraintEqualToAnchor:box.leadingAnchor],
+        [self.bioView.trailingAnchor constraintEqualToAnchor:box.trailingAnchor],
+        [self.bioView.heightAnchor constraintEqualToConstant:80],
+        [self.bioPlaceholder.topAnchor constraintEqualToAnchor:box.topAnchor constant:8],
+        [self.bioPlaceholder.leadingAnchor constraintEqualToAnchor:box.leadingAnchor constant:13], // 8 内边距 + 5 行首留白
+        [self.bioCounter.trailingAnchor constraintEqualToAnchor:box.trailingAnchor constant:-8],
+        [self.bioCounter.bottomAnchor constraintEqualToAnchor:box.bottomAnchor constant:-6],
+    ]];
+    [self refreshBioChrome];
+    return box;
+}
+
+/// 占位与计数随文本变化。
+- (void)refreshBioChrome {
+    NSUInteger n = IMBioRuneCount(self.bioView.text);
+    self.bioPlaceholder.hidden = self.bioView.text.length > 0;
+    self.bioCounter.text = [NSString stringWithFormat:@"%lu/%lu", (unsigned long)n, (unsigned long)kIMBioMaxRunes];
+    self.bioCounter.textColor = n >= kIMBioWarnRunes ? IMTheme.danger : IMTheme.textSecondary;
+}
+
+#pragma mark - UITextViewDelegate（个性签名）
+
+- (BOOL)textView:(UITextView *)textView shouldChangeTextInRange:(NSRange)range replacementText:(NSString *)text {
+    if ([text isEqualToString:@"\n"]) { [textView resignFirstResponder]; return NO; } // 回车＝完成，不换行
+    if (text.length == 0) { return YES; } // 删除
+    // 拼音 / 假名等输入法正在组词（marked text）：这里改写 textView.text 会打断组词，交给 textViewDidChange 在上屏后截断。
+    if (textView.markedTextRange != nil) { return YES; }
+    // 粘贴可能带换行：折成空格；超长按码点截断到剩余额度，不拒绝整次输入。
+    NSString *clean = [[text componentsSeparatedByCharactersInSet:NSCharacterSet.newlineCharacterSet] componentsJoinedByString:@" "];
+    NSString *current = textView.text;
+    NSUInteger kept = IMBioRuneCount([current stringByReplacingCharactersInRange:range withString:@""]);
+    NSUInteger room = kept >= kIMBioMaxRunes ? 0 : kIMBioMaxRunes - kept;
+    NSString *fit = IMBioTruncated(clean, room);
+    if ([fit isEqualToString:text]) { return YES; }
+    textView.text = [current stringByReplacingCharactersInRange:range withString:fit];
+    // 赋值 text 会把光标甩到末尾；落回插入内容之后（粘贴发生在中间时尤其明显）。
+    textView.selectedRange = NSMakeRange(range.location + fit.length, 0);
+    [self refreshBioChrome];
+    return NO;
+}
+
+- (void)textViewDidBeginEditing:(UITextView *)textView {
+    // 键盘通知先于 / 后于本回调都可能到：这里再滚一次（延后一拍等键盘 inset 生效）
+    dispatch_async(dispatch_get_main_queue(), ^{ [self scrollFirstResponderIntoView]; });
+}
+
+- (void)textViewDidChange:(UITextView *)textView {
+    // 组词上屏后（或绕过 shouldChange 的路径）兜底：超过 70 码点按码点截断，不劈代理对。
+    if (textView.markedTextRange == nil && IMBioRuneCount(textView.text) > kIMBioMaxRunes) {
+        NSRange sel = textView.selectedRange;
+        textView.text = IMBioTruncated(textView.text, kIMBioMaxRunes);
+        textView.selectedRange = NSMakeRange(MIN(sel.location, textView.text.length), 0);
+    }
+    [self refreshBioChrome];
+}
 
 - (UITextField *)fieldWithPlaceholder:(NSString *)placeholder {
     UITextField *f = [UITextField new];
@@ -208,11 +386,10 @@
 
 #pragma mark - 只读态（对齐 Telegram iOS 个人资料页）
 
-/// 只读态：大圆头像 + 昵称 + 在线态 + 一张信息卡（手机 / 用户名）。
+/// 只读态：大圆头像 + 昵称 + 在线态 + 一张信息卡（个性签名 / 用户名 / 手机）。
 ///
-/// 刻意**不显示内部 ID、不显示标签**：前者是 10 位随机数字（docs/UI.md「用户标识」），
-/// 后者是本项目自有的次要字段，Telegram 那张卡上没有对应物，塞进来只会稀释信息密度。
-/// 生日/动态同理不做（本项目无此数据）。
+/// 刻意**不显示内部 ID**：那是 10 位随机数字（docs/UI.md「用户标识」）。标签已被个性签名取代（PROFILE_BIO_DESIGN）；
+/// 生日/动态不做（本项目无此数据）。签名和手机号为空时整行不占位。
 - (UIStackView *)buildReadonlyStack {
     self.roAvatar = [UIImageView new];
     self.roAvatar.translatesAutoresizingMaskIntoConstraints = NO;
@@ -243,10 +420,15 @@
 
     self.roPhoneValue = [self readonlyValueLabel];
     self.roUsernameValue = [self readonlyValueLabel];
+    self.roBioValue = [self readonlyValueLabel];
+    self.roBioValue.textColor = IMTheme.textPrimary;  // 签名是内容，不是可点句柄，不用主色
+    self.roBioValue.numberOfLines = 0;                // 多行换行，不截断
+    self.roBioRow = [self readonlyRow:IMLocalized(@"profile.readonly.bio_label") value:self.roBioValue];
+    self.roBioRow.accessibilityIdentifier = @"profile.readonly.bio";
     self.roPhoneRow = [self readonlyRow:IMLocalized(@"profile.readonly.phone_label") value:self.roPhoneValue];
     UIView *usernameRow = [self readonlyRow:IMLocalized(@"settings.info.username") value:self.roUsernameValue];
 
-    UIStackView *card = [[UIStackView alloc] initWithArrangedSubviews:@[self.roPhoneRow, usernameRow]];
+    UIStackView *card = [[UIStackView alloc] initWithArrangedSubviews:@[self.roBioRow, usernameRow, self.roPhoneRow]];
     card.axis = UILayoutConstraintAxisVertical;
     card.spacing = 0;
     card.layoutMargins = UIEdgeInsetsMake(4, 16, 4, 16);
@@ -343,7 +525,7 @@
 /// 切换只读/编辑。右上角按钮随之变「编辑」/「保存」，编辑态左上角给「取消」。
 - (void)applyEditingMode:(BOOL)editing {
     self.editingMode = editing;
-    self.editStack.hidden = !editing;
+    self.editScroll.hidden = !editing;
     self.readonlyStack.hidden = editing;
     self.title = editing ? IMLocalized(@"settings.edit_profile") : IMLocalized(@"profile.title.view");
     // 用显式标题而非 UIBarButtonSystemItem*：本页 push 进液态标题栏容器，栏靠读 item 的 title/image
@@ -372,11 +554,14 @@
     self.nicknameField.text = self.roName.text;
     self.usernameField.text = self.loadedUsername;
     self.phoneField.text = self.roPhoneValue.text;
+    self.bioView.text = self.roBioValue.text;
+    [self refreshBioChrome];
 }
 
 /// 把一份权威资料同时铺进只读态与编辑态（载入后、保存成功后都走这里，避免两处各填一遍而漂移）。
 - (void)setFieldsEnabled:(BOOL)enabled {
-    for (UITextField *f in @[self.nicknameField, self.usernameField, self.phoneField, self.tagsField]) { f.enabled = enabled; }
+    for (UITextField *f in @[self.nicknameField, self.usernameField, self.phoneField]) { f.enabled = enabled; }
+    self.bioView.editable = enabled;
 }
 
 - (void)applyProfile:(IMUserCard *)profile {
@@ -387,12 +572,15 @@
     self.loadedUsername = profile.username;
     self.avatarURL = profile.avatarURL;
     self.phoneField.text = profile.phone;
-    self.tagsField.text = [profile.tags componentsJoinedByString:@" "];
+    self.bioView.text = profile.bio;
+    [self refreshBioChrome];
 
     self.roName.text = IMDisplayName(profile.nickname, profile.username);
     self.roUsernameValue.text = profile.username.length > 0 ? [@"@" stringByAppendingString:profile.username] : IMLocalized(@"settings.info.not_set");
     self.roPhoneValue.text = profile.phone;
     self.roPhoneRow.hidden = profile.phone.length == 0;  // 没填手机号就整行不占位（Telegram 同款）
+    self.roBioValue.text = profile.bio;
+    self.roBioRow.hidden = profile.bio.length == 0;      // 没写签名同理
 
     if (profile.avatarURL.length) {
         // 载入当前头像预览（IMImageLoader 支持相对 URL 拼 host / data URL 兜底）。
@@ -407,11 +595,15 @@
 }
 
 - (UIStackView *)labeledRow:(NSString *)title field:(UITextField *)field {
+    return [self labeledRowWithView:title content:field];
+}
+
+- (UIStackView *)labeledRowWithView:(NSString *)title content:(UIView *)content {
     UILabel *label = [UILabel new];
     label.text = title;
     label.font = [UIFont systemFontOfSize:13];
     label.textColor = IMTheme.textSecondary;
-    UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:@[label, field]];
+    UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:@[label, content]];
     row.axis = UILayoutConstraintAxisVertical;
     row.spacing = IMTheme.space1;
     return row;
@@ -450,7 +642,6 @@
         [self showMessage:IMLocalized(@"profile.nickname_required")];
         return;
     }
-    NSArray<NSString *> *tags = [self tagsFromString:self.tagsField.text];
     self.navigationItem.rightBarButtonItem.enabled = NO;
     [self im_refreshNavigationBar]; // 标题栏按 navigationItem 渲染，改完 enabled 必须显式刷新
     __weak typeof(self) weakSelf = self;
@@ -458,7 +649,7 @@
                                                nickname:[self trimmed:self.nicknameField.text]
                                               avatarURL:(self.avatarURL ?: @"")
                                                   phone:[self trimmed:self.phoneField.text]
-                                                   tags:tags
+                                                    bio:[self trimmed:self.bioView.text]
                                              completion:^(IMUserCard *profile, NSError *error) {
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) { return; }
@@ -517,17 +708,6 @@
     [self applyEditingMode:NO];
     [self load];
     [self im_showToast:IMLocalized(@"profile.saved_toast")];
-}
-
-/// 标签串按空格/逗号切分，去空白去空项。
-- (NSArray<NSString *> *)tagsFromString:(NSString *)s {
-    NSCharacterSet *sep = [NSCharacterSet characterSetWithCharactersInString:@" ,，\n\t"];
-    NSMutableArray<NSString *> *out = [NSMutableArray array];
-    for (NSString *raw in [s componentsSeparatedByCharactersInSet:sep]) {
-        NSString *t = [raw stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-        if (t.length > 0) { [out addObject:t]; }
-    }
-    return out;
 }
 
 - (NSString *)trimmed:(NSString *)s {

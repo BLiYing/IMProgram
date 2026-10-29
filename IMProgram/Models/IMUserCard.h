@@ -31,7 +31,9 @@ IMFriendStatus IMFriendStatusFromString(NSString *_Nullable s);
 /// 我给他起的备注名（仅自己可见，显示优先级高于 nickname）。好友列表 / 资料卡下发；找人结果为空。
 @property (nonatomic, copy, nullable) NSString *remark;
 @property (nonatomic, copy) NSString *avatarURL;
-@property (nonatomic, copy) NSString *phone;               // 仅本人资料(GET /users/me)有；他人/搜索结果为空
+@property (nonatomic, copy) NSString *phone;               // 本人资料(GET /users/me)有；他人资料(GET /users/{id})仅在对方「手机号码」档位允许时有；搜索 / 列表恒空
+/// 个性签名（≤70 字符）：本人资料有；他人资料(GET /users/{id})仅在对方「个人简介」档位允许时有；搜索 / 列表恒空。
+@property (nonatomic, copy) NSString *bio;
 @property (nonatomic, strong) NSArray<NSString *> *tags;   // 找人结果/本人资料有；好友项为空
 @property (nonatomic, assign) IMFriendStatus status;       // 仅好友/申请列表有意义；找人结果为 None
 @property (nonatomic, assign) BOOL blocked;                // 我是否拉黑了对方（与 status 正交）；拉黑的好友 status 仍 accepted
