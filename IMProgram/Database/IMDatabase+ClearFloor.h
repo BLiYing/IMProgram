@@ -38,6 +38,13 @@ extern BOOL IMRaiseSyncedToClearFloorInDB(FMDatabase *db, NSString *owner, NSStr
 /// 之后的 saveIncomingPage / deliverSyncedPage / 回执位点都只用过滤后的集合；库里的落库闸是第二道防线。
 extern NSArray<IMMessageModel *> *IMDropClearedMessages(NSArray<IMMessageModel *> *messages, int64_t clearedUpTo);
 
+/// 会话在 `clearedAt` 之后「复活」了吗（库内版，已开启的 db 上调用）：会话行 head/latest 或本机最大 conv_seq 超过它。
+extern BOOL IMConvRevivedInDB(FMDatabase *db, NSString *owner, NSString *convID, int64_t clearedAt);
+
+/// 单会话「清除到位点」库内实现（单会话与批量共用；调用方负责事务）。语义同 `clearMessagesForConv:toServerClearedAt:`。
+/// 成功返回 YES 并经 `removedOut` 回删除条数；失败返回 NO（调用方应回滚）。
+extern BOOL IMClearConvToFloorInDB(FMDatabase *db, NSString *owner, NSString *convID, int64_t serverClearedAt, NSInteger * _Nullable removedOut);
+
 @interface IMDatabase (ClearFloor)
 
 /// 本地清空某会话的全部消息（仅本端，不影响对端；对应详情页「清空聊天记录」）。返回删除条数。

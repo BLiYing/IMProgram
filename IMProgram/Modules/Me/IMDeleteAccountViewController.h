@@ -1,9 +1,10 @@
 //  IMDeleteAccountViewController.h
 //  注销账号二级页（设计：IMServer/docs/design/DELETE_ACCOUNT_DESIGN.md §3 §4；草图 sketches/DELETE_ACCOUNT_UX_SKETCH.html）。
 //  警示头 + 4 条后果 + 冷静期提示条 + 密码框 + 红按钮；群主阻断态；UIAlertController 二次确认；
+//  版式（警示头 / 后果卡 / 红按钮）取自共用的 IMDangerPageViewController。
 //  成功后清会话 + 清本机聊天缓存，回登录页并提示 delete_account.done_hint。
 
-#import <UIKit/UIKit.h>
+#import "IMDangerPageViewController.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -20,7 +21,7 @@ FOUNDATION_EXPORT NSArray<NSDictionary<NSString *, NSString *> *> *IMDeleteAccou
 /// 未列出的群数（>=0）。
 FOUNDATION_EXPORT NSInteger IMDeleteAccountHiddenGroupCount(NSArray<NSDictionary<NSString *, NSString *> *> *groups);
 
-@interface IMDeleteAccountViewController : UIViewController
+@interface IMDeleteAccountViewController : IMDangerPageViewController
 
 - (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID NS_DESIGNATED_INITIALIZER;
 - (instancetype)initWithNibName:(nullable NSString *)n bundle:(nullable NSBundle *)b NS_UNAVAILABLE;

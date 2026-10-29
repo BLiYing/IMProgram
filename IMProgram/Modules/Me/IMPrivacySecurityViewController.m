@@ -3,6 +3,7 @@
 #import "IMPrivacySecurityViewController.h"
 #import "IMBlockedListViewController.h"
 #import "IMChangePasswordViewController.h"
+#import "IMClearAllViewController.h"
 #import "IMExportDataViewController.h"
 #import "IMHTTPService.h"
 #import "IMUserCard.h"
@@ -226,17 +227,18 @@
         [self placeholder:IMLocalized(@"ps.row.birthday") symbol:@"gift.fill" bg:UIColor.systemPinkColor value:IMLocalized(@"common.my_contacts")],
     ];
 
-    // 组 E · 数据：导出我的数据为活行（DATA_EXPORT_DESIGN §5），清除所有对话仍灰置（另文）
+    // 组 E · 数据：清除所有对话（CLEAR_ALL_CONVERSATIONS_DESIGN，红底活行）与导出我的数据（DATA_EXPORT_DESIGN §5）均为活行；破坏性行不登记设置搜索
     IMPSRow *exportData = [IMPSRow new];
     exportData.rowId = @"exportData"; exportData.title = IMLocalized(@"ps.row.export_data");
     exportData.systemImage = @"arrow.up.doc.fill"; exportData.iconBgColor = UIColor.systemBlueColor;
     exportData.handler = ^{ [ws openExportData]; };
+    IMPSRow *clearAll = [IMPSRow new];
+    clearAll.rowId = @"clearAllChats"; clearAll.title = IMLocalized(@"privacy.clear_all.row");
+    clearAll.systemImage = @"trash.fill"; clearAll.iconBgColor = UIColor.systemRedColor; // #FF3B30（PRIVACY_SECURITY_DESIGN §2.4 预留，转活换红）
+    clearAll.handler = ^{ [ws openClearAll]; };
     IMPSGroup *groupE = [IMPSGroup new];
     groupE.header = IMLocalized(@"ps.section.data");
-    groupE.rows = @[
-        [self placeholder:IMLocalized(@"ps.row.clear_all_chats") symbol:@"trash.fill" bg:UIColor.systemGrayColor value:nil],
-        exportData,
-    ];
+    groupE.rows = @[clearAll, exportData];
 
     self.groups = @[groupA, groupB, groupC, groupD, groupE];
 }
@@ -334,6 +336,11 @@
 
 - (void)openExportData {
     IMExportDataViewController *vc = [[IMExportDataViewController alloc] initWithHost:self.host userID:self.userID];
+    [self.navigationController pushViewController:vc animated:YES];
+}
+
+- (void)openClearAll {
+    IMClearAllViewController *vc = [[IMClearAllViewController alloc] initWithHost:self.host userID:self.userID];
     [self.navigationController pushViewController:vc animated:YES];
 }
 

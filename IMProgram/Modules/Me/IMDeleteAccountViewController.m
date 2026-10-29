@@ -28,16 +28,11 @@ static NSString * const kOwnedGroupScheme = @"imgroup";
 @interface IMDeleteAccountViewController () <UITextFieldDelegate, UITextViewDelegate>
 @property (nonatomic, copy) NSString *host;
 @property (nonatomic, copy) NSString *userID;
-@property (nonatomic, strong) UIScrollView *scrollView;
 @property (nonatomic, strong) UITextField *passwordField;
-@property (nonatomic, strong) UIButton *submitButton;
-@property (nonatomic, strong) UILabel *errorLabel;
-@property (nonatomic, strong) UIView *consequenceCard;
 @property (nonatomic, strong) UIView *cooldownTip;
 @property (nonatomic, strong) UIView *passwordCard;
 @property (nonatomic, strong) UITextView *ownedView;     ///< 群主阻断提示（红）；仅阻断态显示
 @property (nonatomic, assign) BOOL blocked;
-@property (nonatomic, assign) BOOL busy;
 @property (nonatomic, weak, nullable) UIWindow *deletionWindow; ///< 提交时的宿主窗口（页面被 pop 后 view.window 为 nil，收尾要用）
 @end
 
@@ -49,144 +44,37 @@ static NSString * const kOwnedGroupScheme = @"imgroup";
     return self;
 }
 
-- (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
-
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = IMLocalized(@"delete_account.title");
-    self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
-
-    self.scrollView = [UIScrollView new];
-    self.scrollView.translatesAutoresizingMaskIntoConstraints = NO;
-    self.scrollView.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
-    [self.view addSubview:self.scrollView];
-    [NSLayoutConstraint activateConstraints:@[
-        [self.scrollView.topAnchor constraintEqualToAnchor:self.view.topAnchor],
-        [self.scrollView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
-        [self.scrollView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
-        [self.scrollView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-    ]];
-
-    UIStackView *stack = [self buildContentStack];
-    [self.scrollView addSubview:stack];
-    UILayoutGuide *content = self.scrollView.contentLayoutGuide;
-    UILayoutGuide *frame = self.scrollView.frameLayoutGuide;
-    [NSLayoutConstraint activateConstraints:@[
-        // 外边距：左右 16，顶 space4 × 2，底留白 space4 × 2
-        [stack.topAnchor constraintEqualToAnchor:content.topAnchor constant:IMTheme.space4 * 2],
-        [stack.bottomAnchor constraintEqualToAnchor:content.bottomAnchor constant:-IMTheme.space4 * 2],
-        [stack.leadingAnchor constraintEqualToAnchor:frame.leadingAnchor constant:IMTheme.space4],
-        [stack.trailingAnchor constraintEqualToAnchor:frame.trailingAnchor constant:-IMTheme.space4],
-    ]];
-    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyboardWillChange:)
-                                               name:UIKeyboardWillChangeFrameNotification object:nil];
-    [self refreshSubmitEnabled];
 }
+
+#pragma mark - 版式覆写（共用版式见 IMDangerPageViewController）
+
+- (NSString *)dangerHeaderText { return IMLocalized(@"delete_account.header"); }
+- (NSString *)dangerSubmitTitle { return IMLocalized(@"delete_account.title"); }
+- (NSString *)dangerSubmitIdentifier { return @"delete_account.submit"; }
+
+- (NSArray<NSString *> *)dangerConsequenceTexts {
+    return @[IMLocalized(@"delete_account.consequence_1"), IMLocalized(@"delete_account.consequence_2"),
+             IMLocalized(@"delete_account.consequence_3"), IMLocalized(@"delete_account.consequence_4")];
+}
+
+- (NSArray<UIView *> *)dangerViewsAboveConsequences {
+    self.ownedView = [self buildOwnedView];
+    return @[self.ownedView];
+}
+
+- (NSArray<UIView *> *)dangerViewsBelowConsequences {
+    self.cooldownTip = [self dangerInfoTipWithText:IMLocalized(@"delete_account.cooldown_hint")];
+    self.passwordCard = [self buildPasswordCard];
+    return @[self.cooldownTip, self.passwordCard];
+}
+
+- (BOOL)dangerSubmitEnabled { return IMDeleteAccountCanSubmit(self.passwordField.text, self.blocked, self.busy); }
+- (void)dangerSubmitTapped { [self submitTapped]; }
 
 #pragma mark - 构造
-
-- (UIStackView *)buildContentStack {
-    UIView *warn = [self buildWarnIcon];
-    UILabel *header = [UILabel new];
-    header.text = IMLocalized(@"delete_account.header");
-    header.font = [UIFont systemFontOfSize:20 weight:UIFontWeightSemibold];
-    header.textColor = IMTheme.textPrimary;
-    header.textAlignment = NSTextAlignmentCenter;
-    header.numberOfLines = 0;
-
-    self.ownedView = [self buildOwnedView];
-    self.consequenceCard = [self buildConsequenceCard];
-    self.cooldownTip = [self buildCooldownTip];
-    self.passwordCard = [self buildPasswordCard];
-
-    self.errorLabel = [UILabel new];
-    self.errorLabel.font = [UIFont systemFontOfSize:13];
-    self.errorLabel.textColor = UIColor.systemRedColor;
-    self.errorLabel.numberOfLines = 0;
-    self.errorLabel.hidden = YES;
-
-    [self buildSubmitButton];
-
-    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
-        warn, header, self.ownedView, self.consequenceCard, self.cooldownTip, self.passwordCard, self.errorLabel, self.submitButton]];
-    stack.translatesAutoresizingMaskIntoConstraints = NO;
-    stack.axis = UILayoutConstraintAxisVertical;
-    stack.spacing = IMTheme.space3;
-    [stack setCustomSpacing:8 afterView:warn];
-    [stack setCustomSpacing:14 afterView:header];
-    [stack setCustomSpacing:IMTheme.space4 afterView:self.errorLabel];
-    return stack;
-}
-
-/// 警示图标：圆 64pt，systemRed 12% 底，SF exclamationmark.triangle.fill 30pt。
-- (UIView *)buildWarnIcon {
-    UIView *circle = [UIView new];
-    circle.translatesAutoresizingMaskIntoConstraints = NO;
-    circle.backgroundColor = [UIColor.systemRedColor colorWithAlphaComponent:0.12];
-    circle.layer.cornerRadius = 32;
-    UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:30];
-    UIImageView *icon = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"exclamationmark.triangle.fill" withConfiguration:cfg]];
-    icon.translatesAutoresizingMaskIntoConstraints = NO;
-    icon.tintColor = UIColor.systemRedColor;
-    icon.contentMode = UIViewContentModeCenter;
-    [circle addSubview:icon];
-    UIView *wrap = [UIView new];
-    [wrap addSubview:circle];
-    [NSLayoutConstraint activateConstraints:@[
-        [circle.widthAnchor constraintEqualToConstant:64], [circle.heightAnchor constraintEqualToConstant:64],
-        [circle.topAnchor constraintEqualToAnchor:wrap.topAnchor], [circle.bottomAnchor constraintEqualToAnchor:wrap.bottomAnchor],
-        [circle.centerXAnchor constraintEqualToAnchor:wrap.centerXAnchor],
-        [icon.centerXAnchor constraintEqualToAnchor:circle.centerXAnchor], [icon.centerYAnchor constraintEqualToAnchor:circle.centerYAnchor],
-    ]];
-    return wrap;
-}
-
-/// 4 条后果：分组卡内，每行「•」开头、15pt textPrimary，行间 8，卡片内边距 16，不可点。
-- (UIView *)buildConsequenceCard {
-    NSMutableArray<UIView *> *rows = [NSMutableArray array];
-    NSArray<NSString *> *texts = @[IMLocalized(@"delete_account.consequence_1"), IMLocalized(@"delete_account.consequence_2"),
-                                   IMLocalized(@"delete_account.consequence_3"), IMLocalized(@"delete_account.consequence_4")];
-    for (NSString *consequence in texts) {
-        UILabel *dot = [UILabel new];
-        dot.text = @"•";
-        dot.font = [UIFont systemFontOfSize:15];
-        dot.textColor = IMTheme.textPrimary;
-        [dot setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
-        UILabel *text = [UILabel new];
-        text.text = consequence;
-        text.font = [UIFont systemFontOfSize:15];
-        text.textColor = IMTheme.textPrimary;
-        text.numberOfLines = 0;
-        UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:@[dot, text]];
-        row.spacing = 8;
-        row.alignment = UIStackViewAlignmentFirstBaseline;
-        [rows addObject:row];
-    }
-    UIStackView *card = [[UIStackView alloc] initWithArrangedSubviews:rows];
-    card.axis = UILayoutConstraintAxisVertical;
-    card.spacing = 8;
-    card.layoutMargins = UIEdgeInsetsMake(IMTheme.space4, IMTheme.space4, IMTheme.space4, IMTheme.space4);
-    card.layoutMarginsRelativeArrangement = YES;
-    card.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
-    card.layer.cornerRadius = 12;
-    return card;
-}
-
-/// 冷静期提示条：13pt accent，底 accent 12%（IMTheme.accentSoft），圆角 12，内边距 12。
-- (UIView *)buildCooldownTip {
-    UILabel *l = [UILabel new];
-    l.translatesAutoresizingMaskIntoConstraints = NO;
-    l.text = IMLocalized(@"delete_account.cooldown_hint");
-    l.font = [UIFont systemFontOfSize:13];
-    l.textColor = IMTheme.accent;
-    l.numberOfLines = 0;
-    UIView *tip = [UIView new];
-    tip.backgroundColor = IMTheme.accentSoft;
-    tip.layer.cornerRadius = 12;
-    [tip addSubview:l];
-    [self pin:l into:tip inset:IMTheme.space3];
-    return tip;
-}
 
 /// 密码框：与 IMChangePasswordViewController 同款（secureTextEntry + 眼睛 rightView），16pt，卡底 secondarySystemGroupedBackground。
 - (UIView *)buildPasswordCard {
@@ -227,22 +115,6 @@ static NSString * const kOwnedGroupScheme = @"imgroup";
     return card;
 }
 
-/// 红按钮：高 50，圆角 12，systemRed 底，17pt Semibold 白字（同修改密码按钮，仅底色换红）；置灰 = 40% 透明。
-- (void)buildSubmitButton {
-    UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
-    b.translatesAutoresizingMaskIntoConstraints = NO;
-    b.backgroundColor = UIColor.systemRedColor;
-    b.layer.cornerRadius = 12;
-    b.accessibilityIdentifier = @"delete_account.submit";
-    [b setTitle:IMLocalized(@"delete_account.title") forState:UIControlStateNormal];
-    [b setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-    [b setTitleColor:UIColor.whiteColor forState:UIControlStateDisabled];
-    b.titleLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
-    [b addTarget:self action:@selector(submitTapped) forControlEvents:UIControlEventTouchUpInside];
-    [b.heightAnchor constraintEqualToConstant:50].active = YES;
-    self.submitButton = b;
-}
-
 /// 群主阻断提示卡：systemRed 12% 底、13pt 红字、圆角 12、内边距 12；群名为可点链接（进该群管理页）。
 - (UITextView *)buildOwnedView {
     UITextView *tv = [UITextView new];
@@ -259,31 +131,11 @@ static NSString * const kOwnedGroupScheme = @"imgroup";
     return tv;
 }
 
-- (void)pin:(UIView *)child into:(UIView *)parent inset:(CGFloat)inset {
-    [NSLayoutConstraint activateConstraints:@[
-        [child.topAnchor constraintEqualToAnchor:parent.topAnchor constant:inset],
-        [child.bottomAnchor constraintEqualToAnchor:parent.bottomAnchor constant:-inset],
-        [child.leadingAnchor constraintEqualToAnchor:parent.leadingAnchor constant:inset],
-        [child.trailingAnchor constraintEqualToAnchor:parent.trailingAnchor constant:-inset],
-    ]];
-}
-
 #pragma mark - 状态
-
-- (void)refreshSubmitEnabled {
-    BOOL ok = IMDeleteAccountCanSubmit(self.passwordField.text, self.blocked, self.busy);
-    self.submitButton.enabled = ok;
-    self.submitButton.alpha = ok ? 1.0 : 0.4;
-}
 
 - (void)fieldChanged {
     if (!self.errorLabel.hidden) { self.errorLabel.hidden = YES; }
     [self refreshSubmitEnabled];
-}
-
-- (void)showError:(NSString *)text {
-    self.errorLabel.text = text;
-    self.errorLabel.hidden = text.length == 0;
 }
 
 /// 阻断态：显示红色提示卡（含可点群名），隐藏后果与冷静期条，密码框与按钮置灰。
@@ -350,26 +202,6 @@ static NSString * const kOwnedGroupScheme = @"imgroup";
     [self presentViewController:ac animated:YES completion:nil];
 }
 
-- (void)setBusy:(BOOL)busy {
-    _busy = busy;
-    [self refreshSubmitEnabled];
-    self.submitButton.titleLabel.alpha = busy ? 0 : 1;
-    UIActivityIndicatorView *spin = [self.submitButton viewWithTag:7001];
-    if (busy && !spin) {
-        spin = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
-        spin.tag = 7001;
-        spin.color = UIColor.whiteColor;
-        spin.translatesAutoresizingMaskIntoConstraints = NO;
-        [self.submitButton addSubview:spin];
-        [NSLayoutConstraint activateConstraints:@[
-            [spin.centerXAnchor constraintEqualToAnchor:self.submitButton.centerXAnchor],
-            [spin.centerYAnchor constraintEqualToAnchor:self.submitButton.centerYAnchor]]];
-        [spin startAnimating];
-    } else if (!busy) {
-        [spin removeFromSuperview];
-    }
-}
-
 /// 取新鲜 token → POST /account/delete。在途期间置 accountDeletionInProgress，让 SceneDelegate 的被踢通路让路。
 - (void)performDelete {
     NSString *password = self.passwordField.text ?: @"";
@@ -427,16 +259,6 @@ static NSString * const kOwnedGroupScheme = @"imgroup";
 - (BOOL)textFieldShouldReturn:(UITextField *)f {
     [f resignFirstResponder];
     return NO;
-}
-
-- (void)keyboardWillChange:(NSNotification *)note {
-    CGRect end = [note.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
-    CGRect converted = [self.view convertRect:end fromView:nil];
-    CGFloat overlap = MAX(0, CGRectGetMaxY(self.view.bounds) - converted.origin.y);
-    UIEdgeInsets ins = self.scrollView.contentInset;
-    ins.bottom = overlap;
-    self.scrollView.contentInset = ins;
-    self.scrollView.verticalScrollIndicatorInsets = ins;
 }
 
 - (BOOL)textView:(UITextView *)tv shouldInteractWithURL:(NSURL *)url inRange:(NSRange)range interaction:(UITextItemInteraction)interaction {

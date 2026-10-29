@@ -57,6 +57,61 @@ static BOOL IMClearFloorTableExists(FMDatabase *db) {
     return found;
 }
 
+BOOL IMConvRevivedInDB(FMDatabase *db, NSString *owner, NSString *convID, int64_t clearedAt) {
+    if (clearedAt <= 0 || convID.length == 0) { return NO; }
+    int64_t top = 0;
+    FMResultSet *rs = [db executeQuery:@"SELECT MAX(head_conv_seq,latest_conv_seq) AS m FROM im_conversation_local WHERE owner_uid=? AND conv_id=? LIMIT 1", owner, convID];
+    if ([rs next]) { top = [rs longLongIntForColumn:@"m"]; }
+    [rs close];
+    rs = [db executeQuery:@"SELECT MAX(conv_seq) AS m FROM im_message_local WHERE owner_uid=? AND conv_id=?", owner, convID];
+    if ([rs next]) { top = MAX(top, [rs longLongIntForColumn:@"m"]); }
+    [rs close];
+    return top > clearedAt;
+}
+
+/// 单会话「清除到位点」的库内实现（`clearMessagesForConv:toServerClearedAt:` 与批量 `clearConversationsToFloors:` 共用，
+/// 不另写一套）：删消息、清区间清单、抬位点（独立小表）、游标推到位点。调用方负责事务。
+BOOL IMClearConvToFloorInDB(FMDatabase *db, NSString *owner, NSString *convID, int64_t serverClearedAt, NSInteger *removedOut) {
+    int64_t head = 0, latest = 0, synced = 0, maxLocal = 0;
+    int64_t existing = IMClearedUpToInDB(db, owner, convID);
+    FMResultSet *rs = [db executeQuery:
+        @"SELECT head_conv_seq,latest_conv_seq,synced_conv_seq FROM im_conversation_local "
+         "WHERE owner_uid=? AND conv_id=? LIMIT 1", owner, convID];
+    if ([rs next]) {
+        head = [rs longLongIntForColumn:@"head_conv_seq"];
+        latest = [rs longLongIntForColumn:@"latest_conv_seq"];
+        synced = [rs longLongIntForColumn:@"synced_conv_seq"];
+    }
+    [rs close];
+    rs = [db executeQuery:@"SELECT MAX(conv_seq) AS m FROM im_message_local WHERE owner_uid=? AND conv_id=?", owner, convID];
+    if ([rs next]) { maxLocal = [rs longLongIntForColumn:@"m"]; }
+    [rs close];
+    // 服务端给了位点 = 以它为准（不超出它，免得清掉服务端仍可见的新消息）；没给 = 本机所知最新。
+    int64_t floor = serverClearedAt > 0 ? MAX(existing, serverClearedAt)
+                                        : IMClearFloorAtClear(head, latest, synced, maxLocal, existing);
+    BOOL deleted = serverClearedAt > 0
+        ? [db executeUpdate:@"DELETE FROM im_message_local WHERE owner_uid=? AND conv_id=? AND conv_seq>0 AND conv_seq<=?", owner, convID, @(floor)]
+        : [db executeUpdate:@"DELETE FROM im_message_local WHERE owner_uid=? AND conv_id=?", owner, convID];
+    if (!deleted) { IMLogDatabase(@"清空消息失败 conv=%@: %@", convID, db.lastErrorMessage); return NO; }
+    NSInteger removed = (NSInteger)db.changes;
+    // 区间清单连消息一起清（清单宣称「这段齐全」而手里一条没有 = 会话空白且不自愈）；「不拉回」由位点负责。
+    if (![db executeUpdate:@"DELETE FROM im_conv_range_local WHERE owner_uid=? AND conv_id=?", owner, convID]) {
+        IMLogDatabase(@"清空区间清单失败 conv=%@: %@", convID, db.lastErrorMessage);
+        return NO;
+    }
+    // 位点写独立小表（MAX 只增不减），**不依赖会话行**；会话行在的话游标顺带推到位点。
+    if (floor > 0 && !([db executeUpdate:
+          @"INSERT INTO im_conv_clear_floor_local (owner_uid,conv_id,cleared_up_to) VALUES (?,?,?) "
+           "ON CONFLICT(owner_uid,conv_id) DO UPDATE SET cleared_up_to=MAX(cleared_up_to,excluded.cleared_up_to)",
+          owner, convID, @(floor)] && IMRaiseSyncedToClearFloorInDB(db, owner, convID))) {
+        IMLogDatabase(@"抬清空位点失败 conv=%@ floor=%lld: %@", convID, floor, db.lastErrorMessage);
+        return NO;
+    }
+    IMLogDatabase(@"清空聊天记录 conv=%@ removed=%ld cleared_up_to=%lld", convID, (long)removed, floor);
+    if (removedOut) { *removedOut = removed; }
+    return YES;
+}
+
 @implementation IMDatabase (ClearFloor)
 
 - (int64_t)clearedUpToForConv:(NSString *)convID {
@@ -108,16 +163,9 @@ static BOOL IMClearFloorTableExists(FMDatabase *db) {
 - (BOOL)convRevivedAfterClearedAt:(int64_t)clearedAt forConv:(NSString *)convID {
     if (clearedAt <= 0 || convID.length == 0) { return NO; }
     NSString *owner = [self ownerUserID];
-    __block int64_t top = 0;
-    [self.dbQueue inDatabase:^(FMDatabase *db) {
-        FMResultSet *rs = [db executeQuery:@"SELECT MAX(head_conv_seq,latest_conv_seq) AS m FROM im_conversation_local WHERE owner_uid=? AND conv_id=? LIMIT 1", owner, convID];
-        if ([rs next]) { top = [rs longLongIntForColumn:@"m"]; }
-        [rs close];
-        rs = [db executeQuery:@"SELECT MAX(conv_seq) AS m FROM im_message_local WHERE owner_uid=? AND conv_id=?", owner, convID];
-        if ([rs next]) { top = MAX(top, [rs longLongIntForColumn:@"m"]); }
-        [rs close];
-    }];
-    return top > clearedAt;
+    __block BOOL revived = NO;
+    [self.dbQueue inDatabase:^(FMDatabase *db) { revived = IMConvRevivedInDB(db, owner, convID, clearedAt); }];
+    return revived;
 }
 
 - (NSInteger)clearMessagesForConv:(NSString *)convID toServerClearedAt:(int64_t)serverClearedAt {
@@ -125,47 +173,7 @@ static BOOL IMClearFloorTableExists(FMDatabase *db) {
     NSString *owner = [self ownerUserID];
     __block NSInteger removed = 0;
     [self.dbQueue inTransaction:^(FMDatabase *db, BOOL *rollback) {
-        int64_t head = 0, latest = 0, synced = 0, maxLocal = 0;
-        int64_t existing = IMClearedUpToInDB(db, owner, convID);
-        FMResultSet *rs = [db executeQuery:
-            @"SELECT head_conv_seq,latest_conv_seq,synced_conv_seq FROM im_conversation_local "
-             "WHERE owner_uid=? AND conv_id=? LIMIT 1", owner, convID];
-        if ([rs next]) {
-            head = [rs longLongIntForColumn:@"head_conv_seq"];
-            latest = [rs longLongIntForColumn:@"latest_conv_seq"];
-            synced = [rs longLongIntForColumn:@"synced_conv_seq"];
-        }
-        [rs close];
-        rs = [db executeQuery:@"SELECT MAX(conv_seq) AS m FROM im_message_local WHERE owner_uid=? AND conv_id=?", owner, convID];
-        if ([rs next]) { maxLocal = [rs longLongIntForColumn:@"m"]; }
-        [rs close];
-        // 服务端给了位点 = 以它为准（不超出它，免得清掉服务端仍可见的新消息）；没给 = 本机所知最新。
-        int64_t floor = serverClearedAt > 0 ? MAX(existing, serverClearedAt)
-                                            : IMClearFloorAtClear(head, latest, synced, maxLocal, existing);
-
-        BOOL deleted = serverClearedAt > 0
-            ? [db executeUpdate:@"DELETE FROM im_message_local WHERE owner_uid=? AND conv_id=? AND conv_seq>0 AND conv_seq<=?", owner, convID, @(floor)]
-            : [db executeUpdate:@"DELETE FROM im_message_local WHERE owner_uid=? AND conv_id=?", owner, convID];
-        if (!deleted) {
-            IMLogDatabase(@"清空消息失败 conv=%@: %@", convID, db.lastErrorMessage);
-            *rollback = YES; return;
-        }
-        removed = (NSInteger)db.changes;
-        // 区间清单连消息一起清（清单宣称「这段齐全」而手里一条没有 = 会话空白且不自愈）；
-        // 「不拉回」不再靠清单碰巧，而由位点负责。
-        if (![db executeUpdate:@"DELETE FROM im_conv_range_local WHERE owner_uid=? AND conv_id=?", owner, convID]) {
-            IMLogDatabase(@"清空区间清单失败 conv=%@: %@", convID, db.lastErrorMessage);
-            *rollback = YES; return;
-        }
-        // 位点写独立小表（MAX 只增不减），**不依赖会话行**；会话行在的话游标顺带推到位点。
-        if (floor > 0 && !([db executeUpdate:
-              @"INSERT INTO im_conv_clear_floor_local (owner_uid,conv_id,cleared_up_to) VALUES (?,?,?) "
-               "ON CONFLICT(owner_uid,conv_id) DO UPDATE SET cleared_up_to=MAX(cleared_up_to,excluded.cleared_up_to)",
-              owner, convID, @(floor)] && IMRaiseSyncedToClearFloorInDB(db, owner, convID))) {
-            IMLogDatabase(@"抬清空位点失败 conv=%@ floor=%lld: %@", convID, floor, db.lastErrorMessage);
-            *rollback = YES; return;
-        }
-        IMLogDatabase(@"清空聊天记录 conv=%@ removed=%ld cleared_up_to=%lld", convID, (long)removed, floor);
+        if (!IMClearConvToFloorInDB(db, owner, convID, serverClearedAt, &removed)) { *rollback = YES; }
     }];
     return removed;
 }
