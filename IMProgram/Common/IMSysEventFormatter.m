@@ -210,6 +210,15 @@ NSString *IMTextForNoticeSysEvent(NSString *event, NSDictionary<NSString *, NSSt
             [lines addObject:IMLocalizedFormatArgs(@"sys.notice.password_changed.device_line", @[sysArgs[@"device"]])];
         }
         [lines addObject:IMLocalized(@"sys.notice.password_changed.footer")];
+    } else if ([event isEqualToString:@"twostep_recovery_used"]) {
+        // 用恢复码登录成功（PROTOCOL §7.1）：sys_args {left, at, device?}，与 password_changed 同构。
+        NSString *at = IMFormatRFC3339LocalDateTime(sysArgs[@"at"]);
+        NSString *left = sysArgs[@"left"].length > 0 ? sysArgs[@"left"] : @"0";
+        [lines addObject:IMLocalizedFormatArgs(@"sys.notice.twostep_recovery_used.headline", @[at, left])];
+        if (sysArgs[@"device"].length > 0) {
+            [lines addObject:IMLocalizedFormatArgs(@"sys.notice.twostep_recovery_used.device_line", @[sysArgs[@"device"]])];
+        }
+        [lines addObject:IMLocalized(@"sys.notice.twostep_recovery_used.footer")];
     } else if ([event isEqualToString:@"device_kicked"]) {
         NSString *device = sysArgs[@"target_device"].length > 0 ? sysArgs[@"target_device"] : IMLocalized(@"common.unknown_device_kicked");
         [lines addObject:IMLocalizedFormatArgs(@"sys.notice.device_kicked.headline", @[device])];

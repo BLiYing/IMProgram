@@ -86,6 +86,9 @@ NS_ASSUME_NONNULL_BEGIN
               error:(nullable NSError *)error
      soloCompletion:(void (^)(NSString *_Nullable token, NSError *_Nullable error))soloCompletion;
 
+/// 收下一次登录成功的响应体（/login 与 /login/two-step 共用）：缓存 token / 内部 ID、落盘续期凭据、擦明文密码、预热昵称。
+- (void)adoptLoginSuccessData:(NSDictionary *)data token:(NSString *)token fallbackUserID:(NSString *)userID;
+
 /// 登录后异步拉一次本人资料，缓存公开显示名（供合并转发标题等同步场景取用）。失败静默。
 - (void)warmUpMyNicknameWithToken:(NSString *)token;
 

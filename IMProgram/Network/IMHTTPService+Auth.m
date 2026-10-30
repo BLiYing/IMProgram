@@ -13,6 +13,7 @@
 #import "IMSocketManager.h" // IMSocketDidRevokeSessionNotification（续期被拒时复用"被踢下线"通路）
 #import "IMUserCard.h"
 #import "IMHTTPService+Account.h" // 冷静期登录：错误附 delete_at
+#import "IMHTTPService+TwoStep.h" // 两步验证：错误附 ticket / attempts_left
 
 BOOL IMShouldDropRefreshCredential(BOOL usingRefresh, NSInteger code) {
     return usingRefresh && IMIsAuthErrorCode(code);
@@ -88,32 +89,39 @@ BOOL IMShouldDropRefreshCredential(BOOL usingRefresh, NSInteger code) {
             // 带上业务码，便于调用方区分"鉴权失败(退登录)"与"网络问题(重试)"。
             NSError *loginErr = [self errorWithCode:code message:[self messageFrom:body fallback:IMLocalized(@"login.error.login_failed")]];
             // 冷静期账号（AccountPendingDeletion）带回 delete_at，登录页据此弹「恢复账号」。
+            // 两步验证（200020）带回 ticket：HTTP 400 但响应体是标准信封，data 必须随错误一起交给登录页。
             [self finishLogin:owner userID:userID token:nil
-                        error:IMErrorByAttachingAccountInfo(loginErr, body)
+                        error:IMErrorByAttachingTwoStepInfo(IMErrorByAttachingAccountInfo(loginErr, body), body)
                soloCompletion:completion];
             return;
         }
-        // 服务端分配的内部 ID：首次登录时 App 尚不知道自己是谁，只能从这里取。
-        NSString *serverUID = [data[@"uid"] isKindOfClass:[NSString class]] ? data[@"uid"] : nil;
-        self.lastLoginUserID = serverUID.length > 0 ? serverUID : userID;
-        self.currentToken = token; // 缓存：供聊天页等无需重登即可发 HTTP（举报）
-        // 缓存键用**服务端返回的内部 ID**：调用方传进来的 userID 在首次登录时是 username，
-        // 若拿它当键，随后各处以内部 ID 调用会全部 miss 缓存、每次都真发一次 /login。
-        self.tokenUserID = self.lastLoginUserID;
-        self.tokenFetchedAt = CFAbsoluteTimeGetCurrent();
-        // 收下续期凭据（只有 /login 会下发；续期接口刻意不轮换，见后端 handleTokenRefresh 注释）。
-        // **在这里落盘而不是交给登录页**：触发登录的入口不止一个（socket 换 token、冷启动静默重登），
-        // 交给各调用方保存必然漏一处。拿到它就把明文密码从内存与磁盘一起清掉——这是第 5 步的目的。
-        NSString *refresh = [data[@"refresh_token"] isKindOfClass:NSString.class] ? data[@"refresh_token"] : nil;
-        if (refresh.length > 0) {
-            self.refreshToken = refresh;
-            [IMSessionStore saveRefreshToken:refresh];
-            self.password = nil;
-            [IMSessionStore clearLegacyPassword];
-        }
-        [self warmUpMyNicknameWithToken:token];
+        [self adoptLoginSuccessData:data token:token fallbackUserID:userID];
         [self finishLogin:owner userID:userID token:token error:nil soloCompletion:completion];
     }];
+}
+
+/// 收下一次登录成功的响应体（`POST /login` 与 `POST /login/two-step` 的成功体逐字段相同）：
+/// 缓存 token / 内部 ID、落盘续期凭据、擦明文密码、预热昵称。两条登录路径共用，不复制第二份。
+- (void)adoptLoginSuccessData:(NSDictionary *)data token:(NSString *)token fallbackUserID:(NSString *)userID {
+    // 服务端分配的内部 ID：首次登录时 App 尚不知道自己是谁，只能从这里取。
+    NSString *serverUID = [data[@"uid"] isKindOfClass:[NSString class]] ? data[@"uid"] : nil;
+    self.lastLoginUserID = serverUID.length > 0 ? serverUID : userID;
+    self.currentToken = token; // 缓存：供聊天页等无需重登即可发 HTTP（举报）
+    // 缓存键用**服务端返回的内部 ID**：调用方传进来的 userID 在首次登录时是 username，
+    // 若拿它当键，随后各处以内部 ID 调用会全部 miss 缓存、每次都真发一次 /login。
+    self.tokenUserID = self.lastLoginUserID;
+    self.tokenFetchedAt = CFAbsoluteTimeGetCurrent();
+    // 收下续期凭据（只有 /login 会下发；续期接口刻意不轮换，见后端 handleTokenRefresh 注释）。
+    // **在这里落盘而不是交给登录页**：触发登录的入口不止一个（socket 换 token、冷启动静默重登），
+    // 交给各调用方保存必然漏一处。拿到它就把明文密码从内存与磁盘一起清掉——这是第 5 步的目的。
+    NSString *refresh = [data[@"refresh_token"] isKindOfClass:NSString.class] ? data[@"refresh_token"] : nil;
+    if (refresh.length > 0) {
+        self.refreshToken = refresh;
+        [IMSessionStore saveRefreshToken:refresh];
+        self.password = nil;
+        [IMSessionStore clearLegacyPassword];
+    }
+    [self warmUpMyNicknameWithToken:token];
 }
 
 /// 收束一次登录：owner=YES 时把共享队列里排队的 completion 全部 fan-out（并清空在途状态）；

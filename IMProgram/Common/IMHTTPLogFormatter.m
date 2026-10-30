@@ -21,13 +21,20 @@ static BOOL IMHTTPKeyIsAlwaysSensitive(NSString *key) {
             @"password", @"passwd", @"passcode", @"secret", @"clientsecret",
             @"token", @"accesstoken", @"refreshtoken", @"idtoken", @"jwt",
             @"authorization", @"cookie", @"setcookie",
-            @"phone", @"phonenumber", @"mobile", @"telephone"
+            @"phone", @"phonenumber", @"mobile", @"telephone",
+            // 两步验证（PROTOCOL §7.1）：登录票据、二维码 URI（内含密钥）、一次性恢复码列表
+            @"ticket", @"otpauthuri", @"recoverycodes"
         ]];
     });
     NSString *normalized = [[key lowercaseString]
                             stringByReplacingOccurrencesOfString:@"_" withString:@""];
     normalized = [normalized stringByReplacingOccurrencesOfString:@"-" withString:@""];
     return [keys containsObject:normalized];
+}
+
+/// 两步验证的 `code`（动态码 / 恢复码）是**字符串**；信封里的业务码 `code` 是数字，必须原样保留，否则日志没法排障。
+static BOOL IMHTTPIsVerificationCode(NSString *key, id value) {
+    return [key.lowercaseString isEqualToString:@"code"] && [value isKindOfClass:NSString.class];
 }
 
 static BOOL IMHTTPKeyContainsBusinessContent(NSString *key) {
@@ -80,7 +87,7 @@ id IMHTTPSanitizedJSONObject(id object, BOOL includeBusinessContent) {
         NSMutableDictionary *result = [NSMutableDictionary dictionary];
         [(NSDictionary *)object enumerateKeysAndObjectsUsingBlock:^(id key, id value, BOOL *stop) {
             NSString *stringKey = [key isKindOfClass:NSString.class] ? key : [key description];
-            if (IMHTTPKeyIsAlwaysSensitive(stringKey) ||
+            if (IMHTTPKeyIsAlwaysSensitive(stringKey) || IMHTTPIsVerificationCode(stringKey, value) ||
                 (!includeBusinessContent && IMHTTPKeyContainsBusinessContent(stringKey))) {
                 result[stringKey] = @"***";
             } else {

@@ -5,6 +5,9 @@
 #import "IMChangePasswordViewController.h"
 #import "IMClearAllViewController.h"
 #import "IMExportDataViewController.h"
+#import "IMTwoStepViewController.h"
+#import "IMTwoStep.h"
+#import "IMHTTPService+TwoStep.h"
 #import "IMHTTPService.h"
 #import "IMUserCard.h"
 #import "UIViewController+IMToast.h"
@@ -128,6 +131,7 @@
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, copy) NSArray<IMPSGroup *> *groups;
 @property (nonatomic, strong) IMPSRow *blockedRow; ///< 引用留着，count 拉回后就地更新 rightValue
+@property (nonatomic, strong) IMPSRow *twoStepRow; ///< 两步验证（活行）：进页 / 子页返回时 GET 状态，加载前右值留空
 @property (nonatomic, strong) IMPSRow *autoDeleteRow; ///< 自动删除消息（账号默认档位）活行：GET /users/me/privacy 回来后就地更新右值
 @property (nonatomic, assign) int64_t autoDeleteDefaultSec;
 @property (nonatomic, strong) IMPSRow *lastSeenRow; ///< 谁能看到 ▸ 上次上线（活行）
@@ -172,6 +176,7 @@
     [super viewWillAppear:animated];
     [self refreshBlockedCount];
     [self refreshPrivacySettings];
+    [self refreshTwoStepStatus];
 }
 
 #pragma mark - 数据
@@ -200,7 +205,7 @@
     groupB.header = IMLocalized(@"ps.section.account_protection");
     groupB.footer = IMLocalized(@"ps.account_protection_footer");
     groupB.rows = @[
-        [self placeholder:IMLocalized(@"ps.row.two_factor") symbol:@"lock.shield.fill" bg:UIColor.systemGrayColor value:IMLocalized(@"common.off")],
+        [self twoStepLiveRow],
         [self placeholder:IMLocalized(@"ps.row.passkey") symbol:@"key.horizontal.fill" bg:UIColor.systemPurpleColor value:IMLocalized(@"common.off")],
         [self placeholder:IMLocalized(@"ps.row.email_login") symbol:@"envelope.fill" bg:UIColor.systemTealColor value:nil],
     ];
@@ -243,6 +248,17 @@
     self.groups = @[groupA, groupB, groupC, groupD, groupE];
 }
 
+/// 两步验证活行：右值 = 开启 / 关闭（进页取一次，加载前留空，失败当关闭且不弹错）；点击进「两步验证」页。
+- (IMPSRow *)twoStepLiveRow {
+    __weak typeof(self) ws = self;
+    IMPSRow *r = [IMPSRow new];
+    r.rowId = @"twoStep"; r.title = IMLocalized(@"ps.row.two_factor"); r.systemImage = @"lock.shield.fill";
+    r.iconBgColor = UIColor.systemGrayColor;
+    r.handler = ^{ [ws openTwoStep]; };
+    self.twoStepRow = r;
+    return r;
+}
+
 - (IMPSRow *)placeholder:(NSString *)title symbol:(NSString *)symbol bg:(UIColor *)bg value:(nullable NSString *)value {
     __weak typeof(self) ws = self;
     IMPSRow *r = [IMPSRow new];
@@ -279,6 +295,34 @@
                                   withRowAnimation:UITableViewRowAnimationNone];
         }];
     }];
+}
+
+/// 取一次两步验证状态（进页 / 子页返回时刷新右值）。失败当关闭，不弹错。
+- (void)refreshTwoStepStatus {
+    IMHTTPService.sharedService.host = self.host;
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService loginWithUserID:self.userID completion:^(NSString *token, NSError *loginErr) {
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        if (token.length == 0) { [self applyTwoStepEnabled:nil]; return; }
+        [IMHTTPService.sharedService fetchTwoStepStateWithToken:token completion:^(IMTwoStepState *state, NSError *err) {
+            [ws applyTwoStepEnabled:state ? @(state.enabled) : nil];
+        }];
+    }];
+}
+
+/// enabled == nil 表示这次没取到：已有读数就保留（一次瞬时失败不能把「开启」翻成「关闭」），从没取到过才当关闭。
+- (void)applyTwoStepEnabled:(nullable NSNumber *)enabled {
+    if (!enabled && self.twoStepRow.rightValue.length > 0) { return; }
+    self.twoStepRow.rightValue = IMTwoStepRowValueText(enabled ?: @NO);
+    for (NSUInteger s = 0; s < self.groups.count; s++) { // 只刷这一行（同 blockedRow），避免整表跳
+        NSUInteger r = [self.groups[s].rows indexOfObjectIdenticalTo:self.twoStepRow];
+        if (r != NSNotFound) {
+            [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:(NSInteger)r inSection:(NSInteger)s]]
+                                  withRowAnimation:UITableViewRowAnimationNone];
+            return;
+        }
+    }
 }
 
 /// 取一次隐私设置（进页 / 子页返回时）：自动删除默认档 + 谁能看到两项同一个 GET。best-effort：失败保留旧值。
@@ -355,6 +399,11 @@
 
 - (void)openClearAll {
     IMClearAllViewController *vc = [[IMClearAllViewController alloc] initWithHost:self.host userID:self.userID];
+    [self.navigationController pushViewController:vc animated:YES];
+}
+
+- (void)openTwoStep {
+    IMTwoStepViewController *vc = [[IMTwoStepViewController alloc] initWithHost:self.host userID:self.userID];
     [self.navigationController pushViewController:vc animated:YES];
 }
 

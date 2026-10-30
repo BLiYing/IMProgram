@@ -7,6 +7,10 @@
 #import "IMSessionStore.h"
 #import "IMServerEndpoint.h"
 #import "IMHTTPService+Account.h"
+#import "IMHTTPService+TwoStep.h"
+#import "IMLoginTwoStepView.h"
+#import "IMTwoStep.h"
+#import "IMLog.h"
 #import "IMTheme.h"
 
 static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过的 host
@@ -28,6 +32,14 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
 @property (nonatomic, strong) UILabel *registerHintLabel;
 @property (nonatomic, strong) UIButton *hostToggleButton;
 @property (nonatomic, assign) BOOL registerMode;
+// 两步验证二步页（同页切换，不新开页面）：ticket 只留内存，离开二步页即丢弃（TWO_STEP_VERIFICATION_DESIGN §2.3）
+@property (nonatomic, strong) UIStackView *mainStack;
+@property (nonatomic, strong) IMLoginTwoStepView *twoStepView;
+@property (nonatomic, copy, nullable) NSString *twoStepTicket;
+@property (nonatomic, copy) NSString *twoStepHost;
+@property (nonatomic, copy) NSString *twoStepUsername;
+@property (nonatomic, copy) NSArray<UIView *> *viewsHiddenForTwoStep; ///< 进二步页前可见的控件，返回时原样恢复
+@property (nonatomic, strong) NSLayoutConstraint *stackTopConstraint;
 @end
 
 @implementation IMLoginViewController
@@ -106,15 +118,22 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
     stack.translatesAutoresizingMaskIntoConstraints = NO;
     [stack setCustomSpacing:8 afterView:self.errorLabel];
     [self.view addSubview:stack];
+    self.mainStack = stack;
+    [self setupTwoStepView];
     [self applyMode];
 
     UILayoutGuide *guide = self.view.safeAreaLayoutGuide;
     [NSLayoutConstraint activateConstraints:@[
         [stack.leadingAnchor constraintEqualToAnchor:guide.leadingAnchor constant:24],
         [stack.trailingAnchor constraintEqualToAnchor:guide.trailingAnchor constant:-24],
-        [stack.topAnchor constraintEqualToAnchor:guide.topAnchor constant:32],
     ]];
+    self.stackTopConstraint = [stack.topAnchor constraintEqualToAnchor:guide.topAnchor constant:32];
+    self.stackTopConstraint.active = YES;
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyboardWillChange:)
+                                               name:UIKeyboardWillChangeFrameNotification object:nil];
 }
+
+- (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
 
 - (UITextField *)fieldWithPlaceholder:(NSString *)placeholder text:(NSString *)text keyboard:(UIKeyboardType)keyboard secure:(BOOL)secure {
     UITextField *field = [UITextField new];
@@ -306,6 +325,11 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
                 [self showError:IMLocalized(@"err.200005")];
                 return;
             }
+            NSString *ticket = error.userInfo[IMErrorTwoStepTicketKey];
+            if (error.code == IMErrCodeTwoStepRequired && ticket.length > 0) {
+                [self beginTwoStepWithTicket:ticket host:host username:username];
+                return;
+            }
             if (error.code == IMErrCodeAccountPendingDeletion) {
                 [self promptRestoreForHost:host username:username password:password fallback:fallback
                               activeButton:activeButton deleteAt:error.userInfo[IMErrorDeleteAtKey]];
@@ -417,6 +441,100 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
     [IMSessionStore saveHost:host userID:userID username:username];
     IMMainTabBarController *main = [[IMMainTabBarController alloc] initWithHost:host userID:userID];
     self.view.window.rootViewController = main;
+}
+
+#pragma mark - 两步验证二步页（同页切换）
+
+- (void)setupTwoStepView {
+    self.twoStepView = [IMLoginTwoStepView new];
+    self.twoStepView.hidden = YES;
+    __weak typeof(self) ws = self;
+    self.twoStepView.onSubmit = ^(NSString *code, BOOL recovery) { [ws submitTwoStepCode:code recovery:recovery]; };
+    self.twoStepView.onBack = ^{ [ws leaveTwoStep]; };
+    [self.mainStack addArrangedSubview:self.twoStepView];
+}
+
+/// 密码对且账号已开启两步验证（200020）：登录页换成二步页，ticket 只留内存。
+- (void)beginTwoStepWithTicket:(NSString *)ticket host:(NSString *)host username:(NSString *)username {
+    self.twoStepTicket = ticket;
+    self.twoStepHost = host;
+    self.twoStepUsername = username;
+    NSMutableArray<UIView *> *visible = [NSMutableArray array];
+    for (UIView *v in self.mainStack.arrangedSubviews) {
+        if (v == self.twoStepView || v.hidden) { continue; }
+        [visible addObject:v];
+        v.hidden = YES;
+    }
+    self.viewsHiddenForTwoStep = visible;
+    [self showError:@""];
+    [self.twoStepView resetForNewTicket];
+    self.twoStepView.hidden = NO;
+    [self.twoStepView focusInput];
+    IMLogUI(@"login_twostep_begin");
+}
+
+/// 离开二步页（返回 / ticket 失效）：丢弃 ticket 与内存里的密码，恢复进入前的控件。
+- (void)leaveTwoStep {
+    self.twoStepTicket = nil;
+    IMHTTPService.sharedService.password = nil;
+    [self.twoStepView resetForNewTicket];
+    [self.view endEditing:YES];
+    self.twoStepView.hidden = YES;
+    for (UIView *v in self.viewsHiddenForTwoStep) { v.hidden = NO; }
+    self.viewsHiddenForTwoStep = @[];
+    self.stackTopConstraint.constant = 32;
+}
+
+- (void)submitTwoStepCode:(NSString *)code recovery:(BOOL)recovery {
+    NSString *ticket = self.twoStepTicket;
+    if (ticket.length == 0 || self.twoStepView.busy) { return; }
+    self.twoStepView.busy = YES;
+    [self.twoStepView showError:nil];
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService loginTwoStepWithTicket:ticket code:code
+                                             completion:^(NSString *token, NSString *userID, NSError *error) {
+        __strong typeof(ws) self = ws;
+        if (!self || ![self.twoStepTicket isEqualToString:ticket]) { return; } // 已离开二步页
+        self.twoStepView.busy = NO;
+        if (token.length > 0 && userID.length > 0) {
+            NSString *host = self.twoStepHost, *username = self.twoStepUsername;
+            self.twoStepTicket = nil;
+            IMLogUI(@"login_twostep_ok method=%@", recovery ? @"recovery" : @"totp");
+            [self enterAppWithHost:host userID:userID username:username];
+            return;
+        }
+        [self handleTwoStepFailure:error recovery:recovery];
+    }];
+}
+
+- (void)handleTwoStepFailure:(NSError *)error recovery:(BOOL)recovery {
+    IMLogWarnWithTag(IMLogTagUI, @"login_twostep_failed code=%ld", (long)error.code);
+    IMTwoStepLoginAction action = IMTwoStepLoginActionForError(error.code, recovery);
+    NSInteger left = [error.userInfo[IMErrorTwoStepAttemptsLeftKey] respondsToSelector:@selector(integerValue)]
+        ? [error.userInfo[IMErrorTwoStepAttemptsLeftKey] integerValue] : -1;
+    NSString *msg = IMTwoStepErrorMessage(error.code, IMTwoStepErrorContextLogin, left, IMTwoStepRecentlyEnabled([NSDate date]) && !recovery,
+                                          error.localizedDescription.length > 0 ? error.localizedDescription : IMLocalized(@"login.error.login_failed"));
+    if (action == IMTwoStepLoginActionExpired) { // ticket 已作废：回密码页
+        [self leaveTwoStep];
+        [self showError:msg];
+        return;
+    }
+    [self.twoStepView showError:msg];
+    if (action == IMTwoStepLoginActionRetryCode) { [self.twoStepView clearCodeAndRefocus]; }
+}
+
+/// 键盘顶起：二步页的输入框与按钮必须同时在键盘之上可见（小屏也要）。登录页本身没有滚动容器，直接上移整列。
+- (void)keyboardWillChange:(NSNotification *)note {
+    if (self.twoStepView.hidden) { return; }
+    [self.view layoutIfNeeded]; // 刚切到二步页时登录页那一列的高度还没重排，先结算再量，否则整列会多上移一截
+    CGRect end = [self.view convertRect:[note.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue] fromView:nil];
+    CGFloat keyboardTop = MIN(end.origin.y, CGRectGetMaxY(self.view.bounds));
+    CGFloat safeTop = self.view.safeAreaLayoutGuide.layoutFrame.origin.y;
+    CGFloat baseBottom = safeTop + 32 + self.mainStack.bounds.size.height;
+    CGFloat shift = MAX(0, baseBottom - (keyboardTop - 12));
+    self.stackTopConstraint.constant = MAX(4, 32 - shift);
+    NSTimeInterval d = [note.userInfo[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
+    [UIView animateWithDuration:d animations:^{ [self.view layoutIfNeeded]; }];
 }
 
 - (NSString *)trimmed:(NSString *)text {

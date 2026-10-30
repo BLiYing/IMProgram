@@ -12,6 +12,7 @@
 #import "IMPrivacySecurityViewController.h"
 #import "IMBlockedListViewController.h"
 #import "IMChangePasswordViewController.h"
+#import "IMTwoStepViewController.h"
 #import "IMAutoDeleteTierViewController.h"
 #import "IMDataStorageViewController.h"
 #import "IMAutoDownloadNetworkViewController.h"
@@ -87,7 +88,7 @@
 - (void)testScopeCoversRequiredSecondLevelPages {
     NSArray *ids = [self idsOf:[self all]];
     for (NSString *want in @[@"notifications.private", @"notifications.group", @"notifications.private.sound", @"notifications.group.sound",
-                             @"privacy.blocked", @"privacy.changePassword", @"privacy.autoDelete", @"storage.cellular", @"storage.wifi",
+                             @"privacy.blocked", @"privacy.changePassword", @"privacy.twoStep", @"privacy.autoDelete", @"storage.cellular", @"storage.wifi",
                              @"storage.cellular.image", @"storage.cellular.video", @"storage.cellular.file",
                              @"storage.wifi.image", @"storage.wifi.video", @"storage.wifi.file",
                              @"appearance", @"powerSaving", @"language", @"devices"]) {
@@ -196,6 +197,7 @@
         @"privacy": IMPrivacySecurityViewController.class,
         @"privacy/blocked": IMBlockedListViewController.class,
         @"privacy/changePassword": IMChangePasswordViewController.class,
+        @"privacy/twoStep": IMTwoStepViewController.class,
         @"privacy/autoDelete": IMAutoDeleteTierViewController.class,
         @"storage": IMDataStorageViewController.class,
         @"storage/cellular": IMAutoDownloadNetworkViewController.class,
@@ -221,7 +223,7 @@
 - (void)testRouterPassesHostAndUserIDLikeParentPushes {
     // 父 VC 都是 initWithHost:self.host userID:self.userID，router 须透传同一对
     for (NSString *pageID in @[@"notifications", @"notifications/private", @"notifications/group", @"privacy",
-                               @"privacy/blocked", @"privacy/changePassword", @"recentCalls", @"devices"]) {
+                               @"privacy/blocked", @"privacy/changePassword", @"privacy/twoStep", @"recentCalls", @"devices"]) {
         UIViewController *vc = [self routerPage:pageID];
         XCTAssertEqualObjects([vc valueForKey:@"host"], @"http://h", @"%@ host", pageID);
         XCTAssertEqualObjects([vc valueForKey:@"userID"], @"u1", @"%@ userID", pageID);
