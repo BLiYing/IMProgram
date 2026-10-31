@@ -1,6 +1,7 @@
 //  IMHTTPLogFormatter.m
 
 #import "IMHTTPLogFormatter.h"
+#import "IMEmailLogin.h"
 
 static NSUInteger const kIMHTTPLogMaxCharacters = 16 * 1024;
 /// 单个字符串值的截断上限。整体 16 KB 是"一条日志最多多长"，这个是"一个字段值最多多长"。
@@ -35,6 +36,13 @@ static BOOL IMHTTPKeyIsAlwaysSensitive(NSString *key) {
 /// 两步验证的 `code`（动态码 / 恢复码）是**字符串**；信封里的业务码 `code` 是数字，必须原样保留，否则日志没法排障。
 static BOOL IMHTTPIsVerificationCode(NSString *key, id value) {
     return [key.lowercaseString isEqualToString:@"code"] && [value isKindOfClass:NSString.class];
+}
+
+/// 邮箱登录（PROTOCOL §7.2）：`email` 字段，以及登录名里填的邮箱（`username` 含 @）→ 脱敏成 a***@domain，日志不落完整邮箱。
+static BOOL IMHTTPIsEmailValue(NSString *key, id value) {
+    if (![value isKindOfClass:NSString.class]) { return NO; }
+    NSString *k = key.lowercaseString;
+    return [k isEqualToString:@"email"] || ([k isEqualToString:@"username"] && [(NSString *)value containsString:@"@"]);
 }
 
 static BOOL IMHTTPKeyContainsBusinessContent(NSString *key) {
@@ -90,6 +98,8 @@ id IMHTTPSanitizedJSONObject(id object, BOOL includeBusinessContent) {
             if (IMHTTPKeyIsAlwaysSensitive(stringKey) || IMHTTPIsVerificationCode(stringKey, value) ||
                 (!includeBusinessContent && IMHTTPKeyContainsBusinessContent(stringKey))) {
                 result[stringKey] = @"***";
+            } else if (IMHTTPIsEmailValue(stringKey, value)) {
+                result[stringKey] = IMEmailMasked(value);
             } else {
                 result[stringKey] = IMHTTPSanitizedJSONObject(value, includeBusinessContent);
             }

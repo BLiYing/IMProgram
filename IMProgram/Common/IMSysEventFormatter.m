@@ -219,6 +219,17 @@ NSString *IMTextForNoticeSysEvent(NSString *event, NSDictionary<NSString *, NSSt
             [lines addObject:IMLocalizedFormatArgs(@"sys.notice.twostep_recovery_used.device_line", @[sysArgs[@"device"]])];
         }
         [lines addObject:IMLocalized(@"sys.notice.twostep_recovery_used.footer")];
+    } else if ([event isEqualToString:@"email_bound"] || [event isEqualToString:@"email_changed"] ||
+               [event isEqualToString:@"email_unbound"]) {
+        // 邮箱登录（PROTOCOL §7.2）：sys_args {email_masked?, at, device?}；headline 里 %1=时间 %2=脱敏邮箱（unbound 无邮箱）。
+        NSString *prefix = [@"sys.notice." stringByAppendingString:event];
+        NSString *at = IMFormatRFC3339LocalDateTime(sysArgs[@"at"]);
+        NSArray<NSString *> *headlineArgs = [event isEqualToString:@"email_unbound"] ? @[at] : @[at, sysArgs[@"email_masked"] ?: @""];
+        [lines addObject:IMLocalizedFormatArgs([prefix stringByAppendingString:@".headline"], headlineArgs)];
+        if (sysArgs[@"device"].length > 0) {
+            [lines addObject:IMLocalizedFormatArgs([prefix stringByAppendingString:@".device_line"], @[sysArgs[@"device"]])];
+        }
+        [lines addObject:IMLocalized([prefix stringByAppendingString:@".footer"])];
     } else if ([event isEqualToString:@"device_kicked"]) {
         NSString *device = sysArgs[@"target_device"].length > 0 ? sysArgs[@"target_device"] : IMLocalized(@"common.unknown_device_kicked");
         [lines addObject:IMLocalizedFormatArgs(@"sys.notice.device_kicked.headline", @[device])];

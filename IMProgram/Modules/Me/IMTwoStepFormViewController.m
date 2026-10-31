@@ -309,6 +309,7 @@
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
     cell.selectionStyle = row.onTap ? UITableViewCellSelectionStyleDefault : UITableViewCellSelectionStyleNone;
     cell.accessoryType = row.showsChevron ? UITableViewCellAccessoryDisclosureIndicator : UITableViewCellAccessoryNone;
+    if (row.transparent) { cell.backgroundColor = UIColor.clearColor; }
     [row.view removeFromSuperview];
     row.view.translatesAutoresizingMaskIntoConstraints = NO;
     [cell.contentView addSubview:row.view];
@@ -332,11 +333,15 @@
 }
 
 - (UIView *)textBlock:(NSString *)text {
+    return [self textBlock:text color:UIColor.secondaryLabelColor];
+}
+
+- (UIView *)textBlock:(NSString *)text color:(UIColor *)color {
     UILabel *l = [UILabel new];
     l.translatesAutoresizingMaskIntoConstraints = NO;
     l.text = text;
     l.font = [UIFont systemFontOfSize:13];
-    l.textColor = UIColor.secondaryLabelColor;
+    l.textColor = color;
     l.numberOfLines = 0;
     UIView *v = [UIView new];
     [v addSubview:l];
@@ -355,7 +360,7 @@
 }
 - (UIView *)tableView:(UITableView *)tv viewForFooterInSection:(NSInteger)section {
     NSString *t = self.sections[section].footer;
-    return t.length > 0 ? [self textBlock:t] : nil;
+    return t.length > 0 ? [self textBlock:t color:self.sections[section].footerColor ?: UIColor.secondaryLabelColor] : nil;
 }
 /// 说明块高度：自定义 header / footer 视图用自动高度会把多行文字截成一行，这里按宽度显式量。
 - (CGFloat)textBlockHeight:(NSString *)text {

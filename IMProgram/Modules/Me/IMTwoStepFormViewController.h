@@ -13,12 +13,16 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, strong) UIView *view;
 @property (nonatomic, copy, nullable) void (^onTap)(void);
 @property (nonatomic, assign) BOOL showsChevron;
+/// YES = 行不画卡片底（透明背景，用于“纯文字链”行，如邮箱验证码页的「重新发送 / 更换邮箱」）。
+@property (nonatomic, assign) BOOL transparent;
 + (instancetype)rowWithView:(UIView *)view onTap:(nullable void (^)(void))onTap;
 @end
 
 @interface IMTwoStepSection : NSObject
 @property (nonatomic, copy, nullable) NSString *header;
 @property (nonatomic, copy, nullable) NSString *footer;
+/// footer 文字颜色；nil = secondaryLabel（红字错误行紧贴上一组时用 systemRed）。
+@property (nonatomic, strong, nullable) UIColor *footerColor;
 @property (nonatomic, copy) NSArray<IMTwoStepRow *> *rows;
 + (instancetype)sectionWithRows:(NSArray<IMTwoStepRow *> *)rows footer:(nullable NSString *)footer;
 @end

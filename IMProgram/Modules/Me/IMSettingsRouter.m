@@ -11,6 +11,7 @@
 #import "IMBlockedListViewController.h"
 #import "IMChangePasswordViewController.h"
 #import "IMTwoStepViewController.h"
+#import "IMEmailLoginViewController.h"
 #import "IMDataStorageViewController.h"
 #import "IMAutoDownloadNetworkViewController.h"
 #import "IMAutoDownloadCategoryViewController.h"
@@ -29,7 +30,7 @@ typedef UIViewController *(^IMPageBuilder)(NSString *host, NSString *userID);
 ///   IMSettingsViewController            saved / recentCalls / devices / notifications / privacy / storage / appearance / powerSaving / language
 ///   IMNotificationSettingsViewController notifications/private|group      → IMNotificationTypeViewController(isGroup)
 ///   IMNotificationTypeViewController     notifications/{private|group}/sound → IMNotificationSoundViewController(initForGroup:)
-///   IMPrivacySecurityViewController     privacy/blocked / privacy/changePassword / privacy/twoStep / privacy/autoDelete（账号默认档位，选择页自带 GET/PUT）
+///   IMPrivacySecurityViewController     privacy/blocked / privacy/changePassword / privacy/twoStep / privacy/emailLogin / privacy/autoDelete（账号默认档位，选择页自带 GET/PUT）
 ///   IMDataStorageViewController         storage/{cellular|wifi}           → IMAutoDownloadNetworkViewController(network)
 ///   IMAutoDownloadNetworkViewController storage/{net}/{image|video|file}  → IMAutoDownloadCategoryViewController(network, category)
 /// 没有抽成「父 VC 暴露工厂」：这些构造都是一行 init，抽工厂要改 6 个 VC 的 ~17 处 push 点且各自参数来源不同，收益小于风险；
@@ -51,6 +52,7 @@ typedef UIViewController *(^IMPageBuilder)(NSString *host, NSString *userID);
         t[@"privacy/blocked"] = ^UIViewController *(NSString *h, NSString *u) { return [[IMBlockedListViewController alloc] initWithHost:h userID:u]; };
         t[@"privacy/changePassword"] = ^UIViewController *(NSString *h, NSString *u) { return [[IMChangePasswordViewController alloc] initWithHost:h userID:u]; };
         t[@"privacy/twoStep"] = ^UIViewController *(NSString *h, NSString *u) { return [[IMTwoStepViewController alloc] initWithHost:h userID:u]; };
+        t[@"privacy/emailLogin"] = ^UIViewController *(NSString *h, NSString *u) { return [[IMEmailLoginViewController alloc] initWithHost:h userID:u]; };
         t[@"privacy/autoDelete"] = ^UIViewController *(NSString *h, NSString *u) { return [IMAutoDeleteTierViewController accountDefaultPickerWithInitialSec:0 onSaved:nil]; };
         t[@"storage"] = ^UIViewController *(NSString *h, NSString *u) { return [IMDataStorageViewController new]; };
         t[@"appearance"] = ^UIViewController *(NSString *h, NSString *u) { return [IMAppearanceViewController new]; };

@@ -6,6 +6,9 @@
 #import "IMClearAllViewController.h"
 #import "IMExportDataViewController.h"
 #import "IMTwoStepViewController.h"
+#import "IMEmailLoginViewController.h"
+#import "IMEmailLogin.h"
+#import "IMHTTPService+Email.h"
 #import "IMTwoStep.h"
 #import "IMHTTPService+TwoStep.h"
 #import "IMHTTPService.h"
@@ -83,7 +86,10 @@
         _valueLabel.textColor = UIColor.secondaryLabelColor;
         _valueLabel.textAlignment = NSTextAlignmentRight;
         [_valueLabel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
-        [_valueLabel setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+        // 长右值（邮箱地址）单行、中间截断，让位给标题（优先级低于标题的 750）；短值不受影响。
+        _valueLabel.numberOfLines = 1;
+        _valueLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
+        [_valueLabel setContentCompressionResistancePriority:UILayoutPriorityDefaultHigh - 1 forAxis:UILayoutConstraintAxisHorizontal];
         [self.contentView addSubview:_valueLabel];
 
         [NSLayoutConstraint activateConstraints:@[
@@ -131,6 +137,7 @@
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, copy) NSArray<IMPSGroup *> *groups;
 @property (nonatomic, strong) IMPSRow *blockedRow; ///< 引用留着，count 拉回后就地更新 rightValue
+@property (nonatomic, strong) IMPSRow *emailRow; ///< 邮箱登录（活行）：进页 / 子页返回时 GET 状态，右值 = 邮箱 / 未绑定
 @property (nonatomic, strong) IMPSRow *twoStepRow; ///< 两步验证（活行）：进页 / 子页返回时 GET 状态，加载前右值留空
 @property (nonatomic, strong) IMPSRow *autoDeleteRow; ///< 自动删除消息（账号默认档位）活行：GET /users/me/privacy 回来后就地更新右值
 @property (nonatomic, assign) int64_t autoDeleteDefaultSec;
@@ -177,6 +184,7 @@
     [self refreshBlockedCount];
     [self refreshPrivacySettings];
     [self refreshTwoStepStatus];
+    [self refreshEmailStatus];
 }
 
 #pragma mark - 数据
@@ -207,7 +215,7 @@
     groupB.rows = @[
         [self twoStepLiveRow],
         [self placeholder:IMLocalized(@"ps.row.passkey") symbol:@"key.horizontal.fill" bg:UIColor.systemPurpleColor value:IMLocalized(@"common.off")],
-        [self placeholder:IMLocalized(@"ps.row.email_login") symbol:@"envelope.fill" bg:UIColor.systemTealColor value:nil],
+        [self emailLoginLiveRow],
     ];
 
     // 组 C · 会话隐私：自动删除消息（活行，右值 = 账号默认档位，AUTO_DELETE_DESIGN §3.3 A）
@@ -256,6 +264,17 @@
     r.iconBgColor = UIColor.systemGrayColor;
     r.handler = ^{ [ws openTwoStep]; };
     self.twoStepRow = r;
+    return r;
+}
+
+/// 邮箱登录活行（EMAIL_LOGIN_DESIGN §2.1）：右值 = 邮箱地址 / 未绑定；进页与子页返回都重新取值，不做本地缓存；加载前留空。
+- (IMPSRow *)emailLoginLiveRow {
+    __weak typeof(self) ws = self;
+    IMPSRow *r = [IMPSRow new];
+    r.rowId = @"emailLogin"; r.title = IMLocalized(@"ps.row.email_login"); r.systemImage = @"envelope.fill";
+    r.iconBgColor = UIColor.systemTealColor;
+    r.handler = ^{ [ws openEmailLogin]; };
+    self.emailRow = r;
     return r;
 }
 
@@ -317,6 +336,31 @@
     self.twoStepRow.rightValue = IMTwoStepRowValueText(enabled ?: @NO);
     for (NSUInteger s = 0; s < self.groups.count; s++) { // 只刷这一行（同 blockedRow），避免整表跳
         NSUInteger r = [self.groups[s].rows indexOfObjectIdenticalTo:self.twoStepRow];
+        if (r != NSNotFound) {
+            [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:(NSInteger)r inSection:(NSInteger)s]]
+                                  withRowAnimation:UITableViewRowAnimationNone];
+            return;
+        }
+    }
+}
+
+/// 取一次邮箱状态刷新右值。失败：已有读数就保留（瞬时失败不能把邮箱翻成「未绑定」），从没取到过就留空，不弹错。
+- (void)refreshEmailStatus {
+    IMHTTPService.sharedService.host = self.host;
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService loginWithUserID:self.userID completion:^(NSString *token, NSError *loginErr) {
+        if (token.length == 0) { return; }
+        [IMHTTPService.sharedService fetchEmailStateWithToken:token completion:^(IMEmailState *state, NSError *err) {
+            [ws applyEmailState:state];
+        }];
+    }];
+}
+
+- (void)applyEmailState:(nullable IMEmailState *)state {
+    if (!state) { return; }
+    self.emailRow.rightValue = IMEmailRowValueText(state);
+    for (NSUInteger s = 0; s < self.groups.count; s++) {
+        NSUInteger r = [self.groups[s].rows indexOfObjectIdenticalTo:self.emailRow];
         if (r != NSNotFound) {
             [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:(NSInteger)r inSection:(NSInteger)s]]
                                   withRowAnimation:UITableViewRowAnimationNone];
@@ -404,6 +448,11 @@
 
 - (void)openTwoStep {
     IMTwoStepViewController *vc = [[IMTwoStepViewController alloc] initWithHost:self.host userID:self.userID];
+    [self.navigationController pushViewController:vc animated:YES];
+}
+
+- (void)openEmailLogin {
+    IMEmailLoginViewController *vc = [[IMEmailLoginViewController alloc] initWithHost:self.host userID:self.userID];
     [self.navigationController pushViewController:vc animated:YES];
 }
 

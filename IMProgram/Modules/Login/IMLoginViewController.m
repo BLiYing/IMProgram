@@ -197,8 +197,9 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
 /// 按当前页签显隐控件并刷新页签选中态（选中 accentSoft 底 + accent 字，未选中卡片底 + 次要字）。
 - (void)applyMode {
     BOOL reg = self.registerMode;
-    // 括号里的格式说明只在注册页签需要；登录页签用简短占位（同 Android 的 label）
-    self.userIDField.placeholder = IMLocalized(reg ? @"login.username.placeholder" : @"settings.info.username");
+    // 括号里的格式说明只在注册页签需要；登录页签占位 = 「用户名或邮箱」（EMAIL_LOGIN_DESIGN §2.4；注册页不接受邮箱，仍用用户名规则）。
+    // 键盘保持 ASCIICapable（含 @）；登录名原样发送，规范化（大小写 / 空白）在服务端。
+    self.userIDField.placeholder = IMLocalized(reg ? @"login.username.placeholder" : @"login.identifier.label");
     self.passwordField.placeholder = IMLocalized(reg ? @"login.password.placeholder" : @"login.password");
     self.nicknameField.hidden = !reg;
     self.registerHintLabel.hidden = !reg;
