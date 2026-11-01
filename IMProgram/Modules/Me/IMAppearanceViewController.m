@@ -157,6 +157,7 @@ static UIImage *IMThumbnailImage(UIImage *image, CGSize size) {
             [_incomingSecond.topAnchor constraintEqualToAnchor:_outgoing.bottomAnchor constant:10],
             [_incomingSecond.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:14],
             [_incomingSecond.widthAnchor constraintLessThanOrEqualToAnchor:self.widthAnchor multiplier:0.76],
+            [_incomingSecond.bottomAnchor constraintLessThanOrEqualToAnchor:self.bottomAnchor constant:-16],
         ]];
         [self refresh];
     }
@@ -740,7 +741,7 @@ typedef NS_ENUM(NSInteger, IMAppearanceSliderKind) {
     stack.axis = UILayoutConstraintAxisVertical;
     [card addSubview:stack];
     _preview = [IMAppearanceChatPreview new];
-    [_preview.heightAnchor constraintEqualToConstant:238].active = YES;
+    [_preview.heightAnchor constraintGreaterThanOrEqualToConstant:238].active = YES;
     [stack addArrangedSubview:_preview];
 
     UIView *stripHost = [UIView new];
