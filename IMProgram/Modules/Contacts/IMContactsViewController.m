@@ -198,10 +198,10 @@ BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt
         // 而"有人加我"恰恰是需要主动去处理的事。副标题显待确认数（0 时留空，别摆一个恒亮的 0）。
         [IMMenuAction actionWithId:@"friendRequests" title:IMLocalized(@"friend.requests.title") image:@"person.crop.circle.badge.plus"
                            handler:^{ [ws openFriendRequests]; }],
-        [IMMenuAction actionWithId:@"officialAccount" title:IMLocalized(@"contacts.entry.official_account") image:@"megaphone.fill" handler:^{ [ws im_showComingSoon:IMLocalized(@"contacts.entry.official_account")]; }],
-        [IMMenuAction actionWithId:@"serviceAccount" title:IMLocalized(@"contacts.entry.service_account") image:@"headphones" handler:^{ [ws im_showComingSoon:IMLocalized(@"contacts.entry.service_account")]; }],
+        // 公众号 / 服务号入口暂时隐藏（2026-11-03，功能未做，三端同步）。恢复时连同 entryColors 的
+        // systemOrange / systemBlue 一起加回；文案 key contacts.entry.official_account / service_account 仍保留。
     ];
-    self.entryColors = @[UIColor.systemGreenColor, UIColor.systemTealColor, UIColor.systemOrangeColor, UIColor.systemBlueColor];
+    self.entryColors = @[UIColor.systemGreenColor, UIColor.systemTealColor];
 }
 
 /// 收到好友事件 → 节流刷新（合并连发，避免每帧一次登录+拉取）。
