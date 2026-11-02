@@ -80,6 +80,9 @@ static IMSettingsSearchEntry *IMEntryAliased(NSArray<NSString *> *aliases, NSStr
         IMEntry(@"appearance", @[IMLocalized(@"ios.settings.row.appearance")], @"circle.lefthalf.filled", blue, @[@"appearance"]),
         IMEntry(@"powerSaving", @[IMLocalized(@"ios.settings.row.power_saving")], @"bolt.fill", UIColor.systemYellowColor, @[@"powerSaving"]),
         IMEntry(@"language", @[IMLocalized(@"settings.language.title")], @"globe", UIColor.systemPurpleColor, @[@"language"]),
+        // 关于我们：二级页里的隐私政策 / 条款 / 支持 / 版本不单独登记，靠别名命中本入口
+        IMEntryAliased(IMSplitAliases(IMLocalized(@"search.alias.about")), @"about", @[IMLocalized(@"about.title")], @"info.circle.fill",
+                       UIColor.systemGrayColor, @[@"about"]),
         // —— 通知：私聊 / 群聊通知页、各自的提示音页 ——
         IMEntry(@"notifications.private", @[notif, notifPrivate], @"person.fill", blue, @[@"notifications", @"notifications/private"]),
         IMEntry(@"notifications.group", @[notif, notifGroup], @"person.2.fill", green, @[@"notifications", @"notifications/group"]),

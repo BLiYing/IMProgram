@@ -19,6 +19,7 @@
 #import "IMPowerSavingViewController.h"
 #import "IMLanguageViewController.h"
 #import "IMAutoDeleteTierViewController.h"
+#import "IMAboutViewController.h"
 
 typedef UIViewController *(^IMPageBuilder)(NSString *host, NSString *userID);
 
@@ -27,7 +28,7 @@ typedef UIViewController *(^IMPageBuilder)(NSString *host, NSString *userID);
 /// 页面 id → 建页 block。id 约定：一级 = 「我」页行 id；二级起 = 「父/子」。
 ///
 /// 【重复构造点】tap 路径里各父 VC 自己 push 时也在构造同一批页面，两处必须保持一致（类与构造参数）：
-///   IMSettingsViewController            saved / recentCalls / devices / notifications / privacy / storage / appearance / powerSaving / language
+///   IMSettingsViewController            saved / recentCalls / devices / notifications / privacy / storage / appearance / powerSaving / language / about
 ///   IMNotificationSettingsViewController notifications/private|group      → IMNotificationTypeViewController(isGroup)
 ///   IMNotificationTypeViewController     notifications/{private|group}/sound → IMNotificationSoundViewController(initForGroup:)
 ///   IMPrivacySecurityViewController     privacy/blocked / privacy/changePassword / privacy/twoStep / privacy/emailLogin / privacy/autoDelete（账号默认档位，选择页自带 GET/PUT）
@@ -57,6 +58,7 @@ typedef UIViewController *(^IMPageBuilder)(NSString *host, NSString *userID);
         t[@"storage"] = ^UIViewController *(NSString *h, NSString *u) { return [IMDataStorageViewController new]; };
         t[@"appearance"] = ^UIViewController *(NSString *h, NSString *u) { return [IMAppearanceViewController new]; };
         t[@"powerSaving"] = ^UIViewController *(NSString *h, NSString *u) { return [IMPowerSavingViewController new]; };
+        t[@"about"] = ^UIViewController *(NSString *h, NSString *u) { return [[IMAboutViewController alloc] initWithHost:h]; };
         t[@"language"] = ^UIViewController *(NSString *h, NSString *u) { return [IMLanguageViewController new]; };
         NSDictionary<NSString *, NSNumber *> *nets = @{ @"cellular": @(IMDownloadNetworkCellular), @"wifi": @(IMDownloadNetworkWifi) };
         NSDictionary<NSString *, NSNumber *> *cats = @{ @"image": @(IMDownloadCategoryImage), @"video": @(IMDownloadCategoryVideo),

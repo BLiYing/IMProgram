@@ -10,44 +10,7 @@
 #import "IMViewedMediaStore.h"
 #import "IMLog.h"
 #import "IMLocalization.h"
-
-static const CGFloat kIMSettingsIconSide = 29;
-
-/// iOS 设置风格的彩色圆角图标块（白色 SF Symbol + 品牌底色）渲染成 UIImage，供 cell.imageView 放在**左侧**，
-/// 对齐草图 §05 每行左侧图标。渲染成图而非用 accessoryView，才能落在 iOS 原生的行首图标位。
-/// **按 symbol 记忆化**：全页图标固定，避免每次 cellForRow / reloadData 重复光栅化。
-static UIImage *IMSettingsIconImage(NSString *symbol, UIColor *bg) {
-    static NSMutableDictionary<NSString *, UIImage *> *cache;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{ cache = [NSMutableDictionary dictionary]; });
-    UIImage *cached = cache[symbol];
-    if (cached) { return cached; }
-    CGFloat side = kIMSettingsIconSide;
-    UIGraphicsImageRenderer *r = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(side, side)];
-    UIImage *img = [r imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
-        UIBezierPath *tile = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(0, 0, side, side) cornerRadius:7];
-        [bg setFill];
-        [tile fill];
-        UIImage *glyph = [[UIImage systemImageNamed:symbol
-                                  withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:15 weight:UIImageSymbolWeightSemibold]]
-                          imageWithTintColor:UIColor.whiteColor renderingMode:UIImageRenderingModeAlwaysOriginal];
-        CGSize g = glyph.size;
-        [glyph drawInRect:CGRectMake((side - g.width) / 2, (side - g.height) / 2, g.width, g.height)];
-    }];
-    cache[symbol] = img;
-    return img;
-}
-
-/// 与图标块同尺寸的**透明占位图**：给无图标的行（如「重置」）占住行首图标位，标题与上方带图标的行左对齐（草图 §05）。
-static UIImage *IMSettingsIconSpacer(void) {
-    static UIImage *spacer;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        UIGraphicsImageRenderer *r = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(kIMSettingsIconSide, kIMSettingsIconSide)];
-        spacer = [r imageWithActions:^(UIGraphicsImageRendererContext *ctx) {}]; // 全透明
-    });
-    return spacer;
-}
+#import "IMSettingsIcon.h"
 
 @interface IMDataStorageViewController () <UITableViewDataSource, UITableViewDelegate>
 @property (nonatomic, strong) UITableView *tableView;

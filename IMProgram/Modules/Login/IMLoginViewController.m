@@ -12,10 +12,12 @@
 #import "IMTwoStep.h"
 #import "IMLog.h"
 #import "IMTheme.h"
+#import "IMAppInfo.h"
+#import <SafariServices/SafariServices.h>
 
 static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过的 host
 
-@interface IMLoginViewController ()
+@interface IMLoginViewController () <UITextViewDelegate>
 @property (nonatomic, strong) UITextField *hostField;
 @property (nonatomic, strong) UITextField *userIDField;   ///< 用户名（公开句柄 username）
 @property (nonatomic, strong) UITextField *nicknameField; ///< 昵称（显示名，仅注册时用；必填）
@@ -40,6 +42,8 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
 @property (nonatomic, copy) NSString *twoStepUsername;
 @property (nonatomic, copy) NSArray<UIView *> *viewsHiddenForTwoStep; ///< 进二步页前可见的控件，返回时原样恢复
 @property (nonatomic, strong) NSLayoutConstraint *stackTopConstraint;
+/// 底部「继续即表示同意《服务条款》和《隐私政策》」：隐式同意（无勾选框），两段链接走应用内浏览器（ABOUT_LEGAL_DESIGN 批②）。
+@property (nonatomic, strong) UITextView *agreeFooter;
 @end
 
 @implementation IMLoginViewController
@@ -101,6 +105,8 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
     self.hostField.hidden = YES;
     [self refreshHostToggleTitle];
 
+    self.agreeFooter = [self buildAgreeFooter];
+
     self.loginTabButton = [self buttonTitle:IMLocalized(@"login.button.login") config:[UIButtonConfiguration plainButtonConfiguration] action:@selector(loginTabTapped)];
     self.registerTabButton = [self buttonTitle:IMLocalized(@"login.tab_register") config:[UIButtonConfiguration plainButtonConfiguration] action:@selector(registerTabTapped)];
     UIStackView *tabs = [[UIStackView alloc] initWithArrangedSubviews:@[self.loginTabButton, self.registerTabButton]];
@@ -111,7 +117,7 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
         [self logoView], [self titleLabelView], tabs,
         self.userIDField, self.passwordField, self.nicknameField, self.registerHintLabel, self.errorLabel,
-        self.loginButton, self.registerButton, self.devButton, self.hostToggleButton, self.hostField
+        self.loginButton, self.registerButton, self.devButton, self.hostToggleButton, self.hostField, self.agreeFooter
     ]];
     stack.axis = UILayoutConstraintAxisVertical;
     stack.spacing = 12;
@@ -235,6 +241,72 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
     // 必须走 setTitle:——buttonTitle: 里设过的空串会覆盖 configuration.title
     [self.hostToggleButton setTitle:title forState:UIControlStateNormal];
     [self.hostToggleButton invalidateIntrinsicContentSize];
+}
+
+#pragma mark - 同意提示（隐式同意，批②）
+
+/// 不可编辑/不可滚动的 UITextView：两段链接可点，走应用内浏览器。无勾选框——点「登录/注册」即视为同意（见 ABOUT_LEGAL_DESIGN §0 批②）。
+- (UITextView *)buildAgreeFooter {
+    UITextView *tv = [UITextView new];
+    tv.translatesAutoresizingMaskIntoConstraints = NO;
+    tv.scrollEnabled = NO;
+    tv.editable = NO;
+    tv.backgroundColor = UIColor.clearColor;
+    tv.textContainerInset = UIEdgeInsetsZero;
+    tv.textContainer.lineFragmentPadding = 0;
+    tv.delegate = self;
+    tv.accessibilityIdentifier = @"login.agree_footer";
+    tv.linkTextAttributes = @{ NSForegroundColorAttributeName: IMTheme.accent };
+    tv.attributedText = [self agreeFooterText];
+    return tv;
+}
+
+/// 「继续即表示同意《服务条款》和《隐私政策》」：复用 about.terms / about.privacy_policy 作链接文案；
+/// 中文的《》在格式串里，链接范围只覆盖文字本身。链接值用自定义 scheme，点击分流到对应法务页。
+- (NSAttributedString *)agreeFooterText {
+    NSString *terms = IMLocalized(@"about.terms");
+    NSString *privacy = IMLocalized(@"about.privacy_policy");
+    NSString *full = [NSString stringWithFormat:IMLocalized(@"about.agree_footer"), terms, privacy];
+    NSMutableParagraphStyle *para = [NSMutableParagraphStyle new];
+    para.alignment = NSTextAlignmentCenter;
+    NSMutableAttributedString *s = [[NSMutableAttributedString alloc] initWithString:full attributes:@{
+        NSFontAttributeName: [UIFont systemFontOfSize:13],
+        NSForegroundColorAttributeName: UIColor.secondaryLabelColor,
+        NSParagraphStyleAttributeName: para,
+    }];
+    [self linkify:s label:terms url:@"imlegal://terms"];
+    [self linkify:s label:privacy url:@"imlegal://privacy"];
+    return s;
+}
+
+- (void)linkify:(NSMutableAttributedString *)s label:(NSString *)label url:(NSString *)url {
+    NSRange r = [s.string rangeOfString:label];
+    if (r.location != NSNotFound) { [s addAttribute:NSLinkAttributeName value:[NSURL URLWithString:url] range:r]; }
+}
+
+- (BOOL)textView:(UITextView *)textView shouldInteractWithURL:(NSURL *)URL inRange:(NSRange)range interaction:(UITextItemInteraction)interaction {
+    NSString *path = [URL.host isEqualToString:@"terms"] ? IMLegalPathTerms
+                   : [URL.host isEqualToString:@"privacy"] ? IMLegalPathPrivacy : nil;
+    if (path) { [self openLegalPath:path]; }
+    return NO; // 自己用 SFSafariViewController 呈现，不交给系统
+}
+
+/// 用登录页当前填写的服务器地址拼法务页链接并在应用内浏览器打开（法务页是公开静态页，不带 token / Cookie）。
+- (void)openLegalPath:(NSString *)path {
+    NSString *raw = [self trimmed:self.hostField.text];
+    NSString *scheme = nil, *host = nil;
+    if (raw.length == 0 || ![IMServerEndpoint parseInput:raw scheme:&scheme host:&host]) {
+        [self showError:IMLocalized(@"login.error.host_required")];
+        return;
+    }
+    // 用用户此刻填的 scheme 拼预览链接，但**不改**全局 IMServerEndpoint——真正提交地址在点登录/注册时才发生。
+    NSURL *url = [IMAppInfo legalURLForPath:path host:host scheme:scheme language:IMLocalization.shared.language];
+    if (!url) {
+        IMLogWarnWithTag(IMLogTagUI, @"login_legal_open_failed path=%@", path);
+        [self showError:IMLocalized(@"about.open_failed")];
+        return;
+    }
+    [self presentViewController:[[SFSafariViewController alloc] initWithURL:url] animated:YES completion:nil];
 }
 
 #pragma mark - 交互

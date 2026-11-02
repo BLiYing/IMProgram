@@ -14,6 +14,7 @@
 #import "IMPowerSaving.h"
 #import "IMBlockedListViewController.h"
 #import "IMPrivacySecurityViewController.h"
+#import "IMAboutViewController.h"
 #import "IMNotificationSettingsViewController.h"
 #import "IMDeviceListViewController.h"
 #import "IMFavoritesViewController.h"
@@ -584,13 +585,20 @@
                          handler:^{ [ws.navigationController pushViewController:[IMLanguageViewController new] animated:YES]; }],
     ];
 
+    // 「关于我们」单行组：二级页含隐私政策 / 服务条款 / 技术支持 / 版本（上架必备，ABOUT_LEGAL_DESIGN.md）
+    NSArray<IMSettingsRow *> *groupAbout = @[
+        [IMSettingsRow rowWithId:@"about" title:IMLocalized(@"about.title") image:@"info.circle.fill"
+                          iconBg:UIColor.systemGrayColor right:nil destructive:NO
+                         handler:^{ [ws openAbout]; }],
+    ];
+
     NSArray<IMSettingsRow *> *groupC = @[
         [IMSettingsRow rowWithId:@"logout" title:IMLocalized(@"settings.logout") image:nil
                           iconBg:nil right:nil destructive:YES
                          handler:^{ [ws logout]; }],
     ];
 
-    self.groups = @[groupA, groupB, groupC];
+    self.groups = @[groupA, groupB, groupAbout, groupC];
 }
 
 #pragma mark - 设置项搜索（登记表在 IMSettingsSearchRegistry，本页只提供对账与纯动作行触发）
@@ -650,6 +658,10 @@
     // 容器内首行「已屏蔽的用户」再 push IMBlockedListViewController，保留旧路径。
     IMPrivacySecurityViewController *vc = [[IMPrivacySecurityViewController alloc] initWithHost:self.host userID:self.userID];
     [self.navigationController pushViewController:vc animated:YES];
+}
+
+- (void)openAbout {
+    [self.navigationController pushViewController:[[IMAboutViewController alloc] initWithHost:self.host] animated:YES];
 }
 
 - (void)openDevices {
