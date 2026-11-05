@@ -24,6 +24,18 @@ NS_ASSUME_NONNULL_BEGIN
                   nickname:(nullable NSString *)nickname
                  avatarURL:(nullable NSString *)avatarURL;
 
+/// 群二维码 / 群邀请链接页「分享 → 发送给朋友」（SHARE_PICKER_UX_SKETCH ⑤）：选会话 → 每个会话发一条
+/// **文本**「邀请你加入群聊「群名」\n<链接>」。链接是 /q/g/<token>，收端在聊天里点开走 App 内的入群预览
+/// （IMChatViewController+MediaFlow 的「层3：本站邀请链接」拦截），无需新消息类型。link 为空静默不做。
++ (void)presentGroupInvitePickerFrom:(UIViewController *)host
+                             selfUID:(NSString *)selfUID
+                              convID:(nullable NSString *)convID
+                           groupName:(nullable NSString *)groupName
+                                link:(NSString *)link;
+
+/// 群邀请文本（纯函数，可测）：首行邀请语（群名为空用「群聊」），次行链接。
++ (NSString *)groupInviteTextWithGroupName:(nullable NSString *)groupName link:(NSString *)link;
+
 @end
 
 NS_ASSUME_NONNULL_END

@@ -1,9 +1,9 @@
 //  IMGroupCreateViewController.m
 //  见头文件。规格（字号/色值/尺寸）见设计稿 §07，颜色一律走 IMTheme，不写魔法值。
 
-#import <objc/runtime.h>
-
 #import "IMGroupCreateViewController.h"
+#import "IMSelectedChipStrip.h"
+#import "UILabel+IMAvatar.h"   // IMAvatarInitials
 #import "IMLocalization.h"
 #import "IMMainTabBarController.h"   // im_refreshNavigationBar：注入式液态标题栏不监听 navigationItem
 #import "IMGroupAvatarHeader.h"
@@ -16,7 +16,6 @@
 #import "IMHTTPService.h"
 #import "IMServerConfigStore.h"
 #import "IMTheme.h"
-#import "UILabel+IMAvatar.h"
 #import "UIViewController+IMToast.h"
 
 /// 成员条最多画多少个头像：勾了几百人时不逐个建视图（滚动条也没人真去横滑几百格）。
@@ -34,7 +33,7 @@ static const NSTimeInterval kIMGroupCreateAvatarWait = 5.0;
 @end
 
 @implementation IMGroupCreateMembersCell {
-    UIScrollView *_strip;
+    IMSelectedChipStrip *_strip; ///< 与分享选择页底部已选栏同一个组件（Common/IMSelectedChipStrip）
     UIView *_addColumn;         ///< 「＋ 添加」固定在最右侧，**不随成员条横滚**（否则人一多就得先滑到头才能再加人）
     __weak UILabel *_addChip;   ///< 那一格的圆：深浅色切换时要重刷 CGColor 描边（见 traitCollectionDidChange:）
 }
@@ -42,13 +41,18 @@ static const NSTimeInterval kIMGroupCreateAvatarWait = 5.0;
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
     if ((self = [super initWithStyle:style reuseIdentifier:reuseIdentifier])) {
         self.selectionStyle = UITableViewCellSelectionStyleNone;
-        _strip = [UIScrollView new];
-        _strip.showsHorizontalScrollIndicator = NO;
+        _strip = [IMSelectedChipStrip new];
+        _strip.maxChips = kIMGroupCreateMaxChips;
         _strip.translatesAutoresizingMaskIntoConstraints = NO;
+        __weak typeof(self) ws = self;
+        _strip.onRemove = ^(NSString *uid) { if (ws.onRemove) { ws.onRemove(uid); } };
         [self.contentView addSubview:_strip];
 
         // 固定列：一格「＋ 添加」，永远贴着右边缘。成员条只占它左边那段宽度。
-        _addColumn = [self chipAtX:0 avatarURL:nil seed:@"" name:IMLocalized(@"common.add") removeUID:nil isAdd:YES];
+        UILabel *circle = nil;
+        _addColumn = [IMSelectedChipStrip addChipWithTitle:IMLocalized(@"common.add") target:self
+                                                    action:@selector(addTapped) circle:&circle];
+        _addChip = circle;
         _addColumn.translatesAutoresizingMaskIntoConstraints = NO;
         [self.contentView addSubview:_addColumn];
 
@@ -67,79 +71,13 @@ static const NSTimeInterval kIMGroupCreateAvatarWait = 5.0;
 }
 
 - (void)configureWithMembers:(NSArray<IMUserCard *> *)members {
-    for (UIView *v in _strip.subviews) { [v removeFromSuperview]; }
-    CGFloat x = IMTheme.space4;                 // 与卡片左边距对齐
-    NSUInteger shown = MIN(members.count, kIMGroupCreateMaxChips);
-    for (NSUInteger i = 0; i < shown; i++) {
-        IMUserCard *card = members[i];
+    NSMutableArray<IMSelectedChip *> *chips = [NSMutableArray arrayWithCapacity:members.count];
+    for (IMUserCard *card in members) {
         NSString *label = card.displayName.length > 0 ? card.displayName : card.userID; // 成员条是本机渲染，认备注
-        [_strip addSubview:[self chipAtX:x avatarURL:card.avatarURL seed:card.userID name:label
-                               removeUID:card.userID isAdd:NO]];
-        x += 46 + IMTheme.space3;
-    }
-    if (members.count > shown) {
-        UILabel *more = [UILabel new];
-        more.text = [NSString stringWithFormat:@"+%lu", (unsigned long)(members.count - shown)];
-        more.font = [UIFont systemFontOfSize:13];
-        more.textColor = IMTheme.textSecondary;
-        more.frame = CGRectMake(x, 12, 46, 44);
-        more.textAlignment = NSTextAlignmentCenter;
-        [_strip addSubview:more];
-        x += 46 + IMTheme.space3;
+        [chips addObject:[IMSelectedChip chipWithID:card.userID avatarURL:card.avatarURL seed:card.userID name:label]];
     }
     // 「＋ 添加」不在这条滚动内容里（它是固定列，见 initWithStyle:）。
-    _strip.contentSize = CGSizeMake(x - IMTheme.space3 + IMTheme.space2, 0);
-}
-
-/// 一格 = 44pt 头像圈 + 11pt 名字（+ 非「添加」格右上角的 ✕）。用 frame 直接摆：
-/// 这是一条会整体重建的横向条，上 Auto Layout 只是给约束求解器添活。
-- (UIView *)chipAtX:(CGFloat)x avatarURL:(NSString *)url seed:(NSString *)seed name:(NSString *)name
-          removeUID:(NSString *)uid isAdd:(BOOL)isAdd {
-    UIView *wrap = [[UIView alloc] initWithFrame:CGRectMake(x, 12, 46, 68)];
-
-    UILabel *avatar = [[UILabel alloc] initWithFrame:CGRectMake(1, 0, 44, 44)];
-    avatar.layer.cornerRadius = 22;
-    avatar.layer.masksToBounds = YES;
-    avatar.textAlignment = NSTextAlignmentCenter;
-    avatar.userInteractionEnabled = YES;
-    if (isAdd) {
-        avatar.text = @"＋";
-        avatar.font = [UIFont systemFontOfSize:19];
-        avatar.textColor = IMTheme.textSecondary;
-        avatar.layer.borderWidth = 1;
-        avatar.layer.borderColor = IMTheme.separator.CGColor;
-        _addChip = avatar;
-        [avatar addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(addTapped)]];
-    } else {
-        avatar.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
-        [avatar im_setAvatarURL:url seed:seed displayName:name];
-    }
-    [wrap addSubview:avatar];
-
-    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(0, 49, 46, 14)];
-    title.text = name;
-    title.font = [UIFont systemFontOfSize:11];
-    title.textColor = IMTheme.textSecondary;
-    title.textAlignment = NSTextAlignmentCenter;
-    title.lineBreakMode = NSLineBreakByTruncatingTail;
-    [wrap addSubview:title];
-
-    if (!isAdd && uid.length > 0) {
-        UIButton *rm = [UIButton buttonWithType:UIButtonTypeSystem];
-        rm.frame = CGRectMake(29, -2, 18, 18);
-        rm.layer.cornerRadius = 9;
-        rm.layer.masksToBounds = YES;
-        rm.backgroundColor = IMTheme.textSecondary;
-        rm.tintColor = UIColor.whiteColor;
-        [rm setImage:[[UIImage systemImageNamed:@"xmark"] imageByApplyingSymbolConfiguration:
-                      [UIImageSymbolConfiguration configurationWithPointSize:9 weight:UIImageSymbolWeightBold]]
-            forState:UIControlStateNormal];
-        rm.accessibilityLabel = IMLocalizedFormat(@"group.create.remove_member", name ?: @"");
-        objc_setAssociatedObject(rm, @selector(removeTapped:), uid, OBJC_ASSOCIATION_COPY_NONATOMIC);
-        [rm addTarget:self action:@selector(removeTapped:) forControlEvents:UIControlEventTouchUpInside];
-        [wrap addSubview:rm];
-    }
-    return wrap;
+    [_strip setChips:chips scrollToEnd:NO];
 }
 
 /// **CGColor 不随 traitCollection 自动切换**（语义色只在取 UIColor 时才解析）：
@@ -152,11 +90,6 @@ static const NSTimeInterval kIMGroupCreateAvatarWait = 5.0;
 }
 
 - (void)addTapped { if (self.onAdd) { self.onAdd(); } }
-
-- (void)removeTapped:(UIButton *)sender {
-    NSString *uid = objc_getAssociatedObject(sender, @selector(removeTapped:));
-    if (uid.length > 0 && self.onRemove) { self.onRemove(uid); }
-}
 
 @end
 

@@ -96,6 +96,7 @@
         }
         [(wp ?: self) im_showToast:selected.count == 1 ? IMLocalized(@"favorites.forward.success_single") : IMLocalizedFormat(@"favorites.forward.success_count", (long)selected.count)];
     }];
+    picker.previewText = IMReplySnippet(message);
     UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:picker];
     [(presenter ?: self) presentViewController:nav animated:YES completion:nil];
 }

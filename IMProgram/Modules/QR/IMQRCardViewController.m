@@ -9,6 +9,8 @@
 #import "IMTheme.h"
 #import "UIViewController+IMToast.h"
 #import "IMAccountIdentity.h"
+#import "IMActionListSheet.h"
+#import "IMContactShare.h"
 
 typedef NS_ENUM(NSInteger, IMQRCardMode) {
     IMQRCardModeUser = 0,  ///< 我的名片码
@@ -23,6 +25,8 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
 @property (nonatomic, copy, nullable) NSString *username;
 @property (nonatomic, copy, nullable) NSString *convID;
 @property (nonatomic, copy, nullable) NSString *displayName;
+/// 名片码：本人**真实昵称**（发名片用；displayName 已回退成 @句柄，不能冻进名片）。群码不用。
+@property (nonatomic, copy, nullable) NSString *nickname;
 @property (nonatomic, copy, nullable) NSString *avatarURL;
 @property (nonatomic, assign) NSInteger memberCount;
 @property (nonatomic, assign) BOOL canReset;
@@ -55,6 +59,7 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
         _host = [host copy];
         _userID = [userID copy];
         _username = [username copy];
+        _nickname = [nickname copy];
         _displayName = [IMDisplayName(nickname, username) copy];
         _avatarURL = [avatarURL copy];
     }
@@ -106,6 +111,7 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
 - (void)updateMyProfileWithUsername:(NSString *)username nickname:(NSString *)nickname avatarURL:(NSString *)avatarURL {
     if (self.mode != IMQRCardModeUser) { return; }
     self.username = username;
+    self.nickname = nickname;
     self.displayName = IMDisplayName(nickname, username);
     self.avatarURL = avatarURL;
     if (self.isViewLoaded) { [self renderCard]; }
@@ -342,7 +348,36 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
     [self im_showToast:error ? (error.localizedDescription ?: IMLocalized(@"qr.card.save_failed")) : IMLocalized(@"qr.card.saved")];
 }
 
+/// 「分享」/「分享链接」：先选发送方式（SHARE_PICKER_UX_SKETCH ⑤）——
+/// 「发送给朋友」走 App 内选择页（名片码发名片、群码 / 链接发群邀请文本），「其他应用…」= 原系统分享面板。
 - (void)shareCode {
+    BOOL linkPage = [self isLinkPage];
+    if (self.codeString.length == 0 || (!self.cardView.qrImage && !linkPage)) { [self im_showToast:IMLocalized(@"qr.card.not_ready")]; return; }
+    __weak typeof(self) ws = self;
+    BOOL group = self.mode == IMQRCardModeGroup;
+    NSArray<IMActionListItem *> *items = @[
+        [IMActionListItem itemWithTitle:IMLocalized(@"share.method.to_friends") destructive:NO handler:^{ [ws shareToFriends]; }],
+        [IMActionListItem itemWithTitle:IMLocalized(@"share.method.other_apps") destructive:NO handler:^{ [ws shareToOtherApps]; }],
+    ];
+    [IMActionListSheet presentFrom:self title:IMLocalized(group ? @"share.method.title_group" : @"share.method.title_card") items:items];
+}
+
+- (void)shareToFriends {
+    if (self.mode == IMQRCardModeGroup) {
+        // applyCard: 在服务端没给 url 时会回退成裸 token——那不是可点的链接，发出去收端打不开。
+        if ([NSURL URLWithString:self.codeString].scheme.length == 0) {
+            [self im_showToast:IMLocalized(@"qr.card.link_not_ready")];
+            return;
+        }
+        [IMContactShare presentGroupInvitePickerFrom:self selfUID:self.userID convID:self.convID
+                                           groupName:self.displayName link:self.codeString];
+        return;
+    }
+    [IMContactShare presentPickerFrom:self selfUID:self.userID userID:self.userID
+                             username:self.username nickname:self.nickname avatarURL:self.avatarURL];
+}
+
+- (void)shareToOtherApps {
     UIImage *image = self.cardView.qrImage;
     BOOL linkPage = [self isLinkPage];
     if (self.codeString.length == 0 || (!image && !linkPage)) { [self im_showToast:IMLocalized(@"qr.card.not_ready")]; return; }

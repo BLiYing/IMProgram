@@ -457,7 +457,9 @@ BOOL IMChatSelectionAllDeletableForEveryone(NSArray<IMMessageModel *> *msgs, BOO
     __weak typeof(self) ws = self;
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:nil message:nil preferredStyle:UIAlertControllerStyleActionSheet];
     [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"forward.mode.each") style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-        [ws pickConversationsThen:^(NSArray<IMConversation *> *convs) { [ws forwardMessages:msgs perMessageToConversations:convs]; }];
+        NSString *preview = msgs.count == 1 ? IMReplySnippet(msgs.firstObject)
+                                            : IMLocalizedFormat(@"share.preview.each_messages", (long)msgs.count);
+        [ws pickConversationsWithPreview:preview then:^(NSArray<IMConversation *> *convs) { [ws forwardMessages:msgs perMessageToConversations:convs]; }];
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"forward.mode.merged") style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
         __strong typeof(ws) self = ws; if (!self) { return; }
@@ -465,7 +467,7 @@ BOOL IMChatSelectionAllDeletableForEveryone(NSArray<IMMessageModel *> *msgs, BOO
         for (IMMessageModel *m in msgs) { if ([self isMediaExpiredForForward:m]) { expiredCount++; } }
         if (expiredCount >= msgs.count) { [self im_showToast:IMLocalized(@"chat.forward.all_expired_merge")]; return; } // 失效项会被剔出记录，全失效则整条无意义
         NSString *json = [self mergedForwardJSONForMessages:msgs];
-        [self pickConversationsThen:^(NSArray<IMConversation *> *convs) { [self forwardMergedRecord:json toConversations:convs]; }];
+        [self pickConversationsWithPreview:IMChatRecordSnippet(json) then:^(NSArray<IMConversation *> *convs) { [self forwardMergedRecord:json toConversations:convs]; }];
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
     // iPad/regular 宽度下走 popover：sourceRect 必须在 sourceView 自身坐标系内，否则锚点跑到屏幕外（原用 self.view 坐标）。
@@ -581,13 +583,14 @@ BOOL IMChatSelectionAllDeletableForEveryone(NSArray<IMMessageModel *> *msgs, BOO
     }
 }
 
-- (void)pickConversationsThen:(void (^)(NSArray<IMConversation *> *convs))block {
+- (void)pickConversationsWithPreview:(NSString *)preview then:(void (^)(NSArray<IMConversation *> *convs))block {
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0) { return; }
     IMForwardPickerViewController *picker = [[IMForwardPickerViewController alloc]
         initWithHost:self.host token:token onDone:^(NSArray<IMConversation *> *selected) {
         if (selected.count > 0) { block(selected); }
     }];
+    picker.previewText = preview;
     UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:picker];
     [self presentViewController:nav animated:YES completion:nil];
 }

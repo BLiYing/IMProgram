@@ -287,6 +287,7 @@ typedef NS_ENUM(NSInteger, IMNotifTypeSection) {
         if (selected.count > 0) { [ws presentMuteMenuForNewException:selected.firstObject]; }
     }];
     picker.immediateSingleSelect = YES;
+    picker.showsContactEntries = NO; // 选的是"已有会话的免打扰"，没会话的好友 / 群在这里无意义
     picker.titleOverride = IMLocalized(@"notif.exceptions.add");
     picker.footerText = IMLocalized(wantGroup ? @"notif.exceptions.pick_footer_group" : @"notif.exceptions.pick_footer_private");
     picker.emptyText = IMLocalized(@"notif.exceptions.pick_empty");

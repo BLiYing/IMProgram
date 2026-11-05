@@ -4,6 +4,7 @@
 > 历史流水见 `current_task.archive.md`（2026-10-02 瘦身前的全量快照在其顶部）+ `git log`。关键约定见 `CLAUDE.md` / `ARCHITECTURE.md` / `CODING_STYLE.md`。
 
 ## 当前焦点
+- **分享选择页：好友/群聊入口 + 底部已选栏 + 发送确认（2026-11-05，未提交）**：设计稿 `../IMServer/docs/design/sketches/SHARE_PICKER_UX_SKETCH.html`。`IMForwardPickerViewController` 加「我的好友 / 我的群聊」入口（子页 `Modules/Chat/SharePicker/IMShareContactListViewController`），选中集 `Common/IMShareSelection`（按 conv_id 去重、三处合计 9，好友 conv_id 用 `IMConversationID` 本地推导、合成 `IMConversation` 交回调用方——7 个分享入口零改动即可发给没聊过的好友 / 删过会话的群）；多选态底部常驻已选栏 `IMShareSelectionBar`（复用从建群页抽出的 `Common/IMSelectedChipStrip`）+ 确认面板 `IMShareConfirmViewController`（目标可删 + 内容预览）；主页搜索三源分组去重；二维码页「分享 → 发送给朋友 / 其他应用…」（名片码发名片、群码发邀请文本，排除该群本身）；分享名片排除名片主人；「添加例外」传 `showsContactEntries=NO` 保持原样。单测 `IMShareSelectionTests` 8 例（变异三处先红后绿）；模拟器 UI 自测脚本 `IMProgramUITests/IMSharePickerUITests`（默认跳过，`TEST_RUNNER_IM_SHARE_UITEST=1` 才跑，依赖开发库账号 user4982）。
 - 近期功能（邮箱登录、两步验证、清除所有对话、删除会话统一口径、导出我的数据、自动删除 v2、会话列表编辑模式、注销账号、置顶面板、聊天文件夹、失效媒体口径等）均已落地并推送，详情见 `current_task.archive.md` 末段。
 - 目测欠账：邮箱登录、删除会话统一口径、扫一扫「我的二维码」页、置顶面板、iOS 26 Tab 条染灰（未滚动实测）、聊天文件夹（桌面/iOS 26·18 导航栏边缘）、失效媒体口径（iOS 界面）。原文见 archive。
 
@@ -18,6 +19,8 @@
 3. 小项：`setupUI` 抽 `IMComposerBar`；遗留 P2（听筒切换/接力连播停止条/Web 转文字/语音发送接入 `IMMediaSendService` 常驻队列等，细节见 archive）。
 
 ## 已知坑 / 限制
+- **`IMProfileEditKeyboardTests` 依赖模拟器里 App 已登录**：测试宿主即真 App，模拟器重启后停在登录页时，登录页输入框会抢走第一响应者，「键盘弹出_个性签名不被盖住」必红（2026-11-05 实测：登录后重跑即绿）。跑全量前先在模拟器里登录一次。
+- **分享选择页**：群列表接口 `GET /groups` 不下发禁言/角色/人数，故「我的群聊」不做全员禁言置灰、不显人数（发往禁言群由服务端拒，与原转发页一致）；打开选择页即预取好友 + 群（主页搜索要用，三端同口径）；新增页面字号/圆角沿用写死数值（`IMTheme` 尚无字号/圆角令牌）。
 - **置顶面板**：图 / 视频按下载策略门控时显 ↓ 占位但点了是「定位」（只读，不下载）；引用条不取被引用消息的缩略图（退回类型小图标）；相册成员置顶按单张图渲染（非宫格）；`IMSocketAckTests` 三条与 `IMMediaDownloadCoordinatorTests testImageNotGatedWhenPolicyOn` 在本机并发负载下全量跑偶发红、单类跑与重跑全绿（与本改动无关，未定位）。
 - **新单聊壳行昵称/头像延后**：会话列表原无该 conv 时 new_msg 只建壳行（peer 由 convID 推、昵称空），名片与头像等下次 `/conversations`（列表在屏 0.4s 内、不在屏则等回到列表）才补；`IMDatabase.m` 恰 1500 行，该处不能再加行。
 

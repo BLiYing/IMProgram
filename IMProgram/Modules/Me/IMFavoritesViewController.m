@@ -1248,6 +1248,7 @@ typedef NS_ENUM(NSInteger, IMFavoritesViewMode) {
         }
         [self im_showToast:selected.count == 1 ? IMLocalized(@"favorites.forward.success_single") : IMLocalizedFormat(@"favorites.forward.success_count", (long)selected.count)];
     }];
+    picker.previewText = [self previewOf:f];
     [self presentViewController:[[UINavigationController alloc] initWithRootViewController:picker] animated:YES completion:nil];
 }
 

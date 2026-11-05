@@ -629,5 +629,38 @@
       <key>other</key><string>%1$ld members</string>
     </dict>
   </dict>
+  <key>share.picker.bar_hint</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
+    <key>count</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>ld</string>
+      <key>one</key><string>Select up to %1$ld friend or group</string>
+      <key>other</key><string>Select up to %1$ld friends or groups</string>
+    </dict>
+  </dict>
+  <key>share.picker.confirm_title</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
+    <key>count</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>ld</string>
+      <key>one</key><string>Send separately to (%1$ld)</string>
+      <key>other</key><string>Send separately to (%1$ld)</string>
+    </dict>
+  </dict>
+  <key>share.preview.each_messages</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%1$#@count@</string>
+    <key>count</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>ld</string>
+      <key>one</key><string>[Forward individually] %1$ld message</string>
+      <key>other</key><string>[Forward individually] %1$ld messages</string>
+    </dict>
+  </dict>
 </dict>
 </plist>
