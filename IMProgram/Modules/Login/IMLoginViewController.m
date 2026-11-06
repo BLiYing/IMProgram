@@ -13,6 +13,7 @@
 #import "IMLog.h"
 #import "IMTheme.h"
 #import "IMAppInfo.h"
+#import "IMAboutLinks.h"
 #import <SafariServices/SafariServices.h>
 
 static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过的 host
@@ -299,14 +300,22 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
         [self showError:IMLocalized(@"login.error.host_required")];
         return;
     }
-    // 用用户此刻填的 scheme 拼预览链接，但**不改**全局 IMServerEndpoint——真正提交地址在点登录/注册时才发生。
-    NSURL *url = [IMAppInfo legalURLForPath:path host:host scheme:scheme language:IMLocalization.shared.language];
-    if (!url) {
-        IMLogWarnWithTag(IMLogTagUI, @"login_legal_open_failed path=%@", path);
-        [self showError:IMLocalized(@"about.open_failed")];
-        return;
-    }
-    [self presentViewController:[[SFSafariViewController alloc] initWithURL:url] animated:YES completion:nil];
+    // 用用户此刻填的 scheme/host 匿名拉一次后台配置的链接（失败 / 老服务端回退内置路径）；
+    // 同样**不改**全局 IMServerEndpoint——真正提交地址在点登录/注册时才发生。
+    NSString *field = [path isEqualToString:IMLegalPathTerms] ? IMAboutLinkFieldTerms : IMAboutLinkFieldPrivacy;
+    __weak typeof(self) weakSelf = self;
+    [IMAboutLinks.shared refreshWithScheme:scheme host:host token:nil timeout:5 completion:^(BOOL ok) {
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self || self.presentedViewController) { return; } // 5s 内连点会叠出多个 Safari
+        NSDictionary *links = [IMAboutLinks.shared cachedLinksForScheme:scheme host:host];
+        NSURL *url = [IMAboutLinks URLForField:field links:links host:host scheme:scheme language:IMLocalization.shared.language];
+        if (!url) {
+            IMLogWarnWithTag(IMLogTagUI, @"login_legal_open_failed path=%@", path);
+            [self showError:IMLocalized(@"about.open_failed")];
+            return;
+        }
+        [self presentViewController:[[SFSafariViewController alloc] initWithURL:url] animated:YES completion:nil];
+    }];
 }
 
 #pragma mark - 交互
