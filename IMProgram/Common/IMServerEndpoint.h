@@ -48,6 +48,10 @@ FOUNDATION_EXPORT NSString *const IMServerSchemeHTTPS;  ///< @"https"
             scheme:(NSString *_Nullable *_Nullable)outScheme
               host:(NSString *_Nullable *_Nullable)outHost;
 
+/// 持久化用的地址串：https 带协议，http 为裸 `host:port`。只存 host 的话，填过的 https 下次回填成裸 host，
+/// 会静默退回 http。结果可再喂给 `parseInput:` 还原。
++ (NSString *)rememberedInputForScheme:(nullable NSString *)scheme host:(NSString *)host;
+
 /// `<scheme>://<host><path>`。host 为空或结果非法 → nil。
 - (nullable NSURL *)httpURLForHost:(nullable NSString *)host path:(NSString *)path;
 

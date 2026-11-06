@@ -1,19 +1,26 @@
 //  IMLoginKeyboardTests.m
-//  登录页：展开「服务器地址」后点进输入框，键盘弹出不能盖住它（登录页是一列堆叠、没有滚动容器，靠整列上移让位）。
+//  登录页：键盘弹出不能盖住输入框和主按钮（登录页是一列堆叠、没有滚动容器，靠整列上移让位）；
+//  长按 Logo 保存服务器 / 音视频地址的落盘口径。
 
 #import <XCTest/XCTest.h>
 #import "IMLoginViewController.h"
+#import "IMRtcConfig.h"
 
 @interface IMLoginViewController (IMLKTesting)
-@property (nonatomic, strong) UITextField *hostField;
+@property (nonatomic, copy) NSString *hostInput;
+@property (nonatomic, strong) UILabel *serverLabel;
+@property (nonatomic, strong) UIButton *loginButton;
 @property (nonatomic, strong) UITextField *userIDField;
 @property (nonatomic, strong) UITextField *passwordField;
 @property (nonatomic, strong) UITextField *nicknameField;
 @property (nonatomic, strong) UIButton *registerButton;
 @property (nonatomic, assign) CGFloat keyboardTop;
-- (void)hostToggleTapped;
+- (void)saveEndpointHost:(NSString *)rawHost rtc:(NSString *)rawRTC;
 - (void)registerTabTapped;
 @end
+
+static NSString * const kIMTestLastHostKey = @"im_last_host";
+static NSString * const kIMTestRtcOverrideKey = @"im_rtc_ws_url_override";
 
 @interface IMLoginKeyboardTests : XCTestCase
 @end
@@ -47,30 +54,28 @@
     return w;
 }
 
-/// 小屏（iPhone SE 高度）+ 336pt 键盘：服务器地址框下沿必须在键盘上沿之上；收起键盘后整列复位。
-- (void)test_键盘弹出_服务器地址框不被盖住 {
+/// 小屏（iPhone SE 高度）+ 336pt 键盘：登录按钮下沿必须在键盘上沿之上；收起键盘后整列复位。
+- (void)test_键盘弹出_登录按钮不被盖住 {
     IMLoginViewController *vc = [IMLoginViewController new];
     UIWindow *w = [self windowWith:vc];
     [self spin:0.3];
-    [vc hostToggleTapped]; // 展开「服务器地址」
     [vc.view layoutIfNeeded];
 
     CGFloat kbTop = 667 - 336;
-    CGRect before = [w convertRect:vc.hostField.bounds fromView:vc.hostField];
-    XCTAssertGreaterThan(CGRectGetMaxY(before), kbTop, @"前提：不处理键盘时，地址框下沿会落进键盘区");
+    CGRect before = [w convertRect:vc.loginButton.bounds fromView:vc.loginButton];
+    XCTAssertGreaterThan(CGRectGetMaxY(before), kbTop, @"前提：不处理键盘时，登录按钮下沿会落进键盘区");
 
-    XCTAssertTrue([vc.hostField becomeFirstResponder]);
+    XCTAssertTrue([vc.userIDField becomeFirstResponder]);
     [self spin:0.6]; // 模拟器无软键盘时系统自己也会发一次「键盘收起」通知，先让它过去，再发我们的
     [self postKeyboardTop:kbTop height:336 screen:667];
     [self spin:0.4];
 
-    XCTAssertTrue(vc.hostField.isFirstResponder, @"通知过后仍是第一响应者");
-    CGRect after = [w convertRect:vc.hostField.bounds fromView:vc.hostField];
-    XCTAssertLessThanOrEqual(CGRectGetMaxY(after), kbTop + 0.5, @"键盘弹出后地址框必须在键盘上沿之上");
-    XCTAssertGreaterThan(CGRectGetMinY(after), 0, @"地址框自己不能被顶出屏幕上沿");
+    XCTAssertTrue(vc.userIDField.isFirstResponder, @"通知过后仍是第一响应者");
+    CGRect after = [w convertRect:vc.loginButton.bounds fromView:vc.loginButton];
+    XCTAssertLessThanOrEqual(CGRectGetMaxY(after), kbTop + 0.5, @"键盘弹出后登录按钮必须在键盘上沿之上");
 
     // 同一个键盘下切到别的输入框：系统不再发键盘通知，靠开始编辑事件重算
-    [vc.hostField resignFirstResponder];
+    [vc.userIDField resignFirstResponder];
     XCTAssertTrue([vc.passwordField becomeFirstResponder]);
     // 真机上同一键盘下切换输入框，键盘始终在、不会发「收起」通知；模拟器没有软键盘，resign 会同步发一次收起通知
     // 把记录的键盘上沿冲掉，这里还原成「键盘一直在」的状态。
@@ -86,7 +91,7 @@
     [vc.passwordField resignFirstResponder];
     [self postKeyboardTop:667 height:336 screen:667];
     [self spin:0.4];
-    CGRect rest = [w convertRect:vc.hostField.bounds fromView:vc.hostField];
+    CGRect rest = [w convertRect:vc.loginButton.bounds fromView:vc.loginButton];
     XCTAssertEqualWithAccuracy(CGRectGetMaxY(rest), CGRectGetMaxY(before), 0.5, @"键盘收起后整列回到原位");
 
     w.hidden = YES;
@@ -126,18 +131,76 @@
     UIWindow *w = [self windowWith:vc];
     w.frame = CGRectMake(0, 0, 375, 320);
     [self spin:0.3];
-    [vc hostToggleTapped];
     [vc.view layoutIfNeeded];
 
-    XCTAssertTrue([vc.hostField becomeFirstResponder]);
+    XCTAssertTrue([vc.passwordField becomeFirstResponder]);
     [self spin:0.6];
     [self postKeyboardTop:320 - 260 height:260 screen:320]; // 键盘占了大半屏
     [self spin:0.4];
 
-    CGRect r = [w convertRect:vc.hostField.bounds fromView:vc.hostField];
+    CGRect r = [w convertRect:vc.passwordField.bounds fromView:vc.passwordField];
     CGFloat safeTop = vc.view.safeAreaLayoutGuide.layoutFrame.origin.y;
     XCTAssertGreaterThanOrEqual(CGRectGetMinY(r), safeTop - 0.5, @"输入框自己不能被顶出安全区上沿");
     w.hidden = YES;
+}
+
+#pragma mark - 长按 Logo 保存地址
+
+/// 用例会写真实的 NSUserDefaults：备份后还原，不串味到别的测试 / 模拟器上的 App。
+- (void)preserveEndpointDefaults {
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    NSString *lastHost = [defaults stringForKey:kIMTestLastHostKey];
+    NSString *rtcOverride = [defaults stringForKey:kIMTestRtcOverrideKey];
+    [self addTeardownBlock:^{
+        [defaults setObject:lastHost forKey:kIMTestLastHostKey];
+        [defaults setObject:rtcOverride forKey:kIMTestRtcOverrideKey];
+    }];
+}
+
+- (void)test_保存合法地址_落盘并刷新只读行 {
+    [self preserveEndpointDefaults];
+    IMLoginViewController *vc = [IMLoginViewController new];
+    [vc loadViewIfNeeded];
+    [vc saveEndpointHost:@" https://im.example.com " rtc:@"wss://rtc.example.com/v1/ws"];
+
+    XCTAssertEqualObjects([NSUserDefaults.standardUserDefaults stringForKey:kIMTestLastHostKey], @"https://im.example.com", @"https 协议必须一起存");
+    XCTAssertEqualObjects(IMRtcConfig.load.wsURL, @"wss://rtc.example.com/v1/ws");
+    XCTAssertEqualObjects(vc.hostInput, @"https://im.example.com");
+    XCTAssertTrue([vc.serverLabel.text containsString:@"https://im.example.com"]);
+}
+
+- (void)test_保存时有一项非法_两项都不落盘 {
+    [self preserveEndpointDefaults];
+    [NSUserDefaults.standardUserDefaults setObject:@"old.example.com:8080" forKey:kIMTestLastHostKey];
+    [IMRtcConfig saveWSURLOverride:@"ws://old.example.com/v1/ws"];
+    IMLoginViewController *vc = [IMLoginViewController new];
+    UIWindow *w = [self windowWith:vc];
+    [self spin:0.3];
+
+    [vc saveEndpointHost:@"new.example.com:8080" rtc:@"http://bad/v1/ws"];
+    XCTAssertEqualObjects([NSUserDefaults.standardUserDefaults stringForKey:kIMTestLastHostKey], @"old.example.com:8080");
+    XCTAssertEqualObjects(IMRtcConfig.load.wsURL, @"ws://old.example.com/v1/ws");
+    XCTAssertEqualObjects(vc.hostInput, @"old.example.com:8080");
+    XCTAssertTrue([vc.presentedViewController isKindOfClass:UIAlertController.class], @"校验失败要重新弹窗");
+
+    [vc dismissViewControllerAnimated:NO completion:nil];
+    w.hidden = YES;
+}
+
+- (void)test_留空_清除已存地址回退默认 {
+    [self preserveEndpointDefaults];
+    [NSUserDefaults.standardUserDefaults setObject:@"old.example.com:8080" forKey:kIMTestLastHostKey];
+    [IMRtcConfig saveWSURLOverride:@"ws://old.example.com/v1/ws"];
+    IMLoginViewController *vc = [IMLoginViewController new];
+    [vc loadViewIfNeeded];
+    [vc saveEndpointHost:@"  " rtc:@""];
+
+    // 查持久域而不是 stringForKey：测试环境里删除后 stringForKey 仍可能读到模拟器上的旧值（持久域已空）。
+    NSDictionary *persisted = [NSUserDefaults.standardUserDefaults persistentDomainForName:NSBundle.mainBundle.bundleIdentifier];
+    XCTAssertNil(persisted[kIMTestLastHostKey]);
+    XCTAssertNil(persisted[kIMTestRtcOverrideKey]);
+    XCTAssertNotEqualObjects(vc.hostInput, @"old.example.com:8080");
+    XCTAssertGreaterThan(vc.hostInput.length, 0, @"回退内置默认，不能是空串");
 }
 
 @end

@@ -15,6 +15,18 @@
     [super tearDown];
 }
 
+#pragma mark - 持久化地址串
+
+- (void)testRememberedInputKeepsHTTPSAndRoundTrips {
+    XCTAssertEqualObjects([IMServerEndpoint rememberedInputForScheme:IMServerSchemeHTTP host:@"47.250.219.159:8081"], @"47.250.219.159:8081");
+    NSString *remembered = [IMServerEndpoint rememberedInputForScheme:IMServerSchemeHTTPS host:@"im.example.com"];
+    XCTAssertEqualObjects(remembered, @"https://im.example.com");
+    NSString *scheme = nil, *host = nil;
+    XCTAssertTrue([IMServerEndpoint parseInput:remembered scheme:&scheme host:&host]);
+    XCTAssertEqualObjects(scheme, IMServerSchemeHTTPS);
+    XCTAssertEqualObjects(host, @"im.example.com");
+}
+
 #pragma mark - 输入解析
 
 - (void)testParseBareHostDefaultsToHTTP {

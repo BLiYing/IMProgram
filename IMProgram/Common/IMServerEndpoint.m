@@ -53,6 +53,10 @@ static BOOL IMSplitHostPort(NSString *hostPort, NSString **outHost, NSNumber **o
     return [self.scheme isEqualToString:IMServerSchemeHTTPS];
 }
 
++ (NSString *)rememberedInputForScheme:(NSString *)scheme host:(NSString *)host {
+    return [scheme isEqualToString:IMServerSchemeHTTPS] ? [@"https://" stringByAppendingString:host] : host;
+}
+
 + (BOOL)parseInput:(NSString *)input
             scheme:(NSString *_Nullable *_Nullable)outScheme
               host:(NSString *_Nullable *_Nullable)outHost {

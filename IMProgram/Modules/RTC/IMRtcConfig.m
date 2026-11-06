@@ -1,10 +1,30 @@
 #import "IMRtcConfig.h"
 
+static NSString * const kIMRtcWSURLOverrideKey = @"im_rtc_ws_url_override";
+
 @implementation IMRtcConfig
 
 + (instancetype)load {
+    NSString *override = [self normalizedWSURL:[NSUserDefaults.standardUserDefaults stringForKey:kIMRtcWSURLOverrideKey]];
+    if (override) { return [[self alloc] initWithDictionary:@{ @"wsUrl": override }]; }
     NSString *path = [NSBundle.mainBundle pathForResource:@"IMRtcConfig.local" ofType:@"plist"];
     return [[self alloc] initWithDictionary:path ? [NSDictionary dictionaryWithContentsOfFile:path] : nil];
+}
+
++ (NSString *)normalizedWSURL:(NSString *)input {
+    NSString *trimmed = [input stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (trimmed.length == 0
+        || [trimmed rangeOfCharacterFromSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].location != NSNotFound) {
+        return nil;
+    }
+    NSURLComponents *components = [NSURLComponents componentsWithString:trimmed];
+    NSString *scheme = components.scheme.lowercaseString;
+    BOOL isWebSocket = [scheme isEqualToString:@"ws"] || [scheme isEqualToString:@"wss"];
+    return isWebSocket && components.host.length > 0 ? trimmed : nil;
+}
+
++ (void)saveWSURLOverride:(NSString *)wsURL {
+    [NSUserDefaults.standardUserDefaults setObject:wsURL forKey:kIMRtcWSURLOverrideKey]; // nil = 删除
 }
 
 - (instancetype)initWithDictionary:(NSDictionary *)dict {

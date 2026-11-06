@@ -1152,6 +1152,8 @@
 "login.button.login" = "Log in";
 "login.button.register" = "Sign up and log in";
 "login.dev_login" = "Passwordless login (dev)";
+"login.endpoint_config.hint" = "First line: server address. Second line: call address. Leave blank to restore the default.";
+"login.endpoint_config.title" = "Configure addresses";
 "login.error.dev_login_failed" = "Passwordless sign-in failed (the backend must run with -dev-login)";
 "login.error.fill_credentials" = "Enter your username and password";
 "login.error.host_invalid" = "Invalid server address (for example: 192.168.1.12:8080 or https://im.example.com)";
@@ -1162,6 +1164,7 @@
 "login.error.register_failed" = "Sign-up failed";
 "login.error.register_login_failed" = "Signed up, but login failed";
 "login.error.register_requirements" = "Username is required and the password must be at least 6 characters";
+"login.error.rtc_url_invalid" = "Invalid call address (must start with ws:// or wss://)";
 "login.error.username_required" = "Enter a username";
 "login.error.wrong_username_or_password" = "Incorrect username or password";
 "login.host.placeholder" = "Server address host:port";
@@ -1176,6 +1179,7 @@
 "login.relogin" = "Log in again";
 "login.restoring" = "Restoring your session…";
 "login.revoked_notice" = "Your account was logged in elsewhere, or this device was removed.";
+"login.rtc_address.placeholder" = "Call address ws://host:port/v1/ws";
 "login.server_address" = "Server address";
 "login.server_summary" = "Server: %1$@";
 "login.session_revoked" = "This device has been signed out. Please log in again.";

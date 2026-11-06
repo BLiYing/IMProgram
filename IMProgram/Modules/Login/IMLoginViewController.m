@@ -14,6 +14,7 @@
 #import "IMTheme.h"
 #import "IMAppInfo.h"
 #import "IMAboutLinks.h"
+#import "IMRtcConfig.h"
 #import <SafariServices/SafariServices.h>
 
 static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过的 host
@@ -27,7 +28,8 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
 }
 
 @interface IMLoginViewController () <UITextViewDelegate>
-@property (nonatomic, strong) UITextField *hostField;
+/// 当前服务器地址（可带协议）。只读显示在登录按钮下方，改它走长按 Logo 的配置弹窗。
+@property (nonatomic, copy) NSString *hostInput;
 @property (nonatomic, strong) UITextField *userIDField;   ///< 用户名（公开句柄 username）
 @property (nonatomic, strong) UITextField *nicknameField; ///< 昵称（显示名，仅注册时用；必填）
 @property (nonatomic, strong) UITextField *passwordField;
@@ -37,11 +39,11 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
 @property (nonatomic, strong) UIButton *registerButton;
 @property (nonatomic, strong) UIButton *devButton;
 @property (nonatomic, assign) BOOL submitting;
-// 页面结构对齐 Android LoginScreen：Logo + 「登录 / 注册」页签 + 折叠的服务器地址行。
+// 页面结构对齐 Android LoginScreen：Logo + 「登录 / 注册」页签 + 只读的服务器地址行。
 @property (nonatomic, strong) UIButton *loginTabButton;
 @property (nonatomic, strong) UIButton *registerTabButton;
 @property (nonatomic, strong) UILabel *registerHintLabel;
-@property (nonatomic, strong) UIButton *hostToggleButton;
+@property (nonatomic, strong) UILabel *serverLabel;
 @property (nonatomic, assign) BOOL registerMode;
 // 两步验证二步页（同页切换，不新开页面）：ticket 只留内存，离开二步页即丢弃（TWO_STEP_VERIFICATION_DESIGN §2.3）
 @property (nonatomic, strong) UIStackView *mainStack;
@@ -66,22 +68,26 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
     if (self.initialNotice.length > 0) { [self showNotice:self.initialNotice]; }
 }
 
-/// 默认 host：模拟器恒用 127.0.0.1（避免 localhost DNS 解析在 iOS 模拟器偶发失败——
-/// Go WS/HTTP 与 IMRemoteLogSink 都会静默挂掉。见 current_task.md 已知坑 / memory 记录）。
-/// 真机优先用上次成功填过的地址，否则给个占位让用户改成 Mac 当前局域网 IP。
-- (NSString *)defaultHost {
-#if TARGET_OS_SIMULATOR
-    // 优先用上次成功填过的地址（切网/切端口时无需每次改），未填过回退 127.0.0.1:8080。
-    NSString *last = [NSUserDefaults.standardUserDefaults stringForKey:kIMLastHostKey];
-    return last.length > 0 ? last : @"127.0.0.1:8080";
+/// 内置默认地址：Release 连生产服务器；Debug 模拟器恒用 127.0.0.1（避免 localhost DNS 解析在 iOS 模拟器偶发失败——
+/// Go WS/HTTP 与 IMRemoteLogSink 都会静默挂掉。见 current_task.md 已知坑 / memory 记录）；Debug 真机给个占位让用户改成 Mac 当前局域网 IP。
+- (NSString *)builtinHost {
+#ifndef DEBUG
+    return @"47.250.219.159:8081";
+#elif TARGET_OS_SIMULATOR
+    return @"127.0.0.1:8080";
 #else
-    NSString *last = [NSUserDefaults.standardUserDefaults stringForKey:kIMLastHostKey];
-    return last.length > 0 ? last : @"192.168.1.x:8080";
+    return @"192.168.1.x:8080";
 #endif
 }
 
+/// 优先用上次保存 / 成功填过的地址（切网 / 切端口时无需每次改），没有才回退内置默认。
+- (NSString *)defaultHost {
+    NSString *last = [NSUserDefaults.standardUserDefaults stringForKey:kIMLastHostKey];
+    return last.length > 0 ? last : [self builtinHost];
+}
+
 - (void)setupUI {
-    self.hostField     = [self fieldWithPlaceholder:IMLocalized(@"login.host.placeholder") text:[self defaultHost] keyboard:UIKeyboardTypeURL secure:NO];
+    self.hostInput = [self defaultHost];
     // 用户名规则与服务端 ^[a-z0-9_]{5,32}$ 对齐（后端权威校验，这里只做提示与键盘优化）。
     self.userIDField   = [self fieldWithPlaceholder:IMLocalized(@"login.username.placeholder") text:@"" keyboard:UIKeyboardTypeASCIICapable secure:NO];
     self.userIDField.autocapitalizationType = UITextAutocapitalizationTypeNone;
@@ -111,10 +117,15 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
     self.devButton.hidden = YES; // 仅 Debug 包显示免密入口（Android 同口径：release 不显示）
 #endif
 
-    // —— 服务器地址（开发期常要改，收在一个可折叠行里）——
-    self.hostToggleButton = [self buttonTitle:@"" config:[UIButtonConfiguration plainButtonConfiguration] action:@selector(hostToggleTapped)];
-    self.hostField.hidden = YES;
-    [self refreshHostToggleTitle];
+    // —— 服务器地址：这里只显示，修改走长按 Logo（见 logoLongPressed:）——
+    self.serverLabel = [UILabel new];
+    self.serverLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    self.serverLabel.font = [UIFont systemFontOfSize:13];
+    self.serverLabel.textColor = UIColor.secondaryLabelColor;
+    self.serverLabel.textAlignment = NSTextAlignmentCenter;
+    self.serverLabel.numberOfLines = 0;
+    self.serverLabel.accessibilityIdentifier = @"login.server_label";
+    [self refreshServerLabel];
 
     self.agreeFooter = [self buildAgreeFooter];
 
@@ -128,7 +139,7 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
         [self logoView], [self titleLabelView], tabs,
         self.userIDField, self.passwordField, self.nicknameField, self.registerHintLabel, self.errorLabel,
-        self.loginButton, self.registerButton, self.devButton, self.hostToggleButton, self.hostField, self.agreeFooter
+        self.loginButton, self.registerButton, self.devButton, self.serverLabel, self.agreeFooter
     ]];
     stack.axis = UILayoutConstraintAxisVertical;
     stack.spacing = 12;
@@ -193,6 +204,8 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
     icon.tintColor = UIColor.whiteColor;
     [box addSubview:icon];
     [holder addSubview:box];
+    box.accessibilityIdentifier = @"login.logo";
+    [box addGestureRecognizer:[[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(logoLongPressed:)]];
     [NSLayoutConstraint activateConstraints:@[
         [box.widthAnchor constraintEqualToConstant:80], [box.heightAnchor constraintEqualToConstant:80],
         [box.topAnchor constraintEqualToAnchor:holder.topAnchor], [box.bottomAnchor constraintEqualToAnchor:holder.bottomAnchor],
@@ -240,21 +253,70 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
     button.configuration = config;
 }
 
-- (void)hostToggleTapped {
-    self.hostField.hidden = !self.hostField.hidden;
-    if (self.hostField.hidden) { [self.hostField resignFirstResponder]; }
-    [self refreshHostToggleTitle];
+- (void)refreshServerLabel {
+    self.serverLabel.text = IMLocalizedFormat(@"login.server_summary", self.hostInput);
 }
 
-- (void)refreshHostToggleTitle {
-    NSString *host = [self trimmed:self.hostField.text];
-    NSString *title = self.hostField.hidden ? IMLocalizedFormat(@"login.server_summary", host) : IMLocalized(@"login.server_address");
-    UIButtonConfiguration *config = [UIButtonConfiguration plainButtonConfiguration];
-    config.baseForegroundColor = UIColor.secondaryLabelColor;
-    self.hostToggleButton.configuration = config;
-    // 必须走 setTitle:——buttonTitle: 里设过的空串会覆盖 configuration.title
-    [self.hostToggleButton setTitle:title forState:UIControlStateNormal];
-    [self.hostToggleButton invalidateIntrinsicContentSize];
+#pragma mark - 长按 Logo：配置服务器 / 音视频地址
+
+- (void)logoLongPressed:(UILongPressGestureRecognizer *)gesture {
+    if (gesture.state != UIGestureRecognizerStateBegan || self.submitting || self.presentedViewController) { return; }
+    [self.view endEditing:YES];
+    [self presentEndpointConfigWithHost:self.hostInput rtc:IMRtcConfig.load.wsURL error:nil];
+}
+
+- (void)presentEndpointConfigWithHost:(NSString *)host rtc:(NSString *)rtc error:(nullable NSString *)error {
+    NSString *hint = IMLocalized(@"login.endpoint_config.hint");
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:IMLocalized(@"login.endpoint_config.title")
+                                                                message:error.length > 0 ? [NSString stringWithFormat:@"%@\n%@", error, hint] : hint
+                                                         preferredStyle:UIAlertControllerStyleAlert];
+    [ac addTextFieldWithConfigurationHandler:^(UITextField *field) {
+        [self configureEndpointField:field text:host placeholder:IMLocalized(@"login.host.placeholder")];
+    }];
+    [ac addTextFieldWithConfigurationHandler:^(UITextField *field) {
+        [self configureEndpointField:field text:rtc placeholder:IMLocalized(@"login.rtc_address.placeholder")];
+    }];
+    [ac addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
+    __weak typeof(self) weakSelf = self;
+    __weak UIAlertController *weakAlert = ac;
+    [ac addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.save") style:UIAlertActionStyleDefault
+                                         handler:^(UIAlertAction *action) {
+        [weakSelf saveEndpointHost:weakAlert.textFields[0].text rtc:weakAlert.textFields[1].text];
+    }]];
+    [self presentViewController:ac animated:YES completion:nil];
+}
+
+- (void)configureEndpointField:(UITextField *)field text:(NSString *)text placeholder:(NSString *)placeholder {
+    field.text = text;
+    field.placeholder = placeholder;
+    field.keyboardType = UIKeyboardTypeURL;
+    field.autocorrectionType = UITextAutocorrectionTypeNo;
+    field.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    field.clearButtonMode = UITextFieldViewModeWhileEditing;
+}
+
+/// 两项都合法才落盘，否则重新弹窗并保留已填内容。留空 = 恢复默认。
+/// 服务器协议**不写**全局 IMServerEndpoint——真正提交地址在点登录/注册时才发生（同 openLegalPath:）。
+- (void)saveEndpointHost:(NSString *)rawHost rtc:(NSString *)rawRTC {
+    NSString *hostText = [self trimmed:rawHost];
+    NSString *rtcText = [self trimmed:rawRTC];
+    NSString *scheme = nil, *host = nil;
+    if (hostText.length > 0 && ![IMServerEndpoint parseInput:hostText scheme:&scheme host:&host]) {
+        [self presentEndpointConfigWithHost:hostText rtc:rtcText error:IMLocalized(@"login.error.host_invalid")];
+        return;
+    }
+    NSString *rtcURL = [IMRtcConfig normalizedWSURL:rtcText];
+    if (rtcText.length > 0 && !rtcURL) {
+        [self presentEndpointConfigWithHost:hostText rtc:rtcText error:IMLocalized(@"login.error.rtc_url_invalid")];
+        return;
+    }
+    NSString *remembered = host ? [IMServerEndpoint rememberedInputForScheme:scheme host:host] : nil;
+    [NSUserDefaults.standardUserDefaults setObject:remembered forKey:kIMLastHostKey]; // nil = 删除，回退内置默认
+    [IMRtcConfig saveWSURLOverride:rtcURL];
+    self.hostInput = remembered ?: [self builtinHost];
+    [self refreshServerLabel];
+    [self showError:@""];
+    IMLogUI(@"login_endpoint_saved host=%@ rtc=%@", self.hostInput, IMRtcConfig.load.wsURL);
 }
 
 #pragma mark - 同意提示（隐式同意，批②）
@@ -305,9 +367,9 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
     return NO; // 自己用 SFSafariViewController 呈现，不交给系统
 }
 
-/// 用登录页当前填写的服务器地址拼法务页链接并在应用内浏览器打开（法务页是公开静态页，不带 token / Cookie）。
+/// 用登录页当前的服务器地址拼法务页链接并在应用内浏览器打开（法务页是公开静态页，不带 token / Cookie）。
 - (void)openLegalPath:(NSString *)path {
-    NSString *raw = [self trimmed:self.hostField.text];
+    NSString *raw = [self trimmed:self.hostInput];
     NSString *scheme = nil, *host = nil;
     if (raw.length == 0 || ![IMServerEndpoint parseInput:raw scheme:&scheme host:&host]) {
         [self showError:IMLocalized(@"login.error.host_required")];
@@ -488,15 +550,15 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
     }
 }
 
-/// 解析服务器地址输入框：接受 `host:port` 与 `http(s)://host:port` 两种写法。
+/// 解析当前服务器地址：接受 `host:port` 与 `http(s)://host:port` 两种写法。
 /// 协议记进 IMServerEndpoint（全 App 唯一权威）并持久化；返回纯 `host:port`——
 /// App 内各处仍按 host 串传递，协议不再各自拼字面量。
 /// 非法或为空时**已经把错误显示出来**并返回空串，调用方直接 return 即可。
 ///
-/// 这是「以后换 https 不用改代码」的落点：用户把地址改成 `https://im.example.com` 就整端切换，
+/// 这是「以后换 https 不用改代码」的落点：用户（长按 Logo）把地址改成 `https://im.example.com` 就整端切换，
 /// HTTP / WebSocket / 媒体补全 / 日志上报四路一起走 TLS。
 - (NSString *)resolvedHostOrShowError {
-    NSString *raw = [self trimmed:self.hostField.text];
+    NSString *raw = [self trimmed:self.hostInput];
     if (raw.length == 0) {
         [self showError:IMLocalized(@"login.error.host_required")];
         return @"";
@@ -524,8 +586,7 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
     [IMHTTPService.sharedService invalidateToken];
     // 记住，下次免重填。**带上协议**：只存 host 的话，这次填的 https 下次回填成裸 host，
     // 又静默退回默认的 http（用户看不出来，只会觉得"怎么又不加密了"）。
-    NSString *remembered = IMServerEndpoint.shared.isSecure
-        ? [@"https://" stringByAppendingString:host] : host;
+    NSString *remembered = [IMServerEndpoint rememberedInputForScheme:IMServerEndpoint.shared.scheme host:host];
     [NSUserDefaults.standardUserDefaults setObject:remembered forKey:kIMLastHostKey];
 }
 
@@ -634,7 +695,7 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
     // 不能因为「此刻不在窗口里」就跳过：弹出应用内浏览器（服务条款链接）时键盘收起的通知会在登录页离屏时到达，
     // 跳过的话回来后整列还停在上移的位置。离屏也能布局和量，直接算。
     if (!self.isViewLoaded) { return; }
-    [self.view layoutIfNeeded]; // 刚切到二步页 / 刚展开地址框时那一列的高度还没重排，先结算再量，否则整列会多上移一截
+    [self.view layoutIfNeeded]; // 刚切到二步页时那一列的高度还没重排，先结算再量，否则整列会多上移一截
     CGFloat keyboardTop = self.keyboardTop > 0 ? self.keyboardTop : CGRectGetMaxY(self.view.bounds);
     CGFloat lift = 0;
     if (!self.twoStepView.hidden) {
@@ -643,7 +704,7 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
         lift = IMLoginKeyboardLift(bottomAtRest, keyboardTop);
     } else {
         UITextField *active = nil;
-        for (UITextField *f in @[self.hostField, self.userIDField, self.nicknameField, self.passwordField]) {
+        for (UITextField *f in @[self.userIDField, self.nicknameField, self.passwordField]) {
             if (f.isFirstResponder && !f.hidden) { active = f; break; }
         }
         if (active) {
@@ -652,12 +713,9 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
             CGRect frame = [self.view convertRect:active.bounds fromView:active];
             CGFloat bottomAtRest = CGRectGetMaxY(frame) + currentLift;
             // 用户名 / 密码 / 昵称框填完就是点主按钮（登录 / 注册）：按钮也要露在键盘之上，不能只保证输入框可见。
-            // 服务器地址框在按钮下面，仍只管它自己。
-            if (active != self.hostField) {
-                UIButton *action = self.registerMode ? self.registerButton : self.loginButton;
-                CGRect buttonFrame = [self.view convertRect:action.bounds fromView:action];
-                bottomAtRest = MAX(bottomAtRest, CGRectGetMaxY(buttonFrame) + currentLift);
-            }
+            UIButton *action = self.registerMode ? self.registerButton : self.loginButton;
+            CGRect buttonFrame = [self.view convertRect:action.bounds fromView:action];
+            bottomAtRest = MAX(bottomAtRest, CGRectGetMaxY(buttonFrame) + currentLift);
             lift = IMLoginKeyboardLift(bottomAtRest, keyboardTop);
             // 矮屏（横屏 / 大字号）放不下时，宁可让输入框下沿贴着键盘，也不能把输入框自己顶出安全区上沿。
             CGFloat topAtRest = CGRectGetMinY(frame) + currentLift;

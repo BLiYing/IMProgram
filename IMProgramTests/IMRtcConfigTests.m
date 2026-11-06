@@ -10,6 +10,29 @@
 
 @implementation IMRtcConfigTests
 
+#pragma mark - 本机信令地址（登录页长按 Logo 保存）
+
+- (void)testNormalizedWSURLAcceptsWebSocketAddresses {
+    XCTAssertEqualObjects([IMRtcConfig normalizedWSURL:@"ws://47.250.219.159:8787/v1/ws"], @"ws://47.250.219.159:8787/v1/ws");
+    XCTAssertEqualObjects([IMRtcConfig normalizedWSURL:@"  wss://rtc.example.com/v1/ws\n"], @"wss://rtc.example.com/v1/ws");
+}
+
+- (void)testNormalizedWSURLRejectsInvalidAddresses {
+    for (NSString *input in @[@"", @"   ", @"http://h:8787/v1/ws", @"h:8787/v1/ws", @"ws://", @"ws://a b/v1/ws", @"ws://h:port/v1/ws"]) {
+        XCTAssertNil([IMRtcConfig normalizedWSURL:input], @"%@", input);
+    }
+    XCTAssertNil([IMRtcConfig normalizedWSURL:nil]);
+}
+
+- (void)testSavedOverrideWinsAndClearingRestoresDefault {
+    NSString *defaultURL = IMRtcConfig.load.wsURL;
+    [self addTeardownBlock:^{ [IMRtcConfig saveWSURLOverride:nil]; }];
+    [IMRtcConfig saveWSURLOverride:@"ws://override.example.com:8787/v1/ws"];
+    XCTAssertEqualObjects(IMRtcConfig.load.wsURL, @"ws://override.example.com:8787/v1/ws");
+    [IMRtcConfig saveWSURLOverride:nil];
+    XCTAssertEqualObjects(IMRtcConfig.load.wsURL, defaultURL);
+}
+
 #pragma mark - 缺项判定
 
 - (void)testUsableWhenWsUrlPresent {
