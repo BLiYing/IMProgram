@@ -619,7 +619,7 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
 }
 
 /// 键盘顶起：当前输入框（二步页则是整个二步表单）必须在键盘之上可见，小屏也要。
-/// 登录页本身没有滚动容器，直接上移整列。
+/// 登录页本身没有滚动容器，直接上移整列。编辑用户名 / 密码 / 昵称时，以主按钮（登录 / 注册）的下沿为准。
 - (void)keyboardWillChange:(NSNotification *)note {
     CGRect end = [self.view convertRect:[note.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue] fromView:nil];
     self.keyboardTop = MIN(end.origin.y, CGRectGetMaxY(self.view.bounds));
@@ -631,7 +631,9 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
 }
 
 - (void)liftForKeyboardWithDuration:(NSTimeInterval)duration {
-    if (!self.isViewLoaded || self.view.window == nil) { return; }
+    // 不能因为「此刻不在窗口里」就跳过：弹出应用内浏览器（服务条款链接）时键盘收起的通知会在登录页离屏时到达，
+    // 跳过的话回来后整列还停在上移的位置。离屏也能布局和量，直接算。
+    if (!self.isViewLoaded) { return; }
     [self.view layoutIfNeeded]; // 刚切到二步页 / 刚展开地址框时那一列的高度还没重排，先结算再量，否则整列会多上移一截
     CGFloat keyboardTop = self.keyboardTop > 0 ? self.keyboardTop : CGRectGetMaxY(self.view.bounds);
     CGFloat lift = 0;
@@ -647,8 +649,20 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
         if (active) {
             // 此刻量到的是已上移后的位置，加回当前上移量才是静止位置。
             CGFloat currentLift = kIMLoginStackTop - self.stackTopConstraint.constant;
-            CGFloat bottomAtRest = CGRectGetMaxY([self.view convertRect:active.bounds fromView:active]) + currentLift;
+            CGRect frame = [self.view convertRect:active.bounds fromView:active];
+            CGFloat bottomAtRest = CGRectGetMaxY(frame) + currentLift;
+            // 用户名 / 密码 / 昵称框填完就是点主按钮（登录 / 注册）：按钮也要露在键盘之上，不能只保证输入框可见。
+            // 服务器地址框在按钮下面，仍只管它自己。
+            if (active != self.hostField) {
+                UIButton *action = self.registerMode ? self.registerButton : self.loginButton;
+                CGRect buttonFrame = [self.view convertRect:action.bounds fromView:action];
+                bottomAtRest = MAX(bottomAtRest, CGRectGetMaxY(buttonFrame) + currentLift);
+            }
             lift = IMLoginKeyboardLift(bottomAtRest, keyboardTop);
+            // 矮屏（横屏 / 大字号）放不下时，宁可让输入框下沿贴着键盘，也不能把输入框自己顶出安全区上沿。
+            CGFloat topAtRest = CGRectGetMinY(frame) + currentLift;
+            CGFloat safeTop = self.view.safeAreaLayoutGuide.layoutFrame.origin.y;
+            lift = MIN(lift, MAX(0, topAtRest - safeTop));
         }
     }
     CGFloat target = kIMLoginStackTop - lift;
