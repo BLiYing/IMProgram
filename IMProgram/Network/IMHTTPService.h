@@ -490,7 +490,8 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
 /// 客户端不必知道自己的 sid，服务端从 bearer 里取。
 ///
 /// 调用方按 **best-effort** 处理：无论成败都要继续清本地会话并回登录页——网络不好时不能把
-/// 用户困在"退不出去"的状态里（服务端会话最坏就是等它自然过期）。completion 在主线程回调。
+/// 用户困在"退不出去"的状态里。completion 在主线程回调。
+/// **只用于没有续期凭据的老会话**：有凭据时走 IMPendingLogoutQueue，失败会重试。
 - (void)logoutWithToken:(NSString *)token
              completion:(void (^)(NSError *_Nullable error))completion;
 

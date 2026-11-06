@@ -12,6 +12,7 @@
 #import "IMDownloadSettingsStore.h"
 #import "IMServerConfigStore.h"
 #import "IMPushTokenManager.h"
+#import "IMPendingLogoutQueue.h"
 #import "IMAccountNotifySettingsSync.h"
 #import "IMChatFolderStore.h"
 #import "IMPendingNotificationRoute.h"
@@ -46,6 +47,7 @@
     [[IMDownloadSettingsStore shared] start];  // 自动下载策略：拉取 + 监听 capabilities_update 重拉（登录后 token 就绪即拉）
     [[IMServerConfigStore shared] start];      // 部署级配额/能力（群上限、是否提供超级群）：登录后拉一次
     [[IMPushTokenManager shared] start];             // M5：登录/每次(重)连即尝试注册推送令牌
+    [[IMPendingLogoutQueue shared] start];           // 补发上次没成功的退出吊销（与当前是否登录无关）
     [[IMAccountNotifySettingsSync shared] start];    // M5：账号级通知设置迁移/多端同步
     [[IMChatFolderStore shared] start];              // 聊天文件夹：folder_update 帧 / 重连补拉
     return YES;

@@ -29,6 +29,8 @@
 #import "IMTheme.h"
 #import "UILabel+IMAvatar.h"
 #import "IMHTTPService.h"
+#import "IMPendingLogoutQueue.h"
+#import "IMServerEndpoint.h"
 #import "IMUserCard.h"
 #import "IMLog.h"
 #import "IMGlass.h"
@@ -674,11 +676,18 @@
     //    还能换新 token，且这台设备会一直留在别处看到的「已登录设备」列表里（见 IMHTTPService
     //    的 logoutWithToken: 注释）。请求在这里**同步构造完毕**（token 已写进请求头），
     //    所以下面立刻清本地不会影响它。
-    // ② **best-effort、不等回调**：网络不好时不能把用户困在"退不出去"的状态里——本地一定要退掉，
-    //    服务端会话最坏就是等它自然过期。失败只记日志，不弹错、不阻塞。
-    NSString *token = IMHTTPService.sharedService.currentToken;
-    if (token.length > 0) {
-        [IMHTTPService.sharedService logoutWithToken:token completion:^(NSError *error) {
+    // ② **不等回调**：网络不好时不能把用户困在"退不出去"的状态里，本地一定要退掉。
+    // ③ 优先走续期凭据的吊销队列：失败会自动重试（access token 过期也不影响）。否则服务端会话和
+    //    推送令牌留在那里，这台已退出的设备会继续收到离线通知（LOGOUT_REVOKE_RETRY_DESIGN）。
+    //    没有续期凭据的老会话没法排队，退回只发一次 /logout。
+    IMHTTPService *http = IMHTTPService.sharedService;
+    NSString *refreshToken = http.refreshToken.length > 0 ? http.refreshToken : IMSessionStore.refreshToken;
+    NSURL *revokeURL = [IMServerEndpoint.shared httpURLForHost:http.host path:@"/api/v1/logout/refresh"];
+    NSString *token = http.currentToken;
+    if (refreshToken.length > 0 && revokeURL) {
+        [IMPendingLogoutQueue.shared enqueueRefreshToken:refreshToken url:revokeURL];
+    } else if (token.length > 0) {
+        [http logoutWithToken:token completion:^(NSError *error) {
             if (error) { IMLogWarnWithTag(IMLogTagHTTP, @"logout_revoke_failed: %@", error.localizedDescription ?: @"-"); }
         }];
     }

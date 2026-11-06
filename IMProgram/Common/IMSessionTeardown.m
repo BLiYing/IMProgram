@@ -1,6 +1,7 @@
 //  IMSessionTeardown.m
 
 #import "IMSessionTeardown.h"
+#import <UserNotifications/UserNotifications.h>
 #import "IMRtcCall.h"
 #import "IMSocketManager.h"
 #import "IMHTTPService.h"
@@ -28,6 +29,8 @@ static BOOL sAccountDeletionInProgress = NO;
     [IMHTTPService.sharedService invalidateToken];
     IMHTTPService.sharedService.refreshToken = nil; // 内存里的续期凭据也要清，否则本进程内还能换到 token
     [IMSessionStore clear]; // 清持久化会话，下次启动回登录页
+    // 通知中心里可能还有这个账号的消息内容，人已退出就不该再留着（被踢、注销同样如此）。
+    [UNUserNotificationCenter.currentNotificationCenter removeAllDeliveredNotifications];
 }
 
 + (NSArray<NSURL *> *)ownedMediaCacheDirectories {
