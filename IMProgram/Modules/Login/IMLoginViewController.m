@@ -17,6 +17,14 @@
 #import <SafariServices/SafariServices.h>
 
 static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过的 host
+/// 整列距安全区顶部的静止间距；键盘顶起时在此基础上减去上移量。
+static const CGFloat kIMLoginStackTop = 32;
+/// 输入框下沿与键盘上沿之间留的空隙。
+static const CGFloat kIMLoginKeyboardGap = 12;
+
+CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
+    return MAX(0, fieldBottom - (keyboardTop - kIMLoginKeyboardGap));
+}
 
 @interface IMLoginViewController () <UITextViewDelegate>
 @property (nonatomic, strong) UITextField *hostField;
@@ -43,6 +51,8 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
 @property (nonatomic, copy) NSString *twoStepUsername;
 @property (nonatomic, copy) NSArray<UIView *> *viewsHiddenForTwoStep; ///< 进二步页前可见的控件，返回时原样恢复
 @property (nonatomic, strong) NSLayoutConstraint *stackTopConstraint;
+/// 最近一次键盘上沿（登录页坐标）；0 = 还没收到过键盘通知，按键盘未弹出处理。
+@property (nonatomic, assign) CGFloat keyboardTop;
 /// 底部「继续即表示同意《服务条款》和《隐私政策》」：隐式同意（无勾选框），两段链接走应用内浏览器（ABOUT_LEGAL_DESIGN 批②）。
 @property (nonatomic, strong) UITextView *agreeFooter;
 @end
@@ -134,7 +144,7 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
         [stack.leadingAnchor constraintEqualToAnchor:guide.leadingAnchor constant:24],
         [stack.trailingAnchor constraintEqualToAnchor:guide.trailingAnchor constant:-24],
     ]];
-    self.stackTopConstraint = [stack.topAnchor constraintEqualToAnchor:guide.topAnchor constant:32];
+    self.stackTopConstraint = [stack.topAnchor constraintEqualToAnchor:guide.topAnchor constant:kIMLoginStackTop];
     self.stackTopConstraint.active = YES;
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyboardWillChange:)
                                                name:UIKeyboardWillChangeFrameNotification object:nil];
@@ -152,6 +162,8 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
     field.secureTextEntry = secure;
     field.autocorrectionType = UITextAutocorrectionTypeNo;
     field.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    // 同一个键盘下切换输入框时系统不再发键盘通知，要靠开始编辑事件重新算上移量。
+    [field addTarget:self action:@selector(fieldDidBeginEditing:) forControlEvents:UIControlEventEditingDidBegin];
     [field.heightAnchor constraintEqualToConstant:44].active = YES;
     return field;
 }
@@ -230,6 +242,7 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
 
 - (void)hostToggleTapped {
     self.hostField.hidden = !self.hostField.hidden;
+    if (self.hostField.hidden) { [self.hostField resignFirstResponder]; }
     [self refreshHostToggleTitle];
 }
 
@@ -564,7 +577,7 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
     self.twoStepView.hidden = YES;
     for (UIView *v in self.viewsHiddenForTwoStep) { v.hidden = NO; }
     self.viewsHiddenForTwoStep = @[];
-    self.stackTopConstraint.constant = 32;
+    self.stackTopConstraint.constant = kIMLoginStackTop;
 }
 
 - (void)submitTwoStepCode:(NSString *)code recovery:(BOOL)recovery {
@@ -605,18 +618,43 @@ static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过�
     if (action == IMTwoStepLoginActionRetryCode) { [self.twoStepView clearCodeAndRefocus]; }
 }
 
-/// 键盘顶起：二步页的输入框与按钮必须同时在键盘之上可见（小屏也要）。登录页本身没有滚动容器，直接上移整列。
+/// 键盘顶起：当前输入框（二步页则是整个二步表单）必须在键盘之上可见，小屏也要。
+/// 登录页本身没有滚动容器，直接上移整列。
 - (void)keyboardWillChange:(NSNotification *)note {
-    if (self.twoStepView.hidden) { return; }
-    [self.view layoutIfNeeded]; // 刚切到二步页时登录页那一列的高度还没重排，先结算再量，否则整列会多上移一截
     CGRect end = [self.view convertRect:[note.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue] fromView:nil];
-    CGFloat keyboardTop = MIN(end.origin.y, CGRectGetMaxY(self.view.bounds));
-    CGFloat safeTop = self.view.safeAreaLayoutGuide.layoutFrame.origin.y;
-    CGFloat baseBottom = safeTop + 32 + self.mainStack.bounds.size.height;
-    CGFloat shift = MAX(0, baseBottom - (keyboardTop - 12));
-    self.stackTopConstraint.constant = MAX(4, 32 - shift);
-    NSTimeInterval d = [note.userInfo[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
-    [UIView animateWithDuration:d animations:^{ [self.view layoutIfNeeded]; }];
+    self.keyboardTop = MIN(end.origin.y, CGRectGetMaxY(self.view.bounds));
+    [self liftForKeyboardWithDuration:[note.userInfo[UIKeyboardAnimationDurationUserInfoKey] doubleValue]];
+}
+
+- (void)fieldDidBeginEditing:(UITextField *)field {
+    [self liftForKeyboardWithDuration:0.25];
+}
+
+- (void)liftForKeyboardWithDuration:(NSTimeInterval)duration {
+    if (!self.isViewLoaded || self.view.window == nil) { return; }
+    [self.view layoutIfNeeded]; // 刚切到二步页 / 刚展开地址框时那一列的高度还没重排，先结算再量，否则整列会多上移一截
+    CGFloat keyboardTop = self.keyboardTop > 0 ? self.keyboardTop : CGRectGetMaxY(self.view.bounds);
+    CGFloat lift = 0;
+    if (!self.twoStepView.hidden) {
+        CGFloat safeTop = self.view.safeAreaLayoutGuide.layoutFrame.origin.y;
+        CGFloat bottomAtRest = safeTop + kIMLoginStackTop + self.mainStack.bounds.size.height;
+        lift = IMLoginKeyboardLift(bottomAtRest, keyboardTop);
+    } else {
+        UITextField *active = nil;
+        for (UITextField *f in @[self.hostField, self.userIDField, self.nicknameField, self.passwordField]) {
+            if (f.isFirstResponder && !f.hidden) { active = f; break; }
+        }
+        if (active) {
+            // 此刻量到的是已上移后的位置，加回当前上移量才是静止位置。
+            CGFloat currentLift = kIMLoginStackTop - self.stackTopConstraint.constant;
+            CGFloat bottomAtRest = CGRectGetMaxY([self.view convertRect:active.bounds fromView:active]) + currentLift;
+            lift = IMLoginKeyboardLift(bottomAtRest, keyboardTop);
+        }
+    }
+    CGFloat target = kIMLoginStackTop - lift;
+    // 二步页保持原有下限 4pt；登录页整列可以顶出屏幕上沿（Logo 被顶走没关系，输入框要看得见）。
+    self.stackTopConstraint.constant = self.twoStepView.hidden ? target : MAX(4, target);
+    [UIView animateWithDuration:duration animations:^{ [self.view layoutIfNeeded]; }];
 }
 
 - (NSString *)trimmed:(NSString *)text {
