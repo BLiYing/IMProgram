@@ -217,6 +217,44 @@
     XCTAssertEqual(queue.pendingCount, 0u);
 }
 
+/// 回前台和网络恢复的通知常常一起到：发送途中再触发一次，刚失败的条目不能被立刻连环重发。
+- (void)testRepeatedTriggerDoesNotResendJustFailedEntries {
+    NSMutableArray<void (^)(NSError *)> *completions = [NSMutableArray array];
+    NSMutableArray<NSString *> *sent = [NSMutableArray array];
+    IMPendingLogoutQueue *queue = [[IMPendingLogoutQueue alloc] initWithStorage:self.storage
+                                                                         sender:^(NSString *token, NSURL *url, void (^completion)(NSError *)) {
+        [sent addObject:token];
+        [completions addObject:[completion copy]];
+    }];
+    queue.retryInterval = 3600;
+    [queue enqueueRefreshToken:@"t1" url:[self url]];
+    [queue flush]; // 一轮进行中又被触发
+    [queue flush];
+    completions[0]([self networkError]);
+    XCTAssertEqualObjects(sent, @[@"t1"], @"没有新条目，不该立刻再发一遍");
+    XCTAssertEqual(queue.pendingCount, 1u);
+}
+
+/// Keychain 读失败（设备尚未首次解锁）时盘上可能有待吊销的凭据：不能就此放弃，要稍后再读。
+- (void)testReadFailureAtFlushRetriesLater {
+    self.nextError = [self networkError];
+    [[self makeQueue] enqueueRefreshToken:@"old" url:[self url]];
+    [self.sentTokens removeAllObjects];
+
+    self.storage.readFails = YES;
+    self.nextError = nil;
+    IMPendingLogoutQueue *queue = [self makeQueue];
+    queue.retryInterval = 0.05;
+    [queue flush];
+    XCTAssertEqual(self.sentTokens.count, 0u, @"读不到时没东西可发");
+
+    self.storage.readFails = NO; // 解锁了
+    XCTestExpectation *sent = [self expectationWithDescription:@"稍后重读后补发"];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ [sent fulfill]; });
+    [self waitForExpectations:@[sent] timeout:2];
+    XCTAssertEqualObjects(self.sentTokens, @[@"old"]);
+}
+
 #pragma mark - Keychain
 
 - (void)testKeychainStorageRoundTrip {

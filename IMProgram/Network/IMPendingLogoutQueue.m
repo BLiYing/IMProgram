@@ -105,6 +105,7 @@ BOOL IMPendingLogoutShouldRetry(NSError *error) {
     BOOL _flushing;
     BOOL _flushAgain;
     BOOL _retryScheduled;
+    NSSet<NSString *> *_passTokens; ///< 当前这一轮发的是哪些，用来判断中途有没有新入队的
 }
 
 + (instancetype)shared {
@@ -172,8 +173,13 @@ BOOL IMPendingLogoutShouldRetry(NSError *error) {
         _flushAgain = YES;
         return;
     }
-    if (_entries.count == 0) { return; }
+    if (_entries.count == 0) {
+        // Keychain 读失败（如设备尚未首次解锁）时这里也是空的，但盘上可能有待吊销的凭据：别当成没事，稍后再读。
+        if (!_loaded) { [self scheduleRetry]; }
+        return;
+    }
     _flushing = YES;
+    _passTokens = [NSSet setWithArray:[_entries valueForKey:kIMEntryTokenKey]];
     [self sendEntries:[_entries copy] index:0 anyRetry:NO];
 }
 
@@ -210,10 +216,18 @@ BOOL IMPendingLogoutShouldRetry(NSError *error) {
 
 - (void)finishPassWithRetry:(BOOL)anyRetry {
     _flushing = NO;
-    if (_flushAgain) {
-        _flushAgain = NO;
-        [self flush];
-        return;
+    BOOL again = _flushAgain;
+    _flushAgain = NO;
+    // 只有中途新入队了没发过的才立刻再跑一轮。回前台和网络恢复的通知常常一起到，不加这个判断，
+    // 刚失败的条目会被连环重发到一个连不上的服务器。
+    if (again) {
+        NSArray *tokens = [_entries valueForKey:kIMEntryTokenKey];
+        for (NSString *token in tokens) {
+            if (![_passTokens containsObject:token]) {
+                [self flush];
+                return;
+            }
+        }
     }
     if (anyRetry) { [self scheduleRetry]; }
 }
