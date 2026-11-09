@@ -52,8 +52,13 @@ extern NSString * const kIMMsgOpRecalledAtKey;
 extern NSString * const kIMMsgOpRecalledByKey;
 extern NSString * const kIMMsgOpEditedAtKey;
 extern NSString * const kIMMsgOpPinnedAtKey;
-/// 我发起的消息操作被拒（如撤回超时）时广播（主线程）：userInfo[@"message"]=服务端文案。
+/// 我发起的消息操作被拒（如撤回超时 / 编辑含敏感词 100004）时广播（主线程）。userInfo：
+/// kIMMsgOpRejectMessageKey=提示文案（已按业务码本地化）、kIMMsgOpRejectCodeKey=业务码（NSNumber）、
+/// kIMMsgOpRejectPayloadKey=当初发出的 msg_op 负载（op / conv_id / target_conv_seq / content…）。
 extern NSString * const IMSocketDidRejectMsgOpNotification;
+extern NSString * const kIMMsgOpRejectMessageKey;
+extern NSString * const kIMMsgOpRejectCodeKey;
+extern NSString * const kIMMsgOpRejectPayloadKey;
 /// 某条消息被物理移除（任务2：为所有人删除 op=delete / 仅为我删除 msg_hidden）时广播（主线程）：
 /// 聊天页/详情文件列表据此移除该条（区别于撤回的"改状态显墓碑"）。userInfo：kIMConvIDKey、kIMMsgOpTargetSeqKey(NSNumber)。
 extern NSString * const IMSocketDidRemoveMessageNotification;

@@ -7,6 +7,8 @@
 #import "IMLocalization.h"
 #import "IMPendingMediaStore.h"
 #import "IMServerConfigStore.h"
+#import "IMSocketManager.h"
+#import "IMProtocol.h"
 
 BOOL IMChatTextContainsMentionToken(NSString *_Nullable text, NSString *_Nullable displayName) {
     if (text.length == 0 || displayName.length == 0) { return NO; }
@@ -123,7 +125,7 @@ IMResendPolicy IMResendPolicyForMessage(IMMessageModel *message, BOOL mine) {
         return IMResendPolicyRetryUpload;
     }
     // 被服务端明确拒收（拉黑 200102 / 非好友 200103 / 禁言 300004·300208 / 全员禁言 300206 /
-    // 非群成员 300203 / 内容过大 300001）：原样重发必然再次被拒，给入口只是让用户白等一轮超时。
+    // 非群成员 300203 / 内容过大 300001 / 敏感词 100004）：原样重发必然再次被拒，给入口只是让用户白等一轮超时。
     // 这些消息的恢复入口是气泡下方系统行（如 200103 → 发好友申请），不是红❗。
     // 语音"发送中断，请重新录制"那条也带 note，同样落到这里——它 content 为空，本就无从重发。
     if (message.note.length > 0) { return IMResendPolicyNone; }
@@ -146,6 +148,7 @@ BOOL IMSendRejectionShowsNote(NSInteger code) {
         case 300203:                                   // 非群成员
         case 300001:                                   // 内容过大
         case 300003:                                   // 对方账号已注销（无恢复入口，灰字说明即可；不给红❗重发）
+        case 100004:                                   // 内容含敏感词被拦（原样重发必然再被拦；文本留在气泡里可复制改后再发）
             return YES;
         default:
             return NO;
@@ -156,6 +159,14 @@ NSString *IMSendRejectionNote(BOOL success, NSError *error, NSInteger *outNoteCo
     NSString *note = (!success && error && IMSendRejectionShowsNote(error.code)) ? error.localizedDescription : nil;
     if (outNoteCode) { *outNoteCode = note ? error.code : 0; }
     return note;
+}
+
+NSString *IMRejectedEditDraft(NSDictionary *userInfo, NSString *convID) {
+    if ([userInfo[kIMMsgOpRejectCodeKey] integerValue] != 100004 || convID.length == 0) { return nil; }
+    NSDictionary *op = [userInfo[kIMMsgOpRejectPayloadKey] isKindOfClass:NSDictionary.class] ? userInfo[kIMMsgOpRejectPayloadKey] : nil;
+    if (![op[@"op"] isEqual:kIMMsgOpEdit] || ![op[@"conv_id"] isEqual:convID]) { return nil; }
+    NSString *content = [op[@"content"] isKindOfClass:NSString.class] ? op[@"content"] : nil;
+    return content.length > 0 ? content : nil;
 }
 
 IMAlbumTickState IMAlbumTickStateForMembers(NSArray<IMMessageModel *> *members, BOOL mine, int64_t peerReadSeq) {

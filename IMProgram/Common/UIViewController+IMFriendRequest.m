@@ -119,12 +119,18 @@ static NSString *IMHelloTruncate(NSString *t, NSUInteger max) {
 - (void)im_askFriendRequestForUID:(NSString *)uid
                              name:(NSString *)name
                            onSent:(void (^)(BOOL))onSent {
+    [self im_askFriendRequestForUID:uid name:name hello:nil notice:nil onSent:onSent];
+}
+
+/// hello/notice 非空 = 上次附言被敏感词拦下（100004）后重开：回填被拦的附言，说明行换成拦截原因（内容保留）。
+- (void)im_askFriendRequestForUID:(NSString *)uid name:(NSString *)name hello:(NSString *)prefill
+                           notice:(NSString *)notice onSent:(void (^)(BOOL))onSent {
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0 || uid.length == 0) { return; }
     NSString *shown = name.length > 0 ? name : IMLocalized(@"friend.request.peer_fallback");
     UIAlertController *alert =
         [UIAlertController alertControllerWithTitle:IMLocalized(@"common.add_friend")
-                                            message:IMLocalizedFormat(@"friend.request.alert_message", shown)
+                                            message:(notice.length ? notice : IMLocalizedFormat(@"friend.request.alert_message", shown))
                                      preferredStyle:UIAlertControllerStyleAlert];
     // 预填「我是<我的昵称>」（微信同款）：多数人不会自己想措辞，给个能直接发的默认值，
     // 比留空更可能真的带上信息。currentNickname 是登录后预热的**公开昵称**——这句会发出去，
@@ -133,7 +139,7 @@ static NSString *IMHelloTruncate(NSString *t, NSUInteger max) {
     __block IMFriendHelloLimiter *limiter = nil;
     [alert addTextFieldWithConfigurationHandler:^(UITextField *field) {
         field.placeholder = IMLocalized(@"friend.request.placeholder");
-        field.text = myNick.length > 0 ? IMLocalizedFormat(@"friend.request.hello_prefill", myNick) : @"";
+        field.text = prefill ?: (myNick.length > 0 ? IMLocalizedFormat(@"friend.request.hello_prefill", myNick) : @"");
         field.returnKeyType = UIReturnKeySend;
         limiter = [[IMFriendHelloLimiter alloc] initWithField:field];
     }];
@@ -149,6 +155,10 @@ static NSString *IMHelloTruncate(NSString *t, NSUInteger max) {
                                                  completion:^(BOOL becameFriend, NSError *error) {
             __strong typeof(ws) self = ws;
             if (!self) { return; }
+            if (error.code == IMErrCodeContentBlocked) {
+                [self im_askFriendRequestForUID:uid name:name hello:hello notice:error.localizedDescription onSent:onSent];
+                return;
+            }
             if (error) { [self im_showToast:error.localizedDescription ?: IMLocalized(@"friend.request.send_failed")]; return; }
             // becameFriend 时**不说**「已发送好友申请」——那会让用户误以为还要等对方通过。
             [self im_showToast:becameFriend ? IMLocalized(@"friend.request.became_friends") : IMLocalized(@"friend.request.sent")];

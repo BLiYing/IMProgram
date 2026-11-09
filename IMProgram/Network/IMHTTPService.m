@@ -61,6 +61,7 @@ BOOL IMIsAuthErrorCode(NSInteger code) {
 }
 
 NSInteger const IMErrCodeLoginLocked = 200006;
+NSInteger const IMErrCodeContentBlocked = 100004;
 NSInteger const IMErrCodeRegisterClosed = 200007;
 
 NSInteger IMLoginLockMinutes(NSInteger retryAfterSec) {
@@ -116,6 +117,7 @@ NSString *IMFriendlyMessageForCode(NSInteger code) {
         case 300213: return IMLocalized(@"err.300213");                      // group admin limit
         case 300212: return IMLocalized(@"qr.action.admin_only_note"); // invite revoked（perm_invite，竞态兜底）
         case 100002: return IMLocalized(@"err.100002");              // rate limited（全站通用码）
+        case 100004: return IMLocalized(@"err.100004");              // content blocked（敏感词拦截，不说是哪个词）
         // 500001（超限）/ 500002（类型被禁）不映射：服务端会带具体上限 / 原因，透传更有用。
         case 500003: return IMLocalized(@"err.500003"); // upload disabled by admin（S3a）
         case 500101: return IMLocalized(@"err.500101"); // transcribe disabled

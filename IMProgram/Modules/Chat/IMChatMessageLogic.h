@@ -95,7 +95,8 @@ FOUNDATION_EXPORT IMResendPolicy IMResendPolicyForMessage(IMMessageModel *_Nulla
 /// 被禁言期间发媒体被拒，只显普通红❗、没有提示行。
 ///
 /// 覆盖：被拉黑 200102 / 非好友 200103 / 被禁言 300004 / 非群成员 300203 / 群全员禁言 300206 /
-/// 成员级禁言 300208（G2）/ 内容过大 300001（合并转发套娃膨胀超上限，无恢复入口）。
+/// 成员级禁言 300208（G2）/ 内容过大 300001（合并转发套娃膨胀超上限，无恢复入口）/ 对方已注销 300003 /
+/// 内容含敏感词 100004（SENSITIVE_WORDS_DESIGN §3）。
 /// 新增「重发必然再失败」的服务端拒收码，加在这里一处，并同步 `IMResendPolicyForMessage` 的注释。
 FOUNDATION_EXPORT BOOL IMSendRejectionShowsNote(NSInteger code);
 
@@ -114,6 +115,11 @@ FOUNDATION_EXPORT BOOL IMChatCanShowRecall(IMMessageModel *message, BOOL mine, i
 /// 长按菜单「编辑」是否出现（M4-5 + S2）：仅本人文本、非空、已拿到 conv_seq（发送中的行发 edit 会落空成重复发送）、
 /// 未撤回、在编辑时间窗内。editWindowSec 读 IMServerConfigStore.editWindowSec（**0 = 不限**）。
 FOUNDATION_EXPORT BOOL IMChatCanShowEdit(IMMessageModel *message, BOOL mine, int64_t nowMs, NSInteger editWindowSec);
+
+/// 编辑被服务端以「含敏感词」100004 拦下时，要还原进编辑框的文本（SENSITIVE_WORDS_DESIGN §3「编辑框内容保留」）。
+/// userInfo 为 IMSocketDidRejectMsgOpNotification 的 userInfo。仅当 code=100004、op=edit、负载 conv_id 等于本会话
+/// 且 content 非空时返回 content，其余（撤回超时、编辑超窗 300007 等——还原了也改不成）返回 nil，只吐司。
+FOUNDATION_EXPORT NSString *_Nullable IMRejectedEditDraft(NSDictionary *_Nullable userInfo, NSString *_Nullable convID);
 
 /// 相册（九宫格）右下角胶囊的状态勾（READ_TICK_DESIGN §4）。相册 = 多条同 group_id 消息，整组只画一个状态。
 typedef NS_ENUM(NSInteger, IMAlbumTickState) {

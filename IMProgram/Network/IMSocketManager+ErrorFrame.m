@@ -3,9 +3,13 @@
 //  声明见 IMSocketManager+Private.h。
 
 #import "IMSocketManager+Private.h"
+#import "IMHTTPService.h"
 #import "IMLog.h"
 
 NSString * const IMSocketDidReceiveAccountDeletedNotification = @"IMSocketDidReceiveAccountDeletedNotification";
+NSString * const kIMMsgOpRejectMessageKey = @"message";
+NSString * const kIMMsgOpRejectCodeKey = @"code";
+NSString * const kIMMsgOpRejectPayloadKey = @"payload";
 
 @implementation IMSocketManager (ErrorFrame)
 
@@ -23,13 +27,19 @@ NSString * const IMSocketDidReceiveAccountDeletedNotification = @"IMSocketDidRec
         return;
     }
     NSString *cmid = [payload[@"client_msg_id"] isKindOfClass:[NSString class]] ? payload[@"client_msg_id"] : nil;
-    // 消息操作被拒（如撤回超时 300008）：不动消息，主线程广播回滚提示。
-    if (cmid.length > 0 && [_pendingOps containsObject:cmid]) {
-        [_pendingOps removeObject:cmid];
-        NSString *msg = [payload[@"message"] isKindOfClass:[NSString class]] ? payload[@"message"] : IMLocalized(@"common.action_failed");
+    // 消息操作被拒（如撤回超时 300008 / 编辑内容含敏感词 100004）：不动消息，主线程广播回滚提示。
+    // 文案先走 IMFriendlyMessageForCode（与 send_msg 拒收同口径，服务端 message 不随客户端语言），未收录再回退服务端原文。
+    // 原 msg_op 负载一并带回：编辑被拦时聊天页据此还原编辑框（见 IMRejectedEditDraft）。
+    NSDictionary *op = cmid.length > 0 ? _pendingOps[cmid] : nil;
+    if (op) {
+        [_pendingOps removeObjectForKey:cmid];
+        NSInteger code = [payload[@"code"] respondsToSelector:@selector(integerValue)] ? [payload[@"code"] integerValue] : 0;
+        NSString *msg = IMFriendlyMessageForCode(code)
+            ?: ([payload[@"message"] isKindOfClass:[NSString class]] ? payload[@"message"] : IMLocalized(@"common.action_failed"));
+        NSDictionary *info = @{ kIMMsgOpRejectMessageKey: msg, kIMMsgOpRejectCodeKey: @(code), kIMMsgOpRejectPayloadKey: op };
         dispatch_async(dispatch_get_main_queue(), ^{
             [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidRejectMsgOpNotification
-                                                              object:self userInfo:@{ @"message": msg }];
+                                                              object:self userInfo:info];
         });
     } else if (cmid.length > 0) {
         // 带 client_msg_id 的 error = 对某条 send_msg 的拒绝（如被拉黑、对方已注销 300003）→ 立刻判该条发送失败。

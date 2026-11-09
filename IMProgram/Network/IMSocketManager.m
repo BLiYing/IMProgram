@@ -108,7 +108,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
         _backlog = [IMBacklogTracker new];
         _syncingConvs = [NSMutableSet set];
         _syncStalledUntil = [NSMutableDictionary dictionary];
-        _pendingOps = [NSMutableSet set];
+        _pendingOps = [NSMutableDictionary dictionary];
         _state = IMSocketStateDisconnected;
         _appActive = YES; // M5：默认前台（登录/建连通常发生在前台），回/离前台由 SceneDelegate 更新
         // 网络恢复即立即重连（跳过指数退避）。观察者放在这里而不是 UI 层：任何页面在前台都该生效，
@@ -804,6 +804,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
     NSString *friendly = (code == 200102) ? IMLocalized(@"chat.reject.blocked")
         : (code == 200103) ? IMLocalized(@"chat.reject.not_friend")
         : (code == 300001) ? IMLocalized(@"chat.reject.too_large")
+        : (code == 100004) ? IMLocalized(@"chat.reject.sensitive") // 含敏感词被拦（SENSITIVE_WORDS_DESIGN §3，不说是哪个词）
         : (code == 300003) ? IMLocalized(@"chat.reject.recipient_deleted") // 对方已注销（PROTOCOL §6.16.3）
         : IMFriendlyMessageForCode(code);
     NSString *msg = friendly.length > 0
@@ -995,7 +996,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
         @"target_conv_seq": @(targetConvSeq), @"client_msg_id": clientMsgID,
     };
     dispatch_async(_queue, ^{
-        [self->_pendingOps addObject:clientMsgID];
+        self->_pendingOps[clientMsgID] = payload;
         [self sendEnvelopeType:kIMTypeMsgOp data:payload completion:nil];
     });
 }
@@ -1008,7 +1009,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
         @"target_conv_seq": @(targetConvSeq), @"content": content, @"client_msg_id": clientMsgID,
     };
     dispatch_async(_queue, ^{
-        [self->_pendingOps addObject:clientMsgID];
+        self->_pendingOps[clientMsgID] = payload;
         [self sendEnvelopeType:kIMTypeMsgOp data:payload completion:nil];
     });
 }
@@ -1022,7 +1023,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
         @"target_conv_seq": @(targetConvSeq), @"client_msg_id": clientMsgID, @"pinned": @(pinned),
     };
     dispatch_async(_queue, ^{
-        [self->_pendingOps addObject:clientMsgID];
+        self->_pendingOps[clientMsgID] = payload;
         [self sendEnvelopeType:kIMTypeMsgOp data:payload completion:nil];
     });
 }
@@ -1036,7 +1037,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
         @"target_conv_seq": @(targetConvSeq), @"client_msg_id": clientMsgID,
     };
     dispatch_async(_queue, ^{
-        [self->_pendingOps addObject:clientMsgID];
+        self->_pendingOps[clientMsgID] = payload;
         [self sendEnvelopeType:kIMTypeMsgOp data:payload completion:nil];
     });
 }
@@ -1089,7 +1090,7 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
     NSString *convID = patch.convID;
     int64_t target = patch.targetConvSeq;
 
-    if (patch.clientMsgID.length > 0) { [_pendingOps removeObject:patch.clientMsgID]; } // 我方操作成功回执
+    if (patch.clientMsgID.length > 0) { [_pendingOps removeObjectForKey:patch.clientMsgID]; } // 我方操作成功回执
     if (patch.kind == IMMsgOpKindDelete || patch.kind == IMMsgOpKindRecall) { IMPushRetractDeliveredNotification(convID, target); } // 通知中心里还挂着原文的话一并收回
 
     // 为所有人删除（任务2）：物理移除该条（不走 patch，区别于 recall 的改状态显墓碑）。

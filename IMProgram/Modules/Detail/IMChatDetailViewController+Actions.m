@@ -601,12 +601,15 @@ static NSInteger const kIMFriendRemarkMaxRunes = 32;
 - (NSString *)currentConvRemark { return self.convRemark ?: @""; }
 
 /// 我在本群的昵称（G1，任意成员）：走后端 → 成功后刷新群资料（气泡回退名随之更新）。
-- (void)editMyGroupNickname {
+- (void)editMyGroupNickname { [self editMyGroupNicknameWithText:nil notice:nil]; }
+
+/// prefill/notice 非空 = 上次提交被敏感词拦下（100004）后重开：回填被拦的文本，说明行换成拦截原因（内容保留）。
+- (void)editMyGroupNicknameWithText:(NSString *)prefill notice:(NSString *)notice {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:IMLocalized(@"chat.detail.my_group_nickname")
-        message:IMLocalized(@"group.info.my_nickname_hint") preferredStyle:UIAlertControllerStyleAlert];
+        message:(notice.length ? notice : IMLocalized(@"group.info.my_nickname_hint")) preferredStyle:UIAlertControllerStyleAlert];
     NSString *current = self.group.myNickname ?: @"";
     [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
-        tf.text = current;
+        tf.text = prefill ?: current;
         [IMAlertFieldCounter attachTo:tf maxRunes:kIMGroupNicknameMaxRunes];
     }];
     __weak typeof(self) ws = self;
@@ -621,6 +624,7 @@ static NSInteger const kIMFriendRemarkMaxRunes = 32;
                                                      completion:^(NSError *error) {
             __strong typeof(ws) self = ws;
             if (!self) { return; }
+            if (error.code == IMErrCodeContentBlocked) { [self editMyGroupNicknameWithText:v notice:error.localizedDescription]; return; }
             if (error) { [self im_showToast:error.localizedDescription ?: IMLocalized(@"common.save_failed")]; return; }
             self.group.myNickname = v.length ? v : nil;
             [self loadGroupInfo]; // 成员表 group_nickname 变了，重拉刷新

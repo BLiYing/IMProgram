@@ -7,6 +7,7 @@
 #import "IMSocketManager+BatchDelete.h"   // IMRemovedMessageSeqs
 #import "IMMediaSendService.h"            // kIMMediaSend* 通知键
 #import "IMMessageModel.h"
+#import "IMChatMessageLogic.h"        // IMRejectedEditDraft
 #import "IMMsgOpApply.h"
 #import "IMPinnedMessage.h"
 #import "IMChatBackgroundView.h"
@@ -198,9 +199,18 @@ static BOOL IMMediaFailToastShouldShow(NSString *text, CFTimeInterval now) {
 }
 
 /// 我方发起的操作被拒（如撤回超时）：吐司提示（不改消息）。
+/// 编辑含敏感词被拦（100004）：发出时编辑框已清空，这里把被拦的文本还原回编辑态，用户改几个字就能再发——
+/// 仅当输入框此刻为空且不在编辑/回复别的消息（不覆盖用户已开始的新输入），且目标消息仍在当前窗口里。
 - (void)onMsgOpRejected:(NSNotification *)note {
-    NSString *msg = note.userInfo[@"message"];
+    NSString *msg = note.userInfo[kIMMsgOpRejectMessageKey];
     [self im_showToast:msg.length > 0 ? msg : IMLocalized(@"common.action_failed")];
+    NSString *draft = IMRejectedEditDraft(note.userInfo, self.convID);
+    IMMessageModel *target = draft ? [self messageWithConvSeq:[note.userInfo[kIMMsgOpRejectPayloadKey][@"target_conv_seq"] longLongValue]] : nil;
+    if (target && self.inputField.text.length == 0 && !self.editingMessage && !self.replyingTo) {
+        [self beginEditMessage:target];
+        self.inputField.text = draft;
+        [self updateSendButtonVisibility];
+    }
     [self schedulePinnedBannerReload]; // 面板里乐观摘掉的取消置顶若被拒，重拉让横幅 / 面板回到真值
 }
 

@@ -34,7 +34,7 @@ NS_ASSUME_NONNULL_BEGIN
     NSMutableSet<NSString *> *_syncingConvs;                 // 已发出 sync_req、等待该会话响应，避免实时连发造成请求风暴
     NSMutableDictionary<NSString *, NSNumber *> *_syncStalledUntil; // conv_id -> 该时刻(CFAbsoluteTime)前不再发 sync_req：
                                                              // 整页处理完位点没动（落库持续失败/页内空洞）时热重试只会烧 CPU
-    NSMutableSet<NSString *> *_pendingOps;                   // 已发出、待确认的消息操作 client_msg_id（撤回/编辑/置顶），供失败回滚
+    NSMutableDictionary<NSString *, NSDictionary *> *_pendingOps; // 已发出、待确认的消息操作：client_msg_id → 原 msg_op 负载（撤回/编辑/置顶），被拒时随通知带回供回滚（编辑被拦要还原编辑框）
     NSArray<NSString *> *_watchedUsers;                      // 在线态关注全集：连接级易失态，重连成功后由本类自动重发（PROTOCOL §5.5）
     NSUInteger _refreshRetryGeneration;                      // 握手 401 续期之后开出的那条连接的代次（0=没有）：只有它再 401 才按被踢（见 +AuthRecovery）
     BOOL _appActive;                                          // App 当前是否前台（M5 app_state 上报用，默认 YES：登录/连接通常发生在前台）

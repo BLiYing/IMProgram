@@ -238,20 +238,20 @@ static NSString * const kPeer = @"frame_peer";
 
 /// 消息操作被拒（撤回超时等）：广播回滚提示，并把它从在途操作集合摘掉（否则内存泄漏、下次同 id 误判）。
 - (void)test_消息操作被拒广播提示并摘掉在途 {
-    dispatch_sync(self.queue, ^{ [[self->_mgr valueForKey:@"_pendingOps"] addObject:@"op-1"]; });
+    dispatch_sync(self.queue, ^{ [self->_mgr valueForKey:@"_pendingOps"][@"op-1"] = @{ @"op": kIMMsgOpRecall }; });
     XCTestExpectation *rejected = [self expectationForNotification:IMSocketDidRejectMsgOpNotification object:_mgr handler:^BOOL(NSNotification *n) {
         return [n.userInfo[@"message"] isEqualToString:@"recall window passed"];
     }];
     [self feed:@{ @"type": kIMTypeError, @"data": @{ @"client_msg_id": @"op-1", @"code": @300008, @"message": @"recall window passed" } }];
     [self waitForExpectations:@[rejected] timeout:5];
     __block BOOL still = YES;
-    dispatch_sync(self.queue, ^{ still = [[self->_mgr valueForKey:@"_pendingOps"] containsObject:@"op-1"]; });
+    dispatch_sync(self.queue, ^{ still = [self->_mgr valueForKey:@"_pendingOps"][@"op-1"] != nil; });
     XCTAssertFalse(still);
 }
 
 /// 消息操作被拒但没带 message：用通用文案，不能广播空串（用户会看到一个空 toast）。
 - (void)test_消息操作被拒缺message用通用文案 {
-    dispatch_sync(self.queue, ^{ [[self->_mgr valueForKey:@"_pendingOps"] addObject:@"op-2"]; });
+    dispatch_sync(self.queue, ^{ [self->_mgr valueForKey:@"_pendingOps"][@"op-2"] = @{ @"op": kIMMsgOpRecall }; });
     XCTestExpectation *rejected = [self expectationForNotification:IMSocketDidRejectMsgOpNotification object:_mgr handler:^BOOL(NSNotification *n) {
         return [n.userInfo[@"message"] length] > 0;
     }];

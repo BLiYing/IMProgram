@@ -4,6 +4,7 @@
 > 历史流水见 `current_task.archive.md`（2026-10-02 瘦身前的全量快照在其顶部）+ `git log`。关键约定见 `CLAUDE.md` / `ARCHITECTURE.md` / `CODING_STYLE.md`。
 
 ## 当前焦点
+- **敏感词拦截 100004 客户端（2026-11-09，未提交）**：发送被拦 → 气泡下 `chat.reject.sensitive`、不可重发；编辑被拦 → 吐司 `err.100004` 并还原编辑框（`IMRejectedEditDraft`）；群名/简介/公告/群昵称/好友附言被拦 → 带原文重开编辑器并显示原因。单测 `IMSensitiveWordTests`。设计 `../IMServer/docs/design/SENSITIVE_WORDS_DESIGN.md` §3。**待真机**；CLIENT_PARITY 未更新。
 - **移动端冒烟 T3（2026-11-09，未提交）**：`./scripts/ui-smoke.sh` = 服务端造 ping（`../IMServer/scripts/smoke/mobile-smoke.mjs`）→ 模拟器 `IMSmokeUITests` 收到后回 pong → 服务端核对；模拟器选择抽到 `scripts/sim-pick.sh`（与 test.sh 共用）。设计 `../IMServer/docs/design/E2E_REGRESSION_DESIGN.md` §6。
 - **后台安全风控 S4（2026-11-09，未提交）**：`IMPublicConfig` 读免鉴权 `GET /api/v1/public-config`，暂停注册时注册页红字提示并禁用提交（提交回 200007 也切暂停态）；登录锁定 200006 由 `IMLoginLockedMessage` 出「请 N 分钟后再试」（缺数据回退 `err.100002`）。模拟器 UI 自测 `IMProgramUITests/IMSecurityS4UITests`（默认跳过，`TEST_RUNNER_IM_S4_UITEST=1`）通过。
 - **后台「系统设置」S2 客户端部分（2026-11-08，未提交）**：`Network/IMServerConfigStore` 解析 `GET /server-config` 新增六项（缺失→内置默认 120s/不限/9/100/30/500，0 仅在两个时间窗上=不限），**每次 Connected + 回前台**重拉（在途不重发 + 成功后 5s 内不再拉，合并两个时机）；撤回 / 编辑菜单显隐走 `IMChatCanShowRecall/Edit`（删掉 `kIMRecallWindowMs`）；转发选择页上限读 `forwardMaxTargets`（确认卡片网格超 4 行改内部滚动）；合并转发在选方式时按 `mergeForwardMax` 拦（复用「最多选择 N 条」吐司）；建群 / 改群名（弹窗说明行改为实时 `n/上限`）/ 群公告读两个长度上限。单测 `IMServerConfigStoreTests`。**未做**：`err.300202`「不超过 30 字」与 `group.ops.name_placeholder` 文案仍写死 30（改要动 `strings.json` 并重生成四端，本次按要求不碰 IMServer）；CLIENT_PARITY 未更新。

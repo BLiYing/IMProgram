@@ -40,10 +40,11 @@ BOOL IMToastDedup(NSString *text, CFTimeInterval now, NSString *__strong *lastTe
     label.numberOfLines = 0;
     [pill addSubview:label];
 
-    UILayoutGuide *g = self.view.safeAreaLayoutGuide;
     [NSLayoutConstraint activateConstraints:@[
         [pill.centerXAnchor constraintEqualToAnchor:host.centerXAnchor],
-        [pill.bottomAnchor constraintEqualToAnchor:g.bottomAnchor constant:-IMTheme.space4 * 3],
+        // 贴键盘上沿：键盘收起时 keyboardLayoutGuide 即安全区底部（与原位置一致）；键盘弹着时（聊天页编辑被拦、
+        // 发送失败这类提示出现时输入框往往正聚焦）贴安全区底会整个藏在键盘后面，用户看不到原因。
+        [pill.bottomAnchor constraintEqualToAnchor:host.keyboardLayoutGuide.topAnchor constant:-IMTheme.space4 * 3],
         [pill.leadingAnchor constraintGreaterThanOrEqualToAnchor:host.leadingAnchor constant:IMTheme.space4 * 2],
         [pill.trailingAnchor constraintLessThanOrEqualToAnchor:host.trailingAnchor constant:-IMTheme.space4 * 2],
 

@@ -29,6 +29,9 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
 
 /// 密码登录失败超限被暂时锁定（200006 LoginLocked，HTTP 429，PROTOCOL §6.16 / S4）。
 FOUNDATION_EXPORT NSInteger const IMErrCodeLoginLocked;
+/// 内容含敏感词被拦（100004 ContentBlocked，HTTP 400，SENSITIVE_WORDS_DESIGN §3）：资料 / 群资料 / 好友申请附言命中。
+/// 不说是哪个词；表单类入口据此把用户刚提交的文本还原回编辑器（内容保留）。
+FOUNDATION_EXPORT NSInteger const IMErrCodeContentBlocked;
 /// 管理员暂停注册（200007 RegisterClosed）。
 FOUNDATION_EXPORT NSInteger const IMErrCodeRegisterClosed;
 

@@ -87,6 +87,11 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
 @property (nonatomic, assign) NSUInteger renameLastRunes;
 @end
 
+/// 被敏感词拦下后重开多行编辑页时的页脚：拦截原因在上、原说明在下；没有原因时原样返回说明。
+static NSString *IMBlockedNoticeFooter(NSString *notice, NSString *footer) {
+    return notice.length > 0 ? [NSString stringWithFormat:@"%@\n\n%@", notice, footer ?: @""] : footer;
+}
+
 @implementation IMGroupManageViewController
 
 - (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID convID:(NSString *)convID
@@ -472,7 +477,9 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
 
 /// 统一收口：改群资料（名/头像/简介整体替换），成功后回填 + 通知上一页。
 /// 整体替换语义——三者都回带当前值，只改其一时另两项传现值（避免清空）。
-- (void)commitName:(NSString *)name avatarURL:(NSString *)avatarURL intro:(NSString *)intro {
+/// onBlocked：被敏感词拦下（100004）时调用，由调用方带着刚提交的文本重开编辑器（内容保留）；nil 则只吐司。
+- (void)commitName:(NSString *)name avatarURL:(NSString *)avatarURL intro:(NSString *)intro
+         onBlocked:(void (^)(NSString *notice))onBlocked {
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0) { [self im_showToast:IMLocalized(@"common.not_logged_in")]; return; }
     __weak typeof(self) ws = self;
@@ -480,6 +487,7 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
                                           completion:^(NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
+        if (error && error.code == IMErrCodeContentBlocked && onBlocked) { onBlocked(error.localizedDescription); return; }
         if (error) { [self im_showToast:error.localizedDescription ?: IMLocalized(@"common.update_failed")]; return; }
         self.group.name = name;
         self.group.avatarURL = avatarURL;
@@ -491,18 +499,23 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
     }];
 }
 
-- (void)editName {
+- (void)editName { [self editNameWithText:nil notice:nil]; }
+
+/// prefill/notice 非空 = 上次提交被敏感词拦下后重开：输入框回填被拦的文本，说明行先显示拦截原因（键入后换回计数）。
+- (void)editNameWithText:(NSString *)prefill notice:(NSString *)notice {
     // 说明行原为写死的「1~30 字」；上限现由后台「群名最大长度」下发（group_name_max_len），改为实时「n/上限」计数。
     self.renameMaxLen = (NSUInteger)MAX((NSInteger)1, IMServerConfigStore.shared.groupNameMaxLen);
     NSString *current = self.group.name ?: @"";
-    self.renameLastRunes = IMGroupNameRuneLength(current);
+    NSString *initial = prefill ?: current;
+    self.renameLastRunes = IMGroupNameRuneLength(initial);
+    NSString *counter = [self renameCounterForText:initial];
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:IMLocalized(@"group.info.rename_title")
-                                                                   message:[self renameCounterForText:current]
+                                                                   message:(notice.length ? [NSString stringWithFormat:@"%@\n%@", notice, counter] : counter)
                                                             preferredStyle:UIAlertControllerStyleAlert];
     NSString *avatar = self.group.avatarURL ?: @"";
     __weak typeof(self) ws = self;
     [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
-        tf.text = current;
+        tf.text = initial;
         tf.delegate = ws;
         [tf addTarget:ws action:@selector(renameFieldChanged:) forControlEvents:UIControlEventEditingChanged];
     }];
@@ -512,7 +525,8 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
         NSString *name = [alert.textFields.firstObject.text
                           stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
         if (name.length == 0 || [name isEqualToString:current]) { return; }
-        [ws commitName:name avatarURL:avatar intro:(ws.group.intro ?: @"")];
+        [ws commitName:name avatarURL:avatar intro:(ws.group.intro ?: @"")
+             onBlocked:^(NSString *why) { [ws editNameWithText:name notice:why]; }];
     }]];
     [self presentViewController:alert animated:YES completion:nil];
 }
@@ -540,33 +554,42 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
 }
 
 /// 编辑简介（≤200 字，多行编辑页 + 计数，决策 18）：整体替换，空串=清空。
-- (void)editIntro {
+- (void)editIntro { [self editIntroWithText:nil notice:nil]; }
+
+/// prefill/notice 非空 = 被敏感词拦下后重开：回填被拦文本，页脚先写拦截原因。
+- (void)editIntroWithText:(NSString *)prefill notice:(NSString *)notice {
     NSString *current = self.group.intro ?: @"";
     __weak typeof(self) ws = self;
-    [IMGroupTextEditViewController presentFrom:self title:IMLocalized(@"group.text.intro") text:current
+    [IMGroupTextEditViewController presentFrom:self title:IMLocalized(@"group.text.intro") text:(prefill ?: current)
                                    placeholder:IMLocalized(@"group.manage.intro_placeholder") maxChars:200 commitTitle:IMLocalized(@"common.save")
-                                  allowRetract:NO footer:IMLocalized(@"group.manage.intro_footer")
+                                  allowRetract:NO footer:IMBlockedNoticeFooter(notice, IMLocalized(@"group.manage.intro_footer"))
                                       onCommit:^(NSString *intro) {
         if ([intro isEqualToString:current]) { return; }
-        [ws commitName:(ws.group.name ?: @"") avatarURL:(ws.group.avatarURL ?: @"") intro:intro];
+        [ws commitName:(ws.group.name ?: @"") avatarURL:(ws.group.avatarURL ?: @"") intro:intro
+             onBlocked:^(NSString *why) { [ws editIntroWithText:intro notice:why]; }];
     }];
 }
 
 /// 编辑群公告（≤ group_announcement_max_len 字，默认 500；多行编辑页 + 计数，决策 18）：发布走独立接口并落系统消息；空串/撤下=撤下公告。
-- (void)editAnnouncement {
+- (void)editAnnouncement { [self editAnnouncementWithText:nil notice:nil]; }
+
+/// prefill/notice 非空 = 被敏感词拦下后重开（见 commitAnnouncement:）。
+- (void)editAnnouncementWithText:(NSString *)prefill notice:(NSString *)notice {
     NSString *current = self.group.announcement ?: @"";
     __weak typeof(self) ws = self;
-    [IMGroupTextEditViewController presentFrom:self title:IMLocalized(@"group.text.announcement") text:current
+    [IMGroupTextEditViewController presentFrom:self title:IMLocalized(@"group.text.announcement") text:(prefill ?: current)
                                    placeholder:IMLocalized(@"group.manage.announcement_placeholder")
                                       maxChars:IMServerConfigStore.shared.groupAnnouncementMaxLen commitTitle:IMLocalized(@"common.publish")
-                                  allowRetract:current.length > 0 footer:IMLocalized(@"group.manage.announcement_footer")
+                                  allowRetract:current.length > 0
+                                        footer:IMBlockedNoticeFooter(notice, IMLocalized(@"group.manage.announcement_footer"))
                                       onCommit:^(NSString *text) {
         if ([text isEqualToString:current]) { return; }
-        [ws commitAnnouncement:text];
+        [ws commitAnnouncement:text onBlocked:^(NSString *why) { [ws editAnnouncementWithText:text notice:why]; }];
     }];
 }
 
-- (void)commitAnnouncement:(NSString *)text {
+/// onBlocked：被敏感词拦下（100004）时调用，调用方带着刚提交的文本重开编辑页（内容保留）。
+- (void)commitAnnouncement:(NSString *)text onBlocked:(void (^)(NSString *notice))onBlocked {
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0) { [self im_showToast:IMLocalized(@"common.not_logged_in")]; return; }
     __weak typeof(self) ws = self;
@@ -574,6 +597,7 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
                                                    completion:^(NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
+        if (error && error.code == IMErrCodeContentBlocked && onBlocked) { onBlocked(error.localizedDescription); return; }
         if (error) { [self im_showToast:error.localizedDescription ?: IMLocalized(@"group.manage.announcement_publish_failed")]; return; }
         self.group.announcement = text;
         [self.tableView reloadData];
@@ -671,7 +695,7 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
                 __strong typeof(ws) self3 = ws;
                 if (!self3) { return; }
                 if (error || url.length == 0) { [self3 im_showToast:error.localizedDescription ?: IMLocalized(@"net.error.upload_failed")]; return; }
-                [self3 commitName:(self3.group.name ?: @"") avatarURL:url intro:(self3.group.intro ?: @"")];
+                [self3 commitName:(self3.group.name ?: @"") avatarURL:url intro:(self3.group.intro ?: @"") onBlocked:nil];
             }];
         };
         [self presentViewController:crop animated:YES completion:nil];
