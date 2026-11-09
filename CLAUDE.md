@@ -52,6 +52,7 @@ iOS 即时通讯（IM）聊天 App。标准 Xcode 工程，UIKit + Storyboard。
   ./scripts/test.sh                            # 体量门禁 + 编译 + IMProgramTests 单测
   BUILD_ONLY=1 ./scripts/test.sh               # 只编译（不碰模拟器，最快）
   ONLY=IMResendPolicyTests ./scripts/test.sh   # 只跑一个类（排查偶发失败用）
+  ./scripts/ui-smoke.sh                        # 移动端冒烟：模拟器里收 / 发一条并到服务端核对（需开发后端在跑、App 已登录）
   ```
 - **不要手拼 `xcodebuild` 命令行**——2026-08-31 之前每次都拼得不一样，反复踩三个坑，脚本已把它们写死：
   1. **不能跑整个 scheme**：它带着 `IMProgramUITests`，`testExample` 一条 135s、`testLaunch` 37s（要真启动 App 跑交互）；而 313 条单测加起来不到 1 分钟。脚本写死 `-only-testing:IMProgramTests`。UI 测试要跑请单独手动跑。
