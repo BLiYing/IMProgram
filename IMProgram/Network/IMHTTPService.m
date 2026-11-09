@@ -60,6 +60,26 @@ BOOL IMIsAuthErrorCode(NSInteger code) {
     }
 }
 
+NSInteger const IMErrCodeLoginLocked = 200006;
+NSInteger const IMErrCodeRegisterClosed = 200007;
+
+NSInteger IMLoginLockMinutes(NSInteger retryAfterSec) {
+    return retryAfterSec > 0 ? (retryAfterSec + 59) / 60 : 1;
+}
+
+NSString *IMLoginLockedMessage(NSDictionary *body) {
+    NSDictionary *data = [body isKindOfClass:NSDictionary.class] && [body[@"data"] isKindOfClass:NSDictionary.class] ? body[@"data"] : nil;
+    id sec = data[@"retry_after_sec"];
+    // JSON true/false 也是 NSNumber（CFBoolean），与 Web typeof === 'number' 同口径排除。
+    BOOL isNumber = [sec isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)sec) != CFBooleanGetTypeID();
+    double raw = isNumber ? [sec doubleValue] : NAN;
+    if (!(raw >= 0)) { return IMLocalized(@"err.100002"); } // 缺失 / 非数字 / 负数 / NaN → 通用「尝试过于频繁」
+    // 先向上取整到整秒再算分钟（与 Web Math.ceil(sec/60) 同口径；integerValue 会把 60.5 截成 60 → 少算 1 分钟）。
+    double secs = MIN(ceil(raw), 365.0 * 24 * 3600);
+    NSInteger minutes = IMLoginLockMinutes((NSInteger)secs);
+    return IMLocalizedFormat(@"err.200006", [NSString stringWithFormat:@"%ld", (long)minutes]);
+}
+
 /// 业务错误码 → 友好中文（对齐 errcode）。未收录返回 nil，回退服务端原文。
 /// 隐私：被拉黑/密码错误等用模糊文案，不暴露"你被对方拉黑了"。
 /// 2026-08-25：从 static 提升为文件外可见，供 WS 拒收路径（IMSocketManager.handleSendRejected）复用，
@@ -71,6 +91,8 @@ NSString *IMFriendlyMessageForCode(NSInteger code) {
         case 200002: return IMLocalized(@"err.200002");                            // wrong password
         case 200003: return IMLocalized(@"err.200003");                        // account banned
         case 200004: return IMLocalized(@"err.200004");                      // user already exists
+        // 200006 不在此映射：文案要带 data.retry_after_sec 的分钟数，见 messageFrom: → IMLoginLockedMessage。
+        case 200007: return IMLocalized(@"err.200007");                      // register closed by admin（S4）
         case 300004: return IMLocalized(@"err.300004");                        // account muted（全局禁言）
         case 300206: return IMLocalized(@"chat.input.disabled_mute_all");                  // group all-muted（G2）
         case 200101: return IMLocalized(@"err.200101");                    // already friends
@@ -1433,6 +1455,8 @@ static NSArray<NSString *> *IMStringArrayFrom(id raw) {
 - (NSString *)messageFrom:(NSDictionary *)body fallback:(NSString *)fallback {
     // 优先按业务码映射友好中文；未收录再用服务端原文 / fallback。
     NSInteger code = [body[@"code"] respondsToSelector:@selector(integerValue)] ? [body[@"code"] integerValue] : 0;
+    // 登录锁定：分钟数在错误响应的 data 里，只有这里拿得到整个 body；缺 data 时给本地化 err.100002，不回退服务端原文。
+    if (code == IMErrCodeLoginLocked) { return IMLoginLockedMessage(body); }
     NSString *friendly = IMFriendlyMessageForCode(code);
     if (friendly) { return friendly; }
     NSString *msg = [body[@"message"] isKindOfClass:[NSString class]] ? body[@"message"] : nil;

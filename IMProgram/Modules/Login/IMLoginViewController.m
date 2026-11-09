@@ -15,6 +15,7 @@
 #import "IMAppInfo.h"
 #import "IMAboutLinks.h"
 #import "IMRtcConfig.h"
+#import "IMPublicConfig.h"
 #import <SafariServices/SafariServices.h>
 
 static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过的 host
@@ -57,6 +58,10 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
 @property (nonatomic, assign) CGFloat keyboardTop;
 /// 底部「继续即表示同意《服务条款》和《隐私政策》」：隐式同意（无勾选框），两段链接走应用内浏览器（ABOUT_LEGAL_DESIGN 批②）。
 @property (nonatomic, strong) UITextView *agreeFooter;
+/// 注册开关（GET /public-config，S4）：拉取器自带「只认最新一次请求」，VC 只留结果与提示行。
+@property (nonatomic, strong) IMPublicConfig *publicConfig;
+@property (nonatomic, strong) UILabel *registerClosedLabel; ///< 注册页内联提示「管理员已暂停注册新账号」
+@property (nonatomic, assign) BOOL registerClosed;          ///< YES = 禁用注册提交；拉不到按 NO（服务端 200007 兜底）
 @end
 
 @implementation IMLoginViewController
@@ -110,6 +115,16 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
     self.registerHintLabel.numberOfLines = 0;
     self.registerHintLabel.text = IMLocalized(@"login.register_format_hint");
 
+    self.publicConfig = [IMPublicConfig new];
+    self.registerClosedLabel = [UILabel new];
+    self.registerClosedLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    self.registerClosedLabel.font = [UIFont systemFontOfSize:13];
+    self.registerClosedLabel.textColor = IMTheme.danger;
+    self.registerClosedLabel.numberOfLines = 0;
+    self.registerClosedLabel.text = IMLocalized(@"err.200007");
+    self.registerClosedLabel.accessibilityIdentifier = @"login.register_closed";
+    self.registerClosedLabel.hidden = YES;
+
     self.loginButton = [self buttonTitle:IMLocalized(@"login.button.login") config:[UIButtonConfiguration filledButtonConfiguration] action:@selector(loginTapped)];
     self.registerButton = [self buttonTitle:IMLocalized(@"login.button.register") config:[UIButtonConfiguration filledButtonConfiguration] action:@selector(registerTapped)];
     self.devButton = [self buttonTitle:IMLocalized(@"login.dev_login") config:[UIButtonConfiguration tintedButtonConfiguration] action:@selector(devLoginTapped)];
@@ -138,7 +153,7 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
 
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
         [self logoView], [self titleLabelView], tabs,
-        self.userIDField, self.passwordField, self.nicknameField, self.registerHintLabel, self.errorLabel,
+        self.userIDField, self.passwordField, self.nicknameField, self.registerHintLabel, self.registerClosedLabel, self.errorLabel,
         self.loginButton, self.registerButton, self.devButton, self.serverLabel, self.agreeFooter
     ]];
     stack.axis = UILayoutConstraintAxisVertical;
@@ -223,8 +238,43 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
     return label;
 }
 
-- (void)loginTabTapped { if (self.registerMode) { self.registerMode = NO; [self applyMode]; } }
-- (void)registerTabTapped { if (!self.registerMode) { self.registerMode = YES; [self applyMode]; } }
+- (void)loginTabTapped {
+    if (!self.registerMode) { return; }
+    self.registerMode = NO;
+    [self.publicConfig cancel]; // 离开注册页签：在途结果不再需要
+    [self applyMode];
+}
+
+- (void)registerTabTapped {
+    if (self.registerMode) { return; }
+    self.registerMode = YES;
+    [self applyMode];
+    [self refreshRegisterAvailability];
+}
+
+#pragma mark - 注册开关（public-config，S4）
+
+/// 用登录页当前的服务器地址（与 registerTapped 同一份 hostInput 解析）匿名读 register_enabled。
+/// 不写全局 IMServerEndpoint、不弹错误：地址非法时按开放处理，真正点注册时 resolvedHostOrShowError 会报。
+- (void)refreshRegisterAvailability {
+    NSString *scheme = nil, *host = nil;
+    if (![IMServerEndpoint parseInput:[self trimmed:self.hostInput] scheme:&scheme host:&host]) {
+        [self.publicConfig cancel];
+        [self applyRegisterClosed:NO];
+        return;
+    }
+    __weak typeof(self) weakSelf = self;
+    [self.publicConfig fetchRegisterEnabledWithScheme:scheme host:host completion:^(BOOL registerEnabled) {
+        [weakSelf applyRegisterClosed:!registerEnabled];
+    }];
+}
+
+/// 注册关闭：注册页显示内联提示并禁用提交；开放则还原（请求在途时按钮仍由 setBusy: 管）。
+- (void)applyRegisterClosed:(BOOL)closed {
+    self.registerClosed = closed;
+    self.registerClosedLabel.hidden = !(closed && self.registerMode);
+    self.registerButton.enabled = !closed && !self.submitting;
+}
 
 /// 按当前页签显隐控件并刷新页签选中态（选中 accentSoft 底 + accent 字，未选中卡片底 + 次要字）。
 - (void)applyMode {
@@ -236,6 +286,7 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
     self.nicknameField.hidden = !reg;
     self.registerHintLabel.hidden = !reg;
     self.registerButton.hidden = !reg;
+    self.registerClosedLabel.hidden = !(reg && self.registerClosed);
     self.loginButton.hidden = reg;
 #ifdef DEBUG
     self.devButton.hidden = reg;
@@ -316,6 +367,9 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
     self.hostInput = remembered ?: [self builtinHost];
     [self refreshServerLabel];
     [self showError:@""];
+    // 换了服务器：旧地址的开关结论作废，按新地址重读（在途的旧请求由 IMPublicConfig 丢弃）。
+    [self applyRegisterClosed:NO];
+    if (self.registerMode) { [self refreshRegisterAvailability]; }
     IMLogUI(@"login_endpoint_saved host=%@ rtc=%@", self.hostInput, IMRtcConfig.load.wsURL);
 }
 
@@ -410,6 +464,7 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
 
 /// 注册并登录：先注册账号，成功后用同一密码进入。
 - (void)registerTapped {
+    if (self.registerClosed) { return; } // 按钮已禁用，防御一下
     NSString *host = [self resolvedHostOrShowError];
     if (host.length == 0) { return; }
     NSString *username = [self trimmed:self.userIDField.text];
@@ -435,6 +490,12 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
         if (!self) { return; }
         if (error) {
             [self setBusy:NO activeButton:self.registerButton];
+            if (error.code == IMErrCodeRegisterClosed) {
+                // 页面打开后管理员才关的注册（或 public-config 没拉到）：转成内联提示 + 禁用，不再重复红字。
+                [self.publicConfig cancel]; // 在途的 public-config（可能是失败兜底的 YES）不得把这条权威结论翻回开放
+                [self applyRegisterClosed:YES];
+                return;
+            }
             [self showError:error.localizedDescription ?: IMLocalized(@"login.error.register_failed")];
             return;
         }
@@ -543,7 +604,7 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
 - (void)setBusy:(BOOL)busy activeButton:(UIButton *)activeButton {
     self.submitting = busy;
     for (UIButton *button in @[self.loginButton, self.registerButton, self.devButton]) {
-        button.enabled = !busy;
+        button.enabled = !busy && !(button == self.registerButton && self.registerClosed);
         UIButtonConfiguration *config = button.configuration;
         config.showsActivityIndicator = (busy && button == activeButton);
         button.configuration = config;

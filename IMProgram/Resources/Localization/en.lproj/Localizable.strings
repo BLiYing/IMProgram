@@ -725,6 +725,8 @@
 "err.200003" = "This account has been banned";
 "err.200004" = "This username is already taken";
 "err.200005" = "This account is scheduled for deletion. Sign in with your password to restore it.";
+"err.200006" = "Too many failed sign-in attempts. Try again in %1$@ min.";
+"err.200007" = "New account registration is currently paused by the administrator.";
 "err.200010" = "An export is already in progress";
 "err.200011" = "You can export only once every 24 hours";
 "err.200101" = "You’re already friends";

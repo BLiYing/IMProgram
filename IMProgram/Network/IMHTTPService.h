@@ -27,6 +27,19 @@ FOUNDATION_EXPORT BOOL IMShouldDropRefreshCredential(BOOL usingRefresh, NSIntege
 /// 也需同一映射，把 300004/300206/300208 等英文默认文案改成中文，让气泡系统行/toast 有可读文本。
 NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
 
+/// 密码登录失败超限被暂时锁定（200006 LoginLocked，HTTP 429，PROTOCOL §6.16 / S4）。
+FOUNDATION_EXPORT NSInteger const IMErrCodeLoginLocked;
+/// 管理员暂停注册（200007 RegisterClosed）。
+FOUNDATION_EXPORT NSInteger const IMErrCodeRegisterClosed;
+
+/// 锁定提示里的分钟数：ceil(retryAfterSec / 60)，至少 1（0 / 负数也给 1，免得显示「请 0 分钟后再试」）。
+FOUNDATION_EXPORT NSInteger IMLoginLockMinutes(NSInteger retryAfterSec);
+
+/// 200006 错误响应体 → 本地化「登录失败次数过多，请 N 分钟后再试」。
+/// 三端同一规则：`data.retry_after_sec` 是 ≥0 的数字（整数或小数）→ err.200006，分钟 = max(1, ceil(sec/60))（上限一年）；
+/// body / data / 字段缺失、非数字（含 bool）、负数或 NaN → 本地化通用「尝试过于频繁」err.100002，不回退服务端原文。
+NSString *IMLoginLockedMessage(NSDictionary *_Nullable body);
+
 @interface IMHTTPService : NSObject
 
 + (instancetype)sharedService;
