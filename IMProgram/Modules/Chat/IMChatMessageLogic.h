@@ -107,6 +107,14 @@ FOUNDATION_EXPORT NSString *IMForwardOriginName(IMMessageModel *message);
 /// noteCode 是瞬态、不落库，只决定系统行是否给恢复入口（200103 → 发好友申请）。
 FOUNDATION_EXPORT NSString *_Nullable IMSendRejectionNote(BOOL success, NSError *_Nullable error, NSInteger *_Nullable outNoteCode);
 
+/// 长按菜单「撤回」是否出现（M4-1 + S2）：仅本人、已拿到 conv_seq、未撤回、在撤回时间窗内。
+/// recallWindowSec 读 IMServerConfigStore.recallWindowSec（**0 = 不限**）；服务端为准，这里只收掉必然失败的入口。
+FOUNDATION_EXPORT BOOL IMChatCanShowRecall(IMMessageModel *message, BOOL mine, int64_t nowMs, NSInteger recallWindowSec);
+
+/// 长按菜单「编辑」是否出现（M4-5 + S2）：仅本人文本、非空、已拿到 conv_seq（发送中的行发 edit 会落空成重复发送）、
+/// 未撤回、在编辑时间窗内。editWindowSec 读 IMServerConfigStore.editWindowSec（**0 = 不限**）。
+FOUNDATION_EXPORT BOOL IMChatCanShowEdit(IMMessageModel *message, BOOL mine, int64_t nowMs, NSInteger editWindowSec);
+
 /// 相册（九宫格）右下角胶囊的状态勾（READ_TICK_DESIGN §4）。相册 = 多条同 group_id 消息，整组只画一个状态。
 typedef NS_ENUM(NSInteger, IMAlbumTickState) {
     IMAlbumTickNone = 0,   ///< 不画勾：对方的相册 / 有成员失败 / 已关闭已读语义（peerReadSeq 为 kIMPeerReadSeqHidden）

@@ -16,6 +16,14 @@
 #import "IMTheme.h"
 #import "IMAppearance.h"
 #import "IMLocalization.h"
+#import <QuartzCore/QuartzCore.h>
+
+/// 失败吐司去重的状态（同一时刻只有一个聊天页在前台，进程级即可）。
+static BOOL IMMediaFailToastShouldShow(NSString *text, CFTimeInterval now) {
+    static NSString *lastText;
+    static CFTimeInterval lastAt;
+    return IMToastDedup(text, now, &lastText, &lastAt, 1.0);
+}
 
 @implementation IMChatViewController (SendService)
 
@@ -99,7 +107,13 @@
     m.status = IMMessageStatusFailed; // 服务实例已置位；本页若持有库副本在此对齐
     [self updateUploadProgressForMessage:m];
     [self refreshVisibleCellForMessage:m];
-    [self im_showToast:IMLocalized(@"chat.send.failed_tap_retry")];
+    // 上传策略拒绝（管理员暂停 / 类型被禁 / 超限）或预检未过：说清原因；其余（网络等）仍是通用「点击重试」。
+    NSString *reason = note.userInfo[kIMMediaSendErrorMessageKey];
+    NSString *text = ([reason isKindOfClass:NSString.class] && reason.length > 0) ? reason
+                                                                                  : IMLocalized(@"chat.send.failed_tap_retry");
+    // 进页面时会自动续传之前没发完的多条（上传被暂停时每条都会立刻失败）：同一句话 1 秒内只弹一次（用户手动点重试间隔更长，不受影响）。
+    if (!IMMediaFailToastShouldShow(text, CACurrentMediaTime())) { return; }
+    [self im_showToast:text];
 }
 
 /// 服务端 ack（状态/conv_seq/note 已由服务落库）：只更新内存模型与界面。

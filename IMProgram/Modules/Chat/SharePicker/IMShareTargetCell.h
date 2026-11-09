@@ -1,7 +1,7 @@
 //  IMShareTargetCell.h
 //  分享选择页的行：行首圆形勾选框（仅多选态）+ 头像圈 + 名字；以及「我的好友 / 我的群聊」入口行。
 //  原是 IMForwardPickerViewController.m 里的私有 IMForwardPickerCell，好友 / 群聊子页也要用，故拆出来。
-//  另带一个「标题 + 副标题（已选 N/9）」的导航栏 titleView 构造函数，三页共用。
+//  另带一个「标题 + 副标题（已选 N/上限）」的导航栏 titleView 构造函数，三页共用。
 
 #import <UIKit/UIKit.h>
 

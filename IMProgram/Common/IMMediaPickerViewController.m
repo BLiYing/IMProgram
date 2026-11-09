@@ -3,6 +3,7 @@
 #import "IMMediaPickerViewController.h"
 #import <PhotosUI/PhotosUI.h>
 #import "IMMediaPicker.h"
+#import "IMUploadPrecheck.h"  // 上限文案与发送时预检同一格式（"1 MB" / "2 GB"）
 #import "IMMediaPickLogic.h"
 #import "IMMediaPickSession.h"
 #import "IMMediaPickerBars.h"
@@ -385,7 +386,7 @@ typedef NS_ENUM(NSInteger, IMMediaPickerEmptyMode) {
 
 - (void)toggleAsset:(PHAsset *)asset {
     if (![_session isSelectableAsset:asset]) {
-        [self im_showToast:IMLocalizedFormat(@"media.picker.too_large", [IMMediaPickLogic sizeLabelForBytes:kIMMaxVideoBytes])];
+        [self im_showToast:IMLocalizedFormat(@"media.picker.too_large", IMUploadLimitLabel(IMMediaMaxUploadBytes()))];
         return;
     }
     if (![_session toggleAsset:asset]) {

@@ -253,8 +253,8 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
 
 /// 拉**部署级**能力/配额：GET /api/v1/server-config。
 ///
-/// 与账号级能力不是一回事：那个随账号走、多端同步；这个随部署走，同一部署下所有账号一致、
-/// 本次会话内不会变，**登录后拉一次即可**。
+/// 与账号级能力不是一回事：那个随账号走、多端同步；这个随部署走，同一部署下所有账号一致。
+/// S2 起部分字段运行中可被管理员修改，缓存与重拉时机由 IMServerConfigStore 负责（连上 / 回前台）。
 ///
 /// 用途：客户端**不得硬编码群成员上限**——它是部署配置（后端 `-max-group-members`），
 /// 端上写死会与服务端实际拒绝的口径对不上（Web 端就出过：端 500、后端已 2000）。
@@ -263,11 +263,10 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
 ///
 /// 拉不到时 completion 回 error，**调用方应按"未知"处理而不是套用默认值**——
 /// 宁可少显示一个提示，也不要按猜测的上限误报"群已满"。
+///
+/// 回调原样给出 `data` 字典（解析与「缺失 ≠ 0」的默认值兜底在 IMServerConfigStore 里做，可单测）。
 - (void)serverConfigWithToken:(NSString *)token
-                   completion:(void (^)(NSInteger maxGroupMembers,
-                                        BOOL supergroupEnabled,
-                                        NSInteger maxSupergroupMembers,
-                                        NSError *_Nullable error))completion;
+                   completion:(void (^)(NSDictionary *_Nullable data, NSError *_Nullable error))completion;
 
 /// 群成员目录**分页 + 搜索**（G5-c）：GET /groups/{id}/members?cursor=&limit=&q=。
 ///

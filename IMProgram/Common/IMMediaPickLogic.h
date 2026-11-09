@@ -37,12 +37,13 @@ typedef NS_ENUM(NSInteger, IMVideoTranscodeOutcome) {
 /// 编号（1-based）；未选中返回 0。
 + (NSInteger)numberOfAssetID:(NSString *)assetID inSelection:(NSArray<NSString *> *)selected;
 
-/// 能不能选：只有超过 2GB 不可选；体积未知与 0 都可选（iOS 选择时判不出 0 字节坏文件，发送时校验标失败，
+/// 能不能选：只有超过 maxBytes 不可选；体积未知与 0 都可选（iOS 选择时判不出 0 字节坏文件，发送时校验标失败，
 /// 与 Android「0 = MediaStore 坏行」在选择时就置灰不同，见 docs/UI_SPEC.md §6.4）。
-+ (BOOL)isSelectableWithSizeBytes:(long long)sizeBytes;
+/// maxBytes = 服务端单文件上限（调用方传 IMMediaMaxUploadBytes()，S3a 后台可改）；<=0 视为默认 2 GiB。
++ (BOOL)isSelectableWithSizeBytes:(long long)sizeBytes maxBytes:(long long)maxBytes;
 
 /// 是否超上限（「超过 2.00 GB」）。当前它是 isSelectable 的补集，单列是为了提示文案不依赖那条规则的实现。
-+ (BOOL)isTooLargeWithSizeBytes:(long long)sizeBytes;
++ (BOOL)isTooLargeWithSizeBytes:(long long)sizeBytes maxBytes:(long long)maxBytes;
 
 /// 「原图」旁边的总字节数：只累加**已知**的选中项（>0）；全部未知返回 0（调用方据此不显示括号）。
 + (long long)totalBytesForSelection:(NSArray<NSString *> *)selected

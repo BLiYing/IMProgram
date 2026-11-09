@@ -735,7 +735,7 @@
 "err.200110" = "二维码已失效，请向对方索取新的";
 "err.300004" = "账号已被禁言";
 "err.300201" = "群不存在";
-"err.300202" = "群名不能为空且不超过 30 字";
+"err.300202" = "群名不能为空，也不能超过长度上限";
 "err.300203" = "你不在该群中";
 "err.300205" = "群成员已达上限";
 "err.300211" = "你的入群申请刚被拒绝，请稍后再试";
@@ -745,6 +745,7 @@
 "err.300303" = "文件夹名不能为空，且不能太长";
 "err.300304" = "已有同名文件夹";
 "err.300305" = "文件夹不存在";
+"err.500003" = "管理员已暂停发送文件";
 "err.500101" = "转文字暂未开启（服务端未配置识别引擎）";
 "err.500102" = "识别失败，请稍后重试";
 "err.500103" = "转文字服务繁忙，请稍后再试";
@@ -995,7 +996,7 @@
 "group.info.my_nickname_hint" = "群内所有人可见；留空即清除，显示你的全局昵称。";
 "group.info.reinvite_blocked" = "该成员已被移出本群，暂时无法再次邀请";
 "group.info.remark_hint" = "仅你自己可见，用于区分同名群聊，不会通知其他成员。";
-"group.info.rename_hint" = "1~30 字";
+"group.info.rename_hint" = "1~%1$ld 字";
 "group.info.rename_title" = "修改群名";
 "group.info.super_note" = "大群 · 已关闭 3 项能力：不显示「正在输入」、不显示已读双勾、不显示成员在线态。这些能力在两万人规模下会产生海量无效推送。";
 "group.info.title" = "群资料";
@@ -1096,7 +1097,7 @@
 "group.ops.leave_confirm_message" = "确定退出该群聊？";
 "group.ops.leave_failed" = "退出失败：%1$@";
 "group.ops.list_load_failed" = "加载群列表失败：%1$@";
-"group.ops.name_placeholder" = "群名（1~30 字）";
+"group.ops.name_placeholder" = "群名（1~%1$ld 字）";
 "group.ops.name_required" = "请输入群名";
 "group.ops.remark_save_failed" = "保存备注失败：%1$@";
 "group.ops.revoke_admin_confirm" = "撤销 %1$@ 的管理员身份？";
@@ -1939,6 +1940,8 @@
 "twostep.use_recovery" = "改用恢复码";
 "twostep.verify_pw.footer" = "为保护账号，开启前需要确认你的密码。";
 "twostep.verify_pw.title" = "验证密码";
+"upload.precheck.blocked_type" = "管理员已禁止发送安装包和可执行文件";
+"upload.precheck.too_large" = "文件超过 %1$@，无法发送";
 "web.conv.menu.mute" = "免打扰";
 "web.conv.menu.unmute" = "取消免打扰";
 "web.login.nickname_placeholder" = "注册用，可中文，≤32 字";

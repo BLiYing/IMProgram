@@ -5,6 +5,12 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+/// 吐司去重（纯函数）：与上一次（*lastText / *lastAt）同一句且相隔不足 window 秒 → NO（不弹）；
+/// 否则 YES 并把本次记进 *lastText / *lastAt。用途：一批作业同时失败（如进聊天页自动续传多条、上传已被暂停）
+/// 时只弹一次。window 取短（≈1 秒）：用户自己点重试的间隔通常更长，不会被吞掉。
+FOUNDATION_EXPORT BOOL IMToastDedup(NSString *text, CFTimeInterval now, NSString *__strong _Nullable *_Nonnull lastText,
+                                    CFTimeInterval *lastAt, CFTimeInterval window);
+
 @interface UIViewController (IMToast)
 
 /// 短暂提示（底部居中，自动消失）。

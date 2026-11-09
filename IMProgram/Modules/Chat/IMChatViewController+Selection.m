@@ -27,6 +27,7 @@
 #import "IMRemarkStore.h"   // 举报确认弹窗用**本机显示名**（备注优先）——只在本机渲染，不随请求发出
 #import "UIViewController+IMToast.h"
 #import "IMLocalization.h"
+#import "IMServerConfigStore.h"
 
 static const CGFloat kIMSelectionBarH = 48; // 底部选择栏高度（=搜索导航 kIMSearchNavBarH，堆叠时按钮间距一致）
 
@@ -463,6 +464,10 @@ BOOL IMChatSelectionAllDeletableForEveryone(NSArray<IMMessageModel *> *msgs, BOO
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"forward.mode.merged") style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
         __strong typeof(ws) self = ws; if (!self) { return; }
+        // 合并转发另有上限（后台「合并转发最大条数」，已按 min(多选上限 100, 下发值) 收口）；逐条转发 / 收藏 / 举报仍只受多选闸。
+        // 先勾后选方式，故在这里拦：超了吐司提示减选或改逐条转发。
+        NSInteger mergeMax = IMServerConfigStore.shared.mergeForwardMax;
+        if ((NSInteger)msgs.count > mergeMax) { [self im_showToast:IMLocalizedFormat(@"forward.merge.max", (long)mergeMax)]; return; }
         NSUInteger expiredCount = 0;
         for (IMMessageModel *m in msgs) { if ([self isMediaExpiredForForward:m]) { expiredCount++; } }
         if (expiredCount >= msgs.count) { [self im_showToast:IMLocalized(@"chat.forward.all_expired_merge")]; return; } // 失效项会被剔出记录，全失效则整条无意义

@@ -48,6 +48,13 @@ NS_ASSUME_NONNULL_BEGIN
 /// 超过该大小才值得走分片（小文件多三次往返反而更慢）。
 @property (class, nonatomic, readonly) NSUInteger chunkedThresholdBytes;
 
+/// 链上业务错误要不要「换新会话从头传」（纯判定，便于单测）：
+///   - 上传策略拒绝（500001 超限 / 500002 类型被禁 / 500003 管理员暂停）→ **不重启**：换会话照样被拒，
+///     只会白传两遍（complete 时服务端按当前策略复查，在途分片传完也可能在这一步被拒）；
+///   - 其余业务错（会话不存在 / 过期 / 非法 offset）→ 重启，最多 2 次（restartCount 为已重启次数）；
+///   - 非业务错（网络）→ NO（走网络退避重试，不清 upload_id）。
++ (BOOL)shouldRestartSessionForError:(nullable NSError *)error restartCount:(NSInteger)restartCount;
+
 /// 取仍在进行中的任务（含暂停态）；无则 nil。用于界面重建后重新接管。
 - (nullable IMChunkedUploadTask *)taskForKey:(NSString *)key;
 

@@ -14,6 +14,8 @@
 #import "IMTheme.h"
 
 static const CGFloat kIMShareGridRowGap = 12;
+/// 网格最多直接摊开几行，再多就在网格内滚动。转发上限后台可调到 50（S2），全摊开会把卡片顶出屏幕。
+static const NSUInteger kIMShareGridMaxVisibleRows = 4;
 static const CGFloat kIMShareSendHeight = 48;
 static const CGFloat kIMShareCardRadius = 16;
 static const NSTimeInterval kIMShareCardAnim = 0.25;
@@ -25,7 +27,8 @@ static const NSTimeInterval kIMShareCardAnim = 0.25;
     UIView *_card;
     NSLayoutConstraint *_cardBottom;   // 滑入 / 滑出：0 = 贴底，卡片高度 = 藏到屏外
     UILabel *_titleLabel;
-    UIView *_grid;                     // 普通视图：最多 9 格两行，必定放得下
+    UIScrollView *_grid;               // 行数 ≤ kIMShareGridMaxVisibleRows 时高度贴合内容；更多则固定高度、内部滚动
+    UIView *_gridContent;              // 格子都挂在这里（别直接挂 scrollView：重排时会把滚动条一并删掉）
     NSLayoutConstraint *_gridHeight;
     UILabel *_preview;
     UIView *_previewBox;
@@ -76,9 +79,13 @@ static const NSTimeInterval kIMShareCardAnim = 0.25;
     [cancel addTarget:self action:@selector(cancelTapped) forControlEvents:UIControlEventTouchUpInside];
     [_card addSubview:cancel];
 
-    _grid = [UIView new];
+    _grid = [UIScrollView new];
     _grid.translatesAutoresizingMaskIntoConstraints = NO;
+    _grid.showsHorizontalScrollIndicator = NO;
+    _grid.alwaysBounceVertical = NO;
     [_card addSubview:_grid];
+    _gridContent = [UIView new];
+    [_grid addSubview:_gridContent];
 
     _previewBox = [UIView new];
     _previewBox.translatesAutoresizingMaskIntoConstraints = NO;
@@ -180,7 +187,7 @@ static const NSTimeInterval kIMShareCardAnim = 0.25;
 
 /// 网格 = 若干行横排的已选格子（与底部已选栏同一种格子）。列数按宽度算，格间距均分。
 - (void)layoutGrid {
-    for (UIView *v in _grid.subviews) { [v removeFromSuperview]; }
+    for (UIView *v in _gridContent.subviews) { [v removeFromSuperview]; }
     CGFloat width = CGRectGetWidth(_grid.bounds);
     _laidOutWidth = width;
     if (width <= 0) { return; }
@@ -194,12 +201,16 @@ static const NSTimeInterval kIMShareCardAnim = 0.25;
     for (NSUInteger i = 0; i < items.count; i++) {
         NSUInteger row = i / cols, col = i % cols;
         CGPoint origin = CGPointMake(inset + col * (chipW + gap), 4 + row * (chipH + kIMShareGridRowGap));
-        [_grid addSubview:[IMSelectedChipStrip chipViewForChip:IMShareChipForConversation(items[i]) origin:origin
+        [_gridContent addSubview:[IMSelectedChipStrip chipViewForChip:IMShareChipForConversation(items[i]) origin:origin
                                                      onRemove:^(NSString *convID) { [ws removeTapped:convID]; }]];
     }
     NSUInteger rows = items.count == 0 ? 0 : (items.count + cols - 1) / cols;
     CGFloat contentH = rows == 0 ? 0 : 4 + rows * chipH + (rows - 1) * kIMShareGridRowGap;
-    CGFloat newH = MAX(contentH, chipH);
+    _gridContent.frame = CGRectMake(0, 0, width, contentH);
+    _grid.contentSize = CGSizeMake(width, contentH);
+    CGFloat maxH = 4 + kIMShareGridMaxVisibleRows * chipH + (kIMShareGridMaxVisibleRows - 1) * kIMShareGridRowGap;
+    CGFloat newH = MIN(MAX(contentH, chipH), maxH);
+    _grid.scrollEnabled = contentH > maxH + 0.5;
     if (fabs(newH - _gridHeight.constant) >= 0.5) { _gridHeight.constant = newH; } // 行数变了：卡片高度随约束变
 }
 

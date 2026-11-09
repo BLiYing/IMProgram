@@ -4,6 +4,7 @@
 > 历史流水见 `current_task.archive.md`（2026-10-02 瘦身前的全量快照在其顶部）+ `git log`。关键约定见 `CLAUDE.md` / `ARCHITECTURE.md` / `CODING_STYLE.md`。
 
 ## 当前焦点
+- **后台「系统设置」S2 客户端部分（2026-11-08，未提交）**：`Network/IMServerConfigStore` 解析 `GET /server-config` 新增六项（缺失→内置默认 120s/不限/9/100/30/500，0 仅在两个时间窗上=不限），**每次 Connected + 回前台**重拉（在途不重发 + 成功后 5s 内不再拉，合并两个时机）；撤回 / 编辑菜单显隐走 `IMChatCanShowRecall/Edit`（删掉 `kIMRecallWindowMs`）；转发选择页上限读 `forwardMaxTargets`（确认卡片网格超 4 行改内部滚动）；合并转发在选方式时按 `mergeForwardMax` 拦（复用「最多选择 N 条」吐司）；建群 / 改群名（弹窗说明行改为实时 `n/上限`）/ 群公告读两个长度上限。单测 `IMServerConfigStoreTests`。**未做**：`err.300202`「不超过 30 字」与 `group.ops.name_placeholder` 文案仍写死 30（改要动 `strings.json` 并重生成四端，本次按要求不碰 IMServer）；CLIENT_PARITY 未更新。
 - **登录页长按 Logo 配地址（2026-11-06，仅 iOS）**：长按顶部图标弹窗改服务器地址和音视频地址（留空恢复默认）；登录按钮下方改为只读显示服务器地址，原折叠输入框已删。Release 内置默认 `47.250.219.159:8081`，音视频默认仍读 `IMRtcConfig.local.plist`（局域网地址），保存值优先（`IMRtcConfig.saveWSURLOverride:`，下次登录启动引擎时生效）。老安装保留 `im_last_host`，默认值只对没存过地址的安装生效。后台下发 `rtc_ws_url` 的方案用户未采纳。未解之谜：模拟器单测里 `im_last_host` 删除后持久域已空，`stringForKey:` 仍读到旧值，原因未查明；留空保存后杀 App 重开是否回到默认，以真机为准。
 - **登录页改服务器地址时键盘盖住输入框（2026-11-06，未提交）**：登录页是一列堆叠、没有滚动容器，原先键盘处理只覆盖二步验证页。现在按当前获得焦点的输入框（地址 / 用户名 / 密码 / 昵称）算上移量，保证它的下沿在键盘上沿之上；同一键盘下切换输入框靠 `UIControlEventEditingDidBegin` 重算。纯函数 `IMLoginKeyboardLift`，测试 `IMLoginKeyboardTests`。**待真机目测**（小屏 + 中文输入法的候选栏高度）。
 - **退出后不再收离线通知（2026-11-06，未提交）**：`Network/IMPendingLogoutQueue` 持久化待吊销凭据并重试，`IMSessionTeardown` 清已显示通知。设计与真机清单：`../IMServer/docs/design/LOGOUT_REVOKE_RETRY_DESIGN.md`。**Keychain 只能在签名真机验证**（`test.sh` 未签名，往返用例跳过）。

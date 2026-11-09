@@ -51,8 +51,7 @@ extern NSString * const kIMMsgOpEdit;   ///< 编辑
 extern NSString * const kIMMsgOpPin;    ///< 聊天内置顶
 extern NSString * const kIMMsgOpDelete; ///< 为所有人删除（任务2）：发送者本人或群主/管理员，无时间窗，收端物理移除
 
-/// 撤回可见时间窗（毫秒，微信式 2min，与后端 Hub.recallWindow 对齐；服务端为准）。
-FOUNDATION_EXPORT const int64_t kIMRecallWindowMs;
+// 撤回 / 编辑时间窗不再是常量：运行中由后台「系统设置」下发，读 IMServerConfigStore.recallWindowSec / editWindowSec。
 
 #pragma mark - 信封字段 Key
 

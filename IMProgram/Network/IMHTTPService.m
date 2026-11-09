@@ -94,6 +94,8 @@ NSString *IMFriendlyMessageForCode(NSInteger code) {
         case 300213: return IMLocalized(@"err.300213");                      // group admin limit
         case 300212: return IMLocalized(@"qr.action.admin_only_note"); // invite revoked（perm_invite，竞态兜底）
         case 100002: return IMLocalized(@"err.100002");              // rate limited（全站通用码）
+        // 500001（超限）/ 500002（类型被禁）不映射：服务端会带具体上限 / 原因，透传更有用。
+        case 500003: return IMLocalized(@"err.500003"); // upload disabled by admin（S3a）
         case 500101: return IMLocalized(@"err.500101"); // transcribe disabled
         case 500102: return IMLocalized(@"err.500102");                  // transcribe failed
         case 500103: return IMLocalized(@"err.500103");            // transcribe busy（队列满）
@@ -482,15 +484,9 @@ const NSInteger IMFavoritesPageSize = 60;
 }
 
 - (void)serverConfigWithToken:(NSString *)token
-                   completion:(void (^)(NSInteger, BOOL, NSInteger, NSError *))completion {
+                   completion:(void (^)(NSDictionary *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/server-config" method:@"GET" token:token body:nil];
-    [self runDataRequest:req fallback:IMLocalized(@"net.fallback.server_config_load") completion:^(NSDictionary *data, NSError *error) {
-        if (error) { completion(0, NO, 0, error); return; }
-        completion([data[@"max_group_members"] integerValue],
-                   [data[@"supergroup_enabled"] boolValue],
-                   [data[@"max_supergroup_members"] integerValue],
-                   nil);
-    }];
+    [self runDataRequest:req fallback:IMLocalized(@"net.fallback.server_config_load") completion:completion];
 }
 
 - (void)groupMembersPageWithToken:(NSString *)token
@@ -1164,7 +1160,14 @@ static NSArray<NSString *> *IMStringArrayFrom(id raw) {
         cleanup();
         if (!self) { return; }
         if (error) { completion(nil, nil, error); return; }
-        if ([resp[@"code"] integerValue] != 0) { completion(nil, nil, [self errorWithMessage:[self messageFrom:resp fallback:IMLocalized(@"net.error.upload_failed")]]); return; }
+        if ([resp[@"code"] integerValue] != 0) {
+            // 透传业务码（>0，与分片通道 performUploadAPI 同口径）：调用方据此认出上传策略拒绝
+            // （500001/500002/500003）并给出服务端 / 友好文案，而不是笼统的「上传失败」。
+            NSInteger code = [resp[@"code"] integerValue];
+            completion(nil, nil, [self errorWithCode:(code > 0 ? code : -1)
+                                             message:[self messageFrom:resp fallback:IMLocalized(@"net.error.upload_failed")]]);
+            return;
+        }
         NSDictionary *d = [resp[@"data"] isKindOfClass:[NSDictionary class]] ? resp[@"data"] : @{};
         NSString *u = [d[@"url"] isKindOfClass:[NSString class]] ? d[@"url"] : nil;
         NSString *ct = [d[@"content_type"] isKindOfClass:[NSString class]] ? d[@"content_type"] : @"image";

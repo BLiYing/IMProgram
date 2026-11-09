@@ -3,6 +3,7 @@
 #import "IMMediaPickSession.h"
 #import "IMMediaPickLogic.h"
 #import "IMMediaPickerPhotos.h"
+#import "IMMediaPicker.h" // IMMediaMaxUploadBytes()：服务端单文件上限
 
 @implementation IMMediaPickSession {
     NSArray<NSString *> *_selectedIDs;
@@ -44,15 +45,16 @@
 }
 
 - (BOOL)isSelectableAsset:(PHAsset *)asset {
-    // 图片不可能超 2GB，省掉一次资源查询；只有视频才按体积判定（点击时同步取，之后命中缓存）。
+    // 图片省掉一次资源查询（压缩后远小于上限）；只有视频才按体积判定（点击时同步取，之后命中缓存）。
+    // 后台把上限调得很小时，图片的超限由发送服务落盘后的预检（IMUploadPrecheck）兜住。
     if (asset.mediaType != PHAssetMediaTypeVideo) { return YES; }
-    return [IMMediaPickLogic isSelectableWithSizeBytes:[self sizeBytesOfAsset:asset]];
+    return [IMMediaPickLogic isSelectableWithSizeBytes:[self sizeBytesOfAsset:asset] maxBytes:IMMediaMaxUploadBytes()];
 }
 
 - (BOOL)isDimmedAsset:(PHAsset *)asset {
     if (asset.mediaType != PHAssetMediaTypeVideo) { return NO; }
     NSNumber *cached = [IMMediaPickerPhotos cachedSizeBytesOfAsset:asset]; // 只看缓存：格子绘制路径不能同步查资源
-    return cached && ![IMMediaPickLogic isSelectableWithSizeBytes:cached.longLongValue];
+    return cached && ![IMMediaPickLogic isSelectableWithSizeBytes:cached.longLongValue maxBytes:IMMediaMaxUploadBytes()];
 }
 
 - (long long)totalBytes {

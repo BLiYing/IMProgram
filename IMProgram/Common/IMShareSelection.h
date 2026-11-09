@@ -6,7 +6,7 @@
 //    同一个人 / 群不管从哪张表勾的都是同一项，所以在最近聊天勾了张三、进好友页张三就是已勾选。
 //  · 存的是 IMConversation（好友 / 群没会话时临时合成一个），调用方 onDone 只用 convID / isGroup / peer，
 //    故 7 个分享入口无需改动就能发到「没聊过的好友」「删过会话的群」。
-//  · 上限是**合计**（三处一起算），三端同值 9（iOS kIMForwardMaxSelection / Web MAX_FORWARD_TARGETS）。
+//  · 上限是**合计**（三处一起算），取 server-config `forward_max_targets`（后台可调；老服务端缺字段时默认 9）。
 //  三端同口径：im-web `src/shareTargets.ts`、im-android `data/SharePick.kt`。
 
 #import <Foundation/Foundation.h>

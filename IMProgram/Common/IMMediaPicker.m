@@ -5,13 +5,17 @@
 #import "IMLog.h"
 #import "IMMediaPickerPhotos.h"
 #import "IMMediaPickLogic.h"
+#import "IMServerConfigStore.h"
 #import <PhotosUI/PhotosUI.h>
 #import <AVFoundation/AVFoundation.h>
 #import <ImageIO/ImageIO.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
-// 视频不按时长限制（用户拍板），仅保留与服务端一致的 2GB 体积上限。
-const long long kIMMaxVideoBytes = 2048LL * 1024 * 1024;
+// 视频不按时长限制（用户拍板），只受服务端单文件体积上限约束（默认 2 GiB，后台可改）。
+long long IMMediaMaxUploadBytes(void) {
+    long long v = IMServerConfigStore.shared.uploadMaxFileBytes;
+    return v > 0 ? v : IMServerConfigDefaultUploadMaxFileBytes;
+}
 
 // 相机**现录**的例外：60s。理由见头文件（120s 转码超时 + tmp 体积）；相册选片仍不限时长。
 const NSTimeInterval kIMCameraVideoMaxSeconds = 60;
@@ -491,7 +495,7 @@ static UIImage *IMPickerRequestImage(PHAsset *asset, CGFloat maxSide) {
     if (!url) { return nil; }
     int64_t size = (int64_t)[[[NSFileManager defaultManager] attributesOfItemAtPath:url.path
                                                                              error:NULL][NSFileSize] unsignedLongLongValue];
-    if (size <= 0 || size > kIMMaxVideoBytes) { return nil; }
+    if (size <= 0 || size > IMMediaMaxUploadBytes()) { return nil; }
     CGSize pixelSize = CGSizeZero;
     int64_t durationMillis = 0;
     IMPickerReadVideoMeta(url, &pixelSize, &durationMillis);
@@ -652,9 +656,9 @@ static UIImage *IMPickerRequestImage(PHAsset *asset, CGFloat maxSide) {
     NSString *outCodec = IMPickerVideoCodec(finalURL);
     long long byteCount = (long long)[[[NSFileManager defaultManager]
         attributesOfItemAtPath:finalURL.path error:NULL][NSFileSize] unsignedLongLongValue];
-    if (byteCount <= 0 || byteCount > kIMMaxVideoBytes) {
+    if (byteCount <= 0 || byteCount > IMMediaMaxUploadBytes()) {
         [[NSFileManager defaultManager] removeItemAtURL:finalURL error:NULL];
-        return nil; // 读不到/超 2GB：剔除（调用方标"失败"）
+        return nil; // 读不到/超上限：剔除（调用方标"失败"）
     }
 
     // 产物编码不信文档只信实测：转码成功后仍是 HEVC 说明预设选错，收端照样播不了，必须能一眼看出来。

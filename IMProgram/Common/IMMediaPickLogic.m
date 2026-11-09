@@ -6,8 +6,13 @@ const NSInteger kIMMediaPickLimit = 9;
 NSString * const kIMMediaPickAllBucketID = @"__all__";
 const long long kIMMediaSizeUnknown = -1;
 
-/// 服务端单文件上限 2GB（图片/视频同档），与 kIMMaxVideoBytes 一致；这里不引 IMMediaPicker.h 以保持纯逻辑。
-static const long long kIMMediaPickMaxBytes = 2048LL * 1024 * 1024;
+/// 调用方没给上限（<=0）时的兜底：服务端默认单文件上限 2 GiB。真实上限由调用方传入（服务端下发，S3a 可改），
+/// 这里不引 IMServerConfigStore 以保持纯逻辑。
+static const long long kIMMediaPickFallbackMaxBytes = 2048LL * 1024 * 1024;
+
+static long long IMMediaPickEffectiveMax(long long maxBytes) {
+    return maxBytes > 0 ? maxBytes : kIMMediaPickFallbackMaxBytes;
+}
 
 /// 每格目标宽度（pt）：regular 宽度（iPad / 横屏）下列数随宽度增加，保持格子大小与手机相近。
 static const CGFloat kIMMediaPickTargetCellWidth = 100;
@@ -37,14 +42,14 @@ static const NSInteger kIMMediaPickMinColumns = 4;
     return exported ? IMVideoTranscodeOutcomeDone : IMVideoTranscodeOutcomeFellBack;
 }
 
-+ (BOOL)isSelectableWithSizeBytes:(long long)sizeBytes {
++ (BOOL)isSelectableWithSizeBytes:(long long)sizeBytes maxBytes:(long long)maxBytes {
     // 只有「超上限」会不可选。体积未知与 0 都放行：PhotoKit 没有公开的大小 API，取不到（含给 0）是常态，
     // 读到的 0 已在 IMMediaPickerPhotos 里归为「未知」；真正的 0 字节坏文件留给发送时的 byteCount 校验标失败。
-    return sizeBytes <= kIMMediaPickMaxBytes;
+    return sizeBytes <= IMMediaPickEffectiveMax(maxBytes);
 }
 
-+ (BOOL)isTooLargeWithSizeBytes:(long long)sizeBytes {
-    return sizeBytes > kIMMediaPickMaxBytes;
++ (BOOL)isTooLargeWithSizeBytes:(long long)sizeBytes maxBytes:(long long)maxBytes {
+    return sizeBytes > IMMediaPickEffectiveMax(maxBytes);
 }
 
 + (long long)totalBytesForSelection:(NSArray<NSString *> *)selected

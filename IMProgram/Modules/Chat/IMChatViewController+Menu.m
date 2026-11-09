@@ -12,6 +12,8 @@
 #import "IMDatabase.h"
 #import "IMPendingMediaStore.h"
 #import "IMProtocol.h"
+#import "IMServerConfigStore.h"
+#import "IMChatMessageLogic.h"
 #import "IMGroupInfo.h"
 #import "IMTheme.h"
 #import "IMTimeUtil.h"
@@ -324,9 +326,10 @@ static UIBezierPath *IMBubbleOutlinePath(CGRect rect, CGFloat radius, CACornerMa
             [ws favoriteMessage:message];
         }]];
     }
-    // 撤回（M4-1）：仅本人、已拿到 conv_seq、未撤回、2min 窗口内（服务端为准，此处仅避免必然失败的入口）。
+    // 撤回（M4-1）：仅本人、已拿到 conv_seq、未撤回、撤回时间窗内（后台可调，0=不限；服务端为准，此处仅避免必然失败的入口）。
     int64_t nowMs = IMNowMillis();
-    if (mine && message.convSeq > 0 && message.recalledAt == 0 && (nowMs - message.timestamp) <= kIMRecallWindowMs) {
+    IMServerConfigStore *serverConfig = IMServerConfigStore.shared;
+    if (IMChatCanShowRecall(message, mine, nowMs, serverConfig.recallWindowSec)) {
         [actions addObject:[IMMenuAction actionWithId:@"recall" title:IMLocalized(@"chat.msg_menu.recall") image:@"arrow.uturn.backward" handler:^{
             [IMSocketManager.sharedManager recallMessageInConv:(message.convID ?: @"") targetConvSeq:message.convSeq];
         }]];
@@ -346,9 +349,9 @@ static UIBezierPath *IMBubbleOutlinePath(CGRect rect, CGFloat radius, CACornerMa
             }]];
         }
     }
-    // 编辑（M4-5）：仅本人文本、已拿到 conv_seq、未撤回。必须 convSeq>0——发送中的行发 msg_op edit
+    // 编辑（M4-5）：仅本人文本、已拿到 conv_seq、未撤回、编辑时间窗内（后台可调，0=不限）。必须 convSeq>0——发送中的行发 msg_op edit
     // 会因 sendTapped 的 convSeq>0 判定落空而改走「发新消息」分支，造成重复发送且编辑条卡住。
-    if (mine && [message.contentType isEqualToString:@"text"] && message.content.length > 0 && message.convSeq > 0 && message.recalledAt == 0) {
+    if (IMChatCanShowEdit(message, mine, nowMs, serverConfig.editWindowSec)) {
         [actions addObject:[IMMenuAction actionWithId:@"edit" title:IMLocalized(@"common.edit") image:@"pencil" handler:^{
             [ws beginEditMessage:message];
         }]];

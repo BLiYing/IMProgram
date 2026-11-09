@@ -735,7 +735,7 @@
 "err.200110" = "This QR code is no longer valid. Ask for a new one.";
 "err.300004" = "This account has been muted";
 "err.300201" = "Group not found";
-"err.300202" = "The group name can’t be empty or longer than 30 characters";
+"err.300202" = "The group name can’t be empty or exceed the length limit";
 "err.300203" = "You’re not in this group";
 "err.300205" = "The group has reached its member limit";
 "err.300211" = "Your join request was just declined. Try again later.";
@@ -745,6 +745,7 @@
 "err.300303" = "Folder name can't be empty or too long";
 "err.300304" = "A folder with this name already exists";
 "err.300305" = "Folder not found";
+"err.500003" = "Sending files has been paused by the administrator";
 "err.500101" = "Voice-to-text isn’t enabled (the server has no speech engine configured)";
 "err.500102" = "Recognition failed. Try again later.";
 "err.500103" = "Voice-to-text is busy. Try again later.";
@@ -995,7 +996,7 @@
 "group.info.my_nickname_hint" = "Visible to everyone in this group. Leave empty to clear it and show your global nickname.";
 "group.info.reinvite_blocked" = "This member was removed from the group and can’t be invited again for now";
 "group.info.remark_hint" = "Only visible to you, to tell apart chats with the same name. Other members won't be notified.";
-"group.info.rename_hint" = "1–30 characters";
+"group.info.rename_hint" = "1–%1$ld characters";
 "group.info.rename_title" = "Rename group";
 "group.info.super_note" = "Large group · 3 features are off: typing indicators, read receipts, and member online status. At 20,000 members they would flood everyone with useless updates.";
 "group.info.title" = "Group info";
@@ -1096,7 +1097,7 @@
 "group.ops.leave_confirm_message" = "Leave this group chat?";
 "group.ops.leave_failed" = "Couldn't leave: %1$@";
 "group.ops.list_load_failed" = "Couldn't load the group list: %1$@";
-"group.ops.name_placeholder" = "Group name (1–30 characters)";
+"group.ops.name_placeholder" = "Group name (1–%1$ld characters)";
 "group.ops.name_required" = "Please enter a group name";
 "group.ops.remark_save_failed" = "Couldn't save the remark: %1$@";
 "group.ops.revoke_admin_confirm" = "Revoke %1$@'s admin role?";
@@ -1939,6 +1940,8 @@
 "twostep.use_recovery" = "Use a recovery code";
 "twostep.verify_pw.footer" = "To protect your account, please confirm your password before turning this on.";
 "twostep.verify_pw.title" = "Verify password";
+"upload.precheck.blocked_type" = "The administrator doesn’t allow sending installers or executable files";
+"upload.precheck.too_large" = "This file is larger than %1$@ and can’t be sent";
 "web.conv.menu.mute" = "Mute";
 "web.conv.menu.unmute" = "Unmute";
 "web.login.nickname_placeholder" = "For sign-up only; up to 32 characters";

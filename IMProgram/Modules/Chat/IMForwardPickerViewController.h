@@ -1,12 +1,12 @@
 //  IMForwardPickerViewController.h
-//  转发/分享选择页（#6）：整页展示会话列表，右上「多选」切换单选/多选（多选最多 9 个）。
+//  转发/分享选择页（#6）：整页展示会话列表，右上「多选」切换单选/多选（多选最多 forward_max_targets 个，默认 9）。
 //  自身只负责选择，选中的会话由 onDone 回调交回调用方去转发（可复用于其它"选会话"场景）。
 //
 //  2026-11 分享选择页改造（IMServer/docs/design/sketches/SHARE_PICKER_UX_SKETCH.html）：
 //  · 列表上方「我的好友」「我的群聊」两个入口（push 子页 IMShareContactListViewController），
 //    没聊过的好友 / 删过会话的群也能选——回调里交回的是**合成的** IMConversation（convID 本地推导），
 //    调用方只用 convID / isGroup / peer，故无需改动；
-//  · 选中集 = IMShareSelection（按 conv_id 去重、三处合计上限 9），三页共用、勾选状态互通；
+//  · 选中集 = IMShareSelection（按 conv_id 去重、三处合计上限 forward_max_targets，默认 9），三页共用、勾选状态互通；
 //  · 多选态底部常驻已选栏（IMShareSelectionBar，复用建群页已选成员横条），「发送(N)」在栏上；
 //    点发送先弹确认面板（IMShareConfirmViewController）再回调 onDone；
 //  · 搜索同时搜最近聊天 / 好友 / 群聊，按 conv_id 去重分组。
@@ -19,7 +19,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface IMForwardPickerViewController : UIViewController
 
-/// host/token 用于拉取会话列表；onDone 回调选中的会话（单选=1 个，多选=1..9 个）；页面自身负责收起。
+/// host/token 用于拉取会话列表；onDone 回调选中的会话（单选=1 个，多选=1..forward_max_targets 个）；页面自身负责收起。
 - (instancetype)initWithHost:(NSString *)host
                        token:(NSString *)token
                       onDone:(void (^)(NSArray<IMConversation *> *selected))onDone NS_DESIGNATED_INITIALIZER;

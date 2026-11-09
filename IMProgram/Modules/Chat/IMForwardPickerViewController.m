@@ -16,8 +16,8 @@
 #import "UIViewController+IMToast.h"
 #import "IMTheme.h"
 #import "IMLocalization.h"
+#import "IMServerConfigStore.h"
 
-static const NSUInteger kIMForwardMaxSelection = 9;
 
 /// 表格分组。无搜索词：入口 + 最近聊天；有搜索词：最近聊天 / 好友 / 群聊（空组不出现）。
 typedef NS_ENUM(NSInteger, IMForwardSectionKind) {
@@ -57,7 +57,8 @@ typedef NS_ENUM(NSInteger, IMForwardSectionKind) {
         _host = [host copy];
         _token = [token copy];
         _onDone = [onDone copy];
-        _selection = [[IMShareSelection alloc] initWithLimit:kIMForwardMaxSelection];
+        // 上限 = 后台「转发目标会话数上限」（老服务端缺字段时内置 9）；打开选择页那一刻取值，本页内不变。
+        _selection = [[IMShareSelection alloc] initWithLimit:(NSUInteger)MAX((NSInteger)1, IMServerConfigStore.shared.forwardMaxTargets)];
         _showsContactEntries = YES;
         _convs = @[];
         _recentRows = @[];
@@ -264,7 +265,7 @@ typedef NS_ENUM(NSInteger, IMForwardSectionKind) {
     return self.titleOverride.length > 0 ? self.titleOverride : IMLocalized(@"forward.picker.destination_title");
 }
 
-/// 标题（多选态带「已选 N/9」副标题）、右上按钮、底部已选栏显隐。
+/// 标题（多选态带「已选 N/上限」副标题）、右上按钮、底部已选栏显隐。
 - (void)updateChrome {
     NSString *sub = _multiSelect
         ? IMLocalizedFormat(@"share.picker.selected_of_max", (long)_selection.count, (long)_selection.limit) : nil;
@@ -336,10 +337,10 @@ typedef NS_ENUM(NSInteger, IMForwardSectionKind) {
         [presenter presentViewController:a animated:YES completion:nil];
         return;
     }
-    // 多选：切换选中，三处合计上限 9；满了不置灰，点了吐司。
+    // 多选：切换选中，三处合计上限 forward_max_targets（默认 9）；满了不置灰，点了吐司。
     IMShareToggleResult r = [_selection toggle:c];
     if (r == IMShareToggleCapped) {
-        [presenter im_showToast:IMLocalizedFormat(@"forward.picker.max_selection", (long)kIMForwardMaxSelection)];
+        [presenter im_showToast:IMLocalizedFormat(@"forward.picker.max_selection", (long)_selection.limit)];
         return;
     }
     if (r == IMShareToggleInvalid) { return; }

@@ -111,6 +111,7 @@ typedef NS_ENUM(NSInteger, IMGroupCreateSection) {
 @property (nonatomic, strong) UILabel *counter;
 @property (nonatomic, copy) NSString *avatarURL;        ///< 已上传的群头像 URL（随建群请求发）
 @property (nonatomic, assign) BOOL nameEdited;          ///< 用户手改过群名 → 增删成员不再覆盖
+@property (nonatomic, assign) NSUInteger nameLastRunes;  ///< 群名框上一次观测到的 rune 数（非组合态）：只有变长才截断
 @property (nonatomic, assign) BOOL avatarUploading;
 @property (nonatomic, assign) BOOL createPending;       ///< 头像还在传时点了「创建」，等它回来再发
 @property (nonatomic, assign) BOOL creating;            ///< 建群在途：防连点建出两个群（无幂等键）
@@ -194,7 +195,7 @@ typedef NS_ENUM(NSInteger, IMGroupCreateSection) {
 #pragma mark - 群名
 
 /// 输入框规格照抄 IMProfileEditViewController 的 fieldWithPlaceholder:（16pt / textPrimary /
-/// 随编辑显示清除键），只是嵌进 grouped cell；右侧是 12pt 三级色的 n/30 计数。
+/// 随编辑显示清除键），只是嵌进 grouped cell；右侧是 12pt 三级色的 n/上限 计数（上限读 server-config，默认 30）。
 /// **在 viewDidLoad 里建好**（不是 cellForRow 里懒建）：预填群名早于第一次出格。
 - (void)buildNameField {
     self.nameField = [UITextField new];
@@ -228,11 +229,16 @@ typedef NS_ENUM(NSInteger, IMGroupCreateSection) {
     for (IMUserCard *c in self.members) {
         [names addObject:IMPublicUserName(c.nickname, c.username, c.userID)];
     }
-    NSString *suggested = IMDefaultGroupName(names, IMMaxGroupNameLength);
+    NSString *suggested = IMDefaultGroupName(names, [self nameMaxLen]);
     self.nameField.text = suggested;
     [self refreshCounter];
     [self refreshHeader];
     [self refreshCreateEnabled];
+}
+
+/// 群名上限：后台「群名最大长度」（group_name_max_len；老服务端缺字段时 30）。
+- (NSUInteger)nameMaxLen {
+    return (NSUInteger)MAX((NSInteger)1, IMServerConfigStore.shared.groupNameMaxLen);
 }
 
 - (NSString *)trimmedName {
@@ -240,9 +246,11 @@ typedef NS_ENUM(NSInteger, IMGroupCreateSection) {
 }
 
 - (void)refreshCounter {
+    // 预填群名（程序赋值不触发 EditingChanged）与手动输入都经这里，顺带记下「上一次长度」；组合态不记。
+    if (!self.nameField.markedTextRange) { self.nameLastRunes = IMGroupNameRuneLength(self.nameField.text ?: @""); }
     self.counter.text = [NSString stringWithFormat:@"%lu/%lu",
                          (unsigned long)IMGroupNameRuneLength(self.nameField.text ?: @""),
-                         (unsigned long)IMMaxGroupNameLength];
+                         (unsigned long)[self nameMaxLen]];
 }
 
 - (void)refreshCreateEnabled {
@@ -256,15 +264,22 @@ typedef NS_ENUM(NSInteger, IMGroupCreateSection) {
 
 - (void)nameChanged:(UITextField *)field {
     self.nameEdited = YES;   // 手改过就再不被预填名覆盖（清空也算改过，不回填）
+    // 拼音上屏后才收口超长（组合态 shouldChange 一律放行）；只在变长时截。
+    if (IMGroupNameShouldTruncate(self.nameLastRunes, field.text, [self nameMaxLen], field.markedTextRange != nil)) {
+        field.text = IMGroupNameTruncateForEditing(field.text, [self nameMaxLen]);
+    }
     [self refreshCounter];
     [self refreshHeader];
     [self refreshCreateEnabled];
 }
 
-// 超 30 rune 就停止输入（服务端 textguard 才是权威，这里只做体验层拦截）。
+// 超上限（group_name_max_len）就停止输入（服务端 textguard 才是权威，这里只做体验层拦截）。
+// 拼音组合态（markedTextRange 非空）直接放行：未上屏的字母也算码点，接近上限时会组不出词；超长在 nameChanged: 收口。
 - (BOOL)textField:(UITextField *)textField shouldChangeCharactersInRange:(NSRange)range replacementString:(NSString *)string {
-    NSString *next = [(textField.text ?: @"") stringByReplacingCharactersInRange:range withString:string];
-    return IMGroupNameRuneLength(next) <= IMMaxGroupNameLength;
+    if (textField.markedTextRange) { return YES; }
+    NSString *currentText = textField.text ?: @"";
+    NSString *next = [currentText stringByReplacingCharactersInRange:range withString:string];
+    return IMGroupNameEditAllowed(currentText, next, [self nameMaxLen]);
 }
 
 - (BOOL)textFieldShouldReturn:(UITextField *)textField {

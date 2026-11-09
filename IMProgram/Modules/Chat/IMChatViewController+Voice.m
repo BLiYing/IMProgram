@@ -31,6 +31,7 @@
 #import "Voice/IMVoiceBubbleCell.h"
 #import "IMLog.h"
 #import "IMLocalization.h"
+#import "IMUploadPrecheck.h"
 #import <objc/runtime.h>
 
 /// 按住条 pan 触发取消的距离阈值（占输入栏宽度的比例）。
@@ -514,6 +515,9 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
 }
 
 - (void)im_uploadAndSendVoice:(NSURL *)fileURL waveform:(NSString *)waveform durationMillis:(int64_t)durationMillis {
+    // 发送前预检（S3a）：语音只看总开关（扩展名 / 单文件上限不作用于语音）。在创建占位气泡之前拦。
+    NSString *precheck = IMUploadPrecheckCurrent(@"voice.m4a", 0, YES);
+    if (precheck) { [self im_showToast:precheck]; return; }
     NSData *data = [NSData dataWithContentsOfURL:fileURL];
     if (data.length == 0) {
         [self im_showToast:IMLocalized(@"chat.voice.file_read_failed")];
@@ -652,6 +656,9 @@ static NSString *const kIMLockedPreviewID = @"__voice_preview__";
         IMLogWarnWithTag(IMLogTagMedia, @"voice_retry_route_mismatch client_msg_id=%@", m.clientMsgID);
         return;
     }
+    // 预检放在删旧 failed 行**之前**：不过就保留那条失败件（否则删了行、上传又被拦，这条语音就没了）。
+    NSString *precheck = IMUploadPrecheckCurrent(@"voice.m4a", 0, YES);
+    if (precheck) { [self im_showToast:precheck]; return; }
     [self performDatabaseOperation:^(IMDatabase *db) { [db deleteMessage:m]; }];
     NSUInteger idx = [self.windowState.messages indexOfObjectIdenticalTo:m];
     if (idx != NSNotFound) { [self.windowState.messages removeObjectAtIndex:idx]; }

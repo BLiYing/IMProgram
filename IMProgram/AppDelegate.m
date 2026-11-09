@@ -45,7 +45,7 @@
     [[IMPowerSaving shared] start];           // 省电模式：电量 / 低电量模式监听 + 自动开启提示（本机数据，与登录无关）
     [[IMNetworkMonitor shared] start];        // 网络类型实时源（自动下载决策用，M4-7）
     [[IMDownloadSettingsStore shared] start];  // 自动下载策略：拉取 + 监听 capabilities_update 重拉（登录后 token 就绪即拉）
-    [[IMServerConfigStore shared] start];      // 部署级配额/能力（群上限、是否提供超级群）：登录后拉一次
+    [[IMServerConfigStore shared] start];      // 部署级配额/能力（群上限、超级群、撤回/编辑窗、转发与群文本上限）：每次连上 + 回前台重拉
     [[IMPushTokenManager shared] start];             // M5：登录/每次(重)连即尝试注册推送令牌
     [[IMPendingLogoutQueue shared] start];           // 补发上次没成功的退出吊销（与当前是否登录无关）
     [[IMAccountNotifySettingsSync shared] start];    // M5：账号级通知设置迁移/多端同步

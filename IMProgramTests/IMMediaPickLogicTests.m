@@ -45,13 +45,23 @@
 #pragma mark 可选判定
 
 - (void)testSelectableRule {
-    XCTAssertTrue([IMMediaPickLogic isSelectableWithSizeBytes:kIMMediaSizeUnknown]); // 体积未知 ≠ 不可选
-    XCTAssertTrue([IMMediaPickLogic isSelectableWithSizeBytes:1]);
-    XCTAssertTrue([IMMediaPickLogic isSelectableWithSizeBytes:2048LL * 1024 * 1024]);   // 恰好 2GB 可选
-    XCTAssertFalse([IMMediaPickLogic isSelectableWithSizeBytes:2048LL * 1024 * 1024 + 1]);
-    XCTAssertTrue([IMMediaPickLogic isSelectableWithSizeBytes:0]);                        // iOS 选择时判不出 0 字节坏文件，放行，发送时校验
-    XCTAssertTrue([IMMediaPickLogic isTooLargeWithSizeBytes:3LL << 30]);
-    XCTAssertFalse([IMMediaPickLogic isTooLargeWithSizeBytes:0]);
+    XCTAssertTrue([IMMediaPickLogic isSelectableWithSizeBytes:kIMMediaSizeUnknown maxBytes:2048LL * 1024 * 1024]); // 体积未知 ≠ 不可选
+    XCTAssertTrue([IMMediaPickLogic isSelectableWithSizeBytes:1 maxBytes:2048LL * 1024 * 1024]);
+    XCTAssertTrue([IMMediaPickLogic isSelectableWithSizeBytes:2048LL * 1024 * 1024 maxBytes:2048LL * 1024 * 1024]);   // 恰好 2GB 可选
+    XCTAssertFalse([IMMediaPickLogic isSelectableWithSizeBytes:2048LL * 1024 * 1024 + 1 maxBytes:2048LL * 1024 * 1024]);
+    XCTAssertTrue([IMMediaPickLogic isSelectableWithSizeBytes:0 maxBytes:2048LL * 1024 * 1024]);                        // iOS 选择时判不出 0 字节坏文件，放行，发送时校验
+    XCTAssertTrue([IMMediaPickLogic isTooLargeWithSizeBytes:3LL << 30 maxBytes:2048LL * 1024 * 1024]);
+    XCTAssertFalse([IMMediaPickLogic isTooLargeWithSizeBytes:0 maxBytes:2048LL * 1024 * 1024]);
+}
+
+- (void)testSelectableFollowsServerLimit {
+    // S3a：上限来自服务端（后台可改）；<=0（没给）兜底 2 GiB。
+    long long hundredMB = 100LL * 1024 * 1024;
+    XCTAssertTrue([IMMediaPickLogic isSelectableWithSizeBytes:hundredMB maxBytes:hundredMB]);
+    XCTAssertFalse([IMMediaPickLogic isSelectableWithSizeBytes:hundredMB + 1 maxBytes:hundredMB]);
+    XCTAssertTrue([IMMediaPickLogic isTooLargeWithSizeBytes:hundredMB + 1 maxBytes:hundredMB]);
+    XCTAssertTrue([IMMediaPickLogic isSelectableWithSizeBytes:2048LL * 1024 * 1024 maxBytes:0]);
+    XCTAssertFalse([IMMediaPickLogic isSelectableWithSizeBytes:2048LL * 1024 * 1024 + 1 maxBytes:0]);
 }
 
 #pragma mark 视频转码结局

@@ -25,6 +25,8 @@
 #import "IMTheme.h"
 #import "IMTimeUtil.h"
 #import "IMLocalization.h"
+#import "IMServerConfigStore.h"
+#import "IMGroupNameDefault.h"
 
 #pragma mark - 群管理页
 
@@ -62,7 +64,7 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
     IMManagePermRowCount,
 };
 
-@interface IMGroupManageViewController () <UITableViewDataSource, UITableViewDelegate>
+@interface IMGroupManageViewController () <UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate>
 @property (nonatomic, copy) NSString *host;
 @property (nonatomic, copy) NSString *userID;
 @property (nonatomic, copy) NSString *convID;
@@ -77,6 +79,12 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
 @property (nonatomic, assign) BOOL settingsCommitInFlight;
 /// 转让流程当前可见的那一页（选人页）：确认弹窗从它 present、失败吐司挂它。weak——它随导航栈走。
 @property (nonatomic, weak, nullable) UIViewController *transferHost;
+/// 改群名弹窗（弹出期间有值）：输入框限长 + 弹窗说明行实时显示「n/上限」。
+@property (nonatomic, weak, nullable) UIAlertController *renameAlert;
+/// 改群名弹窗打开那一刻的上限（group_name_max_len，默认 30），本次弹窗内不变。
+@property (nonatomic, assign) NSUInteger renameMaxLen;
+/// 改群名输入框上一次观测到的 rune 数（弹窗弹出时 = 当前群名长度）：只有变长才截断，见 IMGroupNameShouldTruncate。
+@property (nonatomic, assign) NSUInteger renameLastRunes;
 @end
 
 @implementation IMGroupManageViewController
@@ -484,12 +492,21 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
 }
 
 - (void)editName {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:IMLocalized(@"group.info.rename_title") message:IMLocalized(@"group.info.rename_hint")
-                                                           preferredStyle:UIAlertControllerStyleAlert];
+    // 说明行原为写死的「1~30 字」；上限现由后台「群名最大长度」下发（group_name_max_len），改为实时「n/上限」计数。
+    self.renameMaxLen = (NSUInteger)MAX((NSInteger)1, IMServerConfigStore.shared.groupNameMaxLen);
     NSString *current = self.group.name ?: @"";
+    self.renameLastRunes = IMGroupNameRuneLength(current);
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:IMLocalized(@"group.info.rename_title")
+                                                                   message:[self renameCounterForText:current]
+                                                            preferredStyle:UIAlertControllerStyleAlert];
     NSString *avatar = self.group.avatarURL ?: @"";
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) { tf.text = current; }];
     __weak typeof(self) ws = self;
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
+        tf.text = current;
+        tf.delegate = ws;
+        [tf addTarget:ws action:@selector(renameFieldChanged:) forControlEvents:UIControlEventEditingChanged];
+    }];
+    self.renameAlert = alert;
     [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
     [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.save") style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
         NSString *name = [alert.textFields.firstObject.text
@@ -498,6 +515,28 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
         [ws commitName:name avatarURL:avatar intro:(ws.group.intro ?: @"")];
     }]];
     [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (NSString *)renameCounterForText:(NSString *)text {
+    return [NSString stringWithFormat:@"%lu/%lu", (unsigned long)IMGroupNameRuneLength(text), (unsigned long)self.renameMaxLen];
+}
+
+- (void)renameFieldChanged:(UITextField *)field {
+    // 拼音上屏后才收口超长（组合态 shouldChange 一律放行）；只在变长时截，已超长的旧群名往短里删不受影响。
+    if (IMGroupNameShouldTruncate(self.renameLastRunes, field.text, self.renameMaxLen, field.markedTextRange != nil)) {
+        field.text = IMGroupNameTruncateForEditing(field.text, self.renameMaxLen);
+    }
+    if (!field.markedTextRange) { self.renameLastRunes = IMGroupNameRuneLength(field.text ?: @""); }
+    self.renameAlert.message = [self renameCounterForText:field.text ?: @""];
+}
+
+// 改群名输入框限长（按 rune，与服务端同口径；服务端才是权威）。已超长的旧群名允许往短里删。
+// 拼音组合态（markedTextRange 非空）直接放行：未上屏的字母也算码点，接近上限时会组不出词；超长在 renameFieldChanged: 收口。
+- (BOOL)textField:(UITextField *)textField shouldChangeCharactersInRange:(NSRange)range replacementString:(NSString *)string {
+    if (textField.markedTextRange) { return YES; }
+    NSString *currentText = textField.text ?: @"";
+    NSString *next = [currentText stringByReplacingCharactersInRange:range withString:string];
+    return IMGroupNameEditAllowed(currentText, next, self.renameMaxLen);
 }
 
 /// 编辑简介（≤200 字，多行编辑页 + 计数，决策 18）：整体替换，空串=清空。
@@ -513,12 +552,13 @@ typedef NS_ENUM(NSInteger, IMManagePermRow) {
     }];
 }
 
-/// 编辑群公告（≤500 字，多行编辑页 + 计数，决策 18）：发布走独立接口并落系统消息；空串/撤下=撤下公告。
+/// 编辑群公告（≤ group_announcement_max_len 字，默认 500；多行编辑页 + 计数，决策 18）：发布走独立接口并落系统消息；空串/撤下=撤下公告。
 - (void)editAnnouncement {
     NSString *current = self.group.announcement ?: @"";
     __weak typeof(self) ws = self;
     [IMGroupTextEditViewController presentFrom:self title:IMLocalized(@"group.text.announcement") text:current
-                                   placeholder:IMLocalized(@"group.manage.announcement_placeholder") maxChars:500 commitTitle:IMLocalized(@"common.publish")
+                                   placeholder:IMLocalized(@"group.manage.announcement_placeholder")
+                                      maxChars:IMServerConfigStore.shared.groupAnnouncementMaxLen commitTitle:IMLocalized(@"common.publish")
                                   allowRetract:current.length > 0 footer:IMLocalized(@"group.manage.announcement_footer")
                                       onCommit:^(NSString *text) {
         if ([text isEqualToString:current]) { return; }

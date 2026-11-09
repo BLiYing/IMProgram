@@ -340,8 +340,8 @@ FOUNDATION_EXPORT const CGFloat kIMAttachPanelHeight;
 - (void)retryPendingMessage:(IMMessageModel *)m; // 上传失败 ↻：交常驻服务从本地副本续传（+Media.m；+Resend.m 也调）
 - (void)refreshVisibleCellForMessage:(IMMessageModel *)m;
 - (void)updateUploadProgressForMessage:(IMMessageModel *)m;
-- (void)uploadAndSendPastedImage:(UIImage *)image groupID:(NSString *)groupID;
-- (void)uploadAndSendPastedImage:(UIImage *)image groupID:(nullable NSString *)groupID
+/// jpeg = 发送键入口预检时已编码好的字节（空则按 image 现编码）；S3a 预检在入口做，这里不再判。
+- (void)uploadAndSendPastedImage:(UIImage *)image jpeg:(nullable NSData *)jpeg groupID:(nullable NSString *)groupID
                          caption:(nullable NSString *)caption mentions:(nullable NSArray<NSString *> *)mentions mentionAll:(BOOL)mentionAll; // 图说合并发送
 
 // 标题 / 排序（socket 回调广泛调用）：

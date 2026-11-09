@@ -6,6 +6,7 @@
 #import "IMRemarkStore.h"
 #import "IMLocalization.h"
 #import "IMPendingMediaStore.h"
+#import "IMServerConfigStore.h"
 
 BOOL IMChatTextContainsMentionToken(NSString *_Nullable text, NSString *_Nullable displayName) {
     if (text.length == 0 || displayName.length == 0) { return NO; }
@@ -168,4 +169,15 @@ IMAlbumTickState IMAlbumTickStateForMembers(NSArray<IMMessageModel *> *members, 
     if (peerReadSeq < 0) { return IMAlbumTickNone; } // kIMPeerReadSeqHidden（-1）：超级群不画勾
     int64_t lastSeq = members.lastObject.convSeq;
     return (lastSeq > 0 && lastSeq <= peerReadSeq) ? IMAlbumTickRead : IMAlbumTickSent;
+}
+
+BOOL IMChatCanShowRecall(IMMessageModel *message, BOOL mine, int64_t nowMs, NSInteger recallWindowSec) {
+    if (!mine || message.convSeq <= 0 || message.recalledAt != 0) { return NO; }
+    return IMServerConfigWithinWindow(message.timestamp, nowMs, recallWindowSec);
+}
+
+BOOL IMChatCanShowEdit(IMMessageModel *message, BOOL mine, int64_t nowMs, NSInteger editWindowSec) {
+    if (!mine || ![message.contentType isEqualToString:@"text"] || message.content.length == 0) { return NO; }
+    if (message.convSeq <= 0 || message.recalledAt != 0) { return NO; }
+    return IMServerConfigWithinWindow(message.timestamp, nowMs, editWindowSec);
 }

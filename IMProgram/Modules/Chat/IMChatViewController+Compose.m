@@ -15,6 +15,29 @@
 #import "IMChatSendPlan.h"
 #import "UIViewController+IMToast.h"
 #import "IMLocalization.h"
+#import "IMUploadPrecheck.h"
+
+/// 粘贴图批的发送前预检（S3a）：逐张 JPEG 编码（体积要编码后才知道）并按 check 预检。
+/// **全部通过**才返回编码结果（与 images 一一对应，编码失败的项为空 NSData，交上传路径标失败）；
+/// 任一张不过返回 nil、经 outReason 给出原因——此时调用方什么都不能清：图与配文都留在输入栏。
+/// 文件级导出以便单测（同 IMChatSelectedMessages 的套路，免构造真 VC）。
+FOUNDATION_EXPORT NSArray<NSData *> *_Nullable IMChatEncodePastedImagesForSend(NSArray<UIImage *> *images,
+                                                                            NSString *_Nullable (^check)(long long bytes),
+                                                                            NSString *_Nullable *_Nullable outReason);
+NSArray<NSData *> *IMChatEncodePastedImagesForSend(NSArray<UIImage *> *images, NSString *(^check)(long long bytes),
+                                                   NSString **outReason) {
+    NSMutableArray<NSData *> *out = [NSMutableArray arrayWithCapacity:images.count];
+    for (UIImage *img in images) {
+        NSData *jpeg = UIImageJPEGRepresentation(img, 0.8) ?: [NSData data];
+        NSString *reason = check ? check((long long)jpeg.length) : nil;
+        if (reason.length > 0) {
+            if (outReason) { *outReason = reason; }
+            return nil;
+        }
+        [out addObject:jpeg];
+    }
+    return out;
+}
 
 @implementation IMChatViewController (Compose)
 
@@ -29,21 +52,31 @@
     IMChatSendPlan plan = IMChatPlanSend((NSInteger)self.pendingPasteImages.count, text.length > 0, editing, replying);
     // 先发预览条里攒的粘贴图。
     if (plan.images != IMChatSendImagesNone) {
+        // 发送前预检（S3a：管理员暂停 / 单文件超限）必须在清空输入栏**之前**：不过就整次不发，
+        // 图与配文都留在输入栏。体积要 JPEG 编码后才知道，故在此编码一次，随后直接上传这份字节。
         NSArray<UIImage *> *images = [self.pendingPasteImages copy];
+        NSString *precheck = nil;
+        NSArray<NSData *> *jpegs = IMChatEncodePastedImagesForSend(images, ^NSString *(long long bytes) {
+            return IMUploadPrecheckCurrent(@"pasted.jpg", bytes, NO);
+        }, &precheck);
+        if (!jpegs) { [self im_showToast:precheck]; return; }
         [self.pendingPasteImages removeAllObjects];
         [self refreshPasteBar];
         if (plan.images == IMChatSendImagesSingleWithCaption) {
             // 图说合并：文字作为 caption 与图同发一条，配文 @ 一并解析随媒体上行；不再补发独立文本。
             NSArray<NSString *> *mentions = self.isGroupChat ? [self resolvedMentionsInText:text] : @[];
             BOOL mentionAll = self.isGroupChat && [self resolvedMentionAllInText:text];
-            [self uploadAndSendPastedImage:images.firstObject groupID:nil caption:text mentions:mentions mentionAll:mentionAll];
+            [self uploadAndSendPastedImage:images.firstObject jpeg:jpegs.firstObject groupID:nil
+                                   caption:text mentions:mentions mentionAll:mentionAll];
             self.inputField.text = @"";
             [self clearPendingMentions];
             [self updateSendButtonVisibility];
             return; // 文字已作为 caption 随图发出，不再走下面的独立文本发送
         }
         NSString *gid = plan.imagesShareAlbumID ? [@"alb-" stringByAppendingString:NSUUID.UUID.UUIDString] : nil;
-        for (UIImage *img in images) { [self uploadAndSendPastedImage:img groupID:gid]; }
+        [images enumerateObjectsUsingBlock:^(UIImage *img, NSUInteger i, BOOL *stop) {
+            [self uploadAndSendPastedImage:img jpeg:jpegs[i] groupID:gid caption:nil mentions:nil mentionAll:NO];
+        }];
         [self updateSendButtonVisibility];
     }
     if (plan.text == IMChatSendTextNone) { return; }

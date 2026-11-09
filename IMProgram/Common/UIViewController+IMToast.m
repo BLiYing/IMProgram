@@ -5,6 +5,16 @@
 #import "IMTheme.h"
 #import "IMLocalization.h"
 
+BOOL IMToastDedup(NSString *text, CFTimeInterval now, NSString *__strong *lastText, CFTimeInterval *lastAt,
+                  CFTimeInterval window) {
+    if (*lastText && [*lastText isEqualToString:text] && now - *lastAt >= 0 && now - *lastAt < window) {
+        return NO;
+    }
+    *lastText = [text copy];
+    *lastAt = now;
+    return YES;
+}
+
 @implementation UIViewController (IMToast)
 
 - (void)im_showToast:(NSString *)text {

@@ -17,6 +17,7 @@
 #import "IMMediaUtil.h"
 #import "IMOriginalVideoCache.h"
 #import "IMLog.h"
+#import "IMUploadPrecheck.h"
 
 NSNotificationName const IMMediaSendProgressDidChangeNotification = @"IMMediaSendProgressDidChange";
 NSNotificationName const IMMediaSendMetaDidChangeNotification = @"IMMediaSendMetaDidChange";
@@ -31,6 +32,13 @@ NSString * const kIMMediaSendOldClientMsgIDKey = @"old_client_msg_id";
 NSString * const kIMMediaSendSuccessKey = @"success";
 NSString * const kIMMediaSendConvSeqKey = @"conv_seq";
 NSString * const kIMMediaSendMessageKey = @"message";
+NSString * const kIMMediaSendErrorMessageKey = @"error_message";
+
+/// 上传失败的错误要不要把文案带给用户：只有上传策略拒绝（确定性、用户能看懂原因）才带；网络错等用通用提示。
+static NSString *IMMediaSendPolicyMessage(NSError *error, NSString *fileName) {
+    if (![IMHTTPService isBusinessError:error] || !IMUploadIsPolicyRejectionCode(error.code)) { return nil; }
+    return IMUploadServerRejectionMessageCurrent(error.code, error.localizedDescription, fileName);
+}
 
 #pragma mark - 作业
 
@@ -271,6 +279,9 @@ NSString * const kIMMediaSendMessageKey = @"message";
     NSString *token = IMHTTPService.sharedService.currentToken;
     NSString *path = [[IMPendingMediaStore shared] filePathForLocalRef:m.content];
     if (token.length == 0 || (!path && data.length == 0)) { [self failJob:job]; return; }
+    // 发送前预检（S3a）：产物体积此刻才确定（转码 / 导出后），入口处只能判开关与扩展名。重试也走这里。
+    NSString *precheck = IMUploadPrecheckCurrent((fileName ?: path.lastPathComponent), byteCount, NO);
+    if (precheck) { [self failJob:job message:precheck]; return; }
 
     if (path && byteCount >= (long long)IMChunkedUploader.chunkedThresholdBytes) {
         [self startChunkedUploadForJob:job path:path fileName:(fileName ?: path.lastPathComponent) token:token];
@@ -297,7 +308,7 @@ NSString * const kIMMediaSendMessageKey = @"message";
                 __strong typeof(ws) self2 = ws;
                 if (!self2) { return; }
                 if (job.cancelled) { [self2 advanceMediaQueueAfter:key]; return; } // 一次性上传无法中断，结果丢弃
-                if (error || url.length == 0) { [self2 failJob:job]; return; }
+                if (error || url.length == 0) { [self2 failJob:job message:IMMediaSendPolicyMessage(error, fileName)]; return; }
                 // file 消息必须保持 file：服务端按字节嗅探返回的 contentType 会把小视频文件变回 video。
                 [self2 finishUploadedJob:job serverURL:url
                              contentType:([m.contentType isEqualToString:@"file"] ? @"file"
@@ -350,7 +361,7 @@ NSString * const kIMMediaSendMessageKey = @"message";
     task.completionHandler = ^(NSString *url, NSString *contentType, NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self || job.cancelled) { return; }
-        if (error || url.length == 0) { [self failJob:job]; return; }
+        if (error || url.length == 0) { [self failJob:job message:IMMediaSendPolicyMessage(error, fileName)]; return; }
         [self finishUploadedJob:job serverURL:url
                     contentType:([m.contentType isEqualToString:@"file"] ? @"file"
                                                                          : (contentType ?: m.contentType ?: @"image"))];
@@ -373,6 +384,9 @@ NSString * const kIMMediaSendMessageKey = @"message";
     _jobs[key] = job;
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0) { [self failJob:job]; return; }
+    NSString *precheck = IMUploadPrecheckCurrent((m.fileName ?: path.lastPathComponent),
+                                                 [[IMPendingMediaStore shared] byteSizeForLocalRef:m.content], NO);
+    if (precheck) { [self failJob:job message:precheck]; return; }
     [self startChunkedUploadForJob:job path:path fileName:(m.fileName ?: path.lastPathComponent) token:token];
 }
 
@@ -604,6 +618,11 @@ NSString *IMTinyThumbDataURI(UIImage *image) {
 }
 
 - (void)failJob:(IMMediaSendJob *)job {
+    [self failJob:job message:nil];
+}
+
+/// message：给用户看的失败原因（上传策略拒绝 / 预检未过），随 DidFail 通知带给页面；nil = 页面用通用提示。
+- (void)failJob:(IMMediaSendJob *)job message:(NSString *)message {
     IMMessageModel *m = job.message;
     NSString *key = m.clientMsgID ?: @"";
     m.status = IMMessageStatusFailed;
@@ -613,11 +632,13 @@ NSString *IMTinyThumbDataURI(UIImage *image) {
     self.progressMap[key] = [IMUploadProgress failedProgress];
     [_failedConvs addObject:m.convID ?: @""];
     [_jobs removeObjectForKey:key];
-    [[NSNotificationCenter defaultCenter] postNotificationName:IMMediaSendDidFailNotification object:self userInfo:@{
+    NSMutableDictionary *info = [@{
         kIMMediaSendConvIDKey: m.convID ?: @"",
         kIMMediaSendClientMsgIDKey: key,
         kIMMediaSendMessageKey: m,
-    }];
+    } mutableCopy];
+    if (message.length > 0) { info[kIMMediaSendErrorMessageKey] = message; }
+    [[NSNotificationCenter defaultCenter] postNotificationName:IMMediaSendDidFailNotification object:self userInfo:info];
     [self advanceMediaQueueAfter:key];
 }
 

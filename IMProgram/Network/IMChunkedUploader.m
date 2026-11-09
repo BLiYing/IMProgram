@@ -4,6 +4,7 @@
 #import "IMLocalization.h"
 #import "IMHTTPService.h"
 #import "IMLog.h"
+#import "IMUploadPrecheck.h"
 
 /// 单片大小。8MB=服务端 init 响应建议值（chunk_size）与其单片上限：局域网实测 4MB 片速率仅 ~1MB/s，
 /// 每片一次往返的固定开销占比过高；片加倍可少一半往返。失败重传的代价上限也是 8MB，可接受。
@@ -88,6 +89,12 @@ static const NSUInteger kIMChunkedThreshold = 8 * 1024 * 1024;
 }
 
 + (NSUInteger)chunkedThresholdBytes { return kIMChunkedThreshold; }
+
++ (BOOL)shouldRestartSessionForError:(NSError *)error restartCount:(NSInteger)restartCount {
+    if (![IMHTTPService isBusinessError:error]) { return NO; }
+    if (IMUploadIsPolicyRejectionCode(error.code)) { return NO; }
+    return restartCount < 2;
+}
 
 - (IMChunkedUploadTask *)taskForKey:(NSString *)key {
     return key.length > 0 ? _tasks[key] : nil;
@@ -211,11 +218,20 @@ static BOOL IMChainAlive(IMChunkedUploadTask *task, NSInteger gen) {
 /// 链上错误分流：
 ///   - 服务端**业务拒绝**（典型：24h TTL 到期 / 已被 complete 清理 →「上传会话不存在或已过期」）——
 ///     重试同一会话必然再失败（真机实录：重试→status 400→标失败→死循环），唯一出路是**换新会话从头传**；
+///   - 上传策略拒绝（500001/500002/500003）——换会话同样被拒，**不重启**、直接失败（shouldRestartSessionForError:）；
 ///   - 网络失败（超时/断网）——offset 还在服务端，保留会话直接判失败，用户重试时从 offset 续。
 - (void)handleChainError:(NSError *)error task:(IMChunkedUploadTask *)task
                  fileURL:(NSURL *)fileURL fileName:(NSString *)fileName token:(NSString *)token {
     if ([IMHTTPService isBusinessError:error]) {
-        if (task.restartCount >= 2) { [self finishTask:task url:nil contentType:nil error:error]; return; }
+        if (![IMChunkedUploader shouldRestartSessionForError:error restartCount:task.restartCount]) {
+            if (IMUploadIsPolicyRejectionCode(error.code)) {
+                // 上传策略拒绝（超限 / 类型被禁 / 管理员暂停）：确定性错误，换会话也一样，直接失败。
+                IMLogWarnWithTag(IMLogTagMedia, @"upload_policy_rejected key=%@ upload_id=%@ error_code=%ld",
+                                 task.key, task.uploadID ?: @"-", (long)error.code);
+            }
+            [self finishTask:task url:nil contentType:nil error:error];
+            return;
+        }
         task.restartCount += 1;
         IMLogWarnWithTag(IMLogTagMedia, @"upload_session_lost_restarting key=%@ old_upload_id=%@ attempt=%ld error=%@",
                          task.key, task.uploadID ?: @"-", (long)task.restartCount, error.localizedDescription ?: @"-");

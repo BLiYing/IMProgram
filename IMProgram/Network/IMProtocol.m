@@ -35,8 +35,6 @@ NSString * const kIMMsgOpEdit    = @"edit";
 NSString * const kIMMsgOpPin      = @"pin";
 NSString * const kIMMsgOpDelete  = @"delete";
 
-const int64_t kIMRecallWindowMs = 2 * 60 * 1000;
-
 NSString * const kIMKeyType = @"type";
 NSString * const kIMKeySeq  = @"seq";
 NSString * const kIMKeyData = @"data";

@@ -44,8 +44,31 @@
 #import "IMMediaPaging.h"
 #import "IMNetworkMonitor.h"
 #import "IMSocketManager.h"
+#import "IMUploadPrecheck.h"             // S3a 发送前预检（开关 / 被禁扩展名 / 单文件上限）
 
 @implementation IMChatViewController (Media)
+
+/// 一批句柄的发送前预检（S3a）：任一项不过即整批不发、吐司原因。此刻体积未知（压缩 / 转码 / 导出后才定），
+/// 只判总开关与扩展名；体积由选择器（读服务端上限）与常驻服务落盘后再判一次。
+- (BOOL)im_precheckHandles:(NSArray<IMPickedMediaHandle *> *)handles {
+    for (IMPickedMediaHandle *h in handles) {
+        NSString *reason = IMUploadPrecheckCurrent([h suggestedFileName], 0, NO);
+        if (reason) { [self im_showToastAfterPresentedDismissal:reason]; return NO; }
+    }
+    return YES;
+}
+
+/// 选择器回调时它自己还在 dismiss 动画里、整屏盖着聊天页：此刻吐司加在聊天页上会被盖住、动画也随即结束
+/// （模拟器录屏实测看不到）。等它真正退场再吐司；没有正在退场的弹层就立即吐司。
+- (void)im_showToastAfterPresentedDismissal:(NSString *)text {
+    UIViewController *presented = self.presentedViewController;
+    id<UIViewControllerTransitionCoordinator> tc = presented.isBeingDismissed ? presented.transitionCoordinator : nil;
+    if (!tc) { [self im_showToast:text]; return; }
+    __weak typeof(self) ws = self;
+    [tc animateAlongsideTransition:nil completion:^(__unused id<UIViewControllerTransitionCoordinatorContext> ctx) {
+        [ws im_showToast:text];
+    }];
+}
 
 #pragma mark - 附件面板 / 富媒体（M4-6）
 
@@ -524,6 +547,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
 /// 批量发送（相册重构，M4+）：句柄回调即上屏（不等压缩/转码），重活延后逐项进行。
 - (void)sendMediaHandles:(NSArray<IMPickedMediaHandle *> *)handles {
     if (handles.count == 0) { return; }
+    if (![self im_precheckHandles:handles]) { return; }
     // ≥2 张：共享 group_id → 两端聚簇渲染宫格；1 张：普通媒体气泡（无 group_id）。
     NSString *gid = handles.count > 1 ? [@"alb-" stringByAppendingString:NSUUID.UUID.UUIDString] : nil;
     NSMutableArray<IMMessageModel *> *pending = [NSMutableArray arrayWithCapacity:handles.count];
@@ -741,6 +765,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
 
 - (void)sendPhotoFileHandles:(NSArray<IMPickedMediaHandle *> *)handles {
     if (handles.count == 0) { return; }
+    if (![self im_precheckHandles:handles]) { return; }
     NSMutableArray<IMMessageModel *> *pending = [NSMutableArray arrayWithCapacity:handles.count];
     for (IMPickedMediaHandle *h in handles) {
         IMMessageModel *m = [IMMessageModel new];
@@ -864,6 +889,8 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     // 先 stat 再决定走哪条路：大文件绝不能为了判断大小就整包读进内存。
     int64_t size = (int64_t)[[NSFileManager.defaultManager attributesOfItemAtPath:url.path error:NULL][NSFileSize] unsignedLongLongValue];
     if (size <= 0 || token.length == 0) { [self im_showToast:IMLocalized(@"chat.media.file_read_failed")]; return; }
+    NSString *precheck = IMUploadPrecheckCurrent(originalName, size, NO); // 体积已知：开关 / 扩展名 / 上限全判
+    if (precheck) { [self im_showToast:precheck]; return; }
     if (size >= (int64_t)IMChunkedUploader.chunkedThresholdBytes) {
         [self sendLargeFileAtURL:url fileName:originalName size:size token:token]; // 全程走文件，不进内存
         return;
@@ -907,12 +934,20 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     NSData *data = UIImageJPEGRepresentation(image, 0.8);
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (data.length == 0 || token.length == 0) { return; }
+    NSString *precheck = IMUploadPrecheckCurrent(@"photo.jpg", (long long)data.length, NO);
+    if (precheck) { [self im_showToast:precheck]; return; }
     __weak typeof(self) ws = self;
     [IMHTTPService.sharedService uploadData:data fileName:@"photo.jpg" mimeType:@"image/jpeg" token:token
                                  completion:^(NSString *url, NSString *contentType, NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
-        if (error || url.length == 0) { [self im_showToast:IMLocalized(@"chat.media.image_upload_failed")]; return; }
+        if (error || url.length == 0) {
+            // 上传策略拒绝（500001/2/3）说清原因；其余仍是通用「图片上传失败」。
+            BOOL policy = [IMHTTPService isBusinessError:error] && IMUploadIsPolicyRejectionCode(error.code);
+            [self im_showToast:(policy && error.localizedDescription.length > 0) ? error.localizedDescription
+                                                                               : IMLocalized(@"chat.media.image_upload_failed")];
+            return;
+        }
         [self sendMediaURL:url contentType:(contentType ?: @"image") fileName:nil fileSize:0
            mediaAttributes:[self mediaAttributesForImage:image bytes:(int64_t)data.length]];
     }];
@@ -1041,7 +1076,8 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
 /// 可继续粘贴/打字，逐张 ✕ 移除；发送键统一发出（≥2 张共享 group_id 成宫格，文字随后补发）。
 /// 图说上传失败 → 上屏一条 failed 图说气泡（本地预览 + caption + 红❗），与其它发送失败消息一致。
 /// content 为空的失败件不落库（重进会话消失，与 Web 的内存态 pendingFilesRef 同取舍）；点击重发后续加。
-- (void)showFailedPastedImage:(UIImage *)image caption:(NSString *)caption {
+/// reason：给用户看的失败原因（服务端上传策略拒绝 500001/2/3 的文案）；nil = 通用「图片发送失败」。
+- (void)showFailedPastedImage:(UIImage *)image caption:(NSString *)caption reason:(NSString *)reason {
     NSString *localId = [@"outbox-" stringByAppendingString:NSUUID.UUID.UUIDString];
     if (image) { self.outboxPreviews[localId] = image; } // 本地预览：cellForRow 经 pendingPreviewForMessage 读回
     IMMessageModel *m = [IMMessageModel new];
@@ -1053,7 +1089,7 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     m.timestamp = IMNowMillis();
     [self.windowState.messages addObject:m];
     [self appendReloadAndScroll];
-    [self im_showToast:IMLocalized(@"chat.media.image_send_failed")];
+    [self im_showToast:(reason.length > 0 ? reason : IMLocalized(@"chat.media.image_send_failed"))];
 }
 
 - (void)appendPastedImage:(UIImage *)image {
@@ -1121,24 +1157,22 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
     [self updateSendButtonVisibility];
 }
 
-- (void)uploadAndSendPastedImage:(UIImage *)image groupID:(NSString *)groupID {
-    [self uploadAndSendPastedImage:image groupID:groupID caption:nil mentions:nil mentionAll:NO];
-}
-
-/// 图说变体（Telegram 模型）：单张粘贴图 + 配文合并成一条 caption 消息；配文 @ 随媒体上行。
+/// 粘贴图上传发送；带 caption 即图说变体（Telegram 模型）：单张粘贴图 + 配文合并成一条 caption 消息，配文 @ 随媒体上行。
 /// 失败时**上屏一条 failed 图说气泡**（本地预览 + caption + 红❗，与其它消息一致；点击重发后续加），
 /// 不回填输入框（用户已明确不需要，2026-08-19）。
-- (void)uploadAndSendPastedImage:(UIImage *)image groupID:(NSString *)groupID
+/// S3a 预检（开关 / 超限）在发送键入口（+Compose sendTapped）、清空输入栏之前做完，这里不再判——
+/// 走到这里输入栏已清空，再拦就会把图和配文一起丢掉。
+- (void)uploadAndSendPastedImage:(UIImage *)image jpeg:(NSData *)jpegData groupID:(NSString *)groupID
                          caption:(NSString *)caption mentions:(NSArray<NSString *> *)mentions mentionAll:(BOOL)mentionAll {
     // ⚠️ **必须在这里、同步算好** @ 片段，不能挪进下面的上传回调：
     // 调用方（+Compose.m）在调完本方法的**下一行**就 clearPendingMentions 了，
     // 而上传是异步的——等回调跑起来 mentionCandidates 已经空了，片段恒为空数组，
     // 于是超级群里图说的 @ 又变回不高亮（mentions 是提前算好的，强提醒还在，只有位置丢了）。
     NSArray<IMMentionSpan *> *mentionSpans = [self resolvedMentionSpansInText:caption];
-    NSData *jpeg = UIImageJPEGRepresentation(image, 0.8);
+    NSData *jpeg = jpegData.length > 0 ? jpegData : UIImageJPEGRepresentation(image, 0.8);
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (jpeg.length == 0 || token.length == 0) {
-        [self showFailedPastedImage:image caption:caption];
+        [self showFailedPastedImage:image caption:caption reason:nil];
         return;
     }
     __weak typeof(self) ws = self;
@@ -1147,7 +1181,9 @@ const CGFloat kIMAttachPanelHeight = 236; // 面板高度（顶起输入栏的�
         __strong typeof(ws) self = ws;
         if (!self) { return; }
         if (error || url.length == 0) {
-            [self showFailedPastedImage:image caption:caption];
+            // 端上配置可能落后一次拉取：服务端按当前策略拒（500001/2/3）时说清原因。
+            BOOL policy = [IMHTTPService isBusinessError:error] && IMUploadIsPolicyRejectionCode(error.code);
+            [self showFailedPastedImage:image caption:caption reason:(policy ? error.localizedDescription : nil)];
             return;
         }
         IMMediaAttributes *attrs = [self mediaAttributesForImage:image bytes:(int64_t)jpeg.length];

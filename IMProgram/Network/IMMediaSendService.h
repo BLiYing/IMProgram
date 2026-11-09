@@ -27,7 +27,8 @@ extern NSNotificationName const IMMediaSendMetaDidChangeNotification;
 /// 上传完成、消息已经 socket 发出，clientMsgID 已从临时键换成真实 ID（库里已 replace + upsert）。
 /// userInfo: conv_id, old_client_msg_id, client_msg_id。持有旧模型的页面要同步换 ID/URL（见 message 参数）。
 extern NSNotificationName const IMMediaSendDidDispatchNotification;
-/// 作业失败（消息已以 failed 状态落库，可点击重试）。userInfo: conv_id, client_msg_id。
+/// 作业失败（消息已以 failed 状态落库，可点击重试）。userInfo: conv_id, client_msg_id，
+/// 以及可选的 error_message（上传策略拒绝 / 发送前预检未过时的给用户看的文案；无则页面用通用提示）。
 extern NSNotificationName const IMMediaSendDidFailNotification;
 /// 用户取消发送（本地副本与消息行已删除，页面应移除该行）。userInfo: conv_id, client_msg_id。
 extern NSNotificationName const IMMediaSendDidCancelNotification;
@@ -43,6 +44,8 @@ extern NSString * const kIMMediaSendConvSeqKey;
 /// DidDispatch / Ack 通知 userInfo 里的消息模型（服务持有的实例；页面若持有同 clientMsgID 的
 /// **另一个**实例——如重进会话后从库里读的——据此把字段同步过去）。
 extern NSString * const kIMMediaSendMessageKey;
+/// DidFail 通知 userInfo 里的失败文案（NSString，可缺省）：服务端 500001/500002/500003 的友好文案或预检提示。
+extern NSString * const kIMMediaSendErrorMessageKey;
 
 @interface IMMediaSendService : NSObject
 

@@ -3,6 +3,7 @@
 #import "IMGroupTextEditViewController.h"
 #import "IMTheme.h"
 #import "IMLocalization.h"
+#import "IMGroupNameDefault.h"   // 码点计数 / 编辑态截断（与服务端 len([]rune) 同口径）
 
 @interface IMGroupTextEditViewController () <UITextViewDelegate>
 @property (nonatomic, copy) NSString *initialText;
@@ -16,6 +17,8 @@
 @property (nonatomic, strong) UITextView *textView;
 @property (nonatomic, strong) UILabel *placeholderLabel;
 @property (nonatomic, strong) UILabel *counter;
+/// 上一次观测到的码点数（非组合态）：只有变长才截断，调低上限前已超长的旧文本可往短里删。
+@property (nonatomic, assign) NSUInteger lastRunes;
 @end
 
 @implementation IMGroupTextEditViewController
@@ -63,6 +66,7 @@
     self.textView.font = [UIFont systemFontOfSize:16];
     self.textView.textColor = IMTheme.textPrimary;
     self.textView.text = self.initialText;
+    self.lastRunes = IMGroupNameRuneLength(self.initialText);
     self.textView.delegate = self;
     self.textView.translatesAutoresizingMaskIntoConstraints = NO;
     [card addSubview:self.textView];
@@ -141,16 +145,18 @@
 
 - (void)textViewDidChange:(UITextView *)tv {
     // 拼音候选未上屏（markedTextRange 非空）时不截断，否则输入中途被切。
-    if (!tv.markedTextRange && (NSInteger)tv.text.length > self.maxChars) {
-        NSRange r = [tv.text rangeOfComposedCharacterSequenceAtIndex:self.maxChars];
-        tv.text = [tv.text substringToIndex:r.location];
-    }
+    // 按 Unicode 码点（emoji 算 1，与服务端同口径）；变长且超限才截，截在完整字符边界。
+    NSString *limited = IMGroupTextLimitedAfterEdit(self.lastRunes, tv.text, (NSUInteger)MAX(self.maxChars, 0),
+                                                    tv.markedTextRange != nil);
+    if (limited) { tv.text = limited; }
+    if (!tv.markedTextRange) { self.lastRunes = IMGroupNameRuneLength(tv.text ?: @""); }
     self.placeholderLabel.hidden = tv.text.length > 0;
     [self updateCounter];
 }
 
 - (void)updateCounter {
-    self.counter.text = [NSString stringWithFormat:@"%ld/%ld", (long)self.textView.text.length, (long)self.maxChars];
+    self.counter.text = [NSString stringWithFormat:@"%lu/%ld",
+                         (unsigned long)IMGroupNameRuneLength(self.textView.text ?: @""), (long)self.maxChars];
 }
 
 - (NSString *)trimmedText {

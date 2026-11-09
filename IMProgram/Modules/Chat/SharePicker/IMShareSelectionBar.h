@@ -1,7 +1,7 @@
 //  IMShareSelectionBar.h
 //  分享选择页多选态的**底部已选栏**（SHARE_PICKER_UX_SKETCH ①④）：
 //  左边横向已选头像条（复用建群页 IMSelectedChipStrip，点 ✕ 取消勾选），右边「发送(N)」。
-//  什么都没选时显示「选择最多 9 个好友或群聊」+ 置灰发送；栏本身常驻，避免列表高度跳动。
+//  什么都没选时显示「选择最多 N 个好友或群聊」（N = 选中集上限）+ 置灰发送；栏本身常驻，避免列表高度跳动。
 //  主页与「我的好友」「我的群聊」两个子页各挂一条，读同一份 IMShareSelection。
 
 #import <UIKit/UIKit.h>

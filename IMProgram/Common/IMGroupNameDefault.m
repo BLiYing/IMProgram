@@ -21,6 +21,31 @@ NSUInteger IMGroupNameRuneLength(NSString *s) {
     return n;
 }
 
+BOOL IMGroupNameEditAllowed(NSString *current, NSString *next, NSUInteger maxLen) {
+    NSUInteger n = IMGroupNameRuneLength(next ?: @"");
+    return n <= maxLen || n < IMGroupNameRuneLength(current ?: @"");
+}
+
+BOOL IMGroupNameShouldTruncate(NSUInteger previousRunes, NSString *text, NSUInteger maxLen, BOOL marked) {
+    if (marked) { return NO; }
+    NSUInteger n = IMGroupNameRuneLength(text ?: @"");
+    return n > maxLen && n > previousRunes;
+}
+
+NSString *IMGroupNameTruncateForEditing(NSString *text, NSUInteger maxLen) {
+    NSString *s = text ?: @"";
+    NSString *cut = IMGroupNameTruncateToRunes(s, maxLen);
+    if (cut.length == 0 || cut.length >= s.length) { return cut; }
+    // 切点落在某个字形簇中间 → 退到该簇起点（整簇丢掉，宁短勿超）。
+    NSRange cluster = [s rangeOfComposedCharacterSequenceAtIndex:cut.length];
+    return cluster.location < cut.length ? [s substringToIndex:cluster.location] : cut;
+}
+
+NSString *IMGroupTextLimitedAfterEdit(NSUInteger previousRunes, NSString *text, NSUInteger maxLen, BOOL marked) {
+    if (!IMGroupNameShouldTruncate(previousRunes, text, maxLen, marked)) { return nil; }
+    return IMGroupNameTruncateForEditing(text, maxLen);
+}
+
 NSString *IMGroupNameTruncateToRunes(NSString *s, NSUInteger n) {
     if (s.length == 0 || n == 0) { return n == 0 ? @"" : (s ?: @""); }
     NSUInteger runes = 0;

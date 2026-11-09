@@ -13,10 +13,12 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-extern const long long kIMMaxVideoBytes; // 视频体积上限（与服务端 2GB 一致，后续 C3 改读服务端配置）
+/// 图片 / 视频 / 文件单文件体积上限（字节）：读服务端下发的 `upload_max_file_bytes`（IMServerConfigStore，
+/// 后台「系统设置 ▸ 上传与媒体」S3a，运行中可变），没拉到 / 老服务端 → 2 GiB。**每次现取，别缓存**。
+FOUNDATION_EXPORT long long IMMediaMaxUploadBytes(void);
 
 /// 「拍摄」入口**现录**视频的时长上限（秒）。注意与相册选片区分：**相册选的视频不限时长**
-/// （只受 kIMMaxVideoBytes 约束，用户拍板），这里限的只是相机当场录的那一段，因为它多出两条约束：
+/// （只受 IMMediaMaxUploadBytes() 约束，用户拍板），这里限的只是相机当场录的那一段，因为它多出两条约束：
 ///   1. 转码超时是写死的 120s（见 exportVideoAtURL:）——超时会**回落发原编码**，
 ///      设备开「高效」格式时收端 Chrome/Firefox 只能看封面点不开；
 ///   2. 录制原件先整份落 tmp（1080p30 ≈17Mbps → 60s ≈130MB），时长翻倍磁盘与转码耗时同步翻倍。
