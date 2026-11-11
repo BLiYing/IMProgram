@@ -1948,8 +1948,10 @@
 "upload.precheck.too_large" = "文件超过 %1$@，无法发送";
 "web.conv.menu.mute" = "免打扰";
 "web.conv.menu.unmute" = "取消免打扰";
+"web.login.error.rtc_insecure" = "当前页面是 https，音视频地址须以 wss:// 开头";
 "web.login.nickname_placeholder" = "注册用，可中文，≤32 字";
 "web.login.password_placeholder" = "≥ 6 位";
+"web.login.rtc_config.hint" = "填写音视频地址（ws:// 或 wss://）。留空恢复默认。";
 "web.login.title" = "IM Web 登录";
 "web.login.username_placeholder" = "a-z、0-9、下划线，≥5 位";
 "webview.link_unopenable" = "打不开这个链接";
