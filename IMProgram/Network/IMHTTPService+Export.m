@@ -3,41 +3,30 @@
 #import "IMHTTPService+Export.h"
 #import "IMHTTPService+Private.h"
 #import "IMLocalization.h"
+#import "IMHTTPService+Phone.h"
 
 @implementation IMHTTPService (Export)
 
-/// 发请求并整包解信封：code != 0 → 带业务码的错误；200011 额外把 retry_after_sec（data 内或顶层）挂到 userInfo。
+/// 整包解信封（runEnvelopeRequest）；业务错误额外把 retry_after_sec（data 内或顶层）挂到 IMErrorRetryAfterSecKey。
 /// 业务码用 messageFrom: 走友好文案映射（200002 / 200010 / 200011 已收录）。
 - (void)runExportRequest:(nullable NSMutableURLRequest *)req
                 completion:(void (^)(id _Nullable data, NSError *_Nullable error))completion {
-    if (!req) {
-        [self callOnMain:^{ completion(nil, [self errorWithMessage:IMLocalized(@"net.error.invalid_server")]); }];
-        return;
-    }
-    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
-        if (error) { [self callOnMain:^{ completion(nil, error); }]; return; }
-        id codeRaw = body[@"code"];
-        BOOL hasCode = [codeRaw isKindOfClass:NSNumber.class] || [codeRaw isKindOfClass:NSString.class];
-        NSInteger code = hasCode ? [codeRaw integerValue] : -1;
-        if (code == 0) { [self callOnMain:^{ completion(body[@"data"], nil); }]; return; }
-        NSError *err = [self errorWithCode:code message:[self messageFrom:body fallback:IMLocalized(@"common.action_failed")]];
+    [self runEnvelopeRequest:req decorateError:^NSError *(NSError *err, NSDictionary *body) {
         id data = body[@"data"];
         id retry = [data isKindOfClass:NSDictionary.class] ? data[@"retry_after_sec"] : nil;
         retry = retry ?: body[@"retry_after_sec"];
-        if ([retry isKindOfClass:NSNumber.class]) {
-            NSMutableDictionary *info = [err.userInfo mutableCopy];
-            info[IMErrorRetryAfterSecKey] = retry;
-            err = [NSError errorWithDomain:err.domain code:err.code userInfo:info];
-        }
-        [self callOnMain:^{ completion(nil, err); }];
-    }];
+        if (![retry isKindOfClass:NSNumber.class]) { return err; }
+        NSMutableDictionary *info = [err.userInfo mutableCopy] ?: [NSMutableDictionary dictionary];
+        info[IMErrorRetryAfterSecKey] = retry;
+        return [NSError errorWithDomain:err.domain code:err.code userInfo:info];
+    } completion:completion];
 }
 
-- (void)startExportWithToken:(NSString *)token password:(NSString *)password includeMedia:(BOOL)includeMedia
+- (void)startExportWithToken:(NSString *)token proof:(IMIdentityProof *)proof includeMedia:(BOOL)includeMedia
                      formats:(NSArray<NSString *> *)formats
                   completion:(void (^)(IMExportJob *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/users/me/exports" method:@"POST" token:token
-                                                     body:@{ @"password": password ?: @"", @"include_media": @(includeMedia),
+                                                     body:@{ @"proof": [proof JSONObject], @"include_media": @(includeMedia),
                                                              @"formats": formats ?: @[] }];
     [self runExportRequest:req completion:^(id data, NSError *error) {
         if (error) { completion(nil, error); return; }

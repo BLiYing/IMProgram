@@ -1,8 +1,10 @@
 //  IMEmailFormViewController.h
-//  填邮箱 + 当前密码页（绑定 / 更换同页，仅标题与 footer 不同）→ POST send-code → 推验证码页。
+//  填邮箱页（绑定 / 更换同页，仅标题与 footer 不同）→ 确认身份弹层（密码或短信验证码）→ POST send-code → 推验证码页。
 //  所有输入遇错不清空；邮箱先做轻量预检（IMEmailPrecheck），不合规点按钮只出红字、不发请求。
 
 #import "IMTwoStepFormViewController.h"
+
+@class IMProofSession;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -11,7 +13,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID change:(BOOL)change currentEmail:(nullable NSString *)currentEmail;
 - (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID NS_UNAVAILABLE;
 @property (nonatomic, strong, readonly) UITextField *emailField;
-@property (nonatomic, strong, readonly) UITextField *passwordField;
+@property (nonatomic, strong, readonly) IMProofSession *proofSession;
 @end
 
 NS_ASSUME_NONNULL_END

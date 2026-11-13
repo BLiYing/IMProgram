@@ -93,8 +93,8 @@ FOUNDATION_EXPORT BOOL IMTwoStepShouldAutoSubmit(NSString *_Nullable code, BOOL 
 FOUNDATION_EXPORT BOOL IMTwoStepShouldInterceptLeave(BOOL onCodesPage, BOOL completed);
 /// 「完成」可点：已勾选「我已保存恢复码」。
 FOUNDATION_EXPORT BOOL IMTwoStepCanFinish(BOOL savedChecked);
-/// 验证页（关闭 / 重新生成）提交按钮可点：密码非空 + 码（动态码满 6 位，或恢复码满长）。
-FOUNDATION_EXPORT BOOL IMTwoStepCanSubmitVerify(NSString *_Nullable password, NSString *_Nullable code, BOOL useRecovery);
+/// 验证页（关闭 / 重新生成）提交按钮可点：动态码满 6 位，或恢复码满长（身份确认在弹层里，不看密码）。
+FOUNDATION_EXPORT BOOL IMTwoStepCanSubmitVerify(NSString *_Nullable code, BOOL useRecovery);
 /// 刚开启过两步验证的「防重放提示」窗口（秒）：略大于一个时间步。
 FOUNDATION_EXPORT NSTimeInterval const IMTwoStepReplayHintWindow;
 

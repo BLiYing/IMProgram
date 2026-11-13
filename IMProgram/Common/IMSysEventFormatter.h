@@ -31,7 +31,8 @@ IMSegmentsForSysEvent(NSString *_Nullable event,
 
 /// 系统通知单聊（sender=777000/IMSystemUserID，content_type=text）：`sys_event`+`sys_args` → 本地
 /// 拼装的多行文本（`\n` 连接，无 uid/点击需求，直接喂给普通文本气泡）。
-/// `event` 为空，或不是 `new_device_login`/`password_changed`/`device_kicked`/`export_ready`/`twostep_recovery_used`/`email_bound`/`email_changed`/`email_unbound` 之一 → 返回 nil，
+/// `event` 为空，或不是 `new_device_login`/`password_changed`/`device_kicked`/`export_ready`/`twostep_recovery_used`/`email_bound`/`email_changed`/`email_unbound`/
+/// `password_set`/`password_reset`/`phone_bound`/`phone_changed` 之一 → 返回 nil，
 /// 调用方**必须**回退现有 `content`（服务端预生成的中文成品）。
 FOUNDATION_EXPORT NSString *_Nullable
 IMTextForNoticeSysEvent(NSString *_Nullable event, NSDictionary<NSString *, NSString *> *_Nullable sysArgs);

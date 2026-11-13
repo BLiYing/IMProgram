@@ -1,68 +1,30 @@
 //  IMLoginViewController.m
 
-#import "IMLoginViewController.h"
+#import "IMLoginViewController+Private.h"
 #import "IMLocalization.h"
 #import "IMMainTabBarController.h"
 #import "IMHTTPService.h"
+#import "IMHTTPService+Phone.h"
 #import "IMSessionStore.h"
 #import "IMServerEndpoint.h"
 #import "IMHTTPService+Account.h"
 #import "IMHTTPService+TwoStep.h"
 #import "IMLoginTwoStepView.h"
+#import "IMLoginPhoneFields.h"
+#import "IMLoginSubpageViews.h"
+#import "IMPublicConfig.h"
 #import "IMTwoStep.h"
 #import "IMLog.h"
 #import "IMTheme.h"
-#import "IMAppInfo.h"
-#import "IMAboutLinks.h"
-#import "IMRtcConfig.h"
-#import "IMPublicConfig.h"
-#import <SafariServices/SafariServices.h>
 
-static NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过的 host
-/// 整列距安全区顶部的静止间距；键盘顶起时在此基础上减去上移量。
-static const CGFloat kIMLoginStackTop = 32;
+NSString * const kIMLastHostKey = @"im_last_host"; // 记住上次用过的 host
+CGFloat const kIMLoginStackTop = 32;
 /// 输入框下沿与键盘上沿之间留的空隙。
 static const CGFloat kIMLoginKeyboardGap = 12;
 
 CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
     return MAX(0, fieldBottom - (keyboardTop - kIMLoginKeyboardGap));
 }
-
-@interface IMLoginViewController () <UITextViewDelegate>
-/// 当前服务器地址（可带协议）。只读显示在登录按钮下方，改它走长按 Logo 的配置弹窗。
-@property (nonatomic, copy) NSString *hostInput;
-@property (nonatomic, strong) UITextField *userIDField;   ///< 用户名（公开句柄 username）
-@property (nonatomic, strong) UITextField *nicknameField; ///< 昵称（显示名，仅注册时用；必填）
-@property (nonatomic, strong) UITextField *passwordField;
-@property (nonatomic, strong) UILabel *errorLabel;
-/// 三个登录入口提成属性：请求在途时要把被点的那个转成菊花、另外两个禁用（见 setBusy:activeButton:）。
-@property (nonatomic, strong) UIButton *loginButton;
-@property (nonatomic, strong) UIButton *registerButton;
-@property (nonatomic, strong) UIButton *devButton;
-@property (nonatomic, assign) BOOL submitting;
-// 页面结构对齐 Android LoginScreen：Logo + 「登录 / 注册」页签 + 只读的服务器地址行。
-@property (nonatomic, strong) UIButton *loginTabButton;
-@property (nonatomic, strong) UIButton *registerTabButton;
-@property (nonatomic, strong) UILabel *registerHintLabel;
-@property (nonatomic, strong) UILabel *serverLabel;
-@property (nonatomic, assign) BOOL registerMode;
-// 两步验证二步页（同页切换，不新开页面）：ticket 只留内存，离开二步页即丢弃（TWO_STEP_VERIFICATION_DESIGN §2.3）
-@property (nonatomic, strong) UIStackView *mainStack;
-@property (nonatomic, strong) IMLoginTwoStepView *twoStepView;
-@property (nonatomic, copy, nullable) NSString *twoStepTicket;
-@property (nonatomic, copy) NSString *twoStepHost;
-@property (nonatomic, copy) NSString *twoStepUsername;
-@property (nonatomic, copy) NSArray<UIView *> *viewsHiddenForTwoStep; ///< 进二步页前可见的控件，返回时原样恢复
-@property (nonatomic, strong) NSLayoutConstraint *stackTopConstraint;
-/// 最近一次键盘上沿（登录页坐标）；0 = 还没收到过键盘通知，按键盘未弹出处理。
-@property (nonatomic, assign) CGFloat keyboardTop;
-/// 底部「继续即表示同意《服务条款》和《隐私政策》」：隐式同意（无勾选框），两段链接走应用内浏览器（ABOUT_LEGAL_DESIGN 批②）。
-@property (nonatomic, strong) UITextView *agreeFooter;
-/// 注册开关（GET /public-config，S4）：拉取器自带「只认最新一次请求」，VC 只留结果与提示行。
-@property (nonatomic, strong) IMPublicConfig *publicConfig;
-@property (nonatomic, strong) UILabel *registerClosedLabel; ///< 注册页内联提示「管理员已暂停注册新账号」
-@property (nonatomic, assign) BOOL registerClosed;          ///< YES = 禁用注册提交；拉不到按 NO（服务端 200007 兜底）
-@end
 
 @implementation IMLoginViewController
 
@@ -71,90 +33,61 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
     self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
     [self setupUI];
     if (self.initialNotice.length > 0) { [self showNotice:self.initialNotice]; }
-}
-
-/// 内置默认地址：Release 连生产服务器；Debug 模拟器恒用 127.0.0.1（避免 localhost DNS 解析在 iOS 模拟器偶发失败——
-/// Go WS/HTTP 与 IMRemoteLogSink 都会静默挂掉。见 current_task.md 已知坑 / memory 记录）；Debug 真机给个占位让用户改成 Mac 当前局域网 IP。
-- (NSString *)builtinHost {
-#ifndef DEBUG
-    return @"47.250.219.159:8081";
-#elif TARGET_OS_SIMULATOR
-    return @"127.0.0.1:8080";
-#else
-    return @"192.168.1.x:8080";
-#endif
-}
-
-/// 优先用上次保存 / 成功填过的地址（切网 / 切端口时无需每次改），没有才回退内置默认。
-- (NSString *)defaultHost {
-    NSString *last = [NSUserDefaults.standardUserDefaults stringForKey:kIMLastHostKey];
-    return last.length > 0 ? last : [self builtinHost];
+    [self reloadLoginConfigHostChanged:NO];
 }
 
 - (void)setupUI {
     self.hostInput = [self defaultHost];
-    // 用户名规则与服务端 ^[a-z0-9_]{5,32}$ 对齐（后端权威校验，这里只做提示与键盘优化）。
-    self.userIDField   = [self fieldWithPlaceholder:IMLocalized(@"login.username.placeholder") text:@"" keyboard:UIKeyboardTypeASCIICapable secure:NO];
-    self.userIDField.autocapitalizationType = UITextAutocapitalizationTypeNone;
-    self.userIDField.autocorrectionType = UITextAutocorrectionTypeNo;
-    // 昵称是显示名（可中文/emoji），与用户名是两回事；仅"注册并登录"用得到。
+    // 登录名原样传给 /login（用户名 / 邮箱 / 手机号），不预检；规范化在服务端。注册页签复用它当用户名框。
+    self.userIDField   = [self fieldWithPlaceholder:IMLocalized(@"login.ident.placeholder") text:@"" keyboard:UIKeyboardTypeASCIICapable secure:NO];
+    self.userIDField.accessibilityIdentifier = @"login.ident";
+    // 昵称是显示名（可中文/emoji），与用户名是两回事；仅「用户名注册」用得到。
     self.nicknameField = [self fieldWithPlaceholder:IMLocalized(@"login.nickname.placeholder") text:@"" keyboard:UIKeyboardTypeDefault secure:NO];
     self.passwordField = [self fieldWithPlaceholder:IMLocalized(@"login.password.placeholder") text:@"" keyboard:UIKeyboardTypeDefault secure:YES];
+    self.passwordField.accessibilityIdentifier = @"login.password";
 
-    self.errorLabel = [UILabel new];
-    self.errorLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.errorLabel.font = [UIFont systemFontOfSize:13];
-    self.errorLabel.textColor = UIColor.systemRedColor;
-    self.errorLabel.numberOfLines = 0;
+    self.errorLabel = [self label:13 color:UIColor.systemRedColor];
     self.errorLabel.hidden = YES;
-
-    self.registerHintLabel = [UILabel new];
-    self.registerHintLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.registerHintLabel.font = [UIFont systemFontOfSize:13];
-    self.registerHintLabel.textColor = UIColor.tertiaryLabelColor;
-    self.registerHintLabel.numberOfLines = 0;
+    self.errorLabel.accessibilityIdentifier = @"login.error";
+    self.registerHintLabel = [self label:13 color:UIColor.tertiaryLabelColor];
     self.registerHintLabel.text = IMLocalized(@"login.register_format_hint");
-
-    self.publicConfig = [IMPublicConfig new];
-    self.registerClosedLabel = [UILabel new];
-    self.registerClosedLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.registerClosedLabel.font = [UIFont systemFontOfSize:13];
-    self.registerClosedLabel.textColor = IMTheme.danger;
-    self.registerClosedLabel.numberOfLines = 0;
+    self.registerClosedLabel = [self label:13 color:IMTheme.danger];
     self.registerClosedLabel.text = IMLocalized(@"err.200007");
     self.registerClosedLabel.accessibilityIdentifier = @"login.register_closed";
     self.registerClosedLabel.hidden = YES;
 
     self.loginButton = [self buttonTitle:IMLocalized(@"login.button.login") config:[UIButtonConfiguration filledButtonConfiguration] action:@selector(loginTapped)];
+    self.loginButton.accessibilityIdentifier = @"login.submit_password";
     self.registerButton = [self buttonTitle:IMLocalized(@"login.button.register") config:[UIButtonConfiguration filledButtonConfiguration] action:@selector(registerTapped)];
+    self.registerButton.accessibilityIdentifier = @"login.submit_register";
     self.devButton = [self buttonTitle:IMLocalized(@"login.dev_login") config:[UIButtonConfiguration tintedButtonConfiguration] action:@selector(devLoginTapped)];
+    self.devButton.accessibilityIdentifier = @"login.dev";
 #ifndef DEBUG
     self.devButton.hidden = YES; // 仅 Debug 包显示免密入口（Android 同口径：release 不显示）
 #endif
+    self.backToLoginButton = [self linkButton:IMLocalized(@"login.back_to_login") action:@selector(backToLoginTapped)];
+    self.backToLoginButton.accessibilityIdentifier = @"login.back_to_login";
 
-    // —— 服务器地址：这里只显示，修改走长按 Logo（见 logoLongPressed:）——
-    self.serverLabel = [UILabel new];
-    self.serverLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.serverLabel.font = [UIFont systemFontOfSize:13];
-    self.serverLabel.textColor = UIColor.secondaryLabelColor;
+    self.serverLabel = [self label:13 color:UIColor.secondaryLabelColor];
     self.serverLabel.textAlignment = NSTextAlignmentCenter;
-    self.serverLabel.numberOfLines = 0;
     self.serverLabel.accessibilityIdentifier = @"login.server_label";
     [self refreshServerLabel];
-
     self.agreeFooter = [self buildAgreeFooter];
 
-    self.loginTabButton = [self buttonTitle:IMLocalized(@"login.button.login") config:[UIButtonConfiguration plainButtonConfiguration] action:@selector(loginTabTapped)];
-    self.registerTabButton = [self buttonTitle:IMLocalized(@"login.tab_register") config:[UIButtonConfiguration plainButtonConfiguration] action:@selector(registerTabTapped)];
-    UIStackView *tabs = [[UIStackView alloc] initWithArrangedSubviews:@[self.loginTabButton, self.registerTabButton]];
-    tabs.axis = UILayoutConstraintAxisHorizontal;
-    tabs.distribution = UIStackViewDistributionFillEqually;
-    tabs.spacing = 8;
+    self.smsTabButton = [self buttonTitle:IMLocalized(@"login.tab_sms") config:[UIButtonConfiguration plainButtonConfiguration] action:@selector(smsTabTapped)];
+    self.smsTabButton.accessibilityIdentifier = @"login.tab_sms";
+    self.passwordTabButton = [self buttonTitle:IMLocalized(@"login.tab_password") config:[UIButtonConfiguration plainButtonConfiguration] action:@selector(passwordTabTapped)];
+    self.passwordTabButton.accessibilityIdentifier = @"login.tab_password";
+    self.tabsRow = [[UIStackView alloc] initWithArrangedSubviews:@[self.smsTabButton, self.passwordTabButton]];
+    self.tabsRow.distribution = UIStackViewDistributionFillEqually;
+    self.tabsRow.spacing = 8;
+    [self setupPhoneViews]; // 验证码表单 / 自动注册提示 / 忘记密码与用户名注册链接（+Phone）
 
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
-        [self logoView], [self titleLabelView], tabs,
+        [self logoView], [self titleLabelView], self.tabsRow, self.smsFields,
         self.userIDField, self.passwordField, self.nicknameField, self.registerHintLabel, self.registerClosedLabel, self.errorLabel,
-        self.loginButton, self.registerButton, self.devButton, self.serverLabel, self.agreeFooter
+        self.smsLoginButton, self.loginButton, self.registerButton, self.autoRegisterHintLabel, self.devButton,
+        self.linksRow, self.backToLoginButton, self.serverLabel, self.agreeFooter
     ]];
     stack.axis = UILayoutConstraintAxisVertical;
     stack.spacing = 12;
@@ -162,7 +95,8 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
     [stack setCustomSpacing:8 afterView:self.errorLabel];
     [self.view addSubview:stack];
     self.mainStack = stack;
-    [self setupTwoStepView];
+    [self setupSubpages];
+    self.tab = IMLoginInitialTab(IMLoginTabsForConfig(nil), IMLoginRememberedTab(NSUserDefaults.standardUserDefaults));
     [self applyMode];
 
     UILayoutGuide *guide = self.view.safeAreaLayoutGuide;
@@ -178,6 +112,15 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
 
 - (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
 
+- (UILabel *)label:(CGFloat)size color:(UIColor *)color {
+    UILabel *l = [UILabel new];
+    l.translatesAutoresizingMaskIntoConstraints = NO;
+    l.font = [UIFont systemFontOfSize:size];
+    l.textColor = color;
+    l.numberOfLines = 0;
+    return l;
+}
+
 - (UITextField *)fieldWithPlaceholder:(NSString *)placeholder text:(NSString *)text keyboard:(UIKeyboardType)keyboard secure:(BOOL)secure {
     UITextField *field = [UITextField new];
     field.translatesAutoresizingMaskIntoConstraints = NO;
@@ -190,6 +133,7 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
     field.autocapitalizationType = UITextAutocapitalizationTypeNone;
     // 同一个键盘下切换输入框时系统不再发键盘通知，要靠开始编辑事件重新算上移量。
     [field addTarget:self action:@selector(fieldDidBeginEditing:) forControlEvents:UIControlEventEditingDidBegin];
+    [field addTarget:self action:@selector(fieldEdited) forControlEvents:UIControlEventEditingChanged];
     [field.heightAnchor constraintEqualToConstant:44].active = YES;
     return field;
 }
@@ -201,6 +145,18 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
     [b setTitle:title forState:UIControlStateNormal];
     [b addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
     return b;
+}
+
+/// 15 regular accent 文字链（「返回登录」等）。
+- (UIButton *)linkButton:(NSString *)title action:(SEL)action {
+    UIButtonConfiguration *cfg = [UIButtonConfiguration plainButtonConfiguration];
+    cfg.baseForegroundColor = IMTheme.accent;
+    cfg.titleTextAttributesTransformer = ^NSDictionary *(NSDictionary *attrs) {
+        NSMutableDictionary *m = [attrs mutableCopy];
+        m[NSFontAttributeName] = [UIFont systemFontOfSize:15];
+        return m;
+    };
+    return [self buttonTitle:title config:cfg action:action];
 }
 
 #pragma mark - 页面结构（对齐 Android）
@@ -238,61 +194,72 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
     return label;
 }
 
-- (void)loginTabTapped {
-    if (!self.registerMode) { return; }
-    self.registerMode = NO;
-    [self.publicConfig cancel]; // 离开注册页签：在途结果不再需要
+#pragma mark - 页签 / 模式
+
+- (void)smsTabTapped { [self selectTab:IMLoginTabSMS]; }
+- (void)passwordTabTapped { [self selectTab:IMLoginTabPassword]; }
+
+- (void)selectTab:(IMLoginTab)tab {
+    self.touched = YES;
+    if (self.tab == tab && !self.registerMode) { return; }
+    self.tab = tab;
+    [self showError:@""];
     [self applyMode];
 }
 
+/// 底部「用户名注册」：原注册表单（用户名 / 昵称 / 密码），有「返回登录」。
 - (void)registerTabTapped {
-    if (self.registerMode) { return; }
+    if (self.registerMode || self.submitting) { return; } // 请求在途不切表单（与 backToLoginTapped 对齐）
+    self.touched = YES;
     self.registerMode = YES;
+    [self showError:@""];
     [self applyMode];
-    [self refreshRegisterAvailability];
+    [self reloadLoginConfigHostChanged:NO]; // 注册开关以最新为准
 }
 
-#pragma mark - 注册开关（public-config，S4）
-
-/// 用登录页当前的服务器地址（与 registerTapped 同一份 hostInput 解析）匿名读 register_enabled。
-/// 不写全局 IMServerEndpoint、不弹错误：地址非法时按开放处理，真正点注册时 resolvedHostOrShowError 会报。
-- (void)refreshRegisterAvailability {
-    NSString *scheme = nil, *host = nil;
-    if (![IMServerEndpoint parseInput:[self trimmed:self.hostInput] scheme:&scheme host:&host]) {
-        [self.publicConfig cancel];
-        [self applyRegisterClosed:NO];
-        return;
-    }
-    __weak typeof(self) weakSelf = self;
-    [self.publicConfig fetchRegisterEnabledWithScheme:scheme host:host completion:^(BOOL registerEnabled) {
-        [weakSelf applyRegisterClosed:!registerEnabled];
-    }];
+- (void)backToLoginTapped {
+    if (!self.registerMode || self.submitting) { return; }
+    self.registerMode = NO;
+    [self showError:@""];
+    [self applyMode];
 }
 
-/// 注册关闭：注册页显示内联提示并禁用提交；开放则还原（请求在途时按钮仍由 setBusy: 管）。
-- (void)applyRegisterClosed:(BOOL)closed {
-    self.registerClosed = closed;
-    self.registerClosedLabel.hidden = !(closed && self.registerMode);
-    self.registerButton.enabled = !closed && !self.submitting;
+/// 用户开始输入：public-config 晚到时不再切页签；清红字（重新给一次机会，不清空输入）。
+- (void)fieldEdited {
+    self.touched = YES;
 }
 
-/// 按当前页签显隐控件并刷新页签选中态（选中 accentSoft 底 + accent 字，未选中卡片底 + 次要字）。
+/// 按模式 / 页签显隐控件并刷新页签选中态（选中 accentSoft 底 + accent 字，未选中卡片底 + 次要字）。
 - (void)applyMode {
     BOOL reg = self.registerMode;
-    // 括号里的格式说明只在注册页签需要；登录页签占位 = 「用户名或邮箱」（EMAIL_LOGIN_DESIGN §2.4；注册页不接受邮箱，仍用用户名规则）。
-    // 键盘保持 ASCIICapable（含 @）；登录名原样发送，规范化（大小写 / 空白）在服务端。
-    self.userIDField.placeholder = IMLocalized(reg ? @"login.username.placeholder" : @"login.identifier.label");
+    IMLoginConfig *cfg = self.loginConfig;
+    NSArray<NSNumber *> *tabs = IMLoginTabsForConfig(cfg);
+    if (![tabs containsObject:@(self.tab)]) { self.tab = (IMLoginTab)tabs.firstObject.integerValue; }
+    BOOL sms = !reg && self.tab == IMLoginTabSMS;
+    BOOL pwd = !reg && self.tab == IMLoginTabPassword;
+    self.tabsRow.hidden = reg || tabs.count < 2;
+    self.smsFields.hidden = !sms;
+    self.smsLoginButton.hidden = !sms;
+    self.autoRegisterHintLabel.hidden = !sms || !IMLoginShowsAutoRegisterHint(cfg);
+    // 注册页签用用户名规则（不接受邮箱 / 手机号）；密码登录的登录名可以是用户名 / 邮箱 / 手机号。
+    self.userIDField.hidden = sms;
+    self.userIDField.placeholder = IMLocalized(reg ? @"login.username.placeholder" : @"login.ident.placeholder");
+    self.passwordField.hidden = sms;
     self.passwordField.placeholder = IMLocalized(reg ? @"login.password.placeholder" : @"login.password");
     self.nicknameField.hidden = !reg;
     self.registerHintLabel.hidden = !reg;
     self.registerButton.hidden = !reg;
     self.registerClosedLabel.hidden = !(reg && self.registerClosed);
-    self.loginButton.hidden = reg;
+    self.loginButton.hidden = !pwd;
 #ifdef DEBUG
-    self.devButton.hidden = reg;
+    self.devButton.hidden = !pwd;
 #endif
-    [self styleTab:self.loginTabButton selected:!reg];
-    [self styleTab:self.registerTabButton selected:reg];
+    self.forgotButton.hidden = !IMLoginShowsForgotPassword(cfg);
+    self.usernameRegisterButton.hidden = !IMLoginShowsUsernameRegister(cfg);
+    self.linksRow.hidden = reg || (self.forgotButton.hidden && self.usernameRegisterButton.hidden);
+    self.backToLoginButton.hidden = !reg;
+    [self styleTab:self.smsTabButton selected:sms];
+    [self styleTab:self.passwordTabButton selected:pwd];
 }
 
 - (void)styleTab:(UIButton *)button selected:(BOOL)selected {
@@ -304,162 +271,20 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
     button.configuration = config;
 }
 
-- (void)refreshServerLabel {
-    self.serverLabel.text = IMLocalizedFormat(@"login.server_summary", self.hostInput);
-}
-
-#pragma mark - 长按 Logo：配置服务器 / 音视频地址
-
-- (void)logoLongPressed:(UILongPressGestureRecognizer *)gesture {
-    if (gesture.state != UIGestureRecognizerStateBegan || self.submitting || self.presentedViewController) { return; }
-    [self.view endEditing:YES];
-    [self presentEndpointConfigWithHost:self.hostInput rtc:IMRtcConfig.load.wsURL error:nil];
-}
-
-- (void)presentEndpointConfigWithHost:(NSString *)host rtc:(NSString *)rtc error:(nullable NSString *)error {
-    NSString *hint = IMLocalized(@"login.endpoint_config.hint");
-    UIAlertController *ac = [UIAlertController alertControllerWithTitle:IMLocalized(@"login.endpoint_config.title")
-                                                                message:error.length > 0 ? [NSString stringWithFormat:@"%@\n%@", error, hint] : hint
-                                                         preferredStyle:UIAlertControllerStyleAlert];
-    [ac addTextFieldWithConfigurationHandler:^(UITextField *field) {
-        [self configureEndpointField:field text:host placeholder:IMLocalized(@"login.host.placeholder")];
-    }];
-    [ac addTextFieldWithConfigurationHandler:^(UITextField *field) {
-        [self configureEndpointField:field text:rtc placeholder:IMLocalized(@"login.rtc_address.placeholder")];
-    }];
-    [ac addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
-    __weak typeof(self) weakSelf = self;
-    __weak UIAlertController *weakAlert = ac;
-    [ac addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.save") style:UIAlertActionStyleDefault
-                                         handler:^(UIAlertAction *action) {
-        [weakSelf saveEndpointHost:weakAlert.textFields[0].text rtc:weakAlert.textFields[1].text];
-    }]];
-    [self presentViewController:ac animated:YES completion:nil];
-}
-
-- (void)configureEndpointField:(UITextField *)field text:(NSString *)text placeholder:(NSString *)placeholder {
-    field.text = text;
-    field.placeholder = placeholder;
-    field.keyboardType = UIKeyboardTypeURL;
-    field.autocorrectionType = UITextAutocorrectionTypeNo;
-    field.autocapitalizationType = UITextAutocapitalizationTypeNone;
-    field.clearButtonMode = UITextFieldViewModeWhileEditing;
-}
-
-/// 两项都合法才落盘，否则重新弹窗并保留已填内容。留空 = 恢复默认。
-/// 服务器协议**不写**全局 IMServerEndpoint——真正提交地址在点登录/注册时才发生（同 openLegalPath:）。
-- (void)saveEndpointHost:(NSString *)rawHost rtc:(NSString *)rawRTC {
-    NSString *hostText = [self trimmed:rawHost];
-    NSString *rtcText = [self trimmed:rawRTC];
-    NSString *scheme = nil, *host = nil;
-    if (hostText.length > 0 && ![IMServerEndpoint parseInput:hostText scheme:&scheme host:&host]) {
-        [self presentEndpointConfigWithHost:hostText rtc:rtcText error:IMLocalized(@"login.error.host_invalid")];
-        return;
-    }
-    NSString *rtcURL = [IMRtcConfig normalizedWSURL:rtcText];
-    if (rtcText.length > 0 && !rtcURL) {
-        [self presentEndpointConfigWithHost:hostText rtc:rtcText error:IMLocalized(@"login.error.rtc_url_invalid")];
-        return;
-    }
-    NSString *remembered = host ? [IMServerEndpoint rememberedInputForScheme:scheme host:host] : nil;
-    [NSUserDefaults.standardUserDefaults setObject:remembered forKey:kIMLastHostKey]; // nil = 删除，回退内置默认
-    [IMRtcConfig saveWSURLOverride:rtcURL];
-    self.hostInput = remembered ?: [self builtinHost];
-    [self refreshServerLabel];
-    [self showError:@""];
-    // 换了服务器：旧地址的开关结论作废，按新地址重读（在途的旧请求由 IMPublicConfig 丢弃）。
-    [self applyRegisterClosed:NO];
-    if (self.registerMode) { [self refreshRegisterAvailability]; }
-    IMLogUI(@"login_endpoint_saved host=%@ rtc=%@", self.hostInput, IMRtcConfig.load.wsURL);
-}
-
-#pragma mark - 同意提示（隐式同意，批②）
-
-/// 不可编辑/不可滚动的 UITextView：两段链接可点，走应用内浏览器。无勾选框——点「登录/注册」即视为同意（见 ABOUT_LEGAL_DESIGN §0 批②）。
-- (UITextView *)buildAgreeFooter {
-    UITextView *tv = [UITextView new];
-    tv.translatesAutoresizingMaskIntoConstraints = NO;
-    tv.scrollEnabled = NO;
-    tv.editable = NO;
-    tv.backgroundColor = UIColor.clearColor;
-    tv.textContainerInset = UIEdgeInsetsZero;
-    tv.textContainer.lineFragmentPadding = 0;
-    tv.delegate = self;
-    tv.accessibilityIdentifier = @"login.agree_footer";
-    tv.linkTextAttributes = @{ NSForegroundColorAttributeName: IMTheme.accent };
-    tv.attributedText = [self agreeFooterText];
-    return tv;
-}
-
-/// 「继续即表示同意《服务条款》和《隐私政策》」：复用 about.terms / about.privacy_policy 作链接文案；
-/// 中文的《》在格式串里，链接范围只覆盖文字本身。链接值用自定义 scheme，点击分流到对应法务页。
-- (NSAttributedString *)agreeFooterText {
-    NSString *terms = IMLocalized(@"about.terms");
-    NSString *privacy = IMLocalized(@"about.privacy_policy");
-    NSString *full = [NSString stringWithFormat:IMLocalized(@"about.agree_footer"), terms, privacy];
-    NSMutableParagraphStyle *para = [NSMutableParagraphStyle new];
-    para.alignment = NSTextAlignmentCenter;
-    NSMutableAttributedString *s = [[NSMutableAttributedString alloc] initWithString:full attributes:@{
-        NSFontAttributeName: [UIFont systemFontOfSize:13],
-        NSForegroundColorAttributeName: UIColor.secondaryLabelColor,
-        NSParagraphStyleAttributeName: para,
-    }];
-    [self linkify:s label:terms url:@"imlegal://terms"];
-    [self linkify:s label:privacy url:@"imlegal://privacy"];
-    return s;
-}
-
-- (void)linkify:(NSMutableAttributedString *)s label:(NSString *)label url:(NSString *)url {
-    NSRange r = [s.string rangeOfString:label];
-    if (r.location != NSNotFound) { [s addAttribute:NSLinkAttributeName value:[NSURL URLWithString:url] range:r]; }
-}
-
-- (BOOL)textView:(UITextView *)textView shouldInteractWithURL:(NSURL *)URL inRange:(NSRange)range interaction:(UITextItemInteraction)interaction {
-    NSString *path = [URL.host isEqualToString:@"terms"] ? IMLegalPathTerms
-                   : [URL.host isEqualToString:@"privacy"] ? IMLegalPathPrivacy : nil;
-    if (path) { [self openLegalPath:path]; }
-    return NO; // 自己用 SFSafariViewController 呈现，不交给系统
-}
-
-/// 用登录页当前的服务器地址拼法务页链接并在应用内浏览器打开（法务页是公开静态页，不带 token / Cookie）。
-- (void)openLegalPath:(NSString *)path {
-    NSString *raw = [self trimmed:self.hostInput];
-    NSString *scheme = nil, *host = nil;
-    if (raw.length == 0 || ![IMServerEndpoint parseInput:raw scheme:&scheme host:&host]) {
-        [self showError:IMLocalized(@"login.error.host_required")];
-        return;
-    }
-    // 用用户此刻填的 scheme/host 匿名拉一次后台配置的链接（失败 / 老服务端回退内置路径）；
-    // 同样**不改**全局 IMServerEndpoint——真正提交地址在点登录/注册时才发生。
-    NSString *field = [path isEqualToString:IMLegalPathTerms] ? IMAboutLinkFieldTerms : IMAboutLinkFieldPrivacy;
-    __weak typeof(self) weakSelf = self;
-    [IMAboutLinks.shared refreshWithScheme:scheme host:host token:nil timeout:5 completion:^(BOOL ok) {
-        __strong typeof(weakSelf) self = weakSelf;
-        if (!self || self.presentedViewController) { return; } // 5s 内连点会叠出多个 Safari
-        NSDictionary *links = [IMAboutLinks.shared cachedLinksForScheme:scheme host:host];
-        NSURL *url = [IMAboutLinks URLForField:field links:links host:host scheme:scheme language:IMLocalization.shared.language];
-        if (!url) {
-            IMLogWarnWithTag(IMLogTagUI, @"login_legal_open_failed path=%@", path);
-            [self showError:IMLocalized(@"about.open_failed")];
-            return;
-        }
-        [self presentViewController:[[SFSafariViewController alloc] initWithURL:url] animated:YES completion:nil];
-    }];
-}
-
-#pragma mark - 交互
+#pragma mark - 密码登录 / 用户名注册 / 免密
 
 /// 登录：带密码做真账号校验，成功才进主界面；失败把服务端文案显示在登录页（不深入 App 再报错）。
 - (void)loginTapped {
     NSString *host = [self resolvedHostOrShowError];
     if (host.length == 0) { return; }
-    NSString *userID = [self trimmed:self.userIDField.text];
+    NSString *ident = [self trimmed:self.userIDField.text];
     NSString *password = self.passwordField.text ?: @"";
-    if (userID.length == 0 || password.length == 0) {
+    if (ident.length == 0 || password.length == 0) {
         [self showError:IMLocalized(@"login.error.fill_credentials")];
         return;
     }
-    [self loginWithHost:host username:userID password:password fallback:IMLocalized(@"login.error.login_failed") activeButton:self.loginButton];
+    [self loginWithHost:host username:ident password:password fallback:IMLocalized(@"login.error.login_failed")
+           activeButton:self.loginButton rememberTab:IMLoginTabPassword];
 }
 
 /// 注册并登录：先注册账号，成功后用同一密码进入。
@@ -474,8 +299,7 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
         [self showError:IMLocalized(@"login.error.register_requirements")];
         return;
     }
-    // 昵称必填：全端显示名回退链止于它，留空会让界面露出 10 位数字内部 ID。
-    // 后端也会拒，这里前置提示省一次往返。
+    // 昵称必填：全端显示名回退链止于它，留空会让界面露出 10 位数字内部 ID。后端也会拒，这里前置提示省一次往返。
     if (nickname.length == 0) {
         [self showError:IMLocalized(@"login.error.nickname_required")];
         return;
@@ -492,23 +316,22 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
             [self setBusy:NO activeButton:self.registerButton];
             if (error.code == IMErrCodeRegisterClosed) {
                 // 页面打开后管理员才关的注册（或 public-config 没拉到）：转成内联提示 + 禁用，不再重复红字。
-                [self.publicConfig cancel]; // 在途的 public-config（可能是失败兜底的 YES）不得把这条权威结论翻回开放
+                // 在途的 public-config（可能是失败兜底的 YES）不得把这条权威结论翻回开放；但也不能直接 cancel 丢掉它——
+                // 首次配置还没回来时 loginConfig 会一直是 nil（没有验证码页签 / 忘记密码）。改为重拉一次，回来后仍标记关闭。
                 [self applyRegisterClosed:YES];
+                [self reloadLoginConfigAfterRegisterClosed];
                 return;
             }
             [self showError:error.localizedDescription ?: IMLocalized(@"login.error.register_failed")];
             return;
         }
-        // 注册接口不签发 token，也不回内部 ID 之外的东西——必须再登录一次拿 token + 内部 ID。
+        // 注册接口不签发 token——必须再登录一次拿 token + 内部 ID。用户名注册不记页签。
         [self loginWithHost:host username:username password:password
-                   fallback:IMLocalized(@"login.error.register_login_failed") activeButton:self.registerButton];
+                   fallback:IMLocalized(@"login.error.register_login_failed") activeButton:self.registerButton rememberTab:IMLoginTabNone];
     }];
 }
 
-/// 免密登录（开发）：清空密码走后端 dev-login，凭 uid 直签。
-/// **同样真发一次 POST /login**：早期这里不打网络直接进主界面，后端连不上时也照样"登录成功"，
-/// 把连不通的真相推迟到主界面里静默失败。真机排障踩过——密码登录失败、免密"成功"，误判成密码问题，
-/// 实际是手机压根没连上 Mac（iOS 本地网络权限被拒）。登录页必须能自证后端可达。
+/// 免密登录（开发）：清空密码走后端 dev-login，凭 username 直签。**同样真发一次 POST /login**：登录页必须能自证后端可达。
 - (void)devLoginTapped {
     NSString *host = [self resolvedHostOrShowError];
     if (host.length == 0) { return; }
@@ -517,107 +340,92 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
         [self showError:@"请填写用户名（uid）"];
         return;
     }
-    [self loginWithHost:host username:userID password:@"" fallback:IMLocalized(@"login.error.dev_login_failed") activeButton:self.devButton];
+    [self loginWithHost:host username:userID password:@"" fallback:IMLocalized(@"login.error.dev_login_failed")
+           activeButton:self.devButton rememberTab:IMLoginTabNone];
 }
 
 /// 登录入口共用：host/密码设入服务层 → 真发一次 POST /login → 成功才进主界面，失败把文案留在登录页。
 /// password 传空串即走后端 dev-login 免密直签；fallback 仅在错误无文案时兜底。
-- (void)loginWithHost:(NSString *)host
-             username:(NSString *)username
-             password:(NSString *)password
-             fallback:(NSString *)fallback
-         activeButton:(UIButton *)activeButton {
+- (void)loginWithHost:(NSString *)host username:(NSString *)username password:(NSString *)password
+             fallback:(NSString *)fallback activeButton:(UIButton *)activeButton rememberTab:(IMLoginTab)rememberTab {
     [self showError:@""];
     [self setBusy:YES activeButton:activeButton];
     [self prepareServiceWithHost:host password:password];
     __weak typeof(self) weakSelf = self;
-    // 入参是 username（登录凭据），回来的 userID 才是服务端分配的**内部 ID**——
-    // App 内一切业务参数（conv_id 推导、好友接口、消息 sender）都用后者，绝不能拿 username 冒充。
+    // 入参是登录名（用户名 / 邮箱 / 手机号），回来的 userID 才是服务端分配的**内部 ID**。
     [IMHTTPService.sharedService loginWithUsername:username completion:^(NSString *token, NSString *userID, NSError *error) {
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) { return; }
         [self setBusy:NO activeButton:activeButton];
         if (token.length == 0 || userID.length == 0) {
             if (error.code == IMErrCodeAccountPendingDeletion && password.length == 0) {
-                // 免密路径没有密码可交给 /account/restore：给本地化指引，不显示服务端英文原文
-                [self showError:IMLocalized(@"err.200005")];
+                [self showError:IMLocalized(@"err.200005")]; // 免密路径没有密码可交给 /account/restore
                 return;
             }
             NSString *ticket = error.userInfo[IMErrorTwoStepTicketKey];
             if (error.code == IMErrCodeTwoStepRequired && ticket.length > 0) {
-                [self beginTwoStepWithTicket:ticket host:host username:username];
+                [self beginTwoStepWithTicket:ticket host:host tab:rememberTab];
                 return;
             }
             if (error.code == IMErrCodeAccountPendingDeletion) {
                 [self promptRestoreForHost:host username:username password:password fallback:fallback
-                              activeButton:activeButton deleteAt:error.userInfo[IMErrorDeleteAtKey]];
+                              activeButton:activeButton deleteAt:error.userInfo[IMErrorDeleteAtKey] rememberTab:rememberTab];
                 return;
             }
             [self showError:error.localizedDescription.length > 0 ? error.localizedDescription : fallback];
             return;
         }
-        [self enterAppWithHost:host userID:userID username:username];
+        // 服务端在登录响应里给了 username（IMHTTPService 已据此改写）；老服务端没给时是用户输入的登录名，进主界面前再判一次可信。
+        [self enterAppWithHost:host userID:userID username:IMHTTPService.sharedService.username rememberTab:rememberTab];
     }];
 }
 
 /// 冷静期内登录（AccountPendingDeletion）：弹「恢复账号」确认；确认后调 restore，成功再按原凭据继续登录。
-/// 取消则留在登录页、不留红字（用户是主动选择不恢复）。
-- (void)promptRestoreForHost:(NSString *)host
-                    username:(NSString *)username
-                    password:(NSString *)password
-                    fallback:(NSString *)fallback
-                activeButton:(UIButton *)activeButton
-                    deleteAt:(nullable NSDate *)deleteAt {
-    // 服务端没给 delete_at 时不渲染「-」占位日期（Android / Web 同口径：退回标题文案）
+- (void)promptRestoreForHost:(NSString *)host username:(NSString *)username password:(NSString *)password
+                    fallback:(NSString *)fallback activeButton:(UIButton *)activeButton
+                    deleteAt:(nullable NSDate *)deleteAt rememberTab:(IMLoginTab)rememberTab {
+    __weak typeof(self) weakSelf = self;
+    [self presentRestoreConfirmWithDeleteAt:deleteAt onConfirm:^{
+        __strong typeof(weakSelf) self = weakSelf;
+        [self setBusy:YES activeButton:activeButton];
+        [IMHTTPService.sharedService restoreAccountWithUsername:username password:password completion:^(NSError *error) {
+            if (error) {
+                [weakSelf setBusy:NO activeButton:activeButton];
+                [weakSelf showError:IMErrorMessageOrFallback(error, fallback)];
+                return;
+            }
+            [weakSelf loginWithHost:host username:username password:password fallback:fallback activeButton:activeButton rememberTab:rememberTab];
+        }];
+    }];
+}
+
+/// 「恢复账号」确认框（密码登录与验证码登录命中冷静期共用）：取消不做事，确认回调 onConfirm。
+- (void)presentRestoreConfirmWithDeleteAt:(nullable NSDate *)deleteAt onConfirm:(void (^)(void))onConfirm {
     NSString *message = deleteAt ? IMLocalizedFormat(@"delete_account.restore_message", IMDeleteAtDisplayString(deleteAt))
                                  : IMLocalized(@"delete_account.restore_title");
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:IMLocalized(@"delete_account.restore_title")
                                                                 message:message preferredStyle:UIAlertControllerStyleAlert];
     [ac addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
-    __weak typeof(self) weakSelf = self;
     [ac addAction:[UIAlertAction actionWithTitle:IMLocalized(@"delete_account.restore_action") style:UIAlertActionStyleDefault
-                                         handler:^(UIAlertAction *a) {
-        [weakSelf restoreThenLoginHost:host username:username password:password fallback:fallback activeButton:activeButton];
-    }]];
+                                         handler:^(UIAlertAction *a) { onConfirm(); }]];
     [self presentViewController:ac animated:YES completion:nil];
 }
 
-- (void)restoreThenLoginHost:(NSString *)host username:(NSString *)username password:(NSString *)password
-                    fallback:(NSString *)fallback activeButton:(UIButton *)activeButton {
-    [self setBusy:YES activeButton:activeButton];
-    __weak typeof(self) weakSelf = self;
-    [IMHTTPService.sharedService restoreAccountWithUsername:username password:password completion:^(NSError *error) {
-        __strong typeof(weakSelf) self = weakSelf;
-        if (!self) { return; }
-        if (error) {
-            [self setBusy:NO activeButton:activeButton];
-            [self showError:error.localizedDescription.length > 0 ? error.localizedDescription : fallback];
-            return;
-        }
-        [self loginWithHost:host username:username password:password fallback:fallback activeButton:activeButton];
-    }];
-}
-
-/// 请求在途：被点的按钮转菊花，三个入口一起禁用（防重复提交，也让"点了没反应"变成看得见的进行中）。
-/// 用 UIButtonConfiguration 自带的 showsActivityIndicator（iOS 15+），不自己加 UIActivityIndicatorView；
-/// 注意 configuration 是值语义，改完必须整份回写按钮才生效。
+/// 请求在途：被点的按钮转菊花，所有入口一起禁用（防重复提交）。configuration 是值语义，改完必须整份回写。
 - (void)setBusy:(BOOL)busy activeButton:(UIButton *)activeButton {
     self.submitting = busy;
-    for (UIButton *button in @[self.loginButton, self.registerButton, self.devButton]) {
+    for (UIButton *button in @[self.loginButton, self.registerButton, self.devButton, self.smsLoginButton]) {
         button.enabled = !busy && !(button == self.registerButton && self.registerClosed);
         UIButtonConfiguration *config = button.configuration;
         config.showsActivityIndicator = (busy && button == activeButton);
         button.configuration = config;
     }
+    self.smsTabButton.enabled = self.passwordTabButton.enabled = !busy;
+    self.usernameRegisterButton.enabled = self.forgotButton.enabled = !busy; // 底部两个链接同样会切走表单
 }
 
-/// 解析当前服务器地址：接受 `host:port` 与 `http(s)://host:port` 两种写法。
-/// 协议记进 IMServerEndpoint（全 App 唯一权威）并持久化；返回纯 `host:port`——
-/// App 内各处仍按 host 串传递，协议不再各自拼字面量。
-/// 非法或为空时**已经把错误显示出来**并返回空串，调用方直接 return 即可。
-///
-/// 这是「以后换 https 不用改代码」的落点：用户（长按 Logo）把地址改成 `https://im.example.com` 就整端切换，
-/// HTTP / WebSocket / 媒体补全 / 日志上报四路一起走 TLS。
+/// 解析当前服务器地址：接受 `host:port` 与 `http(s)://host:port` 两种写法。协议记进 IMServerEndpoint（全 App 唯一权威）并持久化；
+/// 返回纯 `host:port`。非法或为空时**已经把错误显示出来**并返回空串，调用方直接 return 即可。
 - (NSString *)resolvedHostOrShowError {
     NSString *raw = [self trimmed:self.hostInput];
     if (raw.length == 0) {
@@ -638,68 +446,83 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
 - (void)prepareServiceWithHost:(NSString *)host password:(NSString *)password {
     IMHTTPService.sharedService.host = host;
     IMHTTPService.sharedService.password = password;
-    // 换账号/重新登录：先擦掉上一个账号的续期凭据（内存 + 磁盘）。留着的话，本次密码填错后
-    // 内存里仍躺着一枚别人的有效凭据，任何走 loginWithUserID: 的兜底路径都可能拿它换到 token。
+    // 换账号/重新登录：先擦掉上一个账号的续期凭据（内存 + 磁盘），免得兜底路径拿它换到别人的 token。
     IMHTTPService.sharedService.refreshToken = nil;
     [IMSessionStore saveRefreshToken:nil];
-    // 作废内存里的旧 token：loginWithUserID 有 10 分钟 TTL 缓存，不清就可能命中缓存直接回调成功——
-    // 换 host / 换账号 / 改了密码后仍复用旧 token，且登录页看不出后端是否真的可达（排障假象）。
+    // 作废内存里的旧 token：loginWithUserID 有 10 分钟 TTL 缓存，不清就可能命中缓存直接回调成功。
     [IMHTTPService.sharedService invalidateToken];
-    // 记住，下次免重填。**带上协议**：只存 host 的话，这次填的 https 下次回填成裸 host，
-    // 又静默退回默认的 http（用户看不出来，只会觉得"怎么又不加密了"）。
+    // 记住，下次免重填。**带上协议**：只存 host 的话 https 下次会静默退回 http。
     NSString *remembered = [IMServerEndpoint rememberedInputForScheme:IMServerEndpoint.shared.scheme host:host];
     [NSUserDefaults.standardUserDefaults setObject:remembered forKey:kIMLastHostKey];
 }
 
-- (void)enterAppWithHost:(NSString *)host userID:(NSString *)userID username:(NSString *)username {
-    // 持久化会话（保持登录）。下次启动靠 refresh_token 静默换 token 直达主界面——
-    // 那枚凭据由 IMHTTPService 在登录响应里收到时自行落盘，这里不经手（也不再存明文密码）。
-    // **username 必须一起存**——它是密码登录的凭据；续期失效退回登录页时要能回填。
+- (void)enterAppWithHost:(NSString *)host userID:(NSString *)userID username:(NSString *)username rememberTab:(IMLoginTab)rememberTab {
+    // username 只来自登录成功响应（adoptLoginSuccessData 已滤掉输入的手机号 / 邮箱），直接存。
     [IMSessionStore saveHost:host userID:userID username:username];
+    // 记住页签只在真正进入主界面后保存；用户名注册 / 免密传 IMLoginTabNone 不记。
+    IMLoginRememberTab(NSUserDefaults.standardUserDefaults, rememberTab);
     IMMainTabBarController *main = [[IMMainTabBarController alloc] initWithHost:host userID:userID];
     self.view.window.rootViewController = main;
 }
 
-#pragma mark - 两步验证二步页（同页切换）
+#pragma mark - 子页（同页切换）
 
-- (void)setupTwoStepView {
+- (void)setupSubpages {
     self.twoStepView = [IMLoginTwoStepView new];
     self.twoStepView.hidden = YES;
     __weak typeof(self) ws = self;
     self.twoStepView.onSubmit = ^(NSString *code, BOOL recovery) { [ws submitTwoStepCode:code recovery:recovery]; };
-    self.twoStepView.onBack = ^{ [ws leaveTwoStep]; };
+    self.twoStepView.onBack = ^{ [ws leaveSubpage]; };
     [self.mainStack addArrangedSubview:self.twoStepView];
+    for (UIView *page in @[self.completeView, self.resetView]) {
+        page.hidden = YES;
+        [self.mainStack addArrangedSubview:page];
+    }
 }
 
-/// 密码对且账号已开启两步验证（200020）：登录页换成二步页，ticket 只留内存。
-- (void)beginTwoStepWithTicket:(NSString *)ticket host:(NSString *)host username:(NSString *)username {
-    self.twoStepTicket = ticket;
-    self.twoStepHost = host;
-    self.twoStepUsername = username;
+/// 进入子页：把当前可见的控件藏起来（返回时原样恢复），只显示子页。
+- (void)enterSubpage:(UIView *)page {
+    if (self.currentSubpage) { [self leaveSubpage]; }
     NSMutableArray<UIView *> *visible = [NSMutableArray array];
     for (UIView *v in self.mainStack.arrangedSubviews) {
-        if (v == self.twoStepView || v.hidden) { continue; }
+        if (v == page || v.hidden) { continue; }
         [visible addObject:v];
         v.hidden = YES;
     }
-    self.viewsHiddenForTwoStep = visible;
+    self.viewsHiddenForSubpage = visible;
+    self.currentSubpage = page;
     [self showError:@""];
-    [self.twoStepView resetForNewTicket];
-    self.twoStepView.hidden = NO;
-    [self.twoStepView focusInput];
-    IMLogUI(@"login_twostep_begin");
+    page.hidden = NO;
 }
 
-/// 离开二步页（返回 / ticket 失效）：丢弃 ticket 与内存里的密码，恢复进入前的控件。
-- (void)leaveTwoStep {
-    self.twoStepTicket = nil;
-    IMHTTPService.sharedService.password = nil;
-    [self.twoStepView resetForNewTicket];
+/// 离开子页（返回 / 凭证失效 / 成功）：丢弃 ticket 与内存里的密码，恢复进入前的控件。
+- (void)leaveSubpage {
+    UIView *page = self.currentSubpage;
+    if (!page) { return; }
+    if (page == self.twoStepView) {
+        self.twoStepTicket = nil;
+        IMHTTPService.sharedService.password = nil;
+        [self.twoStepView resetForNewTicket];
+    }
+    if (page == self.completeView) { self.registerTicket = nil; }
     [self.view endEditing:YES];
-    self.twoStepView.hidden = YES;
-    for (UIView *v in self.viewsHiddenForTwoStep) { v.hidden = NO; }
-    self.viewsHiddenForTwoStep = @[];
+    page.hidden = YES;
+    self.currentSubpage = nil;
+    for (UIView *v in self.viewsHiddenForSubpage) { v.hidden = NO; }
+    self.viewsHiddenForSubpage = @[];
+    [self applyMode];
     self.stackTopConstraint.constant = kIMLoginStackTop;
+}
+
+/// 账号已开启两步验证（200020）：登录页换成二步页，ticket 只留内存。tab = 从哪个页签进来的（成功后记住它）。
+- (void)beginTwoStepWithTicket:(NSString *)ticket host:(NSString *)host tab:(NSInteger)tab {
+    self.twoStepTicket = ticket;
+    self.twoStepHost = host;
+    self.twoStepTab = tab;
+    [self enterSubpage:self.twoStepView];
+    [self.twoStepView resetForNewTicket];
+    [self.twoStepView focusInput];
+    IMLogUI(@"login_twostep_begin");
 }
 
 - (void)submitTwoStepCode:(NSString *)code recovery:(BOOL)recovery {
@@ -714,10 +537,10 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
         if (!self || ![self.twoStepTicket isEqualToString:ticket]) { return; } // 已离开二步页
         self.twoStepView.busy = NO;
         if (token.length > 0 && userID.length > 0) {
-            NSString *host = self.twoStepHost, *username = self.twoStepUsername;
+            NSString *host = self.twoStepHost;
             self.twoStepTicket = nil;
             IMLogUI(@"login_twostep_ok method=%@", recovery ? @"recovery" : @"totp");
-            [self enterAppWithHost:host userID:userID username:username];
+            [self enterAppWithHost:host userID:userID username:IMHTTPService.sharedService.username rememberTab:self.twoStepTab];
             return;
         }
         [self handleTwoStepFailure:error recovery:recovery];
@@ -731,8 +554,8 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
         ? [error.userInfo[IMErrorTwoStepAttemptsLeftKey] integerValue] : -1;
     NSString *msg = IMTwoStepErrorMessage(error.code, IMTwoStepErrorContextLogin, left, IMTwoStepRecentlyEnabled([NSDate date]) && !recovery,
                                           error.localizedDescription.length > 0 ? error.localizedDescription : IMLocalized(@"login.error.login_failed"));
-    if (action == IMTwoStepLoginActionExpired) { // ticket 已作废：回密码页
-        [self leaveTwoStep];
+    if (action == IMTwoStepLoginActionExpired) { // ticket 已作废：回登录页
+        [self leaveSubpage];
         [self showError:msg];
         return;
     }
@@ -740,8 +563,9 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
     if (action == IMTwoStepLoginActionRetryCode) { [self.twoStepView clearCodeAndRefocus]; }
 }
 
-/// 键盘顶起：当前输入框（二步页则是整个二步表单）必须在键盘之上可见，小屏也要。
-/// 登录页本身没有滚动容器，直接上移整列。编辑用户名 / 密码 / 昵称时，以主按钮（登录 / 注册）的下沿为准。
+#pragma mark - 键盘
+
+/// 键盘顶起：当前输入框（子页则是整个子页）必须在键盘之上可见，小屏也要。登录页没有滚动容器，直接上移整列。
 - (void)keyboardWillChange:(NSNotification *)note {
     CGRect end = [self.view convertRect:[note.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue] fromView:nil];
     self.keyboardTop = MIN(end.origin.y, CGRectGetMaxY(self.view.bounds));
@@ -752,43 +576,65 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
     [self liftForKeyboardWithDuration:0.25];
 }
 
+/// 当前主按钮（编辑完输入框就是点它）：它也要露在键盘之上。
+- (UIButton *)currentActionButton {
+    if (self.registerMode) { return self.registerButton; }
+    return self.tab == IMLoginTabSMS ? self.smsLoginButton : self.loginButton;
+}
+
 - (void)liftForKeyboardWithDuration:(NSTimeInterval)duration {
-    // 不能因为「此刻不在窗口里」就跳过：弹出应用内浏览器（服务条款链接）时键盘收起的通知会在登录页离屏时到达，
-    // 跳过的话回来后整列还停在上移的位置。离屏也能布局和量，直接算。
+    // 不能因为「此刻不在窗口里」就跳过：应用内浏览器弹出期间键盘收起的通知会在离屏时到达。离屏也能布局和量，直接算。
     if (!self.isViewLoaded) { return; }
-    [self.view layoutIfNeeded]; // 刚切到二步页时那一列的高度还没重排，先结算再量，否则整列会多上移一截
+    [self.view layoutIfNeeded]; // 刚切到子页时那一列的高度还没重排，先结算再量
     CGFloat keyboardTop = self.keyboardTop > 0 ? self.keyboardTop : CGRectGetMaxY(self.view.bounds);
     CGFloat lift = 0;
-    if (!self.twoStepView.hidden) {
-        CGFloat safeTop = self.view.safeAreaLayoutGuide.layoutFrame.origin.y;
-        CGFloat bottomAtRest = safeTop + kIMLoginStackTop + self.mainStack.bounds.size.height;
-        lift = IMLoginKeyboardLift(bottomAtRest, keyboardTop);
+    UIView *page = self.currentSubpage;
+    UIView *active = nil;
+    if (page) {
+        // 子页：以当前输入框与子页里的主按钮为准（整页可能比屏幕高，不能按整列下沿）。
+        for (UITextField *f in [self textFieldsIn:page]) { if (f.isFirstResponder) { active = f; break; } }
     } else {
-        UITextField *active = nil;
-        for (UITextField *f in @[self.userIDField, self.nicknameField, self.passwordField]) {
-            if (f.isFirstResponder && !f.hidden) { active = f; break; }
-        }
-        if (active) {
-            // 此刻量到的是已上移后的位置，加回当前上移量才是静止位置。
-            CGFloat currentLift = kIMLoginStackTop - self.stackTopConstraint.constant;
-            CGRect frame = [self.view convertRect:active.bounds fromView:active];
-            CGFloat bottomAtRest = CGRectGetMaxY(frame) + currentLift;
-            // 用户名 / 密码 / 昵称框填完就是点主按钮（登录 / 注册）：按钮也要露在键盘之上，不能只保证输入框可见。
-            UIButton *action = self.registerMode ? self.registerButton : self.loginButton;
-            CGRect buttonFrame = [self.view convertRect:action.bounds fromView:action];
-            bottomAtRest = MAX(bottomAtRest, CGRectGetMaxY(buttonFrame) + currentLift);
-            lift = IMLoginKeyboardLift(bottomAtRest, keyboardTop);
-            // 矮屏（横屏 / 大字号）放不下时，宁可让输入框下沿贴着键盘，也不能把输入框自己顶出安全区上沿。
-            CGFloat topAtRest = CGRectGetMinY(frame) + currentLift;
-            CGFloat safeTop = self.view.safeAreaLayoutGuide.layoutFrame.origin.y;
-            lift = MIN(lift, MAX(0, topAtRest - safeTop));
+        for (UITextField *f in @[self.userIDField, self.nicknameField, self.passwordField, self.smsFields.phoneField, self.smsFields.codeField]) {
+            if (f.isFirstResponder && !f.hidden && !f.superview.hidden) { active = f; break; }
         }
     }
-    CGFloat target = kIMLoginStackTop - lift;
-    // 二步页保持原有下限 4pt；登录页整列可以顶出屏幕上沿（Logo 被顶走没关系，输入框要看得见）。
-    self.stackTopConstraint.constant = self.twoStepView.hidden ? target : MAX(4, target);
+    if (active) {
+        // 此刻量到的是已上移后的位置，加回当前上移量才是静止位置。
+        CGFloat currentLift = kIMLoginStackTop - self.stackTopConstraint.constant;
+        CGRect frame = [self.view convertRect:active.bounds fromView:active];
+        CGFloat bottomAtRest = CGRectGetMaxY(frame) + currentLift;
+        UIButton *action = page ? [self primaryButtonOfSubpage:page] : [self currentActionButton];
+        if (action) {
+            CGRect buttonFrame = [self.view convertRect:action.bounds fromView:action];
+            bottomAtRest = MAX(bottomAtRest, CGRectGetMaxY(buttonFrame) + currentLift);
+        }
+        lift = IMLoginKeyboardLift(bottomAtRest, keyboardTop);
+        // 矮屏（横屏 / 大字号）放不下时，宁可让输入框下沿贴着键盘，也不能把输入框自己顶出安全区上沿。
+        CGFloat topAtRest = CGRectGetMinY(frame) + currentLift;
+        CGFloat safeTop = self.view.safeAreaLayoutGuide.layoutFrame.origin.y;
+        lift = MIN(lift, MAX(0, topAtRest - safeTop));
+    }
+    self.stackTopConstraint.constant = kIMLoginStackTop - lift;
     [UIView animateWithDuration:duration animations:^{ [self.view layoutIfNeeded]; }];
 }
+
+- (NSArray<UITextField *> *)textFieldsIn:(UIView *)view {
+    NSMutableArray *out = [NSMutableArray array];
+    for (UIView *sub in view.subviews) {
+        if ([sub isKindOfClass:UITextField.class]) { [out addObject:sub]; }
+        else { [out addObjectsFromArray:[self textFieldsIn:sub]]; }
+    }
+    return out;
+}
+
+- (nullable UIButton *)primaryButtonOfSubpage:(UIView *)page {
+    if (page == self.completeView) { return self.completeView.submitButton; }
+    if (page == self.resetView) { return self.resetView.submitButton; }
+    if (page == self.twoStepView) { return self.twoStepView.recoveryMode ? self.twoStepView.submitButton : nil; }
+    return nil;
+}
+
+#pragma mark - 杂项
 
 - (NSString *)trimmed:(NSString *)text {
     return [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] ?: @"";

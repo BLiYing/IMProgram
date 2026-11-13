@@ -7,6 +7,7 @@
 //    TEST_RUNNER_IM_SW=1 TEST_RUNNER_IM_SW_USER=swios TEST_RUNNER_IM_SW_PEER=smokepeer xcodebuild test … -only-testing:IMProgramUITests/IMSensitiveWordUITests
 
 #import <XCTest/XCTest.h>
+#import "IMUITestLogin.h"
 
 @interface IMSensitiveWordUITests : XCTestCase
 @property (nonatomic, strong) XCUIApplication *app;
@@ -43,6 +44,7 @@
 }
 
 - (void)loginIfNeeded {
+    IMUITestShowPasswordLogin(self.app, 5); // 免密按钮只在「密码登录」页签
     XCUIElement *devLogin = self.app.buttons[@"免密登录（开发）"];
     if (![devLogin waitForExistenceWithTimeout:5]) { return; }
     NSString *user = NSProcessInfo.processInfo.environment[@"IM_SW_USER"];

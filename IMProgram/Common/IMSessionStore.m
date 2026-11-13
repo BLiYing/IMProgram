@@ -6,6 +6,7 @@
 static NSString * const kIMSessionHostKey     = @"im_session_host";
 static NSString * const kIMSessionUserIDKey   = @"im_session_uid";      // 内部 ID（业务用）
 static NSString * const kIMSessionUsernameKey  = @"im_session_username"; // 公开句柄（登录用）
+static NSString * const kIMSessionUsernameFromServerKey = @"im_session_username_from_server"; // 见 usernameFromServer
 static NSString * const kIMSessionPasswordKey = @"im_session_pwd";     // **遗留**：仅供一次性迁移读取后删除
 static NSString * const kIMSessionSchemeKey   = @"im_session_scheme";  // http / https
 static NSString * const kIMSessionRefreshKey  = @"im_session_refresh"; // 续期凭据（替代明文密码）
@@ -25,6 +26,7 @@ static NSString * const kIMSessionMyProfileKey = @"im_session_my_profile"; // �
     [d setObject:(host ?: @"") forKey:kIMSessionHostKey];
     [d setObject:userID forKey:kIMSessionUserIDKey];
     [d setObject:(username ?: @"") forKey:kIMSessionUsernameKey];
+    [d setBool:(username.length > 0) forKey:kIMSessionUsernameFromServerKey];
     [d synchronize];
     IMPushSharedSaveServer([self scheme] ?: @"http", host); // 通知扩展补全头像 URL 用
 }
@@ -53,6 +55,10 @@ static NSString * const kIMSessionMyProfileKey = @"im_session_my_profile"; // �
 
 + (NSString *)username {
     return [NSUserDefaults.standardUserDefaults stringForKey:kIMSessionUsernameKey];
+}
+
++ (BOOL)usernameFromServer {
+    return [NSUserDefaults.standardUserDefaults boolForKey:kIMSessionUsernameFromServerKey];
 }
 
 + (NSString *)refreshToken {
@@ -103,6 +109,7 @@ static NSString * const kIMSessionMyProfileKey = @"im_session_my_profile"; // �
     [d removeObjectForKey:kIMSessionMyProfileKey];
     [d removeObjectForKey:kIMSessionUserIDKey];
     [d removeObjectForKey:kIMSessionUsernameKey];
+    [d removeObjectForKey:kIMSessionUsernameFromServerKey];
     [d removeObjectForKey:kIMSessionRefreshKey];
     [d removeObjectForKey:kIMSessionPasswordKey]; // 遗留明文密码：退登也一并擦掉
     // host / scheme 保留（下次登录默认回填方便；协议是"连哪台服务器"的属性，不随账号走）。

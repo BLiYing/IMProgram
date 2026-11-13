@@ -123,7 +123,10 @@ NSString *IMFriendlyMessageForCode(NSInteger code) {
         case 500101: return IMLocalized(@"err.500101"); // transcribe disabled
         case 500102: return IMLocalized(@"err.500102");                  // transcribe failed
         case 500103: return IMLocalized(@"err.500103");            // transcribe busy（队列满）
-        default: return nil;
+        default:
+            // 手机号与短信验证码 200040–200048（PROTOCOL §7.3）：文案键与码同名 err.2000xx。
+            if (code >= 200040 && code <= 200048) { return IMLocalized(([NSString stringWithFormat:@"err.%ld", (long)code])); }
+            return nil;
     }
 }
 
@@ -1022,28 +1025,6 @@ static NSArray<NSString *> *IMStringArrayFrom(id raw) {
                                 @"phone": phone ?: @"", @"bio": bio ?: @"" };
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/users/me" method:@"PUT" token:token body:bodyDict];
     [self runUserCardRequest:req fallback:IMLocalized(@"net.fallback.profile_save") completion:completion];
-}
-
-- (void)changePasswordWithToken:(NSString *)token
-                    oldPassword:(NSString *)oldPassword
-                    newPassword:(NSString *)newPassword
-                     completion:(void (^)(NSError *))completion {
-    NSDictionary *body = @{ @"old_password": oldPassword ?: @"", @"new_password": newPassword ?: @"" };
-    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/users/me/password" method:@"POST" token:token body:body];
-    __weak typeof(self) weakSelf = self;
-    // 改密成功时后端会**轮换本机的长效续期凭据**并在 data.refresh_token 里回一枚新的
-    // （见后端 handleChangePassword）。必须就地换掉本地那枚：旧的已在服务端作废，
-    // 不换的话下次冷启动续期被拒 → 用户刚改完密码就被登出。
-    // 用 runDataRequest 而不是 runOKRequest：后者丢掉 data（也保业务码，见 CODING_STYLE §5）。
-    [self runDataRequest:req fallback:IMLocalized(@"net.fallback.password_change") completion:^(NSDictionary *data, NSError *error) {
-        __strong typeof(weakSelf) self = weakSelf;
-        NSString *fresh = [data[@"refresh_token"] isKindOfClass:NSString.class] ? data[@"refresh_token"] : nil;
-        if (self && !error && fresh.length > 0) {
-            self.refreshToken = fresh;
-            [IMSessionStore saveRefreshToken:fresh];
-        }
-        if (completion) { completion(error); }
-    }];
 }
 
 - (void)sentFilesWithToken:(NSString *)token

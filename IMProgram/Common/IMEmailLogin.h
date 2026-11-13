@@ -45,7 +45,6 @@ FOUNDATION_EXPORT NSString *_Nullable IMEmailErrorMessage(NSInteger code, NSInte
 typedef NS_ENUM(NSInteger, IMEmailFormTarget) {
     IMEmailFormTargetNone,
     IMEmailFormTargetEmail,
-    IMEmailFormTargetPassword,
 };
 FOUNDATION_EXPORT IMEmailFormTarget IMEmailFormTargetForError(NSInteger code);
 

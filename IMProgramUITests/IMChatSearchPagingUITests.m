@@ -13,6 +13,7 @@
 //  可选：IM_SEARCH_GROUP（默认「20000人大群」）、IM_SEARCH_KEYWORD（默认「14:20」，积压灌库的标签里都带它）。
 
 #import <XCTest/XCTest.h>
+#import "IMUITestLogin.h"
 
 @interface IMChatSearchPagingUITests : XCTestCase
 @end
@@ -68,6 +69,7 @@
     [app launch];
 
     // ① 登录页（地址已预填隔离后端）→ 免密登录。已登录则跳过。
+    IMUITestShowPasswordLogin(app, 5); // 免密按钮只在「密码登录」页签
     XCUIElement *devLogin = app.buttons[@"免密登录（开发）"];
     if ([devLogin waitForExistenceWithTimeout:5]) {
         XCUIElement *user = [app.textFields matchingPredicate:

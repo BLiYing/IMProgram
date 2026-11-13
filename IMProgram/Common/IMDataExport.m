@@ -87,8 +87,8 @@ NSDate *IMExportCooldownUntil(IMExportJob *job, NSDate *localUntil, NSDate *now)
     return until;
 }
 
-BOOL IMExportCanStart(NSString *password, BOOL html, BOOL json, BOOL busy, BOOL cooling) {
-    return password.length > 0 && (html || json) && !busy && !cooling;
+BOOL IMExportCanStart(BOOL html, BOOL json, BOOL busy, BOOL cooling) {
+    return (html || json) && !busy && !cooling;
 }
 
 NSInteger IMExportCooldownHours(NSTimeInterval remainingSec) {

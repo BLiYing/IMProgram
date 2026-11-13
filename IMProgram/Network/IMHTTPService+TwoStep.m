@@ -3,6 +3,7 @@
 #import "IMHTTPService+TwoStep.h"
 #import "IMHTTPService+Private.h"
 #import "IMLocalization.h"
+#import "IMHTTPService+Phone.h"
 
 NSString * const IMErrorTwoStepTicketKey = @"im_twostep_ticket";
 NSString * const IMErrorTwoStepAttemptsLeftKey = @"im_twostep_attempts_left";
@@ -24,42 +25,21 @@ NSError *IMErrorByAttachingTwoStepInfo(NSError *error, NSDictionary *body) {
 
 @implementation IMHTTPService (TwoStep)
 
-/// 发请求并整包解信封：code != 0 → 带业务码的错误（附 ticket / attempts_left）；信封缺 code 当失败，不当成功。
-- (void)runTwoStepRequest:(nullable NSURLRequest *)req
-               completion:(void (^)(id _Nullable data, NSError *_Nullable error))completion {
-    if (!req) {
-        [self callOnMain:^{ completion(nil, [self errorWithMessage:IMLocalized(@"net.error.invalid_server")]); }];
-        return;
-    }
-    __weak typeof(self) weakSelf = self;
-    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
-        __strong typeof(weakSelf) self = weakSelf;
-        if (!self) { return; }
-        if (error) { [self callOnMain:^{ completion(nil, error); }]; return; }
-        BOOL hasCode = [body[@"code"] isKindOfClass:NSNumber.class] || [body[@"code"] isKindOfClass:NSString.class];
-        NSInteger code = hasCode ? [body[@"code"] integerValue] : -1;
-        if (code == 0) { [self callOnMain:^{ completion(body[@"data"], nil); }]; return; }
-        NSError *err = [self errorWithCode:code message:[self messageFrom:body fallback:IMLocalized(@"common.action_failed")]];
-        err = IMErrorByAttachingTwoStepInfo(err, body);
-        [self callOnMain:^{ completion(nil, err); }];
-    }];
-}
-
 - (void)fetchTwoStepStateWithToken:(NSString *)token
                         completion:(void (^)(IMTwoStepState *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/users/me/two-step" method:@"GET" token:token body:nil];
-    [self runTwoStepRequest:req completion:^(id data, NSError *error) {
+    [self runEnvelopeRequest:req completion:^(id data, NSError *error) {
         if (error) { completion(nil, error); return; }
         IMTwoStepState *state = [IMTwoStepState stateFromJSON:data];
         completion(state, state ? nil : [self errorWithMessage:IMLocalized(@"common.action_failed")]);
     }];
 }
 
-- (void)setupTwoStepWithToken:(NSString *)token password:(NSString *)password
+- (void)setupTwoStepWithToken:(NSString *)token proof:(IMIdentityProof *)proof
                    completion:(void (^)(IMTwoStepSetup *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/users/me/two-step/setup" method:@"POST" token:token
-                                                     body:@{ @"password": password ?: @"" }];
-    [self runTwoStepRequest:req completion:^(id data, NSError *error) {
+                                                     body:@{ @"proof": [proof JSONObject] }];
+    [self runEnvelopeRequest:req completion:^(id data, NSError *error) {
         if (error) { completion(nil, error); return; }
         NSDictionary *d = [data isKindOfClass:NSDictionary.class] ? data : nil;
         NSString *secret = [d[@"secret"] isKindOfClass:NSString.class] ? d[@"secret"] : nil;
@@ -78,7 +58,7 @@ NSError *IMErrorByAttachingTwoStepInfo(NSError *error, NSDictionary *body) {
 
 /// enable / recovery-codes 共用：成功体 {recovery_codes:[…]}，空列表当失败（用户拿不到码就不能算开启成功）。
 - (void)recoveryCodesFromRequest:(NSURLRequest *)req completion:(void (^)(NSArray<NSString *> *, NSError *))completion {
-    [self runTwoStepRequest:req completion:^(id data, NSError *error) {
+    [self runEnvelopeRequest:req completion:^(id data, NSError *error) {
         if (error) { completion(nil, error); return; }
         NSArray<NSString *> *codes = IMTwoStepParseRecoveryCodes([data isKindOfClass:NSDictionary.class] ? data[@"recovery_codes"] : nil);
         completion(codes.count > 0 ? codes : nil, codes.count > 0 ? nil : [self errorWithMessage:IMLocalized(@"common.action_failed")]);
@@ -92,17 +72,17 @@ NSError *IMErrorByAttachingTwoStepInfo(NSError *error, NSDictionary *body) {
     [self recoveryCodesFromRequest:req completion:completion];
 }
 
-- (void)disableTwoStepWithToken:(NSString *)token password:(NSString *)password code:(NSString *)code
+- (void)disableTwoStepWithToken:(NSString *)token proof:(IMIdentityProof *)proof code:(NSString *)code
                      completion:(void (^)(NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/users/me/two-step/disable" method:@"POST" token:token
-                                                     body:@{ @"password": password ?: @"", @"code": code ?: @"" }];
-    [self runTwoStepRequest:req completion:^(id data, NSError *error) { completion(error); }];
+                                                     body:@{ @"proof": [proof JSONObject], @"code": code ?: @"" }];
+    [self runEnvelopeRequest:req completion:^(id data, NSError *error) { completion(error); }];
 }
 
-- (void)regenerateRecoveryCodesWithToken:(NSString *)token password:(NSString *)password code:(NSString *)code
+- (void)regenerateRecoveryCodesWithToken:(NSString *)token proof:(IMIdentityProof *)proof code:(NSString *)code
                               completion:(void (^)(NSArray<NSString *> *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/users/me/two-step/recovery-codes" method:@"POST" token:token
-                                                     body:@{ @"password": password ?: @"", @"code": code ?: @"" }];
+                                                     body:@{ @"proof": [proof JSONObject], @"code": code ?: @"" }];
     [self recoveryCodesFromRequest:req completion:completion];
 }
 
@@ -110,7 +90,7 @@ NSError *IMErrorByAttachingTwoStepInfo(NSError *error, NSDictionary *body) {
                     completion:(void (^)(NSString *, NSString *, NSError *))completion {
     NSMutableURLRequest *req = [self postRequestToPath:@"/api/v1/login/two-step"
                                                   body:@{ @"ticket": ticket ?: @"", @"code": code ?: @"" }];
-    [self runTwoStepRequest:req completion:^(id data, NSError *error) {
+    [self runEnvelopeRequest:req completion:^(id data, NSError *error) {
         if (error) { completion(nil, nil, error); return; }
         NSDictionary *d = [data isKindOfClass:NSDictionary.class] ? data : nil;
         NSString *token = [d[@"token"] isKindOfClass:NSString.class] ? d[@"token"] : nil;

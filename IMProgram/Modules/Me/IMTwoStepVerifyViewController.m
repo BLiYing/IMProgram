@@ -7,14 +7,13 @@
 #import "IMHTTPService+TwoStep.h"
 #import "IMLocalization.h"
 #import "IMLog.h"
+#import "IMIdentityProofSheet.h"
 
 @interface IMTwoStepVerifyViewController () <UITextFieldDelegate>
 @property (nonatomic, assign) IMTwoStepVerifyMode mode;
 @property (nonatomic, assign) BOOL useRecovery;
-@property (nonatomic, strong) UITextField *passwordField;
 @property (nonatomic, strong) UITextField *codeField;
 @property (nonatomic, strong) UITextField *recoveryField;
-@property (nonatomic, strong) UIView *passwordRow;
 @property (nonatomic, strong) UIView *codeRow;
 @property (nonatomic, strong) UIView *recoveryRow;
 @end
@@ -37,18 +36,21 @@
 }
 
 - (BOOL)primaryEnabled {
-    return IMTwoStepCanSubmitVerify(self.passwordField.text, [self currentCodeText], self.useRecovery);
+    return IMTwoStepCanSubmitVerify([self currentCodeText], self.useRecovery); // 身份确认在弹层里
+}
+
+- (IMProofSession *)proofSession {
+    if (!_proofSession) { _proofSession = [[IMProofSession alloc] initWithHost:self.host userID:self.userID]; }
+    return _proofSession;
 }
 
 - (void)viewDidLoad {
-    self.passwordField = IMTwoStepMakePasswordField(IMLocalized(@"twostep.field.password"));
     self.codeField = IMTwoStepMakeCodeField(IMLocalized(@"twostep.field.code"));
     self.recoveryField = IMTwoStepMakeRecoveryField(IMLocalized(@"twostep.field.recovery"));
-    for (UITextField *f in @[self.passwordField, self.codeField, self.recoveryField]) {
+    for (UITextField *f in @[self.codeField, self.recoveryField]) {
         f.delegate = self;
         [f addTarget:self action:@selector(fieldChanged:) forControlEvents:UIControlEventEditingChanged];
     }
-    self.passwordRow = IMTwoStepFieldRow(self.passwordField, 44);
     self.codeRow = IMTwoStepFieldRow(self.codeField, 56);
     self.recoveryRow = IMTwoStepFieldRow(self.recoveryField, 44);
     [super viewDidLoad];
@@ -56,8 +58,8 @@
 
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
-    if (!self.passwordField.isFirstResponder && !self.codeField.isFirstResponder && !self.recoveryField.isFirstResponder) {
-        [self.passwordField becomeFirstResponder];
+    if (!self.codeField.isFirstResponder && !self.recoveryField.isFirstResponder && !self.presentedViewController) {
+        [(self.useRecovery ? self.recoveryField : self.codeField) becomeFirstResponder];
     }
 }
 
@@ -66,8 +68,7 @@
 - (NSArray<IMTwoStepSection *> *)buildSections {
     __weak typeof(self) ws = self;
     UIView *codeView = self.useRecovery ? self.recoveryRow : self.codeRow;
-    IMTwoStepSection *fields = [IMTwoStepSection sectionWithRows:@[
-        [IMTwoStepRow rowWithView:self.passwordRow onTap:nil], [IMTwoStepRow rowWithView:codeView onTap:nil]] footer:nil];
+    IMTwoStepSection *fields = [IMTwoStepSection sectionWithRows:@[[IMTwoStepRow rowWithView:codeView onTap:nil]] footer:nil];
     UIView *toggle = IMTwoStepCenteredTextRow(IMLocalized(self.useRecovery ? @"twostep.use_code" : @"twostep.use_recovery"),
                                               UIColor.systemBlueColor);
     toggle.accessibilityIdentifier = @"twostep.toggle_method";
@@ -105,9 +106,7 @@
 }
 
 - (BOOL)textFieldShouldReturn:(UITextField *)tf {
-    if (tf == self.passwordField) {
-        [(self.useRecovery ? self.recoveryField : self.codeField) becomeFirstResponder];
-    } else if (self.primaryButton.enabled) {
+    if (self.primaryButton.enabled) {
         [self primaryButtonTapped];
     }
     return NO;
@@ -133,29 +132,33 @@
     [self presentViewController:ac animated:YES completion:nil];
 }
 
+/// 确认身份弹层（密码或短信验证码）→ disable / recovery-codes {proof, code}。
+/// 证明本身的错留在弹层；动态码错（200021）等收起弹层回本页红字——服务端操作成功前不会用掉短信验证码，改对动态码可直接重交。
 - (void)submit {
-    NSString *password = self.passwordField.text ?: @"";
     NSString *code = self.useRecovery ? IMTwoStepNormalizeRecovery(self.recoveryField.text) : IMTwoStepSanitizeCode(self.codeField.text);
     BOOL usedRecovery = self.useRecovery;
+    BOOL disable = [self isDisable];
     [self showError:nil];
-    self.busy = YES;
     __weak typeof(self) ws = self;
-    [self withToken:^(NSString *token) {
-        if ([ws isDisable]) {
-            [IMHTTPService.sharedService disableTwoStepWithToken:token password:password code:code completion:^(NSError *error) {
-                [ws handleDisableError:error];
-            }];
-        } else {
-            [IMHTTPService.sharedService regenerateRecoveryCodesWithToken:token password:password code:code
-                                                               completion:^(NSArray<NSString *> *codes, NSError *error) {
-                [ws handleRegenerated:codes usedRecovery:usedRecovery error:error];
-            }];
+    __block NSArray<NSString *> *codes = nil;
+    [self.proofSession presentFrom:self request:^(NSString *token, IMIdentityProof *proof, void (^finish)(NSError *)) {
+        if (disable) {
+            [IMHTTPService.sharedService disableTwoStepWithToken:token proof:proof code:code completion:^(NSError *error) { finish(error); }];
+            return;
         }
+        [IMHTTPService.sharedService regenerateRecoveryCodesWithToken:token proof:proof code:code
+                                                           completion:^(NSArray<NSString *> *c, NSError *error) {
+            codes = c;
+            finish(error ?: (c.count > 0 ? nil : [NSError errorWithDomain:@"IMTwoStep" code:-1 userInfo:nil]));
+        }];
+    } completion:^(BOOL succeeded, NSError *pageError) {
+        if (!succeeded && !pageError) { return; } // 取消
+        if (disable) { [ws handleDisableError:pageError]; }
+        else { [ws handleRegenerated:succeeded ? codes : nil usedRecovery:usedRecovery error:pageError]; }
     }];
 }
 
 - (void)handleDisableError:(nullable NSError *)error {
-    self.busy = NO;
     if (!error) {
         IMLog(@"twostep_disabled");
         [self popToFlowRootWithToast:IMLocalized(@"twostep.toast.disabled")];
@@ -165,7 +168,6 @@
 }
 
 - (void)handleRegenerated:(nullable NSArray<NSString *> *)codes usedRecovery:(BOOL)usedRecovery error:(nullable NSError *)error {
-    self.busy = NO;
     if (codes.count == 0) { [self showFailure:error]; return; }
     if (!usedRecovery) { IMTwoStepMarkEnabledNow(); } // 这个 30 秒窗口的动态码已被服务端记账，再用会被当重放
     IMLog(@"twostep_recovery_regenerated count=%lu", (unsigned long)codes.count);
@@ -183,8 +185,7 @@
     NSString *msg = IMTwoStepErrorMessage(error.code, IMTwoStepErrorContextManage, -1,
                                           IMTwoStepRecentlyEnabled([NSDate date]) && !self.useRecovery, error.localizedDescription);
     [self showError:msg];
-    if (error.code == 200002) { [self markErrorView:self.passwordRow]; }
-    else if (error.code == IMErrCodeTwoStepCodeInvalid) { [self markErrorView:self.useRecovery ? self.recoveryRow : self.codeRow]; }
+    if (error.code == IMErrCodeTwoStepCodeInvalid) { [self markErrorView:self.useRecovery ? self.recoveryRow : self.codeRow]; }
 }
 
 @end

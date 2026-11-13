@@ -1,7 +1,8 @@
 //  IMTwoStepViewController.m
 
 #import "IMTwoStepViewController.h"
-#import "IMTwoStepPasswordViewController.h"
+#import "IMTwoStepBindViewController.h"
+#import "IMIdentityProofSheet.h"
 #import "IMTwoStepVerifyViewController.h"
 #import "IMTwoStepViews.h"
 #import "IMTwoStep.h"
@@ -14,6 +15,8 @@
 @property (nonatomic, assign) BOOL loadFailed;
 @property (nonatomic, assign) BOOL loading;
 @property (nonatomic, strong) UIActivityIndicatorView *loadingSpinner;
+/// 确认身份弹层会话（开启 / 关闭 / 重新生成共用：没用掉的验证码、倒计时跟着这一组页面走）。
+@property (nonatomic, strong) IMProofSession *proofSession;
 @end
 
 @implementation IMTwoStepViewController
@@ -23,6 +26,7 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
+    self.proofSession = [[IMProofSession alloc] initWithHost:self.host userID:self.userID];
     self.loadingSpinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
     self.tableView.backgroundView = self.loadingSpinner;
 }
@@ -84,7 +88,33 @@
 
 - (void)primaryTapped {
     if (self.loadFailed) { [self loadState]; return; }
-    [self.navigationController pushViewController:[[IMTwoStepPasswordViewController alloc] initWithHost:self.host userID:self.userID] animated:YES];
+    [self startSetup];
+}
+
+/// 开启：先确认身份（密码或短信验证码，PHONE_AUTH_DESIGN §7）→ setup → 扫码绑定页。原来的「验证密码」页由弹层取代。
+- (void)startSetup {
+    __weak typeof(self) ws = self;
+    __block IMTwoStepSetup *result = nil;
+    [self.proofSession presentFrom:self request:^(NSString *token, IMIdentityProof *proof, void (^finish)(NSError *)) {
+        [IMHTTPService.sharedService setupTwoStepWithToken:token proof:proof completion:^(IMTwoStepSetup *setup, NSError *error) {
+            result = setup;
+            finish(error);
+        }];
+    } completion:^(BOOL succeeded, NSError *pageError) {
+        [ws handleSetup:succeeded ? result : nil error:pageError];
+    }];
+}
+
+- (void)handleSetup:(nullable IMTwoStepSetup *)setup error:(nullable NSError *)error {
+    if (setup) {
+        IMTwoStepBindViewController *bind = [[IMTwoStepBindViewController alloc] initWithHost:self.host userID:self.userID setup:setup];
+        [self.navigationController pushViewController:bind animated:YES];
+        return;
+    }
+    if (!error) { return; } // 取消
+    IMLogWarnWithTag(IMLogTagUI, @"twostep_setup_failed code=%ld", (long)error.code);
+    [self showError:IMTwoStepErrorMessage(error.code, IMTwoStepErrorContextPassword, -1, NO, error.localizedDescription)];
+    if (error.code == IMErrCodeTwoStepAlreadyEnabled) { [self loadState]; } // 别的设备刚开启：重新取状态
 }
 
 - (NSArray<IMTwoStepSection *> *)buildSections {
@@ -107,8 +137,9 @@
 }
 
 - (void)openVerify:(IMTwoStepVerifyMode)mode {
-    [self.navigationController pushViewController:[[IMTwoStepVerifyViewController alloc] initWithHost:self.host userID:self.userID mode:mode]
-                                         animated:YES];
+    IMTwoStepVerifyViewController *vc = [[IMTwoStepVerifyViewController alloc] initWithHost:self.host userID:self.userID mode:mode];
+    vc.proofSession = self.proofSession;
+    [self.navigationController pushViewController:vc animated:YES];
 }
 
 @end

@@ -90,9 +90,11 @@ static IMSettingsSearchEntry *IMEntryAliased(NSArray<NSString *> *aliases, NSStr
                 @[@"notifications", @"notifications/private", @"notifications/private/sound"]),
         IMEntryAliased(soundAliases, @"notifications.group.sound", @[notif, notifGroup, sound], @"speaker.wave.2.fill", red,
                 @[@"notifications", @"notifications/group", @"notifications/group/sound"]),
-        // —— 隐私与安全：已屏蔽的用户 / 修改密码 / 两步验证 / 邮箱登录（通行密钥等占位行不登记）——
+        // —— 隐私与安全：已屏蔽的用户 / 登录密码 / 两步验证 / 邮箱登录（通行密钥等占位行不登记）——
         IMEntry(@"privacy.blocked", @[privacy, IMLocalized(@"blocked.title")], @"nosign", red, @[@"privacy", @"privacy/blocked"]),
-        IMEntry(@"privacy.changePassword", @[privacy, IMLocalized(@"settings.change_password")], @"key.fill", blue,
+        // 行名改成「登录密码」（PHONE_AUTH_DESIGN §6）；原名「修改密码 / 设置密码」留作别名，搜旧叫法仍能找到。
+        IMEntryAliased(@[IMLocalized(@"settings.change_password"), IMLocalized(@"security.password.set_title")],
+                @"privacy.changePassword", @[privacy, IMLocalized(@"security.password")], @"key.fill", blue,
                 @[@"privacy", @"privacy/changePassword"]),
         // 两步验证（账号保护组；行图标沿用占位行的灰底 lock.shield.fill）
         IMEntry(@"privacy.twoStep", @[privacy, IMLocalized(@"ps.row.two_factor")], @"lock.shield.fill", UIColor.systemGrayColor,

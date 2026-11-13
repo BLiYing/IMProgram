@@ -8,10 +8,12 @@
 #import "IMHTTPService+Email.h"
 #import "IMLocalization.h"
 #import "IMLog.h"
+#import "IMIdentityProofSheet.h"
 
 @interface IMEmailCodeViewController () <UITextFieldDelegate>
 @property (nonatomic, copy) NSString *email;
-@property (nonatomic, copy) NSString *password;
+@property (nonatomic, strong, nullable) IMIdentityProof *proof; ///< 只留密码（可复用）；验证码已用掉，重发时重新弹层
+@property (nonatomic, strong) IMProofSession *proofSession;
 @property (nonatomic, strong, readwrite) UITextField *codeField;
 @property (nonatomic, strong) UIView *codeRow;
 @property (nonatomic, strong, readwrite) UILabel *resendLabel;
@@ -25,9 +27,15 @@
 @implementation IMEmailCodeViewController
 
 - (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID
-                       email:(NSString *)email password:(NSString *)password resendDeadline:(NSDate *)deadline {
+                       email:(NSString *)email proof:(IMIdentityProof *)proof
+                proofSession:(IMProofSession *)proofSession resendDeadline:(NSDate *)deadline {
     self = [super initWithHost:host userID:userID];
-    if (self) { _email = [email copy]; _password = [password copy]; _resendDeadline = deadline; }
+    if (self) {
+        _email = [email copy];
+        _proof = proof.isSMS ? nil : proof;
+        _proofSession = proofSession ?: [[IMProofSession alloc] initWithHost:host userID:userID];
+        _resendDeadline = deadline;
+    }
     return self;
 }
 
@@ -69,7 +77,7 @@
 }
 
 /// 密码只为「重新发送」而留在本页内存；流程结束（绑定成功 / 离开本页）立即丢弃。
-- (void)wipePassword { self.password = @""; }
+- (void)wipePassword { self.proof = nil; }
 
 - (void)dealloc { [self stopCountdown]; }
 
@@ -170,16 +178,35 @@
     self.resending = YES;
     [self showError:nil];
     [self updateResendLabel];
-    NSString *email = self.email, *password = self.password;
+    NSString *email = self.email;
     __weak typeof(self) ws = self;
-    [self withToken:^(NSString *token) {
-        [IMHTTPService.sharedService sendEmailCodeWithToken:token email:email password:password
-                                                 completion:^(IMEmailSendResult *result, NSError *error) {
-            [ws handleResend:result error:error];
+    if (self.proof) { // 交过密码：直接复用
+        IMIdentityProof *proof = self.proof;
+        [self withToken:^(NSString *token) {
+            [IMHTTPService.sharedService sendEmailCodeWithToken:token email:email proof:proof
+                                                     completion:^(IMEmailSendResult *result, NSError *error) {
+                [ws handleResend:result error:error];
+            }];
+        } failure:^(NSError *error) {
+            [ws handleResend:nil error:error];
         }];
-    } failure:^(NSError *error) {
-        [ws handleResend:nil error:error];
+        return;
+    }
+    // 交的是短信验证码（已被上次发信用掉）：重新确认身份。证明本身的错留在弹层；其余回到本页红字。
+    __block IMEmailSendResult *sent = nil;
+    BOOL shown = [self.proofSession presentFrom:self request:^(NSString *token, IMIdentityProof *proof, void (^finish)(NSError *)) {
+        [IMHTTPService.sharedService sendEmailCodeWithToken:token email:email proof:proof
+                                                 completion:^(IMEmailSendResult *result, NSError *error) {
+            sent = result;
+            if (result && !proof.isSMS) { ws.proof = proof; }
+            finish(error);
+        }];
+    } completion:^(BOOL succeeded, NSError *pageError) {
+        if (succeeded) { [ws handleResend:sent error:nil]; }
+        else if (pageError) { [ws handleResend:nil error:pageError]; }
+        else { ws.resending = NO; [ws updateResendLabel]; } // 取消
     }];
+    if (!shown) { self.resending = NO; [self updateResendLabel]; }
 }
 
 - (void)handleResend:(nullable IMEmailSendResult *)result error:(nullable NSError *)error {

@@ -3,6 +3,7 @@
 #import "IMHTTPService+Account.h"
 #import "IMHTTPService+Private.h"
 #import "IMLocalization.h"
+#import "IMHTTPService+Phone.h"
 
 NSInteger const IMErrCodeAccountPendingDeletion = 200005;
 NSInteger const IMErrCodeNoPermission = 100103;
@@ -68,42 +69,18 @@ NSError *IMErrorByAttachingAccountInfo(NSError *error, NSDictionary *body) {
 
 @implementation IMHTTPService (Account)
 
-/// 发请求，业务码非 0 时保留码并附 owned_groups / delete_at。
-- (void)runAccountRequest:(nullable NSURLRequest *)req
-                 fallback:(NSString *)fallback
-               completion:(void (^)(NSError *_Nullable))completion {
-    if (!req) {
-        [self callOnMain:^{ completion([self errorWithMessage:IMLocalized(@"net.error.invalid_server")]); }];
-        return;
-    }
-    __weak typeof(self) weakSelf = self;
-    [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
-        __strong typeof(weakSelf) self = weakSelf;
-        if (!self) { return; }
-        NSError *result = error;
-        // 信封缺 code（网关/代理回了别的 JSON）不能当成功：注销成功会触发本机清库 + 登出，必须有明确的 code=0。
-        BOOL hasCode = [body[@"code"] isKindOfClass:NSNumber.class] || [body[@"code"] isKindOfClass:NSString.class];
-        NSInteger code = hasCode ? [body[@"code"] integerValue] : -1;
-        if (!error && code != 0) {
-            result = IMErrorByAttachingAccountInfo(
-                [self errorWithCode:code message:[self messageFrom:body fallback:fallback]], body);
-        }
-        [self callOnMain:^{ completion(result); }];
-    }];
-}
-
-- (void)deleteAccountWithToken:(NSString *)token password:(NSString *)password
+- (void)deleteAccountWithToken:(NSString *)token proof:(IMIdentityProof *)proof
                     completion:(void (^)(NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/account/delete" method:@"POST" token:token
-                                                     body:@{ @"password": password ?: @"" }];
-    [self runAccountRequest:req fallback:IMLocalized(@"common.action_failed") completion:completion];
+                                                     body:@{ @"proof": [proof JSONObject] }];
+    [self runEnvelopeRequest:req completion:^(id data, NSError *error) { completion(error); }];
 }
 
 - (void)restoreAccountWithUsername:(NSString *)username password:(NSString *)password
                         completion:(void (^)(NSError *))completion {
     NSMutableURLRequest *req = [self postRequestToPath:@"/api/v1/account/restore"
                                                   body:@{ @"username": username ?: @"", @"password": password ?: @"" }];
-    [self runAccountRequest:req fallback:IMLocalized(@"common.action_failed") completion:completion];
+    [self runEnvelopeRequest:req completion:^(id data, NSError *error) { completion(error); }];
 }
 
 @end

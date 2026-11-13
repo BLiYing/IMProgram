@@ -12,8 +12,7 @@
 #import "IMSessionStore.h"
 #import "IMSocketManager.h" // IMSocketDidRevokeSessionNotification（续期被拒时复用"被踢下线"通路）
 #import "IMUserCard.h"
-#import "IMHTTPService+Account.h" // 冷静期登录：错误附 delete_at
-#import "IMHTTPService+TwoStep.h" // 两步验证：错误附 ticket / attempts_left
+#import "IMPhoneAuth.h" // IMUsernameAfterLoginResponse
 
 BOOL IMShouldDropRefreshCredential(BOOL usingRefresh, NSInteger code) {
     return usingRefresh && IMIsAuthErrorCode(code);
@@ -55,14 +54,12 @@ BOOL IMShouldDropRefreshCredential(BOOL usingRefresh, NSInteger code) {
     // userID 参数只作内存缓存键 / 在途合并键。self.username 为空时回退传入值，兼容早期调用路径。
     NSString *loginName = self.username.length > 0 ? self.username : userID;
     BOOL usingRefresh = (!forceCredentialLogin && self.refreshToken.length > 0);
+    NSMutableDictionary *loginBody = [[self deviceFields] mutableCopy];
+    loginBody[@"username"] = loginName ?: @"";
+    loginBody[@"password"] = self.password ?: @"";
     NSURLRequest *req = usingRefresh
         ? [self postRequestToPath:@"/api/v1/token/refresh" body:@{ @"refresh_token": self.refreshToken }]
-        : [self postRequestToPath:@"/api/v1/login"
-                             body:@{ @"username": loginName ?: @"", @"password": self.password ?: @"",
-                                     @"device_id": IMDeviceIdentity.deviceID,
-                                     @"platform": IMDeviceIdentity.platform,
-                                     @"device_name": IMDeviceIdentity.deviceName,
-                                     @"app_version": IMDeviceIdentity.appVersion }];
+        : [self postRequestToPath:@"/api/v1/login" body:loginBody];
     if (!req) {
         [self finishLogin:owner userID:userID token:nil error:[self errorWithMessage:IMLocalized(@"net.error.invalid_server")] soloCompletion:completion];
         return;
@@ -91,7 +88,7 @@ BOOL IMShouldDropRefreshCredential(BOOL usingRefresh, NSInteger code) {
             // 冷静期账号（AccountPendingDeletion）带回 delete_at，登录页据此弹「恢复账号」。
             // 两步验证（200020）带回 ticket：HTTP 400 但响应体是标准信封，data 必须随错误一起交给登录页。
             [self finishLogin:owner userID:userID token:nil
-                        error:IMErrorByAttachingTwoStepInfo(IMErrorByAttachingAccountInfo(loginErr, body), body)
+                        error:IMErrorByAttachingEnvelopeInfo(loginErr, body)
                soloCompletion:completion];
             return;
         }
@@ -111,6 +108,12 @@ BOOL IMShouldDropRefreshCredential(BOOL usingRefresh, NSInteger code) {
     // 若拿它当键，随后各处以内部 ID 调用会全部 miss 缓存、每次都真发一次 /login。
     self.tokenUserID = self.lastLoginUserID;
     self.tokenFetchedAt = CFAbsoluteTimeGetCurrent();
+    // 登录成功响应带服务端的公开 username（PROTOCOL §7.3）：本机只认它。用户输入的登录名可能是手机号 / 邮箱，
+    // 绝不能当用户名存（会被当作重登凭据、展示、甚至随转发溯源发给别人）。没带时（/token/refresh、老服务端）：
+    // 本机存的是服务端发过的值就原样保留（纯数字老用户名也是服务端发的），否则只保留形态可信的原值。
+    NSString *serverUsername = [data[@"username"] isKindOfClass:NSString.class] ? data[@"username"] : nil;
+    self.username = IMUsernameAfterLoginResponse(self.username, serverUsername,
+                                                 IMSessionStore.username, IMSessionStore.usernameFromServer);
     // 收下续期凭据（只有 /login 会下发；续期接口刻意不轮换，见后端 handleTokenRefresh 注释）。
     // **在这里落盘而不是交给登录页**：触发登录的入口不止一个（socket 换 token、冷启动静默重登），
     // 交给各调用方保存必然漏一处。拿到它就把明文密码从内存与磁盘一起清掉——这是第 5 步的目的。
@@ -122,6 +125,11 @@ BOOL IMShouldDropRefreshCredential(BOOL usingRefresh, NSInteger code) {
         [IMSessionStore clearLegacyPassword];
     }
     [self warmUpMyNicknameWithToken:token];
+}
+
+- (NSDictionary<NSString *, NSString *> *)deviceFields {
+    return @{ @"device_id": IMDeviceIdentity.deviceID, @"platform": IMDeviceIdentity.platform,
+              @"device_name": IMDeviceIdentity.deviceName, @"app_version": IMDeviceIdentity.appVersion };
 }
 
 /// 收束一次登录：owner=YES 时把共享队列里排队的 completion 全部 fan-out（并清空在途状态）；

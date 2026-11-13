@@ -19,6 +19,7 @@
 //  否则首次通话会弹系统麦克风权限对话框，XCUITest 不处理系统弹窗会卡死。
 
 #import <XCTest/XCTest.h>
+#import "IMUITestLogin.h"
 
 @interface IMLanguageRtcUITests : XCTestCase
 @end
@@ -158,6 +159,7 @@
     XCUIApplication *app = [XCUIApplication new];
     [app launch];
 
+    IMUITestShowPasswordLogin(app, 5); // 免密按钮只在「密码登录」页签
     XCUIElement *devLogin = app.buttons[@"免密登录（开发）"];
     if ([devLogin waitForExistenceWithTimeout:5]) {
         XCUIElement *userField = [app.textFields matchingPredicate:

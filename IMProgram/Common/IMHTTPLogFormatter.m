@@ -2,6 +2,7 @@
 
 #import "IMHTTPLogFormatter.h"
 #import "IMEmailLogin.h"
+#import "IMPhoneAuth.h" // IMLooksLikePhoneIdentifier
 
 static NSUInteger const kIMHTTPLogMaxCharacters = 16 * 1024;
 /// 单个字符串值的截断上限。整体 16 KB 是"一条日志最多多长"，这个是"一个字段值最多多长"。
@@ -30,7 +31,10 @@ static BOOL IMHTTPKeyIsAlwaysSensitive(NSString *key) {
     NSString *normalized = [[key lowercaseString]
                             stringByReplacingOccurrencesOfString:@"_" withString:@""];
     normalized = [normalized stringByReplacingOccurrencesOfString:@"-" withString:@""];
-    return [keys containsObject:normalized];
+    if ([keys containsObject:normalized]) { return YES; }
+    // old_password / new_password、register_ticket / restore_ticket、短信验证码 sms_code（PROTOCOL §7.3）：按后缀 / 名字一并遮。
+    return [normalized hasSuffix:@"password"] || [normalized hasSuffix:@"ticket"] || [normalized hasSuffix:@"token"] ||
+           [normalized isEqualToString:@"smscode"];
 }
 
 /// 两步验证的 `code`（动态码 / 恢复码）是**字符串**；信封里的业务码 `code` 是数字，必须原样保留，否则日志没法排障。
@@ -43,6 +47,13 @@ static BOOL IMHTTPIsEmailValue(NSString *key, id value) {
     if (![value isKindOfClass:NSString.class]) { return NO; }
     NSString *k = key.lowercaseString;
     return [k isEqualToString:@"email"] || ([k isEqualToString:@"username"] && [(NSString *)value containsString:@"@"]);
+}
+
+/// 密码登录的登录名可以是手机号（PROTOCOL §7.3：`+` 开头或 5–15 位纯数字）→ 整体遮掉，日志不落完整号码。
+static BOOL IMHTTPIsPhoneLikeUsername(NSString *key, id value) {
+    if (![value isKindOfClass:NSString.class] || ![key.lowercaseString isEqualToString:@"username"]) { return NO; }
+    // 先去掉空格 / 短横线再判：用户输入「136 3333-0001」时服务端虽不认，日志也不能留完整号码。
+    return IMLooksLikePhoneIdentifier(IMPhoneNormalize((NSString *)value));
 }
 
 static BOOL IMHTTPKeyContainsBusinessContent(NSString *key) {
@@ -96,7 +107,7 @@ id IMHTTPSanitizedJSONObject(id object, BOOL includeBusinessContent) {
         [(NSDictionary *)object enumerateKeysAndObjectsUsingBlock:^(id key, id value, BOOL *stop) {
             NSString *stringKey = [key isKindOfClass:NSString.class] ? key : [key description];
             if (IMHTTPKeyIsAlwaysSensitive(stringKey) || IMHTTPIsVerificationCode(stringKey, value) ||
-                (!includeBusinessContent && IMHTTPKeyContainsBusinessContent(stringKey))) {
+                IMHTTPIsPhoneLikeUsername(stringKey, value) || (!includeBusinessContent && IMHTTPKeyContainsBusinessContent(stringKey))) {
                 result[stringKey] = @"***";
             } else if (IMHTTPIsEmailValue(stringKey, value)) {
                 result[stringKey] = IMEmailMasked(value);

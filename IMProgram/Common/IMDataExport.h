@@ -66,8 +66,8 @@ FOUNDATION_EXPORT NSTimeInterval const IMExportCooldownSec;
 /// 都没有（或已到点）返回 nil。failed / canceled / 无 finished_at 不推冷却。重启 App 后靠它从 latest 任务还原冷却态。
 FOUNDATION_EXPORT NSDate *_Nullable IMExportCooldownUntil(IMExportJob *_Nullable job, NSDate *_Nullable localUntil, NSDate *now);
 
-/// 「开始导出」按钮可用：密码非空 + 至少勾一种格式 + 不在请求中 + 不在冷却。
-FOUNDATION_EXPORT BOOL IMExportCanStart(NSString *_Nullable password, BOOL html, BOOL json, BOOL busy, BOOL cooling);
+/// 「开始导出」按钮可用：至少勾一种格式（身份确认改在弹层里） + 不在请求中 + 不在冷却。
+FOUNDATION_EXPORT BOOL IMExportCanStart(BOOL html, BOOL json, BOOL busy, BOOL cooling);
 
 /// 冷却剩余秒数 → 展示小时数：向上取整，最少 1（不会显示「0 小时后」）。
 FOUNDATION_EXPORT NSInteger IMExportCooldownHours(NSTimeInterval remainingSec);

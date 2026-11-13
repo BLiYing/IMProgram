@@ -21,6 +21,8 @@
 #import "IMHTTPService+AutoDelete.h"
 #import "IMPrivacyVisibility.h"
 #import "IMPrivacyVisibilityViewController.h"
+#import "IMPhoneBindViewController.h"
+#import "IMHTTPService+Phone.h"
 
 #pragma mark - 行模型
 
@@ -139,6 +141,11 @@
 @property (nonatomic, strong) IMPSRow *blockedRow; ///< 引用留着，count 拉回后就地更新 rightValue
 @property (nonatomic, strong) IMPSRow *emailRow; ///< 邮箱登录（活行）：进页 / 子页返回时 GET 状态，右值 = 邮箱 / 未绑定
 @property (nonatomic, strong) IMPSRow *twoStepRow; ///< 两步验证（活行）：进页 / 子页返回时 GET 状态，加载前右值留空
+@property (nonatomic, strong) IMPSRow *passwordRow;   ///< 登录密码（活行）：右值 已设置 / 未设置（PHONE_AUTH_DESIGN §6）
+@property (nonatomic, strong) IMPSRow *loginPhoneRow; ///< 登录手机号（活行）：右值 打码号码 / 未绑定；短信不可用且未绑定时不显示
+@property (nonatomic, strong) IMPSGroup *protectGroup;
+@property (nonatomic, copy) NSArray<IMPSRow *> *protectRowsBase; ///< 账号保护组除「登录手机号」外的行
+@property (nonatomic, strong, nullable) IMSecurityState *security; ///< GET /users/me/security；nil = 还没取到
 @property (nonatomic, strong) IMPSRow *autoDeleteRow; ///< 自动删除消息（账号默认档位）活行：GET /users/me/privacy 回来后就地更新右值
 @property (nonatomic, assign) int64_t autoDeleteDefaultSec;
 @property (nonatomic, strong) IMPSRow *lastSeenRow; ///< 谁能看到 ▸ 上次上线（活行）
@@ -185,6 +192,7 @@
     [self refreshPrivacySettings];
     [self refreshTwoStepStatus];
     [self refreshEmailStatus];
+    [self refreshSecurityState];
 }
 
 #pragma mark - 数据
@@ -199,10 +207,12 @@
     blocked.handler = ^{ [ws openBlocked]; };
     self.blockedRow = blocked;
 
+    // 「登录密码」= 原「修改密码」行改名，位置与图标不变（PHONE_AUTH_DESIGN §6）。
     IMPSRow *changePwd = [IMPSRow new];
-    changePwd.rowId = @"changePwd"; changePwd.title = IMLocalized(@"settings.change_password"); changePwd.systemImage = @"key.fill";
+    changePwd.rowId = @"changePwd"; changePwd.title = IMLocalized(@"security.password"); changePwd.systemImage = @"key.fill";
     changePwd.iconBgColor = UIColor.systemBlueColor;
     changePwd.handler = ^{ [ws openChangePassword]; };
+    self.passwordRow = changePwd;
 
     IMPSGroup *groupA = [IMPSGroup new];
     groupA.footer = IMLocalized(@"ps.group_a_footer");
@@ -211,12 +221,19 @@
     // 组 B · 账号保护（占位）
     IMPSGroup *groupB = [IMPSGroup new];
     groupB.header = IMLocalized(@"ps.section.account_protection");
-    groupB.footer = IMLocalized(@"ps.account_protection_footer");
-    groupB.rows = @[
+    groupB.footer = IMLocalized(@"security.protect.footer");
+    IMPSRow *phone = [IMPSRow new];
+    phone.rowId = @"loginPhone"; phone.title = IMLocalized(@"security.phone"); phone.systemImage = @"iphone";
+    phone.iconBgColor = UIColor.systemPinkColor;
+    phone.handler = ^{ [ws openLoginPhone]; };
+    self.loginPhoneRow = phone;
+    self.protectRowsBase = @[
         [self twoStepLiveRow],
         [self placeholder:IMLocalized(@"ps.row.passkey") symbol:@"key.horizontal.fill" bg:UIColor.systemPurpleColor value:IMLocalized(@"common.off")],
         [self emailLoginLiveRow],
     ];
+    self.protectGroup = groupB;
+    [self applyProtectRows];
 
     // 组 C · 会话隐私：自动删除消息（活行，右值 = 账号默认档位，AUTO_DELETE_DESIGN §3.3 A）
     IMPSRow *autoDelete = [IMPSRow new];
@@ -344,6 +361,51 @@
     }
 }
 
+#pragma mark - 登录密码 / 登录手机号（PHONE_AUTH_DESIGN §6）
+
+/// 「登录手机号」排账号保护组第一行；状态未知、或短信不可用且没绑定时不显示。
+- (void)applyProtectRows {
+    self.protectGroup.rows = IMSecurityShowsPhoneRow(self.security)
+        ? [@[self.loginPhoneRow] arrayByAddingObjectsFromArray:self.protectRowsBase] : self.protectRowsBase;
+}
+
+/// 取一次安全状态（进页 / 子页返回时）。失败保留旧值，不弹错。
+- (void)refreshSecurityState {
+    IMHTTPService.sharedService.host = self.host;
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService loginWithUserID:self.userID completion:^(NSString *token, NSError *loginErr) {
+        if (token.length == 0) { return; }
+        [IMHTTPService.sharedService fetchSecurityStateWithToken:token completion:^(IMSecurityState *state, NSError *err) {
+            if (state) { [ws applySecurityState:state]; }
+        }];
+    }];
+}
+
+- (void)applySecurityState:(IMSecurityState *)state {
+    self.security = state;
+    self.passwordRow.rightValue = IMSecurityPasswordRowValue(state);
+    self.loginPhoneRow.rightValue = IMSecurityPhoneRowValue(state);
+    [self applyProtectRows];
+    [self.tableView reloadData];
+}
+
+- (void)openLoginPhone {
+    IMSecurityState *state = self.security;
+    if (!state) { return; }
+    if (IMSecurityPhoneRowAction(state) == IMPhoneRowActionSMSUnavailable) { // 已绑定但短信不可用：新号码收不到码，换不了
+        [self im_showToast:IMLocalized(@"err.200040")];
+        return;
+    }
+    IMPhoneBindViewController *vc = [[IMPhoneBindViewController alloc] initWithHost:self.host userID:self.userID security:state];
+    __weak typeof(self) ws = self;
+    vc.onBound = ^(NSString *masked) {
+        state.phoneBound = YES;
+        state.phoneMasked = masked;
+        [ws applySecurityState:state];
+    };
+    [self.navigationController pushViewController:vc animated:YES];
+}
+
 /// 取一次邮箱状态刷新右值。失败：已有读数就保留（瞬时失败不能把邮箱翻成「未绑定」），从没取到过就留空，不弹错。
 - (void)refreshEmailStatus {
     IMHTTPService.sharedService.host = self.host;
@@ -457,7 +519,7 @@
 }
 
 - (void)openChangePassword {
-    IMChangePasswordViewController *vc = [[IMChangePasswordViewController alloc] initWithHost:self.host userID:self.userID];
+    IMChangePasswordViewController *vc = [[IMChangePasswordViewController alloc] initWithHost:self.host userID:self.userID security:self.security];
     [self.navigationController pushViewController:vc animated:YES];
 }
 

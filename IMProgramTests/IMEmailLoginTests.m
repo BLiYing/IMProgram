@@ -72,7 +72,7 @@ static NSDictionary *eResp; static NSString *ePath; static NSString *eMethod; st
 
 @interface IMLoginViewController (EmailTestAccess)
 - (void)registerTabTapped;
-- (void)loginTabTapped;
+- (void)backToLoginTapped;
 @end
 @interface IMEmailFormViewController (EmailTestAccess)
 - (BOOL)textFieldShouldReturn:(UITextField *)textField;
@@ -82,7 +82,7 @@ static NSDictionary *eResp; static NSString *ePath; static NSString *eMethod; st
 - (void)handleVerify:(IMEmailState *)bound error:(NSError *)error;
 @end
 @interface IMEmailFormViewController (EmailTestSend)
-- (void)handleSend:(IMEmailSendResult *)result error:(NSError *)error email:(NSString *)email password:(NSString *)password;
+- (void)handleSend:(IMEmailSendResult *)result error:(NSError *)error email:(NSString *)email proof:(IMIdentityProof *)proof;
 @end
 
 @interface IMEmailLoginTests : XCTestCase
@@ -173,7 +173,7 @@ static NSDictionary *eResp; static NSString *ePath; static NSString *eMethod; st
     XCTAssertTrue([IMEmailErrorMessage(100002, -1, 42, nil) containsString:@"42"]);
 }
 - (void)test_错误高亮落点与验证码页动作 {
-    XCTAssertEqual(IMEmailFormTargetForError(200002), IMEmailFormTargetPassword);
+    XCTAssertEqual(IMEmailFormTargetForError(200002), IMEmailFormTargetNone, @"密码改由确认身份弹层收，表单不再描红密码");
     XCTAssertEqual(IMEmailFormTargetForError(200030), IMEmailFormTargetEmail);
     XCTAssertEqual(IMEmailFormTargetForError(200031), IMEmailFormTargetEmail);
     XCTAssertEqual(IMEmailFormTargetForError(200035), IMEmailFormTargetEmail);
@@ -243,10 +243,10 @@ static NSDictionary *eResp; static NSString *ePath; static NSString *eMethod; st
         XCTAssertEqualObjects(eMethod, @"GET");
         XCTAssertTrue(state.bound);
         eResp = @{ @"code": @0, @"data": @{ @"expires_in": @600, @"resend_after": @45 } };
-        [IMHTTPService.sharedService sendEmailCodeWithToken:t email:@"x@y.com" password:@"pw" completion:^(IMEmailSendResult *r, NSError *e2) {
+        [IMHTTPService.sharedService sendEmailCodeWithToken:t email:@"x@y.com" proof:[IMIdentityProof passwordProof:@"pw"] completion:^(IMEmailSendResult *r, NSError *e2) {
             XCTAssertEqualObjects(ePath, @"/api/v1/users/me/email/send-code");
             XCTAssertEqualObjects(eMethod, @"POST");
-            XCTAssertEqualObjects(eBody, (@{ @"email": @"x@y.com", @"password": @"pw", @"lang": @"zh-Hans" }));
+            XCTAssertEqualObjects(eBody, (@{ @"email": @"x@y.com", @"proof": @{ @"password": @"pw" }, @"lang": @"zh-Hans" }));
             XCTAssertEqual(r.resendAfter, 45); XCTAssertEqual(r.expiresIn, 600);
             [IMLocalization.shared setPreference:IMLanguagePrefEnglish];
             eResp = @{ @"code": @0, @"data": @{ @"email": @"x@y.com", @"verified_at": @1793318400000 } };
@@ -255,9 +255,9 @@ static NSDictionary *eResp; static NSString *ePath; static NSString *eMethod; st
                 XCTAssertEqualObjects(eBody, (@{ @"email": @"x@y.com", @"code": @"012345", @"lang": @"en" }), @"码是字符串、前导 0 保留、lang 跟 App 语言");
                 XCTAssertEqualObjects(b.email, @"x@y.com"); XCTAssertTrue(b.bound);
                 eResp = @{ @"code": @0, @"data": @{ @"ok": @YES } };
-                [IMHTTPService.sharedService unbindEmailWithToken:t password:@"pw" completion:^(NSError *e4) {
+                [IMHTTPService.sharedService unbindEmailWithToken:t proof:[IMIdentityProof smsProof:@"123456"] completion:^(NSError *e4) {
                     XCTAssertEqualObjects(ePath, @"/api/v1/users/me/email/unbind");
-                    XCTAssertEqualObjects(eBody, @{ @"password": @"pw" });
+                    XCTAssertEqualObjects(eBody, (@{ @"proof": @{ @"sms_code": @"123456" } }));
                     XCTAssertNil(e4);
                     [e fulfill];
                 }];
@@ -276,7 +276,7 @@ static NSDictionary *eResp; static NSString *ePath; static NSString *eMethod; st
         XCTAssertEqual(IMEmailAttemptsLeftFromError(err), 2);
         XCTAssertEqual(IMEmailRetryAfterFromError(err), -1);
         eResp = @{ @"code": @100002, @"message": @"slow", @"data": @{ @"retry_after_sec": @42 } };
-        [IMHTTPService.sharedService sendEmailCodeWithToken:@"t" email:@"a@b.com" password:@"p" completion:^(IMEmailSendResult *r, NSError *err2) {
+        [IMHTTPService.sharedService sendEmailCodeWithToken:@"t" email:@"a@b.com" proof:[IMIdentityProof passwordProof:@"p"] completion:^(IMEmailSendResult *r, NSError *err2) {
             XCTAssertEqual(err2.code, 100002);
             XCTAssertEqual(IMEmailRetryAfterFromError(err2), 42);
             eResp = @{ @"code": @200033, @"message": @"exp", @"data": @{ @"retry_after_sec": @0 } };
@@ -292,7 +292,7 @@ static NSDictionary *eResp; static NSString *ePath; static NSString *eMethod; st
 - (void)test_REST_信封缺code当失败_不当成功 {
     XCTestExpectation *e = [self expectationWithDescription:@"nocode"];
     eResp = @{ @"data": @{} };
-    [IMHTTPService.sharedService unbindEmailWithToken:@"t" password:@"p" completion:^(NSError *err) {
+    [IMHTTPService.sharedService unbindEmailWithToken:@"t" proof:[IMIdentityProof passwordProof:@"p"] completion:^(NSError *err) {
         XCTAssertNotNil(err);
         [e fulfill];
     }];
@@ -393,13 +393,13 @@ static NSDictionary *eResp; static NSString *ePath; static NSString *eMethod; st
     IMLoginViewController *vc = [IMLoginViewController new];
     [vc loadViewIfNeeded];
     UITextField *user = [vc valueForKey:@"userIDField"];
-    XCTAssertEqualObjects(user.placeholder, @"用户名或邮箱");
+    XCTAssertEqualObjects(user.placeholder, IMLocalized(@"login.ident.placeholder"), @"密码登录：用户名 / 邮箱 / 手机号");
     XCTAssertEqual(user.keyboardType, UIKeyboardTypeASCIICapable);
     [vc registerTabTapped];
     XCTAssertEqualObjects(user.placeholder, IMLocalized(@"login.username.placeholder"), @"注册页不接受邮箱，仍是用户名规则");
     XCTAssertEqual(user.keyboardType, UIKeyboardTypeASCIICapable);
-    [vc loginTabTapped];
-    XCTAssertEqualObjects(user.placeholder, @"用户名或邮箱");
+    [vc backToLoginTapped];
+    XCTAssertEqualObjects(user.placeholder, IMLocalized(@"login.ident.placeholder"));
 }
 
 #pragma mark - 页面
@@ -413,10 +413,9 @@ static NSDictionary *eResp; static NSString *ePath; static NSString *eMethod; st
     XCTAssertEqual(em.autocorrectionType, UITextAutocorrectionTypeNo);
     XCTAssertEqual(em.spellCheckingType, UITextSpellCheckingTypeNo);
     XCTAssertEqualObjects(em.textContentType, UITextContentTypeEmailAddress);
-    XCTAssertEqualObjects(vc.passwordField.textContentType ?: UITextContentTypePassword, UITextContentTypePassword);
     XCTAssertEqualObjects(vc.title, @"绑定邮箱");
-    XCTAssertFalse(vc.primaryButton.enabled, @"两项都填才可点");
-    em.text = @"alice@example"; vc.passwordField.text = @"secret";
+    XCTAssertFalse(vc.primaryButton.enabled, @"填了邮箱才可点（身份确认在弹层里）");
+    em.text = @"alice@example";
     [em sendActionsForControlEvents:UIControlEventEditingChanged];
     XCTAssertTrue(vc.primaryButton.enabled);
     ePath = nil;
@@ -425,7 +424,6 @@ static NSDictionary *eResp; static NSString *ePath; static NSString *eMethod; st
     XCTAssertFalse(vc.errorLabel.superview.hidden);
     XCTAssertNil(ePath, @"预检不过不发请求");
     XCTAssertEqualObjects(em.text, @"alice@example", @"输入不清空");
-    XCTAssertEqualObjects(vc.passwordField.text, @"secret");
     XCTAssertFalse(vc.busy);
     vc.emailField.text = @"alice@example.com";
     [em sendActionsForControlEvents:UIControlEventEditingChanged];
@@ -448,8 +446,8 @@ static NSDictionary *eResp; static NSString *ePath; static NSString *eMethod; st
 
 - (void)test_验证码页_复用两步验证码框_清洗_Timer随页面生命周期 {
     NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:30];
-    IMEmailCodeViewController *vc = [[IMEmailCodeViewController alloc] initWithHost:@"h" userID:@"u" email:@"a@b.com" password:@"pw"
-                                                                    resendDeadline:deadline];
+    IMEmailCodeViewController *vc = [[IMEmailCodeViewController alloc] initWithHost:@"h" userID:@"u" email:@"a@b.com" proof:[IMIdentityProof passwordProof:@"pw"]
+                                                            proofSession:nil resendDeadline:deadline];
     [vc loadViewIfNeeded];
     XCTAssertEqual(vc.codeField.keyboardType, UIKeyboardTypeNumberPad);
     XCTAssertEqualObjects(vc.codeField.textContentType, UITextContentTypeOneTimeCode);
@@ -469,8 +467,8 @@ static NSDictionary *eResp; static NSString *ePath; static NSString *eMethod; st
 }
 
 - (void)test_验证码页_无倒计时时不起Timer_文案恢复 {
-    IMEmailCodeViewController *vc = [[IMEmailCodeViewController alloc] initWithHost:@"h" userID:@"u" email:@"a@b.com" password:@"pw"
-                                                                    resendDeadline:[NSDate dateWithTimeIntervalSinceNow:-1]];
+    IMEmailCodeViewController *vc = [[IMEmailCodeViewController alloc] initWithHost:@"h" userID:@"u" email:@"a@b.com" proof:[IMIdentityProof passwordProof:@"pw"]
+                                                            proofSession:nil resendDeadline:[NSDate dateWithTimeIntervalSinceNow:-1]];
     [vc loadViewIfNeeded];
     [vc viewWillAppear:NO];
     XCTAssertFalse(vc.countdownRunning);
@@ -507,21 +505,18 @@ static NSDictionary *eResp; static NSString *ePath; static NSString *eMethod; st
     XCTAssertEqualObjects([sections.lastObject valueForKey:@"footer"], IMLocalized(@"email.bound.footer"));
 }
 
-- (void)test_解绑页_红按钮_密码非空才可点 {
+- (void)test_解绑页_红按钮_身份确认在弹层里 {
     IMEmailUnbindViewController *vc = [[IMEmailUnbindViewController alloc] initWithHost:@"h" userID:@"u"];
     [vc loadViewIfNeeded];
     XCTAssertEqualObjects(vc.primaryButton.currentTitle, @"解除绑定");
     XCTAssertEqualObjects(vc.primaryButton.backgroundColor, UIColor.systemRedColor);
-    XCTAssertFalse(vc.primaryButton.enabled);
-    vc.passwordField.text = @"pw";
-    [vc.passwordField sendActionsForControlEvents:UIControlEventEditingChanged];
-    XCTAssertTrue(vc.primaryButton.enabled);
-    XCTAssertTrue(vc.passwordField.secureTextEntry);
+    XCTAssertTrue(vc.primaryButton.enabled, @"页面上不再有密码框，直接可点（确认后弹确认身份弹层）");
+    XCTAssertNotNil(vc.proofSession);
 }
 
 - (IMEmailCodeViewController *)loadedCodePage {
-    IMEmailCodeViewController *vc = [[IMEmailCodeViewController alloc] initWithHost:@"h" userID:@"u" email:@"a@b.com" password:@"pw"
-                                                                    resendDeadline:[NSDate dateWithTimeIntervalSinceNow:-1]];
+    IMEmailCodeViewController *vc = [[IMEmailCodeViewController alloc] initWithHost:@"h" userID:@"u" email:@"a@b.com" proof:[IMIdentityProof passwordProof:@"pw"]
+                                                            proofSession:nil resendDeadline:[NSDate dateWithTimeIntervalSinceNow:-1]];
     [vc loadViewIfNeeded];
     return vc;
 }
@@ -538,7 +533,7 @@ static NSDictionary *eResp; static NSString *ePath; static NSString *eMethod; st
     XCTAssertEqualObjects([secs[0] valueForKey:@"footer"], @"验证码不正确，还可尝试 2 次", @"红字是码框组的 footer，紧贴码框、在重发行之上");
     XCTAssertEqualObjects([secs[0] valueForKey:@"footerColor"], UIColor.systemRedColor);
     XCTAssertTrue(vc.errorLabel.superview.hidden, @"表尾红字不用（会落在重发行之下）");
-    XCTAssertEqualObjects([vc valueForKey:@"password"], @"pw");
+    XCTAssertNotNil([vc valueForKey:@"proof"], @"交过的是密码：留着供重发");
     XCTAssertFalse(vc.busy);
 }
 
@@ -561,7 +556,7 @@ static NSDictionary *eResp; static NSString *ePath; static NSString *eMethod; st
 - (void)test_验证码页_绑定成功丢弃密码 {
     IMEmailCodeViewController *vc = [self loadedCodePage];
     [vc handleVerify:[IMEmailState boundStateFromVerifyJSON:@{ @"email": @"a@b.com", @"verified_at": @1793318400000 }] error:nil];
-    XCTAssertEqualObjects([vc valueForKey:@"password"], @"", @"流程结束后密码不留内存");
+    XCTAssertNil([vc valueForKey:@"proof"], @"流程结束后密码不留内存");
 }
 
 - (void)test_验证码页_重发在途时满6位不自动提交 {
@@ -572,14 +567,12 @@ static NSDictionary *eResp; static NSString *ePath; static NSString *eMethod; st
     XCTAssertFalse(vc.busy, @"重发在途时提交的是即将作废的旧码，不自动提交");
 }
 
-- (void)test_填邮箱页_发送成功后本页不再持有密码 {
-    IMEmailFormViewController *vc = [[IMEmailFormViewController alloc] initWithHost:@"h" userID:@"u" change:NO currentEmail:nil];
+- (void)test_验证码页_交的是短信验证码时不留证明_重发再弹层 {
+    IMEmailCodeViewController *vc = [[IMEmailCodeViewController alloc] initWithHost:@"h" userID:@"u" email:@"a@b.com"
+                                                                              proof:[IMIdentityProof smsProof:@"123456"]
+                                                                       proofSession:nil resendDeadline:[NSDate date]];
     [vc loadViewIfNeeded];
-    vc.emailField.text = @"a@b.com"; vc.passwordField.text = @"secret";
-    IMEmailSendResult *r = [IMEmailSendResult new]; r.resendAfter = 60; r.expiresIn = 600;
-    [vc handleSend:r error:nil email:@"a@b.com" password:@"secret"];
-    XCTAssertEqualObjects(vc.passwordField.text, @"", @"密码交给验证码页，本页清掉");
-    XCTAssertEqualObjects(vc.emailField.text, @"a@b.com", @"邮箱保留（更换邮箱回来时要用）");
+    XCTAssertNil([vc valueForKey:@"proof"], @"验证码已被发信用掉，不能复用");
 }
 
 - (void)collectLabelsIn:(UIView *)view into:(void (^)(UILabel *))block {

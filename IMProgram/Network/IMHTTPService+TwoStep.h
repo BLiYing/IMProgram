@@ -5,6 +5,7 @@
 
 #import "IMHTTPService.h"
 #import "IMTwoStep.h"
+#import "IMPhoneAuth.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -29,20 +30,20 @@ FOUNDATION_EXPORT NSError *IMErrorByAttachingTwoStepInfo(NSError *error, NSDicti
 - (void)fetchTwoStepStateWithToken:(NSString *)token
                         completion:(void (^)(IMTwoStepState *_Nullable state, NSError *_Nullable error))completion;
 
-/// POST /users/me/two-step/setup {password}。200002 密码错、200024 已开启、200025 服务端未启用、100002 限流。
-- (void)setupTwoStepWithToken:(NSString *)token password:(NSString *)password
+/// POST /users/me/two-step/setup {proof}。200002 密码错、200043 验证码错、200024 已开启、200025 服务端未启用、100002 限流。
+- (void)setupTwoStepWithToken:(NSString *)token proof:(IMIdentityProof *)proof
                    completion:(void (^)(IMTwoStepSetup *_Nullable setup, NSError *_Nullable error))completion;
 
 /// POST /users/me/two-step/enable {code}。成功回 10 个恢复码（唯一一次明文）。200021 码不对、200022 待确认超时。
 - (void)enableTwoStepWithToken:(NSString *)token code:(NSString *)code
                     completion:(void (^)(NSArray<NSString *> *_Nullable recoveryCodes, NSError *_Nullable error))completion;
 
-/// POST /users/me/two-step/disable {password, code}；code 可为动态码或恢复码。
-- (void)disableTwoStepWithToken:(NSString *)token password:(NSString *)password code:(NSString *)code
+/// POST /users/me/two-step/disable {proof, code}；code 可为动态码或恢复码。
+- (void)disableTwoStepWithToken:(NSString *)token proof:(IMIdentityProof *)proof code:(NSString *)code
                      completion:(void (^)(NSError *_Nullable error))completion;
 
-/// POST /users/me/two-step/recovery-codes {password, code}；旧码全部作废，回新的 10 个。
-- (void)regenerateRecoveryCodesWithToken:(NSString *)token password:(NSString *)password code:(NSString *)code
+/// POST /users/me/two-step/recovery-codes {proof, code}；旧码全部作废，回新的 10 个。
+- (void)regenerateRecoveryCodesWithToken:(NSString *)token proof:(IMIdentityProof *)proof code:(NSString *)code
                               completion:(void (^)(NSArray<NSString *> *_Nullable recoveryCodes, NSError *_Nullable error))completion;
 
 /// POST /login/two-step {ticket, code}：成功体与 /login 逐字段相同，走同一条「登录成功」收尾（缓存 token、落盘续期凭据、擦密码）。

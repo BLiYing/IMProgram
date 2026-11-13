@@ -17,6 +17,7 @@
 @property (nonatomic, assign) CGFloat keyboardTop;
 - (void)saveEndpointHost:(NSString *)rawHost rtc:(NSString *)rawRTC;
 - (void)registerTabTapped;
+- (void)passwordTabTapped;
 @end
 
 static NSString * const kIMTestLastHostKey = @"im_last_host";
@@ -58,6 +59,7 @@ static NSString * const kIMTestRtcOverrideKey = @"im_rtc_ws_url_override";
 - (void)test_键盘弹出_登录按钮不被盖住 {
     IMLoginViewController *vc = [IMLoginViewController new];
     UIWindow *w = [self windowWith:vc];
+    [vc passwordTabTapped]; // 选定密码登录页签：public-config 晚到（本机后端短信可用）也不再切到验证码页签
     [self spin:0.3];
     [vc.view layoutIfNeeded];
 
@@ -101,6 +103,7 @@ static NSString * const kIMTestRtcOverrideKey = @"im_rtc_ws_url_override";
 - (void)test_注册页_键盘弹出_注册按钮不被盖住 {
     IMLoginViewController *vc = [IMLoginViewController new];
     UIWindow *w = [self windowWith:vc];
+    [vc passwordTabTapped]; // 选定密码登录页签：public-config 晚到（本机后端短信可用）也不再切到验证码页签
     [self spin:0.3];
     [vc registerTabTapped];
     [vc.view layoutIfNeeded];
@@ -129,6 +132,7 @@ static NSString * const kIMTestRtcOverrideKey = @"im_rtc_ws_url_override";
 - (void)test_矮屏放不下_输入框不被顶出屏幕上沿 {
     IMLoginViewController *vc = [IMLoginViewController new];
     UIWindow *w = [self windowWith:vc];
+    [vc passwordTabTapped]; // 选定密码登录页签：public-config 晚到（本机后端短信可用）也不再切到验证码页签
     w.frame = CGRectMake(0, 0, 375, 320);
     [self spin:0.3];
     [vc.view layoutIfNeeded];
@@ -175,6 +179,7 @@ static NSString * const kIMTestRtcOverrideKey = @"im_rtc_ws_url_override";
     [IMRtcConfig saveWSURLOverride:@"ws://old.example.com/v1/ws"];
     IMLoginViewController *vc = [IMLoginViewController new];
     UIWindow *w = [self windowWith:vc];
+    [vc passwordTabTapped]; // 选定密码登录页签：public-config 晚到（本机后端短信可用）也不再切到验证码页签
     [self spin:0.3];
 
     [vc saveEndpointHost:@"new.example.com:8080" rtc:@"http://bad/v1/ws"];

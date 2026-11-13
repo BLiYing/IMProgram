@@ -38,7 +38,9 @@ static NSDictionary *sAcctResp; static NSString *sAcctPath;
         [in close]; d = m;
     }
     id o = d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:NULL] : nil;
-    return [o isKindOfClass:NSDictionary.class] && [o[@"password"] isEqualToString:kStubPw];
+    if (![o isKindOfClass:NSDictionary.class]) { return NO; }
+    NSDictionary *proof = [o[@"proof"] isKindOfClass:NSDictionary.class] ? o[@"proof"] : nil;
+    return [o[@"password"] isEqualToString:kStubPw] || [proof[@"password"] isEqualToString:kStubPw];
 }
 + (NSURLRequest *)canonicalRequestForRequest:(NSURLRequest *)r { return r; }
 - (void)startLoading {
@@ -194,11 +196,8 @@ static NSDictionary *sAcctResp; static NSString *sAcctPath;
 }
 
 - (void)test_按钮可点条件 {
-    XCTAssertFalse(IMDeleteAccountCanSubmit(@"", NO, NO), @"空密码置灰");
-    XCTAssertFalse(IMDeleteAccountCanSubmit(nil, NO, NO));
-    XCTAssertTrue(IMDeleteAccountCanSubmit(@"x", NO, NO));
-    XCTAssertFalse(IMDeleteAccountCanSubmit(@"x", YES, NO), @"群主阻断态置灰");
-    XCTAssertFalse(IMDeleteAccountCanSubmit(@"x", NO, YES), @"在途置灰");
+    XCTAssertTrue(IMDeleteAccountCanSubmit(NO));
+    XCTAssertFalse(IMDeleteAccountCanSubmit(YES), @"群主阻断态置灰");
 }
 
 #pragma mark - HTTP（桩）
@@ -206,7 +205,7 @@ static NSDictionary *sAcctResp; static NSString *sAcctPath;
 - (NSError *)deleteWithResponse:(NSDictionary *)resp {
     sAcctResp = resp;
     __block NSError *err; XCTestExpectation *e = [self expectationWithDescription:@"del"];
-    [IMHTTPService.sharedService deleteAccountWithToken:@"tok" password:kStubPw completion:^(NSError *er) { err = er; [e fulfill]; }];
+    [IMHTTPService.sharedService deleteAccountWithToken:@"tok" proof:[IMIdentityProof passwordProof:kStubPw] completion:^(NSError *er) { err = er; [e fulfill]; }];
     [self waitForExpectations:@[e] timeout:10];
     return err;
 }

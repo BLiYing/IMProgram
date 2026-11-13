@@ -71,6 +71,21 @@ NS_ASSUME_NONNULL_BEGIN
 
 @end
 
+/// 把响应 data 里各业务域的附加值（注销 delete_at / owned_groups、两步验证 ticket / attempts_left、邮箱与短信
+/// attempts_left / retry_after_sec、field、restore_ticket）统一挂进错误 userInfo；码与文案不变。各 runner 只调它。
+FOUNDATION_EXPORT NSError *_Nullable IMErrorByAttachingEnvelopeInfo(NSError *_Nullable error, NSDictionary *_Nullable body);
+
+/// 带业务码的整包解信封（IMHTTPService+Envelope.m）：req 为空 → invalid_server；code == 0 → 回 data；
+/// 信封缺 code 当失败；其余 errorWithCode:（保业务码）+ IMErrorByAttachingEnvelopeInfo。回调已在主线程。
+@interface IMHTTPService (Envelope)
+- (void)runEnvelopeRequest:(nullable NSURLRequest *)req
+                completion:(void (^)(id _Nullable data, NSError *_Nullable error))completion;
+/// 同上，业务错误回调前再经 decorate 加工一次（导出的 retry_after_sec 用）。
+- (void)runEnvelopeRequest:(nullable NSURLRequest *)req
+             decorateError:(NSError *(^_Nullable)(NSError *error, NSDictionary *_Nullable body))decorate
+                completion:(void (^)(id _Nullable data, NSError *_Nullable error))completion;
+@end
+
 /// 登录 / token 生命周期（IMHTTPService+Auth.m）。
 @interface IMHTTPService (Auth)
 
@@ -91,6 +106,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// 登录后异步拉一次本人资料，缓存公开显示名（供合并转发标题等同步场景取用）。失败静默。
 - (void)warmUpMyNicknameWithToken:(NSString *)token;
+
+/// 登录类请求随带的设备字段（device_id / platform / device_name / app_version）：密码登录、验证码登录、手机号注册共用一份。
+- (NSDictionary<NSString *, NSString *> *)deviceFields;
 
 @end
 

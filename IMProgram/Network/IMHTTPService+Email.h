@@ -5,6 +5,7 @@
 
 #import "IMHTTPService.h"
 #import "IMEmailLogin.h"
+#import "IMPhoneAuth.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -31,17 +32,17 @@ FOUNDATION_EXPORT NSInteger IMEmailRetryAfterFromError(NSError *_Nullable error)
 - (void)fetchEmailStateWithToken:(NSString *)token
                       completion:(void (^)(IMEmailState *_Nullable state, NSError *_Nullable error))completion;
 
-/// POST /users/me/email/send-code {email, password, lang}。绑定与更换共用。
-/// 200002 密码错、200030 格式、200031 已被占用、200035 与当前相同、200036 未启用、200037 发信失败、100002 限流（带 retry_after_sec）。
-- (void)sendEmailCodeWithToken:(NSString *)token email:(NSString *)email password:(NSString *)password
+/// POST /users/me/email/send-code {email, proof, lang}。绑定与更换共用。
+/// 200002 密码错、200043 / 200044 验证码错 / 过期、200030 格式、200031 已被占用、200035 与当前相同、200036 未启用、200037 发信失败、100002 限流（带 retry_after_sec）。
+- (void)sendEmailCodeWithToken:(NSString *)token email:(NSString *)email proof:(IMIdentityProof *)proof
                     completion:(void (^)(IMEmailSendResult *_Nullable result, NSError *_Nullable error))completion;
 
 /// POST /users/me/email/verify {email, code, lang}。成功回已绑定状态。200032 带 attempts_left，200033 带 retry_after_sec。
 - (void)verifyEmailWithToken:(NSString *)token email:(NSString *)email code:(NSString *)code
                   completion:(void (^)(IMEmailState *_Nullable bound, NSError *_Nullable error))completion;
 
-/// POST /users/me/email/unbind {password}。200034 未绑定、200002 密码错。
-- (void)unbindEmailWithToken:(NSString *)token password:(NSString *)password
+/// POST /users/me/email/unbind {proof}。200034 未绑定、200002 密码错、200043 验证码错。
+- (void)unbindEmailWithToken:(NSString *)token proof:(IMIdentityProof *)proof
                   completion:(void (^)(NSError *_Nullable error))completion;
 
 @end

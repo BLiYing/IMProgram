@@ -9,6 +9,7 @@
 #import "IMLog.h"
 #import "IMLocalization.h"
 #import "UIViewController+IMToast.h"
+#import "IMIdentityProofSheet.h"
 
 static NSTimeInterval const kExportPollInterval = 2.0;
 static NSInteger const kExportPollFailuresBeforeError = 3;
@@ -64,12 +65,12 @@ static CGFloat const kExportFootInset = 16; // 页脚 / 页眉相对卡片再缩
 
 #pragma mark - 控制器
 
-@interface IMExportDataViewController () <UITextFieldDelegate>
+@interface IMExportDataViewController ()
 @property (nonatomic, copy) NSString *host;
 @property (nonatomic, copy) NSString *userID;
 @property (nonatomic, strong) UIScrollView *scrollView;
 @property (nonatomic, strong) UIStackView *stack;
-@property (nonatomic, strong) UITextField *passwordField;
+@property (nonatomic, strong) IMProofSession *proofSession; ///< 确认身份（密码或短信验证码，PHONE_AUTH_DESIGN §7）
 @property (nonatomic, strong) UISwitch *mediaSwitch;
 @property (nonatomic, strong) IMExportCheckRow *htmlRow;
 @property (nonatomic, strong) IMExportCheckRow *jsonRow;
@@ -102,7 +103,7 @@ static CGFloat const kExportFootInset = 16; // 页脚 / 页眉相对卡片再缩
 
 - (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID {
     self = [super initWithNibName:nil bundle:nil];
-    if (self) { _host = [host copy]; _userID = [userID copy]; }
+    if (self) { _host = [host copy]; _userID = [userID copy]; _proofSession = [[IMProofSession alloc] initWithHost:host userID:userID]; }
     return self;
 }
 
@@ -237,7 +238,6 @@ static CGFloat const kExportFootInset = 16; // 页脚 / 页眉相对卡片再缩
     self.formatHeaderLabel = [self noteLabelWithColor:sec];
     self.formatHeaderLabel.text = [IMLocalized(@"export.format.header") uppercaseStringWithLocale:IMLocalization.shared.locale];
     UIView *formatCard = [self buildFormatCard];
-    UIView *passwordCard = [self buildPasswordCard];
     self.cooldownLabel = [self noteLabelWithColor:sec];
     self.expiredLabel = [self noteLabelWithColor:sec];
     self.expiredLabel.text = IMLocalized(@"export.expired");
@@ -261,14 +261,14 @@ static CGFloat const kExportFootInset = 16; // 页脚 / 页眉相对卡片再缩
 
     // stack 内固定顺序；各态只切 hidden（UIStackView 对 hidden 的 arranged 视图不占位）。
     UIView *(^w)(UILabel *) = ^UIView *(UILabel *l) { return l.superview; };
-    self.configViews = @[w(self.introLabel), mediaCard, w(self.mediaFootLabel), w(self.formatHeaderLabel), formatCard, passwordCard,
+    self.configViews = @[w(self.introLabel), mediaCard, w(self.mediaFootLabel), w(self.formatHeaderLabel), formatCard,
                          w(self.expiredLabel), self.startButton];
     self.cooldownViews = @[w(self.cooldownLabel), self.startButton];
     self.runningViews = @[runningCard, w(self.runningFootLabel), self.cancelButton];
     self.doneViews = @[doneCard, w(self.doneFootLabel), self.downloadButton];
     self.failedViews = @[w(self.failedLabel), self.retryButton];
     self.downloadingViews = @[downloadingCard, w(self.keepOpenLabel)];
-    NSArray<UIView *> *all = @[w(self.introLabel), mediaCard, w(self.mediaFootLabel), w(self.formatHeaderLabel), formatCard, passwordCard,
+    NSArray<UIView *> *all = @[w(self.introLabel), mediaCard, w(self.mediaFootLabel), w(self.formatHeaderLabel), formatCard,
         runningCard, w(self.runningFootLabel), doneCard, w(self.doneFootLabel), w(self.cooldownLabel), w(self.expiredLabel),
         w(self.failedLabel), w(self.errorLabel), self.startButton, self.cancelButton, self.downloadButton, self.retryButton,
         downloadingCard, w(self.keepOpenLabel)];
@@ -282,7 +282,6 @@ static CGFloat const kExportFootInset = 16; // 页脚 / 页眉相对卡片再缩
     [s setCustomSpacing:22 afterView:self.mediaFootLabel.superview];
     [s setCustomSpacing:6 afterView:self.formatHeaderLabel.superview];
     [s setCustomSpacing:22 afterView:self.configViews[4]];  // formatCard
-    [s setCustomSpacing:12 afterView:self.configViews[5]];  // passwordCard
     [s setCustomSpacing:22 afterView:self.runningFootLabel.superview];
     [s setCustomSpacing:22 afterView:self.doneFootLabel.superview];
     [s setCustomSpacing:12 afterView:self.downloadingViews[0]];
@@ -327,43 +326,6 @@ static CGFloat const kExportFootInset = 16; // 页脚 / 页眉相对卡片再缩
         [r addTarget:self action:@selector(formatTapped:) forControlEvents:UIControlEventTouchUpInside];
     }
     return [self cardWithRows:@[self.htmlRow, self.jsonRow]];
-}
-
-/// 密码框：与注销账号页同款（secureTextEntry + 眼睛 rightView，16pt，卡底 secondarySystemGroupedBackground）。
-- (UIView *)buildPasswordCard {
-    UITextField *f = [UITextField new];
-    f.translatesAutoresizingMaskIntoConstraints = NO;
-    f.font = [UIFont systemFontOfSize:16];
-    f.textColor = UIColor.labelColor;
-    f.placeholder = IMLocalized(@"export.password.placeholder");
-    f.secureTextEntry = YES;
-    f.autocapitalizationType = UITextAutocapitalizationTypeNone;
-    f.autocorrectionType = UITextAutocorrectionTypeNo;
-    f.spellCheckingType = UITextSpellCheckingTypeNo;
-    f.returnKeyType = UIReturnKeyDone;
-    f.delegate = self;
-    f.accessibilityIdentifier = @"export.password";
-    [f addTarget:self action:@selector(fieldChanged) forControlEvents:UIControlEventEditingChanged];
-    UIButton *eye = [UIButton buttonWithType:UIButtonTypeSystem];
-    eye.frame = CGRectMake(0, 0, 34, 34);
-    eye.tintColor = UIColor.secondaryLabelColor;
-    [eye setImage:[UIImage systemImageNamed:@"eye.slash.fill"] forState:UIControlStateNormal];
-    [eye setImage:[UIImage systemImageNamed:@"eye.fill"] forState:UIControlStateSelected];
-    [eye addTarget:self action:@selector(eyeTapped:) forControlEvents:UIControlEventTouchUpInside];
-    f.rightView = eye;
-    f.rightViewMode = UITextFieldViewModeAlways;
-    self.passwordField = f;
-    UIView *card = [UIView new];
-    card.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
-    card.layer.cornerRadius = kExportCardRadius;
-    [card addSubview:f];
-    [NSLayoutConstraint activateConstraints:@[
-        [f.topAnchor constraintEqualToAnchor:card.topAnchor], [f.bottomAnchor constraintEqualToAnchor:card.bottomAnchor],
-        [f.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:16],
-        [f.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-16],
-        [f.heightAnchor constraintEqualToConstant:44],
-    ]];
-    return card;
 }
 
 /// 卡内竖排：16 内边距、行间 10（同草图进行中 / 完成卡）。
@@ -499,7 +461,7 @@ static CGFloat const kExportFootInset = 16; // 页脚 / 页眉相对卡片再缩
 
 - (void)refreshButtons {
     BOOL cooling = [self currentState] == IMExportViewStateCooldown;
-    BOOL ok = IMExportCanStart(self.passwordField.text, self.htmlRow.selected, self.jsonRow.selected, self.starting, cooling);
+    BOOL ok = IMExportCanStart(self.htmlRow.selected, self.jsonRow.selected, self.starting, cooling);
     [self setButton:self.startButton enabled:ok busy:self.starting];
     [self setButton:self.cancelButton enabled:!self.cancelling busy:self.cancelling];
     [self setButton:self.downloadButton enabled:!self.downloading busy:self.downloading];
@@ -594,24 +556,36 @@ static CGFloat const kExportFootInset = 16; // 页脚 / 页眉相对卡片再缩
 
 - (void)startTapped {
     BOOL cooling = [self currentState] == IMExportViewStateCooldown;
-    if (!IMExportCanStart(self.passwordField.text, self.htmlRow.selected, self.jsonRow.selected, self.starting, cooling)) { return; }
+    if (!IMExportCanStart(self.htmlRow.selected, self.jsonRow.selected, self.starting, cooling)) { return; }
     [self.view endEditing:YES];
     NSMutableArray<NSString *> *formats = [NSMutableArray array];
     if (self.htmlRow.selected) { [formats addObject:kExportFormatHTML]; }
     if (self.jsonRow.selected) { [formats addObject:kExportFormatJSON]; }
-    NSString *password = self.passwordField.text ?: @"";
     BOOL media = self.mediaSwitch.on;
-    self.starting = YES;
     [self showError:nil];
-    [self refreshButtons];
+    // 确认身份弹层（密码或短信验证码）：证明本身的错留在弹层里；冷却 / 进行中等交给本页（验证码不会被用掉，下次预填）。
     __weak typeof(self) ws = self;
-    [self withToken:^(NSString *token, NSError *tokenErr) {
-        if (!token) { [ws startFailedWithError:tokenErr]; return; }
-        [IMHTTPService.sharedService startExportWithToken:token password:password includeMedia:media formats:formats
-                                               completion:^(IMExportJob *job, NSError *err) {
-            if (err) { [ws startFailedWithError:err]; } else { [ws startSucceededWithJob:job]; }
+    __block IMExportJob *started = nil;
+    [self.proofSession presentFrom:self submit:^(IMIdentityProof *proof, void (^finish)(NSError *)) {
+        [ws setStartingState:YES];
+        [ws withToken:^(NSString *token, NSError *tokenErr) {
+            if (!token) { [ws setStartingState:NO]; finish(tokenErr ?: [NSError errorWithDomain:@"IMExport" code:-1 userInfo:nil]); return; }
+            [IMHTTPService.sharedService startExportWithToken:token proof:proof includeMedia:media formats:formats
+                                                   completion:^(IMExportJob *job, NSError *err) {
+                [ws setStartingState:NO];
+                started = job;
+                finish(err);
+            }];
         }];
+    } completion:^(BOOL succeeded, NSError *pageError) {
+        if (succeeded && started) { [ws startSucceededWithJob:started]; }
+        else if (pageError) { [ws startFailedWithError:pageError]; }
     }];
+}
+
+- (void)setStartingState:(BOOL)starting {
+    self.starting = starting;
+    [self refreshButtons];
 }
 
 - (void)startSucceededWithJob:(IMExportJob *)job {
@@ -619,7 +593,6 @@ static CGFloat const kExportFootInset = 16; // 页脚 / 页眉相对卡片再缩
     self.stateEpoch++;
     self.job = job;
     self.cooldownUntil = nil;
-    self.passwordField.text = nil;
     IMLogWithTag(IMLogTagUI, @"export started status=%ld", (long)job.status);
     [self render];
     [self syncPolling];
@@ -644,7 +617,7 @@ static CGFloat const kExportFootInset = 16; // 页脚 / 页眉相对卡片再缩
         return;
     }
     NSString *msg = err.localizedDescription;
-    [self showError:msg.length > 0 ? msg : IMLocalized(@"common.action_failed")]; // 200002 密码错：内联红字，输入保留
+    [self showError:msg.length > 0 ? msg : IMLocalized(@"common.action_failed")]; 
     [self render];
 }
 
@@ -783,20 +756,6 @@ static CGFloat const kExportFootInset = 16; // 页脚 / 页眉相对卡片再缩
 }
 
 #pragma mark - 交互杂项
-
-- (void)eyeTapped:(UIButton *)b {
-    b.selected = !b.selected;
-    UITextField *f = self.passwordField;
-    BOOL wasFirst = f.isFirstResponder; // 切换 secureTextEntry 的光标跳位守护（同注销账号页）
-    if (wasFirst) { [f resignFirstResponder]; }
-    f.secureTextEntry = !b.selected;
-    if (wasFirst) { [f becomeFirstResponder]; }
-}
-
-- (BOOL)textFieldShouldReturn:(UITextField *)f {
-    [f resignFirstResponder];
-    return NO;
-}
 
 - (void)keyboardWillChange:(NSNotification *)note {
     CGRect end = [note.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];

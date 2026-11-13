@@ -187,8 +187,7 @@ BOOL IMTwoStepShouldInterceptLeave(BOOL onCodesPage, BOOL completed) {
 
 BOOL IMTwoStepCanFinish(BOOL savedChecked) { return savedChecked; }
 
-BOOL IMTwoStepCanSubmitVerify(NSString *password, NSString *code, BOOL useRecovery) {
-    if (password.length == 0) { return NO; }
+BOOL IMTwoStepCanSubmitVerify(NSString *code, BOOL useRecovery) {
     return useRecovery ? IMTwoStepRecoveryIsComplete(code) : IMTwoStepCodeIsComplete(code);
 }
 

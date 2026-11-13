@@ -152,14 +152,12 @@ static NSDictionary *sExpResp; static NSString *sExpPath;
 }
 
 - (void)test_开始按钮可用性规则 {
-    XCTAssertTrue(IMExportCanStart(@"pw", YES, YES, NO, NO));
-    XCTAssertTrue(IMExportCanStart(@"pw", YES, NO, NO, NO));
-    XCTAssertTrue(IMExportCanStart(@"pw", NO, YES, NO, NO));
-    XCTAssertFalse(IMExportCanStart(@"", YES, YES, NO, NO), @"密码空");
-    XCTAssertFalse(IMExportCanStart(nil, YES, YES, NO, NO));
-    XCTAssertFalse(IMExportCanStart(@"pw", NO, NO, NO, NO), @"两种格式都未勾");
-    XCTAssertFalse(IMExportCanStart(@"pw", YES, YES, YES, NO), @"请求中");
-    XCTAssertFalse(IMExportCanStart(@"pw", YES, YES, NO, YES), @"冷却中");
+    XCTAssertTrue(IMExportCanStart(YES, YES, NO, NO));
+    XCTAssertTrue(IMExportCanStart(YES, NO, NO, NO));
+    XCTAssertTrue(IMExportCanStart(NO, YES, NO, NO));
+    XCTAssertFalse(IMExportCanStart(NO, NO, NO, NO), @"两种格式都未勾");
+    XCTAssertFalse(IMExportCanStart(YES, YES, YES, NO), @"请求中");
+    XCTAssertFalse(IMExportCanStart(YES, YES, NO, YES), @"冷却中");
 }
 
 - (void)test_进度比例夹取 {
@@ -206,7 +204,7 @@ static NSDictionary *sExpResp; static NSString *sExpPath;
 - (void)test_冷却错误码保留并带retry_after_sec {
     sExpResp = @{ @"code": @200011, @"message": @"cooldown", @"data": @{ @"retry_after_sec": @3700 } };
     XCTestExpectation *e = [self expectationWithDescription:@"start"];
-    [IMHTTPService.sharedService startExportWithToken:@"t" password:@"pw" includeMedia:NO formats:@[@"html"]
+    [IMHTTPService.sharedService startExportWithToken:@"t" proof:[IMIdentityProof passwordProof:@"pw"] includeMedia:NO formats:@[@"html"]
                                            completion:^(IMExportJob *job, NSError *err) {
         XCTAssertNil(job);
         XCTAssertEqual(err.code, IMErrCodeExportCooldown);
@@ -223,7 +221,7 @@ static NSDictionary *sExpResp; static NSString *sExpPath;
     for (NSNumber *code in @[@200010, @200002]) {
         sExpResp = @{ @"code": code, @"message": @"x" };
         XCTestExpectation *e = [self expectationWithDescription:code.stringValue];
-        [IMHTTPService.sharedService startExportWithToken:@"t" password:@"pw" includeMedia:YES formats:@[@"html", @"json"]
+        [IMHTTPService.sharedService startExportWithToken:@"t" proof:[IMIdentityProof passwordProof:@"pw"] includeMedia:YES formats:@[@"html", @"json"]
                                                completion:^(IMExportJob *job, NSError *err) {
             XCTAssertNil(job);
             XCTAssertEqual(err.code, code.integerValue);
@@ -295,7 +293,7 @@ static NSDictionary *sExpResp; static NSString *sExpPath;
     IMExportDataViewController *vc = [self loadedVC];
     UIButton *start = [vc valueForKey:@"startButton"], *cancel = [vc valueForKey:@"cancelButton"];
     UIButton *download = [vc valueForKey:@"downloadButton"], *retry = [vc valueForKey:@"retryButton"];
-    XCTAssertFalse(start.hidden); XCTAssertFalse(start.enabled, @"配置态密码空 → 置灰");
+    XCTAssertFalse(start.hidden); XCTAssertTrue(start.enabled, @"配置态直接可点：身份确认改在弹层里（PHONE_AUTH_DESIGN §7）");
     XCTAssertTrue(cancel.hidden); XCTAssertTrue(download.hidden); XCTAssertTrue(retry.hidden);
 
     [self applyJob:[self jobWithStatus:@"running" extra:@{ @"progress": @{ @"done_convs": @3, @"total_convs": @12 } }] toVC:vc];

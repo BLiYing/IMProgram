@@ -16,6 +16,7 @@
 //      -only-testing:IMProgramUITests/IMContactsPerfUITests
 
 #import <XCTest/XCTest.h>
+#import "IMUITestLogin.h"
 
 @interface IMContactsPerfUITests : XCTestCase
 @end
@@ -66,6 +67,7 @@
 }
 
 - (void)loginIfNeeded:(XCUIApplication *)app {
+    IMUITestShowPasswordLogin(app, 5); // 免密按钮只在「密码登录」页签
     XCUIElement *devLogin = app.buttons[@"免密登录（开发）"];
     if (![devLogin waitForExistenceWithTimeout:5]) { return; }
     XCUIElement *user = [app.textFields matchingPredicate:

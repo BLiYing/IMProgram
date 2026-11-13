@@ -72,7 +72,6 @@ NSString *IMEmailErrorMessage(NSInteger code, NSInteger attemptsLeft, NSInteger 
 
 IMEmailFormTarget IMEmailFormTargetForError(NSInteger code) {
     switch (code) {
-        case 200002: return IMEmailFormTargetPassword;
         case 200030: case 200031: case 200035: return IMEmailFormTargetEmail;
         default: return IMEmailFormTargetNone;
     }

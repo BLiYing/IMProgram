@@ -5,6 +5,7 @@
 //  成功后再用同一凭据 /login。下面的解析器对形态仍做容错（秒/毫秒/ISO、多种群 id 键），只是防脏数据，不是契约未定。
 
 #import "IMHTTPService.h"
+#import "IMPhoneAuth.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -32,10 +33,10 @@ FOUNDATION_EXPORT NSError *IMErrorByAttachingAccountInfo(NSError *error, NSDicti
 
 @interface IMHTTPService (Account)
 
-/// POST /api/v1/account/delete {password}（Bearer）。成功回 nil；
-/// 群主阻断回 NoPermission(100103) 且 userInfo[IMErrorOwnedGroupsKey] 有值；密码错回 200002。主线程回调。
+/// POST /api/v1/account/delete {proof}（Bearer，proof = 密码或短信验证码，PROTOCOL §7.3）。成功回 nil；
+/// 群主阻断回 NoPermission(100103) 且 userInfo[IMErrorOwnedGroupsKey] 有值；密码错回 200002、验证码错 200043。主线程回调。
 - (void)deleteAccountWithToken:(NSString *)token
-                      password:(NSString *)password
+                         proof:(IMIdentityProof *)proof
                     completion:(void (^)(NSError *_Nullable error))completion;
 
 /// POST /api/v1/account/restore {username,password}（免鉴权，等同登录）。成功回 nil。主线程回调。

@@ -44,6 +44,9 @@ NS_ASSUME_NONNULL_BEGIN
 + (nullable NSString *)userID;
 /// 登录凭据（公开句柄）。冷启动静默重登必须用它，不能用 userID。
 + (nullable NSString *)username;
+/// 存着的 username 是否经由本版 saveHost:… 写入（=服务端回的值）。老版本存的值没有这个标记，
+/// 才需要按形态判断可不可信（IMStoredUsernameIsTrusted）；有标记就直接信，纯数字的老用户名也不再每次冷启动去校正。
++ (BOOL)usernameFromServer;
 
 /// 续期凭据：冷启动免密换取新 access token 用（POST /api/v1/token/refresh）。
 /// 从未存过 → nil（老版本升上来、或后端未下发时即此情形，见 legacyPassword）。

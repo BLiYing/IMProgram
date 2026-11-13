@@ -14,7 +14,6 @@
 #import "IMTwoStepBindViewController.h"
 #import "IMTwoStepCodesViewController.h"
 #import "IMTwoStepVerifyViewController.h"
-#import "IMTwoStepPasswordViewController.h"
 #import "IMLoginTwoStepView.h"
 #import "IMLoginViewController.h"
 #import "IMPrivacySecurityViewController.h"
@@ -72,8 +71,8 @@ static NSDictionary *sResp; static NSInteger sStatus; static NSString *sPath; st
 #pragma mark - 页面私有成员（运行时访问，不改生产可见性）
 
 @interface IMLoginViewController (TwoStepTestAccess)
-- (void)beginTwoStepWithTicket:(NSString *)ticket host:(NSString *)host username:(NSString *)username;
-- (void)leaveTwoStep;
+- (void)beginTwoStepWithTicket:(NSString *)ticket host:(NSString *)host tab:(NSInteger)tab;
+- (void)leaveSubpage;
 - (void)handleTwoStepFailure:(NSError *)error recovery:(BOOL)recovery;
 @end
 @interface IMTwoStepCodesViewController (TestAccess)
@@ -191,9 +190,7 @@ static NSDictionary *sResp; static NSInteger sStatus; static NSString *sPath; st
     BOOL allowed = [vc textField:rec shouldChangeCharactersInRange:NSMakeRange(0, 0) replacementString:list];
     XCTAssertFalse(allowed, @"已由我们替换，系统不再插入原文");
     XCTAssertEqualObjects(rec.text, @"aaaaa-bbbbb");
-    UITextField *pw = [vc valueForKey:@"passwordField"];
-    pw.text = @"pw"; [pw sendActionsForControlEvents:UIControlEventEditingChanged];
-    XCTAssertTrue(vc.primaryButton.enabled, @"粘贴后触发 EditingChanged，按钮可用");
+    XCTAssertTrue(vc.primaryButton.enabled, @"粘贴后触发 EditingChanged，按钮可用（身份确认在弹层里，页面上没有密码框）");
     // 提取不到：仍按原规则拒超长
     rec.text = @"";
     XCTAssertFalse([vc textField:rec shouldChangeCharactersInRange:NSMakeRange(0, 0) replacementString:@"zzzzzzzzzzzzzzzzzzzz"]);
@@ -324,11 +321,10 @@ static NSDictionary *sResp; static NSInteger sStatus; static NSString *sPath; st
     XCTAssertTrue(IMTwoStepCanFinish(YES));
 }
 - (void)test_验证页提交条件 {
-    XCTAssertFalse(IMTwoStepCanSubmitVerify(@"", @"123456", NO));
-    XCTAssertFalse(IMTwoStepCanSubmitVerify(@"pw", @"12345", NO));
-    XCTAssertTrue(IMTwoStepCanSubmitVerify(@"pw", @"123456", NO));
-    XCTAssertFalse(IMTwoStepCanSubmitVerify(@"pw", @"123456", YES), @"恢复码模式下 6 位数字不算");
-    XCTAssertTrue(IMTwoStepCanSubmitVerify(@"pw", @"K7M2Q-9XW3P", YES));
+    XCTAssertFalse(IMTwoStepCanSubmitVerify(@"12345", NO));
+    XCTAssertTrue(IMTwoStepCanSubmitVerify(@"123456", NO));
+    XCTAssertFalse(IMTwoStepCanSubmitVerify(@"123456", YES), @"恢复码模式下 6 位数字不算");
+    XCTAssertTrue(IMTwoStepCanSubmitVerify(@"K7M2Q-9XW3P", YES));
 }
 
 #pragma mark - REST：HTTP 400 的标准信封必须保留 data
@@ -393,9 +389,9 @@ static NSDictionary *sResp; static NSInteger sStatus; static NSString *sPath; st
         XCTAssertEqualObjects(sPath, @"/api/v1/users/me/two-step");
         XCTAssertTrue(state.enabled); XCTAssertEqual(state.recoveryRemaining, 9);
         sResp = @{ @"code": @0, @"data": @{ @"secret": @"JBSWY3DPEHPK3PXP", @"otpauth_uri": @"otpauth://totp/IM:u?secret=JBSWY3DPEHPK3PXP", @"expires_in": @1800 } };
-        [IMHTTPService.sharedService setupTwoStepWithToken:t password:@"pw" completion:^(IMTwoStepSetup *setup, NSError *e2) {
+        [IMHTTPService.sharedService setupTwoStepWithToken:t proof:[IMIdentityProof passwordProof:@"pw"] completion:^(IMTwoStepSetup *setup, NSError *e2) {
             XCTAssertEqualObjects(sPath, @"/api/v1/users/me/two-step/setup");
-            XCTAssertEqualObjects(sBody, @{ @"password": @"pw" });
+            XCTAssertEqualObjects(sBody, (@{ @"proof": @{ @"password": @"pw" } }));
             XCTAssertEqualObjects(setup.secret, @"JBSWY3DPEHPK3PXP");
             XCTAssertEqual(setup.expiresIn, 1800);
             NSArray *ten = @[@"a1",@"a2",@"a3",@"a4",@"a5",@"a6",@"a7",@"a8",@"a9",@"b0"];
@@ -404,15 +400,15 @@ static NSDictionary *sResp; static NSInteger sStatus; static NSString *sPath; st
                 XCTAssertEqualObjects(sPath, @"/api/v1/users/me/two-step/enable");
                 XCTAssertEqualObjects(sBody, @{ @"code": @"123456" });
                 XCTAssertEqual(codes.count, 10u);
-                [IMHTTPService.sharedService regenerateRecoveryCodesWithToken:t password:@"pw" code:@"k7m2q9xw3p" completion:^(NSArray *c2, NSError *e4) {
+                [IMHTTPService.sharedService regenerateRecoveryCodesWithToken:t proof:[IMIdentityProof smsProof:@"123456"] code:@"k7m2q9xw3p" completion:^(NSArray *c2, NSError *e4) {
                     XCTAssertEqualObjects(sPath, @"/api/v1/users/me/two-step/recovery-codes");
-                    XCTAssertEqualObjects(sBody, (@{ @"password": @"pw", @"code": @"k7m2q9xw3p" }));
+                    XCTAssertEqualObjects(sBody, (@{ @"proof": @{ @"sms_code": @"123456" }, @"code": @"k7m2q9xw3p" }));
                     XCTAssertEqual(c2.count, 10u);
                     sResp = @{ @"code": @0, @"data": @{ @"ok": @YES } };
-                    [IMHTTPService.sharedService disableTwoStepWithToken:t password:@"pw" code:@"654321" completion:^(NSError *e5) {
+                    [IMHTTPService.sharedService disableTwoStepWithToken:t proof:[IMIdentityProof passwordProof:@"pw"] code:@"654321" completion:^(NSError *e5) {
                         XCTAssertNil(e5);
                         XCTAssertEqualObjects(sPath, @"/api/v1/users/me/two-step/disable");
-                        XCTAssertEqualObjects(sBody, (@{ @"password": @"pw", @"code": @"654321" }));
+                        XCTAssertEqualObjects(sBody, (@{ @"proof": @{ @"password": @"pw" }, @"code": @"654321" }));
                         [e fulfill];
                     }];
                 }];
@@ -543,8 +539,7 @@ static NSDictionary *sResp; static NSInteger sStatus; static NSString *sPath; st
     IMTwoStepVerifyViewController *vc = [[IMTwoStepVerifyViewController alloc] initWithHost:@"h" userID:@"u1" mode:IMTwoStepVerifyModeDisable];
     [vc loadViewIfNeeded];
     XCTAssertEqualObjects(vc.primaryButton.backgroundColor, UIColor.systemRedColor);
-    UITextField *pw = [vc valueForKey:@"passwordField"], *code = [vc valueForKey:@"codeField"], *rec = [vc valueForKey:@"recoveryField"];
-    pw.text = @"pw"; [pw sendActionsForControlEvents:UIControlEventEditingChanged];
+    UITextField *code = [vc valueForKey:@"codeField"], *rec = [vc valueForKey:@"recoveryField"];
     code.text = @"123456"; [code sendActionsForControlEvents:UIControlEventEditingChanged];
     XCTAssertTrue(vc.primaryButton.enabled);
     [vc toggleMethod];
@@ -561,10 +556,9 @@ static NSDictionary *sResp; static NSInteger sStatus; static NSString *sPath; st
     XCTAssertEqualObjects(regen.primaryButton.backgroundColor, UIColor.systemBlueColor);
 }
 
-- (void)test_入口页是流程根_密码页不是 {
+- (void)test_入口页是流程根 {
     IMTwoStepViewController *root = [[IMTwoStepViewController alloc] initWithHost:@"h" userID:@"u1"];
     XCTAssertTrue([root isFlowRoot]);
-    XCTAssertFalse([[[IMTwoStepPasswordViewController alloc] initWithHost:@"h" userID:@"u1"] isFlowRoot]);
 }
 
 #pragma mark - 登录二步页
@@ -613,12 +607,12 @@ static NSDictionary *sResp; static NSInteger sStatus; static NSString *sPath; st
     IMLoginTwoStepView *two = [vc valueForKey:@"twoStepView"];
     XCTAssertTrue(two.hidden);
     XCTAssertFalse(user.hidden);
-    [vc beginTwoStepWithTicket:@"T1" host:@"127.0.0.1:8080" username:@"twostep02"];
+    [vc beginTwoStepWithTicket:@"T1" host:@"127.0.0.1:8080" tab:1];
     XCTAssertFalse(two.hidden);
     XCTAssertTrue(user.hidden); XCTAssertTrue(pw.hidden);
     XCTAssertTrue([[vc valueForKey:@"loginButton"] isHidden]);
     XCTAssertEqualObjects([vc valueForKey:@"twoStepTicket"], @"T1");
-    [vc leaveTwoStep];
+    [vc leaveSubpage];
     XCTAssertTrue(two.hidden);
     XCTAssertFalse(user.hidden); XCTAssertFalse(pw.hidden);
     XCTAssertFalse([[vc valueForKey:@"loginButton"] isHidden]);
@@ -629,7 +623,7 @@ static NSDictionary *sResp; static NSInteger sStatus; static NSString *sPath; st
 - (void)test_登录页_ticket失效回密码页并提示 {
     IMLoginViewController *vc = [IMLoginViewController new];
     [vc loadViewIfNeeded];
-    [vc beginTwoStepWithTicket:@"T1" host:@"h" username:@"u"];
+    [vc beginTwoStepWithTicket:@"T1" host:@"h" tab:1];
     NSError *err = [NSError errorWithDomain:@"IMHTTPService" code:200022 userInfo:@{ NSLocalizedDescriptionKey: @"x" }];
     [vc handleTwoStepFailure:err recovery:NO];
     XCTAssertTrue([[vc valueForKey:@"twoStepView"] isHidden]);
@@ -642,7 +636,7 @@ static NSDictionary *sResp; static NSInteger sStatus; static NSString *sPath; st
 - (void)test_登录页_错码清空数字框并显示剩余次数 {
     IMLoginViewController *vc = [IMLoginViewController new];
     [vc loadViewIfNeeded];
-    [vc beginTwoStepWithTicket:@"T1" host:@"h" username:@"u"];
+    [vc beginTwoStepWithTicket:@"T1" host:@"h" tab:1];
     IMLoginTwoStepView *two = [vc valueForKey:@"twoStepView"];
     two.codeField.text = @"123456";
     NSError *err = [NSError errorWithDomain:@"IMHTTPService" code:200021

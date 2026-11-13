@@ -1575,6 +1575,7 @@
 "proof.confirm" = "Confirm";
 "proof.load_failed" = "Couldn’t check how to verify you. Check your connection and try again.";
 "proof.password.placeholder" = "Current password";
+"proof.sms_unavailable" = "SMS is unavailable right now, so we can’t verify it’s you. Try again later.";
 "proof.tab_password" = "Password";
 "proof.tab_sms" = "SMS code";
 "proof.title" = "Confirm it’s you";

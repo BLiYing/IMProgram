@@ -1575,6 +1575,7 @@
 "proof.confirm" = "确认";
 "proof.load_failed" = "无法确认验证方式，请检查网络后重试";
 "proof.password.placeholder" = "当前密码";
+"proof.sms_unavailable" = "短信服务暂不可用，暂时无法确认是你本人，请稍后再试";
 "proof.tab_password" = "密码";
 "proof.tab_sms" = "短信验证码";
 "proof.title" = "确认是你本人";

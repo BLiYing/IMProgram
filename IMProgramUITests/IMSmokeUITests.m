@@ -7,6 +7,7 @@
 //  步骤：（必要时免密登录）→ 会话列表里出现对端刚发的 ping → 点进去看到 ping 气泡 → 输入 pong 发送 → pong 气泡出现。
 
 #import <XCTest/XCTest.h>
+#import "IMUITestLogin.h"
 
 @interface IMSmokeUITests : XCTestCase
 @property (nonatomic, strong) XCUIApplication *app;
@@ -50,6 +51,7 @@
 }
 
 - (void)loginIfNeeded {
+    IMUITestShowPasswordLogin(self.app, 5); // 免密按钮只在「密码登录」页签
     XCUIElement *devLogin = self.app.buttons[@"免密登录（开发）"];
     if (![devLogin waitForExistenceWithTimeout:5]) { return; }
     XCUIElement *user = self.app.textFields.firstMatch;

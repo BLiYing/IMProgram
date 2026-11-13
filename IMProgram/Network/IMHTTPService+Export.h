@@ -3,15 +3,16 @@
 
 #import "IMHTTPService.h"
 #import "IMDataExport.h"
+#import "IMPhoneAuth.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
 @interface IMHTTPService (Export)
 
-/// POST /api/v1/users/me/exports。成功回任务对象。密码错 200002；已有进行中 200010；冷却内 200011
+/// POST /api/v1/users/me/exports {proof, …}。成功回任务对象。密码错 200002、验证码错 200043；已有进行中 200010；冷却内 200011
 /// （error.userInfo[IMErrorRetryAfterSecKey] 为 retry_after_sec，回包没带则无此键）。
 - (void)startExportWithToken:(NSString *)token
-                    password:(NSString *)password
+                       proof:(IMIdentityProof *)proof
                 includeMedia:(BOOL)includeMedia
                      formats:(NSArray<NSString *> *)formats
                   completion:(void (^)(IMExportJob *_Nullable job, NSError *_Nullable error))completion;

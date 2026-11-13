@@ -7,10 +7,10 @@
 #import "IMHTTPService+Email.h"
 #import "IMLocalization.h"
 #import "IMLog.h"
+#import "IMIdentityProofSheet.h"
 
-@interface IMEmailUnbindViewController () <UITextFieldDelegate>
-@property (nonatomic, strong, readwrite) UITextField *passwordField;
-@property (nonatomic, strong) UIView *passwordRow;
+@interface IMEmailUnbindViewController ()
+@property (nonatomic, strong, readwrite) IMProofSession *proofSession;
 @end
 
 @implementation IMEmailUnbindViewController
@@ -18,35 +18,14 @@
 - (NSString *)pageTitle { return IMLocalized(@"email.action.unbind"); }
 - (NSString *)primaryTitle { return IMLocalized(@"email.action.unbind"); }
 - (UIColor *)primaryColor { return UIColor.systemRedColor; }
-- (BOOL)primaryEnabled { return self.passwordField.text.length > 0; }
 
-- (void)viewDidLoad {
-    self.passwordField = IMTwoStepMakePasswordField(IMLocalized(@"email.field.password"));
-    self.passwordField.delegate = self;
-    self.passwordField.returnKeyType = UIReturnKeyContinue;
-    [self.passwordField addTarget:self action:@selector(fieldChanged) forControlEvents:UIControlEventEditingChanged];
-    self.passwordRow = IMTwoStepFieldRow(self.passwordField, 44);
-    [super viewDidLoad];
-}
-
-- (void)viewDidAppear:(BOOL)animated {
-    [super viewDidAppear:animated];
-    if (!self.passwordField.isFirstResponder) { [self.passwordField becomeFirstResponder]; }
+- (IMProofSession *)proofSession {
+    if (!_proofSession) { _proofSession = [[IMProofSession alloc] initWithHost:self.host userID:self.userID]; }
+    return _proofSession;
 }
 
 - (NSArray<IMTwoStepSection *> *)buildSections {
-    return @[[IMTwoStepSection sectionWithRows:@[[IMTwoStepRow rowWithView:self.passwordRow onTap:nil]]
-                                        footer:IMLocalized(@"email.unbind.body")]];
-}
-
-- (void)fieldChanged {
-    if (!self.errorLabel.hidden) { [self showError:nil]; }
-    [self refreshPrimary];
-}
-
-- (BOOL)textFieldShouldReturn:(UITextField *)textField {
-    if (self.primaryButton.enabled) { [self primaryButtonTapped]; }
-    return NO;
+    return @[[IMTwoStepSection sectionWithRows:@[] footer:IMLocalized(@"email.unbind.body")]];
 }
 
 #pragma mark - 确认 + 提交
@@ -65,22 +44,19 @@
     [self presentViewController:ac animated:YES completion:nil];
 }
 
+/// 确认身份弹层（密码或短信验证码）→ unbind {proof}。证明本身的错留在弹层里重输；其余回到本页红字。
 - (void)performUnbind {
-    NSString *password = self.passwordField.text ?: @"";
-    self.busy = YES;
     __weak typeof(self) ws = self;
-    [self withToken:^(NSString *token) {
-        [IMHTTPService.sharedService unbindEmailWithToken:token password:password completion:^(NSError *error) {
-            [ws handleUnbind:error];
-        }];
+    [self.proofSession presentFrom:self request:^(NSString *token, IMIdentityProof *proof, void (^finish)(NSError *)) {
+        [IMHTTPService.sharedService unbindEmailWithToken:token proof:proof completion:^(NSError *error) { finish(error); }];
+    } completion:^(BOOL succeeded, NSError *pageError) {
+        if (succeeded || pageError) { [ws handleUnbind:pageError]; }
     }];
 }
 
 - (void)handleUnbind:(nullable NSError *)error {
-    self.busy = NO;
     if (!error) {
         IMLogUI(@"email_unbound");
-        self.passwordField.text = @"";
         [IMEmailLoginViewController finishFlowFromPage:self state:nil toast:IMLocalized(@"email.toast.unbound")];
         return;
     }
@@ -91,7 +67,6 @@
         return;
     }
     [self showError:msg];
-    if (IMEmailFormTargetForError(error.code) == IMEmailFormTargetPassword) { [self markErrorView:self.passwordRow]; }
 }
 
 @end

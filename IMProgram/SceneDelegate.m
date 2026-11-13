@@ -11,6 +11,7 @@
 #import "IMLoginViewController.h"
 #import "IMMainTabBarController.h"
 #import "IMHTTPService.h"
+#import "IMHTTPService+Phone.h"
 #import "IMSessionStore.h"
 #import "IMSessionTeardown.h"
 #import "IMPushSender.h"
@@ -73,6 +74,8 @@
             IMHTTPService.sharedService.password = IMSessionStore.legacyPassword ?: @"";
         }
         self.window.rootViewController = [[IMMainTabBarController alloc] initWithHost:host userID:uid];
+        // 存量本地用户名不可信（早期把输入的手机号 / 邮箱当用户名存过）：当空，再拉一次 /users/me 校正（PHONE_AUTH_DESIGN A2 补充 1）。
+        [IMHTTPService.sharedService repairStoredUsernameIfNeeded];
     } else {
         [self showLogin];
     }

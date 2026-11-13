@@ -9,6 +9,7 @@
 //  跑法同 IMUploadPolicyS3aUITests（TEST_RUNNER_IM_S4_UITEST=1）。
 
 #import <XCTest/XCTest.h>
+#import "IMUITestLogin.h"
 
 @interface IMSecurityS4UITests : XCTestCase
 @property (nonatomic, strong) XCUIApplication *app;
@@ -58,28 +59,11 @@
         confirm = [self.app.sheets.buttons matchingIdentifier:@"退出登录"].firstMatch;
     }
     [[self waitFor:confirm named:@"确认退出"] tap];
-    [self waitFor:self.app.buttons[@"免密登录（开发）"] named:@"登录页"];
+    [self waitFor:IMUITestLoginLogo(self.app) named:@"登录页"];
 }
 
-/// 两个「登录」按钮（Tab 与提交）里取靠下的那个 = 提交。
 - (XCUIElement *)loginSubmit {
-    XCUIElementQuery *q = [self.app.buttons matchingIdentifier:@"登录"];
-    XCUIElement *best = nil;
-    for (NSUInteger i = 0; i < q.count; i++) {
-        XCUIElement *e = [q elementBoundByIndex:i];
-        if (!best || e.frame.origin.y > best.frame.origin.y) { best = e; }
-    }
-    return best;
-}
-
-- (XCUIElement *)loginTab {
-    XCUIElementQuery *q = [self.app.buttons matchingIdentifier:@"登录"];
-    XCUIElement *best = nil;
-    for (NSUInteger i = 0; i < q.count; i++) {
-        XCUIElement *e = [q elementBoundByIndex:i];
-        if (!best || e.frame.origin.y < best.frame.origin.y) { best = e; }
-    }
-    return best;
+    return self.app.buttons[@"login.submit_password"];
 }
 
 - (void)replaceText:(NSString *)text in:(XCUIElement *)field {
@@ -92,10 +76,10 @@
     [field typeText:text];
 }
 
-/// ① 关闭开放注册：切到「注册」Tab → 显示「管理员已暂停注册新账号」，「注册并登录」不可点。
+/// ① 关闭开放注册：点底部「用户名注册」→ 显示「管理员已暂停注册新账号」，「注册并登录」不可点。
 - (void)testA_RegisterClosed {
     [self logoutIfNeeded];
-    [[self waitFor:self.app.buttons[@"注册"].firstMatch named:@"注册 Tab"] tap];
+    [[self waitFor:self.app.buttons[@"login.register_username"] named:@"用户名注册链接"] tap];
     XCUIElement *notice = self.app.staticTexts[@"login.register_closed"];
     [self waitFor:notice named:@"暂停注册提示"];
     [NSThread sleepForTimeInterval:0.5];
@@ -107,7 +91,7 @@
 /// ② 登录失败锁定（阈值 3）：连输 3 次错密码 → 第 4 次即使密码正确也提示「登录失败次数过多，请 N 分钟后再试」。
 - (void)testB_LoginLocked {
     [self logoutIfNeeded];
-    [[self waitFor:[self loginTab] named:@"登录 Tab"] tap];
+    XCTAssertTrue(IMUITestShowPasswordLogin(self.app, 15), @"没回到登录页");
     XCUIElement *user = self.app.textFields.firstMatch;
     XCUIElement *pass = self.app.secureTextFields.firstMatch;
     [self replaceText:@"s4lockios" in:[self waitFor:user named:@"用户名"]];

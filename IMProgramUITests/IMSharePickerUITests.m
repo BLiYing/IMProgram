@@ -9,6 +9,7 @@
 //      -only-testing:IMProgramUITests/IMSharePickerUITests -resultBundlePath build/SharePickerUI.xcresult
 
 #import <XCTest/XCTest.h>
+#import "IMUITestLogin.h"
 
 @interface IMSharePickerUITests : XCTestCase
 @property (nonatomic, strong) XCUIApplication *app;
@@ -54,6 +55,7 @@
 }
 
 - (void)loginIfNeeded {
+    IMUITestShowPasswordLogin(self.app, 5); // 免密按钮只在「密码登录」页签
     XCUIElement *devLogin = self.app.buttons[@"免密登录（开发）"];
     if ([devLogin waitForExistenceWithTimeout:5]) {
         XCUIElement *user = [self.app.textFields matchingPredicate:
