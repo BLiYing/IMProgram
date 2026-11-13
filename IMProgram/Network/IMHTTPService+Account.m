@@ -72,7 +72,7 @@ NSError *IMErrorByAttachingAccountInfo(NSError *error, NSDictionary *body) {
 - (void)deleteAccountWithToken:(NSString *)token proof:(IMIdentityProof *)proof
                     completion:(void (^)(NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/account/delete" method:@"POST" token:token
-                                                     body:@{ @"proof": [proof JSONObject] }];
+                                                     body:IMBodyWithProof(@{}, proof)];
     [self runEnvelopeRequest:req completion:^(id data, NSError *error) { completion(error); }];
 }
 

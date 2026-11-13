@@ -38,7 +38,7 @@ NSError *IMErrorByAttachingTwoStepInfo(NSError *error, NSDictionary *body) {
 - (void)setupTwoStepWithToken:(NSString *)token proof:(IMIdentityProof *)proof
                    completion:(void (^)(IMTwoStepSetup *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/users/me/two-step/setup" method:@"POST" token:token
-                                                     body:@{ @"proof": [proof JSONObject] }];
+                                                     body:IMBodyWithProof(@{}, proof)];
     [self runEnvelopeRequest:req completion:^(id data, NSError *error) {
         if (error) { completion(nil, error); return; }
         NSDictionary *d = [data isKindOfClass:NSDictionary.class] ? data : nil;
@@ -75,14 +75,14 @@ NSError *IMErrorByAttachingTwoStepInfo(NSError *error, NSDictionary *body) {
 - (void)disableTwoStepWithToken:(NSString *)token proof:(IMIdentityProof *)proof code:(NSString *)code
                      completion:(void (^)(NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/users/me/two-step/disable" method:@"POST" token:token
-                                                     body:@{ @"proof": [proof JSONObject], @"code": code ?: @"" }];
+                                                     body:IMBodyWithProof(@{ @"code": code ?: @"" }, proof)];
     [self runEnvelopeRequest:req completion:^(id data, NSError *error) { completion(error); }];
 }
 
 - (void)regenerateRecoveryCodesWithToken:(NSString *)token proof:(IMIdentityProof *)proof code:(NSString *)code
                               completion:(void (^)(NSArray<NSString *> *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/users/me/two-step/recovery-codes" method:@"POST" token:token
-                                                     body:@{ @"proof": [proof JSONObject], @"code": code ?: @"" }];
+                                                     body:IMBodyWithProof(@{ @"code": code ?: @"" }, proof)];
     [self recoveryCodesFromRequest:req completion:completion];
 }
 

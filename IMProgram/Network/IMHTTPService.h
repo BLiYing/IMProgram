@@ -29,6 +29,9 @@ NSString *_Nullable IMFriendlyMessageForCode(NSInteger code);
 
 /// 密码登录失败超限被暂时锁定（200006 LoginLocked，HTTP 429，PROTOCOL §6.16 / S4）。
 FOUNDATION_EXPORT NSInteger const IMErrCodeLoginLocked;
+/// 本人资料卡变了（主线程发）：绑定 / 更换登录手机号成功后发——资料卡 `phone` 就是登录手机号（PHONE_AUTH_DESIGN §15.1），
+/// 持有本人资料的页面（「我」页头部、资料页）收到后重拉 /users/me，否则手机号一直停在「未设置」/ 旧号码直到重启。
+FOUNDATION_EXPORT NSNotificationName const IMMyProfileDidChangeNotification;
 /// 内容含敏感词被拦（100004 ContentBlocked，HTTP 400，SENSITIVE_WORDS_DESIGN §3）：资料 / 群资料 / 好友申请附言命中。
 /// 不说是哪个词；表单类入口据此把用户刚提交的文本还原回编辑器（内容保留）。
 FOUNDATION_EXPORT NSInteger const IMErrCodeContentBlocked;
@@ -232,11 +235,11 @@ NSString *IMLoginLockedMessage(NSDictionary *_Nullable body);
                       userID:(NSString *)userID
                   completion:(void (^)(IMUserCard *_Nullable profile, NSError *_Nullable error))completion;
 
-/// 整体更新本人资料（PUT /api/v1/users/me）。bio 为个性签名；**不再发送 tags**（服务端缺省=保持原值）。completion 在主线程回调。
+/// 整体更新本人资料（PUT /api/v1/users/me）。bio 为个性签名；**不再发送 tags**（服务端缺省=保持原值）；
+/// **不再发送 phone**（资料手机号已并入登录手机号，服务端忽略，PHONE_AUTH_DESIGN §15.1）。completion 在主线程回调。
 - (void)updateProfileWithToken:(NSString *)token
                       nickname:(NSString *)nickname
                      avatarURL:(NSString *)avatarURL
-                         phone:(NSString *)phone
                            bio:(NSString *)bio
                     completion:(void (^)(IMUserCard *_Nullable profile, NSError *_Nullable error))completion;
 

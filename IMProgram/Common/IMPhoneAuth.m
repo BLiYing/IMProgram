@@ -16,6 +16,8 @@ NSInteger const IMErrCodeSMSSendFailed = 200045;
 NSInteger const IMErrCodeSMSDailyCap = 200046;
 NSInteger const IMErrCodePhoneNotRegistered = 200047;
 NSInteger const IMErrCodePhoneTicketInvalid = 200048;
+NSInteger const IMErrCodeProofRequired = 200049;
+NSInteger const IMProofRecentAuthMinSec = 15;
 
 NSUInteger const IMSMSCodeLength = 6;
 NSInteger const IMSMSResendDefaultSeconds = 60;
@@ -35,6 +37,7 @@ NSString *IMPhoneAuthFriendlyMessage(NSInteger code) {
 
 @interface IMIdentityProof ()
 @property (nonatomic, assign, readwrite) BOOL isSMS;
+@property (nonatomic, assign, readwrite) BOOL isEmpty;
 @property (nonatomic, copy, readwrite) NSString *secret;
 @end
 
@@ -50,11 +53,28 @@ NSString *IMPhoneAuthFriendlyMessage(NSInteger code) {
     p.secret = code ?: @"";
     return p;
 }
++ (instancetype)emptyProof {
+    IMIdentityProof *p = [IMIdentityProof new];
+    p.isEmpty = YES;
+    p.secret = @"";
+    return p;
+}
+- (BOOL)isReusable { return !self.isSMS && !self.isEmpty; }
 - (NSDictionary<NSString *, NSString *> *)JSONObject {
+    if (self.isEmpty) { return @{}; }
     return self.isSMS ? @{ @"sms_code": self.secret } : @{ @"password": self.secret };
 }
-- (NSString *)description { return self.isSMS ? @"<proof sms>" : @"<proof password>"; } // 不带原文
+- (NSString *)description { // 不带原文
+    return self.isEmpty ? @"<proof empty>" : (self.isSMS ? @"<proof sms>" : @"<proof password>");
+}
 @end
+
+NSDictionary *IMBodyWithProof(NSDictionary *body, IMIdentityProof *proof) {
+    if (proof.isEmpty) { return body ?: @{}; }
+    NSMutableDictionary *d = [body mutableCopy] ?: [NSMutableDictionary dictionary];
+    d[@"proof"] = [proof JSONObject];
+    return d;
+}
 
 #pragma mark - public-config
 
@@ -121,6 +141,23 @@ NSString *IMPhoneAuthFriendlyMessage(NSInteger code) {
 
 #pragma mark - security
 
+@implementation IMLegacyPhone
++ (instancetype)legacyPhoneFromJSON:(id)json {
+    if (![json isKindOfClass:NSDictionary.class]) { return nil; }
+    NSDictionary *d = json;
+    id cc = d[@"country_code"], phone = d[@"phone"], masked = d[@"masked"];
+    if (![cc isKindOfClass:NSString.class] || [cc length] == 0 || ![phone isKindOfClass:NSString.class] || [phone length] == 0) {
+        return nil;
+    }
+    IMLegacyPhone *p = [IMLegacyPhone new];
+    p.countryCode = cc;
+    p.phone = phone;
+    p.masked = [masked isKindOfClass:NSString.class] && [masked length] > 0 ? masked : IMPhoneMasked(cc, phone);
+    return p;
+}
+- (NSString *)description { return [NSString stringWithFormat:@"<legacy_phone %@>", self.masked]; } // 不带明文
+@end
+
 @implementation IMSecurityState
 + (instancetype)stateFromJSON:(id)json {
     if (![json isKindOfClass:NSDictionary.class]) { return nil; }
@@ -130,6 +167,8 @@ NSString *IMPhoneAuthFriendlyMessage(NSInteger code) {
     s.phoneMasked = [d[@"phone_masked"] isKindOfClass:NSString.class] && [d[@"phone_masked"] length] > 0 ? d[@"phone_masked"] : nil;
     s.passwordSet = [d[@"password_set"] isKindOfClass:NSNumber.class] ? [d[@"password_set"] boolValue] : YES;
     s.smsAvailable = [d[@"sms_available"] isKindOfClass:NSNumber.class] && [d[@"sms_available"] boolValue];
+    s.recentAuthSec = [d[@"recent_auth_sec"] isKindOfClass:NSNumber.class] ? MAX(0, [d[@"recent_auth_sec"] integerValue]) : 0;
+    s.legacyPhone = [IMLegacyPhone legacyPhoneFromJSON:d[@"legacy_phone"]];
     return s;
 }
 @end
@@ -283,6 +322,20 @@ NSArray<NSNumber *> *IMProofTabsForState(IMSecurityState *state) {
 
 BOOL IMProofShowsSegments(NSArray<NSNumber *> *tabs) { return tabs.count > 1; }
 
+BOOL IMProofSkipsSheet(IMSecurityState *state) { return state != nil && state.recentAuthSec >= IMProofRecentAuthMinSec; }
+
+void IMProofRunWithoutSheet(IMSecurityState *state, IMProofSubmitBlock submit, void (^ask)(void), IMProofCompletion completion) {
+    if (!IMProofSkipsSheet(state)) { ask(); return; }
+    __block BOOL finished = NO;
+    submit([IMIdentityProof emptyProof], ^(NSError *error) {
+        if (finished) { return; }
+        finished = YES;
+        if (!error) { completion(YES, nil); return; }
+        if (error.code == IMErrCodeProofRequired) { ask(); return; } // 边界上刚好过期：照常弹层
+        completion(NO, error);
+    });
+}
+
 BOOL IMProofCanConfirm(IMProofTab tab, NSString *password, NSString *code, BOOL busy) {
     if (busy) { return NO; }
     return tab == IMProofTabPassword ? password.length > 0 : IMSMSCodeIsComplete(code);
@@ -360,6 +413,8 @@ IMPhoneRowAction IMSecurityPhoneRowAction(IMSecurityState *state) {
     if (!state.smsAvailable) { return IMPhoneRowActionSMSUnavailable; }
     return state.phoneBound ? IMPhoneRowActionChange : IMPhoneRowActionBind;
 }
+
+IMLegacyPhone *IMSecurityLegacyPhonePrompt(IMSecurityState *state) { return state.phoneBound ? nil : state.legacyPhone; }
 
 BOOL IMSecurityPasswordPageIsSet(IMSecurityState *state) { return state != nil && !state.passwordSet; }
 BOOL IMSecurityCanChangePasswordBySMS(IMSecurityState *state) { return state.phoneBound && state.smsAvailable; }

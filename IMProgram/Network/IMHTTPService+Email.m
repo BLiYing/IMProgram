@@ -44,8 +44,7 @@ NSInteger IMEmailRetryAfterFromError(NSError *error) { return IMEmailIntFromErro
 - (void)sendEmailCodeWithToken:(NSString *)token email:(NSString *)email proof:(IMIdentityProof *)proof
                     completion:(void (^)(IMEmailSendResult *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/users/me/email/send-code" method:@"POST" token:token
-                                                     body:@{ @"email": email ?: @"", @"proof": [proof JSONObject],
-                                                             @"lang": IMEmailAPILang() }];
+                                                     body:IMBodyWithProof(@{ @"email": email ?: @"", @"lang": IMEmailAPILang() }, proof)];
     [self runEnvelopeRequest:req completion:^(id data, NSError *error) {
         if (error) { completion(nil, error); return; }
         NSDictionary *d = [data isKindOfClass:NSDictionary.class] ? data : nil;
@@ -71,7 +70,7 @@ NSInteger IMEmailRetryAfterFromError(NSError *error) { return IMEmailIntFromErro
 
 - (void)unbindEmailWithToken:(NSString *)token proof:(IMIdentityProof *)proof completion:(void (^)(NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/users/me/email/unbind" method:@"POST" token:token
-                                                     body:@{ @"proof": [proof JSONObject] }];
+                                                     body:IMBodyWithProof(@{}, proof)];
     [self runEnvelopeRequest:req completion:^(id data, NSError *error) { completion(error); }];
 }
 

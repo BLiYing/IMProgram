@@ -140,6 +140,11 @@ static IMSMSSendResult *IMSMSSendResultFrom(id data) {
     }];
 }
 
+- (void)dismissLegacyPhoneWithToken:(NSString *)token completion:(void (^)(NSError *))completion {
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/users/me/legacy-phone" method:@"DELETE" token:token body:nil];
+    [self runEnvelopeRequest:req completion:^(id data, NSError *error) { completion(error); }];
+}
+
 - (void)sendVerifyCodeWithToken:(NSString *)token completion:(void (^)(IMSMSSendResult *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/users/me/verify-code" method:@"POST" token:token
                                                      body:@{ @"lang": IMEmailAPILang() }];
@@ -167,13 +172,14 @@ static IMSMSSendResult *IMSMSSendResultFrom(id data) {
 
 - (void)bindPhoneWithToken:(NSString *)token proof:(IMIdentityProof *)proof countryCode:(NSString *)countryCode
                      phone:(NSString *)phone code:(NSString *)code completion:(void (^)(NSString *, NSError *))completion {
-    NSDictionary *body = @{ @"proof": [proof JSONObject], @"country_code": countryCode ?: @"",
-                            @"phone": IMPhoneNationalNumber(countryCode, phone), @"code": code ?: @"" };
+    NSDictionary *body = IMBodyWithProof(@{ @"country_code": countryCode ?: @"",
+                                            @"phone": IMPhoneNationalNumber(countryCode, phone), @"code": code ?: @"" }, proof);
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/users/me/phone" method:@"POST" token:token body:body];
     [self runEnvelopeRequest:req completion:^(id data, NSError *error) {
         if (error) { completion(nil, error); return; }
         NSString *masked = [data isKindOfClass:NSDictionary.class] && [data[@"phone_masked"] isKindOfClass:NSString.class]
             ? data[@"phone_masked"] : IMPhoneMasked(countryCode, phone);
+        [NSNotificationCenter.defaultCenter postNotificationName:IMMyProfileDidChangeNotification object:nil];
         completion(masked, nil);
     }];
 }

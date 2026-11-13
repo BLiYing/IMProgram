@@ -50,7 +50,6 @@ static NSUInteger IMBioRuneCount(NSString *s) {
 @property (nonatomic, strong) UITextField *nicknameField;
 @property (nonatomic, strong) UITextField *usernameField; ///< 公开句柄（@xxx），与昵称是两回事
 @property (nonatomic, copy, nullable) NSString *loadedUsername; ///< 载入时的原值，未改动就不发改名请求
-@property (nonatomic, strong) UITextField *phoneField;
 @property (nonatomic, strong) UITextView *bioView;          ///< 个性签名（多行输入，替换原「标签」）
 @property (nonatomic, strong) UILabel *bioPlaceholder;
 @property (nonatomic, strong) UILabel *bioCounter;          ///< 右下角 n/70
@@ -97,15 +96,12 @@ static NSUInteger IMBioRuneCount(NSString *s) {
     self.usernameField.autocapitalizationType = UITextAutocapitalizationTypeNone;
     self.usernameField.autocorrectionType = UITextAutocorrectionTypeNo;
     self.usernameField.keyboardType = UIKeyboardTypeASCIICapable;
-    self.phoneField = [self fieldWithPlaceholder:IMLocalized(@"settings.info.phone")];
-    self.phoneField.keyboardType = UIKeyboardTypePhonePad;
     UIView *bioBox = [self buildBioInput];
 
     self.editStack = [[UIStackView alloc] initWithArrangedSubviews:@[
         [self avatarHeader],
         [self labeledRow:IMLocalized(@"login.nickname") field:self.nicknameField],
         [self labeledRow:IMLocalized(@"settings.info.username") field:self.usernameField],
-        [self labeledRow:IMLocalized(@"settings.info.phone") field:self.phoneField],
         [self labeledRowWithView:IMLocalized(@"profile.field.bio_label") content:bioBox],
     ]];
     self.editStack.translatesAutoresizingMaskIntoConstraints = NO;
@@ -140,6 +136,8 @@ static NSUInteger IMBioRuneCount(NSString *s) {
     ]];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyboardWillChange:)
                                                name:UIKeyboardWillChangeFrameNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(myProfileChanged)
+                                               name:IMMyProfileDidChangeNotification object:nil];
 
     [self setFieldsEnabled:NO];                  // 资料回来前不可输（见 profileLoaded）
     [self applyEditingMode:self.startsEditing];  // 默认只读；设置页「编辑」进来直接编辑态
@@ -167,7 +165,7 @@ static NSUInteger IMBioRuneCount(NSString *s) {
 
 - (void)scrollFirstResponderIntoView {
     UIView *target = nil;
-    for (UIView *v in @[self.bioView, self.phoneField, self.usernameField, self.nicknameField]) {
+    for (UIView *v in @[self.bioView, self.usernameField, self.nicknameField]) {
         if (v.isFirstResponder) { target = v; break; }
     }
     if (!target) { return; }
@@ -553,14 +551,13 @@ static NSUInteger IMBioRuneCount(NSString *s) {
 - (void)fillFieldsFromReadonly {
     self.nicknameField.text = self.roName.text;
     self.usernameField.text = self.loadedUsername;
-    self.phoneField.text = self.roPhoneValue.text;
     self.bioView.text = self.roBioValue.text;
     [self refreshBioChrome];
 }
 
 /// 把一份权威资料同时铺进只读态与编辑态（载入后、保存成功后都走这里，避免两处各填一遍而漂移）。
 - (void)setFieldsEnabled:(BOOL)enabled {
-    for (UITextField *f in @[self.nicknameField, self.usernameField, self.phoneField]) { f.enabled = enabled; }
+    for (UITextField *f in @[self.nicknameField, self.usernameField]) { f.enabled = enabled; }
     self.bioView.editable = enabled;
 }
 
@@ -571,14 +568,12 @@ static NSUInteger IMBioRuneCount(NSString *s) {
     self.usernameField.text = profile.username;
     self.loadedUsername = profile.username;
     self.avatarURL = profile.avatarURL;
-    self.phoneField.text = profile.phone;
     self.bioView.text = profile.bio;
     [self refreshBioChrome];
 
     self.roName.text = IMDisplayName(profile.nickname, profile.username);
     self.roUsernameValue.text = profile.username.length > 0 ? [@"@" stringByAppendingString:profile.username] : IMLocalized(@"settings.info.not_set");
-    self.roPhoneValue.text = profile.phone;
-    self.roPhoneRow.hidden = profile.phone.length == 0;  // 没填手机号就整行不占位（Telegram 同款）
+    [self applyPhone:profile.phone];
     self.roBioValue.text = profile.bio;
     self.roBioRow.hidden = profile.bio.length == 0;      // 没写签名同理
 
@@ -592,6 +587,25 @@ static NSUInteger IMBioRuneCount(NSString *s) {
             self.roAvatar.image = img;
         }];
     }
+}
+
+/// 只读态的手机号行 = 登录手机号（PHONE_AUTH_DESIGN §15.1，服务端下发展示形式）；未绑定整行不占位。
+- (void)applyPhone:(nullable NSString *)phone {
+    self.roPhoneValue.text = phone;
+    self.roPhoneRow.hidden = phone.length == 0;
+}
+
+/// 绑定 / 更换登录手机号成功：只重拉号码那一行（编辑态里用户正在改的昵称 / 签名不动）。
+/// 页面可能已开着很久：重新取 token（缓存命中不发请求），不用进页时那枚。
+- (void)myProfileChanged {
+    IMHTTPService.sharedService.host = self.host;
+    __weak typeof(self) ws = self;
+    [IMHTTPService.sharedService loginWithUserID:self.userID completion:^(NSString *token, NSError *error) {
+        if (token.length == 0) { return; }
+        [IMHTTPService.sharedService myProfileWithToken:token completion:^(IMUserCard *profile, NSError *err) {
+            if (profile) { [ws applyPhone:profile.phone]; }
+        }];
+    }];
 }
 
 - (UIStackView *)labeledRow:(NSString *)title field:(UITextField *)field {
@@ -648,7 +662,6 @@ static NSUInteger IMBioRuneCount(NSString *s) {
     [IMHTTPService.sharedService updateProfileWithToken:self.token
                                                nickname:[self trimmed:self.nicknameField.text]
                                               avatarURL:(self.avatarURL ?: @"")
-                                                  phone:[self trimmed:self.phoneField.text]
                                                     bio:[self trimmed:self.bioView.text]
                                              completion:^(IMUserCard *profile, NSError *error) {
         __strong typeof(weakSelf) self = weakSelf;

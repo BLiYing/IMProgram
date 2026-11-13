@@ -11,6 +11,8 @@
 #import "IMTwoStepViews.h"
 #import "IMLocalization.h"
 #import "IMLog.h"
+#import "IMTheme.h"
+#import "UIViewController+IMToast.h"
 
 static CGFloat const kIMCountryCodeWidth = 76;
 
@@ -24,6 +26,9 @@ static CGFloat const kIMCountryCodeWidth = 76;
 @property (nonatomic, copy) NSString *countryCode;
 @property (nonatomic, strong, nullable) IMLoginConfig *config;
 @property (nonatomic, strong) IMPublicConfig *configFetcher;
+/// 点过「绑定」（已预填）：本页不再显示旧号码提示。「不再提示」成功则直接清 security.legacyPhone。
+@property (nonatomic, assign) BOOL legacyPrefilled;
+@property (nonatomic, assign) BOOL legacyDismissing;
 @end
 
 @implementation IMPhoneBindViewController
@@ -125,7 +130,11 @@ static CGFloat const kIMCountryCodeWidth = 76;
         __strong typeof(ws) self = ws;
         if (!self || failed) { return; }
         self.config = config;
-        if (IMLoginShouldResetCountryCode(NO, self.countryCode, config)) { self.countryCode = IMLoginDefaultCountryCode(config); }
+        if (IMLoginShouldResetCountryCode(NO, self.countryCode, config)) {
+            self.countryCode = IMLoginDefaultCountryCode(config);
+            // 旧号码预填的国家码不在开放地区里：号码不能挂到别的国家码下（那是另一个人的号码），一起清掉。
+            if (self.legacyPrefilled) { self.phoneField.text = @""; }
+        }
         [self refreshCountryButton];
         [self phoneChanged];
     }];
@@ -143,6 +152,7 @@ static CGFloat const kIMCountryCodeWidth = 76;
 #pragma mark - 渲染
 
 - (NSArray<IMTwoStepSection *> *)buildSections {
+    IMTwoStepSection *legacy = [self legacyPromptSection];
     IMTwoStepSection *s = [IMTwoStepSection sectionWithRows:@[[IMTwoStepRow rowWithView:self.phoneRow onTap:nil],
                                                               [IMTwoStepRow rowWithView:self.codeRow onTap:nil]]
                                                      footer:[NSString stringWithFormat:@"%@\n%@",
@@ -151,7 +161,67 @@ static CGFloat const kIMCountryCodeWidth = 76;
     if ([self changing] && self.security.phoneMasked.length > 0) {
         s.header = IMLocalizedFormat(@"security.phone.current", self.security.phoneMasked);
     }
-    return @[s];
+    return legacy ? @[legacy, s] : @[s];
+}
+
+#pragma mark - 资料里的旧号码（PHONE_AUTH_DESIGN §15.1）
+
+/// 资料里曾自填的旧号码：非 nil 时页顶显示「是否绑定为登录手机号」提示。
+- (nullable IMLegacyPhone *)legacyPhone { return self.legacyPrefilled ? nil : IMSecurityLegacyPhonePrompt(self.security); }
+
+/// 提示文案 + 「绑定」「不再提示」两个文字链行；没有旧号码时 nil。
+- (nullable IMTwoStepSection *)legacyPromptSection {
+    IMLegacyPhone *legacy = self.legacyPhone;
+    if (!legacy) { return nil; }
+    __weak typeof(self) ws = self;
+    IMTwoStepRow *prompt = [IMTwoStepRow rowWithView:IMTwoStepCenteredTextRow(IMLocalizedFormat(@"security.phone.legacy_prompt", legacy.masked),
+                                                                              IMTheme.textPrimary) onTap:nil];
+    UIView *bindView = IMTwoStepCenteredTextRow(IMLocalized(@"security.phone.legacy_bind"), IMTheme.accent);
+    bindView.accessibilityIdentifier = @"phone.legacy.bind";
+    UIView *dismissView = IMTwoStepCenteredTextRow(IMLocalized(@"security.phone.legacy_dismiss"), IMTheme.textSecondary);
+    dismissView.accessibilityIdentifier = @"phone.legacy.dismiss";
+    IMTwoStepRow *bind = [IMTwoStepRow rowWithView:bindView onTap:^{ [ws legacyBindTapped]; }];
+    IMTwoStepRow *dismiss = [IMTwoStepRow rowWithView:dismissView onTap:^{ [ws legacyDismissTapped]; }];
+    return [IMTwoStepSection sectionWithRows:@[prompt, bind, dismiss] footer:nil];
+}
+
+/// 「绑定」：国家码 + 号码预填进下面的表单，收起提示；之后照常发验证码 + 确认身份。
+- (void)legacyBindTapped {
+    IMLegacyPhone *legacy = self.legacyPhone;
+    if (!legacy) { return; }
+    IMLogUI(@"phone_legacy_prefill phone=%@", legacy.masked);
+    self.legacyPrefilled = YES;
+    self.countryCode = legacy.countryCode;
+    self.phoneField.text = legacy.phone;
+    [self refreshCountryButton];
+    [self phoneChanged];
+    [self reloadSections];
+    [self.codeField becomeFirstResponder];
+}
+
+/// 「不再提示」：DELETE /users/me/legacy-phone 成功才收起；失败吐司、提示留着。
+- (void)legacyDismissTapped {
+    if (!self.legacyPhone || self.legacyDismissing) { return; }
+    self.legacyDismissing = YES;
+    __weak typeof(self) ws = self;
+    void (^failed)(NSError *) = ^(NSError *error) {
+        __strong typeof(ws) self = ws;
+        if (!self) { return; }
+        IMLogWarnWithTag(IMLogTagUI, @"phone_legacy_dismiss_failed code=%ld", (long)error.code);
+        self.legacyDismissing = NO;
+        [self im_showToast:IMLocalized(@"common.action_failed")];
+    };
+    [self withToken:^(NSString *token) {
+        [IMHTTPService.sharedService dismissLegacyPhoneWithToken:token completion:^(NSError *error) {
+            __strong typeof(ws) self = ws;
+            if (!self) { return; }
+            if (error) { failed(error); return; }
+            IMLogUI(@"phone_legacy_dismissed");
+            self.legacyDismissing = NO;
+            self.security.legacyPhone = nil; // 隐私与安全页持有同一份状态，一起清
+            [self reloadSections];
+        }];
+    } failure:failed];
 }
 
 #pragma mark - 输入

@@ -1590,6 +1590,7 @@
 "ps.row.export_data" = "Export my data";
 "ps.row.last_seen" = "Last seen";
 "ps.row.passkey" = "Passkey";
+"ps.row.phone_discover" = "Find me by phone number";
 "ps.row.phone_number" = "Phone number";
 "ps.row.two_factor" = "Two-step verification";
 "ps.section.account_protection" = "Account protection";
@@ -1602,7 +1603,8 @@
 "ps.visibility.everyone" = "Everyone";
 "ps.visibility.last_seen.footer" = "Choose who can see your online status and when you were last online. You can always see your own.";
 "ps.visibility.nobody" = "Nobody";
-"ps.visibility.phone.footer" = "Choose who can see your phone number on your profile. Nobody by default. Finding you by number is not affected.";
+"ps.visibility.phone.footer" = "Choose who can see your login phone number on your profile. Nobody by default. Who can find you by number is set under “Find me by phone number”.";
+"ps.visibility.phone_discover.footer" = "Choose who can find you by entering your login phone number in Add Friends. Finding you by username is not affected.";
 "ps.visibility.save_failed" = "Couldn't save. Please try again.";
 "ps.who_can_see_footer" = "These settings control how much others can see on your profile.";
 "push.call.action_answer" = "Answer";
@@ -1835,11 +1837,14 @@
 "security.password.toast_set" = "Password set";
 "security.password.unset" = "Not set";
 "security.phone" = "Login phone";
-"security.phone.bind_footer" = "After adding a phone number you can log in with it and an SMS code. It is only used for logging in and is never shown to others.";
+"security.phone.bind_footer" = "After adding a phone number you can log in with it and an SMS code. Choose who can see it and who can find you by it in Privacy and Security.";
 "security.phone.bind_title" = "Add phone number";
 "security.phone.change_footer" = "Once the new number is verified, the old one can no longer be used to log in.";
 "security.phone.change_title" = "Change phone number";
 "security.phone.current" = "Current number %1$@";
+"security.phone.legacy_bind" = "Use it";
+"security.phone.legacy_dismiss" = "Don’t show again";
+"security.phone.legacy_prompt" = "You added %1$@ to your profile earlier. Use it as your login phone?";
 "security.phone.new_placeholder" = "New phone number";
 "security.phone.next" = "Next";
 "security.phone.next_hint" = "Next, you’ll confirm it’s you";

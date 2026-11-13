@@ -26,8 +26,7 @@
                      formats:(NSArray<NSString *> *)formats
                   completion:(void (^)(IMExportJob *, NSError *))completion {
     NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/users/me/exports" method:@"POST" token:token
-                                                     body:@{ @"proof": [proof JSONObject], @"include_media": @(includeMedia),
-                                                             @"formats": formats ?: @[] }];
+                                                     body:IMBodyWithProof(@{ @"include_media": @(includeMedia), @"formats": formats ?: @[] }, proof)];
     [self runExportRequest:req completion:^(id data, NSError *error) {
         if (error) { completion(nil, error); return; }
         IMExportJob *job = [IMExportJob jobFromJSON:data];

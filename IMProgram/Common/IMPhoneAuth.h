@@ -21,6 +21,7 @@ FOUNDATION_EXPORT NSInteger const IMErrCodeSMSSendFailed;      ///< 200045
 FOUNDATION_EXPORT NSInteger const IMErrCodeSMSDailyCap;        ///< 200046
 FOUNDATION_EXPORT NSInteger const IMErrCodePhoneNotRegistered; ///< 200047
 FOUNDATION_EXPORT NSInteger const IMErrCodePhoneTicketInvalid; ///< 200048
+FOUNDATION_EXPORT NSInteger const IMErrCodeProofRequired;      ///< 200049：没带 proof 且本会话 10 分钟内没验证过（§15.2）
 
 /// 200040–200048 → 本地化文案（转调 IMFriendlyMessageForCode，文案表在 HTTP 层）；其它码 nil（不落到通用码的映射）。
 FOUNDATION_EXPORT NSString *_Nullable IMPhoneAuthFriendlyMessage(NSInteger code);
@@ -40,12 +41,20 @@ FOUNDATION_EXPORT NSString * const IMPhoneDefaultCountryCode;
 @interface IMIdentityProof : NSObject
 + (instancetype)passwordProof:(NSString *)password;
 + (instancetype)smsProof:(NSString *)code;
+/// 空证明（§15.2 最近验证过免确认）：请求体里既不带 `proof` 也不带旧的顶层密码字段（见 IMBodyWithProof）。
++ (instancetype)emptyProof;
 @property (nonatomic, assign, readonly) BOOL isSMS;
+@property (nonatomic, assign, readonly) BOOL isEmpty;
+/// 能留在页面内存里给下一次请求复用：只有密码。验证码一次性（交过即用掉）；空证明靠的免确认窗口会过期。
+@property (nonatomic, assign, readonly) BOOL isReusable;
 /// 密码或验证码原文（只在内存，不得写日志）。
 @property (nonatomic, copy, readonly) NSString *secret;
-/// `{"password": …}` 或 `{"sms_code": …}`。
+/// `{"password": …}` 或 `{"sms_code": …}`；空证明为 `{}`（请求体请走 IMBodyWithProof，空证明整个不带）。
 - (NSDictionary<NSString *, NSString *> *)JSONObject;
 @end
+
+/// 带 proof 的请求体：body 加上 `"proof": proof.JSONObject`；空证明（§15.2）原样返回 body——不带 `proof`。
+FOUNDATION_EXPORT NSDictionary *IMBodyWithProof(NSDictionary *body, IMIdentityProof *proof);
 
 #pragma mark - 登录前配置（public-config）
 
@@ -72,11 +81,23 @@ FOUNDATION_EXPORT NSString * const IMRegisterMethodPhone;
 
 #pragma mark - 隐私与安全状态（GET /users/me/security）
 
+/// 资料里曾自填、还没绑定成登录手机号的号码（§15.1 `legacy_phone`，本人自己的号码，明文只用于预填、不写日志）。
+@interface IMLegacyPhone : NSObject
+@property (nonatomic, copy) NSString *countryCode;
+@property (nonatomic, copy) NSString *phone;
+@property (nonatomic, copy) NSString *masked;
+/// 缺 country_code / phone（或不是非空字符串）返回 nil；缺 masked 时按 IMPhoneMasked 补。
++ (nullable instancetype)legacyPhoneFromJSON:(nullable id)json;
+@end
+
 @interface IMSecurityState : NSObject
 @property (nonatomic, assign) BOOL phoneBound;
 @property (nonatomic, copy, nullable) NSString *phoneMasked;
 @property (nonatomic, assign) BOOL passwordSet;
 @property (nonatomic, assign) BOOL smsAvailable;
+/// 本会话「最近验证过免确认」还剩几秒（§15.2；缺省 / 老服务端 = 0 = 要确认）。
+@property (nonatomic, assign) NSInteger recentAuthSec;
+@property (nonatomic, strong, nullable) IMLegacyPhone *legacyPhone;
 /// 非字典返回 nil；缺 password_set 时按 YES（老账号都有密码）。
 + (nullable instancetype)stateFromJSON:(nullable id)json;
 @end
@@ -149,6 +170,21 @@ FOUNDATION_EXPORT BOOL IMProofErrorStaysInSheet(NSInteger code, NSString *_Nulla
 
 #pragma mark - 确认身份弹层
 
+/// 宿主的提交：拿到 proof 发请求，结束时调 finish(error)（nil = 成功）。
+typedef void (^IMProofSubmitBlock)(IMIdentityProof *proof, void (^finish)(NSError *_Nullable error));
+/// 弹层收尾：succeeded=YES 操作成功；NO + pageError 交给页面显示；NO + nil = 用户取消。
+typedef void (^IMProofCompletion)(BOOL succeeded, NSError *_Nullable pageError);
+
+/// 免确认至少还剩这么多秒才不弹层（§15.2：留出请求往返，边界上过期的回 200049 再弹）。
+FOUNDATION_EXPORT NSInteger const IMProofRecentAuthMinSec;
+/// 刚取到的安全状态说本会话最近验证过（recent_auth_sec ≥ 15）→ 不弹层，直接用空证明发请求。nil → NO。
+FOUNDATION_EXPORT BOOL IMProofSkipsSheet(IMSecurityState *_Nullable state);
+/// 免确认的分流（§15.2）：IMProofSkipsSheet(state) 为 NO → ask()（照常弹层）；为 YES → submit(空证明)：
+/// 成功 → completion(YES, nil)；回 200049（边界上刚好过期）→ ask()；其它错 → completion(NO, error) 交给页面。
+/// finish 只认第一次。
+FOUNDATION_EXPORT void IMProofRunWithoutSheet(IMSecurityState *_Nullable state, IMProofSubmitBlock submit,
+                                              void (^ask)(void), IMProofCompletion completion);
+
 typedef NS_ENUM(NSInteger, IMProofTab) {
     IMProofTabPassword = 0,
     IMProofTabSMS = 1,
@@ -209,6 +245,8 @@ typedef NS_ENUM(NSInteger, IMPhoneRowAction) {
     IMPhoneRowActionSMSUnavailable, ///< 已绑定但短信不可用：提示，换不了
 };
 FOUNDATION_EXPORT IMPhoneRowAction IMSecurityPhoneRowAction(IMSecurityState *state);
+/// 「登录手机号」页的一次性提示（§15.1）：没绑定登录手机号且服务端下发了 legacy_phone 才有；否则 nil。
+FOUNDATION_EXPORT IMLegacyPhone *_Nullable IMSecurityLegacyPhonePrompt(IMSecurityState *_Nullable state);
 
 typedef NS_ENUM(NSInteger, IMPasswordProofMode) {
     IMPasswordProofModeOldPassword,

@@ -1590,6 +1590,7 @@
 "ps.row.export_data" = "导出我的数据";
 "ps.row.last_seen" = "上次上线";
 "ps.row.passkey" = "通行密钥";
+"ps.row.phone_discover" = "通过手机号找到我";
 "ps.row.phone_number" = "手机号码";
 "ps.row.two_factor" = "两步验证";
 "ps.section.account_protection" = "账号保护";
@@ -1602,7 +1603,8 @@
 "ps.visibility.everyone" = "所有人";
 "ps.visibility.last_seen.footer" = "决定谁能看到你的在线状态和上次上线时间。你自己始终可见。";
 "ps.visibility.nobody" = "无人";
-"ps.visibility.phone.footer" = "决定谁能在你的资料页看到手机号码。默认无人可见；通过手机号找到你的方式不受影响。";
+"ps.visibility.phone.footer" = "决定谁能在你的资料页看到你的登录手机号。默认无人可见；谁能通过手机号找到你，在「通过手机号找到我」里设置。";
+"ps.visibility.phone_discover.footer" = "决定谁能在「添加朋友」里输入你的登录手机号找到你。通过用户名找到你不受影响。";
 "ps.visibility.save_failed" = "设置失败，请稍后重试";
 "ps.who_can_see_footer" = "这些设置决定他人在你的资料页看到多少。";
 "push.call.action_answer" = "接听";
@@ -1835,11 +1837,14 @@
 "security.password.toast_set" = "密码已设置";
 "security.password.unset" = "未设置";
 "security.phone" = "登录手机号";
-"security.phone.bind_footer" = "绑定后可以用手机号和短信验证码登录。手机号只用于登录，不会向其他人显示。";
+"security.phone.bind_footer" = "绑定后可以用手机号和短信验证码登录。谁能看到它、谁能通过它找到你，在「隐私与安全」里设置。";
 "security.phone.bind_title" = "绑定手机号";
 "security.phone.change_footer" = "验证新手机号后，原手机号将不能再用于登录。";
 "security.phone.change_title" = "更换手机号";
 "security.phone.current" = "当前手机号 %1$@";
+"security.phone.legacy_bind" = "绑定";
+"security.phone.legacy_dismiss" = "不再提示";
+"security.phone.legacy_prompt" = "你曾在资料中填写过 %1$@，是否绑定为登录手机号？";
 "security.phone.new_placeholder" = "新手机号";
 "security.phone.next" = "下一步";
 "security.phone.next_hint" = "下一步需要确认是你本人";

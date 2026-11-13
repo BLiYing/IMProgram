@@ -48,6 +48,12 @@ static NSError *IMProofTokenFailure(NSError *_Nullable error) {
 @property (nonatomic, strong, readwrite) IMProofCodeCache *codeCache;
 @property (nonatomic, strong, readwrite) IMResendClock *verifyClock;
 @property (nonatomic, weak, nullable) IMIdentityProofSheet *sheet;
+/// 弹出前取安全状态中 / 免确认直接发请求中（§15.2）：此时再点不重入。
+@property (nonatomic, assign) BOOL preparing;
+/// 弹出前取状态 / 免确认请求在途时宿主页面中央的转圈（0.3 秒内结束的不显示，免得闪一下）。
+@property (nonatomic, strong, nullable) UIActivityIndicatorView *preparingSpinner;
+/// 取 token → GET /users/me/security；取到就记进 self.security。会话弹出前与弹层（重）取共用。
+- (void)loadSecurity:(void (^)(IMSecurityState *_Nullable state))done;
 @end
 
 @implementation IMProofSession
@@ -64,12 +70,22 @@ static NSError *IMProofTokenFailure(NSError *_Nullable error) {
     return self;
 }
 
-- (BOOL)isPresenting { return self.sheet != nil; }
+- (BOOL)isPresenting { return self.sheet != nil || self.preparing; }
 
 - (void)withToken:(void (^)(NSString *, NSError *))block {
     IMHTTPService.sharedService.host = self.host;
     [IMHTTPService.sharedService loginWithUserID:self.userID completion:^(NSString *token, NSError *error) {
         block(token.length > 0 ? token : nil, error);
+    }];
+}
+
+- (void)loadSecurity:(void (^)(IMSecurityState *))done {
+    [self withToken:^(NSString *token, NSError *tokenErr) {
+        if (!token) { done(nil); return; }
+        [IMHTTPService.sharedService fetchSecurityStateWithToken:token completion:^(IMSecurityState *state, NSError *error) {
+            if (state) { self.security = state; }
+            done(state);
+        }];
     }];
 }
 
@@ -85,8 +101,51 @@ static NSError *IMProofTokenFailure(NSError *_Nullable error) {
 
 - (BOOL)presentFrom:(UIViewController *)host submit:(IMProofSubmitBlock)submit completion:(IMProofCompletion)completion {
     // 弹层被程序收起（不走下滑代理）时 sheet 还挂着：已不在屏就当没有。
-    if (self.sheet && self.sheet.presentingViewController) { return NO; }
+    if (self.preparing || (self.sheet && self.sheet.presentingViewController)) { return NO; }
     [host.view endEditing:YES];
+    [self beginPreparingOn:host];
+    __weak UIViewController *weakHost = host;
+    // 先取安全状态（弹层本来就要它定页签）：本会话最近验证过 → 不弹层，空证明直接发；回 200049 再照常弹（§15.2）。
+    // 取不到 → 照常弹层：有旧值用旧值，没有显示 proof.load_failed（点「重试」再取），进场不再自动重取一遍。
+    [self loadSecurity:^(IMSecurityState *state) {
+        if (IMProofSkipsSheet(state)) { IMLogUI(@"proof_skipped recent_auth_sec=%ld", (long)state.recentAuthSec); }
+        IMProofRunWithoutSheet(state, submit, ^{
+            [self endPreparing];
+            UIViewController *h = weakHost;
+            if (!h.view.window) { completion(NO, nil); return; } // 页面已离开：当取消
+            [self showSheetFrom:h submit:submit completion:completion];
+        }, ^(BOOL succeeded, NSError *pageError) {
+            [self endPreparing];
+            completion(succeeded, pageError);
+        });
+    }];
+    return YES;
+}
+
+- (void)beginPreparingOn:(UIViewController *)host {
+    self.preparing = YES;
+    UIActivityIndicatorView *spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleLarge];
+    spinner.translatesAutoresizingMaskIntoConstraints = NO;
+    spinner.hidden = YES;
+    [spinner startAnimating];
+    [host.view addSubview:spinner];
+    [NSLayoutConstraint activateConstraints:@[
+        [spinner.centerXAnchor constraintEqualToAnchor:host.view.centerXAnchor],
+        [spinner.centerYAnchor constraintEqualToAnchor:host.view.centerYAnchor],
+    ]];
+    self.preparingSpinner = spinner;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (spinner.superview) { spinner.hidden = NO; }
+    });
+}
+
+- (void)endPreparing {
+    self.preparing = NO;
+    [self.preparingSpinner removeFromSuperview];
+    self.preparingSpinner = nil;
+}
+
+- (void)showSheetFrom:(UIViewController *)host submit:(IMProofSubmitBlock)submit completion:(IMProofCompletion)completion {
     IMIdentityProofSheet *sheet = [IMIdentityProofSheet new];
     sheet.session = self;
     sheet.submit = submit;
@@ -107,7 +166,6 @@ static NSError *IMProofTokenFailure(NSError *_Nullable error) {
     sheet.presentationController.delegate = sheet;
     self.sheet = sheet;
     [host presentViewController:sheet animated:YES completion:nil];
-    return YES;
 }
 
 @end
@@ -225,11 +283,14 @@ static NSError *IMProofTokenFailure(NSError *_Nullable error) {
 
 #pragma mark - 安全状态 → 页签
 
+/// 会话弹出前已经取过一次安全状态（成功就已记进 session.security）：这里只用结果，不再自动重取。
 - (void)startWithSecurity {
     IMSecurityState *cached = self.session.security;
-    if (cached) { [self applySecurity:cached preferCachedCode:YES]; }
-    else { self.tabs = @[]; [self render]; }
-    [self refreshSecurity];
+    if (cached) { [self applySecurity:cached preferCachedCode:YES]; return; }
+    IMLogWarnWithTag(IMLogTagUI, @"proof_security_load_failed cached=0");
+    self.tabs = @[];
+    self.loadFailed = YES;
+    [self render];
 }
 
 - (void)refreshSecurity {
@@ -237,12 +298,7 @@ static NSError *IMProofTokenFailure(NSError *_Nullable error) {
     if (!self.session.security) { [self.loadingSpinner startAnimating]; }
     [self render];
     __weak typeof(self) ws = self;
-    [self.session withToken:^(NSString *token, NSError *tokenErr) {
-        if (!token) { [ws securityLoaded:nil]; return; }
-        [IMHTTPService.sharedService fetchSecurityStateWithToken:token completion:^(IMSecurityState *state, NSError *error) {
-            [ws securityLoaded:state];
-        }];
-    }];
+    [self.session loadSecurity:^(IMSecurityState *state) { [ws securityLoaded:state]; }];
 }
 
 - (void)securityLoaded:(nullable IMSecurityState *)state {
@@ -252,8 +308,7 @@ static NSError *IMProofTokenFailure(NSError *_Nullable error) {
         if (!self.session.security) { self.loadFailed = YES; [self render]; } // 有旧值就继续用旧值
         return;
     }
-    BOOL first = self.tabs.count == 0;
-    self.session.security = state;
+    BOOL first = self.tabs.count == 0; // session.security 已由 loadSecurity 记下
     [self applySecurity:state preferCachedCode:first];
 }
 

@@ -15,6 +15,7 @@
 #import "IMUserCard.h"
 #import "IMUserProfileCache.h"
 #import "IMPresence.h"
+#import "IMLocalization.h"
 
 /// 详情页私有属性 / 方法（+Private.h 引了 Swift 桥接头，测试 target 取不到，这里只声明用到的）。
 @interface IMChatDetailViewController (IMPVTesting)
@@ -283,7 +284,7 @@ static NSDictionary *sPVPrivacyReply, *sPVProfileReply;
 - (void)test_保存资料_请求体带bio_不含tags {
     [IMPVStub reset:@{ @"code": @0, @"data": @{ @"user_id": @"pv-me", @"nickname": @"N", @"bio": @"签名" } } profile:nil];
     XCTestExpectation *e = [self expectationWithDescription:@"put"];
-    [IMHTTPService.sharedService updateProfileWithToken:@"t" nickname:@"N" avatarURL:@"" phone:@"138" bio:@"签名"
+    [IMHTTPService.sharedService updateProfileWithToken:@"t" nickname:@"N" avatarURL:@"" bio:@"签名"
                                              completion:^(IMUserCard *p, NSError *err) {
         XCTAssertNil(err);
         XCTAssertEqualObjects(p.bio, @"签名");
@@ -294,6 +295,59 @@ static NSDictionary *sPVPrivacyReply, *sPVProfileReply;
     XCTAssertEqualObjects(req[@"method"], @"PUT");
     XCTAssertEqualObjects(req[@"body"][@"bio"], @"签名");
     XCTAssertNil(req[@"body"][@"tags"]); // 缺省 tags＝服务端保持原值，端上不能再发空数组把旧标签清掉
+}
+
+/// PHONE_AUTH_DESIGN §15.1：资料手机号并入登录手机号，资料编辑页不再有号码框、PUT 不再带 phone。
+- (void)test_保存资料_请求体不含phone {
+    [IMPVStub reset:@{ @"code": @0, @"data": @{ @"user_id": @"pv-me", @"nickname": @"N" } } profile:nil];
+    XCTestExpectation *e = [self expectationWithDescription:@"put"];
+    [IMHTTPService.sharedService updateProfileWithToken:@"t" nickname:@"N" avatarURL:@"a" bio:@"b"
+                                             completion:^(IMUserCard *p, NSError *err) { [e fulfill]; }];
+    [self waitForExpectationsWithTimeout:5 handler:nil];
+    NSDictionary *body = self.requests.lastObject[@"body"];
+    XCTAssertEqualObjects(body, (@{ @"nickname": @"N", @"avatar_url": @"a", @"bio": @"b" }));
+    XCTAssertNil(body[@"phone"]);
+}
+
+#pragma mark - 谁能通过手机号找到我（PHONE_AUTH_DESIGN §15.1）
+
+- (void)test_通过手机号找到我_键名_默认_解析_文案键 {
+    IMPrivacyVisibilityKind k = IMPrivacyVisibilityKindPhoneDiscover;
+    XCTAssertEqualObjects(IMPrivacyVisibilityJSONKey(k), @"phone_discover");
+    XCTAssertEqualObjects(IMPrivacyVisibilityDefault(k), @"everyone");
+    XCTAssertEqualObjects(IMPrivacyVisibilityParse(k, nil), @"everyone");
+    XCTAssertEqualObjects(IMPrivacyVisibilityParse(k, @"friends"), @"everyone");
+    XCTAssertEqualObjects(IMPrivacyVisibilityParse(k, @"nobody"), @"nobody");
+    XCTAssertEqualObjects(IMPrivacyVisibilityRowTitleKey(k), @"ps.row.phone_discover");
+    XCTAssertEqualObjects(IMPrivacyVisibilityFooterKey(k), @"ps.visibility.phone_discover.footer");
+    XCTAssertEqualObjects(IMPrivacyVisibilityPutBody(k, @"contacts"), @{ @"phone_discover": @"contacts" });
+    IMPrivacySettings *s = [IMPrivacySettings settingsFromJSON:@{ @"phone_visibility": @"contacts", @"phone_discover": @"nobody" }];
+    XCTAssertEqualObjects([s visibilityForKind:k], @"nobody");
+    XCTAssertEqualObjects([s visibilityForKind:IMPrivacyVisibilityKindPhone], @"contacts", @"两项互不串");
+    XCTAssertEqualObjects([IMPrivacySettings settingsFromJSON:@{}].phoneDiscover, @"everyone", @"老服务端缺字段 = 默认 everyone");
+    [s setVisibility:@"contacts" forKind:k];
+    XCTAssertEqualObjects(s.phoneDiscover, @"contacts");
+}
+
+- (void)test_通过手机号找到我_选择页_只PUT这一项_失败回滚 {
+    __block NSString *saved = nil;
+    IMPrivacyVisibilityViewController *vc = [[IMPrivacyVisibilityViewController alloc]
+        initWithKind:IMPrivacyVisibilityKindPhoneDiscover currentLevel:@"everyone" onSaved:^(NSString *l) { saved = l; }];
+    [vc loadViewIfNeeded];
+    XCTAssertEqualObjects(vc.title, IMLocalized(@"ps.row.phone_discover"));
+    [vc chooseLevel:@"nobody"];
+    [self spinUntil:^BOOL{ return saved != nil; }];
+    XCTAssertEqualObjects(self.requests.lastObject[@"body"], @{ @"phone_discover": @"nobody" });
+
+    [IMPVStub reset:@{ @"code": @100001, @"message": @"bad" } profile:nil];
+    __block BOOL called = NO;
+    IMPrivacyVisibilityViewController *vc2 = [[IMPrivacyVisibilityViewController alloc]
+        initWithKind:IMPrivacyVisibilityKindPhoneDiscover currentLevel:@"everyone" onSaved:^(NSString *l) { called = YES; }];
+    [vc2 loadViewIfNeeded];
+    [vc2 chooseLevel:@"contacts"];
+    [self spinUntil:^BOOL{ return self.requests.count >= 1 && [vc2.currentLevel isEqualToString:@"everyone"]; }];
+    XCTAssertEqualObjects(vc2.currentLevel, @"everyone", @"失败回滚");
+    XCTAssertFalse(called);
 }
 
 #pragma mark - 单聊详情：签名 / 手机号行

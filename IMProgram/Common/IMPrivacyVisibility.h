@@ -12,6 +12,7 @@ typedef NS_ENUM(NSInteger, IMPrivacyVisibilityKind) {
     IMPrivacyVisibilityKindAvatar,       ///< 头像
     IMPrivacyVisibilityKindBio,          ///< 个人简介（个性签名）
     IMPrivacyVisibilityKindPhone,        ///< 手机号码
+    IMPrivacyVisibilityKindPhoneDiscover, ///< 谁能通过手机号找到我（PHONE_AUTH_DESIGN §15.1，字段 phone_discover）
     IMPrivacyVisibilityKindCount,        ///< 哨兵：项目总数（遍历 / 数组下标用，新增项目放它前面）
 };
 
@@ -21,9 +22,10 @@ extern NSString *const IMPrivacyVisibilityNobody;   ///< @"nobody"
 
 /// 三档，展示顺序：所有人 / 我的联系人 / 无人。
 NSArray<NSString *> *IMPrivacyVisibilityLevels(void);
-/// 服务端字段名：last_seen_visibility / avatar_visibility / bio_visibility / phone_visibility。
+/// 服务端字段名：last_seen_visibility / avatar_visibility / bio_visibility / phone_visibility / phone_discover。
 NSString *IMPrivacyVisibilityJSONKey(IMPrivacyVisibilityKind kind);
-/// 默认档位：上次上线 contacts、头像 everyone（= 设置上线前的既有行为）；个人简介 everyone；手机号码 nobody（= 既有行为：从不对他人展示）。
+/// 默认档位：上次上线 contacts、头像 everyone（= 设置上线前的既有行为）；个人简介 everyone；手机号码 nobody（= 既有行为：从不对他人展示）；
+/// 通过手机号找到我 everyone。
 NSString *IMPrivacyVisibilityDefault(IMPrivacyVisibilityKind kind);
 /// 解析服务端值：三值之一原样返回，其余（缺失 / 空串 / 未知 / 非字符串）落到该项默认档。
 NSString *IMPrivacyVisibilityParse(IMPrivacyVisibilityKind kind, id _Nullable raw);
@@ -42,6 +44,7 @@ NSDictionary *IMPrivacyVisibilityPutBody(IMPrivacyVisibilityKind kind, NSString 
 @property (nonatomic, copy) NSString *avatarVisibility;
 @property (nonatomic, copy) NSString *bioVisibility;
 @property (nonatomic, copy) NSString *phoneVisibility;
+@property (nonatomic, copy) NSString *phoneDiscover;
 + (instancetype)settingsFromJSON:(nullable NSDictionary *)data;
 - (NSString *)visibilityForKind:(IMPrivacyVisibilityKind)kind;
 - (void)setVisibility:(NSString *)level forKind:(IMPrivacyVisibilityKind)kind;

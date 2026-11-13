@@ -65,6 +65,9 @@ FOUNDATION_EXPORT NSString *_Nullable IMSMSFieldFromError(NSError *_Nullable err
 - (void)fetchSecurityStateWithToken:(NSString *)token
                          completion:(void (^)(IMSecurityState *_Nullable state, NSError *_Nullable error))completion;
 
+/// DELETE /users/me/legacy-phone：「不再提示」清掉资料里自填的旧号码（§15.1，幂等）。
+- (void)dismissLegacyPhoneWithToken:(NSString *)token completion:(void (^)(NSError *_Nullable error))completion;
+
 /// POST /users/me/verify-code {lang}：发 verify 场景验证码到本人号码，回 phone_masked。
 - (void)sendVerifyCodeWithToken:(NSString *)token
                      completion:(void (^)(IMSMSSendResult *_Nullable result, NSError *_Nullable error))completion;

@@ -32,7 +32,7 @@
     self = [super initWithHost:host userID:userID];
     if (self) {
         _email = [email copy];
-        _proof = proof.isSMS ? nil : proof;
+        _proof = proof.isReusable ? proof : nil; // 验证码已用掉、空证明（免确认）可能已过期：都不复用
         _proofSession = proofSession ?: [[IMProofSession alloc] initWithHost:host userID:userID];
         _resendDeadline = deadline;
     }
@@ -198,7 +198,7 @@
         [IMHTTPService.sharedService sendEmailCodeWithToken:token email:email proof:proof
                                                  completion:^(IMEmailSendResult *result, NSError *error) {
             sent = result;
-            if (result && !proof.isSMS) { ws.proof = proof; }
+            if (result && proof.isReusable) { ws.proof = proof; }
             finish(error);
         }];
     } completion:^(BOOL succeeded, NSError *pageError) {

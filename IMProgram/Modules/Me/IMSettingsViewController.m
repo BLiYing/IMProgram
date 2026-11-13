@@ -270,6 +270,9 @@
     // 「省电模式」行右值（关闭 / 低于 N% / 已开启）随偏好与电量实时变。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(refreshPowerSavingRow)
                                                name:IMPowerSavingDidChangeNotification object:nil];
+    // 绑定 / 更换登录手机号后头部的号码要跟着变（资料卡 phone = 登录手机号，PHONE_AUTH_DESIGN §15.1）。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(loadMyProfile)
+                                               name:IMMyProfileDidChangeNotification object:nil];
 }
 
 - (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }

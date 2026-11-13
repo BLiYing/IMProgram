@@ -18,6 +18,7 @@ NSString *IMPrivacyVisibilityJSONKey(IMPrivacyVisibilityKind kind) {
         case IMPrivacyVisibilityKindAvatar:   return @"avatar_visibility";
         case IMPrivacyVisibilityKindBio:      return @"bio_visibility";
         case IMPrivacyVisibilityKindPhone:    return @"phone_visibility";
+        case IMPrivacyVisibilityKindPhoneDiscover: return @"phone_discover";
         case IMPrivacyVisibilityKindCount:    break;
     }
     NSCAssert(NO, @"未知的隐私项目 %ld", (long)kind);
@@ -49,6 +50,7 @@ NSString *IMPrivacyVisibilityRowTitleKey(IMPrivacyVisibilityKind kind) {
         case IMPrivacyVisibilityKindAvatar:   return @"ps.row.avatar";
         case IMPrivacyVisibilityKindBio:      return @"ps.row.bio";
         case IMPrivacyVisibilityKindPhone:    return @"ps.row.phone_number";
+        case IMPrivacyVisibilityKindPhoneDiscover: return @"ps.row.phone_discover";
         case IMPrivacyVisibilityKindCount:    break;
     }
     NSCAssert(NO, @"未知的隐私项目 %ld", (long)kind);
@@ -61,6 +63,7 @@ NSString *IMPrivacyVisibilityFooterKey(IMPrivacyVisibilityKind kind) {
         case IMPrivacyVisibilityKindAvatar:   return @"ps.visibility.avatar.footer";
         case IMPrivacyVisibilityKindBio:      return @"ps.visibility.bio.footer";
         case IMPrivacyVisibilityKindPhone:    return @"ps.visibility.phone.footer";
+        case IMPrivacyVisibilityKindPhoneDiscover: return @"ps.visibility.phone_discover.footer";
         case IMPrivacyVisibilityKindCount:    break;
     }
     NSCAssert(NO, @"未知的隐私项目 %ld", (long)kind);
@@ -81,6 +84,7 @@ NSDictionary *IMPrivacyVisibilityPutBody(IMPrivacyVisibilityKind kind, NSString 
     s.avatarVisibility = IMPrivacyVisibilityParse(IMPrivacyVisibilityKindAvatar, d[@"avatar_visibility"]);
     s.bioVisibility = IMPrivacyVisibilityParse(IMPrivacyVisibilityKindBio, d[@"bio_visibility"]);
     s.phoneVisibility = IMPrivacyVisibilityParse(IMPrivacyVisibilityKindPhone, d[@"phone_visibility"]);
+    s.phoneDiscover = IMPrivacyVisibilityParse(IMPrivacyVisibilityKindPhoneDiscover, d[@"phone_discover"]);
     return s;
 }
 
@@ -90,6 +94,7 @@ NSDictionary *IMPrivacyVisibilityPutBody(IMPrivacyVisibilityKind kind, NSString 
         case IMPrivacyVisibilityKindAvatar:   return self.avatarVisibility;
         case IMPrivacyVisibilityKindBio:      return self.bioVisibility;
         case IMPrivacyVisibilityKindPhone:    return self.phoneVisibility;
+        case IMPrivacyVisibilityKindPhoneDiscover: return self.phoneDiscover;
         case IMPrivacyVisibilityKindCount:    break;
     }
     NSAssert(NO, @"未知的隐私项目 %ld", (long)kind);
@@ -102,6 +107,7 @@ NSDictionary *IMPrivacyVisibilityPutBody(IMPrivacyVisibilityKind kind, NSString 
         case IMPrivacyVisibilityKindAvatar:   self.avatarVisibility = level; break;
         case IMPrivacyVisibilityKindBio:      self.bioVisibility = level; break;
         case IMPrivacyVisibilityKindPhone:    self.phoneVisibility = level; break;
+        case IMPrivacyVisibilityKindPhoneDiscover: self.phoneDiscover = level; break;
         case IMPrivacyVisibilityKindCount:    NSAssert(NO, @"未知的隐私项目 %ld", (long)kind); break;
     }
 }
