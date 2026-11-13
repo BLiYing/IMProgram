@@ -11,8 +11,14 @@ NS_ASSUME_NONNULL_BEGIN
 /// 头像+名称+副标题，右侧可选一枚动作按钮（搜索结果的 加好友/已申请/发消息/同意）。
 @interface IMContactCell : UITableViewCell
 
-/// 配置基础信息；subtitle 传 nil 时副标题行隐藏。
+/// 配置基础信息；subtitle 传 nil 时副标题行隐藏。名字始终贴头像上沿（副标题在其下 3pt），无副标题也不居中。
 - (void)configureWithCard:(IMUserCard *)card subtitle:(nullable NSString *)subtitle;
+/// 不经 IMUserCard 直接给名字 / 头像（没有名片对象的来源，如通讯录首页「最近联系」的会话行）。
+/// avatarSeed 传对端 uid（首字母圈取色用）。**只有这条配置路径**在无副标题时把名字相对头像垂直居中。
+- (void)configureWithDisplayName:(NSString *)displayName
+                       avatarURL:(nullable NSString *)avatarURL
+                      avatarSeed:(nullable NSString *)avatarSeed
+                        subtitle:(nullable NSString *)subtitle;
 /// 配置右侧动作按钮：title 为 nil 隐藏；enabled=NO 显示为灰色不可点；点击回调 onAction。
 - (void)setActionTitle:(nullable NSString *)title enabled:(BOOL)enabled action:(nullable void (^)(void))onAction;
 /// 多选列表用：行首圆形勾选框。show=NO 隐藏（头像顶到前缘，默认态）；show=YES 显示并右移头像，checked 控制勾选。

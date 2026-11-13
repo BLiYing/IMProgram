@@ -4,7 +4,7 @@
 
 #import <UIKit/UIKit.h>
 
-@class IMMessageModel;
+@class IMMessageModel, IMConversation;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -43,6 +43,23 @@ extern NSNotificationName const IMChatConversationClearedNotification;
                                              unread:(NSInteger)unread
                                        groupReadSeq:(int64_t)groupReadSeq
                                      groupAvatarURL:(nullable NSString *)groupAvatarURL;
+
+/// **由一条会话行（IMConversation）打开聊天**的唯一实现：会话列表点行、通讯录「最近联系」、
+/// 应用内横幅 / 推送点击（IMConversationRouter）、通知设置「例外」都走这里，别再各抄一份。
+/// 行为以会话列表页为准：
+/// - 会话被手动「标为未读」时，进会话即清掉（异步）：先 GET 服务端当前设置，再 PUT markedUnread=NO 并带
+///   **服务端**的置顶 / 免打扰（会话对象可能是旧快照，不能拿它整体替换）、muteUntil 省略；读失败就不清。
+///   读成后把 conversation 就地更新 + 镜像到本地库，并发 IMConversationSettingsDidMirrorLocallyNotification；
+///   token 传 nil 时用 IMHTTPService.currentToken；都没有就不清（同会话列表页无 token 时的口径）。
+/// - 群聊传会话行的原始群名 `name`、单聊传原始 `peerNickname`（不是 displayName：备注是本机私有的，
+///   不能当对端公开名带进聊天页——合并转发标题等会读它）。
+/// - 单聊对端为空或是自己：不打开。
+/// 返回实际落位的聊天页；nav 为空 / 会话不可打开返回 nil（nav 为空时也不清未读标记）。
++ (nullable instancetype)openConversation:(IMConversation *)conversation
+                   inNavigationController:(nullable UINavigationController *)nav
+                                     host:(NSString *)host
+                                   userID:(NSString *)userID
+                                    token:(nullable NSString *)token;
 
 /// 在导航栈里反查承载 convID 的聊天页（自栈顶逆序，取最靠上的匹配）。详情页转发/定位复用它，
 /// 与统一入口共用同一份查找口径，避免各处自行遍历导致方向不一致。

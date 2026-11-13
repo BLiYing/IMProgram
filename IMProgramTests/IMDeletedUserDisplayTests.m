@@ -66,7 +66,6 @@
     IMConversation *c = [IMConversation conversationsFromArray:@[d]].firstObject;
     XCTAssertTrue(c.peerDeleted);
     XCTAssertEqualObjects(c.displayName, [self label]);
-    XCTAssertEqualObjects(c.knownDisplayName, [self label]);
     IMConversation *g = [IMConversation conversationsFromArray:@[@{ @"conv_id": @"g1", @"is_group": @YES, @"name": @"群", @"peer_deleted": @YES }]].firstObject;
     XCTAssertFalse(g.peerDeleted);
     XCTAssertEqualObjects(g.displayName, @"群");

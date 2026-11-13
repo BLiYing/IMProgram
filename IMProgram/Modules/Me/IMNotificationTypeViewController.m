@@ -330,18 +330,10 @@ typedef NS_ENUM(NSInteger, IMNotifTypeSection) {
     }];
 }
 
+/// 点「例外」里的会话 → 进聊天，走与会话列表同一个共用入口（含清「标未读」）。
 - (void)openConversation:(IMConversation *)conversation {
-    if (conversation.isGroup) {
-        [IMChatViewController openInNavigationController:self.navigationController host:self.host userID:self.userID
-                                               groupConvID:conversation.convID groupName:conversation.displayName
-                                                   readSeq:conversation.readSeq unread:conversation.unread
-                                              groupReadSeq:conversation.groupReadSeq groupAvatarURL:conversation.avatarURL];
-    } else {
-        [IMChatViewController openInNavigationController:self.navigationController host:self.host userID:self.userID
-                                                    peerID:conversation.peer readSeq:conversation.readSeq
-                                                    unread:conversation.unread peerReadSeq:conversation.peerReadSeq
-                                              peerNickname:conversation.knownDisplayName peerAvatarURL:conversation.peerAvatarURL];
-    }
+    [IMChatViewController openConversation:conversation inNavigationController:self.navigationController
+                                      host:self.host userID:self.userID token:nil];
 }
 
 #pragma mark - UITableView

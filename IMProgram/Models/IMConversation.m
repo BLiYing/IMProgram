@@ -29,6 +29,10 @@ static BOOL IMBoolFromJSON(id value) {
 
 NSString * const IMConversationListDidRefreshGroupReadNotification = @"IMConversationListDidRefreshGroupReadNotification";
 NSString * const kIMGroupReadSeqsKey = @"groupReadSeqs";
+NSString * const IMConversationListDidChangeNotification = @"IMConversationListDidChangeNotification";
+NSString * const kIMConversationListKey = @"conversations";
+NSString * const kIMConversationListOwnerKey = @"ownerUID";
+NSString * const IMConversationSettingsDidMirrorLocallyNotification = @"IMConversationSettingsDidMirrorLocallyNotification";
 
 @implementation IMConversation
 
@@ -117,11 +121,6 @@ NSString * const kIMGroupReadSeqsKey = @"groupReadSeqs";
     NSString *nick = [self.peerNickname stringByTrimmingCharactersInSet:ws];
     return [IMRemarkStore.sharedStore displayNameForUser:self.peer
                                                 fallback:(nick.length > 0 ? nick : IMLocalized(@"common.unnamed_user"))];
-}
-
-- (NSString *)knownDisplayName {
-    NSString *name = self.displayName;
-    return [name isEqualToString:IMLocalized(@"common.unnamed_user")] ? nil : name;
 }
 
 - (NSString *)lastPreviewText { return [self lastPreviewTextForSelfUID:nil]; }

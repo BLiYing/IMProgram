@@ -62,7 +62,8 @@ static void IMStyleMiniButton(UIButton *b, IMMiniStyle style) {
 /// 给 cell 添加圆形头像 + 名称 + 副标题，返回三个 label 供配置。约束基于 contentView。
 /// trailingGuide：标题/副标题右侧的可让位锚点（按钮区域）。
 /// avatarLeadingOut（可选）：回传「头像→contentView 前缘」的 leading 约束，供调用方拆掉后改挂到行首勾选框上（多选模式）。
-static void IMBuildContactBody(UITableViewCell *cell, UILabel *__strong *avatarOut, UILabel *__strong *titleOut, UILabel *__strong *subtitleOut, UIView *trailingRef, NSLayoutConstraint *__strong *avatarLeadingOut) {
+/// titleTopOut（可选）：回传「名字贴头像上沿」的约束，供调用方按需换成垂直居中（见 IMContactCell setTitleCentered:）。
+static void IMBuildContactBody(UITableViewCell *cell, UILabel *__strong *avatarOut, UILabel *__strong *titleOut, UILabel *__strong *subtitleOut, UIView *trailingRef, NSLayoutConstraint *__strong *avatarLeadingOut, NSLayoutConstraint *__strong *titleTopOut) {
     UILabel *avatar = [UILabel new];
     avatar.translatesAutoresizingMaskIntoConstraints = NO;
     avatar.textColor = UIColor.whiteColor;
@@ -85,6 +86,7 @@ static void IMBuildContactBody(UITableViewCell *cell, UILabel *__strong *avatarO
     [cell.contentView addSubview:subtitle];
 
     NSLayoutConstraint *avatarLeading = [avatar.leadingAnchor constraintEqualToAnchor:cell.contentView.leadingAnchor constant:kIMContactLeading];
+    NSLayoutConstraint *titleTop = [title.topAnchor constraintEqualToAnchor:avatar.topAnchor constant:2];
     [NSLayoutConstraint activateConstraints:@[
         avatarLeading,
         [avatar.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
@@ -92,7 +94,7 @@ static void IMBuildContactBody(UITableViewCell *cell, UILabel *__strong *avatarO
         [avatar.heightAnchor constraintEqualToConstant:kIMContactAvatarSize],
 
         [title.leadingAnchor constraintEqualToAnchor:avatar.trailingAnchor constant:12],
-        [title.topAnchor constraintEqualToAnchor:avatar.topAnchor constant:2],
+        titleTop,
         [title.trailingAnchor constraintLessThanOrEqualToAnchor:trailingRef.leadingAnchor constant:-8],
 
         [subtitle.leadingAnchor constraintEqualToAnchor:title.leadingAnchor],
@@ -103,14 +105,19 @@ static void IMBuildContactBody(UITableViewCell *cell, UILabel *__strong *avatarO
     *titleOut = title;
     *subtitleOut = subtitle;
     if (avatarLeadingOut) { *avatarLeadingOut = avatarLeading; }
+    if (titleTopOut) { *titleTopOut = titleTop; }
 }
 
-static void IMConfigureBody(UILabel *avatar, UILabel *title, UILabel *subtitle, IMUserCard *card, NSString *sub) {
-    NSString *name = card.displayName;
-    [avatar im_setAvatarURL:card.avatarURL seed:card.userID displayName:name]; // 有 avatar_url 渲染图，否则首字母圈
+static void IMConfigureBodyWithName(UILabel *avatar, UILabel *title, UILabel *subtitle, NSString *name,
+                                    NSString *avatarURL, NSString *avatarSeed, NSString *sub) {
+    [avatar im_setAvatarURL:avatarURL seed:avatarSeed displayName:name]; // 有 avatar_url 渲染图，否则首字母圈
     title.text = name;
     subtitle.text = sub ?: @"";
     subtitle.hidden = (sub.length == 0);
+}
+
+static void IMConfigureBody(UILabel *avatar, UILabel *title, UILabel *subtitle, IMUserCard *card, NSString *sub) {
+    IMConfigureBodyWithName(avatar, title, subtitle, card.displayName, card.avatarURL, card.userID, sub);
 }
 
 #pragma mark - IMContactCell
@@ -124,6 +131,8 @@ static void IMConfigureBody(UILabel *avatar, UILabel *title, UILabel *subtitle, 
     void (^_onAction)(void);
     NSLayoutConstraint *_checkboxWidth;   // 22 显示 / 0 隐藏
     NSLayoutConstraint *_avatarLeading;   // avatar.leading = checkbox.trailing + (显示 12 / 隐藏 0)
+    NSLayoutConstraint *_titleTop;        // 默认：名字贴头像上沿
+    NSLayoutConstraint *_titleCenterY;    // 仅 configureWithDisplayName: 且无副标题：名字相对头像垂直居中
 }
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
@@ -138,7 +147,8 @@ static void IMConfigureBody(UILabel *avatar, UILabel *title, UILabel *subtitle, 
             [_action.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
         ]];
         NSLayoutConstraint *avatarLeading = nil;
-        IMBuildContactBody(self, &_avatar, &_title, &_subtitle, _action, &avatarLeading);
+        IMBuildContactBody(self, &_avatar, &_title, &_subtitle, _action, &avatarLeading, &_titleTop);
+        _titleCenterY = [_title.centerYAnchor constraintEqualToAnchor:_avatar.centerYAnchor];
 
         // 行首圆圈（默认隐藏，宽 0）：拆掉「头像顶到前缘」的原约束，改挂到圆圈右侧，多选态右移头像。
         _checkbox = [IMCircleCheckbox new];
@@ -159,8 +169,23 @@ static void IMConfigureBody(UILabel *avatar, UILabel *title, UILabel *subtitle, 
     return self;
 }
 
+/// 名片行（好友选择 / 黑名单 / 找人 / 新的朋友等共用）：名字始终贴头像上沿，无副标题也不居中——
+/// 这些页面的版式就是这样，别跟着「最近联系」变。显式复位，防同一个 cell 先被另一种配置用过。
 - (void)configureWithCard:(IMUserCard *)card subtitle:(NSString *)subtitle {
     IMConfigureBody(_avatar, _title, _subtitle, card, subtitle);
+    [self setTitleCentered:NO];
+}
+
+- (void)configureWithDisplayName:(NSString *)displayName avatarURL:(NSString *)avatarURL
+                      avatarSeed:(NSString *)avatarSeed subtitle:(NSString *)subtitle {
+    IMConfigureBodyWithName(_avatar, _title, _subtitle, displayName, avatarURL, avatarSeed, subtitle);
+    [self setTitleCentered:_subtitle.hidden];
+}
+
+/// 名字位置：居中 = 相对头像垂直居中；否则贴头像上沿（先停后启，避免两条同时生效的瞬间冲突）。
+- (void)setTitleCentered:(BOOL)centered {
+    if (centered) { _titleTop.active = NO; _titleCenterY.active = YES; }
+    else { _titleCenterY.active = NO; _titleTop.active = YES; }
 }
 
 - (void)setChecked:(BOOL)checked showCheckbox:(BOOL)show {
@@ -229,7 +254,7 @@ static void IMConfigureBody(UILabel *avatar, UILabel *title, UILabel *subtitle, 
             [_accept.trailingAnchor constraintEqualToAnchor:_reject.leadingAnchor constant:-8],
             [_accept.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
         ]];
-        IMBuildContactBody(self, &_avatar, &_title, &_subtitle, _accept, NULL);
+        IMBuildContactBody(self, &_avatar, &_title, &_subtitle, _accept, NULL, NULL);
     }
     return self;
 }

@@ -415,6 +415,14 @@ static CGFloat const kIMRowLeading = 16;
 #import "IMConversationListViewController+Private.h"
 
 
+NSArray<IMConversation *> *IMCachedConversationListSeed(IMDatabaseAccountContext *context) {
+    __block NSArray<IMConversation *> *cached = nil;
+    [IMDatabase.sharedDatabase performWithAccountContext:context block:^(IMDatabase *database) {
+        cached = database.cachedConversations;
+    }];
+    return cached ?: @[];
+}
+
 @implementation IMConversationListViewController
 
 - (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID {
@@ -428,15 +436,15 @@ static CGFloat const kIMRowLeading = 16;
                           userID, context.ownerUserID ?: @"(none)");
         }
         _databaseContext = [context.ownerUserID isEqualToString:userID] ? context : nil;
-        __block NSArray<IMConversation *> *cached = @[];
-        [IMDatabase.sharedDatabase performWithAccountContext:_databaseContext block:^(IMDatabase *database) {
-            cached = database.cachedConversations;
-        }];
+        NSArray<IMConversation *> *cached = IMCachedConversationListSeed(_databaseContext);
         _conversations = cached;
         _displayedConversations = cached;
         _trackedConvIDs = [NSMutableSet set];
         _folderScrollOffsets = [NSMutableDictionary dictionary];
         [IMChatFolderStore.shared adoptUserID:userID];
+        // 常驻（不在 viewWillDisappear 摘除名单里）：在别的 Tab 清掉标未读时蓝点也要立即变。
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onConversationSettingsMirrored:)
+                                                   name:IMConversationSettingsDidMirrorLocallyNotification object:nil];
     }
     return self;
 }
@@ -452,6 +460,9 @@ static CGFloat const kIMRowLeading = 16;
     [self rebuildDisplayedConversations];
     [self refreshListIndicators];
     [self editingDataDidChange];
+    // 通讯录首页「最近联系」跟着这份数组重算（不额外拉接口）。
+    [NSNotificationCenter.defaultCenter postNotificationName:IMConversationListDidChangeNotification object:self
+        userInfo:@{ kIMConversationListKey: conversations ?: @[], kIMConversationListOwnerKey: self.userID ?: @"" }];
 }
 
 /// 当前选中的文件夹；已被删（或别的设备删了）则回落「全部」。
@@ -1024,32 +1035,31 @@ static CGFloat const kIMRowLeading = 16;
 }
 
 /// 从会话列表进入：带 read_seq + unread + peer_read_seq，供聊天页定位未读分割线 + 可见即读起点 + 进会话即显对端已读（CHAT_UX §3/§6/§8）。
+/// 实现收在 IMChatViewController 的共用入口（清「标未读」+ 传参口径，与「最近联系」/ 横幅 / 推送同一份）。
 - (void)openChatWithConversation:(IMConversation *)c {
-    // 进会话即清手动"标未读"（IM 通行做法：打开视为已处理）；经 conv_update 多端同步，返回列表 reload 取权威态。
-    if (c.markedUnread && self.token.length > 0) {
-        // muteUntil 传 nil（省略）：本操作只清「标未读」，不该碰免打扰——传 nil 让服务端保留原到期时间。
-        [IMHTTPService.sharedService updateConversationSettingsWithToken:self.token convID:c.convID
-            pinnedAt:c.pinnedAt muted:c.muted muteUntil:nil markedUnread:NO
-            completion:^(NSError *error) { /* 忽略：返回时 viewWillAppear 会 reload */ }];
-        // 本地即时镜像，避免返回瞬间闪一下旧红点；muteUntil 原样带回（未改）。
-        [self mirrorSettingsOnto:c pinnedAt:c.pinnedAt muted:c.muted muteUntil:c.muteUntil markedUnread:NO];
+    // 清「标未读」是异步的（先读服务端设置）；清完共用入口会广播，onConversationSettingsMirrored: 补算角标。
+    [IMChatViewController openConversation:c inNavigationController:self.navigationController
+                                      host:self.host userID:self.userID token:self.token];
+}
+
+/// 共用进会话入口（本页 / 「最近联系」/ 横幅 / 推送）清掉「标未读」后的本地镜像：按 convID 同步本页那份
+/// （对方可能拿的是另一个实例，如本地快照），立即重算 Tab 蓝点 / 文件夹角标并重绘该行——不等 conv_update 回推。
+- (void)onConversationSettingsMirrored:(NSNotification *)note {
+    IMConversation *src = note.object;
+    if (![src isKindOfClass:IMConversation.class] || src.convID.length == 0) { return; }
+    IMConversation *mine = nil;
+    for (IMConversation *c in self.conversations) {
+        if ([c.convID isEqualToString:src.convID]) { mine = c; break; }
     }
-    if (c.isGroup) {
-        [IMChatViewController openInNavigationController:self.navigationController
-                                                    host:self.host userID:self.userID
-                                             groupConvID:c.convID groupName:c.name
-                                                 readSeq:c.readSeq unread:c.unread
-                                            groupReadSeq:c.groupReadSeq
-                                          groupAvatarURL:c.avatarURL]; // 透传群头像，右上按钮立即显真图、免闪首字母
-        return;
+    if (!mine) { return; }
+    if (mine != src) {
+        mine.pinnedAt = src.pinnedAt;
+        mine.muted = src.muted;
+        mine.muteUntil = src.muteUntil;
+        mine.markedUnread = src.markedUnread;
     }
-    if (c.peer.length == 0 || [c.peer isEqualToString:self.userID]) { return; }
-    // 透传对端昵称/头像，供聊天页右上信息按钮打开的资料页显示。
-    [IMChatViewController openInNavigationController:self.navigationController
-                                                host:self.host userID:self.userID
-                                              peerID:c.peer readSeq:c.readSeq unread:c.unread
-                                         peerReadSeq:c.peerReadSeq
-                                        peerNickname:c.peerNickname peerAvatarURL:c.peerAvatarURL];
+    [self refreshListIndicators];
+    if (self.isViewLoaded) { [self refreshVisibleRowsOrReload]; }
 }
 
 #pragma mark - 搜索入口

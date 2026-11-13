@@ -7,28 +7,35 @@
 #import "IMSearchEntryHeader.h"
 #import "IMGroupListViewController.h"
 #import "IMFriendRequestListViewController.h"
+#import "IMFriendListViewController.h"
+#import "IMFriendCacheWriter.h"
+#import "IMFriendRoster.h"
+#import "IMRecentContacts.h"
 #import "IMContactCells.h"
-#import "IMContactSectionIndex.h"
-#import "IMChatDetailViewController.h"
-#import "IMHTTPService.h"
+#import "IMChatViewController.h"
+#import "IMConversationListViewController.h" // IMCachedConversationListSeed（「最近联系」兜底种子）
+#import "IMConversation.h"
 #import "IMSocketManager.h"
 #import "IMReconnectReloader.h"
 #import "IMUserCard.h"
 #import "IMRemarkStore.h"
 #import "IMDatabase.h"
-#import "IMDatabase+RosterCache.h"
+#import "IMMediaUtil.h"
 #import "IMMenuAction.h"
 #import "IMAnimator.h"
-#import "UIViewController+IMToast.h"
 #import "IMTheme.h"
-#import "IMLog.h"
-#import "IMAccountIdentity.h"
 
-#pragma mark - 顶部入口 Cell（彩色图标 + 标题 + chevron）
+/// 入口行右值（如「我的好友」的好友数）：最宽 150、尾部截断，与标题至少隔 8。
+static const CGFloat kIMContactEntryValueMaxWidth = 150;
+static const CGFloat kIMContactEntryValueFontSize = 15;
+
+#pragma mark - 顶部入口 Cell（彩色图标 + 标题 + 右值 / 角标 + chevron）
 
 @interface IMContactEntryCell : UITableViewCell
-/// badge：右侧计数（如「新的朋友」的待确认数）。nil/空串 = 不显示。
-- (void)configureWithAction:(IMMenuAction *)action iconBg:(UIColor *)iconBg badge:(nullable NSString *)badge;
+/// badge：右侧蓝色计数胶囊（如「新的朋友」的待确认数）；value：右侧灰色文字值（如「我的好友」的好友数）。
+/// 两者都是 nil/空串 = 不显示；同一行只用其一。
+- (void)configureWithAction:(IMMenuAction *)action iconBg:(UIColor *)iconBg
+                      badge:(nullable NSString *)badge value:(nullable NSString *)value;
 @end
 
 @implementation IMContactEntryCell {
@@ -36,6 +43,7 @@
     UIView *_iconBg;
     UILabel *_title;
     UILabel *_badge;   // 右侧计数胶囊（贴在 disclosure 箭头左侧）
+    UILabel *_value;   // 右侧文字值（同样贴在 disclosure 箭头左侧）
     NSLayoutConstraint *_badgeWidth;
 }
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
@@ -70,6 +78,17 @@
         _badge.layer.masksToBounds = YES;
         _badge.hidden = YES;
         [self.contentView addSubview:_badge];
+        _value = [UILabel new];
+        _value.translatesAutoresizingMaskIntoConstraints = NO;
+        _value.font = [UIFont systemFontOfSize:kIMContactEntryValueFontSize];
+        _value.textColor = IMTheme.textSecondary;
+        _value.textAlignment = NSTextAlignmentRight;
+        _value.lineBreakMode = NSLineBreakByTruncatingTail;
+        _value.hidden = YES;
+        [self.contentView addSubview:_value];
+        // 标题与右值抢宽度时先保右值（它最宽也就 150），标题自己截断。
+        [_value setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+
         // 宽度显式给（与会话列表 _badgeWidth 同一做法），**不靠文本首尾空格撑宽**：
         // UILabel 居中对齐时不计行尾空白，「  3  」只算了前面两个空格，数字整体偏右（2026-09-15 用户报）。
         _badgeWidth = [_badge.widthAnchor constraintEqualToConstant:18];
@@ -90,12 +109,16 @@
             [_badge.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
             [_badge.heightAnchor constraintEqualToConstant:18],
             _badgeWidth,
+            [_value.trailingAnchor constraintEqualToAnchor:self.contentView.layoutMarginsGuide.trailingAnchor],
+            [_value.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
+            [_value.widthAnchor constraintLessThanOrEqualToConstant:kIMContactEntryValueMaxWidth],
+            [_title.trailingAnchor constraintLessThanOrEqualToAnchor:_value.leadingAnchor constant:-IMTheme.space2],
         ]];
         self.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     }
     return self;
 }
-- (void)configureWithAction:(IMMenuAction *)action iconBg:(UIColor *)iconBg badge:(NSString *)badge {
+- (void)configureWithAction:(IMMenuAction *)action iconBg:(UIColor *)iconBg badge:(NSString *)badge value:(NSString *)value {
     _title.text = action.title;
     _iconView.image = action.systemImageName.length > 0 ? [UIImage systemImageNamed:action.systemImageName] : nil;
     _iconBg.backgroundColor = iconBg;
@@ -104,39 +127,43 @@
     // 两侧各留 5pt、最小 18：一位数是正圆，两位数自然拉成胶囊。
     _badgeWidth.constant = badge.length > 0
         ? MAX(18, ceil([_badge sizeThatFits:CGSizeMake(CGFLOAT_MAX, 18)].width) + 10) : 0;
+    _value.text = value.length > 0 ? value : nil;
+    _value.hidden = (value.length == 0);
 }
 @end
 
 @interface IMContactsViewController () <UITableViewDataSource, UITableViewDelegate>
 @property (nonatomic, copy) NSString *host;
 @property (nonatomic, copy) NSString *userID;
-@property (nonatomic, copy, nullable) NSString *token;
-@property (nonatomic, strong) NSArray<IMUserCard *> *pending;   // 对方申请我，待我同意/拒绝
-@property (nonatomic, strong) NSArray<IMUserCard *> *accepted;  // 已是好友（原始集合；分组展示走 friendIndex）
-@property (nonatomic, strong) IMContactSectionIndex *friendIndex; // 好友 A–Z 分组索引（右侧纵向索引尺 + 字母表头）
-@property (nonatomic, strong) NSArray<IMMenuAction *> *entries; // 顶部入口（群聊/公众号/服务号）
+@property (nonatomic, strong) NSArray<IMUserCard *> *pending;   // 对方申请我，待我同意/拒绝（入口行徽标 + Tab 角标）
+@property (nonatomic, strong) NSArray<IMUserCard *> *accepted;  // 已是好友（「我的好友」入口行右值 = 条数；列表在 IMFriendListViewController）
+@property (nonatomic, strong) NSArray<IMMenuAction *> *entries; // 顶部入口（群聊 / 新的朋友 / 我的好友）
 @property (nonatomic, strong) NSArray<UIColor *> *entryColors;  // 与 entries 同序的图标底色
+/// 会话列表页最近一次广播的内存会话数组；nil = 还没收到过（首次计算时用本地会话快照打底，见 refreshRecentContacts）。
+@property (nonatomic, copy, nullable) NSArray<IMConversation *> *conversations;
+/// 「最近联系」的输入（会话数组 / 备注 / 注销登记）变了、还没重算。不可见时只置脏，可见时才算（见 markRecentContactsDirty）。
+@property (nonatomic, assign) BOOL recentDirty;
+/// 本页在屏（viewWillAppear → viewDidDisappear 之间）。
+@property (nonatomic, assign) BOOL pageVisible;
+@property (nonatomic, copy) NSArray<IMConversation *> *recentContacts;   // 「最近联系」（IMRecentContacts 的结果，至多 5 个）
+@property (nonatomic, copy) NSArray<NSString *> *recentRenderSignature; // 上屏内容签名：没变就不 reloadData
 @property (nonatomic, strong) UITableView *tableView;
-@property (nonatomic, strong) UILabel *emptyLabel;
-@property (nonatomic, strong) UIView *emptyFooter;  // 承载 emptyLabel 的表尾容器（见 layoutEmptyFooter）
 @property (nonatomic, strong, nullable) IMDatabaseAccountContext *databaseContext; // 任务5：本地缓存账号隔离
 @property (nonatomic, strong) IMReconnectReloader *reconnectReloader;              // 重连即取权威（可见时）
-@property (nonatomic, assign) NSUInteger indexGeneration;   // 最近一次发起的索引构建代号；回来的不是这一代就丢弃
 @property (nonatomic, assign) CFTimeInterval lastRefreshAt; // 最近一次拉到权威好友列表的时刻（CACurrentMediaTime，0=从未）
 @property (nonatomic, assign) BOOL refreshInFlight;         // 好友列表请求在途（切入节流用）
-@property (nonatomic, copy) NSDictionary<NSString *, NSArray *> *cachedFriendsFingerprint; // 本地好友快照的内容指纹（见 persistFriendsIfChanged:）
+@property (nonatomic, assign) BOOL eventReloadScheduled;    // 好友事件的合并刷新已排队
 @end
 
 /// 切入通讯录的刷新节流间隔：来回切 Tab 不必每次都拉 2000 人的名单，变化靠好友事件与重连兜住。
 static const CFTimeInterval kIMContactsAppearRefreshInterval = 30;
+/// 好友事件连发的合并窗口。
+static const NSTimeInterval kIMContactsEventCoalesceDelay = 0.3;
 
-/// 好友快照整表重写的串行队列：按发起顺序落库，后拉到的名单不会被先拉到的那份覆盖。
-static dispatch_queue_t IMContactsCacheWriteQueue(void) {
-    static dispatch_queue_t queue;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{ queue = dispatch_queue_create("im.contacts.cache", DISPATCH_QUEUE_SERIAL); });
-    return queue;
-}
+static NSString * const kIMContactsEntryCellID = @"entry";
+static NSString * const kIMContactsRecentCellID = @"recent";
+static NSString * const kIMContactsEntryFriendRequests = @"friendRequests";
+static NSString * const kIMContactsEntryMyFriends = @"myFriends";
 
 BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt,
                                      CFTimeInterval now, CFTimeInterval interval) {
@@ -152,31 +179,29 @@ BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt
     if (self) {
         _host = [host copy];
         _userID = [userID copy];
-        // 任务5：本地缓存优先——先用上次落库的好友种子渲染，断网也能看到列表，联网成功再权威覆盖。
+        // 任务5：本地缓存优先——先用上次落库的好友种子算好友数，断网也有数，联网成功再权威覆盖。
         IMDatabaseAccountContext *context = IMDatabase.sharedDatabase.currentAccountContext;
         _databaseContext = [context.ownerUserID isEqualToString:userID] ? context : nil;
-        __block NSArray<IMUserCard *> *cachedFriends = @[];
-        [IMDatabase.sharedDatabase performWithAccountContext:_databaseContext block:^(IMDatabase *database) {
-            cachedFriends = database.cachedFriends;
-        }];
-        // 快照指纹：之后拉回来的名单跟它一样就不必整表重写（冷启动后的第一次刷新通常就是这种情况）。
-        _cachedFriendsFingerprint = IMCachedFriendsFingerprint(cachedFriends);
-        _pending = @[];              // 待处理申请不落库（易变，以服务端为准），联网后由 applyFriends 补上
-        _accepted = cachedFriends;   // 好友种子（离线首屏）
-        // 种子也分组，离线首屏即带索引。后台算：本页随 TabBar 在启动时就创建，2000 人同步分组会拖慢冷启动。
-        _friendIndex = [[IMContactSectionIndex alloc] initWithCards:@[]];
-        [self rebuildFriendIndexWithReason:@"seed"];
+        _pending = @[];              // 待处理申请不落库（易变，以服务端为准），联网后由 applyRoster: 补上
+        _accepted = [IMFriendCacheWriter cachedFriendsWithContext:_databaseContext]; // 好友种子（离线首屏）
+        _recentContacts = @[];
+        _recentRenderSignature = @[];
+        _recentDirty = YES; // 首次显示时算一次
         [self buildEntries];
+        NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
         // 实时好友事件：即使没在通讯录页，也据此刷新（Tab 角标随之亮/灭，无需切页）。
-        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onFriendEvent)
-                                                   name:IMSocketDidReceiveFriendEventNotification object:nil];
-        // 备注名变更（本机详情页改 / 其它设备改）：显示名与首字母分组都会变，就地重排即可，
-        // 不必回服务端——displayName 读的是 IMRemarkStore，本地数据已是最新。
+        [center addObserver:self selector:@selector(onFriendEvent)
+                       name:IMSocketDidReceiveFriendEventNotification object:nil];
         // 本机主动改好友关系（同意/拒绝/拉黑/删好友）：服务端不回推本机，立即重拉（绕过切入节流）。
-        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onLocalFriendRelationChanged)
-                                                   name:IMFriendRelationDidChangeLocallyNotification object:nil];
-        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onRemarkChanged)
-                                                   name:IMRemarkStoreDidChangeNotification object:nil];
+        [center addObserver:self selector:@selector(onLocalFriendRelationChanged)
+                       name:IMFriendRelationDidChangeLocallyNotification object:nil];
+        // 备注名 / 已注销标记变更：「最近联系」的显示名与去留都可能变，重算（纯本地，零请求；不可见时只置脏）。
+        [center addObserver:self selector:@selector(markRecentContactsDirty)
+                       name:IMRemarkStoreDidChangeNotification object:nil];
+        // 会话列表变了（收发消息、删会话）→ 「最近联系」跟着变。本页随 TabBar 在启动时就创建，
+        // 所以即使用户还没切到通讯录，这里也一直握着最新的那份数组（只存不算，见 onConversationListChanged:）。
+        [center addObserver:self selector:@selector(onConversationListChanged:)
+                       name:IMConversationListDidChangeNotification object:nil];
         // 重连即取权威资料（断网期间看的是缓存种子）。仅可见时刷新，避免离屏空跑登录+HTTP。
         __weak typeof(self) ws = self;
         _reconnectReloader = [[IMReconnectReloader alloc] initWithReloadBlock:^{ [ws reload]; }];
@@ -186,44 +211,49 @@ BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt
 
 - (void)dealloc {
     [NSNotificationCenter.defaultCenter removeObserver:self];
-    [NSObject cancelPreviousPerformRequestsWithTarget:self];
 }
 
-/// 顶部入口（数据驱动）：新增入口 = 往 entries/entryColors 各加一条。全部 → 开发中吐司。
+/// 顶部入口（数据驱动）：新增入口 = 往 entries/entryColors 各加一条。
 - (void)buildEntries {
     __weak typeof(self) ws = self;
     self.entries = @[
         [IMMenuAction actionWithId:@"groupChat" title:IMLocalized(@"common.group_chat") image:@"person.3.fill" handler:^{ [ws openGroupList]; }],
         // 「新的朋友」独立入口（2026-09-05）：原先它是好友列表上方的一段，好友一多就被挤到看不见，
         // 而"有人加我"恰恰是需要主动去处理的事。副标题显待确认数（0 时留空，别摆一个恒亮的 0）。
-        [IMMenuAction actionWithId:@"friendRequests" title:IMLocalized(@"friend.requests.title") image:@"person.crop.circle.badge.plus"
+        [IMMenuAction actionWithId:kIMContactsEntryFriendRequests title:IMLocalized(@"friend.requests.title") image:@"person.crop.circle.badge.plus"
                            handler:^{ [ws openFriendRequests]; }],
-        // 公众号 / 服务号入口暂时隐藏（2026-11-03，功能未做，三端同步）。恢复时连同 entryColors 的
-        // systemOrange / systemBlue 一起加回；文案 key contacts.entry.official_account / service_account 仍保留。
+        // 「我的好友」（2026-11-13）：好友 A–Z 列表整体搬进 IMFriendListViewController，这里只留入口，右值 = 好友数。
+        [IMMenuAction actionWithId:kIMContactsEntryMyFriends title:IMLocalized(@"contacts.entry.my_friends") image:@"person.2.fill"
+                           handler:^{ [ws openFriendList]; }],
+        // 公众号 / 服务号入口暂时隐藏（2026-11-03，功能未做，三端同步）。恢复时连同 entryColors 一起加回；
+        // 文案 key contacts.entry.official_account / service_account 仍保留。
     ];
-    self.entryColors = @[UIColor.systemGreenColor, UIColor.systemTealColor];
-}
-
-/// 收到好友事件 → 节流刷新（合并连发，避免每帧一次登录+拉取）。
-/// 备注名变更 → 按新显示名重排分桶并刷新（纯本地，零请求）。
-- (void)onRemarkChanged {
-    [self rebuildFriendIndexWithReason:@"remark"];
+    self.entryColors = @[UIColor.systemGreenColor, UIColor.systemTealColor, UIColor.systemBlueColor];
 }
 
 - (void)onLocalFriendRelationChanged {
-    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(reload) object:nil];
     [self reload];
 }
 
+/// 收到好友事件 → 合并连发后刷新一次（在途标记 + dispatch_after + weak self，见 CODING_STYLE §8），
+/// 避免每帧一次登录+拉取。
 - (void)onFriendEvent {
-    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(reload) object:nil];
-    [self performSelector:@selector(reload) withObject:nil afterDelay:0.3];
+    if (self.eventReloadScheduled) { return; }
+    self.eventReloadScheduled = YES;
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kIMContactsEventCoalesceDelay * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self) { return; }
+        self.eventReloadScheduled = NO;
+        [self reload];
+    });
 }
 
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = IMLocalized(@"contacts.title");
-    self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
+    self.view.backgroundColor = IMTheme.groupedBackground;
     self.navigationItem.rightBarButtonItem =
         [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"person.badge.plus"]
                                          style:UIBarButtonItemStylePlain target:self action:@selector(addFriendTapped)];
@@ -233,23 +263,13 @@ BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt
     self.tableView.dataSource = self;
     self.tableView.delegate = self;
     self.tableView.rowHeight = 68;
-    [self.tableView registerClass:IMContactCell.class forCellReuseIdentifier:@"friend"];
-    [self.tableView registerClass:IMContactEntryCell.class forCellReuseIdentifier:@"entry"];
+    [self.tableView registerClass:IMContactCell.class forCellReuseIdentifier:kIMContactsRecentCellID];
+    [self.tableView registerClass:IMContactEntryCell.class forCellReuseIdentifier:kIMContactsEntryCellID];
     // 页顶点按式搜索框（SEARCH_DESIGN §3.1）：只是入口，点击 push 全局搜索页、范围=联系人+群聊。
     self.tableView.tableHeaderView = IMMakeSearchEntryHeader(self.view.bounds.size.width, IMLocalized(@"search.contacts.placeholder"),
                                                              self, @selector(searchEntryTapped));
     [self.view addSubview:self.tableView];
-
-    // 空态文案挂 tableView 的**表尾**，不再居中盖在 self.view 上：顶部入口区是 4 行 68pt 的
-    // 分组表，屏幕竖直中心恰好落在最后一条入口（服务号）身上，两段文字直接叠在一起（2026-09-05 实测）。
-    // 表尾天然接在最后一段内容下方，以后入口再增减也撞不上。
-    self.emptyLabel = [UILabel new];
-    self.emptyLabel.text = IMLocalized(@"contacts.empty");
-    self.emptyLabel.textColor = IMTheme.textSecondary;
-    self.emptyLabel.textAlignment = NSTextAlignmentCenter;
-    self.emptyLabel.numberOfLines = 0;
-    self.emptyFooter = [UIView new];
-    [self.emptyFooter addSubview:self.emptyLabel];
+    // 「最近联系」在 viewWillAppear 才算（refreshRecentContactsIfNeeded）：没显示过就不必算。
 }
 
 - (void)searchEntryTapped {
@@ -258,33 +278,13 @@ BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt
     [self.navigationController pushViewController:vc animated:YES];
 }
 
-- (void)viewDidLayoutSubviews {
-    [super viewDidLayoutSubviews];
-    [self layoutEmptyFooter]; // 宽度变了（旋转/分屏）要重排文案
-}
-
-/// 表尾空态排版：表尾视图**不参与 Auto Layout**，必须自己按当前宽度算出具体 frame。
-/// 高度变了才回写 tableFooterView（赋值会触发一次布局，无条件回写就是死循环）。
-- (void)layoutEmptyFooter {
-    if (self.tableView.tableFooterView != self.emptyFooter) { return; }
-    CGFloat inset = IMTheme.space4 * 2;
-    CGFloat width = self.tableView.bounds.size.width;
-    if (width <= inset * 2) { return; }
-    CGSize fit = [self.emptyLabel sizeThatFits:CGSizeMake(width - inset * 2, CGFLOAT_MAX)];
-    self.emptyLabel.frame = CGRectMake(inset, inset, width - inset * 2, fit.height);
-    CGRect target = CGRectMake(0, 0, width, fit.height + inset * 2);
-    if (CGRectEqualToRect(self.emptyFooter.frame, target)) { return; }
-    self.emptyFooter.frame = target;
-    self.tableView.tableFooterView = self.emptyFooter;
-}
-
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     self.reconnectReloader.visible = YES;
+    self.pageVisible = YES;
+    [self refreshRecentContactsIfNeeded];
     // 切入即取权威好友列表（带节流）。**不能只靠重连 / 好友事件**：socket 多半在停留「会话」页时就连上了，
-    // 那一刻本页不可见、重连刷新不触发；好友缓存又只有本页写，2026-09-06 删掉这句后通讯录整页空白。
-    // 当时的切 Tab 卡顿不是这次请求（异步、token 有缓存），而是回来后在主线程重建 2000 人拼音索引——
-    // 已改为后台构建 + 拼音缓存（见 rebuildFriendIndexWithReason:）。
+    // 那一刻本页不可见、重连刷新不触发；好友缓存靠本页（与「我的好友」页）写，2026-09-06 删掉这句后通讯录整页空白。
     if (IMContactsShouldRefreshOnAppear(self.refreshInFlight, self.lastRefreshAt,
                                         CACurrentMediaTime(), kIMContactsAppearRefreshInterval)) {
         [self reload];
@@ -294,99 +294,79 @@ BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt
 - (void)viewDidDisappear:(BOOL)animated {
     [super viewDidDisappear:animated];
     self.reconnectReloader.visible = NO;
+    self.pageVisible = NO;
 }
 
-#pragma mark - 数据
+#pragma mark - 数据：好友数 / 角标
 
 - (void)reload {
-    IMHTTPService.sharedService.host = self.host;
     self.refreshInFlight = YES;
     __weak typeof(self) weakSelf = self;
-    [IMHTTPService.sharedService loginWithUserID:self.userID completion:^(NSString *token, NSError *error) {
+    [IMFriendRoster fetchWithHost:self.host userID:self.userID context:self.databaseContext source:@"通讯录"
+                       completion:^(IMFriendRoster *roster, NSString *token) {
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) { return; }
-        if (token.length == 0) {
-            self.refreshInFlight = NO;
-            IMLog(@"通讯录刷新登录失败（保留当前内容）：%@", error.localizedDescription ?: @"未知错误");
-            return;
-        }
-        self.token = token;
-        [IMHTTPService.sharedService friendsWithToken:token status:nil completion:^(NSArray<IMUserCard *> *friends, NSError *err) {
-            __strong typeof(weakSelf) self = weakSelf;
-            if (!self) { return; }
-            self.refreshInFlight = NO;
-            if (err) {
-                IMLog(@"通讯录刷新失败（保留当前内容）：%@", err.localizedDescription ?: @"未知错误");
-                return;
-            }
-            [self applyFriends:friends ?: @[]];
-        }];
+        self.refreshInFlight = NO;
+        if (roster) { [self applyRoster:roster]; } // 失败保留当前内容（helper 已打日志）
     }];
 }
 
-/// 按 self.accepted 重建 A–Z 索引：拼音分组在后台队列算，回主线程只做赋值 + reloadData。
-/// 连发时以最后一次发起为准（代号不匹配的结果直接丢弃），慢结果不会盖掉新数据。
-- (void)rebuildFriendIndexWithReason:(NSString *)reason {
-    NSUInteger generation = ++self.indexGeneration;
-    NSUInteger count = self.accepted.count;
-    CFTimeInterval startedAt = CACurrentMediaTime();
-    __weak typeof(self) weakSelf = self;
-    [IMContactSectionIndex buildWithCards:self.accepted completion:^(IMContactSectionIndex *index) {
-        __strong typeof(weakSelf) self = weakSelf;
-        if (!self || generation != self.indexGeneration) { return; }
-        self.friendIndex = index;
-        [self.tableView reloadData];
-        IMLogUI(@"contacts_index_applied reason=%@ friends=%lu latency_ms=%.0f",
-                reason, (unsigned long)count, (CACurrentMediaTime() - startedAt) * 1000);
-    }];
-}
-
-/// 任务5：权威好友列表落库（仅 accepted），供下次断网离线首屏。空名单也写，代表当前账号无好友。
-/// 与上次落库（或冷启动读出的快照）逐列一致就不写——2000 人删了重插在 Mac 上约 16ms，而切 Tab 拉回来的名单
-/// 几乎总是没变。变了才写，并挪到后台串行队列：FMDatabaseQueue 线程安全；卡片解析后不再被改写；
-/// performWithAccountContext 会丢弃账号已切走的写入。锁序与主线程一致（IMDatabase 锁 → FMDB 队列），不会反向等待。
-/// **指纹只在真的写成后才记**：写失败整笔回滚、库里仍是上一份，保留旧指纹下次刷新就会重试
-/// （原先每次无条件重写，天然带重试；「没变不写」不能把这一点弄丢）。串行队列 + 主队列 FIFO，
-/// 指纹始终等于最后一次写成的那份。
-- (void)persistFriendsIfChanged:(NSArray<IMUserCard *> *)accepted {
-    NSDictionary<NSString *, NSArray *> *fingerprint = IMCachedFriendsFingerprint(accepted);
-    BOOL changed = ![fingerprint isEqualToDictionary:self.cachedFriendsFingerprint ?: @{}];
-    IMLogUI(@"contacts_cache_persist changed=%d friends=%lu", changed, (unsigned long)accepted.count);
-    if (!changed) { return; }
-    IMDatabaseAccountContext *context = self.databaseContext;
-    NSArray<IMUserCard *> *snapshot = [accepted copy];
-    __weak typeof(self) weakSelf = self;
-    dispatch_async(IMContactsCacheWriteQueue(), ^{
-        __block BOOL written = NO;
-        [IMDatabase.sharedDatabase performWithAccountContext:context block:^(IMDatabase *database) {
-            written = [database replaceCachedFriends:snapshot];
-        }];
-        if (!written) { return; }
-        dispatch_async(dispatch_get_main_queue(), ^{ weakSelf.cachedFriendsFingerprint = fingerprint; });
-    });
-}
-
-/// 拆分为"新的朋友"(pending) 与 好友(accepted)；好友按拼音首字母分组（A–Z + 右侧索引尺，见 friendIndex）。
-- (void)applyFriends:(NSArray<IMUserCard *> *)friends {
-    NSMutableArray<IMUserCard *> *pending = [NSMutableArray array];
-    NSMutableArray<IMUserCard *> *accepted = [NSMutableArray array];
-    for (IMUserCard *c in friends) {
-        if (c.status == IMFriendStatusPending) { [pending addObject:c]; }
-        else if (c.status == IMFriendStatusAccepted) { [accepted addObject:c]; }
-    }
-    self.pending = pending;
-    self.accepted = accepted;
+/// pending 给入口行徽标 + Tab 角标，accepted 给「我的好友」右值（落库已由 IMFriendRoster 做完）。
+- (void)applyRoster:(IMFriendRoster *)roster {
+    self.pending = roster.pending;
+    self.accepted = roster.accepted;
     self.lastRefreshAt = CACurrentMediaTime();
-    // 表尾空态只看条数，当场就能定（种子阶段不设：种子为空不代表没有好友，可能只是没缓存过）。
-    self.tableView.tableFooterView = (pending.count + accepted.count) > 0 ? nil : self.emptyFooter;
-    [self layoutEmptyFooter];
-    // 好友行与「新的朋友」徽标随新索引回来的那次 reloadData 一起刷，省一次整表重载。
-    [self rebuildFriendIndexWithReason:@"server"];
-    [self persistFriendsIfChanged:accepted];
+    // 只刷入口区（徽标 + 好友数）；「最近联系」不随好友名单变。
+    if (self.isViewLoaded) {
+        [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:[self entriesSection]]
+                      withRowAnimation:UITableViewRowAnimationNone];
+    }
     // Tab 角标：把待处理申请数显示在"通讯录"Tab 上（清零靠重新进入时再算）。
-    NSString *badge = pending.count > 0 ? [NSString stringWithFormat:@"%lu", (unsigned long)pending.count] : nil;
+    NSString *badge = roster.pending.count > 0 ? [NSString stringWithFormat:@"%lu", (unsigned long)roster.pending.count] : nil;
     if (@available(iOS 18.0, *)) { self.navigationController.tab.badgeValue = badge; }
     else { self.navigationController.tabBarItem.badgeValue = badge; }
+}
+
+#pragma mark - 数据：最近联系
+
+- (void)onConversationListChanged:(NSNotification *)note {
+    NSString *owner = note.userInfo[kIMConversationListOwnerKey];
+    NSArray<IMConversation *> *conversations = note.userInfo[kIMConversationListKey];
+    // 换号过渡期旧 TabBar 的会话页还可能广播一次：不是本账号的不收。
+    if (![owner isEqualToString:self.userID] || ![conversations isKindOfClass:NSArray.class]) { return; }
+    self.conversations = conversations;
+    [self markRecentContactsDirty];
+}
+
+/// 「最近联系」的输入变了：只置脏；本页在屏才当场重算。会话列表在消息风暴下每 0.12s 就换一次数组，
+/// 用户多半停在「消息」Tab，那时每次都排序 + 算签名纯属空转——等切回本页（viewWillAppear）再算一次。
+- (void)markRecentContactsDirty {
+    self.recentDirty = YES;
+    if (self.pageVisible) { [self refreshRecentContactsIfNeeded]; }
+}
+
+- (void)refreshRecentContactsIfNeeded {
+    if (!self.recentDirty) { return; }
+    self.recentDirty = NO;
+    [self refreshRecentContacts];
+}
+
+/// 按当前会话数组重算「最近联系」；上屏内容（成员 / 顺序 / 显示名 / 头像）没变就不动表格——
+/// 在屏时消息一条条进来，无条件 reloadData 会让这一段跟着闪。
+- (void)refreshRecentContacts {
+    // 会话列表页还没广播过（它的种子在 init 里直接赋 ivar，不走广播）：读同一份本地会话快照打底。
+    if (!self.conversations) { self.conversations = IMCachedConversationListSeed(self.databaseContext); }
+    NSArray<IMConversation *> *recents = IMRecentContacts(self.conversations, self.userID, ^BOOL(NSString *peerUID) {
+        return [IMRemarkStore.sharedStore isDeletedUser:peerUID];
+    });
+    NSMutableArray<NSString *> *signature = [NSMutableArray arrayWithCapacity:recents.count];
+    for (IMConversation *c in recents) {
+        [signature addObject:[NSString stringWithFormat:@"%@\n%@\n%@", c.convID, c.displayName, c.peerAvatarURL ?: @""]];
+    }
+    BOOL changed = ![signature isEqualToArray:self.recentRenderSignature];
+    self.recentContacts = recents; // 对象总是换成最新的（点行进聊天要带最新的已读位点 / 未读数 / 标未读）
+    self.recentRenderSignature = signature;
+    if (changed && self.isViewLoaded) { [self.tableView reloadData]; }
 }
 
 #pragma mark - 交互
@@ -402,109 +382,75 @@ BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt
     [self.navigationController pushViewController:vc animated:YES];
 }
 
+- (void)openFriendList {
+    // 把手上的好友名单交给好友页当首屏：push 时不必在主线程再读一遍整张好友表。手上没有才让它自己读库。
+    IMFriendListViewController *vc = [[IMFriendListViewController alloc] initWithHost:self.host userID:self.userID
+                                                                         seedFriends:self.accepted.count > 0 ? self.accepted : nil];
+    [self.navigationController pushViewController:vc animated:YES];
+}
+
 - (void)addFriendTapped {
     IMUserSearchViewController *search = [[IMUserSearchViewController alloc] initWithHost:self.host userID:self.userID];
     [self.navigationController pushViewController:search animated:YES];
 }
 
-/// 对某对端执行好友动作（同意/拒绝），完成后刷新列表。
-- (void)performAction:(NSString *)action onPeer:(NSString *)peerID {
-    if (self.token.length == 0 || peerID.length == 0) { return; }
-    __weak typeof(self) weakSelf = self;
-    [IMHTTPService.sharedService friendActionWithToken:self.token action:action peerID:peerID completion:^(NSError *error) {
-        __strong typeof(weakSelf) self = weakSelf;
-        if (!self) { return; }
-        if (error) {
-            [self showError:IMLocalizedFormat(@"common.action_failed_detail", error.localizedDescription ?: @"")];
-            return;
-        }
-        [self reload];
-    }];
-}
-
-/// 点好友行 → 进对方资料页（IMChatDetailViewController），再由资料页「消息」发起聊天。
-/// 全端统一：点成员/好友一律先进资料页，不直接进聊天页（微信式）。见 [[improgram-tap-member-opens-detail]]。
-- (void)openPeerDetail:(IMUserCard *)card {
-    if (card.userID.length == 0 || [card.userID isEqualToString:self.userID]) { return; }
-    IMChatDetailViewController *detail =
-        [[IMChatDetailViewController alloc] initSingleWithHost:self.host userID:self.userID
-                                                        peerID:card.userID
-                                                  peerNickname:card.nickname // 真实昵称；备注由 IMRemarkStore 供给
-                                                 peerAvatarURL:card.avatarURL];
-    detail.showsMessagePill = YES; // 通讯录进资料页：提供「消息」入口发起单聊
-    [self.navigationController pushViewController:detail animated:YES];
-}
-
-- (void)showError:(NSString *)message {
-    IMLog(@"%@", message);
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:IMLocalized(@"common.notice") message:message
-                                                           preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.ok") style:UIAlertActionStyleDefault handler:nil]];
-    [self presentViewController:alert animated:YES completion:nil];
+/// 点「最近联系」行 → **直接进聊天**（设计 §7.1）。这里列的是已经在聊的会话，不是「好友 / 成员」名单，
+/// 所以不走「先进资料页」那条规矩；走与会话列表点行同一个共用入口（含清「标为未读」）。
+- (void)openRecentChat:(IMConversation *)conversation {
+    [IMChatViewController openConversation:conversation inNavigationController:self.navigationController
+                                      host:self.host userID:self.userID token:nil];
 }
 
 #pragma mark - 分区映射
 
-// 分区布局：section 0 = 顶部入口（始终存在）；其后接 N 个「好友 A–Z 字母分组」（由 friendIndex 提供）。
-// 下面以语义谓词判断，避免散落魔法下标。
-//
-// **「新的朋友」分区已于 2026-09-05 移除**：改由顶部入口行「新的朋友」→ IMFriendRequestListViewController。
-// 两处并存只会让人在列表里找一次、在入口里再找一次；而好友一多，原来那一段就被冲到看不见了。
-// self.pending 仍然要算——入口行的红点徽标与 Tab 角标都靠它。
+// 分区布局：section 0 = 顶部入口（始终存在）；section 1 = 「最近联系」（一个都没有时整段不出现）。
+// 好友 A–Z 分组已于 2026-11-13 搬到 IMFriendListViewController（入口行「我的好友」）；
+// 「新的朋友」分区更早（2026-09-05）就改成了入口行 → IMFriendRequestListViewController。
+// self.pending / self.accepted 仍然要算——入口行的徽标、好友数与 Tab 角标都靠它们。
 
-/// 顶部入口区永远是 section 0。
-- (BOOL)isEntriesSection:(NSInteger)section { return section == 0; }
-/// 好友字母分组的起始 section（顶部入口之后）。
-- (NSInteger)friendsBaseSection { return 1; }
-/// 该 section 是否属于好友字母分组区。
-- (BOOL)isFriendSection:(NSInteger)section { return section >= [self friendsBaseSection]; }
-/// section → friendIndex 内的分组下标。
-- (NSInteger)friendLocalSection:(NSInteger)section { return section - [self friendsBaseSection]; }
+- (NSInteger)entriesSection { return 0; }
+- (BOOL)isEntriesSection:(NSInteger)section { return section == [self entriesSection]; }
+
+/// 入口行右侧显示什么：「新的朋友」= 待确认数徽标（0 不显示）；「我的好友」= 好友数（只写数字）。
+- (void)configureEntryCell:(IMContactEntryCell *)cell atRow:(NSInteger)row {
+    IMMenuAction *entry = self.entries[row];
+    NSString *badge = nil;
+    NSString *value = nil;
+    if ([entry.actionId isEqualToString:kIMContactsEntryFriendRequests] && self.pending.count > 0) {
+        badge = [NSString stringWithFormat:@"%lu", (unsigned long)self.pending.count];
+    } else if ([entry.actionId isEqualToString:kIMContactsEntryMyFriends]) {
+        value = [NSString stringWithFormat:@"%lu", (unsigned long)self.accepted.count];
+    }
+    [cell configureWithAction:entry iconBg:self.entryColors[row] badge:badge value:value];
+}
 
 #pragma mark - UITableView
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return [self friendsBaseSection] + [self.friendIndex numberOfSections];
+    return self.recentContacts.count > 0 ? 2 : 1;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    if ([self isEntriesSection:section]) { return (NSInteger)self.entries.count; }
-    return [self.friendIndex numberOfRowsInSection:[self friendLocalSection:section]];
+    return [self isEntriesSection:section] ? (NSInteger)self.entries.count : (NSInteger)self.recentContacts.count;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    if ([self isEntriesSection:section]) { return nil; }
-    return [self.friendIndex titleForSection:[self friendLocalSection:section]]; // 字母表头（索引 head）
-}
-
-/// 右侧纵向索引尺：列出好友字母（A–Z / #），点击跳到对应分组；无好友则不显示。
-- (NSArray<NSString *> *)sectionIndexTitlesForTableView:(UITableView *)tableView {
-    return self.friendIndex.titles.count > 0 ? self.friendIndex.titles : nil;
-}
-
-- (NSInteger)tableView:(UITableView *)tableView sectionForSectionIndexTitle:(NSString *)title atIndex:(NSInteger)index {
-    return [self friendsBaseSection] + index; // titles 与好友分组一一对应，加偏移即绝对 section
+    return [self isEntriesSection:section] ? nil : IMLocalized(@"contacts.recent.title");
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     if ([self isEntriesSection:indexPath.section]) {
-        IMContactEntryCell *cell = [tableView dequeueReusableCellWithIdentifier:@"entry" forIndexPath:indexPath];
-        IMMenuAction *entry = self.entries[indexPath.row];
-        // 「新的朋友」带待确认数徽标；其余入口无徽标。
-        NSString *badge = ([entry.actionId isEqualToString:@"friendRequests"] && self.pending.count > 0)
-            ? [NSString stringWithFormat:@"%lu", (unsigned long)self.pending.count] : nil;
-        [cell configureWithAction:entry iconBg:self.entryColors[indexPath.row] badge:badge];
+        IMContactEntryCell *cell = [tableView dequeueReusableCellWithIdentifier:kIMContactsEntryCellID forIndexPath:indexPath];
+        [self configureEntryCell:cell atRow:indexPath.row];
         return cell;
     }
-    IMContactCell *cell = [tableView dequeueReusableCellWithIdentifier:@"friend" forIndexPath:indexPath];
-    IMUserCard *c = [self.friendIndex cardAtSection:[self friendLocalSection:indexPath.section] row:indexPath.row];
-    // 拉黑≠解绑：被拉黑的好友仍在列表，副标题标注"已拉黑"以区分。
-    // 副标题 = @句柄（没有则留空），绝不显示 userID——那是 10 位随机数字内部 ID。
-    NSString *handle = c.username.length > 0 ? [@"@" stringByAppendingString:c.username] : @"";
-    NSString *subtitle = c.blocked ? (handle.length > 0 ? IMLocalizedFormat(@"contacts.row.handle_blocked", handle) : IMLocalized(@"common.blocked")) : handle;
-    [cell configureWithCard:c subtitle:subtitle];
+    // 最近联系：头像 + 显示名（备注 > 昵称，与会话列表同一口径），不带消息预览和时间。
+    IMContactCell *cell = [tableView dequeueReusableCellWithIdentifier:kIMContactsRecentCellID forIndexPath:indexPath];
+    IMConversation *conversation = self.recentContacts[indexPath.row];
+    [cell configureWithDisplayName:conversation.displayName
+                         avatarURL:IMMediaFullURL(conversation.peerAvatarURL, self.host)
+                        avatarSeed:conversation.peer subtitle:nil];
     [cell setActionTitle:nil enabled:NO action:nil];
-    cell.selectionStyle = UITableViewCellSelectionStyleDefault;
     return cell;
 }
 
@@ -516,48 +462,7 @@ BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt
         if (entry.handler) { entry.handler(); }
         return;
     }
-    IMUserCard *c = [self.friendIndex cardAtSection:[self friendLocalSection:indexPath.section] row:indexPath.row];
-    if (c) { [self openPeerDetail:c]; }
-}
-
-/// 好友行左滑：删除好友 / 拉黑或解除拉黑（入口行/申请行不提供）。
-- (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView
-    trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (![self isFriendSection:indexPath.section]) { return nil; }
-    IMUserCard *card = [self.friendIndex cardAtSection:[self friendLocalSection:indexPath.section] row:indexPath.row];
-    if (!card) { return nil; }
-    NSString *peer = card.userID;
-    __weak typeof(self) weakSelf = self;
-    UIContextualAction *del = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive
-                                                                      title:IMLocalized(@"common.delete")
-                                                                    handler:^(UIContextualAction *a, UIView *v, void (^done)(BOOL)) {
-        [weakSelf removeFriend:peer]; done(YES);
-    }];
-    // 拉黑≠解绑：已拉黑的好友这里给"解除拉黑"，否则给"拉黑"。
-    NSString *blockTitle = card.blocked ? IMLocalized(@"contacts.action.unblock") : IMLocalized(@"contacts.action.block");
-    NSString *blockAction = card.blocked ? @"unblock" : @"block";
-    UIContextualAction *block = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleNormal
-                                                                        title:blockTitle
-                                                                      handler:^(UIContextualAction *a, UIView *v, void (^done)(BOOL)) {
-        [weakSelf performAction:blockAction onPeer:peer]; done(YES);
-    }];
-    block.backgroundColor = card.blocked ? UIColor.systemGreenColor : UIColor.systemGrayColor;
-    return [UISwipeActionsConfiguration configurationWithActions:@[del, block]];
-}
-
-/// 删除好友（DELETE）；完成后刷新列表。
-- (void)removeFriend:(NSString *)peerID {
-    if (self.token.length == 0 || peerID.length == 0) { return; }
-    __weak typeof(self) weakSelf = self;
-    [IMHTTPService.sharedService removeFriendWithToken:self.token peerID:peerID completion:^(NSError *error) {
-        __strong typeof(weakSelf) self = weakSelf;
-        if (!self) { return; }
-        if (error) {
-            [self showError:IMLocalizedFormat(@"common.delete_failed_detail", error.localizedDescription ?: @"")];
-            return;
-        }
-        [self reload];
-    }];
+    if (indexPath.row < (NSInteger)self.recentContacts.count) { [self openRecentChat:self.recentContacts[indexPath.row]]; }
 }
 
 @end

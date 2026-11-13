@@ -85,9 +85,6 @@ FOUNDATION_EXPORT int64_t IMClearedAtFromJSON(id _Nullable value);
 /// 会话备注（G1，PUT …/remark）与好友备注（POST /friends/remark）是两件事：前者只改"这个会话"
 /// 的标题（群聊也能用），后者跟人走（通讯录/选人页也变）。同时存在时按会话备注为准——它更"就近"。
 @property (nonatomic, readonly) NSString *displayName;
-/// 同 displayName，但**兜底的「未命名用户」返回 nil**——传给聊天页/详情页当 peerNickname 用：
-/// 占位文案一旦当昵称传下去就被冻结，下游再也回退不到 peerID，也分不出「没有昵称」和「真叫未命名用户」。
-@property (nonatomic, readonly, nullable) NSString *knownDisplayName;
 
 /// 最后一条消息在列表里的预览正文。系统消息按 lastSysSegments 逐段拼接、名字换成**本机显示名**
 /// （备注 > 昵称），使列表与聊天页里的同一句话一致；无分段（历史消息/非系统消息）回退 lastContent。
@@ -111,5 +108,18 @@ FOUNDATION_EXPORT int64_t IMClearedAtFromJSON(id _Nullable value);
 /// 已打开的群聊页取自己那一项取大，停在页里也能随列表刷新更新双勾（对齐 Web / Android）。
 FOUNDATION_EXPORT NSString * const IMConversationListDidRefreshGroupReadNotification;
 FOUNDATION_EXPORT NSString * const kIMGroupReadSeqsKey;
+
+/// 会话列表页的内存会话数组换新后广播（主线程；收发消息、删会话、服务端刷新、本地缓存重读都算）。
+/// userInfo[kIMConversationListKey] = 最新的 NSArray<IMConversation *>（全量，未按文件夹过滤）；
+/// userInfo[kIMConversationListOwnerKey] = 该列表所属账号 uid。
+/// 通讯录首页「最近联系」据此重算——它不自己拉接口、不查消息库（ORG_DIRECTORY_DESIGN §7.1）。
+FOUNDATION_EXPORT NSString * const IMConversationListDidChangeNotification;
+FOUNDATION_EXPORT NSString * const kIMConversationListKey;
+FOUNDATION_EXPORT NSString * const kIMConversationListOwnerKey;
+
+/// 本机在列表页之外就地改了某会话的设置并已镜像进本地库（如从「最近联系」/ 横幅进会话清掉「标为未读」）。
+/// object = 已带上最新置顶 / 免打扰 / 标未读的 IMConversation（未必是会话列表页手里那个实例）。主线程发出。
+/// 会话列表页据此按 convID 同步自己那份并立即重算「消息」Tab 蓝点 / 文件夹角标，不等约 1 秒后的 conv_update 回推。
+FOUNDATION_EXPORT NSString * const IMConversationSettingsDidMirrorLocallyNotification;
 
 NS_ASSUME_NONNULL_END

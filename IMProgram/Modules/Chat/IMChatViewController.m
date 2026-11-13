@@ -90,19 +90,76 @@ NSNotificationName const IMChatConversationClearedNotification = @"IMChatConvers
         UINavigationController *nav = [top isKindOfClass:UINavigationController.class]
             ? (UINavigationController *)top : top.navigationController;
         if (!nav || conversation.convID.length == 0) { return NO; } // 还没有可用窗口/导航控制器（冷启动早期）：让调用方重试
-        if (conversation.isGroup) {
-            [self openInNavigationController:nav host:host userID:userID
-                                  groupConvID:conversation.convID groupName:conversation.displayName
-                                      readSeq:conversation.readSeq unread:conversation.unread
-                                 groupReadSeq:conversation.groupReadSeq groupAvatarURL:conversation.avatarURL];
-        } else {
-            [self openInNavigationController:nav host:host userID:userID
-                                       peerID:conversation.peer readSeq:conversation.readSeq
-                                       unread:conversation.unread peerReadSeq:conversation.peerReadSeq
-                                 peerNickname:conversation.knownDisplayName peerAvatarURL:conversation.peerAvatarURL];
-        }
-        return YES;
+        return [self openConversation:conversation inNavigationController:nav host:host userID:userID token:nil] != nil;
     };
+}
+
++ (nullable instancetype)openConversation:(IMConversation *)c
+                   inNavigationController:(nullable UINavigationController *)nav
+                                     host:(NSString *)host userID:(NSString *)userID
+                                    token:(nullable NSString *)token {
+    if (!nav || !c) { return nil; }
+    [self clearMarkedUnreadOnOpen:c userID:userID token:token ?: IMHTTPService.sharedService.currentToken];
+    if (c.isGroup) {
+        return [self openInNavigationController:nav host:host userID:userID
+                                    groupConvID:c.convID groupName:c.name
+                                        readSeq:c.readSeq unread:c.unread
+                                   groupReadSeq:c.groupReadSeq
+                                 groupAvatarURL:c.avatarURL]; // 透传群头像，右上按钮立即显真图、免闪首字母
+    }
+    if (c.peer.length == 0 || [c.peer isEqualToString:userID]) { return nil; }
+    // 透传对端昵称/头像，供聊天页右上信息按钮打开的资料页显示。
+    return [self openInNavigationController:nav host:host userID:userID
+                                     peerID:c.peer readSeq:c.readSeq unread:c.unread
+                                peerReadSeq:c.peerReadSeq
+                               peerNickname:c.peerNickname peerAvatarURL:c.peerAvatarURL];
+}
+
+/// 进会话即清手动「标未读」（IM 通行做法：打开视为已处理）；经 conv_update 多端同步。
+/// PUT settings 是**整体替换**，而手上的会话对象可能是旧快照（推送冷启动读本地库、「最近联系」的本地种子）：
+/// 别的设备刚取消置顶 / 免打扰，拿旧值 PUT 会把它写回服务端并同步到所有设备（CODING_STYLE §8）。
+/// 所以先 GET 一次服务端当前设置，带**服务端**的置顶 / 免打扰去 PUT（muteUntil 省略，服务端保留原到期）；
+/// 读失败就不清——等会话列表拿到权威数据、用户下次进会话再清。服务端本就没标未读：只把本地对齐，不发 PUT。
+/// 读成后就地镜像（内存对象 + 本地库）并发 IMConversationSettingsDidMirrorLocallyNotification，列表角标立即重算。
++ (void)clearMarkedUnreadOnOpen:(IMConversation *)c userID:(NSString *)userID token:(nullable NSString *)token {
+    if (!c.markedUnread || token.length == 0 || c.convID.length == 0) { return; }
+    NSString *convID = c.convID;
+    [IMHTTPService.sharedService conversationSettingsWithToken:token convID:convID
+                                                    completion:^(NSDictionary *data, NSError *error) {
+        if (error || ![data isKindOfClass:NSDictionary.class]) {
+            IMLog(@"进会话清「标为未读」：读当前设置失败，暂不清 conv=%@：%@", convID, error.localizedDescription ?: @"回包为空");
+            return;
+        }
+        int64_t pinnedAt = [data[@"pinned_at"] respondsToSelector:@selector(longLongValue)] ? [data[@"pinned_at"] longLongValue] : 0;
+        BOOL muted = [data[@"muted"] respondsToSelector:@selector(boolValue)] && [data[@"muted"] boolValue];
+        int64_t muteUntil = [data[@"mute_until"] respondsToSelector:@selector(longLongValue)] ? [data[@"mute_until"] longLongValue] : 0;
+        BOOL serverMarked = [data[@"marked_unread"] respondsToSelector:@selector(boolValue)] && [data[@"marked_unread"] boolValue];
+        if (serverMarked) {
+            [IMHTTPService.sharedService updateConversationSettingsWithToken:token convID:convID
+                pinnedAt:pinnedAt muted:muted muteUntil:nil markedUnread:NO completion:^(NSError *putError) {
+                    // 失败不回滚本地：会话列表下次 reload 取权威态（与原会话列表页一致）。
+                    if (putError) { IMLog(@"进会话清「标为未读」失败 conv=%@：%@", convID, putError.localizedDescription ?: @"未知错误"); }
+                }];
+        }
+        [self mirrorClearedMarkedUnreadOnto:c pinnedAt:pinnedAt muted:muted muteUntil:muteUntil userID:userID];
+    }];
+}
+
+/// 把服务端当前设置 + 「已清标未读」镜像到内存对象与本地库，并广播让会话列表立即重算角标。
++ (void)mirrorClearedMarkedUnreadOnto:(IMConversation *)c pinnedAt:(int64_t)pinnedAt muted:(BOOL)muted
+                 muteUntil:(int64_t)muteUntil userID:(NSString *)userID {
+    c.pinnedAt = pinnedAt;
+    c.muted = muted;
+    c.muteUntil = muteUntil;
+    c.markedUnread = NO;
+    IMDatabaseAccountContext *context = IMDatabase.sharedDatabase.currentAccountContext;
+    if ([context.ownerUserID isEqualToString:userID]) { // 换号过渡期：不写别人的库
+        [IMDatabase.sharedDatabase performWithAccountContext:context block:^(IMDatabase *database) {
+            [database applyCachedSettingsForConversation:c.convID pinnedAt:pinnedAt muted:muted
+                                               muteUntil:muteUntil markedUnread:NO];
+        }];
+    }
+    [NSNotificationCenter.defaultCenter postNotificationName:IMConversationSettingsDidMirrorLocallyNotification object:c];
 }
 
 - (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID peerID:(NSString *)peerID
