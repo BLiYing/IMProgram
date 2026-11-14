@@ -16,18 +16,6 @@ static const NSTimeInterval kIMPublicConfigTimeout = 5;
 
 @implementation IMPublicConfig
 
-+ (BOOL)registerEnabledFromResponseData:(NSData *)data {
-    return [IMLoginConfig configFromResponseData:data].registerEnabled;
-}
-
-- (void)fetchRegisterEnabledWithScheme:(NSString *)scheme
-                                  host:(NSString *)host
-                            completion:(void (^)(BOOL))completion {
-    [self fetchConfigWithScheme:scheme host:host completion:^(IMLoginConfig *config, BOOL failed) {
-        completion(config.registerEnabled);
-    }];
-}
-
 - (void)fetchConfigWithScheme:(NSString *)scheme host:(NSString *)host
                    completion:(void (^)(IMLoginConfig *, BOOL))completion {
     [self cancel];

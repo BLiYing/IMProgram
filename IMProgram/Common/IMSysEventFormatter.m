@@ -231,15 +231,15 @@ NSString *IMTextForNoticeSysEvent(NSString *event, NSDictionary<NSString *, NSSt
         }
         [lines addObject:IMLocalized([prefix stringByAppendingString:@".footer"])];
     } else if ([event isEqualToString:@"password_set"] || [event isEqualToString:@"password_reset"] ||
-               [event isEqualToString:@"phone_bound"] || [event isEqualToString:@"phone_changed"]) {
-        // 手机号与短信验证码（PROTOCOL §7.3）：password_set {at, device?}、password_reset {at}、
+               [event isEqualToString:@"password_reset_by_admin"] || [event isEqualToString:@"phone_bound"] || [event isEqualToString:@"phone_changed"]) {
+        // 手机号与短信验证码（PROTOCOL §7.3）：password_set {at, device?}、password_reset / password_reset_by_admin {at}、
         // phone_bound / phone_changed {phone_masked, at, device?}；headline 里 %1=时间 %2=打码号码（只有打码形态）。
         NSString *prefix = [@"sys.notice." stringByAppendingString:event];
         NSString *at = IMFormatRFC3339LocalDateTime(sysArgs[@"at"]);
         BOOL hasPhone = [event hasPrefix:@"phone_"];
         NSArray<NSString *> *headlineArgs = hasPhone ? @[at, sysArgs[@"phone_masked"] ?: @""] : @[at];
         [lines addObject:IMLocalizedFormatArgs([prefix stringByAppendingString:@".headline"], headlineArgs)];
-        if (![event isEqualToString:@"password_reset"] && sysArgs[@"device"].length > 0) { // password_reset 没有 device_line 文案
+        if (![event hasPrefix:@"password_reset"] && sysArgs[@"device"].length > 0) { // 两种重设都没有 device_line 文案
             [lines addObject:IMLocalizedFormatArgs([prefix stringByAppendingString:@".device_line"], @[sysArgs[@"device"]])];
         }
         [lines addObject:IMLocalized([prefix stringByAppendingString:@".footer"])];

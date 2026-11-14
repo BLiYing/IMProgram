@@ -616,7 +616,7 @@ static NSDictionary *sResp; static NSInteger sStatus; static NSString *sPath; st
     XCTAssertTrue(two.hidden);
     XCTAssertFalse(user.hidden); XCTAssertFalse(pw.hidden);
     XCTAssertFalse([[vc valueForKey:@"loginButton"] isHidden]);
-    XCTAssertTrue([[vc valueForKey:@"registerButton"] isHidden], @"登录页签下注册按钮本就隐藏，恢复不能把它放出来");
+    XCTAssertTrue([[vc valueForKey:@"smsLoginButton"] isHidden], @"密码页签下验证码登录按钮本就隐藏，恢复不能把它放出来");
     XCTAssertNil([vc valueForKey:@"twoStepTicket"], @"离开二步页即丢 ticket");
 }
 

@@ -23,7 +23,6 @@ NSUInteger const IMSMSCodeLength = 6;
 NSInteger const IMSMSResendDefaultSeconds = 60;
 NSUInteger const IMPasswordMinLength = 6;
 NSString * const IMPhoneDefaultCountryCode = @"86";
-NSString * const IMRegisterMethodUsername = @"username";
 NSString * const IMRegisterMethodPhone = @"phone";
 
 static NSString * const kIMLoginTabDefaultsKey = @"im.login.tab";
@@ -105,7 +104,7 @@ NSDictionary *IMBodyWithProof(NSDictionary *body, IMIdentityProof *proof) {
     c.registerEnabled = YES;
     c.smsAvailable = NO;
     c.smsRegions = @[];
-    c.registerMethods = @[IMRegisterMethodUsername];
+    c.registerMethods = @[];
     return c;
 }
 
@@ -190,9 +189,6 @@ IMLoginTab IMLoginTabAfterConfig(IMLoginTab current, BOOL touched, NSArray<NSNum
 }
 
 BOOL IMLoginShowsForgotPassword(IMLoginConfig *config) { return config.smsAvailable; }
-BOOL IMLoginShowsUsernameRegister(IMLoginConfig *config) {
-    return !config || [config.registerMethods containsObject:IMRegisterMethodUsername];
-}
 BOOL IMLoginShowsAutoRegisterHint(IMLoginConfig *config) { return [config.registerMethods containsObject:IMRegisterMethodPhone]; }
 BOOL IMLoginShowsRegionPicker(IMLoginConfig *config) { return config.smsRegions.count > 1; }
 

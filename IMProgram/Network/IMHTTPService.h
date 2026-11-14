@@ -110,14 +110,6 @@ NSString *IMLoginLockedMessage(NSDictionary *_Nullable body);
 /// 续期窗口里直接读 currentToken 的各处（推送令牌上报、下载设置、媒体发送…）会拿到 nil 而静默失败（/code-review 2026-10-08）。
 - (void)expireCachedToken;
 
-/// 注册账号：POST /api/v1/register {username, password, nickname}。三者必填，规则由后端权威校验
-/// （username `^[a-z0-9_]{5,32}$` 且大小写不敏感唯一；password ≥6；nickname ≤32 字）。
-/// **nickname 必填**：全端显示名回退链止于它，留空会让界面露出 10 位数字内部 ID。
-- (void)registerWithUsername:(NSString *)username
-                    password:(NSString *)password
-                    nickname:(NSString *)nickname
-                  completion:(void (^)(NSError *_Nullable error))completion;
-
 /// 修改公开句柄：POST /api/v1/users/me/username {username}。成功回 nil。
 /// 不影响登录态（服务端不吊销会话），但调用方须把新 username 写回 IMSessionStore，否则下次冷启动重登会用旧名。
 - (void)updateUsername:(NSString *)username

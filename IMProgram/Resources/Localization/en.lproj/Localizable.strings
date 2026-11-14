@@ -1170,7 +1170,6 @@
 "ios.tab.messages" = "Messages";
 "login.back_to_login" = "Back to login";
 "login.button.login" = "Log in";
-"login.button.register" = "Sign up and log in";
 "login.dev_login" = "Passwordless login (dev)";
 "login.endpoint_config.hint" = "First line: server address. Second line: call address. Leave blank to restore the default.";
 "login.endpoint_config.title" = "Configure addresses";
@@ -1184,8 +1183,6 @@
 "login.error.param_invalid" = "Invalid input";
 "login.error.phone_required" = "Enter your phone number";
 "login.error.register_failed" = "Sign-up failed";
-"login.error.register_login_failed" = "Signed up, but login failed";
-"login.error.register_requirements" = "Username is required and the password must be at least 6 characters";
 "login.error.rtc_url_invalid" = "Invalid call address (must start with ws:// or wss://)";
 "login.error.username_required" = "Enter a username";
 "login.error.wrong_username_or_password" = "Incorrect username or password";
@@ -1196,13 +1193,9 @@
 "login.nickname" = "Nickname";
 "login.nickname.placeholder" = "Nickname (for sign-up, up to 32 characters)";
 "login.password" = "Password";
-"login.password.placeholder" = "Password (at least 6 characters)";
 "login.phone.placeholder" = "Phone number";
 "login.reconnect_failed_confirm" = "%1$@. Tap OK to log in again, or Cancel to keep viewing your local chat history.";
 "login.region.title" = "Choose a country or region";
-"login.register_format_hint" = "Username: 5–32 lowercase letters, digits, or underscores. Password: at least 6 characters.";
-"login.register_username" = "Sign up with username";
-"login.registering" = "Signing up…";
 "login.relogin" = "Log in again";
 "login.restoring" = "Restoring your session…";
 "login.revoked_notice" = "Your account was logged in elsewhere, or this device was removed.";
@@ -1220,7 +1213,6 @@
 "login.submitting" = "Logging in…";
 "login.tab_password" = "Password login";
 "login.tab_qr" = "QR code login";
-"login.tab_register" = "Sign up";
 "login.tab_sms" = "Code login";
 "login.title" = "IMProgram login";
 "login.username.placeholder" = "Username (a-z, 0-9, underscore, at least 5 characters)";
@@ -1789,6 +1781,7 @@
 "record.chat_history" = "Chat history";
 "record.dirty_card" = "[Contact]";
 "record.dirty_record" = "[Chat History]";
+"register.complete.existing_account" = "Already have an account? Go back and sign in with your username and password, then bind this phone number in Privacy & security.";
 "register.complete.hint" = "Enter a nickname to finish signing up. This is the name others will see.";
 "register.complete.submit" = "Done";
 "register.complete.title" = "Complete your profile";
@@ -1956,6 +1949,8 @@
 "sys.notice.password_changed.headline" = "Your account password was changed successfully at %1$@.";
 "sys.notice.password_reset.footer" = "If this wasn’t you, someone may have access to your phone number. Reset your password now and turn on two-step verification.";
 "sys.notice.password_reset.headline" = "Your account password was reset with an SMS code at %1$@. All devices have been signed out.";
+"sys.notice.password_reset_by_admin.footer" = "Sign in with the new password your administrator gave you, then change it soon in Privacy & security. If you didn’t request this, contact support right away.";
+"sys.notice.password_reset_by_admin.headline" = "Your account password was reset by an administrator at %1$@. All devices have been signed out.";
 "sys.notice.password_set.device_line" = "· Device: %1$@";
 "sys.notice.password_set.footer" = "If this wasn’t you, reset your password with an SMS code right away and review your signed-in devices.";
 "sys.notice.password_set.headline" = "Your account set a login password at %1$@. You can now log in with your phone number and password.";
@@ -2041,10 +2036,8 @@
 "web.conv.menu.unmute" = "Unmute";
 "web.login.error.rtc_insecure" = "This page uses https, so the call address must start with wss://";
 "web.login.nickname_placeholder" = "For sign-up only; up to 32 characters";
-"web.login.password_placeholder" = "At least 6 characters";
 "web.login.rtc_config.hint" = "Enter the call address (ws:// or wss://). Leave blank to restore the default.";
 "web.login.title" = "IM Web login";
-"web.login.username_placeholder" = "a–z, 0–9, underscore; at least 5 characters";
 "webview.link_unopenable" = "Couldn't open this link";
 "webview.no_app_for_link" = "No app can open this link";
 "webview.ssl_error" = "This page's security certificate has a problem. Loading was stopped.";

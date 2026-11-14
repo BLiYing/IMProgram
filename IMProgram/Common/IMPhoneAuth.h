@@ -64,16 +64,15 @@ FOUNDATION_EXPORT NSDictionary *IMBodyWithProof(NSDictionary *body, IMIdentityPr
 + (instancetype)regionWithCode:(NSString *)code iso:(NSString *)iso;
 @end
 
-FOUNDATION_EXPORT NSString * const IMRegisterMethodUsername;
 FOUNDATION_EXPORT NSString * const IMRegisterMethodPhone;
 
-/// GET /api/v1/public-config 的 data。老服务端没有新字段 = 「短信不可用、可用户名注册」。
+/// GET /api/v1/public-config 的 data。老服务端没有新字段 = 「短信不可用」。客户端只认 register_methods 里的 phone（自动注册提示）。
 @interface IMLoginConfig : NSObject
 @property (nonatomic, assign, readonly) BOOL registerEnabled;
 @property (nonatomic, assign, readonly) BOOL smsAvailable;
 @property (nonatomic, copy, readonly) NSArray<IMSMSRegion *> *smsRegions;
 @property (nonatomic, copy, readonly) NSArray<NSString *> *registerMethods;
-/// 解析信封响应体：code≠0 / 非 JSON / 缺字段一律走老服务端口径（registerEnabled=YES、smsAvailable=NO、registerMethods=[username]）。
+/// 解析信封响应体：code≠0 / 非 JSON / 缺字段一律走老服务端口径（registerEnabled=YES、smsAvailable=NO、registerMethods=[]）。
 + (instancetype)configFromResponseData:(nullable NSData *)data;
 /// 拉不到（离线 / 地址非法）时的口径：同老服务端。
 + (instancetype)fallbackConfig;
@@ -105,7 +104,7 @@ FOUNDATION_EXPORT NSString * const IMRegisterMethodPhone;
 #pragma mark - 登录页
 
 typedef NS_ENUM(NSInteger, IMLoginTab) {
-    IMLoginTabNone = -1, ///< 没记过 / 不记（用户名注册、免密登录）
+    IMLoginTabNone = -1, ///< 没记过 / 不记（免密登录、静默恢复）
     IMLoginTabSMS = 0,
     IMLoginTabPassword = 1,
 };
@@ -117,8 +116,6 @@ FOUNDATION_EXPORT IMLoginTab IMLoginInitialTab(NSArray<NSNumber *> *tabs, IMLogi
 /// 配置到了（或换了服务器）之后的页签：用户已经动过（点过页签 / 开始输入）就不再自动切，除非当前页签已不可见。
 FOUNDATION_EXPORT IMLoginTab IMLoginTabAfterConfig(IMLoginTab current, BOOL touched, NSArray<NSNumber *> *tabs, IMLoginTab remembered);
 FOUNDATION_EXPORT BOOL IMLoginShowsForgotPassword(IMLoginConfig *_Nullable config);
-/// 「用户名注册」链接：register_methods 含 username；config 为 nil 按可注册。
-FOUNDATION_EXPORT BOOL IMLoginShowsUsernameRegister(IMLoginConfig *_Nullable config);
 /// 「未注册的手机号验证后将自动注册」：register_methods 含 phone。
 FOUNDATION_EXPORT BOOL IMLoginShowsAutoRegisterHint(IMLoginConfig *_Nullable config);
 /// 地区多于一个才出选择器；只有一个时显示固定的 +86，不可点。
@@ -130,7 +127,7 @@ FOUNDATION_EXPORT BOOL IMLoginShouldResetCountryCode(BOOL hostChanged, NSString 
 /// 重设密码成功后回密码登录页预填的登录名：默认地区填本地号码；其余地区带 `+国家码`；号码本身已以 `+` 开头（别的国家码）原样返回。
 /// 号码先过 IMPhoneNationalNumber（粘贴的 `+当前国家码` 前缀去掉）。
 FOUNDATION_EXPORT NSString *IMLoginIdentForReset(NSString *countryCode, NSString *phone, NSString *defaultCountryCode);
-/// 记住页签：只有真正进入主界面后才保存（用户名注册、静默恢复不记）。读出 IMLoginTabNone = 没记过。
+/// 记住页签：只有真正进入主界面后才保存（免密、静默恢复不记）。读出 IMLoginTabNone = 没记过。
 FOUNDATION_EXPORT IMLoginTab IMLoginRememberedTab(NSUserDefaults *defaults);
 /// 只写验证码 / 密码两种；IMLoginTabNone（及其它值）不写、不动已记的值。
 FOUNDATION_EXPORT void IMLoginRememberTab(NSUserDefaults *defaults, IMLoginTab tab);

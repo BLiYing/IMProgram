@@ -1,11 +1,11 @@
 //  IMSecurityS4UITests.m
-//  后台「系统设置 ▸ 安全风控」S4（开放注册开关 + 登录失败锁定）的**模拟器实测脚本**——不是常规回归，默认跳过。
+//  后台「系统设置 ▸ 安全风控」S4（登录失败锁定）的**模拟器实测脚本**——不是常规回归，默认跳过。
 //  设计：../IMServer/docs/design/SYSTEM_SETTINGS_DESIGN.md §9.2。
 //
 //  前置（脚本不改后台值，跑之前用管理端调好）：
-//    testA_RegisterClosed  ← sys.auth.register_enabled=0
-//    testB_LoginLocked     ← sys.auth.login_fail_limit=3，并已注册密码账号 s4lockios / secret1（未被锁）
-//  两条用例都会先在 App 里退出当前账号；testB 结束时用免密登录登回 user1001。
+//    testB_LoginLocked     ← sys.auth.login_fail_limit=3，并已有密码账号 s4lockios / secret1（未被锁）
+//                            ——客户端已无用户名注册，要用后台或种子数据预置。
+//  用例会先在 App 里退出当前账号；testB 结束时用免密登录登回 user1001。
 //  跑法同 IMUploadPolicyS3aUITests（TEST_RUNNER_IM_S4_UITEST=1）。
 
 #import <XCTest/XCTest.h>
@@ -76,19 +76,7 @@
     [field typeText:text];
 }
 
-/// ① 关闭开放注册：点底部「用户名注册」→ 显示「管理员已暂停注册新账号」，「注册并登录」不可点。
-- (void)testA_RegisterClosed {
-    [self logoutIfNeeded];
-    [[self waitFor:self.app.buttons[@"login.register_username"] named:@"用户名注册链接"] tap];
-    XCUIElement *notice = self.app.staticTexts[@"login.register_closed"];
-    [self waitFor:notice named:@"暂停注册提示"];
-    [NSThread sleepForTimeInterval:0.5];
-    [self shot:@"A01-注册页-已暂停"];
-    XCTAssertEqualObjects(notice.label, @"管理员已暂停注册新账号");
-    XCTAssertFalse(self.app.buttons[@"注册并登录"].isEnabled, @"暂停注册时提交按钮应不可点");
-}
-
-/// ② 登录失败锁定（阈值 3）：连输 3 次错密码 → 第 4 次即使密码正确也提示「登录失败次数过多，请 N 分钟后再试」。
+/// 登录失败锁定（阈值 3）：连输 3 次错密码 → 第 4 次即使密码正确也提示「登录失败次数过多，请 N 分钟后再试」。
 - (void)testB_LoginLocked {
     [self logoutIfNeeded];
     XCTAssertTrue(IMUITestShowPasswordLogin(self.app, 15), @"没回到登录页");

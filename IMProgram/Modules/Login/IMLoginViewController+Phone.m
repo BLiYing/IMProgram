@@ -43,15 +43,21 @@
 
     self.forgotButton = [self linkTitle:IMLocalized(@"login.forgot_password") action:@selector(forgotPasswordTapped)];
     self.forgotButton.accessibilityIdentifier = @"login.forgot_password";
-    self.usernameRegisterButton = [self linkTitle:IMLocalized(@"login.register_username") action:@selector(registerTabTapped)];
-    self.usernameRegisterButton.accessibilityIdentifier = @"login.register_username";
     UIView *spacer = [UIView new];
-    self.linksRow = [[UIStackView alloc] initWithArrangedSubviews:@[self.forgotButton, spacer, self.usernameRegisterButton]];
+    self.linksRow = [[UIStackView alloc] initWithArrangedSubviews:@[self.forgotButton, spacer]];
     self.linksRow.alignment = UIStackViewAlignmentCenter;
 
     self.completeView = [IMLoginCompleteProfileView new];
     self.completeView.onSubmit = ^(NSString *nickname) { [ws submitCompleteProfile:nickname]; };
-    self.completeView.onBack = ^{ [ws leaveSubpage]; };
+    self.completeView.onBack = ^{ // 那枚码已被换成注册票，留着只会让下一次验证码登录报错
+        ws.smsFields.codeField.text = @"";
+        [ws leaveSubpage];
+        // 页上提示「已有账号？返回用账号密码登录」：落到密码登录页签（与 Android / Web 同口径）；
+        // 记为已动过，public-config 晚到不再把页签切回验证码登录。
+        ws.touched = YES;
+        ws.tab = IMLoginTabPassword;
+        [ws applyMode];
+    };
     self.resetView = [IMLoginResetPasswordView new];
     self.resetView.onSubmit = ^{ [ws submitReset]; };
     self.resetView.onBack = ^{ [ws leaveSubpage]; };
@@ -63,7 +69,7 @@
     }
 }
 
-/// 15 regular accent 文字链（「忘记密码？」「用户名注册」）。
+/// 15 regular accent 文字链（「忘记密码？」）。
 - (UIButton *)linkTitle:(NSString *)title action:(SEL)action {
     UIButtonConfiguration *cfg = [UIButtonConfiguration plainButtonConfiguration];
     cfg.baseForegroundColor = IMTheme.accent;
@@ -79,21 +85,10 @@
 #pragma mark - public-config
 
 - (void)reloadLoginConfigHostChanged:(BOOL)hostChanged {
-    [self reloadLoginConfigHostChanged:hostChanged keepRegisterClosed:NO];
-}
-
-- (void)reloadLoginConfigAfterRegisterClosed {
-    [self reloadLoginConfigHostChanged:NO keepRegisterClosed:YES];
-}
-
-/// keepRegisterClosed=YES：提交注册刚被服务端回 200007——这是权威结论，配置结果回来后（哪怕是失败兜底的「开放」）仍标记关闭；
-/// 配置的其余部分（验证码页签 / 忘记密码 / 地区）照常落下，loginConfig 不会因此一直是 nil。
-- (void)reloadLoginConfigHostChanged:(BOOL)hostChanged keepRegisterClosed:(BOOL)keepRegisterClosed {
     NSString *scheme = nil, *host = nil;
     if (![IMServerEndpoint parseInput:[self trimmed:self.hostInput] scheme:&scheme host:&host]) {
         [self.publicConfig cancel];
         [self applyLoginConfig:IMLoginConfig.fallbackConfig host:nil hostChanged:hostChanged];
-        if (keepRegisterClosed) { [self applyRegisterClosed:YES]; }
         return;
     }
     __weak typeof(self) ws = self;
@@ -101,7 +96,6 @@
         // 拉不到：已有本地址的结论就保留（瞬时失败不该把页签翻回去），从没拉到过才用老服务端口径。
         BOOL keepCurrent = failed && ws.loginConfig && [ws.configHost isEqualToString:host] && !hostChanged;
         if (!keepCurrent) { [ws applyLoginConfig:config host:host hostChanged:hostChanged]; }
-        if (keepRegisterClosed) { [ws applyRegisterClosed:YES]; }
     }];
 }
 
@@ -117,16 +111,8 @@
     }
     self.tab = IMLoginTabAfterConfig(self.tab, self.touched, IMLoginTabsForConfig(config),
                                      IMLoginRememberedTab(NSUserDefaults.standardUserDefaults));
-    [self applyRegisterClosed:!config.registerEnabled];
     if (!self.currentSubpage) { [self applyMode]; }
     if (!IMLoginShowsForgotPassword(config) && self.currentSubpage == self.resetView) { [self leaveSubpage]; }
-}
-
-/// 注册关闭：注册页显示内联提示并禁用提交；开放则还原（请求在途时按钮仍由 setBusy: 管）。
-- (void)applyRegisterClosed:(BOOL)closed {
-    self.registerClosed = closed;
-    self.registerClosedLabel.hidden = !(closed && self.registerMode);
-    self.registerButton.enabled = !closed && !self.submitting;
 }
 
 - (void)pickRegionForFields:(IMLoginPhoneFields *)fields {
@@ -269,7 +255,8 @@
         }
         IMLogWarnWithTag(IMLogTagUI, @"register_phone_failed code=%ld", (long)error.code);
         NSString *msg = IMSMSSubmitErrorMessage(error.code, -1, IMErrorMessageOrFallback(error, IMLocalized(@"login.error.register_failed")));
-        if (error.code == IMErrCodePhoneTicketInvalid || error.code == IMErrCodePhoneTaken) { // 票过期 / 号码被抢注：回登录页
+        if (error.code == IMErrCodePhoneTicketInvalid || error.code == IMErrCodePhoneTaken
+            || error.code == IMErrCodeRegisterClosed) { // 票过期 / 号码被抢注 / 期间管理员暂停注册（重交也只会再回 200007）：回登录页
             [self leaveSubpage];
             self.smsFields.codeField.text = @"";
             [self showError:msg];
@@ -332,7 +319,6 @@
     [self.resetView resetPasswords];
     [self.resetView.phoneFields clearInputs];
     [self leaveSubpage];
-    self.registerMode = NO;
     self.touched = YES;
     self.tab = IMLoginTabPassword;
     [self applyMode];

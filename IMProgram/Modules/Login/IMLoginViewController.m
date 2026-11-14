@@ -38,35 +38,23 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
 
 - (void)setupUI {
     self.hostInput = [self defaultHost];
-    // 登录名原样传给 /login（用户名 / 邮箱 / 手机号），不预检；规范化在服务端。注册页签复用它当用户名框。
+    // 登录名原样传给 /login（用户名 / 邮箱 / 手机号），不预检；规范化在服务端。
     self.userIDField   = [self fieldWithPlaceholder:IMLocalized(@"login.ident.placeholder") text:@"" keyboard:UIKeyboardTypeASCIICapable secure:NO];
     self.userIDField.accessibilityIdentifier = @"login.ident";
-    // 昵称是显示名（可中文/emoji），与用户名是两回事；仅「用户名注册」用得到。
-    self.nicknameField = [self fieldWithPlaceholder:IMLocalized(@"login.nickname.placeholder") text:@"" keyboard:UIKeyboardTypeDefault secure:NO];
-    self.passwordField = [self fieldWithPlaceholder:IMLocalized(@"login.password.placeholder") text:@"" keyboard:UIKeyboardTypeDefault secure:YES];
+    self.passwordField = [self fieldWithPlaceholder:IMLocalized(@"login.password") text:@"" keyboard:UIKeyboardTypeDefault secure:YES];
     self.passwordField.accessibilityIdentifier = @"login.password";
 
     self.errorLabel = [self label:13 color:UIColor.systemRedColor];
     self.errorLabel.hidden = YES;
     self.errorLabel.accessibilityIdentifier = @"login.error";
-    self.registerHintLabel = [self label:13 color:UIColor.tertiaryLabelColor];
-    self.registerHintLabel.text = IMLocalized(@"login.register_format_hint");
-    self.registerClosedLabel = [self label:13 color:IMTheme.danger];
-    self.registerClosedLabel.text = IMLocalized(@"err.200007");
-    self.registerClosedLabel.accessibilityIdentifier = @"login.register_closed";
-    self.registerClosedLabel.hidden = YES;
 
     self.loginButton = [self buttonTitle:IMLocalized(@"login.button.login") config:[UIButtonConfiguration filledButtonConfiguration] action:@selector(loginTapped)];
     self.loginButton.accessibilityIdentifier = @"login.submit_password";
-    self.registerButton = [self buttonTitle:IMLocalized(@"login.button.register") config:[UIButtonConfiguration filledButtonConfiguration] action:@selector(registerTapped)];
-    self.registerButton.accessibilityIdentifier = @"login.submit_register";
     self.devButton = [self buttonTitle:IMLocalized(@"login.dev_login") config:[UIButtonConfiguration tintedButtonConfiguration] action:@selector(devLoginTapped)];
     self.devButton.accessibilityIdentifier = @"login.dev";
 #ifndef DEBUG
     self.devButton.hidden = YES; // 仅 Debug 包显示免密入口（Android 同口径：release 不显示）
 #endif
-    self.backToLoginButton = [self linkButton:IMLocalized(@"login.back_to_login") action:@selector(backToLoginTapped)];
-    self.backToLoginButton.accessibilityIdentifier = @"login.back_to_login";
 
     self.serverLabel = [self label:13 color:UIColor.secondaryLabelColor];
     self.serverLabel.textAlignment = NSTextAlignmentCenter;
@@ -81,13 +69,13 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
     self.tabsRow = [[UIStackView alloc] initWithArrangedSubviews:@[self.smsTabButton, self.passwordTabButton]];
     self.tabsRow.distribution = UIStackViewDistributionFillEqually;
     self.tabsRow.spacing = 8;
-    [self setupPhoneViews]; // 验证码表单 / 自动注册提示 / 忘记密码与用户名注册链接（+Phone）
+    [self setupPhoneViews]; // 验证码表单 / 自动注册提示 / 忘记密码链接（+Phone）
 
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
         [self logoView], [self titleLabelView], self.tabsRow, self.smsFields,
-        self.userIDField, self.passwordField, self.nicknameField, self.registerHintLabel, self.registerClosedLabel, self.errorLabel,
-        self.smsLoginButton, self.loginButton, self.registerButton, self.autoRegisterHintLabel, self.devButton,
-        self.linksRow, self.backToLoginButton, self.serverLabel, self.agreeFooter
+        self.userIDField, self.passwordField, self.errorLabel,
+        self.smsLoginButton, self.loginButton, self.autoRegisterHintLabel, self.devButton,
+        self.linksRow, self.serverLabel, self.agreeFooter
     ]];
     stack.axis = UILayoutConstraintAxisVertical;
     stack.spacing = 12;
@@ -147,18 +135,6 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
     return b;
 }
 
-/// 15 regular accent 文字链（「返回登录」等）。
-- (UIButton *)linkButton:(NSString *)title action:(SEL)action {
-    UIButtonConfiguration *cfg = [UIButtonConfiguration plainButtonConfiguration];
-    cfg.baseForegroundColor = IMTheme.accent;
-    cfg.titleTextAttributesTransformer = ^NSDictionary *(NSDictionary *attrs) {
-        NSMutableDictionary *m = [attrs mutableCopy];
-        m[NSFontAttributeName] = [UIFont systemFontOfSize:15];
-        return m;
-    };
-    return [self buttonTitle:title config:cfg action:action];
-}
-
 #pragma mark - 页面结构（对齐 Android）
 
 /// 80pt 圆角 accent 方块 + 白色气泡图标，居中（Android 登录页 Logo）。
@@ -201,25 +177,8 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
 
 - (void)selectTab:(IMLoginTab)tab {
     self.touched = YES;
-    if (self.tab == tab && !self.registerMode) { return; }
+    if (self.tab == tab) { return; }
     self.tab = tab;
-    [self showError:@""];
-    [self applyMode];
-}
-
-/// 底部「用户名注册」：原注册表单（用户名 / 昵称 / 密码），有「返回登录」。
-- (void)registerTabTapped {
-    if (self.registerMode || self.submitting) { return; } // 请求在途不切表单（与 backToLoginTapped 对齐）
-    self.touched = YES;
-    self.registerMode = YES;
-    [self showError:@""];
-    [self applyMode];
-    [self reloadLoginConfigHostChanged:NO]; // 注册开关以最新为准
-}
-
-- (void)backToLoginTapped {
-    if (!self.registerMode || self.submitting) { return; }
-    self.registerMode = NO;
     [self showError:@""];
     [self applyMode];
 }
@@ -231,33 +190,24 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
 
 /// 按模式 / 页签显隐控件并刷新页签选中态（选中 accentSoft 底 + accent 字，未选中卡片底 + 次要字）。
 - (void)applyMode {
-    BOOL reg = self.registerMode;
     IMLoginConfig *cfg = self.loginConfig;
     NSArray<NSNumber *> *tabs = IMLoginTabsForConfig(cfg);
     if (![tabs containsObject:@(self.tab)]) { self.tab = (IMLoginTab)tabs.firstObject.integerValue; }
-    BOOL sms = !reg && self.tab == IMLoginTabSMS;
-    BOOL pwd = !reg && self.tab == IMLoginTabPassword;
-    self.tabsRow.hidden = reg || tabs.count < 2;
+    BOOL sms = self.tab == IMLoginTabSMS;
+    BOOL pwd = self.tab == IMLoginTabPassword;
+    self.tabsRow.hidden = tabs.count < 2;
     self.smsFields.hidden = !sms;
     self.smsLoginButton.hidden = !sms;
     self.autoRegisterHintLabel.hidden = !sms || !IMLoginShowsAutoRegisterHint(cfg);
-    // 注册页签用用户名规则（不接受邮箱 / 手机号）；密码登录的登录名可以是用户名 / 邮箱 / 手机号。
+    // 密码登录的登录名可以是用户名 / 邮箱 / 手机号。
     self.userIDField.hidden = sms;
-    self.userIDField.placeholder = IMLocalized(reg ? @"login.username.placeholder" : @"login.ident.placeholder");
     self.passwordField.hidden = sms;
-    self.passwordField.placeholder = IMLocalized(reg ? @"login.password.placeholder" : @"login.password");
-    self.nicknameField.hidden = !reg;
-    self.registerHintLabel.hidden = !reg;
-    self.registerButton.hidden = !reg;
-    self.registerClosedLabel.hidden = !(reg && self.registerClosed);
     self.loginButton.hidden = !pwd;
 #ifdef DEBUG
     self.devButton.hidden = !pwd;
 #endif
     self.forgotButton.hidden = !IMLoginShowsForgotPassword(cfg);
-    self.usernameRegisterButton.hidden = !IMLoginShowsUsernameRegister(cfg);
-    self.linksRow.hidden = reg || (self.forgotButton.hidden && self.usernameRegisterButton.hidden);
-    self.backToLoginButton.hidden = !reg;
+    self.linksRow.hidden = self.forgotButton.hidden; // 链接行只剩「忘记密码？」：注册只走验证码登录即注册
     [self styleTab:self.smsTabButton selected:sms];
     [self styleTab:self.passwordTabButton selected:pwd];
 }
@@ -271,7 +221,7 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
     button.configuration = config;
 }
 
-#pragma mark - 密码登录 / 用户名注册 / 免密
+#pragma mark - 密码登录 / 免密
 
 /// 登录：带密码做真账号校验，成功才进主界面；失败把服务端文案显示在登录页（不深入 App 再报错）。
 - (void)loginTapped {
@@ -285,50 +235,6 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
     }
     [self loginWithHost:host username:ident password:password fallback:IMLocalized(@"login.error.login_failed")
            activeButton:self.loginButton rememberTab:IMLoginTabPassword];
-}
-
-/// 注册并登录：先注册账号，成功后用同一密码进入。
-- (void)registerTapped {
-    if (self.registerClosed) { return; } // 按钮已禁用，防御一下
-    NSString *host = [self resolvedHostOrShowError];
-    if (host.length == 0) { return; }
-    NSString *username = [self trimmed:self.userIDField.text];
-    NSString *nickname = [self trimmed:self.nicknameField.text];
-    NSString *password = self.passwordField.text ?: @"";
-    if (username.length == 0 || password.length < 6) {
-        [self showError:IMLocalized(@"login.error.register_requirements")];
-        return;
-    }
-    // 昵称必填：全端显示名回退链止于它，留空会让界面露出 10 位数字内部 ID。后端也会拒，这里前置提示省一次往返。
-    if (nickname.length == 0) {
-        [self showError:IMLocalized(@"login.error.nickname_required")];
-        return;
-    }
-    [self showError:@""];
-    [self setBusy:YES activeButton:self.registerButton];
-    [self prepareServiceWithHost:host password:password];
-    __weak typeof(self) weakSelf = self;
-    [IMHTTPService.sharedService registerWithUsername:username password:password nickname:nickname
-                                          completion:^(NSError *error) {
-        __strong typeof(weakSelf) self = weakSelf;
-        if (!self) { return; }
-        if (error) {
-            [self setBusy:NO activeButton:self.registerButton];
-            if (error.code == IMErrCodeRegisterClosed) {
-                // 页面打开后管理员才关的注册（或 public-config 没拉到）：转成内联提示 + 禁用，不再重复红字。
-                // 在途的 public-config（可能是失败兜底的 YES）不得把这条权威结论翻回开放；但也不能直接 cancel 丢掉它——
-                // 首次配置还没回来时 loginConfig 会一直是 nil（没有验证码页签 / 忘记密码）。改为重拉一次，回来后仍标记关闭。
-                [self applyRegisterClosed:YES];
-                [self reloadLoginConfigAfterRegisterClosed];
-                return;
-            }
-            [self showError:error.localizedDescription ?: IMLocalized(@"login.error.register_failed")];
-            return;
-        }
-        // 注册接口不签发 token——必须再登录一次拿 token + 内部 ID。用户名注册不记页签。
-        [self loginWithHost:host username:username password:password
-                   fallback:IMLocalized(@"login.error.register_login_failed") activeButton:self.registerButton rememberTab:IMLoginTabNone];
-    }];
 }
 
 /// 免密登录（开发）：清空密码走后端 dev-login，凭 username 直签。**同样真发一次 POST /login**：登录页必须能自证后端可达。
@@ -414,14 +320,14 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
 /// 请求在途：被点的按钮转菊花，所有入口一起禁用（防重复提交）。configuration 是值语义，改完必须整份回写。
 - (void)setBusy:(BOOL)busy activeButton:(UIButton *)activeButton {
     self.submitting = busy;
-    for (UIButton *button in @[self.loginButton, self.registerButton, self.devButton, self.smsLoginButton]) {
-        button.enabled = !busy && !(button == self.registerButton && self.registerClosed);
+    for (UIButton *button in @[self.loginButton, self.devButton, self.smsLoginButton]) {
+        button.enabled = !busy;
         UIButtonConfiguration *config = button.configuration;
         config.showsActivityIndicator = (busy && button == activeButton);
         button.configuration = config;
     }
     self.smsTabButton.enabled = self.passwordTabButton.enabled = !busy;
-    self.usernameRegisterButton.enabled = self.forgotButton.enabled = !busy; // 底部两个链接同样会切走表单
+    self.forgotButton.enabled = !busy; // 底部链接同样会切走表单
 }
 
 /// 解析当前服务器地址：接受 `host:port` 与 `http(s)://host:port` 两种写法。协议记进 IMServerEndpoint（全 App 唯一权威）并持久化；
@@ -459,7 +365,7 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
 - (void)enterAppWithHost:(NSString *)host userID:(NSString *)userID username:(NSString *)username rememberTab:(IMLoginTab)rememberTab {
     // username 只来自登录成功响应（adoptLoginSuccessData 已滤掉输入的手机号 / 邮箱），直接存。
     [IMSessionStore saveHost:host userID:userID username:username];
-    // 记住页签只在真正进入主界面后保存；用户名注册 / 免密传 IMLoginTabNone 不记。
+    // 记住页签只在真正进入主界面后保存；免密传 IMLoginTabNone 不记。
     IMLoginRememberTab(NSUserDefaults.standardUserDefaults, rememberTab);
     IMMainTabBarController *main = [[IMMainTabBarController alloc] initWithHost:host userID:userID];
     self.view.window.rootViewController = main;
@@ -578,7 +484,6 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
 
 /// 当前主按钮（编辑完输入框就是点它）：它也要露在键盘之上。
 - (UIButton *)currentActionButton {
-    if (self.registerMode) { return self.registerButton; }
     return self.tab == IMLoginTabSMS ? self.smsLoginButton : self.loginButton;
 }
 
@@ -594,7 +499,7 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
         // 子页：以当前输入框与子页里的主按钮为准（整页可能比屏幕高，不能按整列下沿）。
         for (UITextField *f in [self textFieldsIn:page]) { if (f.isFirstResponder) { active = f; break; } }
     } else {
-        for (UITextField *f in @[self.userIDField, self.nicknameField, self.passwordField, self.smsFields.phoneField, self.smsFields.codeField]) {
+        for (UITextField *f in @[self.userIDField, self.passwordField, self.smsFields.phoneField, self.smsFields.codeField]) {
             if (f.isFirstResponder && !f.hidden && !f.superview.hidden) { active = f; break; }
         }
     }

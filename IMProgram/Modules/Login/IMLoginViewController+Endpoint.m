@@ -95,8 +95,7 @@
     self.hostInput = remembered ?: [self builtinHost];
     [self refreshServerLabel];
     [self showError:@""];
-    // 换了服务器：旧地址的开关 / 短信结论作废，按新地址重读（在途的旧请求由 IMPublicConfig 丢弃）。
-    [self applyRegisterClosed:NO];
+    // 换了服务器：旧地址的短信 / 注册方式结论作废，按新地址重读（在途的旧请求由 IMPublicConfig 丢弃）。
     [self reloadLoginConfigHostChanged:YES];
     IMLogUI(@"login_endpoint_saved host=%@ rtc=%@", self.hostInput, IMRtcConfig.load.wsURL);
 }

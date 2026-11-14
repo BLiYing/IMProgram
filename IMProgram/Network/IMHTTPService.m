@@ -221,17 +221,6 @@ BOOL IMIsTransientNetworkError(NSError *error) {
     }];
 }
 
-- (void)registerWithUsername:(NSString *)username
-                    password:(NSString *)password
-                    nickname:(NSString *)nickname
-                  completion:(void (^)(NSError *))completion {
-    NSMutableURLRequest *req = [self postRequestToPath:@"/api/v1/register"
-                                                  body:@{ @"username": username ?: @"",
-                                                          @"password": password ?: @"",
-                                                          @"nickname": nickname ?: @"" }];
-    [self runOKRequest:req fallback:IMLocalized(@"login.error.register_failed") completion:completion];
-}
-
 - (void)updateUsername:(NSString *)username
                  token:(NSString *)token
             completion:(void (^)(NSError *))completion {

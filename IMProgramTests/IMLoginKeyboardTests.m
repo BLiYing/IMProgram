@@ -12,11 +12,8 @@
 @property (nonatomic, strong) UIButton *loginButton;
 @property (nonatomic, strong) UITextField *userIDField;
 @property (nonatomic, strong) UITextField *passwordField;
-@property (nonatomic, strong) UITextField *nicknameField;
-@property (nonatomic, strong) UIButton *registerButton;
 @property (nonatomic, assign) CGFloat keyboardTop;
 - (void)saveEndpointHost:(NSString *)rawHost rtc:(NSString *)rawRTC;
-- (void)registerTabTapped;
 - (void)passwordTabTapped;
 @end
 
@@ -96,35 +93,6 @@ static NSString * const kIMTestRtcOverrideKey = @"im_rtc_ws_url_override";
     CGRect rest = [w convertRect:vc.loginButton.bounds fromView:vc.loginButton];
     XCTAssertEqualWithAccuracy(CGRectGetMaxY(rest), CGRectGetMaxY(before), 0.5, @"键盘收起后整列回到原位");
 
-    w.hidden = YES;
-}
-
-/// 注册页签：编辑昵称 / 密码时，「注册」按钮也要在键盘之上（不能只保证输入框可见）。
-- (void)test_注册页_键盘弹出_注册按钮不被盖住 {
-    IMLoginViewController *vc = [IMLoginViewController new];
-    UIWindow *w = [self windowWith:vc];
-    [vc passwordTabTapped]; // 选定密码登录页签：public-config 晚到（本机后端短信可用）也不再切到验证码页签
-    [self spin:0.3];
-    [vc registerTabTapped];
-    [vc.view layoutIfNeeded];
-
-    CGFloat kbTop = 667 - 336;
-    CGRect before = [w convertRect:vc.registerButton.bounds fromView:vc.registerButton];
-    XCTAssertGreaterThan(CGRectGetMaxY(before), kbTop, @"前提：不处理键盘时，注册按钮会落进键盘区");
-
-    for (UITextField *f in @[vc.passwordField, vc.nicknameField]) {
-        XCTAssertTrue([f becomeFirstResponder]);
-        [self spin:0.6];
-        [self postKeyboardTop:kbTop height:336 screen:667];
-        [self spin:0.4];
-        CGRect btn = [w convertRect:vc.registerButton.bounds fromView:vc.registerButton];
-        CGRect fr = [w convertRect:f.bounds fromView:f];
-        XCTAssertLessThanOrEqual(CGRectGetMaxY(btn), kbTop + 0.5, @"注册按钮必须在键盘上沿之上");
-        XCTAssertGreaterThan(CGRectGetMinY(fr), 0, @"输入框自己不能被顶出屏幕上沿");
-        [f resignFirstResponder];
-        [self postKeyboardTop:667 height:336 screen:667];
-        [self spin:0.4];
-    }
     w.hidden = YES;
 }
 

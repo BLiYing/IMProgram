@@ -75,7 +75,7 @@
 
 - (BOOL)enabledFor:(id)obj {
     NSData *data = [NSJSONSerialization dataWithJSONObject:obj options:0 error:nil];
-    return [IMPublicConfig registerEnabledFromResponseData:data];
+    return [IMLoginConfig configFromResponseData:data].registerEnabled;
 }
 
 - (void)testRegisterEnabledParsing {
@@ -91,8 +91,8 @@
     NSDictionary *wrongType = @{ @"code": @0, @"data": @{ @"register_enabled": @"false" } };
     NSDictionary *badCode = @{ @"code": @100001, @"data": @{ @"register_enabled": @NO } };
     NSDictionary *nullCode = @{ @"code": [NSNull null], @"data": @{ @"register_enabled": @NO } };
-    XCTAssertTrue([IMPublicConfig registerEnabledFromResponseData:nil]);
-    XCTAssertTrue([IMPublicConfig registerEnabledFromResponseData:[@"<html>404</html>" dataUsingEncoding:NSUTF8StringEncoding]]);
+    XCTAssertTrue([IMLoginConfig configFromResponseData:nil].registerEnabled);
+    XCTAssertTrue([IMLoginConfig configFromResponseData:[@"<html>404</html>" dataUsingEncoding:NSUTF8StringEncoding]].registerEnabled);
     XCTAssertTrue([self enabledFor:noField], @"字段缺失");
     XCTAssertTrue([self enabledFor:noData], @"data 缺失");
     XCTAssertTrue([self enabledFor:wrongType], @"类型不对");
@@ -102,15 +102,16 @@
 
 #pragma mark - 旧响应丢弃
 
-/// host 为空时立即（异步）回调 YES，不碰网络——用它验证「只有最近一次请求会回调」。
+/// host 为空时立即（异步）回调兜底配置，不碰网络——用它验证「只有最近一次请求会回调」。
 - (void)testOnlyLatestFetchCompletes {
     IMPublicConfig *config = [IMPublicConfig new];
     __block NSInteger firstCalls = 0, secondCalls = 0;
     XCTestExpectation *done = [self expectationWithDescription:@"latest"];
-    [config fetchRegisterEnabledWithScheme:nil host:@"" completion:^(BOOL enabled) { firstCalls++; }];
-    [config fetchRegisterEnabledWithScheme:nil host:@"" completion:^(BOOL enabled) {
+    [config fetchConfigWithScheme:nil host:@"" completion:^(IMLoginConfig *c, BOOL failed) { firstCalls++; }];
+    [config fetchConfigWithScheme:nil host:@"" completion:^(IMLoginConfig *c, BOOL failed) {
         secondCalls++;
-        XCTAssertTrue(enabled);
+        XCTAssertTrue(failed, @"host 为空按拉不到处理");
+        XCTAssertTrue(c.registerEnabled);
         [done fulfill];
     }];
     [self waitForExpectations:@[done] timeout:2];
@@ -121,7 +122,7 @@
 - (void)testCancelSuppressesCompletion {
     IMPublicConfig *config = [IMPublicConfig new];
     __block BOOL called = NO;
-    [config fetchRegisterEnabledWithScheme:nil host:@"" completion:^(BOOL enabled) { called = YES; }];
+    [config fetchConfigWithScheme:nil host:@"" completion:^(IMLoginConfig *c, BOOL failed) { called = YES; }];
     [config cancel];
     XCTestExpectation *tick = [self expectationWithDescription:@"main queue drained"];
     dispatch_async(dispatch_get_main_queue(), ^{ dispatch_async(dispatch_get_main_queue(), ^{ [tick fulfill]; }); });

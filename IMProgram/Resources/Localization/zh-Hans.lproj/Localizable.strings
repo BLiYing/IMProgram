@@ -1170,7 +1170,6 @@
 "ios.tab.messages" = "消息";
 "login.back_to_login" = "返回登录";
 "login.button.login" = "登录";
-"login.button.register" = "注册并登录";
 "login.dev_login" = "免密登录（开发）";
 "login.endpoint_config.hint" = "第一行为服务器地址，第二行为音视频地址。留空恢复默认。";
 "login.endpoint_config.title" = "配置地址";
@@ -1184,8 +1183,6 @@
 "login.error.param_invalid" = "输入不合法";
 "login.error.phone_required" = "请填写手机号";
 "login.error.register_failed" = "注册失败";
-"login.error.register_login_failed" = "注册成功但登录失败";
-"login.error.register_requirements" = "用户名必填，密码至少 6 位";
 "login.error.rtc_url_invalid" = "音视频地址格式不对（须以 ws:// 或 wss:// 开头）";
 "login.error.username_required" = "请填写用户名";
 "login.error.wrong_username_or_password" = "用户名或密码错误";
@@ -1196,13 +1193,9 @@
 "login.nickname" = "昵称";
 "login.nickname.placeholder" = "昵称（注册用，可中文，≤32 字）";
 "login.password" = "密码";
-"login.password.placeholder" = "密码（≥ 6 位）";
 "login.phone.placeholder" = "手机号";
 "login.reconnect_failed_confirm" = "%1$@。点\"确定\"重新登录；\"取消\"可继续查看本地聊天记录。";
 "login.region.title" = "选择国家或地区";
-"login.register_format_hint" = "用户名 5–32 位小写字母/数字/下划线；密码至少 6 位";
-"login.register_username" = "用户名注册";
-"login.registering" = "注册中…";
 "login.relogin" = "重新登录";
 "login.restoring" = "正在恢复登录…";
 "login.revoked_notice" = "你的账号已在别处登录，或该设备已被移除";
@@ -1220,7 +1213,6 @@
 "login.submitting" = "登录中…";
 "login.tab_password" = "密码登录";
 "login.tab_qr" = "扫码登录";
-"login.tab_register" = "注册";
 "login.tab_sms" = "验证码登录";
 "login.title" = "IMProgram 登录";
 "login.username.placeholder" = "用户名（a-z、0-9、下划线，≥5 位）";
@@ -1789,6 +1781,7 @@
 "record.chat_history" = "聊天记录";
 "record.dirty_card" = "[个人名片]";
 "record.dirty_record" = "[聊天记录]";
+"register.complete.existing_account" = "已有账号？返回用账号密码登录，登录后可在「隐私与安全」里绑定这个手机号。";
 "register.complete.hint" = "填写昵称即可完成注册，这是别人看到的名字。";
 "register.complete.submit" = "完成";
 "register.complete.title" = "完善资料";
@@ -1956,6 +1949,8 @@
 "sys.notice.password_changed.headline" = "你的账号密码已于 %1$@ 修改成功。";
 "sys.notice.password_reset.footer" = "如非本人操作，说明你的手机号可能已被他人掌握，请立即重设密码并开启两步验证。";
 "sys.notice.password_reset.headline" = "你的账号密码已于 %1$@ 通过短信验证码重设，所有设备已下线。";
+"sys.notice.password_reset_by_admin.footer" = "请使用管理员提供的新密码登录，并尽快在「隐私与安全」中修改密码。如非本人申请，请立即联系客服。";
+"sys.notice.password_reset_by_admin.headline" = "你的账号密码已于 %1$@ 由管理员重置，所有设备已下线。";
 "sys.notice.password_set.device_line" = "· 操作设备：%1$@";
 "sys.notice.password_set.footer" = "如非本人操作，请立即用短信验证码重设密码并检查已登录设备。";
 "sys.notice.password_set.headline" = "你的账号已于 %1$@ 设置了登录密码，之后可以用手机号和密码登录。";
@@ -2041,10 +2036,8 @@
 "web.conv.menu.unmute" = "取消免打扰";
 "web.login.error.rtc_insecure" = "当前页面是 https，音视频地址须以 wss:// 开头";
 "web.login.nickname_placeholder" = "注册用，可中文，≤32 字";
-"web.login.password_placeholder" = "≥ 6 位";
 "web.login.rtc_config.hint" = "填写音视频地址（ws:// 或 wss://）。留空恢复默认。";
 "web.login.title" = "IM Web 登录";
-"web.login.username_placeholder" = "a-z、0-9、下划线，≥5 位";
 "webview.link_unopenable" = "打不开这个链接";
 "webview.no_app_for_link" = "没有能打开这个链接的应用";
 "webview.ssl_error" = "这个网页的安全证书有问题，已停止加载";

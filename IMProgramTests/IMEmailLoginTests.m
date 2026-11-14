@@ -70,10 +70,6 @@ static NSDictionary *eResp; static NSString *ePath; static NSString *eMethod; st
 - (void)stopLoading {}
 @end
 
-@interface IMLoginViewController (EmailTestAccess)
-- (void)registerTabTapped;
-- (void)backToLoginTapped;
-@end
 @interface IMEmailFormViewController (EmailTestAccess)
 - (BOOL)textFieldShouldReturn:(UITextField *)textField;
 @end
@@ -389,17 +385,13 @@ static NSDictionary *eResp; static NSString *ePath; static NSString *eMethod; st
     XCTAssertEqualObjects([row valueForKey:@"rowId"], @"emailLogin");
 }
 
-- (void)test_登录页_登录态占位符是用户名或邮箱_注册态不变_键盘ASCII {
+- (void)test_登录页_登录名占位符是用户名或邮箱_键盘ASCII {
     IMLoginViewController *vc = [IMLoginViewController new];
     [vc loadViewIfNeeded];
     UITextField *user = [vc valueForKey:@"userIDField"];
     XCTAssertEqualObjects(user.placeholder, IMLocalized(@"login.ident.placeholder"), @"密码登录：用户名 / 邮箱 / 手机号");
     XCTAssertEqual(user.keyboardType, UIKeyboardTypeASCIICapable);
-    [vc registerTabTapped];
-    XCTAssertEqualObjects(user.placeholder, IMLocalized(@"login.username.placeholder"), @"注册页不接受邮箱，仍是用户名规则");
-    XCTAssertEqual(user.keyboardType, UIKeyboardTypeASCIICapable);
-    [vc backToLoginTapped];
-    XCTAssertEqualObjects(user.placeholder, IMLocalized(@"login.ident.placeholder"));
+    XCTAssertEqualObjects([[vc valueForKey:@"passwordField"] placeholder], IMLocalized(@"login.password"));
 }
 
 #pragma mark - 页面
