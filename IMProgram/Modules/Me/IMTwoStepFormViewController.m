@@ -3,6 +3,7 @@
 #import "IMTwoStepFormViewController.h"
 #import "IMHTTPService.h"
 #import "IMLocalization.h"
+#import "IMTheme.h"
 #import "UIViewController+IMToast.h"
 
 @implementation IMTwoStepRow
@@ -333,7 +334,7 @@
 }
 
 - (UIView *)textBlock:(NSString *)text {
-    return [self textBlock:text color:UIColor.secondaryLabelColor];
+    return [self textBlock:text color:IMTheme.textSecondary];
 }
 
 - (UIView *)textBlock:(NSString *)text color:(UIColor *)color {
@@ -360,7 +361,7 @@
 }
 - (UIView *)tableView:(UITableView *)tv viewForFooterInSection:(NSInteger)section {
     NSString *t = self.sections[section].footer;
-    return t.length > 0 ? [self textBlock:t color:self.sections[section].footerColor ?: UIColor.secondaryLabelColor] : nil;
+    return t.length > 0 ? [self textBlock:t color:self.sections[section].footerColor ?: IMTheme.textSecondary] : nil;
 }
 /// 说明块高度：自定义 header / footer 视图用自动高度会把多行文字截成一行，这里按宽度显式量。
 - (CGFloat)textBlockHeight:(NSString *)text {

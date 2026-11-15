@@ -17,6 +17,7 @@
 #import "IMIdentityProofSheet.h"
 #import "IMLiquidSegmentedControl.h"
 #import "IMPhoneBindViewController.h"
+#import "IMSMSCodeField.h"
 #import "IMSettingsViewController.h"
 #import "IMProfileEditViewController.h"
 #import "IMLocalization.h"
@@ -149,7 +150,11 @@ static NSDictionary<NSString *, NSDictionary *> *sRAReplies; ///< path → 响�
 }
 
 - (NSDictionary *)securityReply:(NSInteger)recentSec {
-    return @{ @"code": @0, @"data": @{ @"phone_bound": @YES, @"phone_masked": @"+86 136****0001", @"password_set": @YES,
+    return [self securityReply:recentSec bound:YES];
+}
+
+- (NSDictionary *)securityReply:(NSInteger)recentSec bound:(BOOL)bound {
+    return @{ @"code": @0, @"data": @{ @"phone_bound": @(bound), @"phone_masked": bound ? @"+86 136****0001" : @"", @"password_set": @YES,
                                        @"sms_available": @YES, @"recent_auth_sec": @(recentSec) } };
 }
 
@@ -235,14 +240,23 @@ static NSDictionary<NSString *, NSDictionary *> *sRAReplies; ///< path → 响�
         IMSecurityState *s = [IMSecurityState new];
         s.recentAuthSec = sec.integerValue;
         __block BOOL asked = NO, submitted = NO, completed = NO;
-        IMProofRunWithoutSheet(s, ^(IMIdentityProof *p, void (^f)(NSError *)) { submitted = YES; },
+        IMProofRunWithoutSheet(s, NO, ^(IMIdentityProof *p, void (^f)(NSError *)) { submitted = YES; },
                                ^{ asked = YES; }, ^(BOOL ok, NSError *e) { completed = YES; });
         XCTAssertTrue(asked, @"recent=%@", sec);
         XCTAssertFalse(submitted);
         XCTAssertFalse(completed);
     }
     __block BOOL asked = NO;
-    IMProofRunWithoutSheet(nil, ^(IMIdentityProof *p, void (^f)(NSError *)) { XCTFail(@"取不到状态不能直接发"); },
+    IMProofRunWithoutSheet(nil, NO, ^(IMIdentityProof *p, void (^f)(NSError *)) { XCTFail(@"取不到状态不能直接发"); },
+                           ^{ asked = YES; }, ^(BOOL ok, NSError *e) { XCTFail(); });
+    XCTAssertTrue(asked);
+}
+
+- (void)test_分流_alwaysAsks_最近验证过也照常弹层 {
+    IMSecurityState *s = [IMSecurityState new];
+    s.recentAuthSec = 600;
+    __block BOOL asked = NO;
+    IMProofRunWithoutSheet(s, YES, ^(IMIdentityProof *p, void (^f)(NSError *)) { XCTFail(@"绑定 / 更换手机号不能空证明直接发"); },
                            ^{ asked = YES; }, ^(BOOL ok, NSError *e) { XCTFail(); });
     XCTAssertTrue(asked);
 }
@@ -255,7 +269,7 @@ static NSDictionary<NSString *, NSDictionary *> *sRAReplies; ///< path → 响�
     __block void (^finish)(NSError *) = nil;
     __block NSInteger completions = 0;
     __block BOOL okResult = NO;
-    IMProofRunWithoutSheet(s, ^(IMIdentityProof *p, void (^f)(NSError *)) { sent = p; finish = f; },
+    IMProofRunWithoutSheet(s, NO, ^(IMIdentityProof *p, void (^f)(NSError *)) { sent = p; finish = f; },
                            ^{ XCTFail(@"不弹层"); }, ^(BOOL ok, NSError *e) { completions++; okResult = ok; XCTAssertNil(e); });
     XCTAssertTrue(sent.isEmpty, @"空证明");
     finish(nil);
@@ -268,7 +282,7 @@ static NSDictionary<NSString *, NSDictionary *> *sRAReplies; ///< path → 响�
     IMSecurityState *s = [IMSecurityState new];
     s.recentAuthSec = 600;
     __block BOOL asked = NO, completed = NO;
-    IMProofRunWithoutSheet(s, ^(IMIdentityProof *p, void (^f)(NSError *)) {
+    IMProofRunWithoutSheet(s, NO, ^(IMIdentityProof *p, void (^f)(NSError *)) {
         f([NSError errorWithDomain:@"t" code:IMErrCodeProofRequired userInfo:nil]);
     }, ^{ asked = YES; }, ^(BOOL ok, NSError *e) { completed = YES; });
     XCTAssertEqual(IMErrCodeProofRequired, 200049);
@@ -277,7 +291,7 @@ static NSDictionary<NSString *, NSDictionary *> *sRAReplies; ///< path → 响�
 
     __block NSError *pageError = nil;
     asked = NO;
-    IMProofRunWithoutSheet(s, ^(IMIdentityProof *p, void (^f)(NSError *)) {
+    IMProofRunWithoutSheet(s, NO, ^(IMIdentityProof *p, void (^f)(NSError *)) {
         f([NSError errorWithDomain:@"t" code:200010 userInfo:nil]);
     }, ^{ asked = YES; }, ^(BOOL ok, NSError *e) { XCTAssertFalse(ok); pageError = e; });
     XCTAssertFalse(asked);
@@ -355,6 +369,83 @@ static NSDictionary<NSString *, NSDictionary *> *sRAReplies; ///< path → 响�
     [self spinUntil:^BOOL{ return host.presentedViewController != nil; }];
     XCTAssertTrue([host.presentedViewController isKindOfClass:IMIdentityProofSheet.class]);
     XCTAssertFalse(requested);
+    [host dismissViewControllerAnimated:NO completion:nil];
+    w.hidden = YES;
+}
+
+#pragma mark - 绑定 / 更换手机号：每次都确认（服务端对它不认免确认）
+
+/// 在「登录手机号」页填好新号码 + 验证码点「下一步」，等弹层出现（或超时），返回弹层。
+- (nullable IMIdentityProofSheet *)submitPhonePage:(BOOL)bound recentSec:(NSInteger)recent requested:(BOOL *)requested {
+    NSDictionary *reply = [self securityReply:recent bound:bound];
+    IMSecurityState *seed = [IMSecurityState stateFromJSON:reply[@"data"]];
+    IMPhoneBindViewController *vc = [[IMPhoneBindViewController alloc] initWithHost:kRAHost userID:_uid security:seed];
+    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
+    UIWindow *w = [self windowWith:nav];
+    [self addTeardownBlock:^{ [nav dismissViewControllerAnimated:NO completion:nil]; w.hidden = YES; }];
+    vc.phoneField.text = @"13712340002";
+    vc.codeField.text = @"123456";
+    [self seedToken];
+    __block BOOL sent = NO;
+    [IMRAStub reset:@{ @"/api/v1/users/me/security": reply }]; // 建页时 public-config 等请求不算进本次
+    [vc primaryTapped];
+    [self spinUntil:^BOOL{
+        sent = [IMRAStub requestsForPath:@"/api/v1/users/me/phone"].count > 0;
+        return sent || [nav.presentedViewController isKindOfClass:IMIdentityProofSheet.class];
+    }];
+    IMIdentityProofSheet *sheet = (IMIdentityProofSheet *)nav.presentedViewController;
+    if ([sheet isKindOfClass:IMIdentityProofSheet.class]) { [self spinUntil:^BOOL{ return sheet.tabs.count > 0; }]; }
+    *requested = sent;
+    return [sheet isKindOfClass:IMIdentityProofSheet.class] ? sheet : nil;
+}
+
+- (void)test_更换手机号_最近验证过也弹层_默认短信验证码_密码备选 {
+    BOOL requested = NO;
+    IMIdentityProofSheet *sheet = [self submitPhonePage:YES recentSec:600 requested:&requested];
+    XCTAssertNotNil(sheet, @"recent_auth_sec ≥ 15 也要弹层");
+    XCTAssertFalse(requested, @"不能空证明直接发 POST /users/me/phone");
+    XCTAssertEqualObjects(sheet.tabs, (@[ @(IMProofTabSMS), @(IMProofTabPassword) ]));
+    XCTAssertEqual(sheet.tab, IMProofTabSMS, @"默认给旧号码发验证码");
+}
+
+- (void)test_绑定手机号_最近验证过也弹层_只有密码 {
+    BOOL requested = NO;
+    IMIdentityProofSheet *sheet = [self submitPhonePage:NO recentSec:600 requested:&requested];
+    XCTAssertNotNil(sheet, @"recent_auth_sec ≥ 15 也要弹层");
+    XCTAssertFalse(requested);
+    XCTAssertEqualObjects(sheet.tabs, @[ @(IMProofTabPassword) ]);
+    XCTAssertEqual(sheet.tab, IMProofTabPassword);
+}
+
+/// 其它操作（注销 / 导出 / 邮箱 / 两步验证用的默认会话）照旧：最近验证过不弹层；默认页签仍是密码。
+- (void)test_其它操作_默认会话_仍免确认_alwaysAsks只影响打开它的会话 {
+    [IMRAStub reset:@{ @"/api/v1/users/me/security": [self securityReply:600] }];
+    UIViewController *host = [UIViewController new];
+    UIWindow *w = [self windowWith:host];
+    IMProofSession *plain = [[IMProofSession alloc] initWithHost:kRAHost userID:_uid];
+    XCTAssertFalse(plain.alwaysAsks);
+    XCTAssertFalse(plain.prefersSMS);
+    __block BOOL done = NO;
+    __block IMIdentityProof *sent = nil;
+    [self seedToken];
+    [plain presentFrom:host request:^(NSString *t, IMIdentityProof *p, void (^f)(NSError *)) { sent = p; f(nil); }
+            completion:^(BOOL ok, NSError *e) { done = YES; }];
+    [self spinUntil:^BOOL{ return done; }];
+    XCTAssertTrue(sent.isEmpty, @"默认会话照旧免确认");
+    XCTAssertNil(host.presentedViewController);
+
+    IMProofSession *always = [[IMProofSession alloc] initWithHost:kRAHost userID:_uid];
+    always.alwaysAsks = YES;
+    __block BOOL requested = NO;
+    [self seedToken];
+    [always presentFrom:host request:^(NSString *t, IMIdentityProof *p, void (^f)(NSError *)) { requested = YES; f(nil); }
+             completion:^(BOOL ok, NSError *e) {}];
+    [self spinUntil:^BOOL{ return host.presentedViewController != nil; }];
+    IMIdentityProofSheet *sheet = (IMIdentityProofSheet *)host.presentedViewController;
+    XCTAssertTrue([sheet isKindOfClass:IMIdentityProofSheet.class]);
+    XCTAssertFalse(requested);
+    [self spinUntil:^BOOL{ return sheet.tabs.count > 0; }];
+    XCTAssertEqual(sheet.tab, IMProofTabPassword, @"没设 prefersSMS：默认仍是密码");
     [host dismissViewControllerAnimated:NO completion:nil];
     w.hidden = YES;
 }

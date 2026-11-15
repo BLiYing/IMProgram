@@ -1200,8 +1200,6 @@
 "login.restoring" = "Restoring your session…";
 "login.revoked_notice" = "Your account was logged in elsewhere, or this device was removed.";
 "login.rtc_address.placeholder" = "Call address ws://host:port/v1/ws";
-"login.server_address" = "Server address";
-"login.server_summary" = "Server: %1$@";
 "login.session_revoked" = "This device has been signed out. Please log in again.";
 "login.sms.auto_register_hint" = "A new phone number is signed up automatically after verification";
 "login.sms.submit" = "Log in / Sign up";
@@ -1781,7 +1779,6 @@
 "record.chat_history" = "Chat history";
 "record.dirty_card" = "[Contact]";
 "record.dirty_record" = "[Chat History]";
-"register.complete.existing_account" = "Already have an account? Go back and sign in with your username and password, then bind this phone number in Privacy & security.";
 "register.complete.hint" = "Enter a nickname to finish signing up. This is the name others will see.";
 "register.complete.submit" = "Done";
 "register.complete.title" = "Complete your profile";

@@ -108,13 +108,14 @@ static NSError *IMProofTokenFailure(NSError *_Nullable error) {
     // 先取安全状态（弹层本来就要它定页签）：本会话最近验证过 → 不弹层，空证明直接发；回 200049 再照常弹（§15.2）。
     // 取不到 → 照常弹层：有旧值用旧值，没有显示 proof.load_failed（点「重试」再取），进场不再自动重取一遍。
     [self loadSecurity:^(IMSecurityState *state) {
-        if (IMProofSkipsSheet(state)) { IMLogUI(@"proof_skipped recent_auth_sec=%ld", (long)state.recentAuthSec); }
-        IMProofRunWithoutSheet(state, submit, ^{
+        void (^ask)(void) = ^{
             [self endPreparing];
             UIViewController *h = weakHost;
             if (!h.view.window) { completion(NO, nil); return; } // 页面已离开：当取消
             [self showSheetFrom:h submit:submit completion:completion];
-        }, ^(BOOL succeeded, NSError *pageError) {
+        };
+        if (!self.alwaysAsks && IMProofSkipsSheet(state)) { IMLogUI(@"proof_skipped recent_auth_sec=%ld", (long)state.recentAuthSec); }
+        IMProofRunWithoutSheet(state, self.alwaysAsks, submit, ask, ^(BOOL succeeded, NSError *pageError) {
             [self endPreparing];
             completion(succeeded, pageError);
         });
@@ -286,7 +287,7 @@ static NSError *IMProofTokenFailure(NSError *_Nullable error) {
 /// 会话弹出前已经取过一次安全状态（成功就已记进 session.security）：这里只用结果，不再自动重取。
 - (void)startWithSecurity {
     IMSecurityState *cached = self.session.security;
-    if (cached) { [self applySecurity:cached preferCachedCode:YES]; return; }
+    if (cached) { [self applySecurity:cached firstLanding:YES]; return; }
     IMLogWarnWithTag(IMLogTagUI, @"proof_security_load_failed cached=0");
     self.tabs = @[];
     self.loadFailed = YES;
@@ -309,21 +310,22 @@ static NSError *IMProofTokenFailure(NSError *_Nullable error) {
         return;
     }
     BOOL first = self.tabs.count == 0; // session.security 已由 loadSecurity 记下
-    [self applySecurity:state preferCachedCode:first];
+    [self applySecurity:state firstLanding:first];
 }
 
-- (void)applySecurity:(IMSecurityState *)state preferCachedCode:(BOOL)preferCachedCode {
-    NSArray<NSNumber *> *tabs = IMProofTabsForState(state);
+/// firstLanding：第一次落页签——有没用掉的验证码就落短信页签并预填，否则落 tabs 的第一个。
+- (void)applySecurity:(IMSecurityState *)state firstLanding:(BOOL)firstLanding {
+    NSArray<NSNumber *> *tabs = IMProofTabsForState(state, self.session.prefersSMS);
     BOOL changed = ![tabs isEqualToArray:self.tabs];
     self.tabs = tabs;
     NSString *cachedCode = self.session.codeCache.code;
-    if (preferCachedCode && cachedCode.length > 0 && [tabs containsObject:@(IMProofTabSMS)]) {
+    if (firstLanding && cachedCode.length > 0 && [tabs containsObject:@(IMProofTabSMS)]) {
         self.tab = IMProofTabSMS;
         self.codeField.text = cachedCode;
-    } else if (tabs.count > 0 && ![tabs containsObject:@(self.tab)]) {
+    } else if (tabs.count > 0 && (firstLanding || ![tabs containsObject:@(self.tab)])) {
         self.tab = (IMProofTab)tabs.firstObject.integerValue;
     }
-    if (changed || preferCachedCode) {
+    if (changed || firstLanding) {
         NSMutableArray<NSString *> *titles = [NSMutableArray array];
         for (NSNumber *t in tabs) { [titles addObject:IMLocalized(t.integerValue == IMProofTabSMS ? @"proof.tab_sms" : @"proof.tab_password")]; }
         self.segmentedControl.titles = titles;

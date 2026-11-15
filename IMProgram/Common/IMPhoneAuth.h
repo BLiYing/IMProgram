@@ -64,15 +64,12 @@ FOUNDATION_EXPORT NSDictionary *IMBodyWithProof(NSDictionary *body, IMIdentityPr
 + (instancetype)regionWithCode:(NSString *)code iso:(NSString *)iso;
 @end
 
-FOUNDATION_EXPORT NSString * const IMRegisterMethodPhone;
-
-/// GET /api/v1/public-config 的 data。老服务端没有新字段 = 「短信不可用」。客户端只认 register_methods 里的 phone（自动注册提示）。
+/// GET /api/v1/public-config 的 data。老服务端没有新字段 = 「短信不可用」（不出地区）。登录页只用它定国家码。
 @interface IMLoginConfig : NSObject
 @property (nonatomic, assign, readonly) BOOL registerEnabled;
 @property (nonatomic, assign, readonly) BOOL smsAvailable;
 @property (nonatomic, copy, readonly) NSArray<IMSMSRegion *> *smsRegions;
-@property (nonatomic, copy, readonly) NSArray<NSString *> *registerMethods;
-/// 解析信封响应体：code≠0 / 非 JSON / 缺字段一律走老服务端口径（registerEnabled=YES、smsAvailable=NO、registerMethods=[]）。
+/// 解析信封响应体：code≠0 / 非 JSON / 缺字段一律走老服务端口径（registerEnabled=YES、smsAvailable=NO）。
 + (instancetype)configFromResponseData:(nullable NSData *)data;
 /// 拉不到（离线 / 地址非法）时的口径：同老服务端。
 + (instancetype)fallbackConfig;
@@ -109,15 +106,10 @@ typedef NS_ENUM(NSInteger, IMLoginTab) {
     IMLoginTabPassword = 1,
 };
 
-/// 可见页签：短信可用 → [验证码, 密码]；否则只有密码（不画页签条）。config 为 nil（还没取到）按老服务端口径。
-FOUNDATION_EXPORT NSArray<NSNumber *> *IMLoginTabsForConfig(IMLoginConfig *_Nullable config);
-/// 默认页签：记住的那个（仍可见时）；否则第一个（短信可用即验证码登录）。remembered = IMLoginTabNone 即没记过。
-FOUNDATION_EXPORT IMLoginTab IMLoginInitialTab(NSArray<NSNumber *> *tabs, IMLoginTab remembered);
-/// 配置到了（或换了服务器）之后的页签：用户已经动过（点过页签 / 开始输入）就不再自动切，除非当前页签已不可见。
-FOUNDATION_EXPORT IMLoginTab IMLoginTabAfterConfig(IMLoginTab current, BOOL touched, NSArray<NSNumber *> *tabs, IMLoginTab remembered);
-FOUNDATION_EXPORT BOOL IMLoginShowsForgotPassword(IMLoginConfig *_Nullable config);
-/// 「未注册的手机号验证后将自动注册」：register_methods 含 phone。
-FOUNDATION_EXPORT BOOL IMLoginShowsAutoRegisterHint(IMLoginConfig *_Nullable config);
+/// 登录页版式固定（不看 public-config）：两个页签「验证码登录 / 密码登录」常驻、「忘记密码？」常驻、验证码页签常驻自动注册提示。
+/// public-config 只用于国家码（地区选择器 / 默认国家码）。短信没配好时发码由服务端回错，照常显示。
+/// 默认页签：记住的那个；没记过 → 验证码登录。
+FOUNDATION_EXPORT IMLoginTab IMLoginInitialTab(IMLoginTab remembered);
 /// 地区多于一个才出选择器；只有一个时显示固定的 +86，不可点。
 FOUNDATION_EXPORT BOOL IMLoginShowsRegionPicker(IMLoginConfig *_Nullable config);
 /// 默认国家码：第一个开放地区；没有时 86。
@@ -176,10 +168,11 @@ typedef void (^IMProofCompletion)(BOOL succeeded, NSError *_Nullable pageError);
 FOUNDATION_EXPORT NSInteger const IMProofRecentAuthMinSec;
 /// 刚取到的安全状态说本会话最近验证过（recent_auth_sec ≥ 15）→ 不弹层，直接用空证明发请求。nil → NO。
 FOUNDATION_EXPORT BOOL IMProofSkipsSheet(IMSecurityState *_Nullable state);
-/// 免确认的分流（§15.2）：IMProofSkipsSheet(state) 为 NO → ask()（照常弹层）；为 YES → submit(空证明)：
+/// 免确认的分流（§15.2）：alwaysAsks（绑定 / 更换手机号，服务端不认免确认）或 IMProofSkipsSheet(state) 为 NO → ask()（照常弹层）；
+/// 否则 submit(空证明)：
 /// 成功 → completion(YES, nil)；回 200049（边界上刚好过期）→ ask()；其它错 → completion(NO, error) 交给页面。
 /// finish 只认第一次。
-FOUNDATION_EXPORT void IMProofRunWithoutSheet(IMSecurityState *_Nullable state, IMProofSubmitBlock submit,
+FOUNDATION_EXPORT void IMProofRunWithoutSheet(IMSecurityState *_Nullable state, BOOL alwaysAsks, IMProofSubmitBlock submit,
                                               void (^ask)(void), IMProofCompletion completion);
 
 typedef NS_ENUM(NSInteger, IMProofTab) {
@@ -189,7 +182,8 @@ typedef NS_ENUM(NSInteger, IMProofTab) {
 /// 弹层页签：有密码 + 能发短信「密码 / 短信验证码」；有密码不能发短信只有密码；没设密码只有验证码，
 /// 没设密码又不能发短信（短信不可用或没绑手机）→ 空数组（弹层提示 proof.sms_unavailable、确认不可点）。
 /// state 为 nil（取不到）→ 只有密码（老账号都有密码）。
-FOUNDATION_EXPORT NSArray<NSNumber *> *IMProofTabsForState(IMSecurityState *_Nullable state);
+/// smsFirst=YES（更换手机号：默认给旧号码发码）时两种都有就排成「短信验证码 / 密码」，默认页签 = 第一个。
+FOUNDATION_EXPORT NSArray<NSNumber *> *IMProofTabsForState(IMSecurityState *_Nullable state, BOOL smsFirst);
 /// 只有一种方式时不显示分段控件。
 FOUNDATION_EXPORT BOOL IMProofShowsSegments(NSArray<NSNumber *> *tabs);
 /// 确认可点：密码非空 / 验证码满 6 位，且不在提交中。

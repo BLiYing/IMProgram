@@ -58,7 +58,6 @@ static NSDictionary *pResp; static NSString *pPath; static NSDictionary *pBody;
 @interface IMLoginViewController (PhoneTestAccess)
 @property (nonatomic, strong, nullable) IMLoginConfig *loginConfig;
 @property (nonatomic, assign) IMLoginTab tab;
-@property (nonatomic, assign) BOOL touched;
 - (void)applyLoginConfig:(IMLoginConfig *)config host:(nullable NSString *)host hostChanged:(BOOL)hostChanged;
 @property (nonatomic, copy, nullable) NSString *registerTicket;
 @property (nonatomic, copy, nullable) NSString *registerHost;
@@ -113,11 +112,9 @@ static NSDictionary *pResp; static NSString *pPath; static NSDictionary *pBody;
     XCTAssertTrue(c.smsAvailable);
     XCTAssertEqual(c.smsRegions.count, 2u);
     XCTAssertEqualObjects(c.smsRegions[1].code, @"60");
-    XCTAssertEqualObjects(c.registerMethods, (@[ @"username", @"phone" ]));
     IMLoginConfig *old = [self configWith:@{ @"register_enabled": @NO }];
     XCTAssertFalse(old.smsAvailable, @"老服务端没有字段 = 短信不可用");
     XCTAssertFalse(old.registerEnabled);
-    XCTAssertEqualObjects(old.registerMethods, @[], @"老服务端没有 register_methods = 不出自动注册提示");
     IMLoginConfig *bad = [IMLoginConfig configFromResponseData:[@"<html>" dataUsingEncoding:NSUTF8StringEncoding]];
     XCTAssertFalse(bad.smsAvailable); XCTAssertTrue(bad.registerEnabled);
     IMLoginConfig *off = [self configWith:@{ @"sms_available": @NO, @"sms_regions": @[ @{ @"code": @"86", @"iso": @"CN" } ] }];
@@ -126,33 +123,19 @@ static NSDictionary *pResp; static NSString *pPath; static NSDictionary *pBody;
 
 #pragma mark - 登录页规则
 
-- (void)test_登录页_页签_默认与配置晚到 {
-    IMLoginConfig *sms = [self configWith:@{ @"sms_available": @YES, @"sms_regions": @[ @{ @"code": @"86", @"iso": @"CN" } ],
-                                             @"register_methods": @[ @"phone" ] }];
-    IMLoginConfig *noSMS = [self configWith:@{ @"sms_available": @NO, @"register_methods": @[] }];
-    XCTAssertEqualObjects(IMLoginTabsForConfig(sms), (@[ @(IMLoginTabSMS), @(IMLoginTabPassword) ]));
-    XCTAssertEqualObjects(IMLoginTabsForConfig(noSMS), @[ @(IMLoginTabPassword) ]);
-    XCTAssertEqualObjects(IMLoginTabsForConfig(nil), @[ @(IMLoginTabPassword) ], @"还没取到 = 老服务端口径");
-    XCTAssertEqual(IMLoginInitialTab(IMLoginTabsForConfig(sms), IMLoginTabNone), IMLoginTabSMS, @"短信可用默认验证码登录");
-    XCTAssertEqual(IMLoginInitialTab(IMLoginTabsForConfig(sms), IMLoginTabPassword), IMLoginTabPassword, @"记住上次的页签");
-    XCTAssertEqual(IMLoginInitialTab(IMLoginTabsForConfig(noSMS), IMLoginTabSMS), IMLoginTabPassword, @"记着验证码但短信不可用");
-    XCTAssertEqual(IMLoginTabAfterConfig(IMLoginTabPassword, YES, IMLoginTabsForConfig(sms), IMLoginTabNone), IMLoginTabPassword,
-                   @"用户已动过：配置晚到不再切页签");
-    XCTAssertEqual(IMLoginTabAfterConfig(IMLoginTabPassword, NO, IMLoginTabsForConfig(sms), IMLoginTabNone), IMLoginTabSMS);
-    XCTAssertEqual(IMLoginTabAfterConfig(IMLoginTabSMS, YES, IMLoginTabsForConfig(noSMS), IMLoginTabNone), IMLoginTabPassword, @"当前页签已不可见");
+/// 版式固定：默认页签只看记住的那个，没记过 = 验证码登录（不看短信是否可用）。
+- (void)test_登录页_默认页签_记住的或验证码登录 {
+    XCTAssertEqual(IMLoginInitialTab(IMLoginTabNone), IMLoginTabSMS, @"没记过：验证码登录");
+    XCTAssertEqual(IMLoginInitialTab(IMLoginTabPassword), IMLoginTabPassword, @"记住上次的页签");
+    XCTAssertEqual(IMLoginInitialTab(IMLoginTabSMS), IMLoginTabSMS);
 }
 
-- (void)test_登录页_链接_提示_地区 {
+- (void)test_登录页_地区 {
     IMLoginConfig *both = [self configWith:@{ @"sms_available": @YES, @"sms_regions": @[ @{ @"code": @"86", @"iso": @"CN" } ],
                                               @"register_methods": @[ @"phone" ] }];
     IMLoginConfig *phoneOnly = [self configWith:@{ @"sms_available": @YES, @"register_methods": @[ @"phone" ],
                                                    @"sms_regions": @[ @{ @"code": @"86", @"iso": @"CN" }, @{ @"code": @"60", @"iso": @"MY" } ] }];
     IMLoginConfig *noSMS = [self configWith:@{ @"sms_available": @NO, @"register_methods": @[] }];
-    XCTAssertTrue(IMLoginShowsForgotPassword(both));
-    XCTAssertFalse(IMLoginShowsForgotPassword(noSMS), @"短信不可用不显示「忘记密码？」");
-    XCTAssertFalse(IMLoginShowsForgotPassword(nil));
-    XCTAssertTrue(IMLoginShowsAutoRegisterHint(both));
-    XCTAssertFalse(IMLoginShowsAutoRegisterHint(noSMS));
     XCTAssertFalse(IMLoginShowsRegionPicker(both), @"一个地区：固定 +86 不可点");
     XCTAssertTrue(IMLoginShowsRegionPicker(phoneOnly));
     XCTAssertEqualObjects(IMLoginDefaultCountryCode(nil), @"86");
@@ -226,13 +209,16 @@ static NSDictionary *pResp; static NSString *pPath; static NSDictionary *pBody;
 #pragma mark - 确认身份弹层规则
 
 - (void)test_弹层页签 {
-    XCTAssertEqualObjects(IMProofTabsForState([self security:YES phone:YES sms:YES]), (@[ @(IMProofTabPassword), @(IMProofTabSMS) ]));
-    XCTAssertEqualObjects(IMProofTabsForState([self security:NO phone:YES sms:YES]), @[ @(IMProofTabSMS) ], @"没设密码只有验证码");
-    XCTAssertEqualObjects(IMProofTabsForState([self security:YES phone:NO sms:YES]), @[ @(IMProofTabPassword) ], @"没绑手机只有密码");
-    XCTAssertEqualObjects(IMProofTabsForState([self security:YES phone:YES sms:NO]), @[ @(IMProofTabPassword) ], @"短信不可用只有密码");
-    XCTAssertEqualObjects(IMProofTabsForState([self security:NO phone:YES sms:NO]), @[], @"没设密码 + 短信不可用：没有可用方式");
-    XCTAssertEqualObjects(IMProofTabsForState([self security:NO phone:NO sms:YES]), @[], @"没设密码 + 没绑手机：没有可用方式");
-    XCTAssertEqualObjects(IMProofTabsForState(nil), @[ @(IMProofTabPassword) ], @"取不到状态：老账号都有密码 → 密码");
+    XCTAssertEqualObjects(IMProofTabsForState([self security:YES phone:YES sms:YES], NO), (@[ @(IMProofTabPassword), @(IMProofTabSMS) ]));
+    XCTAssertEqualObjects(IMProofTabsForState([self security:YES phone:YES sms:YES], YES), (@[ @(IMProofTabSMS), @(IMProofTabPassword) ]),
+                          @"更换手机号：短信验证码在前（默认），密码备选");
+    XCTAssertEqualObjects(IMProofTabsForState([self security:YES phone:NO sms:YES], YES), @[ @(IMProofTabPassword) ], @"绑定：没有已绑号码只有密码");
+    XCTAssertEqualObjects(IMProofTabsForState([self security:NO phone:YES sms:YES], NO), @[ @(IMProofTabSMS) ], @"没设密码只有验证码");
+    XCTAssertEqualObjects(IMProofTabsForState([self security:YES phone:NO sms:YES], NO), @[ @(IMProofTabPassword) ], @"没绑手机只有密码");
+    XCTAssertEqualObjects(IMProofTabsForState([self security:YES phone:YES sms:NO], NO), @[ @(IMProofTabPassword) ], @"短信不可用只有密码");
+    XCTAssertEqualObjects(IMProofTabsForState([self security:NO phone:YES sms:NO], NO), @[], @"没设密码 + 短信不可用：没有可用方式");
+    XCTAssertEqualObjects(IMProofTabsForState([self security:NO phone:NO sms:YES], NO), @[], @"没设密码 + 没绑手机：没有可用方式");
+    XCTAssertEqualObjects(IMProofTabsForState(nil, NO), @[ @(IMProofTabPassword) ], @"取不到状态：老账号都有密码 → 密码");
     XCTAssertFalse(IMProofShowsSegments(@[ @(IMProofTabSMS) ]));
     XCTAssertTrue(IMProofShowsSegments(@[ @(IMProofTabPassword), @(IMProofTabSMS) ]));
     XCTAssertTrue(IMProofCanConfirm(IMProofTabPassword, @"x", nil, NO));
@@ -532,6 +518,17 @@ static NSDictionary *pResp; static NSString *pPath; static NSDictionary *pBody;
 
 #pragma mark - 界面接线
 
+/// 等条件成立（最多 timeout 秒）：弹出 / 收起弹层是异步的，固定等待时长在机器忙时会偶发不够。
+- (BOOL)waitUntil:(BOOL (^)(void))cond timeout:(NSTimeInterval)timeout {
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:timeout];
+    BOOL ok = cond(); // 每轮只求值一次：条件本身可能有副作用（如 presentFrom:）
+    while (!ok && deadline.timeIntervalSinceNow > 0) {
+        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+        ok = cond();
+    }
+    return ok;
+}
+
 - (UIWindow *)windowWith:(UIViewController *)vc {
     UIWindowScene *scene = nil;
     for (UIScene *s in UIApplication.sharedApplication.connectedScenes) { if ([s isKindOfClass:UIWindowScene.class]) { scene = (UIWindowScene *)s; break; } }
@@ -549,7 +546,8 @@ static NSDictionary *pResp; static NSString *pPath; static NSDictionary *pBody;
     session.security = [self security:NO phone:YES sms:YES];
     pResp = @{ @"code": @0, @"data": @{ @"phone_bound": @YES, @"phone_masked": @"+86 136****0001", @"password_set": @NO, @"sms_available": @YES } };
     XCTAssertTrue([session presentFrom:host submit:^(IMIdentityProof *p, void (^f)(NSError *)) { f(nil); } completion:^(BOOL ok, NSError *e) {}]);
-    [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.8]];
+    XCTAssertTrue([self waitUntil:^BOOL { return [host.presentedViewController isKindOfClass:IMIdentityProofSheet.class]
+                                            && ((IMIdentityProofSheet *)host.presentedViewController).tabs.count > 0; } timeout:5]);
     IMIdentityProofSheet *sheet = (IMIdentityProofSheet *)host.presentedViewController;
     XCTAssertTrue([sheet isKindOfClass:IMIdentityProofSheet.class]);
     XCTAssertEqualObjects(sheet.tabs, @[ @(IMProofTabSMS) ], @"没设密码只有验证码页签");
@@ -557,13 +555,16 @@ static NSDictionary *pResp; static NSString *pPath; static NSDictionary *pBody;
     XCTAssertFalse([session presentFrom:host submit:^(IMIdentityProof *p, void (^f)(NSError *)) {} completion:^(BOOL ok, NSError *e) {}],
                    @"已在屏不重复弹");
     [host dismissViewControllerAnimated:NO completion:nil];
-    [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.5]];
+    XCTAssertTrue([self waitUntil:^BOOL { return host.presentedViewController == nil; } timeout:5], @"弹层没收起");
 
     [session.codeCache notePageErrorAfterProof:[IMIdentityProof smsProof:@"246810"]];
     session.security = [self security:YES phone:YES sms:YES];
     pResp = @{ @"code": @0, @"data": @{ @"phone_bound": @YES, @"password_set": @YES, @"sms_available": @YES } };
-    [session presentFrom:host submit:^(IMIdentityProof *p, void (^f)(NSError *)) { f(nil); } completion:^(BOOL ok, NSError *e) {}];
-    [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.8]];
+    XCTAssertTrue([self waitUntil:^BOOL {
+        return [session presentFrom:host submit:^(IMIdentityProof *p, void (^f)(NSError *)) { f(nil); } completion:^(BOOL ok, NSError *e) {}];
+    } timeout:5], @"上一个弹层收尾后应能再弹");
+    XCTAssertTrue([self waitUntil:^BOOL { return [host.presentedViewController isKindOfClass:IMIdentityProofSheet.class]
+                                            && ((IMIdentityProofSheet *)host.presentedViewController).tabs.count == 2; } timeout:5]);
     sheet = (IMIdentityProofSheet *)host.presentedViewController;
     XCTAssertEqual(sheet.tabs.count, 2u);
     XCTAssertFalse(sheet.segmentedControl.superview.hidden);
@@ -663,33 +664,61 @@ static NSDictionary *pResp; static NSString *pPath; static NSDictionary *pBody;
     w.hidden = YES;
 }
 
-- (void)test_登录页_短信可用两页签_不可用只有密码且无忘记密码 {
+/// 版式固定，不看 public-config：页签条 / 「忘记密码？」常驻，验证码页签常驻自动注册提示；配置只动国家码。
+- (void)test_登录页_版式固定_配置只影响国家码 {
     NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
     id remembered = [d objectForKey:@"im.login.tab"];
     [d removeObjectForKey:@"im.login.tab"]; // 宿主 App 记着的页签不能影响本用例
     [self addTeardownBlock:^{ if (remembered) { [d setObject:remembered forKey:@"im.login.tab"]; } }];
     IMLoginViewController *vc = [IMLoginViewController new];
     [vc loadViewIfNeeded];
-    vc.touched = NO;
+    XCTAssertEqual(vc.tab, IMLoginTabSMS, @"没记过：默认验证码登录（不等配置）");
     IMLoginConfig *sms = [self configWith:@{ @"register_enabled": @YES, @"sms_available": @YES,
-                                             @"sms_regions": @[ @{ @"code": @"86", @"iso": @"CN" } ], @"register_methods": @[ @"phone" ] }];
-    [vc applyLoginConfig:sms host:@"h" hostChanged:NO];
-    XCTAssertEqual(vc.tab, IMLoginTabSMS, @"没动过：配置到了切到默认的验证码登录");
-    XCTAssertFalse([[vc valueForKey:@"tabsRow"] isHidden]);
+                                             @"sms_regions": @[ @{ @"code": @"86", @"iso": @"CN" } ] }];
+    IMLoginConfig *off = [self configWith:@{ @"register_enabled": @YES, @"sms_available": @NO }];
     IMLoginPhoneFields *fields = [vc valueForKey:@"smsFields"];
-    XCTAssertFalse(fields.hidden);
-    XCTAssertFalse(fields.countryButton.enabled, @"只有一个地区：+86 不可点");
-    XCTAssertTrue([[vc valueForKey:@"userIDField"] isHidden]);
+    for (IMLoginConfig *cfg in @[ [NSNull null], sms, off ]) {
+        if ([cfg isKindOfClass:IMLoginConfig.class]) { [vc applyLoginConfig:cfg host:@"h" hostChanged:NO]; }
+        XCTAssertEqual(vc.tab, IMLoginTabSMS, @"配置到了也不切页签");
+        XCTAssertFalse([[vc valueForKey:@"tabsRow"] isHidden], @"两个页签常驻");
+        XCTAssertFalse(fields.hidden);
+        XCTAssertTrue([[vc valueForKey:@"userIDField"] isHidden]);
+        XCTAssertFalse([[vc valueForKey:@"forgotButton"] isHidden], @"「忘记密码？」常驻");
+        XCTAssertFalse([[vc valueForKey:@"linksRow"] isHidden]);
+        XCTAssertFalse([[vc valueForKey:@"autoRegisterHintLabel"] isHidden], @"验证码页签常驻自动注册提示");
+        XCTAssertFalse(fields.countryButton.enabled, @"不多于一个地区：+86 不可点");
+        XCTAssertEqualObjects(fields.countryCode, @"86");
+    }
+    vc.tab = IMLoginTabPassword;
+    [vc applyMode];
+    XCTAssertTrue([[vc valueForKey:@"autoRegisterHintLabel"] isHidden], @"密码页签不出自动注册提示");
     XCTAssertFalse([[vc valueForKey:@"forgotButton"] isHidden]);
-    XCTAssertFalse([[vc valueForKey:@"autoRegisterHintLabel"] isHidden]);
-    IMLoginConfig *off = [self configWith:@{ @"register_enabled": @YES, @"sms_available": @NO, @"register_methods": @[] }];
-    [vc applyLoginConfig:off host:@"h" hostChanged:NO];
-    XCTAssertEqual(vc.tab, IMLoginTabPassword);
-    XCTAssertTrue([[vc valueForKey:@"tabsRow"] isHidden], @"只有一个页签不画页签条");
-    XCTAssertTrue([[vc valueForKey:@"forgotButton"] isHidden]);
-    XCTAssertTrue([[vc valueForKey:@"linksRow"] isHidden], @"没有「忘记密码？」时整行不占位");
-    XCTAssertTrue([[vc valueForKey:@"autoRegisterHintLabel"] isHidden]);
     XCTAssertFalse([[vc valueForKey:@"userIDField"] isHidden]);
+    XCTAssertTrue(fields.hidden);
+    IMLoginConfig *two = [self configWith:@{ @"sms_available": @YES,
+        @"sms_regions": @[ @{ @"code": @"60", @"iso": @"MY" }, @{ @"code": @"86", @"iso": @"CN" } ] }];
+    [vc applyLoginConfig:two host:@"h2" hostChanged:YES];
+    XCTAssertTrue(fields.countryButton.enabled, @"多于一个地区才可选");
+    XCTAssertEqualObjects(fields.countryCode, @"60", @"默认国家码来自配置");
+    XCTAssertEqual(vc.tab, IMLoginTabPassword);
+}
+
+/// 「忘记密码？」右对齐（弹簧在左），登录页不再显示服务器地址行（三端一致；改地址只走长按 Logo）。
+- (void)testLoginPage_ForgotRightAligned_NoServerRow {
+    IMLoginViewController *vc = [IMLoginViewController new];
+    [vc loadViewIfNeeded];
+    UIStackView *links = [vc valueForKey:@"linksRow"];
+    XCTAssertEqual(links.arrangedSubviews.lastObject, [vc valueForKey:@"forgotButton"], @"忘记密码要在行尾（右对齐）");
+    NSMutableArray<UIView *> *queue = [NSMutableArray arrayWithObject:vc.view];
+    while (queue.count > 0) {
+        UIView *v = queue.firstObject;
+        [queue removeObjectAtIndex:0];
+        XCTAssertNotEqualObjects(v.accessibilityIdentifier, @"login.server_label", @"登录页不应再有服务器地址行");
+        if ([v isKindOfClass:UILabel.class]) {
+            XCTAssertFalse([((UILabel *)v).text containsString:@"127.0.0.1"], @"登录页不应露出服务器地址");
+        }
+        [queue addObjectsFromArray:v.subviews];
+    }
 }
 
 static UIView *IMPATFindView(UIView *root, NSString *identifier) {
@@ -709,12 +738,19 @@ static UIView *IMPATFindView(UIView *root, NSString *identifier) {
     }
 }
 
-- (void)test_完善资料页_提示已有账号先回去用密码登录再绑号 {
-    UILabel *hint = (UILabel *)IMPATFindView([IMLoginCompleteProfileView new], @"complete.existing_account");
-    XCTAssertTrue([hint isKindOfClass:UILabel.class]);
-    XCTAssertEqualObjects(hint.text, IMLocalized(@"register.complete.existing_account"));
-    XCTAssertNotEqualObjects(hint.text, @"register.complete.existing_account", @"Localizable.strings 必须含该键");
-    XCTAssertEqual(hint.numberOfLines, 0, @"多行");
+/// 注册只剩手机号：完善资料页不再有「已有账号？返回用账号密码登录…」提示。
+- (void)test_完善资料页_没有已有账号提示 {
+    IMLoginCompleteProfileView *v = [IMLoginCompleteProfileView new];
+    NSMutableArray<UIView *> *queue = [NSMutableArray arrayWithObject:v];
+    while (queue.count > 0) {
+        UIView *x = queue.firstObject;
+        [queue removeObjectAtIndex:0];
+        if ([x isKindOfClass:UILabel.class]) {
+            // 比对原文片段而非 i18n 键：该键将从 strings 删除，删后 IMLocalized 返回键名、断言会失效。
+            XCTAssertFalse([((UILabel *)x).text containsString:@"已有账号"], @"%@", ((UILabel *)x).text);
+        }
+        [queue addObjectsFromArray:x.subviews];
+    }
 }
 
 - (void)test_完善资料_提交回200007_回登录页不留在子页重交 {
@@ -750,36 +786,21 @@ static UIView *IMPATFindView(UIView *root, NSString *identifier) {
     XCTAssertEqual(fields.codeField.text.length, 0u);
 }
 
-/// 完善资料页的提示是「返回用账号密码登录」：「返回登录」要落到密码登录页签，而不是进来时的验证码页签。
-- (void)test_完善资料_返回登录_落到密码登录页签 {
+/// 「返回登录」回验证码登录页签（注册只剩手机号，没有「改用密码登录」的引导了），哪怕之前停在密码页签。
+- (void)test_完善资料_返回登录_落到验证码登录页签 {
     IMLoginViewController *vc = [IMLoginViewController new];
     [vc loadViewIfNeeded];
-    IMLoginConfig *sms = [self configWith:@{ @"sms_available": @YES, @"sms_regions": @[ @{ @"code": @"86", @"iso": @"CN" } ],
-                                             @"register_methods": @[ @"phone" ] }];
-    [vc applyLoginConfig:sms host:@"h" hostChanged:NO];
-    vc.tab = IMLoginTabSMS;
+    vc.tab = IMLoginTabPassword;
     [vc applyMode];
     IMLoginCompleteProfileView *complete = [vc valueForKey:@"completeView"];
     vc.registerTicket = @"RT1";
     [vc enterSubpage:complete];
     complete.onBack();
     XCTAssertNil(vc.currentSubpage);
-    XCTAssertEqual(vc.tab, IMLoginTabPassword);
-    XCTAssertFalse([[vc valueForKey:@"userIDField"] isHidden]);
-    XCTAssertFalse([[vc valueForKey:@"passwordField"] isHidden]);
-    XCTAssertTrue([[vc valueForKey:@"smsFields"] isHidden]);
-    XCTAssertTrue(vc.touched, @"public-config 晚到不能再把页签切回验证码登录");
-}
-
-- (void)test_登录页_用户已动过_配置晚到不切页签 {
-    IMLoginViewController *vc = [IMLoginViewController new];
-    [vc loadViewIfNeeded];
-    vc.tab = IMLoginTabPassword;
-    vc.touched = YES;
-    IMLoginConfig *sms = [self configWith:@{ @"sms_available": @YES, @"sms_regions": @[ @{ @"code": @"86", @"iso": @"CN" } ] }];
-    [vc applyLoginConfig:sms host:@"h" hostChanged:NO];
-    XCTAssertEqual(vc.tab, IMLoginTabPassword);
-    XCTAssertFalse([[vc valueForKey:@"tabsRow"] isHidden], @"页签条照样出现，只是不自动切");
+    XCTAssertEqual(vc.tab, IMLoginTabSMS);
+    XCTAssertFalse([[vc valueForKey:@"smsFields"] isHidden]);
+    XCTAssertTrue([[vc valueForKey:@"userIDField"] isHidden]);
+    XCTAssertTrue([[vc valueForKey:@"passwordField"] isHidden]);
 }
 
 @end

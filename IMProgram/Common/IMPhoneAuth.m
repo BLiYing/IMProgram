@@ -23,7 +23,6 @@ NSUInteger const IMSMSCodeLength = 6;
 NSInteger const IMSMSResendDefaultSeconds = 60;
 NSUInteger const IMPasswordMinLength = 6;
 NSString * const IMPhoneDefaultCountryCode = @"86";
-NSString * const IMRegisterMethodPhone = @"phone";
 
 static NSString * const kIMLoginTabDefaultsKey = @"im.login.tab";
 
@@ -94,7 +93,6 @@ NSDictionary *IMBodyWithProof(NSDictionary *body, IMIdentityProof *proof) {
 @property (nonatomic, assign, readwrite) BOOL registerEnabled;
 @property (nonatomic, assign, readwrite) BOOL smsAvailable;
 @property (nonatomic, copy, readwrite) NSArray<IMSMSRegion *> *smsRegions;
-@property (nonatomic, copy, readwrite) NSArray<NSString *> *registerMethods;
 @end
 
 @implementation IMLoginConfig
@@ -104,7 +102,6 @@ NSDictionary *IMBodyWithProof(NSDictionary *body, IMIdentityProof *proof) {
     c.registerEnabled = YES;
     c.smsAvailable = NO;
     c.smsRegions = @[];
-    c.registerMethods = @[];
     return c;
 }
 
@@ -128,11 +125,6 @@ NSDictionary *IMBodyWithProof(NSDictionary *body, IMIdentityProof *proof) {
     }
     c.smsRegions = regions;
     if (!c.smsAvailable) { c.smsRegions = @[]; }
-    if ([d[@"register_methods"] isKindOfClass:NSArray.class]) {
-        NSMutableArray<NSString *> *methods = [NSMutableArray array];
-        for (id m in d[@"register_methods"]) { if ([m isKindOfClass:NSString.class]) { [methods addObject:m]; } }
-        c.registerMethods = methods;
-    }
     return c;
 }
 
@@ -174,22 +166,10 @@ NSDictionary *IMBodyWithProof(NSDictionary *body, IMIdentityProof *proof) {
 
 #pragma mark - 登录页
 
-NSArray<NSNumber *> *IMLoginTabsForConfig(IMLoginConfig *config) {
-    return config.smsAvailable ? @[@(IMLoginTabSMS), @(IMLoginTabPassword)] : @[@(IMLoginTabPassword)];
+IMLoginTab IMLoginInitialTab(IMLoginTab remembered) {
+    return remembered == IMLoginTabPassword ? IMLoginTabPassword : IMLoginTabSMS;
 }
 
-IMLoginTab IMLoginInitialTab(NSArray<NSNumber *> *tabs, IMLoginTab remembered) {
-    if (remembered != IMLoginTabNone && [tabs containsObject:@(remembered)]) { return remembered; }
-    return tabs.count > 0 ? (IMLoginTab)tabs.firstObject.integerValue : IMLoginTabPassword;
-}
-
-IMLoginTab IMLoginTabAfterConfig(IMLoginTab current, BOOL touched, NSArray<NSNumber *> *tabs, IMLoginTab remembered) {
-    if (touched && [tabs containsObject:@(current)]) { return current; }
-    return IMLoginInitialTab(tabs, remembered);
-}
-
-BOOL IMLoginShowsForgotPassword(IMLoginConfig *config) { return config.smsAvailable; }
-BOOL IMLoginShowsAutoRegisterHint(IMLoginConfig *config) { return [config.registerMethods containsObject:IMRegisterMethodPhone]; }
 BOOL IMLoginShowsRegionPicker(IMLoginConfig *config) { return config.smsRegions.count > 1; }
 
 NSString *IMLoginDefaultCountryCode(IMLoginConfig *config) {
@@ -308,10 +288,13 @@ BOOL IMProofErrorStaysInSheet(NSInteger code, NSString *field) {
 
 #pragma mark - 确认身份弹层
 
-NSArray<NSNumber *> *IMProofTabsForState(IMSecurityState *state) {
+NSArray<NSNumber *> *IMProofTabsForState(IMSecurityState *state, BOOL smsFirst) {
     if (!state) { return @[@(IMProofTabPassword)]; } // 取不到状态：老账号都有密码
     BOOL sms = state.phoneBound && state.smsAvailable;
-    if (state.passwordSet) { return sms ? @[@(IMProofTabPassword), @(IMProofTabSMS)] : @[@(IMProofTabPassword)]; }
+    if (state.passwordSet) {
+        if (!sms) { return @[@(IMProofTabPassword)]; }
+        return smsFirst ? @[@(IMProofTabSMS), @(IMProofTabPassword)] : @[@(IMProofTabPassword), @(IMProofTabSMS)];
+    }
     // 没设密码：只能验证码；短信不可用 / 没绑手机时没有可用方式（退回密码页签用户永远过不去）。
     return sms ? @[@(IMProofTabSMS)] : @[];
 }
@@ -320,8 +303,8 @@ BOOL IMProofShowsSegments(NSArray<NSNumber *> *tabs) { return tabs.count > 1; }
 
 BOOL IMProofSkipsSheet(IMSecurityState *state) { return state != nil && state.recentAuthSec >= IMProofRecentAuthMinSec; }
 
-void IMProofRunWithoutSheet(IMSecurityState *state, IMProofSubmitBlock submit, void (^ask)(void), IMProofCompletion completion) {
-    if (!IMProofSkipsSheet(state)) { ask(); return; }
+void IMProofRunWithoutSheet(IMSecurityState *state, BOOL alwaysAsks, IMProofSubmitBlock submit, void (^ask)(void), IMProofCompletion completion) {
+    if (alwaysAsks || !IMProofSkipsSheet(state)) { ask(); return; }
     __block BOOL finished = NO;
     submit([IMIdentityProof emptyProof], ^(NSError *error) {
         if (finished) { return; }

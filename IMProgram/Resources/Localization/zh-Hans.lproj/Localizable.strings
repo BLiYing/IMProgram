@@ -1200,8 +1200,6 @@
 "login.restoring" = "正在恢复登录…";
 "login.revoked_notice" = "你的账号已在别处登录，或该设备已被移除";
 "login.rtc_address.placeholder" = "音视频地址 ws://host:port/v1/ws";
-"login.server_address" = "服务器地址";
-"login.server_summary" = "服务器：%1$@";
 "login.session_revoked" = "此设备的登录已被移除，请重新登录";
 "login.sms.auto_register_hint" = "未注册的手机号验证后将自动注册";
 "login.sms.submit" = "登录 / 注册";
@@ -1781,7 +1779,6 @@
 "record.chat_history" = "聊天记录";
 "record.dirty_card" = "[个人名片]";
 "record.dirty_record" = "[聊天记录]";
-"register.complete.existing_account" = "已有账号？返回用账号密码登录，登录后可在「隐私与安全」里绑定这个手机号。";
 "register.complete.hint" = "填写昵称即可完成注册，这是别人看到的名字。";
 "register.complete.submit" = "完成";
 "register.complete.title" = "完善资料";

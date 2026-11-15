@@ -56,10 +56,6 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
     self.devButton.hidden = YES; // 仅 Debug 包显示免密入口（Android 同口径：release 不显示）
 #endif
 
-    self.serverLabel = [self label:13 color:UIColor.secondaryLabelColor];
-    self.serverLabel.textAlignment = NSTextAlignmentCenter;
-    self.serverLabel.accessibilityIdentifier = @"login.server_label";
-    [self refreshServerLabel];
     self.agreeFooter = [self buildAgreeFooter];
 
     self.smsTabButton = [self buttonTitle:IMLocalized(@"login.tab_sms") config:[UIButtonConfiguration plainButtonConfiguration] action:@selector(smsTabTapped)];
@@ -75,7 +71,7 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
         [self logoView], [self titleLabelView], self.tabsRow, self.smsFields,
         self.userIDField, self.passwordField, self.errorLabel,
         self.smsLoginButton, self.loginButton, self.autoRegisterHintLabel, self.devButton,
-        self.linksRow, self.serverLabel, self.agreeFooter
+        self.linksRow, self.agreeFooter
     ]];
     stack.axis = UILayoutConstraintAxisVertical;
     stack.spacing = 12;
@@ -84,7 +80,7 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
     [self.view addSubview:stack];
     self.mainStack = stack;
     [self setupSubpages];
-    self.tab = IMLoginInitialTab(IMLoginTabsForConfig(nil), IMLoginRememberedTab(NSUserDefaults.standardUserDefaults));
+    self.tab = IMLoginInitialTab(IMLoginRememberedTab(NSUserDefaults.standardUserDefaults));
     [self applyMode];
 
     UILayoutGuide *guide = self.view.safeAreaLayoutGuide;
@@ -121,7 +117,6 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
     field.autocapitalizationType = UITextAutocapitalizationTypeNone;
     // 同一个键盘下切换输入框时系统不再发键盘通知，要靠开始编辑事件重新算上移量。
     [field addTarget:self action:@selector(fieldDidBeginEditing:) forControlEvents:UIControlEventEditingDidBegin];
-    [field addTarget:self action:@selector(fieldEdited) forControlEvents:UIControlEventEditingChanged];
     [field.heightAnchor constraintEqualToConstant:44].active = YES;
     return field;
 }
@@ -176,40 +171,28 @@ CGFloat IMLoginKeyboardLift(CGFloat fieldBottom, CGFloat keyboardTop) {
 - (void)passwordTabTapped { [self selectTab:IMLoginTabPassword]; }
 
 - (void)selectTab:(IMLoginTab)tab {
-    self.touched = YES;
     if (self.tab == tab) { return; }
     self.tab = tab;
     [self showError:@""];
     [self applyMode];
 }
 
-/// 用户开始输入：public-config 晚到时不再切页签；清红字（重新给一次机会，不清空输入）。
-- (void)fieldEdited {
-    self.touched = YES;
-}
-
-/// 按模式 / 页签显隐控件并刷新页签选中态（选中 accentSoft 底 + accent 字，未选中卡片底 + 次要字）。
+/// 按页签显隐控件并刷新页签选中态（选中 accentSoft 底 + accent 字，未选中卡片底 + 次要字）。
+/// 版式固定（不看 public-config）：页签条与「忘记密码？」常驻，自动注册提示跟着验证码页签。
 - (void)applyMode {
-    IMLoginConfig *cfg = self.loginConfig;
-    NSArray<NSNumber *> *tabs = IMLoginTabsForConfig(cfg);
-    if (![tabs containsObject:@(self.tab)]) { self.tab = (IMLoginTab)tabs.firstObject.integerValue; }
     BOOL sms = self.tab == IMLoginTabSMS;
-    BOOL pwd = self.tab == IMLoginTabPassword;
-    self.tabsRow.hidden = tabs.count < 2;
     self.smsFields.hidden = !sms;
     self.smsLoginButton.hidden = !sms;
-    self.autoRegisterHintLabel.hidden = !sms || !IMLoginShowsAutoRegisterHint(cfg);
+    self.autoRegisterHintLabel.hidden = !sms;
     // 密码登录的登录名可以是用户名 / 邮箱 / 手机号。
     self.userIDField.hidden = sms;
     self.passwordField.hidden = sms;
-    self.loginButton.hidden = !pwd;
+    self.loginButton.hidden = sms;
 #ifdef DEBUG
-    self.devButton.hidden = !pwd;
+    self.devButton.hidden = sms;
 #endif
-    self.forgotButton.hidden = !IMLoginShowsForgotPassword(cfg);
-    self.linksRow.hidden = self.forgotButton.hidden; // 链接行只剩「忘记密码？」：注册只走验证码登录即注册
     [self styleTab:self.smsTabButton selected:sms];
-    [self styleTab:self.passwordTabButton selected:pwd];
+    [self styleTab:self.passwordTabButton selected:!sms];
 }
 
 - (void)styleTab:(UIButton *)button selected:(BOOL)selected {

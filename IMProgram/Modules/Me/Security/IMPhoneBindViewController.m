@@ -15,6 +15,8 @@
 #import "UIViewController+IMToast.h"
 
 static CGFloat const kIMCountryCodeWidth = 76;
+/// 「+86」文字左缩进：与下方验证码框、上方「当前手机号」说明行的文字左沿对齐（都是卡片内 16）。
+static CGFloat const kIMCountryCodeInset = 16;
 
 @interface IMPhoneBindViewController () <UITextFieldDelegate>
 @property (nonatomic, strong) IMSecurityState *security;
@@ -40,6 +42,10 @@ static CGFloat const kIMCountryCodeWidth = 76;
         _countryCode = IMPhoneDefaultCountryCode;
         _proofSession = [[IMProofSession alloc] initWithHost:host userID:userID];
         _proofSession.security = security;
+        // 服务端对绑定 / 更换手机号不认「最近验证过免确认」：每次都确认。更换默认给旧号码发码（密码备选）；
+        // 绑定时没有已绑号码，弹层只有密码页签。
+        _proofSession.alwaysAsks = YES;
+        _proofSession.prefersSMS = YES;
         _configFetcher = [IMPublicConfig new];
     }
     return self;
@@ -85,13 +91,22 @@ static CGFloat const kIMCountryCodeWidth = 76;
     }
 }
 
-/// 国家码框（宽 76，与号码框间距 8；只开放一个地区时不可点）+ 号码框。
+/// 国家码框（宽 76，「+86」左对齐、缩进 16；与号码框间距 8；只开放一个地区时不可点）+ 号码框。
 - (UIView *)buildPhoneRow {
     UIButton *cc = [UIButton buttonWithType:UIButtonTypeSystem];
     cc.translatesAutoresizingMaskIntoConstraints = NO;
-    cc.titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
-    [cc setTitleColor:UIColor.labelColor forState:UIControlStateNormal];
-    [cc setTitleColor:UIColor.labelColor forState:UIControlStateDisabled];
+    // 整块 76 宽都可点；文字靠内容缩进左移 16，不缩按钮本身（大字号下 +852 等也有 60pt 可用）。
+    UIButtonConfiguration *config = [UIButtonConfiguration plainButtonConfiguration];
+    config.contentInsets = NSDirectionalEdgeInsetsMake(0, kIMCountryCodeInset, 0, 0);
+    config.titleLineBreakMode = NSLineBreakByClipping;
+    config.titleTextAttributesTransformer = ^NSDictionary *(NSDictionary *attrs) {
+        NSMutableDictionary *m = [attrs mutableCopy];
+        m[NSFontAttributeName] = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+        m[NSForegroundColorAttributeName] = UIColor.labelColor; // 只有一个地区（不可点）时也不置灰
+        return m;
+    };
+    cc.configuration = config;
+    cc.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeading;
     cc.accessibilityIdentifier = @"phone.country_code";
     [cc addTarget:self action:@selector(pickRegion) forControlEvents:UIControlEventTouchUpInside];
     self.countryButton = cc;
@@ -119,7 +134,9 @@ static CGFloat const kIMCountryCodeWidth = 76;
 }
 
 - (void)refreshCountryButton {
-    [self.countryButton setTitle:[@"+" stringByAppendingString:self.countryCode] forState:UIControlStateNormal];
+    UIButtonConfiguration *config = self.countryButton.configuration;
+    config.title = [@"+" stringByAppendingString:self.countryCode];
+    self.countryButton.configuration = config;
     self.countryButton.enabled = IMLoginShowsRegionPicker(self.config);
 }
 

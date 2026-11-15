@@ -15,6 +15,7 @@
 //  提交中不可关闭（下滑 / 点外部都忽略）。**日志不写密码、验证码、号码。**
 //  最近验证过免确认（§15.2）：弹出前会话先取一次安全状态，recent_auth_sec ≥ 15 时不弹层、用空证明直接交给宿主的 submit
 //  （请求体不带 proof，见 IMBodyWithProof）；回 200049（边界上刚好过期）再照常弹层。分流规则见 IMProofRunWithoutSheet。
+//  例外：alwaysAsks = YES 的会话（绑定 / 更换手机号——服务端对它不认免确认，空证明必回 200049）每次都弹层。
 
 #import <UIKit/UIKit.h>
 #import "IMPhoneAuth.h"
@@ -38,8 +39,13 @@ typedef void (^IMProofTokenRequest)(NSString *token, IMIdentityProof *proof, voi
 @property (nonatomic, strong, readonly) IMResendClock *verifyClock;
 /// 弹层在屏，或弹出前取安全状态 / 免确认直接请求在途（此时再调 presentFrom 返回 NO）。
 @property (nonatomic, assign, readonly, getter=isPresenting) BOOL presenting;
+/// 每次都弹层，不看 recent_auth_sec（默认 NO = 最近验证过就免确认）。绑定 / 更换手机号用。
+@property (nonatomic, assign) BOOL alwaysAsks;
+/// 密码与短信都可用时默认短信验证码（发到已绑定的号码）、密码作备选（默认 NO = 默认密码）。
+/// 「登录手机号」页与 alwaysAsks 一起打开：更换时生效；绑定时没有已绑号码、只有密码页签，不起作用。
+@property (nonatomic, assign) BOOL prefersSMS;
 
-/// 弹出确认身份弹层（最近验证过则不弹、直接以空证明调 submit，见文件头）。已在屏 / 在途时忽略（返回 NO）。
+/// 弹出确认身份弹层（最近验证过且非 alwaysAsks 则不弹、直接以空证明调 submit，见文件头）。已在屏 / 在途时忽略（返回 NO）。
 - (BOOL)presentFrom:(UIViewController *)host submit:(IMProofSubmitBlock)submit completion:(IMProofCompletion)completion;
 
 /// 便捷入口：弹出弹层，用户交出 proof 后先取 token（同 withToken:），取不到 → finish(取 token 的错误，没有时统一兜底)

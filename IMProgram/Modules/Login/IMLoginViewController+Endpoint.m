@@ -1,5 +1,5 @@
 //  IMLoginViewController+Endpoint.m
-//  登录页：长按 Logo 改服务器 / 音视频地址、只读地址行、底部《服务条款》《隐私政策》链接（ABOUT_LEGAL_DESIGN 批②）。
+//  登录页：长按 Logo 改服务器 / 音视频地址（登录页不显示地址，三端一致）、底部《服务条款》《隐私政策》链接（ABOUT_LEGAL_DESIGN 批②）。
 //  从 IMLoginViewController.m 切出（体量 + 内聚：与登录流程无共享状态，只读写 hostInput）。
 
 #import "IMLoginViewController+Private.h"
@@ -14,15 +14,22 @@
 
 @implementation IMLoginViewController (Endpoint)
 
+#define IM_STRINGIFY_(x) #x
+#define IM_STRINGIFY(x) IM_STRINGIFY_(x)
+
 /// 内置默认地址：Release 连生产服务器；Debug 模拟器恒用 127.0.0.1（避免 localhost DNS 解析在 iOS 模拟器偶发失败——
-/// Go WS/HTTP 与 IMRemoteLogSink 都会静默挂掉。见 current_task.md 已知坑 / memory 记录）；Debug 真机给个占位让用户改成 Mac 当前局域网 IP。
+/// Go WS/HTTP 与 IMRemoteLogSink 都会静默挂掉。见 current_task.md 已知坑 / memory 记录）。
+/// Debug 真机：登录页不显示地址，所以编译时注入 Mac 局域网地址——
+/// `xcodebuild ... IM_DEV_HOST=$(ipconfig getifaddr en0):8080`（只写 host:port，**别带 http://**——`//` 会被预处理器当注释截掉）；没注入（Xcode 里直接 Run）时回落占位，长按 Logo 改。
 - (NSString *)builtinHost {
 #ifndef DEBUG
     return @"47.250.219.159:8081";
 #elif TARGET_OS_SIMULATOR
     return @"127.0.0.1:8080";
 #else
-    return @"192.168.1.x:8080";
+    NSString *injected = @IM_STRINGIFY(IM_DEV_HOST);
+    // 注入时 Mac 没联网会得到「:8080」这类没有主机的值：当没注入，回落占位（长按 Logo 能看到并改）。
+    return injected.length > 0 && ![injected hasPrefix:@":"] ? injected : @"192.168.1.x:8080";
 #endif
 }
 
@@ -30,10 +37,6 @@
 - (NSString *)defaultHost {
     NSString *last = [NSUserDefaults.standardUserDefaults stringForKey:kIMLastHostKey];
     return last.length > 0 ? last : [self builtinHost];
-}
-
-- (void)refreshServerLabel {
-    self.serverLabel.text = IMLocalizedFormat(@"login.server_summary", self.hostInput);
 }
 
 #pragma mark - 长按 Logo：配置服务器 / 音视频地址
@@ -93,9 +96,8 @@
     [NSUserDefaults.standardUserDefaults setObject:remembered forKey:kIMLastHostKey]; // nil = 删除，回退内置默认
     [IMRtcConfig saveWSURLOverride:rtcURL];
     self.hostInput = remembered ?: [self builtinHost];
-    [self refreshServerLabel];
     [self showError:@""];
-    // 换了服务器：旧地址的短信 / 注册方式结论作废，按新地址重读（在途的旧请求由 IMPublicConfig 丢弃）。
+    // 换了服务器：旧地址的地区 / 国家码作废，按新地址重读（在途的旧请求由 IMPublicConfig 丢弃）。
     [self reloadLoginConfigHostChanged:YES];
     IMLogUI(@"login_endpoint_saved host=%@ rtc=%@", self.hostInput, IMRtcConfig.load.wsURL);
 }

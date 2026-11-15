@@ -1,6 +1,6 @@
 //  IMLoginViewController+Phone.m
 //  登录页的手机号部分（PHONE_AUTH_DESIGN §4 §5 §7.3，交互稿 1-1 / 1-3 / 1-4）：
-//  public-config → 页签 / 链接 / 地区；验证码登录即注册（四种结果：登录成功 / 200020 两步验证 / 200005 冷静期 / need_register 完善资料）；
+//  public-config → 国家码（页签 / 链接 / 提示版式固定，不看配置）；验证码登录即注册（四种结果：登录成功 / 200020 两步验证 / 200005 冷静期 / need_register 完善资料）；
 //  完善资料；忘记密码。规则全部来自 Common/IMPhoneAuth（纯函数），网络在 IMHTTPService+Phone。
 //  **日志不写完整号码 / 验证码 / 票据。**
 
@@ -24,7 +24,6 @@
     __weak typeof(self) ws = self;
     self.publicConfig = [IMPublicConfig new];
     self.smsFields = [[IMLoginPhoneFields alloc] initWithIdentifierPrefix:@"login"];
-    self.smsFields.onEdit = ^{ ws.touched = YES; };
     self.smsFields.onRegionTap = ^{ [ws pickRegionForFields:ws.smsFields]; };
     self.smsFields.codeField.onSend = ^{ [ws sendCodeForFields:ws.smsFields scene:@"login"]; };
     for (UITextField *f in @[self.smsFields.phoneField, self.smsFields.codeField]) {
@@ -43,8 +42,8 @@
 
     self.forgotButton = [self linkTitle:IMLocalized(@"login.forgot_password") action:@selector(forgotPasswordTapped)];
     self.forgotButton.accessibilityIdentifier = @"login.forgot_password";
-    UIView *spacer = [UIView new];
-    self.linksRow = [[UIStackView alloc] initWithArrangedSubviews:@[self.forgotButton, spacer]];
+    UIView *spacer = [UIView new]; // 弹簧在左：「忘记密码？」右对齐，与主按钮右沿对齐（三端一致）
+    self.linksRow = [[UIStackView alloc] initWithArrangedSubviews:@[spacer, self.forgotButton]];
     self.linksRow.alignment = UIStackViewAlignmentCenter;
 
     self.completeView = [IMLoginCompleteProfileView new];
@@ -52,10 +51,7 @@
     self.completeView.onBack = ^{ // 那枚码已被换成注册票，留着只会让下一次验证码登录报错
         ws.smsFields.codeField.text = @"";
         [ws leaveSubpage];
-        // 页上提示「已有账号？返回用账号密码登录」：落到密码登录页签（与 Android / Web 同口径）；
-        // 记为已动过，public-config 晚到不再把页签切回验证码登录。
-        ws.touched = YES;
-        ws.tab = IMLoginTabPassword;
+        ws.tab = IMLoginTabSMS; // 回验证码登录（三端同口径）：号码还在，重新获取验证码即可
         [ws applyMode];
     };
     self.resetView = [IMLoginResetPasswordView new];
@@ -93,7 +89,7 @@
     }
     __weak typeof(self) ws = self;
     [self.publicConfig fetchConfigWithScheme:scheme host:host completion:^(IMLoginConfig *config, BOOL failed) {
-        // 拉不到：已有本地址的结论就保留（瞬时失败不该把页签翻回去），从没拉到过才用老服务端口径。
+        // 拉不到：已有本地址的结论就保留（瞬时失败不该把地区清掉），从没拉到过才用老服务端口径。
         BOOL keepCurrent = failed && ws.loginConfig && [ws.configHost isEqualToString:host] && !hostChanged;
         if (!keepCurrent) { [ws applyLoginConfig:config host:host hostChanged:hostChanged]; }
     }];
@@ -109,17 +105,11 @@
         // 重载配置不重置用户选的国家码，除非换了服务器或该地区下线。
         if (IMLoginShouldResetCountryCode(changedHost, fields.countryCode, config)) { fields.countryCode = IMLoginDefaultCountryCode(config); }
     }
-    self.tab = IMLoginTabAfterConfig(self.tab, self.touched, IMLoginTabsForConfig(config),
-                                     IMLoginRememberedTab(NSUserDefaults.standardUserDefaults));
-    if (!self.currentSubpage) { [self applyMode]; }
-    if (!IMLoginShowsForgotPassword(config) && self.currentSubpage == self.resetView) { [self leaveSubpage]; }
 }
 
 - (void)pickRegionForFields:(IMLoginPhoneFields *)fields {
     if (self.presentedViewController) { return; }
-    __weak typeof(self) ws = self;
     IMPresentSMSRegionPicker(self, self.loginConfig, fields.countryButton, ^(NSString *code) {
-        ws.touched = YES;
         fields.countryCode = code;
     });
 }
@@ -269,7 +259,7 @@
 #pragma mark - 忘记密码
 
 - (void)forgotPasswordTapped {
-    if (self.submitting || !IMLoginShowsForgotPassword(self.loginConfig)) { return; }
+    if (self.submitting) { return; }
     IMLoginPhoneFields *rf = self.resetView.phoneFields;
     if (rf.normalizedPhone.length == 0 && self.smsFields.normalizedPhone.length > 0) { // 从验证码登录带号码过来
         rf.countryCode = self.smsFields.countryCode;
@@ -319,7 +309,6 @@
     [self.resetView resetPasswords];
     [self.resetView.phoneFields clearInputs];
     [self leaveSubpage];
-    self.touched = YES;
     self.tab = IMLoginTabPassword;
     [self applyMode];
     self.userIDField.text = IMLoginIdentForReset(cc, phone, IMLoginDefaultCountryCode(self.loginConfig));

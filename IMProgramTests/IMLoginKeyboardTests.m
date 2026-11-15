@@ -8,7 +8,6 @@
 
 @interface IMLoginViewController (IMLKTesting)
 @property (nonatomic, copy) NSString *hostInput;
-@property (nonatomic, strong) UILabel *serverLabel;
 @property (nonatomic, strong) UIButton *loginButton;
 @property (nonatomic, strong) UITextField *userIDField;
 @property (nonatomic, strong) UITextField *passwordField;
@@ -129,7 +128,7 @@ static NSString * const kIMTestRtcOverrideKey = @"im_rtc_ws_url_override";
     }];
 }
 
-- (void)test_保存合法地址_落盘并刷新只读行 {
+- (void)test_保存合法地址_落盘并更新当前地址 {
     [self preserveEndpointDefaults];
     IMLoginViewController *vc = [IMLoginViewController new];
     [vc loadViewIfNeeded];
@@ -138,7 +137,6 @@ static NSString * const kIMTestRtcOverrideKey = @"im_rtc_ws_url_override";
     XCTAssertEqualObjects([NSUserDefaults.standardUserDefaults stringForKey:kIMTestLastHostKey], @"https://im.example.com", @"https 协议必须一起存");
     XCTAssertEqualObjects(IMRtcConfig.load.wsURL, @"wss://rtc.example.com/v1/ws");
     XCTAssertEqualObjects(vc.hostInput, @"https://im.example.com");
-    XCTAssertTrue([vc.serverLabel.text containsString:@"https://im.example.com"]);
 }
 
 - (void)test_保存时有一项非法_两项都不落盘 {

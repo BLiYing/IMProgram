@@ -2,7 +2,6 @@
 
 #import "IMLoginSubpageViews.h"
 #import "IMLocalization.h"
-#import "IMTheme.h"
 
 static UILabel *IMLoginSubLabel(UIFont *font, UIColor *color) {
     UILabel *l = [UILabel new];
@@ -91,12 +90,8 @@ static void IMLoginSubPin(UIView *host, UIStackView *stack) {
         self.submitButton.accessibilityIdentifier = @"complete.submit";
         self.backButton = IMLoginSubButton(IMLocalized(@"login.back_to_login"), NO, self, @selector(backTapped));
         self.backButton.accessibilityIdentifier = @"complete.back";
-        // 没绑手机号的老账号走验证码登录也会落到这里：提示先回去用账号密码登录、再到「隐私与安全」绑号，别误建新号。
-        UILabel *existing = IMLoginSubLabel([UIFont systemFontOfSize:13], IMTheme.textSecondary);
-        existing.text = IMLocalized(@"register.complete.existing_account");
-        existing.accessibilityIdentifier = @"complete.existing_account";
         IMLoginSubPin(self, [[UIStackView alloc] initWithArrangedSubviews:@[
-            title, self.verifiedLabel, hint, self.nicknameField, self.errorLabel, self.submitButton, self.backButton, existing]]);
+            title, self.verifiedLabel, hint, self.nicknameField, self.errorLabel, self.submitButton, self.backButton]]);
     }
     return self;
 }

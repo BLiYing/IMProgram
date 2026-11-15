@@ -27,18 +27,15 @@ FOUNDATION_EXPORT NSString * const kIMLastHostKey;
 @property (nonatomic, strong) UIButton *devButton;
 @property (nonatomic, strong) UIButton *smsLoginButton;
 @property (nonatomic, assign) BOOL submitting;
-// 页签：「验证码登录 / 密码登录」；只有一个页签时不画页签条。注册只走验证码登录即注册。
+// 页签：「验证码登录 / 密码登录」常驻（不看 public-config）。注册只走验证码登录即注册。
 @property (nonatomic, strong) UIStackView *tabsRow;
 @property (nonatomic, strong) UIButton *smsTabButton;
 @property (nonatomic, strong) UIButton *passwordTabButton;
 @property (nonatomic, assign) IMLoginTab tab;
-/// 用户已动过（点过页签 / 开始输入）：public-config 晚到时不再切页签。
-@property (nonatomic, assign) BOOL touched;
 @property (nonatomic, strong) IMLoginPhoneFields *smsFields;
 @property (nonatomic, strong) UILabel *autoRegisterHintLabel;
 @property (nonatomic, strong) UIStackView *linksRow;
 @property (nonatomic, strong) UIButton *forgotButton;
-@property (nonatomic, strong) UILabel *serverLabel;
 @property (nonatomic, strong) UIStackView *mainStack;
 // 子页（同页切换，不新开页面）：两步验证 / 完善资料 / 重设密码。ticket 只留内存，离开子页即丢弃。
 @property (nonatomic, strong) IMLoginTwoStepView *twoStepView;
@@ -56,9 +53,9 @@ FOUNDATION_EXPORT NSString * const kIMLastHostKey;
 @property (nonatomic, assign) CGFloat keyboardTop;
 /// 底部「继续即表示同意《服务条款》和《隐私政策》」：隐式同意（无勾选框），两段链接走应用内浏览器（ABOUT_LEGAL_DESIGN 批②）。
 @property (nonatomic, strong) UITextView *agreeFooter;
-/// public-config（短信 / 地区 / 注册方式）：拉取器自带「只认最新一次请求」。
+/// public-config（只用地区 → 国家码）：拉取器自带「只认最新一次请求」。
 @property (nonatomic, strong) IMPublicConfig *publicConfig;
-@property (nonatomic, strong, nullable) IMLoginConfig *loginConfig; ///< nil = 还没取到（按老服务端口径）
+@property (nonatomic, strong, nullable) IMLoginConfig *loginConfig; ///< nil = 还没取到（默认 +86、不可选）
 @property (nonatomic, copy, nullable) NSString *configHost;         ///< loginConfig 来自哪个地址（换服务器才重置国家码）
 @end
 
@@ -94,7 +91,6 @@ FOUNDATION_EXPORT NSString * const kIMLastHostKey;
 @interface IMLoginViewController (Endpoint)
 - (UITextView *)buildAgreeFooter;
 - (void)logoLongPressed:(UILongPressGestureRecognizer *)gesture;
-- (void)refreshServerLabel;
 - (NSString *)builtinHost;
 - (NSString *)defaultHost;
 - (void)saveEndpointHost:(NSString *)rawHost rtc:(NSString *)rawRTC;
