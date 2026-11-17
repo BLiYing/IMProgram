@@ -40,11 +40,11 @@
 
 ### 5. 错误处理与日志
 - 所有 **网络 / IO / 数据库** 调用必须有明确错误恢复分支，不允许吞掉 `NSError`。
-- 完整日志规则见 `docs/LOGGING.md`，跨端 Request ID/字段/隐私契约见 `../IMServer/docs/LOGGING.md`。
+- 完整日志规则见 `docs/LOGGING.md`，跨端 Request ID/字段/隐私契约见 `../im-spec/LOGGING.md`。
 - 日志统一通过 `IMLog.h`（底层 CocoaLumberjack），禁止业务代码直接调用 `NSLog` 或 `DDLog*`。
   自查：`grep -rn "NSLog(" IMProgram --include="*.m" --include="*.h"` 应为 0 条。
   （2026-08-05 全量复查：本端 0 处违规；后端 Go 曾因有兼容桥接兜底而累计 54 处未被发现，
-  详见 `../IMServer/docs/LOGGING.md` §7.1。）
+  详见 `../im-spec/LOGGING.md` §7.1。）
 - 按模块使用稳定 tag：`IM.APP` / `IM.HTTP` / `IM.WS` / `IM.DB` / `IM.UI`；HTTP 请求另带唯一 `req=<X-Request-ID>`，请求与响应必须使用同一 ID。
 - HTTP 日志必须先脱敏 password/token/authorization/cookie/phone/secret 等字段；multipart/binary 只记元数据，单条正文最多 16 KB。
 - Debug 可记录脱敏后的业务正文；Release 对消息正文等业务内容及非 JSON 正文做隐藏，不允许为排障临时绕过脱敏。
@@ -121,7 +121,7 @@ clone 一次，超预算即拦提交；应急 `git commit --no-verify`）。**�
 - **[语义悄悄变] 整体替换写接口回传所有字段、内存态字段整表重建前迁移**（详见 §8 两条红线）——改会话/列表相关一律核。
 - **[错误码丢失] 按码分支读 `error.code`，共享 HTTP helper 用 `errorWithCode:`**（详见 §5），别 parse `localizedDescription`。
 - **[点击语义] 点成员/好友先进资料页、不直接进聊天**（三端统一，微信式）；改点击目标时核一遍。
-- **[对称] 改动落在 `../IMServer/docs/SYMMETRY.md` 登记的路径上 → 先完整读兄弟那一侧再动手。**
+- **[对称] 改动落在 `../im-spec/SYMMETRY.md` 登记的路径上 → 先完整读兄弟那一侧再动手。**
   按 commit 史粗筛，「一条路改对了、对称兄弟没跟」是三仓最大的一类 bug（432 条 fix 里约 60 条）。
   `pre-commit` 会念一遍，但**念到时代码已经写完了**——真正省事的是动手前就去读。
 - **[测试有效性] 新增的测试必须先看它红一次**：临时把实现改坏，确认测试变红，再改回来。

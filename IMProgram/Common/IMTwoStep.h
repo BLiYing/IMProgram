@@ -1,6 +1,6 @@
 //  IMTwoStep.h
 //  两步验证（TOTP + 恢复码）的纯规则：输入清洗、恢复码归一化、4 位分组、错误码 → 文案、状态页行文案、leave 拦截条件。
-//  设计 ../IMServer/docs/design/TWO_STEP_VERIFICATION_DESIGN.md，契约 PROTOCOL §7.1。全部是无副作用的纯函数，页面只做渲染。
+//  设计 ../im-spec/design/TWO_STEP_VERIFICATION_DESIGN.md，契约 PROTOCOL §7.1。全部是无副作用的纯函数，页面只做渲染。
 //  **日志红线**：本文件处理的验证码 / 密钥 / 恢复码 / ticket 一律不得写日志。
 
 #import <Foundation/Foundation.h>

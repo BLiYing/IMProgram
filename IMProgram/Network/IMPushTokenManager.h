@@ -1,6 +1,6 @@
 //  IMPushTokenManager.h
 //  设备推送令牌注册与上报（M5 离线推送第一批）。PROTOCOL §6.14/§11 push/token、
-//  IMServer/docs/design/PUSH_M5_DESIGN.md §1。
+//  im-spec/design/PUSH_M5_DESIGN.md §1。
 
 #import <Foundation/Foundation.h>
 

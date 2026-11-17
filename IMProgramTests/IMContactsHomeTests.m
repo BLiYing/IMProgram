@@ -1,5 +1,5 @@
 //  IMContactsHomeTests.m
-//  通讯录首页改版（../IMServer/docs/design/ORG_DIRECTORY_DESIGN.md §7）：入口行「我的好友」右值 = 好友数；
+//  通讯录首页改版（../im-spec/design/ORG_DIRECTORY_DESIGN.md §7）：入口行「我的好友」右值 = 好友数；
 //  「最近联系」跟着会话列表广播重算，一个都没有时整段不出现；首页不再铺好友行。
 //  app-hosted 测试，头文件按相对路径引入。
 

@@ -1,5 +1,5 @@
 //  IMTheme.h
-//  设计令牌（design tokens），对齐 IMServer/docs/UI.md 与 Web 端 CSS 变量。
+//  设计令牌（design tokens），对齐 im-spec/UI.md 与 Web 端 CSS 变量。
 //  统一颜色/间距/圆角，新增 UI 只引用这里，不写魔法值。用语义色自动适配深色模式。
 
 #import <UIKit/UIKit.h>
@@ -61,7 +61,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// 毫秒时间戳 → "HH:mm"（今天）/"MM-dd"（更早）；0 返回空串。
 + (NSString *)timeStringFromMillis:(int64_t)ms;
-/// 会话列表右侧时间（四段式，docs/UI_SPEC.md §5.1）。气泡时间用 timeStringFromMillis:。
+/// 会话列表右侧时间（四段式，im-spec/UI_SPEC.md §5.1）。气泡时间用 timeStringFromMillis:。
 + (NSString *)conversationTimeStringFromMillis:(int64_t)ms;
 /// 由种子（uid）派生稳定的头像底色（一组柔和色循环）。
 + (UIColor *)avatarColorForSeed:(nullable NSString *)seed;

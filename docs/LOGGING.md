@@ -1,6 +1,6 @@
 # iOS 日志规范
 
-> 三端共同规则以 `../../IMServer/docs/LOGGING.md` 为准。本文只描述 IMProgram 的入口和操作方式。
+> 三端共同规则以 `../../im-spec/LOGGING.md` 为准。本文只描述 IMProgram 的入口和操作方式。
 
 ## 统一入口
 

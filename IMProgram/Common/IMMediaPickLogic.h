@@ -1,6 +1,6 @@
 //  IMMediaPickLogic.h
 //  自建相册选择器的纯逻辑（不碰 Photos / UIKit，可单测）。与 Android `media-picker/.../MediaPick.kt`
-//  口径逐条一致（对称登记在 IMServer docs/SYMMETRY.md）；规格见 docs/design/MEDIA_PICKER_IOS_DESIGN.md。
+//  口径逐条一致（对称登记在 im-spec/SYMMETRY.md）；规格见 im-spec/design/MEDIA_PICKER_IOS_DESIGN.md。
 
 #import <Foundation/Foundation.h>
 
@@ -38,7 +38,7 @@ typedef NS_ENUM(NSInteger, IMVideoTranscodeOutcome) {
 + (NSInteger)numberOfAssetID:(NSString *)assetID inSelection:(NSArray<NSString *> *)selected;
 
 /// 能不能选：只有超过 maxBytes 不可选；体积未知与 0 都可选（iOS 选择时判不出 0 字节坏文件，发送时校验标失败，
-/// 与 Android「0 = MediaStore 坏行」在选择时就置灰不同，见 docs/UI_SPEC.md §6.4）。
+/// 与 Android「0 = MediaStore 坏行」在选择时就置灰不同，见 im-spec/UI_SPEC.md §6.4）。
 /// maxBytes = 服务端单文件上限（调用方传 IMMediaMaxUploadBytes()，S3a 后台可改）；<=0 视为默认 2 GiB。
 + (BOOL)isSelectableWithSizeBytes:(long long)sizeBytes maxBytes:(long long)maxBytes;
 

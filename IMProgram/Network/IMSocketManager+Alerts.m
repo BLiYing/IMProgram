@@ -45,7 +45,7 @@
     BOOL missedCallForMe = NO;
     if (isCallRecord) {
         // 按通话记录渲染规则的 tone 判（三端同口径：Web isMissedCall / Android isMissedPreview，
-        // 向量在 IMServer docs/conformance/call_record.json）。**不用**「时长为 0」粗判：
+        // 向量在 im-spec/conformance/call_record.json）。**不用**「时长为 0」粗判：
         // 被叫侧 hangup d=0 渲染为「通话未接通」、tone=normal，不该响。本路径只见别人发的消息，故 viewerIsSender=NO。
         missedCallForMe = ![msg.from isEqualToString:selfUID]
             && IMCallRecordRender(msg.content, NO, isGroup, nil).tone == IMCallRecordToneMissed;

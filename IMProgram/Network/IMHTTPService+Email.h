@@ -1,5 +1,5 @@
 //  IMHTTPService+Email.h
-//  邮箱登录 REST，契约 ../IMServer/docs/PROTOCOL.md §7.2。
+//  邮箱登录 REST，契约 ../im-spec/PROTOCOL.md §7.2。
 //  业务错误 HTTP 400 但响应体是标准信封：本文件所有请求都保留业务码，并把 data 里的 attempts_left / retry_after_sec 挂进 NSError.userInfo。
 //  **日志红线**：密码 / 验证码不得写日志（HTTP 层统一日志按键名脱敏；email 值由 IMHTTPLogFormatter 脱敏成 a***@domain）。
 

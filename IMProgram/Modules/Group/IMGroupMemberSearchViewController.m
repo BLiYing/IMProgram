@@ -125,7 +125,7 @@ static NSAttributedString *IMHighlighted(NSString *text, NSString *needle, UICol
     [_avatar im_setAvatarURL:member.avatarURL seed:member.userID displayName:shown];
     _name.attributedText = IMHighlighted(shown, needle, IMTheme.accent);
     // 副行是**句柄**而非 user_id：后者是 10 位随机内部 ID，界面上从不显示
-    // （docs/design/ACCOUNT_IDENTITY_REDESIGN.md §5.2）。它也正是服务端 ?q= 的匹配源之一。
+    // （im-spec/design/ACCOUNT_IDENTITY_REDESIGN.md §5.2）。它也正是服务端 ?q= 的匹配源之一。
     NSString *handle = member.username.length > 0 ? [@"@" stringByAppendingString:member.username] : @"";
     _sub.attributedText = IMHighlighted(handle, needle, IMTheme.accent);
     switch (member.role) {

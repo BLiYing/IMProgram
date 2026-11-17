@@ -1,5 +1,5 @@
 //  IMFriendPickerSelectAll.h
-//  建群选人页「全选 / 取消全选」的纯逻辑（口径见 IMServer/docs/design/CREATE_GROUP_SELECT_ALL_DESIGN.md §0）。
+//  建群选人页「全选 / 取消全选」的纯逻辑（口径见 im-spec/design/CREATE_GROUP_SELECT_ALL_DESIGN.md §0）。
 //  无 UIKit 依赖，可直接单测；三端同口径。
 
 #import <Foundation/Foundation.h>

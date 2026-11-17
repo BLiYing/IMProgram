@@ -1,6 +1,6 @@
 //  IMChatFolderLogicTests.m
 //  聊天文件夹纯逻辑（Tab 角标口径 / 尾部区域 / 横滑判定）：读三端共用向量
-//  IMServer/docs/conformance/chat_folder_logic.json（改口径先改向量；找不到时失败而不是跳过）。
+//  im-spec/conformance/chat_folder_logic.json（改口径先改向量；找不到时失败而不是跳过）。
 
 #import <XCTest/XCTest.h>
 
@@ -17,7 +17,7 @@
     NSString *path = NSProcessInfo.processInfo.environment[@"IM_CHAT_FOLDER_VECTORS"];
     if (path.length == 0) {
         NSString *repo = [[@(__FILE__) stringByDeletingLastPathComponent] stringByDeletingLastPathComponent];
-        path = [[repo stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"IMServer/docs/conformance/chat_folder_logic.json"];
+        path = [[repo stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"im-spec/conformance/chat_folder_logic.json"];
     }
     NSData *data = [NSData dataWithContentsOfFile:path];
     XCTAssertNotNil(data, @"找不到共用向量 %@（IM_CHAT_FOLDER_VECTORS 可指定）", path);

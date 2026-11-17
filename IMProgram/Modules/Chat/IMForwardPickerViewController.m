@@ -171,7 +171,7 @@ typedef NS_ENUM(NSInteger, IMForwardSectionKind) {
             return;
         }
         // 剔除「系统通知」单聊：那是只读会话，服务端直接拒 send_msg to=system（护栏见
-        // IMServer/docs/design/SYSTEM_NOTICE_SESSION_DESIGN.md §2.2），列出来只会点了报错。
+        // im-spec/design/SYSTEM_NOTICE_SESSION_DESIGN.md §2.2），列出来只会点了报错。
         // 群聊不看 peer（群会话的 peer 无意义），故先判 isGroup。**该剔除始终生效**，与 extraFilter 无关。
         NSMutableArray<IMConversation *> *forwardable = [NSMutableArray arrayWithCapacity:convs.count];
         for (IMConversation *c in convs) {

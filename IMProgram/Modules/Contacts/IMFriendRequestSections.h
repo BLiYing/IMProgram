@@ -1,6 +1,6 @@
 //  IMFriendRequestSections.h
 //  「新的朋友」页的分段逻辑（纯函数，无 UI，便于单测）。
-//  口径见 ../IMServer/docs/design/NEW_FRIENDS_DESIGN.md §1：
+//  口径见 ../im-spec/design/NEW_FRIENDS_DESIGN.md §1：
 //  待我确认(pending) → 已发出(requested) → 已添加(accepted 且 updated_at 在最近 30 天、倒序、至多 50 条)。
 
 #import <Foundation/Foundation.h>

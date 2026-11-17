@@ -10,7 +10,7 @@ import IMCallEngine
 /// snake_case 词汇（`call_id`/`media_type`/`duration_sec`…）——聊天气泡通话记录与本页读的是同一批
 /// 通话事实，用词一致方便对照，也省得再造一套命名。
 ///
-/// 设计：IMServer docs/design/CALL_HISTORY_DESIGN.md §1（记录字段）/ §5（本文件即"调 SDK"那一步）。
+/// 设计：im-spec/design/CALL_HISTORY_DESIGN.md §1（记录字段）/ §5（本文件即"调 SDK"那一步）。
 @objcMembers
 @objc(IMRtcCallHistoryBridge)
 public final class IMRtcCallHistoryBridge: NSObject {

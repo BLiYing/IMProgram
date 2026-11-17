@@ -3,7 +3,7 @@
 //  从 IMSocketManager 的 applyMsgOpPayload: 与聊天页 onMsgOpApplied: 抽出。
 //
 //  服务端侧的对应实现是 `internal/gateway/hub_msgop*.go`（事件行 content 与广播帧只由 `msgOpEvent`/
-//  `msgOpFrame` 构造）；协议见 IMServer/docs/PROTOCOL.md。置顶横幅的「消息被移除/撤回就重拉」三端同口径
+//  `msgOpFrame` 构造）；协议见 im-spec/PROTOCOL.md。置顶横幅的「消息被移除/撤回就重拉」三端同口径
 //  （SYMMETRY 登记 PinnedBanner）。
 //
 //  **三端实现 2026-10-04 对读过**（im-web `sdk/imSdk.ts` 的 `applyMsgOp` + `localStore.web.ts` 的 `applyMsgOpLocal`；

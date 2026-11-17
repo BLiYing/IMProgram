@@ -1,7 +1,7 @@
 //  IMPinnedPanelLogic.h
 //  置顶消息底部面板（IMPinnedPanelViewController）的纯逻辑：渲染顺序兜底、日期胶囊插行、
 //  长按菜单允许项、权限 → 标题栏副标题 / 底栏、定位图标左右规则。无 UI、无 self，配 IMPinnedMessageTests。
-//  设计：IMServer docs/design/PINNED_PANEL_DESIGN.md（§2.2 行规格 / §2.3 行为 / §4.0 兜底顺序）。
+//  设计：im-spec/design/PINNED_PANEL_DESIGN.md（§2.2 行规格 / §2.3 行为 / §4.0 兜底顺序）。
 
 #import <Foundation/Foundation.h>
 

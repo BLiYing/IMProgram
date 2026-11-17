@@ -89,7 +89,7 @@ static NSString *IMMonthLabel(NSDate *date, NSCalendar *cal) {
         : (kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner | kCALayerMaxXMaxYCorner);
 }
 
-/// 气泡内的时间：**恒 `HH:mm`**（三端一致，见 IMServer `docs/UI_SPEC.md` §5.3）。
+/// 气泡内的时间：**恒 `HH:mm`**（三端一致，见 `im-spec/UI_SPEC.md` §5.3）。
 ///
 /// 2026-09-07 修正：此前这里对非今天的消息返回 `MM-dd`，于是一条 9 月 3 日的消息
 /// 在「9月3日」日期胶囊底下显示成 `09-03`——既冗余又与 Web/Android 不一致。
@@ -127,7 +127,7 @@ static NSString *IMMonthLabel(NSDate *date, NSCalendar *cal) {
 
 /// 会话列表右侧时间：**四段式**（`HH:mm` / `昨天` / `M月d日` / `yyyy年M月d日`）。
 ///
-/// 基准见 IMServer `docs/UI_SPEC.md` §5.1（2026-09-07 三端拍板）。与 `dayHeaderStringFromMillis:`
+/// 基准见 `im-spec/UI_SPEC.md` §5.1（2026-09-07 三端拍板）。与 `dayHeaderStringFromMillis:`
 /// **刻意共用同一套词汇**——用户只需要学一次；差别只在今天那一段（这里给时分，那里给「今天」）。
 /// 对端实现：im-web `src/time.ts` `conversationTime()`、im-android `TimeFormat.conversationTime()`。
 + (NSString *)conversationTimeStringFromMillis:(int64_t)ms {

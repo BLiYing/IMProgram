@@ -1,5 +1,5 @@
 //  IMSensitiveWordTests.m
-//  敏感词拦截 100004 ContentBlocked 的客户端映射（../IMServer/docs/design/SENSITIVE_WORDS_DESIGN.md §3）：
+//  敏感词拦截 100004 ContentBlocked 的客户端映射（../im-spec/design/SENSITIVE_WORDS_DESIGN.md §3）：
 //  ① send_msg 被拦 → 气泡下说明 chat.reject.sensitive、不给重发；② msg_op 编辑被拦 → 吐司 err.100004、带回原负载还原编辑框；
 //  ③ HTTP 表单被拦 → err.100004。
 

@@ -1,7 +1,7 @@
 //  IMCallRecord.h
 //  音视频通话记录消息（content_type=call）的 content 解析 / 构造 / 渲染（纯逻辑，可单测）。
 //  content 是极小 JSON：{"cid","m","r","d"[,"g":1]}——call_id / audio|video / 协议 §6 reason / 服务端给的秒数 / 群通话标记。
-//  设计：IMServer docs/design/CALL_RECORD_DESIGN.md；文案矩阵以 docs/conformance/call_record.json 为准（三端 + 服务端共用向量，改文案先改向量）。
+//  设计：im-spec/design/CALL_RECORD_DESIGN.md；文案矩阵以 im-spec/conformance/call_record.json 为准（三端 + 服务端共用向量，改文案先改向量）。
 
 #import <Foundation/Foundation.h>
 #import "IMLocalization.h"

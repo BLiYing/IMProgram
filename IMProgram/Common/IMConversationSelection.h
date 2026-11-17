@@ -1,6 +1,6 @@
 //  IMConversationSelection.h
 //  会话列表「编辑模式」的选择集（纯逻辑、无 UIKit、可单测）。
-//  设计 IMServer/docs/design/CONV_LIST_EDIT_MODE_DESIGN.md §2：按会话 ID 记录，切 Tab 清空，
+//  设计 im-spec/design/CONV_LIST_EDIT_MODE_DESIGN.md §2：按会话 ID 记录，切 Tab 清空，
 //  全选只管当前列表；三端同口径：im-android `data/ConversationSelection.kt`、im-web `src/convSelection.ts`。
 
 #import <Foundation/Foundation.h>

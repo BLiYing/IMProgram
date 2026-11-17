@@ -59,7 +59,7 @@
 
     self.searchBar = [[UISearchBar alloc] init];
     // 找人只认**完整 username / 手机号**（后端 SearchUsers 是等值匹配，防枚举）。
-    // 原文案写「完整 uid」是双重错误：内部 ID 用户根本看不到（docs/UI.md 用户标识），
+    // 原文案写「完整 uid」是双重错误：内部 ID 用户根本看不到（im-spec/UI.md 用户标识），
     // 而且真拿 uid 来搜也搜不到——SQL 里压根没有 user_id 这一路。
     self.searchBar.placeholder = IMLocalized(@"contacts.search.placeholder");
     self.searchBar.delegate = self;

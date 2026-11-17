@@ -85,7 +85,7 @@
 - (XCUIElement *)messagesTab:(XCUIApplication *)app { return [self tabWithLabels:@[@"消息", @"Messages"] app:app]; }
 
 /// 语言设置页 → 点指定选项（"简体中文"/"English" 两个选项本身固定用自己的语言书写，不随界面语言翻译，
-/// 见 `IMServer/docs/i18n/strings.json` 的 settings.language.option_zh_hans/option_en 注释）。
+/// 见 `im-spec/i18n/strings.json` 的 settings.language.option_zh_hans/option_en 注释）。
 - (void)switchLanguageTo:(NSString *)optionLabel app:(XCUIApplication *)app {
     XCUIElement *me = [self meTab:app];
     XCTAssertTrue([me waitForExistenceWithTimeout:8], @"没找到「我/Me」Tab");

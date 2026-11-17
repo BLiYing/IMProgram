@@ -1,5 +1,5 @@
 //  IMSmokeUITests.m
-//  移动端冒烟（T3，../IMServer/docs/design/E2E_REGRESSION_DESIGN.md §6）：装上新包后，核心链路在真 App 里走一遍。
+//  移动端冒烟（T3，../im-spec/design/E2E_REGRESSION_DESIGN.md §6）：装上新包后，核心链路在真 App 里走一遍。
 //  不是常规回归，默认跳过；一键跑法：./scripts/ui-smoke.sh（它先用 ../IMServer/scripts/smoke/mobile-smoke.mjs 造数据，
 //  再跑本用例，最后到服务端核对对端真的收到了）。
 //

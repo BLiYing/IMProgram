@@ -1,6 +1,6 @@
 //  IMUploadPolicyS3aUITests.m
 //  后台「系统设置」S3a（server-config 下发的上传策略：总开关 / 单文件上限 / 禁可执行文件）的**模拟器实测脚本**
-//  ——不是常规回归，默认跳过。设计：../IMServer/docs/design/SYSTEM_SETTINGS_DESIGN.md。
+//  ——不是常规回归，默认跳过。设计：../im-spec/design/SYSTEM_SETTINGS_DESIGN.md。
 //
 //  前置（脚本不负责改后台值，每条用例跑之前先用管理端把策略调好）：
 //    testA_UploadDisabled  ← sys.upload.enabled=0

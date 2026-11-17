@@ -245,7 +245,7 @@ typedef NS_ENUM(NSInteger, IMQRCardMode) {
             : IMLocalized(link ? @"group.qr.hint_link" : @"group.qr.hint_code");
     } else {
         // 副标题显示公开句柄，不是 userID（10 位随机数字内部 ID）——这张卡是给别人看的，
-        // 显示一串随机数字对方认不出是谁（docs/UI.md「用户标识」）。没有句柄就留空。
+        // 显示一串随机数字对方认不出是谁（im-spec/UI.md「用户标识」）。没有句柄就留空。
         subtitle = self.username.length > 0 ? [@"@" stringByAppendingString:self.username] : @"";
         hint = IMLocalized(@"qr.card.my_hint");
     }

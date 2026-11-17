@@ -1,5 +1,5 @@
 //  IMConvQuerySource.h
-//  「整会话问题」问谁：本地 / 服务端 / 本地但降级（IMServer/docs/design/OFFLINE_BACKLOG_DESIGN.md §4.9）。
+//  「整会话问题」问谁：本地 / 服务端 / 本地但降级（im-spec/design/OFFLINE_BACKLOG_DESIGN.md §4.9）。
 //
 //  与 im-web 的 `src/convQuerySource.ts` **同一份口径**。这是整套方案里唯一需要三端完全一致的
 //  判断，所以抽成一个纯函数 + 单测钉死，而不是在每个功能点各写一遍 if：

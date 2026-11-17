@@ -1,7 +1,7 @@
 //  IMGroupAdminLogic.h
 //  群管理页「管理员 / 转让群组」的**纯逻辑**（计数口径 / 候选过滤 / 批量截断 / 错误文案）。
 //  抽成无 UIKit 依赖的类方法，便于单测——见 IMProgramTests/IMGroupAdminLogicTests.m。
-//  设计见 IMServer/docs/design/GROUP_ADMIN_TRANSFER_DESIGN.md §3 / §4。
+//  设计见 im-spec/design/GROUP_ADMIN_TRANSFER_DESIGN.md §3 / §4。
 
 #import <Foundation/Foundation.h>
 #import "IMGroupInfo.h"

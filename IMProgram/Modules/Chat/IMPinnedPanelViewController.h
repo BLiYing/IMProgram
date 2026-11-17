@@ -3,7 +3,7 @@
 //  IMLinkCardCell / IMContactCardCell / IMChatRecordCell / IMCallRecordCell，readOnly），每条紧挨气泡一枚「定位到聊天位置」
 //  图标（我发的在气泡左、别人的在气泡右）；长按气泡出过滤后的菜单（取消置顶 / 复制 / 定位）；有权限者底栏「取消所有置顶」。
 //  形态同 IMChatDateJumpViewController：PageSheet（medium + large）+ grabber + 自持 IMLiquidNavigationBar（左 ✕）。
-//  设计：IMServer docs/design/PINNED_PANEL_DESIGN.md + sketches/PINNED_PANEL_UX_SKETCH.html（1:1，以稿为准）。
+//  设计：im-spec/design/PINNED_PANEL_DESIGN.md + sketches/PINNED_PANEL_UX_SKETCH.html（1:1，以稿为准）。
 //
 //  宿主（聊天页）只负责：present 一行、把置顶集合变化推进来（applyPinnedItems:）、实现 IMPinnedPanelHost。
 

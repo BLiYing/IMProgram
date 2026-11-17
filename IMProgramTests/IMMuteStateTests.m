@@ -1,6 +1,6 @@
 //  IMMuteStateTests.m
 //  IMIsMutedNow / IMMuteUntilLabelMake 纯函数单测：读三端共用向量
-//  IMServer/docs/conformance/mute_state.json（isMutedNow 6 例 + untilLabel 8 例，NOTIFICATIONS_P1_DESIGN
+//  im-spec/conformance/mute_state.json（isMutedNow 6 例 + untilLabel 8 例，NOTIFICATIONS_P1_DESIGN
 //  §4.3）。按本文件相对路径找，也可用环境变量 IM_MUTE_STATE_VECTORS 指定。
 //  找不到时**失败**而不是跳过——静默跳过等于没测（同 IMAlertDecisionTests 先例）。
 
@@ -17,7 +17,7 @@
     NSString *path = NSProcessInfo.processInfo.environment[@"IM_MUTE_STATE_VECTORS"];
     if (path.length == 0) {
         NSString *repo = [[@(__FILE__) stringByDeletingLastPathComponent] stringByDeletingLastPathComponent]; // …/IMProgram
-        path = [[repo stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"IMServer/docs/conformance/mute_state.json"];
+        path = [[repo stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"im-spec/conformance/mute_state.json"];
     }
     NSData *data = [NSData dataWithContentsOfFile:path];
     XCTAssertNotNil(data, @"找不到共用向量 %@（IM_MUTE_STATE_VECTORS 可指定）", path);

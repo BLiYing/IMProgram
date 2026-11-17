@@ -2,10 +2,10 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-/// 连上时「顺手补齐」与「留成缺口」的分水岭（条）。三端同值，见 IMServer/docs/CHAT_UX.md §2。
+/// 连上时「顺手补齐」与「留成缺口」的分水岭（条）。三端同值，见 im-spec/CHAT_UX.md §2。
 extern const int64_t IMSyncMaxGap;
 
-/// 离线积压的连接级状态（IMServer/docs/design/OFFLINE_BACKLOG_DESIGN.md §4.4/§4.5/§4.8）。
+/// 离线积压的连接级状态（im-spec/design/OFFLINE_BACKLOG_DESIGN.md §4.4/§4.5/§4.8）。
 ///
 /// 管四件事，都是「跟着这条连接活、断了就该清」的东西：
 ///   ① 哪些会话是超级群（决定 `max_gap`：超级群恒 0，正文只在打开会话时按需取）；

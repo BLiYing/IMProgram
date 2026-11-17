@@ -46,7 +46,7 @@ UIImage *IMDeletedUserAvatarImage(void) {
 
 - (void)im_setAvatarURL:(nullable NSString *)url seed:(NSString *)seed displayName:(nullable NSString *)displayName {
     // 系统通知会话（seed=system）：头像走应用 logo（LaunchLogo）——服务端 avatar_url 恒空。
-    // 见 docs/design/SYSTEM_NOTICE_SESSION_DESIGN.md §2.1。
+    // 见 im-spec/design/SYSTEM_NOTICE_SESSION_DESIGN.md §2.1。
     if (IMIsSystemUserID(seed)) { // 系统账号回退渲染 app logo
         self.text = @"";
         self.backgroundColor = UIColor.systemBackgroundColor;

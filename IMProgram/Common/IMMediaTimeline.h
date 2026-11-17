@@ -11,7 +11,7 @@
 //
 //  错得静默是它的性质：兜底分支本身是对的，界面照常，只是少了翻页——编译、测试、review 都看不出。
 //
-//  ## 口径（与 im-web `src/album.ts` 的 `msgKey` 同源，IMServer/docs/SYMMETRY.md 有登记）
+//  ## 口径（与 im-web `src/album.ts` 的 `msgKey` 同源，im-spec/SYMMETRY.md 有登记）
 //  **身份优先用 `conv_seq`**（服务端分配、会话内唯一）。Web 那侧记着同一条真账：
 //  入站消息的 `clientMsgId` 恒为空，拿它当 key 会让所有入站消息都命中"第一条空值"，
 //  表现是点最后一张却定位到第一张。本端的对应风险是自己发的那条——ack 之前 `convSeq` 还是 0，

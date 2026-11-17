@@ -153,7 +153,7 @@
 /// @所有人 是否仍生效：既要标记在、文本里也要还留着完整的 `@所有人` token。
 /// 发送前算出 @ 片段（与 resolvedMentionsInText: 同源同规则，只是多记了每个 token 的位置）。
 /// 收端有片段就不必反查群成员表——超级群不下发成员表，老路在那里对普通成员必然失效。
-/// 协议见 IMServer/docs/PROTOCOL.md §4.1；与 Web 的 resolveMentionSpans 逐条对齐。
+/// 协议见 im-spec/PROTOCOL.md §4.1；与 Web 的 resolveMentionSpans 逐条对齐。
 - (NSArray<IMMentionSpan *> *)resolvedMentionSpansInText:(NSString *)text {
     if (!self.isGroupChat || text.length == 0) { return @[]; }
     NSMutableDictionary<NSString *, NSString *> *nameToUID = [NSMutableDictionary dictionary];

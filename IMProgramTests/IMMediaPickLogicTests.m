@@ -1,5 +1,5 @@
 //  IMMediaPickLogicTests.m
-//  自建相册选择器的纯逻辑。与 Android `MediaPickTest` 同口径（对称登记在 IMServer docs/SYMMETRY.md）。
+//  自建相册选择器的纯逻辑。与 Android `MediaPickTest` 同口径（对称登记在 im-spec/SYMMETRY.md）。
 
 #import <XCTest/XCTest.h>
 #import "IMMediaPickLogic.h"

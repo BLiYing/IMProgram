@@ -1,6 +1,6 @@
 //  IMGroupAdminLogicTests.m
 //  群管理页「管理员 / 转让群组」的纯逻辑单测：计数口径 / 候选过滤 / 批量截断 / 错误与批量文案 /
-//  选人页行模型不落内部 ID。对应 IMServer/docs/design/GROUP_ADMIN_TRANSFER_DESIGN.md §9 测试点 4~6、19~21。
+//  选人页行模型不落内部 ID。对应 im-spec/design/GROUP_ADMIN_TRANSFER_DESIGN.md §9 测试点 4~6、19~21。
 //  app-hosted 测试，头文件按相对路径引入。
 
 #import <XCTest/XCTest.h>

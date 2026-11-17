@@ -1,7 +1,7 @@
 //  IMPhoneAuth.h
 //  手机号与短信验证码的**纯规则与模型**（不依赖 UIKit，配 XCTest）：登录页页签 / 链接 / 地区、确认身份弹层页签与错误落点、
 //  隐私与安全两行的可见性与去向、错误码 → 文案、发码倒计时（按号码计）、没用掉的短信验证码缓存、本机用户名可信判定。
-//  设计 ../IMServer/docs/design/PHONE_AUTH_DESIGN.md §4 §6 §7，协议 PROTOCOL §7.3；三端同一张表（Web phoneAuthRules.ts / Android PhoneAuthRules.kt）。
+//  设计 ../im-spec/design/PHONE_AUTH_DESIGN.md §4 §6 §7，协议 PROTOCOL §7.3；三端同一张表（Web phoneAuthRules.ts / Android PhoneAuthRules.kt）。
 //  **日志红线**：完整手机号、验证码、票据不得写日志；号码只以 IMPhoneMasked 打码形态出现。
 
 #import <Foundation/Foundation.h>

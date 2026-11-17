@@ -1,6 +1,6 @@
 //  IMMediaAttributes.h
 //  媒体消息随发送上行的元数据（M4+）。对应协议 send_msg 的
-//  group_id / poster / media_w / media_h / duration / file_size（见 IMServer docs/PROTOCOL.md §4.1）。
+//  group_id / poster / media_w / media_h / duration / file_size（见 im-spec/PROTOCOL.md §4.1）。
 //
 //  约定：尺寸与时长**由发送端量出**（服务端只透传 + 范围校验，不解码媒体）；
 //  收端据此按原比例渲染气泡、在视频封面左上角显 mm:ss、并用字节数做上传进度分母。

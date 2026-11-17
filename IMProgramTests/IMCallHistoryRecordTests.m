@@ -1,6 +1,6 @@
 //  IMCallHistoryRecordTests.m
 //  设置 ▸ 最近通话：纯函数单测——未接判定 / 群通话人数 / 按日期分组 / 全部-未接过滤。
-//  设计：IMServer docs/design/CALL_HISTORY_DESIGN.md §1/§3.5/§6。
+//  设计：im-spec/design/CALL_HISTORY_DESIGN.md §1/§3.5/§6。
 
 #import <XCTest/XCTest.h>
 #import "../IMProgram/Common/IMCallHistoryRecord.h"

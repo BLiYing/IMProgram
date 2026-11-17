@@ -1,7 +1,7 @@
 //  IMAlertDecision.h
 //  统一判据 alertDecision（纯函数，可测）：一条实时到达的入站消息该不该响/振/弹横幅/弹系统通知。
-//  三端同名判据，共用向量 IMServer/docs/conformance/alert_decision.json（30 条，改规则先改向量）。
-//  设计：IMServer/docs/design/NOTIFICATIONS_DESIGN.md §3.1/§3.2。
+//  三端同名判据，共用向量 im-spec/conformance/alert_decision.json（30 条，改规则先改向量）。
+//  设计：im-spec/design/NOTIFICATIONS_DESIGN.md §3.1/§3.2。
 //
 //  iOS 运行时只会构造 platform=mobile 的 ctx（桌面/浏览器分支只为通过共用向量、供设计对齐核对，
 //  不在本端被任何调用点触发）。

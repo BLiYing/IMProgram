@@ -1,6 +1,6 @@
 //
 //  IMGroupMemberSearchViewController.h
-//  群成员搜索页（push）。草图见 IMServer/docs/design/sketches/GROUP_MEMBER_SEARCH_UX_SKETCH.html。
+//  群成员搜索页（push）。草图见 im-spec/design/sketches/GROUP_MEMBER_SEARCH_UX_SKETCH.html。
 //
 //  为什么单开一页、而不是在成员列表顶上嵌个 UISearchBar：两处成员列表都**吸不住顶**——
 //  会话详情页那一段的 header 已经被分段控件（成员/媒体/文件/…）占了；群资料页是

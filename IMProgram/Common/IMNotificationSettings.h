@@ -1,6 +1,6 @@
 //  IMNotificationSettings.h
 //  设置 ▸ 通知与提示音：每设备本地偏好（NSUserDefaults `im.notif.<字段>`）。
-//  设计：IMServer/docs/design/NOTIFICATIONS_DESIGN.md §6/§7/§9-1——每设备本地、退出登录不清
+//  设计：im-spec/design/NOTIFICATIONS_DESIGN.md §6/§7/§9-1——每设备本地、退出登录不清
 //  （与 IMAppearance 同一处理，见其 .h 注释）。P0 iOS 只存移动端相关字段（私聊/群聊/应用内/角标），
 //  不存 desktop.*（那是 Web/桌面端的本地偏好）。
 

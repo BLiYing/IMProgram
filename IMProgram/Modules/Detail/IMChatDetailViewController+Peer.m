@@ -91,7 +91,7 @@ static const NSInteger kIMPeerNotFoundOverlayTag = 91001;
         }
     } else {
         // 显示**公开句柄** @xxx，不是 peerID——后者是 10 位随机数字内部 ID，
-        // 标签写着"用户名"却显示一串 ID 是明显的错配（docs/UI.md「用户标识」）。
+        // 标签写着"用户名"却显示一串 ID 是明显的错配（im-spec/UI.md「用户标识」）。
         // 拿不到时（资料尚未拉回 / 对方无 username）显灰字占位，绝不回退到 ID。
         BOOL hasHandle = self.peerUsername.length > 0;
         cell.textLabel.text = IMLocalized(@"settings.info.username");

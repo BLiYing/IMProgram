@@ -3,7 +3,7 @@
 //  IMIsMutedNow / 到期文案分类器。**所有**过去直接读 `muted` 的地方都要改走 IMIsMutedNow——
 //  会话列表铃铛与未读变灰、IMTabUnreadCount、IMSocketManager+Alerts 的 ctx.muted、例外列表过滤、
 //  「添加例外」选择页过滤、聊天详情页状态（见 §6.2 iOS 列）。漏一处就是"这里显示免打扰、那里照样响"。
-//  对端 im-android data/MuteState.kt、im-web src/muteState.ts；向量 IMServer/docs/conformance/mute_state.json。
+//  对端 im-android data/MuteState.kt、im-web src/muteState.ts；向量 im-spec/conformance/mute_state.json。
 
 #import <Foundation/Foundation.h>
 

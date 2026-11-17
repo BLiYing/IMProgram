@@ -68,7 +68,7 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 @property (nonatomic, copy, nullable) NSString *peerID;
 @property (nonatomic, copy, nullable) NSString *peerNickname; ///< 对端真实昵称（不含备注，备注在 peerRemark）
 /// 对端的**公开句柄**（UI 显示为 @xxx）。由 +Peer.m 从 GET /users/{id} 取得。
-/// 「用户名」行显示它——绝不能显示 peerID，那是 10 位随机数字内部 ID（见 docs/UI.md「用户标识」）。
+/// 「用户名」行显示它——绝不能显示 peerID，那是 10 位随机数字内部 ID（见 im-spec/UI.md「用户标识」）。
 @property (nonatomic, copy, nullable) NSString *peerUsername;
 /// 对端个性签名 / 手机号：GET /users/{id} 按对方「个人简介」「手机号码」档位下发，空串＝不可见或没填，对应行整行不占位。
 @property (nonatomic, copy, nullable) NSString *peerBio;

@@ -1,6 +1,6 @@
 //  IMConversationListViewController+Editing.m
 //  会话列表的「编辑模式」：左上角「编辑 / 完成」→ 行首勾选圈 + 底部选择栏（全选 / 已读 / 删除），批量设为已读与批量删除。
-//  设计 IMServer/docs/design/CONV_LIST_EDIT_MODE_DESIGN.md + sketches/CONV_LIST_EDIT_MODE_UX_SKETCH.html。
+//  设计 im-spec/design/CONV_LIST_EDIT_MODE_DESIGN.md + sketches/CONV_LIST_EDIT_MODE_UX_SKETCH.html。
 //  状态在 `+Private.h` 的类扩展里：listEditing / editSelection（IMConversationSelection）/ editBar（IMConversationEditBar）。
 //  行勾选走系统多选编辑态（tableView.setEditing + allowsMultipleSelectionDuringEditing），真相记在 editSelection，
 //  reloadData 之后在 willDisplayCell 里按选择集补选行（同聊天多选）。

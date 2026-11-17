@@ -1,5 +1,5 @@
 //  IMPowerSaveDecisionTests.m
-//  IMPowerSaveActive 纯函数单测：读三端共用向量 IMServer/docs/conformance/power_save.json（改规则先改向量）。
+//  IMPowerSaveActive 纯函数单测：读三端共用向量 im-spec/conformance/power_save.json（改规则先改向量）。
 //  按本文件相对路径找，也可用环境变量 IM_POWER_SAVE_VECTORS 指定。找不到时**失败**而不是跳过
 //  （同 IMAlertDecisionTests 先例）。另含阈值夹紧、pausedCount、§5 提示状态机（对端 PowerSavePromptTest.kt 逐条对应）。
 
@@ -18,7 +18,7 @@ static const int64_t kMin = 60000;
     NSString *path = NSProcessInfo.processInfo.environment[@"IM_POWER_SAVE_VECTORS"];
     if (path.length == 0) {
         NSString *repo = [[@(__FILE__) stringByDeletingLastPathComponent] stringByDeletingLastPathComponent]; // …/IMProgram
-        path = [[repo stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"IMServer/docs/conformance/power_save.json"];
+        path = [[repo stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"im-spec/conformance/power_save.json"];
     }
     NSData *data = [NSData dataWithContentsOfFile:path];
     XCTAssertNotNil(data, @"找不到共用向量 %@（IM_POWER_SAVE_VECTORS 可指定）", path);

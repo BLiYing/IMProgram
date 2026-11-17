@@ -1,6 +1,6 @@
 //  IMChatFolder.h
 //  会话文件夹（聊天文件夹）：用户自建的手动分类，一个会话可在多个文件夹内、仍留在「全部」。
-//  服务端口径见 IMServer/docs/PROTOCOL.md §6.15、设计见 IMServer/docs/design/CHAT_FOLDERS_DESIGN.md。
+//  服务端口径见 im-spec/PROTOCOL.md §6.15、设计见 im-spec/design/CHAT_FOLDERS_DESIGN.md。
 
 #import <Foundation/Foundation.h>
 

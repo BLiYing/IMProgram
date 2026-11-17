@@ -165,7 +165,7 @@ static NSDictionary<NSString *, NSString *> *IMDecodeStringDict(NSString *raw);
         }
         [db executeUpdate:@"CREATE INDEX IF NOT EXISTS idx_local_owner_conv ON im_message_local(owner_uid,conv_id)"];
 
-        // 区间清单（IMServer/docs/design/OFFLINE_BACKLOG_DESIGN.md §4.2）：本地对某会话「有哪几段」。
+        // 区间清单（im-spec/design/OFFLINE_BACKLOG_DESIGN.md §4.2）：本地对某会话「有哪几段」。
         // 一段一行而不是把数组塞进一个 TEXT 列：合并/查询都在 SQL 里做，且单行写失败不会污染整份清单。
         if (![db executeUpdate:
               @"CREATE TABLE IF NOT EXISTS im_conv_range_local ("
@@ -756,7 +756,7 @@ static NSArray<NSString *> *IMDecodeMentions(NSString *raw) {
             return NO;
         }
         // 区间清单同事务扩一格：位点推到哪，"我有哪几段"就得跟到哪
-        // （IMServer/docs/design/OFFLINE_BACKLOG_DESIGN.md §4.2）。漏了这一步，实时收到的那段
+        // （im-spec/design/OFFLINE_BACKLOG_DESIGN.md §4.2）。漏了这一步，实时收到的那段
         // 会被当成缺口——表现是"刚聊完的会话被判成本地不齐全"，于是搜索莫名其妙改走服务端。
         if (!IMRegisterRangeInDB(db, owner, message.convID, syncedConvSeq, syncedConvSeq)) {
             IMLogDatabase(@"区间扩展失败 owner=%@ conv=%@ seq=%lld: %@",

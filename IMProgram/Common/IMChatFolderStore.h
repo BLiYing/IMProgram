@@ -1,6 +1,6 @@
 //  IMChatFolderStore.h
 //  会话文件夹的客户端状态（按账号隔离）：整表快照 + 单调版本，REST 写入与 folder_update 帧都走
-//  `applySnapshot:`（版本 ≤ 本地的丢弃）。设计见 IMServer/docs/design/CHAT_FOLDERS_DESIGN.md §3。
+//  `applySnapshot:`（版本 ≤ 本地的丢弃）。设计见 im-spec/design/CHAT_FOLDERS_DESIGN.md §3。
 //
 //  落盘（冷启动先画 Tab 条，随后被 GET 覆盖）：NSUserDefaults `im.chatFolders.<uid>`，内容即快照 JSON。
 //  所有方法与回调都在主线程。

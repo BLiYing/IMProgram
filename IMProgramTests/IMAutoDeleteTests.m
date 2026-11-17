@@ -1,5 +1,5 @@
 //  IMAutoDeleteTests.m
-//  自动删除消息 v2（会话级共享、不追溯）：过期判定（读三端共用向量 IMServer/docs/conformance/auto_delete.json）+ 本机清理 / 入库闸 / 设置落库 / 迁移。
+//  自动删除消息 v2（会话级共享、不追溯）：过期判定（读三端共用向量 im-spec/conformance/auto_delete.json）+ 本机清理 / 入库闸 / 设置落库 / 迁移。
 
 #import <XCTest/XCTest.h>
 
@@ -57,7 +57,7 @@ static IMConversation *IMADConv(NSDictionary *d) { return [IMConversation conver
 
 - (NSDictionary *)vectors {
     NSString *repo = [[@(__FILE__) stringByDeletingLastPathComponent] stringByDeletingLastPathComponent];
-    NSString *path = [[repo stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"IMServer/docs/conformance/auto_delete.json"];
+    NSString *path = [[repo stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"im-spec/conformance/auto_delete.json"];
     NSData *data = [NSData dataWithContentsOfFile:path];
     XCTAssertNotNil(data, @"找不到共用向量 %@", path);
     return data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : @{};

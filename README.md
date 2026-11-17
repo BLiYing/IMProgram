@@ -36,13 +36,13 @@ xcodebuild test -project IMProgram.xcodeproj -scheme IMProgram \
   -destination 'platform=iOS Simulator,id=<booted-udid>' -only-testing:IMProgramTests CODE_SIGNING_ALLOWED=NO
 ```
 
-## 现状（进度详见 current_task.md / ../IMServer/docs/ROADMAP.md）
+## 现状（进度详见 current_task.md / ../im-spec/ROADMAP.md）
 - ✅ JWT 登录换 token、1:1 收发、ACK、心跳、退避重连、重连增量同步、按 conv_seq 去重；真机端到端验证通过。
 - ⬜ 会话列表页、本地落库（IMDatabase）、已读/未读、群聊等：按 ROADMAP 各阶段与 Web 端同步推进。
 
 ## 关联文档
-- 协议：[../IMServer/docs/PROTOCOL.md](../IMServer/docs/PROTOCOL.md)
-- 路线图 / 端一致性 / UI 蓝图：[ROADMAP](../IMServer/docs/ROADMAP.md) · [CLIENT_PARITY](../IMServer/docs/CLIENT_PARITY.md) · [UI](../IMServer/docs/UI.md)
+- 协议：[../im-spec/PROTOCOL.md](../im-spec/PROTOCOL.md)
+- 路线图 / 端一致性 / UI 蓝图：[ROADMAP](../im-spec/ROADMAP.md) · [CLIENT_PARITY](../im-spec/CLIENT_PARITY.md) · [UI](../im-spec/UI.md)
 
 ## 音视频通话 SDK（im-rtc-ios）：正式版 / 本地源码 切换
 

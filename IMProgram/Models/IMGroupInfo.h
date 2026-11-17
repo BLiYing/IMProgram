@@ -35,7 +35,7 @@ IMGroupRole IMGroupRoleFromString(NSString *_Nullable s);
 /// 会被写进要发出去的内容时用它（@提及插入的 token、@昵称 反查、合并转发条目名）——**不含好友备注**。
 @property (nonatomic, readonly) NSString *displayName;
 /// **本机显示名**：我给他起的备注 > 公开名。凡是"给我自己看"的地方（成员列表、已读回执、
-/// 菜单标题、确认文案）都用它；绝不能用在会发出去的内容上，见 docs/UI.md「备注 · 隐私红线」。
+/// 菜单标题、确认文案）都用它；绝不能用在会发出去的内容上，见 im-spec/UI.md「备注 · 隐私红线」。
 @property (nonatomic, readonly) NSString *localDisplayName;
 
 /// 单个成员解析（脏数据安全；无 user_id 返回 nil）。
@@ -54,7 +54,7 @@ IMGroupRole IMGroupRoleFromString(NSString *_Nullable s);
 @property (nonatomic, copy) NSString *owner;
 /// 群主展示资料（`GET /groups` 群列表项下发；`GET /groups/{id}` 不带，那里从 members 取）。
 /// 群列表副标题走 `备注 → ownerNickname → @ownerUsername → 未命名用户`，
-/// 见 IMServer/docs/design/ACCOUNT_IDENTITY_REDESIGN.md §7.5「内部 ID 零 UI 露出」。
+/// 见 im-spec/design/ACCOUNT_IDENTITY_REDESIGN.md §7.5「内部 ID 零 UI 露出」。
 @property (nonatomic, copy, nullable) NSString *ownerNickname;
 @property (nonatomic, copy, nullable) NSString *ownerUsername;
 @property (nonatomic, copy) NSString *avatarURL;
@@ -73,7 +73,7 @@ IMGroupRole IMGroupRoleFromString(NSString *_Nullable s);
 ///   · 不显示已读双勾 /「正在输入」/ 成员在线态（服务端已不发相应帧）；
 ///   · 消息经 conv_bump 轻量信号 + sync 补拉，而非直接推全文。
 /// 显示人数一律用 `memberCount`，**不要用 `members.count`**。
-/// 见 IMServer/docs/design/SUPERGROUP_DESIGN.md §4。
+/// 见 im-spec/design/SUPERGROUP_DESIGN.md §4。
 @property (nonatomic, assign) BOOL isSuper;
 @property (nonatomic, copy, nullable) NSString *myNickname;            ///< 我在本群的昵称（便于直接回填编辑框）
 @property (nonatomic, assign) int64_t muteUntil;                       ///< 全员禁言到期毫秒（0=未禁言；端上据此显示自助开关，G1）

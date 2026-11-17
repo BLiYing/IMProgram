@@ -78,7 +78,7 @@ static CGFloat const kIMGroupAvatarSize = 44;
     [_avatar im_setAvatarURL:group.avatarURL seed:group.convID displayName:group.name];
     _name.text = group.name.length > 0 ? group.name : IMLocalized(@"common.group_chat");
     // 群主名走全端统一口径 `备注 → 昵称 → @username → 未命名用户`。
-    // **不能直接显示 group.owner**——那是 10 位随机内部 ID（IMServer/docs/design/
+    // **不能直接显示 group.owner**——那是 10 位随机内部 ID（im-spec/design/
     // ACCOUNT_IDENTITY_REDESIGN.md §7.5「内部 ID 零 UI 露出」）。
     if (mine) {
         _sub.text = IMLocalized(@"group.list.i_am_owner");

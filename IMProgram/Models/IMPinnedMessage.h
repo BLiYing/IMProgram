@@ -1,7 +1,7 @@
 //  IMPinnedMessage.h
 //  会话置顶消息（G0）：`GET /api/v1/conversations/{id}/pinned` 的一项，顶部置顶横幅与置顶列表的渲染源。
 //  顶层字段是横幅所需最小集；`message` 是服务端 2026-10-15 起附带的完整消息对象（与 new_msg 同形），
-//  置顶面板用它走聊天页同一套气泡渲染（docs/design/PINNED_PANEL_DESIGN.md §4.0）。
+//  置顶面板用它走聊天页同一套气泡渲染（im-spec/design/PINNED_PANEL_DESIGN.md §4.0）。
 //  纯逻辑（预览文案 / 发送者名）与 Web `src/pinned.ts` 保持一致（parity）。
 
 #import <Foundation/Foundation.h>

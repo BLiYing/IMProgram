@@ -1,8 +1,8 @@
 //  IMLocalization.h
-//  App 内界面语言（每设备偏好，跟随系统 / 简体中文 / English）。契约见 ../IMServer/docs/design/I18N_DESIGN.md。
+//  App 内界面语言（每设备偏好，跟随系统 / 简体中文 / English）。契约见 ../im-spec/design/I18N_DESIGN.md。
 //
 //  为什么不直接 NSLocalizedString：它只跟**系统**语言，不支持 App 内切换。这里按偏好选 `xx.lproj` 的 NSBundle 取词。
-//  文案来自 ../IMServer/docs/i18n/strings.json，经 scripts/i18n/gen-i18n.mjs 生成到 Resources/Localization/，勿手改生成物。
+//  文案来自 ../im-spec/i18n/strings.json，经 scripts/i18n/gen-i18n.mjs 生成到 Resources/Localization/，勿手改生成物。
 //  ⚠️ **禁止在 +load / 静态初始化 / 全局常量里取文案**——那时求值一次，切语言后不会变；常量里放 key，用的时候再取。
 
 #import <Foundation/Foundation.h>

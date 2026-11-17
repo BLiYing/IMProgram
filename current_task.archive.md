@@ -6,7 +6,7 @@
 
 > # Current Task — IMProgram（iOS）
 >
-> > **活快照**：只记当前状态，**就地覆盖、不追加**。逐功能×端状态以 `../IMServer/docs/CLIENT_PARITY.md` 为唯一来源；
+> > **活快照**：只记当前状态，**就地覆盖、不追加**。逐功能×端状态以 `../im-spec/CLIENT_PARITY.md` 为唯一来源；
 > > 历史流水见 `current_task.archive.md` + `git log`。关键约定见 `CLAUDE.md` / `ARCHITECTURE.md` / `CODING_STYLE.md`。
 >
 > ## 当前焦点
@@ -27,7 +27,7 @@
 > ## 下一步
 > 1. **M5 第一批真机验证**（清单见上「当前焦点」）——服务端/安卓/Web 并行实现完成后，协调者统一在真机上
 >    过一遍 user1002(Pixel)↔iPhone 的私聊/群聊/@我/图片四种消息、App 后台/被杀/锁屏三种状态。
-> 2. **M5 落地后**：协调者需要补 `IMServer/docs/CLIENT_PARITY.md`（M5 行按 iOS/安卓/Web 拆状态）与
+> 2. **M5 落地后**：协调者需要补 `im-spec/CLIENT_PARITY.md`（M5 行按 iOS/安卓/Web 拆状态）与
 >    `SYMMETRY.md`（`IMNotifySettingsMigration` 对端行、`alertDecision` 服务端第四端登记）——本次任务
 >    明确限定「只改 IMProgram」，这两份 IMServer 文档故意没碰。
 > 3. **通知 P1 批一 + 批二真机验证**（清单见 `current_task.archive.md` 最新归档块）——批一横幅/批二时长菜单
@@ -97,15 +97,15 @@
 # 归档于 2026-09-30（M5 离线推送第一批落地前，把「定时免打扰」第二批的「当前焦点」详情块从活快照转入）
 
 > **通知与提示音 P1 · 第二批「定时免打扰」✅ 代码 + 单测已完成，待真机验（2026-09-29，分支
-> `feature/notif-p1b`，设计：`../IMServer/docs/design/NOTIFICATIONS_P1_DESIGN.md` §4/§5/§6.2(iOS
-> 列)/§7 点2·6，协议 `../IMServer/docs/PROTOCOL.md` §6.10「mute_until」，后端已先行落地并跑在 :8080）**：
+> `feature/notif-p1b`，设计：`../im-spec/design/NOTIFICATIONS_P1_DESIGN.md` §4/§5/§6.2(iOS
+> 列)/§7 点2·6，协议 `../im-spec/PROTOCOL.md` §6.10「mute_until」，后端已先行落地并跑在 :8080）**：
 > 三端同名纯函数 `IMIsMutedNow` + 时长菜单 + 三个入口（会话列表/聊天详情页/添加例外）+ 到期本地定时刷新。
 > - **`Common/IMMuteState.h/.m`**（新，与 im-android `MuteState.kt`/im-web `muteState.ts` 对端）：
 >   `IMIsMutedNow(muted,muteUntil,now)` = `muted && (muteUntil==0 || now<muteUntil)`（`now==until` 视为
 >   已解除）；`IMMuteUntilLabelMake` 到期文案分类器（today/tomorrow/date/forever，按 tzOffsetMinutes 纯
 >   毫秒运算比日历日，不经 NSCalendar 本地时区/DST，向量可测）；`IMMuteDetailValueText`/
 >   `IMMuteExceptionSubtitle` 是详情页右值/例外副标题的展示拼装（未进向量，纯 UI 层）。共用向量
->   `IMServer/docs/conformance/mute_state.json`（isMutedNow 6 例 + untilLabel 8 例）。
+>   `im-spec/conformance/mute_state.json`（isMutedNow 6 例 + untilLabel 8 例）。
 > - **`Common/IMMuteDurationMenu.h/.m`**（新）：ActionSheet，标题 `notif.mute.sheet_title` 代入会话名；
 >   1 小时/8 小时/1 天/7 天/永久 + 取消；`showUnmuteFirst=YES` 时顶部多一条红色「取消免打扰」（聊天详情页
 >   已免打扰时用，列表左滑/右键已免打扰时不弹本菜单、直接单条取消）。纯函数
@@ -150,7 +150,7 @@
 >   `IMMuteUntilForDurationOption`）均做过一次真实变异验红（分别改错「已解除」判据、把「明天」判成
 >   「后天」、把 8 小时挪成 9 小时），全部按预期变红后改回。`./scripts/test.sh` **616/616 绿**（较第一批
 >   收尾时 606 例新增 10 例）。
-> - **没做 / 已知限制**：`IMServer/docs/CLIENT_PARITY.md`/`SYMMETRY.md` 本批未碰（任务明确限定「只改
+> - **没做 / 已知限制**：`im-spec/CLIENT_PARITY.md`/`SYMMETRY.md` 本批未碰（任务明确限定「只改
 >   IMProgram」，留给协调者收口三端）；桌面 Dock 角标/favicon 不在 iOS 范围。
 > - **需要真机验证**（模拟器/单测测不出，本次完全没做）：① 时长菜单 ActionSheet 在真机上的呈现/交互
 >   手感（模拟器已过一遍编译但未跑起来看）；② 列表左滑「免打扰」弹出菜单后 swipe 动画收起与菜单呈现是否
@@ -167,7 +167,7 @@
 # 归档于 2026-09-29（通知第二期第二批「定时免打扰」落地前，把第一批的「当前焦点」详情块从活快照转入 —— 从此往下继续「就地覆盖、不追加」）
 
 > **通知与提示音 P1 · 第一批 ✅ 代码 + 单测已完成，待真机验（2026-09-29，分支 `feature/notif-p1a`，
-> 设计：`../IMServer/docs/design/NOTIFICATIONS_P1_DESIGN.md` §0–§3/§6.2(iOS 列)/§7/§8，草图
+> 设计：`../im-spec/design/NOTIFICATIONS_P1_DESIGN.md` §0–§3/§6.2(iOS 列)/§7/§8，草图
 > `sketches/NOTIFICATIONS_P1_UX_SKETCH.html` 01/02 节）**：范围＝应用内横幅 + 例外「添加例外」+
 > 主页「应用内预览」真开关。
 > - **`IMAlertDecision.m`**：`banner` 从恒 `NO` 改成 `eligible && platform==mobile && settings.inApp.preview`
@@ -211,8 +211,8 @@
 >   `IMNotifExceptionPickerFilterTests`（6 例），`IMAlertDecisionTests` 改读 32 条向量。`./scripts/test.sh`
 >   **606/606 绿**。
 > - **没做 / 已知限制**：定时免打扰（时长菜单/`mute_until`/`isMutedNow`，留给第二批——已在
->   `feature/notif-p1b` 落地，见活快照当前焦点）；`IMServer/docs/CLIENT_PARITY.md`/`SYMMETRY.md`/
->   `docs/i18n/strings.json`/`NOTIFICATIONS_DESIGN.md` §11 本批未碰（限定只改 IMProgram）。
+>   `feature/notif-p1b` 落地，见活快照当前焦点）；`im-spec/CLIENT_PARITY.md`/`SYMMETRY.md`/
+>   `im-spec/i18n/strings.json`/`NOTIFICATIONS_DESIGN.md` §11 本批未碰（限定只改 IMProgram）。
 > - **需要真机验证**（模拟器/单测测不出，本批完全没做）：横幅滑入/滑出动效手感、4 秒自动收起体感、
 >   按住暂停/松开恢复、上滑手势收起识别率、连发多条原地换内容不叠加、深色模式卡片观感、点击进会话转场
 >   顺畅度、「添加例外」空态/脚注排版与绿色圆形对比度、VoiceOver（未适配）。
@@ -224,10 +224,10 @@
 > 这五个已完成块，原样从活快照搬入，未删减。
 
 > **设置 ▸ 通知与提示音 P0 ✅（2026-09-29，分支 `feature/notifications`，设计：
-> `../IMServer/docs/design/NOTIFICATIONS_DESIGN.md`，模拟器 XCUITest 截图验证三页）**：
+> `../im-spec/design/NOTIFICATIONS_DESIGN.md`，模拟器 XCUITest 截图验证三页）**：
 > `IMNotificationSettings`（`Common/`，`NSUserDefaults im.notif.*`，非法值/未知提示音 id 回落默认，
 > 设备本地、退出登录不清，改动广播 `IMNotificationSettingsDidChangeNotification`）+ `IMAlertDecision`
-> 纯函数（30 条共用向量 `IMServer/docs/conformance/alert_decision.json` 全过，含 desktop/browser 分支
+> 纯函数（30 条共用向量 `im-spec/conformance/alert_decision.json` 全过，含 desktop/browser 分支
 > 只为过向量、iOS 运行时只构造 platform=mobile）+ `IMAlertPlayer`（`AudioServicesPlaySystemSound` +
 > `UIImpactFeedbackGenerator(.light)`，1.5s 节流时钟自持，供 decide 读 `lastSoundAtMs`）。
 > **实时消息 hook**：`IMSocketManager+Alerts.m`（新分文件 category，避免把 `IMSocketManager.m` 推过 1600
@@ -244,7 +244,7 @@
 > `IMTabUnreadCountTests` 补 3 例；均对核心分支做过一次真实变异验红（`IMAlertDecision` 的
 > `eligible`、`IMUnreadBadge` 的 `includeMuted` 分支）。`./scripts/test.sh` **580/580 绿**。
 > **已知缺口/未做**：Web「静音→免打扰」文案统一（§9-5，属 im-web）、`CLIENT_PARITY.md`/
-> `IMServer/docs/i18n/strings.json` 收口（按 call-history 先例留给协调者统一登记三端）、真机静音键/
+> `im-spec/i18n/strings.json` 收口（按 call-history 先例留给协调者统一登记三端）、真机静音键/
 > 振动/连发节流实测（仅模拟器截图验证 UI，未验证真实声音/触感）。
 
 > **加号面板图标立体感优化 ✅（2026-09-29，用户反馈"图标好丑"，模拟器 XCUITest 截图验证）**：
@@ -275,7 +275,7 @@
 > 设计文档/草图已同步订正「群用群头像」。`IMCallHistoryViewController.m` 一个文件。
 
 > **设置 ▸ 最近通话 v1 ✅ 代码 + 单测已完成，待真机验（2026-09-29，分支 `feature/call-history`，
-> worktree `IMProgram-wt-call-history`，未提交前的开发态；设计：`../IMServer/docs/design/CALL_HISTORY_DESIGN.md` +
+> worktree `IMProgram-wt-call-history`，未提交前的开发态；设计：`../im-spec/design/CALL_HISTORY_DESIGN.md` +
 > 配套 UX 稿）**：设置「我」页 groupA 早已有的 `recentCalls` 占位行（`IMSettingsViewController.m` 的
 > `openRecentCalls`）现在 push 新列表页 `IMCallHistoryViewController`（`Modules/Me/`），只读浏览自己参与过的
 > 通话历史（含群通话），单聊行点了直接回拨、群聊行跳转群会话。
@@ -317,9 +317,9 @@
 > - **三态**：`IMCallHistoryStateView`（自绘，非满屏用 `_stateView` 就是底部 footer 条）覆盖加载中 / 空 /
 >   出错（含 `IMRTCErrorInfo.domain` 判定→复用既有 `common.login_expired` 文案，不单独造一套 401 提示）；
 >   已有数据在屏时翻页失败**不清空整页**，只在底部条显示「加载失败 · 重试」可点重试（UX 稿 §04-B）。
-> - 新增本地化键（只加进本 worktree 两个 `.lproj`，**没有**跑 `IMServer/scripts/i18n/gen-i18n.mjs`——那个脚本
+> - 新增本地化键（只加进本 worktree 两个 `.lproj`，**没有**跑 `im-spec/scripts/i18n/gen-i18n.mjs`——那个脚本
 >   同时写 `../IMProgram`/`../im-web`/`../im-android` **主 checkout**，会动到其他并行 worktree 的文件，
->   有意避开；`call.history.*` 四个键需要在收口阶段补进 `IMServer/docs/i18n/strings.json` 让生成器接管）：
+>   有意避开；`call.history.*` 四个键需要在收口阶段补进 `im-spec/i18n/strings.json` 让生成器接管）：
 >   `call.history.empty`/`filter_all`/`filter_missed`/`group_subtitle`。
 > - 测试：`IMProgramTests/IMCallHistoryRecordTests.m`（14 例，纯函数：未接判定/对方 uid/群人数/按日期分组/
 >   全部-未接过滤）+ `IMCallHistoryPaginatorTests.m`（5 例，假 fetcher 驱动：首页到底/翻页到底后不再发请求/
@@ -327,7 +327,7 @@
 >   做过一次真实变异验红（临时改反判定，3 条测试正确地变红，改回后绿）。`./scripts/test.sh` 全量
 >   **560/560 绿**（较之前 541 例新增 19 例，与新增测试数一致）。
 > - **没做 / 已知限制**（v1 刻意不做，见设计文档 §0）：删除、长按菜单、未接数量角标——均未实现、未预留接口；
->   Web 端入口（`accountRows` 新增一行）不在本次范围，属 im-web worktree 的活；`docs/CLIENT_PARITY.md` 未碰
+>   Web 端入口（`accountRows` 新增一行）不在本次范围，属 im-web worktree 的活；`im-spec/CLIENT_PARITY.md` 未碰
 >   （按任务要求留给协调者统一收口登记三端状态）。
 > - **需要真机验证**（模拟器测不出的部分，本次未做）：① 真机上实际打一通电话再回到「最近通话」页，确认
 >   `callEnd` 事件触发了重拉且列表顶部出现新记录；② 真机网络切换/后台唤醒场景下的翻页体验（模拟器网络
@@ -359,10 +359,10 @@
 > - 新增测试 `IMRtcConfigTests.m`（9 例，纯逻辑，之前这块完全没测试覆盖，顺手补上）、
 >   `IMHTTPRtcTokenParseTests.m`（2 例，`NSURLProtocol` 拦截，仿 `IMHTTPFriendsParseTests.m` 的
 >   app-hosted 套路，覆盖成功换票 + `600001` 业务码透传两条路径），均变异验红过。
-> - 新增文案键 `rtc.error.token_fetch_failed`（`../IMServer/docs/i18n/strings.json`，已重新生成
+> - 新增文案键 `rtc.error.token_fetch_failed`（`../im-spec/i18n/strings.json`，已重新生成
 >   `Resources/Localization/*.lproj/Localizable.strings`）。
 > - `./scripts/test.sh` 全量 **541/541 绿**（较之前 530 例多出的 11 例正是新增的两个测试文件）。
-> - 三端对称登记 `../IMServer/docs/SYMMETRY.md`：Android `rtc/RtcConfig.kt` 仍在用调试密钥，尚未迁移——
+> - 三端对称登记 `../im-spec/SYMMETRY.md`：Android `rtc/RtcConfig.kt` 仍在用调试密钥，尚未迁移——
 >   迁移前对照本端 `signTokenWithCompletion:` 与 im-web `signToken` 的实现。
 > - **未做**：真机/模拟器实测一次完整登录 → 通话流程（本次只验证了单测 + 编译；Web 端已经浏览器
 >   端到端实测过同一个后端接口，链路本身已验证可行，iOS 侧走查代码逻辑与 Web 端同构）。
@@ -393,7 +393,7 @@
 > `startWithUserID:` 建 `kitConfig` 时设置 `.locale`；新增监听 `IMLanguageDidChangeNotification`，
 > 通话中途切语言直接改 `_kit.config.locale`（SDK 确认 `config` 是 `start()` 传入的同一实例，不用重建 Kit），
 > `stop` 里对称移除观察者。`IMLocalization` 本身不用动，它已是权威实现。`BUILD_ONLY=1 ./scripts/test.sh` 编译过；
-> **未做**：真机切一次语言后实际发起/接听通话看 Kit 文案是否跟着变。三端对称改动见 `../IMServer/docs/SYMMETRY.md`
+> **未做**：真机切一次语言后实际发起/接听通话看 Kit 文案是否跟着变。三端对称改动见 `../im-spec/SYMMETRY.md`
 > 新增的 `IMRtcCall.m`/`RtcCall.kt`/`RtcHost.tsx` 那三行；Android 同批顺手补了「设置 ▸ 语言」入口本身
 > （此前只是占位符），细节见 im-android 的 `current_task.md`。
 
@@ -401,16 +401,16 @@
 > `cancel`（主叫主动撤回）跟真正错过（`no_answer`/`busy`/`offline`）不是一回事，只改这一种 reason 的措辞，其余三种
 > 与推送文案不变；`tone`（红/计未读/推送）完全不变，纯文案改动。本端改动：`Common/IMCallRecord.m` 的
 > `table` 里 `cancel` 行被叫键从 `call.record.missed` 改成新键 `call.record.cancelled_by_peer`
-> （`../IMServer/docs/i18n/strings.json` 新增，已 `node scripts/i18n/gen-i18n.mjs` 重新生成
+> （`../im-spec/i18n/strings.json` 新增，已 `node scripts/i18n/gen-i18n.mjs` 重新生成
 > `Resources/Localization/*.lproj/Localizable.strings`）；`missed` 判定
 > （`*missed = !viewerIsSender && ![k isEqualToString:@"reject"]`）本就结构化、不依赖文案字符串，未受影响
 > （这点 Android 那边不同，见其 `current_task.md` 记的一个真实隐患）。三端共用向量
-> `../IMServer/docs/conformance/call_record.json` 改的那条用例，`IMCallRecordTests.m` 按相对路径直接读
+> `../im-spec/conformance/call_record.json` 改的那条用例，`IMCallRecordTests.m` 按相对路径直接读
 > 该文件（不像 Android/Web 需要拷贝副本），无需额外同步。`./scripts/test.sh` 全量 **530/530 绿**。
 > **未做**：真机上实际走一遍"A 呼叫 B、A 取消"看气泡文案。
 
-> **多语言 P1+P2+P3 ✅ 已完成（2026-09-22，中文 + 英文；已 commit 37f1d2f 推送、未真机）**：P1 基础设施（`Common/IMLocalization` + `Modules/Me/IMLanguageViewController` 设置 ▸ 语言）+ **P2 全部业务模块迁完**：Contacts/Conversation/Group/Login/Me（15 文件）/QR/Network/Detail（16 文件）/Chat（含 `Cells/`，46 文件）+ `IMPresence.subtitleText`。**P3 客户端消费**（未提交，另一次会话完成）：新增 `Common/IMSysEventFormatter.{h,m}`（`IMSegmentsForSysEvent`/`IMTextForNoticeSysEvent`，消费服务端 `sys_event`/`sys_args` 渲染群系统消息与系统通知，占位符分词 + 哨兵定位切分，兼容 iOS `%N$@` 位置格式与任意语言词序）+ `IMMediaUtil.m` 的 `IMRenderReplySnapshot`（消费 `reply_snapshot_kind`/`_args`）；接入点 `IMBubbleCell.m`/`IMLinkCardCell.m`/`IMChatViewController+DataSource.m`；`IMMessageModel`/`IMConversation`/`IMDatabase` 三处补齐新字段解析/落库/会话列表预览。**顺手修了两个真实 bug**：`IMLocalizeReplySnippet` 硬编码中文（不跟随 App 语言）、`IMMediaGlyphForSnippet` 图标判定比较的是本地化后文本（英文模式下会失效）。`./scripts/test.sh` 全量 **527/527 绿**。文案表现有 **1386 键**（跨三端共用，见 `../IMServer/docs/i18n/strings.json`）。
-> ⚠️ 已知缺口（详见 `../IMServer/docs/design/I18N_DESIGN.md` §6.1）：`IMChatRecordSnippet`/`IMCallRecordNeutralPreview`/`IMContactCardPreview` 仍硬编码中文（服务面更广，未纳入本批）；系统通知单聊的会话列表预览未接结构化渲染（聊天页内气泡已修）。
+> **多语言 P1+P2+P3 ✅ 已完成（2026-09-22，中文 + 英文；已 commit 37f1d2f 推送、未真机）**：P1 基础设施（`Common/IMLocalization` + `Modules/Me/IMLanguageViewController` 设置 ▸ 语言）+ **P2 全部业务模块迁完**：Contacts/Conversation/Group/Login/Me（15 文件）/QR/Network/Detail（16 文件）/Chat（含 `Cells/`，46 文件）+ `IMPresence.subtitleText`。**P3 客户端消费**（未提交，另一次会话完成）：新增 `Common/IMSysEventFormatter.{h,m}`（`IMSegmentsForSysEvent`/`IMTextForNoticeSysEvent`，消费服务端 `sys_event`/`sys_args` 渲染群系统消息与系统通知，占位符分词 + 哨兵定位切分，兼容 iOS `%N$@` 位置格式与任意语言词序）+ `IMMediaUtil.m` 的 `IMRenderReplySnapshot`（消费 `reply_snapshot_kind`/`_args`）；接入点 `IMBubbleCell.m`/`IMLinkCardCell.m`/`IMChatViewController+DataSource.m`；`IMMessageModel`/`IMConversation`/`IMDatabase` 三处补齐新字段解析/落库/会话列表预览。**顺手修了两个真实 bug**：`IMLocalizeReplySnippet` 硬编码中文（不跟随 App 语言）、`IMMediaGlyphForSnippet` 图标判定比较的是本地化后文本（英文模式下会失效）。`./scripts/test.sh` 全量 **527/527 绿**。文案表现有 **1386 键**（跨三端共用，见 `../im-spec/i18n/strings.json`）。
+> ⚠️ 已知缺口（详见 `../im-spec/design/I18N_DESIGN.md` §6.1）：`IMChatRecordSnippet`/`IMCallRecordNeutralPreview`/`IMContactCardPreview` 仍硬编码中文（服务面更广，未纳入本批）；系统通知单聊的会话列表预览未接结构化渲染（聊天页内气泡已修）。
 > **P2 范围内刻意 DEFERRED（不是漏改）**：消息内容预览占位符（`[图片]`/`[视频]`/`[聊天记录]`等，`IMChatMessageLogic.m`/`IMBubbleCell.m` 等，会烧进 `content` JSON 发给对端）、@全员 mention token（`+Mention.m`，与解析逻辑强绑定）、合并转发/群聊兜底标题——均待 P3 服务端结构化后处理。
 > ⚠️ Detail 批次发现「月日+时分」这类 `NSDateFormatter` 硬编码中文格式（如 `@"M月d日 HH:mm"`）**尚未纳入 `time.*` 体系**（现有 `time.*` 只有 today/yesterday/month_day/full_date），全仓至少 6 处（`IMGroupTextViewController.m`/`IMChatViewController+Search.m`/`IMChatRecordViewController.m`/`IMTheme.m`/`IMMediaUtil.m`/`IMDeviceModels.m`）都是这个模式，DEFERRED，需要专门扩展 `time.*` 键位后统一处理，不要零散改一两处。
 > ⚠️ 单测由 `IMProgramTests/IMTestBootstrap.m` 固定简体中文（模拟器系统语言常是 en）；**它会把偏好写进模拟器里 App 的 defaults**，手测发现界面是中文别奇怪。`IMMainTabBarController` 里找「消息」tab 标题 label 是**按文字匹配**的（`IMFindTabTitleLabel`），已改成取本地化后的词——再动底栏标题要一起改。
@@ -444,7 +444,7 @@
 > ③ 顺带修同一个洞：新装包首登时缓存为空先闪「还没有会话」→ `serverListed`（服务端拉成过一次才画空态）。
 > **要模拟器看**：`badgeValue = @""` 在 iOS 26 UITab 上是否画成小圆点（没看过）；切到通讯录后来消息，约 1s 内点亮。
 
-> **第二批用户报告 ✅ 2026-09-15（未提交；单测 + 变异验红 + iPhone 17 Pro Max 模拟器截图实测）**，逐条见 IMServer `docs/CLIENT_PARITY.md` 顶部：
+> **第二批用户报告 ✅ 2026-09-15（未提交；单测 + 变异验红 + iPhone 17 Pro Max 模拟器截图实测）**，逐条见 `im-spec/CLIENT_PARITY.md` 顶部：
 > ① 「新的朋友」角标数字偏右：UILabel 居中不计行尾空格，`"  %@  "` 撑宽必偏——改显式 `_badgeWidth`（同会话列表）；
 > ② 角标统一蓝：入口角标 `IMTheme.unreadBadge`，Tab 角标走 `UITabBarAppearance.badgeBackgroundColor`（iOS 18 起 UITab 没有 badgeColor）；
 > ③ 文本 / 引用消息时间挪到气泡右下角：`IMBubbleCell` 右下角独立 `_textMeta` + 正文末尾透明占位 `IMBubbleMetaPlaceholder`
@@ -524,7 +524,7 @@
 > `Localizable.strings` 把这个键写成 `%1$@/%2$@%3$@`（期望对象），`NSString initWithFormat:` 按格式串
 > 类型读栈上的 vararg，把小整数当指针解引用直接 `EXC_BAD_ACCESS`——任何账号只要搜到东西就必崩，是个
 > 相当严重的既有回归（多语言 P2 迁移遗留，见下一条）。改成 `%1$ld/%2$ld%3$@`，同步修
-> `IMServer/docs/i18n/strings.json` 里这个键的 `args` 声明（`string`→`int`，`node scripts/i18n/
+> `im-spec/i18n/strings.json` 里这个键的 `args` 声明（`string`→`int`，`node scripts/i18n/
 > gen-i18n.mjs --check` 确认三端生成物与文案表一致、无漂移）。日历钮补了 `chat.search.calendar`
 > accessibilityIdentifier（同 prev/next/count 已有模式），否则 UI 测试定位不到。
 >
@@ -556,12 +556,12 @@
 >   （`!c.isGroup && IMIsSystemUserID(c.peer)`），再喂 `_convs`；空态判定挪到过滤之后
 >   （否则"只剩系统通知"会显成一页空列表而不是「暂无可转发的会话」）。
 > - 理由：系统通知是只读会话，服务端直接拒 `send_msg to=system`
->   （`../IMServer/docs/design/SYSTEM_NOTICE_SESSION_DESIGN.md` §2.2），列出来点了必报错。
+>   （`../im-spec/design/SYSTEM_NOTICE_SESSION_DESIGN.md` §2.2），列出来点了必报错。
 > - 判定一律走 `IMAccountIdentity.h` 的 `IMIsSystemUserID()`，不写 `@"777000"` 字面量。
 
 > **单聊资料页收口 · 6 条用户反馈（2026-08-30；`xcodebuild build-for-testing` 绿、零新增告警；
 > **本次按用户要求只编译不跑模拟器**，故新增单测（`IMFriendStateStoreTests` 7 例 + `IMListSearchTests` +2 例）
-> **尚未执行**）**：与 Web 同批做，逐功能状态见 `../IMServer/docs/CLIENT_PARITY.md`「资料 · 单聊资料页收口」行。
+> **尚未执行**）**：与 Web 同批做，逐功能状态见 `../im-spec/CLIENT_PARITY.md`「资料 · 单聊资料页收口」行。
 > - **进页先闪一遍好友界面再变「加好友」** —— 根因是 `initSingleWithHost:` 里无条件 `_peerIsFriend = YES`
 >   （乐观默认），等 `GET /friends` 回来才校正，于是点**非好友**的名片进来会先显示「消息/呼叫/视频 +
 >   备注·设置·页签三张卡」再整页翻脸。新增 **`IMFriendStateStore`**（`Common/`，uid → 是不是好友的进程内快照，
@@ -717,7 +717,7 @@
 
 ## 归档于 2026-08-22（会话行闪烁根因修复 · IMChatViewController 续拆收官 · 巨类拆分+code-review · 相机/粘贴单图磨砂占位 · 收藏页 B 方案——全部手测通过）
 
-> 从活快照转入。以下均已完成、手测通过（逐 commit 见 git log，逐功能×端状态见 `../IMServer/docs/CLIENT_PARITY.md`）。
+> 从活快照转入。以下均已完成、手测通过（逐 commit 见 git log，逐功能×端状态见 `../im-spec/CLIENT_PARITY.md`）。
 
 **会话行「[有人@我]↔普通预览」来回闪烁 ✅ 根因修复（2026-08-19，clean build 绿 + `IMConversationCacheTests` 22/22 实跑绿（iPhone 17 Pro Max），已提交 `95020a6`）** — 读 iOS 落盘日志定位：① `fetchHiddenCatchUp` 每次 `reload` 尾部无条件重删隐藏项，`removeLocalMessageOnQueue` 又**无条件**发 `IMSocketDidRemoveMessageNotification`，列表把它当消息事件再 `reload` → 自激刷新回路（列表 ~0.47s 空转拉全量，日志实测 507 次；回路最后一环 08-18 `12af5e2` 接上才闭合）；② 本地缓存表 `im_conversation_local` **无 `mention_unread` 列**（08-11 起潜在旧账），`cachedConversations` 恒 NO，与带 `mention_unread` 的 HTTP 权威列表对同一行「[有人@我]」前缀渲染相反 → 两路在回路里对闪。修：`deleteLocalMessageForConv` 用 `db.changes` 只在真删了行/推进位点时返回 YES，`removeLocalMessageOnQueue` 据此**只在真变更时才广播**（掐断回路）；`im_conversation_local` 补 `mention_unread` 列（建表+幂等迁移+读+写），`markConversationFullyRead` 一并清零。补 `IMConversationCacheTests` 两例。
 
@@ -784,7 +784,7 @@
 ---
 
 ## Status（2026-08-05：引用增强 M4-2 + 头像进资料页 + 键盘时序，从活快照迁入）
-> 均已实测通过、提交并推送 origin/main；逐功能×端状态见 `../IMServer/docs/CLIENT_PARITY.md` M4-2 三行（唯一来源）。
+> 均已实测通过、提交并推送 origin/main；逐功能×端状态见 `../im-spec/CLIENT_PARITY.md` M4-2 三行（唯一来源）。
 - **群聊气泡对方头像 → 成员资料页**（`3a757b0`，用户实测通过）：`IMBubbleCell` 加 `onAvatarTap`（`_avatar`
   开 userInteractionEnabled + tap 手势 → `handleAvatarTap` 回调）；VC `openMemberProfileForUID:` 复用单聊
   `IMChatDetailViewController initSingle…` + `showsMessagePill`，仅群聊对方气泡挂载（单聊/自己不挂）。落实
@@ -876,7 +876,7 @@
 - **拉黑模型重构 + 拒收反馈（2026-06-17，两端）**：
   - ①**拉黑≠解绑（blocked 标记模型）**：后端 `im_friend` 加与 `status` 正交的 `blocked` 标记（启动自动迁移老 `status='blocked'`→`blocked=1`，非破坏）。`Block` 只置标记、好友关系(双方 accepted)不动 → **双方好友列表始终互见**(拉黑方带标记)；`Unblock` 只清标记。`BlockedBetween`/黑名单查询改用标记。iOS：`IMUserCard.blocked` 解析 + 通讯录被拉黑好友副标题"· 已拉黑" + 左滑"解除拉黑"。Web：`FriendEntry.blocked`、`peerBlocked` 改用标记、好友列表"已拉黑"标签 + 菜单"解除拉黑"。**Web 浏览器实测全过**；iOS 真编译+test-build 过、真机待验。
   - ②**被拒收微信式反馈**：被拉黑方发消息 → 气泡左红❗ + 下方居中系统行「消息已发出，但被对方拒收了」，**不弹窗**(iOS `IMBubbleCell._failBadge/_sysNote` + `IMMessageModel.note`；Web `ChatMessage.note` + `.fail-badge/.sys-note`)。Web 实测过；**iOS 系统行真机待复验**(代码路径已逐段核对正确，疑用户上次测时走了 10s 超时而非拒收)。
-  - 规则见 `../IMServer/docs/PROTOCOL.md §6.5`、`CHAT_UX.md §8`。**已知**：早期"拉黑删对端行"旧 bug 已破坏的好友对(如 a1003↔a1001)无法自动复原，需重新加好友一次。
+  - 规则见 `../im-spec/PROTOCOL.md §6.5`、`CHAT_UX.md §8`。**已知**：早期"拉黑删对端行"旧 bug 已破坏的好友对(如 a1003↔a1001)无法自动复原，需重新加好友一次。
   - ③**拉黑改微信式单向(已定+实现)**：hub 仅拦"被拉黑方→拉黑方"；**拉黑方→被拉黑方照常投递**(对方收得到)。两端聊天页不再封禁拉黑方输入(Web 改非阻断提示行、iOS 移除封禁横幅)。`TestBlockedCannotSend` 改测单向。Web 浏览器实测：拉黑方发送成功✓+提示在+输入可用。iOS 真编译过、真机待验。
 
 
@@ -929,7 +929,7 @@
 ## Status（2026-06-15 最新）
 **正在做 M2「状态与可靠性」**。后端 M2 全done（已读回执 delivered≠read、未读数/red dot、presence、typing、会话项返回 read_seq、双向分页用现有 LoadSince）。
 **Web 端（im-web，React+TS）M2 已完成并浏览器实测**：已读双勾/未读红点/presence/typing、未读分割线（read_seq 精确定位）、进会话停首条未读（Telegram 式，非最新）、双向分页（上滚更早/下滚更新）、↓N 跳转、**Telegram 桌面式双栏布局（窄屏自适应单栏）**。
-**聊天交互蓝图见 `../IMServer/docs/CHAT_UX.md`（多端单一事实来源）；端能力见 `../IMServer/docs/CLIENT_PARITY.md`。**
+**聊天交互蓝图见 `../im-spec/CHAT_UX.md`（多端单一事实来源）；端能力见 `../im-spec/CLIENT_PARITY.md`。**
 压测工具：`IMServer/cmd/loadtest`（`go run ./cmd/loadtest -from 1002 -to 1001 -n 10000`）。
 **TODO（性能）**：Web 消息列表虚拟化暂回退（virtua 在双栏条件挂载/嵌套 flex 下视口测 0、渲染空且不自愈）→ 现为普通滚动列表（配反向分页常规不卡）；后续换 react-window/@tanstack/react-virtual。
 **✅ M2 iOS UI 已实现（2026-06-15）**：已读双勾（已送达✓→已读✓✓，按对端 read_seq）、会话列表未读红点、聊天页标题在线点（🟢/在线）、对方正在输入提示条、未读分割线（read_seq 精确）+ 进会话停首条未读、打开即全部已读（markRead latest）。workspace build + build-for-testing 通过。
@@ -938,7 +938,7 @@
 - 聊天页：IMBubbleCell 加分割线+已读双勾；进会话定位、typing 提示、presence 标题、typing 节流上报。
 - **已知限制**：presence/typing 仅在聊天页生效（socket 当前按会话连接，不在会话列表常驻）；会话列表不显示在线点。完整需把 socket 提到 App 级常驻（后续）。
 **✅ M2 真机验证通过（2026-06-15，iPhone 16e 模拟器）**：会话列表 / 进聊天 / 已读双勾(✓✓) / seq 正确显示均 OK。
-**✅ Telegram 视觉对齐（第一版，2026-06-15）**：参照 Telegram iOS 重做界面（详见 `../IMServer/docs/UI.md` 的"Telegram 视觉对齐"节）——
+**✅ Telegram 视觉对齐（第一版，2026-06-15）**：参照 Telegram iOS 重做界面（详见 `../im-spec/UI.md` 的"Telegram 视觉对齐"节）——
   - 会话列表自定义 cell：圆形彩色头像(uid 末两位 + `avatarColorForSeed`) + 名称/最后一条 + 右上时间 + 右下**蓝色未读胶囊**；行高 76，分隔线缩进对齐文字。
   - 聊天气泡重做：真气泡容器(非 UILabel 空格 padding)，圆角 18 + **尾巴**(maskedCorners)，文本 17pt，**气泡内右下角**时间 + ✓/✓✓。
   - 输入栏：圆角胶囊输入框 + 圆形蓝色发送按钮(arrow.up.circle.fill)。
@@ -962,7 +962,7 @@
 
 ## 关联工程
 - 客户端：/Users/liying/IOSProject/IMProgram
-- 后端：/Users/liying/IOSProject/IMServer（协议见 IMServer/docs/PROTOCOL.md）
+- 后端：/Users/liying/IOSProject/IMServer（协议见 im-spec/PROTOCOL.md）
 
 ## Progress
 - [x] 确认技术栈：Objective-C 为主，Swift 备用混编
@@ -973,7 +973,7 @@
 - [x] 选定通信方案：自建 WebSocket
 - [x] 选定依赖管理：CocoaPods
 - [x] 设计 IM 整体架构（写入 ARCHITECTURE.md）
-- [x] 编写共用协议文档 IMServer/docs/PROTOCOL.md（v0.1）
+- [x] 编写共用协议文档 im-spec/PROTOCOL.md（v0.1）
 - [x] 选定后端语言：Go
 - [x] 搭建 Go WebSocket 网关骨架（protocol/gateway/cmd），集成测试通过
 - [x] 后端：内嵌网页调试客户端（cmd/imserver/web/index.html，go:embed 挂 /），双开浏览器肉眼验证互发
@@ -1001,7 +1001,7 @@
 - `xcuserdata` / `xcuserstate` 不再纳入版本控制。
 
 ## Next Actions
-0. **【当前】M2 iOS UI**：照 `IMServer/docs/CHAT_UX.md` 蓝图，在 IMProgram 实现未读红点 / 已读双勾 / 在线点 / typing / 进会话停首条未读（read_seq 锚点）。配套 IMProgramTests，做完 M2 整体里程碑停下等用户验收。
+0. **【当前】M2 iOS UI**：照 `im-spec/CHAT_UX.md` 蓝图，在 IMProgram 实现未读红点 / 已读双勾 / 在线点 / typing / 进会话停首条未读（read_seq 锚点）。配套 IMProgramTests，做完 M2 整体里程碑停下等用户验收。
 1. 真机/模拟器联调：`cd IMServer && go run ./cmd/imserver`，App 登录页填 host=本机IP:8080 / 我的 uid / 对方 uid，两端互发；可先杀掉一端验证离线→重连 sync 补偿。
 2. 后续新增客户端逻辑时，往 IMProgramTests 加用例并按 CLAUDE.md 命令补跑（`-only-testing:IMProgramTests`）。
 3. 接 IMDatabase（FMDB）落库：消息 sending→sent 持久化、synced_conv_seq 持久化（替换当前内存位点）。
@@ -1048,7 +1048,7 @@
     「文字按钮场景」预算（88pt/侧）一次算死——进出多选零跳变（超预算仍收缩防重叠）；
     ②web 粘贴文件 chip 背景变量笔误（--bg-elevated 不存在落 transparent）→ --surface-elevated；
     ③web 引用跳转改「到位后再闪」（视口内立即闪，否则 scrollend/降级定时后闪，对齐 iOS）。
-  - caption（图+文一条消息）确认为独立里程碑，下一轮做；**方案已定案入 IMServer/docs/ROADMAP.md（M4-6 caption 追加）**：不新增 content_type/cell，image/video 加可选 caption 字段，现有媒体气泡图下长文字区。
+  - caption（图+文一条消息）确认为独立里程碑，下一轮做；**方案已定案入 im-spec/ROADMAP.md（M4-6 caption 追加）**：不新增 content_type/cell，image/video 加可选 caption 字段，现有媒体气泡图下长文字区。
 - **多选交互修 + 粘贴图预览条（2026-08-04 晚二批，✅ 改代码未编译；待实测）**：
   1. **进/出多选列表不跳**：新增 `preserveScreenPositionOfRow:during:`（记录锚行屏幕位置 →
      编辑态切换+reload → 两轮布局对齐还原）；进入锚定长按那条、退出锚定视口首条可见消息。
@@ -1160,7 +1160,7 @@
   多页仅从本页实际连续完成位置继续。账号切换会清空内存游标/in-flight/旧账号未决发送，并用连接
   代次丢弃迟到的旧登录请求与重连任务。重复权威消息会补全当前聊天内存和 SQLite 的
   `file_name/file_size`，不再出现另一端文件长期 0 KB。Web 已同步同一机制，协议见
-  `../IMServer/docs/PROTOCOL.md §6.2`；根因、不变量和自动化分层方案已记录在
+  `../im-spec/PROTOCOL.md §6.2`；根因、不变量和自动化分层方案已记录在
   `../IMServer/docs/CONTINUOUS_SYNC_AND_MULTI_CLIENT_TESTING.md`。待用户删库后做跨端、断线、
   多页和切账号实测。本轮 `xcodebuild build` 与 `build-for-testing` 均通过。
 
@@ -1261,13 +1261,13 @@
 
 **气泡内 `@昵称` 高亮 + 点击跳资料 ✅（2026-08-12，build 绿·待手测）**：iOS 不落库 per-msg mentions，改由**当前群成员+文本**推导（`mentionMapForMessage:`→name→uid）；`@所有人`仅群主/管理员时高亮（对齐 300204、不可点）；`+[IMBubbleCell attributedContent:base:mentionColor:mentions:]` 挂 `IMMentionUIDAttributeName`，cell 与阅读器共用。**点 `@昵称` 跳资料**：气泡 UILabel 用 `NSLayoutManager` 反查 tap 落点字符属性（`mentionUIDAtPoint:`，收键盘前用稳定布局 + glyph 矩形内才算）、阅读器 UITextView 同法反查（不走已弃用 link 代理）→ `openMemberProfileForUID:`；点击先于长文展开/引用跳转。token 边界同 `IMChatTextContainsMentionToken`、长名优先。
 
-**两项 UX 优化 ✅ 代码完成 + `/code-review` 全修（2026-08-11，build 绿·用户自测）** — 逐端矩阵见 `../IMServer/docs/CLIENT_PARITY.md`「UX」行；与 Web 同步交付。
+**两项 UX 优化 ✅ 代码完成 + `/code-review` 全修（2026-08-11，build 绿·用户自测）** — 逐端矩阵见 `../im-spec/CLIENT_PARITY.md`「UX」行；与 Web 同步交付。
 > 审查修复（iOS 侧）：分档字数改按码点计 `IMCodePointCount`（emoji 场景与 Web 一致）；`groupedCount` 收敛为 `+[IMBubbleCell charCountLabelForText:]`（cell+阅读器共用）；长文/超长**引用**消息点击先于引用跳转判定（否则整条点击被跳转抢占、永远点不开展开/阅读器）。
 1. **长文本三档显示**：`IMBubbleCell +textTierForContent:`（分档判据，阈值与 Web `longtext.ts` 一致：huge `chars≥2000|lines≥60`、long `≥300|≥10`）。cell 配置——short 全显；long 折叠前 8 行/400 字 + 「展开全文 ∨ / 收起 ∧」（宿主 `expandedTextKeys` 按 `seq-<convSeq>`/clientMsgID 记忆，点气泡切换并 `reloadRows`）；huge 摘要卡（📄 长文本·约N字 + 3 行预览 + 查看全文 ›）→ 点开新建 `IMTextReaderViewController`（全屏 `UITextView` 只读可选、字号 A±、复制全文）。tap 路由在 `handleReplyJumpTap:` → `handleLongTextTapForMessage:atIndexPath:`。**iOS 无对应单测**（判据可后补 XCTest）。
 2. **视频禁复制**：`IMChatViewController` 媒体查看器 `moreActions` 加 `if (!isVideo)` 守卫（图片仍可复制；长按菜单 `messageActionsForMessage:` 的 `copyable` 本就只含 text/image，不含视频）。
 
 **任务二（IMServer 驱动）— 详情页删文件两档 + 返回按钮全局未读徽标 ✅ 三端手测通过（2026-08-11，build 通过）**
-> 完整设计/归档见 `../IMServer/current_task.archive.md`「2026-08-11 归档④」；逐端矩阵 `../IMServer/docs/CLIENT_PARITY.md`「任务二」。
+> 完整设计/归档见 `../IMServer/current_task.archive.md`「2026-08-11 归档④」；逐端矩阵 `../im-spec/CLIENT_PARITY.md`「任务二」。
 - **删文件两档**：`IMProtocol`(delete/msg_hidden 常量)、`IMDatabase`(deleteLocalMessageForConv / totalUnreadExcludingConv)、`IMSocketManager`(deleteMessageForEveryone / removeLocalMessage / msg_hidden 帧 / applyMsgOp op=delete + `IMSocketDidRemoveMessageNotification`)、`IMMessageModel.deletedAt` + `processIncomingMessage` 直加载跳过、`IMHTTPService`(hide / fetchHidden)、`IMChatDetailViewController deleteFileMessage:` 两档 actionSheet（我发的/群主·管理员=为所有人删除+仅删自己；他人=删除）、`IMConversationListViewController` 登录 fetchHidden catch-up。
 - **返回按钮全局未读徽标**：`IMLiquidNavigationBar.backBadge`（圆形红底/99+）+ `IMMainTabBarController im_setBackBadgeCount:` + `IMChatViewController refreshBackUnreadBadge`（=全局未读减当前会话，进页 + 收消息/已读位点通知刷新）。
 - 三端交叉手测通过；`/code-review` 5 条已全修。
@@ -1299,12 +1299,12 @@
 - **手测场景清单**：`docs/DOWNLOAD_TEST_SCENARIOS.md`（新增，基于下载方案 + 门控机制文档）。
 - **门控/占位机制规范**（供 Web 对照）：`../IMServer/docs/MEDIA_PLACEHOLDER_MECHANISM.md`。
 - **未做/遗留**均记在关联文档，不放这里：下载相关见 `../IMServer/docs/DOWNLOAD_DATA_STORAGE_PLAN.md`（§4 待办 / §5.1 / §6.5）；
-  跨端遗留（任务一 P1 全局开关、iOS 通讯录在线绿点等）见 `../IMServer/docs/ROADMAP.md`。
+  跨端遗留（任务一 P1 全局开关、iOS 通讯录在线绿点等）见 `../im-spec/ROADMAP.md`。
 
 ## 下一步
 1. **手测（优先）**：照 `docs/DOWNLOAD_TEST_SCENARIOS.md` 跑——门控四类（图片/视频/文件/相册宫格）+ 详情页两 Tab + 设置三层
    + 磨砂占位（气泡 / 引用缩略 / 媒体库）+ 清缓存回退。
-2. 待手测暴露问题 → 修；无问题 → 接 `../IMServer/docs/ROADMAP.md` 下一里程碑（caption / 网络恢复秒连 等）。
+2. 待手测暴露问题 → 修；无问题 → 接 `../im-spec/ROADMAP.md` 下一里程碑（caption / 网络恢复秒连 等）。
 
 ---
 
@@ -1352,7 +1352,7 @@
 
 > **记录卡补齐 + 语音四项（2026-08-30 第三批；`IMProgramTests` 312 例全绿；**已手测通过**）**
 > 1. **合并转发条目新增 `ts`/`u`/`a`**（原消息时间 / 发送者 uid / 头像相对路径，两端同 key，
->    契约表进了 [PROTOCOL.md](../IMServer/docs/PROTOCOL.md)）。记录详情页据此：右上角显**每条**消息的时间、
+>    契约表进了 [PROTOCOL.md](../im-spec/PROTOCOL.md)）。记录详情页据此：右上角显**每条**消息的时间、
 >    左侧显头像、**连续同一人只显一次头像与昵称**（判据抽成纯函数 `IMRecordSenderKey`，与 Web
 >    `recordSenderKey` 同口径、各带单测）。**老记录一定缺这三个字段**——不显时间 / 首字母色块兜底，
 >    绝不能因为缺字段就不渲染。`u` 只当查头像与判连续的键，**永不上屏**（显示名一律走 `n`）。
@@ -1361,7 +1361,7 @@
 > 2. **语音「已读」= 点了就算**：新增 `im_markVoiceConsumed:` 收口——播放与**转文字**都消未播红点
 >    并刷那一行（原先只有播放会消，且要等 cell 复用才刷）。判据是"点了"不是"听完"。
 >    **注意**：发送方看到的 ✓✓ 仍是"进会话即读"，语音不例外——`read_seq` 是水位线，做不到单条
->    语音"听了才算"，详见 [VOICE_MESSAGE_DESIGN §7](../IMServer/docs/design/VOICE_MESSAGE_DESIGN.md)。
+>    语音"听了才算"，详见 [VOICE_MESSAGE_DESIGN §7](../im-spec/design/VOICE_MESSAGE_DESIGN.md)。
 > 3. **单聊语音气泡终于和其它气泡左对齐**：`IMVoiceBubbleCell` 把对方气泡左缘钉死在
 >    `_avatar.trailing + 8`，而 `applyGroupAvatarURL:…gutter:` **整个忽略了 gutter** ——
 >    单聊没有头像列，气泡照样被推到 50pt，比同屏文本/图片气泡多缩进近 40pt。改成锚 contentView
@@ -1502,7 +1502,7 @@
 >    只校验「持有合法 token」、不校验关系，随机 10 位 ID 的不可枚举是那个接口唯一的防线。
 >    **读端零改动**（`IMRecordSenderKey` 本就只做相等比较，存量卡片里的真 uid 自然兼容）；
 >    只把 `IMChatRecordViewController` 的头像色种从 `uid` 换成名字（匿名序号当色种没意义）。
->    契约见 `../IMServer/docs/PROTOCOL.md`「合并转发卡片（chat_record）的条目结构」。
+>    契约见 `../im-spec/PROTOCOL.md`「合并转发卡片（chat_record）的条目结构」。
 >
 > **未手测**；后端同批加了显示名字符清洗（`internal/textguard`），iOS 侧无需配合改动。
 
@@ -1530,7 +1530,7 @@
 > **群头像 / 群名（必填、预填「我、A、B」）/ 成员横条（可 ✕，不可删到 0）**。
 > 头像随 `POST /groups` 的 `avatar_url` 一起发——**服务端一直有这一位，端上此前恒传空串**，
 > 于是每个新群都得先建出来再进群管理页设图。设计稿见
-> `../IMServer/docs/design/sketches/GROUP_CREATE_UX_SKETCH.html`。
+> `../im-spec/design/sketches/GROUP_CREATE_UX_SKETCH.html`。
 >
 > **顺带收敛的重复**：会话页 ＋ 菜单与通讯录群聊页**各有一份**「alert 输群名 + POST」实现（几乎逐字重复），
 > 一并删掉，两处都改调 `+[IMGroupCreateViewController startInNavigationController:host:userID:onCreated:]`；
@@ -1631,7 +1631,7 @@
 
 # 归档于 2026-10-01（从活快照「当前焦点」移入较早批次：均已完成/已提交，待办仍以「下一步」「已知坑」为准）
 
-> **2026-09-30 撤回 / 删除后收回通知（iOS 侧）**：设计 `../IMServer/docs/design/PUSH_M5_DESIGN.md` §3.4。
+> **2026-09-30 撤回 / 删除后收回通知（iOS 侧）**：设计 `../im-spec/design/PUSH_M5_DESIGN.md` §3.4。
 > App 没在跑时由服务端用同一个 `apns-collapse-id` 把原通知替换成「对方撤回了一条消息」，本端无代码；
 > App 活着时 `IMSocketManager applyMsgOpPayload:`（实时帧与 sync 补到的事件行都走它）调
 > `Common/IMPushRetract`，按通知 userInfo 的 `conv_id`+`conv_seq` 把通知中心里那条（含替换后的撤回提示）移除。
@@ -1648,7 +1648,7 @@
 > 已读同步把真机的未读清掉了（日志 dev=CBE171A0，CoreSimulator 路径）。
 
 > **M5 离线推送 · 第一批 ✅ 代码 + 单测已完成，待真机验（2026-09-30，未开分支——直接在 IMProgram 工作树，
-> 设计 `../IMServer/docs/design/PUSH_M5_DESIGN.md`（§8 全部按推荐），协议 `../IMServer/docs/PROTOCOL.md`
+> 设计 `../im-spec/design/PUSH_M5_DESIGN.md`（§8 全部按推荐），协议 `../im-spec/PROTOCOL.md`
 > §6.12 app_state / §6.13 notify_settings_update / §6.14 APNs payload / §11 push/token·notify-settings，
 > 服务端与安卓/Web 由其他并行 agent 同步实现，本仓只改 iOS）**：
 > - **推送令牌注册**：`Network/IMPushTokenManager.h/.m`（新）——`start` 订阅 socket 连接态，每次
@@ -1712,7 +1712,7 @@
 >   2. **`GET /api/v1/notify-settings` 首次迁移与「本地 dirty 值」的极端并发**未做更细的时序保护：
 >      若迁移 PUT 与用户几乎同时在设置页改了值，理论上有一次写入被覆盖的窗口（概率极低，未做锁）。
 >   3. **推送权限被拒后的「已拒绝」态没有引导去开『消息预览』等替代方案**，只按设计给了系统设置跳转。
->   4. `IMServer/docs/CLIENT_PARITY.md`/`SYMMETRY.md` 本批未碰（任务明确限定「只改 IMProgram」）。
+>   4. `im-spec/CLIENT_PARITY.md`/`SYMMETRY.md` 本批未碰（任务明确限定「只改 IMProgram」）。
 > - **需要真机验证**（模拟器/单测测不出）：
 >   1. 登录后首次进主页系统授权弹窗的时机与文案；
 >   2. App 切后台/回前台时抓包确认 `app_state` 帧确实发出（模拟器无法真实触发 App Store 级挂起）；
@@ -1746,22 +1746,22 @@
 ---
 ## 2026-10-06 归档自 current_task.md「下一步 / 已知坑」（核对后已完成或用户确认）
 1. **真机验证欠账**：通知 P1 批一（横幅）+ 批二（定时免打扰时长菜单）只过了模拟器编译，没真机跑过，清单见 `current_task.archive.md` 里最近的归档块；「设置 ▸ 最近通话」真机走一遍拨打→挂断→回本页看 `callEnd` 是否自动刷新、1v1 回拨、群聊行跳转；批量删除两档的 iOS 真机。
-2. **核对 `IMServer/docs/CLIENT_PARITY.md` 的 M5 行是否已按 iOS/安卓/Web 拆状态**（`SYMMETRY.md` 的 `alertDecision` 四端已登记）；若没拆，补上。
+2. **核对 `im-spec/CLIENT_PARITY.md` 的 M5 行是否已按 iOS/安卓/Web 拆状态**（`SYMMETRY.md` 的 `alertDecision` 四端已登记）；若没拆，补上。
 - 聊天页「从收藏发送」暂不支持：`attachItemTapped:` 的 `favorite` 分支仍走 `im_showComingSoon`（`../IMServer/docs/FAVORITES_DESIGN.md` §5.5 标 ⏸）。
 
 ### 2026-10-09 归档：当前焦点（收口前快照）
-**通话被踢后现场重启（2026-10-09，未 commit）**：`IMRtcCall` 记 `_wantedUID`，被踢只 `tearDown` 不清账号，呼叫 / 查通话记录入口 `restartIfStopped`；纯函数 `IMRtcCallShouldRestart` 有单测。服务端口径与验证见 `IMServer/docs/design/CALL_ACCESS_CONTROL_DESIGN.md`。
+**通话被踢后现场重启（2026-10-09，未 commit）**：`IMRtcCall` 记 `_wantedUID`，被踢只 `tearDown` 不清账号，呼叫 / 查通话记录入口 `restartIfStopped`；纯函数 `IMRtcCallShouldRestart` 有单测。服务端口径与验证见 `im-spec/design/CALL_ACCESS_CONTROL_DESIGN.md`。
 
 - **10-08 握手 401 先续期再判被踢**（`Network/IMSocketManager+AuthRecovery.{h,m}`，与 Android `ws/WakeAction.kt` 同表）：401 → 作废 10 分钟 token 缓存、立即重连（openSocket 内续期）；续期被拒走既有 `IMSocketDidRevokeSessionNotification`；续期后的新 token 还 401 才按被踢；didOpen 清「已续过」。起因：服务端换密钥重启，iPhoneWork 拿缓存旧 token 重连被送回登录页。模拟器（iPhone 17 Pro Max）× Pixel × OPPO 两轮换密钥重启均自动续上。/code-review 后补：只让缓存过期（`expireCachedToken`，不清 currentToken/昵称）；无续期凭据直接按被踢（否则退回空密码 /login：生产无限重试、dev-login 复活吊销设备）；「续过一次」按连接代次记；恢复 WS close≠401 的注释。test.sh 1049 绿；`IMSocketAuthRecoveryTests` 6 例已变异看红（宿主 SceneDelegate 异步登出会串到下一条，setUp/tearDown 先排空主线程）。
 - 10-08 接 im-rtc Kit tokenProvider，SDK 2.2.1（`remote 2.2.1`）：`IMRtcCall` 登录交给 Kit，通话记录先 `[_kit ensureReady:]`。
-**聊天相册选择器：iOS 自建（对齐 Android `:media-picker`）——已合入 main，用户真机自测通过（2026-10-07）**（方案 `../IMServer/docs/design/MEDIA_PICKER_IOS_DESIGN.md` + 草图 `sketches/MEDIA_PICKER_UX_SKETCH.html`）。聊天「➕ → 照片」换成自建宫格（4 列 · 相册切换 · 编号多选 ≤9 · 底栏「原图 (总大小)」· 视频时长角标 · >2GB 置灰 · 长按预览）；缩略图 / 视频首帧走 `PHImageManager`，视频转码直接吃 `AVAsset`（不再先把整个视频拷出相册），根治「选完视频首帧空白几十秒」。权限三态同页处理（有限访问「管理」/ 拒绝=空状态+去设置，**无降级退路**）；旧「发送 / 发送原图」动作表与 `presentFromViewController:limit:` 已删。头像三处与「➕ → 文件 → 相册」仍用 PHPicker。新文件 `Common/IMMediaPick*.{h,m}` / `IMMediaPicker{Photos,Cell,Bars,BucketSheet,ViewController,Entry}` / `IMMediaPreviewViewController`；测试 `IMMediaPickLogicTests`（10 例，含转码结局判定，已看红过）。合入后收尾 5 项已做：被拒隐藏底栏、视频体积查询按 ID 去重、删不可达的「0 字节不可选」、转码回落单独告警 `video_transcode_fallback_original`。Android 同批已合入（去降级改空状态；另修发送方视频磨砂 / 先横后竖，见 im-android）。
+**聊天相册选择器：iOS 自建（对齐 Android `:media-picker`）——已合入 main，用户真机自测通过（2026-10-07）**（方案 `../im-spec/design/MEDIA_PICKER_IOS_DESIGN.md` + 草图 `sketches/MEDIA_PICKER_UX_SKETCH.html`）。聊天「➕ → 照片」换成自建宫格（4 列 · 相册切换 · 编号多选 ≤9 · 底栏「原图 (总大小)」· 视频时长角标 · >2GB 置灰 · 长按预览）；缩略图 / 视频首帧走 `PHImageManager`，视频转码直接吃 `AVAsset`（不再先把整个视频拷出相册），根治「选完视频首帧空白几十秒」。权限三态同页处理（有限访问「管理」/ 拒绝=空状态+去设置，**无降级退路**）；旧「发送 / 发送原图」动作表与 `presentFromViewController:limit:` 已删。头像三处与「➕ → 文件 → 相册」仍用 PHPicker。新文件 `Common/IMMediaPick*.{h,m}` / `IMMediaPicker{Photos,Cell,Bars,BucketSheet,ViewController,Entry}` / `IMMediaPreviewViewController`；测试 `IMMediaPickLogicTests`（10 例，含转码结局判定，已看红过）。合入后收尾 5 项已做：被拒隐藏底栏、视频体积查询按 ID 去重、删不可达的「0 字节不可选」、转码回落单独告警 `video_transcode_fallback_original`。Android 同批已合入（去降级改空状态；另修发送方视频磨砂 / 先横后竖，见 im-android）。
 **iOS 单测欠账专项**仍在进行（清单与逐项进度见 `docs/TEST_DEBT.md`；批 A/B、C1、C2 已做，剩 C3–C7 与批 D；约定：测试由我逐个写，不派并行子代理改测试目标）。
 
 ---
 
 # 归档于 2026-10-15（置顶面板落地时从活快照「当前焦点」移出的 10-08 / 10-09 条目，原样）
 
-**「新的朋友」已添加段 + 同意后角标不减修复（2026-10-09，未 commit，设计 `../IMServer/docs/design/NEW_FRIENDS_DESIGN.md`）**：① 新增 `IMFriendRelationDidChangeLocallyNotification`（声明在 `IMFriendRequestListViewController.h`，`IMPostFriendRelationDidChangeLocally()` 保证主线程）；新的朋友页 accept/reject、详情页 block/unblock/删好友成功后发出，`IMContactsViewController` 收到即取消待发 reload 并立即 `reload`（切入 30s 节流原样保留）。② 「已添加」段：纯逻辑 `Modules/Contacts/IMFriendRequestSections.{h,m}`（accepted 且 updatedAt 在 30 天内、倒序、≤50；常量 `kIMRecentAddedDays/Max`），段序 incoming→outgoing→added、空段不出现；行复用 `IMContactCell` + 禁用「已添加」标记，点行进资料页，无删除/左滑。测试 `IMFriendRequestSectionsTests` 6 例（已变异看红）。待真机目测：同意后返回通讯录角标即减；已添加段样式。
+**「新的朋友」已添加段 + 同意后角标不减修复（2026-10-09，未 commit，设计 `../im-spec/design/NEW_FRIENDS_DESIGN.md`）**：① 新增 `IMFriendRelationDidChangeLocallyNotification`（声明在 `IMFriendRequestListViewController.h`，`IMPostFriendRelationDidChangeLocally()` 保证主线程）；新的朋友页 accept/reject、详情页 block/unblock/删好友成功后发出，`IMContactsViewController` 收到即取消待发 reload 并立即 `reload`（切入 30s 节流原样保留）。② 「已添加」段：纯逻辑 `Modules/Contacts/IMFriendRequestSections.{h,m}`（accepted 且 updatedAt 在 30 天内、倒序、≤50；常量 `kIMRecentAddedDays/Max`），段序 incoming→outgoing→added、空段不出现；行复用 `IMContactCell` + 禁用「已添加」标记，点行进资料页，无删除/左滑。测试 `IMFriendRequestSectionsTests` 6 例（已变异看红）。待真机目测：同意后返回通讯录角标即减；已添加段样式。
 
 **2026-10-09 全部已提交（工作区干净）**：已登录设备页平台图标改 SF Symbols（`IMDeviceSession.platformSymbol`，d2e0dd8；`platformEmoji` 仍在、只剩单测用）；iPad 取消发送确认 ActionSheet 补 popover 锚点（008446c）；发送被拒微信式文案 + 300001 本地化（94980d2 / 304de89）；通话被踢后现场重启（1f0b9b5，`IMRtcCall` 记 `_wantedUID`，`IMRtcCallShouldRestart` 有单测）。
 
@@ -1771,20 +1771,20 @@
 
 # 归档于 2026-11-01（当前焦点整体归档：均已落地并推送，仅余真机/浏览器目测项）
 
-- **邮箱登录（2026-10-30，test.sh 全绿，未提交，未装机目测；设计 `../IMServer/docs/design/EMAIL_LOGIN_DESIGN.md`，草图 `sketches/EMAIL_LOGIN_UX_SKETCH.html`，契约 PROTOCOL §7.2）**：隐私页「邮箱登录」行转活（右值邮箱/未绑定，进页与子页返回重新 GET；长值中间截断）→ 根页 `IMEmailLoginViewController`（未绑定说明页 / 已绑定页；`available:false` 主按钮置灰 + `email.unavailable`）→ `IMEmailFormViewController`（绑定/更换同页，邮箱轻量预检 `IMEmailPrecheck`）→ `IMEmailCodeViewController`（复用两步验证 `IMTwoStepMakeCodeField`/`IMTwoStepSanitizeCode`；满 6 位自动提交；60s 重发 Timer 随页面生命周期、`retry_after_sec` 重建；重发需密码，密码只在本页内存）→ `IMEmailUnbindViewController`（UIAlertController .destructive 二次确认）。版式复用 `IMTwoStepFormViewController` 骨架（新增 `IMTwoStepRow.transparent` 供纯文字链行）。纯规则 `Common/IMEmailLogin`，REST `IMHTTPService+Email`，控件 `IMEmailViews`；`IMHTTPLogFormatter` 把 `email` 值与含 `@` 的 `username` 脱敏成 `a***@domain`。登录页登录态占位 `login.identifier.label`（键盘仍 ASCIICapable，登录名原样发，`/account/restore` 沿用同一输入值）。`IMSysEventFormatter` 加 `email_bound/changed/unbound`。设置搜索登记 `privacy.emailLogin`（路由 `privacy/emailLogin`；Android 登记表需同位对齐：两步验证之后、自动删除之前）。测试 `IMEmailLoginTests` 31 例（6 处变异已看红）。**限制**：`attempts_left=0` 不显示「还可尝试 0 次」（按普通错码文案）；验证码页重发时密码错只出红字，需点「更换邮箱」重填；未做模拟器/真机手点（页面靠单测 + 编译）。
-- **两步验证 TOTP + 恢复码（2026-10-30，test.sh 1279/1279，未提交；设计 `../IMServer/docs/design/TWO_STEP_VERIFICATION_DESIGN.md`，契约 PROTOCOL §7.1）**：隐私页「两步验证」行转活（右值开启/关闭，进页/返回刷新）→ `IMTwoStepViewController`（介绍/状态）→ 密码 → 绑定（本地二维码 + 手动密钥）→ 恢复码页（无返回，勾选才可完成）；关闭/重新生成共用 `IMTwoStepVerifyViewController`；登录页同页二步 `IMLoginTwoStepView`（200020 经 `IMErrorByAttachingTwoStepInfo` 保留 ticket，满 6 位自动提交）。纯规则 `Common/IMTwoStep`，REST `IMHTTPService+TwoStep`；`IMHTTPLogFormatter` 增脱敏键。恢复码框粘贴整份清单只取第一个码（`IMTwoStepExtractRecoveryCode`）。测试 `IMTwoStepTests` 41 例（变异已看红）。**限制**：恢复码页 iOS 无返回路径（按设计），故「离开确认」框未用；进主界面后的页面靠临时 XCTest 渲染 + 真服务端端到端自测，未用手点。
-- **清除所有对话（2026-10-29，test.sh 全绿（首跑 IMSocketAckTests 两条并发负载偶发红、重跑绿，属已知坑）+ `IMClearAllTests` 11 例（7 处变异已看红），未提交，模拟器已实测（入口/二级页/取消/确认/清空/空态/toast/限频失败路径）；设计 `../IMServer/docs/design/CLEAR_ALL_CONVERSATIONS_DESIGN.md`，草图 `sketches/CLEAR_ALL_CONVERSATIONS_UX_SKETCH.html`，契约 PROTOCOL §6.8）**：隐私与安全「数据」组首行转活（图标红 `systemRed`，不登记设置搜索）→ `IMClearAllViewController`（无密码框；配置 → `UIAlertController` 二次确认带 N=进页时 `cachedConversations.count` → POST → 成功返回隐私页 toast `已清除 N 个对话`/`没有可清除的对话`，N 取服务端 `cleared`；失败按钮恢复 + 红字、**本机不动**）。版式抽成共用基类 `IMDangerPageViewController`（警示头 + 后果卡 + 信息条 + 错误行 + 红按钮），`IMDeleteAccountViewController` 改继承它（不分叉）。HTTP 成功后 `IMClearAll applyResult:`：后台线程 `IMSocketManager+ClearAll applyClearAllItems:` → `IMDatabase+ClearAll clearConversationsToFloors:`（**单事务**，每项复用库内 `IMClearConvToFloorInDB`——从 `clearMessagesForConv:toServerClearedAt:` 抽出，与单条删除会话同一实现；已复活的会话保留行）→ 内存游标/下界缓存/聊天页清空通知（页面保持打开）→ 删 `IMDownloads`+`im_original_videos`（**不动 `im_image_cache`，头像在里面**）+「看过」登记 → 通知中心清空、角标 0、广播会话更新、Tab 红点清零。`conv_update(delete)` 回声走原 `applyConvDeleteFrame:`，幂等。i18n `privacy.clear_all.*` 14 键入 `strings.json`（旧 `ps.row.clear_all_chats` 已删）并 `gen-i18n`。测试 `IMClearAllTests`。**限制**：图片消息缩略图与头像共用 `im_image_cache`，故图片缓存不清；批量里 `cleared_at<=0` 的会话只移行不碰消息。
+- **邮箱登录（2026-10-30，test.sh 全绿，未提交，未装机目测；设计 `../im-spec/design/EMAIL_LOGIN_DESIGN.md`，草图 `sketches/EMAIL_LOGIN_UX_SKETCH.html`，契约 PROTOCOL §7.2）**：隐私页「邮箱登录」行转活（右值邮箱/未绑定，进页与子页返回重新 GET；长值中间截断）→ 根页 `IMEmailLoginViewController`（未绑定说明页 / 已绑定页；`available:false` 主按钮置灰 + `email.unavailable`）→ `IMEmailFormViewController`（绑定/更换同页，邮箱轻量预检 `IMEmailPrecheck`）→ `IMEmailCodeViewController`（复用两步验证 `IMTwoStepMakeCodeField`/`IMTwoStepSanitizeCode`；满 6 位自动提交；60s 重发 Timer 随页面生命周期、`retry_after_sec` 重建；重发需密码，密码只在本页内存）→ `IMEmailUnbindViewController`（UIAlertController .destructive 二次确认）。版式复用 `IMTwoStepFormViewController` 骨架（新增 `IMTwoStepRow.transparent` 供纯文字链行）。纯规则 `Common/IMEmailLogin`，REST `IMHTTPService+Email`，控件 `IMEmailViews`；`IMHTTPLogFormatter` 把 `email` 值与含 `@` 的 `username` 脱敏成 `a***@domain`。登录页登录态占位 `login.identifier.label`（键盘仍 ASCIICapable，登录名原样发，`/account/restore` 沿用同一输入值）。`IMSysEventFormatter` 加 `email_bound/changed/unbound`。设置搜索登记 `privacy.emailLogin`（路由 `privacy/emailLogin`；Android 登记表需同位对齐：两步验证之后、自动删除之前）。测试 `IMEmailLoginTests` 31 例（6 处变异已看红）。**限制**：`attempts_left=0` 不显示「还可尝试 0 次」（按普通错码文案）；验证码页重发时密码错只出红字，需点「更换邮箱」重填；未做模拟器/真机手点（页面靠单测 + 编译）。
+- **两步验证 TOTP + 恢复码（2026-10-30，test.sh 1279/1279，未提交；设计 `../im-spec/design/TWO_STEP_VERIFICATION_DESIGN.md`，契约 PROTOCOL §7.1）**：隐私页「两步验证」行转活（右值开启/关闭，进页/返回刷新）→ `IMTwoStepViewController`（介绍/状态）→ 密码 → 绑定（本地二维码 + 手动密钥）→ 恢复码页（无返回，勾选才可完成）；关闭/重新生成共用 `IMTwoStepVerifyViewController`；登录页同页二步 `IMLoginTwoStepView`（200020 经 `IMErrorByAttachingTwoStepInfo` 保留 ticket，满 6 位自动提交）。纯规则 `Common/IMTwoStep`，REST `IMHTTPService+TwoStep`；`IMHTTPLogFormatter` 增脱敏键。恢复码框粘贴整份清单只取第一个码（`IMTwoStepExtractRecoveryCode`）。测试 `IMTwoStepTests` 41 例（变异已看红）。**限制**：恢复码页 iOS 无返回路径（按设计），故「离开确认」框未用；进主界面后的页面靠临时 XCTest 渲染 + 真服务端端到端自测，未用手点。
+- **清除所有对话（2026-10-29，test.sh 全绿（首跑 IMSocketAckTests 两条并发负载偶发红、重跑绿，属已知坑）+ `IMClearAllTests` 11 例（7 处变异已看红），未提交，模拟器已实测（入口/二级页/取消/确认/清空/空态/toast/限频失败路径）；设计 `../im-spec/design/CLEAR_ALL_CONVERSATIONS_DESIGN.md`，草图 `sketches/CLEAR_ALL_CONVERSATIONS_UX_SKETCH.html`，契约 PROTOCOL §6.8）**：隐私与安全「数据」组首行转活（图标红 `systemRed`，不登记设置搜索）→ `IMClearAllViewController`（无密码框；配置 → `UIAlertController` 二次确认带 N=进页时 `cachedConversations.count` → POST → 成功返回隐私页 toast `已清除 N 个对话`/`没有可清除的对话`，N 取服务端 `cleared`；失败按钮恢复 + 红字、**本机不动**）。版式抽成共用基类 `IMDangerPageViewController`（警示头 + 后果卡 + 信息条 + 错误行 + 红按钮），`IMDeleteAccountViewController` 改继承它（不分叉）。HTTP 成功后 `IMClearAll applyResult:`：后台线程 `IMSocketManager+ClearAll applyClearAllItems:` → `IMDatabase+ClearAll clearConversationsToFloors:`（**单事务**，每项复用库内 `IMClearConvToFloorInDB`——从 `clearMessagesForConv:toServerClearedAt:` 抽出，与单条删除会话同一实现；已复活的会话保留行）→ 内存游标/下界缓存/聊天页清空通知（页面保持打开）→ 删 `IMDownloads`+`im_original_videos`（**不动 `im_image_cache`，头像在里面**）+「看过」登记 → 通知中心清空、角标 0、广播会话更新、Tab 红点清零。`conv_update(delete)` 回声走原 `applyConvDeleteFrame:`，幂等。i18n `privacy.clear_all.*` 14 键入 `strings.json`（旧 `ps.row.clear_all_chats` 已删）并 `gen-i18n`。测试 `IMClearAllTests`。**限制**：图片消息缩略图与头像共用 `im_image_cache`，故图片缓存不清；批量里 `cleared_at<=0` 的会话只移行不碰消息。
 - **删除会话＝清空 + 隐藏（OFFLINE_BACKLOG_DESIGN §6.7.1，2026-10-28，test.sh 1216/1216，未提交，未真机目测）**：统一「清除到位点」例程 `IMSocketManager+ConvClear`（`clearConvToFloor:serverClearedAt:database:`：位点=max(既有, cleared_at)，无 cleared_at 取本机 head；清消息(≤位点)+区间+推游标+丢 `IMBacklogTracker` 下界缓存；须先于 `deleteCachedConversation:`）。三触发点：本机删除成功（`deleteConversationWithToken` 回调带 `clearedAt`，列表单删 / +Editing 批量）、`conv_update(delete)`（`applyConvDeleteFrame:`）、列表快照 `IMConversation.clearedAt` > 本机位点（`alignClearFloorsFromConversations:`，在 `replaceCachedConversations:` 之前）。DB 侧 `IMDatabase+ClearFloor` 新增 `clearMessagesForConv:toServerClearedAt:`。测试 `IMConvDeleteClearTests` 7 例（4 处变异已看红）。**限制**：服务端给了 cleared_at 时只清 ≤位点的行（位点之上的本机行保留）；快照追平在列表刷新时才触发。
-- **导出我的数据（2026-10-27 已模拟器实测：错密码红字/发起/完成/分享面板·存到文件/杀进程重进冷却均过，test.sh 1203/1203；未提交；设计 `../IMServer/docs/design/DATA_EXPORT_DESIGN.md` §1/§2/§5，草图 `sketches/DATA_EXPORT_UX_SKETCH.html`，契约 PROTOCOL §6.18）**：隐私与安全「数据」组「导出我的数据」转活行 → `IMExportDataViewController`（配置 / 进行中 / 完成 / 冷却 / 失败；进页拉 `latest`，进行中每 2s 轮询、页面消失即停、回前台补拉；密码错内联红字保留输入，200010 toast + 切进度，200011 读 `data.retry_after_sec` 进冷却态；取消不二次确认）。纯逻辑 `Common/IMDataExport`（任务解析 / 状态映射 `IMExportResolveViewState` / `IMExportCanStart` / 冷却小时上取整 / 下载地址拼接）；REST `IMHTTPService+Export`；下载 `IMExportDownloader`（downloadTask → `NSTemporaryDirectory()/im-export-yyyyMMdd.zip` → `UIActivityViewController`，分享完删临时文件）。`IMFriendlyMessageForCode` 补 200010/200011。测试 `IMDataExportTests` 17 例。**下载中态（2026-10-28 已模拟器实测 1.2GB：进度条 + 「已下载 a / b」 + 红粗 14pt 提醒、隐「下载」钮、完成弹分享面板；test.sh 1209/1209，未提交）**：`IMExportDownloader` 改每次下载独立 session + `URLSessionDownloadDelegate`，`progress:` 回调主线程、节流（≥100ms 或 ≥1%，`IMExportDownloadShouldEmitProgress`）、completion 后不再回调，总长未知（≤0）走不定长滑块；测试 `IMExportDownloaderTests`（含 `setProtocolClassesForTesting:` 桩）。**限制**：不定长态与失败态未在界面实测（仅单测）；200011 缺 `retry_after_sec` 时按 24h 兜底；冷却倒计时只在进页 / 回前台 / 操作时重算，不逐小时自刷新；清除所有对话仍灰置。
-- **自动删除消息 v2（2026-10-21，会话级共享、不追溯，未提交；设计 `../IMServer/docs/design/AUTO_DELETE_DESIGN.md` v2 §9，共用向量 `conformance/auto_delete.json`）**：单聊双方 / 群全员同时生效，服务端 `auto_delete_sec` + `auto_delete_from` 成对下发（列表项 / `conv_update` / GET·PUT settings）。本地存**独立小表** `im_conv_auto_delete_local(sec, from_ms)`（`IMDatabase+AutoDelete`；v1 个人档位升级时整表清掉不迁移）；纯判定 `Common/IMAutoDelete`（`IMAutoDeleteExpired(ts,sec,from,now)`、`IMAutoDeleteWindow`、`IMAutoDeleteConfig`，**没有 floorTs 了**：过期集合 = 窗口 `[from, now-sec*1000]`）。调度 `IMAutoDeleteScheduler`（0.25s 合并；启动 / 回前台 / 前台 30s）；`conv_update` / 设置页发现 sec 或 from 变且 sec>0 才扫该会话，无「开启即清历史」。入库闸 / 实时 / sync 整页 / 置顶 / 服务端分页同一公式。预览 / 未读重算（`recomputeSummaryInDB`）：最后一条落窗口内才动，预览取最后一条**未过期**可见消息（越过窗口取 from 之前，如开启通知），未读 = min(扣除后, 本机剩余未读)，timestamp 不清零，无变化不重复通知。UI：确认框非 destructive「开启」（新>0 且≠当前才弹；单聊 / 群两套正文与页脚）；群非群主 / 管理员：详情页行进只读档位页（`onReadOnlyTap`），点任意行 toast `autodel.group_admin_only`、不发 PUT，PUT 回 `300204` 同 toast 并回滚。系统消息 `auto_delete` 在 `IMSysEventFormatter`（按 `sys_args.sec` 选 on/off、`{period}` 折算；气泡与会话列表预览同源）。PUT 仅主动改档位那一处带 `auto_delete_sec`（其余零改动）。测试 `IMAutoDeleteTests`（v2 向量 + 迁移 + 窗口清理 + 预览越窗 + 只读页 + 300204）、`IMSysEventFormatterTests` +2。**限制**：服务端聊天记录搜索结果未按档位过滤；缺 `auto_delete_from` 的 `sec>0`（老服务端）一律当关闭；本机无任何未过期消息行时预览会被清空（下次拉列表由服务端值校正）；窗口外未下载的未读在重算后可能少计到下次拉列表；未做 v2 模拟器实测、未亲眼看到「到点 30s 内消失」。
+- **导出我的数据（2026-10-27 已模拟器实测：错密码红字/发起/完成/分享面板·存到文件/杀进程重进冷却均过，test.sh 1203/1203；未提交；设计 `../im-spec/design/DATA_EXPORT_DESIGN.md` §1/§2/§5，草图 `sketches/DATA_EXPORT_UX_SKETCH.html`，契约 PROTOCOL §6.18）**：隐私与安全「数据」组「导出我的数据」转活行 → `IMExportDataViewController`（配置 / 进行中 / 完成 / 冷却 / 失败；进页拉 `latest`，进行中每 2s 轮询、页面消失即停、回前台补拉；密码错内联红字保留输入，200010 toast + 切进度，200011 读 `data.retry_after_sec` 进冷却态；取消不二次确认）。纯逻辑 `Common/IMDataExport`（任务解析 / 状态映射 `IMExportResolveViewState` / `IMExportCanStart` / 冷却小时上取整 / 下载地址拼接）；REST `IMHTTPService+Export`；下载 `IMExportDownloader`（downloadTask → `NSTemporaryDirectory()/im-export-yyyyMMdd.zip` → `UIActivityViewController`，分享完删临时文件）。`IMFriendlyMessageForCode` 补 200010/200011。测试 `IMDataExportTests` 17 例。**下载中态（2026-10-28 已模拟器实测 1.2GB：进度条 + 「已下载 a / b」 + 红粗 14pt 提醒、隐「下载」钮、完成弹分享面板；test.sh 1209/1209，未提交）**：`IMExportDownloader` 改每次下载独立 session + `URLSessionDownloadDelegate`，`progress:` 回调主线程、节流（≥100ms 或 ≥1%，`IMExportDownloadShouldEmitProgress`）、completion 后不再回调，总长未知（≤0）走不定长滑块；测试 `IMExportDownloaderTests`（含 `setProtocolClassesForTesting:` 桩）。**限制**：不定长态与失败态未在界面实测（仅单测）；200011 缺 `retry_after_sec` 时按 24h 兜底；冷却倒计时只在进页 / 回前台 / 操作时重算，不逐小时自刷新；清除所有对话仍灰置。
+- **自动删除消息 v2（2026-10-21，会话级共享、不追溯，未提交；设计 `../im-spec/design/AUTO_DELETE_DESIGN.md` v2 §9，共用向量 `conformance/auto_delete.json`）**：单聊双方 / 群全员同时生效，服务端 `auto_delete_sec` + `auto_delete_from` 成对下发（列表项 / `conv_update` / GET·PUT settings）。本地存**独立小表** `im_conv_auto_delete_local(sec, from_ms)`（`IMDatabase+AutoDelete`；v1 个人档位升级时整表清掉不迁移）；纯判定 `Common/IMAutoDelete`（`IMAutoDeleteExpired(ts,sec,from,now)`、`IMAutoDeleteWindow`、`IMAutoDeleteConfig`，**没有 floorTs 了**：过期集合 = 窗口 `[from, now-sec*1000]`）。调度 `IMAutoDeleteScheduler`（0.25s 合并；启动 / 回前台 / 前台 30s）；`conv_update` / 设置页发现 sec 或 from 变且 sec>0 才扫该会话，无「开启即清历史」。入库闸 / 实时 / sync 整页 / 置顶 / 服务端分页同一公式。预览 / 未读重算（`recomputeSummaryInDB`）：最后一条落窗口内才动，预览取最后一条**未过期**可见消息（越过窗口取 from 之前，如开启通知），未读 = min(扣除后, 本机剩余未读)，timestamp 不清零，无变化不重复通知。UI：确认框非 destructive「开启」（新>0 且≠当前才弹；单聊 / 群两套正文与页脚）；群非群主 / 管理员：详情页行进只读档位页（`onReadOnlyTap`），点任意行 toast `autodel.group_admin_only`、不发 PUT，PUT 回 `300204` 同 toast 并回滚。系统消息 `auto_delete` 在 `IMSysEventFormatter`（按 `sys_args.sec` 选 on/off、`{period}` 折算；气泡与会话列表预览同源）。PUT 仅主动改档位那一处带 `auto_delete_sec`（其余零改动）。测试 `IMAutoDeleteTests`（v2 向量 + 迁移 + 窗口清理 + 预览越窗 + 只读页 + 300204）、`IMSysEventFormatterTests` +2。**限制**：服务端聊天记录搜索结果未按档位过滤；缺 `auto_delete_from` 的 `sec>0`（老服务端）一律当关闭；本机无任何未过期消息行时预览会被清空（下次拉列表由服务端值校正）；窗口外未下载的未读在重算后可能少计到下次拉列表；未做 v2 模拟器实测、未亲眼看到「到点 30s 内消失」。
 - **非气泡行补日期胶囊（2026-10-21，模拟器实测 + test.sh 1139/1139，未提交）**：新建群首条是系统消息时 iOS 整天没有日期胶囊（系统/撤回/群通话/图片/相册/链接/名片/记录卡/单聊通话行提前 return、不走 `dayHeaderForRow:`；Android/Web 本就有）。修：共用 `IMDayPillView`（高 0 或 32）挂在 `IMSystemCell` 与 `IMMessageCell` 基类（分割线改锚胶囊底），`cellForRowAtIndexPath:` 外包一层统一补 `applyDayHeader:`（气泡/语音 cell 自带，不走）；`dayHeaderForRow:` 改与上一**可见行**比（跨午夜相册）；估高加 32。`IMBubbleCell`/`IMPinnedDayPillCell` 仍各自内置同款（样式改动要同改）。测试 `IMDayPillViewTests`。图片/链接/名片/相册行为首条的实际显示未造数据目测（基类零高等价 + 单测）。
-- **会话列表编辑模式（2026-10-20，模拟器 iPhone 17 Pro Max 已逐项实测，未提交）**：左上角「编辑 / 完成」（带标题的 `leftBarButtonItem`，同聊天多选「取消」）→ 系统多选编辑态勾选圈 + 独立底栏 `IMConversationEditBar`（玻璃胶囊文字钮，TabBar 隐藏，列表底边接栏顶不重叠）；批量已读与单条同路径、批量删除复用聊天多选同款 `IMPopoverCard`；切 Tab 清空选择；`IMBatchRunner`（并发 ≤4）。新文件：`Common/IMConversationSelection`、`Common/IMBatchRunner`、`Modules/Conversation/IMConversationEditBar`、`IMConversationListViewController+Editing.m`；`IMConversationSelectionTests`（读共用向量）。设计 `IMServer/docs/design/CONV_LIST_EDIT_MODE_DESIGN.md` + `sketches/CONV_LIST_EDIT_MODE_UX_SKETCH.html`；共用向量 `IMServer/docs/conformance/conv_selection.json`；新增 i18n 键 `conv.edit.*`（7 个，已重新生成三端）。
-- **注销账号·通话入口与免密提示（2026-10-20，已提交）**：已注销对端不可呼叫——单聊入口拦截（toast `rtc.call.peer_deleted`）、群通话选人 / 通话中邀请候选剔除 `deleted`；冷静期账号免密登录显示本地化 `err.200005`，不再露服务端英文。口径见 `IMServer/docs/design/DELETE_ACCOUNT_DESIGN.md` §3.5/§3.6。已实测通过（回拨拦截 / 群选人 / 英文文案）。限制（已确认属预期）：杀 App 冷启动后直接点通话记录，对端资料未加载，靠服务端 `invite-check` 兜底，提示笼统「对方暂时无法被邀请」。
-- **注销账号 + 退出登录居中（2026-10-20，已提交本地 main，未 push；模拟器 iPhone 17 Pro Max 已逐项实测，设计 `../IMServer/docs/design/DELETE_ACCOUNT_DESIGN.md` + `sketches/DELETE_ACCOUNT_UX_SKETCH.html`，契约 PROTOCOL §6.16 已对账）**：设置页 destructive 行居中；「我的资料」只读态底部注销组；`IMDeleteAccountViewController`（警示头/后果/冷静期条/密码/红按钮/群主阻断+可点群名/二次确认）；成功 → `IMSessionTeardown.wipeLocalChatCacheThen:`（整库 owner 行 + 下载/原件/待发暂存/图片缓存/看过/文件夹快照/已注销登记，后台队列做）→ `tearDownLocalSession` → 登录页提示条；冷静期登录弹恢复 → `/account/restore` → 再 `/login`。别的设备：WS `error{reason:account_deleted}` → `IMSocketManager+ErrorFrame.m`（从主文件拆出）广播 → `SceneDelegate.handleAccountDeletedElsewhere` 清缓存回登录页（**离线错过该帧的设备不清缓存**，只因续期被拒回登录页）。「已注销用户」：`IMRemarkStore` 登记（`isDeletedUser:`，UserDefaults 按 owner 持久化，压过备注/群昵称）；解析器只登记，撤销在权威端点收尾 `reconcileDeletedFlags:`（batch/friends/users/{id}/会话列表/成员目录）；头像（`UILabel+IMAvatar`/导航头像/详情头）走默认首字母圈；选人页、通话邀请排除；对端已注销单聊输入栏只读、详情页只留搜索/更多、副标题不显在线态；发消息 300003 → `chat.reject.recipient_deleted`。测试 `IMDeleteAccountTests`、`IMDeletedUserDisplayTests`。**限制**：离线错过注销帧的设备不清缓存（上面已述）；`isDeletedUser:` 每次取一次 owner（与 `remarkForUser:` 同成本，未优化）。已注销者头像=灰底人形（`IMDeletedUserAvatarImage`，对齐 Android）；转发条目作者经 `IMForwardOriginName`（已注销发送者写「已注销用户」；只有快照昵称、拿不到 uid 的老转发链条目保持原文）；聊天内「发送好友申请」恢复入口对已注销对端失效（`dropFriendRequestNoteActions`）；300003 走灰字拒收行、无红❗重发。i18n 经 `gen-i18n.mjs --check` 无漂移（iOS `.strings` 为生成物）。 **code-review 收口（10-20）**：别设备注销清库期间被踢通路让路；清库前先断 WS；待发暂存只删本账号消息引用的文件（目录各账号共用）；`/account/*` 响应缺 code 不当成功；恢复弹窗无 delete_at 不显「-」；阻断态从群页返回自动解除。遗留：下载/视频原件目录各账号共用，注销会清空（缓存语义，同「清除缓存」）；离线错过注销帧的设备不清缓存。
-- **扫一扫「我的二维码」页签改嵌名片码页 + 群邀请链接页（2026-10-16，未提交，未真机目测）**：`IMQRScannerViewController` 的名片页签 = 嵌入 `IMQRCardViewController`（`updateMyProfile…` 补资料、`reloadCodeIfNeeded` 切回重试、亮度由宿主 boost/restore）；`IMQRCardView.linkMode` 链接页（链接框替代二维码，按钮=分享链接/复制链接，底部「查看二维码」）。**欠账**：`qr.card.group_link_hint_expiry/share_link/view_code` 只手写进 iOS `.strings`，须补进 `../IMServer/docs/i18n/strings.json` 再 `gen-i18n`，否则下次生成会被覆盖；无 XCTest（纯 UI）。
-- **置顶消息底部面板（2026-10-15，未提交，未真机目测；设计 `../IMServer/docs/design/PINNED_PANEL_DESIGN.md` + `sketches/PINNED_PANEL_UX_SKETCH.html`）**：横幅整条 / ≡ 恒开面板、恒显最新置顶（`IMPinnedLatestItem`）、kicker「· N 条」（`chat.banner.pinned_count`），轮转与 `UIAlertController` 旧列表 / `chat.banner.unpin_current` 已删。新文件：`Modules/Chat/IMPinnedPanelViewController`（PageSheet medium+large + grabber + 自持液态栏，宿主协议 `IMPinnedPanelHost` 绝大多数是聊天页已有方法，编译期声明在 +PinnedBanner.m、运行期由单测兜）、`IMPinnedPanelCellFactory`（复用聊天页真 cell + `readOnly`、定位圆钮挂 cell 本身）、`IMPinnedPanelLogic`（兜底顺序 / 日期胶囊 / 菜单允许项 / 权限外框）、`Common/IMLocateInChatIcon`（UIBezierPath template 图）。`IMMessageCell`/`IMBubbleCell` 加 `readOnly`（contentView 不接触摸；文本 8 行尾截断）。网络：`IMPinnedMessage.message`（完整对象）、`clearPinnedMessagesWithToken:`（POST …/pinned/clear）、批量帧 `IMMsgOpPinTargetPayloads` 拆单（`IMSocketManager+BatchDelete` 的 `applyBatchPinFrameOnQueue:`）；取消置顶命中集合本地先摘、pin 变化改走 300ms 尾沿重拉、msg_op 被拒也重拉。测试 `IMPinnedMessageTests` +10 例（4 条核心已变异看红）。**待真机**：iOS 18 / 26 各看 medium / large、各消息类型置顶一条、长按菜单锚点、底栏胶囊（iOS 18 毛玻璃回退）、深色。
+- **会话列表编辑模式（2026-10-20，模拟器 iPhone 17 Pro Max 已逐项实测，未提交）**：左上角「编辑 / 完成」（带标题的 `leftBarButtonItem`，同聊天多选「取消」）→ 系统多选编辑态勾选圈 + 独立底栏 `IMConversationEditBar`（玻璃胶囊文字钮，TabBar 隐藏，列表底边接栏顶不重叠）；批量已读与单条同路径、批量删除复用聊天多选同款 `IMPopoverCard`；切 Tab 清空选择；`IMBatchRunner`（并发 ≤4）。新文件：`Common/IMConversationSelection`、`Common/IMBatchRunner`、`Modules/Conversation/IMConversationEditBar`、`IMConversationListViewController+Editing.m`；`IMConversationSelectionTests`（读共用向量）。设计 `im-spec/design/CONV_LIST_EDIT_MODE_DESIGN.md` + `sketches/CONV_LIST_EDIT_MODE_UX_SKETCH.html`；共用向量 `im-spec/conformance/conv_selection.json`；新增 i18n 键 `conv.edit.*`（7 个，已重新生成三端）。
+- **注销账号·通话入口与免密提示（2026-10-20，已提交）**：已注销对端不可呼叫——单聊入口拦截（toast `rtc.call.peer_deleted`）、群通话选人 / 通话中邀请候选剔除 `deleted`；冷静期账号免密登录显示本地化 `err.200005`，不再露服务端英文。口径见 `im-spec/design/DELETE_ACCOUNT_DESIGN.md` §3.5/§3.6。已实测通过（回拨拦截 / 群选人 / 英文文案）。限制（已确认属预期）：杀 App 冷启动后直接点通话记录，对端资料未加载，靠服务端 `invite-check` 兜底，提示笼统「对方暂时无法被邀请」。
+- **注销账号 + 退出登录居中（2026-10-20，已提交本地 main，未 push；模拟器 iPhone 17 Pro Max 已逐项实测，设计 `../im-spec/design/DELETE_ACCOUNT_DESIGN.md` + `sketches/DELETE_ACCOUNT_UX_SKETCH.html`，契约 PROTOCOL §6.16 已对账）**：设置页 destructive 行居中；「我的资料」只读态底部注销组；`IMDeleteAccountViewController`（警示头/后果/冷静期条/密码/红按钮/群主阻断+可点群名/二次确认）；成功 → `IMSessionTeardown.wipeLocalChatCacheThen:`（整库 owner 行 + 下载/原件/待发暂存/图片缓存/看过/文件夹快照/已注销登记，后台队列做）→ `tearDownLocalSession` → 登录页提示条；冷静期登录弹恢复 → `/account/restore` → 再 `/login`。别的设备：WS `error{reason:account_deleted}` → `IMSocketManager+ErrorFrame.m`（从主文件拆出）广播 → `SceneDelegate.handleAccountDeletedElsewhere` 清缓存回登录页（**离线错过该帧的设备不清缓存**，只因续期被拒回登录页）。「已注销用户」：`IMRemarkStore` 登记（`isDeletedUser:`，UserDefaults 按 owner 持久化，压过备注/群昵称）；解析器只登记，撤销在权威端点收尾 `reconcileDeletedFlags:`（batch/friends/users/{id}/会话列表/成员目录）；头像（`UILabel+IMAvatar`/导航头像/详情头）走默认首字母圈；选人页、通话邀请排除；对端已注销单聊输入栏只读、详情页只留搜索/更多、副标题不显在线态；发消息 300003 → `chat.reject.recipient_deleted`。测试 `IMDeleteAccountTests`、`IMDeletedUserDisplayTests`。**限制**：离线错过注销帧的设备不清缓存（上面已述）；`isDeletedUser:` 每次取一次 owner（与 `remarkForUser:` 同成本，未优化）。已注销者头像=灰底人形（`IMDeletedUserAvatarImage`，对齐 Android）；转发条目作者经 `IMForwardOriginName`（已注销发送者写「已注销用户」；只有快照昵称、拿不到 uid 的老转发链条目保持原文）；聊天内「发送好友申请」恢复入口对已注销对端失效（`dropFriendRequestNoteActions`）；300003 走灰字拒收行、无红❗重发。i18n 经 `gen-i18n.mjs --check` 无漂移（iOS `.strings` 为生成物）。 **code-review 收口（10-20）**：别设备注销清库期间被踢通路让路；清库前先断 WS；待发暂存只删本账号消息引用的文件（目录各账号共用）；`/account/*` 响应缺 code 不当成功；恢复弹窗无 delete_at 不显「-」；阻断态从群页返回自动解除。遗留：下载/视频原件目录各账号共用，注销会清空（缓存语义，同「清除缓存」）；离线错过注销帧的设备不清缓存。
+- **扫一扫「我的二维码」页签改嵌名片码页 + 群邀请链接页（2026-10-16，未提交，未真机目测）**：`IMQRScannerViewController` 的名片页签 = 嵌入 `IMQRCardViewController`（`updateMyProfile…` 补资料、`reloadCodeIfNeeded` 切回重试、亮度由宿主 boost/restore）；`IMQRCardView.linkMode` 链接页（链接框替代二维码，按钮=分享链接/复制链接，底部「查看二维码」）。**欠账**：`qr.card.group_link_hint_expiry/share_link/view_code` 只手写进 iOS `.strings`，须补进 `../im-spec/i18n/strings.json` 再 `gen-i18n`，否则下次生成会被覆盖；无 XCTest（纯 UI）。
+- **置顶消息底部面板（2026-10-15，未提交，未真机目测；设计 `../im-spec/design/PINNED_PANEL_DESIGN.md` + `sketches/PINNED_PANEL_UX_SKETCH.html`）**：横幅整条 / ≡ 恒开面板、恒显最新置顶（`IMPinnedLatestItem`）、kicker「· N 条」（`chat.banner.pinned_count`），轮转与 `UIAlertController` 旧列表 / `chat.banner.unpin_current` 已删。新文件：`Modules/Chat/IMPinnedPanelViewController`（PageSheet medium+large + grabber + 自持液态栏，宿主协议 `IMPinnedPanelHost` 绝大多数是聊天页已有方法，编译期声明在 +PinnedBanner.m、运行期由单测兜）、`IMPinnedPanelCellFactory`（复用聊天页真 cell + `readOnly`、定位圆钮挂 cell 本身）、`IMPinnedPanelLogic`（兜底顺序 / 日期胶囊 / 菜单允许项 / 权限外框）、`Common/IMLocateInChatIcon`（UIBezierPath template 图）。`IMMessageCell`/`IMBubbleCell` 加 `readOnly`（contentView 不接触摸；文本 8 行尾截断）。网络：`IMPinnedMessage.message`（完整对象）、`clearPinnedMessagesWithToken:`（POST …/pinned/clear）、批量帧 `IMMsgOpPinTargetPayloads` 拆单（`IMSocketManager+BatchDelete` 的 `applyBatchPinFrameOnQueue:`）；取消置顶命中集合本地先摘、pin 变化改走 300ms 尾沿重拉、msg_op 被拒也重拉。测试 `IMPinnedMessageTests` +10 例（4 条核心已变异看红）。**待真机**：iOS 18 / 26 各看 medium / large、各消息类型置顶一条、长按菜单锚点、底栏胶囊（iOS 18 毛玻璃回退）、深色。
 - **iOS 26 会话列表上滑后 Tab 条被染灰（2026-10-15，未提交，未滚动实测）**：`IMConversationListViewController.m` 创建 tableView 处对 `topEdgeEffect.hidden = YES`（`@available(iOS 26.0, *)`）。根因判断：iOS 26 的 scroll edge effect 贴在表顶（搜索容器下沿），盖住吸顶的 Tab 条；Tab 条自身与搜索容器都是 `systemBackgroundColor`，色值本无差异。已编译并装 iOS 26.3 模拟器，静止态正常；**上滑态待你在真机/模拟器目测**，若仍灰则改查 `IMChatFolderTabsView` 吸顶时是否被表格 header 背景材质包裹。
-- **聊天文件夹（2026-10-14，已提交 2757f52；Tab 长按菜单锚定 5d47081；桌面/iOS 26·18 导航栏边缘待验）**：`IMChatFolder`/`IMChatFolderStore`/`IMChatFolderLogic`/`IMHTTPService+Folders`、会话列表拆出 `IMConversationListViewController+Folders.m`（Tab 条=首个 section header 吸顶、横滑与行滑动判定、长按菜单文件夹项第一位）、管理/编辑/选择三页；`IMLiquidSegmentedControl` 改居中贴合内容 + Tab 角标；设计见 IMServer `docs/design/CHAT_FOLDERS_DESIGN.md`。
+- **聊天文件夹（2026-10-14，已提交 2757f52；Tab 长按菜单锚定 5d47081；桌面/iOS 26·18 导航栏边缘待验）**：`IMChatFolder`/`IMChatFolderStore`/`IMChatFolderLogic`/`IMHTTPService+Folders`、会话列表拆出 `IMConversationListViewController+Folders.m`（Tab 条=首个 section header 吸顶、横滑与行滑动判定、长按菜单文件夹项第一位）、管理/编辑/选择三页；`IMLiquidSegmentedControl` 改居中贴合内容 + Tab 角标；设计见 `im-spec/design/CHAT_FOLDERS_DESIGN.md`。
 - **失效媒体口径对齐（2026-10-14，已提交并推送 adf2d14，真机已装；iOS 界面未目测）**：服务端已清理即标失效，**不看本机缓存**（取代 2026-08-07「铁律 A」）；`IMMediaExpiryRegistry` 探测与复验共用一段 ranged-GET（`bytes=0-0`，只认 404/410），在途请求会被复验等待、失败 30s 冷却。宫格/气泡：有本机副本的图不批量探，视频无原件才探，**进查看器那一次**复验，命中经 `IMMediaExpiryDidChangeNotification` 回刷。查看器失效页：黑底 + 八角 ✕、清掉底下真图/画面、无进度条/下载键，「更多」滤掉 `needsMediaBytes` 项（复制/收藏/转发/下载）；长按菜单对失效图/视频隐藏复制图片/转发/收藏。**三端对齐（2026-10-14，未提交）**：群资料/详情查看器「更多」补收藏/复制并与聊天页同序（定位用 `media.viewer.locate`）；详情 tab 与全屏媒体库长按「定位到聊天」第一位。**欠账**：探测去重/冷却/复验等待/菜单过滤缺 XCTest（需 NSURLProtocol 桩，见下一步）；门控失效格点击仍会走到下载处理（不画下载 UI，但会起一个 404 的下载）。
 - **2026-10-13 修复一批（未提交）**：① 合并转发详情/群公告副标题/搜索跳日期提示的日期不再写死 zh_CN「M月d日」，改走 `IMTheme dateLabelForDate:`+`timeStringFromMillis:`（英文界面实测 `Oct 6 21:27`）；② 会话列表群「待审」改为整行只显红字 `[入群申请 N]`（可带 `[有人@我]`），不再接上一条消息，清零后恢复预览。文案 `conv.list.pending_tag/pending_badge` 已改、三端已重新生成。
 - **单聊系统消息 friend_accepted（2026-10-13，未 commit）**：服务端在好友新建立时往单聊落 `content_type=system`、sender 空的系统消息。iOS 侧：`IMSysEventFormatter` 事件表加 `friend_accepted`（键 `sys.friend.accepted`，0 人名槽位）；会话列表单聊行预览改走 `lastPreviewTextForSelfUID:`（按 sys_event 本地化，未知回退 lastContent；顺带让系统通知单聊列表首行也本地化）；↓N 窗口计数 / `countIncomingInConv:` / 标已读扣数（`markConversation:readUpToConvSeq:`）排除 system（此前 sender 空会被当「对方消息」）。核实无需改：落库/peer 由 convID 推（壳行建会话、`unreadDelta` 排除 system）、`IMAlertDecide` 对 system 全静默、通知扩展只处理服务端推送（不推）。测试：`IMSysSegmentTests` / `IMSysEventFormatterTests` 新增。待真机：互加好友后单聊出现居中灰字、列表置顶且无红点/无提示音；会话列表原无该会话时 new_msg 到达后行名在下一次 /conversations 刷新前先显「未命名」（壳行不知昵称，见已知限制）。

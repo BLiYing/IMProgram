@@ -1,5 +1,5 @@
 //  IMDeleteAccountViewController.h
-//  注销账号二级页（设计：IMServer/docs/design/DELETE_ACCOUNT_DESIGN.md §3 §4；草图 sketches/DELETE_ACCOUNT_UX_SKETCH.html）。
+//  注销账号二级页（设计：im-spec/design/DELETE_ACCOUNT_DESIGN.md §3 §4；草图 sketches/DELETE_ACCOUNT_UX_SKETCH.html）。
 //  警示头 + 4 条后果 + 冷静期提示条 + 红按钮（点后二次确认 → 确认身份弹层）；群主阻断态；UIAlertController 二次确认；
 //  版式（警示头 / 后果卡 / 红按钮）取自共用的 IMDangerPageViewController。
 //  成功后清会话 + 清本机聊天缓存，回登录页并提示 delete_account.done_hint。

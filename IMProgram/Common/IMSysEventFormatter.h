@@ -1,6 +1,6 @@
 //  IMSysEventFormatter.h
 //  P3 i18n：群系统消息 / 系统通知单聊的 sys_event+sys_args → 按 App 当前语言本地化渲染。
-//  权威事件表/算法见 docs/PROTOCOL.md §6.6、internal/store/types.go 的 SysEvent*/SysEvent*Notice 常量。
+//  权威事件表/算法见 im-spec/PROTOCOL.md §6.6、internal/store/types.go 的 SysEvent*/SysEvent*Notice 常量。
 
 #import <Foundation/Foundation.h>
 

@@ -1,5 +1,5 @@
 //  IMAlertDecision.m
-//  见 .h 顶部注释。逐条对齐 IMServer/docs/conformance/alert_decision.json 的 30 条向量
+//  见 .h 顶部注释。逐条对齐 im-spec/conformance/alert_decision.json 的 30 条向量
 //  （IMAlertDecisionTests 直接读该文件跑）。
 
 #import "IMAlertDecision.h"

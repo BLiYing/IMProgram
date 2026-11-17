@@ -2,7 +2,7 @@
 //  底部「消息」Tab 蓝点的计数（IMTabUnreadCount）。
 //
 //  与 im-web `src/components/SidebarTabs.test.tsx`（badgeCountOf）、im-android `TabUnreadTest` 同一组用例
-//  （IMServer/docs/SYMMETRY.md 登记）。此前 iOS 这颗点根本没画，只有 Android 有（2026-09-15 用户报）。
+//  （im-spec/SYMMETRY.md 登记）。此前 iOS 这颗点根本没画，只有 Android 有（2026-09-15 用户报）。
 //  2026-09-29：加 includeMuted 入参（设置 ▸ 通知与提示音 ▸ 角标计数 ▸「包含免打扰会话」，
 //  NOTIFICATIONS_DESIGN §3.4），旧用例全部固定传 NO=当前行为不变。
 

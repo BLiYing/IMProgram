@@ -1,5 +1,5 @@
 //  IMDatabase+ClearFloor.h
-//  「清空聊天记录」的**本机清空位点** cleared_up_to（IMServer/docs/design/OFFLINE_BACKLOG_DESIGN.md §6.7，
+//  「清空聊天记录」的**本机清空位点** cleared_up_to（im-spec/design/OFFLINE_BACKLOG_DESIGN.md §6.7，
 //  三端统一；Android 先行：im-android `data/ClearFloor.kt`）。
 //
 //  为什么需要它：清空只清本机、不动服务端。区间清单是「本地有哪几段」的目录，清空之后

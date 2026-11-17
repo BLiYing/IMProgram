@@ -1,5 +1,5 @@
 //  IMHTTPService+TwoStep.h
-//  两步验证（TOTP + 恢复码）REST，契约 ../IMServer/docs/PROTOCOL.md §7.1。
+//  两步验证（TOTP + 恢复码）REST，契约 ../im-spec/PROTOCOL.md §7.1。
 //  业务错误 HTTP 400 但响应体是标准信封：本文件所有请求都保留业务码，并把 data 里的 ticket / attempts_left 挂进 NSError.userInfo。
 //  **日志红线**：验证码 / 密钥 / 恢复码 / ticket 不得写日志（HTTP 层统一日志已按键名脱敏，见 IMHTTPLogFormatter）。
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# 移动端冒烟（T3，../IMServer/docs/design/E2E_REGRESSION_DESIGN.md §6）：装上新包后在模拟器里把核心链路走一遍。
+# 移动端冒烟（T3，../im-spec/design/E2E_REGRESSION_DESIGN.md §6）：装上新包后在模拟器里把核心链路走一遍。
 #   ① 服务端造数据：固定对端 smokepeer 给设备账号发一条带时间戳的 ping（../IMServer/scripts/smoke/mobile-smoke.mjs）
 #   ② UI 测试 IMProgramUITests/IMSmokeUITests：会话列表收到 ping → 点进去 → 发 pong → 气泡出现
 #   ③ 回到服务端核对：对端真的收到了 pong

@@ -40,7 +40,7 @@ FOUNDATION_EXPORT const NSInteger kIMBubbleReadOnlyMaxLines;
 /// 片段版（优先）：`spans` 是服务端下发的 @ token 位置（IMMentionSpan），**不需要任何群成员表**——
 /// 超级群不下发成员表，`mentions` 那条路在那里对普通成员必然失效（2026-09-01）。
 /// 与本文对不上的片段（编辑过的老消息、折叠截断的前缀、脏数据）逐段跳过；一段都对不上就
-/// 自动回落到 `mentions`（按昵称扫文本）。协议见 IMServer/docs/PROTOCOL.md §4.1。
+/// 自动回落到 `mentions`（按昵称扫文本）。协议见 im-spec/PROTOCOL.md §4.1。
 + (NSAttributedString *)attributedContent:(nullable NSString *)text
                                      base:(NSDictionary *)base
                              mentionColor:(UIColor *)color

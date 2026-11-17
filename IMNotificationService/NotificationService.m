@@ -1,5 +1,5 @@
 //  NotificationService.m
-//  通知扩展：给离线推送加上发送人头像（M5，IMServer/docs/design/PUSH_M5_DESIGN.md §3.6）。
+//  通知扩展：给离线推送加上发送人头像（M5，im-spec/design/PUSH_M5_DESIGN.md §3.6）。
 //
 //  服务端每条消息推送都带 `mutable-content: 1` 和发送人资料（sender_id / sender_name / sender_avatar，
 //  群聊另有 group_avatar；bare_body 现已不用）。系统先把通知交给这里：下载头像 → 组一个 INSendMessageIntent
@@ -18,7 +18,7 @@
 //  任何一步失败都退回原样展示——头像是锦上添花，绝不能让通知因此丢掉或晚到。系统给扩展约 30 秒，
 //  超时会调 serviceExtensionTimeWillExpire，同样原样交出。
 //
-//  日志：扩展不链接 Pods，用不了 IMLog（IMServer/docs/LOGGING.md 的 iOS 统一入口），只能用 os_log。
+//  日志：扩展不链接 Pods，用不了 IMLog（im-spec/LOGGING.md 的 iOS 统一入口），只能用 os_log。
 
 #import <UserNotifications/UserNotifications.h>
 #import <Intents/Intents.h>

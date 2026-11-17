@@ -6,9 +6,9 @@
 #import "IMMessageModel.h"  // IMSysSegment
 #import "IMTimeUtil.h"      // IMFormatRFC3339LocalDateTime
 
-/// 群系统消息事件表（权威定义见 docs/PROTOCOL.md §6.6 / internal/store/types.go SysEvent*）：
+/// 群系统消息事件表（权威定义见 im-spec/PROTOCOL.md §6.6 / internal/store/types.go SysEvent*）：
 /// event → [文案键, 人名槽位个数, 额外 sys_args 键(NSNull=无)]。
-/// **人名槽位在 vararg 顺序里恒排在额外参数之前**（已用 docs/i18n/strings.json 的 args 声明顺序核对
+/// **人名槽位在 vararg 顺序里恒排在额外参数之前**（已用 im-spec/i18n/strings.json 的 args 声明顺序核对
 /// 过全部 16 个事件，无一例外）——这不是本文件的假设，是当前文案表的既成事实；新增事件若打破这个
 /// 前提，下面 IMSegmentsForSysEvent 的哨兵切分对该事件仍然按"位置"定位，不受影响，只是这张表要补行。
 static NSDictionary<NSString *, NSArray *> *IMSysEventTable(void) {

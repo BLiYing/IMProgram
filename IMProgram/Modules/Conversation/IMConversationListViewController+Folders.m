@@ -1,6 +1,6 @@
 //  IMConversationListViewController+Folders.m
 //  会话列表的「聊天文件夹」部分：Tab 条（表格首个 section header，吸顶）、横滑切换与行滑动的冲突判定、
-//  长按菜单「添加到文件夹 / 移出」、Tab 长按菜单。设计 IMServer/docs/design/CHAT_FOLDERS_DESIGN.md §4。
+//  长按菜单「添加到文件夹 / 移出」、Tab 长按菜单。设计 im-spec/design/CHAT_FOLDERS_DESIGN.md §4。
 //  状态在 `+Private.h` 的类扩展里（selectedFolderID / displayedConversations / folderTabs …）。
 
 #import "IMPopoverCard.h"

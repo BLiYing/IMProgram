@@ -1,5 +1,5 @@
 //  IMRecentContactsTests.m
-//  通讯录首页「最近联系」取数规则（设计 ../IMServer/docs/design/ORG_DIRECTORY_DESIGN.md §7.1；
+//  通讯录首页「最近联系」取数规则（设计 ../im-spec/design/ORG_DIRECTORY_DESIGN.md §7.1；
 //  对端同名用例：im-web `recentContacts.test.ts`、im-android `RecentContactsTest.kt`）。
 //  app-hosted 测试，头文件按相对路径引入。
 

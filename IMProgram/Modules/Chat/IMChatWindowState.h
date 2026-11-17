@@ -1,5 +1,5 @@
 //  IMChatWindowState.h
-//  聊天页**当前这一窗**消息的状态协作对象（见 IMServer/docs/design/MESSAGE_WINDOW_DESIGN.md §4，
+//  聊天页**当前这一窗**消息的状态协作对象（见 im-spec/design/MESSAGE_WINDOW_DESIGN.md §4，
 //  行为在 IMChatViewController+Window.m）。
 //
 //  分页之前，聊天页的 `messages` 是"本会话全部消息"，进会话一次读全部。分页之后它变成

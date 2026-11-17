@@ -1,6 +1,6 @@
 //  IMCallRecordTests.m
 //  通话记录消息（content_type=call）纯逻辑单测：解析 / 构造 / 渲染（读三端共用向量）/ 发送计划（谁发、发到哪）。
-//  向量在 IMServer 仓 docs/conformance/call_record.json（改文案先改向量）；按本文件相对路径找，
+//  向量在 im-spec/conformance/call_record.json（改文案先改向量）；按本文件相对路径找，
 //  也可用环境变量 IM_CALL_RECORD_VECTORS 指定。找不到时**失败**而不是跳过——静默跳过等于没测。
 
 #import <XCTest/XCTest.h>
@@ -21,7 +21,7 @@
     NSString *path = NSProcessInfo.processInfo.environment[@"IM_CALL_RECORD_VECTORS"];
     if (path.length == 0) {
         NSString *repo = [[@(__FILE__) stringByDeletingLastPathComponent] stringByDeletingLastPathComponent]; // …/IMProgram
-        path = [[repo stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"IMServer/docs/conformance/call_record.json"];
+        path = [[repo stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"im-spec/conformance/call_record.json"];
     }
     NSData *data = [NSData dataWithContentsOfFile:path];
     XCTAssertNotNil(data, @"找不到共用向量 %@（IM_CALL_RECORD_VECTORS 可指定）", path);

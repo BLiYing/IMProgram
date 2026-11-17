@@ -1,6 +1,6 @@
 //  IMAutoDelete.h
-//  自动删除消息（IMServer/docs/design/AUTO_DELETE_DESIGN.md）的纯判定函数与档位表。
-//  口径三端一字不差，向量 IMServer/docs/conformance/auto_delete.json（IMAutoDeleteTests 读它）；改口径先改向量。
+//  自动删除消息（im-spec/design/AUTO_DELETE_DESIGN.md）的纯判定函数与档位表。
+//  口径三端一字不差，向量 im-spec/conformance/auto_delete.json（IMAutoDeleteTests 读它）；改口径先改向量。
 
 #import <Foundation/Foundation.h>
 

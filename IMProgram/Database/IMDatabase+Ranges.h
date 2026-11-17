@@ -4,7 +4,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-/// 「本地有哪几段」区间清单的实现（IMServer/docs/design/OFFLINE_BACKLOG_DESIGN.md §4.2）。
+/// 「本地有哪几段」区间清单的实现（im-spec/design/OFFLINE_BACKLOG_DESIGN.md §4.2）。
 ///
 /// 单开一个 category 而不是继续堆进 IMDatabase.m：一是那个文件已触体量红线（CODING_STYLE §7 ②），
 /// 二是这组方法自成一个概念——**本地不再假装是服务端的完整副本**，而是「看过的页 + 一张目录」。
@@ -31,7 +31,7 @@ BOOL IMRegisterRangeInDB(FMDatabase *db, NSString *owner, NSString *convID, int6
 /// **仅在 `isConvComplete:` 为真时可信**——有缺口时缺口里的消息根本没下载，数出来必然偏小。
 - (NSInteger)countIncomingInConv:(NSString *)convID afterConvSeq:(int64_t)afterConvSeq;
 
-/// **整页**原子落库（IMServer/docs/design/OFFLINE_BACKLOG_DESIGN.md §4.8）：
+/// **整页**原子落库（im-spec/design/OFFLINE_BACKLOG_DESIGN.md §4.8）：
 /// 一页补拉消息 + 游标推进 + 区间登记全部在**同一个事务**里提交。
 ///
 /// 不变量没变，只是粒度从"每条"降到"每页"：页内任一条写失败 → 整页回滚、整页重拉，
@@ -79,7 +79,7 @@ BOOL IMRegisterRangeInDB(FMDatabase *db, NSString *owner, NSString *convID, int6
 /// 以下这组原先声明在 IMDatabase.h（主类接口）里，实现却在本分类——编译器据此判定
 /// 「category 实现了一个主类也会实现的方法」（-Wobjc-protocol-method-implementation），
 /// 而这种重复在运行期谁生效是未定义的。声明与实现放同一处才对。
-/// 「本地有哪几段」目录（IMServer/docs/design/OFFLINE_BACKLOG_DESIGN.md §4.2）。
+/// 「本地有哪几段」目录（im-spec/design/OFFLINE_BACKLOG_DESIGN.md §4.2）。
 ///
 /// 本地库从「整本账的副本」变成「看过的页的复印件 + 一张目录」之后，
 /// **「本地齐不齐」第一次成为一个可以查询的事实**——此前代码只能默认它齐全，

@@ -1,5 +1,5 @@
 //  IMAlertDecisionTests.m
-//  IMAlertDecide 纯函数单测：读三端共用向量 IMServer/docs/conformance/alert_decision.json（32 条，
+//  IMAlertDecide 纯函数单测：读三端共用向量 im-spec/conformance/alert_decision.json（32 条，
 //  改规则先改向量）。按本文件相对路径找，也可用环境变量 IM_ALERT_DECISION_VECTORS 指定。
 //  找不到时**失败**而不是跳过——静默跳过等于没测（同 IMCallRecordTests 先例）。
 
@@ -16,7 +16,7 @@
     NSString *path = NSProcessInfo.processInfo.environment[@"IM_ALERT_DECISION_VECTORS"];
     if (path.length == 0) {
         NSString *repo = [[@(__FILE__) stringByDeletingLastPathComponent] stringByDeletingLastPathComponent]; // …/IMProgram
-        path = [[repo stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"IMServer/docs/conformance/alert_decision.json"];
+        path = [[repo stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"im-spec/conformance/alert_decision.json"];
     }
     NSData *data = [NSData dataWithContentsOfFile:path];
     XCTAssertNotNil(data, @"找不到共用向量 %@（IM_ALERT_DECISION_VECTORS 可指定）", path);

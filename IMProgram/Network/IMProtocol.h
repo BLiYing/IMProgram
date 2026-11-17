@@ -1,5 +1,5 @@
 //  IMProtocol.h
-//  客户端与服务端共用契约的常量与工具，对齐 IMServer/docs/PROTOCOL.md。
+//  客户端与服务端共用契约的常量与工具，对齐 im-spec/PROTOCOL.md。
 
 #import <Foundation/Foundation.h>
 
@@ -19,7 +19,7 @@ extern NSString * const kIMTypePresence;
 extern NSString * const kIMTypeWatch; ///< 上报「当前要显示在线态的用户全集」（在线态订阅，见 PROTOCOL §5.5）
 extern NSString * const kIMTypeSyncReq;
 extern NSString * const kIMTypeSyncResp;
-/// 按锚点开窗（分页与「跳到第 X 条」的共同地基，见 IMServer/docs/design/MESSAGE_WINDOW_DESIGN.md）。
+/// 按锚点开窗（分页与「跳到第 X 条」的共同地基，见 im-spec/design/MESSAGE_WINDOW_DESIGN.md）。
 /// 与 sync_req 的分工：sync 是「按游标推进、可推进本地已同步位点」；window 是「一次性快照、**不推进任何位点**」。
 extern NSString * const kIMTypeWindowReq;
 extern NSString * const kIMTypeWindowResp;
@@ -30,16 +30,16 @@ extern NSString * const kIMTypeConvUpdate; ///< 会话级设置变更（置顶/�
 extern NSString * const kIMTypeCapabilitiesUpdate; ///< 账号级配置版本变更（自动下载策略，M4-7）：据 version 重拉 /download-settings
 /// 超级群（2 万人量级）的轻量投递信号：一帧带一批「某会话最新到 conv_seq 了」，**不含正文**。
 /// 超级群不推全文 new_msg——2 万人数千在线推全文约 50MB/s，算术上不成立。
-/// 正文在打开会话时经 sync_req 拉。见 IMServer/docs/design/SUPERGROUP_DESIGN.md §5。
+/// 正文在打开会话时经 sync_req 拉。见 im-spec/design/SUPERGROUP_DESIGN.md §5。
 extern NSString * const kIMTypeConvBump;
 extern NSString * const kIMTypeGroupRead; ///< 群「全员已读」位点变大（下行，PROTOCOL §5.3）
 extern NSString * const kIMTypeMsgHidden; ///< 「仅为我删除」多设备同步（任务2）：本人另一端删了某条 → 本端物理移除
-extern NSString * const kIMTypeVoiceTranscript; ///< 语音转文字结果（服务端识别；只推给请求者，见 IMServer docs/design/VOICE_TRANSCRIBE_DESIGN.md §3.2）
+extern NSString * const kIMTypeVoiceTranscript; ///< 语音转文字结果（服务端识别；只推给请求者，见 im-spec/design/VOICE_TRANSCRIBE_DESIGN.md §3.2）
 /// 前后台状态上报（M5，上行，无回执）：App 切到后台 / 回到前台，服务端据此判定该不该推离线推送。
-/// 见 IMServer/docs/PROTOCOL.md §6.12、IMSocketManager+Push.h。
+/// 见 im-spec/PROTOCOL.md §6.12、IMSocketManager+Push.h。
 extern NSString * const kIMTypeAppState;
 /// 账号级通知设置版本变更（M5，下行）：只带 version，客户端据此判断是否重拉 GET /notify-settings。
-/// 见 IMServer/docs/PROTOCOL.md §6.13、IMSocketManager+Push.h。
+/// 见 im-spec/PROTOCOL.md §6.13、IMSocketManager+Push.h。
 extern NSString * const kIMTypeNotifySettingsUpdate;
 extern NSString * const kIMTypeFolderUpdate;          ///< 会话文件夹整表快照（下行，PROTOCOL §6.15）
 extern NSString * const kIMTypeError;

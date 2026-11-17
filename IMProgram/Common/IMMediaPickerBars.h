@@ -1,5 +1,5 @@
 //  IMMediaPickerBars.h
-//  自建相册选择器的顶栏与底栏（规格见 docs/design/MEDIA_PICKER_IOS_DESIGN.md §2.1 / §2.2）。
+//  自建相册选择器的顶栏与底栏（规格见 im-spec/design/MEDIA_PICKER_IOS_DESIGN.md §2.1 / §2.2）。
 //  底栏在宫格页与预览页共用（预览页深色样式、无「预览」钮），保证两页同一套规则。
 
 #import <UIKit/UIKit.h>

@@ -2,7 +2,7 @@
 //  聊天页「收到一条消息怎么处置」与「内存里怎么排序」的判据（从 IMChatViewController+Socket 抽出的纯函数）。
 //
 //  与 IMDatabase 的 `kIMMessageOrderAsc`、im-web 的渲染排序、Android 的 `MessageOrder.kt`
-//  **同一份口径**（IMServer/docs/SYMMETRY.md「消息显示序」三条登记）。
+//  **同一份口径**（im-spec/SYMMETRY.md「消息显示序」三条登记）。
 //  抽成纯函数的理由：这两件事判错了**都不报错**——顺序错 = 用户以为没收到新消息，处置错 = 丢消息或重复上屏。
 
 #import <Foundation/Foundation.h>

@@ -1,5 +1,5 @@
 //  IMClearAll.h
-//  「清除所有对话」的纯逻辑与本机收尾（设计 IMServer/docs/design/CLEAR_ALL_CONVERSATIONS_DESIGN.md §1 §4）。
+//  「清除所有对话」的纯逻辑与本机收尾（设计 im-spec/design/CLEAR_ALL_CONVERSATIONS_DESIGN.md §1 §4）。
 //  HTTP 在 IMHTTPService+ClearAll；批量落库在 IMDatabase+ClearAll；这里放：回包解析、toast 文案、
 //  HTTP 成功后的本机落地编排（库 → 会话行 → 媒体缓存 → 通知 / 角标）。
 

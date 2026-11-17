@@ -1,6 +1,6 @@
 //  IMSystemSettingsS2UITests.m
 //  后台「系统设置」S2（server-config 下发的消息 / 群组上限）的**模拟器实测脚本**——不是常规回归，默认跳过。
-//  设计：../IMServer/docs/design/SYSTEM_SETTINGS_DESIGN.md §3.1。
+//  设计：../im-spec/design/SYSTEM_SETTINGS_DESIGN.md §3.1。
 //
 //  前置（脚本不负责改后台值）：本机开发后端 :8080 开着 -dev-login，后台「系统设置」已改成
 //    撤回 3600 秒、编辑 60 秒、转发目标 3、合并转发 2、群名 10；

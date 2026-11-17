@@ -1,5 +1,5 @@
 //  IMCallHistoryViewController.h
-//  设置 ▸ 最近通话：只读通话历史列表（设计：IMServer docs/design/CALL_HISTORY_DESIGN.md / 配套 UX 稿）。
+//  设置 ▸ 最近通话：只读通话历史列表（设计：im-spec/design/CALL_HISTORY_DESIGN.md / 配套 UX 稿）。
 //  数据来自 im-rtc SDK `fetchCallHistory`（经 IMRtcCall 桥接），不经过 IMServer。
 //  按日期分组倒序展示；顶部「全部/未接」分段（v1 端上过滤）；上拉自动翻页；`callEnd` 事件触发重拉首页；
 //  点单聊行按原类型直接回拨；点群聊行跳转群会话。

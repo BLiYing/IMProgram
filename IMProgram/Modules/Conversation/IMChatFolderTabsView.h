@@ -1,7 +1,7 @@
 //  IMChatFolderTabsView.h
 //  会话列表顶部的文件夹 Tab 条：首位恒为「全部」，其后是各文件夹；每个 Tab 带未读消息总数角标。
 //  复用 IMLiquidSegmentedControl（药丸选中、放不下横向滚动），本类只管数据映射与长按。
-//  设计见 IMServer/docs/design/CHAT_FOLDERS_DESIGN.md §4.1–§4.2。
+//  设计见 im-spec/design/CHAT_FOLDERS_DESIGN.md §4.1–§4.2。
 
 #import <UIKit/UIKit.h>
 

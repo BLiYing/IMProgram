@@ -386,7 +386,7 @@ static NSUInteger IMBioRuneCount(NSString *s) {
 
 /// 只读态：大圆头像 + 昵称 + 在线态 + 一张信息卡（个性签名 / 用户名 / 手机）。
 ///
-/// 刻意**不显示内部 ID**：那是 10 位随机数字（docs/UI.md「用户标识」）。标签已被个性签名取代（PROFILE_BIO_DESIGN）；
+/// 刻意**不显示内部 ID**：那是 10 位随机数字（im-spec/UI.md「用户标识」）。标签已被个性签名取代（PROFILE_BIO_DESIGN）；
 /// 生日/动态不做（本项目无此数据）。签名和手机号为空时整行不占位。
 - (UIStackView *)buildReadonlyStack {
     self.roAvatar = [UIImageView new];

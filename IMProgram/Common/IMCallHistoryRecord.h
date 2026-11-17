@@ -1,6 +1,6 @@
 //  IMCallHistoryRecord.h
 //  设置 ▸ 最近通话：单条历史记录的数据结构 + 纯函数（未接判定 / 群通话人数 / 按日期分组 / 全部-未接过滤）。
-//  字段对齐 im-rtc SDK `fetchCallHistory` 返回体（设计：IMServer docs/design/CALL_HISTORY_DESIGN.md §1）；
+//  字段对齐 im-rtc SDK `fetchCallHistory` 返回体（设计：im-spec/design/CALL_HISTORY_DESIGN.md §1）；
 //  与聊天气泡通话记录（`IMCallRecord`）是同一批通话事实的另一种呈现，身份解析 / reason 文案渲染直接
 //  复用 `IMCallRecord`（把本记录的字段拼回 `{"cid","m","r","d"[,"g"]}` 再走 `IMCallRecordRender`），
 //  本文件只放聊天记录消息没有的东西：未接判定（需要 caller/自己 uid）、群通话人数、按日期分组、筛选。

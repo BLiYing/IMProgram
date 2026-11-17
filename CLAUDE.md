@@ -18,18 +18,18 @@ iOS 即时通讯（IM）聊天 App。标准 Xcode 工程，UIKit + Storyboard。
 
 ## 工作约定
 - **每次开始主要回复前，先读 `current_task.md` 恢复上下文**，改动后更新它。
-- **`current_task.md` 是"活快照"，不是流水账**：固定四节（当前焦点 / 下一步 / 已知坑·限制 / 关联工程·常用命令），**就地覆盖，禁止往下追加 `Status ②③④…` 新块**。需要留痕的历史交给 `git log` 与 `current_task.archive.md`（只读归档）。逐功能×端状态一律只写 `../IMServer/docs/CLIENT_PARITY.md`（唯一来源），别处不复述 ✅。
+- **`current_task.md` 是"活快照"，不是流水账**：固定四节（当前焦点 / 下一步 / 已知坑·限制 / 关联工程·常用命令），**就地覆盖，禁止往下追加 `Status ②③④…` 新块**。需要留痕的历史交给 `git log` 与 `current_task.archive.md`（只读归档）。逐功能×端状态一律只写 `../im-spec/CLIENT_PARITY.md`（唯一来源），别处不复述 ✅。
 - 遵循 `CODING_STYLE.md`：类前缀 `IM`、4 空格缩进、网络/IO 必须有错误恢复。
 - **新增或修改任何 UI 前必须读取 `docs/UI_COLOR.md`**；颜色/字号/圆角使用 `IMTheme`，
   用户外观偏好使用 `IMAppearance`，禁止业务页面直接持久化外观或新增魔法颜色。
-- 架构设计见 `ARCHITECTURE.md`；通信协议见 `../IMServer/docs/PROTOCOL.md`。
-- 日志实现见 `docs/LOGGING.md`，跨端共同契约见 `../IMServer/docs/LOGGING.md`；新增日志必须走 `IMLog.h`。
+- 架构设计见 `ARCHITECTURE.md`；通信协议见 `../im-spec/PROTOCOL.md`。
+- 日志实现见 `docs/LOGGING.md`，跨端共同契约见 `../im-spec/LOGGING.md`；新增日志必须走 `IMLog.h`。
 - **今后新增的业务/技术 Markdown 文档一律放入 `docs/`**。根目录仅保留 README、AGENTS/CLAUDE、`current_task.md` 及既有工程入口规范；不为整理目录而移动这些入口文件。
 - 提交信息格式：`类型(模块): 描述`。
 
 ## 工作流程与「完成的定义」（每次自动遵循，无需用户重复提醒）
 动手前（Read，不靠记忆）：
-- 改客户端代码前，先 Read `CODING_STYLE.md` 与 `ARCHITECTURE.md`；涉及协议字段再 Read `../IMServer/docs/PROTOCOL.md`。
+- 改客户端代码前，先 Read `CODING_STYLE.md` 与 `ARCHITECTURE.md`；涉及协议字段再 Read `../im-spec/PROTOCOL.md`。
 
 声明「完成」前必须全部满足，并在回复中**贴出 `./scripts/test.sh` 的输出**：
 1. 新功能配套测试用例（`IMProgramTests/` 的 XCTest），纳入回归。
@@ -37,7 +37,7 @@ iOS 即时通讯（IM）聊天 App。标准 Xcode 工程，UIKit + Storyboard。
    - 改代码途中想快速过一遍编译：`BUILD_ONLY=1 ./scripts/test.sh`（不碰模拟器）。但**声明「完成」前必须去掉 `BUILD_ONLY` 再跑一次**。
    - 只跑某个类/某条用例：`ONLY=IMResendPolicyTests ./scripts/test.sh` / `ONLY=IMResendPolicyTests/testXxx ./scripts/test.sh`。
 4. 更新 `current_task.md`。
-5. **更新 `../IMServer/docs/CLIENT_PARITY.md` 对应单元格**（功能×端状态的唯一来源）。
+5. **更新 `../im-spec/CLIENT_PARITY.md` 对应单元格**（功能×端状态的唯一来源）。
 6. **端对齐扫一遍**：凡声明"某功能完成/对齐 Web"，先按 CLIENT_PARITY **逐行 diff iOS↔Web**——Web ✅ 而 iOS ⬜ 的就是缺口，要么补上、要么在回复里点名为已知缺口。（"↓N 跳转"曾因没做这步而漏掉。）
 7. **给出真机验证清单**：列出本次需在真机上肉眼确认的功能点，交用户手测；明确说清「没做什么 / 已知限制 / TODO」，不假装完成。
 

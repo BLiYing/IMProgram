@@ -1,7 +1,7 @@
 //  IMGroupAdminListViewController.h
 //  群管理页 →「管理员」二级页：群主（只读一行）+ 管理员列表（左滑撤销）+「添加管理员」（仅群主）。
 //  在此之前，全仓没有任何一处能回答"这个群现在有几个管理员、分别是谁"——只能滚成员列表数徽标。
-//  设计见 IMServer/docs/design/GROUP_ADMIN_TRANSFER_DESIGN.md §3.2 / §3.3。
+//  设计见 im-spec/design/GROUP_ADMIN_TRANSFER_DESIGN.md §3.2 / §3.3。
 
 #import <UIKit/UIKit.h>
 

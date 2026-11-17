@@ -72,7 +72,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, strong, nullable) NSLayoutConstraint *mentionPanelHeight;
 /// 中长文本"展开全文"记忆（按消息 key）：Long 档气泡点击在折叠/展开间切换。
 @property (nonatomic, strong) NSMutableSet<NSString *> *expandedTextKeys;
-// 消息窗口（+Window.m，见 IMServer/docs/design/MESSAGE_WINDOW_DESIGN.md §4）。
+// 消息窗口（+Window.m，见 im-spec/design/MESSAGE_WINDOW_DESIGN.md §4）。
 // **`windowState.messages` 是当前这一窗，不是本会话全部消息**——这是分页引入的核心可变式。
 // 凡是过去默认"内存里有全部消息"的地方（新消息上屏、↓N 计数、发送后贴底、跳转找行、
 // 「这条撤回了吗」之类的判定）都必须先看 `windowState.atTail`，或直接查本地库。

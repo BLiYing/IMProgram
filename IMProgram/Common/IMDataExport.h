@@ -1,5 +1,5 @@
 //  IMDataExport.h
-//  「导出我的数据」纯逻辑（IMServer/docs/design/DATA_EXPORT_DESIGN.md §1 §2 §5）：任务对象解析、
+//  「导出我的数据」纯逻辑（im-spec/design/DATA_EXPORT_DESIGN.md §1 §2 §5）：任务对象解析、
 //  页面状态映射、按钮可用性、冷却小时数、下载地址拼接。无 UI、无网络，配 IMDataExportTests。
 
 #import <Foundation/Foundation.h>

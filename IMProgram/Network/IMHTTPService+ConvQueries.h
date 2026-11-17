@@ -1,5 +1,5 @@
 //  IMHTTPService+ConvQueries.h
-//  「关于整个会话」的服务端查询（IMServer/docs/design/OFFLINE_BACKLOG_DESIGN.md §4.9）。
+//  「关于整个会话」的服务端查询（im-spec/design/OFFLINE_BACKLOG_DESIGN.md §4.9）。
 //
 //  它们回答的都是**整会话**问题：这个词一共出现在哪些消息里、哪几天有消息。
 //  离线积压被留成缺口后，本地库只有其中几段，继续用本地算会得到一个"看起来正常、其实残缺"的

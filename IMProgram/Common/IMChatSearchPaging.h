@@ -1,7 +1,7 @@
 //  IMChatSearchPaging.h
-//  会话内搜索「服务端命中翻页」的判据（IMServer/docs/design/OFFLINE_BACKLOG_DESIGN.md §4.9 第 1 项的后半）。
+//  会话内搜索「服务端命中翻页」的判据（im-spec/design/OFFLINE_BACKLOG_DESIGN.md §4.9 第 1 项的后半）。
 //
-//  与 im-web 的 `src/searchPaging.ts` **同一份口径**（IMServer/docs/SYMMETRY.md 有登记）。
+//  与 im-web 的 `src/searchPaging.ts` **同一份口径**（im-spec/SYMMETRY.md 有登记）。
 //  抽成纯函数的理由同 IMChatWindowPlan：**判错了不会报错**——
 //  服务端按 conv_seq **倒序**一页页给（cursor 往回走），命中集却按**升序**用（下标 0 = 最早，▲ = 更旧），
 //  「再要一页」拿回来的是更旧的一批，要拼到**前面**，当前下标随之整体后移。算错了界面照常，

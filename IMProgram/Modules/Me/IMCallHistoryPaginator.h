@@ -1,6 +1,6 @@
 //  IMCallHistoryPaginator.h
 //  「最近通话」页的翻页 + 筛选状态机，与网络/UI 解耦（注入 fetcher block，可用假数据单测，不用起模拟器）。
-//  设计：IMServer docs/design/CALL_HISTORY_DESIGN.md §3/§3.5。
+//  设计：im-spec/design/CALL_HISTORY_DESIGN.md §3/§3.5。
 //
 //  两个视图（全部 / 未接）共用同一份已加载数据（`allRecords`），筛选只是换一个纯函数谓词，不是两套请求状态机。
 //  「未接」视图的翻页是**自动连续**的：过滤后新增数量不够 `minVisible` 就接着请求下一页，直到凑够或到底。

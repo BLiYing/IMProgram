@@ -153,7 +153,7 @@ C2 的测试只钉「读写映射 + 写回旧值」这段纯逻辑，**VC 里失
 - **call 类型**只出 `delete`。
 - 常规项顺序：transcribe、copy、reply、forward、favorite、recall（本人 + `convSeq>0` + 120000ms 内）、pin/unpin（`canPinMessages`）、edit（本人文本）、cancelSend（本人 + `convSeq<=0` + 本地/空内容 + Sending/Failed）、multiSelect、translate、report（非本人 + `convSeq>0`）、delete（三形态：本地删 / 仅自己 / 子菜单含全体）。
 - iOS 要先抽 `IMChatMenuActionIDs(message, ctx)` 到 `Common/`，输入 ctx = `{mine,isGroup,canPin,canDeleteForEveryone,hasTranscript,nowMs}`。
-- 与 `docs/CLIENT_PARITY.md`「长按消息菜单跨端差异」对照后**先定产品口径**再固化 fixture，否则测试会把差异固化成「正确」。
+- 与 `im-spec/CLIENT_PARITY.md`「长按消息菜单跨端差异」对照后**先定产品口径**再固化 fixture，否则测试会把差异固化成「正确」。
 - **前置动作**：Android `MessageActionsTest` 与 Web `menus.ts` 的实际条件我还没读，第 2 步开始时要读。
 
 ## 5. 刻意不补

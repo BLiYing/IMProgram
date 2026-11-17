@@ -15,7 +15,7 @@ FOUNDATION_EXPORT BOOL IMEarliestJumpNeedsServer(int64_t localEarliest);
 // MaxCalendarSpan≈400 天上限，请求恒被拒、圆点静默退化成仅本地打点）。
 FOUNDATION_EXPORT const int64_t kIMChatCalendarQuerySpanMs;
 
-/// 消息窗口的**本地库契约**（设计见 IMServer/docs/design/MESSAGE_WINDOW_DESIGN.md）。
+/// 消息窗口的**本地库契约**（设计见 im-spec/design/MESSAGE_WINDOW_DESIGN.md）。
 ///
 /// 这些查询是分页的地基，且它们的错法都是**静默**的：顺序反了、边界差一条、待发消息漏掉，
 /// 界面照常渲染，只是内容不对。故按"会怎么错"来钉，而不是按"接口长什么样"来测：

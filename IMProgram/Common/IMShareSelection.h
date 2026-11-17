@@ -1,5 +1,5 @@
 //  IMShareSelection.h
-//  分享选择页的**选中集**（纯逻辑、无 UIKit、可单测）。设计稿 IMServer/docs/design/sketches/SHARE_PICKER_UX_SKETCH.html ⑦。
+//  分享选择页的**选中集**（纯逻辑、无 UIKit、可单测）。设计稿 im-spec/design/sketches/SHARE_PICKER_UX_SKETCH.html ⑦。
 //
 //  一份实例由「最近聊天」主页、「我的好友」「我的群聊」两个子页共用：
 //  · **唯一键 = conv_id**。好友按协议规则在本地推导 `u_a_u_b`（IMConversationID），群直接用 g_xxx——

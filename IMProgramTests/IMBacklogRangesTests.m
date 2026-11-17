@@ -5,7 +5,7 @@
 #import "IMDatabase+Ranges.h"
 #import "IMMessageModel.h"
 
-/// 离线积压的两块地基（设计见 IMServer/docs/design/OFFLINE_BACKLOG_DESIGN.md）：
+/// 离线积压的两块地基（设计见 im-spec/design/OFFLINE_BACKLOG_DESIGN.md）：
 ///   ① `IMBacklogTracker`——连接级簿记（超级群 / head / 缺口 / 回执合批）；
 ///   ② `IMDatabase (Ranges)`——「本地有哪几段」的区间清单。
 ///

@@ -1,5 +1,5 @@
 //  IMUnreadBadge.h
-//  未读角标的显示格式（IMServer/docs/design/OFFLINE_BACKLOG_DESIGN.md §6.1 U1）。
+//  未读角标的显示格式（im-spec/design/OFFLINE_BACKLOG_DESIGN.md §6.1 U1）。
 //
 //  与 im-web 的 `src/unreadBadge.ts` **同一份口径**——同一个群在两端必须显示同一个数字，
 //  各写一遍格式化迟早分叉，而分叉的表现是"两台设备上数字不一样"，用户第一时间会当成丢消息。
@@ -18,7 +18,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 /// 底部「消息」Tab 蓝点的计数（>0 即亮，不显示数字）。**三端同一口径**：im-web `src/desktopNotify.ts` 的
-/// `badgeCountOf`、im-android `data/TabUnread.kt`（IMServer/docs/SYMMETRY.md 已登记）。
+/// `badgeCountOf`、im-android `data/TabUnread.kt`（im-spec/SYMMETRY.md 已登记）。
 /// - **默认**（includeMuted=NO，即设置 ▸ 通知与提示音 ▸ 角标计数 ▸「包含免打扰会话」关闭，P0 默认值）：
 ///   免打扰的会话**不计**——为了消掉点去点开一个明确说过别打扰的会话，等于免打扰没生效；
 ///   免打扰里 **@我 仍计 1**：@ 穿透免打扰，但不放大成条数。

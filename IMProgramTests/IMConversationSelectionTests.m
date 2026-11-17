@@ -1,5 +1,5 @@
 //  IMConversationSelectionTests.m
-//  会话列表编辑模式选择集（读三端共用向量 IMServer/docs/conformance/conv_selection.json）+ 有界并发批量执行器。
+//  会话列表编辑模式选择集（读三端共用向量 im-spec/conformance/conv_selection.json）+ 有界并发批量执行器。
 
 #import <XCTest/XCTest.h>
 
@@ -14,7 +14,7 @@
 
 - (NSDictionary *)vectors {
     NSString *repo = [[@(__FILE__) stringByDeletingLastPathComponent] stringByDeletingLastPathComponent];
-    NSString *path = [[repo stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"IMServer/docs/conformance/conv_selection.json"];
+    NSString *path = [[repo stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"im-spec/conformance/conv_selection.json"];
     NSData *data = [NSData dataWithContentsOfFile:path];
     XCTAssertNotNil(data, @"找不到共用向量 %@", path);
     return data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : @{};

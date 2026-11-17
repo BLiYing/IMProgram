@@ -16,7 +16,7 @@ NS_ASSUME_NONNULL_BEGIN
 /// 判定规则：token 后面必须紧跟**空白或字符串结尾**。与 Web `containsMentionToken` 同一套。
 FOUNDATION_EXPORT BOOL IMChatTextContainsMentionToken(NSString *_Nullable text, NSString *_Nullable displayName);
 
-/// 扫描文本里的 `@名字` token，产出 **@ 片段**（发送侧用；协议见 IMServer/docs/PROTOCOL.md §4.1）。
+/// 扫描文本里的 `@名字` token，产出 **@ 片段**（发送侧用；协议见 im-spec/PROTOCOL.md §4.1）。
 ///
 /// token 边界与 `IMChatTextContainsMentionToken` 完全同规则（后接空白或结尾；长名优先，
 /// 防 `@小美` 误命中 `@小美丽`），与 Web 的 `resolveMentionSpans` 逐条对齐。

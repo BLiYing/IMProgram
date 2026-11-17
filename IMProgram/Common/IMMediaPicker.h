@@ -1,7 +1,7 @@
 //  IMMediaPicker.h
 //  媒体句柄与系统选择器（PHPickerViewController，零依赖）：
 //  - 头像 / 单图（presentImagePicker…）与「➕ → 文件 → 相册」（presentFilePicker…）用系统选择器；
-//  - **聊天相册入口**已换成自建选择器（IMMediaPickerEntry，docs/design/MEDIA_PICKER_IOS_DESIGN.md），
+//  - **聊天相册入口**已换成自建选择器（IMMediaPickerEntry，im-spec/design/MEDIA_PICKER_IOS_DESIGN.md），
 //    它产出的 PHAsset 句柄同样是 IMPickedMediaHandle，下游发送链路共用。
 //  M4+ 秒上屏重构：回调返回**惰性句柄**（选择器关闭即回调，不做任何重活）——
 //  压缩（图片长边≤2048 JPEG0.8）/ 转码（视频 720p mp4）/ 体积校验（≤2GB）全部延后到

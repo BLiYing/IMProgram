@@ -1,7 +1,7 @@
 //  IMPowerSaveDecision.h
 //  省电模式判定（纯函数，可测）：powerSaveActive + 阈值夹紧 + 「N 项已暂停」计数 + §5 自动开启提示状态机。
-//  四端同名判据，共用向量 IMServer/docs/conformance/power_save.json（改规则先改向量）。
-//  设计：IMServer/docs/design/POWER_SAVING_DESIGN.md §3 / §5。对端 im-android data/PowerSaveDecision.kt +
+//  四端同名判据，共用向量 im-spec/conformance/power_save.json（改规则先改向量）。
+//  设计：im-spec/design/POWER_SAVING_DESIGN.md §3 / §5。对端 im-android data/PowerSaveDecision.kt +
 //  PowerSavePrompt.kt、im-web src/powerSave.ts。本文件不读任何全局态（电量、偏好、时钟都由调用方传入）。
 
 #import <Foundation/Foundation.h>

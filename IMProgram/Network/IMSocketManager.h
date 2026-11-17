@@ -1,7 +1,7 @@
 //  IMSocketManager.h
 //  IM 长连接核心：封装 WebSocket（底层用系统原生 NSURLSessionWebSocketTask），
 //  负责 连接 / 心跳 / 指数退避重连 / 信封收发 / ACK 超时重发。
-//  对齐 IMServer/docs/PROTOCOL.md。所有回调切回主线程。
+//  对齐 im-spec/PROTOCOL.md。所有回调切回主线程。
 
 #import <Foundation/Foundation.h>
 #import "IMLocalization.h"
@@ -19,7 +19,7 @@ NS_ASSUME_NONNULL_BEGIN
 extern NSString * const IMSocketDidReceiveMessageNotification;
 /// 超级群轻量信号（conv_bump）：userInfo[@"items"] 是 `@[{conv_id, latest_seq, from, from_nickname, preview}]`。
 /// **不含正文**——会话列表据此刷那一行，正文等用户打开会话时才按需取
-/// （IMServer/docs/design/OFFLINE_BACKLOG_DESIGN.md §4.5）。
+/// （im-spec/design/OFFLINE_BACKLOG_DESIGN.md §4.5）。
 extern NSString * const IMSocketDidReceiveConvBumpNotification;
 /// 收到好友关系变更帧（friend）时广播（主线程）：通讯录据此实时刷新"新的朋友"/好友列表，无需切页。
 /// **不含 event=remark**（备注名多端同步）——那一类不重拉列表，直接更新 IMRemarkStore
@@ -34,7 +34,7 @@ extern NSString * const kIMGroupTargetKey;
 extern NSString * const kIMGroupResultKey; ///< G3 join_result 的 approved|rejected（其余事件空串）
 /// 收到已读回执（read）时广播（主线程）：会话列表据此刷新——对端已读→我发的变✓✓；本人多端已读→未读清零。
 extern NSString * const IMSocketDidReceiveReadNotification;
-/// 群「全员已读」位点变大（group_read 帧，IMServer docs/design/GROUP_READ_REALTIME_DESIGN.md）时广播（主线程）。
+/// 群「全员已读」位点变大（group_read 帧，im-spec/design/GROUP_READ_REALTIME_DESIGN.md）时广播（主线程）。
 /// userInfo：kIMConvIDKey=群 conv_id、kIMGroupReadSeqKey=本人视角的全员已读位点（NSNumber，只增）。
 /// 会话列表的 IMConversationListDidRefreshGroupReadNotification 用**同一组 key**，聊天页两条一并订阅。
 extern NSString * const IMSocketDidReceiveGroupReadNotification;
@@ -345,7 +345,7 @@ typedef void (^IMSendCompletion)(BOOL success, NSError * _Nullable error, int64_
 /// 上层从 IMDatabase 取已存最大 conv_seq 传入，实现 App 重启后的断点续传。
 - (void)trackConversation:(NSString *)convID syncedSeq:(int64_t)syncedSeq;
 
-/// 同上，并声明该会话是否为**超级群**（IMServer/docs/design/OFFLINE_BACKLOG_DESIGN.md §4.5）。
+/// 同上，并声明该会话是否为**超级群**（im-spec/design/OFFLINE_BACKLOG_DESIGN.md §4.5）。
 /// 超级群的 `max_gap` 恒为 0 —— 正文只在打开会话时按需拉，连上时永不自动补拉
 /// （SUPERGROUP_DESIGN §5 早有此规定，这里把它落到 sync 帧上）。
 - (void)trackConversation:(NSString *)convID syncedSeq:(int64_t)syncedSeq isSuper:(BOOL)isSuper;

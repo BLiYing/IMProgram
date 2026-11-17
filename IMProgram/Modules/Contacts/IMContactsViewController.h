@@ -2,7 +2,7 @@
 //  通讯录 Tab 首页：页顶搜索入口 + 入口行（群聊 / 新的朋友 / 我的好友）+ 「最近联系」（最近 5 个单聊，点行进聊天）。
 //  右上角 + 进找人页。好友 A–Z 列表在 IMFriendListViewController（「我的好友」入口）；
 //  本页仍负责拉好友名单：入口行的好友数、「新的朋友」徽标与 Tab 角标都靠它。
-//  设计：../IMServer/docs/design/ORG_DIRECTORY_DESIGN.md §7。
+//  设计：../im-spec/design/ORG_DIRECTORY_DESIGN.md §7。
 
 #import <UIKit/UIKit.h>
 

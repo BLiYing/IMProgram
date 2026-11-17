@@ -275,7 +275,7 @@ NSString *IMLoginLockedMessage(NSDictionary *_Nullable body);
 /// 群成员目录**分页 + 搜索**（G5-c）：GET /groups/{id}/members?cursor=&limit=&q=。
 ///
 /// **超级群必须走这条**：那时 `GET /groups/{id}` 的 members 只含我自己
-///（2 万人约 2.5MB，服务端不再全量下发，见 IMServer/docs/design/SUPERGROUP_DESIGN.md §4）。
+///（2 万人约 2.5MB，服务端不再全量下发，见 im-spec/design/SUPERGROUP_DESIGN.md §4）。
 /// 普通群不必用——群资料接口已一次带全。
 ///
 /// @param cursor 上一页的 nextCursor；传空/nil 取第一页。

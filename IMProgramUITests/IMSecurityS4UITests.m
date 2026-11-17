@@ -1,6 +1,6 @@
 //  IMSecurityS4UITests.m
 //  后台「系统设置 ▸ 安全风控」S4（登录失败锁定）的**模拟器实测脚本**——不是常规回归，默认跳过。
-//  设计：../IMServer/docs/design/SYSTEM_SETTINGS_DESIGN.md §9.2。
+//  设计：../im-spec/design/SYSTEM_SETTINGS_DESIGN.md §9.2。
 //
 //  前置（脚本不改后台值，跑之前用管理端调好）：
 //    testB_LoginLocked     ← sys.auth.login_fail_limit=3，并已有密码账号 s4lockios / secret1（未被锁）

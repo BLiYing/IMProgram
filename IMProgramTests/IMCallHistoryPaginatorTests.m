@@ -1,6 +1,6 @@
 //  IMCallHistoryPaginatorTests.m
 //  设置 ▸ 最近通话：翻页/筛选状态机单测——用假 fetcher（同步或手动延迟回调）驱动，不碰网络/模拟器。
-//  设计：IMServer docs/design/CALL_HISTORY_DESIGN.md §3（翻页/generation）/ §3.5（未接自动续页）/ §6 测试点 1、7。
+//  设计：im-spec/design/CALL_HISTORY_DESIGN.md §3（翻页/generation）/ §3.5（未接自动续页）/ §6 测试点 1、7。
 
 #import <XCTest/XCTest.h>
 #import "../IMProgram/Modules/Me/IMCallHistoryPaginator.h"

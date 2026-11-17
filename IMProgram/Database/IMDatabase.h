@@ -108,7 +108,7 @@ NS_ASSUME_NONNULL_BEGIN
 /// 归档媒体/文件/链接、单测）。新代码要分页请用窗口查询，别再往这里加调用点。
 - (NSArray<IMMessageModel *> *)messagesForConv:(NSString *)convID;
 
-#pragma mark - 消息窗口（分页与定位的本地一半，见 IMServer/docs/design/MESSAGE_WINDOW_DESIGN.md §4）
+#pragma mark - 消息窗口（分页与定位的本地一半，见 im-spec/design/MESSAGE_WINDOW_DESIGN.md §4）
 
 /// 一窗默认条数（与服务端 window_req 单侧上限、im-web 的 RENDER_WINDOW_STEP 同量级）。
 FOUNDATION_EXPORT const NSInteger kIMMessageWindowPageSize;

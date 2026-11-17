@@ -1,6 +1,6 @@
 //  IMAppInfo.h
 //  「关于我们」用的纯函数：版本串、可复制的版本信息、法务页链接拼接。无 UI、可单测。
-//  设计：IMServer/docs/design/ABOUT_LEGAL_DESIGN.md
+//  设计：im-spec/design/ABOUT_LEGAL_DESIGN.md
 
 #import <Foundation/Foundation.h>
 

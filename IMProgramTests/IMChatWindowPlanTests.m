@@ -3,7 +3,7 @@
 //
 //  这一组的错法全是**静默**的：判错了界面照常渲染，只是要么上滑永远不动、要么每次上滑都空跑
 //  一次注定回空页的请求。所以按"会怎么错"钉，不按"接口长什么样"钉——每条用例的名字就是那个错法。
-//  与 im-web `src/windowPlan.test.ts` 同一组场景（IMServer/docs/SYMMETRY.md 登记）。
+//  与 im-web `src/windowPlan.test.ts` 同一组场景（im-spec/SYMMETRY.md 登记）。
 
 #import <XCTest/XCTest.h>
 

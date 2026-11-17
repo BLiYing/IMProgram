@@ -44,7 +44,7 @@ FOUNDATION_EXPORT NSDictionary<NSString *, NSString *> *_Nullable IMStringDictFr
 /// **为什么要有它**（2026-09-01）：此前是拿「本群成员昵称表」去正文里找 `@昵称` token 决定高亮的。
 /// 超级群不下发成员表（2 万人），于是**普通成员的 @ 在大群里既不高亮也点不动**。
 /// 改由发送方在插入 token 的那一刻记下位置随消息走，收端不需要任何成员表。
-/// 对应 Telegram 的 `messageEntityMentionName`。协议见 IMServer/docs/PROTOCOL.md §4.1。
+/// 对应 Telegram 的 `messageEntityMentionName`。协议见 im-spec/PROTOCOL.md §4.1。
 ///
 /// **location/length 的单位是 UTF-16 码元**，即可直接当 NSRange 用——`NSString` 天生就是
 /// UTF-16 索引，所以 iOS 这边零换算。**别改成码点**：那样 emoji 一出现就与 Web 的 String

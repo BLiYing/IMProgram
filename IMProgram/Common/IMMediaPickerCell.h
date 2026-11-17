@@ -1,5 +1,5 @@
 //  IMMediaPickerCell.h
-//  自建相册选择器的宫格格子（规格见 docs/design/MEDIA_PICKER_IOS_DESIGN.md §2.1）：
+//  自建相册选择器的宫格格子（规格见 im-spec/design/MEDIA_PICKER_IOS_DESIGN.md §2.1）：
 //  正方形缩略图 + 右上角编号圆 + 右下角视频时长角标；选中压暗、不可选置灰。
 
 #import <UIKit/UIKit.h>

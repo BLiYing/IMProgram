@@ -1,5 +1,5 @@
 //  IMHTTPService+Folders.h
-//  会话文件夹 REST（IMServer/docs/PROTOCOL.md §6.15 / §11）。所有写接口成功后回的都是整表
+//  会话文件夹 REST（im-spec/PROTOCOL.md §6.15 / §11）。所有写接口成功后回的都是整表
 //  `{version, folders[], limits}`（与 folder_update 帧同形），由 IMChatFolderStore 整表替换。
 
 #import "IMHTTPService.h"

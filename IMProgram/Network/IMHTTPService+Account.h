@@ -1,6 +1,6 @@
 //  IMHTTPService+Account.h
-//  账号注销 / 恢复（IMServer/docs/design/DELETE_ACCOUNT_DESIGN.md §3 §5）。
-//  契约：IMServer/docs/PROTOCOL.md §6.16（已定稿并与后端对账）：delete 成功 data.purge_at（毫秒）；群主阻断
+//  账号注销 / 恢复（im-spec/design/DELETE_ACCOUNT_DESIGN.md §3 §5）。
+//  契约：im-spec/PROTOCOL.md §6.16（已定稿并与后端对账）：delete 成功 data.purge_at（毫秒）；群主阻断
 //  100103 + data.owned_groups:[{conv_id,name}]；登录冷静期 200005 + data.delete_at（毫秒）；restore 不签 token，
 //  成功后再用同一凭据 /login。下面的解析器对形态仍做容错（秒/毫秒/ISO、多种群 id 键），只是防脏数据，不是契约未定。
 

@@ -2,7 +2,7 @@
 //  会话内搜索服务端翻页的判据（IMChatSearchPaging）。
 //
 //  错法全是静默的：拼错位置 / 下标没挪 / 计数虚涨，界面都照常，只是 ▲ 跳到了别处。
-//  与 im-web `src/searchPaging.test.ts` 同一组场景（IMServer/docs/SYMMETRY.md 登记）。
+//  与 im-web `src/searchPaging.test.ts` 同一组场景（im-spec/SYMMETRY.md 登记）。
 
 #import <XCTest/XCTest.h>
 

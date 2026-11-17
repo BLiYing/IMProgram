@@ -1,6 +1,6 @@
 //  IMEmailLogin.h
 //  邮箱登录（绑定已验证邮箱，邮箱作第二个登录名）的纯规则：邮箱预检 / 脱敏、错误码 → 文案 / 落点、重发倒计时、状态模型。
-//  设计 ../IMServer/docs/design/EMAIL_LOGIN_DESIGN.md，契约 PROTOCOL §7.2。全部是无副作用的纯函数，页面只做渲染。
+//  设计 ../im-spec/design/EMAIL_LOGIN_DESIGN.md，契约 PROTOCOL §7.2。全部是无副作用的纯函数，页面只做渲染。
 //  6 位验证码的清洗 / 满位判断**复用** IMTwoStep（IMTwoStepSanitizeCode / IMTwoStepCodeIsComplete），这里不另写。
 //  **日志红线**：验证码 / 密码不得写日志；邮箱只能以 IMEmailMasked 脱敏形态出现在日志里。
 

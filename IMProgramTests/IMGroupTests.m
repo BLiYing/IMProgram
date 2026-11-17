@@ -47,7 +47,7 @@
     XCTAssertEqual(g.members[0].role, IMGroupRoleOwner);
     XCTAssertEqual(g.members[1].role, IMGroupRoleAdmin);
     // displayName：有昵称用昵称；**末级不再回退 uid**——账号重构后 user_id 是 10 位随机数字
-    // 内部 ID，露出来毫无意义（docs/UI.md「用户标识」）。无昵称无句柄 → 占位。
+    // 内部 ID，露出来毫无意义（im-spec/UI.md「用户标识」）。无昵称无句柄 → 占位。
     XCTAssertEqualObjects(g.members[1].displayName, @"小明");
     XCTAssertEqualObjects(g.members[2].displayName, @"未命名用户");
     XCTAssertNotEqualObjects(g.members[2].displayName, g.members[2].userID);
@@ -58,7 +58,7 @@
 }
 
 // 群列表项（GET /groups）带群主资料：副标题「群主 XXX」不能再显示 owner 这个内部 ID
-// （IMServer/docs/design/ACCOUNT_IDENTITY_REDESIGN.md §7.5）。这里守解析与兜底两侧。
+// （im-spec/design/ACCOUNT_IDENTITY_REDESIGN.md §7.5）。这里守解析与兜底两侧。
 - (void)testParseGroupSummaryOwnerProfile {
     IMGroupInfo *g = [IMGroupInfo groupFromDictionary:@{
         @"conv_id": @"g_abc", @"name": @"开发群", @"owner": @"4820571639",
@@ -174,7 +174,7 @@
 @implementation IMGroupMemberUsernameTests
 
 /// 成员解析要带 username（成员行副标题显示 @xxx），且 displayName 的末级**不落 userID**——
-/// 账号重构后那是 10 位随机数字内部 ID（见 IMServer/docs/UI.md「用户标识」）。
+/// 账号重构后那是 10 位随机数字内部 ID（见 im-spec/UI.md「用户标识」）。
 /// 成员解析入口是私有的，故经公开的 groupFromDictionary: 间接构造。
 - (void)testMemberParsesUsernameAndDisplayNameNeverFallsBackToInternalID {
     IMGroupInfo *g = [IMGroupInfo groupFromDictionary:@{

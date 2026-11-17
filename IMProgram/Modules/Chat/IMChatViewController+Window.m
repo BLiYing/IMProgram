@@ -1,6 +1,6 @@
 //  IMChatViewController+Window.m
 //  聊天页的**消息窗口**：进会话只取一窗、向上翻页、按锚点开窗定位。
-//  设计见 IMServer/docs/design/MESSAGE_WINDOW_DESIGN.md（协议 PROTOCOL §6.11）。
+//  设计见 im-spec/design/MESSAGE_WINDOW_DESIGN.md（协议 PROTOCOL §6.11）。
 //
 //  在此之前，进会话是 `messagesForConv:` **一次读全部**——本地有多少条读多少条全构造成对象。
 //  小会话碰不到，聊了很久的会话（活跃大群一小时就能攒 7 万条）每次点进去都要重来一遍。
@@ -904,7 +904,7 @@ int64_t IMChatWindowDuplicateSeq(NSArray<IMMessageModel *> *messages) {
         if (head > windowMax && head > frontier) { return (NSInteger)(head - frontier); }
         return n;
     }
-    // **本地有缺口时不能数本地**（IMServer/docs/design/OFFLINE_BACKLOG_DESIGN.md §4.9 第 8 项）：
+    // **本地有缺口时不能数本地**（im-spec/design/OFFLINE_BACKLOG_DESIGN.md §4.9 第 8 项）：
     // 离线积压被留成缺口后，缺口里的消息根本没下载，数出来必然偏小——而 ↓N 少显示几百条
     // 不会报错、界面照常，只是数字悄悄不对。改用服务端最新位点减去已滚入位点（O(1)、不碰消息表）。
     // 代价是把本人消息与系统消息也算进去，在"缺口"这个场景下（积压成千上万）这点偏差无意义。

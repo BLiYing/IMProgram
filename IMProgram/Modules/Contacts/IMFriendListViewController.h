@@ -1,7 +1,7 @@
 //  IMFriendListViewController.h
 //  「我的好友」页（通讯录首页入口行 push）：好友 A–Z 分组 + 右侧索引 + 左滑删除 / 拉黑，点行进资料页。
 //
-//  2026-11-13 通讯录首页改版（../IMServer/docs/design/ORG_DIRECTORY_DESIGN.md §7）：好友列表原先直接铺在
+//  2026-11-13 通讯录首页改版（../im-spec/design/ORG_DIRECTORY_DESIGN.md §7）：好友列表原先直接铺在
 //  通讯录首页入口行下面，整体搬到本页；首页只留入口行 + 「最近联系」。本页自己拉好友并监听好友事件 /
 //  本机好友关系变更 / 备注变更。
 

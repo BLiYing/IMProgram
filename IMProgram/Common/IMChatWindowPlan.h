@@ -1,7 +1,7 @@
 //  IMChatWindowPlan.h
-//  取数分流里「上滚还该不该问服务端」的判据（IMServer/docs/design/OFFLINE_BACKLOG_DESIGN.md §4.7）。
+//  取数分流里「上滚还该不该问服务端」的判据（im-spec/design/OFFLINE_BACKLOG_DESIGN.md §4.7）。
 //
-//  与 im-web 的 `src/windowPlan.ts` **同一份口径**（IMServer/docs/SYMMETRY.md 有登记）。
+//  与 im-web 的 `src/windowPlan.ts` **同一份口径**（im-spec/SYMMETRY.md 有登记）。
 //  抽成纯函数的理由与 IMConvQuerySource / IMChatEntryHasUnread 一样：**判错了不会报错**。
 //  判成"本地还有"而其实没有 → 上滑什么都不发生、也永不发请求（无声卡死）；
 //  判成"本地没有"而其实有 → 每次上滑空跑一次注定回空页的网络请求，界面正常、只是白花往返。

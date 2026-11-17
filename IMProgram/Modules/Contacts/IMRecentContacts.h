@@ -1,5 +1,5 @@
 //  IMRecentContacts.h
-//  通讯录首页「最近联系」的取数（纯函数，三端同一口径；设计 ../IMServer/docs/design/ORG_DIRECTORY_DESIGN.md §7.1）。
+//  通讯录首页「最近联系」的取数（纯函数，三端同一口径；设计 ../im-spec/design/ORG_DIRECTORY_DESIGN.md §7.1）。
 //  输入是内存里已有的会话列表，不查消息库、不拉接口。
 
 #import <Foundation/Foundation.h>

@@ -34,7 +34,7 @@ typedef NS_ENUM(NSInteger, IMDetailAboutRow) {
     return rows;
 }
 
-/// 大群说明全文（**升级后**时态）。三条与 docs/design/SUPERGROUP_DESIGN.md §4.1 同源——
+/// 大群说明全文（**升级后**时态）。三条与 im-spec/design/SUPERGROUP_DESIGN.md §4.1 同源——
 /// 那一节是三端唯一真相源（后台确认框 / iOS 满员告知行 / Web 满员告知块 / 本行 / Web 对应行）。
 /// 改文案时按该节搜一圈，几处一起改。
 ///

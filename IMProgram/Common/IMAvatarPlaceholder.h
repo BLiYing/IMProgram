@@ -7,7 +7,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-/// 首字母圈的显示字符（2026-10-01 改，三端同口径，见 `../IMServer/docs/UI.md` §「图标与头像资源」）：
+/// 首字母圈的显示字符（2026-10-01 改，三端同口径，见 `../im-spec/UI.md` §「图标与头像资源」）：
 /// 末一个字是汉字（CJK 统一表意文字及扩展）就取它（中文名去姓留名）；否则取首字母并转大写（英文名/用户名）。
 /// 按「组合字符序列」取字，不会把结尾的 emoji／变体选择符切成半个乱码。
 FOUNDATION_EXPORT NSString *IMAvatarInitials(NSString *_Nullable name);

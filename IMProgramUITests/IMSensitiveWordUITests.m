@@ -1,5 +1,5 @@
 //  IMSensitiveWordUITests.m
-//  敏感词过滤（../IMServer/docs/design/SENSITIVE_WORDS_DESIGN.md）的模拟器自测：发消息被拦 → 失败气泡下方显示说明、无重发；
+//  敏感词过滤（../im-spec/design/SENSITIVE_WORDS_DESIGN.md）的模拟器自测：发消息被拦 → 失败气泡下方显示说明、无重发；
 //  编辑消息被拦 → 提示且编辑内容回到输入框。默认跳过，需先：
 //    ① 开发后端在跑，后台词表里有 badword9、档位为「拦截」；② IM_SW_USER（专用测试号，**别用真机在用的账号**——多登一台可能把真机挤下线）
 //       与 IM_SW_PEER 是好友且已有会话。App 未登录时用 IM_SW_USER 免密登录。

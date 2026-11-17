@@ -1,6 +1,6 @@
 //  IMGroupCreateViewController.h
 //  **建群第二步**：群头像（可选）/ 群名称（必填，预填「我、A、B」）/ 成员回显（可 ✕，不可删到 0）。
-//  设计稿：IMServer/docs/design/sketches/GROUP_CREATE_UX_SKETCH.html。
+//  设计稿：im-spec/design/sketches/GROUP_CREATE_UX_SKETCH.html。
 //
 //  取代了原先「选好友 →『创建』→ 弹 UIAlertController 输群名」的形态——alert 里放不下头像、
 //  没有字数计数、也没法预填后再让人改。原流程在 IMGroupListViewController 与

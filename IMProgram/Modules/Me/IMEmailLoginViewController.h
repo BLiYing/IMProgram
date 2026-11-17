@@ -1,6 +1,6 @@
 //  IMEmailLoginViewController.h
 //  邮箱登录流程的根页（隐私与安全 ▸ 邮箱登录）：未绑定 → 说明页（「绑定邮箱」）；已绑定 → 邮箱 + 绑定日期 + 更换邮箱 / 解除绑定。
-//  设计 ../IMServer/docs/design/EMAIL_LOGIN_DESIGN.md §2 / §5.1，契约 PROTOCOL §7.2。版式复用 IMTwoStepFormViewController 骨架。
+//  设计 ../im-spec/design/EMAIL_LOGIN_DESIGN.md §2 / §5.1，契约 PROTOCOL §7.2。版式复用 IMTwoStepFormViewController 骨架。
 //  进页（含子页返回）都重新 GET /users/me/email，不做本地缓存。
 
 #import "IMTwoStepFormViewController.h"
