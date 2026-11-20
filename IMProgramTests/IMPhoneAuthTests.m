@@ -627,14 +627,15 @@ static NSDictionary *pResp; static NSString *pPath; static NSDictionary *pBody;
     __block NSError *pageError = nil;
     [session presentFrom:host request:^(NSString *t, IMIdentityProof *p, void (^f)(NSError *)) { requested = YES; f(nil); }
               completion:^(BOOL ok, NSError *e) { done = YES; pageError = e; }];
-    [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.8]];
+    XCTAssertTrue([self waitUntil:^BOOL { return [host.presentedViewController isKindOfClass:IMIdentityProofSheet.class]; }
+                          timeout:5], @"弹层没弹出");
     IMIdentityProofSheet *sheet = (IMIdentityProofSheet *)host.presentedViewController;
     sheet.codeField.text = @"135790";
     [sheet.codeField sendActionsForControlEvents:UIControlEventEditingChanged];
     [sheet.confirmButton sendActionsForControlEvents:UIControlEventTouchUpInside];
-    [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:1.0]];
+    // 取 token（桩回 200002）+ 动画收起合计约 1.5s，固定等 1s 必挂：轮询到回调为止。
+    XCTAssertTrue([self waitUntil:^BOOL { return done; } timeout:5], @"收起弹层，错误交还页面");
     XCTAssertFalse(requested, @"证明根本没送到服务端");
-    XCTAssertTrue(done, @"收起弹层，错误交还页面");
     XCTAssertEqual(pageError.code, IMErrCodeWrongPassword);
     XCTAssertNil(host.presentedViewController);
     XCTAssertEqualObjects(session.codeCache.code, @"135790", @"码没交出去：仍有效，留着下次预填");
