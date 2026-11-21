@@ -2,6 +2,7 @@
 
 #import "IMHTTPService+Private.h" // 类扩展（私有存储属性）与分文件 category 的共享内部接口
 #import "IMLocalization.h"
+#import "IMOrgChatLocks.h"
 #import "IMHTTPService+AutoDelete.h"
 #import "IMServerEndpoint.h"
 #import "IMConversation.h"
@@ -63,6 +64,20 @@ BOOL IMIsAuthErrorCode(NSInteger code) {
 NSInteger const IMErrCodeLoginLocked = 200006;
 NSInteger const IMErrCodeContentBlocked = 100004;
 NSInteger const IMErrCodeRegisterClosed = 200007;
+NSInteger const IMErrCodeOrgUnreachable = 400120;
+NSString * const IMErrorResponseDataKey = @"IMErrorResponseData";
+
+NSDictionary *IMErrorResponseData(NSError *error) {
+    id data = error.userInfo[IMErrorResponseDataKey];
+    return [data isKindOfClass:NSDictionary.class] ? data : nil;
+}
+
+NSError *IMErrorAttachingResponseData(NSError *error, NSDictionary *data) {
+    if (data.count == 0) { return error; }
+    NSMutableDictionary *info = [error.userInfo mutableCopy] ?: [NSMutableDictionary dictionary];
+    info[IMErrorResponseDataKey] = data;
+    return [NSError errorWithDomain:error.domain code:error.code userInfo:info];
+}
 
 NSInteger IMLoginLockMinutes(NSInteger retryAfterSec) {
     return retryAfterSec > 0 ? (retryAfterSec + 59) / 60 : 1;
@@ -126,6 +141,10 @@ NSString *IMFriendlyMessageForCode(NSInteger code) {
         default:
             // 手机号与短信验证码 200040–200048（PROTOCOL §7.3）：文案键与码同名 err.2000xx。
             if (code >= 200040 && code <= 200048) { return IMLocalized(([NSString stringWithFormat:@"err.%ld", (long)code])); }
+            // 集团（TENANT_DESIGN v2 §9）：客户端可见的码文案键与码同名；其余 4001xx 只在后台出现，回退服务端原文。
+            if ([@[@400101, @400103, @400104, @400105, @400106, @400120, @400121, @400122, @400125] containsObject:@(code)]) {
+                return IMLocalized(([NSString stringWithFormat:@"err.%ld", (long)code]));
+            }
             return nil;
     }
 }
@@ -236,6 +255,7 @@ BOOL IMIsTransientNetworkError(NSError *error) {
         if (error) { completion(nil, error); return; }
         NSArray<IMConversation *> *convs = [IMConversation conversationsFromArray:data[@"conversations"]];
         [IMConversation reconcileDeletedFlags:convs];
+        [IMOrgChatLocks.shared ingestConversations:convs]; // 直聊有 → 无 = 「对方已不再为你提供服务」
         // 备注名喂进全局缓存放在这一层（而非各调用方）：会话列表/转发选择/详情页都走这个方法，
         // 逐个 VC 去 ingest 早晚漏一个，漏了那页就显真实昵称、与别处不一致。
         // peer_remark 只覆盖出现过的对端（会话列表不是好友全集），故非权威全集。
@@ -275,8 +295,7 @@ BOOL IMIsTransientNetworkError(NSError *error) {
 - (void)searchUsersWithToken:(NSString *)token
                        query:(NSString *)query
                   completion:(void (^)(NSArray<IMUserCard *> *, NSError *))completion {
-    NSString *q = [query stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLQueryAllowedCharacterSet] ?: @"";
-    NSString *path = [NSString stringWithFormat:@"/api/v1/users/search?q=%@&limit=20", q];
+    NSString *path = [NSString stringWithFormat:@"/api/v1/users/search?q=%@&limit=20", IMQueryValueEscape(query)];
     NSMutableURLRequest *req = [self authedRequestForPath:path method:@"GET" token:token body:nil];
     [self runDataRequest:req fallback:IMLocalized(@"common.search_failed") completion:^(NSDictionary *data, NSError *error) {
         completion(error ? nil : [IMUserCard cardsFromArray:data[@"users"]], error);
@@ -444,8 +463,17 @@ const NSInteger IMFavoritesPageSize = 60;
                         peerID:(NSString *)peerID
                          hello:(NSString *)hello
                     completion:(void (^)(BOOL, NSError *))completion {
-    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/friends/request" method:@"POST" token:token
-                                                     body:@{ @"user_id": peerID ?: @"", @"hello": hello ?: @"" }];
+    [self requestFriendWithToken:token peerID:peerID hello:hello qrCode:nil completion:completion];
+}
+
+- (void)requestFriendWithToken:(NSString *)token
+                        peerID:(NSString *)peerID
+                         hello:(NSString *)hello
+                        qrCode:(NSString *)qrCode
+                    completion:(void (^)(BOOL, NSError *))completion {
+    NSMutableDictionary *body = [@{ @"user_id": peerID ?: @"", @"hello": hello ?: @"" } mutableCopy];
+    if (qrCode.length > 0) { body[@"qr_code"] = qrCode; }
+    NSMutableURLRequest *req = [self authedRequestForPath:@"/api/v1/friends/request" method:@"POST" token:token body:body];
     [self runDataRequest:req fallback:IMLocalized(@"common.action_failed") completion:^(NSDictionary *data, NSError *error) {
         if (error) { completion(NO, error); return; }
         NSString *outcome = [data[@"outcome"] isKindOfClass:[NSString class]] ? data[@"outcome"] : nil;
@@ -786,6 +814,12 @@ static NSArray<NSString *> *IMStringArrayFrom(id raw) {
     return [NSString stringWithFormat:@"/api/v1/groups/%@%@", [self pathEscape:convID], suffix];
 }
 
+NSString *IMQueryValueEscape(NSString *raw) {
+    NSMutableCharacterSet *allowed = [NSCharacterSet.URLQueryAllowedCharacterSet mutableCopy];
+    [allowed removeCharactersInString:@"&+=?#"];
+    return [raw ?: @"" stringByAddingPercentEncodingWithAllowedCharacters:allowed] ?: @"";
+}
+
 - (NSString *)pathEscape:(NSString *)seg {
     return [seg stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet] ?: @"";
 }
@@ -845,11 +879,11 @@ static NSArray<NSString *> *IMStringArrayFrom(id raw) {
     [self runRequest:req completion:^(NSDictionary *body, NSError *error) {
         if (error) { completion(nil, error); return; }
         NSInteger code = [body[@"code"] integerValue];
+        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : @{};
         if (code != 0) {
-            completion(nil, [self errorWithCode:code message:[self messageFrom:body fallback:fallback]]);
+            completion(nil, IMErrorAttachingResponseData([self errorWithCode:code message:[self messageFrom:body fallback:fallback]], data));
             return;
         }
-        NSDictionary *data = [body[@"data"] isKindOfClass:[NSDictionary class]] ? body[@"data"] : @{};
         completion(data, nil);
     }];
 }

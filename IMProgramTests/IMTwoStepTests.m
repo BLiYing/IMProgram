@@ -2,6 +2,7 @@
 //  两步验证（TOTP + 恢复码）：纯规则（清洗 / 归一化 / 分组 / 错误码文案 / 状态页行 / leave 拦截）、REST（200020 保留 ticket、
 //  200021 attempts_left、二步登录成功收尾）、日志脱敏、系统通知渲染、设置搜索登记、各页状态。app-hosted；HTTP 用 NSURLProtocol 桩。
 
+#import "../IMProgram/Common/IMPhoneAuth.h"
 #import <XCTest/XCTest.h>
 
 #import "IMTwoStep.h"
@@ -601,6 +602,14 @@ static NSDictionary *sResp; static NSInteger sStatus; static NSString *sPath; st
 }
 
 - (void)test_登录页_进二步页隐藏密码页控件_返回恢复并丢ticket {
+    // 本用例按「密码登录」页签断言；登录页默认页签 = 本机记住的那个（UI 测试 / 手动登录会改它），先钉住再还原。
+    NSUserDefaults *ud = NSUserDefaults.standardUserDefaults;
+    IMLoginTab saved = IMLoginRememberedTab(ud);
+    IMLoginRememberTab(ud, IMLoginTabPassword);
+    [self addTeardownBlock:^{
+        if (saved != IMLoginTabNone) { IMLoginRememberTab(ud, saved); return; }
+        [ud removeObjectForKey:@"im.login.tab"]; // 原来没记过：还原成没记过
+    }];
     IMLoginViewController *vc = [IMLoginViewController new];
     [vc loadViewIfNeeded];
     UITextField *user = [vc valueForKey:@"userIDField"], *pw = [vc valueForKey:@"passwordField"];

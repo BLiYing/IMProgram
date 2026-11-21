@@ -149,6 +149,7 @@ BOOL IMSendRejectionShowsNote(NSInteger code) {
         case 300001:                                   // 内容过大
         case 300003:                                   // 对方账号已注销（无恢复入口，灰字说明即可；不给红❗重发）
         case 100004:                                   // 内容含敏感词被拦（原样重发必然再被拦；文本留在气泡里可复制改后再发）
+        case 400120:                                   // 不在同一集团了（TENANT v2 §3.4；输入栏随之变只读）
             return YES;
         default:
             return NO;

@@ -107,10 +107,14 @@ static IMSMSSendResult *IMSMSSendResultFrom(id data) {
 }
 
 - (void)registerPhoneWithTicket:(NSString *)ticket nickname:(NSString *)nickname
+                     inviteCode:(NSString *)inviteCode
                      completion:(void (^)(IMSMSLoginResult *, NSError *))completion {
     NSMutableDictionary *body = [[self deviceFields] mutableCopy];
     body[@"register_ticket"] = ticket ?: @"";
     body[@"nickname"] = nickname ?: @"";
+    // 选填邀请码：码无效时整个注册失败、不建号、票不作废（服务端先校验，400101 等），昵称保留可改码重交。
+    NSString *code = [inviteCode stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (code.length > 0) { body[@"invite_code"] = code; }
     __weak typeof(self) ws = self;
     [self runEnvelopeRequest:[self postRequestToPath:@"/api/v1/register/phone" body:body] completion:^(id data, NSError *error) {
         [ws handleSMSLoginData:data error:error completion:completion];

@@ -68,6 +68,8 @@ FOUNDATION_EXPORT NSDictionary *IMBodyWithProof(NSDictionary *body, IMIdentityPr
 @interface IMLoginConfig : NSObject
 @property (nonatomic, assign, readonly) BOOL registerEnabled;
 @property (nonatomic, assign, readonly) BOOL smsAvailable;
+/// 部署开了邀请码功能：完善资料页显示「邀请码（选填）」框（TENANT v2 §4.1）。缺失 = 关。
+@property (nonatomic, assign, readonly) BOOL inviteEnabled;
 @property (nonatomic, copy, readonly) NSArray<IMSMSRegion *> *smsRegions;
 /// 解析信封响应体：code≠0 / 非 JSON / 缺字段一律走老服务端口径（registerEnabled=YES、smsAvailable=NO）。
 + (instancetype)configFromResponseData:(nullable NSData *)data;

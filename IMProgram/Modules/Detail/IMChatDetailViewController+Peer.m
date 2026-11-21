@@ -11,6 +11,8 @@
 //  个人名片把「冻结快照」变成了常态入口，这个洞才致命：
 //  设计 §6 的「先用快照填首屏、再拉最新覆盖」与第四分支「已注销 → 空态」全依赖它。
 
+#import "IMJSONValue.h"
+#import "IMOrgChatLocks.h"
 #import "IMChatDetailViewController+Private.h"
 #import "IMHTTPService.h"
 #import "IMUserCard.h"
@@ -181,8 +183,14 @@ static const NSInteger kIMPeerNotFoundOverlayTag = 91001;
         if (!self) { return; }
         if (error) {
             if (error.code == kIMErrUserNotFound) { [self showPeerNotFoundState]; }
+            if (error.code == IMErrCodeOrgUnreachable) { [self applyPeerUnreachable:IMErrorResponseData(error)]; }
             return; // 其余错误（离线/超时/5xx）保持快照，不打扰
         }
+        BOOL pillsChanged = self.peerUnreachable || self.peerDirectChat != card.directChat;
+        self.peerUnreachable = NO;
+        self.peerDirectChat = card.directChat;
+        if (pillsChanged) { [self rebuildPillsView]; }
+        if (card.directChat) { [IMOrgChatLocks.shared noteDirectChatForPeer:self.peerID]; } // 直聊恢复了：解除只读
         if (card.nickname.length > 0) { self.peerNickname = card.nickname; }   // 真实昵称，非备注
         self.peerUsername = card.username;                                     // 公开句柄，供「用户名」行显示 @xxx
         self.peerBio = card.bio;                                               // 服务端按对方档位裁剪；空串＝不可见 / 没填，行不占位
@@ -196,6 +204,20 @@ static const NSInteger kIMPeerNotFoundOverlayTag = 91001;
         [self refreshHeaderTexts];
         [self.tableView reloadData]; // 信息区行数随签名 / 手机号有无变化；与本页其它异步回填同口径（按组刷新在组布局同时变化时会触发 UIKit 断言）
     }];
+}
+
+/// 400120「不在同一集团」：服务端只回昵称与（按隐私裁剪的）头像；说明顶替副标题，操作排清空（扫码进来的留「加好友」）。
+- (void)applyPeerUnreachable:(NSDictionary *)data {
+    NSString *nick = IMJSONString(data[@"nickname"]);
+    NSString *avatar = IMJSONString(data[@"avatar_url"]);
+    if (nick.length > 0) { self.peerNickname = nick; }
+    self.peerAvatarURL = avatar;
+    self.peerUnreachable = YES;
+    self.peerDirectChat = NO;
+    [self.avatarView setAvatarURL:[self headerAvatarURL] seed:(self.peerID ?: @"") name:self.displayTitle];
+    [self refreshHeaderTexts];
+    [self rebuildPillsView];
+    [self.tableView reloadData];
 }
 
 /// 「该用户不存在或已注销」空态：盖住内容区，导航栏与返回保留。

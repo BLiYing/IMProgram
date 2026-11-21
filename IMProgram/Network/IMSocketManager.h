@@ -25,6 +25,9 @@ extern NSString * const IMSocketDidReceiveConvBumpNotification;
 /// **不含 event=remark**（备注名多端同步）——那一类不重拉列表，直接更新 IMRemarkStore
 /// 并由 IMRemarkStoreDidChangeNotification 通知各页，见 IMRemarkStore.h。
 extern NSString * const IMSocketDidReceiveFriendEventNotification;
+/// 好友事件通知的 userInfo：kIMFriendEventKey=event（accepted / deleted / org_exit …）、kIMFriendEventFromKey=对端 uid（可空串）。
+extern NSString * const kIMFriendEventKey;
+extern NSString * const kIMFriendEventFromKey;
 /// 收到群变更帧（group）时广播（主线程）：会话列表/群资料页据此刷新。
 /// userInfo：kIMConvIDKey=群 conv_id、kIMGroupEventKey=事件、kIMGroupTargetKey=受影响方 uid（可空串）。
 /// 收到 event=remove 且 target=自己 → 该群已把我移出（客户端应移出该会话）。

@@ -1,5 +1,6 @@
 //  IMUserSearchViewController.m
 
+#import "IMTenantStore.h"
 #import "IMUserSearchViewController.h"
 #import "IMLocalization.h"
 #import "IMContactCells.h"
@@ -199,11 +200,19 @@
     return self.results.count;
 }
 
+/// 有集团时结果下方说明找人范围（只回能联系的人；搜不到也不说原因）。
+- (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
+    return (self.results.count > 0 && IMTenantStore.shared.hasTenant) ? IMLocalized(@"search.scope_hint") : nil;
+}
+
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     IMContactCell *cell = [tableView dequeueReusableCellWithIdentifier:@"user" forIndexPath:indexPath];
     IMUserCard *c = self.results[indexPath.row];
     // 副标题 = @句柄。绝不显示 userID——那是 10 位随机数字内部 ID。标签已不再是用户概念（PROFILE_BIO_DESIGN）。
     NSString *handle = c.username.length > 0 ? [@"@" stringByAppendingString:c.username] : @"";
+    if (c.orgLabel.length > 0) { // 集团内的人：追加「单位 · 部门」（TENANT v2，交互稿 I-10）
+        handle = handle.length > 0 ? [NSString stringWithFormat:@"%@ · %@", handle, c.orgLabel] : c.orgLabel;
+    }
     [cell configureWithCard:c subtitle:handle];
 
     NSString *peer = c.userID;

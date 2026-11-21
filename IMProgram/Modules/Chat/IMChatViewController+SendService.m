@@ -4,6 +4,8 @@
 //  由主实现 viewDidLoad 用 @selector 接线（观察者身份仍是 VC）。从 IMChatViewController.m 平移，未改行为。
 
 #import "IMChatViewController+Private.h"  // 含 IMSocketManager.h（kIMConvIDKey / kIMMsgOp* 键）
+#import "IMOrgChatLocks.h"
+#import "IMHTTPService.h"
 #import "IMSocketManager+BatchDelete.h"   // IMRemovedMessageSeqs
 #import "IMMediaSendService.h"            // kIMMediaSend* 通知键
 #import "IMMessageModel.h"
@@ -130,6 +132,7 @@ static BOOL IMMediaFailToastShouldShow(NSString *text, CFTimeInterval now) {
         mine.note = serviceModel.note;
         mine.noteCode = serviceModel.noteCode; // 随 note 一起拷：决定系统行给不给恢复入口（200103 → 发好友申请）
     }
+    if (mine.noteCode == IMErrCodeOrgUnreachable && !self.isGroupChat) { [IMOrgChatLocks.shared markOrgLeftForPeer:self.peerID]; } // 400120 → 只读
     if (mine.convSeq > 0) { [self.windowState.seenConvSeqs addObject:@(mine.convSeq)]; } // 防 sync 重复回显自己发的
     // 相册成员的 ACK 只定点刷宫格角标/状态胶囊；但**被拒收挂了系统行时行高会变**，
     // 定点刷新不重算高度（系统行会被裁掉），必须整表 reload 走下面的分支。

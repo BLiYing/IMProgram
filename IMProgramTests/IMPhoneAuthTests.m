@@ -415,7 +415,7 @@ static NSDictionary *pResp; static NSString *pPath; static NSDictionary *pBody;
     __block IMSMSLoginResult *res = nil;
     __block NSString *path = nil; __block NSDictionary *body = nil;
     [self wait:^(XCTestExpectation *e) {
-        [IMHTTPService.sharedService registerPhoneWithTicket:@"RT1" nickname:@"小明"
+        [IMHTTPService.sharedService registerPhoneWithTicket:@"RT1" nickname:@"小明" inviteCode:nil
                                                   completion:^(IMSMSLoginResult *r, NSError *err) {
             res = r; path = pPath; body = pBody; // 登录收尾会顺手拉 /users/me 预热昵称，先把这次的请求记下来
             [e fulfill];

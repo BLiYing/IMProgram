@@ -1,6 +1,6 @@
 //  IMLoginSubpageViews.h
 //  登录页里「替换栈内容」的两个子视图（同两步验证二步页，交互稿 1-3 / 1-4）：
-//  - IMLoginCompleteProfileView「完善资料」：验证码登录命中未注册号码后填昵称 →「完成」即注册并登录。本期不加邀请码框。
+//  - IMLoginCompleteProfileView「完善资料」：验证码登录命中未注册号码后填昵称（+ 选填邀请码）→「完成」即注册并登录。
 //  - IMLoginResetPasswordView「重设密码」：手机号 + 验证码（scene=reset）+ 新密码两遍。
 //  取值：标题 22 semibold、提示 13 secondaryLabel、字段 RoundedRect 44、错误 13 systemRed、主按钮 filled（accent）、返回 15 secondaryLabel。
 //  只负责显示与输入；请求由登录页发起（IMLoginViewController+Phone）。
@@ -12,6 +12,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface IMLoginCompleteProfileView : UIView
 @property (nonatomic, strong, readonly) UITextField *nicknameField;
+/// 邀请码（选填，TENANT v2 §4.1）：部署开了邀请码功能才显示（showsInvite）。
+@property (nonatomic, strong, readonly) UITextField *inviteField;
+@property (nonatomic, assign) BOOL showsInvite;
 @property (nonatomic, strong, readonly) UIButton *submitButton;
 @property (nonatomic, copy, nullable) void (^onSubmit)(NSString *nickname);
 @property (nonatomic, copy, nullable) void (^onBack)(void);

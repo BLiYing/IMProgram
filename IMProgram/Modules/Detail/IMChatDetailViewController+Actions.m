@@ -288,7 +288,8 @@ static const NSUInteger kIMRtcMaxGroupCallPick = 8;
 - (void)requestAddFriendUID:(NSString *)uid {
     __weak typeof(self) ws = self;
     NSString *shown = self.isGroup ? nil : self.peerNickname;
-    [self im_askFriendRequestForUID:uid name:shown onSent:^(BOOL becameFriend) {
+    NSString *qrCode = (!self.isGroup && [uid isEqualToString:self.peerID]) ? self.qrCode : nil; // 扫码通道只对名片主人有效
+    [self im_askFriendRequestForUID:uid name:shown qrCode:qrCode onSent:^(BOOL becameFriend) {
         __strong typeof(ws) self = ws;
         if (!self) { return; }
         // 重拉关系：单聊校正 peerIsFriend 并重建操作排/卡片；群聊刷新成员菜单依据。

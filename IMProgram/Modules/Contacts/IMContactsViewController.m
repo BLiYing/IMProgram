@@ -1,5 +1,9 @@
 //  IMContactsViewController.m
 
+#import "IMDirectoryViewController.h"
+#import "IMMyTenantViewController.h"
+#import "IMServerConfigStore.h"
+#import "IMTenantStore.h"
 #import "IMContactsViewController.h"
 #import "IMLocalization.h"
 #import "IMUserSearchViewController.h"
@@ -164,6 +168,13 @@ static NSString * const kIMContactsEntryCellID = @"entry";
 static NSString * const kIMContactsRecentCellID = @"recent";
 static NSString * const kIMContactsEntryFriendRequests = @"friendRequests";
 static NSString * const kIMContactsEntryMyFriends = @"myFriends";
+static NSString * const kIMContactsEntryOrg = @"org";
+static NSString * const kIMContactsEntryJoinOrg = @"joinOrg";
+
+IMContactsOrgEntry IMContactsOrgEntryKind(BOOL hasTenant, BOOL directoryEntryMobile, BOOL inviteEnabled) {
+    if (hasTenant) { return directoryEntryMobile ? IMContactsOrgEntryDirectory : IMContactsOrgEntryNone; }
+    return inviteEnabled ? IMContactsOrgEntryJoin : IMContactsOrgEntryNone;
+}
 
 BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt,
                                      CFTimeInterval now, CFTimeInterval interval) {
@@ -202,6 +213,9 @@ BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt
         // 所以即使用户还没切到通讯录，这里也一直握着最新的那份数组（只存不算，见 onConversationListChanged:）。
         [center addObserver:self selector:@selector(onConversationListChanged:)
                        name:IMConversationListDidChangeNotification object:nil];
+        // 集团身份（directory/me）或入口开关（server-config）变了 → 重建「组织架构 / 填写邀请码」入口行。
+        [center addObserver:self selector:@selector(onOrgEntryInputsChanged) name:IMTenantStoreDidChangeNotification object:nil];
+        [center addObserver:self selector:@selector(onOrgEntryInputsChanged) name:IMServerConfigDidLoadNotification object:nil];
         // 重连即取权威资料（断网期间看的是缓存种子）。仅可见时刷新，避免离屏空跑登录+HTTP。
         __weak typeof(self) ws = self;
         _reconnectReloader = [[IMReconnectReloader alloc] initWithReloadBlock:^{ [ws reload]; }];
@@ -229,6 +243,48 @@ BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt
         // 文案 key contacts.entry.official_account / service_account 仍保留。
     ];
     self.entryColors = @[UIColor.systemGreenColor, UIColor.systemTealColor, UIColor.systemBlueColor];
+    // 集团（TENANT_DESIGN v2 §8.2）：有集团且后台开了手机端入口 →「组织架构」；无集团且邀请码开着 →「填写邀请码加入企业」。
+    switch (IMContactsOrgEntryKind(IMTenantStore.shared.hasTenant, IMServerConfigStore.shared.directoryEntryMobile,
+                                   IMServerConfigStore.shared.inviteEnabled)) {
+        case IMContactsOrgEntryDirectory: {
+            self.entries = [self.entries arrayByAddingObject:
+                [IMMenuAction actionWithId:kIMContactsEntryOrg title:IMLocalized(@"contacts.entry.org") image:@"building.2.fill"
+                                   handler:^{ [ws openDirectory]; }]];
+            self.entryColors = [self.entryColors arrayByAddingObject:UIColor.systemBlueColor];
+            break;
+        }
+        case IMContactsOrgEntryJoin: {
+            self.entries = [self.entries arrayByAddingObject:
+                [IMMenuAction actionWithId:kIMContactsEntryJoinOrg title:IMLocalized(@"contacts.entry.join_org") image:@"ticket.fill"
+                                   handler:^{ [ws openMyTenant]; }]];
+            self.entryColors = [self.entryColors arrayByAddingObject:UIColor.systemOrangeColor];
+            break;
+        }
+        case IMContactsOrgEntryNone:
+            break;
+    }
+}
+
+/// 集团身份 / 入口开关变了：重建入口行（只刷入口段）。
+- (void)onOrgEntryInputsChanged {
+    NSUInteger before = self.entries.count;
+    [self buildEntries];
+    if (!self.isViewLoaded) { return; }
+    if (before == self.entries.count) {
+        [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:[self entriesSection]] withRowAnimation:UITableViewRowAnimationNone];
+    } else {
+        [self.tableView reloadData];
+    }
+}
+
+- (void)openDirectory {
+    IMDirectoryViewController *vc = [[IMDirectoryViewController alloc] initRootWithHost:self.host userID:self.userID];
+    [self.navigationController pushViewController:vc animated:YES];
+}
+
+- (void)openMyTenant {
+    IMMyTenantViewController *vc = [[IMMyTenantViewController alloc] initWithHost:self.host userID:self.userID];
+    [self.navigationController pushViewController:vc animated:YES];
 }
 
 - (void)onLocalFriendRelationChanged {

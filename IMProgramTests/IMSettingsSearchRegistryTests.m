@@ -71,7 +71,8 @@
 - (void)testTopLevelEntriesMatchSettingsPageRows {
     IMSettingsViewController *vc = [[IMSettingsViewController alloc] initWithHost:@"http://127.0.0.1:1" userID:@"u_test"];
     NSArray<NSString *> *rowIDs = [vc nonDestructiveRowIDs];
-    NSSet *excluded = [NSSet setWithObject:@"folders"]; // 开发中
+    // folders 开发中；myTenant「我的集团」是条件行（有集团或开了邀请码才有），不进设置搜索。
+    NSSet *excluded = [NSSet setWithObjects:@"folders", @"myTenant", nil];
     NSMutableSet *registeredTop = [NSMutableSet set];
     for (IMSettingsSearchEntry *e in [self all]) {
         if (e.route.count == 1) { [registeredTop addObject:e.entryID]; }

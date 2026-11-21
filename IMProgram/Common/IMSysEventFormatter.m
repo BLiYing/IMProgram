@@ -22,6 +22,7 @@ static NSDictionary<NSString *, NSArray *> *IMSysEventTable(void) {
             @"member_leave":       @[@"sys.group.member_leave",       @1, NSNull.null],
             @"member_remove":      @[@"sys.group.member_remove",      @2, NSNull.null],
             @"member_remove_ban":  @[@"sys.group.member_remove_ban",  @2, NSNull.null],
+            @"member_org_exit":    @[@"sys.group.member_org_exit",    @1, NSNull.null], // 不在本集团了被自动移出（TENANT v2 §4.3）
             @"role_admin_set":     @[@"sys.group.role_admin_set",     @1, NSNull.null],
             @"role_admin_revoked": @[@"sys.group.role_admin_revoked", @1, NSNull.null],
             @"owner_transfer":     @[@"sys.group.owner_transfer",     @1, NSNull.null],

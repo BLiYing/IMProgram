@@ -9,6 +9,9 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+/// 名片码链接里的 token（…/q/u/{token}）；不是名片码返回 nil。暴露给单测。
+FOUNDATION_EXPORT NSString *_Nullable IMQRUserCardToken(NSString *_Nullable raw);
+
 @interface IMQRResultRouter : NSObject
 
 /// 落地一个已解析的扫码结果。raw=扫到的原文（凭码入群要回传给 `POST /groups/join`）；vc 提供导航栈与弹窗宿主。
@@ -20,6 +23,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// resolve / 入群失败的统一提示（`200110` 的文案已在 IMHTTPService 映射为「二维码已失效…」）。
 + (void)presentError:(nullable NSError *)error fromController:(UIViewController *)vc;
+/// 同上；扫名片码回 400120（不在同一集团）时用 error 带回的昵称 / 头像打开只读资料页（交互稿 I-11），需要 host / userID。
++ (void)presentError:(nullable NSError *)error host:(nullable NSString *)host userID:(nullable NSString *)userID
+      fromController:(UIViewController *)vc;
 
 /// 层3（App 内拦截）：urlString 若是**本站**邀请链接（host 匹配 + 路径 /q/u|g/）→ 走扫码同款
 /// resolve+路由（原生加群/名片流程），返回 YES；否则返回 NO（调用方按普通链接开 SFSafari）。

@@ -1017,7 +1017,7 @@ NSArray<IMConversation *> *IMCachedConversationListSeed(IMDatabaseAccountContext
     scanner.modalPresentationStyle = UIModalPresentationFullScreen;
     scanner.onResult = ^(IMQRResolved *resolved, NSString *raw, NSError *error) {
         if (!ws) { return; }
-        if (error) { [IMQRResultRouter presentError:error fromController:ws]; return; }
+        if (error) { [IMQRResultRouter presentError:error host:ws.host userID:ws.userID fromController:ws]; return; }
         [IMQRResultRouter routeResolved:resolved raw:raw host:ws.host userID:ws.userID fromController:ws];
     };
     [self presentViewController:scanner animated:YES completion:nil];

@@ -35,6 +35,8 @@ FOUNDATION_EXPORT int64_t IMClearedAtFromJSON(id _Nullable value);
 /// 单聊对端账号已注销（会话列表 `peer_deleted`，PROTOCOL §6.16.3）。为 YES 时 displayName 恒为「已注销用户」，压过会话备注与好友备注。
 /// 仅解析期带；本机 SQLite 不存此列，冷启动靠 IMRemarkStore 持久化的已注销集合判定。
 @property (nonatomic, assign) BOOL peerDeleted;
+/// 单聊只读原因（org_left / service_ended，TENANT_DESIGN v2 §4.3）；只有 GET /conversations 带，空 = 不锁。
+@property (nonatomic, copy, nullable) NSString *peerChatLock;
 @property (nonatomic, strong, nullable) IMPresence *peerPresence; // 单聊对端在线态快照（列表绿点；群聊为 nil，在线与否按 onlineUntil 实时判）
 @property (nonatomic, copy, nullable) NSString *lastContent;
 @property (nonatomic, copy, nullable) NSString *lastFrom;

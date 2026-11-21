@@ -11,6 +11,7 @@
 #import "IMPowerSaving.h"
 #import "IMDownloadSettingsStore.h"
 #import "IMServerConfigStore.h"
+#import "IMTenantStore.h"
 #import "IMPushTokenManager.h"
 #import "IMPendingLogoutQueue.h"
 #import "IMAccountNotifySettingsSync.h"
@@ -46,6 +47,7 @@
     [[IMNetworkMonitor shared] start];        // 网络类型实时源（自动下载决策用，M4-7）
     [[IMDownloadSettingsStore shared] start];  // 自动下载策略：拉取 + 监听 capabilities_update 重拉（登录后 token 就绪即拉）
     [[IMServerConfigStore shared] start];      // 部署级配额/能力（群上限、超级群、撤回/编辑窗、转发与群文本上限）：每次连上 + 回前台重拉
+    [[IMTenantStore shared] start];            // 我的集团与身份（directory/me）：连上 / 回前台 / org_exit 重拉
     [[IMPushTokenManager shared] start];             // M5：登录/每次(重)连即尝试注册推送令牌
     [[IMPendingLogoutQueue shared] start];           // 补发上次没成功的退出吊销（与当前是否登录无关）
     [[IMAccountNotifySettingsSync shared] start];    // M5：账号级通知设置迁移/多端同步

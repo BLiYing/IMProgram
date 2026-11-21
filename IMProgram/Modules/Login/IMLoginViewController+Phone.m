@@ -169,6 +169,7 @@
             self.registerHost = host;
             [self enterSubpage:self.completeView];
             [self.completeView resetWithMaskedPhone:IMPhoneMasked(cc, phone)];
+            self.completeView.showsInvite = self.loginConfig.inviteEnabled; // 邀请码功能开着才给选填框
             [self.completeView.nicknameField becomeFirstResponder];
             return;
         }
@@ -233,7 +234,9 @@
     [self.completeView showError:nil];
     IMHTTPService.sharedService.host = host;
     __weak typeof(self) ws = self;
-    [IMHTTPService.sharedService registerPhoneWithTicket:ticket nickname:nickname completion:^(IMSMSLoginResult *result, NSError *error) {
+    NSString *invite = self.completeView.showsInvite ? self.completeView.inviteField.text : nil;
+    [IMHTTPService.sharedService registerPhoneWithTicket:ticket nickname:nickname inviteCode:invite
+                                              completion:^(IMSMSLoginResult *result, NSError *error) {
         __strong typeof(ws) self = ws;
         if (!self || ![self.registerTicket isEqualToString:ticket]) { return; } // 已离开子页
         self.completeView.busy = NO;

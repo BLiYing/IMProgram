@@ -119,12 +119,17 @@ static NSString *IMHelloTruncate(NSString *t, NSUInteger max) {
 - (void)im_askFriendRequestForUID:(NSString *)uid
                              name:(NSString *)name
                            onSent:(void (^)(BOOL))onSent {
-    [self im_askFriendRequestForUID:uid name:name hello:nil notice:nil onSent:onSent];
+    [self im_askFriendRequestForUID:uid name:name qrCode:nil onSent:onSent];
+}
+
+- (void)im_askFriendRequestForUID:(NSString *)uid name:(NSString *)name qrCode:(NSString *)qrCode
+                           onSent:(void (^)(BOOL))onSent {
+    [self im_askFriendRequestForUID:uid name:name hello:nil notice:nil qrCode:qrCode onSent:onSent];
 }
 
 /// hello/notice 非空 = 上次附言被敏感词拦下（100004）后重开：回填被拦的附言，说明行换成拦截原因（内容保留）。
 - (void)im_askFriendRequestForUID:(NSString *)uid name:(NSString *)name hello:(NSString *)prefill
-                           notice:(NSString *)notice onSent:(void (^)(BOOL))onSent {
+                           notice:(NSString *)notice qrCode:(NSString *)qrCode onSent:(void (^)(BOOL))onSent {
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0 || uid.length == 0) { return; }
     NSString *shown = name.length > 0 ? name : IMLocalized(@"friend.request.peer_fallback");
@@ -151,12 +156,12 @@ static NSString *IMHelloTruncate(NSString *t, NSUInteger max) {
         NSString *hello = [alert.textFields.firstObject.text
             stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] ?: @"";
         limiter = nil;
-        [IMHTTPService.sharedService requestFriendWithToken:token peerID:uid hello:hello
+        [IMHTTPService.sharedService requestFriendWithToken:token peerID:uid hello:hello qrCode:qrCode
                                                  completion:^(BOOL becameFriend, NSError *error) {
             __strong typeof(ws) self = ws;
             if (!self) { return; }
             if (error.code == IMErrCodeContentBlocked) {
-                [self im_askFriendRequestForUID:uid name:name hello:hello notice:error.localizedDescription onSent:onSent];
+                [self im_askFriendRequestForUID:uid name:name hello:hello notice:error.localizedDescription qrCode:qrCode onSent:onSent];
                 return;
             }
             if (error) { [self im_showToast:error.localizedDescription ?: IMLocalized(@"friend.request.send_failed")]; return; }

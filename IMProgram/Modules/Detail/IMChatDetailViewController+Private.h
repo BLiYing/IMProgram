@@ -89,6 +89,10 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 // 好友准入（微信式，任务一 P0）：非好友不显示「消息/呼叫/视频」，改显「加好友」。
 // 乐观默认 YES（多数单聊入口=已有好友），loadPeerBlockState 拉到关系后校正并重建操作排。
 @property (nonatomic, assign) BOOL peerIsFriend;
+// 集团（TENANT v2）：免好友直聊（客户 ↔ 所绑子公司客服）→ 非好友也给「消息 / 呼叫 / 视频」；
+// 资料页回 400120（不在同一集团）→ 只显头像昵称 + 说明，没有操作（扫码进来的仍可「加好友」）。
+@property (nonatomic, assign) BOOL peerDirectChat;
+@property (nonatomic, assign) BOOL peerUnreachable;
 // 群成员长按菜单用：我的 accepted 好友 uid 集合（决定成员菜单显「发送消息」还是「添加好友」）。
 @property (nonatomic, strong, nullable) NSSet<NSString *> *friendUIDs;
 // showsMessagePill 已提升为公开属性（见 .h）：单聊从群成员/通讯录等外部进入时显示「消息」入口。

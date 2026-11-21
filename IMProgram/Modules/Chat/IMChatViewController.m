@@ -1,6 +1,7 @@
 //  IMChatViewController.m
 
 #import "IMChatViewController.h"
+#import "IMOrgChatLocks.h"
 #import "IMChatViewController+Private.h" // 私有类扩展（属性/协议）——与分文件 category 共享
 #import "IMChatInputTextView.h"       // 多行自增高 + 支持粘贴图片的输入框（#2）
 #import "IMPendingMediaThumbnail.h"   // 本地待发媒体缩略图生成
@@ -498,8 +499,11 @@ NSArray<UIViewController *> *IMChatCollapsedStack(NSArray<UIViewController *> *s
     [self setupUI];
     // 系统通知会话（peerID=system）：进页即锁定输入栏（无群资料触发路径）。
     // 见 im-spec/design/SYSTEM_NOTICE_SESSION_DESIGN.md §5.2 / +PinnedBanner.m refreshComposerMuteState。
-    if (!self.isGroupChat) { // 系统会话 / 对端已注销：进页即只读
+    if (!self.isGroupChat) { // 系统会话 / 对端已注销 / 集团只读：进页即只读
         [self refreshComposerMuteState];
+        // 集团只读标记变化（org_exit、直聊关闭、400120）→ 重算输入栏（TENANT_DESIGN v2 §4.3）。
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(refreshComposerMuteState)
+                                                   name:IMOrgChatLocksDidChangeNotification object:nil];
     }
     [self reloadPinnedBanner]; // 置顶横幅（G0）：进会话拉一次，之后靠 msg_op 帧增量维护，不轮询
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(appearanceChanged)

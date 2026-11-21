@@ -15,6 +15,16 @@ NS_ASSUME_NONNULL_BEGIN
 extern BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt,
                                             CFTimeInterval now, CFTimeInterval interval);
 
+/// 通讯录入口段末行的集团入口（TENANT_DESIGN v2 §8.2，交互稿 I-6 / I-6b）。
+typedef NS_ENUM(NSInteger, IMContactsOrgEntry) {
+    IMContactsOrgEntryNone,       ///< 不显示
+    IMContactsOrgEntryDirectory,  ///< 「组织架构」
+    IMContactsOrgEntryJoin,       ///< 「填写邀请码加入企业」
+};
+
+/// 纯函数（单测）：有集团看手机端入口开关；无集团看邀请码功能开关。
+extern IMContactsOrgEntry IMContactsOrgEntryKind(BOOL hasTenant, BOOL directoryEntryMobile, BOOL inviteEnabled);
+
 @interface IMContactsViewController : UIViewController
 
 - (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID;

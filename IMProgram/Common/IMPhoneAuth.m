@@ -93,6 +93,7 @@ NSDictionary *IMBodyWithProof(NSDictionary *body, IMIdentityProof *proof) {
 @property (nonatomic, assign, readwrite) BOOL registerEnabled;
 @property (nonatomic, assign, readwrite) BOOL smsAvailable;
 @property (nonatomic, copy, readwrite) NSArray<IMSMSRegion *> *smsRegions;
+@property (nonatomic, assign, readwrite) BOOL inviteEnabled;
 @end
 
 @implementation IMLoginConfig
@@ -115,6 +116,7 @@ NSDictionary *IMBodyWithProof(NSDictionary *body, IMIdentityProof *proof) {
     if (!d) { return c; }
     if ([d[@"register_enabled"] isKindOfClass:NSNumber.class]) { c.registerEnabled = [d[@"register_enabled"] boolValue]; }
     if ([d[@"sms_available"] isKindOfClass:NSNumber.class]) { c.smsAvailable = [d[@"sms_available"] boolValue]; }
+    if ([d[@"invite_enabled"] isKindOfClass:NSNumber.class]) { c.inviteEnabled = [d[@"invite_enabled"] boolValue]; }
     NSMutableArray<IMSMSRegion *> *regions = [NSMutableArray array];
     for (id r in [d[@"sms_regions"] isKindOfClass:NSArray.class] ? d[@"sms_regions"] : @[]) {
         if (![r isKindOfClass:NSDictionary.class]) { continue; }

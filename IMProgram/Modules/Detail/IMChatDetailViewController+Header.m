@@ -79,6 +79,23 @@
     // 对端已注销（PROTOCOL §6.16.3：应禁用发消息 / 加好友 / 通话入口）：只留搜索 / 更多（查本机聊天记录、清空等仍有意义）。
     BOOL peerDeleted = !self.isGroup && [IMRemarkStore.sharedStore isDeletedUser:self.peerID];
     if (!self.isGroup && !peerDeleted) {
+        if (self.peerUnreachable) {
+            // 不在同一集团（400120）：没有任何操作（残留好友行也一样，服务端总闸必拒）；
+            // 扫名片码进来的非好友除外——服务端按扫码通道判定，仍可申请。
+            if (!self.peerIsFriend && self.qrCode.length > 0) {
+                [specs addObject:@{@"t": IMLocalized(@"contacts.search.action_add"), @"s": @"person.badge.plus", @"a": @"addfriend"}];
+            }
+            return specs;
+        }
+        if (!self.peerIsFriend && self.peerDirectChat) {
+            // 免好友直聊（客户 ↔ 所绑子公司客服）：与好友一样能发消息、打电话，但不给好友专属的搜索 / 更多。
+            if (self.showsMessagePill) { // 与好友分支同口径：从聊天页头像进来不重复给「消息」
+                [specs addObject:@{@"t": IMLocalized(@"chat.detail.pill_message"), @"s": @"bubble.right.fill", @"a": @"message"}];
+            }
+            [specs addObject:@{@"t": IMLocalized(@"chat.header.call"), @"s": @"phone.fill", @"a": @"call"}];
+            [specs addObject:@{@"t": IMLocalized(@"common.video"), @"s": @"video.fill", @"a": @"video"}];
+            return specs;
+        }
         if (!self.peerIsFriend) {
             [specs addObject:@{@"t": IMLocalized(@"contacts.search.action_add"), @"s": @"person.badge.plus", @"a": @"addfriend"}];
             return specs; // 非好友：到此为止（搜索/更多都不适用）
@@ -330,6 +347,7 @@
     //（im-spec/UI.md「用户标识」）。也**刻意不显示 @句柄**：下方「用户名」行已经显示了它，
     // 头部再来一次是纯重复、没有新信息。
     // 资料未拉回时 subtitleText 返回空串，副标题自然隐藏（不显示占位）。
+    if (self.peerUnreachable) { return IMLocalized(@"profile.unreachable"); } // 400120：说明代替在线态
     return self.peerPresence.subtitleText ?: @"";
 }
 

@@ -82,6 +82,15 @@ FOUNDATION_EXPORT BOOL IMServerConfigWithinWindow(int64_t sentAtMs, int64_t nowM
 /// 此刻被禁止的扩展名（小写带点，如 ".exe"；空 = 无禁止）。不作用于语音。
 @property (nonatomic, copy, readonly) NSArray<NSString *> *uploadBlockedExtensions;
 
+#pragma mark 集团（TENANT_DESIGN v2 §8.1；按当前账号下发，缺失 = 关）
+
+/// 集团设置开了手机端「组织架构」入口（且我在启用中的集团里）。
+@property (nonatomic, assign, readonly) BOOL directoryEntryMobile;
+/// 部署开了邀请码功能（无集团时显示「填写邀请码加入企业」）。
+@property (nonatomic, assign, readonly) BOOL inviteEnabled;
+/// 组织架构成员行显示职位。
+@property (nonatomic, assign, readonly) BOOL showTitle;
+
 /// 这条消息（发出时刻 sentAtMs）现在还能不能撤回 / 编辑——只决定菜单显隐，服务端为准。
 - (BOOL)canRecallMessageSentAt:(int64_t)sentAtMs nowMs:(int64_t)nowMs;
 - (BOOL)canEditMessageSentAt:(int64_t)sentAtMs nowMs:(int64_t)nowMs;
@@ -93,6 +102,9 @@ FOUNDATION_EXPORT BOOL IMServerConfigWithinWindow(int64_t sentAtMs, int64_t nowM
 /// 拉一次（幂等）。无 token 时静默跳过；请求在途或刚成功拉过（几秒内）也跳过，
 /// 用来合并「回前台」与随后的「Connected」。失败保留上一次的值（首次失败则 loaded=NO、S2 项为默认）。
 - (void)refresh;
+
+/// 忽略「刚拉过」的合并窗口立即重拉（在途仍不重发）：集团身份刚变（绑码成功、脱离集团）时用。
+- (void)refreshNow;
 
 /// 解析 `data` 并写入（refresh 成功后调用；单测直接喂字典）。返回值是否与写入前不同。
 - (BOOL)applyServerConfig:(NSDictionary *)data;

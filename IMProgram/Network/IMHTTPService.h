@@ -37,6 +37,14 @@ FOUNDATION_EXPORT NSNotificationName const IMMyProfileDidChangeNotification;
 FOUNDATION_EXPORT NSInteger const IMErrCodeContentBlocked;
 /// 管理员暂停注册（200007 RegisterClosed）。
 FOUNDATION_EXPORT NSInteger const IMErrCodeRegisterClosed;
+/// 不在同一集团 / 无法联系对方（400120，TENANT_DESIGN v2 §3.4）。资料页、扫码、加好友、单聊发消息都可能回它。
+FOUNDATION_EXPORT NSInteger const IMErrCodeOrgUnreachable;
+/// runDataRequest 失败时把响应 `data` 挂在 userInfo 的这个键下（如 400120 带回对方昵称 / 头像）；没有 data 不挂。
+FOUNDATION_EXPORT NSString * const IMErrorResponseDataKey;
+/// 取上面挂的 data；没有返回 nil。
+FOUNDATION_EXPORT NSDictionary *_Nullable IMErrorResponseData(NSError *_Nullable error);
+/// 给 error 挂上响应 data（空字典原样返回 error）。
+FOUNDATION_EXPORT NSError *IMErrorAttachingResponseData(NSError *error, NSDictionary *_Nullable data);
 
 /// 锁定提示里的分钟数：ceil(retryAfterSec / 60)，至少 1（0 / 负数也给 1，免得显示「请 0 分钟后再试」）。
 FOUNDATION_EXPORT NSInteger IMLoginLockMinutes(NSInteger retryAfterSec);
@@ -192,6 +200,12 @@ NSString *IMLoginLockedMessage(NSDictionary *_Nullable body);
 - (void)requestFriendWithToken:(NSString *)token
                         peerID:(NSString *)peerID
                          hello:(nullable NSString *)hello
+                    completion:(void (^)(BOOL becameFriend, NSError *_Nullable error))completion;
+/// 同上，另带扫到的对方名片码 token（qr_code，TENANT_DESIGN v2 §3.3 扫码通道：如客户加所绑子公司的普通员工）。
+- (void)requestFriendWithToken:(NSString *)token
+                        peerID:(NSString *)peerID
+                         hello:(nullable NSString *)hello
+                        qrCode:(nullable NSString *)qrCode
                     completion:(void (^)(BOOL becameFriend, NSError *_Nullable error))completion;
 
 /// 好友动作（action ∈ accept/reject/block/unblock），body {user_id:peerID}。completion 在主线程回调。

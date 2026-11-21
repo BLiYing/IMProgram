@@ -2,6 +2,9 @@
 //  「我」页：数据驱动的分组设置表（UITableViewStyleInsetGrouped）。
 //  新增设置项 = 往 groups 数组里 append 一条 IMSettingsRow，渲染层不改。
 
+#import "IMMyTenantViewController.h"
+#import "IMServerConfigStore.h"
+#import "IMTenantStore.h"
 #import "IMSettingsViewController.h"
 #import "IMRtcCall.h"
 #import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
@@ -273,6 +276,10 @@
     // 绑定 / 更换登录手机号后头部的号码要跟着变（资料卡 phone = 登录手机号，PHONE_AUTH_DESIGN §15.1）。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(loadMyProfile)
                                                name:IMMyProfileDidChangeNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onTenantInputsChanged)
+                                               name:IMTenantStoreDidChangeNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onTenantInputsChanged)
+                                               name:IMServerConfigDidLoadNotification object:nil];
 }
 
 - (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
@@ -603,7 +610,30 @@
                          handler:^{ [ws logout]; }],
     ];
 
-    self.groups = @[groupA, groupB, groupAbout, groupC];
+    // 「我的集团」（TENANT_DESIGN v2，交互稿 I-12）：有集团，或无集团但邀请码功能开着时才有这一行（单独一组，条件行不进设置搜索）。
+    NSMutableArray *groups = [NSMutableArray arrayWithObject:groupA];
+    if (IMTenantStore.shared.hasTenant || IMServerConfigStore.shared.inviteEnabled) {
+        [groups addObject:@[[IMSettingsRow rowWithId:@"myTenant" title:IMLocalized(@"org.my_tenant") image:@"ticket.fill"
+                                              iconBg:UIColor.systemOrangeColor right:nil destructive:NO
+                                             handler:^{ [ws openMyTenant]; }]]];
+    }
+    [groups addObjectsFromArray:@[groupB, groupAbout, groupC]];
+    self.groups = groups;
+}
+
+- (void)openMyTenant {
+    [self.navigationController pushViewController:[[IMMyTenantViewController alloc] initWithHost:self.host userID:self.userID]
+                                         animated:YES];
+}
+
+/// 集团身份 / 邀请码开关变了：「我的集团」行可能出现或消失。
+- (void)onTenantInputsChanged {
+    BOOL want = IMTenantStore.shared.hasTenant || IMServerConfigStore.shared.inviteEnabled;
+    BOOL has = NO;
+    for (NSArray<IMSettingsRow *> *g in self.groups) { for (IMSettingsRow *r in g) { if ([r.rowId isEqualToString:@"myTenant"]) { has = YES; } } }
+    if (want == has) { return; } // 只有行出现 / 消失才重建（这两个通知很频繁）
+    [self buildGroups];
+    if (self.isViewLoaded) { [self.tableView reloadData]; }
 }
 
 #pragma mark - 设置项搜索（登记表在 IMSettingsSearchRegistry，本页只提供对账与纯动作行触发）

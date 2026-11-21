@@ -21,6 +21,12 @@ NS_ASSUME_NONNULL_BEGIN
                              name:(nullable NSString *)name
                            onSent:(nullable void (^)(BOOL becameFriend))onSent;
 
+/// 同上，从扫名片码进来时带上扫到的码（qr_code），服务端据此按「扫码通道」判定集团隔离。
+- (void)im_askFriendRequestForUID:(NSString *)uid
+                             name:(nullable NSString *)name
+                           qrCode:(nullable NSString *)qrCode
+                           onSent:(nullable void (^)(BOOL becameFriend))onSent;
+
 @end
 
 NS_ASSUME_NONNULL_END

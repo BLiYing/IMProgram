@@ -142,6 +142,11 @@ static NSArray<NSString *> *IMConfigExtList(NSDictionary *data, NSString *key) {
     }];
 }
 
+- (void)refreshNow {
+    _lastSuccessMs = 0;
+    [self refresh];
+}
+
 - (BOOL)applyServerConfig:(NSDictionary *)data {
     // 老三项：缺失 / null / 非数字 → 0 / NO，与原 integerValue 读缺失键的结果一致（不引入新默认；这三项本就只在 loaded 后有意义）。
     // 不能直接 integerValue：JSON null 是 NSNull，没有这个方法，会 unrecognized selector 崩。
@@ -162,13 +167,17 @@ static NSArray<NSString *> *IMConfigExtList(NSDictionary *data, NSString *key) {
     long long uploadMax = [rawMax isKindOfClass:NSNumber.class] ? [rawMax longLongValue] : 0;
     if (uploadMax <= 0) { uploadMax = IMServerConfigDefaultUploadMaxFileBytes; }
     NSArray<NSString *> *blocked = IMConfigExtList(data, @"upload_blocked_extensions");
+    BOOL dirEntry = IMConfigBool(data, @"directory_entry_mobile", NO);
+    BOOL invite = IMConfigBool(data, @"invite_enabled", NO);
+    BOOL showTitle = IMConfigBool(data, @"show_title", NO);
 
     BOOL changed = !_loaded || _maxGroupMembers != maxMembers || _supergroupEnabled != superEnabled
         || _maxSupergroupMembers != maxSuper || _recallWindowSec != recall || _editWindowSec != edit
         || _forwardMaxTargets != forward || _mergeForwardMax != merge
         || _groupNameMaxLen != nameMax || _groupAnnouncementMaxLen != annMax
         || _uploadEnabled != uploadEnabled || _uploadMaxFileBytes != uploadMax
-        || ![_uploadBlockedExtensions isEqualToArray:blocked];
+        || ![_uploadBlockedExtensions isEqualToArray:blocked]
+        || _directoryEntryMobile != dirEntry || _inviteEnabled != invite || _showTitle != showTitle;
 
     _maxGroupMembers = maxMembers;
     _supergroupEnabled = superEnabled;
@@ -182,6 +191,9 @@ static NSArray<NSString *> *IMConfigExtList(NSDictionary *data, NSString *key) {
     _uploadEnabled = uploadEnabled;
     _uploadMaxFileBytes = uploadMax;
     _uploadBlockedExtensions = [blocked copy];
+    _directoryEntryMobile = dirEntry;
+    _inviteEnabled = invite;
+    _showTitle = showTitle;
     _loaded = YES;
     if (changed) {
         IMLogWithTag(IMLogTagHTTP, @"server_config_applied recall_sec=%ld edit_sec=%ld forward_max=%ld merge_max=%ld name_max=%ld ann_max=%ld upload_enabled=%d upload_max_bytes=%lld upload_blocked_count=%lu",

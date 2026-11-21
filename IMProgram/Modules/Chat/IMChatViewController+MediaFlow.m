@@ -4,6 +4,7 @@
 //  从 IMChatViewController.m 平移，未改行为。
 
 #import "IMChatViewController+Private.h"
+#import "IMOrgChatLocks.h"
 #import "IMChatMessageLogic.h"   // IMChatTextContainsMentionToken
 #import <SafariServices/SafariServices.h>
 #import "IMMessageModel.h"
@@ -388,6 +389,7 @@ const NSInteger kIMFlashOverlayTag = 0x1F1A5; // 跨 +Menu：光栅化预览时�
             NSInteger noteCode = 0;
             m.note = IMSendRejectionNote(success, error, &noteCode);
             m.noteCode = noteCode; // 瞬态：决定系统行是否给恢复入口（200103 → 发好友申请）
+            if (noteCode == IMErrCodeOrgUnreachable && !self.isGroupChat) { [IMOrgChatLocks.shared markOrgLeftForPeer:self.peerID]; } // 400120 → 只读
             m.convSeq = convSeq;
             if (![self performDatabaseOperation:^(IMDatabase *database) {
                 [database saveMessage:m]; // upsert：更新状态/conv_seq/note（含被拒文案，重进会话不丢）

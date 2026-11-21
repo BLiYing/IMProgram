@@ -61,6 +61,7 @@ static void IMLoginSubPin(UIView *host, UIStackView *stack) {
 @property (nonatomic, strong) UILabel *errorLabel;
 @property (nonatomic, strong) UIButton *backButton;
 @property (nonatomic, strong, readwrite) UITextField *nicknameField;
+@property (nonatomic, strong, readwrite) UITextField *inviteField;
 @property (nonatomic, strong, readwrite) UIButton *submitButton;
 @end
 
@@ -83,6 +84,16 @@ static void IMLoginSubPin(UIView *host, UIStackView *stack) {
         self.nicknameField.returnKeyType = UIReturnKeyDone;
         self.nicknameField.delegate = self;
         [self.nicknameField addTarget:self action:@selector(edited) forControlEvents:UIControlEventEditingChanged];
+        // 邀请码框：与昵称框同款；不预校验、不转大写，原样交服务端（大小写不敏感）。
+        self.inviteField = IMLoginSubField(IMLocalized(@"org.invite.register_label"), NO);
+        self.inviteField.accessibilityIdentifier = @"complete.invite";
+        self.inviteField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+        self.inviteField.autocorrectionType = UITextAutocorrectionTypeNo;
+        self.inviteField.spellCheckingType = UITextSpellCheckingTypeNo;
+        self.inviteField.returnKeyType = UIReturnKeyDone;
+        self.inviteField.delegate = self;
+        self.inviteField.hidden = YES;
+        [self.inviteField addTarget:self action:@selector(edited) forControlEvents:UIControlEventEditingChanged];
         self.errorLabel = IMLoginSubLabel([UIFont systemFontOfSize:13], UIColor.systemRedColor);
         self.errorLabel.hidden = YES;
         self.errorLabel.accessibilityIdentifier = @"complete.error";
@@ -91,7 +102,7 @@ static void IMLoginSubPin(UIView *host, UIStackView *stack) {
         self.backButton = IMLoginSubButton(IMLocalized(@"login.back_to_login"), NO, self, @selector(backTapped));
         self.backButton.accessibilityIdentifier = @"complete.back";
         IMLoginSubPin(self, [[UIStackView alloc] initWithArrangedSubviews:@[
-            title, self.verifiedLabel, hint, self.nicknameField, self.errorLabel, self.submitButton, self.backButton]]);
+            title, self.verifiedLabel, hint, self.nicknameField, self.inviteField, self.errorLabel, self.submitButton, self.backButton]]);
     }
     return self;
 }
@@ -99,6 +110,7 @@ static void IMLoginSubPin(UIView *host, UIStackView *stack) {
 - (void)resetWithMaskedPhone:(NSString *)maskedPhone {
     self.verifiedLabel.text = IMLocalizedFormat(@"register.complete.verified", maskedPhone);
     self.nicknameField.text = @"";
+    self.inviteField.text = @"";
     [self showError:nil];
     self.busy = NO;
 }
@@ -107,7 +119,14 @@ static void IMLoginSubPin(UIView *host, UIStackView *stack) {
     _busy = busy;
     IMLoginSubSetBusy(self.submitButton, busy);
     self.nicknameField.enabled = !busy;
+    self.inviteField.enabled = !busy;
     self.backButton.enabled = !busy;
+}
+
+- (void)setShowsInvite:(BOOL)showsInvite {
+    _showsInvite = showsInvite;
+    self.inviteField.hidden = !showsInvite;
+    if (!showsInvite) { self.inviteField.text = @""; }
 }
 
 - (void)showError:(NSString *)message {

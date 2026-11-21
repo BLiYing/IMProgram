@@ -50,8 +50,9 @@ FOUNDATION_EXPORT NSString *_Nullable IMSMSFieldFromError(NSError *_Nullable err
 - (void)loginWithSMSCountryCode:(NSString *)countryCode phone:(NSString *)phone code:(NSString *)code
                      completion:(void (^)(IMSMSLoginResult *_Nullable result, NSError *_Nullable error))completion;
 
-/// POST /register/phone {register_ticket, nickname, device…} → 与登录成功相同。200048 票无效、200042 号码被抢注。
+/// POST /register/phone {register_ticket, nickname, invite_code?, device…} → 与登录成功相同。200048 票无效、200042 号码被抢注。
 - (void)registerPhoneWithTicket:(NSString *)ticket nickname:(NSString *)nickname
+                     inviteCode:(nullable NSString *)inviteCode
                      completion:(void (^)(IMSMSLoginResult *_Nullable result, NSError *_Nullable error))completion;
 
 /// POST /password/reset {country_code, phone, code, new_password}。

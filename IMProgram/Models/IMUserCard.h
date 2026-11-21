@@ -46,6 +46,10 @@ IMFriendStatus IMFriendStatusFromString(NSString *_Nullable s);
 /// 账号已注销/匿名化（用户对象 `deleted=true`）。为 YES 时 displayName 恒为 `delete_account.deleted_user`
 /// 「已注销用户」（不再用昵称/备注——服务端此时昵称也已置同名），头像由调用方按空头像走默认圈。
 @property (nonatomic, assign) BOOL deleted;
+/// 与我免好友直聊（客户 ↔ 所绑子公司的客服，TENANT_DESIGN v2 §3.2）；资料页 GET /users/{id} 带。
+@property (nonatomic, assign) BOOL directChat;
+/// 「单位 · 部门」（找人结果 / 资料页带，空 = 没有或不在同一集团）。
+@property (nonatomic, copy) NSString *orgLabel;
 
 /// 展示名：备注名 > 昵称（全端统一口径）。**回退链止于昵称**——昵称是必填字段，
 /// 再往下回退到内部 ID 只会在界面上露出一串 10 位数字（见 ACCOUNT_IDENTITY_REDESIGN.md §5.2）。

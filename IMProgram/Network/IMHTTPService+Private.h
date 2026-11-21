@@ -44,6 +44,9 @@ NS_ASSUME_NONNULL_BEGIN
 /// URL 路径段转义（conv_id 里有下划线与字母数字，但别假设，统一走它）。
 - (NSString *)pathEscape:(NSString *)raw;
 
+/// 查询参数**值**转义：URLQueryAllowed 会放过 & + = ? #，参数值里得再剔掉，否则「a&b」会截断成两个参数、「+」变空格。
+FOUNDATION_EXPORT NSString *IMQueryValueEscape(NSString *_Nullable raw);
+
 /// 主线程回调（内部网络回调在会话队列上）。
 - (void)callOnMain:(dispatch_block_t)block;
 

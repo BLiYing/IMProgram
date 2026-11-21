@@ -1,5 +1,6 @@
 //  IMQRResultRouter.m
 
+#import "IMJSONValue.h"
 #import "IMQRResultRouter.h"
 #import "IMLocalization.h"
 
@@ -18,13 +19,24 @@ static const NSInteger kIMErrCodeJoinPending = 300210;
 /// 二维码失效（过期/被重置/不存在共用一码一文案）。
 static const NSInteger kIMErrCodeQRExpired = 200110;
 
+/// 名片码链接里的 token（…/q/u/{token}）；不是名片码返回 nil。
+NSString *IMQRUserCardToken(NSString *raw) {
+    NSURL *url = raw.length > 0 ? [NSURL URLWithString:[raw stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]] : nil;
+    NSArray<NSString *> *parts = url.path.pathComponents ?: @[];
+    // pathComponents 形如 ["/", "q", "u", "<token>"]
+    if (parts.count == 4 && [parts[1] isEqualToString:@"q"] && [parts[2] isEqualToString:@"u"] && parts[3].length > 0) {
+        return parts[3];
+    }
+    return nil;
+}
+
 @implementation IMQRResultRouter
 
 + (void)routeResolved:(IMQRResolved *)resolved raw:(NSString *)raw
                  host:(NSString *)host userID:(NSString *)userID fromController:(UIViewController *)vc {
     if (!resolved || !vc) { return; }
     switch (resolved.kind) {
-        case IMQRKindUser:  [self routeUser:resolved.user host:host userID:userID from:vc]; break;
+        case IMQRKindUser:  [self routeUser:resolved.user raw:raw host:host userID:userID from:vc]; break;
         case IMQRKindGroup: [self routeGroup:resolved.group raw:raw host:host userID:userID from:vc]; break;
         case IMQRKindLogin: [self routeLogin:resolved.login host:host userID:userID from:vc]; break;
         case IMQRKindUnknown:
@@ -53,13 +65,28 @@ static const NSInteger kIMErrCodeQRExpired = 200110;
     [IMHTTPService.sharedService qrResolveWithToken:token raw:urlString completion:^(NSDictionary *resolved, NSError *error) {
         __strong UIViewController *svc = wvc;
         if (!svc) { return; }
-        if (error) { [self presentError:error fromController:svc]; return; }
+        if (error) { [self presentError:error host:host userID:userID fromController:svc]; return; }
         [self routeResolved:[IMQRResolved fromDictionary:resolved] raw:urlString host:host userID:userID fromController:svc];
     }];
     return YES;
 }
 
 + (void)presentError:(NSError *)error fromController:(UIViewController *)vc {
+    [self presentError:error host:nil userID:nil fromController:vc];
+}
+
++ (void)presentError:(NSError *)error host:(NSString *)host userID:(NSString *)userID fromController:(UIViewController *)vc {
+    NSDictionary *peer = error.code == IMErrCodeOrgUnreachable ? IMErrorResponseData(error) : nil;
+    NSString *peerID = IMJSONString(peer[@"user_id"]);
+    if (peerID.length > 0 && host.length > 0 && userID.length > 0 && vc.navigationController) {
+        // 资料页自己再拉一次 /users/{id} 也会回 400120 → 进入「不在同一集团」态；这里不带 qrCode（扫码通道已被拒）。
+        IMChatDetailViewController *detail =
+            [[IMChatDetailViewController alloc] initSingleWithHost:host userID:userID peerID:peerID
+                                                     peerNickname:IMDisplayName(IMJSONString(peer[@"nickname"]), nil)
+                                                    peerAvatarURL:IMJSONString(peer[@"avatar_url"])];
+        [vc.navigationController pushViewController:detail animated:YES];
+        return;
+    }
     // 失效码是"扫码四分支"里的一支，给弹窗而不是一闪而过的 toast——用户需要读懂"去向对方要张新的"。
     // 刻意不区分过期/被重置/不存在（区分等于给爆破者反馈信号），文案由服务端 200110 统一映射。
     if (error.code == kIMErrCodeQRExpired) {
@@ -77,7 +104,7 @@ static const NSInteger kIMErrCodeQRExpired = 200110;
 #pragma mark - 名片码
 
 /// 不新建"扫码结果页"，直接进已有资料页——加好友/发消息由资料页按好友态自行决定（少一处三端分叉）。
-+ (void)routeUser:(IMQRUserCard *)card host:(NSString *)host userID:(NSString *)userID from:(UIViewController *)vc {
++ (void)routeUser:(IMQRUserCard *)card raw:(NSString *)raw host:(NSString *)host userID:(NSString *)userID from:(UIViewController *)vc {
     if (!card || card.userID.length == 0) { [vc im_showToast:IMLocalized(@"qr.result.bad_content")]; return; }
     if (IMQRUserActionForRelation(card.relation) == IMQRUserActionSelf) {
         // 扫自己的码：不给"加好友"，直接把他送回自己的名片码页（大概率是想给别人看）。
@@ -94,6 +121,7 @@ static const NSInteger kIMErrCodeQRExpired = 200110;
                                                  peerNickname:IMDisplayName(card.nickname, nil)
                                                 peerAvatarURL:card.avatarURL];
     detail.showsMessagePill = YES; // 从外部（扫码）进入，需要给出进单聊的入口
+    detail.qrCode = IMQRUserCardToken(raw); // 加好友随申请带上：集团隔离按扫码通道判定（TENANT v2 §3.3）
     [vc.navigationController pushViewController:detail animated:YES];
 }
 

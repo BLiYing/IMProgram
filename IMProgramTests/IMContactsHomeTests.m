@@ -131,7 +131,7 @@ static NSInteger sHomeReloadCount;
     IMContactsViewController *vc = [self visibleController];
     NSInteger row = [self rowOfEntry:@"myFriends" in:vc];
     XCTAssertNotEqual(row, NSNotFound, @"入口区要有「我的好友」");
-    XCTAssertEqual(row, (NSInteger)vc.entries.count - 1, @"「我的好友」排在既有入口之后");
+    XCTAssertEqual(row, 2, @"「我的好友」排在群聊、新的朋友之后（其后可能还有集团入口「组织架构 / 填写邀请码」）");
     [vc applyRoster:[self rosterWith:@[]]];
     XCTAssertEqualObjects([self onScreenTextsInRow:row section:0 of:vc], (@[IMLocalized(@"contacts.entry.my_friends"), @"0"]));
 

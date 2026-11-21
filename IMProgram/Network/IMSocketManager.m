@@ -21,6 +21,7 @@
 #import "IMNetworkMonitor.h"   // IMNetworkDidBecomeReachableNotification（网络恢复即刻重连）
 #import "IMPushRetract.h"
 #import "IMRemarkStore.h"
+#import "IMReconnectBackoff.h"
 #import "IMTimeUtil.h"
 
 #pragma mark - 调参常量
@@ -38,6 +39,8 @@ NSString * const IMSocketDidReceiveConvBumpNotification = @"IMSocketDidReceiveCo
 NSString * const IMSocketDidReceiveFriendEventNotification = @"IMSocketDidReceiveFriendEventNotification";
 NSString * const IMSocketDidReceiveGroupEventNotification = @"IMSocketDidReceiveGroupEventNotification";
 NSString * const kIMGroupEventKey = @"groupEvent";
+NSString * const kIMFriendEventKey = @"friendEvent";
+NSString * const kIMFriendEventFromKey = @"friendEventFrom";
 NSString * const kIMGroupTargetKey = @"groupTarget";
 NSString * const kIMGroupResultKey = @"groupResult";
 NSString * const IMSocketDidReceiveReadNotification = @"IMSocketDidReceiveReadNotification";
@@ -328,10 +331,10 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
     }
 }
 
-/// 指数退避重连（仅在 _queue 调用）。
+/// 指数退避 + ±20% 抖动重连（仅在 _queue 调用；抖动防服务端重启后全员同一时刻涌入）。
 - (void)scheduleReconnect {
     if (_manualClose) { return; }
-    NSTimeInterval delay = MIN(kIMReconnectCap, kIMReconnectBase * pow(2, _reconnectAttempts));
+    NSTimeInterval delay = IMReconnectDelay(_reconnectAttempts, kIMReconnectBase, kIMReconnectCap, arc4random_uniform(1001) / 1000.0);
     _reconnectAttempts++;
     NSUInteger generation = _connectionGeneration;
     IMLogSocket(@"reconnect in %.1fs (attempt %ld)", delay, (long)_reconnectAttempts);
@@ -934,8 +937,10 @@ IMSocketWakeAction IMSocketWakeActionFor(IMSocketState state, BOOL manualClose) 
         });
         return;
     }
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidReceiveFriendEventNotification object:self];
+    NSString *from = [data[@"from"] isKindOfClass:[NSString class]] ? data[@"from"] : @"";
+    dispatch_async(dispatch_get_main_queue(), ^{ // userInfo 带事件与对端：org_exit 由集团模块各自订阅（TENANT v2 §4.3）
+        [NSNotificationCenter.defaultCenter postNotificationName:IMSocketDidReceiveFriendEventNotification object:self
+                                                        userInfo:@{ kIMFriendEventKey: event, kIMFriendEventFromKey: from }];
     });
 }
 

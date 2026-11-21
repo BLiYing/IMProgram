@@ -45,6 +45,8 @@ IMFriendStatus IMFriendStatusFromString(NSString *s) {
     c.updatedAt = [dict[@"updated_at"] respondsToSelector:@selector(longLongValue)] ? [dict[@"updated_at"] longLongValue] : 0;
     c.deleted = [dict[@"deleted"] respondsToSelector:@selector(boolValue)] ? [dict[@"deleted"] boolValue] : NO;
     if (c.deleted) { [IMRemarkStore.sharedStore setUser:c.userID deleted:YES]; } // 只登记；撤销见 +reconcileDeletedFlags:（并非每个端点都带 deleted，缺席不等于未注销）
+    c.directChat = [dict[@"direct_chat"] respondsToSelector:@selector(boolValue)] ? [dict[@"direct_chat"] boolValue] : NO;
+    c.orgLabel = [self stringForKey:@"org_label" in:dict];
     c.hello = [self stringForKey:@"hello" in:dict]; // 仅好友申请行带；其余为空串
     // 在线态快照：找人/好友列表不带这些键，解析出的是空态（level=Unknown，副标题为空串）。
     c.presence = [IMPresence presenceFromProfileDictionary:dict];
