@@ -21,13 +21,17 @@ static const NSInteger kIMErrCodeQRExpired = 200110;
 
 /// 名片码链接里的 token（…/q/u/{token}）；不是名片码返回 nil。
 NSString *IMQRUserCardToken(NSString *raw) {
-    NSURL *url = raw.length > 0 ? [NSURL URLWithString:[raw stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]] : nil;
-    NSArray<NSString *> *parts = url.path.pathComponents ?: @[];
-    // pathComponents 形如 ["/", "q", "u", "<token>"]
-    if (parts.count == 4 && [parts[1] isEqualToString:@"q"] && [parts[2] isEqualToString:@"u"] && parts[3].length > 0) {
-        return parts[3];
-    }
-    return nil;
+    // 与服务端 qrcode.parseRaw 同口径：https://…/q/u/{t}（含子路径部署）、裸 q/u/{t}；token 截到 ? # / 之前。
+    NSString *s = [raw ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if ([s hasPrefix:@"q/"]) { s = [@"/" stringByAppendingString:s]; }
+    NSRange q = [s rangeOfString:@"/q/"];
+    if (q.location == NSNotFound) { return nil; }
+    NSString *rest = [s substringFromIndex:NSMaxRange(q)];
+    if (![rest hasPrefix:@"u/"]) { return nil; }
+    NSString *tok = [rest substringFromIndex:2];
+    NSRange cut = [tok rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"?#/"]];
+    if (cut.location != NSNotFound) { tok = [tok substringToIndex:cut.location]; }
+    return tok.length > 0 ? tok : nil;
 }
 
 @implementation IMQRResultRouter

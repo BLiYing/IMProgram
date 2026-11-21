@@ -244,7 +244,7 @@ BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt
     ];
     self.entryColors = @[UIColor.systemGreenColor, UIColor.systemTealColor, UIColor.systemBlueColor];
     // 集团（TENANT_DESIGN v2 §8.2）：有集团且后台开了手机端入口 →「组织架构」；无集团且邀请码开着 →「填写邀请码加入企业」。
-    switch (IMContactsOrgEntryKind(IMTenantStore.shared.hasTenant, IMServerConfigStore.shared.directoryEntryMobile,
+    switch (!IMTenantStore.shared.loaded ? IMContactsOrgEntryNone : IMContactsOrgEntryKind(IMTenantStore.shared.hasTenant, IMServerConfigStore.shared.directoryEntryMobile,
                                    IMServerConfigStore.shared.inviteEnabled)) {
         case IMContactsOrgEntryDirectory: {
             self.entries = [self.entries arrayByAddingObject:

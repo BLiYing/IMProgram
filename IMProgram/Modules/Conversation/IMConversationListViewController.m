@@ -663,6 +663,9 @@ NSArray<IMConversation *> *IMCachedConversationListSeed(IMDatabaseAccountContext
                                                name:IMSocketDidApplyMsgOpNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketMessage:)
                                                name:IMSocketDidRemoveMessageNotification object:nil];
+    // 好友事件（含 org_exit 脱离集团）→ 列表刷新：单聊只读原因 peer_chat_lock 随列表下发，非好友直聊没有别的信号。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketMessage:)
+                                               name:IMSocketDidReceiveFriendEventNotification object:nil];
     // 连接状态变化 → 标题显示 连接中/未连接（取代"任何失败都弹框"）。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onSocketState:)
                                                name:IMSocketDidChangeStateNotification object:nil];
@@ -710,6 +713,7 @@ NSArray<IMConversation *> *IMCachedConversationListSeed(IMDatabaseAccountContext
                                    IMSocketDidReceiveGroupEventNotification, IMSocketDidUpdateConversationNotification,
                                    IMSocketDidApplyMsgOpNotification, IMSocketDidRemoveMessageNotification,
                                    IMSocketDidChangeStateNotification, IMSocketDidReceivePresenceNotification,
+                                   IMSocketDidReceiveFriendEventNotification,
                                    IMRemarkStoreDidChangeNotification, IMNotificationSettingsDidChangeNotification,
                                    IMChatFoldersDidChangeNotification,
                                    IMMediaSendProgressDidChangeNotification, IMMediaSendMetaDidChangeNotification,

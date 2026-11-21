@@ -76,6 +76,7 @@ static const int64_t kIMTenantMinRefreshIntervalMs = 5000;
 }
 
 - (BOOL)hasTenant { [self dropIfAccountChanged]; return _hasTenant; }
+- (BOOL)loaded { [self dropIfAccountChanged]; return _loaded; }
 
 - (void)start {
     if (_started) { return; }

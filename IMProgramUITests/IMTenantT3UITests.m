@@ -205,7 +205,7 @@
     XCTAssertTrue(ok, @"输入栏应只读并提示对方已不再为你提供服务");
 }
 
-/// F：后台添加的员工首次进主界面弹审计告知（t3_east_dev 未确认过）；点「我知道了」后服务端 notice_pending 清掉（脚本外核对）。
+/// F：后台添加的员工首次进主界面弹审计告知（默认 t3_east_dev；告知只弹一次，重跑时用 TEST_RUNNER_IM_T3_NOTICE_USER 换一个刚由后台添加的账号）；点「我知道了」后服务端 notice_pending 清掉（脚本外核对）。
 - (void)testF_AuditNoticeOnce {
     [self logoutIfNeeded];
     XCTAssertTrue(IMUITestShowPasswordLogin(self.app, 15));
@@ -215,7 +215,8 @@
     if (cur.length > 0 && ![cur isEqualToString:user.placeholderValue]) {
         [user typeText:[@"" stringByPaddingToLength:cur.length + 4 withString:XCUIKeyboardKeyDelete startingAtIndex:0]];
     }
-    [user typeText:@"t3_east_dev"];
+    NSString *who = NSProcessInfo.processInfo.environment[@"IM_T3_NOTICE_USER"] ?: @"t3_east_dev";
+    [user typeText:who];
     [self.app.buttons[@"免密登录（开发）"] tap];
     XCUIElement *title = [self.app.alerts.staticTexts matchingPredicate:
                           [NSPredicate predicateWithFormat:@"label == %@", @"你已加入「T3自测集团」"]].firstMatch;

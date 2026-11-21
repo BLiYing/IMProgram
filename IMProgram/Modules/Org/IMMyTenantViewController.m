@@ -165,7 +165,7 @@ static NSString *IMMyTenantJoinedName(NSArray<IMTenantUnit *> *before, NSArray<I
 - (NSArray<NSNumber *> *)sections {
     IMTenantStore *st = IMTenantStore.shared;
     NSMutableArray *s = [NSMutableArray array];
-    if (IMMyTenantShowsInvite(st.hasTenant, st.isCustomer, IMServerConfigStore.shared.inviteEnabled)) {
+    if (st.loaded && IMMyTenantShowsInvite(st.hasTenant, st.isCustomer, IMServerConfigStore.shared.inviteEnabled)) {
         [s addObject:@(IMMyTenantSectionInvite)];
     }
     if (st.hasTenant) { [s addObject:@(IMMyTenantSectionTenant)]; }

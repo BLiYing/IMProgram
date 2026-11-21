@@ -129,6 +129,7 @@
 - (void)testTenantStoreApplyMe {
     IMTenantStore *st = [IMTenantStore new];
     XCTAssertTrue([st applyMe:@{ @"bindings": @[] }]);
+    XCTAssertTrue(st.loaded, @"拿到过 me（无集团）");
     XCTAssertFalse(st.hasTenant);
     XCTAssertFalse([st applyMe:@{ @"bindings": @[] }], @"同一份不算变化");
     NSDictionary *customer = @{ @"tenant": @{ @"tenant_id": @"T", @"name": @"星海集团", @"short_name": @"" },
@@ -166,6 +167,8 @@
     XCTAssertNil(IMQRUserCardToken(@"https://im.example.com/q/u/"));
     XCTAssertNil(IMQRUserCardToken(@"hello"));
     XCTAssertNil(IMQRUserCardToken(nil));
+    XCTAssertEqualObjects(IMQRUserCardToken(@"q/u/AbC"), @"AbC", @"裸串");
+    XCTAssertEqualObjects(IMQRUserCardToken(@"https://h.com/im/q/u/AbC?x=1"), @"AbC", @"子路径部署 + query");
 }
 
 - (void)testErrorResponseDataRoundTrip {

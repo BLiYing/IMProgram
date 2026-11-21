@@ -3,7 +3,7 @@
 //
 //  客户端不自己判定可见性——通讯录、搜索、资料、直聊全按服务端结果展示；这里只决定
 //  入口显不显示（有没有集团、是不是客户 / 员工）与审计告知弹不弹。
-//  刷新时机：每次连上、回前台、收到好友事件 org_exit（只在脱离集团时**删掉了好友**才推；没有集团内好友的人脱离、集团停用都不推，靠回前台 / 重连兜底），绑码成功后由调用方喂回结果。
+//  刷新时机：每次连上、回前台、收到好友事件 org_exit（脱离集团时推给本人：删了好友按好友各一帧，没有好友也给本人一帧；集团停用不推，靠回前台 / 重连兜底），绑码成功后由调用方喂回结果。
 //  换号：快照记着属于哪个账号，不是当前账号就当没拉到过。
 
 #import <Foundation/Foundation.h>
@@ -25,6 +25,8 @@ FOUNDATION_EXPORT NSNotificationName const IMTenantStoreDidChangeNotification;
 
 + (instancetype)shared;
 
+/// 拿到过当前账号的 directory/me。没拿到前不能当「无集团」（依赖它的填码入口一律先不显示，免得员工被引去填码）。
+@property (nonatomic, assign, readonly) BOOL loaded;
 /// 我在启用中的集团里。
 @property (nonatomic, assign, readonly) BOOL hasTenant;
 /// 集团全称。

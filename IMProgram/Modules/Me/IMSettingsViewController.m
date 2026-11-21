@@ -612,7 +612,7 @@
 
     // 「我的集团」（TENANT_DESIGN v2，交互稿 I-12）：有集团，或无集团但邀请码功能开着时才有这一行（单独一组，条件行不进设置搜索）。
     NSMutableArray *groups = [NSMutableArray arrayWithObject:groupA];
-    if (IMTenantStore.shared.hasTenant || IMServerConfigStore.shared.inviteEnabled) {
+    if (IMTenantStore.shared.loaded && (IMTenantStore.shared.hasTenant || IMServerConfigStore.shared.inviteEnabled)) {
         [groups addObject:@[[IMSettingsRow rowWithId:@"myTenant" title:IMLocalized(@"org.my_tenant") image:@"ticket.fill"
                                               iconBg:UIColor.systemOrangeColor right:nil destructive:NO
                                              handler:^{ [ws openMyTenant]; }]]];
@@ -628,7 +628,7 @@
 
 /// 集团身份 / 邀请码开关变了：「我的集团」行可能出现或消失。
 - (void)onTenantInputsChanged {
-    BOOL want = IMTenantStore.shared.hasTenant || IMServerConfigStore.shared.inviteEnabled;
+    BOOL want = IMTenantStore.shared.loaded && (IMTenantStore.shared.hasTenant || IMServerConfigStore.shared.inviteEnabled);
     BOOL has = NO;
     for (NSArray<IMSettingsRow *> *g in self.groups) { for (IMSettingsRow *r in g) { if ([r.rowId isEqualToString:@"myTenant"]) { has = YES; } } }
     if (want == has) { return; } // 只有行出现 / 消失才重建（这两个通知很频繁）
