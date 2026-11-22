@@ -340,6 +340,12 @@ static const NSUInteger kIMRtcMaxGroupCallPick = 8;
         // 系统通知会话：只保留清空聊天记录（拉黑/举报 不适用；护栏也会拒）。
         [items addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"chat.detail.clear_history") symbol:@"trash" destructive:NO handler:^{ [ws confirmClearHistory]; }]];
     } else {
+        // 免好友直聊的对端（还不是好友）：可以正式加为好友（服务端 RequireReach 认免好友直聊，TENANT v2 §3.3）。
+        if (!self.peerIsFriend && [self peerHasRelation]) {
+            [items addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"contacts.search.action_add") symbol:@"person.badge.plus" destructive:NO handler:^{
+                [ws requestAddPeerFriend];
+            }]];
+        }
         // 入口 ②「推荐给朋友」（CONTACT_CARD_DESIGN §4.3）：把**当前正在看的这个人**推给别的会话。
         // 微信里比"聊天页发名片"更高频（我正在看这个人 → 推给谁），且零新组件：选会话复用转发选择页。
         [items addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"chat.detail.recommend_to_friend") symbol:@"person.crop.square" destructive:NO handler:^{
@@ -354,7 +360,7 @@ static const NSUInteger kIMRtcMaxGroupCallPick = 8;
                                              destructive:YES handler:^{ [ws reportPeer]; }]];
         [items addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"chat.detail.clear_history") symbol:@"trash" destructive:NO handler:^{ [ws confirmClearHistory]; }]];
         // 删除好友（2026-08-30 补齐；此前只有通讯录左滑有这个动作，资料页里找不到）。
-        // 破坏性最重 → 放末位（destructive-last，与消息/会话菜单同约定）。非好友根本看不到「更多」，
+        // 破坏性最重 → 放末位（destructive-last，与消息/会话菜单同约定）。陌生人根本看不到「更多」，
         // 这里的判定只是兜底：好友态是异步校正的，别在旧值下摆一个必然 4xx 的按钮。
         if (self.peerIsFriend) {
             [items addObject:[IMPopoverCardItem itemWithTitle:IMLocalized(@"friend.menu.delete") symbol:@"person.badge.minus"

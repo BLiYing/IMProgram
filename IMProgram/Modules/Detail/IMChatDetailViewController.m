@@ -546,9 +546,9 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
 /// 当前页面的 section 顺序。
 - (NSArray<NSNumber *> *)sectionLayout {
     NSMutableArray<NSNumber *> *s = [NSMutableArray array];
-    // 非好友（单聊）：只保留头像 + 操作排（加好友/更多），隐藏备注名·设置·页签三张卡——
-    // 尚未建立关系时这些设置无意义。仅隐藏，数据加载逻辑不动（加为好友后 reloadData 即恢复）。
-    if (!self.isGroup && !self.peerIsFriend) { return s; }
+    // 陌生人（单聊，既非好友也非免好友直聊）：只保留头像 + 操作排（加好友），隐藏备注名·设置·页签三张卡——
+    // 尚未建立关系时这些设置无意义。仅隐藏，数据加载逻辑不动（加为好友 / 资料页拿到 direct_chat 后 reloadData 即恢复）。
+    if (!self.isGroup && ![self peerHasRelation]) { return s; }
     if (!self.isGroup) { [s addObject:@(IMDetailSectionInfo)]; } // 单聊：签名?/备注名/用户名/手机号?
     // 公告/简介/大群说明卡（Pills 下）。条件走 aboutRowKinds 而不是逐个判字段——
     // 大群说明恒显，正是靠这一点让"没公告也没简介的大群"照样有卡（那是最需要解释的场景）。

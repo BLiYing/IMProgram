@@ -142,7 +142,15 @@
     [[self waitFor:[self text:@"t3_east_cs"] named:@"客服"] tap];
     XCUIElement *msg = self.app.buttons[@"消息"].firstMatch;
     [self waitFor:msg named:@"免好友直聊-消息"];
+    // 免好友直聊与好友同等（2026-11-22）：搜索 / 更多 / 备注名都在
+    for (NSString *t in @[@"搜索", @"更多"]) { XCTAssertTrue(self.app.buttons[t].firstMatch.exists, @"免好友直聊应有 %@", t); }
+    XCTAssertTrue([self text:@"备注名"].exists, @"免好友直聊应有备注名");
     [self shot:@"B02-客服资料页（直聊）"];
+    [self.app.buttons[@"更多"].firstMatch tap];
+    [self waitFor:[self text:@"加好友"] named:@"更多里的加好友"];
+    XCTAssertFalse([self text:@"删除好友"].exists, @"不是好友没有删除好友");
+    [self shot:@"B02b-更多菜单（直聊）"];
+    [[self.app coordinateWithNormalizedOffset:CGVectorMake(0.5, 0.15)] tap]; // 点空白收起菜单
     [msg tap];
     XCUIElement *input = [self waitFor:self.app.textViews.firstMatch named:@"输入框"];
     [input tap];

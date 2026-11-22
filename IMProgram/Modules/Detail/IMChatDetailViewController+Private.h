@@ -179,6 +179,8 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 - (CGFloat)pinOffset;
 - (NSString *)currentConvRemark;
 - (CGFloat)tabBarHeight;
+/// 单聊对端已建立关系：好友或免好友直聊，且不是 400120。资料页卡片 / 搜索 / 更多据此给全套。
+- (BOOL)peerHasRelation;
 - (NSArray<NSDictionary *> *)actionPillSpecs;
 - (UIButton *)actionPillButtonForSpec:(NSDictionary *)spec;
 - (UIView *)buildPillsView;

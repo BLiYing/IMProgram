@@ -64,10 +64,15 @@
 }
 
 /// 操作排按钮规格（header 悬浮 pills 与 actions cell 共用，保证一致）。
-/// 微信式好友准入（任务一 P0）：单聊非好友只显**「加好友」这一个**，不显「消息/呼叫/视频」——
-/// 非好友发消息会被服务端 200103 拒收，故不给发消息入口，主入口是加好友。
-/// 「更多」也一并不显（2026-08-30）：菜单里全是"已经是好友"才有意义的项（推荐给朋友 / 拉黑 /
+/// 微信式好友准入（任务一 P0）：单聊**陌生人**（既非好友也非免好友直聊）只显「加好友」这一个，不显「消息/呼叫/视频」——
+/// 发消息会被服务端 200103 拒收，故不给发消息入口，主入口是加好友。
+/// 「更多」也一并不显（2026-08-30）：菜单里全是"已有会话"才有意义的项（推荐给朋友 / 拉黑 /
 /// 清空聊天记录 / 删除好友），对一个还没建立关系的人摆一排灰操作只是噪音。
+/// 免好友直聊（集团客户 ↔ 客服）2026-11-22 起与好友同等，见 peerHasRelation。
+/// 已建立关系的单聊对端：好友，或免好友直聊。两者资料页一样（操作排、备注名、设置、页签），区别只在「更多」里删除好友 vs 加好友。
+/// 400120（不在同一集团）一律不算——残留好友行也一样：只显头像昵称 + 说明（TENANT v2 §8.1，三端同口径）。
+- (BOOL)peerHasRelation { return (self.peerIsFriend || self.peerDirectChat) && !self.peerUnreachable; }
+
 - (NSArray<NSDictionary *> *)actionPillSpecs {
     NSMutableArray *specs = [NSMutableArray array];
     // 系统通知会话：只留「更多」（免打扰/清空聊天）——加好友/消息/呼叫/视频/搜索都不适用。
@@ -87,18 +92,11 @@
             }
             return specs;
         }
-        if (!self.peerIsFriend && self.peerDirectChat) {
-            // 免好友直聊（客户 ↔ 所绑子公司客服）：与好友一样能发消息、打电话，但不给好友专属的搜索 / 更多。
-            if (self.showsMessagePill) { // 与好友分支同口径：从聊天页头像进来不重复给「消息」
-                [specs addObject:@{@"t": IMLocalized(@"chat.detail.pill_message"), @"s": @"bubble.right.fill", @"a": @"message"}];
-            }
-            [specs addObject:@{@"t": IMLocalized(@"chat.header.call"), @"s": @"phone.fill", @"a": @"call"}];
-            [specs addObject:@{@"t": IMLocalized(@"common.video"), @"s": @"video.fill", @"a": @"video"}];
-            return specs;
-        }
-        if (!self.peerIsFriend) {
+        // 免好友直聊（客户 ↔ 所绑子公司客服，TENANT v2 §3.2）与好友同等对待：有真实会话，消息 / 通话 / 搜索 / 更多都给；
+        // 「加好友」放进「更多」（见 +Actions 的更多菜单）。
+        if (![self peerHasRelation]) {
             [specs addObject:@{@"t": IMLocalized(@"contacts.search.action_add"), @"s": @"person.badge.plus", @"a": @"addfriend"}];
-            return specs; // 非好友：到此为止（搜索/更多都不适用）
+            return specs; // 陌生人：到此为止（搜索/更多都不适用）
         } else {
             if (self.showsMessagePill) {
                 [specs addObject:@{@"t": IMLocalized(@"chat.detail.pill_message"), @"s": @"bubble.right.fill", @"a": @"message"}];
@@ -111,9 +109,9 @@
     if (self.isGroup) {
         [specs addObject:@{@"t": IMLocalized(@"chat.detail.pill_group_call"), @"s": @"person.3.fill", @"a": @"groupcall"}];
     }
-    // 搜索：群聊与**单聊好友**都显示（对齐 im-web；功能待开发，点击走占位 toast）。
-    // 非好友不显示——尚无聊天记录可搜，与隐藏备注名/设置/页签三张卡同一判据。
-    if (self.isGroup || self.peerIsFriend) {
+    // 搜索：群聊与已建立关系的单聊（好友 / 免好友直聊）显示（对齐 im-web）。
+    // 陌生人不显示——尚无聊天记录可搜，与隐藏备注名/设置/页签三张卡同一判据。
+    if (self.isGroup || [self peerHasRelation]) {
         [specs addObject:@{@"t": IMLocalized(@"common.search"), @"s": @"magnifyingglass", @"a": @"search"}];
     }
     [specs addObject:@{@"t": IMLocalized(@"common.more"), @"s": @"ellipsis", @"a": @"more"}];

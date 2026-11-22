@@ -14,12 +14,22 @@
 #import "../IMProgram/Network/IMHTTPService.h"
 #import "../IMProgram/Network/IMReconnectBackoff.h"
 #import "../IMProgram/Modules/Contacts/IMContactsViewController.h"
+#import "../IMProgram/Modules/Detail/IMChatDetailViewController.h"
 #import "../IMProgram/Modules/Org/IMDirectoryViewController.h"
 #import "../IMProgram/Modules/Org/IMDirectorySearchViewController.h"
 #import "../IMProgram/Modules/Org/IMMyTenantViewController.h"
 #import "../IMProgram/Modules/Org/IMTenantStore.h"
 #import "../IMProgram/Modules/QR/IMQRResultRouter.h"
 
+
+/// 资料页私有状态（+Private.h 引了 Swift 桥接头，测试 target 取不到，这里只声明用到的）。
+@interface IMChatDetailViewController (IMTenantOrgTesting)
+@property (nonatomic, assign) BOOL peerIsFriend;
+@property (nonatomic, assign) BOOL peerDirectChat;
+@property (nonatomic, assign) BOOL peerUnreachable;
+- (NSArray<NSDictionary *> *)actionPillSpecs;
+- (NSArray<NSNumber *> *)sectionLayout;
+@end
 
 @interface IMTenantOrgTests : XCTestCase
 @end
@@ -200,6 +210,38 @@
     BOOL hasName = NO;
     for (IMSysSegment *s in out) { if ([s.uid isEqualToString:@"u9"]) { hasName = YES; } }
     XCTAssertTrue(hasName, @"被移出者是可点的人名段");
+}
+
+#pragma mark - 资料页：免好友直聊与好友同等（2026-11-22）
+
+static NSArray<NSString *> *IMPillActions(IMChatDetailViewController *vc) {
+    NSMutableArray *a = [NSMutableArray array];
+    for (NSDictionary *spec in [vc actionPillSpecs]) { [a addObject:spec[@"a"]]; }
+    return a;
+}
+
+- (void)testProfileOfDirectChatPeerMatchesFriend {
+    IMChatDetailViewController *vc = [[IMChatDetailViewController alloc] initSingleWithHost:@"127.0.0.1:59391" userID:@"t-me"
+        peerID:@"8000000001" peerNickname:@"客服" peerAvatarURL:nil];
+    vc.peerIsFriend = NO;
+    vc.peerDirectChat = NO;
+    XCTAssertEqualObjects(IMPillActions(vc), (@[@"addfriend"]), @"陌生人：只有加好友");
+    XCTAssertEqual([vc sectionLayout].count, 0u, @"陌生人：不显示资料卡 / 设置 / 页签");
+
+    vc.peerDirectChat = YES; // 集团客户 ↔ 所绑子公司客服
+    NSArray *acts = IMPillActions(vc);
+    for (NSString *want in @[@"call", @"video", @"search", @"more"]) {
+        XCTAssertTrue([acts containsObject:want], @"免好友直聊应有 %@", want);
+    }
+    XCTAssertFalse([acts containsObject:@"addfriend"], @"加好友收进「更多」，不占操作排");
+    XCTAssertGreaterThan([vc sectionLayout].count, 0u, @"免好友直聊：资料卡 / 设置 / 页签和好友一样");
+
+    vc.peerDirectChat = NO; vc.peerUnreachable = YES; // 400120（applyPeerUnreachable 同时清直聊）：什么都不给
+    XCTAssertEqual(IMPillActions(vc).count, 0u);
+    XCTAssertEqual([vc sectionLayout].count, 0u);
+    vc.peerIsFriend = YES; // 残留好友行也一样（三端同口径）
+    XCTAssertEqual(IMPillActions(vc).count, 0u);
+    XCTAssertEqual([vc sectionLayout].count, 0u, @"400120 的残留好友：只显头像昵称");
 }
 
 @end
