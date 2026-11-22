@@ -221,6 +221,8 @@
 
 #pragma mark - 控制器
 
+static NSString * const kIMSettingsInviteRowID = @"inviteCode"; // 「填写邀请码」条件行（不进设置搜索）
+
 @interface IMSettingsViewController () <UITableViewDataSource, UITableViewDelegate, IMLiquidNavigationBarDelegate>
 @property (nonatomic, copy) NSString *host;
 @property (nonatomic, copy) NSString *userID;
@@ -610,10 +612,11 @@
                          handler:^{ [ws logout]; }],
     ];
 
-    // 「我的集团」（TENANT_DESIGN v2，交互稿 I-12）：有集团，或无集团但邀请码功能开着时才有这一行（单独一组，条件行不进设置搜索）。
+    // 「填写邀请码」（TENANT_DESIGN v2，交互稿 I-12）：无集团或客户、且邀请码功能开着才有这一行；员工没有
+    //（单独一组，条件行不进设置搜索）。
     NSMutableArray *groups = [NSMutableArray arrayWithObject:groupA];
-    if (IMTenantStore.shared.loaded && (IMTenantStore.shared.hasTenant || IMServerConfigStore.shared.inviteEnabled)) {
-        [groups addObject:@[[IMSettingsRow rowWithId:@"myTenant" title:IMLocalized(@"org.my_tenant") image:@"ticket.fill"
+    if ([self wantsInviteRow]) {
+        [groups addObject:@[[IMSettingsRow rowWithId:kIMSettingsInviteRowID title:IMLocalized(@"org.invite.entry") image:@"ticket.fill"
                                               iconBg:UIColor.systemOrangeColor right:nil destructive:NO
                                              handler:^{ [ws openMyTenant]; }]]];
     }
@@ -626,11 +629,16 @@
                                          animated:YES];
 }
 
-/// 集团身份 / 邀请码开关变了：「我的集团」行可能出现或消失。
+- (BOOL)wantsInviteRow {
+    IMTenantStore *st = IMTenantStore.shared;
+    return st.loaded && IMMyTenantShowsInvite(st.hasTenant, st.isCustomer, IMServerConfigStore.shared.inviteEnabled);
+}
+
+/// 集团身份 / 邀请码开关变了：「填写邀请码」行可能出现或消失。
 - (void)onTenantInputsChanged {
-    BOOL want = IMTenantStore.shared.loaded && (IMTenantStore.shared.hasTenant || IMServerConfigStore.shared.inviteEnabled);
+    BOOL want = [self wantsInviteRow];
     BOOL has = NO;
-    for (NSArray<IMSettingsRow *> *g in self.groups) { for (IMSettingsRow *r in g) { if ([r.rowId isEqualToString:@"myTenant"]) { has = YES; } } }
+    for (NSArray<IMSettingsRow *> *g in self.groups) { for (IMSettingsRow *r in g) { if ([r.rowId isEqualToString:kIMSettingsInviteRowID]) { has = YES; } } }
     if (want == has) { return; } // 只有行出现 / 消失才重建（这两个通知很频繁）
     [self buildGroups];
     if (self.isViewLoaded) { [self.tableView reloadData]; }

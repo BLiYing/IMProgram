@@ -566,7 +566,6 @@
 "contacts.action.unblock" = "Unblock";
 "contacts.coming_soon" = "%1$@ isn't available yet";
 "contacts.empty" = "No friends yet. Tap + in the top right to find people.";
-"contacts.entry.join_org" = "Join with an invite code";
 "contacts.entry.my_friends" = "My friends";
 "contacts.entry.official_account" = "Official accounts";
 "contacts.entry.org" = "Organization";
@@ -1179,7 +1178,7 @@
 "ios.settings.row.power_saving" = "Power saving";
 "ios.settings.row.recent_calls" = "Recent calls";
 "ios.tab.contacts" = "Contacts";
-"ios.tab.me" = "Me";
+"ios.tab.me" = "Settings";
 "ios.tab.messages" = "Messages";
 "login.back_to_login" = "Back to login";
 "login.button.login" = "Log in";
@@ -1445,15 +1444,16 @@
 "org.dept.empty" = "No members in this department";
 "org.dept.members" = "Members";
 "org.dept.sub_depts" = "Departments";
+"org.invite.bound" = "Joined · %1$@";
+"org.invite.entry" = "Enter invite code";
 "org.invite.join" = "Join";
 "org.invite.joined" = "Joined %1$@";
 "org.invite.placeholder" = "Enter invite code";
 "org.invite.register_label" = "Invite code (optional)";
 "org.invite.section" = "Invite code";
+"org.join.empty_desc" = "Enter the invite code from your organization to see its directory and contact its support here.";
+"org.join.empty_title" = "You haven't joined an organization";
 "org.leave_hint" = "To leave, contact an admin.";
-"org.my_tenant" = "My organization";
-"org.role.cs" = "Support";
-"org.role.staff" = "Staff";
 "org.search.no_results" = "No members found";
 "org.search.placeholder" = "Search members";
 "password.err.old_required" = "Enter your current password";

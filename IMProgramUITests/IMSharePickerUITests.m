@@ -63,11 +63,11 @@
         [self typeText:@"user4982" into:user];
         [devLogin tap];
     }
-    [self waitFor:self.app.tabBars.buttons[@"我"] named:@"Tab 我"];
+    [self waitFor:self.app.tabBars.buttons[@"设置"] named:@"Tab 设置"];
 }
 
 - (void)openShareMyCard {
-    [self.app.tabBars.buttons[@"我"] tap];
+    [self.app.tabBars.buttons[@"设置"] tap];
     [self tapStatic:@"分享我的名片"];
     [self waitFor:self.app.staticTexts[@"我的好友"] named:@"入口 我的好友"];
     [NSThread sleepForTimeInterval:1.0];

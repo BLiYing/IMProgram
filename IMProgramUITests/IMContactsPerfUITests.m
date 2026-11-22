@@ -98,7 +98,7 @@
 
     // ② 来回切 Tab，记录每一下的耗时
     NSMutableArray<NSString *> *timings = [NSMutableArray array];
-    NSArray<NSString *> *order = @[ @"消息", @"通讯录", @"我", @"通讯录" ];
+    NSArray<NSString *> *order = @[ @"消息", @"通讯录", @"设置", @"通讯录" ];
     for (NSInteger round = 0; round < 5; round++) {
         for (NSString *name in order) {
             XCUIElement *tab = [self tabNamed:name app:app];

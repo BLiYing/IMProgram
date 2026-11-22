@@ -1,6 +1,6 @@
 //  IMMainTabBarController.m
 
-#import "IMTenantNoticePresenter.h"
+// #import "IMTenantNoticePresenter.h" // 审计告知暂停（见 viewDidAppear 里的注释）
 #import "IMMainTabBarController.h"
 #import "IMLocalization.h"
 #import "IMLog.h"
@@ -341,7 +341,8 @@ static void IMCollectTabIcons(UIView *root, NSMutableArray<UIImageView *> *out) 
     }
     // 冷启动点通知进来的：主界面刚建好，尝试把之前记下的 conv_id 路由过去（PROTOCOL §6.14 payload conv_id）。
     [IMPendingNotificationRoute.shared tryRouteWithHost:_host userID:_rtcUserID];
-    [IMTenantNoticePresenter.shared attachToHost:self]; // 后台添加的集团成员：审计告知弹一次（TENANT v2 §6.3）
+    // 后台添加的集团成员：审计告知弹一次（TENANT v2 §6.3）。2026-11-22 起暂停（服务端 notice_pending / notice-ack 保留），恢复时取消注释：
+    // [IMTenantNoticePresenter.shared attachToHost:self];
 }
 
 - (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID {

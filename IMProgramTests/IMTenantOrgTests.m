@@ -113,7 +113,8 @@
 - (void)testContactsOrgEntryKind {
     XCTAssertEqual(IMContactsOrgEntryKind(YES, YES, NO), IMContactsOrgEntryDirectory);
     XCTAssertEqual(IMContactsOrgEntryKind(YES, NO, YES), IMContactsOrgEntryNone, @"有集团但后台关了手机端入口");
-    XCTAssertEqual(IMContactsOrgEntryKind(NO, YES, YES), IMContactsOrgEntryJoin);
+    XCTAssertEqual(IMContactsOrgEntryKind(NO, YES, YES), IMContactsOrgEntryNoTenant, @"无集团：同名入口进空态页");
+    XCTAssertEqual(IMContactsOrgEntryKind(NO, YES, NO), IMContactsOrgEntryNone, @"无集团且邀请码关着");
     XCTAssertEqual(IMContactsOrgEntryKind(NO, NO, NO), IMContactsOrgEntryNone);
 }
 

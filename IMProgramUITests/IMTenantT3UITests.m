@@ -58,9 +58,9 @@
     return [self.app.tables.staticTexts matchingPredicate:[NSPredicate predicateWithFormat:@"label == %@", label]].firstMatch;
 }
 
-/// 已登录则从「我」页退出，回到登录页。
+/// 已登录则从「设置」页退出，回到登录页。
 - (void)logoutIfNeeded {
-    XCUIElement *meTab = self.app.tabBars.buttons[@"我"];
+    XCUIElement *meTab = self.app.tabBars.buttons[@"设置"];
     if (![meTab waitForExistenceWithTimeout:6]) { return; }
     [self dismissNoticeIfPresent];
     [meTab tap];
@@ -86,7 +86,7 @@
     }
     [user typeText:username];
     [self.app.buttons[@"免密登录（开发）"] tap];
-    [self waitFor:self.app.tabBars.buttons[@"我"] named:@"主界面"];
+    [self waitFor:self.app.tabBars.buttons[@"设置"] named:@"主界面"];
 }
 
 /// 审计告知弹窗（后台添加的成员首次进主界面）：有就截图并点「我知道了」。
@@ -155,12 +155,12 @@
     [self shot:@"B03-直聊已发送"];
 }
 
-/// C：客户在「我的集团」绑第二家（错码红字 → 正确码成功）。
+/// C：客户在「设置 ▸ 填写邀请码」绑第二家（错码红字 → 正确码成功）；页里列「已绑定 · 集团名」。
 - (void)testC_CustomerRedeemsSecondUnit {
     NSString *code = NSProcessInfo.processInfo.environment[@"IM_T3_SOUTH_CODE"];
     [self loginAs:@"t3_cust"];
-    [self.app.tabBars.buttons[@"我"] tap];
-    [[self waitFor:[self cellWithText:@"我的集团"] named:@"我的集团入口"] tap];
+    [self.app.tabBars.buttons[@"设置"] tap];
+    [[self waitFor:[self cellWithText:@"填写邀请码"] named:@"填写邀请码入口"] tap];
     [self waitFor:[self text:@"华东子公司"] named:@"已绑华东"];
     XCUIElement *field = [self waitFor:self.app.textFields[@"org.invite.field"] named:@"邀请码框"];
     [field tap];
@@ -177,17 +177,27 @@
     [self shot:@"C02-绑定第二家"];
 }
 
-/// D：无集团——通讯录是「填写邀请码加入企业」，点进去是我的集团页（只有填码段）。
+/// D：无集团（存量账号 2026-11-22 已全部迁入集团，这里用一个新注册的账号，默认 t3_fresh1；
+/// 重跑可用 TEST_RUNNER_IM_T3_NONE_USER 换）——通讯录同样叫「组织架构」，点进是空态 →「填写邀请码」页（只有填码段）。
 - (void)testD_NoTenantJoinEntry {
-    [self loginAs:@"t3_none"];
+    [self loginAs:NSProcessInfo.processInfo.environment[@"IM_T3_NONE_USER"] ?: @"t3_fresh1"];
     [self.app.tabBars.buttons[@"通讯录"] tap];
-    XCUIElement *join = [self cellWithText:@"填写邀请码加入企业"];
-    [self waitFor:join named:@"填码入口"];
-    XCTAssertFalse([self cellWithText:@"组织架构"].exists);
+    XCUIElement *org = [self cellWithText:@"组织架构"];
+    [self waitFor:org named:@"组织架构入口"];
+    XCTAssertFalse([self cellWithText:@"填写邀请码加入企业"].exists);
     [self shot:@"D01-无集团通讯录"];
-    [join tap];
+    [org tap];
+    [self waitFor:[self text:@"你还没有加入企业"] named:@"空态标题"];
+    [self shot:@"D02-组织架构空态"];
+    [self.app.buttons[@"org.join.invite"] tap];
     [self waitFor:self.app.textFields[@"org.invite.field"] named:@"邀请码框"];
-    [self shot:@"D02-我的集团（无集团）"];
+    XCTAssertFalse([self text:@"加入后，该集团的管理员可以查看你在本集团内的聊天记录（本集团的群聊，以及你和本集团成员之间的单聊）。"].exists,
+                   @"审计小字已暂停");
+    [self shot:@"D03-填写邀请码（无集团）"];
+    // 二级页隐藏底栏：先退回通讯录根页（填写邀请码 → 空态 → 通讯录）
+    for (int i = 0; i < 2; i++) { [[self waitFor:self.app.buttons[@"返回"] named:@"返回"] tap]; [NSThread sleepForTimeInterval:0.8]; }
+    [[self waitFor:self.app.tabBars.buttons[@"设置"] named:@"底栏"] tap];
+    [self waitFor:[self cellWithText:@"填写邀请码"] named:@"设置页填写邀请码行"];
 }
 
 /// E：直聊关闭（跑之前用后台把 t3_east_cs 改成普通员工）→ 客户那边的会话输入栏只读「对方已不再为你提供服务」。
@@ -207,6 +217,8 @@
 
 /// F：后台添加的员工首次进主界面弹审计告知（默认 t3_east_dev；告知只弹一次，重跑时用 TEST_RUNNER_IM_T3_NOTICE_USER 换一个刚由后台添加的账号）；点「我知道了」后服务端 notice_pending 清掉（脚本外核对）。
 - (void)testF_AuditNoticeOnce {
+    // 2026-11-22 起审计告知暂停（客户端注释，服务端 notice_pending 保留）；恢复弹窗时删掉这一行。
+    XCTSkip(@"审计告知暂停");
     [self logoutIfNeeded];
     XCTAssertTrue(IMUITestShowPasswordLogin(self.app, 15));
     XCUIElement *user = [self waitFor:self.app.textFields.firstMatch named:@"用户名"];
@@ -225,6 +237,16 @@
     [self.app.alerts.buttons[@"我知道了"] tap];
     [NSThread sleepForTimeInterval:1.5];
     XCTAssertFalse(self.app.alerts.firstMatch.exists, @"只弹一次");
+}
+
+/// G：员工的设置页没有「填写邀请码」（员工不需要填码）；底部 Tab 叫「设置」。
+- (void)testG_StaffHasNoInviteRow {
+    [self loginAs:@"t3_east_dev"];
+    [self.app.tabBars.buttons[@"设置"] tap];
+    [self waitFor:[self cellWithText:@"关于我们"] named:@"设置页"];
+    XCTAssertFalse([self cellWithText:@"填写邀请码"].exists, @"员工不显示填写邀请码");
+    XCTAssertFalse([self cellWithText:@"我的集团"].exists);
+    [self shot:@"G01-员工设置页"];
 }
 
 @end

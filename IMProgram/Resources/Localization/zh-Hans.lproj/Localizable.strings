@@ -566,7 +566,6 @@
 "contacts.action.unblock" = "解除拉黑";
 "contacts.coming_soon" = "%1$@ 还没做";
 "contacts.empty" = "还没有好友，点右上角 + 搜索用户添加";
-"contacts.entry.join_org" = "填写邀请码加入企业";
 "contacts.entry.my_friends" = "我的好友";
 "contacts.entry.official_account" = "公众号";
 "contacts.entry.org" = "组织架构";
@@ -1179,7 +1178,7 @@
 "ios.settings.row.power_saving" = "省电模式";
 "ios.settings.row.recent_calls" = "最近通话";
 "ios.tab.contacts" = "通讯录";
-"ios.tab.me" = "我";
+"ios.tab.me" = "设置";
 "ios.tab.messages" = "消息";
 "login.back_to_login" = "返回登录";
 "login.button.login" = "登录";
@@ -1445,15 +1444,16 @@
 "org.dept.empty" = "这个部门还没有成员";
 "org.dept.members" = "成员";
 "org.dept.sub_depts" = "下级部门";
+"org.invite.bound" = "已绑定 · %1$@";
+"org.invite.entry" = "填写邀请码";
 "org.invite.join" = "加入";
 "org.invite.joined" = "已加入 %1$@";
 "org.invite.placeholder" = "输入邀请码";
 "org.invite.register_label" = "邀请码（选填）";
-"org.invite.section" = "填写邀请码";
+"org.invite.section" = "邀请码";
+"org.join.empty_desc" = "填写企业给你的邀请码后，就能在这里看到组织架构、联系企业客服。";
+"org.join.empty_title" = "你还没有加入企业";
 "org.leave_hint" = "如需退出集团，请联系管理员。";
-"org.my_tenant" = "我的集团";
-"org.role.cs" = "客服";
-"org.role.staff" = "员工";
 "org.search.no_results" = "没有找到相关成员";
 "org.search.placeholder" = "搜索成员";
 "password.err.old_required" = "请输入当前密码";

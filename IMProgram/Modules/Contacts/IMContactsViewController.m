@@ -169,11 +169,10 @@ static NSString * const kIMContactsRecentCellID = @"recent";
 static NSString * const kIMContactsEntryFriendRequests = @"friendRequests";
 static NSString * const kIMContactsEntryMyFriends = @"myFriends";
 static NSString * const kIMContactsEntryOrg = @"org";
-static NSString * const kIMContactsEntryJoinOrg = @"joinOrg";
 
 IMContactsOrgEntry IMContactsOrgEntryKind(BOOL hasTenant, BOOL directoryEntryMobile, BOOL inviteEnabled) {
     if (hasTenant) { return directoryEntryMobile ? IMContactsOrgEntryDirectory : IMContactsOrgEntryNone; }
-    return inviteEnabled ? IMContactsOrgEntryJoin : IMContactsOrgEntryNone;
+    return inviteEnabled ? IMContactsOrgEntryNoTenant : IMContactsOrgEntryNone;
 }
 
 BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt,
@@ -213,7 +212,7 @@ BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt
         // 所以即使用户还没切到通讯录，这里也一直握着最新的那份数组（只存不算，见 onConversationListChanged:）。
         [center addObserver:self selector:@selector(onConversationListChanged:)
                        name:IMConversationListDidChangeNotification object:nil];
-        // 集团身份（directory/me）或入口开关（server-config）变了 → 重建「组织架构 / 填写邀请码」入口行。
+        // 集团身份（directory/me）或入口开关（server-config）变了 → 重建「组织架构」入口行（有集团进组织架构，无集团进空态）。
         [center addObserver:self selector:@selector(onOrgEntryInputsChanged) name:IMTenantStoreDidChangeNotification object:nil];
         [center addObserver:self selector:@selector(onOrgEntryInputsChanged) name:IMServerConfigDidLoadNotification object:nil];
         // 重连即取权威资料（断网期间看的是缓存种子）。仅可见时刷新，避免离屏空跑登录+HTTP。
@@ -243,25 +242,15 @@ BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt
         // 文案 key contacts.entry.official_account / service_account 仍保留。
     ];
     self.entryColors = @[UIColor.systemGreenColor, UIColor.systemTealColor, UIColor.systemBlueColor];
-    // 集团（TENANT_DESIGN v2 §8.2）：有集团且后台开了手机端入口 →「组织架构」；无集团且邀请码开着 →「填写邀请码加入企业」。
-    switch (!IMTenantStore.shared.loaded ? IMContactsOrgEntryNone : IMContactsOrgEntryKind(IMTenantStore.shared.hasTenant, IMServerConfigStore.shared.directoryEntryMobile,
-                                   IMServerConfigStore.shared.inviteEnabled)) {
-        case IMContactsOrgEntryDirectory: {
-            self.entries = [self.entries arrayByAddingObject:
-                [IMMenuAction actionWithId:kIMContactsEntryOrg title:IMLocalized(@"contacts.entry.org") image:@"building.2.fill"
-                                   handler:^{ [ws openDirectory]; }]];
-            self.entryColors = [self.entryColors arrayByAddingObject:UIColor.systemBlueColor];
-            break;
-        }
-        case IMContactsOrgEntryJoin: {
-            self.entries = [self.entries arrayByAddingObject:
-                [IMMenuAction actionWithId:kIMContactsEntryJoinOrg title:IMLocalized(@"contacts.entry.join_org") image:@"ticket.fill"
-                                   handler:^{ [ws openMyTenant]; }]];
-            self.entryColors = [self.entryColors arrayByAddingObject:UIColor.systemOrangeColor];
-            break;
-        }
-        case IMContactsOrgEntryNone:
-            break;
+    // 集团（TENANT_DESIGN v2 §8.2，交互稿 I-6 / I-6b）：所有人都叫「组织架构」、右边不显示集团名。
+    // 有集团且后台开了手机端入口 → 组织架构；无集团且邀请码开着 → 空态页（引导填写邀请码）；都不满足不显示。
+    IMContactsOrgEntry org = !IMTenantStore.shared.loaded ? IMContactsOrgEntryNone
+        : IMContactsOrgEntryKind(IMTenantStore.shared.hasTenant, IMServerConfigStore.shared.directoryEntryMobile, IMServerConfigStore.shared.inviteEnabled);
+    if (org != IMContactsOrgEntryNone) {
+        self.entries = [self.entries arrayByAddingObject:
+            [IMMenuAction actionWithId:kIMContactsEntryOrg title:IMLocalized(@"contacts.entry.org") image:@"building.2.fill"
+                               handler:^{ org == IMContactsOrgEntryDirectory ? [ws openDirectory] : [ws openOrgJoin]; }]];
+        self.entryColors = [self.entryColors arrayByAddingObject:UIColor.systemBlueColor];
     }
 }
 
@@ -282,8 +271,8 @@ BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRefreshAt
     [self.navigationController pushViewController:vc animated:YES];
 }
 
-- (void)openMyTenant {
-    IMMyTenantViewController *vc = [[IMMyTenantViewController alloc] initWithHost:self.host userID:self.userID];
+- (void)openOrgJoin {
+    IMOrgJoinViewController *vc = [[IMOrgJoinViewController alloc] initWithHost:self.host userID:self.userID];
     [self.navigationController pushViewController:vc animated:YES];
 }
 

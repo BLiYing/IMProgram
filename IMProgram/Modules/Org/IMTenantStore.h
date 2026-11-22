@@ -3,7 +3,7 @@
 //
 //  客户端不自己判定可见性——通讯录、搜索、资料、直聊全按服务端结果展示；这里只决定
 //  入口显不显示（有没有集团、是不是客户 / 员工）与审计告知弹不弹。
-//  刷新时机：每次连上、回前台、收到好友事件 org_exit（脱离集团时推给本人：删了好友按好友各一帧，没有好友也给本人一帧；集团停用不推，靠回前台 / 重连兜底），绑码成功后由调用方喂回结果。
+//  刷新时机：每次连上、回前台、收到好友事件 org_changed（调岗）/ org_exit（脱离集团时推给本人：删了好友按好友各一帧，没有好友也给本人一帧；集团停用不推，靠回前台 / 重连兜底），绑码成功后由调用方喂回结果。
 //  换号：快照记着属于哪个账号，不是当前账号就当没拉到过。
 
 #import <Foundation/Foundation.h>
@@ -47,7 +47,7 @@ FOUNDATION_EXPORT NSNotificationName const IMTenantStoreDidChangeNotification;
 - (void)start;
 /// 拉一次：在途不重发；刚拉过（几秒内）也不拉——合并「回前台」与随后的「Connected」。
 - (void)refresh;
-/// 忽略合并窗口立即拉（身份刚变：收到 org_exit）。
+/// 忽略合并窗口立即拉（身份刚变：收到 org_exit / org_changed）。
 - (void)refreshNow;
 /// 写入一份 me 响应（refresh 成功、绑码成功都走这里；单测直接喂字典）。返回是否有变化。
 - (BOOL)applyMe:(NSDictionary *)data;

@@ -7,6 +7,7 @@
 #import "IMLog.h"
 #import "IMServerConfigStore.h"
 #import "IMTenantStore.h"
+#import "IMDirectoryViewController.h"
 #import "IMTheme.h"
 #import "UIViewController+IMToast.h"
 
@@ -42,7 +43,7 @@ static const CGFloat kIMMyTenantFooterInset = 20;
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = IMLocalized(@"org.my_tenant");
+    self.title = IMLocalized(@"org.invite.entry");
     self.view.backgroundColor = IMTheme.groupedBackground;
     UITableView *tv = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStyleInsetGrouped];
     tv.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -58,10 +59,15 @@ static const CGFloat kIMMyTenantFooterInset = 20;
     [IMTenantStore.shared refresh];
 }
 
-/// 快照变了：段结构没变且正在输入邀请码时只刷集团段——整表 reload 会把输入框从 cell 摘下、键盘收起
+/// 快照变了：段结构没变且正在输入邀请码时只刷已绑定段——整表 reload 会把输入框从 cell 摘下、键盘收起
 ///（回前台 / 重连都会重拉 me，用户正打字时也会来）。
 - (void)onTenantChanged {
     NSArray<NSNumber *> *now = [self sections];
+    // 看着这页时身份变成员工（后台加人 / 调岗）：两段都没了，留着就是空白页，退回上一页。
+    if (now.count == 0 && IMTenantStore.shared.loaded && IMTenantStore.shared.hasTenant) {
+        if (self.navigationController.topViewController == self) { [self.navigationController popViewControllerAnimated:YES]; }
+        return;
+    }
     BOOL sameShape = [now isEqualToArray:self.renderedSections ?: @[]];
     self.renderedSections = now;
     if (!(sameShape && self.codeField.isFirstResponder)) { [self.tableView reloadData]; return; }
@@ -118,8 +124,9 @@ static const CGFloat kIMMyTenantFooterInset = 20;
         [text appendAttributedString:[[NSAttributedString alloc] initWithString:[self.errorText stringByAppendingString:@"\n"]
             attributes:@{ NSForegroundColorAttributeName: UIColor.systemRedColor }]];
     }
-    [text appendAttributedString:[[NSAttributedString alloc] initWithString:IMLocalized(@"org.audit_notice")
-        attributes:@{ NSForegroundColorAttributeName: IMTheme.textSecondary }]];
+    // 审计告知小字：2026-11-22 起暂停（服务端不动），恢复时取消注释：
+    // [text appendAttributedString:[[NSAttributedString alloc] initWithString:IMLocalized(@"org.audit_notice")
+    //     attributes:@{ NSForegroundColorAttributeName: IMTheme.textSecondary }]];
     [text addAttribute:NSFontAttributeName value:[UIFont systemFontOfSize:13] range:NSMakeRange(0, text.length)];
     return text;
 }
@@ -168,7 +175,7 @@ static NSString *IMMyTenantJoinedName(NSArray<IMTenantUnit *> *before, NSArray<I
     if (st.loaded && IMMyTenantShowsInvite(st.hasTenant, st.isCustomer, IMServerConfigStore.shared.inviteEnabled)) {
         [s addObject:@(IMMyTenantSectionInvite)];
     }
-    if (st.hasTenant) { [s addObject:@(IMMyTenantSectionTenant)]; }
+    if (st.hasTenant && st.isCustomer && st.bindings.count > 0) { [s addObject:@(IMMyTenantSectionTenant)]; } // 员工没有这一段
     return s;
 }
 
@@ -181,12 +188,12 @@ static NSString *IMMyTenantJoinedName(NSArray<IMTenantUnit *> *before, NSArray<I
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if ([self kindAt:section] == IMMyTenantSectionInvite) { return 1; }
-    IMTenantStore *st = IMTenantStore.shared;
-    return st.isCustomer ? (NSInteger)st.bindings.count : 1;
+    return (NSInteger)IMTenantStore.shared.bindings.count;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    return [self kindAt:section] == IMMyTenantSectionInvite ? IMLocalized(@"org.invite.section") : IMTenantStore.shared.tenantName;
+    return [self kindAt:section] == IMMyTenantSectionInvite ? IMLocalized(@"org.invite.section")
+                                                             : IMLocalizedFormat(@"org.invite.bound", IMTenantStore.shared.tenantName);
 }
 
 - (UIView *)tableView:(UITableView *)tableView viewForFooterInSection:(NSInteger)section {
@@ -223,14 +230,8 @@ static NSString *IMMyTenantJoinedName(NSArray<IMTenantUnit *> *before, NSArray<I
         [self layoutCodeRowInCell:cell];
         return cell;
     }
-    IMTenantStore *st = IMTenantStore.shared;
     UIListContentConfiguration *cfg = UIListContentConfiguration.valueCellConfiguration;
-    if (st.isCustomer) {
-        cfg.text = st.bindings[indexPath.row].name;
-    } else {
-        cfg.text = st.deptName.length > 0 ? [NSString stringWithFormat:@"%@ · %@", st.unitName, st.deptName] : st.unitName;
-        cfg.secondaryText = st.isCS ? IMLocalized(@"org.role.cs") : IMLocalized(@"org.role.staff");
-    }
+    cfg.text = IMTenantStore.shared.bindings[indexPath.row].name;
     cell.contentConfiguration = cfg;
     return cell;
 }
@@ -253,6 +254,91 @@ static NSString *IMMyTenantJoinedName(NSArray<IMTenantUnit *> *before, NSArray<I
         [b.trailingAnchor constraintEqualToAnchor:m.trailingAnchor],
         [b.centerYAnchor constraintEqualToAnchor:f.centerYAnchor],
     ]];
+}
+
+@end
+
+#pragma mark - 组织架构空态（无集团）
+
+@interface IMOrgJoinViewController ()
+@property (nonatomic, copy) NSString *host;
+@property (nonatomic, copy) NSString *userID;
+@end
+
+@implementation IMOrgJoinViewController
+
+- (instancetype)initWithHost:(NSString *)host userID:(NSString *)userID {
+    if ((self = [super initWithNibName:nil bundle:nil])) { _host = [host copy]; _userID = [userID copy]; }
+    return self;
+}
+
+- (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
+
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [self leaveIfJoined]; // 从「填写邀请码」绑码成功后返回：已有集团，空态不该再留着
+}
+
+/// 已加入集团：开了手机端入口就换成组织架构，否则退回通讯录（入口本身也会随之消失）。只在本页在栈顶时动导航。
+- (void)leaveIfJoined {
+    if (!IMTenantStore.shared.loaded || !IMTenantStore.shared.hasTenant) { return; }
+    UINavigationController *nav = self.navigationController;
+    if (nav.topViewController != self) { return; }
+    if (IMServerConfigStore.shared.directoryEntryMobile) {
+        NSMutableArray *stack = [nav.viewControllers mutableCopy];
+        stack[stack.count - 1] = [[IMDirectoryViewController alloc] initRootWithHost:self.host userID:self.userID];
+        [nav setViewControllers:stack animated:NO];
+    } else {
+        [nav popViewControllerAnimated:YES];
+    }
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = IMLocalized(@"contacts.entry.org");
+    self.view.backgroundColor = IMTheme.groupedBackground;
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(leaveIfJoined)
+                                               name:IMTenantStoreDidChangeNotification object:nil];
+    UIImageView *icon = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"building.2"
+        withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:44 weight:UIImageSymbolWeightRegular]]];
+    icon.tintColor = IMTheme.textTertiary;
+    UILabel *title = [UILabel new];
+    title.text = IMLocalized(@"org.join.empty_title");
+    title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
+    title.textColor = IMTheme.textPrimary;
+    UILabel *desc = [UILabel new];
+    desc.text = IMLocalized(@"org.join.empty_desc");
+    desc.font = [UIFont systemFontOfSize:14];
+    desc.textColor = IMTheme.textSecondary;
+    desc.numberOfLines = 0;
+    desc.textAlignment = NSTextAlignmentCenter;
+    UIButtonConfiguration *bc = UIButtonConfiguration.filledButtonConfiguration;
+    bc.title = IMLocalized(@"org.invite.entry");
+    bc.baseBackgroundColor = IMTheme.accent;
+    bc.cornerStyle = UIButtonConfigurationCornerStyleLarge;
+    bc.contentInsets = NSDirectionalEdgeInsetsMake(10, 28, 10, 28);
+    UIButton *button = [UIButton buttonWithConfiguration:bc primaryAction:nil];
+    button.accessibilityIdentifier = @"org.join.invite";
+    [button addTarget:self action:@selector(openInvite) forControlEvents:UIControlEventTouchUpInside];
+    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[icon, title, desc, button]];
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.alignment = UIStackViewAlignmentCenter;
+    stack.spacing = 10;
+    [stack setCustomSpacing:20 afterView:desc];
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:stack];
+    UILayoutGuide *g = self.view.safeAreaLayoutGuide;
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.centerXAnchor constraintEqualToAnchor:g.centerXAnchor],
+        [stack.centerYAnchor constraintEqualToAnchor:g.centerYAnchor constant:-40],
+        [stack.leadingAnchor constraintGreaterThanOrEqualToAnchor:g.leadingAnchor constant:32],
+        [stack.trailingAnchor constraintLessThanOrEqualToAnchor:g.trailingAnchor constant:-32],
+    ]];
+}
+
+- (void)openInvite {
+    [self.navigationController pushViewController:[[IMMyTenantViewController alloc] initWithHost:self.host userID:self.userID]
+                                         animated:YES];
 }
 
 @end

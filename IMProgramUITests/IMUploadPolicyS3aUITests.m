@@ -73,7 +73,7 @@
         [self typeText:@"user1001" into:user];
         [devLogin tap];
     }
-    [self waitFor:self.app.tabBars.buttons[@"我"] named:@"Tab 我"];
+    [self waitFor:self.app.tabBars.buttons[@"设置"] named:@"Tab 设置"];
     [NSThread sleepForTimeInterval:3.0]; // 等连上并拉到 server-config（上传策略）
 }
 

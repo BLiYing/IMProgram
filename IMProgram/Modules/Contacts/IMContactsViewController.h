@@ -19,7 +19,7 @@ extern BOOL IMContactsShouldRefreshOnAppear(BOOL inFlight, CFTimeInterval lastRe
 typedef NS_ENUM(NSInteger, IMContactsOrgEntry) {
     IMContactsOrgEntryNone,       ///< 不显示
     IMContactsOrgEntryDirectory,  ///< 「组织架构」
-    IMContactsOrgEntryJoin,       ///< 「填写邀请码加入企业」
+    IMContactsOrgEntryNoTenant,   ///< 「组织架构」→ 无集团空态（引导填写邀请码）
 };
 
 /// 纯函数（单测）：有集团看手机端入口开关；无集团看邀请码功能开关。

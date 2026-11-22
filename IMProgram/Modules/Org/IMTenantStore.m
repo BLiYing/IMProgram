@@ -36,6 +36,7 @@ static const int64_t kIMTenantMinRefreshIntervalMs = 5000;
 @implementation IMTenantStore {
     BOOL _started;
     BOOL _inFlight;
+    BOOL _refreshAgain;      // 在途时来了 refreshNow：在途那份可能是变更前的，回来后再强制拉一次
     BOOL _loaded;
     BOOL _hasTenant;
     int64_t _lastSuccessMs;
@@ -92,13 +93,17 @@ static const int64_t kIMTenantMinRefreshIntervalMs = 5000;
     if ([note.userInfo[@"state"] integerValue] == IMSocketStateConnected) { [self refresh]; }
 }
 
-/// 只有 org_exit 会改我的集团身份；其它好友事件不必重拉。
+/// 只有 org_exit（脱离集团）与 org_changed（调岗：换单位 / 部门 / 客服身份）会改我的集团身份；其它好友事件不必重拉。
 - (void)onFriendEvent:(NSNotification *)note {
-    if ([note.userInfo[kIMFriendEventKey] isEqualToString:@"org_exit"]) { [self refreshNow]; }
+    NSString *event = note.userInfo[kIMFriendEventKey];
+    if ([event isEqualToString:@"org_exit"] || [event isEqualToString:@"org_changed"]) { [self refreshNow]; }
+    // 调岗不改「有没有集团」，applyMe 里按 hadTenant 触发的 server-config 重拉兜不住；PROTOCOL §6.5 要求一并重拉。
+    if ([event isEqualToString:@"org_changed"]) { [IMServerConfigStore.shared refreshNow]; }
 }
 
 - (void)refreshNow {
     _lastSuccessMs = 0;
+    if (_inFlight) { _refreshAgain = YES; return; }
     [self refresh];
 }
 
@@ -116,6 +121,10 @@ static const int64_t kIMTenantMinRefreshIntervalMs = 5000;
         __strong typeof(ws) self = ws;
         if (!self) { return; }
         self->_inFlight = NO;
+        if (self->_refreshAgain) { // 这份照常落地，本轮处理完再补拉一次（补拉失败也不至于丢掉这份）
+            self->_refreshAgain = NO;
+            dispatch_async(dispatch_get_main_queue(), ^{ [ws refreshNow]; });
+        }
         if (![owner isEqualToString:[self currentOwner]]) {
             IMLogWithTag(IMLogTagHTTP, @"directory_me_dropped reason=account_changed");
             [self refreshNow]; // 在途期间新账号的刷新被 _inFlight 挡掉了，补拉一次

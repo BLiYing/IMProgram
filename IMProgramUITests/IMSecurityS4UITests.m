@@ -45,9 +45,9 @@
     return e;
 }
 
-/// 已登录则从「我」页退出，回到登录页。
+/// 已登录则从「设置」页退出，回到登录页。
 - (void)logoutIfNeeded {
-    XCUIElement *meTab = self.app.tabBars.buttons[@"我"];
+    XCUIElement *meTab = self.app.tabBars.buttons[@"设置"];
     if (![meTab waitForExistenceWithTimeout:6]) { return; } // 已在登录页
     [meTab tap];
     XCUIElement *logout = self.app.buttons[@"退出登录"].firstMatch;
@@ -97,7 +97,7 @@
     // 收尾：免密登录回 user1001。
     [self replaceText:@"user1001" in:user];
     [self.app.buttons[@"免密登录（开发）"] tap];
-    [self waitFor:self.app.tabBars.buttons[@"我"] named:@"登回主界面"];
+    [self waitFor:self.app.tabBars.buttons[@"设置"] named:@"登回主界面"];
 }
 
 @end
