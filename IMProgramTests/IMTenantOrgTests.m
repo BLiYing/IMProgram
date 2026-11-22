@@ -27,6 +27,7 @@
 @property (nonatomic, assign) BOOL peerIsFriend;
 @property (nonatomic, assign) BOOL peerDirectChat;
 @property (nonatomic, assign) BOOL peerUnreachable;
+@property (nonatomic, assign) BOOL peerCardSettled;
 - (NSArray<NSDictionary *> *)actionPillSpecs;
 - (NSArray<NSNumber *> *)sectionLayout;
 @end
@@ -220,11 +221,31 @@ static NSArray<NSString *> *IMPillActions(IMChatDetailViewController *vc) {
     return a;
 }
 
+/// 会话列表的 peer_direct_chat 记进 IMOrgChatLocks，资料页进页即按它定型（2026-11-22）。
+- (void)testDirectPeerSeededFromConversationList {
+    IMConversation *c = [IMConversation conversationsFromArray:@[@{ @"conv_id": @"u_1_u_8000000002", @"peer": @"8000000002", @"peer_direct_chat": @YES }]].firstObject;
+    XCTAssertTrue(c.peerDirectChat);
+    [IMOrgChatLocks.shared ingestConversations:@[c]];
+    [self drainMain];
+    XCTAssertTrue([IMOrgChatLocks.shared isDirectPeer:@"8000000002"]);
+    IMChatDetailViewController *vc = [[IMChatDetailViewController alloc] initSingleWithHost:@"127.0.0.1:59391" userID:@"t-me"
+        peerID:@"8000000002" peerNickname:@"客服" peerAvatarURL:nil];
+    XCTAssertTrue(vc.peerDirectChat, @"进页即按会话列表定型");
+    XCTAssertTrue([IMPillActions(vc) containsObject:@"more"], @"不必等名片");
+    [IMOrgChatLocks.shared markOrgLeftForPeer:@"8000000002"];
+    [self drainMain];
+    XCTAssertFalse([IMOrgChatLocks.shared isDirectPeer:@"8000000002"], @"不在同一集团就没有直聊");
+    [IMOrgChatLocks.shared noteDirectChatForPeer:@"8000000002"]; // 清掉单例上的 org_left，别漏给后续用例
+    [self drainMain];
+}
+
 - (void)testProfileOfDirectChatPeerMatchesFriend {
     IMChatDetailViewController *vc = [[IMChatDetailViewController alloc] initSingleWithHost:@"127.0.0.1:59391" userID:@"t-me"
         peerID:@"8000000001" peerNickname:@"客服" peerAvatarURL:nil];
     vc.peerIsFriend = NO;
     vc.peerDirectChat = NO;
+    XCTAssertEqual(IMPillActions(vc).count, 0u, @"名片回来前既非好友也不知是否直聊：先不画，免得闪一个可误点的加好友");
+    vc.peerCardSettled = YES;
     XCTAssertEqualObjects(IMPillActions(vc), (@[@"addfriend"]), @"陌生人：只有加好友");
     XCTAssertEqual([vc sectionLayout].count, 0u, @"陌生人：不显示资料卡 / 设置 / 页签");
 

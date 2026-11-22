@@ -175,7 +175,7 @@ static const NSInteger kIMPeerNotFoundOverlayTag = 91001;
 - (void)loadPeerProfile {
     if (self.isGroup || self.peerID.length == 0) { return; }
     NSString *token = IMHTTPService.sharedService.currentToken;
-    if (token.length == 0) { return; }
+    if (token.length == 0) { [self settlePeerCard]; return; } // 拉不了名片：按陌生人收尾，别让操作排一直空着
     __weak typeof(self) ws = self;
     [IMHTTPService.sharedService userProfileWithToken:token userID:self.peerID
                                           completion:^(IMUserCard *card, NSError *error) {
@@ -183,12 +183,18 @@ static const NSInteger kIMPeerNotFoundOverlayTag = 91001;
         if (!self) { return; }
         if (error) {
             if (error.code == kIMErrUserNotFound) { [self showPeerNotFoundState]; }
-            if (error.code == IMErrCodeOrgUnreachable) { [self applyPeerUnreachable:IMErrorResponseData(error)]; }
-            return; // 其余错误（离线/超时/5xx）保持快照，不打扰
+            if (error.code == IMErrCodeOrgUnreachable) { [self applyPeerUnreachable:IMErrorResponseData(error)]; return; }
+            // 其余错误（离线/超时/5xx）保持快照；操作排按已知关系收尾（陌生人给回「加好友」，不能一直空着）
+            [self settlePeerCard];
+            return;
         }
-        BOOL pillsChanged = self.peerUnreachable || self.peerDirectChat != card.directChat;
+        // 首次拿到名片也要重建：之前既非好友又不知是否直聊时操作排是空的（见 actionPillSpecs）
+        BOOL pillsChanged = self.peerUnreachable || self.peerDirectChat != card.directChat || !self.peerCardSettled;
         self.peerUnreachable = NO;
         self.peerDirectChat = card.directChat;
+        // 名片只撤销本地直聊标记、不写入：写入只认会话列表（会话删了也能随列表刷新纠正，不会留一个过期的「能直聊」）
+        if (!card.directChat) { [IMOrgChatLocks.shared setDirect:NO forPeer:self.peerID]; }
+        self.peerCardSettled = YES; // 先置上再重建：陌生人的「加好友」以它为准（actionPillSpecs）
         if (pillsChanged) { [self rebuildPillsView]; }
         if (card.directChat) { [IMOrgChatLocks.shared noteDirectChatForPeer:self.peerID]; } // 直聊恢复了：解除只读
         if (card.nickname.length > 0) { self.peerNickname = card.nickname; }   // 真实昵称，非备注
@@ -206,6 +212,13 @@ static const NSInteger kIMPeerNotFoundOverlayTag = 91001;
     }];
 }
 
+/// 名片拉取没有结果（离线 / 超时 / 5xx / 没登录态）：按已知关系画操作排。只在第一次收尾时重建。
+- (void)settlePeerCard {
+    if (self.peerCardSettled) { return; }
+    self.peerCardSettled = YES;
+    [self rebuildPillsView];
+}
+
 /// 400120「不在同一集团」：服务端只回昵称与（按隐私裁剪的）头像；说明顶替副标题，操作排清空（扫码进来的留「加好友」）。
 - (void)applyPeerUnreachable:(NSDictionary *)data {
     NSString *nick = IMJSONString(data[@"nickname"]);
@@ -214,6 +227,8 @@ static const NSInteger kIMPeerNotFoundOverlayTag = 91001;
     self.peerAvatarURL = avatar;
     self.peerUnreachable = YES;
     self.peerDirectChat = NO;
+    self.peerCardSettled = YES;
+    [IMOrgChatLocks.shared setDirect:NO forPeer:self.peerID];
     [self.avatarView setAvatarURL:[self headerAvatarURL] seed:(self.peerID ?: @"") name:self.displayTitle];
     [self refreshHeaderTexts];
     [self rebuildPillsView];

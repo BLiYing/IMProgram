@@ -37,6 +37,8 @@ FOUNDATION_EXPORT int64_t IMClearedAtFromJSON(id _Nullable value);
 @property (nonatomic, assign) BOOL peerDeleted;
 /// 单聊只读原因（org_left / service_ended，TENANT_DESIGN v2 §4.3）；只有 GET /conversations 带，空 = 不锁。
 @property (nonatomic, copy, nullable) NSString *peerChatLock;
+/// 与单聊对端免好友直聊（集团客户 ↔ 所绑子公司客服，TENANT_DESIGN v2 §3.2）；只有 GET /conversations 带。资料页进页即按它定型（IMOrgChatLocks isDirectPeer:）。
+@property (nonatomic, assign) BOOL peerDirectChat;
 @property (nonatomic, strong, nullable) IMPresence *peerPresence; // 单聊对端在线态快照（列表绿点；群聊为 nil，在线与否按 onlineUntil 实时判）
 @property (nonatomic, copy, nullable) NSString *lastContent;
 @property (nonatomic, copy, nullable) NSString *lastFrom;

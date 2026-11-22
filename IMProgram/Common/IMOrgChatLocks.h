@@ -6,6 +6,8 @@
 //   · service_ended  「对方已不再为你提供服务」
 //  会话列表还没刷新前的两个即时信号也记成 org_left：好友事件 org_exit（from = 对端）、发消息被拒 400120；
 //  下一次会话列表以服务端为准覆盖。资料页拿到 direct_chat=true 时解除。
+//  同时记下会话列表给出的「免好友直聊」对端（peer_direct_chat）：资料页进页即按它定型，不必等名片回来
+//  才知道能聊（否则先闪一下陌生人页的「加好友」）。
 //  只在内存里（服务端是权威，冷启动等会话列表回来即可）；换号清空。
 
 #import <Foundation/Foundation.h>
@@ -35,6 +37,12 @@ FOUNDATION_EXPORT NSString *_Nullable IMOrgChatLockTextKey(NSString *_Nullable r
 
 /// 资料页拿到 direct_chat=true：解除（免好友直聊恢复了）。
 - (void)noteDirectChatForPeer:(nullable NSString *)peerID;
+
+/// 本地已知与 peer 免好友直聊（会话列表 / 名片给过；400120、org_exit 撤销）。主线程调用。
+- (BOOL)isDirectPeer:(nullable NSString *)peerID;
+
+/// 撤销 / 设置本地直聊标记。资料页只用它撤销（名片 direct_chat=NO、400120）；写入只认会话列表。主线程调用。
+- (void)setDirect:(BOOL)direct forPeer:(nullable NSString *)peerID;
 
 /// 用 GET /conversations 的整表覆盖列表里出现的单聊对端（服务端权威）。
 - (void)ingestConversations:(NSArray<IMConversation *> *)conversations;

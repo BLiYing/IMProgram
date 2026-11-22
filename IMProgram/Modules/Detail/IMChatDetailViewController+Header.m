@@ -95,6 +95,9 @@
         // 免好友直聊（客户 ↔ 所绑子公司客服，TENANT v2 §3.2）与好友同等对待：有真实会话，消息 / 通话 / 搜索 / 更多都给；
         // 「加好友」放进「更多」（见 +Actions 的更多菜单）。
         if (![self peerHasRelation]) {
+            // 既非好友、本地也不知是否直聊：名片回来前不画（直聊对端会先被当成陌生人，闪一个可误点的「加好友」）。
+            // 名片因网络失败一直不回时保持空着：离线本来也发不出好友申请。
+            if (!self.peerCardSettled) { return specs; }
             [specs addObject:@{@"t": IMLocalized(@"contacts.search.action_add"), @"s": @"person.badge.plus", @"a": @"addfriend"}];
             return specs; // 陌生人：到此为止（搜索/更多都不适用）
         } else {

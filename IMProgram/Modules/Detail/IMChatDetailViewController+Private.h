@@ -92,6 +92,8 @@ FOUNDATION_EXPORT CGFloat const kIMDetailNavOpaqueOnCollapse; ///< 标题栏「�
 // 集团（TENANT v2）：免好友直聊（客户 ↔ 所绑子公司客服）→ 非好友也给「消息 / 呼叫 / 视频」；
 // 资料页回 400120（不在同一集团）→ 只显头像昵称 + 说明，没有操作（扫码进来的仍可「加好友」）。
 @property (nonatomic, assign) BOOL peerDirectChat;
+/// 名片有了结论（成功或 400120）。既非好友也不知是否直聊时，操作排等它再画（见 actionPillSpecs）。
+@property (nonatomic, assign) BOOL peerCardSettled;
 @property (nonatomic, assign) BOOL peerUnreachable;
 // 群成员长按菜单用：我的 accepted 好友 uid 集合（决定成员菜单显「发送消息」还是「添加好友」）。
 @property (nonatomic, strong, nullable) NSSet<NSString *> *friendUIDs;

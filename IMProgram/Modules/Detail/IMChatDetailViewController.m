@@ -2,6 +2,7 @@
 
 #import "IMQRModels.h"
 #import "IMChatDetailViewController.h"
+#import "IMOrgChatLocks.h"
 #import "IMMainTabBarController.h" // im_refreshNavigationBar / kIMLiquidBarHeight
 #import "IMChatDetailTabs.h"
 #import "IMLiquidSegmentedControl.h" // 页签用的 Liquid Glass 分段控件
@@ -101,6 +102,8 @@ CGFloat const kIMDetailNavOpaqueOnCollapse = 0.8;
         // 无从判断时才乐观 YES。原来无条件 YES，于是点非好友的名片进来会先闪一遍
         // 「消息/呼叫/视频 + 备注·设置·页签」再变成「加好友」（用户 2026-08-30 报的 bug）。
         _peerIsFriend = [self initialPeerIsFriendGuess:peerID];
+        // 免好友直聊也先按本地已知（会话列表的 peer_direct_chat）起步，名片回来再校正；否则直聊对端先闪一下「加好友」。
+        _peerDirectChat = [IMOrgChatLocks.shared isDirectPeer:peerID];
         // URL 只决定圆形头像内容，不再触发全幅大图头部。
         _hasPhoto = NO;
         self.hidesBottomBarWhenPushed = YES;

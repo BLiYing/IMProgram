@@ -18,6 +18,7 @@ NSString *IMOrgChatLockTextKey(NSString *reason) {
 @implementation IMOrgChatLocks {
     NSString *_owner;                                     // 表属于哪个账号（换号即清空）
     NSMutableDictionary<NSString *, NSString *> *_locks;  // peer → 原因
+    NSMutableSet<NSString *> *_direct;                    // 已知免好友直聊的对端
 }
 
 + (instancetype)shared {
@@ -30,6 +31,7 @@ NSString *IMOrgChatLockTextKey(NSString *reason) {
 - (instancetype)init {
     if ((self = [super init])) {
         _locks = [NSMutableDictionary dictionary];
+        _direct = [NSMutableSet set];
         // 好友事件 org_exit（对方或我脱离集团）：会话列表刷新前先锁上。
         [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(onFriendEvent:)
                                                    name:IMSocketDidReceiveFriendEventNotification object:nil];
@@ -47,6 +49,7 @@ NSString *IMOrgChatLockTextKey(NSString *reason) {
     if (![uid isEqualToString:_owner ?: @""]) {
         _owner = [uid copy];
         [_locks removeAllObjects];
+        [_direct removeAllObjects];
     }
 }
 
@@ -66,12 +69,27 @@ NSString *IMOrgChatLockTextKey(NSString *reason) {
 
 - (void)markOrgLeftForPeer:(NSString *)peerID {
     if (![peerID isKindOfClass:NSString.class] || peerID.length == 0) { return; }
-    dispatch_async(dispatch_get_main_queue(), ^{ [self setReason:IMOrgChatLockOrgLeft forPeer:peerID]; });
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self->_direct removeObject:peerID]; // 不在同一集团就没有直聊
+        [self setReason:IMOrgChatLockOrgLeft forPeer:peerID];
+    });
 }
 
 - (void)noteDirectChatForPeer:(NSString *)peerID {
     if (peerID.length == 0) { return; }
     dispatch_async(dispatch_get_main_queue(), ^{ [self setReason:nil forPeer:peerID]; });
+}
+
+- (BOOL)isDirectPeer:(NSString *)peerID {
+    if (peerID.length == 0) { return NO; }
+    [self syncOwner];
+    return [_direct containsObject:peerID];
+}
+
+- (void)setDirect:(BOOL)direct forPeer:(NSString *)peerID {
+    if (peerID.length == 0) { return; }
+    [self syncOwner];
+    if (direct) { [_direct addObject:peerID]; } else { [_direct removeObject:peerID]; }
 }
 
 - (void)ingestConversations:(NSArray<IMConversation *> *)conversations {
@@ -81,6 +99,7 @@ NSString *IMOrgChatLockTextKey(NSString *reason) {
         BOOL changed = NO;
         for (IMConversation *c in convs) {
             if (c.isGroup || c.peer.length == 0) { continue; }
+            if (c.peerDirectChat) { [self->_direct addObject:c.peer]; } else { [self->_direct removeObject:c.peer]; }
             NSString *reason = c.peerChatLock.length > 0 ? c.peerChatLock : nil;
             if ((reason == nil && self->_locks[c.peer] == nil) || [self->_locks[c.peer] isEqualToString:reason]) { continue; }
             self->_locks[c.peer] = reason;
