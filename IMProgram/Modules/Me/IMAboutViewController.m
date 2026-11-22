@@ -5,6 +5,7 @@
 #import "IMAppInfo.h"
 #import "IMAboutLinks.h"
 #import "IMCustomerServiceViewController.h"
+#import "IMActionListSheet.h"
 #import "IMServerEndpoint.h"
 #import "IMHTTPService.h"
 #import "IMSettingsIcon.h"
@@ -170,7 +171,7 @@ typedef NS_ENUM(NSInteger, IMAboutRow) {
     [self presentViewController:[[SFSafariViewController alloc] initWithURL:url] animated:YES completion:nil];
 }
 
-/// 在线客服：1 条直接打开；多条（客户绑了多家子公司且链接不同）先弹系统操作表选公司（交互稿 BEACON_CS_UX_SKETCH §7）。
+/// 在线客服：1 条直接打开；多条（客户绑了多家子公司且链接不同）先弹底部弹层选公司（交互稿 BEACON_CS_UX_SKETCH §7）。
 /// 客服页用自有 WKWebView（键盘上方留位 / 禁缩放 / UA 标记）；法务三项仍走 SFSafariViewController。
 - (void)openCustomerService {
     NSArray<NSDictionary<NSString *, NSString *> *> *entries = [self customerServiceEntries];
@@ -180,21 +181,15 @@ typedef NS_ENUM(NSInteger, IMAboutRow) {
         return;
     }
     if (entries.count == 1) { [self pushCustomerService:entries[0] titled:NO]; return; }
-    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:IMLocalized(@"cs.pick_company") message:nil
-                                                            preferredStyle:UIAlertControllerStyleActionSheet];
+    // 自绘底部弹层（IMActionListSheet，对齐 Android ActionSheet）：系统操作表在 iOS 26 是悬浮玻璃卡、不贴底，
+    // 与交互稿 BEACON_CS_UX_SKETCH §7 的底部弹层不符，且 iOS 18 / 26 长得不一样。
     __weak typeof(self) weakSelf = self;
+    NSMutableArray<IMActionListItem *> *items = [NSMutableArray array];
     for (NSDictionary<NSString *, NSString *> *e in entries) {
         NSString *name = e[IMCSLinkKeyName].length > 0 ? e[IMCSLinkKeyName] : IMLocalized(@"about.customer_service");
-        [sheet addAction:[UIAlertAction actionWithTitle:name style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-            [weakSelf pushCustomerService:e titled:YES];
-        }]];
+        [items addObject:[IMActionListItem itemWithTitle:name destructive:NO handler:^{ [weakSelf pushCustomerService:e titled:YES]; }]];
     }
-    [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
-    NSUInteger idx = [self.rows indexOfObject:@(IMAboutRowCustomerService)];
-    UITableViewCell *cell = idx == NSNotFound ? nil : [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:(NSInteger)idx inSection:0]]; // iPad 弹层锚点
-    sheet.popoverPresentationController.sourceView = cell ?: self.view;
-    sheet.popoverPresentationController.sourceRect = cell ? cell.bounds : self.view.bounds;
-    [self presentViewController:sheet animated:YES completion:nil];
+    [IMActionListSheet presentFrom:self title:IMLocalized(@"cs.pick_company") items:items];
 }
 
 - (void)pushCustomerService:(NSDictionary<NSString *, NSString *> *)entry titled:(BOOL)titled {

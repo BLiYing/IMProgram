@@ -266,11 +266,13 @@
     for (NSInteger i = 0; i < 6 && !(about.exists && about.isHittable); i++) { [self.app swipeUp]; }
     [[self waitFor:about named:@"关于我们"] tap];
     [[self waitFor:[self cellWithText:@"在线客服"] named:@"在线客服行"] tap];
-    XCUIElement *east = self.app.sheets.buttons[@"华东子公司"].firstMatch;
-    if (![east waitForExistenceWithTimeout:5]) { east = self.app.buttons[@"华东子公司"].firstMatch; }
+    XCUIElement *east = self.app.buttons[@"华东子公司"].firstMatch;
+    if (![east waitForExistenceWithTimeout:5]) { east = self.app.staticTexts[@"华东子公司"].firstMatch; }
     [self waitFor:east named:@"选公司-华东"];
-    XCTAssertTrue(self.app.buttons[@"华南子公司"].firstMatch.exists, @"应同时列出华南子公司");
+    XCTAssertTrue(self.app.buttons[@"华南子公司"].firstMatch.exists || self.app.staticTexts[@"华南子公司"].firstMatch.exists, @"应同时列出华南子公司");
+    [NSThread sleepForTimeInterval:1]; // 等弹出动画结束再量位置
     [self shot:@"H01-选择要咨询的公司"];
+    XCTAssertGreaterThan(east.frame.origin.y, self.app.frame.size.height / 2, @"操作表应从底部弹出（iOS 26 有锚点会变成贴行气泡）");
     [east tap];
     [self waitFor:[self.app.staticTexts matchingPredicate:[NSPredicate predicateWithFormat:@"label == %@", @"华东子公司"]].firstMatch named:@"客服页标题=公司名"];
     // 等 Beacon 访客页加载（模拟器上首屏较慢）：等到出现输入框，最多 40 秒
