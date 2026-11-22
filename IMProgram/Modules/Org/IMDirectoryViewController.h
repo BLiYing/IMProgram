@@ -1,6 +1,6 @@
 //  IMDirectoryViewController.h
 //  组织架构（TENANT_DESIGN v2 §8.2，交互稿 TENANT_CLIENT_UX_SKETCH I-7 / I-8）。
-//  一个类两种页：单位列表（本部 + 子公司），或某单位下的部门页（子部门 + 直属成员，可递归 push）。
+//  一个类两种页：公司列表，或某家公司下的部门页（子部门 + 直属成员，可递归 push）。
 //  可见范围由服务端按身份裁剪（客服 / 客户视角只出客服），本页不再过滤。
 
 #import <UIKit/UIKit.h>

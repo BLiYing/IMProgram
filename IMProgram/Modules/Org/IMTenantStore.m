@@ -25,7 +25,6 @@ static const int64_t kIMTenantMinRefreshIntervalMs = 5000;
         IMTenantUnit *u = [IMTenantUnit new];
         u.unitID = d[@"unit_id"];
         u.name = IMJSONString(d[@"name"]);
-        u.isHQ = [IMJSONString(d[@"kind"]) isEqualToString:@"hq"];
         [out addObject:u];
     }
     return out;

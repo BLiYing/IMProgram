@@ -287,7 +287,7 @@ typedef NS_ENUM(NSInteger, IMDirSection) {
     return [self kindAt:indexPath.section] == IMDirSectionMembers ? kIMDirMemberRowHeight : UITableViewAutomaticDimension;
 }
 
-/// 单位 / 部门行：SYS 44，图标 29×29（单位 = 首字，本部 systemBlue、子公司 systemPurple；部门 = folder.fill，同设置页图标）。
+/// 公司 / 部门行：SYS 44，图标 29×29（公司 = 首字 systemPurple，各公司平等；部门 = folder.fill，同设置页图标）。
 - (UITableViewCell *)folderCell:(UITableView *)tv indexPath:(NSIndexPath *)ip title:(NSString *)title image:(UIImage *)image {
     UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:kIMDirCellUnit forIndexPath:ip];
     UIListContentConfiguration *cfg = UIListContentConfiguration.cellConfiguration;
@@ -347,8 +347,7 @@ UIView *IMDirectoryCSTagView(void) {
     switch ([self kindAt:indexPath.section]) {
         case IMDirSectionUnits: {
             IMTenantUnit *u = self.units[indexPath.row];
-            UIColor *bg = u.isHQ ? UIColor.systemBlueColor : UIColor.systemPurpleColor;
-            return [self folderCell:tableView indexPath:indexPath title:u.name image:IMDirInitialTile(u.name, bg)];
+            return [self folderCell:tableView indexPath:indexPath title:u.name image:IMDirInitialTile(u.name, UIColor.systemPurpleColor)];
         }
         case IMDirSectionChildren:
             return [self folderCell:tableView indexPath:indexPath title:IMJSONString(self.children[indexPath.row][@"name"])

@@ -2,8 +2,8 @@
 //  集团（多租户）v2 T3 的**模拟器实测脚本**——不是常规回归，默认跳过。
 //  设计：../im-spec/design/TENANT_DESIGN.md §8；交互稿 ../im-spec/design/sketches/TENANT_CLIENT_UX_SKETCH.html。
 //
-//  前置：本机开发后端在跑（-dev-login），并已造好「T3自测集团」（集团本部 / 华东子公司 / 华南子公司，
-//  t3_hq 本部员工、t3_east_cs 华东客服、t3_east_dev 华东员工、t3_south_cs 华南客服、t3_cust 华东客户、t3_none 无集团）。
+//  前置：本机开发后端在跑（-dev-login），并已造好「T3自测集团」（「集团本部」/ 华东子公司 / 华南子公司三家公司——2026-11-23 取消本部后「集团本部」只是第一家公司的名字，
+//  与其他公司平等；t3_hq 是它的员工、t3_east_cs 华东客服、t3_east_dev 华东员工、t3_south_cs 华南客服、t3_cust 华东客户、t3_none 无集团）。
 //  华南子公司的邀请码通过环境变量 TEST_RUNNER_IM_T3_SOUTH_CODE 传入（testC 用它绑第二家）。
 //  每一步截图挂进 .xcresult（KeepAlways），吐司不进无障碍树、以截图为证。
 //
@@ -104,7 +104,7 @@
     [[self waitFor:entry named:@"组织架构入口"] tap];
 }
 
-/// A：本部员工——审计告知、单位列表、华东 ▸ 客服部、客服小标、资料页。
+/// A：「集团本部」这家公司的普通员工——审计告知、公司列表（全集团三家）、华东 ▸ 客服部、客服小标、资料页。
 - (void)testA_StaffBrowsesDirectory {
     [self loginAs:@"t3_hq"];
     [self dismissNoticeIfPresent]; // 后台添加的成员：首次弹一次
@@ -129,9 +129,9 @@
 - (void)testB_CustomerDirectChat {
     [self loginAs:@"t3_cust"];
     [self openOrgDirectory];
-    // 只绑一家：直接是华东顶层；testC 绑过华南后是两家：先出单位列表（只有所绑的两家，没有本部）。
+    // 只绑一家：直接是华东顶层；testC 绑过华南后是两家：先出公司列表（只有所绑的两家，没绑「集团本部」）。
     if ([[self text:@"华南子公司"] waitForExistenceWithTimeout:4]) {
-        XCTAssertFalse([self text:@"集团本部"].exists, @"客户看不到本部");
+        XCTAssertFalse([self text:@"集团本部"].exists, @"客户看不到没绑的公司");
         [self shot:@"B00-客户单位列表"];
         [[self text:@"华东子公司"] tap];
     }

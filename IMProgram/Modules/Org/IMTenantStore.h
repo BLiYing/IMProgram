@@ -13,11 +13,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// 快照内容变化（含首次拉到）时在主线程发出。
 FOUNDATION_EXPORT NSNotificationName const IMTenantStoreDidChangeNotification;
 
-/// 一个单位（本部 / 子公司）的引用。
+/// 一家公司的引用（各公司平等，TENANT_EQUAL_UNITS_OPS_DESIGN §1）。
 @interface IMTenantUnit : NSObject
 @property (nonatomic, copy) NSString *unitID;
 @property (nonatomic, copy) NSString *name;
-@property (nonatomic, assign) BOOL isHQ;
 + (NSArray<IMTenantUnit *> *)unitsFromArray:(nullable id)array;
 @end
 
