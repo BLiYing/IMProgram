@@ -20,14 +20,20 @@ static NSString *const kNoZoomScript =
 @property (nonatomic, strong) UIView *errorView;
 @property (nonatomic, strong) UILabel *errorLabel;
 @property (nonatomic, assign) BOOL observing;
+@property (nonatomic, copy, nullable) NSString *fixedTitle;
 @end
 
 @implementation IMCustomerServiceViewController
 
 - (instancetype)initWithURL:(NSURL *)url {
+    return [self initWithURL:url title:nil];
+}
+
+- (instancetype)initWithURL:(NSURL *)url title:(NSString *)title {
     self = [super initWithNibName:nil bundle:nil];
     if (self) {
         _startURL = url;
+        _fixedTitle = title.length > 0 ? [title copy] : nil;
         self.hidesBottomBarWhenPushed = YES;
     }
     return self;
@@ -37,7 +43,7 @@ static NSString *const kNoZoomScript =
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = IMLocalized(@"about.customer_service"); // 网页 <title> 到了再替换，不显示服务器 IP
+    self.title = self.fixedTitle ?: IMLocalized(@"about.customer_service"); // 无公司名时网页 <title> 到了再替换，不显示服务器 IP
     self.view.backgroundColor = UIColor.systemBackgroundColor;
     UIBarButtonItem *close = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"xmark"] style:UIBarButtonItemStylePlain
                                                               target:self action:@selector(closeTapped)];
@@ -211,7 +217,7 @@ static NSString *const kNoZoomScript =
     } else if ([keyPath isEqualToString:@"title"]) {
         NSString *t = [self.webView.title stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
         // 网页没设 title 时 WebKit 会回落成 host（服务器 IP），不显示。
-        if (t.length > 0 && ![t isEqualToString:self.webView.URL.host] && ![t isEqualToString:self.webView.URL.absoluteString]) {
+        if (!self.fixedTitle && t.length > 0 && ![t isEqualToString:self.webView.URL.host] && ![t isEqualToString:self.webView.URL.absoluteString]) {
             self.title = t;
         }
     }

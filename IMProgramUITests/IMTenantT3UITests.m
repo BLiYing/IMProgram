@@ -257,4 +257,26 @@
     [self shot:@"G01-员工设置页"];
 }
 
+/// H：在线客服多公司（BEACON_CS_DESIGN §2.2）——客户绑了华东 + 华南且链接不同：「在线客服」先选公司，选华东打开其 Beacon 访客页、标题为公司名。
+- (void)testH_CustomerPicksCompanyForOnlineService {
+    [self loginAs:@"t3_cust"];
+    [self dismissNoticeIfPresent];
+    [self.app.tabBars.buttons[@"设置"] tap];
+    XCUIElement *about = [self cellWithText:@"关于我们"];
+    for (NSInteger i = 0; i < 6 && !(about.exists && about.isHittable); i++) { [self.app swipeUp]; }
+    [[self waitFor:about named:@"关于我们"] tap];
+    [[self waitFor:[self cellWithText:@"在线客服"] named:@"在线客服行"] tap];
+    XCUIElement *east = self.app.sheets.buttons[@"华东子公司"].firstMatch;
+    if (![east waitForExistenceWithTimeout:5]) { east = self.app.buttons[@"华东子公司"].firstMatch; }
+    [self waitFor:east named:@"选公司-华东"];
+    XCTAssertTrue(self.app.buttons[@"华南子公司"].firstMatch.exists, @"应同时列出华南子公司");
+    [self shot:@"H01-选择要咨询的公司"];
+    [east tap];
+    [self waitFor:[self.app.staticTexts matchingPredicate:[NSPredicate predicateWithFormat:@"label == %@", @"华东子公司"]].firstMatch named:@"客服页标题=公司名"];
+    // 等 Beacon 访客页加载（模拟器上首屏较慢）：等到出现输入框，最多 40 秒
+    [self.app.webViews.textFields.firstMatch waitForExistenceWithTimeout:40];
+    [self shot:@"H02-华东访客页"];
+}
+
 @end
+

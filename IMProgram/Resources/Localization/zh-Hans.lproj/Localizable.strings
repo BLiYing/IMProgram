@@ -626,6 +626,16 @@
 "conv.query.need_network" = "该消息尚未下载，需要联网加载";
 "conv.query.offline_calendar" = "离线：仅显示已下载的消息";
 "conv.query.offline_search" = "离线：仅搜索已下载的消息";
+"cs.pick_company" = "选择要咨询的公司";
+"cs_console.enter" = "进入坐席工作台";
+"cs_console.expired" = "坐席登录已失效，请重新进入";
+"cs_console.new_message" = "坐席：新消息";
+"cs_console.opening" = "正在进入坐席工作台…";
+"cs_console.popup_blocked" = "浏览器拦截了新窗口，请允许本站弹出窗口后重试";
+"cs_console.reenter" = "重新进入";
+"cs_console.replaced" = "坐席已在其他地方登录";
+"cs_console.replaced_body" = "本窗口已退出工作台。";
+"cs_console.title" = "坐席工作台";
 "delete_account.confirm_action" = "注销";
 "delete_account.confirm_message" = "账号将进入 7 天冷静期，期间所有设备退出登录。";
 "delete_account.confirm_title" = "确认注销账号？";
@@ -775,6 +785,9 @@
 "err.400121" = "加入集团后才能使用";
 "err.400122" = "所在集团已停用";
 "err.400125" = "该子公司已停用";
+"err.400134" = "暂无坐席权限";
+"err.400135" = "坐席账号已停用，请联系管理员";
+"err.400136" = "暂时无法进入坐席，请稍后再试";
 "err.500003" = "管理员已暂停发送文件";
 "err.500101" = "转文字暂未开启（服务端未配置识别引擎）";
 "err.500102" = "识别失败，请稍后重试";
@@ -1288,6 +1301,7 @@
 "mute.7d" = "7 天";
 "mute.8h" = "8 小时";
 "mute.title" = "禁言时长";
+"nav.cs_console" = "坐席";
 "net.error.account_switched" = "账号已切换";
 "net.error.ack_timeout" = "ack 超时";
 "net.error.avatar_upload_failed" = "头像上传失败";

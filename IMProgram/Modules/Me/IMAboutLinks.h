@@ -22,6 +22,10 @@ typedef NS_ENUM(NSInteger, IMAboutNavDecision) {
     IMAboutNavDecisionBlock,    ///< 拦掉（javascript:/file:/data:/blob: 等，或空 URL）
 };
 
+/// 在线客服列表（about-links 的 cs_links，BEACON_CS_DESIGN §2.2 / §4.3）一条的两个键。
+FOUNDATION_EXPORT NSString *const IMCSLinkKeyName; ///< @"name"：公司名（多条时给用户选；可为空串）
+FOUNDATION_EXPORT NSString *const IMCSLinkKeyURL;  ///< @"url"：绝对 http(s) 地址
+
 /// UA 标记前缀，与 Android AboutLinks.BEACON_UA_MARKER 一致。
 FOUNDATION_EXPORT NSString *const IMBeaconUAMarker; ///< @"BeaconApp/"
 
@@ -38,6 +42,9 @@ FOUNDATION_EXPORT NSString *const IMBeaconUAMarker; ///< @"BeaconApp/"
 /// 最近一次成功拉到的链接（字段名 → 值）及其对应的服务器；host 不同则视为无缓存。
 - (nullable NSDictionary<NSString *, NSString *> *)cachedLinksForScheme:(nullable NSString *)scheme host:(nullable NSString *)host;
 
+/// 最近一次成功拉到的在线客服列表（同上按服务器分缓存）；nil = 没拉到或老服务端没有 cs_links。
+- (nullable NSArray<NSDictionary<NSString *, NSString *> *> *)cachedCSLinksForScheme:(nullable NSString *)scheme host:(nullable NSString *)host;
+
 /// 异步拉取并写缓存；token 为空则匿名拉（此时服务端不返回客服地址）。completion 在主线程，ok=NO 表示失败（缓存不动）。
 - (void)refreshWithScheme:(nullable NSString *)scheme
                      host:(nullable NSString *)host
@@ -47,6 +54,17 @@ FOUNDATION_EXPORT NSString *const IMBeaconUAMarker; ///< @"BeaconApp/"
 
 /// 解析信封响应体 → 四字段字典；code≠0 / 非 JSON / data 缺失 → nil。缺的字段不补，非字符串值丢弃。
 + (nullable NSDictionary<NSString *, NSString *> *)linksFromResponseData:(nullable NSData *)data;
+
+/// 解析信封响应体里的 cs_links：字段缺失（老服务端 / 匿名）→ nil；有字段 → 只留绝对 http(s)、有主机的条目（可为空数组）。
++ (nullable NSArray<NSDictionary<NSString *, NSString *> *> *)csLinksFromResponseData:(nullable NSData *)data;
+
+/// 「在线客服」要列出的条目（{name, url}）：csLinks 非 nil 用它；否则退回 customer_service_url 单条（name 为空串）。
+/// 0 条 = 隐藏「在线客服」行；1 条直接打开；多条先选公司。对称兄弟：Web resolveCSLinks、Android AboutLinkValues。
++ (NSArray<NSDictionary<NSString *, NSString *> *> *)customerServiceEntriesWithCSLinks:(nullable NSArray<NSDictionary<NSString *, NSString *> *> *)csLinks
+                                                                                  links:(nullable NSDictionary<NSString *, NSString *> *)links
+                                                                                   host:(nullable NSString *)host
+                                                                                 scheme:(nullable NSString *)scheme
+                                                                               language:(NSString *)language;
 
 /// 一个配置值 → 最终可打开的 URL；非 http(s)（如 javascript:）、无主机、空值 → nil。
 + (nullable NSURL *)URLForConfigValue:(nullable NSString *)value

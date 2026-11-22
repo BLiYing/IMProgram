@@ -626,6 +626,16 @@
 "conv.query.need_network" = "This message hasn’t been downloaded. Connect to the internet to load it.";
 "conv.query.offline_calendar" = "Offline: showing downloaded messages only";
 "conv.query.offline_search" = "Offline: searching downloaded messages only";
+"cs.pick_company" = "Choose a company to contact";
+"cs_console.enter" = "Open agent console";
+"cs_console.expired" = "Your console session has ended. Open it again to continue.";
+"cs_console.new_message" = "Console: new message";
+"cs_console.opening" = "Opening agent console…";
+"cs_console.popup_blocked" = "Your browser blocked the new window. Allow pop-ups for this site and try again.";
+"cs_console.reenter" = "Open again";
+"cs_console.replaced" = "Console signed in elsewhere";
+"cs_console.replaced_body" = "This window has left the console.";
+"cs_console.title" = "Agent console";
 "delete_account.confirm_action" = "Delete";
 "delete_account.confirm_message" = "Your account enters a 7-day waiting period and all devices are logged out.";
 "delete_account.confirm_title" = "Delete your account?";
@@ -775,6 +785,9 @@
 "err.400121" = "Join an organization first";
 "err.400122" = "Your organization has been disabled";
 "err.400125" = "This company has been disabled";
+"err.400134" = "You don't have access to the agent console";
+"err.400135" = "Your agent account has been disabled. Contact your administrator.";
+"err.400136" = "Can't open the agent console right now. Try again later.";
 "err.500003" = "Sending files has been paused by the administrator";
 "err.500101" = "Voice-to-text isn’t enabled (the server has no speech engine configured)";
 "err.500102" = "Recognition failed. Try again later.";
@@ -1288,6 +1301,7 @@
 "mute.7d" = "7 days";
 "mute.8h" = "8 hours";
 "mute.title" = "Mute duration";
+"nav.cs_console" = "Console";
 "net.error.account_switched" = "Account switched";
 "net.error.ack_timeout" = "Timed out waiting for the server";
 "net.error.avatar_upload_failed" = "Couldn't upload the avatar";

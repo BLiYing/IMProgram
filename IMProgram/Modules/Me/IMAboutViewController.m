@@ -82,6 +82,14 @@ typedef NS_ENUM(NSInteger, IMAboutRow) {
     }
 }
 
+/// 「在线客服」条目（{name, url}）：cs_links 优先，老服务端退回 customer_service_url 单条（BEACON_CS_DESIGN §2.2）。
+- (NSArray<NSDictionary<NSString *, NSString *> *> *)customerServiceEntries {
+    NSString *scheme = IMServerEndpoint.shared.scheme;
+    return [IMAboutLinks customerServiceEntriesWithCSLinks:[IMAboutLinks.shared cachedCSLinksForScheme:scheme host:self.host]
+                                                     links:self.links host:self.host scheme:scheme
+                                                  language:IMLocalization.shared.language];
+}
+
 - (nullable NSURL *)URLForRow:(IMAboutRow)row {
     NSString *field = [self fieldForRow:row];
     if (!field) { return nil; }
@@ -91,7 +99,7 @@ typedef NS_ENUM(NSInteger, IMAboutRow) {
 
 - (void)rebuildRows {
     NSMutableArray<NSNumber *> *rows = [@[@(IMAboutRowPrivacy), @(IMAboutRowTerms), @(IMAboutRowSupport)] mutableCopy];
-    if ([self URLForRow:IMAboutRowCustomerService]) { [rows addObject:@(IMAboutRowCustomerService)]; }
+    if ([self customerServiceEntries].count > 0) { [rows addObject:@(IMAboutRowCustomerService)]; }
     [rows addObject:@(IMAboutRowVersion)];
     self.rows = rows;
 }
@@ -152,18 +160,48 @@ typedef NS_ENUM(NSInteger, IMAboutRow) {
 /// 应用内浏览器打开（SFSafariViewController，与聊天页 openLink: 同一套呈现；法务页与在线客服共用，仅 http/https，
 /// 不带 token / Cookie）。
 - (void)openRow:(IMAboutRow)row {
+    if (row == IMAboutRowCustomerService) { [self openCustomerService]; return; }
     NSURL *url = [self URLForRow:row];
     if (!url) {
         IMLogWarnWithTag(IMLogTagUI, @"about_open_failed row=%ld reason=no_url", (long)row);
         [self im_showToast:IMLocalized(@"about.open_failed")];
         return;
     }
-    if (row == IMAboutRowCustomerService) {
-        // 客服页用自有 WKWebView（键盘上方留位 / 禁缩放 / UA 标记）；法务三项仍走 SFSafariViewController。
-        [self.navigationController pushViewController:[[IMCustomerServiceViewController alloc] initWithURL:url] animated:YES];
+    [self presentViewController:[[SFSafariViewController alloc] initWithURL:url] animated:YES completion:nil];
+}
+
+/// 在线客服：1 条直接打开；多条（客户绑了多家子公司且链接不同）先弹系统操作表选公司（交互稿 BEACON_CS_UX_SKETCH §7）。
+/// 客服页用自有 WKWebView（键盘上方留位 / 禁缩放 / UA 标记）；法务三项仍走 SFSafariViewController。
+- (void)openCustomerService {
+    NSArray<NSDictionary<NSString *, NSString *> *> *entries = [self customerServiceEntries];
+    if (entries.count == 0) {
+        IMLogWarnWithTag(IMLogTagUI, @"about_open_failed row=customer_service reason=no_url");
+        [self im_showToast:IMLocalized(@"about.open_failed")];
         return;
     }
-    [self presentViewController:[[SFSafariViewController alloc] initWithURL:url] animated:YES completion:nil];
+    if (entries.count == 1) { [self pushCustomerService:entries[0] titled:NO]; return; }
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:IMLocalized(@"cs.pick_company") message:nil
+                                                            preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak typeof(self) weakSelf = self;
+    for (NSDictionary<NSString *, NSString *> *e in entries) {
+        NSString *name = e[IMCSLinkKeyName].length > 0 ? e[IMCSLinkKeyName] : IMLocalized(@"about.customer_service");
+        [sheet addAction:[UIAlertAction actionWithTitle:name style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            [weakSelf pushCustomerService:e titled:YES];
+        }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:IMLocalized(@"common.cancel") style:UIAlertActionStyleCancel handler:nil]];
+    NSUInteger idx = [self.rows indexOfObject:@(IMAboutRowCustomerService)];
+    UITableViewCell *cell = idx == NSNotFound ? nil : [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:(NSInteger)idx inSection:0]]; // iPad 弹层锚点
+    sheet.popoverPresentationController.sourceView = cell ?: self.view;
+    sheet.popoverPresentationController.sourceRect = cell ? cell.bounds : self.view.bounds;
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)pushCustomerService:(NSDictionary<NSString *, NSString *> *)entry titled:(BOOL)titled {
+    NSURL *url = [NSURL URLWithString:entry[IMCSLinkKeyURL] ?: @""];
+    if (!url) { [self im_showToast:IMLocalized(@"about.open_failed")]; return; }
+    NSString *title = titled ? entry[IMCSLinkKeyName] : nil;
+    [self.navigationController pushViewController:[[IMCustomerServiceViewController alloc] initWithURL:url title:title] animated:YES];
 }
 
 - (void)copyVersion {

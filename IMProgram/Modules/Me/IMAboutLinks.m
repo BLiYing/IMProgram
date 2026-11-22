@@ -9,9 +9,12 @@ NSString *const IMAboutLinkFieldPrivacy = @"privacy_url";
 NSString *const IMAboutLinkFieldTerms = @"terms_url";
 NSString *const IMAboutLinkFieldSupport = @"support_url";
 NSString *const IMAboutLinkFieldCustomerService = @"customer_service_url";
+NSString *const IMCSLinkKeyName = @"name";
+NSString *const IMCSLinkKeyURL = @"url";
 
 @interface IMAboutLinks ()
 @property (nonatomic, copy, nullable) NSDictionary<NSString *, NSString *> *links;
+@property (nonatomic, copy, nullable) NSArray<NSDictionary<NSString *, NSString *> *> *csLinks;
 @property (nonatomic, copy, nullable) NSString *cacheKey;
 @end
 
@@ -39,6 +42,13 @@ NSString *const IMAboutLinkFieldCustomerService = @"customer_service_url";
     }
 }
 
+- (NSArray<NSDictionary<NSString *, NSString *> *> *)cachedCSLinksForScheme:(NSString *)scheme host:(NSString *)host {
+    if (host.length == 0) { return nil; }
+    @synchronized (self) {
+        return [self.cacheKey isEqualToString:[IMAboutLinks keyForScheme:scheme host:host]] ? self.csLinks : nil;
+    }
+}
+
 - (void)refreshWithScheme:(NSString *)scheme host:(NSString *)host token:(NSString *)token
                   timeout:(NSTimeInterval)timeout completion:(void (^)(BOOL))completion {
     void (^finish)(BOOL) = ^(BOOL ok) {
@@ -61,12 +71,14 @@ NSString *const IMAboutLinkFieldCustomerService = @"customer_service_url";
             finish(NO);
             return;
         }
-        @synchronized (self) { self.links = parsed; self.cacheKey = key; }
+        NSArray *cs = [IMAboutLinks csLinksFromResponseData:data];
+        @synchronized (self) { self.links = parsed; self.csLinks = cs; self.cacheKey = key; }
         finish(YES);
     }] resume];
 }
 
-+ (NSDictionary<NSString *, NSString *> *)linksFromResponseData:(NSData *)data {
+/// 信封 → data 字典；code≠0 / 非 JSON / data 缺失 → nil（四链接与 cs_links 共用一次解析口径）。
++ (nullable NSDictionary *)envelopeDataFromResponseData:(NSData *)data {
     if (data.length == 0) { return nil; }
     id root = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
     if (![root isKindOfClass:NSDictionary.class]) { return nil; }
@@ -74,12 +86,43 @@ NSString *const IMAboutLinkFieldCustomerService = @"customer_service_url";
     id code = root[@"code"];
     if (![code isKindOfClass:NSNumber.class] || [code integerValue] != 0) { return nil; }
     NSDictionary *d = root[@"data"];
-    if (![d isKindOfClass:NSDictionary.class]) { return nil; }
+    return [d isKindOfClass:NSDictionary.class] ? d : nil;
+}
+
++ (NSDictionary<NSString *, NSString *> *)linksFromResponseData:(NSData *)data {
+    NSDictionary *d = [self envelopeDataFromResponseData:data];
+    if (!d) { return nil; }
     NSMutableDictionary<NSString *, NSString *> *out = [NSMutableDictionary dictionary];
     for (NSString *f in [self allFields]) {
         if ([d[f] isKindOfClass:NSString.class]) { out[f] = d[f]; }
     }
     return out;
+}
+
++ (NSArray<NSDictionary<NSString *, NSString *> *> *)csLinksFromResponseData:(NSData *)data {
+    // 缺 cs_links（老服务端，或新服务端 0 条时省略）→ nil，由调用方退回 customer_service_url（0 条时它也是空串 → 隐藏行），同 Web。
+    id raw = [self envelopeDataFromResponseData:data][@"cs_links"];
+    if (![raw isKindOfClass:NSArray.class]) { return nil; }
+    NSCharacterSet *ws = NSCharacterSet.whitespaceAndNewlineCharacterSet;
+    NSMutableArray *out = [NSMutableArray array];
+    for (id item in (NSArray *)raw) {
+        if (![item isKindOfClass:NSDictionary.class]) { continue; }
+        NSString *u = [item[IMCSLinkKeyURL] isKindOfClass:NSString.class] ? [item[IMCSLinkKeyURL] stringByTrimmingCharactersInSet:ws] : nil;
+        // 只收绝对 http(s)：先挡 "/" 开头（URLForConfigValue 会把它当本服务托管页），再交它校验 scheme 与主机。
+        if ([u hasPrefix:@"/"] || ![self URLForConfigValue:u host:nil scheme:nil language:@""]) { continue; }
+        NSString *n = [item[IMCSLinkKeyName] isKindOfClass:NSString.class] ? [item[IMCSLinkKeyName] stringByTrimmingCharactersInSet:ws] : @"";
+        [out addObject:@{IMCSLinkKeyName: n, IMCSLinkKeyURL: u}];
+    }
+    return out;
+}
+
++ (NSArray<NSDictionary<NSString *, NSString *> *> *)customerServiceEntriesWithCSLinks:(NSArray<NSDictionary<NSString *, NSString *> *> *)csLinks
+                                                                                  links:(NSDictionary<NSString *, NSString *> *)links
+                                                                                   host:(NSString *)host scheme:(NSString *)scheme
+                                                                               language:(NSString *)language {
+    if (csLinks) { return csLinks; }
+    NSURL *u = [self URLForField:IMAboutLinkFieldCustomerService links:links host:host scheme:scheme language:language];
+    return u ? @[@{IMCSLinkKeyName: @"", IMCSLinkKeyURL: u.absoluteString}] : @[];
 }
 
 + (NSURL *)URLForConfigValue:(NSString *)value host:(NSString *)host scheme:(NSString *)scheme language:(NSString *)language {

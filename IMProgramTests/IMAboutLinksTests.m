@@ -108,4 +108,47 @@
     XCTAssertEqual([IMAboutLinks navigationDecisionForURL:nil], IMAboutNavDecisionBlock);
 }
 
+#pragma mark - 在线客服列表（cs_links，BEACON_CS_DESIGN §2.2）
+
+static NSData *IMCSBody(NSString *json) { return [json dataUsingEncoding:NSUTF8StringEncoding]; }
+
+- (void)testCSLinksParsingKeepsOnlyAbsoluteHTTP {
+    NSArray *cs = [IMAboutLinks csLinksFromResponseData:IMCSBody(@"{\"code\":0,\"data\":{\"customer_service_url\":\"https://v/1\",\"cs_links\":["
+        "{\"unit_id\":\"u1\",\"name\":\"上海\",\"url\":\"https://v/1\"},"
+        "{\"name\":\"坏\",\"url\":\"javascript:alert(1)\"},"
+        "{\"name\":\"相对\",\"url\":\"/legal/privacy\"},"
+        "{\"name\":\"杭州\",\"url\":\"http://v/2\"}]}}")];
+    XCTAssertEqual(cs.count, 2u);
+    XCTAssertEqualObjects(cs[0][IMCSLinkKeyName], @"上海");
+    XCTAssertEqualObjects(cs[1][IMCSLinkKeyURL], @"http://v/2");
+}
+
+- (void)testCSLinksAbsentOrMalformedIsNil {
+    // 缺 cs_links（老服务端 / 0 条省略）、不是数组 → nil，调用方退回 customer_service_url
+    XCTAssertNil([IMAboutLinks csLinksFromResponseData:IMCSBody(@"{\"code\":0,\"data\":{\"customer_service_url\":\"https://cs/x\"}}")]);
+    XCTAssertNil([IMAboutLinks csLinksFromResponseData:IMCSBody(@"{\"code\":0,\"data\":{\"cs_links\":\"oops\"}}")]);
+    // 新服务端 0 条：cs_links 缺、客服地址空串 → 回退结果也是 0 条（隐藏行）
+    NSData *empty = IMCSBody(@"{\"code\":0,\"data\":{\"customer_service_url\":\"\"}}");
+    XCTAssertEqual([IMAboutLinks customerServiceEntriesWithCSLinks:[IMAboutLinks csLinksFromResponseData:empty]
+                                                             links:[IMAboutLinks linksFromResponseData:empty]
+                                                              host:@"h" scheme:@"https" language:@"zh-Hans"].count, 0u);
+    // 非字典条目跳过；非字符串名字 → 空串；名字与地址去首尾空白
+    NSArray *cs = [IMAboutLinks csLinksFromResponseData:IMCSBody(@"{\"code\":0,\"data\":{\"cs_links\":[1,{\"name\":7,\"url\":\" https://v/1 \"},{\"name\":\" 杭州 \",\"url\":\"https://v/2\"}]}}")];
+    XCTAssertEqual(cs.count, 2u);
+    XCTAssertEqualObjects(cs[0][IMCSLinkKeyName], @"");
+    XCTAssertEqualObjects(cs[0][IMCSLinkKeyURL], @"https://v/1");
+    XCTAssertEqualObjects(cs[1][IMCSLinkKeyName], @"杭州");
+}
+
+- (void)testCustomerServiceEntriesFallback {
+    NSArray *two = @[@{IMCSLinkKeyName: @"上海", IMCSLinkKeyURL: @"https://v/1"}, @{IMCSLinkKeyName: @"杭州", IMCSLinkKeyURL: @"https://v/2"}];
+    XCTAssertEqual([IMAboutLinks customerServiceEntriesWithCSLinks:two links:nil host:@"h" scheme:@"https" language:@"zh-Hans"].count, 2u);
+    NSArray *legacy = [IMAboutLinks customerServiceEntriesWithCSLinks:nil links:@{IMAboutLinkFieldCustomerService: @"https://cs/x"}
+                                                                  host:@"h" scheme:@"https" language:@"zh-Hans"];
+    XCTAssertEqual(legacy.count, 1u);
+    XCTAssertEqualObjects(legacy[0][IMCSLinkKeyURL], @"https://cs/x");
+    XCTAssertEqual([IMAboutLinks customerServiceEntriesWithCSLinks:@[] links:@{IMAboutLinkFieldCustomerService: @"https://cs/x"}
+                                                              host:@"h" scheme:@"https" language:@"zh-Hans"].count, 0u);
+}
+
 @end
