@@ -171,12 +171,15 @@
     }];
 }
 
-- (void)openChatWithPeer:(NSString *)peerID {
+/// 搜索结果里的昵称 / 头像要一起带进聊天页：聊天页自己不向服务端拉对方资料，只认打开时播种的值，
+/// 不带的话没设备注的好友标题就只剩内部 ID（BACKLOG B1）。传原始昵称而非 displayName——备注由聊天页按 IMRemarkStore 叠加。
+- (void)openChatWithCard:(IMUserCard *)card {
+    NSString *peerID = card.userID;
     if (peerID.length == 0 || [peerID isEqualToString:self.userID]) { return; }
     [IMChatViewController openInNavigationController:self.navigationController
                                                 host:self.host userID:self.userID
                                               peerID:peerID readSeq:0 unread:0 peerReadSeq:0
-                                        peerNickname:nil peerAvatarURL:nil];
+                                        peerNickname:card.nickname peerAvatarURL:card.avatarURL];
 }
 
 - (void)showError:(NSString *)message {
@@ -219,7 +222,7 @@
     __weak typeof(self) weakSelf = self;
     switch ([self statusForUser:peer]) {
         case IMFriendStatusAccepted: {
-            [cell setActionTitle:IMLocalized(@"qr.action.send_message") enabled:YES action:^{ [weakSelf openChatWithPeer:peer]; }];
+            [cell setActionTitle:IMLocalized(@"qr.action.send_message") enabled:YES action:^{ [weakSelf openChatWithCard:c]; }];
             break;
         }
         case IMFriendStatusRequested: {
