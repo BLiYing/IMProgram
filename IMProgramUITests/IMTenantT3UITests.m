@@ -290,7 +290,8 @@
     NSPredicate *codeRow = [NSPredicate predicateWithFormat:@"label BEGINSWITH %@", @"邀请码 "];
     XCTAssertGreaterThanOrEqual([self.app.tables.staticTexts matchingPredicate:codeRow].count, 1u, @"已绑定公司应显示邀请码行");
     [self shot:@"I01-已绑定公司带邀请码"];
-    [[self waitFor:self.app.buttons[@"org.invite.copy.0"] named:@"复制按钮"] tap];
+    XCUIElement *copy = [self.app.buttons matchingPredicate:[NSPredicate predicateWithFormat:@"identifier BEGINSWITH %@", @"org.invite.copy."]].firstMatch;
+    [[self waitFor:copy named:@"复制按钮"] tap];
     [NSThread sleepForTimeInterval:0.4];
     [self shot:@"I02-已复制邀请码吐司"];
 }

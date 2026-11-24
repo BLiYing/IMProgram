@@ -241,31 +241,28 @@ static NSString *IMMyTenantJoinedName(NSArray<IMTenantUnit *> *before, NSArray<I
         cfg.secondaryTextProperties.font = [UIFont systemFontOfSize:13];
         cfg.secondaryTextProperties.color = IMTheme.textSecondary;
         cfg.textToSecondaryTextVerticalPadding = 3;
-        cell.accessoryView = [self copyButtonForRow:indexPath.row];
+        cell.accessoryView = [self copyButtonForUnit:unit];
     }
     cell.contentConfiguration = cfg;
     return cell;
 }
 
-- (UIButton *)copyButtonForRow:(NSInteger)row {
+/// 「复制」直接捕获这一行的码：不按行号回查 bindings，刷新后点旧行也不会复制成别家的码。
+- (UIButton *)copyButtonForUnit:(IMTenantUnit *)unit {
     UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
     [b setTitle:IMLocalized(@"common.copy") forState:UIControlStateNormal];
     b.titleLabel.font = [UIFont systemFontOfSize:15];
     [b setTitleColor:IMTheme.accent forState:UIControlStateNormal];
-    b.tag = row;
-    b.accessibilityIdentifier = [NSString stringWithFormat:@"org.invite.copy.%ld", (long)row];
-    [b addTarget:self action:@selector(copyInviteCode:) forControlEvents:UIControlEventTouchUpInside];
+    b.accessibilityIdentifier = [@"org.invite.copy." stringByAppendingString:unit.unitID];
+    NSString *code = unit.inviteCode;
+    __weak typeof(self) ws = self;
+    [b addAction:[UIAction actionWithHandler:^(UIAction *a) {
+        UIPasteboard.generalPasteboard.string = code;
+        [[[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight] impactOccurred]; // 同资料页复制
+        [ws im_showToast:IMLocalized(@"org.invite.code_copied")];
+    }] forControlEvents:UIControlEventTouchUpInside];
     [b sizeToFit];
     return b;
-}
-
-- (void)copyInviteCode:(UIButton *)sender {
-    NSArray<IMTenantUnit *> *units = IMTenantStore.shared.bindings;
-    if (sender.tag < 0 || sender.tag >= (NSInteger)units.count) { return; }
-    NSString *code = units[sender.tag].inviteCode;
-    if (code.length == 0) { return; }
-    UIPasteboard.generalPasteboard.string = code;
-    [self im_showToast:IMLocalized(@"org.invite.code_copied")];
 }
 
 - (void)layoutCodeRowInCell:(UITableViewCell *)cell {
