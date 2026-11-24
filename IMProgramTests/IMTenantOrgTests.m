@@ -146,13 +146,16 @@
     XCTAssertFalse([st applyMe:@{ @"bindings": @[] }], @"同一份不算变化");
     NSDictionary *customer = @{ @"tenant": @{ @"tenant_id": @"T", @"name": @"星海集团", @"short_name": @"" },
                                 @"kind": @"customer",
-                                @"bindings": @[ @{ @"unit_id": @"U1", @"name": @"星海华东", @"kind": @"sub" }, @{ @"name": @"缺 id" } ],
+                                @"bindings": @[ @{ @"unit_id": @"U1", @"name": @"星海华东", @"kind": @"sub", @"invite_code": @"XH8K2M7Q" },
+                                               @{ @"unit_id": @"U2", @"name": @"星海华南", @"kind": @"sub" }, @{ @"name": @"缺 id" } ],
                                 @"notice_pending": @YES };
     XCTAssertTrue([st applyMe:customer]);
     XCTAssertTrue(st.hasTenant);
     XCTAssertTrue(st.isCustomer);
     XCTAssertEqualObjects(st.tenantName, @"星海集团");
-    XCTAssertEqual(st.bindings.count, 1u);
+    XCTAssertEqual(st.bindings.count, 2u);
+    XCTAssertEqualObjects(st.bindings[0].inviteCode, @"XH8K2M7Q");
+    XCTAssertEqualObjects(st.bindings[1].inviteCode, @"", @"码停用：字段缺省 → 空串，页面不出邀请码行");
     XCTAssertTrue(st.noticePending);
     [st markNoticeAcked];
     XCTAssertFalse(st.noticePending);

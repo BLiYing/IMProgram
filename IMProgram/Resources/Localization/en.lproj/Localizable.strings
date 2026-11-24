@@ -1468,6 +1468,8 @@
 "org.dept.members" = "Members";
 "org.dept.sub_depts" = "Departments";
 "org.invite.bound" = "Joined · %1$@";
+"org.invite.code_copied" = "Invite code copied";
+"org.invite.code_row" = "Invite code %1$@";
 "org.invite.entry" = "Enter invite code";
 "org.invite.join" = "Join";
 "org.invite.joined" = "Joined %1$@";

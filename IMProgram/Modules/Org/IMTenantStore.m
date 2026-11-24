@@ -25,6 +25,7 @@ static const int64_t kIMTenantMinRefreshIntervalMs = 5000;
         IMTenantUnit *u = [IMTenantUnit new];
         u.unitID = d[@"unit_id"];
         u.name = IMJSONString(d[@"name"]);
+        u.inviteCode = IMJSONString(d[@"invite_code"]);
         [out addObject:u];
     }
     return out;

@@ -280,5 +280,20 @@
     [self shot:@"H02-华东访客页"];
 }
 
+/// I：填写邀请码页「已绑定」显示每家公司当前邀请码并可复制（BACKLOG R1）。复制结果由跑完后 `xcrun simctl pbpaste booted` 核对。
+- (void)testI_CustomerSeesAndCopiesInviteCode {
+    [self loginAs:@"t3_cust"];
+    [self dismissNoticeIfPresent];
+    [self.app.tabBars.buttons[@"设置"] tap];
+    [[self waitFor:[self cellWithText:@"填写邀请码"] named:@"填写邀请码入口"] tap];
+    [self waitFor:[self text:@"华东子公司"] named:@"已绑华东"];
+    NSPredicate *codeRow = [NSPredicate predicateWithFormat:@"label BEGINSWITH %@", @"邀请码 "];
+    XCTAssertGreaterThanOrEqual([self.app.tables.staticTexts matchingPredicate:codeRow].count, 1u, @"已绑定公司应显示邀请码行");
+    [self shot:@"I01-已绑定公司带邀请码"];
+    [[self waitFor:self.app.buttons[@"org.invite.copy.0"] named:@"复制按钮"] tap];
+    [NSThread sleepForTimeInterval:0.4];
+    [self shot:@"I02-已复制邀请码吐司"];
+}
+
 @end
 

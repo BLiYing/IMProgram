@@ -226,14 +226,46 @@ static NSString *IMMyTenantJoinedName(NSArray<IMTenantUnit *> *before, NSArray<I
     cell.selectionStyle = UITableViewCellSelectionStyleNone;
     for (UIView *v in cell.contentView.subviews) { if (v == self.codeField || v == self.joinButton) { [v removeFromSuperview]; } }
     cell.contentConfiguration = nil;
+    cell.accessoryView = nil;
     if ([self kindAt:indexPath.section] == IMMyTenantSectionInvite) {
         [self layoutCodeRowInCell:cell];
         return cell;
     }
-    UIListContentConfiguration *cfg = UIListContentConfiguration.valueCellConfiguration;
-    cfg.text = IMTenantStore.shared.bindings[indexPath.row].name;
+    IMTenantUnit *unit = IMTenantStore.shared.bindings[indexPath.row];
+    UIListContentConfiguration *cfg = UIListContentConfiguration.subtitleCellConfiguration;
+    cfg.text = unit.name;
+    cfg.textProperties.numberOfLines = 1; // 公司名过长单行截断，邀请码行始终可见（BACKLOG R1）
+    cfg.textProperties.lineBreakMode = NSLineBreakByTruncatingTail;
+    if (unit.inviteCode.length > 0) { // 码停用时服务端不给，只剩公司名一行
+        cfg.secondaryText = IMLocalizedFormat(@"org.invite.code_row", unit.inviteCode);
+        cfg.secondaryTextProperties.font = [UIFont systemFontOfSize:13];
+        cfg.secondaryTextProperties.color = IMTheme.textSecondary;
+        cfg.textToSecondaryTextVerticalPadding = 3;
+        cell.accessoryView = [self copyButtonForRow:indexPath.row];
+    }
     cell.contentConfiguration = cfg;
     return cell;
+}
+
+- (UIButton *)copyButtonForRow:(NSInteger)row {
+    UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
+    [b setTitle:IMLocalized(@"common.copy") forState:UIControlStateNormal];
+    b.titleLabel.font = [UIFont systemFontOfSize:15];
+    [b setTitleColor:IMTheme.accent forState:UIControlStateNormal];
+    b.tag = row;
+    b.accessibilityIdentifier = [NSString stringWithFormat:@"org.invite.copy.%ld", (long)row];
+    [b addTarget:self action:@selector(copyInviteCode:) forControlEvents:UIControlEventTouchUpInside];
+    [b sizeToFit];
+    return b;
+}
+
+- (void)copyInviteCode:(UIButton *)sender {
+    NSArray<IMTenantUnit *> *units = IMTenantStore.shared.bindings;
+    if (sender.tag < 0 || sender.tag >= (NSInteger)units.count) { return; }
+    NSString *code = units[sender.tag].inviteCode;
+    if (code.length == 0) { return; }
+    UIPasteboard.generalPasteboard.string = code;
+    [self im_showToast:IMLocalized(@"org.invite.code_copied")];
 }
 
 - (void)layoutCodeRowInCell:(UITableViewCell *)cell {

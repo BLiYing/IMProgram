@@ -17,6 +17,8 @@ FOUNDATION_EXPORT NSNotificationName const IMTenantStoreDidChangeNotification;
 @interface IMTenantUnit : NSObject
 @property (nonatomic, copy) NSString *unitID;
 @property (nonatomic, copy) NSString *name;
+/// 客户 bindings 里该公司当前可用的邀请码；停用 / 员工的单位为空串（BACKLOG R1：填写邀请码页展示与复制）。
+@property (nonatomic, copy) NSString *inviteCode;
 + (NSArray<IMTenantUnit *> *)unitsFromArray:(nullable id)array;
 @end
 

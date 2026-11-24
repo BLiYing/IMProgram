@@ -1468,6 +1468,8 @@
 "org.dept.members" = "成员";
 "org.dept.sub_depts" = "下级部门";
 "org.invite.bound" = "已绑定 · %1$@";
+"org.invite.code_copied" = "已复制邀请码";
+"org.invite.code_row" = "邀请码 %1$@";
 "org.invite.entry" = "填写邀请码";
 "org.invite.join" = "加入";
 "org.invite.joined" = "已加入 %1$@";
