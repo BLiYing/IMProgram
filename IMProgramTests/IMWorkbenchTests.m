@@ -44,6 +44,8 @@
         @"http://172.16.0.1/": @YES,
         @"http://172.32.0.1/": @NO,
         @"http://10.1.2.3/": @YES,
+        @"http://010.1.2.3/": @NO,
+        @"http://2130706433/": @NO,
         @"http://mac.local/": @YES,
         @"http://[::1]:8790/": @YES,
         @"http://user@127.0.0.1/": @NO,
@@ -61,6 +63,8 @@
     XCTAssertEqualObjects(u.absoluteString, @"https://a.example/p?x=1&y=2#f");
     u = [IMWorkbench urlByRemovingTicket:[NSURL URLWithString:@"https://a.example/p?im_ticket=T"]];
     XCTAssertEqualObjects(u.absoluteString, @"https://a.example/p");
+    u = [IMWorkbench urlByRemovingTicket:[NSURL URLWithString:@"https://a.example/a%20b?im%5Fticket=T&x=%41"]];
+    XCTAssertEqualObjects(u.absoluteString, @"https://a.example/a%20b?x=%41", @"编码写法的票据也去掉，其余逐字保留");
 }
 
 - (void)testPickUnit {

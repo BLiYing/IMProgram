@@ -11,6 +11,14 @@ static BOOL IMWorkbenchIsLocalHost(NSString *host) {
     if (h.length == 0) { return NO; }
     if ([h hasPrefix:@"["] && [h hasSuffix:@"]"]) { h = [h substringWithRange:NSMakeRange(1, h.length - 2)]; }
     if ([h isEqualToString:@"localhost"] || [h hasSuffix:@".local"]) { return YES; }
+    // 纯数字加点的写法只认标准四段十进制、不许前导零：`010.x` 在浏览器里按八进制算成别的地址（三端同口径）
+    if ([h rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"0123456789."].invertedSet].location == NSNotFound) {
+        NSArray<NSString *> *parts = [h componentsSeparatedByString:@"."];
+        if (parts.count != 4) { return NO; }
+        for (NSString *p in parts) {
+            if (p.length == 0 || p.length > 3 || (p.length > 1 && [p hasPrefix:@"0"]) || p.integerValue > 255) { return NO; }
+        }
+    }
     struct in_addr v4;
     if (inet_pton(AF_INET, h.UTF8String, &v4) == 1) {
         uint32_t ip = ntohl(v4.s_addr);
@@ -67,12 +75,15 @@ static BOOL IMWorkbenchIsLocalHost(NSString *host) {
 
 + (NSURL *)urlByRemovingTicket:(NSURL *)url {
     NSURLComponents *c = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO];
-    if (!c.queryItems) { return url; }
-    NSMutableArray<NSURLQueryItem *> *kept = [NSMutableArray array];
-    for (NSURLQueryItem *q in c.queryItems) {
-        if (![q.name isEqualToString:@"im_ticket"]) { [kept addObject:q]; }
+    NSString *query = c.percentEncodedQuery;
+    if (!query) { return url; }
+    // 按编码后的原文逐段过滤（不经 queryItems：那会把 %41 解码成 A，其余参数就变了）；键按解码后比对，im%5Fticket 也算
+    NSMutableArray<NSString *> *kept = [NSMutableArray array];
+    for (NSString *pair in [query componentsSeparatedByString:@"&"]) {
+        NSString *key = [pair componentsSeparatedByString:@"="].firstObject;
+        if (pair.length > 0 && ![(key.stringByRemovingPercentEncoding ?: key) isEqualToString:@"im_ticket"]) { [kept addObject:pair]; }
     }
-    c.queryItems = kept.count > 0 ? kept : nil;
+    c.percentEncodedQuery = kept.count > 0 ? [kept componentsJoinedByString:@"&"] : nil;
     return c.URL ?: url;
 }
 
