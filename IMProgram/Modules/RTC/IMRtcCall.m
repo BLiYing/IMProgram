@@ -56,6 +56,8 @@ static const NSInteger IMRtcCallErrorEngineNotStarted = -1;
     NSUInteger _generation;
     /// 正在响、还没接通 / 结束的那通来电（applyNotificationActionForCallID: 用）。
     NSString *_ringingCallID;
+    /// expandRingingCall 改 bannerFirst 前的原值；nil = 没改过（clearRinging 据此恢复）。
+    NSNumber *_bannerFirstBeforeExpand;
 }
 
 + (instancetype)shared {
@@ -135,6 +137,7 @@ static const NSInteger IMRtcCallErrorEngineNotStarted = -1;
 - (void)tearDown {
     _generation++;
     _ringingCallID = nil; // 旧引擎的响铃状态随引擎作废，否则通知上的接听 / 拒绝会被它吞掉
+    _bannerFirstBeforeExpand = nil; // Kit 随引擎重建，新 Kit 的 bannerFirst 是默认值，不必也不该还原
     IMCallEngine *old = _engine;
     if (!old) { return; }
     [_kit stop]; // 登出 Engine、作废在途的取票与重试（Kit 取票登录，im-rtc 2.2.0）
@@ -302,25 +305,48 @@ static const NSInteger IMRtcCallErrorEngineNotStarted = -1;
 
 #pragma mark - 来电横幅上的按钮
 
-- (void)applyNotificationActionForCallID:(NSString *)callID accept:(BOOL)accept {
-    IMLogWithTag(IMLogTagRTC, @"rtc_notification_action call_id=%@ accept=%@", callID, accept ? @"YES" : @"NO");
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if ([self->_ringingCallID isEqualToString:callID]) {
-            [self actOnRingingCall:accept];
-            return;
-        }
-        int64_t now = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
-        [IMPushCallPendingAction.shared requestCallID:callID accept:accept nowMS:now];
-    });
+- (BOOL)applyNotificationTap:(IMPushCallTap)tap forCallID:(NSString *)callID {
+    NSParameterAssert(NSThread.isMainThread);
+    BOOL ringing = [_ringingCallID isEqualToString:callID];
+    IMLogWithTag(IMLogTagRTC, @"rtc_notification_tap call_id=%@ tap=%ld ringing=%d", callID, (long)tap, ringing);
+    if (ringing) {
+        [self actOnRingingCall:tap];
+        return YES;
+    }
+    int64_t now = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
+    [IMPushCallPendingAction.shared requestCallID:callID tap:tap nowMS:now];
+    return NO;
 }
 
 /// 走 Kit 的控制器而不是直接调引擎：来电界面的状态由 Kit 维护，绕过它会让界面和通话对不上。
-- (void)actOnRingingCall:(BOOL)accept {
+- (void)actOnRingingCall:(IMPushCallTap)tap {
     if (_kit == nil) { return; }
-    if (accept) {
-        [_kit.controller accept];
-    } else {
-        [_kit.controller reject];
+    switch (tap) {
+        case IMPushCallTapAccept: [_kit.controller accept]; break;
+        case IMPushCallTapReject: [_kit.controller reject]; break;
+        case IMPushCallTapShow: [self expandRingingCall]; break;
+        case IMPushCallTapNone: break;
+    }
+}
+
+/// 来电直接全屏（BACKLOG B3：点了来电横幅的人要的是接听页，不是顶部那条小横幅）。
+/// Kit 没有公开「展开横幅」的接口，但 `bannerFirst` 是现读的：关掉它、借 `reloadProfiles:` 触发一次重画即可。
+/// 接通 / 结束时（clearRinging）恢复原值，别的来电照旧先出横幅。
+/// TODO：im-rtc Kit 公开「展开来电横幅」（IMCallWindow 内部已有 bannerExpanded）后改调它，去掉这层开关。
+- (void)expandRingingCall {
+    // 已经不响了（主叫秒挂：CallEnd 先于延后执行的这一步）就别动——否则 bannerFirst 被关掉后没人还原，下一通来电直接全屏
+    if (_ringingCallID == nil) { return; }
+    if (_bannerFirstBeforeExpand == nil) { _bannerFirstBeforeExpand = @(_kit.config.bannerFirst); }
+    _kit.config.bannerFirst = NO;
+    [_kit reloadProfiles:@[]];
+}
+
+/// 来电不再响了（接通 / 结束）：清掉响铃标记，并把 expandRingingCall 临时改的 bannerFirst 还原。
+- (void)clearRinging {
+    _ringingCallID = nil;
+    if (_bannerFirstBeforeExpand != nil) {
+        _kit.config.bannerFirst = _bannerFirstBeforeExpand.boolValue;
+        _bannerFirstBeforeExpand = nil;
     }
 }
 
@@ -350,21 +376,23 @@ static const NSInteger IMRtcCallErrorEngineNotStarted = -1;
             if (UIApplication.sharedApplication.applicationState == UIApplicationStateActive) {
                 IMPushCallRemoveDeliveredNotifications(event.callID);
             }
-            // 用户是点着横幅上的按钮把 App 拉起来的：来电一到就替他接 / 拒。晚一拍，让 Kit 先把来电界面立起来。
+            // 用户是点着横幅（按钮或横幅本身）把 App 拉起来的：来电一到就替他接 / 拒 / 展开全屏。晚一拍，让 Kit 先把来电界面立起来。
             int64_t now = (int64_t)(NSDate.date.timeIntervalSince1970 * 1000);
-            NSNumber *accept = [IMPushCallPendingAction.shared consumeCallID:event.callID nowMS:now];
-            if (accept != nil) {
+            NSNumber *tap = [IMPushCallPendingAction.shared consumeCallID:event.callID nowMS:now];
+            if (tap != nil) {
                 dispatch_async(dispatch_get_main_queue(), ^{
-                    if (gen == self->_generation) { [self actOnRingingCall:accept.boolValue]; }
+                    if (gen == self->_generation && [self->_ringingCallID isEqualToString:event.callID]) {
+                        [self actOnRingingCall:(IMPushCallTap)tap.integerValue];
+                    }
                 });
             }
             break;
         }
         case IMCallEventNameCallBegin:
-            _ringingCallID = nil;
+            [self clearRinging];
             break;
         case IMCallEventNameCallEnd:
-            _ringingCallID = nil;
+            [self clearRinging];
             IMPushCallRemoveDeliveredNotifications(event.callID);
             break;
         case IMCallEventNameCallSummary:

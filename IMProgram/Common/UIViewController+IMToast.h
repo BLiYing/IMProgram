@@ -25,6 +25,10 @@ FOUNDATION_EXPORT BOOL IMToastDedup(NSString *text, CFTimeInterval now, NSString
 /// "view is not in the window hierarchy" 静默拒绝（曾致查看器路径删除/转发无反应）。
 + (nullable UIViewController *)im_topVisibleViewController;
 
+/// App 自己主窗口（场景代理的 window）里的顶层控制器。与上面的区别：通话界面（IMCallKit）用自己的窗口
+/// 并抢 key window，要往 App 页面栈里 push（如点通知进会话）时得认主窗口，不然钻到的是通话窗口、找不到导航控制器。
++ (nullable UIViewController *)im_topViewControllerInAppWindow;
+
 /// "<标题>（开发中）"——后端未就绪的功能统一走这里。
 - (void)im_showComingSoon:(NSString *)title;
 

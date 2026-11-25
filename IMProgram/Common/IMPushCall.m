@@ -18,6 +18,14 @@ NSString *IMPushCallIDFromUserInfo(NSDictionary *userInfo) {
     return callID;
 }
 
+IMPushCallTap IMPushCallTapFrom(NSString *actionIdentifier, NSDictionary *userInfo) {
+    if ([actionIdentifier isEqualToString:IMPushCallActionAccept]) { return IMPushCallTapAccept; }
+    if ([actionIdentifier isEqualToString:IMPushCallActionReject]) { return IMPushCallTapReject; }
+    id kind = userInfo[@"call_kind"];
+    BOOL incoming = [kind isKindOfClass:NSString.class] && [kind isEqualToString:@"incoming"];
+    return incoming && [actionIdentifier isEqualToString:UNNotificationDefaultActionIdentifier] ? IMPushCallTapShow : IMPushCallTapNone;
+}
+
 void IMPushCallRegisterCategory(void) {
     // 两个按钮都 Foreground：拒绝也得拉起 App——App 在后台时没有通话连接，发不出拒绝。
     UNNotificationAction *reject = [UNNotificationAction actionWithIdentifier:IMPushCallActionReject
@@ -60,7 +68,7 @@ void IMPushCallRemoveDeliveredNotifications(NSString *callID) {
 
 @implementation IMPushCallPendingAction {
     NSString *_callID;
-    BOOL _accept;
+    IMPushCallTap _tap;
     int64_t _atMS;
 }
 
@@ -71,11 +79,11 @@ void IMPushCallRemoveDeliveredNotifications(NSString *callID) {
     return s;
 }
 
-- (void)requestCallID:(NSString *)callID accept:(BOOL)accept nowMS:(int64_t)nowMS {
+- (void)requestCallID:(NSString *)callID tap:(IMPushCallTap)tap nowMS:(int64_t)nowMS {
     if (callID.length == 0) { return; }
     @synchronized (self) {
         _callID = [callID copy];
-        _accept = accept;
+        _tap = tap;
         _atMS = nowMS;
     }
 }
@@ -89,7 +97,7 @@ void IMPushCallRemoveDeliveredNotifications(NSString *callID) {
         }
         if (![_callID isEqualToString:callID]) { return nil; }
         _callID = nil;
-        return @(_accept);
+        return @(_tap);
     }
 }
 

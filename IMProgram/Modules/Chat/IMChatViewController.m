@@ -87,7 +87,8 @@ NSNotificationName const IMChatConversationClearedNotification = @"IMChatConvers
 // 反向 import 本类。+load 在本类首次被链接进二进制时跑一次，早于任何调用点，无需额外触发。
 + (void)load {
     IMConversationRouter.opener = ^BOOL(NSString *host, NSString *userID, IMConversation *conversation) {
-        UIViewController *top = [UIViewController im_topVisibleViewController];
+        // 认 App 主窗口：来电时通话界面的窗口是 key window，按 key window 找会找不到导航控制器（BACKLOG B3 实测）
+        UIViewController *top = [UIViewController im_topViewControllerInAppWindow];
         UINavigationController *nav = [top isKindOfClass:UINavigationController.class]
             ? (UINavigationController *)top : top.navigationController;
         if (!nav || conversation.convID.length == 0) { return NO; } // 还没有可用窗口/导航控制器（冷启动早期）：让调用方重试

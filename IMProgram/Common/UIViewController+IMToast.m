@@ -72,18 +72,8 @@ BOOL IMToastDedup(NSString *text, CFTimeInterval now, NSString *__strong *lastTe
     [top im_showToast:text];
 }
 
-/// 从前台 key window 的 rootViewController 钻到当前可见的控制器（穿透 presented / nav / tab）。
-+ (nullable UIViewController *)im_topVisibleViewController {
-    UIWindow *keyWindow = nil;
-    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if (scene.activationState != UISceneActivationStateForegroundActive) { continue; }
-        if (![scene isKindOfClass:UIWindowScene.class]) { continue; }
-        for (UIWindow *w in ((UIWindowScene *)scene).windows) {
-            if (w.isKeyWindow) { keyWindow = w; break; }
-        }
-        if (keyWindow) { break; }
-    }
-    UIViewController *vc = keyWindow.rootViewController;
+/// 从某个根控制器钻到当前可见的控制器（穿透 presented / nav / tab）。
+static UIViewController *IMTopViewControllerFrom(UIViewController *vc) {
     while (YES) {
         if (vc.presentedViewController) { vc = vc.presentedViewController; continue; }
         if ([vc isKindOfClass:UINavigationController.class]) {
@@ -98,5 +88,31 @@ BOOL IMToastDedup(NSString *text, CFTimeInterval now, NSString *__strong *lastTe
     }
     return vc;
 }
+
+/// 从前台 key window 的 rootViewController 钻到当前可见的控制器（穿透 presented / nav / tab）。
++ (nullable UIViewController *)im_topVisibleViewController {
+    UIWindow *keyWindow = nil;
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if (scene.activationState != UISceneActivationStateForegroundActive) { continue; }
+        if (![scene isKindOfClass:UIWindowScene.class]) { continue; }
+        for (UIWindow *w in ((UIWindowScene *)scene).windows) {
+            if (w.isKeyWindow) { keyWindow = w; break; }
+        }
+        if (keyWindow) { break; }
+    }
+    return IMTopViewControllerFrom(keyWindow.rootViewController);
+}
+
++ (nullable UIViewController *)im_topViewControllerInAppWindow {
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if (scene.activationState != UISceneActivationStateForegroundActive) { continue; }
+        id<UIWindowSceneDelegate> delegate = (id<UIWindowSceneDelegate>)scene.delegate;
+        if (![delegate respondsToSelector:@selector(window)]) { continue; }
+        UIWindow *window = delegate.window;
+        if (window) { return IMTopViewControllerFrom(window.rootViewController); }
+    }
+    return nil;
+}
+
 
 @end

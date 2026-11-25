@@ -97,16 +97,21 @@
 - (void)userNotificationCenter:(UNUserNotificationCenter *)center
  didReceiveNotificationResponse:(UNNotificationResponse *)response
           withCompletionHandler:(void (^)(void))completionHandler {
-    // 来电横幅（PUSH_M5_DESIGN §3.8）：点的是按钮就交给 IMRtcCall，等来电到了照做；点横幅本身照常进会话。
-    NSString *callID = IMPushCallIDFromUserInfo(response.notification.request.content.userInfo);
+    // 来电横幅（PUSH_M5_DESIGN §3.8）：点按钮 = 接听 / 拒绝；点横幅本身 = 看全屏接听页（BACKLOG B3）。
+    // 这通正在响就当场照做、不进会话；还没到（刚被拉起、还没连上）就记下等它到，同时照常进会话——
+    // 来电到了接听页盖在聊天页上，没等到（已结束）就停在聊天页，那里有通话记录。未接 / 已结束提醒照常进会话。
+    NSDictionary *userInfo = response.notification.request.content.userInfo;
+    NSString *callID = IMPushCallIDFromUserInfo(userInfo);
     if (callID.length > 0) {
         IMPushCallRemoveDeliveredNotifications(callID);
-        if ([response.actionIdentifier isEqualToString:IMPushCallActionAccept]
-            || [response.actionIdentifier isEqualToString:IMPushCallActionReject]) {
-            [IMRtcCall.shared applyNotificationActionForCallID:callID
-                                                        accept:[response.actionIdentifier isEqualToString:IMPushCallActionAccept]];
-            completionHandler();
-            return;
+        IMPushCallTap tap = IMPushCallTapFrom(response.actionIdentifier, userInfo);
+        if (tap != IMPushCallTapNone) {
+            BOOL handledNow = [IMRtcCall.shared applyNotificationTap:tap forCallID:callID];
+            // 按钮：交给 IMRtcCall 就完事；横幅本身：正在响已展开全屏，不再进会话，否则落到下面进会话
+            if (tap != IMPushCallTapShow || handledNow) {
+                completionHandler();
+                return;
+            }
         }
     }
     NSString *convID = IMPushConvIDFromUserInfo(response.notification.request.content.userInfo);
