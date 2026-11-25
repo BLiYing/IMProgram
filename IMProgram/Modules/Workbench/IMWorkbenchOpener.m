@@ -13,6 +13,8 @@
 @implementation IMWorkbenchOpener
 
 + (void)pushURL:(NSURL *)url title:(NSString *)title from:(UIViewController *)host {
+    // 等待期间用户已离开（返回 / 切 Tab / 又开了别的）：不把旧结果压上来
+    if (!host.view.window || (host.navigationController && host.navigationController.topViewController != host)) { return; }
     IMCustomerServiceViewController *web = [[IMCustomerServiceViewController alloc] initWorkbenchWithURL:url title:title];
     if (host.navigationController) {
         [host.navigationController pushViewController:web animated:YES];

@@ -29,6 +29,8 @@ typedef NS_ENUM(NSInteger, IMWorkbenchRowKind) { IMWorkbenchRowBanner, IMWorkben
 @property (nonatomic, copy) NSArray<IMWorkbenchSection *> *sections;
 @property (nonatomic, assign) BOOL loaded;
 @property (nonatomic, assign) NSUInteger loadSeq;
+/// 移除请求还没回来的应用：期间开始的首页加载可能读到移除前的数据，结果里先滤掉。
+@property (nonatomic, strong) NSMutableSet<NSString *> *removingIDs;
 @property (nonatomic, strong) UICollectionView *collectionView;
 @end
 
@@ -42,6 +44,7 @@ typedef NS_ENUM(NSInteger, IMWorkbenchRowKind) { IMWorkbenchRowBanner, IMWorkben
         _banners = @[];
         _sections = @[];
         _unitTitle = @"";
+        _removingIDs = [NSMutableSet set];
     }
     return self;
 }
@@ -182,7 +185,15 @@ typedef NS_ENUM(NSInteger, IMWorkbenchRowKind) { IMWorkbenchRowBanner, IMWorkben
         if ([b isKindOfClass:NSDictionary.class] && [b[@"image_url"] isKindOfClass:NSString.class]) { [banners addObject:b]; }
     }
     self.banners = banners;
-    self.sections = [IMWorkbench sectionsFromGroups:data[@"groups"] otherTitle:IMLocalized(@"workbench.group_other")
+    NSMutableArray *groups = [NSMutableArray array];
+    for (NSDictionary *g in IMJSONDicts(data[@"groups"])) { // 先滤掉移除在途的应用
+        NSMutableArray *apps = [NSMutableArray array];
+        for (NSDictionary *a in IMJSONDicts(g[@"apps"])) {
+            if (![self.removingIDs containsObject:IMJSONString(a[@"app_id"])]) { [apps addObject:a]; }
+        }
+        [groups addObject:@{ @"name": IMJSONString(g[@"name"]), @"apps": apps }];
+    }
+    self.sections = [IMWorkbench sectionsFromGroups:groups otherTitle:IMLocalized(@"workbench.group_other")
                                            soleTitle:IMLocalized(@"workbench.my_apps")];
     self.loaded = YES;
     [self applyTitle];
@@ -326,8 +337,11 @@ static NSCollectionLayoutSection *IMWorkbenchFullWidthSection(CGFloat height, NS
     self.loadSeq++; // 在途的首页加载是移除前的数据：作废，免得把刚移除的又带回来
     [self.collectionView.refreshControl endRefreshing];
     [self.collectionView reloadData];
+    NSString *appID = IMJSONString(app[@"app_id"]);
+    [self.removingIDs addObject:appID];
     __weak typeof(self) weak = self;
-    [IMHTTPService.sharedService workbenchSetAppWithToken:token unitID:self.unitID appID:app[@"app_id"] add:NO completion:^(NSDictionary *d, NSError *error) {
+    [IMHTTPService.sharedService workbenchSetAppWithToken:token unitID:self.unitID appID:appID add:NO completion:^(NSDictionary *d, NSError *error) {
+        [weak.removingIDs removeObject:appID];
         if (error) {
             [weak im_showToast:error.localizedDescription ?: IMLocalized(@"common.action_failed")];
             [weak reload];

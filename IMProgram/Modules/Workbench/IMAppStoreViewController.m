@@ -133,8 +133,11 @@ static NSString *const kStoreCell = @"storeApp";
             [s im_showToast:error.localizedDescription ?: IMLocalized(@"common.action_failed")];
             return;
         }
-        [s.pendingAdded removeAllObjects];
         s.sections = [IMWorkbench sectionsFromGroups:data[@"groups"] otherTitle:IMLocalized(@"workbench.group_other") soleTitle:nil];
+        // 只清掉服务端已确认添加的：点「添加」前发出的旧列表回来时，不能把乐观的「已添加」冲掉（失败时由添加回调自己撤）
+        for (IMWorkbenchSection *sec in s.sections) {
+            for (NSDictionary *a in sec.apps) { if (IMJSONBool(a[@"added"])) { [s.pendingAdded removeObject:IMJSONString(a[@"app_id"])]; } }
+        }
         [s.tableView reloadData];
     }];
 }
