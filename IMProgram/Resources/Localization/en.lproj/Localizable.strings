@@ -794,9 +794,11 @@
 "err.400121" = "Join an organization first";
 "err.400122" = "Your organization has been disabled";
 "err.400125" = "This company has been disabled";
+"err.400131" = "This app can't be removed";
 "err.400134" = "You don't have access to the agent console";
 "err.400135" = "Your agent account has been disabled. Contact your administrator.";
 "err.400136" = "Can't open the agent console right now. Try again later.";
+"err.400141" = "This app is no longer available";
 "err.500003" = "Sending files has been paused by the administrator";
 "err.500101" = "Voice-to-text isn’t enabled (the server has no speech engine configured)";
 "err.500102" = "Recognition failed. Try again later.";
@@ -2096,3 +2098,15 @@
 "webview.link_unopenable" = "Couldn't open this link";
 "webview.no_app_for_link" = "No app can open this link";
 "webview.ssl_error" = "This page's security certificate has a problem. Loading was stopped.";
+"workbench.add" = "Add";
+"workbench.added" = "Added";
+"workbench.empty_hint" = "Add the apps you use from the app store.";
+"workbench.empty_title" = "No apps yet";
+"workbench.go_store" = "Go to app store";
+"workbench.group_other" = "Other";
+"workbench.my_apps" = "My apps";
+"workbench.open_failed" = "Couldn't open. Try again later.";
+"workbench.remove" = "Remove";
+"workbench.store" = "App store";
+"workbench.switch_unit" = "Switch company";
+"workbench.tab" = "Workplace";

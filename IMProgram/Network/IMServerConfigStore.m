@@ -10,6 +10,7 @@
 #import "IMSocketManager.h"
 #import "IMTimeUtil.h"
 #import "IMLog.h"
+#import "IMDatabase.h"
 
 NSNotificationName const IMServerConfigDidLoadNotification = @"IMServerConfigDidLoadNotification";
 
@@ -64,6 +65,8 @@ static NSArray<NSString *> *IMConfigExtList(NSDictionary *data, NSString *key) {
     BOOL _started;
     BOOL _inFlight;
     int64_t _lastSuccessMs;
+    /// workbench_units 按账号下发：记下是哪个账号拉到的，换号后读到空、并立刻重拉（不吃节流）。
+    NSString *_unitsOwner;
 }
 
 + (instancetype)shared {
@@ -75,6 +78,7 @@ static NSArray<NSString *> *IMConfigExtList(NSDictionary *data, NSString *key) {
 
 - (instancetype)init {
     if ((self = [super init])) {
+        _workbenchUnits = @[];
         _recallWindowSec = IMServerConfigDefaultRecallWindowSec;
         _editWindowSec = IMServerConfigDefaultEditWindowSec;
         _forwardMaxTargets = IMServerConfigDefaultForwardMaxTargets;
@@ -117,9 +121,17 @@ static NSArray<NSString *> *IMConfigExtList(NSDictionary *data, NSString *key) {
     return YES;
 }
 
+static NSString *IMConfigCurrentOwner(void) { return IMDatabase.sharedDatabase.currentAccountContext.ownerUserID ?: @""; }
+
+@synthesize workbenchUnits = _workbenchUnits; // 自定义取值方法：不自动合成成员变量
+- (NSArray<NSDictionary<NSString *, NSString *> *> *)workbenchUnits {
+    return [_unitsOwner isEqualToString:IMConfigCurrentOwner()] ? _workbenchUnits : @[];
+}
+
 - (void)refresh {
     NSString *token = IMHTTPService.sharedService.currentToken;
     if (token.length == 0) { return; } // 还没登录，等下次
+    if (_unitsOwner.length > 0 && ![_unitsOwner isEqualToString:IMConfigCurrentOwner()]) { _lastSuccessMs = 0; } // 换号：不吃节流
     if (![IMServerConfigStore shouldFetchWithInFlight:_inFlight lastSuccessMs:_lastSuccessMs
                                                 nowMs:IMNowMillis() minIntervalMs:kIMServerConfigMinRefreshIntervalMs]) {
         return;
@@ -147,6 +159,21 @@ static NSArray<NSString *> *IMConfigExtList(NSDictionary *data, NSString *key) {
     [self refresh];
 }
 
+/// 读 [{unit_id, name, code}] 列表（workbench_units）：缺失 / 非数组 → 空；项里没有 unit_id 的丢掉。
+static NSArray<NSDictionary<NSString *, NSString *> *> *IMConfigUnitList(NSDictionary *data, NSString *key) {
+    id raw = data[key];
+    if (![raw isKindOfClass:NSArray.class]) { return @[]; }
+    NSMutableArray *out = [NSMutableArray array];
+    for (id it in (NSArray *)raw) {
+        if (![it isKindOfClass:NSDictionary.class]) { continue; }
+        id uid = it[@"unit_id"], name = it[@"name"], code = it[@"code"];
+        if (![uid isKindOfClass:NSString.class] || [uid length] == 0) { continue; }
+        [out addObject:@{ @"unit_id": uid, @"name": [name isKindOfClass:NSString.class] ? name : @"",
+                          @"code": [code isKindOfClass:NSString.class] ? code : @"" }];
+    }
+    return out;
+}
+
 - (BOOL)applyServerConfig:(NSDictionary *)data {
     // 老三项：缺失 / null / 非数字 → 0 / NO，与原 integerValue 读缺失键的结果一致（不引入新默认；这三项本就只在 loaded 后有意义）。
     // 不能直接 integerValue：JSON null 是 NSNull，没有这个方法，会 unrecognized selector 崩。
@@ -170,6 +197,7 @@ static NSArray<NSString *> *IMConfigExtList(NSDictionary *data, NSString *key) {
     BOOL dirEntry = IMConfigBool(data, @"directory_entry_mobile", NO);
     BOOL invite = IMConfigBool(data, @"invite_enabled", NO);
     BOOL showTitle = IMConfigBool(data, @"show_title", NO);
+    NSArray<NSDictionary<NSString *, NSString *> *> *wbUnits = IMConfigUnitList(data, @"workbench_units");
 
     BOOL changed = !_loaded || _maxGroupMembers != maxMembers || _supergroupEnabled != superEnabled
         || _maxSupergroupMembers != maxSuper || _recallWindowSec != recall || _editWindowSec != edit
@@ -177,7 +205,8 @@ static NSArray<NSString *> *IMConfigExtList(NSDictionary *data, NSString *key) {
         || _groupNameMaxLen != nameMax || _groupAnnouncementMaxLen != annMax
         || _uploadEnabled != uploadEnabled || _uploadMaxFileBytes != uploadMax
         || ![_uploadBlockedExtensions isEqualToArray:blocked]
-        || _directoryEntryMobile != dirEntry || _inviteEnabled != invite || _showTitle != showTitle;
+        || _directoryEntryMobile != dirEntry || _inviteEnabled != invite || _showTitle != showTitle
+        || ![_workbenchUnits isEqualToArray:wbUnits] || ![_unitsOwner isEqualToString:IMConfigCurrentOwner()];
 
     _maxGroupMembers = maxMembers;
     _supergroupEnabled = superEnabled;
@@ -194,6 +223,8 @@ static NSArray<NSString *> *IMConfigExtList(NSDictionary *data, NSString *key) {
     _directoryEntryMobile = dirEntry;
     _inviteEnabled = invite;
     _showTitle = showTitle;
+    _workbenchUnits = [wbUnits copy];
+    _unitsOwner = [IMConfigCurrentOwner() copy];
     _loaded = YES;
     if (changed) {
         IMLogWithTag(IMLogTagHTTP, @"server_config_applied recall_sec=%ld edit_sec=%ld forward_max=%ld merge_max=%ld name_max=%ld ann_max=%ld upload_enabled=%d upload_max_bytes=%lld upload_blocked_count=%lu",
@@ -202,6 +233,7 @@ static NSArray<NSString *> *IMConfigExtList(NSDictionary *data, NSString *key) {
     }
     return changed;
 }
+
 
 - (BOOL)canRecallMessageSentAt:(int64_t)sentAtMs nowMs:(int64_t)nowMs {
     return IMServerConfigWithinWindow(sentAtMs, nowMs, _recallWindowSec);

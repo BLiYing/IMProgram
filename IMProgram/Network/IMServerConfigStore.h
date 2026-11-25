@@ -90,6 +90,8 @@ FOUNDATION_EXPORT BOOL IMServerConfigWithinWindow(int64_t sentAtMs, int64_t nowM
 @property (nonatomic, assign, readonly) BOOL inviteEnabled;
 /// 组织架构成员行显示职位。
 @property (nonatomic, assign, readonly) BOOL showTitle;
+/// 我能看到工作台的公司（WORKBENCH_DESIGN §3.1）：每项 {unit_id, name, code}；空 = 不显示「工作台」Tab。
+@property (nonatomic, copy, readonly) NSArray<NSDictionary<NSString *, NSString *> *> *workbenchUnits;
 
 /// 这条消息（发出时刻 sentAtMs）现在还能不能撤回 / 编辑——只决定菜单显隐，服务端为准。
 - (BOOL)canRecallMessageSentAt:(int64_t)sentAtMs nowMs:(int64_t)nowMs;

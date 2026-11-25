@@ -5,6 +5,8 @@
 #import "IMAboutLinks.h"
 #import "IMLocalization.h"
 #import "IMLog.h"
+#import "IMActionListSheet.h"
+#import "IMWorkbench.h"
 
 /// 禁双击/捏合缩放：强制 viewport（与 scrollView 侧的限制双保险）。
 static NSString *const kNoZoomScript =
@@ -21,6 +23,8 @@ static NSString *const kNoZoomScript =
 @property (nonatomic, strong) UILabel *errorLabel;
 @property (nonatomic, assign) BOOL observing;
 @property (nonatomic, copy, nullable) NSString *fixedTitle;
+@property (nonatomic, copy, nullable) NSString *initialTitle; // 工作台：先显示应用名，网页 <title> 到了替换
+@property (nonatomic, assign) BOOL workbench;
 @end
 
 @implementation IMCustomerServiceViewController
@@ -39,24 +43,43 @@ static NSString *const kNoZoomScript =
     return self;
 }
 
+- (instancetype)initWorkbenchWithURL:(NSURL *)url title:(NSString *)title {
+    self = [self initWithURL:url title:nil];
+    if (self) {
+        _workbench = YES;
+        _initialTitle = [title copy];
+    }
+    return self;
+}
+
 - (void)dealloc { [self teardownWebView]; }
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = self.fixedTitle ?: IMLocalized(@"about.customer_service"); // 无公司名时网页 <title> 到了再替换，不显示服务器 IP
+    self.title = self.fixedTitle ?: (self.initialTitle ?: IMLocalized(@"about.customer_service")); // 无公司名时网页 <title> 到了再替换，不显示服务器 IP
     self.view.backgroundColor = UIColor.systemBackgroundColor;
     UIBarButtonItem *close = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"xmark"] style:UIBarButtonItemStylePlain
                                                               target:self action:@selector(closeTapped)];
     close.accessibilityLabel = IMLocalized(@"common.close");
     close.accessibilityIdentifier = @"customerService.close";
-    self.navigationItem.rightBarButtonItem = close;
+    if (self.workbench) { // 交互稿 I-5：左 ✕ 关闭，右 ⋯ 菜单
+        close.style = UIBarButtonItemStyleDone;
+        self.navigationItem.leftBarButtonItem = close;
+        UIBarButtonItem *more = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"ellipsis"] style:UIBarButtonItemStylePlain
+                                                                target:self action:@selector(moreTapped)];
+        more.accessibilityLabel = IMLocalized(@"common.more");
+        more.accessibilityIdentifier = @"workbench.web.more";
+        self.navigationItem.rightBarButtonItem = more;
+    } else {
+        self.navigationItem.rightBarButtonItem = close;
+    }
 
     WKWebViewConfiguration *cfg = [[WKWebViewConfiguration alloc] init];
     // 保持默认持久 data store：localStorage 存访客身份，不能清。
     cfg.websiteDataStore = WKWebsiteDataStore.defaultDataStore;
     // 公开 API：系统会把它追加在默认 UA 末尾（形如 "… Mobile/15E148 BeaconApp/1.0 (iOS)"），Beacon 只认 BeaconApp/ 标记。
     // 不用 KVC 读私有 userAgent 属性（上架审核风险）。
-    cfg.applicationNameForUserAgent = [self beaconAppName];
+    if (!self.workbench) { cfg.applicationNameForUserAgent = [self beaconAppName]; } // 工作台应用不是 Beacon 访客页
     WKUserScript *script = [[WKUserScript alloc] initWithSource:kNoZoomScript injectionTime:WKUserScriptInjectionTimeAtDocumentEnd forMainFrameOnly:YES];
     [cfg.userContentController addUserScript:script];
 
@@ -156,12 +179,17 @@ static NSString *const kNoZoomScript =
 - (void)load {
     [self showError:NO];
     [self.webView loadRequest:[NSURLRequest requestWithURL:self.startURL]];
+    // 工作台：票据只用一次（应用后端已兑换），之后的重载 / 重试一律用不带票据的地址，否则应用会报票据无效
+    if (self.workbench) { self.startURL = [IMWorkbench urlByRemovingTicket:self.startURL]; }
 }
 
 - (void)retryTapped {
     NSURL *cur = self.webView.URL;
-    if (cur && [IMAboutLinks navigationDecisionForURL:cur] == IMAboutNavDecisionAllow
-        && ![cur.absoluteString isEqualToString:@"about:blank"]) {
+    BOOL curOK = cur && [self decisionForURL:cur] == IMAboutNavDecisionAllow && ![cur.absoluteString isEqualToString:@"about:blank"];
+    if (self.workbench) { // 刷新 / 重试 / 进程崩溃恢复：当前页去掉票据再载入（reload 会把用过的票据原样再发一次）
+        [self showError:NO];
+        [self.webView loadRequest:[NSURLRequest requestWithURL:[IMWorkbench urlByRemovingTicket:(curOK ? cur : self.startURL)]]];
+    } else if (curOK) {
         [self showError:NO];
         [self.webView reload];
     } else {
@@ -172,7 +200,26 @@ static NSString *const kNoZoomScript =
 - (void)openInBrowserTapped {
     NSURL *url = self.webView.URL ?: self.startURL;
     if ([IMAboutLinks navigationDecisionForURL:url] != IMAboutNavDecisionAllow) { url = self.startURL; }
+    if (self.workbench) { url = [IMWorkbench urlByRemovingTicket:url]; } // 一次性票据不带出 App
     [UIApplication.sharedApplication openURL:url options:@{} completionHandler:nil];
+}
+
+- (void)moreTapped {
+    __weak typeof(self) weak = self;
+    [IMActionListSheet presentFrom:self title:nil items:@[
+        [IMActionListItem itemWithTitle:IMLocalized(@"common.refresh") destructive:NO handler:^{ [weak retryTapped]; }],
+        [IMActionListItem itemWithTitle:IMLocalized(@"common.open_in_browser") destructive:NO handler:^{ [weak openInBrowserTapped]; }],
+    ]];
+}
+
+/// 本页的导航判定：在线客服沿用 IMAboutLinks；工作台另把「允许」收窄到 https 与本机 / 内网 http，其余 http 交给系统打开。
+- (IMAboutNavDecision)decisionForURL:(NSURL *)url {
+    IMAboutNavDecision d = [IMAboutLinks navigationDecisionForURL:url];
+    if (self.workbench && d == IMAboutNavDecisionAllow && ![url.scheme.lowercaseString isEqualToString:@"about"]
+        && ![IMWorkbench isAllowedWebURL:url]) {
+        return IMAboutNavDecisionExternal;
+    }
+    return d;
 }
 
 - (void)closeTapped {
@@ -227,12 +274,14 @@ static NSString *const kNoZoomScript =
 
 - (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)action decisionHandler:(void (^)(WKNavigationActionPolicy))handler {
     NSURL *url = action.request.URL;
-    switch ([IMAboutLinks navigationDecisionForURL:url]) {
+    switch ([self decisionForURL:url]) {
         case IMAboutNavDecisionAllow:
             if (!action.targetFrame) { [webView loadRequest:action.request]; handler(WKNavigationActionPolicyCancel); return; } // target=_blank
             handler(WKNavigationActionPolicyAllow);
             return;
         case IMAboutNavDecisionExternal:
+            // 子框架（iframe 里的统计 / 广告）要去的外部地址只拦不外开：否则每次打开页面都被拽去 Safari
+            if (action.targetFrame && !action.targetFrame.isMainFrame) { handler(WKNavigationActionPolicyCancel); return; }
             IMLogWarnWithTag(IMLogTagUI, @"cs_external_open scheme=%@", url.scheme);
             [UIApplication.sharedApplication openURL:url options:@{} completionHandler:nil];
             handler(WKNavigationActionPolicyCancel);
@@ -248,8 +297,9 @@ static NSString *const kNoZoomScript =
             forNavigationAction:(WKNavigationAction *)action windowFeatures:(WKWindowFeatures *)features {
     // window.open / target=_blank：本页打开，不新建 webview。
     if (!action.targetFrame) {
-        if ([IMAboutLinks navigationDecisionForURL:action.request.URL] == IMAboutNavDecisionAllow) { [webView loadRequest:action.request]; }
-        else if ([IMAboutLinks navigationDecisionForURL:action.request.URL] == IMAboutNavDecisionExternal) {
+        IMAboutNavDecision d = [self decisionForURL:action.request.URL];
+        if (d == IMAboutNavDecisionAllow) { [webView loadRequest:action.request]; }
+        else if (d == IMAboutNavDecisionExternal) {
             [UIApplication.sharedApplication openURL:action.request.URL options:@{} completionHandler:nil];
         }
     }
@@ -273,6 +323,8 @@ static NSString *const kNoZoomScript =
     [self showError:YES];
 }
 
-- (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView { [webView reload]; }
+- (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView {
+    if (self.workbench) { [self retryTapped]; } else { [webView reload]; }
+}
 
 @end

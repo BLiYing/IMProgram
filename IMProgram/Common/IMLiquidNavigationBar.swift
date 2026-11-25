@@ -5,7 +5,7 @@ public protocol IMLiquidNavigationBarDelegate: NSObjectProtocol {
     func liquidNavigationBarDidTapBack(_ bar: IMLiquidNavigationBar)
     func liquidNavigationBarDidTapAction(_ bar: IMLiquidNavigationBar)
     func liquidNavigationBarDidTapLeft(_ bar: IMLiquidNavigationBar)
-    /// 中间标题被点击（仅在 showsTitleGlass=YES 的页面，即聊天页可点）。可选实现。
+    /// 中间标题被点击（showsTitleGlass=YES 的聊天页，或 titleTappable=YES 的页面）。可选实现。
     @objc optional func liquidNavigationBarDidTapTitle(_ bar: IMLiquidNavigationBar)
 }
 
@@ -124,6 +124,20 @@ public final class IMLiquidNavigationBar: UIView {
     public var showsTitleGlass: Bool = false {
         didSet {
             guard oldValue != showsTitleGlass else { return }
+            updateCompactContentVisibility()
+        }
+    }
+
+    /// 不带玻璃也让标题可点（工作台：客户绑了多家公司时点标题切换，WORKBENCH_DESIGN §3.1）。
+    /// 左键 / 右键的无障碍标签与标识：宿主从 `UIBarButtonItem` 透传（UI 测试按标识找键，VoiceOver 念标签；
+    /// 左键为 ✕ 时不能念成「返回」）。nil 时左键退回默认「返回」。
+    @objc public var leftAccessibilityLabel: String? { didSet { applyBackConfig() } }
+    @objc public var leftAccessibilityIdentifier: String? { didSet { backButton.accessibilityIdentifier = leftAccessibilityIdentifier } }
+    @objc public var actionAccessibilityIdentifier: String? { didSet { actionButton.accessibilityIdentifier = actionAccessibilityIdentifier } }
+
+    @objc public var titleTappable: Bool = false {
+        didSet {
+            guard oldValue != titleTappable else { return }
             updateCompactContentVisibility()
         }
     }
@@ -396,7 +410,7 @@ public final class IMLiquidNavigationBar: UIView {
         let image = leftIsText ? nil : (custom ? leftImage : chevronImage())
         let title = leftIsText ? leftTitle : nil
         backButton.configuration = styledButtonConfig(image: image, title: title, foreground: currentPrimary())
-        backButton.accessibilityLabel = custom ? (leftTitle ?? "返回") : "返回"
+        backButton.accessibilityLabel = leftAccessibilityLabel ?? (custom ? (leftTitle ?? "返回") : "返回")
         backButton.isHidden = !showsBackButton && !custom
         setNeedsLayout()
     }
@@ -477,8 +491,8 @@ public final class IMLiquidNavigationBar: UIView {
         titleGlass.alpha = showsTitleGlass ? progress : 0
         titleLabel.alpha = progress
         subtitleLabel.alpha = progress
-        // 标题可点仅限展示玻璃且已显现（聊天页）；其他页面点击穿透、不拦截。
-        titleButton.isUserInteractionEnabled = showsTitleGlass && progress > 0.5
+        // 标题可点：聊天页（展示玻璃）或页面声明可点（titleTappable），且已显现；其他页面点击穿透、不拦截。
+        titleButton.isUserInteractionEnabled = (showsTitleGlass || titleTappable) && progress > 0.5
         actionButton.alpha = 1
         actionButton.isUserInteractionEnabled = !actionButton.isHidden
     }

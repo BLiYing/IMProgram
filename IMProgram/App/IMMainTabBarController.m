@@ -2,6 +2,8 @@
 
 // #import "IMTenantNoticePresenter.h" // 审计告知暂停（见 viewDidAppear 里的注释）
 #import "IMMainTabBarController.h"
+#import "IMWorkbenchViewController.h"
+#import "IMServerConfigStore.h"
 #import "IMLocalization.h"
 #import "IMLog.h"
 #import "UIViewController+IMToast.h"
@@ -32,6 +34,13 @@ static void * const kIMInjectedBarKey = (void *)&kIMInjectedBarKey;
 /// 聊天页与会话列表页均实现之——连接态统一走副标题（同「在线」位置），标题保持纯净。
 @protocol IMNavigationSubtitleProviding <NSObject>
 - (NSString *)im_navigationSubtitle;
+@end
+
+/// 页面让标题可点（不带聊天页那层玻璃）：im_navigationTitleTappable 为 YES 时点标题调 im_navigationTitleTapped。
+/// 页面改了可点状态后调 im_refreshNavigationBar。
+@protocol IMNavigationTitleTapping <NSObject>
+- (BOOL)im_navigationTitleTappable;
+- (void)im_navigationTitleTapped;
 @end
 
 /// 主界面统一导航容器：所有非根页面自动隐藏 TabBar，并恢复系统边缘侧滑返回。
@@ -175,7 +184,8 @@ static void * const kIMInjectedBarKey = (void *)&kIMInjectedBarKey;
 /// 标题/副标题/背景等"内容"部分。
 - (void)applyTitleForController:(UIViewController *)vc toBar:(IMLiquidNavigationBar *)bar {
     BOOL isChat = [vc isKindOfClass:IMChatViewController.class];
-    bar.titleText = vc.title ?: @"";
+    // 先读 navigationItem.title：Tab 根页（工作台）只设它，设 vc.title 会连底栏 Tab 文字一起改掉（iOS 18 以下）
+    bar.titleText = vc.navigationItem.title ?: (vc.title ?: @"");
     bar.showsTitleGlass = isChat;
     // 副标题通用化：任何实现 im_navigationSubtitle 的页面都可提供（聊天页在线态/成员数、
     // 会话列表连接态…）。连接态不再拼进标题后缀，统一走副标题（同「在线」位置，无括号）。
@@ -184,6 +194,8 @@ static void * const kIMInjectedBarKey = (void *)&kIMInjectedBarKey;
         subtitle = [(id<IMNavigationSubtitleProviding>)vc im_navigationSubtitle] ?: @"";
     }
     bar.subtitleText = subtitle;
+    bar.titleTappable = [vc respondsToSelector:@selector(im_navigationTitleTappable)]
+        && [(id<IMNavigationTitleTapping>)vc im_navigationTitleTappable];
     bar.compactContentProgress = 1;
     bar.immersiveAppearanceProgress = 0;
     bar.backgroundEffectProgress = 1;
@@ -215,6 +227,9 @@ static void * const kIMInjectedBarKey = (void *)&kIMInjectedBarKey;
     // 纯图标项没有标题可念：页面挂在 item（或它的 customView）上的无障碍标签要一起带过来，
     // 否则聊天页右上头像的「X的聊天详情」到栏上就丢了，VoiceOver 只念「按钮」。
     bar.actionAccessibilityLabel = right.accessibilityLabel ?: right.customView.accessibilityLabel;
+    bar.actionAccessibilityIdentifier = right.accessibilityIdentifier ?: right.customView.accessibilityIdentifier;
+    bar.leftAccessibilityLabel = left.accessibilityLabel;
+    bar.leftAccessibilityIdentifier = left.accessibilityIdentifier;
     bar.actionCircular = right != nil && right.title.length == 0 && actionImage != nil;
     bar.actionEnabled = right ? right.enabled : YES;
 }
@@ -255,9 +270,13 @@ static void * const kIMInjectedBarKey = (void *)&kIMInjectedBarKey;
     UIViewController *owner = [self controllerOwningBar:bar];
     [self invokeBarItem:owner.navigationItem.rightBarButtonItem onController:owner];
 }
-// 中间标题被点（仅聊天页 showsTitleGlass）：等同点右上角头像——打开会话详情。
+// 中间标题被点：页面声明了自己的处理（IMNavigationTitleTapping）就交给它；否则（聊天页 showsTitleGlass）等同点右上角头像——打开会话详情。
 - (void)liquidNavigationBarDidTapTitle:(IMLiquidNavigationBar *)bar {
     UIViewController *owner = [self controllerOwningBar:bar];
+    if ([owner respondsToSelector:@selector(im_navigationTitleTapped)]) {
+        [(id<IMNavigationTitleTapping>)owner im_navigationTitleTapped];
+        return;
+    }
     [self invokeBarItem:owner.navigationItem.rightBarButtonItem onController:owner];
 }
 
@@ -322,6 +341,9 @@ static void IMCollectTabIcons(UIView *root, NSMutableArray<UIImageView *> *out) 
 @end
 
 @implementation IMMainTabBarController {
+    UINavigationController *_workbenchNav; // 工作台 Tab（WORKBENCH_DESIGN §3.1）：有可看的公司才挂上，懒建、留着复用
+    NSArray *_baseTabs;                    // iOS 18+：消息 / 通讯录 / 设置 三个 UITab（插工作台时重排用）
+    id _workbenchTab;                      // iOS 18+：工作台 UITab
     UIView *_conversationsDot;
     BOOL _conversationsDotVisible;
     NSString *_rtcUserID;
@@ -387,7 +409,8 @@ static void IMCollectTabIcons(UIView *root, NSMutableArray<UIImageView *> *out) 
             UITab *settingsTab = [[UITab alloc] initWithTitle:IMLocalized(@"ios.tab.me") image:[UIImage systemImageNamed:@"person.crop.circle"]
                                                    identifier:@"im.tab.settings"
                                        viewControllerProvider:^UIViewController *(UITab *tab) { return settingsNav; }];
-            self.tabs = @[convTab, contactsTab, settingsTab];
+            _baseTabs = @[convTab, contactsTab, settingsTab];
+            self.tabs = _baseTabs;
             if (@available(iOS 26.0, *)) {
                 self.tabBarMinimizeBehavior = UITabBarMinimizeBehaviorNever;
             }
@@ -395,8 +418,51 @@ static void IMCollectTabIcons(UIView *root, NSMutableArray<UIImageView *> *out) 
             self.viewControllers = @[convNav, contactsNav, settingsNav];
         }
         [self applyUnreadBadgeColor];
+        [self syncWorkbenchTab];
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(syncWorkbenchTab)
+                                                   name:IMServerConfigDidLoadNotification object:nil];
     }
     return self;
+}
+
+#pragma mark - 工作台 Tab
+
+- (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
+
+/// server-config 的 workbench_units 非空才显示「工作台」（排在通讯录与设置之间）；没了就收起，停在它上面时回到「消息」。
+- (void)syncWorkbenchTab {
+    if (!NSThread.isMainThread) { dispatch_async(dispatch_get_main_queue(), ^{ [self syncWorkbenchTab]; }); return; }
+    BOOL want = IMServerConfigStore.shared.workbenchUnits.count > 0;
+    BOOL has;
+    if (@available(iOS 18.0, *)) {
+        has = _workbenchTab != nil && [self.tabs containsObject:_workbenchTab];
+    } else {
+        has = _workbenchNav != nil && [self.viewControllers containsObject:_workbenchNav];
+    }
+    if (want == has) { return; }
+    if (want && !_workbenchNav) {
+        IMWorkbenchViewController *wb = [[IMWorkbenchViewController alloc] initWithHost:_host userID:_rtcUserID];
+        _workbenchNav = [[IMMainNavigationController alloc] initWithRootViewController:wb];
+    }
+    NSString *title = IMLocalized(@"workbench.tab");
+    UIImage *icon = [UIImage systemImageNamed:@"square.grid.2x2"];
+    if (@available(iOS 18.0, *)) {
+        if (want && !_workbenchTab) {
+            UINavigationController *nav = _workbenchNav;
+            _workbenchTab = [[UITab alloc] initWithTitle:title image:icon identifier:@"im.tab.workbench"
+                                  viewControllerProvider:^UIViewController *(UITab *tab) { return nav; }];
+        }
+        BOOL onWorkbench = self.selectedTab == _workbenchTab;
+        self.tabs = want ? @[_baseTabs[0], _baseTabs[1], _workbenchTab, _baseTabs[2]] : _baseTabs;
+        if (onWorkbench && !want) { self.selectedTab = _baseTabs[0]; }
+        return;
+    }
+    if (want && !_workbenchNav.tabBarItem.title) { _workbenchNav.tabBarItem = [[UITabBarItem alloc] initWithTitle:title image:icon tag:2]; }
+    BOOL onWorkbench = self.selectedViewController == _workbenchNav;
+    NSMutableArray *vcs = [@[self.conversationsNav, self.contactsNav, self.settingsNav] mutableCopy];
+    if (want) { [vcs insertObject:_workbenchNav atIndex:2]; }
+    self.viewControllers = vcs;
+    if (onWorkbench && !want) { self.selectedIndex = 0; }
 }
 
 #pragma mark - 设置项搜索命中 → 「我」tab 逐级打开

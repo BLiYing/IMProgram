@@ -794,9 +794,11 @@
 "err.400121" = "加入集团后才能使用";
 "err.400122" = "所在集团已停用";
 "err.400125" = "该公司已停用";
+"err.400131" = "这个应用不能移除";
 "err.400134" = "暂无坐席权限";
 "err.400135" = "坐席账号已停用，请联系管理员";
 "err.400136" = "暂时无法进入坐席，请稍后再试";
+"err.400141" = "该应用已下架";
 "err.500003" = "管理员已暂停发送文件";
 "err.500101" = "转文字暂未开启（服务端未配置识别引擎）";
 "err.500102" = "识别失败，请稍后重试";
@@ -2096,3 +2098,15 @@
 "webview.link_unopenable" = "打不开这个链接";
 "webview.no_app_for_link" = "没有能打开这个链接的应用";
 "webview.ssl_error" = "这个网页的安全证书有问题，已停止加载";
+"workbench.add" = "添加";
+"workbench.added" = "已添加";
+"workbench.empty_hint" = "去应用商店添加常用的应用";
+"workbench.empty_title" = "还没有应用";
+"workbench.go_store" = "去应用商店";
+"workbench.group_other" = "其他";
+"workbench.my_apps" = "我的应用";
+"workbench.open_failed" = "打开失败，请稍后重试";
+"workbench.remove" = "移除";
+"workbench.store" = "应用商店";
+"workbench.switch_unit" = "切换公司";
+"workbench.tab" = "工作台";

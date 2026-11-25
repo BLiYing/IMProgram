@@ -141,8 +141,8 @@ NSString *IMFriendlyMessageForCode(NSInteger code) {
         default:
             // 手机号与短信验证码 200040–200048（PROTOCOL §7.3）：文案键与码同名 err.2000xx。
             if (code >= 200040 && code <= 200048) { return IMLocalized(([NSString stringWithFormat:@"err.%ld", (long)code])); }
-            // 集团（TENANT_DESIGN v2 §9）：客户端可见的码文案键与码同名；其余 4001xx 只在后台出现，回退服务端原文。
-            if ([@[@400101, @400103, @400104, @400105, @400106, @400120, @400121, @400122, @400125] containsObject:@(code)]) {
+            // 集团（TENANT_DESIGN v2 §9）与工作台（WORKBENCH_DESIGN §5）：客户端可见的码文案键与码同名；其余 4001xx 只在后台出现，回退服务端原文。
+            if ([@[@400101, @400103, @400104, @400105, @400106, @400120, @400121, @400122, @400125, @400131, @400141] containsObject:@(code)]) {
                 return IMLocalized(([NSString stringWithFormat:@"err.%ld", (long)code]));
             }
             return nil;
